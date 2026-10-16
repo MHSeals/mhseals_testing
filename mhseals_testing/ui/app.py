@@ -22,6 +22,7 @@ from rich.live import Live
 from rich.panel import Panel
 
 from mhseals_hardware.configuration import configure_args, load_config
+from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled, select_option
 from mhseals_hardware.thruster_mixer import validate_mixer
@@ -50,13 +51,14 @@ class SessionPaths:
     report: Path
     logs: Path
     hardware: Path  # snapshot of the hardware config the driver runs with
+    nav2: Path      # Nav2 params with measured limits, written by characterization
 
     @classmethod
     def from_output(cls, output):
         output = Path(output)
         return cls(output, output.with_suffix('.report.json'),
                    output.parent / 'logs' / output.name,
-                   output.with_suffix('.hardware.yaml'))
+                   output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'))
 
 
 class App:
@@ -295,6 +297,7 @@ class App:
             record=self.record, stale_after=self.args.stale_after,
             services=dict(
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
+                nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 disarm=self.disarm, foreground=self.foreground, reload_config=self.reload_config,
                 manual=dict(plant=self.plant, blockers=self.motion_blockers,
                             console=self.console, status=self.manual_status)))
@@ -335,6 +338,16 @@ class App:
         self.args.hardware_config = load_config(self.args.config)
 
 
+def nav2_params():
+    """mhseals_nav's checked-in Nav2 parameters, or None outside a ROS install."""
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'nav2_params.yaml'
+    except (ImportError, KeyError):
+        return None
+    return path if path.exists() else None
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     parser.add_argument('--profile', default='boat',
@@ -343,7 +356,8 @@ def build_parser():
                         help='command m/s and rad/s through calibrated_velocity_controller')
     parser.add_argument('--start-stack', action='store_true',
                         help="launch the profile's measurement stack; default attaches to running topics")
-    parser.add_argument('--fcu-url', default='', help='MAVROS FCU URL for --start-stack')
+    parser.add_argument('--fcu-url', default='',
+                        help='MAVROS FCU URL for --start-stack (default: detect the flight controller)')
     parser.add_argument('--start-sensors', action='store_true',
                         help='with --start-stack, also start local sensor drivers')
     parser.add_argument('--bench-override', action='store_true',
@@ -383,8 +397,9 @@ def parse_args(argv=None):
 
 def bringup_command(profile, args):
     arguments = dict(profile.bringup)
-    if args.fcu_url:
-        arguments['fcu_url'] = args.fcu_url
+    if arguments.get('fcu') != 'false':
+        # The flight controller's stable /dev/serial/by-id name when one is plugged in.
+        arguments['fcu_url'] = args.fcu_url or default_fcu_url()
     if args.start_sensors:
         arguments['start_sensors'] = 'true'
     return ['ros2', 'launch', 'mhseals_testing', 'measurement.launch.py',

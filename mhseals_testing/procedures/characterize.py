@@ -5,9 +5,13 @@ gains and Nav2 its measured limits. Nothing is written until the operator
 reviews the result.
 """
 
+import yaml
+
 from mhseals_hardware.configuration import load_config, save_config
 from mhseals_hardware.thruster_mixer import AXES, axis_command
-from mhseals_testing.analysis.characterization import characterize_samples, samples_from_windows
+from mhseals_testing.analysis.characterization import (
+    characterize_samples, nav2_profile, samples_from_windows,
+)
 from mhseals_testing.procedures.combined import VECTORS, scaled
 from mhseals_testing.runner import NEUTRAL
 
@@ -41,6 +45,11 @@ def run(ctx):
     summary = dict(procedure='characterization', verdict='FITTED',
                    samples=result['sample_count'],
                    velocity_limit=result['motion_limits']['velocity'])
+    nav2_params, overlay = ctx.services.get('nav2_params'), ctx.services.get('nav2_overlay')
+    if nav2_params and overlay:
+        # Nav2's checked-in params with the measured limits; used explicitly via params_file.
+        overlay.write_text(yaml.safe_dump(nav2_profile(result, nav2_params), sort_keys=False))
+        summary['nav2_overlay'] = str(overlay)
     ctx.record(dict(summary, characterization=result))
     if ctx.choose('Save the characterization to the hardware config?',
                   ('no', 'save'), {'n': 0, 's': 1}) == 'save':

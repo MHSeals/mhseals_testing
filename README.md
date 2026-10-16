@@ -16,7 +16,7 @@ The suite never modifies either package's behaviour. It only drives their public
 
 ```bash
 ros2 run mhseals_testing boat_test                                # attach to the boat's running stack
-ros2 run mhseals_testing boat_test --start-stack --fcu-url <url>  # also start localization
+ros2 run mhseals_testing boat_test --start-stack                  # also start localization (FCU auto-detected)
 ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardware.yaml>
 ```
@@ -42,7 +42,7 @@ Any interlock, child-process exit or error during motion stops at neutral and di
 | --- | --- | --- |
 | 1 2 3 | Surge, sway, yaw trial: drift-corrected response sign, both directions | armed, sensors |
 | c | Combined trials: diagonal and turning commands | armed, sensors |
-| k | Characterize: fit the velocity model and measured limits; saves on request | armed, sensors, effort commands |
+| k | Characterize: fit the velocity model and measured limits, write `<session>.nav2.yaml`; saves the fit on request | armed, sensors, effort commands |
 | v | Controller steps: rise, overshoot, settling, steady-state error, IAE | armed, sensors, velocity commands |
 | m | Manual control (`keyboard_control`) under the interlocks | armed |
 | i | Thruster mapping (`thruster_identify`, pulses or by hand); disarms first | thruster outputs |

@@ -2,6 +2,7 @@ import io
 import json
 
 import pytest
+import yaml
 from rich.console import Console
 
 from mhseals_testing.monitor import BoatMonitor
@@ -151,6 +152,7 @@ def test_session_paths_sit_next_to_the_bag(tmp_path):
     assert paths.report == tmp_path / 'bags' / 's1.report.json'
     assert paths.logs == tmp_path / 'bags' / 'logs' / 's1'
     assert paths.hardware == tmp_path / 'bags' / 's1.hardware.yaml'
+    assert paths.nav2 == tmp_path / 'bags' / 's1.nav2.yaml'
 
 
 def test_parse_args_profile_bringup_and_limits(tmp_path):
@@ -158,6 +160,9 @@ def test_parse_args_profile_bringup_and_limits(tmp_path):
     assert profile.use_sim_time and args.output.name.startswith('crane_full_stack_')
     command = bringup_command(profile, args)
     assert 'fcu:=false' in command and 'start_sensors:=true' in command
+    assert not any(part.startswith('fcu_url') for part in command)  # simulation: no FCU
+    boat_args, boat = parse_args(['--start-stack'])
+    assert any(part.startswith('fcu_url:=serial://') for part in bringup_command(boat, boat_args))
     assert parse_args(['--velocity-control'])[1].command_units == 'velocity'
     with pytest.raises(SystemExit):
         parse_args(['--repeats', '9'])
@@ -241,12 +246,23 @@ def test_characterization_fits_and_saves_only_on_request(tmp_path):
                                  '--command-duration', '3'],
                       answers=['ARM', ''])
     app.act('arm')
-    app.procedure_context = (lambda original: lambda: _choose(original(), 'save'))(
-        app.procedure_context)
+    nav2 = tmp_path / 'nav2_params.yaml'
+    nav2.write_text(yaml.safe_dump({
+        'controller_server': {'ros__parameters': {'FollowPath': {}}},
+        'velocity_smoother': {'ros__parameters': {}}}))
+
+    def context(original):
+        ctx = _choose(original(), 'save')
+        ctx.services['nav2_params'] = nav2
+        return ctx
+
+    app.procedure_context = (lambda original: lambda: context(original))(app.procedure_context)
     app.run_procedure(procedure('k'))
     fitted = app.snapshot()['results'][0]['characterization']
     assert fitted['velocity_gain']['surge']['surge'] == pytest.approx(1.2, rel=0.02)
     assert 'characterization' in config.read_text()
+    smoother = yaml.safe_load(app.paths.nav2.read_text())['velocity_smoother']['ros__parameters']
+    assert smoother['max_velocity'][0] == pytest.approx(1.2 * 0.4, rel=0.02)
 
 
 def _choose(context, answer):
