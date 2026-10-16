@@ -26,6 +26,10 @@ class Settings:
     command: float = 3.0       # s the command is held
     settle: float = 5.0        # s of neutral after, so the next trial starts at rest
     repeats: int = 1
+    observe: float = 10.0          # s of passive measurement for perception checks
+    nav_distance: float = 4.0      # m, side of the waypoint square
+    station_hold: float = 60.0     # s of station keeping
+    station_tolerance: float = 1.5  # m radius
 
 
 @dataclass
@@ -35,6 +39,8 @@ class Context:
     ``motion(name, **details)`` is a context manager yielding a Runner inside the
     live dashboard; ``prompt``/``choose`` talk to the operator outside it;
     ``record(result)`` stores a result in the monitor, the bag and the report.
+    ``supervise(name)`` is ``motion`` for when something else (Nav2) drives, and
+    ``observe(name)`` a passive window that needs neither arming nor readiness.
     """
     profile: object
     monitor: object
@@ -43,6 +49,8 @@ class Context:
     prompt: object
     choose: object
     record: object
+    supervise: object = None
+    observe: object = None
     stale_after: float = 2.0
     services: dict = field(default_factory=dict)  # optional extras (manual, arming, config)
 
@@ -87,7 +95,7 @@ def _registry():
     from functools import partial
 
     from mhseals_testing.procedures import (
-        axis, characterize, combined, controller, manual, thrusters,
+        axis, characterize, combined, controller, manual, mission, nav, perception, thrusters,
     )
     trial = frozenset({'armed', 'sensors'})
     return (
@@ -107,6 +115,16 @@ def _registry():
                   'deadman keyboard driving under the interlocks'),
         Procedure('i', 'Thruster mapping', thrusters.run, frozenset({'outputs'}),
                   'identify outputs with pulses or enter the mapping (disarms)'),
+        Procedure('n', 'Nav2 bring-up', nav.bringup, frozenset(),
+                  'lifecycle, costmap and a plan, without moving'),
+        Procedure('w', 'Waypoint square', nav.waypoints, trial | {'velocity'},
+                  'Nav2 through four waypoints; cross-track error'),
+        Procedure('s', 'Station keeping', nav.station, trial | {'velocity'},
+                  'hold position with Nav2; radius and drift'),
+        Procedure('o', 'Perception', perception.run, frozenset(),
+                  'camera, LiDAR, detection and track rates; costmap obstacles'),
+        Procedure('t', 'Mission rehearsal', mission.run, trial | {'velocity'},
+                  "run one of mhseals_nav's task trees and score it"),
     )
 
 

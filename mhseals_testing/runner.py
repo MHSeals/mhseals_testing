@@ -64,6 +64,33 @@ class Runner:
             self.stop()
             raise
 
+    def supervise(self, seconds, done=lambda: False, label='', sample=None):
+        """Watch while something else drives (Nav2): interlocks and abort keys, no publishing.
+
+        Ends when ``done()`` is true or after ``seconds``; ``sample(now)`` runs each
+        tick; ``label`` may be a callable for live text. Returns (start, end, finished).
+        """
+        start = self.clock()
+        deadline = start + seconds
+        try:
+            while True:
+                now = self.clock()
+                if done():
+                    return start, now, True
+                if now >= deadline:
+                    return start, now, False
+                self.check()
+                if sample is not None:
+                    sample(now)
+                text = label() if callable(label) else label
+                self.show(self.command, deadline - now, text)
+                key = self.keys.read(timeout=min(self.period, deadline - now))
+                if key in ABORT_KEYS:
+                    raise Aborted(f'{text or "supervision"} cancelled by operator')
+        except BaseException:
+            self.stop()
+            raise
+
     def stop(self):
         self.command = NEUTRAL
         self.plant.neutral()

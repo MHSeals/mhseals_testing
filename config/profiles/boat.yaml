@@ -16,3 +16,5 @@ sensors:
   - {name: IMU, topic: /imu/raw, kind: imu, required: true}
   - {name: LiDAR, topic: /points, kind: points}
   - {name: camera, topic: /front_camera/rgb/image, kind: image}
+  - {name: detections, topic: /detections, kind: detections}
+  - {name: tracks, topic: /objects/map, kind: detections}

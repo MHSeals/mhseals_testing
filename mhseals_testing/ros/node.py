@@ -18,13 +18,13 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image, Imu, NavSatFix, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
-from vision_msgs.msg import Detection2DArray
+from vision_msgs.msg import Detection3DArray
 
 from mhseals_testing.validation import finite, validate
 
 MESSAGE_TYPES = {
     'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix, 'points': PointCloud2,
-    'image': Image, 'compressed': CompressedImage, 'detections': Detection2DArray,
+    'image': Image, 'compressed': CompressedImage, 'detections': Detection3DArray,
 }
 EVENTS_TOPIC = '/mhseals_testing/events'
 

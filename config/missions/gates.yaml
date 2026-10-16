@@ -1,0 +1,6 @@
+# Task 1 rubric: both gates, within the time limit.
+task: gates
+time_limit: 180.0
+required: {gate_cleared: 2}
+points: {gate_cleared: 10}
+max_counts: {gate_cleared: 2}

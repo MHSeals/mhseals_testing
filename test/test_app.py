@@ -1,4 +1,5 @@
 import io
+import math
 import json
 
 import pytest
@@ -121,6 +122,12 @@ class Ros:
 
 
 class Processes:
+    def start(self, name, argv):
+        pass
+
+    def stop(self, name):
+        pass
+
     def running(self, name):
         return True
 
@@ -281,3 +288,182 @@ def test_thruster_mapping_disarms_and_runs_the_hardware_tool(tmp_path):
     assert not app.armed
     assert calls[0][:4] == ['ros2', 'run', 'mhseals_hardware', 'thruster_identify']
     assert '--output-backend' in calls[0] and 'topic' in calls[0] and '--manual' not in calls[0]
+
+
+class Grid:
+    def __init__(self, data):
+        self.data = data
+
+
+class NavGoal:
+    def __init__(self, clock, finish_at):
+        self.clock, self.finish_at, self.cancelled = clock, finish_at, False
+
+    @property
+    def done(self):
+        return self.clock.now >= self.finish_at
+
+    @property
+    def status(self):
+        return 'SUCCEEDED' if self.done else 'RUNNING'
+
+    def cancel(self):
+        self.cancelled = True
+
+
+class FakeNav:
+    """Nav2 whose boat follows the route at 1 m/s once a goal is sent."""
+    map_frame, base_frame = 'map', 'base_link'
+
+    def __init__(self, clock, drift=0.0):
+        self.clock, self.drift = clock, drift
+        self.costmap = Grid([0, 0, 100, 99, 50])
+        self.goals, self.route, self.sent_at = [], None, None
+
+    def lifecycle(self):
+        return {'controller_server': 'active', 'bt_navigator': 'active'}
+
+    def plan(self, goal):
+        return [(0, 0), (2.5, 0), goal[:2]]
+
+    def pose(self):
+        if self.route is None:
+            return (self.drift * self.clock.now, 0.0, 0.0)
+        travelled = self.clock.now - self.sent_at
+        previous = (0.0, 0.0)
+        for corner in self.route:
+            length = math.dist(previous, corner[:2])
+            if travelled <= length:
+                f = travelled / length if length else 1
+                return (previous[0] + f * (corner[0] - previous[0]),
+                        previous[1] + f * (corner[1] - previous[1]), 0.0)
+            travelled -= length
+            previous = corner[:2]
+        return (*previous, 0.0)
+
+    def navigate(self, goals):
+        if len(goals) > 1:
+            self.route, self.sent_at = goals, self.clock.now
+            length = sum(math.dist(a[:2], b[:2]) for a, b in zip([(0, 0)] + goals, goals))
+            goal = NavGoal(self.clock, self.clock.now + length)
+        else:
+            goal = NavGoal(self.clock, self.clock.now + 1.0)
+        self.goals.append(goal)
+        return goal
+
+
+def nav_app(tmp_path, argv=(), nav=None, answers=('ARM',)):
+    app, boat = make_app(tmp_path, ['--velocity-control', *argv], answers=answers)
+    clock = app.clock
+    app.nav2_factory = lambda: nav or FakeNav(clock)
+    return app, boat
+
+
+def test_nav2_bringup_checks_without_arming(tmp_path):
+    app, boat = nav_app(tmp_path)
+    app.run_procedure(procedure('n'))
+    checks = {r['check']: r['verdict'] for r in app.snapshot()['results']}
+    assert checks == {'lifecycle': 'PASS', 'costmap': 'PASS', 'plan': 'PASS'}
+    assert not app.armed and all(sent == 'neutral' for sent in boat.sent)
+
+
+def test_waypoint_square_scores_the_route_and_cancels_on_exit(tmp_path):
+    nav = None
+    app, _ = nav_app(tmp_path, ['--nav-distance', '3'])
+    nav = FakeNav(app.clock)
+    app.nav2_factory = lambda: nav
+    app.act('arm')
+    app.run_procedure(procedure('w'))
+    [result] = app.snapshot()['results']
+    assert result['verdict'] == 'REACHED'
+    assert result['cross_track_max'] == pytest.approx(0, abs=1e-6)
+    assert result['route_length'] == pytest.approx(12)
+    assert result['final_error'] == pytest.approx(0, abs=0.15)
+    assert nav.goals[0].cancelled
+
+
+def test_station_keeping_resends_goals_and_reports_drift(tmp_path):
+    app, _ = nav_app(tmp_path, ['--station-hold', '20', '--station-tolerance', '1'])
+    nav = FakeNav(app.clock, drift=0.03)
+    app.nav2_factory = lambda: nav
+    app.act('arm')
+    app.run_procedure(procedure('s'))
+    [result] = app.snapshot()['results']
+    assert result['drift_speed'] == pytest.approx(0.03, rel=0.05)
+    assert result['verdict'] == 'HELD' and result['resends'] >= 1
+
+
+def test_waypoints_need_velocity_commands(tmp_path):
+    app, _ = make_app(tmp_path, answers=['ARM'])
+    app.act('arm')
+    app.run_procedure(procedure('w'))
+    assert 'velocity' in app.notice
+
+
+def test_perception_rates_and_costmap(tmp_path):
+    app, _ = nav_app(tmp_path, ['--observe', '2'])
+    clock = app.clock
+    original = app.open_keys
+
+    def keys():
+        reader = original()
+        read = reader.read
+
+        def read_and_publish(timeout):
+            key = read(timeout)
+            app.monitor.observe('LiDAR', dict(summary='9000 points'), stamp_age=0.0)
+            if int(clock.now * 10) % 10 == 0:  # detections at 1 Hz only, lower than LiDAR
+                app.monitor.observe('detections', dict(count=2, summary='2 detections'),
+                                    stamp_age=0.0)
+            return key
+
+        reader.read = read_and_publish
+        return reader
+
+    app.open_keys = keys
+    app.run_procedure(procedure('o'))
+    checks = {r['check']: r['verdict'] for r in app.snapshot()['results']}
+    assert checks['LiDAR'] == 'PASS' and checks['camera'] == 'MISSING'
+    assert checks['tracks'] == 'MISSING' and checks['costmap'] == 'PASS'
+
+
+class Watcher:
+    def __init__(self):
+        self.events, self.status = [], {}
+
+    def reset(self):
+        self.events.clear()
+
+
+def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
+    app, _ = nav_app(tmp_path)
+    watcher, started, stopped = Watcher(), [], []
+    app.watcher_factory = lambda: watcher
+    clock = app.clock
+
+    class Processes(type(app.processes)):
+        def start(self, name, argv):
+            started.append(argv)
+            watcher.status = {'tip': 'through gates'}
+
+        def running(self, name):
+            if name == 'bag':
+                return True
+            if clock.now > 5 and not watcher.events:  # the task finishes after 5 s
+                watcher.events += [dict(event='gate_cleared', elapsed=3.0),
+                                   dict(event='gate_cleared', elapsed=4.0),
+                                   dict(event='task_finished', outcome='SUCCESS', elapsed=5.0)]
+            return not watcher.events
+
+        def stop(self, name):
+            stopped.append(name)
+
+    app.processes = Processes()
+    app.act('arm')
+    app.procedure_context = (lambda original: lambda: _choose(original(), 'gates'))(
+        app.procedure_context)
+    app.run_procedure(procedure('t'))
+    [result] = app.snapshot()['results']
+    assert result['verdict'] == 'PASS' and result['points'] == 20
+    assert started[0][:4] == ['ros2', 'launch', 'mhseals_nav', 'task.launch.py']
+    assert 'task:=gates' in started[0] and stopped == ['task_gates']

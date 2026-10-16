@@ -10,7 +10,7 @@ It builds on the other two packages:
 
 The suite never modifies either package's behaviour. It only drives their public topics and launch files.
 
-> Status: monitoring, readiness, advisories, bags, reports, arming and the actuation procedures work on the boat and in crane_ml. Navigation, perception and mission procedures are next.
+> Status: every procedure runs against crane_ml end to end; boat runs follow the same paths.
 
 ### Usage
 
@@ -47,7 +47,15 @@ Any interlock, child-process exit or error during motion stops at neutral and di
 | m | Manual control (`keyboard_control`) under the interlocks | armed |
 | i | Thruster mapping (`thruster_identify`, pulses or by hand); disarms first | thruster outputs |
 
-Trial timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`.
+| n | Nav2 bring-up: lifecycle, costmap and a plan, without moving | Nav2 running |
+| w | Waypoint square: cross-track error, closest approach, time | armed, sensors, velocity commands, Nav2 |
+| s | Station keeping: RMS radius, drift velocity, time inside the tolerance | armed, sensors, velocity commands, Nav2 |
+| o | Perception: camera, LiDAR, detection and track rates; costmap obstacles | |
+| t | Mission rehearsal: run a `mhseals_nav` task tree and score it against `config/missions/` | armed, sensors, velocity commands, Nav2 |
+
+Trial timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`. Navigation: `--nav-distance`, `--station-hold`, `--station-tolerance`, `--observe`.
+
+Open-loop procedures (trials, characterization, controller steps, manual) refuse to run while another node publishes the command topic, so stop Nav2 first; Nav2 procedures only supervise and need it running. A typical first session on a new boat or simulator: characterize with effort commands, save, then restart with `--velocity-control` and Nav2 for the navigation and mission procedures.
 
 Every session records one rosbag (`bags/<profile>_<time>` by default, `--output` to change). Procedure start and stop events are published on `/mhseals_testing/events` inside it, so any result can be re-analysed from the bag. The JSON report sits next to the bag, and child-process logs go to `bags/logs/<session>/`.
 

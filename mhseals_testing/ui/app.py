@@ -70,7 +70,8 @@ class App:
 
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
-                 clock=time.monotonic, foreground=subprocess.call):
+                 clock=time.monotonic, foreground=subprocess.call, nav2=None,
+                 task_watcher=None):
         self.args = args
         self.profile = profile
         self.monitor = monitor
@@ -84,8 +85,11 @@ class App:
         self.live = live
         self.clock = clock
         self.foreground = foreground
+        self.nav2_factory, self._nav2 = nav2, None
+        self.watcher_factory, self._watcher = task_watcher, None
         self.settings = Settings(args.amplitude, args.baseline, args.command_duration,
-                                 args.settle, args.repeats)
+                                 args.settle, args.repeats, args.observe, args.nav_distance,
+                                 args.station_hold, args.station_tolerance)
         self.view = 'overview'
         self.notice = 'Passive monitor; H arms the outputs'
         self.command = (0.0, 0.0, 0.0)
@@ -106,12 +110,16 @@ class App:
             reasons.insert(0, 'ROS fault: ' + self.ros.fault)
         return reasons
 
-    def motion_blockers(self):
-        """Everything that must hold on every tick of motion."""
+    def supervision_blockers(self):
+        """What must hold while anything drives the boat, the suite or Nav2."""
         if not self.armed:
             return ['outputs are not armed']
         fault = self.arming.fault()
-        return ([fault] if fault else []) + self.plant.conflicts() + self.blockers()
+        return ([fault] if fault else []) + self.blockers()
+
+    def motion_blockers(self):
+        """When the suite commands, nothing else may publish the command topic."""
+        return self.supervision_blockers() + (self.plant.conflicts() if self.armed else [])
 
     # --- advisories and rendering -------------------------------------------------
 
@@ -227,9 +235,8 @@ class App:
     def arm(self):
         if self.arming is None:
             raise RuntimeError('this session cannot arm (no ROS)')
-        conflicts = self.plant.conflicts()
-        if conflicts:
-            raise RuntimeError('; '.join(conflicts))
+        # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
+        # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
         override = ('BENCH OVERRIDE: sensor and TF interlocks are off.\n'
                     if self.args.bench_override else '')
         what = {'odroid': 'REAL thruster outputs. Propellers submerged, area clear, '
@@ -294,17 +301,46 @@ class App:
             motion=self.motion, prompt=self.console.input,
             choose=lambda title, options, shortcuts=None: select_option(
                 self.console, title, options, shortcuts),
-            record=self.record, stale_after=self.args.stale_after,
+            record=self.record, supervise=self.supervise, observe=self.observe,
+            stale_after=self.args.stale_after,
             services=dict(
+                nav2=self.nav2, task_watcher=self.task_watcher, start=self.processes.start,
+                running=self.processes.running, stop=self.processes.stop,
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 disarm=self.disarm, foreground=self.foreground, reload_config=self.reload_config,
                 manual=dict(plant=self.plant, blockers=self.motion_blockers,
                             console=self.console, status=self.manual_status)))
 
-    @contextmanager
     def motion(self, name, **details):
-        """Live dashboard plus a Runner for one supervised stretch of motion."""
+        """A Runner that commands the plant, inside the live dashboard."""
+        return self.session(name, self.motion_blockers, details)
+
+    def supervise(self, name, **details):
+        """A Runner for watching Nav2 drive; the suite does not command meanwhile."""
+        return self.session(name, self.supervision_blockers, details)
+
+    def observe(self, name, **details):
+        """A passive measurement window; no arming or readiness needed."""
+        return self.session(name, lambda: [], details)
+
+    def task_watcher(self):
+        if self._watcher is None:
+            if self.watcher_factory is None:
+                raise RuntimeError('no task watcher in this session')
+            self._watcher = self.watcher_factory()
+        return self._watcher
+
+    def nav2(self):
+        if self._nav2 is None:
+            if self.nav2_factory is None:
+                raise RuntimeError('no Nav2 client in this session')
+            self._nav2 = self.nav2_factory()
+        return self._nav2
+
+    @contextmanager
+    def session(self, name, blockers, details):
+        """Live dashboard plus a Runner for one supervised stretch."""
         def show(command, remaining, label):
             self.command = command
             self.notice = f'{label or name} | {remaining:.1f}s left | Space aborts'
@@ -312,7 +348,7 @@ class App:
 
         with self.open_keys() as keys, self.live(self.render(), console=self.console,
                                                  screen=True, refresh_per_second=10) as view:
-            runner = Runner(self.plant, self.motion_blockers, keys, show=show,
+            runner = Runner(self.plant, blockers, keys, show=show,
                             emit=self.ros.emit, clock=self.monitor.clock)
             try:
                 with runner.session(name, **details):
@@ -369,6 +405,13 @@ def build_parser():
     parser.add_argument('--command-duration', type=float, default=3.0)
     parser.add_argument('--settle', type=float, default=5.0, help='neutral seconds after a trial')
     parser.add_argument('--repeats', type=int, default=1, help='trials per direction (1-5)')
+    parser.add_argument('--observe', type=float, default=10.0,
+                        help='seconds of passive measurement for perception checks')
+    parser.add_argument('--nav-distance', type=float, default=4.0,
+                        help='side of the waypoint square, m')
+    parser.add_argument('--station-hold', type=float, default=60.0, help='station keeping, s')
+    parser.add_argument('--station-tolerance', type=float, default=1.5,
+                        help='station keeping radius, m')
     parser.add_argument('--output', type=Path, default=None,
                         help='session bag path (default bags/<profile>_<time>)')
     return parser
@@ -382,12 +425,16 @@ def parse_args(argv=None):
         profile = profile.with_velocity_control()
     if args.start_stack and profile.bringup is None:
         parser.error(f'profile {profile.name} has no bring-up; start its stack separately')
-    for name in ('stale_after', 'baseline', 'command_duration', 'settle'):
+    for name in ('stale_after', 'baseline', 'command_duration', 'settle', 'observe'):
         value = getattr(args, name)
         if not math.isfinite(value) or not 0 < value <= 60:
             parser.error(f"--{name.replace('_', '-')} must be within (0, 60] seconds")
     if not 0 < args.amplitude <= 1:
         parser.error('--amplitude must be within (0, 1]')
+    if not 1 <= args.nav_distance <= 50 or not 10 <= args.station_hold <= 600 \
+            or not 0.2 <= args.station_tolerance <= 10:
+        parser.error('--nav-distance (1-50 m), --station-hold (10-600 s) and '
+                     '--station-tolerance (0.2-10 m) are out of range')
     if not 1 <= args.repeats <= 5:
         parser.error('--repeats must be within 1..5')
     args.output = args.output or Path('bags') / (
@@ -413,6 +460,8 @@ def main(argv=None):
 
     from mhseals_testing.ros.arming import Arming
     from mhseals_testing.ros.health import subscribe_fcu
+    from mhseals_testing.ros.mission import TaskWatcher
+    from mhseals_testing.ros.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO
     from mhseals_testing.ros.plant import Plant
     from mhseals_testing.ros.processes import ProcessManager, bag_command, unique_path
@@ -438,7 +487,10 @@ def main(argv=None):
                 raise RuntimeError(f'{profile.odometry} already has publishers; '
                                    'attach without --start-stack')
             processes.start('measurement', bringup_command(profile, args))
-        app = App(args, profile, monitor, ros, processes, paths, console, arming, plant)
+        app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
+                  nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
+                                    profile.base_frame),
+                  task_watcher=lambda: TaskWatcher(ros))
         ros.emit('session_start', profile=profile.name, bag=str(paths.bag))
         app.run()
     except KeyboardInterrupt:

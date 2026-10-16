@@ -91,3 +91,23 @@ def test_session_records_abort_and_refuses_to_start_when_blocked():
         with blocked.session('axis'):
             pass
     assert events == [] and plant.sent == []
+
+
+def test_supervise_never_publishes_and_ends_on_done_or_timeout():
+    run, plant, _, clock = runner(rate=4.0)
+    samples = []
+    assert run.supervise(1.0, sample=samples.append) == (0.0, 1.0, False)
+    assert plant.sent == [] and samples == [0.0, 0.25, 0.5, 0.75]
+    done = lambda: clock[0] >= 1.5
+    assert run.supervise(5.0, done=done) == (1.0, 1.5, True)
+
+
+def test_supervise_aborts_on_keys_and_blockers_at_neutral():
+    run, plant, _, _ = runner({2: 'space'})
+    with pytest.raises(Aborted, match='cancelled'):
+        run.supervise(5.0, label='waypoints')
+    assert plant.sent == ['neutral']
+    blocked, plant, _, _ = runner(blockers=lambda: ['TF odom -> base_link: missing'])
+    with pytest.raises(Aborted, match='TF'):
+        blocked.supervise(5.0)
+    assert plant.sent == ['neutral']

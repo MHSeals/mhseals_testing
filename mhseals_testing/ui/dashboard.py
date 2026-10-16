@@ -136,6 +136,8 @@ def result_table(snapshot):
         table.add_column(column)
     for result in reversed(snapshot['results'][-10:]):
         label = result.get('procedure', result.get('axis', '?'))
+        if 'check' in result:
+            label += ': ' + result['check']
         if 'direction' in result:
             label += ' +' if result['direction'] > 0 else ' -'
         table.add_row(label, Text(result.get('verdict', '--')), str(result.get('samples', '--')),
