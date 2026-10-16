@@ -9,7 +9,8 @@ ground_truth: /crane/odom
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: true
 arming: {outputs: topic}
-bringup: {fcu: 'false', sim: 'true', start_sensors: 'false'}
+# start_sensors with sim only starts the ROS-TCP endpoint crane_ml connects to.
+bringup: {fcu: 'false', sim: 'true', start_sensors: 'true'}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
