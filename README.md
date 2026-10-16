@@ -10,16 +10,20 @@ It builds on the other two packages:
 
 The suite never modifies either package's behaviour. It only drives their public topics and launch files.
 
-> Status: the pure core (profiles, validation, monitor, readiness, trial and characterization analysis, dashboard, report) is in place. The interactive `boat_test` TUI, ROS adapters and procedures are being added next.
+> Status: monitoring, readiness, advisories, session bags and reports work. Procedures (trials, characterization, navigation, missions) are being added.
 
 ### Usage
 
 ```bash
+ros2 run mhseals_testing boat_test                                # attach to the boat's running stack
+ros2 run mhseals_testing boat_test --start-stack --fcu-url <url>  # also start localization
+ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardware.yaml>
-ros2 run mhseals_testing thrust_characterize --samples samples.json --nav2-params nav2.yaml --nav2-overlay out.yaml
 ```
 
-Every session records one rosbag. Procedure start and stop events are published inside it, so any result can be re-analysed from the bag. A JSON report is written next to the bag.
+`boat_test` starts passive: it shows sensors, TF and advisories, and never commands anything until a procedure is chosen and the outputs are armed. Tab cycles the views, E writes the report, Q quits.
+
+Every session records one rosbag (`bags/<profile>_<time>` by default, `--output` to change). Procedure start and stop events are published on `/mhseals_testing/events` inside it, so any result can be re-analysed from the bag. The JSON report sits next to the bag, and child-process logs go to `bags/logs/<session>/`.
 
 ### Profiles
 

@@ -35,6 +35,7 @@ def write_report(report, path):
             json.dump(report, output, indent=2, allow_nan=False)
             output.flush()
             os.fsync(output.fileno())
+        os.chmod(temporary, 0o644)  # mkstemp creates 0600; reports are shared
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
