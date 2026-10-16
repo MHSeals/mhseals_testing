@@ -1,48 +1,116 @@
 import io
 
 import pytest
-
 from rich.console import Console
+
+from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.thruster_mixer import THRUSTER_MIXER
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui.dashboard import VIEWS, render_dashboard
+from mhseals_testing.ui.dashboard import PANELS, render, short, status_rows
 
 
-def render(context, width=100, height=32, monitor=None):
-    stream = io.StringIO()
-    console = Console(file=stream, width=width, height=height, color_system=None)
-    console.print(render_dashboard((monitor or BoatMonitor()).snapshot(), context, width, height))
-    return stream.getvalue()
+def view(profile, **overrides):
+    hardware = load_defaults()
+    base = dict(
+        focus='status', cursors={panel: 0 for panel in PANELS}, modal=None, running=None,
+        activity='results', now=10.0, notice='Ready', position='1/9',
+        hints=[('Tab', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q', 'Quit')],
+        armed=False, arm_label='disarmed', command=(0.0, 0.0, 0.0), profile=profile.name,
+        units=profile.command_units, outputs=profile.outputs, specs=profile.sensors,
+        host='boat', domain='42', recording=True, bench_override=False, hardware=hardware,
+        matrix=THRUSTER_MIXER, test_pulses=None, pwm_readback=['—'] * 4,
+        config_note='defaults',
+        procedures=[dict(key='1', title='Surge trial', description='both ways', reason='')])
+    base.update(overrides)
+    return base
+
+
+def monitor():
+    m = BoatMonitor(clock=lambda: 10)
+    m.observe('odometry', {'vx': .2, 'vy': 0., 'wz': -.1, 'child': 'base_link'}, stamp_age=0)
+    m.observe('IMU', issue='IMU orientation unavailable', stamp_age=0)
+    m.transform('map', 'odom', static=True, authority='g')
+    m.advise('compute', 'WARN', 'load 7.8/20, 78°C, 688 GB free')
+    m.record_result(dict(procedure='surge', direction=1, verdict='SIGN MATCH', response=.2))
+    m.event('armed')
+    return m
+
+
+def text(renderable, width, height):
+    console = Console(file=io.StringIO(), width=width, height=height, color_system=None)
+    console.print(renderable)
+    return console.file.getvalue()
 
 
 @pytest.mark.parametrize('width,height', [(80, 24), (120, 40)])
-@pytest.mark.parametrize('view', VIEWS)
-@pytest.mark.parametrize('profile', ['boat', 'crane_direct'])
-def test_all_views_keep_safety_controls_visible(width, height, view, profile):
-    profile = load_profile(profile)
-    monitor = BoatMonitor()
-    monitor.observe('odometry', {'vx': .2, 'vy': 0., 'wz': -.1, 'child': 'base_link'})
-    monitor.advise('battery', 'WARN', '14.1 V')
-    monitor.record_result(dict(axis='surge', direction=1, verdict='SIGN MATCH', samples=30,
-                               response=.2))
-    context = dict(view=view, specs=profile.sensors, profile=profile.name,
-                   units=profile.command_units, outputs=profile.outputs,
-                   channel_map=[2, 1, 4, 3], matrix=THRUSTER_MIXER,
-                   chips=['/sys/pwm/one', '/sys/pwm/two', '/sys/pwm/three', '/sys/pwm/four']
-                   if profile.outputs == 'odroid' else None,
-                   channels=[0] * 4, host='test-boat', domain='42', notice='Ready')
-    text = render(context, width, height, monitor)
-    assert 'DISARMED' in text and 'Space STOP' in text and 'Q quit' in text
-    assert len(text.splitlines()) <= height
-    assert all(len(line) <= width for line in text.splitlines())
-    if view == 'overview':
-        assert 'Measured' in text and 'BOW' in text
-    if view == 'health':
-        assert 'battery' in text and '14.1 V' in text
+@pytest.mark.parametrize('focus', PANELS)
+@pytest.mark.parametrize('name', ['boat', 'crane_full_stack'])
+def test_every_focus_fits_and_keeps_stop_visible(width, height, focus, name):
+    if focus == 'motion' and width < 100:
+        pytest.skip('Motion folds away, and takes no focus, below 100 columns')
+    profile = load_profile(name)
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, focus=focus), width, height), width, height)
+    lines = page.splitlines()
+    assert len(lines) <= height and all(len(line) <= width for line in lines)
+    assert 'Space Stop' in page and 'boat_test' in page
+    assert '╭─' in page and '┏' not in page  # one border style: rounded
+    for title in ('Status', 'Thrusters', 'Procedures', 'Activity'):
+        assert title in page
+    assert ('─ Motion' in page or '▸ Motion' in page) == (width >= 100)
 
 
-def test_manual_view_does_not_advertise_inactive_dashboard_keys():
-    text = render(dict(manual=True, specs=(), matrix=THRUSTER_MIXER))
-    assert 'M/X/Esc return' in text
-    assert 'H arm/disarm' not in text
+def test_tf_and_health_live_inside_the_page():
+    profile = load_profile('boat')
+    page = text(render(monitor().snapshot(profile.required_tf), view(profile), 120, 40), 120, 40)
+    assert 'map → odom' in page and 'odom → base_link' in page
+    assert 'compute 78°C' in page  # health in the header strip
+    assert '× tf' in page            # odom -> base_link is missing
+
+
+def test_popup_overlays_the_page():
+    profile = load_profile('boat')
+    modal = dict(kind='choice', title='Arm', message='Real outputs.', options=['Cancel', 'Arm'],
+                 keys=['n', 'y'], selected=1, hint='Enter choose')
+    page = text(render(monitor().snapshot(), view(profile, modal=modal), 100, 30), 100, 30)
+    assert '› y Arm' in page and 'n Cancel' in page and 'Status' in page
+
+
+def test_status_rows_and_short_values():
+    profile = load_profile('boat')
+    rows = status_rows(monitor().snapshot(profile.required_tf), profile.sensors)
+    assert [row['group'] for row in rows].count('Frames') == 2
+    assert next(r for r in rows if r['name'] == 'IMU')['state'] == 'WARN'
+    assert short('load 7.8/20, 78°C, 688 GB free') == '78°C'
+    assert short('worst GPS +0.04s') == '+0.04s'
+    assert short('/bags/session') == ''
+
+
+def test_drift_arrows_are_drawn_bow_up_in_the_body_frame():
+    from mhseals_testing.ui.dashboard import drift_arrow
+    assert drift_arrow(0.3, 0.0) == '↑'     # forward
+    assert drift_arrow(0.0, 0.3) == '←'     # port
+    assert drift_arrow(-0.3, 0.0) == '↓'
+    assert drift_arrow(0.0, -0.3) == '→'    # starboard
+    assert drift_arrow(0.2, 0.2) == '↖' and drift_arrow(-0.2, -0.2) == '↘'
+    assert drift_arrow(0.01, 0.0) == '·'
+
+
+def drift_text(command, bias, vx=0.1, vy=0.1):
+    from mhseals_testing.ui.dashboard import drift_line
+    m = BoatMonitor(clock=lambda: 10)
+    for _ in range(10):
+        m.observe('odometry', {'vx': vx, 'vy': vy, 'wz': 0.0}, stamp_age=0)
+    hardware = dict(load_defaults())
+    if bias is not None:
+        hardware['characterization'] = {'bias': dict(zip(('surge', 'sway', 'yaw'), bias))}
+    return drift_line(m.snapshot(), dict(command=command, hardware=hardware)).plain
+
+
+def test_drift_compares_measured_with_the_fitted_bias():
+    assert drift_text((0, 0, 0), None) == 'Drift  now ↖ 0.14 m/s\n       fit not characterized'
+    agree = drift_text((0, 0, 0), (0.1, 0.12, 0.0))
+    assert 'fit ↖ 0.16 m/s' in agree and '● Δ 0.02' in agree
+    assert '× Δ' in drift_text((0, 0, 0), (-0.2, 0.0, 0.0))   # fit points the wrong way
+    assert drift_text((0.2, 0, 0), None).startswith('Drift  driving')

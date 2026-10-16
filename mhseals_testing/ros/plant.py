@@ -5,8 +5,11 @@ module only knows how to turn (surge, sway, yaw) into the right message.
 """
 
 from geometry_msgs.msg import Twist, TwistStamped
+from std_msgs.msg import UInt16MultiArray
 
 NEUTRAL_REPEATS = 3  # a few copies so one dropped message can't leave thrust on
+# thruster_pwm_node's raw-pulse input: physical outputs 1-4 in µs, for bench tests.
+TEST_PULSES_TOPIC = '/thruster_pwm_node/test_pulses'
 
 
 class Plant:
@@ -16,6 +19,7 @@ class Plant:
         self.stamped = profile.command_type == 'twist_stamped'
         self.publisher = ros.node.create_publisher(
             TwistStamped if self.stamped else Twist, profile.command_topic, 10)
+        self.pulse_publisher = None
 
     def clamp(self, command):
         return tuple(max(-limit, min(limit, float(value)))
@@ -39,6 +43,12 @@ class Plant:
     def neutral(self):
         for _ in range(NEUTRAL_REPEATS):
             self.publisher.publish(self.message((0.0, 0.0, 0.0)))
+
+    def test_pulses(self, pulses):
+        if self.pulse_publisher is None:
+            self.pulse_publisher = self.ros.node.create_publisher(
+                UInt16MultiArray, TEST_PULSES_TOPIC, 10)
+        self.pulse_publisher.publish(UInt16MultiArray(data=[int(p) for p in pulses]))
 
     def conflicts(self):
         """Another node commanding the same topic would fight every trial."""

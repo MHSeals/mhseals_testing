@@ -26,8 +26,10 @@ class ProcessManager:
         self.log_directory.mkdir(parents=True, exist_ok=True)
         log = (self.log_directory / f'{name}.log').open('a', encoding='utf-8')
         self.logs[name] = log
+        # Unbuffered, so a child's log is current while it runs, not only after it exits.
+        environment = dict(os.environ, PYTHONUNBUFFERED='1', RCUTILS_LOGGING_BUFFERED_STREAM='0')
         self.processes[name] = self.popen(
-            [str(part) for part in command], start_new_session=True,
+            [str(part) for part in command], start_new_session=True, env=environment,
             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         return self.processes[name]
 

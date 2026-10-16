@@ -32,8 +32,10 @@ def run(ctx):
     publisher = GuardedPublisher(manual['plant'], manual['blockers'])
     config = ctx.services['hardware_config']
     try:
-        run_manual(publisher, manual['console'], config['manual_amplitude'],
-                   config['manual_repeat_timeout'], config['manual_initial_timeout'],
-                   status_panel=manual['status'])
+        # keyboard_control needs key-release events, so it takes the terminal meanwhile.
+        with manual['suspended']():
+            run_manual(publisher, manual['console'], config['manual_amplitude'],
+                       config['manual_repeat_timeout'], config['manual_initial_timeout'],
+                       status_panel=manual['status'])
     finally:
         manual['plant'].neutral()

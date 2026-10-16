@@ -21,18 +21,28 @@ ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardware.yaml>
 ```
 
-`boat_test` starts passive: it shows sensors, TF and advisories, and never commands anything until the outputs are armed and a procedure runs.
+`boat_test` starts passive: it shows sensors, TF and advisories, and never commands anything until the outputs are armed and a procedure runs. It is one page of five panels, after [cx](https://github.com/1unarzDev): Status (sensors, TF frames, system health), Motion, Thrusters, Procedures and Activity (results or the event log). The header shows health at a glance; the footer shows the focused panel and its keys. Prompts and confirmations are popups on the same page.
 
 | Key | Action |
 | --- | --- |
-| Tab, ←/→ | Cycle views: overview, sensors, TF, health, mapping, results, logs |
-| H | Arm (type `ARM`) or disarm. Arming starts `thruster_pwm_node`, plus `calibrated_velocity_controller` with `--velocity-control` |
-| P | Choose a procedure; unavailable ones say why |
-| M | Manual control |
-| +/- | Trial amplitude, in the profile's units |
+| Tab, Shift Tab | Move focus between panels |
+| ↑↓, j k | Move within the focused panel; Enter runs or shows details |
+| a | Arm (typed `ARM` for real pins, a button in simulation) or disarm |
 | Space | Stop: neutral and disarm |
-| E | Write the report |
-| Q | Quit (neutral, disarm, flush the bag) |
+| m | Manual control |
+| +/- | Trial amplitude, in the profile's units |
+| x | Write the report |
+| ? | Help |
+| q | Quit (neutral, disarm, flush the bag) |
+| Thrusters ←→ | Test pulse ±10 µs on the selected thruster, through the armed driver |
+| Thrusters 0 | All test pulses back to neutral (Tab away also ends them) |
+| Thrusters r, 1-4 | Reverse the thruster, or wire it to output 1-4 (swapping) |
+| Thrusters i, e | Thruster set (pulse each output, pick the thruster and its direction), or edit the config in `$EDITOR` |
+| Activity v | Switch between results and the event log |
+
+The Motion panel's **Drift** line checks the characterization against the water. `now` is the body-frame drift measured over the last few seconds while nothing is commanded (bow up: `↑` forward, `←` port, `↺`/`↻` yaw), and `fit` is the drift the characterization's bias predicts. The icon says how far apart they are: `●` within 0.05 m/s, yellow within 0.15, `×` beyond, a sign that current or wind changed since the fit, or that the fit is off. Right after motion, `now` includes coasting; give it a few seconds.
+
+Mapping, reversal and mixer changes are written to the hardware YAML (`--config`, default `~/.config/mhseals/hardware.yaml`). Any edit, from the panel or an editor, reloads within a second: the suite reloads it and the running `thruster_pwm_node` hot-reloads its copy, no re-arm needed. A bad edit is refused and the last good config stays in use.
 
 Any interlock, child-process exit or error during motion stops at neutral and disarms.
 
@@ -45,7 +55,7 @@ Any interlock, child-process exit or error during motion stops at neutral and di
 | k | Characterize: fit the velocity model and measured limits, write `<session>.nav2.yaml`; saves the fit on request | armed, sensors, effort commands |
 | v | Controller steps: rise, overshoot, settling, steady-state error, IAE | armed, sensors, velocity commands |
 | m | Manual control (`keyboard_control`) under the interlocks | armed |
-| i | Thruster mapping (`thruster_identify`, pulses or by hand); disarms first | thruster outputs |
+| i | Thruster set: pulse each output, pick the thruster and whether it is reversed; saves on request | armed, thruster outputs |
 
 | n | Nav2 bring-up: lifecycle, costmap and a plan, without moving | Nav2 running |
 | w | Waypoint square: cross-track error, closest approach, time | armed, sensors, velocity commands, Nav2 |

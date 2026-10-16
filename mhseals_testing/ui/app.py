@@ -1,9 +1,10 @@
-"""boat_test: the interactive test suite.
+"""boat_test: the interactive test suite, one page after cx.
 
 Starts passive: it watches sensors, TF and advisories and records the whole
-session to one bag. Motion needs an explicit arm (H, then typing ARM) and
-passes the interlocks in readiness.py on every tick; any error or Space stops
-at neutral and disarms. Procedures are chosen with P (see procedures/).
+session to one bag. Five panels take focus (Tab): Status, Motion, Thrusters,
+Procedures, Activity. Motion needs an explicit arm (a, confirmed in a popup)
+and passes the interlocks in readiness.py on every tick; any error or Space
+stops at neutral and disarms. Prompts are popups on the same screen.
 """
 
 import argparse
@@ -13,19 +14,19 @@ from datetime import datetime
 import math
 import os
 from pathlib import Path
+import shlex
 import socket
 import subprocess
 import time
 
 from rich.console import Console
 from rich.live import Live
-from rich.panel import Panel
 
-from mhseals_hardware.configuration import configure_args, load_config
+from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config
 from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
-from mhseals_hardware.menu import Cancelled, select_option
-from mhseals_hardware.thruster_mixer import validate_mixer
+from mhseals_hardware.menu import Cancelled
+from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing import health
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailable
@@ -33,16 +34,39 @@ from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.runner import Aborted, Runner
-from mhseals_testing.ui.dashboard import VIEWS, render_dashboard
+from mhseals_testing.ui import dashboard
+from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
 
-KEYS = ('Tab views  H arm/disarm  P procedures  M manual  +/- amplitude\n'
-        'E export  Space STOP  Q quit')
 ADVISORY_PERIOD = 1.0
-STOP_KEYS = ('space',)
-# Keys that leave the live dashboard to talk to the operator.
-INTERACTIVE = {'h': 'arm', 'p': 'procedures', 'm': 'm', 'i': 'i'}
+PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
+NEUTRAL = 1500
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
+GLOBAL_HINTS = [('Tab', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q', 'Quit')]
+PANEL_HINTS = {
+    'status': [('↑↓', 'Select'), ('Enter', 'Details')],
+    'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
+    'thrusters': [('←→', 'Pulse'), ('0', 'Neutral'), ('r', 'Reverse'), ('1-4', 'Output'),
+                  ('i', 'Identify'), ('e', 'Edit config')],
+    'procedures': [('Enter', 'Run'), ('↑↓', 'Select')],
+    'activity': [('Enter', 'Details'), ('v', 'Results/log')],
+}
+HELP = [
+    ('Tab / Shift Tab', 'Move focus between panels'),
+    ('↑↓ / j k', 'Move within the focused panel'),
+    ('Enter', 'Run, open or show details'),
+    ('a', 'Arm or disarm the thruster outputs'),
+    ('Space', 'Stop: neutral and disarm'),
+    ('m', 'Manual control'),
+    ('+ / -', 'Trial amplitude'),
+    ('x', 'Write the session report'),
+    ('Thrusters ←→', f'Test pulse ±{PULSE_STEP} µs on the selected thruster (armed)'),
+    ('Thrusters 0', 'All test pulses back to neutral'),
+    ('Thrusters r / 1-4', 'Reverse it / wire it to an output (saved, hot-reloaded)'),
+    ('Thrusters i / e', 'Identify outputs by pulses / edit the config in $EDITOR'),
+    ('Activity v', 'Switch between results and the event log'),
+    ('q', 'Quit: neutral, disarm, flush the bag'),
+]
 
 
 @dataclass(frozen=True)
@@ -62,16 +86,16 @@ class SessionPaths:
 
 
 class App:
-    """Dashboard and procedure loop.
+    """The page, its key handling and the procedure context.
 
-    ROS, processes, arming, the plant, keys and the live view are injected so
-    tests drive the whole loop with fakes.
+    ROS, processes, arming, the plant, keys, the live view and the raw-pulse
+    publisher are injected so tests drive the whole loop with fakes.
     """
 
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
-                 task_watcher=None):
+                 task_watcher=None, pulses=None):
         self.args = args
         self.profile = profile
         self.monitor = monitor
@@ -82,20 +106,30 @@ class App:
         self.arming = arming
         self.plant = plant
         self.open_keys = open_keys
-        self.live = live
+        self.live_factory = live
         self.clock = clock
         self.foreground = foreground
+        self.publish_pulses = pulses
         self.nav2_factory, self._nav2 = nav2, None
         self.watcher_factory, self._watcher = task_watcher, None
         self.settings = Settings(args.amplitude, args.baseline, args.command_duration,
                                  args.settle, args.repeats, args.observe, args.nav_distance,
                                  args.station_hold, args.station_tolerance)
-        self.view = 'overview'
-        self.notice = 'Passive monitor; H arms the outputs'
+        self.focus = 'status'
+        self.cursors = {panel: 0 for panel in PANELS}
+        self.activity = 'results'
+        self.modal = None
+        self.running = None
+        self.test_pulses = None
+        self.notice = 'Passive monitor; a arms the outputs'
         self.command = (0.0, 0.0, 0.0)
-        self.manual = False
         self.last_advisory = float('-inf')
-        self.pwm_readback = ['not sampled'] * 4
+        self.pwm_readback = ['—'] * 4
+        self.keys = self.live = None
+        self.quit = False
+        self.config_file = config_path(args.config)
+        self.config_mtime = self.mtime()
+        self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
 
     @property
     def armed(self):
@@ -103,6 +137,8 @@ class App:
 
     def snapshot(self):
         return self.monitor.snapshot(self.profile.required_tf)
+
+    # --- interlocks ------------------------------------------------------------
 
     def blockers(self):
         reasons = motion_blockers(self.snapshot(), self.profile, self.args.bench_override)
@@ -121,7 +157,15 @@ class App:
         """When the suite commands, nothing else may publish the command topic."""
         return self.supervision_blockers() + (self.plant.conflicts() if self.armed else [])
 
-    # --- advisories and rendering -------------------------------------------------
+    # --- background work, every tick ---------------------------------------------
+
+    def tick(self):
+        self.refresh_advisories()
+        self.watch_config()
+        if self.test_pulses is not None and self.publish_pulses is not None:
+            self.publish_pulses(self.test_pulses)
+        if self.armed and self.arming.fault():
+            self.stop(self.arming.fault())
 
     def refresh_advisories(self):
         """Sample the non-blocking checks at most once per ADVISORY_PERIOD."""
@@ -146,25 +190,95 @@ class App:
                                                            config['pwm_channels'])
             self.monitor.advise('PWM readback', level, ' | '.join(self.pwm_readback))
 
-    def context(self):
+    # --- hardware config: edits from the panel or any editor, hot-reloaded -------
+
+    def mtime(self):
+        try:
+            return self.config_file.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def watch_config(self):
+        mtime = self.mtime()
+        if mtime == self.config_mtime:
+            return
+        self.config_mtime = mtime
+        try:
+            self.reload_config()
+        except (OSError, ValueError, KeyError) as error:
+            self.notice = f'Config rejected, keeping the last good one: {error}'
+            self.config_note = 'invalid edit'
+            return
+        self.notice = f'Config reloaded from {self.config_file.name}'
+
+    def reload_config(self):
+        self.args.hardware_config = load_config(self.args.config)
+        self.config_note = self.config_file.name
+        if self.armed and self.profile.outputs != 'none':
+            # The driver hot-reloads its snapshot; keep it the session's config.
+            save_config(dict(self.args.hardware_config, output_backend=self.profile.outputs),
+                        self.paths.hardware)
+        self.ros.emit('config_reloaded', path=str(self.config_file),
+                      channel_map=list(self.args.hardware_config['channel_map']),
+                      reversed=list(self.args.hardware_config['reversed']))
+
+    def save_hardware(self, **changes):
+        """Write ``changes`` into the operator's hardware YAML; the watcher applies it."""
+        config = dict(load_config(self.args.config), **changes)
+        save_config(config, self.args.config)
+        self.config_mtime = None  # reload on the next tick even within one mtime tick
+        self.watch_config()
+
+    # --- rendering ---------------------------------------------------------------
+
+    def panels(self):
+        return [p for p in PANELS if p != 'motion' or self.console.size.width >= WIDE]
+
+    def rows(self, panel):
+        if panel == 'status':
+            return len(status_rows(self.snapshot(), self.profile.sensors))
+        if panel == 'thrusters':
+            return 4
+        if panel == 'procedures':
+            return len(PROCEDURES)
+        if panel == 'activity':
+            snapshot = self.snapshot()
+            return len(snapshot['events' if self.activity == 'log' else 'results'])
+        return 0
+
+    def view(self):
         config = self.args.hardware_config
         blockers = self.motion_blockers() if self.armed else self.blockers()
-        notice = self.notice if not blockers else f'{self.notice} | motion blocked: {blockers[0]}'
+        notice = self.notice if not blockers or self.running else (
+            f'{self.notice}{dashboard.SEPARATOR}blocked: {blockers[0]}')
+        count = self.rows(self.focus)
+        hints = PANEL_HINTS[self.focus] + [hint for hint in GLOBAL_HINTS
+                                           if not (hint[0] == 'a' and self.focus == 'thrusters')]
+        hints = [('a', 'Disarm') if hint == ('a', 'Arm') and self.armed else hint
+                 for hint in hints]
         return dict(
-            view=self.view, armed=self.armed, notice=notice, keys=KEYS, manual=self.manual,
-            command=self.command, profile=self.profile.name, units=self.profile.command_units,
+            focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
+            activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
+            position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
+            armed=self.armed, arm_label=('armed' + dashboard.SEPARATOR + self.profile.outputs)
+            if self.armed else 'disarmed', command=self.command,
+            profile=self.profile.name, units=self.profile.command_units,
             outputs=self.profile.outputs, specs=self.profile.sensors,
             host=socket.gethostname(), domain=os.environ.get('ROS_DOMAIN_ID', '0'),
-            bag='RECORDING' if self.processes.running('bag') else 'OFF',
-            process_summary=self.processes.summary(), bench_override=self.args.bench_override,
-            channel_map=config['channel_map'], matrix=validate_mixer(config['thruster_matrix']),
-            chips=config['pwm_chips'] if self.profile.outputs == 'odroid' else None,
-            channels=config['pwm_channels'], pwm_readback=self.pwm_readback)
+            recording=self.processes.running('bag'), bench_override=self.args.bench_override,
+            hardware=config, matrix=validate_mixer(config['thruster_matrix']),
+            test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
+            config_note=self.config_note,
+            procedures=[dict(key=p.key, title=p.title, description=p.description,
+                             reason=self.availability(p)) for p in PROCEDURES])
 
     def render(self):
-        self.refresh_advisories()
-        return render_dashboard(self.snapshot(), self.context(),
+        return dashboard.render(self.snapshot(), self.view(),
                                 self.console.size.width, self.console.size.height)
+
+    def refresh(self):
+        if self.live is not None:
+            self.live.update(self.render())
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
@@ -173,88 +287,277 @@ class App:
         self.notice = f'Report saved: {path}'
         return path
 
-    # --- the dashboard loop -------------------------------------------------------
+    # --- the loop ----------------------------------------------------------------
 
-    def handle(self, key):
-        """Apply a dashboard key. Returns 'quit', an interactive action, or None."""
-        if key in ('\t', 'right', 'left'):
-            step = -1 if key == 'left' else 1
-            self.view = VIEWS[(VIEWS.index(self.view) + step) % len(VIEWS)]
-        elif key in ('+', '=', '-', '_'):
-            step = 0.05 if key in ('+', '=') else -0.05
-            self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
-            self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
-        elif key == 'e':
-            self.export()
-        elif key in STOP_KEYS:
-            self.stop('stopped by operator')
-        elif key in ('q', 'escape'):
-            return 'quit'
-        elif key in INTERACTIVE:
-            return INTERACTIVE[key]
-        if self.armed and self.arming.fault():
-            self.stop(self.arming.fault())
-        return None
+    @contextmanager
+    def attached(self):
+        """One key reader and one full-screen live view for the whole session."""
+        with self.open_keys() as keys, self.live_factory(
+                self.render(), console=self.console, screen=True, refresh_per_second=10) as live:
+            self.keys, self.live = keys, live
+            try:
+                yield self
+            finally:
+                self.keys = self.live = None
 
-    def watch(self):
-        """Show the live dashboard until a key needs the terminal; returns that action."""
-        with self.open_keys() as keys, self.live(self.render(), console=self.console,
-                                                 screen=True, refresh_per_second=8) as view:
-            while True:
-                action = self.handle(keys.read(timeout=0.1))
-                if action:
-                    return action
-                view.update(self.render())
+    @contextmanager
+    def suspended(self):
+        """Hand the terminal to another full-screen tool (manual control, $EDITOR)."""
+        live, keys = self.live, self.keys
+        live.stop()
+        keys.__exit__(None, None, None)
+        try:
+            yield
+        finally:
+            keys.__enter__()
+            live.start(refresh=True)
 
     def run(self):
-        while (action := self.watch()) != 'quit':
-            try:
-                self.act(action)
-            except STOPPING_ERRORS as error:
-                self.stop(str(error) or type(error).__name__)
+        with self.attached():
+            while not self.quit:
+                key = self.keys.read(timeout=0.1)
+                if key is not None:
+                    try:
+                        self.dispatch(key)
+                    except STOPPING_ERRORS as error:
+                        self.stop(str(error) or type(error).__name__)
+                self.tick()
+                self.refresh()
 
-    def act(self, action):
-        if action == 'arm':
+    def move(self, step):
+        count = self.rows(self.focus)
+        if count:
+            self.cursors[self.focus] = max(0, min(count - 1, self.cursors[self.focus] + step))
+
+    def dispatch(self, key):
+        """Apply one key on the page."""
+        panels = self.panels()
+        if key in ('\t', 'backtab'):
+            if self.focus == 'thrusters':
+                self.clear_pulses()
+            index = panels.index(self.focus) if self.focus in panels else 0
+            self.focus = panels[(index + (-1 if key == 'backtab' else 1)) % len(panels)]
+        elif key in ('up', 'k'):
+            self.move(-1)
+        elif key in ('down', 'j'):
+            self.move(1)
+        elif key == 'space':
+            self.stop('stopped by operator')
+        elif key in ('q', 'escape'):
+            self.quit = True
+        elif key == '?':
+            self.show('Help', rows=HELP, width=76)
+        elif key == 'a':
             if self.armed:
                 self.disarm()
             else:
                 self.arm()
-            return
-        if action == 'procedures':
-            try:
-                procedure = self.choose_procedure()
-            except Cancelled:  # leaving the menu is not a stop
-                self.notice = 'No procedure chosen'
-                return
-        else:  # a procedure's own shortcut
-            procedure = next(p for p in PROCEDURES if p.key == action)
-        self.run_procedure(procedure)
+        elif key == 'x':
+            self.export()
+        elif key in ('+', '=', '-', '_'):
+            step = 0.05 if key in ('+', '=') else -0.05
+            self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
+            self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
+        elif key == 'm':
+            self.run_procedure(next(p for p in PROCEDURES if p.key == 'm'))
+        else:
+            getattr(self, f'on_{self.focus}')(key)
 
-    # --- arming -------------------------------------------------------------------
+    # --- panel keys --------------------------------------------------------------
+
+    def on_status(self, key):
+        if key == 'enter':
+            rows = status_rows(self.snapshot(), self.profile.sensors)
+            if rows:
+                row = rows[min(self.cursors['status'], len(rows) - 1)]
+                self.show(row['name'], rows=[('Group', row['group']),
+                                             ('State', row['state'].lower()),
+                                             ('Detail', row['detail'])])
+
+    def on_motion(self, key):
+        pass
+
+    def on_procedures(self, key):
+        if key == 'enter':
+            self.run_procedure(PROCEDURES[self.cursors['procedures']])
+            return
+        procedure = next((p for p in PROCEDURES if p.key == key), None)
+        if procedure is not None:
+            self.cursors['procedures'] = PROCEDURES.index(procedure)
+            self.run_procedure(procedure)
+
+    def on_activity(self, key):
+        if key == 'v':
+            self.activity = 'log' if self.activity == 'results' else 'results'
+            self.cursors['activity'] = 0
+        elif key == 'enter' and self.activity == 'results':
+            results = list(reversed(self.snapshot()['results']))
+            if results:
+                result = results[min(self.cursors['activity'], len(results) - 1)]
+                self.show(dashboard.result_label(result), width=76, rows=[
+                    (name, value) for name, value in result.items()
+                    if not isinstance(value, dict)])
+
+    def on_thrusters(self, key):
+        position = self.cursors['thrusters']
+        config = self.args.hardware_config
+        if key in ('left', 'right', 'h', 'l'):
+            self.nudge(position, PULSE_STEP if key in ('right', 'l') else -PULSE_STEP)
+        elif key == '0':
+            self.clear_pulses('Test pulses neutral')
+        elif key == 'r':
+            flips = list(config['reversed'])
+            flips[position] = not flips[position]
+            self.save_hardware(reversed=flips)
+        elif key in ('1', '2', '3', '4'):
+            mapping = list(config['channel_map'])
+            output, other = int(key), mapping.index(int(key))
+            mapping[other], mapping[position] = mapping[position], output  # swap
+            self.save_hardware(channel_map=mapping)
+        elif key == 'i':
+            self.run_procedure(next(p for p in PROCEDURES if p.key == 'i'))
+        elif key == 'e':
+            self.edit_config()
+
+    def nudge(self, position, step):
+        """Raw test pulse on one thruster's output, through the armed driver."""
+        if not self.armed or self.profile.outputs == 'none':
+            self.notice = 'Arm first (a); test pulses go through the thruster driver'
+            return
+        conflicts = self.plant.conflicts()
+        if conflicts:
+            self.notice = f'Test pulses refused: {conflicts[0]}'
+            return
+        pulses = list(self.test_pulses or [NEUTRAL] * 4)
+        output = self.args.hardware_config['channel_map'][position] - 1
+        pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
+        self.test_pulses = pulses
+        self.ros.emit('test_pulses', pulses=pulses)
+        self.notice = f'Testing output {output + 1}: {pulses[output]} µs; 0 or Tab ends'
+
+    def clear_pulses(self, notice=None):
+        if self.test_pulses is not None:
+            self.test_pulses = None
+            if self.publish_pulses is not None:
+                self.publish_pulses([NEUTRAL] * 4)
+            self.ros.emit('test_pulses', pulses=[NEUTRAL] * 4)
+        if notice:
+            self.notice = notice
+
+    def edit_config(self):
+        if not self.config_file.exists():
+            save_config(load_config(self.args.config), self.args.config)
+        editor = os.environ.get('VISUAL') or os.environ.get('EDITOR') or 'vi'
+        with self.suspended():
+            self.foreground([*shlex.split(editor), str(self.config_file)])
+        self.watch_config()
+
+    # --- popups --------------------------------------------------------------------
+
+    def popup(self, modal, handle):
+        """Show ``modal`` and feed it keys until ``handle(key)`` returns a value.
+
+        Background work keeps ticking while the popup waits, so test pulses keep
+        flowing and the dashboard behind it stays live.
+        """
+        self.modal = modal
+        try:
+            while True:
+                self.refresh()
+                key = self.keys.read(timeout=0.1)
+                self.tick()
+                if key is None:
+                    continue
+                result = handle(key)
+                if result is not None:
+                    return result
+        finally:
+            self.modal = None
+            self.refresh()
+
+    def show(self, title, message=None, rows=None, width=60):
+        def handle(key):
+            return True
+        self.popup(dict(kind='message', title=title, message=message, rows=rows, width=width,
+                        hint='Any key closes'), handle)
+
+    def prompt(self, message, title='Ready'):
+        """Wait for Enter; Escape cancels the procedure."""
+        def handle(key):
+            if key == 'enter':
+                return ''
+            if key in ('escape', 'q'):
+                raise Cancelled('cancelled by operator')
+        return self.popup(dict(kind='message', title=title, message=message,
+                               hint='Enter continue · Esc cancel'), handle)
+
+    def choose(self, title, options, shortcuts=None, message=None, danger=False):
+        modal = dict(kind='choice', title=title, message=message, options=list(options),
+                     selected=0, danger=danger, hint='↑↓ select · Enter choose · Esc cancel',
+                     keys=[None] * len(options))
+        for key, index in (shortcuts or {}).items():
+            modal['keys'][index] = key
+
+        def handle(key):
+            if key in ('up', 'k'):
+                modal['selected'] = (modal['selected'] - 1) % len(options)
+            elif key in ('down', 'j'):
+                modal['selected'] = (modal['selected'] + 1) % len(options)
+            elif key == 'enter':
+                return options[modal['selected']]
+            elif shortcuts and key in shortcuts:
+                return options[shortcuts[key]]
+            elif key in ('escape', 'q'):
+                raise Cancelled('cancelled by operator')
+        return self.popup(modal, handle)
+
+    def type_word(self, title, message, word):
+        """A typed confirmation for real outputs: only the exact word proceeds."""
+        modal = dict(kind='input', title=title, message=message, text='', danger=True,
+                     hint=f'Type {word.upper()} and Enter · Esc cancel')
+
+        def handle(key):
+            if key == 'enter':
+                return modal['text'].strip().lower() == word.lower()
+            if key == 'escape':
+                return False
+            if key == 'backspace' or key in ('\x7f', '\x08'):
+                modal['text'] = modal['text'][:-1]
+            elif len(key) == 1 and key.isprintable():
+                modal['text'] += key.upper()
+        return self.popup(modal, handle)
+
+    # --- arming --------------------------------------------------------------------
 
     def arm(self):
         if self.arming is None:
             raise RuntimeError('this session cannot arm (no ROS)')
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
-        override = ('BENCH OVERRIDE: sensor and TF interlocks are off.\n'
+        override = ('\nBench override: sensor and TF interlocks are off.'
                     if self.args.bench_override else '')
-        what = {'odroid': 'REAL thruster outputs. Propellers submerged, area clear, '
-                          'physical power cutoff within reach.',
-                'topic': 'simulator thruster outputs over ROS.',
-                'none': 'commands straight to the plant.'}[self.profile.outputs]
-        self.console.print(Panel(f'Arm {what}\n{override}Space stops any motion.\n'
-                                 'Type ARM to confirm; anything else cancels.',
-                                 title=f'Arm {self.profile.name}', style='yellow'))
-        if self.console.input('Confirm: ').strip() != 'ARM':
+        title = f'Arm{dashboard.SEPARATOR}{self.profile.name}'
+        try:
+            if self.profile.outputs == 'odroid':
+                ok = self.type_word(title, 'Real thruster outputs. Propellers submerged, area '
+                                    'clear, physical power cutoff within reach.' + override, 'arm')
+            else:
+                what = ('Simulator thruster outputs over ROS.' if self.profile.outputs == 'topic'
+                        else 'Commands straight to the plant.')
+                ok = self.choose(title, ('Cancel', 'Arm'), {'n': 0, 'y': 1},
+                                 message=what + override) == 'Arm'
+        except Cancelled:
+            ok = False
+        if not ok:
             self.notice = 'Arming cancelled'
             return
         self.arming.arm()
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
-        self.notice = 'Armed at neutral; P chooses a procedure'
+        self.notice = 'Armed at neutral'
 
     def disarm(self, reason='disarmed'):
+        self.clear_pulses()
         if self.plant is not None:
             self.plant.neutral()
         self.command = (0.0, 0.0, 0.0)
@@ -275,45 +578,52 @@ class App:
     def availability(self, procedure):
         return unavailable(procedure, self.profile, self.armed, self.args.bench_override)
 
-    def choose_procedure(self):
-        labels = []
-        for procedure in PROCEDURES:
-            reason = self.availability(procedure)
-            labels.append(f'[{procedure.key}] {procedure.title}: '
-                          + (f'[dim]{reason}[/]' if reason else procedure.description))
-        label = select_option(self.console, 'Procedures (Q cancels)', labels,
-                              {p.key: index for index, p in enumerate(PROCEDURES)})
-        return PROCEDURES[labels.index(label)]
-
     def run_procedure(self, procedure):
         reason = self.availability(procedure)
         if reason:
             self.notice = f'{procedure.title}: {reason}'
             return
+        self.clear_pulses()
+        self.running = procedure.title
         self.notice = f'Running {procedure.title}'
-        procedure.run(self.procedure_context())
-        self.view = 'results'
+        try:
+            procedure.run(self.procedure_context())
+        except Cancelled:
+            self.notice = f'{procedure.title} cancelled'
+            self.disarm(f'{procedure.title} cancelled')
+            return
+        finally:
+            self.running = None
+        self.focus, self.activity = 'activity', 'results'
+        self.cursors['activity'] = 0
         self.notice = f'{procedure.title} complete'
 
     def procedure_context(self):
         return Context(
             profile=self.profile, monitor=self.monitor, settings=self.settings,
-            motion=self.motion, prompt=self.console.input,
-            choose=lambda title, options, shortcuts=None: select_option(
-                self.console, title, options, shortcuts),
-            record=self.record, supervise=self.supervise, observe=self.observe,
-            stale_after=self.args.stale_after,
+            motion=self.motion, prompt=self.prompt, choose=self.choose, record=self.record,
+            supervise=self.supervise, observe=self.observe, stale_after=self.args.stale_after,
             services=dict(
                 nav2=self.nav2, task_watcher=self.task_watcher, start=self.processes.start,
                 running=self.processes.running, stop=self.processes.stop,
-                hardware_config=self.args.hardware_config, user_config=self.args.config,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
-                disarm=self.disarm, foreground=self.foreground, reload_config=self.reload_config,
+                hardware_config=self.args.hardware_config, user_config=self.args.config,
+                disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 manual=dict(plant=self.plant, blockers=self.motion_blockers,
-                            console=self.console, status=self.manual_status)))
+                            console=self.console, status=self.manual_status,
+                            suspended=self.suspended)))
+
+    def set_pulses(self, pulses):
+        """Raw pulses per output for procedures (identification); None ends them."""
+        if pulses is None:
+            self.clear_pulses()
+        else:
+            self.test_pulses = list(pulses)
+            if self.publish_pulses is not None:
+                self.publish_pulses(self.test_pulses)
 
     def motion(self, name, **details):
-        """A Runner that commands the plant, inside the live dashboard."""
+        """A Runner that commands the plant, inside the live page."""
         return self.session(name, self.motion_blockers, details)
 
     def supervise(self, name, **details):
@@ -323,6 +633,23 @@ class App:
     def observe(self, name, **details):
         """A passive measurement window; no arming or readiness needed."""
         return self.session(name, lambda: [], details)
+
+    @contextmanager
+    def session(self, name, blockers, details):
+        def show(command, remaining, label):
+            self.command = command
+            self.notice = f'{label or name}{dashboard.SEPARATOR}{remaining:.1f}s · Space aborts'
+            if self.test_pulses is not None and self.publish_pulses is not None:
+                self.publish_pulses(self.test_pulses)
+            self.refresh()
+
+        runner = Runner(self.plant, blockers, self.keys, show=show,
+                        emit=self.ros.emit, clock=self.monitor.clock)
+        try:
+            with runner.session(name, **details):
+                yield runner
+        finally:
+            self.command = (0.0, 0.0, 0.0)
 
     def task_watcher(self):
         if self._watcher is None:
@@ -338,40 +665,16 @@ class App:
             self._nav2 = self.nav2_factory()
         return self._nav2
 
-    @contextmanager
-    def session(self, name, blockers, details):
-        """Live dashboard plus a Runner for one supervised stretch."""
-        def show(command, remaining, label):
-            self.command = command
-            self.notice = f'{label or name} | {remaining:.1f}s left | Space aborts'
-            view.update(self.render())
-
-        with self.open_keys() as keys, self.live(self.render(), console=self.console,
-                                                 screen=True, refresh_per_second=10) as view:
-            runner = Runner(self.plant, blockers, keys, show=show,
-                            emit=self.ros.emit, clock=self.monitor.clock)
-            try:
-                with runner.session(name, **details):
-                    yield runner
-            finally:
-                self.command = (0.0, 0.0, 0.0)
-
     def record(self, result):
         self.monitor.record_result(result)
         self.ros.emit('result', **result)
         self.export()
 
     def manual_status(self, label, amplitude, event_mode):
-        self.manual = True
-        self.notice = (f'MANUAL {amplitude:.0%} {label} | '
+        self.notice = (f'Manual {amplitude:.0%} {label}{dashboard.SEPARATOR}'
                        + ('multi-key' if event_mode else 'single-key fallback'))
-        try:
-            return self.render()
-        finally:
-            self.manual = False
-
-    def reload_config(self):
-        self.args.hardware_config = load_config(self.args.config)
+        self.focus = 'motion' if 'motion' in self.panels() else self.focus
+        return self.render()
 
 
 def nav2_params():
@@ -490,7 +793,7 @@ def main(argv=None):
         app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
                                     profile.base_frame),
-                  task_watcher=lambda: TaskWatcher(ros))
+                  task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses)
         ros.emit('session_start', profile=profile.name, bag=str(paths.bag))
         app.run()
     except KeyboardInterrupt:
