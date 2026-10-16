@@ -1,0 +1,42 @@
+import os
+from glob import glob
+
+from setuptools import find_packages, setup
+
+package_name = 'mhseals_testing'
+
+
+def package_files(directory):
+    """Install every file under ``directory`` to share/<package>/<directory>."""
+    paths = []
+    for path, _, files in os.walk(directory):
+        for file in files:
+            paths.append((os.path.join('share', package_name, path), [os.path.join(path, file)]))
+    return paths
+
+
+data_files = [
+    ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
+    ('share/' + package_name, ['package.xml']),
+    (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.py'))),
+]
+data_files += package_files('config')
+
+setup(
+    name=package_name,
+    version='0.0.0',
+    packages=find_packages(exclude=['test']),
+    data_files=data_files,
+    install_requires=['setuptools', 'rich', 'PyYAML', 'numpy'],
+    zip_safe=True,
+    author='MHS Seals',
+    description='Boat test suite for sensors, actuation, navigation and perception',
+    license='GPL-3.0',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'boat_test = mhseals_testing.ui.app:main',
+            'thrust_characterize = mhseals_testing.analysis.characterization:main',
+        ],
+    },
+)

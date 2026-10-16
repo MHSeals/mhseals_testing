@@ -1,0 +1,15 @@
+# crane_ml driven straight through its own velocity controller, with no nav
+# stack: quickest way to work on the suite itself. Start crane_ml with
+# --crane-ros-nav-state --crane-ros-cmd-vel.
+name: crane_direct
+description: crane_ml velocity commands and ground-truth odometry; no nav stack
+command: {topic: /crane/cmd_vel_stamped, type: twist_stamped, units: velocity, limit: [1.0, 1.0, 1.0]}
+odometry: /crane/odom
+ground_truth: /crane/odom
+frames: {map: null, odom: odom, base: base_link}
+use_sim_time: true
+arming: {outputs: none}
+bringup: null
+sensors:
+  - {name: odometry, topic: /crane/odom, kind: odometry, required: true}
+  - {name: LiDAR, topic: /points, kind: points}

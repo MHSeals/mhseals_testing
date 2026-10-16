@@ -1,0 +1,18 @@
+# The physical boat: thruster_pwm_node drives the ODROID's PWM pins, and the
+# mhseals_nav measurement stack fuses the flight controller and sensors.
+name: boat
+description: Physical boat; normalized thruster effort on /cmd_vel
+command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}
+odometry: /odom/local
+ground_truth: null
+frames: {map: map, odom: odom, base: base_link}
+use_sim_time: false
+arming: {outputs: odroid}
+bringup: {fcu: 'true', start_sensors: 'false'}
+sensors:
+  - {name: odometry, topic: /odom/local, kind: odometry, required: true}
+  - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
+  - {name: GPS, topic: /gps/fix, kind: gps, required: true}
+  - {name: IMU, topic: /imu/raw, kind: imu, required: true}
+  - {name: LiDAR, topic: /points, kind: points}
+  - {name: camera, topic: /front_camera/rgb/image, kind: image}
