@@ -752,6 +752,9 @@ class App:
 
     def run_procedure(self, procedure):
         reason = self.availability(procedure)
+        if reason and 'armed' in procedure.needs and not self.armed:
+            self.arm_panel()  # offer to arm, then carry on with the procedure
+            reason = self.availability(procedure)
         if reason:
             self.notice = f'{procedure.title}: {reason}'
             return

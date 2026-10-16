@@ -305,9 +305,23 @@ def test_lost_sensors_mid_trial_stop_the_boat(tmp_path):
     assert any('interlock' in message for _, message in app.monitor.events)
 
 
+def test_procedures_that_need_arming_offer_the_arm_panel(tmp_path):
+    app, boat = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    app.open_events = lambda: Events(app.clock, ['press:x'])
+    with app.attached():
+        press(app, 'n')                      # decline: nothing runs
+        app.run_procedure(procedure('m'))
+        assert not app.armed and 'arm first' in app.notice and boat.sent == []
+        press(app, 'y')                      # arm: manual control starts
+        app.run_procedure(procedure('m'))
+    assert app.armed and app.notice == 'Manual control ended'
+
+
 def test_procedures_explain_why_they_cannot_run(tmp_path):
     app, boat = make_app(tmp_path)
-    app.run_procedure(procedure('1'))
+    with app.attached():
+        press(app, 'escape')
+        app.run_procedure(procedure('1'))
     assert 'arm first' in app.notice and boat.sent == []
     bench, _ = make_app(tmp_path, ['--bench-override'])
     with bench.attached():
