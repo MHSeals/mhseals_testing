@@ -19,8 +19,9 @@ def summarize_trial(samples, axis, direction, baseline_start, command_start, com
     component = COMPONENT[axis]
     baseline = [(t, v) for t, v in samples
                 if baseline_start <= t < command_start and v.get(component) is not None]
+    # A sample stamped at the instant the command starts can't reflect it yet.
     driven = [(t, v) for t, v in samples
-              if command_start <= t <= command_end and v.get(component) is not None]
+              if command_start < t <= command_end and v.get(component) is not None]
     result = dict(axis=axis, direction=direction, samples=len(driven),
                   verdict='INCONCLUSIVE', detail='insufficient fresh odometry')
     if len(driven) < MIN_DRIVEN or len(baseline) < MIN_BASELINE:
@@ -46,3 +47,10 @@ def summarize_trial(samples, axis, direction, baseline_start, command_start, com
         result['displacement'] = dict(frame=first.get('frame'),
                                       dx=last['x'] - first['x'], dy=last['y'] - first['y'])
     return result
+
+
+def window_mean(samples, start, end, keys=('vx', 'vy', 'wz')):
+    """Mean of each key over samples in [start, end], or None without samples."""
+    window = [v for t, v in samples if start <= t <= end]
+    return {key: float(np.mean([v[key] for v in window if v.get(key) is not None]))
+            if any(v.get(key) is not None for v in window) else None for key in keys}

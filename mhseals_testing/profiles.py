@@ -11,7 +11,20 @@ from pathlib import Path
 
 import yaml
 
-PROFILE_DIR = Path(__file__).resolve().parent.parent / 'config' / 'profiles'
+
+def _profile_dir():
+    """config/profiles in the source tree, else the installed share directory."""
+    source = Path(__file__).resolve().parent.parent / 'config' / 'profiles'
+    if source.is_dir():
+        return source
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'profiles'
+    except (ImportError, KeyError):  # PackageNotFoundError is a KeyError
+        return source
+
+
+PROFILE_DIR = _profile_dir()
 SENSOR_KINDS = ('odometry', 'imu', 'gps', 'points', 'image', 'compressed', 'detections')
 OUTPUTS = ('none', 'odroid', 'topic')
 

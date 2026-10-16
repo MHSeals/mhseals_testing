@@ -68,3 +68,12 @@ behavior_server:
     assert follow['max_angular_accel'] == approx(.3)
     assert behavior['max_rotational_vel'] == approx(.3)
     assert behavior['rotational_acc_lim'] == approx(.3)
+
+
+def test_samples_from_windows_skips_transients_and_pairs_commands():
+    from mhseals_testing.analysis.characterization import samples_from_windows
+    history = [(t / 10, {'vx': t / 10, 'vy': 0.0, 'wz': 0.0}) for t in range(50)]
+    windows = [((0, 0, 0), 0.0, 1.9), ((0.5, 0, 0), 2.0, 4.0)]
+    samples = samples_from_windows(history, windows, transient=1.0)
+    assert {s['command'] for s in samples} == {(0, 0, 0), (0.5, 0, 0)}
+    assert min(s['time'] for s in samples if s['command'][0]) == pytest.approx(3.0)

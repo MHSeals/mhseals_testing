@@ -165,6 +165,23 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
     }
 
 
+def samples_from_windows(history, windows, transient=1.0):
+    """Pair each odometry sample with the command held when it was measured.
+
+    ``history`` is (time, values) odometry; ``windows`` are (command, start,
+    end) from the suite's runner. The first ``transient`` seconds of each
+    window are skipped, so the fit sees the response, not the switching.
+    """
+    samples = []
+    for command, start, end in windows:
+        for stamp, values in history:
+            if start + transient <= stamp <= end and all(
+                    values.get(key) is not None for key in ('vx', 'vy', 'wz')):
+                samples.append({"time": stamp, "command": tuple(command),
+                                "velocity": (values["vx"], values["vy"], values["wz"])})
+    return samples
+
+
 def read_json_samples(path: Path):
     text = path.read_text()
     try:

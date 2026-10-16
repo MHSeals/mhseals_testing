@@ -10,7 +10,7 @@ It builds on the other two packages:
 
 The suite never modifies either package's behaviour. It only drives their public topics and launch files.
 
-> Status: monitoring, readiness, advisories, session bags and reports work. Procedures (trials, characterization, navigation, missions) are being added.
+> Status: monitoring, readiness, advisories, bags, reports, arming and the actuation procedures work on the boat and in crane_ml. Navigation, perception and mission procedures are next.
 
 ### Usage
 
@@ -21,7 +21,33 @@ ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardware.yaml>
 ```
 
-`boat_test` starts passive: it shows sensors, TF and advisories, and never commands anything until a procedure is chosen and the outputs are armed. Tab cycles the views, E writes the report, Q quits.
+`boat_test` starts passive: it shows sensors, TF and advisories, and never commands anything until the outputs are armed and a procedure runs.
+
+| Key | Action |
+| --- | --- |
+| Tab, ←/→ | Cycle views: overview, sensors, TF, health, mapping, results, logs |
+| H | Arm (type `ARM`) or disarm. Arming starts `thruster_pwm_node`, plus `calibrated_velocity_controller` with `--velocity-control` |
+| P | Choose a procedure; unavailable ones say why |
+| M | Manual control |
+| +/- | Trial amplitude, in the profile's units |
+| Space | Stop: neutral and disarm |
+| E | Write the report |
+| Q | Quit (neutral, disarm, flush the bag) |
+
+Any interlock, child-process exit or error during motion stops at neutral and disarms.
+
+### Procedures
+
+| Key | Procedure | Needs |
+| --- | --- | --- |
+| 1 2 3 | Surge, sway, yaw trial: drift-corrected response sign, both directions | armed, sensors |
+| c | Combined trials: diagonal and turning commands | armed, sensors |
+| k | Characterize: fit the velocity model and measured limits; saves on request | armed, sensors, effort commands |
+| v | Controller steps: rise, overshoot, settling, steady-state error, IAE | armed, sensors, velocity commands |
+| m | Manual control (`keyboard_control`) under the interlocks | armed |
+| i | Thruster mapping (`thruster_identify`, pulses or by hand); disarms first | thruster outputs |
+
+Trial timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`.
 
 Every session records one rosbag (`bags/<profile>_<time>` by default, `--output` to change). Procedure start and stop events are published on `/mhseals_testing/events` inside it, so any result can be re-analysed from the bag. The JSON report sits next to the bag, and child-process logs go to `bags/logs/<session>/`.
 
