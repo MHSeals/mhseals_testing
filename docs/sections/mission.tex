@@ -1,0 +1,16 @@
+\section{Mission scoring}
+\label{sec:mission}
+
+A task tree reports what it does as events on \code{/task/events}. A rubric
+lists the events a good run must contain, with minimum counts $n_e$, the points
+$p_e$ each event is worth, how many of an event count, $c_e$ (one unless the rubric
+says more, so reporting the same thing twice earns nothing), and a time limit $T$. With $k_e$ the number of times event $e$ occurred:
+\[
+  \text{score} = \sum_e p_e \min(k_e, c_e),\qquad
+  \text{possible} = \sum_e p_e\,c_e .
+\]
+The run passes when the task finished with SUCCESS, no required event is
+missing ($k_e \ge n_e$ for all required $e$), and the elapsed time is at most
+$T$. The report keeps the counts, missing events and points per event, so a
+failed rehearsal says exactly what was not achieved.
+\file{mhseals\_testing/analysis/mission.py, config/missions/}

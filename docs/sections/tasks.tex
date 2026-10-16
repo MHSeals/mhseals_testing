@@ -1,0 +1,24 @@
+\section{Task geometry}
+\label{sec:tasks}
+
+\paragraph{Gates.} Red and green markers are paired greedily by distance: the
+closest pair first, each marker used once, pairs wider than the maximum gate width
+ignored. The gate is the midpoint $\bm m = \tfrac12(\bm r + \bm g)$. Its heading
+is normal to the line $\bm r\to\bm g$; of the two normals, the one pointing away
+from the boat is kept:
+\[
+  \phi = \operatorname{atan2}(g_y - r_y, g_x - r_x) + \tfrac\pi2,\qquad
+  \text{if } \cos(\phi - \operatorname{atan2}(m_y - p_y, m_x - p_x)) < 0:\ \phi \leftarrow \phi + \pi,
+\]
+so the boat passes straight through instead of along the line of markers.
+
+\paragraph{Circling.} To circle an object at $\bm o$ with radius $R$ in $n$ steps,
+start on the side facing the boat, $\beta = \operatorname{atan2}(p_y - o_y, p_x - o_x)$,
+and place waypoints at angles $\beta + s\,2\pi k/n$ for $k = 1\ldots n$, with
+$s=+1$ counter-clockwise and $-1$ clockwise. Each waypoint faces along the
+circle, angle $+\,s\,\pi/2$, so Nav2 drives around the object rather than at it.
+
+\paragraph{Relative routes.} A route given as (forward, left) offsets
+$(f, l)$ from a pose $(x, y, \psi)$ maps to the world by the rotation
+$\left(x + f\cos\psi - l\sin\psi,\ y + f\sin\psi + l\cos\psi\right)$.
+\file{mhseals\_nav/tasks/geometry.py}

@@ -1,0 +1,32 @@
+\section{Frames and notation}
+
+\paragraph{Body frame.} Commands and velocities are in the boat's body frame,
+\code{base\_link}, which follows ROS REP 103 (FLU):
+$x$ forward (surge), $y$ to port (sway), and counter-clockwise rotation about
+$z$ up (yaw). A command or velocity is the vector
+\[
+  \bm{u} = \begin{bmatrix} u_x & u_y & u_\psi \end{bmatrix}^\top ,\qquad
+  \bm{v} = \begin{bmatrix} v_x & v_y & \omega_z \end{bmatrix}^\top .
+\]
+World frames (\code{map}, \code{odom}) are ENU: $x$ east, $y$ north, yaw
+measured counter-clockwise from east.
+
+\paragraph{Effort versus velocity.} There are two kinds of command, and
+confusing them is the most common mistake:
+\begin{itemize}[nosep]
+  \item \emph{Effort} $\bm{e}\in[-1,1]^3$ is normalized thrust, what the
+        thruster driver accepts. $e_x = 0.25$ means ``a quarter of full forward
+        thrust'', not any particular speed.
+  \item \emph{Velocity} $\bm{v}$ in m/s and rad/s is what Nav2 asks for. Turning
+        velocity into effort needs a model of the boat (Section~\ref{sec:char})
+        and a controller (Section~\ref{sec:controller}).
+\end{itemize}
+A test profile states which one its command topic carries
+(\code{command.units}), and procedures that need one kind refuse to run with the
+other.
+
+\paragraph{Thrusters.} The four thrusters are indexed by position,
+FL, FR, RR, RL, in that order everywhere. ``Physical output $k$'' is the
+$k$-th PWM pin (or the $k$-th entry of the simulator's pulse array); the
+\emph{channel map} says which output drives which position.
+\file{mhseals\_hardware/thruster\_mixer.py, mhseals\_testing/profiles.py}

@@ -1,0 +1,24 @@
+\section{Step-response metrics}
+\label{sec:step}
+
+The controller-steps procedure asks for a velocity step of size $r$ at time $0$
+and records $y(t)$. Flip the sign for negative steps so that $r>0$.
+\begin{description}[nosep]
+  \item[Rise time] $t_{90} - t_{10}$, where $t_{p}$ is the first time $y\ge p\,r$.
+  \item[Overshoot] $\max\!\left(0, \frac{\max_t y(t) - r}{r}\right)$.
+  \item[Settling time] the first time after which $|y - r|$ stays within
+        $\max(0.05\,r,\ 0.02)$. The floor keeps small steps from demanding
+        precision below sensor noise.
+  \item[Steady-state error] $r$ minus the mean of the last 20\% of the step;
+        positive means the boat falls short.
+  \item[IAE] the integral of absolute error, by the trapezoid rule:
+        $\sum_k \tfrac12\left(|r-y_k| + |r-y_{k+1}|\right)(t_{k+1}-t_k)$.
+\end{description}
+
+\paragraph{Checking against theory.} For a first-order response
+$y = r(1-e^{-t/\tau})$: no overshoot, rise time $\tau\ln 9$, and IAE exactly
+$r\tau$. For an underdamped second-order system with damping ratio $\zeta$, the
+overshoot is $e^{-\pi\zeta/\sqrt{1-\zeta^2}}$ and the 5\% settling time is about
+$3/(\zeta\omega_n)$. The unit tests generate these curves and require the
+metrics to match.
+\file{mhseals\_testing/analysis/step\_response.py}

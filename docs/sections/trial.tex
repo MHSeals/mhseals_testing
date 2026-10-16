@@ -1,0 +1,28 @@
+\section{Axis trials: is the boat moving the right way?}
+\label{sec:trial}
+
+An axis trial holds neutral for a baseline window, then a command on one axis,
+then neutral again. Let $c$ be the velocity component for the axis
+($v_x$, $v_y$ or $\omega_z$), $B$ the baseline samples and $D$ the driven samples.
+\[
+  \bar c_B = \frac1{|B|}\sum_{k\in B} c_k,\qquad
+  \bar c_D = \frac1{|D|}\sum_{k\in D} c_k,\qquad
+  r = \bar c_D - \bar c_B .
+\]
+The \emph{response} $r$ subtracts the drift already present before the command,
+so a current pushing the boat forward does not make a reverse command look
+weak. The verdict compares its sign with the commanded direction $s=\pm1$:
+\[
+  \text{verdict} = \begin{cases}
+    \text{LOW RESPONSE} & |r| < 0.03\\
+    \text{SIGN MATCH} & r\,s > 0\\
+    \text{SIGN MISMATCH} & \text{otherwise.}
+  \end{cases}
+\]
+\paragraph{When not to trust it.} The trial is INCONCLUSIVE with fewer than five
+driven or three baseline samples, with a gap between samples longer than the
+staleness limit, or if the odometry frames change mid-trial. A sample stamped at
+the exact instant the command starts is not counted as driven: it cannot reflect
+the command yet. SIGN MATCH says the wiring and signs are right; it is not a
+calibration (that is Section~\ref{sec:char}).
+\file{mhseals\_testing/analysis/trial.py}

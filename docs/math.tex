@@ -1,0 +1,44 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+
+\newtheorem*{example}{Example}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\file}[1]{\par\noindent{\small\raggedright\color{gray} Implemented in \texttt{#1}.\par}}
+\newcommand{\R}{\mathbb{R}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\title{The math behind the MHSeals boat tests}
+\author{\texttt{mhseals\_testing}, \texttt{mhseals\_hardware}, \texttt{mhseals\_nav}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This is a short course on every calculation the test suite and the
+thruster chain make, in the order you meet them on the boat: from how a
+command becomes four pulse widths, through fitting a model of the boat, to
+scoring a navigation run. Each section ends with the file that implements it,
+so you can read the math and the code side by side. Nothing here needs more
+than vectors, matrices and a little calculus.
+
+\tableofcontents
+\bigskip
+
+\input{sections/frames}
+\input{sections/mixer}
+\input{sections/esc}
+\input{sections/characterization}
+\input{sections/controller}
+\input{sections/trial}
+\input{sections/tf}
+\input{sections/step}
+\input{sections/navigation}
+\input{sections/tasks}
+\input{sections/mission}
+
+\end{document}

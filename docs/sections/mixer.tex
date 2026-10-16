@@ -1,0 +1,40 @@
+\section{The thrust mixer}
+\label{sec:mixer}
+
+The four thrusters sit at the corners, angled at $45^\circ$. A matrix
+$M\in\R^{4\times 3}$ turns a body effort into one effort per thruster:
+\[
+  \bm{t} = M\bm{e},\qquad
+  M = \begin{bmatrix}
+    -1 & +1 & +1\\
+    -1 & -1 & -1\\
+    +1 & -1 & +1\\
+    +1 & +1 & -1
+  \end{bmatrix}
+  \begin{matrix}\text{FL}\\ \text{FR}\\ \text{RR}\\ \text{RL}\end{matrix}
+\]
+Read a column to see how one axis is made. Pure surge, $\bm{e} = (1,0,0)$,
+gives $\bm{t} = (-1,-1,+1,+1)$: the bow thrusters push water aft and the stern
+thrusters push forward (each thruster's ``positive'' points along its own
+mounting axis). Pure yaw drives diagonal pairs against each other, so the
+forces cancel and only a torque remains.
+
+Each column is orthogonal to the others ($M^\top M = 4I$), so the three axes
+do not interfere: asking for surge never adds sway. That is also why the
+simulator can check the boat's mixer against its own: the two agree thruster
+by thruster once the frame correction is applied.
+
+\paragraph{Desaturation.} A combined command can ask for more than one
+thruster can give, for example $\bm{e} = (1,1,1)$ gives $t_\text{FR} = -3$.
+Clipping that one thruster alone would change the \emph{direction} of the
+resulting force. Instead all four are scaled by the same factor,
+\[
+  \bm{t}' = \frac{\bm{t}}{\max\!\left(1, \max_i |t_i|\right)},
+\]
+which keeps the direction and gives up only magnitude.
+\begin{example}
+$\bm{e} = (1,1,1)$: $\bm{t} = (1,-3,1,1)$, peak $3$, so
+$\bm{t}' = (\tfrac13, -1, \tfrac13, \tfrac13)$. The boat still moves forward,
+to port and turns left, in the same proportions, at a third of the request.
+\end{example}
+\file{mhseals\_hardware/thruster\_mixer.py (mix\_thrusters)}

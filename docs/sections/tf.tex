@@ -1,0 +1,21 @@
+\section{TF chain validation as a graph search}
+\label{sec:tf}
+
+ROS transforms form a tree: each frame has exactly one parent. Localization is
+healthy only if the chains the stack needs, \code{map}$\to$\code{odom} and
+\code{odom}$\to$\code{base\_link}, exist and are fresh.
+
+Treat every recently received transform as a directed edge
+parent$\to$child; static transforms never go stale. For each required chain
+$(s, t)$, a depth-first search from $s$ looks for $t$. Three things can be wrong:
+\begin{enumerate}[nosep]
+  \item \emph{No path}: a node stopped publishing (MISSING).
+  \item \emph{Two parents}: two nodes publish the same child, for example both
+        the EKF and the simulator publishing \code{odom}$\to$\code{base\_link}.
+        Edges are keyed by publisher identity, so this shows up as a frame with
+        two parents on the path (WARN).
+  \item \emph{A cycle}: a search that revisits a frame on its own path (WARN).
+\end{enumerate}
+Each search visits every edge at most once, so the check is linear in the
+number of transforms.
+\file{mhseals\_testing/monitor.py (\_tf\_rows)}

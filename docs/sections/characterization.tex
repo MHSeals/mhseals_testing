@@ -1,0 +1,52 @@
+\section{Least-squares characterization}
+\label{sec:char}
+
+To command a velocity we need to know what velocity an effort produces. The
+model is affine:
+\[
+  \bm{v} = \bm{b} + G\bm{e},
+\]
+where $G\in\R^{3\times3}$ is the \emph{gain} (m/s per unit effort on the
+diagonal, cross-coupling off it) and $\bm{b}$ the \emph{bias}: the velocity at
+zero effort, from current or wind.
+
+\paragraph{Collecting samples.} The Characterize procedure holds a schedule of
+efforts (each axis both ways at two levels, then combined directions), with
+neutral between them. Every odometry sample $\bm{v}_k$ is paired with the effort
+$\bm{e}_k$ held when it was measured, skipping the first second of each hold so
+the fit sees the response and not the switching transient.
+
+\paragraph{The fit.} Stack the samples as rows. For one output axis, say $v_x$,
+\[
+  \underbrace{\begin{bmatrix} v_{x,1}\\ \vdots\\ v_{x,n}\end{bmatrix}}_{\bm{y}}
+  =
+  \underbrace{\begin{bmatrix} 1 & \bm{e}_1^\top\\ \vdots & \vdots\\ 1 & \bm{e}_n^\top\end{bmatrix}}_{X}
+  \underbrace{\begin{bmatrix} b_x\\ G_{x,\cdot}^\top\end{bmatrix}}_{\bm\theta}
+  + \text{noise}.
+\]
+Least squares chooses $\bm\theta$ minimizing $\|\bm{y} - X\bm\theta\|^2$. Setting
+the gradient to zero gives the \emph{normal equations}
+\[
+  X^\top X\,\bm\theta = X^\top \bm{y}.
+\]
+The $4\times4$ matrix $X^\top X$ is the same for all three axes, so one solve with
+three right-hand sides gives $\bm{b}$ and every row of $G$.
+
+\paragraph{When the fit is not trustworthy.} $X^\top X$ is invertible only if the
+samples excite every column: some neutral, some surge, some sway, some yaw. The
+code checks its rank and refuses a bag that only drove forward, rather than
+returning a confident-looking but meaningless $G$. A tiny ridge term
+$10^{-8} I$ guards against round-off.
+
+\begin{example}
+If $v_x = 0.6\,e_x$, $v_y = 0.4\,e_y$, $\omega_z = 0.3\,e_\psi$ exactly, the fit
+returns $G = \operatorname{diag}(0.6, 0.4, 0.3)$ and $\bm b = \bm 0$. In the
+simulator, $e_x = 0.2$ produced about $0.9$\,m/s, so $G_{xx}\approx 4.5$.
+\end{example}
+
+\paragraph{Limits.} The largest measured speed per axis gives the velocity
+limits; the largest change of velocity between consecutive samples divided by
+their time step gives acceleration and deceleration limits. These become the
+Nav2 velocity-smoother limits, so Nav2 never asks for more than the boat showed
+it can do.
+\file{mhseals\_testing/analysis/characterization.py, procedures/characterize.py}

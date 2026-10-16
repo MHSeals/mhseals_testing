@@ -1,0 +1,28 @@
+\section{Waypoint and station-keeping metrics}
+\label{sec:nav}
+
+\paragraph{Cross-track error.} The route is a polyline through the waypoints,
+starting where the boat was when the goal was sent. For a segment from $\bm a$
+to $\bm b$ and a position $\bm p$, project onto the segment and clamp to its ends:
+\[
+  \lambda = \operatorname{clip}\!\left(\frac{(\bm p-\bm a)\cdot(\bm b-\bm a)}{\|\bm b-\bm a\|^2},\,0,\,1\right),\qquad
+  d = \left\|\bm p - (\bm a + \lambda(\bm b-\bm a))\right\|.
+\]
+The cross-track error of $\bm p$ is the smallest $d$ over all segments. Clamping
+matters at corners: without it the distance would be to the infinite line, which
+can be small far beyond the end of a leg. The procedure reports the mean, RMS and
+maximum, the closest approach to each waypoint, and the travelled path length
+against the route length.
+
+\paragraph{Station keeping.} With samples $\bm p_k$ at times $t_k$ around a
+centre $\bm c$, the radii $\rho_k = \|\bm p_k - \bm c\|$ give the RMS and maximum
+radius, and the fraction of time inside the tolerance (each sample weighted by its
+interval). A slow steady push that the controller does not cancel can stay inside
+the tolerance for a long time, so the drift is measured directly as the
+least-squares slope of each coordinate:
+\[
+  (\alpha_x, v_x) = \argmin_{\alpha,v} \sum_k \left(x_k - \alpha - v\,(t_k - t_0)\right)^2,
+\]
+and likewise for $y$. The drift speed is $\sqrt{v_x^2+v_y^2}$ and its heading
+$\operatorname{atan2}(v_y, v_x)$.
+\file{mhseals\_testing/analysis/nav\_metrics.py}

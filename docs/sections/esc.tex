@@ -1,0 +1,25 @@
+\section{Effort to pulse width: the ESC model}
+\label{sec:esc}
+
+Each electronic speed controller (ESC) reads a pulse every 20\,ms (50\,Hz).
+The pulse width $w$ in microseconds sets the thrust: $1500\,\mu$s is stopped,
+longer is forward, shorter is reverse. The driver uses the linear map
+\[
+  w = \operatorname{clip}\!\left(1500 + 400\,t,\; 1100,\; 1900\right),
+\]
+so full effort $t=\pm1$ is $1900$ or $1100\,\mu$s. The pulse for thruster
+position $p$ goes to physical output $c_p$ from the channel map.
+
+The simulator inverts the same model. A pulse $w$ on an output becomes a motor
+command
+\[
+  m = m_\text{max}\,\frac{w - 1500}{400},\qquad w\in[1100,1900],
+\]
+optionally with a deadband $|w-1500|\le d \Rightarrow m = 0$, which real ESCs
+have. Because both sides share the model, a characterization done in simulation
+exercises the same chain as on the boat.
+
+\paragraph{Why republish.} The simulator treats a silent pulse topic as a lost
+link and goes neutral after a timeout, as the real ESCs do without a signal. The
+driver therefore repeats the last pulses at 20\,Hz even when they do not change.
+\file{mhseals\_hardware/thruster\_mixer.py (effort\_to\_pulse), outputs.py; crane\_ml EscPwm.cs}

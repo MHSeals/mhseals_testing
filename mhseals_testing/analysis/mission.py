@@ -17,13 +17,14 @@ def score(events, rubric, outcome=None):
     required = rubric.get('required', {})
     missing = {name: count - counts[name] for name, count in required.items()
                if counts[name] < count}
-    earned = {name: points * min(counts[name], rubric.get('max_counts', {}).get(name, counts[name]))
+    # An event counts once unless the rubric caps it higher (max_counts).
+    caps = {name: rubric.get('max_counts', {}).get(name, 1) for name in rubric.get('points', {})}
+    earned = {name: points * min(counts[name], caps[name])
               for name, points in rubric.get('points', {}).items() if counts[name]}
     limit = rubric.get('time_limit')
     late = limit is not None and elapsed > limit
     passed = outcome == 'SUCCESS' and not missing and not late
     return dict(outcome=outcome, elapsed=elapsed, events=dict(counts), missing=missing,
                 points=sum(earned.values()), points_by_event=earned,
-                possible=sum(points * rubric.get('max_counts', {}).get(name, 1)
-                             for name, points in rubric.get('points', {}).items()),
+                possible=sum(points * caps[name] for name, points in rubric.get('points', {}).items()),
                 late=late, verdict='PASS' if passed else 'FAIL')

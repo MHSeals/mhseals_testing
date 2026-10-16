@@ -1,0 +1,19 @@
+name: docs
+
+on:
+  push:
+    paths: ['docs/**', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['docs/**', '.github/workflows/docs.yml']
+
+jobs:
+  math-pdf:
+    runs-on: ubuntu-latest
+    container: texlive/texlive:latest-medium
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C docs pdf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: math
+          path: docs/math.pdf
