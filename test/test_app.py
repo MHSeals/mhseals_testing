@@ -142,8 +142,8 @@ class Processes:
     def start(self, name, argv):
         pass
 
-    def stop(self, name):
-        pass
+    def stop(self, name, timeout=10):
+        self.stopped = getattr(self, 'stopped', []) + [name]
 
     def running(self, name):
         return True
@@ -216,7 +216,7 @@ def arm(app):
 
 def test_focus_moves_and_keys_act_on_the_focused_panel(tmp_path):
     app, _ = make_app(tmp_path, keys=['\t', '\t', 'backtab', 'j', '+', 'x', '?', 'q'])
-    press(app, 'z')  # closes the help popup
+    press(app, 'z', 'y')  # close the help popup; confirm quitting
     app.console.size = (120, 40)
     app.run()
     assert app.focus == 'motion' and app.settings.amplitude == 0.3
@@ -244,6 +244,7 @@ def test_arming_needs_the_typed_word_on_real_outputs(tmp_path):
         press(app, 'a', 'r', 'm', 'backspace', 'm', 'enter')
         app.dispatch('a')
         assert app.armed and 'armed' in app.ros.events
+        press(app, 'enter')  # the arm panel offers Disarm first
         app.dispatch('a')
         assert not app.armed and app.arming.calls == ['arm', 'disarm']
 
@@ -284,24 +285,24 @@ def test_escape_at_a_prompt_cancels_and_disarms(tmp_path):
 
 def test_space_aborts_motion_and_disarms(tmp_path):
     app, boat = make_app(tmp_path, keys=['1'] + [None] * 15 + ['space', 'q'])
-    press(app, 'enter')
+    press(app, 'enter', 'y')
     app.focus = 'procedures'
     app.arming.armed = True
     app.run()
     assert not app.armed and boat.sent[-1] == 'neutral'
-    assert 'cancelled' in app.notice
+    assert any('cancelled' in message for _, message in app.monitor.events)
 
 
 def test_lost_sensors_mid_trial_stop_the_boat(tmp_path):
     app, boat = make_app(tmp_path, keys=['1'])
-    press(app, 'enter')
+    press(app, 'enter', 'y')
     app.focus = 'procedures'
     app.arming.armed = True
     boat.sensors = False  # every sensor goes stale two seconds later
     app.reader.script += [None] * 60 + ['q']  # quit only after the interlock tripped
     app.run()
-    assert not app.armed and 'interlock' in app.notice
-    assert boat.sent[-1] == 'neutral'
+    assert not app.armed and boat.sent[-1] == 'neutral'
+    assert any('interlock' in message for _, message in app.monitor.events)
 
 
 def test_procedures_explain_why_they_cannot_run(tmp_path):
@@ -372,6 +373,8 @@ def test_thruster_panel_reverses_and_rewires_with_hot_reload(tmp_path):
         app.dispatch('down')  # FR
         app.dispatch('r')
         app.dispatch('3')     # FR to output 3, RR takes FR's output 2
+        assert app.draft and 'reversed' not in (tmp_path / 'hardware.yaml').read_text()
+        app.dispatch('s')
     saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
     assert saved['reversed'] == [False, True, False, False]
     assert saved['channel_map'] == [1, 3, 2, 4]
@@ -643,3 +646,57 @@ def test_leaving_thrusters_by_direction_ends_test_pulses(tmp_path):
         assert app.test_pulses is not None
         app.dispatch('ctrl-h')
     assert app.focus == 'motion' and app.test_pulses is None
+
+
+def test_grab_moves_a_thruster_and_undo_restores(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    app.focus = 'thrusters'
+    app.dispatch('r')        # FL reversed
+    app.dispatch('enter')    # pick FL up
+    app.dispatch('down')
+    app.dispatch('down')     # carried to RR's row: FL<->FR, then FR<->RR swaps
+    app.dispatch('enter')
+    assert app.draft == dict(channel_map=[2, 3, 1, 4], reversed=[False, False, True, False])
+    assert app.cursors['thrusters'] == 2 and app.grabbed is None
+    app.dispatch('u')
+    assert app.draft is None and app.mapping() == ([1, 2, 3, 4], [False] * 4)
+
+
+def test_escape_never_quits_and_quit_asks_first(tmp_path):
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        app.dispatch('escape')
+        assert not app.quit
+        press(app, 'escape')
+        app.dispatch('q')
+        assert not app.quit
+        press(app, 'enter')
+        app.dispatch('q')
+    assert app.quit
+
+
+def test_quitting_with_an_unsaved_mapping_can_save_it(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'], keys=['r', 'q'])
+    app.focus = 'thrusters'
+    press(app, 'enter')  # Save mapping and quit
+    app.run()
+    assert yaml.safe_load((tmp_path / 'hardware.yaml').read_text())['reversed'][0] is True
+
+
+def test_close_runs_every_step_once_and_summarizes(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.arming.armed = True
+    with app.attached():
+        app.close()
+        app.close()
+    assert not app.armed and boat.sent[-1] == 'neutral'
+    assert app.processes.stopped == ['bag'] and app.ros.events.count('session_stop') == 1
+    assert (tmp_path / 'session.report.json').exists()
+    assert dict(app.summary())['Results'] == '0/0 good'
+
+
+def test_arm_panel_lists_interlocks_before_arming(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'], sensors=False)
+    rows = dict(app.arm_rows())
+    assert rows['Outputs'].startswith('simulator') and rows['Driver'] == 'starts on arm'
+    assert rows['Interlocks'].startswith('×')

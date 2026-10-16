@@ -142,7 +142,6 @@ def sparkline(values, width=10):
 ARROWS = '↑↖←↙↓↘→↗'
 DRIFT_DEADBAND = 0.02      # m/s; slower than this reads as no drift
 DRIFT_AGREE = (0.05, 0.15)  # m/s between measured and fitted drift: good, warn, else bad
-DRIFT_SAMPLES = 8           # recent trend samples (~2.5 s) averaged for "now"
 
 
 def drift_arrow(vx, vy):
@@ -161,37 +160,50 @@ def drift_vector(vx, vy, wz=0.0):
     return text
 
 
-def drift_now(snapshot, command):
-    """Measured body-frame drift: recent odometry while nothing is commanded."""
-    if any(abs(value) > 1e-6 for value in command):
+def bearing(vx, vy):
+    """Direction relative to the bow in words: 'ahead', '61° port', '120° stbd', 'astern'."""
+    degrees = math.degrees(math.atan2(vy, vx))
+    if abs(degrees) < 5:
+        return 'ahead'
+    if abs(degrees) > 175:
+        return 'astern'
+    return f"{abs(degrees):.0f}° {'port' if degrees > 0 else 'stbd'}"
+
+
+def drift_now(snapshot):
+    """The boat's body-frame velocity right now, from the latest odometry."""
+    values = snapshot['sensors'].get('odometry', {}).get('values', {})
+    if values.get('vx') is None or values.get('vy') is None:
         return None
-    trends = snapshot.get('trends', {})
-    recent = [trends.get(key, [])[-DRIFT_SAMPLES:] for key in ('vx', 'vy', 'wz')]
-    if not recent[0] or not recent[1]:
-        return None
-    return tuple(sum(values) / len(values) if values else 0.0 for values in recent)
+    return values['vx'], values['vy'], values.get('wz') or 0.0
 
 
 def drift_line(snapshot, view):
-    """Measured drift next to the characterization's bias, and whether they agree."""
-    line = Text('Drift  ', style=MUTED)
-    now = drift_now(snapshot, view['command'])
+    """Live drift direction next to the characterization's bias, and whether they agree.
+
+    While nothing is commanded the measured velocity is the drift; while driving it
+    is shown live but not compared, since thrust is part of it.
+    """
+    now = drift_now(snapshot)
+    driving = any(abs(value) > 1e-6 for value in view['command'])
+    line = Text('Drift  ' if not driving else 'Vel    ', style=MUTED)
+    if now is None:
+        line.append('no odometry', style=MUTED)
+    else:
+        line.append_text(drift_vector(*now))
+        if math.hypot(now[0], now[1]) >= DRIFT_DEADBAND:
+            line.append(f'  {bearing(now[0], now[1])}', style=MUTED)
     bias = view['hardware'].get('characterization', {}).get('bias')
     fit = (bias['surge'], bias['sway'], bias['yaw']) if bias else None
-    if now is None:
-        line.append('driving' if any(view['command']) else 'no odometry', style=MUTED)
-    else:
-        line.append('now ', style=MUTED)
-        line.append_text(drift_vector(*now))
     line.append('\n       fit ', style=MUTED)
     if fit is None:
         line.append('not characterized', style=MUTED)
         return line
     line.append_text(drift_vector(*fit))
-    if now is not None:
+    if now is not None and not driving:
         error = math.hypot(now[0] - fit[0], now[1] - fit[1])
         state = 'good' if error <= DRIFT_AGREE[0] else 'warn' if error <= DRIFT_AGREE[1] else 'bad'
-        line.append('   ')
+        line.append('  ')
         line.append_text(theme.labelled(state, f'Δ {error:.2f}', MUTED))
     return line
 
@@ -227,7 +239,7 @@ def effort_bar(pulse, testing=False, width=9):
 
 def thruster_rows(view):
     """Per position: physical output, reversal and the pulse it gets now."""
-    config = view['hardware']
+    config = view['draft'] or view['hardware']
     channel_map, reversed_ = config['channel_map'], config.get('reversed', [False] * 4)
     if view['test_pulses'] is not None:
         by_output = view['test_pulses']
@@ -235,9 +247,13 @@ def thruster_rows(view):
         by_output = thruster_pulses(view['command'], view['matrix'], channel_map, reversed_)
     else:
         by_output = [NEUTRAL] * 4
+    saved = view['hardware']
     return [dict(position=position.upper(), output=output, reversed=flip,
-                 pulse=by_output[output - 1], readback=view['pwm_readback'][output - 1])
-            for position, output, flip in zip(POSITIONS, channel_map, reversed_)]
+                 pulse=by_output[output - 1], readback=view['pwm_readback'][output - 1],
+                 changed=(output != saved['channel_map'][index]
+                          or flip != saved['reversed'][index]))
+            for index, (position, output, flip) in enumerate(
+                zip(POSITIONS, channel_map, reversed_))]
 
 
 def thrusters_panel(view):
@@ -251,15 +267,18 @@ def thrusters_panel(view):
     for index, row in enumerate(thruster_rows(view)):
         active = view['armed'] and row['pulse'] != NEUTRAL
         state = ('WARN' if testing else 'LIVE') if active else ('IDLE' if view['armed'] else 'OFF')
-        cells = [theme.row(state, row['position'], focused and index == cursor),
-                 str(row['output']),
+        grabbed = view['grabbed'] == index
+        label = Text(row['position'] + (' ⇅' if grabbed else ''))
+        cells = [theme.row(state, label, focused and index == cursor),
+                 Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
                  Text('↺' if row['reversed'] else '·', style=theme.WARN if row['reversed'] else MUTED),
                  Text(f"{row['pulse']} µs", style='bold' if active else MUTED),
                  effort_bar(row['pulse'], testing)]
         if view['outputs'] == 'odroid':
             cells.append(Text(row['readback'], style=MUTED))
         table.add_row(*cells)
-    subtitle = ('testing' if testing else view['outputs']) + SEPARATOR + view['config_note']
+    subtitle = ('testing' if testing else view['outputs']) + SEPARATOR + (
+        'unsaved' if view['draft'] else view['config_note'])
     return theme.block(table, TITLES['thrusters'], focused, subtitle)
 
 
@@ -319,9 +338,7 @@ def health_strip(snapshot, view):
     sensors = [row for row in rows if row['group'] == 'Sensors' and row['required']]
     sensors_ok = all(row['state'] == 'LIVE' for row in sensors)
     frames_ok = all(row['state'] == 'LIVE' for row in rows if row['group'] == 'Frames')
-    parts = [theme.labelled('ARMED' if view['armed'] else 'OFF',
-                            'armed' if view['armed'] else 'disarmed'),
-             theme.labelled('LIVE' if view['recording'] else 'FAIL', 'rec'),
+    parts = [theme.labelled('LIVE' if view['recording'] else 'FAIL', 'rec'),
              theme.labelled('LIVE' if sensors_ok else 'FAIL',
                             f"sensors {sum(r['state'] == 'LIVE' for r in sensors)}/{len(sensors)}"),
              theme.labelled('LIVE' if frames_ok else 'FAIL', 'tf')]
@@ -333,13 +350,22 @@ def health_strip(snapshot, view):
     return Text('   ').join(parts)
 
 
+def arm_badge(armed):
+    """The one thing that must never be missed: are the outputs live?"""
+    if armed:
+        return Text(' ● ARMED ', style=f'bold white on {theme.BAD}')
+    return Text(' ○ DISARMED ', style=f'bold black on {theme.GOOD}')
+
+
 def header(snapshot, view):
     top = Table.grid(expand=True)
     top.add_column()
     top.add_column(justify='right')
     title = Text(' boat_test ', style=f'bold {ACCENT}')
     title.append(f" {view['profile']}", style='bold')
-    top.add_row(title, Text(f"{view['host']}{SEPARATOR}ROS {view['domain']} ", style=MUTED))
+    right = Text(f"{view['host']}{SEPARATOR}ROS {view['domain']}  ", style=MUTED)
+    right.append_text(arm_badge(view['armed']))
+    top.add_row(title, right)
     strip = Text(' ')
     strip.append_text(health_strip(snapshot, view))
     return Group(top, strip)

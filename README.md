@@ -28,22 +28,24 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 | Ctrl h j k l, Ctrl arrows | Focus the panel to the left, below, above or right |
 | Tab, Shift Tab | Cycle focus through the panels |
 | ↑↓, j k | Move within the focused panel; Enter runs or shows details |
-| a | Arm (typed `ARM` for real pins, a button in simulation) or disarm |
+| a | Arm panel: outputs, driver, config and every interlock, then arm (typed `ARM` for real pins, a button in simulation) or disarm. The header badge always shows `ARMED` or `DISARMED` |
 | Space | Stop: neutral and disarm |
 | m | Manual control |
 | +/- | Trial amplitude, in the profile's units |
 | x | Write the report |
 | ? | Help |
-| q | Quit (neutral, disarm, flush the bag) |
+| q | Quit: a popup lists what happens (neutral, disarm, stop children, report, flush the bag) and offers to save an unsaved mapping; the steps then show progress and a summary prints. Esc only backs out, never quits |
 | Thrusters ←→ | Test pulse ±10 µs on the selected thruster, through the armed driver |
 | Thrusters 0 | All test pulses back to neutral (Tab away also ends them) |
-| Thrusters r, 1-4 | Reverse the thruster, or wire it to output 1-4 (swapping) |
-| Thrusters i, e | Thruster set (pulse each output, pick the thruster and its direction), or edit the config in `$EDITOR` |
+| Thrusters Enter, ↑↓ | Pick up a thruster and move it; it swaps outputs with each row it passes |
+| Thrusters 1-4, r | Wire the thruster to output 1-4 (swapping), or reverse it |
+| Thrusters s, u | Save the mapping draft to the config, or undo it |
+| Thrusters i | Thruster set: pulse each output, pick the thruster and its direction |
 | Activity v | Switch between results and the event log |
 
-The Motion panel's **Drift** line checks the characterization against the water. `now` is the body-frame drift measured over the last few seconds while nothing is commanded (bow up: `↑` forward, `←` port, `↺`/`↻` yaw), and `fit` is the drift the characterization's bias predicts. The icon says how far apart they are: `●` within 0.05 m/s, yellow within 0.15, `×` beyond, a sign that current or wind changed since the fit, or that the fit is off. Right after motion, `now` includes coasting; give it a few seconds.
+The Motion panel's **Drift** line checks the characterization against the water. The first row is the boat's body-frame velocity, live from odometry, as an arrow (bow up: `↑` forward, `←` port, `↺`/`↻` yaw), a speed and a bearing from the bow (`61° port`); while nothing is commanded that velocity is the drift. `fit` is the drift the characterization's bias predicts, and the icon says how far apart they are: `●` within 0.05 m/s, yellow within 0.15, `×` beyond, a sign that current or wind changed since the fit, or that the fit is off. While driving it reads `Vel` and is not compared; right after motion it includes coasting.
 
-Mapping, reversal and mixer changes are written to the hardware YAML (`--config`, default `~/.config/mhseals/hardware.yaml`). Any edit, from the panel or an editor, reloads within a second: the suite reloads it and the running `thruster_pwm_node` hot-reloads its copy, no re-arm needed. A bad edit is refused and the last good config stays in use.
+Mapping changes stay a draft (marked `unsaved`, changed outputs in yellow; test pulses already use it) until `s` writes them to the hardware YAML (`--config`, default `~/.config/mhseals/hardware.yaml`). Any change to that file, from the panel or another editor, reloads within a second: the suite reloads it and the running `thruster_pwm_node` hot-reloads its copy, no re-arm needed. A bad edit is refused and the last good config stays in use.
 
 Any interlock, child-process exit or error during motion stops at neutral and disarms.
 

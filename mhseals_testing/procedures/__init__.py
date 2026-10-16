@@ -9,7 +9,7 @@ simulator" themselves.
 from dataclasses import dataclass, field
 
 # What a procedure may need:
-#   armed     thruster outputs running (H)
+#   armed     thruster outputs running (a, the arm panel)
 #   effort    commands are normalized effort (open-loop thruster tests)
 #   velocity  commands are m/s and rad/s (controller and Nav2 tests)
 #   outputs   the profile has thruster outputs to drive (pins or a simulator topic)
@@ -76,7 +76,7 @@ def unavailable(procedure, profile, armed, bench_override=False):
     """Why ``procedure`` can't run now, or '' when it can."""
     needs = procedure.needs
     if 'armed' in needs and not armed:
-        return 'arm first (H)'
+        return 'arm first (a)'
     if 'effort' in needs and profile.command_units != 'effort':
         return 'needs effort commands; run without --velocity-control'
     if 'velocity' in needs and profile.command_units != 'velocity':

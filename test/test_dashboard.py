@@ -19,6 +19,7 @@ def view(profile, **overrides):
         armed=False, arm_label='disarmed', command=(0.0, 0.0, 0.0), profile=profile.name,
         units=profile.command_units, outputs=profile.outputs, specs=profile.sensors,
         host='boat', domain='42', recording=True, bench_override=False, hardware=hardware,
+        draft=None, grabbed=None,
         matrix=THRUSTER_MIXER, test_pulses=None, pwm_readback=['—'] * 4,
         config_note='defaults',
         procedures=[dict(key='1', title='Surge trial', description='both ways', reason='')])
@@ -100,17 +101,35 @@ def test_drift_arrows_are_drawn_bow_up_in_the_body_frame():
 def drift_text(command, bias, vx=0.1, vy=0.1):
     from mhseals_testing.ui.dashboard import drift_line
     m = BoatMonitor(clock=lambda: 10)
-    for _ in range(10):
-        m.observe('odometry', {'vx': vx, 'vy': vy, 'wz': 0.0}, stamp_age=0)
+    m.observe('odometry', {'vx': vx, 'vy': vy, 'wz': 0.0}, stamp_age=0)
     hardware = dict(load_defaults())
     if bias is not None:
         hardware['characterization'] = {'bias': dict(zip(('surge', 'sway', 'yaw'), bias))}
     return drift_line(m.snapshot(), dict(command=command, hardware=hardware)).plain
 
 
-def test_drift_compares_measured_with_the_fitted_bias():
-    assert drift_text((0, 0, 0), None) == 'Drift  now ↖ 0.14 m/s\n       fit not characterized'
+def test_drift_is_live_with_a_bearing_and_compared_with_the_fit():
+    assert drift_text((0, 0, 0), None) == ('Drift  ↖ 0.14 m/s  45° port\n'
+                                           '       fit not characterized')
+    assert 'stbd' in drift_text((0, 0, 0), None, vx=-0.1, vy=-0.3)
+    assert 'ahead' in drift_text((0, 0, 0), None, vx=0.3, vy=0.0)
     agree = drift_text((0, 0, 0), (0.1, 0.12, 0.0))
     assert 'fit ↖ 0.16 m/s' in agree and '● Δ 0.02' in agree
     assert '× Δ' in drift_text((0, 0, 0), (-0.2, 0.0, 0.0))   # fit points the wrong way
-    assert drift_text((0.2, 0, 0), None).startswith('Drift  driving')
+    driving = drift_text((0.2, 0, 0), (0.1, 0.1, 0.0))
+    assert driving.startswith('Vel    ↖') and 'Δ' not in driving
+
+
+def test_header_badge_says_armed_or_disarmed():
+    profile = load_profile('boat')
+    snapshot = monitor().snapshot(profile.required_tf)
+    assert '○ DISARMED' in text(render(snapshot, view(profile), 120, 40), 120, 40)
+    assert '● ARMED' in text(render(snapshot, view(profile, armed=True), 120, 40), 120, 40)
+
+
+def test_unsaved_mapping_is_marked():
+    profile = load_profile('crane_full_stack')
+    draft = dict(channel_map=[2, 1, 3, 4], reversed=[True, False, False, False])
+    page = text(render(monitor().snapshot(), view(profile, focus='thrusters', draft=draft,
+                                                  grabbed=0), 120, 40), 120, 40)
+    assert 'topic · unsaved' in page and 'FL ⇅' in page and '↺' in page

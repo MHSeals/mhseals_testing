@@ -14,7 +14,6 @@ from datetime import datetime
 import math
 import os
 from pathlib import Path
-import shlex
 import socket
 import subprocess
 import time
@@ -59,12 +58,13 @@ PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
-GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q', 'Quit')]
+GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm panel'), ('Space', 'Stop'), ('?', 'Help'),
+                ('q', 'Quit')]
 PANEL_HINTS = {
     'status': [('↑↓', 'Select'), ('Enter', 'Details')],
     'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
-    'thrusters': [('←→', 'Pulse'), ('0', 'Neutral'), ('r', 'Reverse'), ('1-4', 'Output'),
-                  ('i', 'Identify'), ('e', 'Edit config')],
+    'thrusters': [('←→', 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
+                  ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify')],
     'procedures': [('Enter', 'Run'), ('↑↓', 'Select')],
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
@@ -73,15 +73,17 @@ HELP = [
     ('Tab / Shift Tab', 'Cycle focus through the panels'),
     ('↑↓ / j k', 'Move within the focused panel'),
     ('Enter', 'Run, open or show details'),
-    ('a', 'Arm or disarm the thruster outputs'),
+    ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('Space', 'Stop: neutral and disarm'),
     ('m', 'Manual control'),
     ('+ / -', 'Trial amplitude'),
     ('x', 'Write the session report'),
     ('Thrusters ←→', f'Test pulse ±{PULSE_STEP} µs on the selected thruster (armed)'),
     ('Thrusters 0', 'All test pulses back to neutral'),
-    ('Thrusters r / 1-4', 'Reverse it / wire it to an output (saved, hot-reloaded)'),
-    ('Thrusters i / e', 'Identify outputs by pulses / edit the config in $EDITOR'),
+    ('Thrusters Enter', 'Pick up the thruster; ↑↓ moves it, Enter drops it'),
+    ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
+    ('Thrusters s / u', 'Save the draft to the config (hot-reloaded) / undo it'),
+    ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Activity v', 'Switch between results and the event log'),
     ('q', 'Quit: neutral, disarm, flush the bag'),
 ]
@@ -139,12 +141,16 @@ class App:
         self.modal = None
         self.running = None
         self.test_pulses = None
-        self.notice = 'Passive monitor; a arms the outputs'
+        self.draft = None        # unsaved thruster mapping: channel_map and reversed
+        self.grabbed = None      # thruster row being moved with ↑↓
+        self.notice = 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
         self.pwm_readback = ['—'] * 4
         self.keys = self.live = None
         self.quit = False
+        self.closed = False
+        self.started = clock()
         self.config_file = config_path(args.config)
         self.config_mtime = self.mtime()
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
@@ -244,6 +250,7 @@ class App:
         """Write ``changes`` into the operator's hardware YAML; the watcher applies it."""
         config = dict(load_config(self.args.config), **changes)
         save_config(config, self.args.config)
+        self.draft = self.grabbed = None
         self.config_mtime = None  # reload on the next tick even within one mtime tick
         self.watch_config()
 
@@ -270,10 +277,7 @@ class App:
         notice = self.notice if not blockers or self.running else (
             f'{self.notice}{dashboard.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
-        hints = PANEL_HINTS[self.focus] + [hint for hint in GLOBAL_HINTS
-                                           if not (hint[0] == 'a' and self.focus == 'thrusters')]
-        hints = [('a', 'Disarm') if hint == ('a', 'Arm') and self.armed else hint
-                 for hint in hints]
+        hints = PANEL_HINTS[self.focus] + GLOBAL_HINTS
         return dict(
             focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
@@ -286,6 +290,7 @@ class App:
             recording=self.processes.running('bag'), bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
+            draft=self.draft, grabbed=self.grabbed,
             config_note=self.config_note,
             procedures=[dict(key=p.key, title=p.title, description=p.description,
                              reason=self.availability(p)) for p in PROCEDURES])
@@ -332,15 +337,95 @@ class App:
 
     def run(self):
         with self.attached():
-            while not self.quit:
-                key = self.keys.read(timeout=0.1)
-                if key is not None:
-                    try:
-                        self.dispatch(key)
-                    except STOPPING_ERRORS as error:
-                        self.stop(str(error) or type(error).__name__)
-                self.tick()
-                self.refresh()
+            try:
+                while not self.quit:
+                    key = self.keys.read(timeout=0.1)
+                    if key is not None:
+                        try:
+                            self.dispatch(key)
+                        except STOPPING_ERRORS as error:
+                            self.stop(str(error) or type(error).__name__)
+                    self.tick()
+                    self.refresh()
+            finally:
+                self.close()  # on q and on Ctrl+C alike, while the page is still up
+
+    # --- quitting ------------------------------------------------------------------
+
+    def confirm_quit(self):
+        """Say what quitting does, and offer to keep an unsaved mapping."""
+        rows = [('Outputs', 'neutral, then disarm' if self.armed else 'already disarmed'),
+                ('Recording', f'flush {self.paths.bag}'),
+                ('Report', str(self.paths.report)),
+                ('Results', str(len(self.snapshot()['results'])))]
+        options = ['Quit', 'Cancel']
+        if self.draft is not None:
+            rows.append(('Mapping', 'unsaved changes'))
+            options = ['Save mapping and quit', 'Quit without saving', 'Cancel']
+        try:
+            choice = self.choose('Quit', options, {'y': 0, 'n': len(options) - 1}, rows=rows,
+                                 width=72)
+        except Cancelled:
+            return
+        if choice == 'Cancel':
+            return
+        if choice == 'Save mapping and quit':
+            channel_map, reversed_ = self.mapping()
+            self.save_hardware(channel_map=channel_map, reversed=reversed_)
+        self.quit = True
+
+    def close(self):
+        """Shut down in order, showing each step: nothing may drive, then flush, then report.
+
+        Safe to call more than once; main() calls it too in case the page never opened.
+        """
+        if self.closed:
+            return
+        self.closed = True
+        steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
+                 ('Report', self.close_report), ('Recording', self.close_recording)]
+        rows = [[name, '◌ waiting'] for name, _ in steps]
+        self.modal = dict(kind='message', title='Closing session', rows=rows, width=64,
+                          hint='Ctrl+C again forces the exit')
+        for row, (_, step) in zip(rows, steps):
+            row[1] = '◌ working'
+            self.refresh()
+            try:
+                row[1] = '● ' + step()
+            except Exception as error:  # keep going: later steps still matter
+                row[1] = f'× {error}'
+        self.refresh()
+        self.modal = None
+
+    def close_outputs(self):
+        was_armed = self.armed
+        self.stop('session ended')
+        return 'neutral and disarmed' if was_armed else 'were disarmed'
+
+    def close_children(self):
+        names = [name for name in list(self.processes.processes)
+                 if name != 'bag'] if hasattr(self.processes, 'processes') else []
+        for name in names:
+            self.processes.stop(name)
+        return f"stopped {', '.join(names)}" if names else 'none running'
+
+    def close_report(self):
+        self.ros.emit('session_stop')
+        return self.export().name
+
+    def close_recording(self):
+        if not self.processes.running('bag'):
+            return 'was not running'
+        self.processes.stop('bag', timeout=20)  # SIGINT lets ros2 bag finish the file
+        return f'flushed {self.paths.bag.name}'
+
+    def summary(self):
+        """What the session left behind, printed once the page is gone."""
+        results = self.snapshot()['results']
+        passed = sum(1 for r in results if dashboard.theme.kind(r.get('verdict', '')) == 'good')
+        minutes = (self.clock() - self.started) / 60
+        return [('Duration', f'{minutes:.1f} min'), ('Results', f'{passed}/{len(results)} good'),
+                ('Bag', str(self.paths.bag)), ('Report', str(self.paths.report))]
 
     def focus_on(self, panel):
         if self.focus == 'thrusters' and panel != 'thrusters':
@@ -363,21 +448,24 @@ class App:
             neighbour = NEIGHBOURS[wide].get(self.focus, {}).get(DIRECTIONS[key])
             if neighbour:
                 self.focus_on(neighbour)
-        elif key in ('up', 'k'):
-            self.move(-1)
-        elif key in ('down', 'j'):
-            self.move(1)
+        elif key in ('up', 'k', 'down', 'j'):
+            step = -1 if key in ('up', 'k') else 1
+            if self.focus == 'thrusters' and self.grabbed is not None:
+                self.move_grabbed(step)
+            else:
+                self.move(step)
         elif key == 'space':
             self.stop('stopped by operator')
-        elif key in ('q', 'escape'):
-            self.quit = True
+        elif key == 'q':
+            self.confirm_quit()
+        elif key == 'escape':  # backs out; never quits
+            if self.grabbed is not None:
+                self.grabbed = None
+                self.notice = 'Dropped'
         elif key == '?':
             self.show('Help', rows=HELP, width=76)
         elif key == 'a':
-            if self.armed:
-                self.disarm()
-            else:
-                self.arm()
+            self.arm_panel()
         elif key == 'x':
             self.export()
         elif key in ('+', '=', '-', '_'):
@@ -424,26 +512,58 @@ class App:
                     (name, value) for name, value in result.items()
                     if not isinstance(value, dict)])
 
+    def mapping(self):
+        """The thruster mapping being shown: the unsaved draft, else the saved config."""
+        config = self.draft or self.args.hardware_config
+        return list(config['channel_map']), list(config['reversed'])
+
+    def edit_mapping(self, channel_map, reversed_):
+        saved = self.args.hardware_config
+        unchanged = (channel_map == list(saved['channel_map'])
+                     and reversed_ == list(saved['reversed']))
+        self.draft = None if unchanged else dict(channel_map=channel_map, reversed=reversed_)
+        self.notice = 'Mapping unchanged' if unchanged else 'Unsaved mapping; s saves, u undoes'
+
     def on_thrusters(self, key):
         position = self.cursors['thrusters']
-        config = self.args.hardware_config
+        channel_map, reversed_ = self.mapping()
         if key in ('left', 'right', 'h', 'l'):
             self.nudge(position, PULSE_STEP if key in ('right', 'l') else -PULSE_STEP)
         elif key == '0':
             self.clear_pulses('Test pulses neutral')
-        elif key == 'r':
-            flips = list(config['reversed'])
-            flips[position] = not flips[position]
-            self.save_hardware(reversed=flips)
+        elif key == 'enter':
+            self.grabbed = None if self.grabbed is not None else position
+            self.notice = ('Moving ' + dashboard.POSITIONS[position].upper() + '; ↑↓ moves it, '
+                           'Enter drops' if self.grabbed is not None else 'Dropped')
         elif key in ('1', '2', '3', '4'):
-            mapping = list(config['channel_map'])
-            output, other = int(key), mapping.index(int(key))
-            mapping[other], mapping[position] = mapping[position], output  # swap
-            self.save_hardware(channel_map=mapping)
+            other = channel_map.index(int(key))
+            channel_map[other], channel_map[position] = channel_map[position], int(key)
+            self.edit_mapping(channel_map, reversed_)
+        elif key == 'r':
+            reversed_[position] = not reversed_[position]
+            self.edit_mapping(channel_map, reversed_)
+        elif key == 's':
+            if self.draft is None:
+                self.notice = 'Nothing to save'
+                return
+            self.save_hardware(channel_map=channel_map, reversed=reversed_)
+            self.notice = f'Mapping saved to {self.config_file.name}'
+        elif key == 'u':
+            self.draft = self.grabbed = None
+            self.notice = 'Mapping changes undone'
         elif key == 'i':
             self.run_procedure(next(p for p in PROCEDURES if p.key == 'i'))
-        elif key == 'e':
-            self.edit_config()
+
+    def move_grabbed(self, step):
+        """Swap the grabbed thruster's output and reversal with its neighbour's, and follow it."""
+        target = self.grabbed + step
+        if not 0 <= target < 4:
+            return
+        channel_map, reversed_ = self.mapping()
+        for values in (channel_map, reversed_):
+            values[self.grabbed], values[target] = values[target], values[self.grabbed]
+        self.grabbed = self.cursors['thrusters'] = target
+        self.edit_mapping(channel_map, reversed_)
 
     def nudge(self, position, step):
         """Raw test pulse on one thruster's output, through the armed driver."""
@@ -455,7 +575,7 @@ class App:
             self.notice = f'Test pulses refused: {conflicts[0]}'
             return
         pulses = list(self.test_pulses or [NEUTRAL] * 4)
-        output = self.args.hardware_config['channel_map'][position] - 1
+        output = self.mapping()[0][position] - 1  # the draft wiring, to check it before saving
         pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
         self.test_pulses = pulses
         self.ros.emit('test_pulses', pulses=pulses)
@@ -469,14 +589,6 @@ class App:
             self.ros.emit('test_pulses', pulses=[NEUTRAL] * 4)
         if notice:
             self.notice = notice
-
-    def edit_config(self):
-        if not self.config_file.exists():
-            save_config(load_config(self.args.config), self.args.config)
-        editor = os.environ.get('VISUAL') or os.environ.get('EDITOR') or 'vi'
-        with self.suspended():
-            self.foreground([*shlex.split(editor), str(self.config_file)])
-        self.watch_config()
 
     # --- popups --------------------------------------------------------------------
 
@@ -517,10 +629,11 @@ class App:
         return self.popup(dict(kind='message', title=title, message=message,
                                hint='Enter continue · Esc cancel'), handle)
 
-    def choose(self, title, options, shortcuts=None, message=None, danger=False):
+    def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None,
+               selected=0, width=64):
         modal = dict(kind='choice', title=title, message=message, options=list(options),
-                     selected=0, danger=danger, hint='↑↓ select · Enter choose · Esc cancel',
-                     keys=[None] * len(options))
+                     selected=selected, danger=danger, rows=rows, width=width,
+                     hint='↑↓ select · Enter choose · Esc cancel', keys=[None] * len(options))
         for key, index in (shortcuts or {}).items():
             modal['keys'][index] = key
 
@@ -537,10 +650,10 @@ class App:
                 raise Cancelled('cancelled by operator')
         return self.popup(modal, handle)
 
-    def type_word(self, title, message, word):
+    def type_word(self, title, message, word, rows=None, width=64):
         """A typed confirmation for real outputs: only the exact word proceeds."""
         modal = dict(kind='input', title=title, message=message, text='', danger=True,
-                     hint=f'Type {word.upper()} and Enter · Esc cancel')
+                     rows=rows, width=width, hint=f'Type {word.upper()} and Enter · Esc cancel')
 
         def handle(key):
             if key == 'enter':
@@ -555,32 +668,55 @@ class App:
 
     # --- arming --------------------------------------------------------------------
 
-    def arm(self):
-        if self.arming is None:
-            raise RuntimeError('this session cannot arm (no ROS)')
-        # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
-        # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
-        override = ('\nBench override: sensor and TF interlocks are off.'
-                    if self.args.bench_override else '')
+    def arm_rows(self):
+        """What arming means right now: outputs, driver, config and every interlock."""
+        outputs = {'odroid': 'ODROID PWM pins (real thrusters)',
+                   'topic': f'simulator over ROS ({self.args.hardware_config["pwm_topic"]})',
+                   'none': 'commands straight to the plant'}[self.profile.outputs]
+        driver = ('running' if self.armed else 'starts on arm') if self.profile.outputs != 'none' \
+            else 'none'
+        rows = [('Outputs', outputs), ('Driver', driver),
+                ('Commands', f'{self.profile.command_topic} ({self.profile.command_units})'),
+                ('Config', str(self.config_file))]
+        blockers = self.blockers()
+        rows.append(('Interlocks', '● clear' if not blockers else f'× {blockers[0]}'))
+        rows += [('', f'× {reason}') for reason in blockers[1:4]]
+        if self.args.bench_override:
+            rows.append(('Override', 'bench: sensor and TF interlocks off'))
+        return rows
+
+    def arm_panel(self):
+        """One popup for both directions; Space still stops without it."""
         title = f'Arm{dashboard.SEPARATOR}{self.profile.name}'
         try:
+            if self.armed:
+                if self.choose(f'Armed{dashboard.SEPARATOR}{self.profile.name}',
+                               ('Disarm', 'Close'), {'d': 0, 'c': 1}, rows=self.arm_rows(),
+                               danger=True, width=72) == 'Disarm':
+                    self.disarm()
+                return
+            if self.arming is None:
+                raise RuntimeError('this session cannot arm (no ROS)')
             if self.profile.outputs == 'odroid':
-                ok = self.type_word(title, 'Real thruster outputs. Propellers submerged, area '
-                                    'clear, physical power cutoff within reach.' + override, 'arm')
+                ok = self.type_word(title, 'Propellers submerged, area clear, physical power '
+                                    'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72)
             else:
-                what = ('Simulator thruster outputs over ROS.' if self.profile.outputs == 'topic'
-                        else 'Commands straight to the plant.')
                 ok = self.choose(title, ('Cancel', 'Arm'), {'n': 0, 'y': 1},
-                                 message=what + override) == 'Arm'
+                                 rows=self.arm_rows(), width=72) == 'Arm'
         except Cancelled:
             ok = False
         if not ok:
             self.notice = 'Arming cancelled'
             return
+        # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
+        # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
         self.arming.arm()
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
         self.notice = 'Armed at neutral'
+
+    def arm(self):
+        self.arm_panel()
 
     def disarm(self, reason='disarmed'):
         self.clear_pulses()
@@ -827,9 +963,7 @@ def main(argv=None):
     finally:
         try:
             if app is not None:
-                app.stop('session ended')
-                ros.emit('session_stop')
-                app.export()  # before the bag stops, so the report names a complete bag
+                app.close()  # already done by run() unless the page never opened
             else:
                 plant.neutral()
                 arming.disarm()
@@ -838,7 +972,13 @@ def main(argv=None):
             processes.stop_all()
             ros.close()
             rclpy.try_shutdown()
-    console.print(f'Session bag: {paths.bag}\nReport: {paths.report}')
+    if app is not None:
+        table = dashboard.theme.grid({'header': '', 'style': f'bold {dashboard.ACCENT}'},
+                                     {'header': '', 'ratio': 1}, padding=(0, 2))
+        table.show_header = False
+        for label, value in app.summary():
+            table.add_row(label, value)
+        console.print(dashboard.theme.block(table, 'Session closed', expand=False))
 
 
 if __name__ == '__main__':
