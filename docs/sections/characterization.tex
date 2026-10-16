@@ -1,14 +1,24 @@
 \section{Least-squares characterization}
 \label{sec:char}
 
-To command a velocity we need to know what velocity an effort produces. The
-model is affine:
+To command a velocity we need to know what velocity an effort produces.
+
+\paragraph{Effort, gain and bias.} \emph{Effort} $\bm{e} = (e_x, e_y, e_\psi)$
+is the body command before the mixer, each axis in $[-1, 1]$: $1$ means as much
+of that axis as the thrusters can give (Section~\ref{sec:mixer}). It is a
+request for force, not a speed. What speed it buys depends on the boat's mass,
+drag and props, so it is measured. The model is affine:
 \[
   \bm{v} = \bm{b} + G\bm{e},
 \]
-where $G\in\R^{3\times3}$ is the \emph{gain} (m/s per unit effort on the
-diagonal, cross-coupling off it) and $\bm{b}$ the \emph{bias}: the velocity at
-zero effort, from current or wind.
+where $\bm v = (v_x, v_y, \omega_z)$ is the steady body velocity, $G\in\R^{3\times3}$
+the \emph{gain} and $\bm{b}$ the \emph{bias}. $G_{xx}$ is metres per second of
+surge per unit of surge effort; an off-diagonal entry such as $G_{\psi y}$ is
+yaw rate per unit of sway effort, i.e.\ how much asking for sway also turns the
+boat. $\bm b$ is the velocity at zero effort: current, wind, or a thruster that
+never quite stops. Once $G$ and $\bm b$ are known, the controller inverts the
+model, $\bm e = G^{-1}(\bm v^\star - \bm b)$, to turn a wanted velocity
+$\bm v^\star$ into effort (Section~\ref{sec:controller}).
 
 \paragraph{Collecting samples.} The Characterize procedure holds a schedule of
 efforts (each axis both ways at two levels, then combined directions), with
@@ -16,33 +26,105 @@ neutral between them. Every odometry sample $\bm{v}_k$ is paired with the effort
 $\bm{e}_k$ held when it was measured, skipping the first second of each hold so
 the fit sees the response and not the switching transient.
 
-\paragraph{The fit.} Stack the samples as rows. For one output axis, say $v_x$,
+\paragraph{The unknowns, the data and the inputs.} Fit one output axis at a
+time, say $v_x$. Its model is $v_x = b_x + G_{xx}e_x + G_{xy}e_y + G_{x\psi}e_\psi$,
+one equation per sample. Stack the $n$ samples as rows:
 \[
-  \underbrace{\begin{bmatrix} v_{x,1}\\ \vdots\\ v_{x,n}\end{bmatrix}}_{\bm{y}}
-  =
-  \underbrace{\begin{bmatrix} 1 & \bm{e}_1^\top\\ \vdots & \vdots\\ 1 & \bm{e}_n^\top\end{bmatrix}}_{X}
-  \underbrace{\begin{bmatrix} b_x\\ G_{x,\cdot}^\top\end{bmatrix}}_{\bm\theta}
-  + \text{noise}.
+  \underbrace{\begin{bmatrix} v_{x,1}\\ \vdots\\ v_{x,n}\end{bmatrix}}_{\bm{y}\ \in\ \R^{n}}
+  \approx
+  \underbrace{\begin{bmatrix} 1 & e_{x,1} & e_{y,1} & e_{\psi,1}\\
+                              \vdots & \vdots & \vdots & \vdots\\
+                              1 & e_{x,n} & e_{y,n} & e_{\psi,n}\end{bmatrix}}_{X\ \in\ \R^{n\times4}}
+  \underbrace{\begin{bmatrix} b_x\\ G_{xx}\\ G_{xy}\\ G_{x\psi}\end{bmatrix}}_{\bm\theta\ \in\ \R^{4}} .
 \]
-Least squares chooses $\bm\theta$ minimizing $\|\bm{y} - X\bm\theta\|^2$. Setting
-the gradient to zero gives the \emph{normal equations}
-\[
-  X^\top X\,\bm\theta = X^\top \bm{y}.
-\]
-The $4\times4$ matrix $X^\top X$ is the same for all three axes, so one solve with
-three right-hand sides gives $\bm{b}$ and every row of $G$.
+\begin{itemize}[nosep]
+  \item $\bm y$ is what was measured: one velocity per sample.
+  \item $X$ is what was commanded: one row per sample, the efforts held at the
+        time, with a leading $1$ so the bias has a column to live in.
+  \item $\bm\theta$ is what we want: the four numbers of this axis's model.
+\end{itemize}
+With hundreds of noisy samples and four unknowns, no $\bm\theta$ fits every row
+exactly. Each choice leaves a \emph{residual} $\bm r = \bm y - X\bm\theta$, the
+part of the measurement the model does not explain.
 
-\paragraph{When the fit is not trustworthy.} $X^\top X$ is invertible only if the
-samples excite every column: some neutral, some surge, some sway, some yaw. The
-code checks its rank and refuses a bag that only drove forward, rather than
-returning a confident-looking but meaningless $G$. A tiny ridge term
-$10^{-8} I$ guards against round-off.
+\paragraph{What is minimized.} Not $\bm\theta$: $\bm\theta$ is what we
+\emph{choose}. We pick the $\bm\theta$ that makes the residual smallest,
+\[
+  \hat{\bm\theta} = \argmin_{\bm\theta}\ J(\bm\theta),\qquad
+  J(\bm\theta) = \|\bm y - X\bm\theta\|^2 = \sum_{k=1}^{n}\big(v_{x,k} - b_x - G_{x,\cdot}\,\bm e_k\big)^2 .
+\]
+Squaring makes misses of either sign count, punishes large misses more than
+small ones, and makes $J$ a smooth bowl with a single bottom.
+
+\paragraph{Deriving the normal equations.} Expand $J$:
+\[
+  J(\bm\theta) = \bm y^\top\bm y - 2\,\bm\theta^\top X^\top\bm y + \bm\theta^\top X^\top X\,\bm\theta .
+\]
+The transpose appears because a squared length is a vector times itself,
+$\|\bm r\|^2 = \bm r^\top\bm r$, and $(X\bm\theta)^\top = \bm\theta^\top X^\top$.
+Using $\nabla_{\bm\theta}(\bm\theta^\top\bm c) = \bm c$ and
+$\nabla_{\bm\theta}(\bm\theta^\top A\bm\theta) = 2A\bm\theta$ for symmetric $A$,
+\[
+  \nabla J = -2X^\top\bm y + 2X^\top X\,\bm\theta
+           = -2X^\top(\bm y - X\bm\theta) = \bm 0
+  \quad\Longrightarrow\quad
+  X^\top X\,\hat{\bm\theta} = X^\top \bm{y}.
+\]
+These are the \emph{normal equations}. $X^\top X$ is only $4\times4$, however
+many samples there are, and it is the same for all three axes (they share the
+inputs), so one solve with three right-hand sides gives $\bm{b}$ and every row
+of $G$.
+
+\paragraph{What $X^\top$ means.} At the optimum, $X^\top\bm r = \bm 0$. Row $j$ of
+$X^\top$ is column $j$ of $X$, so this says the residual has zero dot product
+with every input column: with the column of ones (the misses average to zero),
+with the $e_x$ column (no part of the miss still moves with $e_x$), and so on.
+If any were nonzero, some input still explained part of the residual and the
+corresponding coefficient could be improved. Geometrically, $X\hat{\bm\theta}$
+is the orthogonal projection of $\bm y$ onto the span of the columns of $X$.
+Multiplying by $X^\top$ also turns an $n$-row problem that has no exact solution
+into a square $4\times4$ one that does. The entries are plain sums,
+\[
+  X^\top X = \sum_k \begin{bmatrix}1\\ \bm e_k\end{bmatrix}\begin{bmatrix}1 & \bm e_k^\top\end{bmatrix},
+  \qquad
+  X^\top\bm y = \sum_k \begin{bmatrix}1\\ \bm e_k\end{bmatrix} v_{x,k},
+\]
+which is what the code forms (\code{rows.T @ rows}) before solving.
+
+\begin{example}[one axis]
+With one input, $v = b + g\,e$, the normal equations solve in closed form to
+\[
+  \hat g = \frac{\sum_k (e_k - \bar e)(v_k - \bar v)}{\sum_k (e_k - \bar e)^2}
+         = \frac{\operatorname{cov}(e, v)}{\operatorname{var}(e)},
+  \qquad \hat b = \bar v - \hat g\,\bar e :
+\]
+the gain is how much velocity moves together with effort, divided by how much
+effort moved. The matrix form is the same idea for all inputs at once, which
+also separates their effects when they were held together.
+\end{example}
+
+\paragraph{When the fit is not trustworthy.} $X^\top X$ is invertible only if
+the columns of $X$ are independent, i.e.\ the samples excite every input: some
+neutral, some surge, some sway, some yaw. A bag that only drove forward has an
+$e_y$ column of zeros, so nothing in the data says what sway does. The code
+checks the rank and refuses such a bag, rather than returning a
+confident-looking but meaningless $G$. A tiny ridge term $10^{-8} I$ guards
+against round-off. Holding each axis \emph{both} ways also matters: it lets
+the fit tell bias (same sign both ways) from gain (flips with effort).
 
 \begin{example}
 If $v_x = 0.6\,e_x$, $v_y = 0.4\,e_y$, $\omega_z = 0.3\,e_\psi$ exactly, the fit
 returns $G = \operatorname{diag}(0.6, 0.4, 0.3)$ and $\bm b = \bm 0$. In the
 simulator, $e_x = 0.2$ produced about $0.9$\,m/s, so $G_{xx}\approx 4.5$.
 \end{example}
+
+\paragraph{How linear is it?} Not exactly. Prop thrust grows roughly with prop
+speed squared, hull drag with speed squared, and reverse thrust is weaker than
+forward. These partly cancel, so steady speed is close to linear in effort over
+a working range, but $G$ is a straight line through a curve: it is best near
+the efforts it was fitted at. Fit at the speeds you will drive, and expect the
+velocity controller's integral term (Section~\ref{sec:controller}) to absorb the
+rest.
 
 \paragraph{Limits.} The largest measured speed per axis gives the velocity
 limits; the largest change of velocity between consecutive samples divided by

@@ -1,8 +1,81 @@
-\section{The thrust mixer}
+\section{The thrust mixer, from the boat's geometry}
 \label{sec:mixer}
 
-The four thrusters sit at the corners, angled at $45^\circ$. A matrix
-$M\in\R^{4\times 3}$ turns a body effort into one effort per thruster:
+The mixer turns a body command (surge, sway, yaw) into one command per
+thruster. It looks like a table of signs, but it comes straight out of where
+the thrusters are and which way they push. This section derives it, explains
+why it is only $\pm1$ for this boat, and what changes when the geometry is not
+ideal.
+
+\subsection{From thrusts to a body force}
+
+Describe thruster $i$ by its position $(x_i, y_i)$ relative to the boat's
+\emph{center of mass}, in the body frame ($x$ forward, $y$ to port), the
+direction its positive thrust pushes the boat, an angle $\alpha_i$ from $+x$,
+and its thrust $t_i$ (negative means it pushes the other way). Its force is
+$t_i(\cos\alpha_i, \sin\alpha_i)$, and its turning moment is the 2-D cross
+product of lever arm and force, $\tau_i = x_i F_{y,i} - y_i F_{x,i}$. Adding
+the four thrusters,
+\[
+  \underbrace{\begin{bmatrix} F_x\\ F_y\\ \tau \end{bmatrix}}_{\bm{w}}
+  = \underbrace{\begin{bmatrix}
+      \cos\alpha_1 & \cdots & \cos\alpha_4\\
+      \sin\alpha_1 & \cdots & \sin\alpha_4\\
+      x_1\sin\alpha_1 - y_1\cos\alpha_1 & \cdots & x_4\sin\alpha_4 - y_4\cos\alpha_4
+    \end{bmatrix}}_{B\ \in\ \R^{3\times4}}
+  \underbrace{\begin{bmatrix} t_1\\ \vdots\\ t_4 \end{bmatrix}}_{\bm{t}} .
+\]
+Column $i$ of $B$ is what one unit of thrust from thruster $i$ does to the
+boat. $B$ is the boat's \emph{allocation} matrix: kinematics, no tuning.
+
+\subsection{From a body command to thrusts: the pseudo-inverse}
+
+The mixer runs the other way: given a wanted $\bm{w}$, find $\bm{t}$. With four
+thrusters and three axes, $B\bm{t} = \bm{w}$ has infinitely many solutions; any
+$\bm{t}$ in the null space of $B$ (thrusts that cancel exactly) can be added
+for free. The natural choice is the one that spends the least thrust,
+\[
+  \min_{\bm t}\ \sum_i t_i^2 \quad\text{subject to}\quad B\bm{t} = \bm{w}.
+\]
+The answer must lie in the row space of $B$, $\bm{t} = B^\top\bm{\lambda}$:
+any component outside it lies in the null space, adds nothing to $\bm{w}$, and
+only costs thrust. Substituting, $BB^\top\bm\lambda = \bm w$, so
+\[
+  \bm{t} = B^\top (BB^\top)^{-1}\bm{w} = B^{+}\bm{w},
+\]
+the Moore--Penrose pseudo-inverse. The transpose appears for the same reason
+as in least squares (Section~\ref{sec:char}): the best solution is a
+combination of the rows. $BB^\top$ is $3\times3$ and invertible whenever the
+thrusters can produce every force and moment.
+
+\subsection{Why this boat's mixer is only signs}
+
+The boat is a symmetric ``X'': thrusters at $(\pm a, \pm b)$, each pushing
+along a diagonal. Matching the code's sign convention,
+\begin{center}
+\begin{tabular}{lcccc}
+  \toprule
+  & FL & FR & RR & RL\\
+  \midrule
+  position & $(a, b)$ & $(a, -b)$ & $(-a, -b)$ & $(-a, b)$\\
+  $\alpha_i$ & $135^\circ$ & $-135^\circ$ & $-45^\circ$ & $45^\circ$\\
+  \bottomrule
+\end{tabular}
+\end{center}
+Every $\cos\alpha_i$ and $\sin\alpha_i$ is $\pm\frac{1}{\sqrt2}$, and every
+lever arm works out to $\pm\frac{a+b}{\sqrt2}$, so
+\[
+  B = \frac{1}{\sqrt2}\begin{bmatrix}
+    -1 & -1 & +1 & +1\\
+    +1 & -1 & -1 & +1\\
+    (a{+}b) & -(a{+}b) & (a{+}b) & -(a{+}b)
+  \end{bmatrix}.
+\]
+Its rows are orthogonal, so $BB^\top = \operatorname{diag}\!\left(2,\,2,\,2(a{+}b)^2\right)$
+and $B^{+} = B^\top(BB^\top)^{-1}$ is just $B^\top$ with each column scaled.
+Effort is normalized per axis anyway ($e=1$ means ``as much of this axis as one
+saturated thruster allows''), so those scales drop out and the mixer is the
+sign pattern of $B^\top$:
 \[
   \bm{t} = M\bm{e},\qquad
   M = \begin{bmatrix}
@@ -13,21 +86,17 @@ $M\in\R^{4\times 3}$ turns a body effort into one effort per thruster:
   \end{bmatrix}
   \begin{matrix}\text{FL}\\ \text{FR}\\ \text{RR}\\ \text{RL}\end{matrix}
 \]
-Read a column to see how one axis is made. Pure surge, $\bm{e} = (1,0,0)$,
-gives $\bm{t} = (-1,-1,+1,+1)$: the bow thrusters push water aft and the stern
-thrusters push forward (each thruster's ``positive'' points along its own
-mounting axis). Pure yaw drives diagonal pairs against each other, so the
-forces cancel and only a torque remains.
-
-Each column is orthogonal to the others ($M^\top M = 4I$), so the three axes
-do not interfere: asking for surge never adds sway. That is also why the
-simulator can check the boat's mixer against its own: the two agree thruster
-by thruster once the frame correction is applied.
+Read a column to see how an axis is made: pure surge, $\bm e = (1,0,0)$, gives
+$\bm t = (-1,-1,+1,+1)$; each of those thrusts points forward with a sideways
+part, and the sideways parts cancel in pairs. Pure yaw drives diagonal pairs
+against each other, so the forces cancel and only a moment remains. The
+orthogonal rows are why $M^\top M = 4I$: asking for surge never adds sway or
+yaw.
 
 \paragraph{Desaturation.} A combined command can ask for more than one
-thruster can give, for example $\bm{e} = (1,1,1)$ gives $t_\text{FR} = -3$.
-Clipping that one thruster alone would change the \emph{direction} of the
-resulting force. Instead all four are scaled by the same factor,
+thruster can give, e.g.\ $\bm{e} = (1,1,1)$ gives $t_\text{FR} = -3$.
+Clipping that one thruster would change the \emph{direction} of the force.
+Instead all four are scaled by the same factor,
 \[
   \bm{t}' = \frac{\bm{t}}{\max\!\left(1, \max_i |t_i|\right)},
 \]
@@ -37,4 +106,48 @@ $\bm{e} = (1,1,1)$: $\bm{t} = (1,-3,1,1)$, peak $3$, so
 $\bm{t}' = (\tfrac13, -1, \tfrac13, \tfrac13)$. The boat still moves forward,
 to port and turns left, in the same proportions, at a third of the request.
 \end{example}
-\file{mhseals\_hardware/thruster\_mixer.py (mix\_thrusters)}
+
+\subsection{Other angles and rectangles}
+
+\paragraph{Still mirror-symmetric.} Keep the X mirrored but let the thrusters
+sit at any angle $\alpha$ from the long axis and at any rectangle $(\pm a,
+\pm b)$. The surge row becomes $\pm\cos\alpha$, the sway row $\pm\sin\alpha$,
+and every lever arm $\pm(a\sin\alpha + b\cos\alpha)$. The rows stay
+orthogonal, so the $\pm1$ mixer still decouples the axes exactly; only the
+\emph{strength} of each axis changes: surge capacity scales with $\cos\alpha$,
+sway with $\sin\alpha$, yaw with the lever arm. This boat is already such a
+rectangle: about $a \approx 0.27$\,m fore and aft and $b \approx 0.34$\,m to
+the sides (hull offset plus mount), a yaw lever arm of
+$(a+b)/\sqrt2 \approx 0.43$\,m. Unequal axis strengths need no new mixer:
+the characterization (Section~\ref{sec:char}) measures them as the diagonal of
+the gain $G$, and the velocity controller divides them out.
+
+\paragraph{Asymmetric.} Symmetry breaks when the angles differ between
+thrusters, the thrusters are not mirrored, or, most often, the center of mass
+is not at the geometric center (batteries, a camera mast). Positions are
+measured from the center of mass, so moving it by $(x_c, y_c)$ changes every
+lever arm to $(x_i - x_c)\sin\alpha_i - (y_i - y_c)\cos\alpha_i$. The yaw row is
+then no longer orthogonal to the surge and sway rows, and the $\pm1$ mixer
+leaks: a pure sway command produces the moment
+\[
+  \tau = \sum_i t_i\,\big[(x_i - x_c)\sin\alpha_i - (y_i - y_c)\cos\alpha_i\big]
+  \neq 0 \quad\text{for } \bm t = M(0,1,0)^\top,
+\]
+and the boat turns while sliding sideways. There are two ways to fix it:
+\begin{enumerate}[nosep]
+  \item \emph{From geometry:} measure $(x_i, y_i, \alpha_i)$ about the center of
+        mass, build $B$, and use $M = B^{+}$, each column scaled so a full
+        command just saturates the busiest thruster. Thrusters of unequal
+        strength (or reverse thrust weaker than forward) call for a weighted
+        pseudo-inverse: minimizing $\sum_i w_i t_i^2$ gives
+        $\bm t = W^{-1}B^\top(BW^{-1}B^\top)^{-1}\bm w$ with $W = \operatorname{diag}(w_i)$.
+  \item \emph{From data:} the characterization's off-diagonal gains are exactly
+        this leakage, and the controller's $G^{-1}$ cancels it. Folding the
+        correction into the mixer gives $M' = M G^{-1}$ (clipped to
+        $[-1,1]$), the ``recommended allocation'' the fit reports; in effect it
+        measures $B^{+}$ from how the boat moves instead of from a ruler.
+\end{enumerate}
+In practice use both: geometry for a good starting mixer, the fit for what the
+geometry missed. A quick check is in the axis trials: pure surge should show
+no steady yaw rate, and a consistent one means the yaw part of the mixer is off.
+\file{mhseals\_hardware/thruster\_mixer.py (mix\_thrusters), mhseals\_testing/analysis/characterization.py}
