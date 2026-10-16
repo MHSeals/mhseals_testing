@@ -106,7 +106,7 @@ class Live:
     def __exit__(self, *exc):
         return False
 
-    def update(self, renderable):
+    def update(self, renderable, refresh=False):
         self.frames += 1
 
     def stop(self):
@@ -751,3 +751,41 @@ def test_manual_control_stops_on_an_interlock(tmp_path):
         except Exception as error:  # run() turns this into a stop
             app.stop(str(error))
     assert not app.armed and boat.sent[-1] == 'neutral'
+
+
+def test_ctrl_c_closes_gracefully_like_quit(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.arming.armed = True
+
+    class Interrupting(Keys):
+        def read(self, timeout):
+            raise KeyboardInterrupt
+
+    app.open_keys = lambda: Interrupting(app.clock, boat)
+    app.run()
+    assert app.quit and app.closed and not app.armed and boat.sent[-1] == 'neutral'
+    assert app.ros.events.count('session_stop') == 1
+    assert (tmp_path / 'session.report.json').exists()
+
+
+def test_children_die_with_the_suite(tmp_path):
+    import os, signal, subprocess, sys, time
+    # A middle process starts a child through ProcessManager, then is killed hard.
+    script = (f"import sys, time; sys.path[:0] = {sys.path!r}\n"
+              "from mhseals_testing.ros.processes import ProcessManager\n"
+              f"p = ProcessManager({str(tmp_path)!r})\n"
+              "c = p.start('sleeper', [sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+              "print(c.pid, flush=True); time.sleep(60)\n")
+    parent = subprocess.Popen([sys.executable, '-c', script], stdout=subprocess.PIPE, text=True)
+    child = int(parent.stdout.readline())
+    parent.send_signal(signal.SIGKILL)
+    parent.wait()
+    for _ in range(50):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(child, signal.SIGKILL)
+        raise AssertionError('child outlived the suite')

@@ -54,6 +54,7 @@ NEIGHBOURS = {
             'activity': {'left': 'status', 'up': 'procedures'}},
 }
 ADVISORY_PERIOD = 1.0
+FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
@@ -153,6 +154,7 @@ class App:
         self.last_advisory = float('-inf')
         self.pwm_readback = ['—'] * 4
         self.keys = self.live = None
+        self.last_frame = 0.0
         self.quit = False
         self.closed = False
         self.started = clock()
@@ -304,9 +306,15 @@ class App:
         return dashboard.render(self.snapshot(), self.view(),
                                 self.console.size.width, self.console.size.height)
 
-    def refresh(self):
-        if self.live is not None:
-            self.live.update(self.render())
+    def refresh(self, force=True):
+        """Draw now. Continuous callers pass force=False to cap redraws at 1/FRAME."""
+        if self.live is None:
+            return
+        now = time.monotonic()
+        if not force and now - self.last_frame < FRAME:
+            return
+        self.last_frame = now
+        self.live.update(self.render(), refresh=True)
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
@@ -320,8 +328,10 @@ class App:
     @contextmanager
     def attached(self):
         """One key reader and one full-screen live view for the whole session."""
+        # No refresh thread: the loop draws right after each key, and nothing else writes
+        # to the terminal between frames, so mode switches such as Kitty's reach it intact.
         with self.open_keys() as keys, self.live_factory(
-                self.render(), console=self.console, screen=True, refresh_per_second=10) as live:
+                self.render(), console=self.console, screen=True, auto_refresh=False) as live:
             self.keys, self.live = keys, live
             try:
                 yield self
@@ -332,14 +342,21 @@ class App:
         with self.attached():
             try:
                 while not self.quit:
-                    key = self.keys.read(timeout=0.1)
-                    if key is not None:
-                        try:
-                            self.dispatch(key)
-                        except STOPPING_ERRORS as error:
-                            self.stop(str(error) or type(error).__name__)
-                    self.tick()
-                    self.refresh()
+                    try:
+                        key = self.keys.read(timeout=0.1)
+                        if key is not None:
+                            try:
+                                self.dispatch(key)
+                            except STOPPING_ERRORS as error:
+                                self.stop(str(error) or type(error).__name__)
+                        self.tick()
+                        self.refresh(force=key is not None)
+                    except KeyboardInterrupt:
+                        # Ctrl+C quits like q, minus the question: anything moving has
+                        # already stopped at neutral (the runner neutralizes on any exit).
+                        self.quit = True
+                        self.modal = None
+                        self.notice = 'Interrupted'
             finally:
                 self.close()  # on q and on Ctrl+C alike, while the page is still up
 
@@ -379,7 +396,7 @@ class App:
                  ('Report', self.close_report), ('Recording', self.close_recording)]
         rows = [[name, '◌ waiting'] for name, _ in steps]
         self.modal = dict(kind='message', title='Closing session', rows=rows, width=64,
-                          hint='Ctrl+C again forces the exit')
+                          hint='Ctrl+C again skips the rest')
         for row, (_, step) in zip(rows, steps):
             row[1] = '◌ working'
             self.refresh()
@@ -798,7 +815,7 @@ class App:
             self.notice = f'{label or name}{dashboard.SEPARATOR}{remaining:.1f}s · Space aborts'
             if self.test_pulses is not None and self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
-            self.refresh()
+            self.refresh(force=False)
 
         runner = Runner(self.plant, blockers, self.keys, show=show,
                         emit=self.ros.emit, clock=self.monitor.clock)
@@ -838,7 +855,7 @@ class App:
         self.notice = ('Manual control ended' if done else
                        f"Manual {amplitude:.0%}{dashboard.SEPARATOR}{active}{dashboard.SEPARATOR}"
                        + ('held keys' if event_mode else 'tap-repeat mode'))
-        self.refresh()
+        self.refresh(force=done)
 
 
 def nav2_params():
@@ -933,9 +950,13 @@ def main(argv=None):
     from mhseals_testing.ros.plant import Plant
     from mhseals_testing.ros.processes import ProcessManager, bag_command, unique_path
 
+    from rclpy.signals import SignalHandlerOptions
+
     paths = SessionPaths.from_output(unique_path(args.output))
     console = Console()
-    rclpy.init()
+    # rclpy's own SIGINT handler would shut ROS down before the graceful close could
+    # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     monitor = BoatMonitor(args.stale_after, history_sensors=tuple(
         sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'))
     ros = RosIO(profile, monitor, args.stale_after)
@@ -960,7 +981,7 @@ def main(argv=None):
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses)
         ros.emit('session_start', profile=profile.name, bag=str(paths.bag))
         app.run()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
     finally:
         try:

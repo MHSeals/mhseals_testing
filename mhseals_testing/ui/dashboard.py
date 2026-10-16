@@ -350,13 +350,13 @@ def health_strip(snapshot, view):
     return Text('   ').join(parts)
 
 
-def arm_badge(armed):
-    """The one thing that must never be missed: are the outputs live?"""
-    # Reverse video of a theme color: the pill takes the palette's red or green and the
-    # text the terminal's own background, so it reads right in any theme.
-    if armed:
-        return Text(' ● ARMED ', style=f'bold reverse {theme.BAD}')
-    return Text(' ○ DISARMED ', style=f'bold reverse {theme.GOOD}')
+def arm_state(armed, detail=None):
+    """Armed or disarmed, drawn like every other status: a colored dot and a label."""
+    text = Text('● ', style=theme.BAD if armed else theme.GOOD)
+    text.append('Armed' if armed else 'Disarmed', style='bold')
+    if detail:
+        text.append(SEPARATOR + detail, style=MUTED)
+    return text
 
 
 def header(snapshot, view):
@@ -366,7 +366,7 @@ def header(snapshot, view):
     title = Text(' boat_test ', style=f'bold {ACCENT}')
     title.append(f" {view['profile']}", style='bold')
     right = Text(f"{view['host']}{SEPARATOR}ROS {view['domain']}  ", style=MUTED)
-    right.append_text(arm_badge(view['armed']))
+    right.append_text(arm_state(view['armed']))
     top.add_row(title, right)
     strip = Text(' ')
     strip.append_text(health_strip(snapshot, view))
@@ -382,7 +382,7 @@ def footer(view, width):
     focus = Text(f"Focus: {TITLES[view['focus']]}", style=f'bold {ACCENT}')
     if position:
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
-    status.add_row(theme.labelled('ARMED' if view['armed'] else 'OFF', view['arm_label']),
+    status.add_row(arm_state(view['armed'], view['outputs'] if view['armed'] else None),
                    focus, Text(view['notice'], style=MUTED))
     hints = view['hints']
     columns = 4 if width >= WIDE else 3

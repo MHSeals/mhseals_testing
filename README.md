@@ -34,7 +34,7 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 | +/- | Trial amplitude, in the profile's units |
 | x | Write the report |
 | ? | Help |
-| q | Quit: a popup lists what happens (neutral, disarm, stop children, report, flush the bag) and offers to save an unsaved mapping; the steps then show progress and a summary prints. Esc only backs out, never quits |
+| q | Quit: a popup lists what happens (neutral, disarm, stop children, report, flush the bag) and offers to save an unsaved mapping; the steps then show progress and a summary prints. Esc only backs out, never quits. Ctrl+C runs the same close without the question |
 | Thrusters ←→ | Test pulse ±10 µs on the selected thruster, through the armed driver |
 | Thrusters 0 | All test pulses back to neutral (Tab away also ends them) |
 | Thrusters Enter, ↑↓ | Pick up a thruster and move it; it swaps outputs with each row it passes |
@@ -47,7 +47,7 @@ The Motion panel's **Drift** line checks the characterization against the water.
 
 Mapping changes stay a draft (marked `unsaved`, changed outputs in yellow; test pulses already use it) until `s` writes them to the hardware YAML (`--config`, default `~/.config/mhseals/hardware.yaml`). Any change to that file, from the panel or another editor, reloads within a second: the suite reloads it and the running `thruster_pwm_node` hot-reloads its copy, no re-arm needed. A bad edit is refused and the last good config stays in use.
 
-Any interlock, child-process exit or error during motion stops at neutral and disarms.
+Any interlock, child-process exit or error during motion stops at neutral and disarms. Children (the driver, the controller, the bag recorder) get SIGINT if the suite itself dies, even from `kill -9`, so nothing is left driving or recording.
 
 ### Procedures
 

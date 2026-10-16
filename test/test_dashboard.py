@@ -123,8 +123,11 @@ def test_drift_is_live_with_a_bearing_and_compared_with_the_fit():
 def test_header_badge_says_armed_or_disarmed():
     profile = load_profile('boat')
     snapshot = monitor().snapshot(profile.required_tf)
-    assert '○ DISARMED' in text(render(snapshot, view(profile), 120, 40), 120, 40)
-    assert '● ARMED' in text(render(snapshot, view(profile, armed=True), 120, 40), 120, 40)
+    disarmed = text(render(snapshot, view(profile), 120, 40), 120, 40)
+    armed = text(render(snapshot, view(profile, armed=True), 120, 40), 120, 40)
+    assert disarmed.splitlines()[0].rstrip().endswith('● Disarmed')
+    assert armed.splitlines()[0].rstrip().endswith('● Armed')
+    assert '● Armed · odroid' in armed  # the footer uses the same indicator
 
 
 def test_unsaved_mapping_is_marked():

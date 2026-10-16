@@ -6,10 +6,24 @@ to the session bag. Stopping sends SIGINT first, so ros2 bag and ros2
 launch shut down cleanly, then escalates.
 """
 
+import ctypes
 import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
+
+PR_SET_PDEATHSIG = 1
+
+
+def die_with_parent():
+    """Linux: SIGINT the child when the suite dies, however it dies (even kill -9).
+
+    Without this, a killed suite leaves the thruster driver running with its outputs
+    armed; with it, the driver gets the same clean shutdown as a normal disarm.
+    """
+    if sys.platform.startswith('linux'):
+        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGINT)
 
 
 class ProcessManager:
@@ -30,7 +44,8 @@ class ProcessManager:
         environment = dict(os.environ, PYTHONUNBUFFERED='1', RCUTILS_LOGGING_BUFFERED_STREAM='0')
         self.processes[name] = self.popen(
             [str(part) for part in command], start_new_session=True, env=environment,
-            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+            preexec_fn=die_with_parent, stdin=subprocess.DEVNULL, stdout=log,
+            stderr=subprocess.STDOUT)
         return self.processes[name]
 
     def running(self, name):
