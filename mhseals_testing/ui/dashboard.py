@@ -352,9 +352,11 @@ def health_strip(snapshot, view):
 
 def arm_badge(armed):
     """The one thing that must never be missed: are the outputs live?"""
+    # Reverse video of a theme color: the pill takes the palette's red or green and the
+    # text the terminal's own background, so it reads right in any theme.
     if armed:
-        return Text(' ● ARMED ', style=f'bold white on {theme.BAD}')
-    return Text(' ○ DISARMED ', style=f'bold black on {theme.GOOD}')
+        return Text(' ● ARMED ', style=f'bold reverse {theme.BAD}')
+    return Text(' ○ DISARMED ', style=f'bold reverse {theme.GOOD}')
 
 
 def header(snapshot, view):

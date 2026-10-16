@@ -1,22 +1,30 @@
-"""Manual control through mhseals_hardware's deadman keyboard driver, under the interlocks."""
+"""Manual control on the page: deadman keyboard driving under the interlocks.
 
+The key handling is mhseals_hardware's ManualState, the same as keyboard_control:
+held keys drive, releasing them (or the repeat timeout in plain terminals)
+stops, Space clears everything, x / m / Esc leaves. It runs inside the page with a
+key reader that reports key releases, so the dashboard stays on screen.
+"""
+
+import time
+
+from mhseals_hardware.manual_state import ManualState
 from mhseals_testing.runner import Aborted
+
+EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
+STOP_KEYS = ('space', 'press:space', 'focus-out')
 
 
 class GuardedPublisher:
-    """keyboard_control publishes Twists; non-neutral ones must pass the interlocks.
-
-    Neutral is always allowed so the driver's final stop goes out even after a
-    blocker trips.
-    """
+    """Non-neutral commands must pass the interlocks; neutral always goes out."""
 
     def __init__(self, plant, blockers):
         self.plant = plant
         self.blockers = blockers
         self.command = (0.0, 0.0, 0.0)
 
-    def publish(self, message):
-        command = (message.linear.x, message.linear.y, message.angular.z)
+    def publish(self, command):
+        command = tuple(float(value) for value in command)
         if any(command):
             reasons = self.blockers()
             if reasons:
@@ -26,16 +34,35 @@ class GuardedPublisher:
         self.plant.publish(command)
 
 
+def drive(keys, state, publisher, show, clock=time.monotonic):
+    """Read keys until an exit key; publish one coherent command per batch of events."""
+    while True:
+        key = keys.read(timeout=0.05)
+        command = state.update(None, clock()) if key is None else None
+        # Consume already queued events before publishing, so no intermediate
+        # neutral goes out between the press and release of a chord.
+        for _ in range(64):
+            if key is None:
+                break
+            if key in EXIT_KEYS:
+                return
+            command = state.update(key, clock())
+            if key in STOP_KEYS:
+                break  # Stop must not be hidden by queued input.
+            key = keys.read(timeout=0)
+        publisher.publish(command)
+        show(command, state.amplitude, state.event_mode)
+
+
 def run(ctx):
-    from mhseals_hardware.keyboard_control import run_manual  # imports rclpy
     manual = ctx.services['manual']
-    publisher = GuardedPublisher(manual['plant'], manual['blockers'])
     config = ctx.services['hardware_config']
+    state = ManualState(config['manual_amplitude'], config['manual_repeat_timeout'],
+                        config['manual_initial_timeout'])
+    publisher = GuardedPublisher(manual['plant'], manual['blockers'])
     try:
-        # keyboard_control needs key-release events, so it takes the terminal meanwhile.
-        with manual['suspended']():
-            run_manual(publisher, manual['console'], config['manual_amplitude'],
-                       config['manual_repeat_timeout'], config['manual_initial_timeout'],
-                       status_panel=manual['status'])
+        with manual['open_events']() as keys:
+            drive(keys, state, publisher, manual['show'], manual.get('clock', time.monotonic))
     finally:
         manual['plant'].neutral()
+        manual['show']((0.0, 0.0, 0.0), state.amplitude, state.event_mode, done=True)

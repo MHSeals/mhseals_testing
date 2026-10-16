@@ -30,7 +30,7 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 | ↑↓, j k | Move within the focused panel; Enter runs or shows details |
 | a | Arm panel: outputs, driver, config and every interlock, then arm (typed `ARM` for real pins, a button in simulation) or disarm. The header badge always shows `ARMED` or `DISARMED` |
 | Space | Stop: neutral and disarm |
-| m | Manual control |
+| m | Manual control on the page: hold W/S or ↑↓ (surge), A/D (sway), ←/→ (yaw); +/- speed; Space stops; x or Esc leaves. Terminals with the Kitty keyboard protocol drive held keys and chords; others fall back to tap-repeat |
 | +/- | Trial amplitude, in the profile's units |
 | x | Write the report |
 | ? | Help |

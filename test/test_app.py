@@ -700,3 +700,54 @@ def test_arm_panel_lists_interlocks_before_arming(tmp_path):
     rows = dict(app.arm_rows())
     assert rows['Outputs'].startswith('simulator') and rows['Driver'] == 'starts on arm'
     assert rows['Interlocks'].startswith('×')
+
+
+class Events:
+    """A key reader that reports presses and releases, as Kitty terminals do."""
+
+    def __init__(self, clock, keys):
+        self.clock, self.keys, self.entered = clock, list(keys), 0
+
+    def __enter__(self):
+        self.entered += 1
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, timeout=None):
+        self.clock.now += 0.05  # each event arrives a frame later, like a held key
+        return self.keys.pop(0) if self.keys else 'x'
+
+
+def test_manual_control_drives_held_keys_on_the_page_and_ends_neutral(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.console.size = (120, 40)
+    events = Events(app.clock, ['press:w', None, 'repeat:w', 'release:w', None,
+                                'press:a', None, 'release:a', 'press:x'])
+    app.open_events = lambda: events
+    shown = []
+    original = app.manual_show
+    app.manual_show = lambda *a, **k: (shown.append((app.manual, a[0])), original(*a, **k))
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    sent = [command for command in boat.sent if command != 'neutral']
+    assert any(command[0] > 0 for command in sent)          # W drove forward
+    assert any(command[1] > 0 for command in sent)          # A drove to port
+    assert boat.sent[-1] == 'neutral' and not app.manual and app.armed
+    assert events.entered == 1 and app.live is None
+    assert app.focus == 'motion' and app.notice == 'Manual control ended'
+
+
+def test_manual_control_stops_on_an_interlock(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.open_events = lambda: Events(app.clock, ['press:w'] + ['repeat:w'] * 80)
+    with app.attached():
+        arm(app)
+        boat.sensors = False
+        try:
+            app.dispatch('m')
+        except Exception as error:  # run() turns this into a stop
+            app.stop(str(error))
+    assert not app.armed and boat.sent[-1] == 'neutral'

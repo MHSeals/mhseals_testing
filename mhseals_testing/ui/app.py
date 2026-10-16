@@ -68,6 +68,8 @@ PANEL_HINTS = {
     'procedures': [('Enter', 'Run'), ('↑↓', 'Select')],
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
+MANUAL_HINTS = [('W/S ↑↓', 'Surge'), ('A/D', 'Sway'), ('←→', 'Yaw'), ('+/-', 'Speed'),
+                ('Space', 'Stop'), ('x / Esc', 'Leave manual')]
 HELP = [
     ('Ctrl h j k l / arrows', 'Focus the panel to the left, below, above, right'),
     ('Tab / Shift Tab', 'Cycle focus through the panels'),
@@ -115,7 +117,7 @@ class App:
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
-                 task_watcher=None, pulses=None):
+                 task_watcher=None, pulses=None, open_events=None):
         self.args = args
         self.profile = profile
         self.monitor = monitor
@@ -130,6 +132,9 @@ class App:
         self.clock = clock
         self.foreground = foreground
         self.publish_pulses = pulses
+        # Manual control needs key releases (Kitty protocol) to tell held keys from taps.
+        self.open_events = open_events or (lambda: KeyReader(report_events=True))
+        self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
         self.watcher_factory, self._watcher = task_watcher, None
         self.settings = Settings(args.amplitude, args.baseline, args.command_duration,
@@ -277,7 +282,7 @@ class App:
         notice = self.notice if not blockers or self.running else (
             f'{self.notice}{dashboard.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
-        hints = PANEL_HINTS[self.focus] + GLOBAL_HINTS
+        hints = MANUAL_HINTS if self.manual else PANEL_HINTS[self.focus] + GLOBAL_HINTS
         return dict(
             focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
@@ -322,18 +327,6 @@ class App:
                 yield self
             finally:
                 self.keys = self.live = None
-
-    @contextmanager
-    def suspended(self):
-        """Hand the terminal to another full-screen tool (manual control, $EDITOR)."""
-        live, keys = self.live, self.keys
-        live.stop()
-        keys.__exit__(None, None, None)
-        try:
-            yield
-        finally:
-            keys.__enter__()
-            live.start(refresh=True)
 
     def run(self):
         with self.attached():
@@ -747,6 +740,7 @@ class App:
             return
         self.clear_pulses()
         self.running = procedure.title
+        results = len(self.snapshot()['results'])
         self.notice = f'Running {procedure.title}'
         try:
             procedure.run(self.procedure_context())
@@ -756,9 +750,10 @@ class App:
             return
         finally:
             self.running = None
-        self.focus, self.activity = 'activity', 'results'
-        self.cursors['activity'] = 0
-        self.notice = f'{procedure.title} complete'
+        if len(self.snapshot()['results']) > results:  # show what it found
+            self.focus, self.activity = 'activity', 'results'
+            self.cursors['activity'] = 0
+            self.notice = f'{procedure.title} complete'
 
     def procedure_context(self):
         return Context(
@@ -772,8 +767,8 @@ class App:
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 manual=dict(plant=self.plant, blockers=self.motion_blockers,
-                            console=self.console, status=self.manual_status,
-                            suspended=self.suspended)))
+                            open_events=self.open_events, show=self.manual_show,
+                            clock=self.monitor.clock)))
 
     def set_pulses(self, pulses):
         """Raw pulses per output for procedures (identification); None ends them."""
@@ -832,11 +827,18 @@ class App:
         self.ros.emit('result', **result)
         self.export()
 
-    def manual_status(self, label, amplitude, event_mode):
-        self.notice = (f'Manual {amplitude:.0%} {label}{dashboard.SEPARATOR}'
-                       + ('multi-key' if event_mode else 'single-key fallback'))
-        self.focus = 'motion' if 'motion' in self.panels() else self.focus
-        return self.render()
+    def manual_show(self, command, amplitude, event_mode, done=False):
+        """Redraw the page for manual control: Motion focused, manual keys in the footer."""
+        self.manual = not done
+        self.command = tuple(command)
+        if 'motion' in self.panels():
+            self.focus = 'motion'
+        active = ' '.join(f'{axis} {value:+.2f}' for axis, value in
+                          zip(('surge', 'sway', 'yaw'), command) if value) or 'neutral'
+        self.notice = ('Manual control ended' if done else
+                       f"Manual {amplitude:.0%}{dashboard.SEPARATOR}{active}{dashboard.SEPARATOR}"
+                       + ('held keys' if event_mode else 'tap-repeat mode'))
+        self.refresh()
 
 
 def nav2_params():
