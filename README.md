@@ -25,7 +25,8 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 
 | Key | Action |
 | --- | --- |
-| Tab, Shift Tab | Move focus between panels |
+| Ctrl h j k l, Ctrl arrows | Focus the panel to the left, below, above or right |
+| Tab, Shift Tab | Cycle focus through the panels |
 | ↑↓, j k | Move within the focused panel; Enter runs or shows details |
 | a | Arm (typed `ARM` for real pins, a button in simulation) or disarm |
 | Space | Stop: neutral and disarm |

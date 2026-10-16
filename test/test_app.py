@@ -616,3 +616,30 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
     assert result['verdict'] == 'PASS' and result['points'] == 20
     assert started[0][:4] == ['ros2', 'launch', 'mhseals_nav', 'task.launch.py']
     assert 'task:=gates' in started[0] and stopped == ['task_gates']
+
+
+@pytest.mark.parametrize('width,path,expected', [
+    (120, ['ctrl-l', 'ctrl-j', 'ctrl-l', 'ctrl-k', 'ctrl-h'], 'motion'),
+    (120, ['ctrl-right', 'ctrl-right', 'ctrl-down', 'ctrl-left'], 'procedures'),
+    (120, ['ctrl-k', 'ctrl-h'], 'status'),               # no panel there: focus stays
+    (80, ['ctrl-l', 'ctrl-j', 'ctrl-j', 'ctrl-k'], 'procedures'),
+    (80, ['ctrl-l', 'ctrl-j', 'ctrl-h'], 'status'),
+])
+def test_ctrl_directions_focus_the_neighbouring_panel(tmp_path, width, path, expected):
+    app, _ = make_app(tmp_path)
+    app.console.size = (width, 40)
+    for key in path:
+        app.dispatch(key)
+    assert app.focus == expected
+
+
+def test_leaving_thrusters_by_direction_ends_test_pulses(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    app.console.size = (120, 40)
+    with app.attached():
+        arm(app)
+        app.focus = 'thrusters'
+        app.dispatch('right')
+        assert app.test_pulses is not None
+        app.dispatch('ctrl-h')
+    assert app.focus == 'motion' and app.test_pulses is None

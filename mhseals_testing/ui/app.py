@@ -37,12 +37,29 @@ from mhseals_testing.runner import Aborted, Runner
 from mhseals_testing.ui import dashboard
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
 
+# Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
+#   wide:   Status | Motion     | Thrusters        narrow:  Status | Thrusters
+#                  | Procedures | Activity                         | Procedures
+#                                                                  | Activity
+DIRECTIONS = {'ctrl-h': 'left', 'ctrl-left': 'left', 'ctrl-l': 'right', 'ctrl-right': 'right',
+              'ctrl-k': 'up', 'ctrl-up': 'up', 'ctrl-j': 'down', 'ctrl-down': 'down'}
+NEIGHBOURS = {
+    True: {'status': {'right': 'motion'},
+           'motion': {'left': 'status', 'right': 'thrusters', 'down': 'procedures'},
+           'thrusters': {'left': 'motion', 'down': 'activity'},
+           'procedures': {'left': 'status', 'right': 'activity', 'up': 'motion'},
+           'activity': {'left': 'procedures', 'up': 'thrusters'}},
+    False: {'status': {'right': 'thrusters'},
+            'thrusters': {'left': 'status', 'down': 'procedures'},
+            'procedures': {'left': 'status', 'up': 'thrusters', 'down': 'activity'},
+            'activity': {'left': 'status', 'up': 'procedures'}},
+}
 ADVISORY_PERIOD = 1.0
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
-GLOBAL_HINTS = [('Tab', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q', 'Quit')]
+GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q', 'Quit')]
 PANEL_HINTS = {
     'status': [('↑↓', 'Select'), ('Enter', 'Details')],
     'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
@@ -52,7 +69,8 @@ PANEL_HINTS = {
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
 HELP = [
-    ('Tab / Shift Tab', 'Move focus between panels'),
+    ('Ctrl h j k l / arrows', 'Focus the panel to the left, below, above, right'),
+    ('Tab / Shift Tab', 'Cycle focus through the panels'),
     ('↑↓ / j k', 'Move within the focused panel'),
     ('Enter', 'Run, open or show details'),
     ('a', 'Arm or disarm the thruster outputs'),
@@ -324,6 +342,11 @@ class App:
                 self.tick()
                 self.refresh()
 
+    def focus_on(self, panel):
+        if self.focus == 'thrusters' and panel != 'thrusters':
+            self.clear_pulses()  # test pulses only while their panel has focus
+        self.focus = panel
+
     def move(self, step):
         count = self.rows(self.focus)
         if count:
@@ -333,10 +356,13 @@ class App:
         """Apply one key on the page."""
         panels = self.panels()
         if key in ('\t', 'backtab'):
-            if self.focus == 'thrusters':
-                self.clear_pulses()
             index = panels.index(self.focus) if self.focus in panels else 0
-            self.focus = panels[(index + (-1 if key == 'backtab' else 1)) % len(panels)]
+            self.focus_on(panels[(index + (-1 if key == 'backtab' else 1)) % len(panels)])
+        elif key in DIRECTIONS:
+            wide = 'motion' in panels
+            neighbour = NEIGHBOURS[wide].get(self.focus, {}).get(DIRECTIONS[key])
+            if neighbour:
+                self.focus_on(neighbour)
         elif key in ('up', 'k'):
             self.move(-1)
         elif key in ('down', 'j'):
@@ -521,7 +547,7 @@ class App:
                 return modal['text'].strip().lower() == word.lower()
             if key == 'escape':
                 return False
-            if key == 'backspace' or key in ('\x7f', '\x08'):
+            if key in ('backspace', 'ctrl-h', '\x7f'):
                 modal['text'] = modal['text'][:-1]
             elif len(key) == 1 and key.isprintable():
                 modal['text'] += key.upper()
