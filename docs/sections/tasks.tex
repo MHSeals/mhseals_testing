@@ -12,6 +12,14 @@ from the boat is kept:
 \]
 so the boat passes straight through instead of along the line of markers.
 
+\paragraph{Waiting.} A task that waits to see something (the first gate of a
+channel) holds where it began waiting. Under wind and current an idle boat does
+not stay put: at the $0.5$\,m/s drift of an $8$\,m/s wind over a $0.15$\,m/s
+current it is $15$\,m off in
+half a minute, and soon out of sight of what it waits for. Once it is $1.5$\,m
+from its anchor, Nav2 brings it back. After $30$\,s with nothing seen the wait
+fails, and the mission moves on instead of drifting until the stage's deadline.
+
 \paragraph{Circling.} To circle an object at $\bm o$ with radius $R$ in $n$ steps,
 start on the side facing the boat, $\beta = \operatorname{atan2}(p_y - o_y, p_x - o_x)$,
 and place waypoints at angles $\beta + s\,2\pi k/n$ for $k = 1\ldots n$, with

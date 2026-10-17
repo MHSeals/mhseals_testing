@@ -43,6 +43,19 @@ VLP-16's rings are $2^\circ$ apart: a buoy $0.15$\,m above the water, $2$\,m awa
 fits between them. The camera keeps such buoys in view, so the tracker's objects
 are marked as small rings of points as a second source.
 
+\paragraph{Inflation and the footprint.} The hull is a $1.06\times0.90$\,m
+rectangle, padded by $0.1$\,m for tracking error at speed and for the scatter in
+where a buoy is seen. Its padded corners lie
+$r_c = \sqrt{0.63^2 + 0.55^2} \approx 0.84$\,m from the centre. MPPI scores
+most trajectory points by the cost under the centre alone, and checks the whole
+rectangle only where that cost says a corner could reach something, which is
+the cost found at $r_c$. If the inflation ends short of $r_c$ that test can never
+fire, and a corner can swing across a buoy the centre keeps clear of. The
+inflation therefore reaches $0.9$\,m, just inside half a 6\,ft gate
+($0.91$\,m), so a gate's middle stays free. The cost falls off as
+$252\,e^{-5(d - r_i)}$ beyond the inscribed radius $r_i = 0.55$\,m, low enough
+at a gate's centre that the planner still threads it.
+
 \subsection{Measuring a run}
 
 \paragraph{Cross-track error.} The route is a polyline through the waypoints,

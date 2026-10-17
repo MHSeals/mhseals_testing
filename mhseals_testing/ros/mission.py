@@ -9,7 +9,9 @@ from std_msgs.msg import String
 class TaskWatcher:
     def __init__(self, ros):
         self.events, self.status = [], {}
-        ros.node.create_subscription(String, '/task/events', self._event, 50)
+        ros.node.create_subscription(  # transient local: the run's first events too
+            String, '/task/events', self._event,
+            QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         ros.node.create_subscription(
             String, '/task/status', self._status,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
