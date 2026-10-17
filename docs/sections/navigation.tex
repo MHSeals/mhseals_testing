@@ -50,11 +50,19 @@ $r_c = \sqrt{0.63^2 + 0.55^2} \approx 0.84$\,m from the centre. MPPI scores
 most trajectory points by the cost under the centre alone, and checks the whole
 rectangle only where that cost says a corner could reach something, which is
 the cost found at $r_c$. If the inflation ends short of $r_c$ that test can never
-fire, and a corner can swing across a buoy the centre keeps clear of. The
-inflation therefore reaches $0.9$\,m, just inside half a 6\,ft gate
-($0.91$\,m), so a gate's middle stays free. The cost falls off as
-$252\,e^{-5(d - r_i)}$ beyond the inscribed radius $r_i = 0.55$\,m, low enough
-at a gate's centre that the planner still threads it.
+fire, and a corner can swing across a buoy the centre keeps clear of.
+
+The inflation reaches further, to $1.5$\,m, and falls off gently, as
+$252\,e^{-3(d - r_i)}$ beyond the inscribed radius $r_i = 0.55$\,m. Had it ended
+at half a gate, the middle of any gap between two buoys a little wider than a
+gate would cost nothing, and the planner, going from one task to the next, would
+take the shortest line through the buoy field, sliding past a buoy with only the
+footprint check's few centimetres to spare. Where a buoy is seen moves by
+$0.1$ to $0.3$\,m while the boat turns, which is more than that. With the wider
+inflation the gap costs something, and open water around the field is cheaper.
+A gate's middle still has to be passable: in a 6\,ft ($1.83$\,m) gate it is
+$0.91$\,m from each buoy and costs $252\,e^{-3(0.91-0.55)} \approx 84$, well
+short of the inscribed cost, so the boat goes through when its goal lies beyond.
 
 \subsection{Measuring a run}
 
