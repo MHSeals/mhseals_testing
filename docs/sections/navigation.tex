@@ -64,6 +64,12 @@ A gate's middle still has to be passable: in a 6\,ft ($1.83$\,m) gate it is
 $0.91$\,m from each buoy and costs $252\,e^{-3(0.91-0.55)} \approx 84$, well
 short of the inscribed cost, so the boat goes through when its goal lies beyond.
 
+\paragraph{The planner.} The global path comes from Smac 2D, an A* search over the
+costmap that charges for cost as well as distance, so its path keeps to the middle
+of a gap. Navfn, which walks down the gradient of a potential it spreads from the
+goal, can stall on a short leg between two inflated buoys, as when the boat
+doubles back through the speed-challenge gate.
+
 \subsection{Measuring a run}
 
 \paragraph{Cross-track error.} The route is a polyline through the waypoints,
