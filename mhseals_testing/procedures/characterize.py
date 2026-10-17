@@ -45,7 +45,8 @@ def run(ctx):
     history = ctx.history(windows[0][1], runner_end)
     config = ctx.services['hardware_config']
     result = characterize_samples(samples_from_windows(history, windows),
-                                  config['decoupling'], source='mhseals_testing session')
+                                  config['decoupling'], source='mhseals_testing session',
+                                  motion=samples_from_windows(history, windows, transient=0.0))
     summary = dict(procedure='characterization', verdict='FITTED',
                    samples=result['sample_count'],
                    velocity_limit=result['motion_limits']['velocity'],
@@ -62,7 +63,7 @@ def run(ctx):
         path = ctx.services['user_config']
         update = dict(characterization=result)
         if choice == 'save + decouple':
-            update['decoupling'] = result['decoupling']
+            update['decoupling'] = list(result['decoupling'])
         saved = save_config(dict(load_config(path), **update), path)
         ctx.record(dict(procedure='characterization', verdict='SAVED', path=str(saved),
                         decoupled=choice == 'save + decouple'))

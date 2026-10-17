@@ -13,7 +13,6 @@ import csv
 from datetime import datetime, timezone
 import json
 import math
-from bisect import bisect_right
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -59,6 +58,33 @@ def _vector(value, name):
     if not all(math.isfinite(item) for item in values):
         raise ValueError(f"{name} must contain finite values")
     return values
+
+
+def acceleration_limits(samples, span=0.5, percentile=0.99):
+    """Per-axis acceleration and deceleration the boat showed, robust to sensor noise.
+
+    Velocity changes are taken over at least ``span`` seconds, not between
+    neighbouring samples (differentiating 50 Hz odometry amplifies its noise into
+    accelerations no thruster could produce), and the ``percentile`` of them is
+    kept rather than the single largest.
+    """
+    rates = {axis: ([], []) for axis in AXES}
+    later = 0
+    for earlier, (_, velocity, stamp, _) in enumerate(samples):
+        later = max(later, earlier + 1)
+        while later < len(samples) and samples[later][2] - stamp < span:
+            later += 1
+        if later >= len(samples) or samples[later][2] - stamp > 2 * span:
+            continue  # a gap between windows, not a measured change
+        dt = samples[later][2] - stamp
+        for index, axis in enumerate(AXES):
+            change = (samples[later][1][index] - velocity[index]) / dt
+            rates[axis][0 if change > 0 else 1].append(abs(change))
+
+    def quantile(values):
+        return sorted(values)[int(percentile * (len(values) - 1))] if values else 0.0
+    return ({axis: quantile(up) for axis, (up, _) in rates.items()},
+            {axis: quantile(down) for axis, (_, down) in rates.items()})
 
 
 # Headings closer together than this (mean resultant length of the unit
@@ -115,18 +141,8 @@ def fit(samples):
     return bias, gain, (float(theta[12]), float(theta[13])) if drift else None
 
 
-def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()),
-                         source="samples"):
-    """Return calibration data suitable for writing to hardware YAML.
-
-    Samples are paired command and odometry observations, with the heading
-    (``yaw``) when known. Commands are the normalized effort consumed by
-    ``thruster_pwm_node``; velocities are SI units from odometry.
-    ``decoupling`` is the matrix the driver applied while they were recorded,
-    so the fit can divide it back out. The drift is today's current and wind:
-    it is reported but the controller estimates it live, so it is never
-    calibration.
-    """
+def _normalize(samples):
+    """(command, velocity, time, yaw) tuples from sample mappings."""
     normalized = []
     for sample in samples:
         command = _vector(sample.get("command", sample.get("cmd_vel")), "command")
@@ -137,6 +153,23 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         yaw = sample.get("yaw")
         yaw = float(yaw) if yaw is not None and math.isfinite(float(yaw)) else None
         normalized.append((command, velocity, stamp, yaw))
+    return normalized
+
+
+def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()),
+                         source="samples", motion=None):
+    """Return calibration data suitable for writing to hardware YAML.
+
+    Samples are paired command and odometry observations, with the heading
+    (``yaw``) when known. Commands are the normalized effort consumed by
+    ``thruster_pwm_node``; velocities are SI units from odometry.
+    ``decoupling`` is the matrix the driver applied while they were recorded,
+    so the fit can divide it back out. The drift is today's current and wind:
+    it is reported but the controller estimates it live, so it is never
+    calibration. ``motion`` is the full odometry, switching transients
+    included, for the acceleration limits (default: the samples themselves).
+    """
+    normalized = _normalize(samples)
     if len(normalized) < 8:
         raise ValueError("at least eight command/odometry samples are required")
     bias, gain, drift = fit(normalized)
@@ -152,16 +185,8 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
     # Largest measured speed per axis, in either direction.
     velocity_limit = {axis: max(abs(row[1][index]) for row in normalized)
                       for index, axis in enumerate(AXES)}
-    acceleration = {axis: 0.0 for axis in AXES}
-    deceleration = {axis: 0.0 for axis in AXES}
-    for previous, current in zip(normalized, normalized[1:]):
-        dt = current[2] - previous[2]
-        if dt <= 1e-3:
-            continue
-        for index, axis in enumerate(AXES):
-            change = (current[1][index] - previous[1][index]) / dt
-            acceleration[axis] = max(acceleration[axis], change)
-            deceleration[axis] = max(deceleration[axis], -change)
+    acceleration, deceleration = acceleration_limits(
+        _normalize(motion) if motion is not None else normalized)
     combined = {}
     for command, velocity, _, _ in normalized:
         active = tuple(axis for axis, value in zip(AXES, command) if abs(value) > .02)
@@ -236,8 +261,13 @@ def read_csv_samples(path: Path):
     return rows
 
 
-def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local"):
-    """Read nearest command/odometry pairs from a rosbag2 directory."""
+def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local", transient=1.0):
+    """Read command/odometry pairs from a rosbag2 directory.
+
+    Each odometry sample is paired with the command held when it was measured;
+    samples within ``transient`` seconds of a command change are dropped, as
+    in the suite's own procedure, so the fit sees responses and not switching.
+    """
     try:
         import rosbag2_py
         from rclpy.serialization import deserialize_message
@@ -248,7 +278,8 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local"):
     reader = rosbag2_py.SequentialReader()
     storage_id = "sqlite3"
     metadata = path / "metadata.yaml"
-    if metadata.exists() and "storage_identifier: mcap" in metadata.read_text():
+    if (metadata.exists() and "storage_identifier: mcap" in metadata.read_text()) or \
+            any(path.glob("*.mcap")):
         storage_id = "mcap"
     reader.open(rosbag2_py.StorageOptions(uri=str(path), storage_id=storage_id),
                 rosbag2_py.ConverterOptions("cdr", "cdr"))
@@ -261,21 +292,15 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local"):
         if topic in (command_topic, odom_topic):
             cls = Twist if topic == command_topic else Odometry
             messages.append((stamp / 1e9, topic, deserialize_message(data, cls)))
-    commands = []
-    samples = []
+    # Messages are in time order, so the command held is simply the latest one;
+    # pairing with a future command would invent response at phase boundaries.
+    command, since, samples = None, None, []
     for timestamp, topic, msg in messages:
         if topic == command_topic:
-            commands.append((timestamp, (msg.linear.x, msg.linear.y, msg.angular.z)))
-        else:
-            if not commands:
-                continue
-            # Hold the latest command already received.  Pairing with a future
-            # command creates artificial response and stopping samples at
-            # phase boundaries.
-            index = bisect_right([item[0] for item in commands], timestamp) - 1
-            if index < 0:
-                continue
-            command = commands[index][1]
+            value = (msg.linear.x, msg.linear.y, msg.angular.z)
+            if value != command:
+                command, since = value, timestamp
+        elif command is not None and timestamp - since >= transient:
             twist, q = msg.twist.twist, msg.pose.pose.orientation
             samples.append({"time": timestamp, "command": command,
                             "velocity": (twist.linear.x, twist.linear.y, twist.angular.z),
@@ -304,15 +329,17 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.bag:
         samples = read_rosbag(args.bag, args.cmd_topic, args.odom_topic)
+        motion = read_rosbag(args.bag, args.cmd_topic, args.odom_topic, transient=0.0)
     elif args.samples.suffix.lower() == ".csv":
         samples = read_csv_samples(args.samples)
     else:
         samples = read_json_samples(args.samples)
     config = load_config(args.config) if args.config else load_config()
     result = characterize_samples(samples, config["decoupling"],
-                                 source="rosbag2" if args.bag else "samples")
+                                 source="rosbag2" if args.bag else "samples",
+                                 motion=motion if args.bag else None)
     if args.apply_decoupling:
-        config["decoupling"] = result["decoupling"]
+        config["decoupling"] = list(result["decoupling"])
     config["characterization"] = result
     target = args.output or args.config
     if target:

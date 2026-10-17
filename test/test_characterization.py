@@ -123,3 +123,16 @@ def test_refit_with_the_decoupling_active_composes():
     assert GAIN @ c == approx(numpy.diag(numpy.diag(GAIN)), abs=1e-9)
     again = characterize_samples(boat_samples((0.0, 0.0), yaws, decoupling=c), c.flatten())
     assert numpy.array(again['decoupling']).reshape(3, 3) == approx(c, abs=1e-9)
+
+
+def test_acceleration_comes_from_the_motion_not_sample_noise():
+    from mhseals_testing.analysis.characterization import acceleration_limits
+    # 50 Hz: a 0.5 m/s^2 ramp for 2 s, then steady, with +-0.02 m/s jitter on every sample.
+    samples = []
+    for i in range(300):
+        t = i / 50
+        v = 0.5 * min(t, 2.0) + (0.02 if i % 2 else -0.02)
+        samples.append(((1, 0, 0), (v, 0.0, 0.0), t, 0.0))
+    up, down = acceleration_limits(samples)
+    assert up['surge'] == pytest.approx(0.5, abs=0.1)  # neighbour differences would say 2.5
+    assert down['surge'] < 0.2
