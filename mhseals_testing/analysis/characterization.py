@@ -23,20 +23,32 @@ from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
 from mhseals_hardware.velocity_law import decoupling_for, raw_gain
 
 
-def nav2_profile(result, source):
+# Share of the measured limits Nav2 may plan with. The rest is the velocity loop's
+# authority to correct lag, turning and today's current and wind; planning at the very
+# limit leaves none, and the boat overshoots and circles.
+HEADROOM = 0.7
+
+
+def nav2_profile(result, source, headroom=HEADROOM):
     """Return a complete Nav2 profile with the measured limits in MPPI and the smoother."""
     import yaml
     profile = yaml.safe_load(Path(source).read_text())
     limits = result["motion_limits"]
-    velocity = limits["velocity"]
-    acceleration = limits["acceleration"]
-    deceleration = limits["deceleration"]
+    velocity = {axis: headroom * value for axis, value in limits["velocity"].items()}
+    acceleration = {axis: headroom * value for axis, value in limits["acceleration"].items()}
+    deceleration = {axis: headroom * value for axis, value in limits["deceleration"].items()}
     controller = profile["controller_server"]["ros__parameters"]
     # MPPI samples inside these bounds, so it never plans what the boat can't do.
-    controller["FollowPath"].update(
+    follow = controller["FollowPath"]
+    follow.update(
         vx_max=velocity["surge"], vx_min=-velocity["surge"], vy_max=velocity["sway"],
         wz_max=velocity["yaw"], ax_max=acceleration["surge"], ax_min=-deceleration["surge"],
         ay_max=acceleration["sway"], az_max=acceleration["yaw"])
+    # The path MPPI scores against must reach past its own trajectories, or near the
+    # end of a path they run off it and the boat circles instead of arriving.
+    horizon = follow.get("time_steps", 56) * follow.get("model_dt", 0.05)
+    follow["prune_distance"] = max(follow.get("prune_distance", 0.0),
+                                   round(1.2 * velocity["surge"] * horizon, 2))
     behavior = profile.get("behavior_server", {}).get("ros__parameters", {})
     if behavior:
         behavior["max_rotational_vel"] = velocity["yaw"]

@@ -66,10 +66,11 @@ behavior_server:
     profile = nav2_profile(result, source)
     follow = profile['controller_server']['ros__parameters']['FollowPath']
     behavior = profile['behavior_server']['ros__parameters']
-    assert (follow['vx_max'], follow['vx_min']) == approx((.6, -.6))
-    assert (follow['vy_max'], follow['wz_max']) == approx((.4, .3))
-    assert behavior['max_rotational_vel'] == approx(.3)
-    assert behavior['rotational_acc_lim'] == approx(.3)
+    # Nav2 gets 70 % of what the boat showed; the rest is the controller's authority.
+    assert (follow['vx_max'], follow['vx_min']) == approx((.42, -.42))
+    assert (follow['vy_max'], follow['wz_max']) == approx((.28, .21))
+    assert behavior['max_rotational_vel'] == approx(.21)
+    assert behavior['rotational_acc_lim'] == approx(.21)
 
 
 def test_samples_from_windows_skips_transients_and_pairs_commands():

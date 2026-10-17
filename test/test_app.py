@@ -376,7 +376,7 @@ def test_characterization_fits_and_saves_only_on_request(tmp_path):
     assert fitted['velocity_gain']['surge']['surge'] == pytest.approx(1.2, rel=0.02)
     assert 'characterization' in (tmp_path / 'hardware.yaml').read_text()
     smoother = yaml.safe_load(app.paths.nav2.read_text())['velocity_smoother']['ros__parameters']
-    assert smoother['max_velocity'][0] == pytest.approx(1.2 * 0.4, rel=0.02)
+    assert smoother['max_velocity'][0] == pytest.approx(0.7 * 1.2 * 0.4, rel=0.02)  # headroom
 
 
 def test_thruster_panel_reverses_and_rewires_with_hot_reload(tmp_path):
