@@ -1,0 +1,6 @@
+# Task 2, follow the path: every gate, then the yellow (endangered species) count.
+task: follow_path
+time_limit: 300.0
+required: {gate_cleared: 1, species_count: 1}
+points: {gate_cleared: 5, species_count: 10}
+max_counts: {gate_cleared: 6}

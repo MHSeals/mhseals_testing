@@ -1,5 +1,5 @@
-# Task 1 rubric: both gates, within the time limit.
-task: gates
+# Task 1, navigation channel: both gates, within the time limit.
+task: nav_channel
 time_limit: 180.0
 required: {gate_cleared: 2}
 points: {gate_cleared: 10}

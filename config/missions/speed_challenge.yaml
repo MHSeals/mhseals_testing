@@ -1,4 +1,5 @@
+# Task 4, speed challenge: through the gate, around the mark, back, with the spill count.
 task: speed_challenge
 time_limit: 240.0
-required: {route_chosen: 1, route_finished: 1}
-points: {route_finished: 20}
+required: {gate_cleared: 1, speed_started: 1, spill_count: 1, speed_finished: 1}
+points: {speed_finished: 20, spill_count: 10}

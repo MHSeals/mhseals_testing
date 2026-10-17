@@ -1,4 +1,0 @@
-task: sprint
-time_limit: 180.0
-required: {sprint_started: 1, beacon_found: 1, sprint_finished: 1}
-points: {beacon_found: 10, sprint_finished: 20}

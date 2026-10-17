@@ -627,12 +627,12 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
 
     app.processes = Processes()
     app.arming.armed = True
-    scripted(app, 'gates')
+    scripted(app, 'nav_channel')
     run(app, 't')
     [result] = app.snapshot()['results']
     assert result['verdict'] == 'PASS' and result['points'] == 20
     assert started[0][:4] == ['ros2', 'launch', 'mhseals_nav', 'task.launch.py']
-    assert 'task:=gates' in started[0] and stopped == ['task_gates']
+    assert 'task:=nav_channel' in started[0] and stopped == ['task_nav_channel']
 
 
 @pytest.mark.parametrize('width,path,expected', [

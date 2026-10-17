@@ -1,0 +1,6 @@
+# Task 3, docking: into an empty bay under the banner of the day, held, and out.
+task: docking
+time_limit: 240.0
+required: {docked: 1, undocked: 1}
+points: {docked: 20, undocked: 5}
+referee: {banner: blue_square, dock_time: 5.0}

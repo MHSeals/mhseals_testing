@@ -6,6 +6,8 @@ description: crane_ml with the full mhseals_nav stack; PWM over ROS, simulated s
 command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}
 odometry: /odom/local
 ground_truth: /crane/odom
+# Written by crane_ml's --crane-roboboat-course-truth; the referee judges missions with it.
+course_truth: /bags/course_truth.json
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: true
 arming: {outputs: topic}

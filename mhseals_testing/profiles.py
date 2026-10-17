@@ -47,6 +47,7 @@ class PlantProfile:
     command_limit: tuple         # per-axis clamp for surge, sway, yaw
     odometry: str
     ground_truth: str | None     # simulator truth, for estimate-vs-truth error
+    course_truth: str | None     # the simulator's course truth JSON, for the referee
     map_frame: str | None        # None when the plant has no map frame
     odom_frame: str
     base_frame: str
@@ -126,6 +127,7 @@ def parse_profile(data, where='profile'):
         command_type=command_type, command_units=units, command_limit=limit,
         odometry=_require(data, 'odometry', str, where),
         ground_truth=data.get('ground_truth'),
+        course_truth=data.get('course_truth'),
         map_frame=frames.get('map'),
         odom_frame=_require(frames, 'odom', str, where + '.frames'),
         base_frame=_require(frames, 'base', str, where + '.frames'),

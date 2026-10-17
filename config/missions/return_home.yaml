@@ -1,0 +1,5 @@
+# Task 6, return to home through the black gate.
+task: return_home
+time_limit: 240.0
+required: {returned_home: 1}
+points: {returned_home: 10}

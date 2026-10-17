@@ -1,5 +1,0 @@
-task: debris
-time_limit: 420.0
-required: {channel_transited: 1, returned: 1}
-points: {channel_transited: 10, debris: 5, beacon: 5, survivor_circled: 15, returned: 10}
-max_counts: {debris: 4, beacon: 2}

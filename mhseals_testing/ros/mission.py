@@ -17,6 +17,7 @@ class TaskWatcher:
 
     def _event(self, message):
         event = json.loads(message.data)
+        event['received'] = self.monitor.clock()  # on the track's clock, for the referee
         self.events.append(event)
         self.monitor.event(f"task {event.get('event')}")
 

@@ -32,7 +32,8 @@ def test_incomplete_runs_fail_and_say_why(run, reason):
 
 def test_every_shipped_rubric_is_scorable():
     import yaml
-    assert set(available()) == {'gates', 'debris', 'sprint', 'speed_challenge'}
+    assert set(available()) == {'nav_channel', 'follow_path', 'docking', 'speed_challenge',
+                                'return_home', 'mission'}
     for name in available():
         rubric = yaml.safe_load((MISSION_DIR / f'{name}.yaml').read_text())
         assert rubric['task'] == name
