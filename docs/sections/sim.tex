@@ -18,6 +18,21 @@ pitch. Surge is set by the boat's measured top speed: $146$\,N balances
 $30u + 27u^2$ at $u = 1.83$\,m/s. Because the drag is on the relative velocity, a
 current carries the boat as real water does.
 
+\paragraph{Mass and inertia.} 30\,kg loaded. Two hulls carry about 60\,\% of
+it as slender $1.06$\,m bodies $0.33$\,m either side of the centre line, the deck,
+electronics and batteries the rest as a $0.5\times0.4\times0.25$\,m box, so about
+the centre of mass
+\[
+  I_\text{pitch} \approx 2\cdot 9\,\tfrac{1.06^2}{12} + 12\,\tfrac{0.5^2+0.25^2}{12} = 2.0,\qquad
+  I_\text{yaw} \approx 2\cdot 9\left(\tfrac{1.06^2}{12} + 0.33^2\right) + 12\,\tfrac{0.5^2+0.4^2}{12} = 4.1
+\]
+kg\,m$^2$. The boat's links keep their CAD positions and masses (scaled to
+30\,kg); the composite is computed with the parallel-axis theorem,
+$I = \sum_i I_i + m_i(\lVert\bm d_i\rVert^2 - (\bm d_i\cdot\bm a)^2)$ about axis $\bm a$, and the
+root link supplies what pitch and yaw lack. Roll comes out at $3.2$ from the hulls'
+own spread, sideways and down, and is left so. The scene's placeholders had made
+all three 17--22.
+
 \paragraph{Wind.} Air at velocity $\bm w$ pushes the hull's above-water area with
 $\bm F = \tfrac12 \rho_a C_d A(\beta)\,|\bm w_r|\,\bm w_r$, $\bm w_r = \bm w - \bm v$,
 where $A(\beta) = A_f|\cos\beta| + A_s|\sin\beta|$ is the area facing the relative

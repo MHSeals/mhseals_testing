@@ -66,11 +66,10 @@ behavior_server:
     profile = nav2_profile(result, source)
     follow = profile['controller_server']['ros__parameters']['FollowPath']
     behavior = profile['behavior_server']['ros__parameters']
-    # Nav2 gets 70 % of what the boat showed; the rest is the controller's authority.
-    assert (follow['vx_max'], follow['vx_min']) == approx((.42, -.42))
-    assert (follow['vy_max'], follow['wz_max']) == approx((.28, .21))
-    assert behavior['max_rotational_vel'] == approx(.21)
-    assert behavior['rotational_acc_lim'] == approx(.21)
+    assert (follow['vx_max'], follow['vx_min']) == approx((.6, -.6))
+    assert (follow['vy_max'], follow['wz_max']) == approx((.4, .3))
+    assert behavior['max_rotational_vel'] == approx(.3)
+    assert behavior['rotational_acc_lim'] == approx(.3)
 
 
 def test_samples_from_windows_skips_transients_and_pairs_commands():
@@ -137,3 +136,11 @@ def test_acceleration_comes_from_the_motion_not_sample_noise():
     up, down = acceleration_limits(samples)
     assert up['surge'] == pytest.approx(0.5, abs=0.1)  # neighbour differences would say 2.5
     assert down['surge'] < 0.2
+
+
+def test_limits_are_scaled_to_full_effort():
+    half = [dict(s, command=[c / 2 for c in s['command']], velocity=[v / 2 for v in s['velocity']])
+            for s in samples()]
+    limits = characterize_samples(half)['motion_limits']
+    assert limits['velocity']['surge'] == approx(0.6)  # seen at 0.3 m/s with half effort
+    assert limits['measured_at_effort']['surge'] == approx(0.5)

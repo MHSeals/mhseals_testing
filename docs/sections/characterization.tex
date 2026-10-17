@@ -215,8 +215,11 @@ boat that can manage 5). So velocity changes are taken over windows of at least
 0.5\,s, from the full odometry including the switching transients the fit leaves
 out, and the 99th percentile of them is kept rather than the single largest.
 
-\paragraph{Headroom for Nav2.} Nav2 is given 70\,\% of each measured limit. The
-remaining 30\,\% is the velocity loop's authority: to correct its own lag, the
-skid of a turn, and the day's current and wind. Planning at the very limit leaves
-the controller nothing, and the boat overshoots its plan and circles.
+\paragraph{Limits at full effort.} The schedule may run gentler than the boat can
+go, yet Nav2 should use all of it. Thrust grows with the square of effort and
+drag at speed with the square of speed, so steady speed grows in proportion to
+effort and acceleration with its square. With $e_{\max}$ the largest effort run on
+an axis, the limits are $v_{\max}/e_{\max}$ and $a_{\max}/e_{\max}^2$; Nav2 gets
+them whole.
+
 \file{mhseals\_testing/analysis/characterization.py, procedures/characterize.py}

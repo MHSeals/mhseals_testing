@@ -61,8 +61,7 @@ $r=0.5$\,rad/s that is 9\,N, about a quarter of full sway effort. The gains are
 therefore sized against the gain $G$: with $G\approx1.2$ (m/s per unit effort),
 $K_p=0.8$ makes the loop gain $K_pG\approx1$, so a sway error of 0.3\,m/s is
 answered with a quarter of full effort, and $z_\text{max}=0.3$ lets the integral
-hold it. With the earlier $K_p=0.1$ the boat skidded sideways in every turn, and
-Nav2, seeing a boat outside its own limits, steered it in circles.
+hold it. With the earlier $K_p=0.1$ the boat skidded sideways in every turn.
 \emph{Windup} is what happens when the integral keeps accumulating while the
 output is pinned at its limit: when the boat finally can respond, the stored
 error makes it overshoot. Clipping $z$ bounds the damage. Conditional integration

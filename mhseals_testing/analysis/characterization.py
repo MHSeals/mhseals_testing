@@ -23,10 +23,9 @@ from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
 from mhseals_hardware.velocity_law import decoupling_for, raw_gain
 
 
-# Share of the measured limits Nav2 may plan with. The rest is the velocity loop's
-# authority to correct lag, turning and today's current and wind; planning at the very
-# limit leaves none, and the boat overshoots and circles.
-HEADROOM = 0.7
+# Share of the boat's limits Nav2 may plan with: all of it. (A share held back for the
+# velocity loop slowed the boat without helping; MPPI's circling was its timing.)
+HEADROOM = 1.0
 
 
 def nav2_profile(result, source, headroom=HEADROOM):
@@ -194,11 +193,17 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         recommended = [float(value) for value in recommended.flatten()]
     except numpy.linalg.LinAlgError:
         recommended = list(sum(IDENTITY, ()))
-    # Largest measured speed per axis, in either direction.
-    velocity_limit = {axis: max(abs(row[1][index]) for row in normalized)
+    # Limits at full effort, from runs at any effort: thrust grows with effort squared
+    # and drag at speed with speed squared, so speed scales with effort and acceleration
+    # with effort squared. ``effort`` is the largest effort driven on each axis.
+    effort = {axis: max(abs(row[0][index]) for row in normalized) or 1.0
+              for index, axis in enumerate(AXES)}
+    velocity_limit = {axis: max(abs(row[1][index]) for row in normalized) / effort[axis]
                       for index, axis in enumerate(AXES)}
     acceleration, deceleration = acceleration_limits(
         _normalize(motion) if motion is not None else normalized)
+    acceleration = {axis: value / effort[axis] ** 2 for axis, value in acceleration.items()}
+    deceleration = {axis: value / effort[axis] ** 2 for axis, value in deceleration.items()}
     combined = {}
     for command, velocity, _, _ in normalized:
         active = tuple(axis for axis, value in zip(AXES, command) if abs(value) > .02)
@@ -227,6 +232,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
             "deceleration": deceleration,
             "combined": dict(velocity_limit),
             "combined_directions": combined,
+            "measured_at_effort": effort,
         },
     }
 
