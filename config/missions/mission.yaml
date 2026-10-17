@@ -1,7 +1,7 @@
 # The whole run: the channel is required; every other task counts when completed.
 task: mission
 tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
-time_limit: 1200.0
+time_limit: 1800.0
 required: {gate_cleared: 2, returned_home: 1}
 points: {stage_completed: 10, species_count: 10, spill_count: 10, docked: 20,
          speed_finished: 20, returned_home: 10}

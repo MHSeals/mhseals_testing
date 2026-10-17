@@ -14,3 +14,28 @@ missing ($k_e \ge n_e$ for all required $e$), and the elapsed time is at most
 $T$. The report keeps the counts, missing events and points per event, so a
 failed rehearsal says exactly what was not achieved.
 \file{mhseals\_testing/analysis/mission.py, config/missions/}
+
+\subsection{The referee}
+
+The score above believes the task tree. In the simulator the referee checks what
+the boat actually did, from the course the simulator placed (each object tagged
+with its task) and the boat's true track.
+
+\paragraph{Gates.} A gate is the segment between its two buoys. The track crossed
+it between samples $\bm p$ and $\bm q$ when the segments intersect: the cross
+products $c(\bm a,\bm b,\bm p)$ and $c(\bm a,\bm b,\bm q)$ differ in sign, and so do
+$c(\bm p,\bm q,\bm a)$ and $c(\bm p,\bm q,\bm b)$, with
+$c(\bm o,\bm a,\bm b) = (a_x-o_x)(b_y-o_y) - (a_y-o_y)(b_x-o_x)$. The sign of the
+first says which way it crossed, so out and back through one gate shows as two
+opposite crossings.
+
+\paragraph{Contact.} With the hull a rectangle of length $L$ and beam $B$, a buoy
+of radius $\rho$ at body-frame offset $(a, c)$ clears it by
+$\sqrt{\max(|a| - L/2, 0)^2 + \max(|c| - B/2, 0)^2} - \rho$; a negative clearance
+anywhere on the track is a contact.
+
+\paragraph{Circling and docking.} The angle swept around the mark is the sum of
+the wrapped changes of $\operatorname{atan2}(p_y - o_y, p_x - o_x)$ while within
+$8$\,m of it; $300^\circ$ or more is a circle. Docked means the boat's centre
+inside the right bay, facing into it within $30^\circ$, for the hold time.
+\file{mhseals\_testing/analysis/referee.py}

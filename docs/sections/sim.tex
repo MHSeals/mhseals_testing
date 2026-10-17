@@ -1,0 +1,35 @@
+\section{The simulated boat and water}
+\label{sec:sim}
+
+The suite is only as honest as the simulator, so its boat is built from the real
+one's numbers, and where the simulator and the water disagree, the simulator is
+changed.
+
+\paragraph{Thrust.} Four Blue Robotics T200 at 16\,V give $51.5$\,N forward and
+$40.2$\,N reverse at full throttle. Thrust grows with the square of the command,
+$T = T_{\max}\,u\,|u|$ for an ESC command $u\in[-1,1]$, reached through a
+first-order spin-up of about $0.1$\,s. At $45^\circ$ the four together push
+$4 \cdot 51.5 \cdot \cos 45^\circ \approx 146$\,N along the bow.
+
+\paragraph{Hull drag.} On the velocity $\bm v_r$ relative to the water, in the
+body frame, each axis feels Fossen's linear plus quadratic drag,
+$X = -(X_u + X_{u|u|}\,|u_r|)\,u_r$, and likewise for sway, yaw, heave, roll and
+pitch. Surge is set by the boat's measured top speed: $146$\,N balances
+$30u + 27u^2$ at $u = 1.83$\,m/s. Because the drag is on the relative velocity, a
+current carries the boat as real water does.
+
+\paragraph{Wind.} Air at velocity $\bm w$ pushes the hull's above-water area with
+$\bm F = \tfrac12 \rho_a C_d A(\beta)\,|\bm w_r|\,\bm w_r$, $\bm w_r = \bm w - \bm v$,
+where $A(\beta) = A_f|\cos\beta| + A_s|\sin\beta|$ is the area facing the relative
+wind at $\beta$ from the bow ($A_f = 0.30$, $A_s = 0.40$\,m$^2$, $C_d = 1$). An
+$8$\,m/s breeze abeam gives $15.7$\,N. Gusts and veer follow Ornstein--Uhlenbeck
+processes, $\dot g = -g/T + \sigma\sqrt{2/T}\,\xi$: speed varies by $25\,\%$ over
+about $8$\,s, direction by $10^\circ$ over $30$\,s. The force acts above and
+slightly ahead of the centre of mass, so the boat weathervanes.
+
+\paragraph{Sensors.} The LiDAR is a VLP-16 in its own REP-103 frame (16 rings,
+$2^\circ$ apart over $\pm 15^\circ$, $0.2^\circ$ steps, 10\,Hz), publishing only
+returns, and none from below the water surface. Detections are in the camera's
+REP-103 frame. Both must line up with the boat description's mounts: a sensor
+$0.47$\,m off moves every buoy by as much, about the clearance in a gate.
+\file{crane\_ml: RoboBoatPhysics.cs, RoboBoatCourse.cs, Lidar3D.cs}

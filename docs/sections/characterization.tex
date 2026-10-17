@@ -209,8 +209,14 @@ and the direction it sets toward, but never saved as calibration. The velocity
 controller estimates it live instead (Section~\ref{sec:controller}).
 
 \paragraph{Limits.} The largest measured speed per axis gives the velocity
-limits; the largest change of velocity between consecutive samples divided by
-their time step gives acceleration and deceleration limits. These become the
-Nav2 velocity-smoother limits, so Nav2 never asks for more than the boat showed
-it can do.
+limits. Acceleration needs care: differentiating 50\,Hz odometry sample by sample
+turns its noise into accelerations no thruster could produce (12\,m/s$^2$ from a
+boat that can manage 5). So velocity changes are taken over windows of at least
+0.5\,s, from the full odometry including the switching transients the fit leaves
+out, and the 99th percentile of them is kept rather than the single largest.
+
+\paragraph{Headroom for Nav2.} Nav2 is given 70\,\% of each measured limit. The
+remaining 30\,\% is the velocity loop's authority: to correct its own lag, the
+skid of a turn, and the day's current and wind. Planning at the very limit leaves
+the controller nothing, and the boat overshoots its plan and circles.
 \file{mhseals\_testing/analysis/characterization.py, procedures/characterize.py}

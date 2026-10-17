@@ -31,20 +31,38 @@ measurement of $\bm d$, and a first-order low-pass filter averages them:
   \hat{\bm d} \leftarrow \hat{\bm d} + \frac{\Delta t}{\tau + \Delta t}\left(R(\psi)\,\bm r_{xy} - \hat{\bm d}\right).
 \]
 $\tau$ (5\,s by default) trades noise against how fast a change in the current
-is picked up. It is far slower than the boat's own response, so short
-transients barely move the estimate. Because $\hat{\bm d}$ is kept in the world
-frame and rotated into the body only when it is used, it stays right while the
-boat turns. A body-frame estimate would point the wrong way after a half turn.
-The estimate freezes while any effort axis is saturated, since the model is
-not valid there. It is published on the controller's \code{drift} topic, and the boat test's drift line
-compares it with the live velocity.
+is picked up. Because $\hat{\bm d}$ is kept in the world frame and rotated into
+the body only when it is used, it stays right while the boat turns; a body-frame
+estimate would point the wrong way after a half turn.
+
+\paragraph{When to learn.} Under way, $\bm r$ is mostly the model's own error:
+$G$ is a straight line through a curve (thrust grows with the square of the
+pulse), so at speed the boat is a little faster or slower than $G\bm e$ says. An
+observer learning then would take that error for current and, worse, keep it in
+the world frame and turn it with the boat. So it learns only while the boat is
+asked to hold still, $\|\bm v^\star\| \le 0.1$, which is exactly when the effort
+holding the boat in place measures the current. Under way the estimate is held,
+and the integral term covers the rest. The estimate is published on the
+controller's \code{drift} topic, and the boat test's drift line compares it with
+the live velocity.
 
 \paragraph{Integral with conditional integration (anti-windup).} The integral
 \[
   z_i \leftarrow \operatorname{clip}\!\left(z_i + \epsilon_i\,\Delta t,\; -z_\text{max},\; z_\text{max}\right)
 \]
 removes the steady error the model and the observer leave, such as a gain that is
-slightly off. With the observer carrying the drift, $z_\text{max}$ can be small.
+slightly off.
+
+\paragraph{How strong the feedback must be.} A boat that surges at $u$ while
+turning at $r$ needs a sideways force $m\,r\,u$ just to keep its body-frame sway
+at zero (the velocity vector has to turn with the hull). The steady model has no
+such term, so feedback supplies it. For this 30\,kg boat at $u=0.6$\,m/s and
+$r=0.5$\,rad/s that is 9\,N, about a quarter of full sway effort. The gains are
+therefore sized against the gain $G$: with $G\approx1.2$ (m/s per unit effort),
+$K_p=0.8$ makes the loop gain $K_pG\approx1$, so a sway error of 0.3\,m/s is
+answered with a quarter of full effort, and $z_\text{max}=0.3$ lets the integral
+hold it. With the earlier $K_p=0.1$ the boat skidded sideways in every turn, and
+Nav2, seeing a boat outside its own limits, steered it in circles.
 \emph{Windup} is what happens when the integral keeps accumulating while the
 output is pinned at its limit: when the boat finally can respond, the stored
 error makes it overshoot. Clipping $z$ bounds the damage. Conditional integration

@@ -21,4 +21,31 @@ circle, angle $+\,s\,\pi/2$, so Nav2 drives around the object rather than at it.
 \paragraph{Relative routes.} A route given as (forward, left) offsets
 $(f, l)$ from a pose $(x, y, \psi)$ maps to the world by the rotation
 $\left(x + f\cos\psi - l\sin\psi,\ y + f\sin\psi + l\cos\psi\right)$.
-\file{mhseals\_nav/tasks/geometry.py}
+\paragraph{Passing a gate.} A gate at $\bm m$ with heading $\phi$ is driven
+through two poses, $\bm m - 1.5\,\bm f$ and $\bm m + 1.1\,\bm f$ with
+$\bm f = (\cos\phi, \sin\phi)$: the second is half a hull ($0.53$\,m) and a margin
+past the line, so the whole boat crosses it but the goal does not land on what
+lies beyond. Whether a gate was cleared is judged by the boat's own pose, not by
+whether Nav2 reached that last pose: with $\bm d = \bm p - \bm m$, the gate is
+cleared once $\bm d\cdot\bm f \ge 0.6$ and $|\bm d\times\bm f| \le 2.5$.
+The next gate is the nearest uncleared one ahead, ahead meaning along the last
+cleared gate's heading, so a wobble of the boat's own heading never counts a
+gate behind it.
+
+\paragraph{Docking bays.} Banners stand along the dock's spine. With two or
+more in view, the spine's direction is the principal axis of their positions,
+$\theta = \tfrac12\operatorname{atan2}(2s_{xy}, s_{xx} - s_{yy})$ from their
+covariances, and the bays open along its normal on the boat's side. A bay is
+taken as empty when no vessel is tracked within $1$\,m of its centre. The boat
+berths $1.2$\,m out from the banner: the bow clears the spine's costmap margin and
+the stern stays inside a bay at least $2$\,m deep.
+
+\paragraph{Counting.} Tracked positions closer than $1.5$\,m are one object, so a
+track that is lost and found again is not counted twice.
+
+\paragraph{What Nav2 takes literally.} Nav2 judges a route done by the distance to
+its last pose, and drops waypoints within a metre of the boat. A full circle, or
+a turn-in-place sweep back to the starting heading, ends where the boat already
+is and would finish at once. So circles are sent as two halves and sweeps as two
+single turns, each ending away from where it began.
+\file{mhseals\_nav/tasks/geometry.py, behaviours.py}

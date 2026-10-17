@@ -1,5 +1,49 @@
-\section{Waypoint and station-keeping metrics}
+\section{Navigation: MPPI, the costmap, and how runs are measured}
 \label{sec:nav}
+
+\subsection{The MPPI controller}
+
+Nav2 follows its planned path with MPPI (model predictive path integral). Every
+control cycle it samples $K$ sequences of commands $(v_x, v_y, \omega)$ over a
+horizon of $N$ steps of $\Delta t$, rolls each through a kinematic model of the
+boat (Omni: the X thrusters can sway), scores each rollout with a sum of critics
+$S_k$ (distance from the path, heading along it, nearness to obstacles, progress to
+the goal, turning), and blends them with weights
+\[
+  w_k = \frac{e^{-(S_k - S_{\min})/\lambda}}{\sum_j e^{-(S_j - S_{\min})/\lambda}},
+  \qquad \bm u = \sum_k w_k\,\bm u_k .
+\]
+The temperature $\lambda$ sets how much it averages: a high $\lambda$ blends many
+samples, a low one commits to the best few. A floating boat's odometry is noisy
+(waves) and its response lags, and averaging over many samples then washes out
+the corrections; $\lambda = 0.1$ commits.
+
+\paragraph{Timing.} After each cycle MPPI shifts its best sequence one step,
+assuming a cycle lasts $\Delta t$. So $\Delta t$ must equal the control period:
+$\Delta t = 1/f$. At $f = 20$\,Hz on a loaded computer the loop slipped to 11--17\,Hz,
+the shifted plan fell out of step with the boat, and it drove in circles; at
+$f = 10$\,Hz with $\Delta t = 0.1$\,s and $N=28$ (the same 2.8\,s horizon) it holds
+its rate and drives straight.
+
+\paragraph{Path horizon.} MPPI scores rollouts against the part of the path
+within the prune distance $D$. A rollout runs up to $v_{\max} N\Delta t$; if that
+exceeds $D$ the rollouts run off the end of the path, where only weak critics
+apply, and near the end of a path the boat circles instead of arriving. Hence
+$D \ge 1.2\, v_{\max} N \Delta t$.
+
+\subsection{The costmap over open water}
+
+A LiDAR over water returns almost nothing: the surface does not reflect the beam
+back and there is nothing behind it. An obstacle grid clears a cell only when a
+ray passes through it to a return, so a mark made once (a buoy, a gust-tilted
+ring of points) would never be cleared. The obstacle layer therefore uses voxels
+that decay: each mark lives a few seconds ($3$\,s in the local map, $15$\,s in the
+global one, which must remember a buoy behind the boat) unless seen again. And a
+VLP-16's rings are $2^\circ$ apart: a buoy $0.15$\,m above the water, $2$\,m away,
+fits between them. The camera keeps such buoys in view, so the tracker's objects
+are marked as small rings of points as a second source.
+
+\subsection{Measuring a run}
 
 \paragraph{Cross-track error.} The route is a polyline through the waypoints,
 starting where the boat was when the goal was sent. For a segment from $\bm a$
