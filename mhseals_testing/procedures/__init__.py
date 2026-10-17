@@ -30,6 +30,7 @@ class Settings:
     nav_distance: float = 4.0      # m, side of the waypoint square
     station_hold: float = 60.0     # s of station keeping
     station_tolerance: float = 1.5  # m radius
+    turn: float = 20.0             # s of steady turning in characterization, to see every heading
 
 
 @dataclass

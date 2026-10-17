@@ -18,7 +18,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
-from mhseals_hardware.thruster_mixer import POSITIONS, thruster_pulses
+from mhseals_hardware.thruster_mixer import POSITIONS, thruster_pulses, validate_decoupling
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
@@ -171,15 +171,38 @@ def bearing(vx, vy):
 
 
 def drift_now(snapshot):
-    """The boat's body-frame velocity right now, from the latest odometry."""
+    """The boat's body-frame velocity and heading right now, from the latest odometry."""
     values = snapshot['sensors'].get('odometry', {}).get('values', {})
     if values.get('vx') is None or values.get('vy') is None:
         return None
-    return values['vx'], values['vy'], values.get('wz') or 0.0
+    return values['vx'], values['vy'], values.get('wz') or 0.0, values.get('yaw')
+
+
+def expected_drift(snapshot, view, yaw):
+    """What the model says the boat should do at zero effort, in the body frame.
+
+    The mechanical bias is body-fixed; the current and wind are world-fixed,
+    so they are turned into the body by the live heading. The controller's
+    live estimate wins over the characterization's. Returns (source, vx, vy, wz).
+    """
+    characterization = view['hardware'].get('characterization', {})
+    bias = characterization.get('mechanical_bias')
+    fitted = characterization.get('drift', {})
+    world = snapshot.get('drift')
+    source = 'live' if world is not None else 'fit'
+    if world is None and fitted.get('separated'):
+        world = (fitted['x'], fitted['y'])
+    if bias is None and world is None:
+        return None
+    vx, vy, wz = (bias['surge'], bias['sway'], bias['yaw']) if bias else (0.0, 0.0, 0.0)
+    if world is not None and yaw is not None:
+        c, s = math.cos(yaw), math.sin(yaw)
+        vx, vy = vx + c * world[0] + s * world[1], vy - s * world[0] + c * world[1]
+    return source, vx, vy, wz
 
 
 def drift_line(snapshot, view):
-    """Live drift direction next to the characterization's bias, and whether they agree.
+    """Live drift direction next to the model's, and whether they agree.
 
     While nothing is commanded the measured velocity is the drift; while driving it
     is shown live but not compared, since thrust is part of it.
@@ -190,15 +213,16 @@ def drift_line(snapshot, view):
     if now is None:
         line.append('no odometry', style=MUTED)
     else:
-        line.append_text(drift_vector(*now))
+        line.append_text(drift_vector(*now[:3]))
         if math.hypot(now[0], now[1]) >= DRIFT_DEADBAND:
             line.append(f'  {bearing(now[0], now[1])}', style=MUTED)
-    bias = view['hardware'].get('characterization', {}).get('bias')
-    fit = (bias['surge'], bias['sway'], bias['yaw']) if bias else None
-    line.append('\n       fit ', style=MUTED)
-    if fit is None:
+    expected = expected_drift(snapshot, view, now[3] if now else None)
+    if expected is None:
+        line.append('\n       fit ', style=MUTED)
         line.append('not characterized', style=MUTED)
         return line
+    source, *fit = expected
+    line.append(f'\n       {source} ', style=MUTED)
     line.append_text(drift_vector(*fit))
     if now is not None and not driving:
         error = math.hypot(now[0] - fit[0], now[1] - fit[1])
@@ -244,7 +268,8 @@ def thruster_rows(view):
     if view['test_pulses'] is not None:
         by_output = view['test_pulses']
     elif view['units'] == 'effort' and view['armed']:
-        by_output = thruster_pulses(view['command'], view['matrix'], channel_map, reversed_)
+        by_output = thruster_pulses(view['command'], view['matrix'], channel_map, reversed_,
+                                    validate_decoupling(view['hardware']['decoupling']))
     else:
         by_output = [NEUTRAL] * 4
     saved = view['hardware']

@@ -36,9 +36,10 @@ def _quaternion_ok(q):
 
 def _odometry(message, base_frame):
     velocity = message.twist.twist
-    position = message.pose.pose.position
+    position, q = message.pose.pose.position, message.pose.pose.orientation
     values = dict(vx=velocity.linear.x, vy=velocity.linear.y, wz=velocity.angular.z,
                   x=position.x, y=position.y,
+                  yaw=math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
                   frame=message.header.frame_id, child=message.child_frame_id)
     values['summary'] = f"vx {values['vx']:+.2f} vy {values['vy']:+.2f} wz {values['wz']:+.2f}"
     if not finite(values['vx'], values['vy'], values['wz'], values['x'], values['y']):

@@ -25,7 +25,7 @@ from mhseals_hardware.configuration import config_path, configure_args, load_con
 from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
-from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, validate_mixer
+from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing import health
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailable
@@ -57,6 +57,14 @@ ADVISORY_PERIOD = 1.0
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
+
+
+def decoupled(config):
+    """The active decoupling matrix, or None when it is the identity."""
+    values = tuple(float(value) for value in config.get('decoupling', sum(IDENTITY, ())))
+    return None if values == sum(IDENTITY, ()) else values
+
+
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
 GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm panel'), ('Space', 'Stop'), ('?', 'Help'),
@@ -65,7 +73,8 @@ PANEL_HINTS = {
     'status': [('↑↓', 'Select'), ('Enter', 'Details')],
     'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
     'thrusters': [('←→', 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
-                  ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify')],
+                  ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
+                  ('c', 'Clear decoupling')],
     'procedures': [('Enter', 'Run'), ('↑↓', 'Select')],
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
@@ -140,7 +149,7 @@ class App:
         self.watcher_factory, self._watcher = task_watcher, None
         self.settings = Settings(args.amplitude, args.baseline, args.command_duration,
                                  args.settle, args.repeats, args.observe, args.nav_distance,
-                                 args.station_hold, args.station_tolerance)
+                                 args.station_hold, args.station_tolerance, args.turn)
         self.focus = 'status'
         self.cursors = {panel: 0 for panel in PANELS}
         self.activity = 'results'
@@ -563,6 +572,13 @@ class App:
             self.notice = 'Mapping changes undone'
         elif key == 'i':
             self.run_procedure(next(p for p in PROCEDURES if p.key == 'i'))
+        elif key == 'c':
+            if decoupled(self.args.hardware_config) is None:
+                self.notice = 'No decoupling to clear'
+            elif self.choose('Clear the fitted decoupling? Thrust goes back to the plain mixer.',
+                             ('Keep', 'Clear'), {'n': 0, 'y': 1}) == 'Clear':
+                self.save_hardware(decoupling=list(sum(IDENTITY, ())))
+                self.notice = 'Decoupling cleared'
 
     def move_grabbed(self, step):
         """Swap the grabbed thruster's output and reversal with its neighbour's, and follow it."""
@@ -687,7 +703,9 @@ class App:
             else 'none'
         rows = [('Outputs', outputs), ('Driver', driver),
                 ('Commands', f'{self.profile.command_topic} ({self.profile.command_units})'),
-                ('Config', str(self.config_file))]
+                ('Config', str(self.config_file)),
+                ('Decoupling', '○ identity' if decoupled(self.args.hardware_config) is None
+                 else '● fitted (Thrusters c clears)')]
         blockers = self.blockers()
         rows.append(('Interlocks', '● clear' if not blockers else f'× {blockers[0]}'))
         rows += [('', f'× {reason}') for reason in blockers[1:4]]
@@ -897,6 +915,9 @@ def build_parser():
     parser.add_argument('--nav-distance', type=float, default=4.0,
                         help='side of the waypoint square, m')
     parser.add_argument('--station-hold', type=float, default=60.0, help='station keeping, s')
+    parser.add_argument('--turn', type=float, default=20.0,
+                        help='characterization: seconds of steady turning, so the fit can '
+                             'tell current and wind from the boat itself')
     parser.add_argument('--station-tolerance', type=float, default=1.5,
                         help='station keeping radius, m')
     parser.add_argument('--output', type=Path, default=None,

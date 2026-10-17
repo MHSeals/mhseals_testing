@@ -98,13 +98,19 @@ def test_drift_arrows_are_drawn_bow_up_in_the_body_frame():
     assert drift_arrow(0.01, 0.0) == '·'
 
 
-def drift_text(command, bias, vx=0.1, vy=0.1):
+def drift_text(command, bias, vx=0.1, vy=0.1, yaw=0.0, drift=None, live=None):
     from mhseals_testing.ui.dashboard import drift_line
     m = BoatMonitor(clock=lambda: 10)
-    m.observe('odometry', {'vx': vx, 'vy': vy, 'wz': 0.0}, stamp_age=0)
+    m.observe('odometry', {'vx': vx, 'vy': vy, 'wz': 0.0, 'yaw': yaw}, stamp_age=0)
+    if live is not None:
+        m.estimate_drift(*live)
     hardware = dict(load_defaults())
+    characterization = {}
     if bias is not None:
-        hardware['characterization'] = {'bias': dict(zip(('surge', 'sway', 'yaw'), bias))}
+        characterization['mechanical_bias'] = dict(zip(('surge', 'sway', 'yaw'), bias))
+    if drift is not None:
+        characterization['drift'] = dict(x=drift[0], y=drift[1], separated=True)
+    hardware['characterization'] = characterization
     return drift_line(m.snapshot(), dict(command=command, hardware=hardware)).plain
 
 
@@ -136,3 +142,16 @@ def test_unsaved_mapping_is_marked():
     page = text(render(monitor().snapshot(), view(profile, focus='thrusters', draft=draft,
                                                   grabbed=0), 120, 40), 120, 40)
     assert 'topic · unsaved' in page and 'FL ⇅' in page and '↺' in page
+
+
+def test_world_drift_is_turned_into_the_body_by_the_heading():
+    import math
+    # A current setting north (+y in odom): heading north, it pushes the boat ahead.
+    north = drift_text((0, 0, 0), None, vx=0.2, vy=0.0, yaw=math.pi / 2, drift=(0.0, 0.2))
+    assert 'fit ↑ 0.20 m/s' in north and '● Δ 0.00' in north
+    # Heading east, the same current pushes the boat to port.
+    east = drift_text((0, 0, 0), None, vx=0.0, vy=0.2, yaw=0.0, drift=(0.0, 0.2))
+    assert 'fit ← 0.20 m/s' in east
+    # The controller's live estimate wins over the characterization.
+    live = drift_text((0, 0, 0), None, vx=0.0, vy=0.1, yaw=0.0, drift=(0.0, 0.2), live=(0.0, 0.1))
+    assert 'live ← 0.10 m/s' in live

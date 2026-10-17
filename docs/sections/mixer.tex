@@ -138,16 +138,54 @@ and the boat turns while sliding sideways. There are two ways to fix it:
   \item \emph{From geometry:} measure $(x_i, y_i, \alpha_i)$ about the center of
         mass, build $B$, and use $M = B^{+}$, each column scaled so a full
         command just saturates the busiest thruster. Thrusters of unequal
-        strength (or reverse thrust weaker than forward) call for a weighted
-        pseudo-inverse: minimizing $\sum_i w_i t_i^2$ gives
+        strength call for a weighted pseudo-inverse: minimizing
+        $\sum_i w_i t_i^2$ gives
         $\bm t = W^{-1}B^\top(BW^{-1}B^\top)^{-1}\bm w$ with $W = \operatorname{diag}(w_i)$.
-  \item \emph{From data:} the characterization's off-diagonal gains are exactly
-        this leakage, and the controller's $G^{-1}$ cancels it. Folding the
-        correction into the mixer gives $M' = M G^{-1}$ (clipped to
-        $[-1,1]$), the ``recommended allocation'' the fit reports; in effect it
-        measures $B^{+}$ from how the boat moves instead of from a ruler.
+  \item \emph{From data:} keep $M$ as the geometry and put a small $3\times3$
+        correction in front of it, measured by the characterization. This is
+        what the driver does.
 \end{enumerate}
-In practice use both: geometry for a good starting mixer, the fit for what the
-geometry missed. A quick check is in the axis trials: pure surge should show
-no steady yaw rate, and a consistent one means the yaw part of the mixer is off.
-\file{mhseals\_hardware/thruster\_mixer.py (mix\_thrusters), mhseals\_testing/analysis/characterization.py}
+
+\subsection{The decoupling matrix}
+
+The characterization (Section~\ref{sec:char}) measures the gain $G$: how much
+of each velocity each effort axis produces. On an ideal boat $G$ is diagonal.
+Its off-diagonal entries are exactly the leakage above: $G_{\psi y} \neq 0$ means
+sway effort also turns the boat. The driver cancels it with a matrix $C$ applied
+to the command before the mixer,
+\[
+  \bm t = M\,(C\bm e).
+\]
+\paragraph{Choosing $C$.} Through $C$, the boat responds as $\bm v = G C\bm e$
+(plus the drift). We want each axis to drive only itself, at the strength it
+already has, so we ask for $GC = D$ with $D = \operatorname{diag}(G_{xx}, G_{yy},
+G_{\psi\psi})$:
+\[
+  C = G^{-1} D .
+\]
+For an ideal boat $G = D$ and $C = I$: the decoupling vanishes, as it should.
+For a nearly ideal boat $C$ is the identity plus small off-diagonal terms.
+\begin{example}
+If surge also turns the boat, $G_{\psi x} = 0.05$ with $G_{\psi\psi} = 0.3$, then
+$C_{\psi x} = -0.05/0.3 \approx -0.17$: every unit of surge adds $0.17$ of
+counter-yaw, and pure surge comes out straight.
+\end{example}
+\paragraph{Effort keeps its meaning.} $C$ maps effort to effort, so $e_x = 1$
+still means full surge. An earlier version folded $G^{-1}$ itself into the
+mixer. But $G^{-1}$ maps a velocity in m/s to effort, so it changes units, and
+with $G_{xx} \approx 4.5$ in the simulator it would have cut full surge to about
+$22\%$. Multiplying by $D$ is what puts the units back.
+
+\paragraph{Refitting with a decoupling active.} A later characterization runs
+with $C_\text{old}$ already in the driver, so it measures
+$G_\text{fit} = G\,C_\text{old}$. The boat's own gain is recovered as
+$G = G_\text{fit} C_\text{old}^{-1}$, and the new matrix is $C = G^{-1}D$ from
+that. Refits therefore replace the old correction rather than stacking on it.
+The fit records which $C$ was active for this reason.
+
+\paragraph{The controller sees the decoupled boat.} The velocity controller
+inverts $G_\text{eff} = G\,C$, which is close to diagonal. The decoupling and the
+controller never correct the same coupling twice, whether $C$ is the identity or
+not. Because the decoupling lives in the driver, it also straightens manual
+driving and the open-loop trials, which never pass through the controller.
+\file{mhseals\_hardware/thruster\_mixer.py (decouple, mix\_thrusters), velocity\_law.py (decoupling\_for, raw\_gain)}

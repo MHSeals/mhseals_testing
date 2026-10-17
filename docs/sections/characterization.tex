@@ -12,7 +12,9 @@ drag and props, so it is measured. The model is affine:
   \bm{v} = \bm{b} + G\bm{e},
 \]
 where $\bm v = (v_x, v_y, \omega_z)$ is the steady body velocity, $G\in\R^{3\times3}$
-the \emph{gain} and $\bm{b}$ the \emph{bias}. $G_{xx}$ is metres per second of
+the \emph{gain} and $\bm{b}$ the \emph{bias}. (This first form treats the bias as
+one constant; the end of this section splits it into the part that belongs to the
+boat and the part that belongs to the day's weather.) $G_{xx}$ is metres per second of
 surge per unit of surge effort; an off-diagonal entry such as $G_{\psi y}$ is
 yaw rate per unit of sway effort, i.e.\ how much asking for sway also turns the
 boat. $\bm b$ is the velocity at zero effort: current, wind, or a thruster that
@@ -125,6 +127,86 @@ a working range, but $G$ is a straight line through a curve: it is best near
 the efforts it was fitted at. Fit at the speeds you will drive, and expect the
 velocity controller's integral term (Section~\ref{sec:controller}) to absorb the
 rest.
+
+\subsection{Two kinds of drift: the boat's and the weather's}
+
+The bias above lumps together two things that behave very differently.
+\begin{itemize}[nosep]
+  \item \emph{Mechanical} effects belong to the boat: an ESC whose ``stopped''
+        pulse still turns the prop a little, a bent mount, a weak motor. They
+        are fixed in the \emph{body} frame. Push the boat forward at any heading
+        and a bent mount pulls it the same way relative to the bow. They change
+        only when the hardware does.
+  \item \emph{Current} and \emph{wind} belong to the water and the air. They are
+        fixed in the \emph{world} frame: a current setting north sets north
+        whichever way the bow points. Seen from the boat, it comes from ahead,
+        then from the side, then from astern as the boat turns. And it is
+        different tomorrow.
+\end{itemize}
+A single body-frame $\bm b$ fitted at one heading is therefore right only at that
+heading and only on that day. Calibration should keep what is stable and leave
+out what is not.
+
+\paragraph{The model with both.} Let $\bm d = (d_x, d_y)$ be the drift velocity
+in the odometry (world) frame and $\psi$ the heading. Turning a world vector into
+the body frame is the rotation by $-\psi$,
+\[
+  R(\psi)^\top \bm d =
+  \begin{bmatrix} \cos\psi & \sin\psi\\ -\sin\psi & \cos\psi \end{bmatrix}
+  \begin{bmatrix} d_x\\ d_y \end{bmatrix},
+\]
+so the model becomes
+\[
+  \bm v = \bm b_m + \begin{bmatrix} R(\psi)^\top \bm d\\ 0 \end{bmatrix} + G\bm e,
+\]
+with $\bm b_m$ the body-fixed mechanical bias. (Current and wind also turn the
+boat, but much less than they push it; the yaw row keeps only $b_{m,\psi}$.)
+
+\paragraph{Still least squares.} $\psi$ is measured, so $\cos\psi$ and $\sin\psi$
+are just numbers in each sample, and the model is still linear in the unknowns.
+The axes now share $\bm d$, so they can no longer be fitted one at a time. Instead
+each sample contributes three rows, one per measured axis, to one stacked system
+with fourteen unknowns,
+\[
+  \bm\theta = (\,b_{m,x},\, b_{m,y},\, b_{m,\psi},\; G_{xx}, \dots, G_{\psi\psi},\; d_x,\, d_y\,).
+\]
+For a sample with effort $\bm e$ and heading $\psi$ the three rows are
+\[
+\begin{array}{r@{\;}l}
+  v_x:& (1,0,0,\;\bm e^\top,\bm 0^\top,\bm 0^\top,\; \cos\psi,\ \sin\psi)\\
+  v_y:& (0,1,0,\;\bm 0^\top,\bm e^\top,\bm 0^\top,\; -\sin\psi,\ \cos\psi)\\
+  \omega_z:& (0,0,1,\;\bm 0^\top,\bm 0^\top,\bm e^\top,\; 0,\ 0)
+\end{array}
+\]
+and the normal equations $X^\top X\bm\theta = X^\top\bm y$ are solved exactly as
+before, now with a $14\times14$ matrix.
+
+\paragraph{Telling them apart needs turning.} At a single heading the drift
+columns $(\cos\psi, \sin\psi)$ are constant: they are multiples of the bias
+columns, $X$ loses rank, and no amount of data separates ``the boat pulls to
+port'' from ``the current sets to port''. Only when the samples cover different
+headings do the drift columns vary while the bias columns stay at one, and the two
+come apart. The fit measures the spread of headings by the length of their mean
+unit vector,
+\[
+  \bar R = \Big|\frac1n \sum_k (\cos\psi_k, \sin\psi_k)\Big| ,
+\]
+which is $1$ for a single heading and $0$ for headings spread evenly round the
+circle. Below $\bar R = 0.9$ (roughly a quarter turn of spread) it fits both. Above it,
+it falls back to the single body-frame bias and says so. The Characterize
+procedure ends with a steady turn so this always has the headings it needs.
+
+\begin{example}
+A boat with $\bm b_m = (0.02, -0.01, 0)$ in a current $\bm d = (0.10, 0.15)$\,m/s,
+sampled at headings all round the circle, gives back both exactly. Sampled only
+at $\psi = 0.3$\,rad, the fit returns $b_{m,x} = 0.02 + 0.10\cos 0.3$: the
+current folded into the bias at that heading, as it must be.
+\end{example}
+
+\paragraph{What gets saved.} $G$ and $\bm b_m$ are the boat, so they go into
+the hardware configuration. $\bm d$ is the day: it is reported, with its speed
+and the direction it sets toward, but never saved as calibration. The velocity
+controller estimates it live instead (Section~\ref{sec:controller}).
 
 \paragraph{Limits.} The largest measured speed per axis gives the velocity
 limits; the largest change of velocity between consecutive samples divided by

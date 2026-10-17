@@ -1,28 +1,71 @@
 \section{The calibrated velocity controller}
 \label{sec:controller}
 
-Given a velocity request $\bm v^*$, invert the model to get the effort that
-\emph{should} produce it (feed-forward), then correct what the model got wrong
-with feedback on the measured velocity $\bm v$:
+Nav2 asks for a body velocity $\bm v^*$. The controller turns it into effort in
+three parts: invert the model (feed-forward), cancel the day's drift (an
+observer), and correct whatever is left with feedback on the measured velocity
+$\bm v$:
 \[
-  \bm e = \underbrace{G^{-1}\left(\operatorname{clip}(\bm v^*) - \bm b\right)}_{\text{feed-forward}}
-        + K_p\,\bm\epsilon + K_i\,\bm z,\qquad \bm\epsilon = \bm v^* - \bm v,
+  \bm e = \underbrace{G_\text{eff}^{-1}\Big(\bm v^\star - \bm b_m - \begin{bmatrix}R(\psi)^\top\hat{\bm d}\\0\end{bmatrix}\Big)}_{\text{feed-forward}}
+        + K_p\,\bm\epsilon + K_i\,\bm z,\qquad
+  \bm v^\star = \operatorname{clip}(\bm v^*),\quad \bm\epsilon = \bm v^\star - \bm v,
 \]
 with $\bm e$ finally clipped to $[-1,1]$. $\operatorname{clip}$ limits the
-request to the measured velocity limits.
+request to the measured velocity limits, and the error is taken against that
+limited request, so the loop never chases a speed the boat cannot reach.
+$G_\text{eff} = G\,C$ is the gain the boat shows through the driver's decoupling
+(Section~\ref{sec:mixer}).
 
-\paragraph{Bounded integral (anti-windup).} The integral state
+\paragraph{The drift observer.} The characterization reports the drift on the
+day it ran, but current and wind change. So the controller estimates the drift
+$\hat{\bm d}$ continuously, in the world frame where it is constant. Each
+odometry sample says how far the boat is from what the model predicts for the
+effort it is applying:
+\[
+  \bm r = \bm v - \bm b_m - G_\text{eff}\,\bm e .
+\]
+Under the model the planar part of $\bm r$ is exactly $R(\psi)^\top\bm d$.
+Rotating it back into the world, $R(\psi)\bm r_{xy}$, gives one noisy
+measurement of $\bm d$, and a first-order low-pass filter averages them:
+\[
+  \hat{\bm d} \leftarrow \hat{\bm d} + \frac{\Delta t}{\tau + \Delta t}\left(R(\psi)\,\bm r_{xy} - \hat{\bm d}\right).
+\]
+$\tau$ (5\,s by default) trades noise against how fast a change in the current
+is picked up. It is far slower than the boat's own response, so short
+transients barely move the estimate. Because $\hat{\bm d}$ is kept in the world
+frame and rotated into the body only when it is used, it stays right while the
+boat turns. A body-frame estimate would point the wrong way after a half turn.
+The estimate freezes while any effort axis is saturated, since the model is
+not valid there. It is published on the controller's \code{drift} topic, and the boat test's drift line
+compares it with the live velocity.
+
+\paragraph{Integral with conditional integration (anti-windup).} The integral
 \[
   z_i \leftarrow \operatorname{clip}\!\left(z_i + \epsilon_i\,\Delta t,\; -z_\text{max},\; z_\text{max}\right)
 \]
-removes steady errors such as a constant current the bias did not capture. The
-clip matters: without it, a long period of saturated thrust (a request the boat
-cannot meet) keeps accumulating error, and the boat overshoots badly once it
-finally can respond. That is called \emph{windup}. The integral also resets when
-commands stop.
+removes the steady error the model and the observer leave, such as a gain that is
+slightly off. With the observer carrying the drift, $z_\text{max}$ can be small.
+\emph{Windup} is what happens when the integral keeps accumulating while the
+output is pinned at its limit: when the boat finally can respond, the stored
+error makes it overshoot. Clipping $z$ bounds the damage. Conditional integration
+prevents it: an axis whose effort is already at $\pm1$ in the direction its error
+pushes stops integrating until it comes off the limit. The integral and the
+applied effort reset when commands stop. The driver goes neutral then, and
+the observer keeps learning from zero effort.
+
+\paragraph{Stale odometry.} Feedback on an old velocity is worse than none. If
+odometry is older than 0.3\,s the controller outputs zero effort and resets,
+rather than integrating against a frozen measurement.
 
 \paragraph{Why feed-forward first.} With a good model the feed-forward term does
 almost all of the work, and the feedback gains can stay small and stable. If
 the model is poor, the controller-steps procedure (Section~\ref{sec:step}) shows
 it as large steady-state error or overshoot.
-\file{mhseals\_hardware/velocity\_controller.py}
+
+\paragraph{Why not Nav2, and why not the mixer?} The drift could in principle
+be handled elsewhere. The mixer is the wrong place: it is calibration, and the
+drift is not. Nav2 is too late: its controller plans with a kinematic model that
+has no current in it, so it only sees the drift as position error after the boat
+has already been pushed off the path. The velocity loop runs on measured velocity
+over the ground, at the rate the drift acts, which is why the observer lives there.
+\file{mhseals\_hardware/velocity\_law.py, velocity\_controller.py}

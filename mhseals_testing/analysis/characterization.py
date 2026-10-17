@@ -20,11 +20,12 @@ from typing import Iterable, Mapping
 import numpy
 
 from mhseals_hardware.configuration import load_config, save_config
-from mhseals_hardware.thruster_mixer import AXES, THRUSTER_MIXER, validate_mixer
+from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
+from mhseals_hardware.velocity_law import decoupling_for, raw_gain
 
 
 def nav2_profile(result, source):
-    """Return a complete Nav2 profile with measured component limits."""
+    """Return a complete Nav2 profile with the measured limits in MPPI and the smoother."""
     import yaml
     profile = yaml.safe_load(Path(source).read_text())
     limits = result["motion_limits"]
@@ -32,11 +33,11 @@ def nav2_profile(result, source):
     acceleration = limits["acceleration"]
     deceleration = limits["deceleration"]
     controller = profile["controller_server"]["ros__parameters"]
-    controller["FollowPath"]["desired_linear_vel"] = velocity["surge"]
-    # RPP's in-place turns and the behavior server use independent rotational
-    # caps; keep both inside the measured yaw envelope.
-    controller["FollowPath"]["max_angular_accel"] = acceleration["yaw"]
-    controller["FollowPath"]["rotate_to_heading_angular_vel"] = velocity["yaw"]
+    # MPPI samples inside these bounds, so it never plans what the boat can't do.
+    controller["FollowPath"].update(
+        vx_max=velocity["surge"], vx_min=-velocity["surge"], vy_max=velocity["sway"],
+        wz_max=velocity["yaw"], ax_max=acceleration["surge"], ax_min=-deceleration["surge"],
+        ay_max=acceleration["sway"], az_max=acceleration["yaw"])
     behavior = profile.get("behavior_server", {}).get("ros__parameters", {})
     if behavior:
         behavior["max_rotational_vel"] = velocity["yaw"]
@@ -60,48 +61,72 @@ def _vector(value, name):
     return values
 
 
-def _inverse(matrix, regularization=1e-6):
-    """Invert a 3x3 matrix, with a small ridge term for weak experiments."""
-    ridged = numpy.asarray(matrix, dtype=float) + regularization * numpy.eye(3)
-    if abs(numpy.linalg.det(ridged)) < 1e-12:
-        raise ValueError("commands do not excite all three motion axes")
-    return tuple(tuple(float(value) for value in row) for row in numpy.linalg.inv(ridged))
+# Headings closer together than this (mean resultant length of the unit
+# heading vectors) can't tell a world-fixed drift from a body-fixed bias.
+SEPARATION_SPREAD = 0.9
 
 
-def _normal_equations(samples):
-    """Fit velocity = bias + gain @ command by ordinary least squares.
+def heading_spread(yaws):
+    """1 for a single heading, 0 for headings spread evenly round the circle."""
+    return math.hypot(sum(map(math.cos, yaws)), sum(map(math.sin, yaws))) / len(yaws)
 
-    Each sample contributes the row (1, surge, sway, yaw). Summing row^T row
-    gives the 4x4 Gram matrix, and summing velocity * row gives one right-hand
-    side per measured axis; solving each system yields that axis's bias and
-    three gains.
+
+def _design(samples, drift):
+    """Stack one row per sample and measured axis for v = b_m + R(yaw)^T d + G e.
+
+    Unknowns: b_m (3), G row-major (9), then d_x, d_y in the odom frame when
+    ``drift`` is set. R(yaw)^T d = (d_x cos + d_y sin, -d_x sin + d_y cos), and
+    yaw rate has no drift term.
     """
-    rows = numpy.array([(1.0, *command) for command, _, _ in samples])
-    velocities = numpy.array([velocity for _, velocity, _ in samples])
-    gram = rows.T @ rows + 1e-8 * numpy.eye(4)
+    rows, values = [], []
+    for command, velocity, _, yaw in samples:
+        c, s = (math.cos(yaw), math.sin(yaw)) if drift else (0.0, 0.0)
+        for axis in range(3):
+            row = [0.0] * (14 if drift else 12)
+            row[axis] = 1.0
+            row[3 + 3 * axis:6 + 3 * axis] = command
+            if drift and axis < 2:
+                row[12:14] = (c, s) if axis == 0 else (-s, c)
+            rows.append(row)
+            values.append(velocity[axis])
+    return numpy.array(rows), numpy.array(values)
+
+
+def _normal_equations(samples, drift):
+    """Least squares through the normal equations X^T X theta = X^T y."""
+    rows, values = _design(samples, drift)
+    gram = rows.T @ rows + 1e-8 * numpy.eye(rows.shape[1])
     # Do not turn a one-axis bag into a seemingly valid 3-axis calibration.
-    if numpy.linalg.matrix_rank(gram, tol=1e-6) < 4:
+    if numpy.linalg.matrix_rank(gram, tol=1e-6) < rows.shape[1]:
         raise ValueError('samples must excite neutral, surge, sway, and yaw')
-    try:
-        coefficients = numpy.linalg.solve(gram, rows.T @ velocities).T  # one row per axis
-    except numpy.linalg.LinAlgError as error:
-        raise ValueError("not enough varied command samples") from error
-    bias = tuple(float(row[0]) for row in coefficients)
-    gain = tuple(tuple(float(value) for value in row[1:]) for row in coefficients)
-    return bias, gain
+    return numpy.linalg.solve(gram, rows.T @ values)
 
 
-def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, source="samples"):
+def fit(samples):
+    """Fit the model; separate drift from bias only when the headings allow it.
+
+    Returns (mechanical bias, gain, drift (x, y) or None).
+    """
+    yaws = [sample[3] for sample in samples]
+    drift = all(yaw is not None for yaw in yaws) and heading_spread(yaws) < SEPARATION_SPREAD
+    theta = _normal_equations(samples, drift)
+    bias = tuple(float(value) for value in theta[:3])
+    gain = tuple(tuple(float(value) for value in theta[3 + 3 * i:6 + 3 * i]) for i in range(3))
+    return bias, gain, (float(theta[12]), float(theta[13])) if drift else None
+
+
+def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()),
+                         source="samples"):
     """Return calibration data suitable for writing to hardware YAML.
 
-    Samples are paired command and odometry observations.  Commands are the
-    normalized inputs consumed by ``thruster_pwm_node``; velocities are SI
-    units from odometry. The fitted gain drives the optional calibrated
-    velocity controller; the physical effort mixer remains unchanged unless
-    ``--apply-matrix`` is explicitly requested.
+    Samples are paired command and odometry observations, with the heading
+    (``yaw``) when known. Commands are the normalized effort consumed by
+    ``thruster_pwm_node``; velocities are SI units from odometry.
+    ``decoupling`` is the matrix the driver applied while they were recorded,
+    so the fit can divide it back out. The drift is today's current and wind:
+    it is reported but the controller estimates it live, so it is never
+    calibration.
     """
-    if len(mixer) == 4 and hasattr(mixer[0], "__iter__"):
-        mixer = tuple(value for row in mixer for value in row)  # 4x3 rows -> flat 12
     normalized = []
     for sample in samples:
         command = _vector(sample.get("command", sample.get("cmd_vel")), "command")
@@ -109,17 +134,21 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
         stamp = float(sample.get("time", sample.get("stamp", 0.0)))
         if not math.isfinite(stamp):
             stamp = 0.0
-        normalized.append((command, velocity, stamp))
+        yaw = sample.get("yaw")
+        yaw = float(yaw) if yaw is not None and math.isfinite(float(yaw)) else None
+        normalized.append((command, velocity, stamp, yaw))
     if len(normalized) < 8:
         raise ValueError("at least eight command/odometry samples are required")
-    bias, gain = _normal_equations(normalized)
+    bias, gain, drift = fit(normalized)
+    used = numpy.array(validate_decoupling(decoupling))
+    gain_map = {axis: {name: gain[i][j] for j, name in enumerate(AXES)}
+                for i, axis in enumerate(AXES)}
     try:
-        inverse_gain = _inverse(gain)
-        corrected = (numpy.asarray(validate_mixer(mixer)) @ numpy.asarray(inverse_gain)).tolist()
-        corrected = tuple(tuple(max(-1.0, min(1.0, value)) for value in row)
-                          for row in corrected)
-    except ValueError:
-        corrected = validate_mixer(mixer)
+        recommended = decoupling_for(raw_gain(dict(
+            velocity_gain=gain_map, fitted_with_decoupling=used.flatten().tolist())))
+        recommended = [float(value) for value in recommended.flatten()]
+    except numpy.linalg.LinAlgError:
+        recommended = list(sum(IDENTITY, ()))
     # Largest measured speed per axis, in either direction.
     velocity_limit = {axis: max(abs(row[1][index]) for row in normalized)
                       for index, axis in enumerate(AXES)}
@@ -134,7 +163,7 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
             acceleration[axis] = max(acceleration[axis], change)
             deceleration[axis] = max(deceleration[axis], -change)
     combined = {}
-    for command, velocity, _ in normalized:
+    for command, velocity, _, _ in normalized:
         active = tuple(axis for axis, value in zip(AXES, command) if abs(value) > .02)
         if len(active) < 2:
             continue
@@ -147,14 +176,14 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
         "source": source,
         "identified_at": datetime.now(timezone.utc).isoformat(),
         "sample_count": len(normalized),
-        "bias": {axis: bias[i] for i, axis in enumerate(AXES)},
-        "velocity_gain": {axis: {name: gain[i][j] for j, name in enumerate(AXES)}
-                           for i, axis in enumerate(AXES)},
-        # This is an optional feed-forward allocation expressed in the
-        # original command units.  It is not a replacement for the physical
-        # effort mixer unless the operator explicitly applies it.
-        "recommended_velocity_allocation": [value for row in corrected for value in row],
-        "thruster_matrix": [value for row in validate_mixer(mixer) for value in row],
+        "mechanical_bias": {axis: bias[i] for i, axis in enumerate(AXES)},
+        "velocity_gain": gain_map,
+        "drift": (dict(x=drift[0], y=drift[1], speed=math.hypot(*drift),
+                       toward=math.degrees(math.atan2(drift[1], drift[0])),
+                       frame="odom", separated=True)
+                  if drift else dict(separated=False)),
+        "fitted_with_decoupling": [float(value) for value in used.flatten()],
+        "decoupling": recommended,
         "motion_limits": {
             "velocity": velocity_limit,
             "acceleration": acceleration,
@@ -178,7 +207,8 @@ def samples_from_windows(history, windows, transient=1.0):
             if start + transient <= stamp <= end and all(
                     values.get(key) is not None for key in ('vx', 'vy', 'wz')):
                 samples.append({"time": stamp, "command": tuple(command),
-                                "velocity": (values["vx"], values["vy"], values["wz"])})
+                                "velocity": (values["vx"], values["vy"], values["wz"]),
+                                "yaw": values.get("yaw")})
     return samples
 
 
@@ -201,7 +231,8 @@ def read_csv_samples(path: Path):
                          "command": [row.get("cmd_surge", row.get("surge", 0)),
                                      row.get("cmd_sway", row.get("sway", 0)),
                                      row.get("cmd_yaw", row.get("yaw", 0))],
-                         "velocity": [row.get("vx", 0), row.get("vy", 0), row.get("wz", 0)]})
+                         "velocity": [row.get("vx", 0), row.get("vy", 0), row.get("wz", 0)],
+                         "yaw": row.get("yaw") or None})
     return rows
 
 
@@ -245,9 +276,11 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local"):
             if index < 0:
                 continue
             command = commands[index][1]
-            twist = msg.twist.twist
+            twist, q = msg.twist.twist, msg.pose.pose.orientation
             samples.append({"time": timestamp, "command": command,
-                            "velocity": (twist.linear.x, twist.linear.y, twist.angular.z)})
+                            "velocity": (twist.linear.x, twist.linear.y, twist.angular.z),
+                            "yaw": math.atan2(2 * (q.w * q.z + q.x * q.y),
+                                              1 - 2 * (q.y * q.y + q.z * q.z))})
     return samples
 
 
@@ -256,10 +289,12 @@ def main(argv=None):
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--bag", type=Path, help="rosbag2 directory")
     source.add_argument("--samples", type=Path, help="JSON or CSV samples")
-    parser.add_argument("--config", type=Path, help="hardware YAML to update")
+    parser.add_argument("--config", type=Path,
+                        help="hardware YAML to update; its decoupling must be the one "
+                             "active when the bag was recorded")
     parser.add_argument("--output", type=Path, help="write calibration YAML")
-    parser.add_argument("--apply-matrix", action="store_true",
-                        help="replace the physical effort mixer after review")
+    parser.add_argument("--apply-decoupling", action="store_true",
+                        help="also apply the fitted decoupling to the driver")
     parser.add_argument("--nav2-params", type=Path,
                         help="source Nav2 YAML when generating --nav2-overlay")
     parser.add_argument("--nav2-overlay", type=Path,
@@ -274,10 +309,10 @@ def main(argv=None):
     else:
         samples = read_json_samples(args.samples)
     config = load_config(args.config) if args.config else load_config()
-    result = characterize_samples(samples, config["thruster_matrix"],
+    result = characterize_samples(samples, config["decoupling"],
                                  source="rosbag2" if args.bag else "samples")
-    if args.apply_matrix:
-        config["thruster_matrix"] = result["recommended_velocity_allocation"]
+    if args.apply_decoupling:
+        config["decoupling"] = result["decoupling"]
     config["characterization"] = result
     target = args.output or args.config
     if target:

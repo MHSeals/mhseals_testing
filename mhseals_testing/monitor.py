@@ -26,6 +26,7 @@ class BoatMonitor:
         self.histories = {name: deque(maxlen=12000) for name in history_sensors}
         self.events = deque(maxlen=12)
         self.results = deque(maxlen=100)
+        self.drift = None  # (x, y) the velocity controller estimates, odom frame, with time
 
     def observe(self, name, values=None, issue='', stamp_age=None):
         """Record one received message (already validated) for ``name``."""
@@ -51,6 +52,11 @@ class BoatMonitor:
             if len(self.edges) > 300:
                 oldest = min(self.edges, key=lambda key: self.edges[key][0])
                 del self.edges[oldest]
+
+    def estimate_drift(self, x, y):
+        """Record the velocity controller's live world-frame drift estimate."""
+        with self.lock:
+            self.drift = (x, y, self.clock())
 
     def advise(self, name, level, detail=''):
         """Record a non-blocking diagnostic (power, links, compute, ...)."""
@@ -149,5 +155,7 @@ class BoatMonitor:
             step = max(1, len(recent) // 32)
             trends = {key: [v[key] for _, v in recent[::step] if v.get(key) is not None][-32:]
                       for key in ('vx', 'vy', 'wz')}
+            drift = (self.drift[:2] if self.drift and now - self.drift[2] <= self.stale_after
+                     else None)
             return dict(sensors=sensors, tf=tf, advisories=advisories, events=list(self.events),
-                        trends=trends, results=deepcopy(list(self.results)))
+                        trends=trends, results=deepcopy(list(self.results)), drift=drift)

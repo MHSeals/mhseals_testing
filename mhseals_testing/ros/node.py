@@ -9,6 +9,7 @@ from functools import partial
 import json
 import threading
 
+from geometry_msgs.msg import Vector3Stamped
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -27,6 +28,7 @@ MESSAGE_TYPES = {
     'image': Image, 'compressed': CompressedImage, 'detections': Detection3DArray,
 }
 EVENTS_TOPIC = '/mhseals_testing/events'
+DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
 
 
 class RosIO:
@@ -44,6 +46,9 @@ class RosIO:
             self.node.create_subscription(
                 MESSAGE_TYPES[sensor.kind], sensor.topic,
                 partial(self._sensor, sensor.name, sensor.kind), qos_profile_sensor_data)
+        self.node.create_subscription(
+            Vector3Stamped, DRIFT_TOPIC,
+            lambda message: monitor.estimate_drift(message.vector.x, message.vector.y), 10)
         self.node.create_subscription(TFMessage, '/tf', self._tf, qos_profile_sensor_data)
         self.node.create_subscription(
             TFMessage, '/tf_static', partial(self._tf, static=True),

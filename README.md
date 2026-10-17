@@ -25,16 +25,16 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 | q, Ctrl+C | Quit: neutral, disarm, stop children, write the report, flush the bag |
 | Thrusters ←→, 0 | Test pulse ±10 µs on the selected thruster; back to neutral |
 | Thrusters Enter, 1-4, r | Move a thruster, wire it to an output, reverse it (a draft) |
-| Thrusters s, u, i | Save or undo the draft; thruster set (identify by pulses) |
+| Thrusters s, u, i, c | Save or undo the draft; thruster set (identify by pulses); clear the decoupling |
 
-Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); others fall back to tap-repeat. Saved mappings hot-reload into the running driver. The Motion panel's drift line shows the live body-frame velocity (bow up, with a bearing) against the drift the characterization predicts.
+Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); others fall back to tap-repeat. Saved mappings hot-reload into the running driver. The Motion panel's drift line shows the live body-frame velocity (bow up, with a bearing) against what the model predicts: the boat's mechanical bias plus the current, turned into the body by the heading (the velocity controller's live estimate, else the characterization's).
 
 ### Procedures
 
 | Key | Procedure | Needs |
 | --- | --- | --- |
 | 1 2 3, c | Surge, sway, yaw and combined trials: drift-corrected response | armed, sensors |
-| k | Characterize: velocity model and limits, Nav2 overlay | armed, sensors, effort |
+| k | Characterize: gain, mechanical bias, decoupling, today's current, limits, Nav2 overlay | armed, sensors, effort |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
 | m, i | Manual control; thruster set | armed |
 | n, o | Nav2 bring-up; perception rates and costmap | — |
