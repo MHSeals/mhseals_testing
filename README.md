@@ -39,7 +39,7 @@ Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty
 | m, i | Manual control; thruster set | armed |
 | n, o | Nav2 bring-up; perception rates and costmap | — |
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
-| t | Mission rehearsal: run an `mhseals_nav` 2025 task (or the whole `mission`), score its events (`config/missions/`) and, in crane_ml, have the referee judge the true track against the course | armed, sensors, velocity, Nav2 |
+| t | Mission rehearsal: run an `mhseals_nav` task (`pair_test`, `circle_test`, a 2025 task or the whole `mission`), score its events (`config/missions/`) and, in crane_ml, have the referee judge the true track against the course | armed, sensors, velocity, Nav2 |
 
 Procedure shortcuts work from every panel; focused-panel wiring keys and Activity’s `v` keep their local meaning (use Procedures/Enter for those tests). `k` always opens Characterize; use ↑ to move up. Choosing a procedure that needs arming opens the arm panel first. Open-loop procedures refuse to run while another node publishes the command topic, so characterize with Nav2 stopped, then restart with `--velocity-control` and Nav2 for the navigation procedures. Timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`, `--nav-distance`, `--station-hold`, `--station-tolerance`, `--observe`.
 
@@ -56,6 +56,8 @@ Characterization saves only explicit hardware overrides. Motion limits are the s
 | `crane_direct` | `/crane/cmd_vel_stamped`, m/s | `/crane/odom` | none | attach only |
 
 `--velocity-control` puts `calibrated_velocity_controller` in front of the outputs (commands in m/s). `--profile <file.yaml>` loads your own. Start crane_ml for `crane_full_stack` with `--crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-roboboat-course Tools/RoboBoat/courses/roboboat_2025.json --crane-roboboat-course-truth <bags>/course_truth.json --crane-lidar-returns-only --crane-lidar-water-level 0.02`, adding `--crane-wind 8,90 --crane-water-current 0.15,0 --crane-disturbance-after 60` for a moderate breeze and current. The referee reads `course_truth` from the profile.
+
+For `pair_test` or `circle_test`, use this package's `config/courses/<task>.json` as the simulator course and choose the matching task under `t`. Negate both buoy `y` coordinates in the pair course to swap the colours. These courses tag their objects for the referee; without matching course truth it reports `N/A`, while event scoring still runs. Task distances and timeouts live in `mhseals_nav/config/tasks/`.
 
 ### Data
 

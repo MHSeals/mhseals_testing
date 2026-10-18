@@ -1,6 +1,8 @@
 """The referee judges what the boat did against the course truth, not what it reported."""
 import math
 
+import pytest
+
 from mhseals_testing.analysis import referee
 
 
@@ -91,3 +93,35 @@ def test_optional_skipped_stages_are_not_mission_failures():
     assert result['stages']['docking']['verdict'] == 'SKIPPED'
     required = referee.judge_mission(TRUTH, [], events, ['docking'], required_stages=['docking'])
     assert required['verdict'] == 'FAIL'
+
+
+@pytest.mark.parametrize('swapped', [False, True])
+def test_pair_commissioning_requires_both_crossings_of_the_same_pair(swapped):
+    sign = -1 if swapped else 1
+    truth = dict(elements=[
+        element('pair_test', 'red_pole_buoy', 7, sign * 1.5),
+        element('pair_test', 'green_pole_buoy', 7, -sign * 1.5),
+    ])
+    out = line((0, 0), (10, 0))
+    back = line((10, 0), (5.5, 0), t0=11)
+    assert referee.judge('pair_test', truth, out + back)['verdict'] == 'PASS'
+    assert referee.judge('pair_test', truth, out)['verdict'] == 'FAIL'
+
+
+def test_yellow_circle_requires_a_full_lap_and_return_to_origin():
+    truth = dict(elements=[element('circle_test', 'yellow_buoy', 10, 0)])
+    approach = line((0, 0), (7, 0))
+    lap = [(11 + k * 0.2, 10 - 3 * math.cos(a), 3 * math.sin(a), a)
+           for k, a in enumerate(i * 2 * math.pi / 60 for i in range(61))]
+    back = line((7, 0), (0, 0), t0=24)
+    good = referee.judge('circle_test', truth, approach + lap + back)
+    assert good['verdict'] == 'PASS'
+    shortcut = referee.judge('circle_test', truth, approach + back)
+    assert shortcut['verdict'] == 'FAIL'
+    no_return = referee.judge('circle_test', truth, approach + lap)
+    assert no_return['verdict'] == 'FAIL'
+
+
+@pytest.mark.parametrize('task', ['pair_test', 'circle_test'])
+def test_commissioning_referee_needs_matching_course_truth(task):
+    assert referee.judge(task, TRUTH, [])['verdict'] == 'N/A'

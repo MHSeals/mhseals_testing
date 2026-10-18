@@ -33,8 +33,21 @@ def test_incomplete_runs_fail_and_say_why(run, reason):
 def test_every_shipped_rubric_is_scorable():
     import yaml
     assert set(available()) == {'nav_channel', 'follow_path', 'docking', 'speed_challenge',
-                                'return_home', 'mission'}
+                                'return_home', 'mission', 'pair_test',
+                                'circle_test'}
     for name in available():
         rubric = yaml.safe_load((MISSION_DIR / f'{name}.yaml').read_text())
         assert rubric['task'] == name
         assert score([], rubric)['verdict'] == 'FAIL'
+
+
+@pytest.mark.parametrize('task,labels', [
+    ('pair_test', {'red_pole_buoy', 'green_pole_buoy'}),
+    ('circle_test', {'yellow_buoy'}),
+])
+def test_commissioning_courses_match_detector_labels_and_truth(task, labels):
+    import json
+    path = MISSION_DIR.parent / 'courses' / f'{task}.json'
+    course = json.loads(path.read_text())
+    assert {item['label'] for item in course['elements']} == labels
+    assert all(item['task'] == task for item in course['elements'])

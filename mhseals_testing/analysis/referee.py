@@ -122,7 +122,22 @@ def reported(events, name):
 def judge(task, truth, track, events=(), banner=None, dock_time=5.0):
     """What the boat really did on ``task``; ``verdict`` is PASS only if every check holds."""
     items = elements(truth, task)
+    if task in ('pair_test', 'circle_test') and not items:
+        return dict(task=task, verdict='N/A',
+                    reason='course truth has no elements tagged for this test')
     checks, details = {}, {}
+    if task == 'pair_test':
+        segments = gates(items, 'red_pole_buoy', 'green_pole_buoy', 8.0)
+        passes = [crossings(track, segment) for segment in segments]
+        checks['out and back through the same pair'] = any(
+            len(run) >= 2 and run[0][1] != run[-1][1] for run in passes)
+    if task == 'circle_test':
+        marks = points(items, 'yellow_buoy')
+        swept = max((circled(track, mark[:2]) for mark in marks), default=0.0)
+        details['around_mark_deg'] = round(swept, 1)
+        checks['circled a yellow buoy'] = swept >= 345
+        checks['returned to start'] = bool(track) and math.dist(
+            track[0][1:3], track[-1][1:3]) <= 0.75
     if task in ('nav_channel', 'follow_path', 'return_home'):
         red, green = {'nav_channel': ('red_pole_buoy', 'green_pole_buoy'),
                       'follow_path': ('red_buoy', 'green_buoy'),
