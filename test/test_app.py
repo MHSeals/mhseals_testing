@@ -230,13 +230,16 @@ def test_focus_moves_and_keys_act_on_the_focused_panel(tmp_path):
     assert app.quit and app.live is None
 
 
-def test_status_cursor_walks_sensors_frames_and_system(tmp_path):
+@pytest.mark.parametrize('up', ['up', 'k'])
+def test_status_cursor_walks_sensors_frames_and_system(tmp_path, up):
     app, _ = make_app(tmp_path)
     with app.attached():
         rows = app.rows('status')
         for _ in range(rows + 3):
             app.dispatch('down')
         assert app.cursors['status'] == rows - 1
+        app.dispatch(up)
+        assert app.cursors['status'] == rows - 2
         press(app, 'enter')
         app.dispatch('enter')  # details popup, closed by any key
 
@@ -377,7 +380,7 @@ def test_characterization_fits_and_saves_only_on_request(tmp_path):
     with app.attached():
         arm(app)
         app.procedure_context = context
-        app.dispatch('k')
+        app.dispatch('f')
     fitted = app.snapshot()['results'][0]['characterization']
     assert fitted['velocity_gain']['surge']['surge'] == pytest.approx(1.2, rel=0.02)
     assert 'characterization' in (tmp_path / 'hardware.yaml').read_text()
@@ -668,13 +671,16 @@ def test_leaving_thrusters_by_direction_ends_test_pulses(tmp_path):
     assert app.focus == 'motion' and app.test_pulses is None
 
 
-def test_grab_moves_a_thruster_and_undo_restores(tmp_path):
+@pytest.mark.parametrize('down,up', [('down', 'up'), ('j', 'k')])
+def test_grab_moves_a_thruster_and_undo_restores(tmp_path, down, up):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
     app.focus = 'thrusters'
     app.dispatch('r')        # FL reversed
     app.dispatch('enter')    # pick FL up
-    app.dispatch('down')
-    app.dispatch('down')     # carried to RR's row: FL<->FR, then FR<->RR swaps
+    app.dispatch(down)
+    app.dispatch(up)         # navigation also carries the grabbed thruster back
+    app.dispatch(down)
+    app.dispatch(down)       # carried to RR's row: FL<->FR, then FR<->RR swaps
     app.dispatch('enter')
     assert app.draft == dict(channel_map=[2, 3, 1, 4], reversed=[False, False, True, False])
     assert app.cursors['thrusters'] == 2 and app.grabbed is None
@@ -872,8 +878,8 @@ def test_characterize_shortcut_reaches_procedure_from_every_panel(tmp_path, focu
     app.focus = focus
     called = []
     app.run_procedure = lambda p: called.append(p.key)
-    app.dispatch('k')
-    assert called == ['k']
+    app.dispatch('f')
+    assert called == ['f']
 
 
 def test_panel_edit_keys_take_precedence_over_procedure_shortcuts(tmp_path):

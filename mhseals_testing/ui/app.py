@@ -84,7 +84,7 @@ MANUAL_HINTS = [('W/S ↑↓', 'Surge'), ('A/D', 'Sway'), ('←→', 'Yaw'), ('+
 HELP = [
     ('Ctrl h j k l / arrows', 'Focus the panel to the left, below, above, right'),
     ('Tab / Shift Tab', 'Cycle focus through the panels'),
-    ('↑↓ / j', 'Move within the focused panel; k starts Characterize'),
+    ('↑↓ / j k', 'Move within the focused panel'),
     ('Procedure keys', 'Run from any panel; focused-panel edit keys take precedence'),
     ('Enter', 'Run, open or show details'),
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
@@ -473,8 +473,8 @@ class App:
             neighbour = NEIGHBOURS[wide].get(self.focus, {}).get(DIRECTIONS[key])
             if neighbour:
                 self.focus_on(neighbour)
-        elif key in ('up', 'down', 'j'):
-            step = -1 if key == 'up' else 1
+        elif key in ('up', 'down', 'j', 'k'):
+            step = -1 if key in ('up', 'k') else 1
             if self.focus == 'thrusters' and self.grabbed is not None:
                 self.move_grabbed(step)
             else:

@@ -108,7 +108,7 @@ def _registry():
                   'counterclockwise and clockwise'),
         Procedure('c', 'Combined trials', combined.run, trial,
                   'diagonal and turning commands'),
-        Procedure('k', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
+        Procedure('f', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
                   'fit the velocity model and measured limits'),
         Procedure('v', 'Controller steps', controller.run, trial | {'velocity'},
                   'step response of the calibrated velocity controller'),
