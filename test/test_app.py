@@ -833,3 +833,27 @@ def test_panel_edit_keys_take_precedence_over_procedure_shortcuts(tmp_path):
     assert app.activity == 'log' and called == []
     app.dispatch('n')
     assert called == ['n']
+
+
+@pytest.mark.parametrize('letter,expected', [
+    ('w', (.35, 0, 0)), ('s', (-.35, 0, 0)),
+    ('a', (0, .35, 0)), ('d', (0, -.35, 0)),
+])
+def test_manual_wasd_reserved_after_yaw_and_speed_change(tmp_path, letter, expected):
+    app, boat = make_app(tmp_path)
+    events = Events(app.clock, ['press:left', None, '+', None, '+', None,
+                                letter, None, 'repeat:left', None, 'release:left',
+                                None, 'x'])
+    app.open_events = lambda: events
+    with app.attached():
+        arm(app)
+        # Manual A/S must never reach Arm, station keeping or Save shortcuts.
+        app.arm_panel = lambda: pytest.fail('manual key opened Arm')
+        app.on_thrusters = lambda key: pytest.fail('manual key edited wiring')
+        app.focus = 'thrusters'
+        app.dispatch('m')
+    sent = [command for command in boat.sent if command != 'neutral']
+    assert any(command[2] > 0 for command in sent)
+    assert sent[-1] == pytest.approx(expected)
+    assert boat.sent[-1] == 'neutral' and app.armed and not app.manual
+    assert not app.snapshot()['results']  # S did not run station keeping.
