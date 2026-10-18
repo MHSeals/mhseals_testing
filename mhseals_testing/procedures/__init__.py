@@ -96,7 +96,7 @@ def _registry():
     from functools import partial
 
     from mhseals_testing.procedures import (
-        axis, characterize, combined, controller, manual, mission, nav, perception, thrusters,
+        axis, balance, characterize, combined, controller, manual, mission, nav, perception, thrusters,
     )
     trial = frozenset({'armed', 'sensors'})
     return (
@@ -110,6 +110,8 @@ def _registry():
                   'diagonal and turning commands'),
         Procedure('f', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
                   'fit the velocity model and measured limits'),
+        Procedure('b', 'Thruster balance', balance.run, trial | {'effort', 'outputs'},
+                  'measure individual strengths; review matrix row scaling'),
         Procedure('v', 'Controller steps', controller.run, trial | {'velocity'},
                   'step response of the calibrated velocity controller'),
         Procedure('m', 'Manual control', manual.run, frozenset({'armed'}),

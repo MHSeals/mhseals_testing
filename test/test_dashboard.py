@@ -78,6 +78,23 @@ def test_popup_overlays_the_page():
     assert '› y Arm' in page and 'n Cancel' in page and 'Status' in page
 
 
+@pytest.mark.parametrize('width,height', [(80, 24), (120, 40)])
+def test_balance_review_fits_with_all_four_thrusters(width, height):
+    profile = load_profile('boat')
+    modal = dict(kind='choice', title='Save thruster balance',
+                 message='Save attenuates matrix rows, disarms, and clears the old velocity '
+                         'model/decoupling. Run Characterize (f) again before velocity control / Nav2.',
+                 options=['discard', 'save'], keys=['d', 's'], selected=0,
+                 rows=[(p, '+0.050 / -0.040 m/s²; row ×0.80') for p in ('FL', 'FR', 'RR', 'RL')],
+                 hint='↑↓ select · Enter choose · Esc cancel')
+    page = text(render(monitor().snapshot(), view(profile, modal=modal), width, height), width, height)
+    assert 'Save thruster balance' in page and 'discard' in page and 'save' in page
+    assert all(position in page for position in ('FL', 'FR', 'RR', 'RL'))
+    assert 'Space Stop' in page
+    assert len(page.splitlines()) <= height
+    assert all(len(line) <= width for line in page.splitlines())
+
+
 def test_status_rows_and_short_values():
     profile = load_profile('boat')
     rows = status_rows(monitor().snapshot(profile.required_tf), profile.sensors)

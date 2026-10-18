@@ -37,6 +37,7 @@ Status checks **PWM driver** (managed process and ROS subscription) and **PWM re
 | --- | --- | --- |
 | 1 2 3, c | Surge, sway, yaw and combined trials: drift-corrected response | armed, sensors |
 | f | Characterize: gain, mechanical bias, decoupling, today's current, limits, Nav2 limits | armed, sensors, effort |
+| b | Thruster balance: each thruster alone, both ways at two pulse levels; review matrix row scaling | armed, sensors, effort |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
 | m, i | Manual control; thruster set | armed |
 | n, o | Nav2 bring-up; perception rates and costmap | — |
@@ -46,6 +47,8 @@ Status checks **PWM driver** (managed process and ROS subscription) and **PWM re
 Procedure shortcuts work from every panel; focused-panel wiring keys and Activity’s `v` keep their local meaning (use Procedures/Enter for those tests). `f` opens Characterize (fit); `j`/`k` move down/up, including in popups. Choosing a procedure that needs arming opens the arm panel first. Open-loop procedures refuse to run while another node publishes the command topic, so characterize with Nav2 stopped, then restart with `--velocity-control` and Nav2 for the navigation procedures. Timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`, `--nav-distance`, `--station-hold`, `--station-tolerance`, `--observe`.
 
 Only sensors and TF block motion (required sensors live and fresh; `map → odom → base_link` fresh, acyclic, single publisher). Power, clock, links and compute are advisories. `--bench-override` skips the blocking checks for bench tests; procedures that score motion still refuse.
+
+Use `i` to verify wiring/reversals, then `b` to compare individual thrusters with the boat floating freely in calm, clear water. Balance uses baseline-corrected odometry acceleration for the symmetric X layout, at half/full `--amplitude`, both directions; `--command-duration`, `--baseline`, `--settle` and `--repeats` control the trials. It reports relative response (m/s²), not force in N, fits the pulse-response exponent, and proposes attenuating stronger matrix rows while preserving mapping, reversals and row signs. Noisy, weak, unsettled, mismapped or incompatible forward/reverse responses refuse a fit. Review the four scales before saving; saving disarms and clears the old velocity model/decoupling. Run `f` again, regenerate Nav2 limits, then verify surge/sway/yaw before autonomy. This is a local balance near the tested effort, not a guarantee across speeds or currents; each trial and proposed matrix is kept in the session report.
 
 Characterization saves only explicit hardware overrides. Motion limits are the speeds and accelerations observed at the tested effort; partial-throttle runs do not grant unmeasured full-throttle limits. Review them before use. The generated `<session>.nav2.yaml` contains only limits; restart Nav2 with `ros2 launch mhseals_nav navigation.launch.py sim:=false limits_file:=<session>.nav2.yaml`. Current planner/costmap settings and the reverse-speed cap remain in the base profile. Regenerate older full-profile overlays. Offline: add `--nav2-params <nav2_params.yaml> --nav2-overlay <limits.yaml>` to `thrust_characterize`.
 

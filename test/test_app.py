@@ -164,7 +164,7 @@ class Processes:
 def make_app(tmp_path, argv=(), keys=(), sensors=True):
     config = tmp_path / 'hardware.yaml'
     if not config.exists():
-        config.write_text('frequency: 50.0\n')
+        config.write_text('frequency: 50.0\nchannel_map: [1, 2, 3, 4]\n')
     args, profile = parse_args(['--output', str(tmp_path / 'session'), '--baseline', '1',
                                 '--command-duration', '1', '--settle', '1',
                                 '--config', str(config), *argv])
@@ -873,13 +873,14 @@ def test_children_die_with_the_suite(tmp_path):
 
 
 @pytest.mark.parametrize('focus', ['status', 'motion', 'procedures', 'activity', 'thrusters'])
-def test_characterize_shortcut_reaches_procedure_from_every_panel(tmp_path, focus):
+@pytest.mark.parametrize('key', ['f', 'b'])
+def test_characterize_shortcut_reaches_procedure_from_every_panel(tmp_path, focus, key):
     app, _ = make_app(tmp_path)
     app.focus = focus
     called = []
     app.run_procedure = lambda p: called.append(p.key)
-    app.dispatch('f')
-    assert called == ['f']
+    app.dispatch(key)
+    assert called == [key]
 
 
 def test_panel_edit_keys_take_precedence_over_procedure_shortcuts(tmp_path):
