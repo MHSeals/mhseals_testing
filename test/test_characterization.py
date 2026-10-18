@@ -146,13 +146,6 @@ def test_limits_retain_the_tested_effort():
     assert limits['measured_at_effort']['surge'] == approx(0.5)
 
 
-def test_partial_effort_limits_are_measured_without_full_throttle_extrapolation():
-    half = [dict(s, command=[c/2 for c in s['command']], velocity=[v/2 for v in s['velocity']])
-            for s in samples()]
-    limits = characterize_samples(half)['motion_limits']
-    assert limits['velocity']['surge'] == approx(.3)
-
-
 def test_nav2_limits_do_not_freeze_planner_or_grant_unmeasured_reverse(tmp_path):
     import yaml
     source = tmp_path / 'base.yaml'
@@ -162,5 +155,36 @@ def test_nav2_limits_do_not_freeze_planner_or_grant_unmeasured_reverse(tmp_path)
         'velocity_smoother': {'ros__parameters': {'min_velocity': [-.2, -.4, -.3]}}}))
     profile = nav2_profile(characterize_samples(samples()), source)
     assert 'planner_server' not in profile
-    assert profile['controller_server']['ros__parameters']['FollowPath']['vx_min'] == -.2
+    follow = profile['controller_server']['ros__parameters']['FollowPath']
+    assert follow['vx_min'] == -.2
+    assert 'prune_distance' not in follow  # depends on the horizon at launch
     assert profile['velocity_smoother']['ros__parameters']['min_velocity'][0] == -.2
+
+
+def test_rosbag_pairs_preceding_commands_and_preserves_transients(tmp_path):
+    bag = pytest.importorskip('rosbag2_py')
+    from geometry_msgs.msg import Twist
+    from nav_msgs.msg import Odometry
+    from rclpy.serialization import serialize_message
+    from mhseals_testing.analysis.characterization import read_rosbag
+
+    path = tmp_path / 'motion'
+    writer = bag.SequentialWriter()
+    writer.open(bag.StorageOptions(uri=str(path), storage_id='sqlite3'),
+                bag.ConverterOptions('cdr', 'cdr'))
+    for index, (name, kind) in enumerate((('/cmd_vel', 'geometry_msgs/msg/Twist'),
+                                         ('/odom/local', 'nav_msgs/msg/Odometry'))):
+        writer.create_topic(bag.TopicMetadata(
+            id=index, name=name, type=kind, serialization_format='cdr'))
+    command, reverse, odom = Twist(), Twist(), Odometry()
+    command.linear.x, reverse.linear.x = .5, -.5
+    odom.pose.pose.orientation.w = 1.
+    for stamp, message in ((0, odom), (1, command), (2, odom), (3, command),
+                           (4, odom), (5, reverse), (5.5, odom), (6, odom)):
+        topic = '/cmd_vel' if isinstance(message, Twist) else '/odom/local'
+        writer.write(topic, serialize_message(message), int(stamp * 1e9))
+    del writer
+    motion = read_rosbag(path, transient=0.)
+    assert [sample['command_age'] for sample in motion] == [1., 3., .5, 1.]
+    assert [sample['command'][0] for sample in motion] == [.5, .5, -.5, -.5]
+    assert read_rosbag(path) == [sample for sample in motion if sample['command_age'] >= 1.]

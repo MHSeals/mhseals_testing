@@ -46,12 +46,8 @@ def nav2_profile(result, source, headroom=HEADROOM):
         vx_max=velocity["surge"], vx_min=max(follow_base.get("vx_min", -.2), -velocity["surge"]), vy_max=velocity["sway"],
         wz_max=velocity["yaw"], ax_max=acceleration["surge"], ax_min=-deceleration["surge"],
         ay_max=acceleration["sway"], az_max=acceleration["yaw"])
-    # The path MPPI scores against must reach past its own trajectories, or near the
-    # end of a path they run off it and the boat circles instead of arriving.
-    horizon = follow_base.get("time_steps", 56) * follow_base.get("model_dt", 0.05)
-    follow["prune_distance"] = max(follow_base.get("prune_distance", 0.0),
-                                   round(1.2 * velocity["surge"] * horizon, 2))
-    behavior = profile.get("behavior_server", {}).get("ros__parameters", {})
+    # navigation.launch.py derives pruning distance from its current MPPI horizon.
+    behavior = profile["behavior_server"]["ros__parameters"]
     if "behavior_server" in base:
         behavior["max_rotational_vel"] = velocity["yaw"]
         behavior["rotational_acc_lim"] = acceleration["yaw"]
@@ -284,8 +280,8 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local", 
     """Read command/odometry pairs from a rosbag2 directory.
 
     Each odometry sample is paired with the command held when it was measured;
-    samples within ``transient`` seconds of a command change are dropped, as
-    in the suite's own procedure, so the fit sees responses and not switching.
+    ``command_age`` records seconds since the last command change. Samples
+    younger than ``transient`` are dropped so the fit sees steady responses.
     """
     try:
         import rosbag2_py
@@ -305,16 +301,15 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local", 
     topics = {topic.name: topic.type for topic in reader.get_all_topics_and_types()}
     if command_topic not in topics or odom_topic not in topics:
         raise ValueError(f"bag must contain {command_topic} and {odom_topic}")
-    messages = []
+    command, since, samples = None, None, []
     while reader.has_next():
         topic, data, stamp = reader.read_next()
-        if topic in (command_topic, odom_topic):
-            cls = Twist if topic == command_topic else Odometry
-            messages.append((stamp / 1e9, topic, deserialize_message(data, cls)))
-    # Messages are in time order, so the command held is simply the latest one;
-    # pairing with a future command would invent response at phase boundaries.
-    command, since, samples = None, None, []
-    for timestamp, topic, msg in messages:
+        if topic not in (command_topic, odom_topic):
+            continue
+        cls = Twist if topic == command_topic else Odometry
+        msg = deserialize_message(data, cls)
+        timestamp = stamp / 1e9
+        # Pair only with the latest preceding command, never a future one.
         if topic == command_topic:
             value = (msg.linear.x, msg.linear.y, msg.angular.z)
             if value != command:
@@ -322,6 +317,7 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local", 
         elif command is not None and timestamp - since >= transient:
             twist, q = msg.twist.twist, msg.pose.pose.orientation
             samples.append({"time": timestamp, "command": command,
+                            "command_age": timestamp - since,
                             "velocity": (twist.linear.x, twist.linear.y, twist.angular.z),
                             "yaw": math.atan2(2 * (q.w * q.z + q.x * q.y),
                                               1 - 2 * (q.y * q.y + q.z * q.z))})
@@ -347,19 +343,16 @@ def main(argv=None):
     parser.add_argument("--odom-topic", default="/odom/local")
     args = parser.parse_args(argv)
     if args.bag:
-        samples = read_rosbag(args.bag, args.cmd_topic, args.odom_topic)
         motion = read_rosbag(args.bag, args.cmd_topic, args.odom_topic, transient=0.0)
+        samples = [sample for sample in motion if sample["command_age"] >= 1.0]
     elif args.samples.suffix.lower() == ".csv":
         samples = read_csv_samples(args.samples)
     else:
         samples = read_json_samples(args.samples)
-    config = load_config(args.config) if args.config else load_config()
+    config = load_config(args.config)
     result = characterize_samples(samples, config["decoupling"],
                                  source="rosbag2" if args.bag else "samples",
                                  motion=motion if args.bag else None)
-    if args.apply_decoupling:
-        config["decoupling"] = list(result["decoupling"])
-    config["characterization"] = result
     target = args.output or args.config
     if target:
         changes = {"characterization": result}
