@@ -78,3 +78,16 @@ def test_mission_judges_each_stage_on_its_own_part_of_the_track():
     assert result['stages']['nav_channel']['verdict'] == 'PASS'
     assert result['stages']['docking']['checks'] == {'attempted': False}
     assert result['verdict'] == 'FAIL'
+
+
+def test_optional_skipped_stages_are_not_mission_failures():
+    events = [dict(event='stage_started', stage='nav_channel', time=0.),
+              dict(event='stage_completed', stage='nav_channel', time=10.),
+              dict(event='stage_started', stage='docking', time=10.),
+              dict(event='stage_skipped', stage='docking', time=12.)]
+    result = referee.judge_mission(TRUTH, line((0, 0), (16, 0)), events,
+                                   ['nav_channel', 'docking'], required_stages=['nav_channel'])
+    assert result['verdict'] == 'PASS'
+    assert result['stages']['docking']['verdict'] == 'SKIPPED'
+    required = referee.judge_mission(TRUTH, [], events, ['docking'], required_stages=['docking'])
+    assert required['verdict'] == 'FAIL'

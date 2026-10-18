@@ -371,12 +371,12 @@ def test_characterization_fits_and_saves_only_on_request(tmp_path):
     with app.attached():
         arm(app)
         app.procedure_context = context
-        app.run_procedure(procedure('k'))
+        app.dispatch('k')
     fitted = app.snapshot()['results'][0]['characterization']
     assert fitted['velocity_gain']['surge']['surge'] == pytest.approx(1.2, rel=0.02)
     assert 'characterization' in (tmp_path / 'hardware.yaml').read_text()
     smoother = yaml.safe_load(app.paths.nav2.read_text())['velocity_smoother']['ros__parameters']
-    assert smoother['max_velocity'][0] == pytest.approx(1.2, rel=0.02)  # 0.48 m/s at 0.4 effort
+    assert smoother['max_velocity'][0] == pytest.approx(.48, rel=0.02)  # measured speed at 0.4 effort
 
 
 def test_thruster_panel_reverses_and_rewires_with_hot_reload(tmp_path):
@@ -797,9 +797,39 @@ def test_children_die_with_the_suite(tmp_path):
     for _ in range(50):
         try:
             os.kill(child, 0)
-        except ProcessLookupError:
+            # A container PID 1 may leave a dead orphan unreaped. It cannot drive outputs.
+            from pathlib import Path
+            if Path(f'/proc/{child}/stat').read_text().split(') ', 1)[1].startswith('Z'):
+                break
+        except (ProcessLookupError, FileNotFoundError):
             break
         time.sleep(0.05)
     else:
         os.kill(child, signal.SIGKILL)
         raise AssertionError('child outlived the suite')
+
+
+@pytest.mark.parametrize('focus', ['status', 'motion', 'procedures', 'activity', 'thrusters'])
+def test_characterize_shortcut_reaches_procedure_from_every_panel(tmp_path, focus):
+    app, _ = make_app(tmp_path)
+    app.focus = focus
+    called = []
+    app.run_procedure = lambda p: called.append(p.key)
+    app.dispatch('k')
+    assert called == ['k']
+
+
+def test_panel_edit_keys_take_precedence_over_procedure_shortcuts(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.focus = 'thrusters'
+    called = []
+    app.run_procedure = lambda p: called.append(p.key)
+    app.dispatch('3')
+    app.dispatch('s')
+    assert called == []
+    assert app.args.hardware_config['channel_map'][0] == 3
+    app.focus = 'activity'
+    app.dispatch('v')
+    assert app.activity == 'log' and called == []
+    app.dispatch('n')
+    assert called == ['n']

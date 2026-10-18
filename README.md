@@ -18,7 +18,7 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 | Key | Action |
 | --- | --- |
 | Ctrl hjkl / Ctrl arrows, Tab | Focus a neighbouring panel / cycle panels |
-| ↑↓ j k, Enter | Move in a panel; run or show details |
+| ↑↓ j, Enter | Move in a panel; run or show details |
 | a | Arm panel: outputs, driver, config and interlocks; arm (typed `ARM` on real pins) or disarm |
 | Space | Stop: neutral and disarm |
 | m | Manual control: hold W/S, A/D and ←/→ together; +/- speed; x leaves |
@@ -34,16 +34,18 @@ Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty
 | Key | Procedure | Needs |
 | --- | --- | --- |
 | 1 2 3, c | Surge, sway, yaw and combined trials: drift-corrected response | armed, sensors |
-| k | Characterize: gain, mechanical bias, decoupling, today's current, limits, Nav2 overlay | armed, sensors, effort |
+| k | Characterize: gain, mechanical bias, decoupling, today's current, limits, Nav2 limits | armed, sensors, effort |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
 | m, i | Manual control; thruster set | armed |
 | n, o | Nav2 bring-up; perception rates and costmap | — |
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
 | t | Mission rehearsal: run an `mhseals_nav` 2025 task (or the whole `mission`), score its events (`config/missions/`) and, in crane_ml, have the referee judge the true track against the course | armed, sensors, velocity, Nav2 |
 
-Choosing a procedure that needs arming opens the arm panel first. Open-loop procedures refuse to run while another node publishes the command topic, so characterize with Nav2 stopped, then restart with `--velocity-control` and Nav2 for the navigation procedures. Timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`, `--nav-distance`, `--station-hold`, `--station-tolerance`, `--observe`.
+Procedure shortcuts work from every panel; focused-panel wiring keys and Activity’s `v` keep their local meaning (use Procedures/Enter for those tests). `k` always opens Characterize; use ↑ to move up. Choosing a procedure that needs arming opens the arm panel first. Open-loop procedures refuse to run while another node publishes the command topic, so characterize with Nav2 stopped, then restart with `--velocity-control` and Nav2 for the navigation procedures. Timing: `--amplitude`, `--baseline`, `--command-duration`, `--settle`, `--repeats`, `--nav-distance`, `--station-hold`, `--station-tolerance`, `--observe`.
 
 Only sensors and TF block motion (required sensors live and fresh; `map → odom → base_link` fresh, acyclic, single publisher). Power, clock, links and compute are advisories. `--bench-override` skips the blocking checks for bench tests; procedures that score motion still refuse.
+
+Characterization saves only explicit hardware overrides. Motion limits are the speeds and accelerations observed at the tested effort; partial-throttle runs do not grant unmeasured full-throttle limits. Review them before use. The generated `<session>.nav2.yaml` contains only limits; restart Nav2 with `ros2 launch mhseals_nav navigation.launch.py sim:=false limits_file:=<session>.nav2.yaml`. Current planner/costmap settings and the reverse-speed cap remain in the base profile. Regenerate older full-profile overlays. Offline: add `--nav2-params <nav2_params.yaml> --nav2-overlay <limits.yaml>` to `thrust_characterize`.
 
 ### Profiles
 
@@ -67,4 +69,4 @@ PYTHONPATH=.:../mhseals_hardware python -m pytest -q test
 make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 ```
 
-Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10–3.13 and builds `math.pdf`.
+Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.

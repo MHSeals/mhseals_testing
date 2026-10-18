@@ -53,10 +53,10 @@ def run(ctx):
 
 
 def judge(ctx, task, rubric, events, start, end):
-    """The referee's view, when the simulator wrote its course truth; else None."""
+    """The referee's view, or an explicit reason it could not judge the run."""
     path = ctx.profile.course_truth
     if not path or not ctx.profile.ground_truth or not Path(path).exists():
-        return None
+        return dict(verdict='N/A', reason='course truth or ground-truth track is unavailable')
     truth = json.loads(Path(path).read_text())
     samples = ctx.history(start, end, name='ground truth')
     track = [(t, v['x'], v['y'], v.get('yaw') or 0.0) for t, v in samples

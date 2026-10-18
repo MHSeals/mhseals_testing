@@ -8,7 +8,7 @@ from the boat's own bias. Nothing is written until the operator reviews it.
 
 import yaml
 
-from mhseals_hardware.configuration import load_config, save_config
+from mhseals_hardware.configuration import update_config
 from mhseals_hardware.thruster_mixer import AXES, axis_command
 from mhseals_testing.analysis.characterization import (
     characterize_samples, nav2_profile, samples_from_windows,
@@ -53,7 +53,7 @@ def run(ctx):
                    drift=result['drift'])
     nav2_params, overlay = ctx.services.get('nav2_params'), ctx.services.get('nav2_overlay')
     if nav2_params and overlay:
-        # Nav2's checked-in params with the measured limits; used explicitly via params_file.
+        # Only measured keys; navigation.launch.py merges these with current defaults.
         overlay.write_text(yaml.safe_dump(nav2_profile(result, nav2_params), sort_keys=False))
         summary['nav2_overlay'] = str(overlay)
     ctx.record(dict(summary, characterization=result))
@@ -64,7 +64,7 @@ def run(ctx):
         update = dict(characterization=result)
         if choice == 'save + decouple':
             update['decoupling'] = list(result['decoupling'])
-        saved = save_config(dict(load_config(path), **update), path)
+        saved = update_config(update, path)
         ctx.record(dict(procedure='characterization', verdict='SAVED', path=str(saved),
                         decoupled=choice == 'save + decouple'))
     return result

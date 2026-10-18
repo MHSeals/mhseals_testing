@@ -6,4 +6,4 @@ required: {gate_cleared: 2, returned_home: 1}
 points: {stage_completed: 10, species_count: 10, spill_count: 10, docked: 20,
          speed_finished: 20, returned_home: 10}
 max_counts: {stage_completed: 5}
-referee: {banner: blue_square, dock_time: 5.0}
+referee: {banner: blue_square, dock_time: 5.0, required_stages: [nav_channel, return_home]}

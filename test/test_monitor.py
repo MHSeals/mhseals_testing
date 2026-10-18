@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from mhseals_testing.monitor import BoatMonitor
+from mhseals_testing.monitor import BoatMonitor, HISTORY_SAMPLES
 
 
 def test_receipt_rate_quality_and_stamp_freshness():
@@ -72,9 +72,18 @@ def test_bad_numeric_data_is_exportable():
 
 def test_history_and_events_are_bounded():
     monitor = BoatMonitor(clock=lambda: 1)
-    for index in range(13000):
+    for index in range(HISTORY_SAMPLES + 1000):
         monitor.observe('odometry', {'vx': index})
         monitor.event('event')
-    assert len(monitor.histories['odometry']) == 12000
+    assert len(monitor.histories['odometry']) == HISTORY_SAMPLES
     assert len(monitor.events) == 12
     assert len(monitor.sensors['odometry']['times']) == 300
+
+
+def test_mission_history_retains_the_start_of_a_thirty_minute_run():
+    clock = [0.]
+    monitor = BoatMonitor(clock=lambda: clock[0], history_sensors=('ground truth',))
+    for i in range(50 * 1800):
+        clock[0] = i / 50
+        monitor.observe('ground truth', {'x': i / 50})
+    assert monitor.history('ground truth', 0, 1)[0][0] == 0.

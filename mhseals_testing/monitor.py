@@ -11,6 +11,8 @@ import math
 import threading
 import time
 
+HISTORY_SAMPLES = 120000  # 40 minutes at 50 Hz, covering a full 30-minute mission
+
 ADVISORY_LEVELS = ('OK', 'WARN', 'FAIL', 'N/A')
 
 
@@ -23,7 +25,7 @@ class BoatMonitor:
         self.edges = {}
         self.advisories = {}
         # Full-rate samples for trial analysis, per configured sensor.
-        self.histories = {name: deque(maxlen=12000) for name in history_sensors}
+        self.histories = {name: deque(maxlen=HISTORY_SAMPLES) for name in history_sensors}
         self.events = deque(maxlen=12)
         self.results = deque(maxlen=100)
         self.drift = None  # (x, y) the velocity controller estimates, odom frame, with time
@@ -150,8 +152,13 @@ class BoatMonitor:
             tf = self._tf_rows(now, required_tf)
             advisories = {name: dict(level=level, detail=detail, age=now - received)
                           for name, (received, level, detail) in self.advisories.items()}
-            recent = [(t, v) for t, v, issue in self.histories.get(trend_sensor, ())
-                      if now - t <= 10 and not issue]
+            recent = []
+            for t, v, issue in reversed(self.histories.get(trend_sensor, ())):
+                if now - t > 10:
+                    break
+                if not issue:
+                    recent.append((t, v))
+            recent.reverse()
             step = max(1, len(recent) // 32)
             trends = {key: [v[key] for _, v in recent[::step] if v.get(key) is not None][-32:]
                       for key in ('vx', 'vy', 'wz')}

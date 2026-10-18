@@ -164,19 +164,30 @@ def judge(task, truth, track, events=(), banner=None, dock_time=5.0):
     return dict(task=task, verdict='PASS' if passed else 'FAIL', checks=checks, **details)
 
 
-def judge_mission(truth, track, events, tasks, banner=None, dock_time=5.0):
+def judge_mission(truth, track, events, tasks, banner=None, dock_time=5.0,
+                  required_stages=None):
     """Each stage judged over the part of the track between its stage events."""
     results = {}
+    required = set(tasks if required_stages is None else required_stages)
     for name in tasks:
         started = next((e['time'] for e in events
                         if e.get('event') == 'stage_started' and e.get('stage') == name), None)
-        ended = next((e['time'] for e in events if e.get('event') in (
+        terminal = next((e for e in events if e.get('event') in (
             'stage_completed', 'stage_skipped') and e.get('stage') == name), None)
+        ended = terminal['time'] if terminal else None
+        if name not in required and (started is None or (
+                terminal and terminal['event'] == 'stage_skipped')):
+            part = [p for p in track if started is not None and
+                    started <= p[0] <= (ended if ended is not None else math.inf)]
+            touched = contacts(part, [e for e in elements(truth, name) if e.get('label')])
+            results[name] = dict(task=name, verdict='FAIL' if touched else 'SKIPPED',
+                                 checks={'no contact': not touched}, contacts=touched)
+            continue
         if started is None:
             results[name] = dict(task=name, verdict='FAIL', checks={'attempted': False})
             continue
         part = [p for p in track if started <= p[0] <= (ended if ended else math.inf)]
         stage_events = [e for e in events if started <= e.get('time', 0) <= (ended or math.inf)]
         results[name] = judge(name, truth, part, stage_events, banner, dock_time)
-    passed = all(result['verdict'] == 'PASS' for result in results.values())
+    passed = all(result['verdict'] in ('PASS', 'SKIPPED') for result in results.values())
     return dict(task='mission', verdict='PASS' if passed else 'FAIL', stages=results)

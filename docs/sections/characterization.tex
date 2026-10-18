@@ -215,11 +215,12 @@ boat that can manage 5). So velocity changes are taken over windows of at least
 0.5\,s, from the full odometry including the switching transients the fit leaves
 out, and the 99th percentile of them is kept rather than the single largest.
 
-\paragraph{Limits at full effort.} The schedule may run gentler than the boat can
-go, yet Nav2 should use all of it. Thrust grows with the square of effort and
-drag at speed with the square of speed, so steady speed grows in proportion to
-effort and acceleration with its square. With $e_{\max}$ the largest effort run on
-an axis, the limits are $v_{\max}/e_{\max}$ and $a_{\max}/e_{\max}^2$; Nav2 gets
-them whole.
+\paragraph{Measured limits.} Limits describe the speed, acceleration and stopping
+observed at the tested effort. A partial-throttle trial does not establish the
+boat's full-throttle limits: those are not extrapolated by dividing speed by
+$e_{\max}$ or acceleration by $e_{\max}^2$. Increase the test effort only in a
+suitable area and review the measured limits before using them in Nav2. The
+limits file contains only characterized keys and is merged at launch with the
+current navigation profile; its reverse bound cannot exceed that profile's cap.
 
 \file{mhseals\_testing/analysis/characterization.py, procedures/characterize.py}

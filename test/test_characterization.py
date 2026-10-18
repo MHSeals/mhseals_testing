@@ -66,7 +66,7 @@ behavior_server:
     profile = nav2_profile(result, source)
     follow = profile['controller_server']['ros__parameters']['FollowPath']
     behavior = profile['behavior_server']['ros__parameters']
-    assert (follow['vx_max'], follow['vx_min']) == approx((.6, -.6))
+    assert (follow['vx_max'], follow['vx_min']) == approx((.6, -.2))
     assert (follow['vy_max'], follow['wz_max']) == approx((.4, .3))
     assert behavior['max_rotational_vel'] == approx(.3)
     assert behavior['rotational_acc_lim'] == approx(.3)
@@ -138,9 +138,29 @@ def test_acceleration_comes_from_the_motion_not_sample_noise():
     assert down['surge'] < 0.2
 
 
-def test_limits_are_scaled_to_full_effort():
+def test_limits_retain_the_tested_effort():
     half = [dict(s, command=[c / 2 for c in s['command']], velocity=[v / 2 for v in s['velocity']])
             for s in samples()]
     limits = characterize_samples(half)['motion_limits']
-    assert limits['velocity']['surge'] == approx(0.6)  # seen at 0.3 m/s with half effort
+    assert limits['velocity']['surge'] == approx(0.3)  # measured at half effort; full speed is untested
     assert limits['measured_at_effort']['surge'] == approx(0.5)
+
+
+def test_partial_effort_limits_are_measured_without_full_throttle_extrapolation():
+    half = [dict(s, command=[c/2 for c in s['command']], velocity=[v/2 for v in s['velocity']])
+            for s in samples()]
+    limits = characterize_samples(half)['motion_limits']
+    assert limits['velocity']['surge'] == approx(.3)
+
+
+def test_nav2_limits_do_not_freeze_planner_or_grant_unmeasured_reverse(tmp_path):
+    import yaml
+    source = tmp_path / 'base.yaml'
+    source.write_text(yaml.safe_dump({
+        'planner_server': {'ros__parameters': {'GridBased': {'plugin': 'current'}}},
+        'controller_server': {'ros__parameters': {'FollowPath': {'vx_min': -.2}}},
+        'velocity_smoother': {'ros__parameters': {'min_velocity': [-.2, -.4, -.3]}}}))
+    profile = nav2_profile(characterize_samples(samples()), source)
+    assert 'planner_server' not in profile
+    assert profile['controller_server']['ros__parameters']['FollowPath']['vx_min'] == -.2
+    assert profile['velocity_smoother']['ros__parameters']['min_velocity'][0] == -.2

@@ -21,7 +21,7 @@ import time
 from rich.console import Console
 from rich.live import Live
 
-from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config
+from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config, update_config
 from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
@@ -83,7 +83,8 @@ MANUAL_HINTS = [('W/S ↑↓', 'Surge'), ('A/D', 'Sway'), ('←→', 'Yaw'), ('+
 HELP = [
     ('Ctrl h j k l / arrows', 'Focus the panel to the left, below, above, right'),
     ('Tab / Shift Tab', 'Cycle focus through the panels'),
-    ('↑↓ / j k', 'Move within the focused panel'),
+    ('↑↓ / j', 'Move within the focused panel; k starts Characterize'),
+    ('Procedure keys', 'Run from any panel; focused-panel edit keys take precedence'),
     ('Enter', 'Run, open or show details'),
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('Space', 'Stop: neutral and disarm'),
@@ -264,8 +265,7 @@ class App:
 
     def save_hardware(self, **changes):
         """Write ``changes`` into the operator's hardware YAML; the watcher applies it."""
-        config = dict(load_config(self.args.config), **changes)
-        save_config(config, self.args.config)
+        update_config(changes, self.args.config)
         self.draft = self.grabbed = None
         self.config_mtime = None  # reload on the next tick even within one mtime tick
         self.watch_config()
@@ -467,8 +467,8 @@ class App:
             neighbour = NEIGHBOURS[wide].get(self.focus, {}).get(DIRECTIONS[key])
             if neighbour:
                 self.focus_on(neighbour)
-        elif key in ('up', 'k', 'down', 'j'):
-            step = -1 if key in ('up', 'k') else 1
+        elif key in ('up', 'down', 'j'):
+            step = -1 if key == 'up' else 1
             if self.focus == 'thrusters' and self.grabbed is not None:
                 self.move_grabbed(step)
             else:
@@ -491,8 +491,10 @@ class App:
             step = 0.05 if key in ('+', '=') else -0.05
             self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
-        elif key == 'm':
-            self.run_procedure(next(p for p in PROCEDURES if p.key == 'm'))
+        elif (key in {p.key for p in PROCEDURES}
+              and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
+              and not (self.focus == 'activity' and key == 'v')):
+            self.on_procedures(key)
         else:
             getattr(self, f'on_{self.focus}')(key)
 
