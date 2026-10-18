@@ -86,6 +86,32 @@ def test_status_rows_and_short_values():
     assert short('load 7.8/20, 78°C, 688 GB free') == '78°C'
     assert short('worst GPS +0.04s') == '+0.04s'
     assert short('/bags/session') == ''
+    assert short('RUNNING; managed process and ROS subscription') == 'RUNNING'
+    assert short('0/4 ON; output 1: OFF 1500us / 50Hz') == '0/4 ON'
+    assert short('3/4 ON?; output 4: unavailable') == '3/4 ON?'
+
+
+@pytest.mark.parametrize('width,height', [(80, 24), (120, 40)])
+@pytest.mark.parametrize('driver,pwm,level', [
+    ('STOPPED', '0/4 ON', 'OK'), ('RUNNING', '4/4 ON', 'OK'),
+    ('RUNNING', '3/4 ON', 'FAIL'), ('UNMANAGED', '4/4 ON', 'WARN'),
+])
+def test_pwm_status_rows_remain_visible_and_fit(width, height, driver, pwm, level):
+    profile = load_profile('boat')
+    m = monitor()
+    m.advise('PWM driver', 'OK', driver + '; managed process and ROS endpoint')
+    m.advise('PWM readback', level, pwm + '; output 1: ON 1500us / 50Hz')
+    snapshot = m.snapshot(profile.required_tf)
+    rows = status_rows(snapshot, profile.sensors)
+    for name, value in [('PWM driver', driver), ('PWM readback', pwm)]:
+        cursor = next(i for i, row in enumerate(rows) if row['name'] == name)
+        assert rows[cursor]['value'] == value
+        cursors = {panel: cursor if panel == 'status' else 0 for panel in PANELS}
+        page = text(render(snapshot, view(profile, cursors=cursors), width, height),
+                    width, height)
+        assert name in page and value in page and 'Space Stop' in page
+        assert len(page.splitlines()) <= height
+        assert all(len(line) <= width for line in page.splitlines())
 
 
 def test_drift_arrows_are_drawn_bow_up_in_the_body_frame():

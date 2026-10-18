@@ -32,6 +32,7 @@ from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailabl
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
+from mhseals_testing.ros.arming import EFFORT_TOPIC
 from mhseals_testing.runner import Aborted, Runner
 from mhseals_testing.ui import dashboard
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
@@ -225,11 +226,16 @@ class App:
         exited = [name for name in self.processes.exited() if name != 'bag']
         if exited:
             self.monitor.advise('processes', 'WARN', 'exited: ' + ', '.join(exited))
+        if self.profile.outputs != 'none':
+            topic = EFFORT_TOPIC if self.profile.velocity_controller else self.profile.command_topic
+            self.monitor.advise('PWM driver', *health.pwm_driver(
+                self.ros.nodes(), self.ros.subscribers(topic), topic,
+                self.armed, self.processes.running('hardware')))
         if self.profile.outputs == 'odroid':
             config = self.args.hardware_config
-            level, self.pwm_readback = health.pwm_readback(config['pwm_chips'],
-                                                           config['pwm_channels'])
-            self.monitor.advise('PWM readback', level, ' | '.join(self.pwm_readback))
+            level, detail, self.pwm_readback = health.pwm_readback(
+                config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
+            self.monitor.advise('PWM readback', level, detail)
 
     # --- hardware config: edits from the panel or any editor, hot-reloaded -------
 

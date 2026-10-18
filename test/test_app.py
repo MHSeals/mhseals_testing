@@ -134,6 +134,12 @@ class Ros:
     def now(self):
         return 100.0
 
+    def subscribers(self, topic):
+        return []
+
+    def nodes(self):
+        return []
+
     def emit(self, phase, **details):
         self.events.append(phase)
 
@@ -714,6 +720,57 @@ def test_arm_panel_lists_interlocks_before_arming(tmp_path):
     rows = dict(app.arm_rows())
     assert rows['Outputs'].startswith('simulator') and rows['Driver'] == 'starts on arm'
     assert rows['Interlocks'].startswith('×')
+
+
+@pytest.mark.parametrize('velocity', [False, True])
+def test_status_tracks_driver_and_kernel_pwm_independently(tmp_path, velocity):
+    argv = ['--velocity-control'] if velocity else []
+    app, _ = make_app(tmp_path, argv)
+    chips = [tmp_path / f'pwmchip{index}' for index in range(4)]
+    for chip in chips:
+        pin = chip / 'pwm0'
+        pin.mkdir(parents=True)
+        for field, value in [('enable', '0'), ('period', '20000000'),
+                             ('duty_cycle', '1500000')]:
+            (pin / field).write_text(value)
+    app.args.hardware_config.update(pwm_chips=chips, pwm_channels=[0] * 4)
+    drivers, managed, topics = [], False, []
+    app.processes.running = lambda name: managed if name == 'hardware' else True
+    app.ros.nodes = lambda: list(drivers)
+    app.ros.subscribers = lambda topic: topics.append(topic) or drivers
+
+    def sample():
+        app.clock.now += 1
+        app.refresh_advisories()
+        return app.snapshot()['advisories']
+
+    status = sample()
+    assert status['PWM driver']['detail'].startswith('STOPPED;')
+    assert status['PWM readback']['level'] == 'OK'
+    assert status['PWM readback']['detail'].startswith('0/4 ON;')
+    drivers.append('/thruster_pwm_node')
+    managed = app.arming.armed = True
+    for chip in chips:
+        (chip / 'pwm0' / 'enable').write_text('1')
+    status = sample()
+    assert status['PWM driver']['level'] == status['PWM readback']['level'] == 'OK'
+    assert status['PWM driver']['detail'].startswith('RUNNING;')
+    assert status['PWM readback']['detail'].startswith('4/4 ON;')
+    assert set(topics) == {'/cmd_vel_effort' if velocity else '/cmd_vel'}
+    assert app.pwm_readback == ['ON 1500us / 50Hz'] * 4
+
+    # A live driver endpoint must not hide a disabled hardware output.
+    (chips[2] / 'pwm0' / 'enable').write_text('0')
+    status = sample()
+    assert status['PWM driver']['level'] == 'OK'
+    assert status['PWM readback']['level'] == 'FAIL'
+    assert app.pwm_readback[2].startswith('OFF')
+    drivers.clear()
+    assert sample()['PWM driver']['level'] == 'FAIL'
+    app.arming.armed = managed = False
+    drivers.append('/thruster_pwm_node')
+    status = sample()
+    assert status['PWM driver']['level'] == status['PWM readback']['level'] == 'WARN'
 
 
 class Events:

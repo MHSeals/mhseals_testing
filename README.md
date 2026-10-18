@@ -29,6 +29,8 @@ ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardw
 
 Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); others fall back to tap-repeat. Saved mappings hot-reload into the running driver. The Motion panel's drift line shows the live body-frame velocity (bow up, with a bearing) against what the model predicts: the boat's mechanical bias plus the current, turned into the body by the heading (the velocity controller's live estimate, else the characterization's).
 
+Status checks **PWM driver** (managed process and ROS subscription) and **PWM readback** (enabled outputs, pulse widths and frequency, once per second); Enter shows details. Run on the ODROID for pin readback. Disabled pins are normal before arming; missing/disabled pins while armed and unexpected drivers/outputs are flagged. An enabled 1500 µs output still pulses at neutral. Readback is the kernel configuration, not measured voltage, MOSFET/ESC power or proof of thruster movement.
+
 ### Procedures
 
 | Key | Procedure | Needs |

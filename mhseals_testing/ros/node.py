@@ -109,6 +109,10 @@ class RosIO:
                 for info in self.node.get_subscriptions_info_by_topic(topic)
                 if info.node_name != self.node.get_name()]
 
+    def nodes(self):
+        return [f'{namespace.rstrip("/")}/{name}'
+                for name, namespace in self.node.get_node_names_and_namespaces()]
+
     def close(self):
         self._spinning = False
         self.thread.join(timeout=1)

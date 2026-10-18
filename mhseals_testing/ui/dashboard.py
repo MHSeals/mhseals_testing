@@ -60,6 +60,9 @@ def status_rows(snapshot, specs):
 
 def short(detail, limit=10):
     """The telling number of an advisory: '78°C' of 'load 7.8/20, 78°C', '+0.04s' of a clock."""
+    summary, separator, _ = str(detail).partition(';')
+    if separator and len(summary) <= limit:
+        return summary
     for part in reversed(str(detail).split(',')):
         token = part.strip().split(' ')[-1] if part.strip() else ''
         if token and any(c.isdigit() for c in token) and '/' not in token and len(token) <= limit:
