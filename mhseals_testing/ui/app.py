@@ -55,7 +55,7 @@ from mhseals_testing.ui import layout, popups, theme
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
-from mhseals_testing.ui.popups import odometry, pins
+from mhseals_testing.ui.popups import odometry, pins, run as run_popup
 from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
 from mhseals_testing.ui.source import LiveSource
 from mhseals_testing.ui.takeover import decide
@@ -111,7 +111,7 @@ PANEL_HINTS = {
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
                   ('c', 'Clear decoupling'), ('p', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
-    'activity': [('Enter', 'Details'), ('v', 'Results/log')],
+    'activity': [('Enter', 'Run'), ('v', 'Results/log')],
 }
 REVIEW_HINTS = [('p', 'Play/pause'), (f'{LEFTRIGHT} {{ }}', 'Seek 5 s / 30 s'),
                 (', .', 'Prev/next mark'), ('< >', 'Rate'), ('Esc', 'Leave review'),
@@ -891,12 +891,52 @@ class App:
             self.activity = 'log' if self.activity == 'results' else 'results'
             self.cursors['activity'] = 0
         elif key == 'enter' and self.activity == 'results':
-            results = list(reversed(self.snapshot()['results']))
-            if results:
-                result = results[min(self.cursors['activity'], len(results) - 1)]
-                self.show(activity.result_label(result), width=76, rows=[
-                    (name, value) for name, value in result.items()
-                    if not isinstance(value, dict)])
+            self.open_run()
+
+    # Reasons offered by the run popup's X; an exclusion always carries one (critique K4).
+    EXCLUDE_REASONS = ('operator error', 'wrong conditions', 'sensor fault', 'test run')
+
+    def open_run(self):
+        """popup.run for the cursor's result: up/down step, X excludes, Esc closes; Space stops."""
+        total = len(self.snapshot()['results'])
+        if not total:
+            return
+        state = dict(index=min(self.cursors['activity'], total - 1))
+
+        def results():
+            return list(reversed(self.snapshot()['results']))
+
+        def fill():
+            result = results()[state['index']]
+            modal.update(title=activity.result_label(result), rows=run_popup.run_rows(result),
+                         hint=theme.SEPARATOR.join((f'{UPDOWN} prev/next', 'X exclude', 'Esc close')))
+
+        def handle(key):
+            if key == 'X':  # case matters here: lowercase x writes the report
+                try:
+                    reason = self.choose('Exclude run', self.EXCLUDE_REASONS)
+                except Cancelled:
+                    reason = None
+                self.modal = modal  # the nested popup cleared it
+                if reason:
+                    size = len(results())
+                    self.monitor.exclude_result(size - 1 - state['index'],
+                                                run_popup.exclusion(reason))
+            else:
+                key = fold(key)
+                if key == 'space':
+                    self.stop('stopped by operator')
+                elif key in ('up', 'k', 'down', 'j'):
+                    state['index'] = min(max(state['index'] + (-1 if key in ('up', 'k') else 1), 0),
+                                         len(results()) - 1)
+                    self.cursors['activity'] = state['index']
+                elif key in ('escape', 'q'):
+                    return True
+            fill()
+
+        modal = dict(kind='message', width=76)
+        fill()
+        self.popup(modal, handle)
 
     def mapping(self):
         """The thruster mapping being shown: the unsaved draft, else the saved config."""

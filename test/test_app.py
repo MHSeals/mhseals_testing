@@ -1607,3 +1607,17 @@ def test_disk_trip_marks_then_stops_the_bag_and_says_so(tmp_path):
     app.watch_recording()
     assert order == [('marker', DISK_MARKER), ('stop', 'bag')]
     assert DISK_MARKER in app.notice
+
+
+
+
+def test_enter_on_a_result_opens_the_run_popup_and_capital_x_excludes_it(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.monitor.record_result(dict(procedure='axis', verdict='SIGN MATCH'))
+    app.monitor.record_result(dict(procedure='step', verdict='OK'))
+    app.cursors['activity'] = 1  # the older result (the list is newest first)
+    with app.attached():
+        press(app, 'X', 'enter', 'escape')  # exclude, first reason, close
+        app.on_activity('enter')
+    first, second = app.monitor.snapshot()['results']
+    assert first['excluded']['reason'] == 'operator error' and 'excluded' not in second

@@ -88,6 +88,11 @@ class BoatMonitor:
         with self.lock:
             self.results.append(deepcopy(result))
 
+    def exclude_result(self, index, record):
+        """Store ``record`` ({reason, by}) as the ``index``-th result's exclusion (critique K4)."""
+        with self.lock:
+            self.results[index]['excluded'] = dict(record)
+
     def history(self, name, since=float('-inf'), until=float('inf'), include_issues=False):
         """Samples of ``name`` as (time, values) within [since, until]."""
         with self.lock:
