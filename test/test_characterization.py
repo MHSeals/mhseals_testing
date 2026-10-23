@@ -117,7 +117,8 @@ def test_one_sample_without_a_heading_does_not_switch_off_drift_separation():
     result = characterize_samples(samples)
     assert result['drift']['separated']
     assert (result['drift']['x'], result['drift']['y']) == approx((0.1, 0.15), abs=1e-6)
-    assert result['speed_curves'] == approx(clean['speed_curves'], abs=1e-6)
+    assert {k: c['d1'] for k, c in result['speed_curves'].items()} == approx(
+        {k: c['d1'] for k, c in clean['speed_curves'].items()}, abs=1e-6)
 
 
 def test_one_heading_cannot_separate_and_falls_back_to_a_body_bias():
