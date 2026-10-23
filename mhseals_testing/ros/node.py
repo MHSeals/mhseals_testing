@@ -13,7 +13,6 @@ import threading
 import time
 
 from geometry_msgs.msg import Vector3Stamped
-from mavros_msgs.msg import GPSRAW
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -35,9 +34,22 @@ from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
 
 MESSAGE_TYPES = {
     'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix,
-    'gpsraw': GPSRAW, 'mag': MagneticField, 'points': PointCloud2,
+    'mag': MagneticField, 'points': PointCloud2,
     'image': Image, 'compressed': CompressedImage, 'detections': Detection3DArray,
 }
+
+
+def message_type(kind):
+    """Message class for a sensor kind; None when gpsraw's mavros_msgs is not installed."""
+    if kind == 'gpsraw':
+        try:
+            from mavros_msgs.msg import GPSRAW
+        except ImportError:
+            return None
+        return GPSRAW
+    return MESSAGE_TYPES[kind]
+
+
 EVENTS_TOPIC = '/mhseals_testing/events'
 GUID_PREFIX = 12             # bytes of an endpoint gid that name its DDS participant
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
@@ -70,9 +82,13 @@ class RosIO:
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
         self.events = self.node.create_publisher(String, EVENTS_TOPIC, EVENTS_QOS)
         for sensor in profile.sensors:
+            message = message_type(sensor.kind)
+            if message is None:
+                monitor.advise(sensor.name, 'N/A', 'mavros_msgs not installed')
+                continue
             raw = sensor.kind in RAW_KINDS
             self.node.create_subscription(
-                MESSAGE_TYPES[sensor.kind], sensor.topic,
+                message, sensor.topic,
                 partial(self._sensor, sensor.name, 'raw' if raw else sensor.kind),
                 qos_profile_sensor_data, raw=raw)
         self.node.create_subscription(
