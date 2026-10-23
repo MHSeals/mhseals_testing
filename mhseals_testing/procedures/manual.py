@@ -51,7 +51,7 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
                 break  # Stop must not be hidden by queued input.
             key = keys.read(timeout=0)
         publisher.publish(command)
-        show(command, state.amplitude, state.event_mode)
+        show(command, state.amplitude, state.chords)
 
 
 def run(ctx):
@@ -65,4 +65,4 @@ def run(ctx):
             drive(keys, state, publisher, manual['show'], manual.get('clock', time.monotonic))
     finally:
         manual['plant'].neutral()
-        manual['show']((0.0, 0.0, 0.0), state.amplitude, state.event_mode, done=True)
+        manual['show']((0.0, 0.0, 0.0), state.amplitude, state.chords, done=True)

@@ -963,7 +963,7 @@ class App:
         self.ros.emit('result', **result)
         self.export()
 
-    def manual_show(self, command, amplitude, event_mode, done=False):
+    def manual_show(self, command, amplitude, chords, done=False):
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""
         self.manual = not done
         self.command = tuple(command)
@@ -973,7 +973,7 @@ class App:
                           zip(('surge', 'sway', 'yaw'), command) if value) or 'neutral'
         self.notice = ('Manual control ended' if done else
                        f"Manual {amplitude:.0%}{dashboard.SEPARATOR}{active}{dashboard.SEPARATOR}"
-                       + ('held keys' if event_mode else 'tap-repeat mode'))
+                       + ('Chords' if chords else 'Single key'))
         self.refresh(force=done)
 
 

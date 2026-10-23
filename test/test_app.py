@@ -893,6 +893,15 @@ def test_manual_control_drives_held_keys_on_the_page_and_ends_neutral(tmp_path):
     assert app.focus == 'motion' and app.notice == 'Manual control ended'
 
 
+def test_manual_notice_labels_the_chord_modes_like_keyboard_control(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    app.manual_show((0.0, 0.0, 0.0), 0.5, True)
+    assert 'Chords' in app.notice and 'held keys' not in app.notice
+    app.manual_show((0.0, 0.0, 0.0), 0.5, False)
+    assert 'Single key' in app.notice and 'tap-repeat' not in app.notice
+
+
 def test_manual_control_stops_on_an_interlock(tmp_path):
     app, boat = make_app(tmp_path)
     app.open_events = lambda: Events(app.clock, ['press:w'] + ['repeat:w'] * 80)

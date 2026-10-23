@@ -279,12 +279,13 @@ class BaseSession:
                         reader = rtcm_reader(serial_port, protfilter=7, quitonerror=1,
                                              errorhandler=lambda _: self.count('errors'))
                         model = self._identify(serial_port, reader)
-                        identified = True
                         if self.configure:
                             self._configure(serial_port, reader, model)
                             # Only the operator's request configures; a reconnect never does.
                             self.configure = False
+                            identified = True    # a rejected configure stays fatal rather than retrying
                         else:
+                            identified = True
                             self._resume(serial_port, reader, model)
                         polled = float('-inf')
                     if self.clock() - polled >= 2:

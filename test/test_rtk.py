@@ -297,3 +297,26 @@ def test_routes_count_per_sink_and_recovery_clears_the_dead_detail():
     state = session.snapshot()
     assert (state['delivered'], state['detail']) == (1, 'sending corrections')
     assert state['routes'][0]['sent'] == 1 and state['routes'][0]['failed'] == 1
+
+
+def test_a_nak_to_the_operators_configure_ends_in_error_after_one_attempt(monkeypatch):
+    class Rejecting(FakeReceiver):
+        def write(self, data):
+            super().write(data)
+            if self.sent[-1] == 'CFG-VALSET':  # replace the ACK with a NAK
+                self.pending = UBXMessage('ACK', 'ACK-NAK', GET, clsID=0x06, msgID=0x8A).serialize()
+            return len(data)
+
+    port = Rejecting('F9P')
+    import serial
+    monkeypatch.setattr(serial, 'Serial', lambda *a, **k: port)
+    session = BaseSession([], dict(DEFAULTS, device='/dev/test'))
+    session.start(survey=True)
+    deadline = time.monotonic() + 5
+    while session.snapshot()['phase'] != 'error' and time.monotonic() < deadline:
+        time.sleep(.01)
+    time.sleep(1.5)  # a retry would re-send within the 1 s reconnect wait
+    state = session.snapshot()
+    session.close()
+    assert state['phase'] == 'error' and 'rejected CFG-VALSET' in state['detail'], state
+    assert port.sent.count('CFG-VALSET') == 1
