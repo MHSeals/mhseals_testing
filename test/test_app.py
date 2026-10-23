@@ -194,8 +194,8 @@ def make_app(tmp_path, argv=(), keys=(), sensors=True):
     config = tmp_path / 'hardware.yaml'
     if not config.exists():
         config.write_text('frequency: 50.0\nchannel_map: [1, 2, 3, 4]\n')
-    args, profile = parse_args(['--output', str(tmp_path / 'session'), '--baseline', '1',
-                                '--command-duration', '1', '--settle', '1',
+    args, profile = parse_args(['--output', str(tmp_path / 'session'), '--set', 'baseline=1',
+                                '--set', 'command=1', '--set', 'settle=1',
                                 '--config', str(config), *argv])
     clock = Clock()
     monitor = BoatMonitor(clock=clock)
@@ -234,9 +234,9 @@ def test_parse_args_profile_bringup_and_limits(tmp_path):
     assert not any(part.startswith('fcu_url') for part in command)  # simulation: no FCU
     boat_args, boat = parse_args(['--start-stack'])
     assert any(part.startswith('fcu_url:=serial://') for part in bringup_command(boat, boat_args))
-    assert parse_args(['--velocity-control'])[1].command_units == 'velocity'
+    assert parse_args(['--set', 'command_mode=velocity'])[1].command_units == 'velocity'
     with pytest.raises(SystemExit):
-        parse_args(['--repeats', '9'])
+        parse_args(['--set', 'repeats=9'])
 
 
 def arm(app):
@@ -361,7 +361,7 @@ def test_procedures_explain_why_they_cannot_run(tmp_path):
         press(app, 'escape')
         app.run_procedure(procedure('1'))
     assert 'arm first' in app.notice and boat.sent == []
-    bench, _ = make_app(tmp_path, ['--bench-override'])
+    bench, _ = make_app(tmp_path, ['--set', 'bench_override=on'])
     with bench.attached():
         arm(bench)
         bench.run_procedure(procedure('1'))
@@ -381,7 +381,7 @@ def scripted(app, answer):
 
 
 def test_controller_steps_need_velocity_control_and_report_metrics(tmp_path):
-    app, _ = make_app(tmp_path, ['--velocity-control', '--amplitude', '0.2'])
+    app, _ = make_app(tmp_path, ['--set', 'command_mode=velocity', '--set', 'amplitude=0.2'])
     with app.attached():
         arm(app)
         scripted(app, None)
@@ -394,7 +394,7 @@ def test_controller_steps_need_velocity_control_and_report_metrics(tmp_path):
 
 
 def test_characterization_fits_and_saves_only_on_request(tmp_path):
-    app, _ = make_app(tmp_path, ['--amplitude', '0.4', '--command-duration', '3'])
+    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
     nav2 = tmp_path / 'nav2_params.yaml'
     nav2.write_text(yaml.safe_dump({
         'controller_server': {'ros__parameters': {'FollowPath': {}}},
@@ -589,7 +589,7 @@ class FakeNav:
 
 
 def nav_app(tmp_path, argv=(), nav=None):
-    app, boat = make_app(tmp_path, ['--velocity-control', *argv])
+    app, boat = make_app(tmp_path, ['--set', 'command_mode=velocity', *argv])
     clock = app.clock
     app.nav2_factory = lambda: nav or FakeNav(clock)
     return app, boat
@@ -605,7 +605,7 @@ def test_nav2_bringup_checks_without_arming(tmp_path):
 
 def test_waypoint_square_scores_the_route_and_cancels_on_exit(tmp_path):
     nav = None
-    app, _ = nav_app(tmp_path, ['--nav-distance', '3'])
+    app, _ = nav_app(tmp_path, ['--set', 'nav_distance=3'])
     nav = FakeNav(app.clock)
     app.nav2_factory = lambda: nav
     app.arming.armed = True
@@ -619,7 +619,7 @@ def test_waypoint_square_scores_the_route_and_cancels_on_exit(tmp_path):
 
 
 def test_station_keeping_resends_goals_and_reports_drift(tmp_path):
-    app, _ = nav_app(tmp_path, ['--station-hold', '20', '--station-tolerance', '1'])
+    app, _ = nav_app(tmp_path, ['--set', 'station_hold=20', '--set', 'station_tolerance=1'])
     nav = FakeNav(app.clock, drift=0.03)
     app.nav2_factory = lambda: nav
     app.arming.armed = True
@@ -637,7 +637,7 @@ def test_waypoints_need_velocity_commands(tmp_path):
 
 
 def test_perception_rates_and_costmap(tmp_path):
-    app, _ = nav_app(tmp_path, ['--observe', '2'])
+    app, _ = nav_app(tmp_path, ['--set', 'observe=2'])
     clock = app.clock
     original = app.open_keys
 
@@ -814,7 +814,7 @@ def test_arm_panel_shows_the_driver_check_and_wraps_long_reasons(tmp_path):
 
 @pytest.mark.parametrize('velocity', [False, True])
 def test_status_tracks_driver_and_kernel_pwm_independently(tmp_path, velocity):
-    argv = ['--velocity-control'] if velocity else []
+    argv = ['--set', 'command_mode=velocity'] if velocity else []
     app, _ = make_app(tmp_path, argv)
     chips = [tmp_path / f'pwmchip{index}' for index in range(4)]
     for chip in chips:
@@ -1062,7 +1062,7 @@ def test_manual_control_arms_without_odometry_but_trials_are_unavailable(tmp_pat
 
 
 def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path):
-    app, _ = make_app(tmp_path, ['--amplitude', '0.4', '--command-duration', '3'])
+    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
     offered = []
     original = app.procedure_context
 

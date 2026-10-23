@@ -31,13 +31,13 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing.data import data_root
-from mhseals_testing.harness import host
+from mhseals_testing.harness import host, settings
+from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
-from mhseals_testing.procedures import PROCEDURES, Settings, unavailable
+from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
-from mhseals_testing.harness.apply import Staging
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
@@ -174,9 +174,7 @@ class App:
         self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
         self.watcher_factory, self._watcher = task_watcher, None
-        self.settings = Settings(args.amplitude, args.baseline, args.command_duration,
-                                 args.settle, args.repeats, args.observe, args.nav_distance,
-                                 args.station_hold, args.station_tolerance, args.turn)
+        self.settings = args.settings
         self.focus = 'status'
         self.cursors = {panel: 0 for panel in PANELS}
         self.activity = 'results'
@@ -634,6 +632,7 @@ class App:
             step = 0.05 if key in ('+', '=') else -0.05
             self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
+            settings.save(self.settings)
         elif (key in {p.key for p in PROCEDURES}
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
               and not (self.focus == 'activity' and key == 'v')):
@@ -1031,33 +1030,15 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     parser.add_argument('--profile', default='boat',
                         help=f'plant profile name ({", ".join(available_profiles())}) or YAML path')
-    parser.add_argument('--velocity-control', action='store_true',
-                        help='command m/s and rad/s through calibrated_velocity_controller')
     parser.add_argument('--start-stack', action='store_true',
                         help="launch the profile's measurement stack; default attaches to running topics")
     parser.add_argument('--fcu-url', default='',
                         help='MAVROS FCU URL for --start-stack (default: detect the flight controller)')
     parser.add_argument('--start-sensors', action='store_true',
                         help='with --start-stack, also start local sensor drivers')
-    parser.add_argument('--bench-override', action='store_true',
-                        help='allow motion with no sensors or TF (bench test, scoring disabled)')
-    parser.add_argument('--stale-after', type=float, default=2.0)
-    parser.add_argument('--amplitude', type=float, default=0.25,
-                        help='trial size in the profile units (effort fraction or m/s, rad/s)')
-    parser.add_argument('--baseline', type=float, default=5.0, help='neutral seconds before a trial')
-    parser.add_argument('--command-duration', type=float, default=3.0)
-    parser.add_argument('--settle', type=float, default=5.0, help='neutral seconds after a trial')
-    parser.add_argument('--repeats', type=int, default=1, help='trials per direction (1-5)')
-    parser.add_argument('--observe', type=float, default=10.0,
-                        help='seconds of passive measurement for perception checks')
-    parser.add_argument('--nav-distance', type=float, default=4.0,
-                        help='side of the waypoint square, m')
-    parser.add_argument('--station-hold', type=float, default=60.0, help='station keeping, s')
-    parser.add_argument('--turn', type=float, default=20.0,
-                        help='characterization: seconds of steady turning, so the fit can '
-                             'tell current and wind from the boat itself')
-    parser.add_argument('--station-tolerance', type=float, default=1.5,
-                        help='station keeping radius, m')
+    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+                        help='override a setting for this run (see harness/settings.py), e.g. '
+                             'amplitude=0.4, command_mode=velocity, bench_override=on')
     parser.add_argument('--output', type=Path, default=None,
                         help='session bag path (default $MHSEALS_DATA or <workspace>/bags, <profile>_<time>)')
     return parser
@@ -1073,23 +1054,18 @@ def parse_args(argv=None):
         probe.add_argument('--config')
         path = config_path(probe.parse_known_args(argv)[0].config)
         parser.error(f'{path}: {error}')
+    args.settings = settings.load()
+    try:
+        for assignment in args.set:
+            args.settings.set(assignment)
+    except ValueError as error:
+        parser.error(f'--set {error}')
+    args.stale_after, args.bench_override = args.settings.stale_after, args.settings.bench_override
     profile = load_profile(args.profile)
-    if args.velocity_control:
+    if args.settings.command_mode == 'velocity':
         profile = profile.with_velocity_control()
     if args.start_stack and profile.bringup is None:
         parser.error(f'profile {profile.name} has no bring-up; start its stack separately')
-    for name in ('stale_after', 'baseline', 'command_duration', 'settle', 'observe'):
-        value = getattr(args, name)
-        if not math.isfinite(value) or not 0 < value <= 60:
-            parser.error(f"--{name.replace('_', '-')} must be within (0, 60] seconds")
-    if not 0 < args.amplitude <= 1:
-        parser.error('--amplitude must be within (0, 1]')
-    if not 1 <= args.nav_distance <= 50 or not 10 <= args.station_hold <= 600 \
-            or not 0.2 <= args.station_tolerance <= 10:
-        parser.error('--nav-distance (1-50 m), --station-hold (10-600 s) and '
-                     '--station-tolerance (0.2-10 m) are out of range')
-    if not 1 <= args.repeats <= 5:
-        parser.error('--repeats must be within 1..5')
     args.output = args.output or data_root() / (
         f"{profile.name.replace('+', '_')}_{datetime.now():%Y%m%d_%H%M%S}")
     return args, profile
@@ -1136,6 +1112,7 @@ def main(argv=None):
 
     from rclpy.signals import SignalHandlerOptions
 
+    settings.save(args.settings)  # the last used values (not command mode or bench override)
     console = Console()
     registry = Registry()
     me = dict(pid=os.getpid(), node=node_name(), host=socket.gethostname(), started=time.time(),

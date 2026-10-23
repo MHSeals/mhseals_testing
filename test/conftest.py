@@ -36,3 +36,9 @@ def data_root(tmp_path, monkeypatch):
     """Keep tests off the developer's real data root (state.json, sessions)."""
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def isolated_user_config(tmp_path_factory, monkeypatch):
+    """Keep the persisted settings file of the real user out of every test."""
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path_factory.mktemp('xdg')))

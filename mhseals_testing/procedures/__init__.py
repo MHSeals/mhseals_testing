@@ -8,6 +8,8 @@ simulator" themselves.
 
 from dataclasses import dataclass, field
 
+from mhseals_testing.harness.settings import Settings  # noqa: F401  (re-export)
+
 # What a procedure may need:
 #   armed     thruster outputs running (a, the arm panel)
 #   effort    commands are normalized effort (open-loop thruster tests)
@@ -16,21 +18,6 @@ from dataclasses import dataclass, field
 #   hardware  real PWM pins
 #   sensors   motion scoring, so the bench override is not enough
 NEEDS = frozenset({'armed', 'effort', 'velocity', 'outputs', 'hardware', 'sensors'})
-
-
-@dataclass
-class Settings:
-    """Trial timing and size; amplitude is in the profile's command units."""
-    amplitude: float = 0.25
-    baseline: float = 5.0      # s of neutral before each command, to measure drift
-    command: float = 3.0       # s the command is held
-    settle: float = 5.0        # s of neutral after, so the next trial starts at rest
-    repeats: int = 1
-    observe: float = 10.0          # s of passive measurement for perception checks
-    nav_distance: float = 4.0      # m, side of the waypoint square
-    station_hold: float = 60.0     # s of station keeping
-    station_tolerance: float = 1.5  # m radius
-    turn: float = 20.0             # s of steady turning in characterization, to see every heading
 
 
 @dataclass
