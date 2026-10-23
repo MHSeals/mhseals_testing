@@ -255,10 +255,10 @@ def test_manual_space_requests_a_hold_as_well_as_neutral():
     from mhseals_hardware.manual_state import ManualState
     events = []
     plant = SimpleNamespace(hold=lambda cause: events.append(('hold', cause)),
-                            publish=lambda c: events.append(('pub', c)),
+                            publish=lambda c, manual=False: events.append(('pub', c, manual)),
                             neutral=lambda: events.append(('neutral',)))
     keys = iter(['space', 'x'])
     reader = SimpleNamespace(read=lambda timeout=None: next(keys))
     drive(reader, ManualState(0.5, 0.5, 0.5, 1.0), GuardedPublisher(plant, lambda: []),
           lambda *a: None)
-    assert events == [('hold', 'keys'), ('pub', (0.0, 0.0, 0.0))]
+    assert events == [('hold', 'keys'), ('pub', (0.0, 0.0, 0.0), True)]

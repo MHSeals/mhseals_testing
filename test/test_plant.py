@@ -34,6 +34,10 @@ class Ros:
         pubs = [Endpoint(ros.name, own=ros is self) for ros in [self, *self.peers] if ros.node.live]
         return {topic_fact_name(t): Fact({'pub': tuple(pubs), 'sub': ()}) for t in topics}
 
+    def publishers(self, topic):
+        return [peer.name for peer in self.peers
+                if any(p.topic == topic for p in peer.node.live)]
+
 
 PROFILE = SimpleNamespace(command_type='twist', command_topic='/cmd_vel',
                           command_limit=(1.0, 1.0, 1.0), base_frame='base_link',
@@ -66,7 +70,6 @@ def test_release_withdraws_the_publisher():
 def test_keys_publish_on_the_manual_topic_and_space_asks_the_mux_to_hold():
     plant, _ = pair()
     assert [p.topic for p in plant.ros.node.live] == ['/command_mux/request']  # before any hold
-    plant.engage()
     plant.hold('keys')
     plant.hold('keys')
     topics = [p.topic for p in plant.ros.node.live]
@@ -79,3 +82,19 @@ def test_unmuxed_plants_send_no_hold_request():
     plant = Plant(Ros(Node(), 'a'), SimpleNamespace(**dict(vars(PROFILE), muxed=False)))
     plant.hold()
     assert plant.request_publisher is None
+
+
+def test_procedures_use_the_auto_topic_and_keys_and_space_the_manual_one():
+    plant, _ = pair()
+    plant.publish((0.5, 0.0, 0.0))  # a Runner procedure
+    assert [p.topic for p in plant.ros.node.live if p.sent] == ['/cmd_vel']
+    plant.publish((0.2, 0.0, 0.0), manual=True)  # keyboard drive
+    plant.hold('keys')  # Space
+    by_topic = {p.topic: p.sent for p in plant.ros.node.live}
+    assert len(by_topic['/cmd_vel']) == 1 and by_topic['/cmd_vel'][0].linear.x == 0.5
+    manual = by_topic['/cmd_vel/manual']
+    assert [m.linear.x for m in manual] == [0.2, 0.0, 0.0, 0.0]  # drive, then Space neutral x3
+    assert len(by_topic['/command_mux/request']) == 1
+    plant.neutral()
+    plant.release()
+    assert [p.topic for p in plant.ros.node.live] == ['/command_mux/request']

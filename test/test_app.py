@@ -49,7 +49,7 @@ class Boat:
             self.monitor.transform(parent, child, authority=parent)
 
     # The boat answers as time passes (Keys.read), never at the instant of a command.
-    def publish(self, command):
+    def publish(self, command, manual=False):
         self.sent.append(command)
 
     def neutral(self):

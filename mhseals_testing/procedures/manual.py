@@ -35,7 +35,7 @@ class GuardedPublisher:
                 self.plant.neutral()
                 raise interlock_abort(reasons)
         self.command = command
-        self.plant.publish(command)
+        self.plant.publish(command, manual=True)
 
 
 def drive(keys, state, publisher, show, clock=time.monotonic):
