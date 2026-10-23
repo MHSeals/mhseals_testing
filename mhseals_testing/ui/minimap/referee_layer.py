@@ -2,7 +2,7 @@
 
 Gates and lines are braille segments, buoys and marks dots, bays rectangle outlines. The
 colour is the layer ``ref_<state>``; with ``ascii`` the state is also a glyph so colour is
-never the only cue. ``to_dot`` maps a course-frame point to canvas dot coordinates.
+never the only cue (state glyphs are drawn in colour mode too, except pending). ``to_dot`` maps a course-frame point to canvas dot coordinates.
 """
 
 from mhseals_testing.ui import theme
