@@ -443,12 +443,10 @@ def test_external_config_edits_reload_and_bad_ones_are_refused(tmp_path):
     app, _ = make_app(tmp_path)
     config = tmp_path / 'hardware.yaml'
     config.write_text('frequency: 50.0\nreversed: [true, false, false, false]\n')
-    app.config_mtime = None
-    app.watch_config()
+    app.announce(app.watcher.reload('hardware'))
     assert app.args.hardware_config['reversed'] == [True, False, False, False]
     config.write_text('reversed: [true]\n')
-    app.config_mtime = None
-    app.watch_config()
+    app.announce(app.watcher.reload('hardware'))
     assert 'rejected' in app.notice and app.args.hardware_config['reversed'][0] is True
 
 
@@ -457,15 +455,14 @@ def test_external_config_edits_reload_and_bad_ones_are_refused(tmp_path):
 def test_unparsable_or_mistyped_config_is_refused_not_raised(tmp_path, text):
     app, _ = make_app(tmp_path)
     (tmp_path / 'hardware.yaml').write_text(text)
-    app.config_mtime = None
-    app.watch_config()  # a typo must not end the session
+    app.announce(app.watcher.reload('hardware'))  # a typo must not end the session
     assert 'rejected' in app.notice and app.config_note == 'invalid edit'
 
 
 def test_reload_refreshes_the_arming_copy_of_the_config(tmp_path):
     app, _ = make_app(tmp_path)
     (tmp_path / 'hardware.yaml').write_text('reversed: [true, false, false, false]\n')
-    app.reload_config()
+    app.announce(app.watcher.reload('hardware'))
     assert app.arming.hardware_config is app.args.hardware_config
     assert app.arming.hardware_config['reversed'][0] is True
 
@@ -1384,3 +1381,39 @@ def test_arming_copy_is_never_recorded(tmp_path):
         app.tick()                                  # reload copies the config for the driver
         assert app.paths.hardware.exists()
         assert [c['source'] for c in app.history.changes()] == ['external', 'tui:hardware']   # the first file seen, then our write
+
+
+
+
+def test_bad_yaml_keeps_the_old_config_with_one_notice_per_distinct_error(tmp_path):
+    app, _ = make_app(tmp_path)
+    config = tmp_path / 'hardware.yaml'
+    config.write_text('reversed: [true, false, false, false]\n')
+    app.announce(app.watcher.reload('hardware'))
+    config.write_text('reversed: [true, false\n')
+    app.watch_config()
+    app.watch_config()  # settled: parsed once
+    assert 'rejected' in app.notice and app.args.hardware_config['reversed'][0] is True
+    app.notice = ''
+    config.write_text('reversed:  [true, false\n')  # the same error again
+    app.watch_config()
+    app.watch_config()
+    assert app.notice == ''
+    config.write_text('reversed: [false, false, false, false]\n')
+    app.watch_config()
+    app.watch_config()
+    assert app.args.hardware_config['reversed'][0] is False and 'reloaded' in app.notice
+
+
+def test_config_row_and_popup_list_the_watched_files(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.watch_config()
+    assert app.monitor.advisories['Config'][1:] == ('OK', '1 files')
+    shown = []
+    app.show = lambda title, rows=None, **_: shown.append((title, rows))
+    app.config_popup()
+    assert shown[0][0] == 'Config' and shown[0][1][0][0] == 'hardware'
+    (tmp_path / 'hardware.yaml').write_text('channel_map: 5\n')
+    app.announce(app.watcher.reload('hardware'))
+    app.watch_config()
+    assert app.monitor.advisories['Config'][1] == 'WARN'

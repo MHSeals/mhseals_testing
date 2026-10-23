@@ -34,6 +34,7 @@ from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.registry import Registry
+from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health import legacy as health
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
@@ -215,7 +216,9 @@ class App:
         self.started = clock()
         self.config_file = config_path(args.config)
         self.history = History()
-        self.config_mtime = self.config_seen = self.mtime()
+        self.watcher = Watcher()
+        self.watcher.add(Watched('hardware', self.config_file, self.load_hardware, self.apply_hardware,
+                                 subsystem='hardware'))
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
 
     @property
@@ -344,42 +347,42 @@ class App:
 
     # --- hardware config: edits from the panel or any editor, hot-reloaded -------
 
-    def mtime(self):
-        """The file's (mtime, size, inode): equal on two polls means the write has settled."""
-        try:
-            stat = self.config_file.stat()
-        except OSError:
-            return None
-        return stat.st_mtime_ns, stat.st_size, stat.st_ino
-
     def watch_config(self):
-        mtime, previous = self.mtime(), self.config_seen
-        self.config_seen = mtime
-        if mtime == self.config_mtime:
-            return
-        if self.config_mtime is not None and mtime != previous:
-            return  # still changing: an in-place save caught mid-write is not applied
-        self.config_mtime = mtime
-        try:
-            self.reload_config()
-        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:  # bad syntax or types
-            self.notice = f'Config rejected, keeping the last good one: {error}'
-            self.config_note = 'invalid edit'
-            return
-        self.notice = f'Config reloaded from {self.config_file.name}'
+        """Poll every watched file once; announce what changed (harness/watch.py)."""
+        for change in self.watcher.poll():
+            self.announce(change)
+        rows = self.watcher.rows()
+        bad = [name for name, ok, _, _ in rows if not ok]
+        self.monitor.advise('Config', 'WARN' if bad else 'OK',
+                            f'{bad[0]} error' if bad else f'{len(rows)} files')
 
-    def reload_config(self):
-        self.args.hardware_config = load_config(self.args.config)
+    def announce(self, change):
+        if not change.ok:
+            self.config_note = 'invalid edit'
+            if change.report:
+                self.notice = f'Config rejected, keeping the last good one: {change.error}'
+            return
         self.config_note = self.config_file.name
+        self.notice = f'Config reloaded from {self.config_file.name}'
+        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, path=str(self.config_file))
+
+    def config_popup(self):
+        """popup.config: one row per watched surface, with its state."""
+        rows = [(name, f'{theme.icon("ok" if ok else "bad").plain} {detail}'
+                 + (f' {datetime.fromtimestamp(at):%H:%M}' if ok and at else ''))
+                for name, ok, detail, at in self.watcher.rows()]
+        self.show('Config', rows=rows)
+
+    def load_hardware(self, _path):
+        return load_config(self.args.config)
+
+    def apply_hardware(self, config):
+        self.args.hardware_config = config
         if self.arming is not None:
-            self.arming.hardware_config = self.args.hardware_config  # arming saves this copy
+            self.arming.hardware_config = config  # arming saves this copy
         if self.armed and self.profile.outputs != 'none':
             # The driver hot-reloads its snapshot; keep it the session's config.
-            save_config(dict(self.args.hardware_config, output_backend=self.profile.outputs),
-                        self.paths.hardware)
-        self.ros.emit('config_reloaded', path=str(self.config_file),
-                      channel_map=list(self.args.hardware_config['channel_map']),
-                      reversed=list(self.args.hardware_config['reversed']))
+            save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
 
     def warn_history(self, message):
         self.notice = message
@@ -401,8 +404,7 @@ class App:
             return False
         adapters.record_file(self.history, 'hardware', 'tui:hardware', self.config_file, self.warn_history)
         self.draft = self.grabbed = None
-        self.config_mtime = None  # reload on the next tick even within one mtime tick
-        self.watch_config()
+        self.announce(self.watcher.reload('hardware'))  # our own save skips the settle wait
         return True
 
     # --- rendering ---------------------------------------------------------------
@@ -753,6 +755,8 @@ class App:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
                 if row['group'] == 'Sensors' and row['name'] == 'odometry':
                     return self.odometry()
+                if row['name'] == 'Config':
+                    return self.config_popup()
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
