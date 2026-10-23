@@ -226,7 +226,10 @@ def _unclaimed(goals, graph, input):
     age = cmd.get('age_s')
     if cmd.get('nonzero') and age is not None and age <= CMD_VEL_WINDOW_S:
         own = set(graph.get('own_gids', ()))
-        names = [p['node'] for p in graph.get('publishers', ()) if p.get('gid') not in own]
+        pubs = graph.get('publishers', ())
+        names = [p['node'] for p in pubs if p.get('gid') not in own]
+        if pubs and not names:
+            return []  # every publisher is ours, so not an outside driver
         return [('external', '? ' + (', '.join(names) or 'unknown publisher'), '')]
     return []
 

@@ -97,6 +97,12 @@ def test_unclaimed_cmd_vel_is_external_and_filters_publishers_by_gid():
     assert run(graph=graph)['owner'] == 'none'
 
 
+def test_cmd_vel_from_only_our_own_publishers_is_not_external():
+    graph = {'cmd_vel': {'age_s': 0.2, 'nonzero': True}, 'own_gids': ['A'],
+             'publishers': [{'node': 'mhseals_testing_tui', 'gid': 'A'}]}
+    assert run(graph=graph)['owner'] == 'none'
+
+
 def test_cmd_vel_is_ignored_when_a_claim_is_active_or_mux_not_auto():
     graph = {'cmd_vel': {'age_s': 0.1, 'nonzero': True}, 'publishers': []}
     claims = table()
