@@ -247,3 +247,19 @@ def test_tiny_terminal_falls_back_to_the_stop_hint(width, height, modal):
     page = text(render(monitor().snapshot(profile.required_tf),
                        view(profile, modal=modal), width, height), width, height)
     assert 'Space' in page and 'stop' in page and 'quit' in page
+
+
+@pytest.mark.parametrize('outputs', ['pwm', 'odroid'])
+def test_thrusters_panel_is_not_truncated_at_the_reference_size(outputs):
+    profile = load_profile('boat')
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, focus='thrusters', outputs=outputs), 120, 40), 120, 40)
+    assert '…' not in ''.join(line for line in page.splitlines() if 'Thr' in line or '1500' in line)
+
+
+def test_thrusters_panel_drops_the_pin_column_at_60_columns():
+    profile = load_profile('boat')
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, focus='thrusters', outputs='odroid'), 60, 24), 60, 24)
+    rows = [line for line in page.splitlines() if 'Thr' in line or '1500' in line]
+    assert rows and '…' not in ''.join(rows) and 'Pin' not in ''.join(rows)

@@ -288,14 +288,19 @@ def thruster_rows(view):
                 zip(POSITIONS, channel_map, reversed_))]
 
 
-def thrusters_panel(view, compact=False):
-    """Thruster table; ``compact`` drops the unit and the effort bar to fit a narrow pane."""
+def thrusters_panel(view, compact=False, pins=True):
+    """Thruster table; ``compact`` (also forced by the Pin column) drops the unit and effort bar.
+
+    ``pins`` False drops the odroid Pin column where the panel is too narrow for it.
+    """
     focused = view['focus'] == 'thrusters'
     cursor = view['cursors'].get('thrusters', 0)
     testing = view['test_pulses'] is not None
+    pins = pins and view['outputs'] == 'odroid'
+    compact = compact or pins  # the Pin column leaves no room for the bar
     columns = (['   Thr', 'Out', 'Rev', {'header': theme.pick('µs', 'us'), 'justify': 'right'}] if compact else
                ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
-    if view['outputs'] == 'odroid':
+    if pins:
         columns.append('Pin')
     table = theme.grid(*columns, padding=(0, 1))
     for index, row in enumerate(thruster_rows(view)):
@@ -309,7 +314,7 @@ def thrusters_panel(view, compact=False):
                  Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style='bold' if active else MUTED)]
         if not compact:
             cells.append(effort_bar(row['pulse'], testing))
-        if view['outputs'] == 'odroid':
+        if pins:
             cells.append(Text(row['readback'], style=MUTED))
         table.add_row(*cells)
     subtitle = ('testing' if testing else view['outputs']) + SEPARATOR + (
@@ -544,7 +549,7 @@ def render(snapshot, view, width=120, height=34):
                                  Layout(activity_panel(snapshot, view, lower)))
     else:
         half = max(4, (body_height - TOP_ROW) // 2)
-        main.split_column(Layout(thrusters_panel(view, True), size=TOP_ROW),
+        main.split_column(Layout(thrusters_panel(view, True, pins=False), size=TOP_ROW),
                           Layout(procedures_panel(view, half), size=half),
                           Layout(activity_panel(snapshot, view, body_height - TOP_ROW - half)))
     if view.get('modal'):
