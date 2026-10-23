@@ -1324,7 +1324,7 @@ def test_error_out_of_a_procedure_leaves_one_aborted_run(tmp_path):
 def test_o_on_status_opens_the_odometry_popup_without_running_perception(tmp_path):
     app, _ = make_app(tmp_path)
     shown = []
-    app.show = lambda title, rows=None, **kw: shown.append((title, rows))
+    app.choose = lambda title, options, shortcuts=None, rows=None, **kw: shown.append((title, rows)) or 'Close'
     app.ran = []
     app.run_procedure = app.ran.append
     app.focus = 'status'
@@ -1695,6 +1695,6 @@ def test_unbound_action_is_a_noop_and_odometry_opens_through_the_table(tmp_path)
     app, _ = make_app(tmp_path)
     assert app.open('no_such_action') is False
     shown = []
-    app.show = lambda title, message=None, rows=None, width=60: shown.append(title)
+    app.choose = lambda title, *args, **kw: shown.append(title) or 'Close'
     assert app.open('odometry') is True
     assert shown == ['Odometry']

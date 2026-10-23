@@ -197,8 +197,9 @@ class App:
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None,
-                 review=None, network=None, recorder=None):
+                 review=None, network=None, recorder=None, ekf=None):
         self.args = args
+        self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
         self.foreign_seen, self.guests_seen = {}, set()
@@ -1035,7 +1036,25 @@ class App:
         sources = [(row['name'], row['state'].lower(), row['value'])
                    for row in status_rows(self.snapshot(), self.profile.sensors)
                    if row.get('source') == 'sensor']
-        self.show('Odometry', rows=odometry.rows(params, sources), width=76)
+        try:
+            answer = self.choose('Odometry', ['Restart EKFs', 'Close'], {'e': 0}, selected=1,
+                                 rows=odometry.rows(params, sources), width=76)
+        except Cancelled:
+            return
+        if answer == 'Restart EKFs':
+            self.restart_ekf()
+
+    def restart_ekf(self):
+        """Restart the EKF child (popup.odometry e); refused with the reason while the boat is busy.
+
+        The EKF and navsat rows share one keeper child, so either row restarts both (HR9).
+        """
+        if self.ekf is None:
+            self.notice = 'EKF restart unavailable in this session'
+            return
+        result = self.ekf.restart()
+        self.notice = ('EKFs restarted' if result['restarted']
+                       else 'EKF restart refused: ' + '; '.join(result['blocked']))
 
     def correction_state(self):
         """What the Correction tab draws besides the config: the column and the state.json fits."""

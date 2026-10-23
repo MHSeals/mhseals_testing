@@ -30,3 +30,28 @@ def test_popup_render():
     console = Console(width=width, file=io.StringIO(), record=True)
     console.print(panel)
     assert '/odom/mavros' in console.export_text()
+
+
+def test_e_restarts_the_ekfs_once_and_journals_it(tmp_path):
+    from test_app import make_app
+    from test_ekf_restart import make
+    log = []
+    ekf, events = make(tmp_path, log, carry=False)
+    app, _ = make_app(tmp_path)
+    app.ekf = ekf
+    app.restart_ekf()
+    assert [entry[:2] for entry in log if entry[0] in ('stop', 'start')] == [('stop', 'ekf'), ('start', 'ekf')]
+    assert [name for name, _ in events] == ['ekf_restart', 'map_redatumed']
+    assert app.notice == 'EKFs restarted'
+
+
+def test_restart_is_refused_with_the_reason_while_a_goal_is_active(tmp_path):
+    from test_app import make_app
+    from test_ekf_restart import make
+    log = []
+    ekf, events = make(tmp_path, log, goal=True)
+    app, _ = make_app(tmp_path)
+    app.ekf = ekf
+    app.restart_ekf()
+    assert log == [] and events == []
+    assert app.notice == 'EKF restart refused: a navigation goal is active'
