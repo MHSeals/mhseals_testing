@@ -53,3 +53,31 @@ def test_scale_bar_snaps_to_one_two_five_within_the_cell_range():
     assert length == 5 and cells == 10
     length, cells = view.scale_bar(5, 40)  # 0.25 m per cell
     assert length in (1, 2) and 4 <= cells <= 10
+
+
+def test_fit_with_nothing_usable_is_the_origin_at_the_minimum_scale():
+    assert view.fit([], 80, 40) == ((0.0, 0.0), view.MIN_HALF)
+    assert view.fit([(math.nan, 1)], 80, 40) == ((0.0, 0.0), view.MIN_HALF)
+
+
+def test_fit_ignores_non_finite_points_wherever_they_sit():
+    clean = view.fit([(0, 0), (10, 10)], 80, 40)
+    assert view.fit([(math.nan, 0), (0, 0), (10, 10)], 80, 40) == clean
+    assert view.fit([(0, 0), (math.inf, 3), (10, 10), (0, -math.inf)], 80, 40) == clean
+
+
+def test_fit_and_scale_bar_survive_a_zero_size_canvas():
+    assert view.fit([(0, 0), (10, 10)], 80, 0) == ((0.0, 0.0), view.MIN_HALF)
+    assert view.fit([(0, 0), (10, 10)], 0, 40) == ((0.0, 0.0), view.MIN_HALF)
+    assert view.scale_bar(20, 0) == (0.01, 1)
+
+
+def test_scale_bar_of_a_non_finite_half_width_is_the_smallest_bar():
+    assert view.scale_bar(math.nan, 80) == (0.01, 1)
+    assert view.scale_bar(math.inf, 80) == (0.01, 1)
+
+
+def test_scale_bar_stays_in_the_cell_range_for_a_huge_view():
+    length, cells = view.scale_bar(1e5, 80)
+    assert length == 20000
+    assert view.SCALE_CELLS[0] <= cells <= view.SCALE_CELLS[1]

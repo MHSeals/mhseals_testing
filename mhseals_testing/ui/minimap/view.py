@@ -29,7 +29,14 @@ def zoom_step(zoom, direction, fit_half=MIN_HALF):
 
 
 def fit(points, dots_wide, dots_high):
-    """Centre and half-width that hold every point with a margin on both axes."""
+    """Centre and half-width that hold every point with a margin on both axes.
+
+    Non-finite points are ignored; with none left, or a canvas under one dot, the view is
+    the origin at MIN_HALF.
+    """
+    points = [p for p in points if math.isfinite(p[0]) and math.isfinite(p[1])]
+    if not points or dots_wide < 1 or dots_high < 1:
+        return (0.0, 0.0), MIN_HALF
     xs, ys = [p[0] for p in points], [p[1] for p in points]
     centre = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
     half = max((max(xs) - min(xs)) / 2, (max(ys) - min(ys)) / 2 * dots_wide / dots_high)
@@ -47,7 +54,9 @@ def rotate(point, centre, yaw=None):
 
 def scale_bar(half_width, cols):
     """The longest 1/2/5 length in metres whose bar fits the cell range, with its cell count."""
+    lengths = [m * 10 ** e for e in range(-2, 9) for m in NICE]
+    if not math.isfinite(half_width) or half_width <= 0 or cols < 1:
+        return lengths[0], 1  # degenerate canvas or view: the smallest bar, one cell
     per_cell = 2 * half_width / cols
-    lengths = [m * 10 ** e for e in range(-2, 4) for m in NICE]
     best = max((m for m in lengths if m / per_cell <= SCALE_CELLS[1]), default=lengths[0])
     return best, max(round(best / per_cell), 1)
