@@ -87,7 +87,7 @@ def _quality(crumb, mode, vmax):
                 return band, period
         return TRACK_FAR
     if mode == 'speed':
-        if not vmax:
+        if not vmax or not math.isfinite(vmax) or math.isnan(crumb.speed):
             return 'spd.0', 1
         band = SPEED_BANDS if crumb.speed > vmax else min(int(crumb.speed / vmax * SPEED_BANDS), SPEED_BANDS - 1)
         return 'spd.%d' % band, 1

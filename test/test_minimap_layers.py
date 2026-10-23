@@ -59,6 +59,14 @@ def test_speed_over_vmax_is_dashed_only_when_colourless():
     assert 'trail.speed.spd.5' in {c.fg for row in coloured.canvas.cells() for c in row}
 
 
+@pytest.mark.parametrize('speed, vmax', [(float('nan'), 1.0), (1.0, float('nan')), (float('inf'), float('inf'))])
+def test_speed_trail_survives_non_finite_speed_or_vmax(speed, vmax):
+    pts = [Crumb(i * 0.2, 0.0, speed=speed) for i in range(20)]
+    frame = _frame()
+    layers.draw_trail(frame, pts, 'speed', vmax=vmax)
+    assert _dots(frame.canvas) > 0
+
+
 def test_older_epochs_are_dim_and_never_joined_to_the_new_one():
     f = _frame()
     pts = [Crumb(-5, 0, epoch=0), Crumb(-4, 0, epoch=0), Crumb(4, 0, epoch=1), Crumb(5, 0, epoch=1)]
