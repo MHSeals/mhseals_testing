@@ -71,10 +71,12 @@ class MapRotation:
     BASELINE = 5.0   # metres of spread the pairs need before a fit is trusted
     SETTLE = 10.0    # seconds of /odom/global before samples count
     JUMP = 5.0       # metres; the home re-projection threshold
+    SPACING = 0.5    # metres of travel between kept pairs, so slow runs still fill the buffer
 
-    def __init__(self, settle=SETTLE, jump=JUMP):
+    def __init__(self, settle=SETTLE, jump=JUMP, spacing=SPACING):
         self.settle = settle
         self.jump = jump
+        self.spacing = spacing
         self._pairs = []
         self._live = None   # time of the first /odom/global sample since a reset
         self._last = {}     # last odom point per stream, for jump detection
@@ -98,6 +100,10 @@ class MapRotation:
             self._live = t
         if tuple(odom_gps) == (0.0, 0.0) or t - self._live < self.settle:
             return
+        if self._pairs:
+            last = self._pairs[-1][0]
+            if math.hypot(enu_xy[0] - last[0], enu_xy[1] - last[1]) < self.spacing:
+                return
         self._pairs.append((tuple(enu_xy), tuple(odom_gps)))
         del self._pairs[:-self.PAIRS]
 

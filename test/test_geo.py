@@ -76,7 +76,7 @@ def test_map_rotation_ignores_zero_start_samples():
 
 
 def test_map_rotation_waits_for_global_to_settle():
-    fit = _stream(2.0, seconds=12)
+    fit = _stream(2.0, seconds=12, spacing=0)
     assert len(fit._pairs) == 20  # 12 s of stream, the first 10 s dropped
 
 
@@ -86,3 +86,26 @@ def test_map_rotation_resets_on_map_jump():
     assert fit.fit() is not None
     fit.add(100.0, (50.0, 50.0), (60.0, 50.0), (0.0, 0.0))
     assert fit.fit() is None
+
+
+@pytest.mark.parametrize('stream', [0, 1, 2])
+@pytest.mark.parametrize('value', [math.nan, math.inf])
+def test_map_rotation_ignores_non_finite_samples_in_any_stream(stream, value):
+    fit = _stream(2.0)
+    before = fit.fit()
+    streams = [(1.0, 1.0), (2.0, 1.0), (3.0, 1.0)]
+    streams[stream] = (value, 1.0)
+    fit.add(50.0, *streams)
+    assert fit.fit() == before
+
+
+def test_map_rotation_keeps_fit_through_a_slow_hold():
+    from mhseals_testing.analysis.geo import MapRotation
+    fit = MapRotation(settle=0)
+    x = 0.0
+    for i in range(1, 2001):  # 0.2 m/s at 5 Hz, standing still from 100 s to 160 s
+        t = i / 5
+        x += 0.0 if 100 < t < 160 else 0.04
+        fit.add(t, (x, 0.0), (x + 1, 0.0), (x, 0.0))
+        if 60 < t < 160 and t > 70:
+            assert fit.fit() is not None, t
