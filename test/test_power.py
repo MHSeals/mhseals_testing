@@ -108,3 +108,10 @@ def test_release_after_load_is_not_a_swap():
     f = pw.update(p.from_mavros(msg(15.8, 0.2), 72))  # throttle released
     assert f['mah_used'] > 300
     assert f['sag_mV'] is not None and pw.baseline is not None
+
+
+def test_swaps_are_counted_and_survive_the_reset():
+    pw = p.Power({'cells': 4})
+    s = lambda t, v, a: p.from_mavros(SimpleNamespace(voltage=v, current=a, percentage=float('nan')), t)
+    assert pw.update(s(0, 15.0, 0.1))['swaps'] == 0
+    assert pw.update(s(5, 15.9, 0.1))['swaps'] == 1

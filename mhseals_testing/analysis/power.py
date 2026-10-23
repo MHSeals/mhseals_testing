@@ -84,6 +84,7 @@ class Power:
         self.cells_cfg = b.get('cells')
         cap = b.get('capacity_mah')
         self.capacity = None if cap in (None, DEFAULT_CAPACITY) else cap
+        self.swaps = 0                 # pack swaps seen; survives the reset they cause
         self._reset()
 
     def _reset(self):
@@ -103,6 +104,7 @@ class Power:
         # reference, so the first rest just sets it.
         if resting and self.rest_volt is not None and s['volt'] - self.rest_volt > SWAP_JUMP:
             self._reset()                                    # pack swap
+            self.swaps += 1
         if resting:
             self.rest_volt = s['volt']
         if self.t0 is None:
@@ -141,4 +143,4 @@ class Power:
                 else self.cells_cfg == self.detected,
                 'cell_min': cell_min, 'sag_mV': sag, 'mah_used': self.mah,
                 'pct': pct, 'pct_estimated': estimated, 'remaining_min': left,
-                'loaded': amp is not None and amp > 2.0, 'source': s['source']}
+                'loaded': amp is not None and amp > 2.0, 'swaps': self.swaps, 'source': s['source']}
