@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from mhseals_testing.ui.rtk_row import RtkView, rtk_row, survey_fraction
 
@@ -56,7 +57,7 @@ def style_of(view, text, width=42):
     """Style covering ``text`` in the Unicode row (they never straddle spans)."""
     row = rtk_row(view, width, False)
     at = row.plain.index(text)
-    return str(row.get_style_at_offset(__import__('rich.console').console.Console(), at))
+    return str(row.get_style_at_offset(Console(), at))
 
 
 def test_colours_follow_the_state():
@@ -72,3 +73,10 @@ def test_survey_never_shows_complete_before_valid():
     assert survey_fraction(200, 120, 1.0, 5.0, 2.0, valid=True) == 1.0
     assert survey_fraction(60, 120, 1.0, 5.0, 2.0, valid=True) == 0.5     # time-limited
     assert 0 < survey_fraction(200, 120, 5.0, 8.0, 2.0, valid=True) < 0.5  # accuracy-limited
+
+
+@pytest.mark.parametrize('ascii', [False, True], ids=['unicode', 'ascii'])
+def test_every_state_is_exactly_the_width_at_every_width(ascii):
+    for width in range(26, 61):
+        for number, view in enumerate(STATES, 1):
+            assert len(rtk_row(view, width, ascii).plain) == width, (number, width)

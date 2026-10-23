@@ -83,13 +83,14 @@ def _bar(fraction, cells, ascii):
     return text + Text('░' * (cells - full - bool(part)), style='dim')
 
 
-def _link(view, link, cells, ascii, narrow):
-    """The link slot, exactly ``cells`` wide."""
+def _link(view, link, cells, ascii):
+    """The link slot, exactly ``cells`` wide; labels shorten to fit the slot, not the row."""
+    short = cells < 7           # 'no base' is 7 cells
     if link == 'off':
-        return Text(('off' if narrow else 'no base').ljust(cells), style='dim')
+        return Text(('off' if short else 'no base').ljust(cells), style='dim')
     if link == 'identifying':
         frame = '|/-\\'[view.tick % 4] if ascii else SPINNER[view.tick % len(SPINNER)]
-        return Text((frame + ('' if narrow else ' base')).ljust(cells), style='dim')
+        return Text((frame + ('' if short else ' base')).ljust(cells), style='dim')
     if link == 'surveying':
         return _bar(view.survey, cells, ascii)
     if link == 'fresh':
@@ -156,7 +157,7 @@ def rtk_row(view, width, ascii=False):
     row = Text(' ' * GUTTER)
     row.append(plain if ascii else glyph, style=style)
     row.append(' RTK ')
-    row.append_text(_link(view, link, cells, ascii, narrow))
+    row.append_text(_link(view, link, cells, ascii))
     row.append(' ')
     row.append(rung_ascii if ascii else rung, style=fix_style)
     row.append(' ' + view.fix.ljust(WORD) + ' ', style=fix_style)
