@@ -36,5 +36,12 @@ Every JSON file carries a first `schema` field such as `mhseals.run/1`.
 
 `harness/session.py` creates `sessions/<YYYYMMDD_HHMMSS>_<host>_<profile>/` with
 `session.json`, `logs/` and `snapshots/`, and lists the flat sessions above
-read-only. `boat_test` is not switched to it yet; `INDEX.json` and the generated
-root `README.md` arrive later.
+read-only. `boat_test` is not switched to it yet.
+
+## Index
+
+`harness/index.py` rebuilds `sessions/<id>/summary.json`, the root `INDEX.json` and a generated
+root `README.md` (layout and schemas, for agents) from `session.json`, the bag metadata,
+`events.jsonl` and `runs/*.json`. There is no per-session `index.md`. Run
+`python -m mhseals_testing.harness.index [DIR]`; `ensure()` rebuilds only when the index is
+missing or older than a session file. Flags: `open`, `unfinalized`, `empty`, `bare`.
