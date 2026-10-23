@@ -35,3 +35,16 @@ def ours(events, pid, host=None):
     return [e for e in events
             if (e.get('pid') == pid and (host is None or e.get('host', host) == host))
             or e.get('guest')]
+
+
+def unique(events):
+    """One copy of each event, in ros_time order.
+
+    Transient-local replays the retained events into every new segment's recorder and into
+    other instances' recorders, stamped at receipt. Readers therefore merge segments through
+    this and place events by the payload ``ros_time``, never by the bag message stamp.
+    """
+    seen = {}
+    for e in events:
+        seen.setdefault((e.get('host'), e.get('pid'), e.get('ros_time'), e.get('phase')), e)
+    return sorted(seen.values(), key=lambda e: e.get('ros_time') or 0.0)
