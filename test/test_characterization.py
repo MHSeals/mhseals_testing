@@ -197,3 +197,14 @@ def test_implausible_decoupling_is_rejected():
     field = [1.191, .226, -.716, 1.429, -.824, -7.755, .19, -.297, -1.21]
     with pytest.raises(ValueError, match="sway"):
         check_wiring(field)
+
+
+def test_characterize_refuses_when_a_sign_split_decoupling_is_active():
+    from types import SimpleNamespace
+    from mhseals_testing.procedures.characterize import run, single_decoupling
+    split = dict(decoupling=[1, 0, 0, 0, 1, 0, 0, 0, 1],
+                 decoupling_negative=[1, 0, 0, .1, 1, 0, 0, 0, 1])
+    assert not single_decoupling(split) and single_decoupling(dict(split, decoupling_negative=split['decoupling']))
+    records = []
+    ctx = SimpleNamespace(services=dict(hardware_config=split), record=records.append)
+    assert run(ctx)['verdict'] == 'REFUSED' and records[0]['verdict'] == 'REFUSED'

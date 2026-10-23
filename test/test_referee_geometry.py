@@ -39,6 +39,12 @@ def test_contacts_name_each_touched_object_once():
     assert geometry.contacts(track, items) == ['red_buoy#0']
 
 
+def test_contacts_name_elements_without_label_or_template():
+    items = [dict(x=0.5, y=0), dict(x=0.5, y=0, label='', template='gate'), dict(x=0.5, y=0, label='')]
+    track = [(0, 0, 0, 0)]
+    assert geometry.contacts(track, items) == ['object#0', 'gate#1', 'object#2']
+
+
 def test_circled_sweeps_a_lap_and_ignores_far_samples():
     lap = [(i, 3 * math.cos(a), 3 * math.sin(a), 0) for i, a in
            enumerate(math.radians(d) for d in range(0, 361, 10))]

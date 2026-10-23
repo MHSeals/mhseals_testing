@@ -36,9 +36,11 @@ def run(ctx):
     settings = ctx.settings
     if not single_decoupling(ctx.services['hardware_config']):
         # A fit with one C beside a sign-split C is a config the controller refuses.
-        return ctx.record(dict(procedure='characterization', verdict='REFUSED',
-                               reason='decoupling_negative differs from decoupling; '
-                                      'clear it to characterize with a single C'))
+        refusal = dict(procedure='characterization', verdict='REFUSED',
+                       reason='decoupling_negative differs from decoupling; '
+                              'clear it to characterize with a single C')
+        ctx.record(refusal)
+        return refusal
     commands = schedule(settings.amplitude)
     ctx.prompt(f'Characterization holds {len(commands)} commands for '
                f'{settings.command:g}s each, in every direction. Clear all sides and '

@@ -97,3 +97,23 @@ def test_malformed_class_entries_are_rejected(changes):
 
 def test_well_formed_entry_is_accepted():
     assert _table().symbol('a').ascii == 'a'
+
+
+GOOD = {'glyph': 'a', 'ascii': 'A', 'colour': 'red', 'radius': 1, 'name': 'a'}
+
+
+@pytest.mark.parametrize('text, needle', [
+    ('', 'expected a mapping'),
+    ('classes: {x: {glyph: a}}\n', 'missing unknown'),
+    ('classes: {x: {glyph: a}}\nunknown: {glyph: u}\n', "class 'x' is missing ascii"),
+    ('classes: {x: {glyph: a, ascii: A, colour: c, name: n}}\nunknown: {}\n', 'missing unknown'),
+    ('classes: {x: {glyph: a, ascii: A, colour: c, name: n}}\n'
+     'unknown: {glyph: u, ascii: U, colour: c, radius: 1, name: n}\n', "'x' is missing radius"),
+    ('classes:\n  x: {glyph: a}\n  x: {glyph: b}\nunknown: {glyph: u}\n', "duplicate key 'x'"),
+])
+def test_malformed_file_raises_one_value_error_naming_path(tmp_path, text, needle):
+    path = tmp_path / 'minimap.yaml'
+    path.write_text(text)
+    with pytest.raises(ValueError) as error:
+        load_classes(path)
+    assert str(path) in str(error.value) and needle in str(error.value)

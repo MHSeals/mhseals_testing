@@ -12,15 +12,10 @@ measured length and beam about the track point.
 import math
 
 from mhseals_testing.referee.geometry import (  # noqa: F401  (re-exported for callers)
-    HULL, circled, contacts, crossings, elements, gates, held_in_bay, hull_clearance, points)
+    HULL, circled, contacts, crossings, elements, gates, held_in_bay, hull_clearance, points, reported)
 
 GATE_WIDTH = {'nav_channel': 8.0, 'return_home': 4.0}  # widest pair that is one gate
 SMALL_GATE = 4.0
-
-
-def reported(events, name):
-    """The count the tree reported as ``name``, or None."""
-    return next((e.get('count') for e in reversed(events) if e.get('event') == name), None)
 
 
 def judge(task, truth, track, events=(), banner=None, dock_time=5.0):

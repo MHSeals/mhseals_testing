@@ -74,5 +74,15 @@ class ClassTable:
 
 
 def load_classes(path=None):
-    data = yaml.safe_load(Path(path or _default_path()).read_text())
-    return ClassTable(data['classes'], data['unknown'])
+    """Load the class table; any malformed content raises one ValueError naming the file."""
+    path = Path(path or _default_path())
+    try:
+        data = yaml.load(path.read_text(), Loader=_UniqueLoader)
+        if not isinstance(data, dict):
+            raise ValueError('expected a mapping with classes and unknown')
+        for key in ('classes', 'unknown'):
+            if not data.get(key):
+                raise ValueError(f'missing {key}')
+        return ClassTable(data['classes'], data['unknown'])
+    except (ValueError, yaml.YAMLError, AttributeError) as error:
+        raise ValueError(f'{path}: {error}') from error

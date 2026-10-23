@@ -998,4 +998,4 @@ def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path
         app.procedure_context = context
         app.dispatch('f')
     assert offered and all('save + decouple' not in options for options in offered)
-    assert 'decoupling' not in (tmp_path / 'hardware.yaml').read_text()
+    assert 'decoupling' not in yaml.safe_load((tmp_path / 'hardware.yaml').read_text())

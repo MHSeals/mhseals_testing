@@ -10,6 +10,11 @@ import math
 HULL = (1.063, 0.895)  # m, length and beam
 
 
+def reported(events, name):
+    """The count the tree reported as ``name``, or None."""
+    return next((e.get('count') for e in reversed(events) if e.get('event') == name), None)
+
+
 def elements(truth, task):
     return [e for e in truth['elements'] if e.get('task') == task]
 
@@ -73,7 +78,7 @@ def contacts(track, items):
     for index, item in enumerate(items):
         if any(hull_clearance(pose[1:], (item['x'], item['y']), item.get('radius', 0.2)) < 0
                for pose in track):
-            touched.append(f"{item['label'] or item['template']}#{index}")
+            touched.append(f"{item.get('label') or item.get('template') or 'object'}#{index}")
     return touched
 
 
