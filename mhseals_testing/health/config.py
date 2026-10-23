@@ -263,13 +263,23 @@ def _regex_fields(params):
     return [getattr(params, name) for name in ('pattern', 'match') if hasattr(params, name)]
 
 
-def lint(specs, procedures=(), unmatched=()):
+def lint(specs, procedures=(), unmatched=(), probes=None):
     """Problems in loaded specs as strings; empty when the files are sound.
 
-    ``procedures`` are the real procedure keys that ``gates`` may name;
-    ``unmatched`` is ``HealthConfig.unmatched`` (user entries naming no check).
+    ``procedures`` are the real procedure keys that ``gates`` may name (None
+    skips that rule); ``unmatched`` is ``HealthConfig.unmatched`` (user entries
+    naming no check); ``probes`` is ``HealthConfig.probes`` and, when given,
+    must set a positive `period` for every probe a check's kind needs, so
+    staleness has a clock to measure against.
     """
     problems, seen = [f'user file: {entry} matches no check' for entry in unmatched], set()
+    if probes is not None:
+        for name, settings in probes.items():
+            period = settings.get('period') if isinstance(settings, dict) else None
+            if not registry.fits(period, float) or period <= 0:
+                problems.append(f'probe {name}: needs a positive period in seconds')
+        for name in sorted({p for s in specs for p in registry.KINDS[s.kind].needs} - set(probes)):
+            problems.append(f'probe {name}: needed by a check but has no entry (and no period) in probes:')
     for spec in specs:
         add = lambda text, spec=spec: problems.append(f'{spec.id}: {text}')
         if not ID_PATTERN.fullmatch(spec.id):
@@ -285,7 +295,7 @@ def lint(specs, procedures=(), unmatched=()):
             if anchor not in ANCHORS and not re.fullmatch(r'sensor:\S+', anchor):
                 add(f'unknown anchor {anchor!r}')
         for key in spec.gates:
-            if key != 'motion' and key not in procedures:
+            if key != 'motion' and procedures is not None and key not in procedures:
                 add(f'gate {key!r} is not a procedure key')
         for pattern in _regex_fields(spec.params):
             try:

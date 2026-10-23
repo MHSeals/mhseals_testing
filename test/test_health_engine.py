@@ -148,3 +148,48 @@ def test_a_shown_warn_clears_only_after_continuous_better_results():
     assert step(engine, clock, 'warn', 4).status == 'warn'      # the clear timer restarted
     step(engine, clock, 'ok', 5)
     assert step(engine, clock, 'ok', 8).status == 'ok'
+
+
+def test_gate_blocks_on_fail_warns_on_warn_and_honours_bench_and_mutes():
+    engine, clock = make(severity='fail', gates=('motion', 'p'), title='Level')
+    assert engine.gate('p')[1] == ['health has not been evaluated yet']
+    step(engine, clock, 'fail', 0)
+    assert engine.gate('p') == (['Level: fail'], [])
+    assert engine.gate('p', bench=True)[0]          # named by key, so bench does not lift it
+    assert engine.gate('other')[0]                # motion applies to every key
+    assert engine.gate('other', bench=True) == ([], [])
+    engine.mute('c')
+    assert engine.gate('p') == ([], [])
+    engine.mute('c', False)
+    clock.now = 10
+    engine.tick({'level': Fact('warn')}, {'p': (10, None)})
+    clock.now = 13
+    engine.tick({'level': Fact('warn')}, {'p': (13, None)})
+    assert engine.gate('p')[1] and not engine.gate('p')[0]
+
+
+def test_motion_gate_is_lifted_by_the_bench_override():
+    engine, clock = make(severity='fail', gates=('motion',))
+    step(engine, clock, 'fail', 0)
+    assert engine.gate('x')[0] and engine.gate('x', bench=True) == ([], [])
+
+
+def test_a_muted_check_does_not_transition():
+    engine, clock = make(severity='fail')
+    engine.mute('c')
+    clock.now = 0
+    report = engine.tick({'level': Fact('fail')}, {'p': (0, None)})
+    assert report.transitions == () and report.muted == {'c'}
+
+
+def test_an_old_fact_is_ignored_even_when_its_probe_just_ran():
+    engine, clock = make(severity='fail')
+    clock.now = 10
+    old = {'level': Fact('fail', time=5.0)}          # 5 s old, limit is 3 periods of 1 s
+    engine.tick(old, {'p': (10, None)})
+    clock.now = 21                                   # unknown is shown after 10 s
+    report = engine.tick({'level': Fact('fail', time=5.0)}, {'p': (21, None)})
+    assert report.results['c'].status == 'unknown'
+    clock.now = 10
+    fresh = {'level': Fact('fail', time=9.0)}
+    assert Engine(engine.specs, {'p': 1.0}, clock).tick(fresh, {'p': (10, None)}).results['c'].status == 'fail'

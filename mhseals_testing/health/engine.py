@@ -29,6 +29,7 @@ class Transition:
 class HealthReport:
     results: dict            # check id -> Result carrying the shown (debounced) status
     transitions: tuple = ()
+    muted: frozenset = frozenset()    # ids shown dim: they never toast or gate
 
 
 class Engine:
@@ -38,6 +39,8 @@ class Engine:
         self.specs = [s for s in specs if s.enabled]
         self.periods = periods or {}             # probe -> seconds between samples
         self.clock = clock
+        self.muted = set()                       # session mutes; the TUI popup edits them
+        self.last = None                         # shown results of the latest tick; None before one
         self._shown = {}                         # id -> status currently shown
         self._pending = {}                       # id -> (candidate status, since)
 
@@ -62,7 +65,49 @@ class Engine:
                 transitions.append(Transition(spec.id, old, shown, result, now))
             self._shown[spec.id] = shown
             results[spec.id] = dataclasses.replace(result, status=shown)
-        return HealthReport(results, tuple(transitions))
+        self.last = results
+        transitions = [t for t in transitions if t.id not in self.muted]
+        return HealthReport(results, tuple(transitions), frozenset(self.muted))
+
+    def mute(self, check_id, muted=True):
+        """Silence (or restore) one check for the session: no toasts, no gating."""
+        (self.muted.add if muted else self.muted.discard)(check_id)
+
+    def gate(self, procedure_key, bench=False):
+        """(blocking reasons, warnings) from the last tick for starting ``procedure_key``.
+
+        A check gates a procedure when its `gates` names the key, or `motion`
+        (skipped under the bench override, which runs without sensors). fail
+        blocks; warn and unknown (nothing known, e.g. no session) only warn.
+        Muted checks never gate.
+        """
+        if self.last is None:
+            return [], ['health has not been evaluated yet']
+        blocking, warnings = [], []
+        for spec in self.specs:
+            wanted = procedure_key in spec.gates or ('motion' in spec.gates and not bench)
+            result = self.last.get(spec.id)
+            if not wanted or result is None or spec.id in self.muted:
+                continue
+            reason = f'{spec.title}: {result.detail or result.value or result.status}'
+            if result.status == 'fail':
+                blocking.append(reason)
+            elif result.status in ('warn', 'unknown'):
+                warnings.append(reason)
+        return blocking, warnings
+
+    def _fresh(self, kind, facts, now):
+        """Facts without those whose own collection time is older than the kind's probes allow.
+
+        A fact with time 0 carries no timestamp and is trusted; the probe-level
+        check in _evaluate still covers it.
+        """
+        periods = [self.periods[p] for p in kind.needs if self.periods.get(p)]
+        if not periods:
+            return facts
+        limit = STALE_PERIODS * max(periods)
+        return {name: fact for name, fact in facts.items()
+                if not fact.time or now - fact.time <= limit}
 
     def _evaluate(self, spec, facts, probes, session, now):
         """The undebounced Result, capped at the check's severity; None when skipped."""
@@ -80,7 +125,7 @@ class Engine:
             if period and now - taken > STALE_PERIODS * period:
                 return self._missing(spec, f'no {probe} sample for {now - taken:.1f} s')
         try:
-            result = kind.evaluate(spec.params, facts)
+            result = kind.evaluate(spec.params, self._fresh(kind, facts, now))
             if result.status not in STATUSES:
                 raise ValueError(f'unknown status {result.status!r}')
         except Exception as error:               # a buggy kind or odd fact must not stop the tick

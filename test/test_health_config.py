@@ -209,3 +209,12 @@ checks:
 def test_loader_rejects_non_finite_and_bad_entries(tmp_path, line):
     with pytest.raises(ConfigError):
         specs(tmp_path, f'checks: [{{id: a, kind: rate, topic: /t, {line}}}]')
+
+
+def test_lint_requires_a_period_for_every_probe_a_kind_needs(tmp_path):
+    registry.kind('needy', RateParams, needs=['graph'])(lambda p, f: Result('ok'))
+    loaded = specs(tmp_path, "checks: [{id: a, kind: needy, topic: /t}]").specs
+    assert 'probe graph: needed by a check' in '\n'.join(lint(loaded, probes={}))
+    assert 'positive period' in '\n'.join(lint(loaded, probes={'graph': {}}))
+    assert lint(loaded, probes={'graph': {'period': 1}}) == []
+    assert lint(loaded) == []                      # probes not supplied: rule off
