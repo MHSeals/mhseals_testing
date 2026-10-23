@@ -10,7 +10,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.dashboard import MARKS, PANELS, render, short, status_rows
+from mhseals_testing.ui.dashboard import MARKS, PANELS, health_strip, render, short, status_rows
 
 
 def view(profile, **overrides):
@@ -223,6 +223,18 @@ def test_narrow_header_keeps_its_separator_strip_and_thruster_headers(width, hei
     assert 'rec' in lines[1]  # the health strip survives, shortened with +N if it must
     assert '…' not in ''.join(line for line in lines if 'Thr' in line)
     assert all(len(line) <= width for line in lines)
+
+
+def test_strip_items_cut_below_full_width_are_counted_in_plus_n():
+    profile = load_profile('crane_full_stack')
+    m = monitor()
+    m.advise('network', 'WARN', 'link 40%')  # the sixth item: rec, sensors, tf, compute, network, bench
+    snapshot = m.snapshot(profile.required_tf)
+    full = health_strip(snapshot, view(profile, bench_override=True)).plain
+    assert 'bench override' in full and '+' not in full
+    strip = health_strip(snapshot, view(profile, bench_override=True), 80).plain
+    assert 'bench override' not in strip
+    assert re.search(r'\+1\b', strip)
 
 
 @pytest.mark.parametrize('width', [120, 100, 80, 60])

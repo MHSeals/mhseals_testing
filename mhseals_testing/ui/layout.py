@@ -58,9 +58,12 @@ def health_strip(snapshot, view, width=None):
             parts.append(strip_item(row['state'], f"{row['name']} {row['value']}".strip()))
     if view['bench_override']:
         parts.append(theme.labelled('WARN', 'bench override'))
-    if width is not None and width < STRIP_FULL:
-        parts = parts[:STRIP_SHORT]  # only the first five items show below 100 columns
-    return Text(SEPARATOR).join(parts) if width is None else fit_strip(parts, width)
+    if width is None:
+        return Text(SEPARATOR).join(parts)
+    cut = 0
+    if width < STRIP_FULL:  # only the first five items show below 100 columns; the rest count in +N
+        parts, cut = parts[:STRIP_SHORT], max(len(parts) - STRIP_SHORT, 0)
+    return fit_strip(parts, width, cut)
 
 
 def health_total(health):
@@ -79,11 +82,12 @@ def health_total(health):
     return total
 
 
-def fit_strip(chips, width):
-    """Join the chips, replacing those that do not fit with a ``+N`` chip."""
+def fit_strip(chips, width, extra=0):
+    """Join the chips, replacing those that do not fit (and ``extra`` already cut) with a ``+N`` chip."""
     gap = Text(SEPARATOR)
     for shown in range(len(chips), 0, -1):
-        parts = chips[:shown] + ([Text(f'+{len(chips) - shown}', style=MUTED)] if shown < len(chips) else [])
+        hidden = len(chips) - shown + extra
+        parts = chips[:shown] + ([Text(f'+{hidden}', style=MUTED)] if hidden else [])
         line = gap.join(parts)
         if len(line) + 1 <= width:
             return line
