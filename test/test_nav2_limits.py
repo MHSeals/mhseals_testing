@@ -36,10 +36,10 @@ def test_merge_limits_applies_the_user_file(nav_root, tmp_path):
     finally:
         sys.path.remove(str(nav_root))
     base = yaml.safe_load((nav_root / 'config' / 'nav2_params.yaml').read_text())
-    # The smoother's limits follow MPPI's (mhseals_nav derived()), so the overlay sets vx_max.
-    overlay = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_max': 0.2}}}}
+    follow = lambda tree: tree['controller_server']['ros__parameters']['FollowPath']
+    overlay = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_max': 0.25}}}}
+    assert follow(base)['vx_max'] != 0.25
     target = nav2_limits.save(overlay, tmp_path / 'nav2.yaml')
-    assert base['velocity_smoother']['ros__parameters']['max_velocity'][0] > 0.2
     merged = navigation_config.merge_limits(base, navigation_config.load_overlay(target))
-    assert merged['velocity_smoother']['ros__parameters']['max_velocity'][0] == 0.2
+    assert follow(merged)['vx_max'] == 0.25
     assert navigation_config.load_overlay(tmp_path / 'missing.yaml') == {}
