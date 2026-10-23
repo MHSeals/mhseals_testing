@@ -77,10 +77,15 @@ def check(symbols):
 class ClassTable:
     """The class table with an `unknown` fallback."""
 
-    def __init__(self, classes, unknown):
+    def __init__(self, classes, unknown, tokens=None):
+        """`tokens`, when given, is the set of theme.yaml token names every `colour` must be in."""
         self.classes = {label: _symbol(label, entry) for label, entry in classes.items()}
         self.unknown = _symbol('unknown', unknown)
         check([*self.classes.values(), self.unknown])
+        if tokens is not None:
+            for symbol in (*self.classes.values(), self.unknown):
+                if symbol.colour not in tokens:
+                    raise ValueError(f'{symbol.label}: colour {symbol.colour!r} is not a theme.yaml token')
 
     def symbol(self, label):
         return self.classes.get(label, self.unknown)
@@ -93,8 +98,11 @@ class ClassTable:
         return iter(self.classes.values())
 
 
-def load_classes(path=None):
-    """Load the class table; any malformed content raises one ValueError naming the file."""
+def load_classes(path=None, tokens=None):
+    """Load the class table; any malformed content raises one ValueError naming the file.
+
+    Colours are checked against the theme.yaml tokens (`tokens` overrides, for tests).
+    """
     path = Path(path or _default_path())
     try:
         data = yaml.load(path.read_text(), Loader=_UniqueLoader)
@@ -103,6 +111,9 @@ def load_classes(path=None):
         for key in ('classes', 'unknown'):
             if not data.get(key):
                 raise ValueError(f'missing {key}')
-        return ClassTable(data['classes'], data['unknown'])
+        if tokens is None:
+            from mhseals_testing.ui.palette import load_theme
+            tokens = load_theme(overlay=False)[0].tokens
+        return ClassTable(data['classes'], data['unknown'], tokens)
     except (ValueError, yaml.YAMLError, AttributeError) as error:
         raise ValueError(f'{path}: {error}') from error

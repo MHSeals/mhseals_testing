@@ -5,18 +5,20 @@ look. NO_COLOR is honoured by Rich, so each state has its own glyph (✓ ! × �
 never relies on color alone; TERM=dumb or MHS_ASCII swaps glyphs for ASCII.
 """
 
-import os
-
 from rich import box
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-ASCII = os.environ.get('TERM') == 'dumb' or os.environ.get('MHS_ASCII', '').lower() in ('1', 'true', 'yes', 'on')
+from mhseals_testing.ui import palette
 
-ACCENT = 'cyan'
-MUTED = 'dim'
-GOOD, WARN, BAD, BUSY = 'green', 'yellow', 'red', 'cyan'
+ASCII = palette.ascii_mode()
+
+# Status styles are palette tokens (ui.md U2): ok, warn, fail, busy. The user overlay
+# warning, if any, is kept for the UI to toast.
+PALETTE, OVERLAY_WARNING = palette.load_theme()
+ACCENT, MUTED = PALETTE.style('accent'), PALETTE.style('muted')
+GOOD, WARN, BAD, BUSY = (PALETTE.style(token) for token in ('ok', 'warn', 'fail', 'busy'))
 
 
 def pick(glyph, ascii_glyph):
