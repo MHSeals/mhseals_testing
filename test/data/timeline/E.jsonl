@@ -1,0 +1,53 @@
+{"t_ns": 50400000000000, "phase": "session_start"}
+{"t_ns": 50520000000000, "phase": "armed"}
+{"t_ns": 50700000000000, "phase": "magcal_start"}
+{"t_ns": 50940000000000, "phase": "magcal_stop"}
+{"t_ns": 50960000000000, "phase": "characterize_start"}
+{"t_ns": 51380000000000, "phase": "characterize_stop"}
+{"t_ns": 51400000000000, "phase": "characterize_start"}
+{"t_ns": 51600000000000, "phase": "marker", "id": 1, "note": "chop"}
+{"t_ns": 51820000000000, "phase": "characterize_stop"}
+{"t_ns": 51830000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0151"}
+{"t_ns": 51840000000000, "phase": "square_start"}
+{"t_ns": 52080000000000, "phase": "square_stop"}
+{"t_ns": 52100000000000, "phase": "characterize_start"}
+{"t_ns": 52200000000000, "phase": "health", "check": "compass.innovation", "level": "warn"}
+{"t_ns": 52520000000000, "phase": "characterize_stop", "outcome": "aborted", "by": "operator"}
+{"t_ns": 52540000000000, "phase": "station_start"}
+{"t_ns": 52560000000000, "phase": "health", "check": "compass.innovation", "level": "ok"}
+{"t_ns": 52780000000000, "phase": "station_stop"}
+{"t_ns": 52800000000000, "phase": "characterize_start"}
+{"t_ns": 53220000000000, "phase": "characterize_stop"}
+{"t_ns": 53240000000000, "phase": "characterize_start"}
+{"t_ns": 53660000000000, "phase": "characterize_stop"}
+{"t_ns": 53680000000000, "phase": "square_start"}
+{"t_ns": 53920000000000, "phase": "square_stop", "outcome": "aborted", "by": "fault"}
+{"t_ns": 53940000000000, "phase": "station_start"}
+{"t_ns": 54000000000000, "phase": "disarmed", "reason": "operator"}
+{"t_ns": 54060000000000, "phase": "rec_stop"}
+{"t_ns": 54180000000000, "phase": "station_stop"}
+{"t_ns": 54190000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0151"}
+{"t_ns": 54200000000000, "phase": "characterize_start"}
+{"t_ns": 54620000000000, "phase": "characterize_stop"}
+{"t_ns": 56820000000000, "phase": "rec_start"}
+{"t_ns": 56880000000000, "phase": "armed"}
+{"t_ns": 57000000000000, "phase": "characterize_start"}
+{"t_ns": 57360000000000, "phase": "characterize_stop"}
+{"t_ns": 57450000000000, "phase": "square_start"}
+{"t_ns": 57810000000000, "phase": "square_stop"}
+{"t_ns": 57900000000000, "phase": "station_start"}
+{"t_ns": 58200000000000, "phase": "health", "check": "fcu.link", "level": "fail"}
+{"t_ns": 58260000000000, "phase": "station_stop"}
+{"t_ns": 58320000000000, "phase": "health", "check": "fcu.link", "level": "ok"}
+{"t_ns": 58350000000000, "phase": "characterize_start"}
+{"t_ns": 58710000000000, "phase": "characterize_stop", "outcome": "failed", "by": "fault"}
+{"t_ns": 58800000000000, "phase": "station_start"}
+{"t_ns": 58800000000000, "phase": "marker", "id": 4, "note": "weed"}
+{"t_ns": 59160000000000, "phase": "station_stop"}
+{"t_ns": 59250000000000, "phase": "manual_start"}
+{"t_ns": 59610000000000, "phase": "manual_stop"}
+{"t_ns": 60000000000000, "phase": "disarmed", "reason": "operator"}
+{"t_ns": 61440000000000, "phase": "armed"}
+{"t_ns": 61500000000000, "phase": "characterize_start"}
+{"t_ns": 61560000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0160"}
+{"t_ns": 61920000000000, "phase": "tick"}

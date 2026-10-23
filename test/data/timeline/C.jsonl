@@ -1,0 +1,15 @@
+{"t_ns": 54000000000000, "phase": "session_start"}
+{"t_ns": 54030000000000, "phase": "armed"}
+{"t_ns": 54120000000000, "phase": "guest_attach", "label": "guest boat_trial 5120"}
+{"t_ns": 54180000000000, "phase": "square_start"}
+{"t_ns": 54600000000000, "phase": "square_stop"}
+{"t_ns": 54720000000000, "phase": "characterize_start"}
+{"t_ns": 54900000000000, "phase": "health", "check": "cmd.owner", "level": "warn"}
+{"t_ns": 54990000000000, "phase": "health", "check": "cmd.owner", "level": "ok"}
+{"t_ns": 55260000000000, "phase": "characterize_stop", "outcome": "aborted: operator input", "by": "operator"}
+{"t_ns": 55260000000000, "phase": "hold_set", "by": "operator"}
+{"t_ns": 55265000000000, "phase": "manual_start"}
+{"t_ns": 55320000000000, "phase": "marker", "id": 1, "note": "kayak crossing"}
+{"t_ns": 55500000000000, "phase": "manual_stop"}
+{"t_ns": 55680000000000, "phase": "manual_start"}
+{"t_ns": 55900000000000, "phase": "tick"}

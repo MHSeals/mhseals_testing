@@ -1,0 +1,30 @@
+{"t_ns": 50400000000000, "phase": "session_start"}
+{"t_ns": 50410000000000, "phase": "armed"}
+{"t_ns": 50460000000000, "phase": "thruster_set_start"}
+{"t_ns": 50480000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0146 FR pin"}
+{"t_ns": 50520000000000, "phase": "thruster_set_stop"}
+{"t_ns": 50610000000000, "phase": "thruster_set_start"}
+{"t_ns": 50630000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0146 FR pin"}
+{"t_ns": 50636000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0147 FR pin"}
+{"t_ns": 50642000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0148 FR pin"}
+{"t_ns": 50648000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0149 FR pin"}
+{"t_ns": 50654000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0150 FR pin"}
+{"t_ns": 50670000000000, "phase": "thruster_set_stop"}
+{"t_ns": 50760000000000, "phase": "thruster_set_start"}
+{"t_ns": 50780000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0146 FR pin"}
+{"t_ns": 50786000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0147 FR pin"}
+{"t_ns": 50792000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0148 FR pin"}
+{"t_ns": 50798000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0149 FR pin"}
+{"t_ns": 50804000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0150 FR pin"}
+{"t_ns": 50810000000000, "phase": "config_changed", "applied": "rolled_back", "summary": "c0151 FR pin"}
+{"t_ns": 50820000000000, "phase": "thruster_set_stop", "outcome": "failed: readback", "by": "fault"}
+{"t_ns": 50910000000000, "phase": "thruster_set_start"}
+{"t_ns": 50930000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0146 FR pin"}
+{"t_ns": 50970000000000, "phase": "thruster_set_stop"}
+{"t_ns": 51060000000000, "phase": "thruster_set_start"}
+{"t_ns": 51080000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0146 FR pin"}
+{"t_ns": 51120000000000, "phase": "thruster_set_stop"}
+{"t_ns": 51210000000000, "phase": "thruster_set_start"}
+{"t_ns": 51230000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0146 FR pin"}
+{"t_ns": 51270000000000, "phase": "thruster_set_stop"}
+{"t_ns": 51480000000000, "phase": "tick"}

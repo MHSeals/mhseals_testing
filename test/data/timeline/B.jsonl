@@ -1,0 +1,19 @@
+{"t_ns": 50400000000000, "phase": "session_start"}
+{"t_ns": 50405000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0148 at start"}
+{"t_ns": 50580000000000, "phase": "armed"}
+{"t_ns": 50610000000000, "phase": "magcal_start"}
+{"t_ns": 50850000000000, "phase": "magcal_stop"}
+{"t_ns": 50880000000000, "phase": "config_changed", "applied": "confirmed", "summary": "c0150 magcal offsets"}
+{"t_ns": 50940000000000, "phase": "characterize_start"}
+{"t_ns": 51060000000000, "phase": "result", "procedure": "characterize", "verdict": "TRUST 94", "window": [50940000000000, 51060000000000]}
+{"t_ns": 51180000000000, "phase": "result", "procedure": "characterize", "verdict": "TRUST 94", "window": [51060000000000, 51180000000000]}
+{"t_ns": 51300000000000, "phase": "result", "procedure": "characterize", "verdict": "TRUST 94", "window": [51180000000000, 51300000000000]}
+{"t_ns": 51300000000000, "phase": "health", "check": "compass.innovation", "level": "warn"}
+{"t_ns": 51360000000000, "phase": "marker", "id": 2, "note": "wake from ferry"}
+{"t_ns": 51400000000000, "phase": "characterize_stop", "outcome": "aborted: Space", "by": "operator", "cause": "space"}
+{"t_ns": 51400000000000, "phase": "hold_set", "by": "operator"}
+{"t_ns": 51410000000000, "phase": "health", "check": "compass.innovation", "level": "ok"}
+{"t_ns": 51450000000000, "phase": "hold_release"}
+{"t_ns": 51480000000000, "phase": "characterize_start"}
+{"t_ns": 51600000000000, "phase": "result", "procedure": "characterize", "verdict": "TRUST 96", "window": [51480000000000, 51600000000000]}
+{"t_ns": 51840000000000, "phase": "tick"}
