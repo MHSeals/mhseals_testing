@@ -69,7 +69,7 @@ class Engine:
         if any(session.get(k) != v for k, v in spec.when.items()):
             return Result('ok')
         kind = KINDS[spec.kind]
-        for probe in kind.needs:
+        for probe in kind.needs + ((spec.params.probe,) if getattr(spec.params, 'probe', '') else ()):
             sample = probes.get(probe)
             if sample is None:
                 return self._missing(spec, f'no {probe} sample')

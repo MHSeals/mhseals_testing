@@ -44,4 +44,5 @@ class CheckSpec:
     message: str = ''
     hint: str = ''
     profiles: tuple = ()         # empty: every profile
+    advisory: str = ''           # dashboard System row this check feeds (checks sharing a name share a row)
     enabled: bool = True

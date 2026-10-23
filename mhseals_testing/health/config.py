@@ -20,8 +20,8 @@ USER_FILE = Path.home() / '.config' / 'mhseals' / 'health.yaml'
 ANCHORS = ('rose', 'thrusters', 'header.deploy', 'odometry')    # plus sensor:<name>
 SPEC_KEYS = {f.name for f in dataclasses.fields(CheckSpec)} - {'params'}
 SPEC_TYPES = {'enabled': bool, 'raise_after': float, 'clear_after': float,    # ints pass as floats
-             
-              'title': str, 'group': str, 'message': str, 'hint': str}
+              'title': str, 'group': str, 'message': str, 'hint': str,
+              'advisory': str}
 RESULT_FIELDS = ('value', 'detail', 'label', 'status')           # known to message templates
 ID_PATTERN = re.compile(r'[a-z0-9_]+(\.[a-z0-9_]+)*')
 FIELD = re.compile(r'\{(\w+)\}')
