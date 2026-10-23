@@ -8,11 +8,12 @@ from mhseals_testing.ui import theme
 UPDOWN = theme.pick('↑↓', 'Up/Down')
 
 
-def popup(app, modal, handle):
+def popup(app, modal, handle, refresh=None):
     """Show ``modal`` and feed it keys until ``handle(key)`` returns a value.
 
     Background work keeps ticking while the popup waits, so test pulses keep
-    flowing and the dashboard behind it stays live.
+    flowing and the dashboard behind it stays live. ``refresh``, if given, is
+    called after each tick to rebuild the body.
     """
     app.modal = modal
     try:
@@ -20,6 +21,8 @@ def popup(app, modal, handle):
             app.refresh()
             key = app.keys.read(timeout=0.1)
             app.tick()
+            if refresh:
+                refresh()
             if key is None:
                 continue
             result = handle(key)

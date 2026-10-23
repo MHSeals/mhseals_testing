@@ -102,9 +102,12 @@ def class_rows(facts, source, width=CLASS_ROWS):
         rows.append((name, f'{d["rate"]:.1f}/s {theme.MIDDOT} {d.get("presence", 0):.0%} '
                            f'{theme.MIDDOT} p50 {d.get("p50", 0):.2f} {theme.MIDDOT} '
                            f'{"-" if age is None else f"{age:.1f}s"}  {spark(d.get("hist", []), width=10)}'))
-    quiet = [n for n in fact.data if n not in dict(seen[:width])]
+    more = seen[width:]
+    if more:
+        rows.append(('', f'+{len(more)} more'))
+    quiet = sorted(n for n, d in fact.data.items() if d.get('rate', 0) <= 0)
     if quiet:
-        rows.append(('', f'{len(quiet)} not seen: {", ".join(sorted(quiet)[:3])}'
+        rows.append(('', f'{len(quiet)} not seen: {", ".join(quiet[:3])}'
                          f'{ELLIPSIS if len(quiet) > 3 else ""}'))
     return rows
 

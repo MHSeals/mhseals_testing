@@ -898,10 +898,13 @@ class App:
         """V: the perception view of ``self.facts`` (filled by the perception probe)."""
         modal = perception.modal(self.facts)
 
+        def refresh():  # the probe fills facts while the popup is open; scroll is kept
+            modal['rows'] = perception.modal(self.facts)['rows']
+
         def handle(key):
             if not self.scroll(modal, fold(key), ('k', 'j')) and fold(key) in ('escape', 'q', 'v'):
                 return True
-        self.popup(modal, handle)
+        self.popup(modal, handle, refresh)
 
     def on_activity(self, key):
         if key == 'v':
@@ -1041,8 +1044,8 @@ class App:
 
     # --- popups (see ui/popups) ------------------------------------------------------
 
-    def popup(self, modal, handle):
-        return popups.popup(self, modal, handle)
+    def popup(self, modal, handle, refresh=None):
+        return popups.popup(self, modal, handle, refresh)
 
     scroll = staticmethod(popups.scroll)
 
