@@ -38,11 +38,12 @@ class Rig:
 def test_claim_is_acked_in_the_next_record_and_second_claim_is_busy():
     rig = Rig(tui_owner=True)
     ack = rig.ask(reason='sweep')
-    assert ack['ok'] and ack['claim']['id'] == 'c1'
+    assert ack['ok'] and ack['claim']['id'] == 'c1' and ack['id'] == 'c1'
     latest = rig.sent[-1]
     assert latest['ack']['request'] == 'r1' and latest['owner'] == 'agent'
     busy = rig.ask(request='r2', who='other')
     assert exit_code(busy) == 2 and busy['holder']['id'] == 'c1'
+    assert busy['id'] is None and not busy['ok']
     assert exit_code(ack) == 0
 
 

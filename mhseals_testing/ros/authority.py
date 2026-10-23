@@ -87,8 +87,8 @@ class Arbiter:
                 request.get('owner', 'agent'), request.get('who') or 'agent', now,
                 request.get('reason', ''), request.get('lease_s'), request.get('pid'),
                 request.get('host'))
-            ack.update(ok=claim is not None, claim=claim, holder=holder,
-                       error='' if claim else 'busy')
+            ack.update(ok=claim is not None, id=claim['id'] if claim else None,
+                       claim=claim, holder=holder, error='' if claim else 'busy')
 
     def revoke(self, claim_id):
         """The owner's revoke key: stop the boat as Space does, cancel the claim's goals, then revoke."""
