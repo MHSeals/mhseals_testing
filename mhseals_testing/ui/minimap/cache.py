@@ -33,10 +33,7 @@ class LayerCache:
         out = Canvas(cols, rows)
         for name, key, build in layers:
             layer = self.get(name, key, build)
-            out._dots.update({pos: dict(bits) for pos, bits in layer._dots.items()})
-            out._glyphs.update(layer._glyphs)
-            out._gaps |= layer._gaps
-            out._tint.update(layer._tint)
+            out.overlay(layer)
         return out
 
 

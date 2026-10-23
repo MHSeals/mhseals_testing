@@ -49,6 +49,24 @@ class Canvas:
         other._tint = dict(self._tint)
         return other
 
+    def overlay(self, other):
+        """Merge ``other`` into this canvas by the same priority rules the painters use.
+
+        Dot bits are ORed and each bit keeps the higher-priority layer; the higher-priority
+        glyph wins a cell; gaps are unioned; ``other``'s tints replace ours.
+        """
+        for pos, bits in other._dots.items():
+            mine = self._dots.setdefault(pos, {})
+            for bit, layer in bits.items():
+                if bit not in mine or rank(layer) < rank(mine[bit]):
+                    mine[bit] = layer
+        for pos, (char, layer, chip) in other._glyphs.items():
+            old = self._glyphs.get(pos)
+            if old is None or rank(layer) < rank(old[1]):
+                self._glyphs[pos] = (char, layer, chip)
+        self._gaps |= other._gaps
+        self._tint.update(other._tint)
+
     @property
     def dots_wide(self):
         return self.cols * 2

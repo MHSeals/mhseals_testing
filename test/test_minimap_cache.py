@@ -34,6 +34,25 @@ def test_frame_paint_does_not_touch_the_cached_layer():
     assert lc.frame(56, 30, layers).text() == _layer(50).text()
 
 
+def test_overlapping_layers_keep_every_dot_and_the_higher_glyph_in_any_order():
+    def first():
+        c = Canvas(2, 1)
+        c.glyph(0, 0, 'B', 'boat')
+        c.dot(0, 0, 'costmap')
+        return c
+
+    def second():
+        c = Canvas(2, 1)
+        c.glyph(0, 0, 'c', 'costmap')
+        c.dot(1, 3, 'wall')
+        return c
+
+    for order in ((('a', first), ('b', second)), (('b', second), ('a', first))):
+        frame = cache.LayerCache().frame(2, 1, [(n, 1, f) for n, f in order])
+        assert frame._glyphs[(0, 0)][:2] == ('B', 'boat')
+        assert frame._dots[(0, 0)] == {0x01: 'costmap', 0x80: 'wall'}
+
+
 def test_redraw_caps_hidden_and_budget_fallback():
     r = cache.Redraw()
     assert r.due(0.0)
