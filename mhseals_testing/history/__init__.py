@@ -47,6 +47,10 @@ class History:
     def _object(self, sub, sha):
         return self.dir / 'versions' / sub / f'{sha}.json'
 
+    def has_object(self, sub, value):
+        """True when a version with this content was ever stored for ``sub``."""
+        return self._object(sub, digest(value)).exists()
+
     def _lines(self):
         return data.read_jsonl(self.log)
 
@@ -71,10 +75,11 @@ class History:
         return data.read_json(self._object(change['subsystem'], change['after']))
 
     def record(self, sub, value, raw=None, *, source, session=None, revert_of=None, applied='confirmed', meta=None,
-               summary=()):
+               summary=(), time=None):
         """Append a change for ``sub``; None when ``value`` equals the head.
 
         Callers ``observe`` the current state first so an outside edit is not merged into this change.
+        ``time`` (ISO text) backdates an imported change.
         """
         sha = digest(value)
         head = self.head(sub)
@@ -90,7 +95,7 @@ class History:
             if head and head['after'] == sha:
                 return None                          # another writer recorded the same content first
             last = max((int(c['id'][1:]) for c in self.changes()), default=0)
-            entry = {'id': f'c{last + 1:04d}', 'time': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+            entry = {'id': f'c{last + 1:04d}', 'time': time or datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
                      'host': socket.gethostname(), 'actor': f'{source.split(":")[0]}:{os.getpid()}', 'subsystem': sub,
                      'before': head['after'] if head else None, 'after': sha, 'source': source, 'session': session,
                      'revert_of': revert_of, 'applied': applied, 'name': '', 'note': '', 'summary': list(summary)}
