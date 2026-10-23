@@ -209,3 +209,13 @@ def test_holds_are_carried_as_a_list():
     assert record['holds'] == two and record['source'] == 'hold keys by tui'
     assert run(mux('hold', hold=two[0]))['holds'] == two[:1]
     assert run()['holds'] == []
+
+
+def test_rebuilt_table_never_reuses_a_revoked_claims_id():
+    table = ClaimTable()
+    first, _ = table.claim('agent', 'a', NOW)
+    table.revoke(first['id'], NOW)
+    rebuilt = ClaimTable(table.claims)
+    second, _ = rebuilt.claim('agent', 'b', NOW)
+    assert second['id'] != first['id']
+    assert rebuilt.get(first['id'])['state'] == 'revoked'
