@@ -21,17 +21,9 @@ def test_servers_match_navigation_launch():
     assert 'smoother_server' not in launched
 
 
-def test_fixture_matches_installed_launch_file():
-    # Catches drift (e.g. overlay handling) whenever mhseals_nav is installed.
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        installed = Path(get_package_share_directory('mhseals_nav')) / 'launch' / 'navigation.launch.py'
-    except Exception:
-        installed = None
-    if installed is None or not installed.exists():
-        installed = None
-        import pytest
-        pytest.skip('mhseals_nav is not installed')
+def test_fixture_matches_installed_launch_file(nav_root):
+    # Catches drift (e.g. overlay handling) against the nav tree found by conftest.find_nav.
+    installed = nav_root / 'launch' / 'navigation.launch.py'
     assert (HERE / 'fixtures' / 'navigation.launch.py').read_text() == installed.read_text()
 
 

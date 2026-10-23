@@ -1,31 +1,12 @@
-import os
-from pathlib import Path
-
 import pytest
 import yaml
 
+from conftest import find_nav
 from mhseals_testing.analysis.classes import ClassTable, load_classes
 
 CONFIG = 'config/custom_object_detection.yaml'
 
 
-def find_detector(env=None, sibling=None):
-    """Locate the detector YAML: $MHSEALS_NAV, then the ament share dir, then a sibling checkout."""
-    env = os.environ if env is None else env
-    sibling = sibling or Path(__file__).resolve().parents[2] / 'mhseals_nav'
-    candidates = []
-    if env.get('MHSEALS_NAV'):
-        candidates.append(Path(env['MHSEALS_NAV']))
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        candidates.append(Path(get_package_share_directory('mhseals_nav')))
-    except Exception:
-        pass
-    candidates.append(sibling)
-    return next((c / CONFIG for c in candidates if (c / CONFIG).exists()), sibling / CONFIG)
-
-
-DETECTOR = find_detector()
 TRUTH_LABELS = ['red_pole_buoy', 'red_buoy', 'green_pole_buoy', 'green_buoy',
                 'yellow_buoy', 'black_buoy', 'blue_buoy']
 
@@ -52,10 +33,9 @@ def test_truth_labels_resolve_to_their_own_symbol():
         assert label in table and table.symbol(label).label == label
 
 
-@pytest.mark.skipif(not DETECTOR.exists(), reason='mhseals_nav not checked out beside')
-def test_every_detector_label_has_a_class():
+def test_every_detector_label_has_a_class(nav_root):
     table = load_classes()
-    params = yaml.safe_load(DETECTOR.read_text())
+    params = yaml.safe_load((nav_root / CONFIG).read_text())
     labels = {entry['label'] for entry in _walk(params) if 'label' in entry}
     assert labels and all(label in table for label in labels)
 
@@ -76,10 +56,14 @@ def test_duplicate_glyph_or_ascii_is_rejected():
         ClassTable({'one': entry, 'two': dict(entry, glyph='B')}, unknown)
 
 
-def test_find_detector_prefers_env_over_sibling(tmp_path):
-    (tmp_path / 'config').mkdir()
-    (tmp_path / CONFIG).write_text('labels: []\n')
-    assert find_detector({'MHSEALS_NAV': str(tmp_path)}, tmp_path / 'missing') == tmp_path / CONFIG
+def test_find_nav_prefers_env_then_plain_then_integ_sibling(tmp_path):
+    env, plain, integ = (tmp_path / n for n in ('env', 'mhseals_nav', 'integ-mhseals_nav'))
+    integ.mkdir()
+    assert find_nav({}, tmp_path) == integ
+    plain.mkdir()
+    assert find_nav({}, tmp_path) == plain
+    env.mkdir()
+    assert find_nav({'MHSEALS_NAV': str(env)}, tmp_path) == env
 
 
 def _table(**changes):
