@@ -981,8 +981,10 @@ class App:
             self.notice = 'Agent revoked'
 
     def release_hold(self):
-        """U: not wired yet; consumed so it cannot reach a panel's lowercase key."""
-        self.notice = 'Release hold is not available here'
+        """U: ask the mux to release the sticky hold; consumed so it never reaches a panel key."""
+        release = getattr(self.plant, 'release_hold', None)
+        self.notice = ('Hold released' if release is not None and release()
+                       else 'Release hold is not available here')
 
     # --- markers -----------------------------------------------------------------
 

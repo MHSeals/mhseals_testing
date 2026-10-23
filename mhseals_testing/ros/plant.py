@@ -96,6 +96,13 @@ class Plant:
         self.request_publisher.publish(String(data=json.dumps(
             {'op': 'hold', 'cause': cause, 'by': 'tui'})))
 
+    def release_hold(self):
+        """U: ask the mux to drop its sticky hold. False when this profile has no mux."""
+        if self.request_publisher is None:
+            return False
+        self.request_publisher.publish(String(data=json.dumps({'op': 'release', 'by': 'tui'})))
+        return True
+
     def test_pulses(self, pulses):
         if self.pulse_publisher is None:
             self.pulse_publisher = self.ros.node.create_publisher(

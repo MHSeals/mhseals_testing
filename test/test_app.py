@@ -1768,6 +1768,10 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     assert app.arbiter.table.get(claim['id'])['state'] == 'revoked'
     app.dispatch('U')
     assert app.notice == 'Release hold is not available here'
+    released = []
+    app.plant = __import__("types").SimpleNamespace(release_hold=lambda: released.append(1) or True)
+    app.dispatch('U')
+    assert app.notice == 'Hold released' and released == [1]
 
 
 @pytest.mark.parametrize('open_popup, answers', [

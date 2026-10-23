@@ -31,8 +31,10 @@ class Ros:
 
     def graph_facts(self, topics):
         """Every live publisher on the topic, ours tagged own, as the graph probe reports them."""
-        pubs = [Endpoint(ros.name, own=ros is self) for ros in [self, *self.peers] if ros.node.live]
-        return {topic_fact_name(t): Fact({'pub': tuple(pubs), 'sub': ()}) for t in topics}
+        def pubs(topic):
+            return tuple(Endpoint(ros.name, own=ros is self) for ros in [self, *self.peers]
+                         if any(p.topic == topic for p in ros.node.live))
+        return {topic_fact_name(t): Fact({'pub': pubs(t), 'sub': ()}) for t in topics}
 
     def publishers(self, topic):
         return [peer.name for peer in self.peers
@@ -78,10 +80,16 @@ def test_keys_publish_on_the_manual_topic_and_space_asks_the_mux_to_hold():
     assert json.loads(request) == {'op': 'hold', 'cause': 'keys', 'by': 'tui'}
 
 
+def test_release_hold_sends_a_release_request_to_the_mux():
+    plant, _ = pair()
+    assert plant.release_hold()
+    assert json.loads(plant.request_publisher.sent[0].data) == {'op': 'release', 'by': 'tui'}
+
+
 def test_unmuxed_plants_send_no_hold_request():
     plant = Plant(Ros(Node(), 'a'), SimpleNamespace(**dict(vars(PROFILE), muxed=False)))
     plant.hold()
-    assert plant.request_publisher is None
+    assert plant.request_publisher is None and not plant.release_hold()
 
 
 def test_procedures_use_the_auto_topic_and_keys_and_space_the_manual_one():

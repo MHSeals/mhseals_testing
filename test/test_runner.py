@@ -250,6 +250,7 @@ def test_guard_trip_mid_hold_is_stamped_guard():
             run.hold((0.1, 0, 0), 5.0)
     assert stop_of(events)['by'] == 'guard' and stop_of(events)['cause'] == 'guard:odometry'
 
+
 def test_manual_space_requests_a_hold_as_well_as_neutral():
     from mhseals_testing.procedures.manual import GuardedPublisher, drive
     from mhseals_hardware.manual_state import ManualState
