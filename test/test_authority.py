@@ -40,6 +40,15 @@ def test_stale_or_missing_mux_is_unknown():
     assert not is_unknown(run(), NOW + 1)
 
 
+def test_staleness_uses_local_receipt_age_not_the_senders_clock():
+    behind = mux() | {'t_ns': int((NOW - 5) * 1e9)}  # sender clock 5 s behind, just received
+    ahead = mux() | {'t_ns': int((NOW + 5) * 1e9)}  # sender clock 5 s ahead, received 4 s ago
+    assert run(behind, mux_age_s=0.2)['owner'] != 'unknown'
+    assert run(ahead, mux_age_s=4.0)['owner'] == 'unknown'
+    assert not is_unknown(run(), NOW + 50, age_s=0.5)
+    assert is_unknown(run(), NOW, age_s=4.0)
+
+
 def test_precedence_of_claim_owners_and_nesting():
     claims = table()
     claims.claim('procedure', 'sq', NOW, local=True)
@@ -172,7 +181,7 @@ def test_since_only_moves_when_the_owner_or_source_changes():
 
 def test_events_for_override_suspend_resume_and_authority():
     claims = table()
-    claims.claim('agent', 'tune', NOW)
+    claims.claim('procedure', 'sq', NOW, local=True)
     auto = run(claims=claims.claims, procedure={'name': 'sq', 'run': 'r1'})
     rc = run(mux('rc', cause='rc_switch'), claims.claims, procedure={'name': 'sq', 'run': 'r1'})
     phases = [e['phase'] for e in events(auto, rc)]

@@ -35,7 +35,9 @@ class ClaimTable:
 
     def __init__(self, claims=(), seq=0):
         self.claims = [dict(claim) for claim in claims]
-        self.seq = seq
+        # Never re-issue an id already on record, even if seq was not persisted.
+        numbers = [int(c['id'][1:]) for c in self.claims if c['id'][1:].isdigit()]
+        self.seq = max([seq, *numbers])
         self.pending = []  # claim life-cycle events since the last drain
 
     def drain(self):
