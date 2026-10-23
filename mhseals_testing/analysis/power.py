@@ -19,7 +19,7 @@ CHEMISTRIES = {
 MIN_VOLT = 1.0               # below this the source reports no pack
 REST_AMPS = 0.5              # at or under this the pack is resting
 REST_WINDOW = 10.0           # s from the first sample that count for the baseline
-SWAP_JUMP = 0.5              # V step at rest that means a different pack
+SWAP_JUMP = 0.5              # V rise at rest that means a fuller pack was fitted
 DEFAULT_CAPACITY = 3300      # ArduPilot BATT_CAPACITY default: not a real capacity
 MIN_CELL = 3.0               # lowest per-cell voltage accepted by cell detection
 # Fraction of charge at (critical, low, nominal, full) for the voltage estimate.
@@ -88,6 +88,7 @@ class Power:
 
     def _reset(self):
         self.t0 = self.last = None
+        self.rest_volt = None          # last resting pack voltage (swap reference)
         self.rest = []                 # volts while resting inside the window
         self.baseline = None           # resting per-cell volts once the window closed
         self.mah = 0.0
@@ -97,8 +98,13 @@ class Power:
         """Fold one sample (from ``from_mavros``) and return the facts."""
         amp = s['amp']
         resting = amp is not None and abs(amp) <= REST_AMPS
-        if self.last is not None and resting and abs(s['volt'] - self.last['volt']) > SWAP_JUMP:
+        # Swap: a resting voltage more than SWAP_JUMP above the last resting voltage (packs
+        # are swapped for fuller ones; discharge only lowers it). A loaded sample is no
+        # reference, so the first rest just sets it.
+        if resting and self.rest_volt is not None and s['volt'] - self.rest_volt > SWAP_JUMP:
             self._reset()                                    # pack swap
+        if resting:
+            self.rest_volt = s['volt']
         if self.t0 is None:
             self.t0 = s['t']
         if s['mah_used'] is not None:

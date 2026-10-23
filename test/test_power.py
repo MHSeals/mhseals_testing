@@ -76,7 +76,35 @@ def test_mah_integrates_and_pack_swap_resets():
     f = feed(pw, 15.0, 3.6, 0, 11)
     assert math.isclose(f['mah_used'], 10.0, abs_tol=0.1)
     assert f['remaining_min'] is None
-    f = feed(pw, 12.0, 0.1, 20, 1)                   # jump at rest: another pack
-    assert f['mah_used'] == 0 and f['cells_detected'] == 3
-    f = feed(pw, 12.0, 0.1, 21, 11)
+    f = feed(pw, 15.0, 0.1, 20, 1)                   # rest after use
+    assert f['mah_used'] > 9
+    f = feed(pw, 16.6, 0.1, 21, 1)                   # higher rest: a fuller pack
+    assert f['mah_used'] == 0
+    f = feed(pw, 16.6, 0.1, 22, 11)
     assert f['sag_mV'] == 0
+
+
+def test_long_run_then_release_keeps_mah():
+    pw = p.Power()
+    feed(pw, 16.4, 0.1, 0, 12)
+    feed(pw, 16.0, 20.0, 12, 300)
+    feed(pw, 15.2, 20.0, 312, 300)
+    f = pw.update(p.from_mavros(msg(15.4, 0.2), 612))
+    assert f['mah_used'] > 3000
+
+
+def test_start_under_load_then_release_keeps_mah():
+    pw = p.Power()
+    feed(pw, 15.0, 20.0, 0, 60)
+    f = pw.update(p.from_mavros(msg(15.8, 0.2), 60))
+    assert f['mah_used'] > 300
+
+
+def test_release_after_load_is_not_a_swap():
+    pw = p.Power()
+    feed(pw, 16.0, 0.1, 0, 12)                       # rest window closes
+    f = feed(pw, 15.0, 20.0, 12, 60)                 # loaded run: sags 1 V
+    assert f['mah_used'] > 300 and f['sag_mV'] > 200
+    f = pw.update(p.from_mavros(msg(15.8, 0.2), 72))  # throttle released
+    assert f['mah_used'] > 300
+    assert f['sag_mV'] is not None and pw.baseline is not None
