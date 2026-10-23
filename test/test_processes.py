@@ -27,13 +27,25 @@ def test_unique_paths_and_bag_records_everything(tmp_path):
     assert unique_path(tmp_path / 'other').name == 'other'
 
 
+def test_concurrent_unique_path_claims_get_distinct_names(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(8) as pool:
+        names = list(pool.map(lambda _: unique_path(tmp_path / 'same').name, range(8)))
+    assert len(set(names)) == 8 and names[0].startswith('same')
+
+
 def test_bag_command_excludes_heavy_topics_instead_of_recording_all(tmp_path):
     command = bag_command(tmp_path / 'b')
     assert '-a' not in command and '--all-topics' in command
     regex = re.compile(command[command.index('--exclude-regex') + 1])
-    for heavy in ('/front_camera/depth/image', '/points', '/costmap/costmap'):
+    heavy_topics = ('/front_camera/depth/image', '/points', '/costmap/costmap', '/cam/image_raw/compressed',
+                    '/lidar/cloud_registered', '/cam/camera_info', '/deskewed_points')
+    for heavy in heavy_topics:
         assert regex.fullmatch(heavy)
-    for kept in ('/mhseals_testing/events', '/mavros/local_position/odom'):
+    kept_topics = ('/mhseals_testing/events', '/mavros/local_position/odom', '/waypoints',
+                   '/mavros/mission/waypoints', '/mavros/rallypoint/rallypoints',
+                   '/mavros/camera/image_captured', '/mhseals_testing/waypoints', '/perception/image_status')
+    for kept in kept_topics:
         assert not regex.fullmatch(kept)
     assert command[-2:] == ['-o', str(tmp_path / 'b')]
 
