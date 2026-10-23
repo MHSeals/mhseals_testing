@@ -77,6 +77,14 @@ def test_an_unclaimed_goal_is_external():
     assert run(nav=goal(by='unknown'), task={'status': 'RUNNING'})['owner'] == 'task'
 
 
+def test_a_cursor_goal_plus_an_unclaimed_goal_is_a_conflict():
+    record = run(nav={'goals': [{'id': 'a', 'status': 'executing', 'by': 'nav'},
+                                {'id': 'b', 'status': 'executing', 'by': 'unknown'}]})
+    assert record['owner'] == 'external'
+    assert record['conflict'] is True
+    assert record['source'].startswith('? conflict')
+
+
 def test_unclaimed_cmd_vel_is_external_and_filters_publishers_by_gid():
     graph = {'cmd_vel': {'age_s': 0.2, 'nonzero': True}, 'own_gids': ['g-own'],
              'publishers': [{'node': '/mhseals_testing', 'gid': 'g-own'},
@@ -105,6 +113,13 @@ def test_two_automated_sources_are_a_conflict_shown_as_external():
     both = [{'id': 'c1', 'owner': 'agent', 'who': 'a', 'reason': '', 'pid': 1},
             {'id': 'c2', 'owner': 'agent', 'who': 'b', 'reason': '', 'pid': 2}]
     assert run(claims=both)['conflict']
+
+
+def test_procedure_beside_an_agent_claim_is_a_conflict():
+    claims = table()
+    claims.claim('agent', 'tune', NOW)
+    record = run(claims=claims.claims, procedure={'name': 'characterize'})
+    assert record['conflict'] and record['owner'] == 'external'
 
 
 def test_second_claim_is_busy_and_names_the_holder():

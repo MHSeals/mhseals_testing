@@ -3,7 +3,10 @@
 Pure and ROS-free. The arbiter (ros/authority.py) feeds the latest mux state,
 the claim table, Nav2 goals, task and procedure status and the /cmd_vel
 publisher list into ``derive``; it publishes the record and journals
-``events``. Times are seconds on one clock, passed in as ``now``.
+``events``. Times are seconds on one clock, passed in as ``now``. Stamps
+(``t_ns``) come from other hosts' clocks, so staleness is aged by local receipt
+time: callers pass ``age_s`` (local now minus local receipt time); the stamp
+fallback is only right when sender and reader share a clock.
 
 Owners, in display precedence (spec authority_hotreload section 3):
 rc > keyboard > hold > agent > task > nav > procedure > external > none.
@@ -18,9 +21,13 @@ STALE_S = 3.0
 CMD_VEL_WINDOW_S = 1.0
 
 
-def is_unknown(record, now):
-    """No record, or one older than STALE_S: clients treat this as paused."""
-    return record is None or now - record['t_ns'] / 1e9 > STALE_S
+def is_unknown(record, now, age_s=None):
+    """No record, or one older than STALE_S: clients treat this as paused.
+
+    ``age_s`` is the local time since the record was received; it is
+    needed when the sender's clock may differ from ours.
+    """
+    return record is None or _age(record, now, age_s) > STALE_S
 
 
 class ClaimTable:
@@ -99,7 +106,7 @@ class ClaimTable:
         self.pending.append({'phase': phase, 't_ns': _ns(now), 'rec': dict(claim)})
 
 
-def derive(mux, claims, nav, task, procedure, graph, now, prev=None):
+def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=None):
     """The authority record for this instant.
 
     ``mux``: the command_mux state, or None. ``claims``: the table's claims.
@@ -108,12 +115,14 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None):
     {'name', 'run'} or None. ``graph``: {'cmd_vel': {'age_s', 'nonzero'},
     'publishers': [{'node', 'gid'}], 'own_gids': [...]}. ``prev`` is the last
     record, so ``since_ns`` only moves when the owner or source changes.
+    ``mux_age_s`` is the local time since the mux state arrived (see module
+    docstring); without it the mux stamp is compared with ``now``.
     """
     record = {'schema': 'mhseals.authority/1', 't_ns': _ns(now), 'owner': 'none', 'source': '',
               'reason': '', 'input': None, 'cause': None, 'holds': [], 'conflict': False,
               'claims': [], 'nav': nav, 'task': task, 'procedure': procedure,
               'rc': (mux or {}).get('rc')}
-    if mux is None or now - mux['t_ns'] / 1e9 > STALE_S:
+    if mux is None or _age(mux, now, mux_age_s) > STALE_S:
         # unknown means paused, but the claims stay visible
         record['claims'] = _effective(claims, True)
         return _finish(record, 'unknown', 'no fresh mux state', now, prev)
@@ -182,12 +191,15 @@ def _holds(mux):
 def _sources(claims, task, procedure):
     """Top-level automated sources as (owner, source text, reason).
 
-    Goals and tasks started while a claim is active belong to that claim, so
-    only claim-less state adds implicit procedure and task sources.
+    Goals and tasks started while a claim is active belong to that claim. A
+    TUI procedure is the arbiter's own claim, so it only nests under a
+    procedure claim and runs beside any other claim as a second source.
     """
     active = [c for c in claims if c['state'] == 'active']
     sources = [(c['owner'], _claim_text(c), c['reason']) for c in active]
     if active:
+        if procedure and not any(c['owner'] == 'procedure' for c in active):
+            sources.append(('procedure', procedure['name'], ''))
         return sources
     if procedure:
         sources.append(('procedure', procedure['name'], ''))
@@ -202,9 +214,12 @@ def _unclaimed(goals, graph, input):
     A /cmd_vel publisher only counts while the mux reads auto.
     """
     if goals:
-        if all(g.get('by') == 'nav' for g in goals):
-            return [('nav', 'cursor goal', '')]
-        return [('external', '? goal (unclaimed)', '')]
+        out = []
+        if any(g.get('by') == 'nav' for g in goals):
+            out.append(('nav', 'cursor goal', ''))
+        if any(g.get('by') != 'nav' for g in goals):
+            out.append(('external', '? goal (unclaimed)', ''))
+        return out
     cmd = (graph or {}).get('cmd_vel') or {}
     if input != 'auto':
         return []
@@ -244,6 +259,10 @@ def _finish(record, owner, source, now, prev, reason=''):
 
 def _event(phase, record, fields):
     return {'phase': phase, 't_ns': record['t_ns'], 'rec': fields}
+
+
+def _age(state, now, age_s):
+    return age_s if age_s is not None else now - state['t_ns'] / 1e9
 
 
 def _ns(seconds):
