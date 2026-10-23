@@ -26,7 +26,7 @@ class Fake(revert.Backend):
         return True
 
 
-def setup(tmp_path, sub='hardware', **kw):
+def seed(tmp_path, sub='hardware', **kw):
     h = History(tmp_path)
     first = h.record(sub, {'gain': 1, 'pin': 7}, source='t')
     h.record(sub, {'gain': 2, 'pin': 7}, source='t')
@@ -47,7 +47,7 @@ def make_env(armed=False, held=None, **probes):
 
 
 def test_plan_lists_changed_keys_and_applies(tmp_path):
-    h, b, first = setup(tmp_path)
+    h, b, first = seed(tmp_path)
     p = revert.plan(h, b, make_env(), first['id'], 'hardware')
     assert p.keys == ['gain', 'pin'] and p.ok and not p.hold
     out = revert.execute(h, b, make_env(), p)
@@ -60,7 +60,7 @@ def test_plan_lists_changed_keys_and_applies(tmp_path):
                                        ('hardware', 'hold'), ('hardware', 'pulses'), ('fcu', 'armed'),
                                        ('fcu', 'disconnected'), ('fcu', 'loading'), ('nav2', 'goal')])
 def test_each_blocker_refuses_plan_and_execute(tmp_path, sub, probe):
-    h, b, first = setup(tmp_path, sub)
+    h, b, first = seed(tmp_path, sub)
     env = make_env(armed=probe == 'armed', **({} if probe == 'armed' else {probe: True}))
     p = revert.plan(h, b, env, first['id'], sub)
     assert p.blockers and not p.ok
@@ -69,12 +69,12 @@ def test_each_blocker_refuses_plan_and_execute(tmp_path, sub, probe):
 
 
 def test_probe_of_another_subsystem_does_not_block(tmp_path):
-    h, b, first = setup(tmp_path, 'nav2')
+    h, b, first = seed(tmp_path, 'nav2')
     assert revert.plan(h, b, make_env(pulses=True, armed=True), first['id'], 'nav2').ok
 
 
 def test_armed_with_pin_diff_is_refused(tmp_path):
-    h, b, first = setup(tmp_path)
+    h, b, first = seed(tmp_path)
     p = revert.plan(h, b, make_env(armed=True), first['id'], 'hardware')
     assert any('pin' in text for text in p.blockers)
     assert revert.execute(h, b, make_env(armed=True), p).status == 'blocked'
@@ -94,7 +94,7 @@ def test_armed_live_only_holds_neutral_around_apply(tmp_path):
 
 
 def test_verify_timeout_rolls_back_and_records_nothing(tmp_path):
-    h, b, first = setup(tmp_path, fail_on=[{'gain': 1, 'pin': 7}])
+    h, b, first = seed(tmp_path, fail_on=[{'gain': 1, 'pin': 7}])
     n = len(h.changes())
     out = revert.execute(h, b, make_env(), revert.plan(h, b, make_env(), first['id'], 'hardware'))
     assert out.status == 'rolled_back'
@@ -102,14 +102,14 @@ def test_verify_timeout_rolls_back_and_records_nothing(tmp_path):
 
 
 def test_failed_restore_observes_true_state(tmp_path):
-    h, b, first = setup(tmp_path, fail_on=[{'gain': 1, 'pin': 7}, {'gain': 2, 'pin': 9}])
+    h, b, first = seed(tmp_path, fail_on=[{'gain': 1, 'pin': 7}, {'gain': 2, 'pin': 9}])
     out = revert.execute(h, b, make_env(), revert.plan(h, b, make_env(), first['id'], 'hardware'))
     assert out.status == 'restore_failed'
     assert len(h.changes()) == 3 and b['hardware'].value == {'gain': 2, 'pin': 9}   # nothing recorded; live equals head
 
 
 def test_live_drift_is_observed_and_not_applied(tmp_path):
-    h, b, first = setup(tmp_path)
+    h, b, first = seed(tmp_path)
     p = revert.plan(h, b, make_env(), first['id'], 'hardware')
     b['hardware'].value = {'gain': 3, 'pin': 9}                     # edited outside after the preview
     assert revert.execute(h, b, make_env(), p).status == 'stale'
@@ -117,7 +117,23 @@ def test_live_drift_is_observed_and_not_applied(tmp_path):
 
 
 def test_revert_to_current_is_a_noop(tmp_path):
-    h, b, _ = setup(tmp_path)
+    h, b, _ = seed(tmp_path)
     p = revert.plan(h, b, make_env(), 'current', 'hardware')
     assert not p.ok and revert.execute(h, b, make_env(), p).status == 'noop'
     assert b['hardware'].applied == []
+
+
+def test_neutral_hold_is_hardware_only(tmp_path):
+    h, b, first = seed(tmp_path, 'nav2')
+    assert not revert.plan(h, b, make_env(armed=True), first['id'], 'nav2').hold
+
+
+def test_held_revert_lock_blocks_execute(tmp_path):
+    import fcntl
+    h, b, first = seed(tmp_path)
+    p = revert.plan(h, b, make_env(), first['id'], 'hardware')
+    with open(h.dir / 'revert.lock', 'a') as other:
+        fcntl.flock(other, fcntl.LOCK_EX)
+        out = revert.execute(h, b, make_env(), p)
+    assert out.status == 'blocked' and 'lock' in out.detail and b['hardware'].applied == []
+    assert revert.execute(h, b, make_env(), p).status == 'reverted'     # released after the run

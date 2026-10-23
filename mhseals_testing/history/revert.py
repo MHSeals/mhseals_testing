@@ -7,6 +7,7 @@ subsystem (read live state, apply a version, verify it). A revert is always a ne
 
 import contextlib
 from dataclasses import dataclass, field
+import fcntl
 from pathlib import Path
 import uuid
 
@@ -14,7 +15,19 @@ import yaml
 
 from mhseals_testing import history as hist
 
-SETTINGS = Path(__file__).resolve().parents[2] / 'config' / 'history' / 'revert.yaml'
+def _settings_path():
+    """config/history/revert.yaml in the source tree, else the installed share directory."""
+    source = Path(__file__).resolve().parents[2] / 'config' / 'history' / 'revert.yaml'
+    if source.is_file():
+        return source
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'history' / 'revert.yaml'
+    except (ImportError, KeyError):
+        return source
+
+
+SETTINGS = _settings_path()
 
 
 def load_settings(path=None):
@@ -99,11 +112,25 @@ def plan(history, backends, env, ref, sub, settings=None):
     keys = changed_keys(history.version(current)['value'], history.version(target)['value'])
     live = backends[sub].live_keys
     found = blockers(sub, env, settings, keys, live)
-    return Plan(sub, target, current, keys, found, hold=env.armed() and not found)
+    return Plan(sub, target, current, keys, found, hold=sub == 'hardware' and env.armed() and not found)
 
 
 def execute(history, backends, env, p, settings=None, source='tui:revert', session=None):
-    """Re-check, hold neutral if armed, apply, verify, record; roll back on a failed verify."""
+    """Re-check, hold neutral if armed, apply, verify, record; roll back on a failed verify.
+
+    A separate non-blocking ``revert.lock`` covers the whole run (``History.record`` takes its own
+    ``lock`` per call, so reusing that file would deadlock).
+    """
+    history.dir.mkdir(parents=True, exist_ok=True)
+    with open(history.dir / 'revert.lock', 'a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return Outcome('blocked', 'the history lock is held')
+        return _execute(history, backends, env, p, settings, source, session)
+
+
+def _execute(history, backends, env, p, settings, source, session):
     settings = settings or load_settings()
     backend, sub = backends[p.sub], p.sub
     fresh = plan(history, backends, env, p.target['id'], sub, settings)
