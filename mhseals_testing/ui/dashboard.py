@@ -56,6 +56,7 @@ def status_rows(snapshot, specs):
                          name=f"{chain['source']} {theme.ARROW} {chain['target']}", value='',
                          detail=chain['detail'], required=True))
     for name, level, detail in advisories(snapshot):
+        detail = theme.ascii_safe(detail)
         rows.append(dict(group='System', state=level, name=name, value=short(detail),
                          detail=detail, required=False))
     return rows
@@ -125,7 +126,7 @@ def status_panel(snapshot, view, height):
         table.add_row(theme.row(row['state'], name, focused and index == cursor),
                       Text(row['value'], style=MUTED))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
-                  style=MUTED, no_wrap=True, overflow='ellipsis')
+                  style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row['group'] == 'Sensors' and row['state'] == 'LIVE')
     sensors = sum(1 for row in rows if row['group'] == 'Sensors')
     return theme.block(Group(table, Text(''), detail), TITLES['status'], focused,
@@ -134,18 +135,18 @@ def status_panel(snapshot, view, height):
 
 def sparkline(values, width=10):
     if not values:
-        return Text('·' * width, style=MUTED)
+        return Text(theme.MIDDOT * width, style=MUTED)
     values = values[-width:]
     low, high = min(values), max(values)
-    bars = '▁▂▃▄▅▆▇█'
+    bars = theme.SPARK
     if high - low < 1e-3:
-        return Text('─' * len(values), style=MUTED)
+        return Text(theme.RULE * len(values), style=MUTED)
     return Text(''.join(bars[min(7, int(7 * (v - low) / (high - low)))] for v in values),
                 style=ACCENT)
 
 
 # Body frame drawn bow-up: +x (forward) is ↑, +y (port) is ←. Index by 45° sector from +x.
-ARROWS = '↑↖←↙↓↘→↗'
+ARROWS = theme.pick('↑↖←↙↓↘→↗', '^\\</v\\>/')
 DRIFT_DEADBAND = 0.02      # m/s; slower than this reads as no drift
 DRIFT_AGREE = (0.05, 0.15)  # m/s between measured and fitted drift: good, warn, else bad
 
@@ -153,7 +154,7 @@ DRIFT_AGREE = (0.05, 0.15)  # m/s between measured and fitted drift: good, warn,
 def drift_arrow(vx, vy):
     """The arrow for a body-frame horizontal velocity, or · when it is negligible."""
     if math.hypot(vx, vy) < DRIFT_DEADBAND:
-        return '·'
+        return theme.MIDDOT
     return ARROWS[round(math.atan2(vy, vx) / (math.pi / 4)) % 8]
 
 
@@ -162,7 +163,7 @@ def drift_vector(vx, vy, wz=0.0):
     text = Text(drift_arrow(vx, vy), style=f'bold {ACCENT}')
     text.append(f' {math.hypot(vx, vy):.2f} m/s')
     if abs(wz) >= DRIFT_DEADBAND:
-        text.append(f" {'↺' if wz > 0 else '↻'}{abs(wz):.2f}", style=MUTED)
+        text.append(f" {theme.pick('↺', '(') if wz > 0 else theme.pick('↻', ')')}{abs(wz):.2f}", style=MUTED)
     return text
 
 
@@ -173,7 +174,7 @@ def bearing(vx, vy):
         return 'ahead'
     if abs(degrees) > 175:
         return 'astern'
-    return f"{abs(degrees):.0f}° {'port' if degrees > 0 else 'stbd'}"
+    return f"{abs(degrees):.0f}{theme.pick('°', ' deg')} {'port' if degrees > 0 else 'stbd'}"
 
 
 def drift_now(snapshot):
@@ -248,7 +249,7 @@ def motion_panel(snapshot, view):
     for axis, key, unit in (('Surge', 'vx', 'm/s'), ('Sway', 'vy', 'm/s'), ('Yaw', 'wz', 'rad/s')):
         command = view['command'][('vx', 'vy', 'wz').index(key)]
         table.add_row(axis, f'{command:+.0%}' if effort else f'{command:+.2f}',
-                      f'{values[key]:+.2f}' if values.get(key) is not None else '—', unit,
+                      f'{values[key]:+.2f}' if values.get(key) is not None else theme.DASH, unit,
                       sparkline(snapshot.get('trends', {}).get(key, [])))
     subtitle = ('effort' if effort else 'm/s') + SEPARATOR + theme.labelled(
         measured.get('status', 'MISSING'), 'odom').plain
@@ -261,9 +262,9 @@ def effort_bar(pulse, testing=False, width=9):
     effort = max(-1.0, min(1.0, (pulse - NEUTRAL) / 400))
     half = width // 2
     cells = [' '] * width
-    cells[half] = '│'
+    cells[half] = theme.BAR
     for step in range(1, round(abs(effort) * half) + 1):
-        cells[half + step if effort > 0 else half - step] = '█'
+        cells[half + step if effort > 0 else half - step] = theme.FILL
     return Text(''.join(cells), style=theme.WARN if testing else ACCENT)
 
 
@@ -292,7 +293,7 @@ def thrusters_panel(view, compact=False):
     focused = view['focus'] == 'thrusters'
     cursor = view['cursors'].get('thrusters', 0)
     testing = view['test_pulses'] is not None
-    columns = (['   Thr', 'Out', 'Rev', {'header': 'µs', 'justify': 'right'}] if compact else
+    columns = (['   Thr', 'Out', 'Rev', {'header': theme.pick('µs', 'us'), 'justify': 'right'}] if compact else
                ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
     if view['outputs'] == 'odroid':
         columns.append('Pin')
@@ -304,8 +305,8 @@ def thrusters_panel(view, compact=False):
         label = Text(row['position'] + (' ⇅' if grabbed else ''))
         cells = [theme.row(state, label, focused and index == cursor),
                  Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
-                 Text('↺' if row['reversed'] else '·', style=theme.WARN if row['reversed'] else MUTED),
-                 Text(f"{row['pulse']}" + ('' if compact else ' µs'), style='bold' if active else MUTED)]
+                 Text(theme.pick('↺', '(') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else MUTED),
+                 Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style='bold' if active else MUTED)]
         if not compact:
             cells.append(effort_bar(row['pulse'], testing))
         if view['outputs'] == 'odroid':
@@ -330,7 +331,7 @@ def procedures_panel(view, height):
                                 Text(item['key'], style=f'bold {ACCENT}')))
     current = items[cursor] if items else None
     detail = Text((current['reason'] or current['description']) if current else '',
-                  style=MUTED, no_wrap=True, overflow='ellipsis')
+                  style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     ready = sum(1 for item in items if not item['reason'])
     return theme.block(Group(table, Text(''), detail), TITLES['procedures'], focused,
                        f'{ready} ready')
@@ -356,7 +357,7 @@ def activity_panel(snapshot, view, height):
     results = list(reversed(snapshot['results']))
     start, visible = window(results, cursor, budget)
     for index, result in enumerate(visible, start):
-        verdict = str(result.get('verdict', '—'))
+        verdict = str(result.get('verdict', theme.DASH))
         table.add_row(theme.row(verdict, result_label(result), focused and index == cursor),
                       Text(verdict.lower()), Text(result_detail(result), style=MUTED))
     body = table if results else Text(f'No results yet{SEPARATOR}Enter on a procedure runs it',
@@ -407,8 +408,8 @@ def arm_state(armed, detail=None):
 def header(snapshot, view, width=120):
     """Name, profile and host over the health strip; the host's ROS domain goes first when narrow."""
     top = Table.grid(expand=True)
-    top.add_column(no_wrap=True, overflow='ellipsis')
-    top.add_column(justify='right', no_wrap=True)
+    top.add_column(no_wrap=True, overflow=theme.OVERFLOW)
+    top.add_column(justify='right', no_wrap=True, overflow=theme.OVERFLOW)
     title = Text(' boat_test ', style=f'bold {ACCENT}')
     title.append(f" {view['profile']}", style='bold')
     arm = arm_state(view['armed'])
@@ -435,9 +436,9 @@ def fit_hints(hints, capacity):
 
 def footer(view, width):
     status = Table.grid(expand=True, padding=(0, 1))
-    status.add_column(ratio=3, no_wrap=True)
-    status.add_column(ratio=3, no_wrap=True)
-    status.add_column(ratio=4, justify='right', no_wrap=True, overflow='ellipsis')
+    status.add_column(ratio=3, no_wrap=True, overflow=theme.OVERFLOW)
+    status.add_column(ratio=3, no_wrap=True, overflow=theme.OVERFLOW)
+    status.add_column(ratio=4, justify='right', no_wrap=True, overflow=theme.OVERFLOW)
     position = view['position']
     focus = Text(f"Focus: {TITLES[view['focus']]}", style=f'bold {ACCENT}')
     if position:
@@ -448,7 +449,7 @@ def footer(view, width):
     columns = 4 if width >= WIDE else 3
     grid = Table.grid(expand=True)
     for _ in range(columns):
-        grid.add_column(ratio=1, no_wrap=True, overflow='ellipsis')
+        grid.add_column(ratio=1, no_wrap=True, overflow=theme.OVERFLOW)
     hints = fit_hints(hints, columns * 2)
     for row in range(2):
         cells = [theme.hint(*hint) for hint in hints[row * columns:(row + 1) * columns]]
@@ -478,7 +479,7 @@ def popup(modal, width):
             line.append_text(Text.from_markup(option) if '[' in option else Text(option))
             body.append(theme.selected(line, index == modal['selected']))
     elif modal['kind'] == 'input':
-        body += [Text(''), Text('> ', style=f'bold {ACCENT}') + Text(modal['text'] + '█')]
+        body += [Text(''), Text('> ', style=f'bold {ACCENT}') + Text(modal['text'] + theme.FILL)]
     if modal.get('hint'):
         body += [Text(''), Text(modal['hint'], style=MUTED)]
     panel = theme.block(Group(*body), modal['title'], True)

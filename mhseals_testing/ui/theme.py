@@ -12,12 +12,28 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-ASCII = os.environ.get('TERM') == 'dumb' or bool(os.environ.get('MHS_ASCII'))
+ASCII = os.environ.get('TERM') == 'dumb' or os.environ.get('MHS_ASCII', '').lower() in ('1', 'true', 'yes', 'on')
 
 ACCENT = 'cyan'
 MUTED = 'dim'
 GOOD, WARN, BAD, BUSY = 'green', 'yellow', 'red', 'cyan'
-SEPARATOR = ' · '
+
+
+def pick(glyph, ascii_glyph):
+    """The Unicode glyph, or its ASCII stand-in when ASCII mode is on."""
+    return ascii_glyph if ASCII else glyph
+
+
+def ascii_safe(text):
+    """Free text from the suite (health details) with ° spelled out in ASCII mode."""
+    return text.replace('°', ' deg ').replace('  ', ' ').strip() if ASCII else text
+
+
+SEPARATOR = pick(' · ', ' | ')
+DOT, MIDDOT, DASH = pick('●', '*'), pick('·', '.'), pick('—', '-')
+BAR, RULE, FILL = pick('│', '|'), pick('─', '-'), pick('█', '#')
+SPARK = pick('▁▂▃▄▅▆▇█', '._-:=+*#')
+OVERFLOW = pick('ellipsis', 'crop')   # Rich's ellipsis cell is the Unicode …
 FOCUS = '>' if ASCII else '▸'
 CURSOR = '> ' if ASCII else '› '
 ARROW = '->' if ASCII else '→'
@@ -76,7 +92,7 @@ def grid(*columns, padding=(0, 2)):
     table = Table(box=None, expand=True, padding=padding, show_edge=False,
                   header_style=MUTED, pad_edge=False)
     for column in columns:
-        options = dict(no_wrap=True, overflow='ellipsis')
+        options = dict(no_wrap=True, overflow=OVERFLOW)
         options.update(column if isinstance(column, dict) else {'header': column})
         table.add_column(**options)
     return table
