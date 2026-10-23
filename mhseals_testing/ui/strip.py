@@ -199,9 +199,26 @@ def _labels(axis, g, end_text, sel, fmt):
     return line
 
 
+def _loupe_row(axis, bands, g, window, play):
+    """Axis row of the review scrubber: `├ ┤` bracket the loupe window, `●` is the playhead."""
+    line = _axis_row(axis, bands, g)
+    ext = axis.extent(*window) if window else None
+    if ext:
+        line.put(ext[0], g['loupe_l'], 'bold cyan')
+        line.put(ext[1], g['loupe_r'], 'bold cyan')
+    col = axis.col(play) if play is not None else None
+    if col is not None:
+        line.put(col, g['play'], 'bold cyan')
+    return line
+
+
 def rows(axis, spans=(), points=(), armed=(), holds=(), bands=(), form='panel', end_text='now',
-         sel=None, fmt=clock, ascii_mode=None, color=None):
-    """Rich lines of the strip, each exactly axis.width cells wide."""
+         sel=None, fmt=clock, ascii_mode=None, color=None, window=None, play=None):
+    """Rich lines of the strip, each exactly axis.width cells wide.
+
+    form 'footer' (review): events, one skyline row and the axis with the loupe
+    `window` bracket and the `play` head.
+    """
     g = theme.timeline(ascii_mode)
     color = not os.environ.get('NO_COLOR') if color is None else color
     top, bottom = _skyline(axis, spans, armed, holds, g, color)
@@ -209,7 +226,7 @@ def rows(axis, spans=(), points=(), armed=(), holds=(), bands=(), form='panel', 
         for i, c in enumerate(axis.cols()):
             if c and c[0] == FOLD:
                 line.put(i, g['fold'], 'dim')
-    if form == 'one':
+    if form in ('one', 'footer'):
         one = Line(axis.width)
         for i in range(axis.width):
             if top.cells[i][0] != ' ':
@@ -217,6 +234,9 @@ def rows(axis, spans=(), points=(), armed=(), holds=(), bands=(), form='panel', 
             elif bottom.cells[i][0] != ' ':
                 ch, style = bottom.cells[i]
                 one.cells[i] = (g['manual1'] if ch == g['body'] else ch, style)
+        if form == 'footer':
+            return [_events(axis, points, g, color).text(), one.text(),
+                    _loupe_row(axis, bands, g, window, play).text()]
         return [one.text()]
     return [_events(axis, points, g, color).text(), top.text(), bottom.text(),
             _axis_row(axis, bands, g).text(), _labels(axis, g, end_text, sel, fmt).text()]
