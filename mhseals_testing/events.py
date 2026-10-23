@@ -1,12 +1,14 @@
 """The /mhseals_testing/events line format, free of ROS so folds and tests can share it.
 
 Several suites can publish on one domain, so every line names its instance
-(pid and node). A fold keeps its own lines and any line tagged ``guest``.
+(host, pid and node). A fold keeps its own lines and any line tagged ``guest``;
+a bag whose lines carry no pid at all predates tagging and is one instance.
 """
 
 from datetime import datetime
 import json
 import os
+import socket
 
 NODE = 'mhseals_testing'
 
@@ -14,13 +16,22 @@ NODE = 'mhseals_testing'
 def payload(phase, ros_time, details, pid=None, node=NODE):
     """The event dict; ``details`` may not override the instance identity."""
     return dict(details, time=datetime.now().astimezone().isoformat(), ros_time=ros_time,
-                phase=phase, pid=os.getpid() if pid is None else pid, node=node)
+                phase=phase, pid=os.getpid() if pid is None else pid, node=node,
+                host=socket.gethostname())
 
 
 def line(event):
     return json.dumps(event, sort_keys=True, default=str)
 
 
-def ours(events, pid):
-    """Events from instance ``pid``, plus any explicitly tagged guest lines."""
-    return [e for e in events if e.get('pid') == pid or e.get('guest')]
+def ours(events, pid, host=None):
+    """Events from instance ``pid`` (on ``host`` when given), plus tagged guest lines.
+
+    Pids are per host and recycle, so a line that names a host must match it.
+    Without any pid in the bag (pre-tagging field bags) every event is kept.
+    """
+    if not any('pid' in e for e in events):
+        return list(events)
+    return [e for e in events
+            if (e.get('pid') == pid and (host is None or e.get('host', host) == host))
+            or e.get('guest')]
