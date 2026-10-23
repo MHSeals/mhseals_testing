@@ -51,7 +51,7 @@ from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
-from mhseals_testing.ui import layout, popups, theme
+from mhseals_testing.ui import layout, perception, popups, theme
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
@@ -130,6 +130,7 @@ HELP = [
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('Space', 'Stop: neutral and disarm'),
     ('m', 'Manual control'),
+    ('V', 'Perception: pipeline, latency, drops and per-class rates'),
     ('+ / -', 'Trial amplitude'),
     ('x', 'Write the session report'),
     ('b / B', 'Mark the moment (journal) / add a note to the last marker'),
@@ -218,6 +219,7 @@ class App:
         self.cursors = {panel: 0 for panel in PANELS}
         self.activity = 'results'
         self.modal = None
+        self.facts = {}  # health facts by name; the perception probe fills perc.<source>.*
         self.running = None
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
@@ -701,6 +703,9 @@ class App:
 
     def dispatch(self, key):
         """Apply one key on the page."""
+        if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
+            self.perception_popup()
+            return
         raw, key = key, fold(key)
         if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
             return
@@ -888,6 +893,15 @@ class App:
         if procedure is not None:
             self.cursors['procedures'] = PROCEDURES.index(procedure)
             self.run_procedure(procedure)
+
+    def perception_popup(self):
+        """V: the perception view of ``self.facts`` (filled by the perception probe)."""
+        modal = perception.modal(self.facts)
+
+        def handle(key):
+            if not self.scroll(modal, fold(key), ('k', 'j')) and fold(key) in ('escape', 'q', 'v'):
+                return True
+        self.popup(modal, handle)
 
     def on_activity(self, key):
         if key == 'v':
