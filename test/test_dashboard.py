@@ -261,8 +261,12 @@ def test_thrusters_panel_drops_the_pin_column_at_60_columns():
     profile = load_profile('boat')
     page = text(render(monitor().snapshot(profile.required_tf),
                        view(profile, focus='thrusters', outputs='odroid'), 60, 24), 60, 24)
-    # The column header and rows, not the panel title, which may legitimately shorten at 60 columns.
-    rows = [line for line in page.splitlines() if ' Thr ' in line or '1500' in line]
+    # Only the panel's own cells, from its title border to its bottom border, so the status bar never matches.
+    lines = page.splitlines()
+    top = next(i for i, line in enumerate(lines) if '╭─' in line and 'Thrusters' in line)
+    left = lines[top].rindex('╭', 0, lines[top].index('Thrusters'))  # the panel's left border column
+    bottom = next(i for i in range(top, len(lines)) if lines[i][left:left + 1] == '╰')
+    rows = [line[left:] for line in lines[top + 1:bottom]]
     assert rows and '…' not in ''.join(rows) and 'Pin' not in ''.join(rows)
 
 
