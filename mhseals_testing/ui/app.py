@@ -1038,7 +1038,14 @@ def build_parser():
 
 def parse_args(argv=None):
     parser = build_parser()
-    args = configure_args(parser, argv)  # adds --config and the merged hardware_config
+    try:
+        args = configure_args(parser, argv)  # adds --config and the merged hardware_config
+    except (OSError, ValueError, TypeError, yaml.YAMLError) as error:
+        # Refuse to start on a broken hardware YAML, naming the file instead of a traceback.
+        probe = argparse.ArgumentParser(add_help=False)
+        probe.add_argument('--config')
+        path = config_path(probe.parse_known_args(argv)[0].config)
+        parser.error(f'{path}: {error}')
     profile = load_profile(args.profile)
     if args.velocity_control:
         profile = profile.with_velocity_control()

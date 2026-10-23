@@ -1092,3 +1092,20 @@ def test_mid_write_operator_config_never_reaches_the_armed_snapshot(tmp_path):
         app.watch_config()  # unchanged on two polls, so now it is applied
     snapshot = yaml.safe_load(app.paths.hardware.read_text())
     assert snapshot['channel_map'] == [3, 1, 2, 4] and snapshot['reversed'] == [True, False, False, True]
+
+
+@pytest.mark.parametrize('text, message', [
+    ('reversed: [true, false', 'hardware.yaml'),
+    ('- 1\n- 2\n', 'mapping'),
+    ('channel_map: [0, 0, 1, 2, 3, 4, 5, 6]\n', 'permutation'),
+    ('no_such_setting: 1\n', 'unknown hardware settings'),
+])
+def test_parse_args_broken_hardware_yaml_names_the_file(tmp_path, capsys, text, message):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(text)
+    for argv in (['--config', str(path)], [f'--config={path}']):
+        with pytest.raises(SystemExit) as exit_info:
+            parse_args(argv)
+        assert exit_info.value.code == 2
+        err = capsys.readouterr().err
+        assert str(path) in err and message in err and 'Traceback' not in err
