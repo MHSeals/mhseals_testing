@@ -6,6 +6,7 @@ dataclass, so unknown or missing keys fail when the config loads.
 
 import dataclasses
 import importlib
+import math
 import pkgutil
 
 
@@ -54,7 +55,8 @@ def build_params(name, raw):
 def fits(value, wanted):
     """True when ``value`` is a ``wanted`` scalar (ints count as floats, bools only as bools)."""
     if wanted is float:
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        return (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value))
     return isinstance(value, wanted) and (wanted is bool or not isinstance(value, bool))
 
 

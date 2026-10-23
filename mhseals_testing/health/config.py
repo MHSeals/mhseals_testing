@@ -25,6 +25,7 @@ SPEC_TYPES = {'enabled': bool, 'raise_after': float, 'clear_after': float,    # 
 RESULT_FIELDS = ('value', 'detail', 'label', 'status')           # known to message templates
 ID_PATTERN = re.compile(r'[a-z0-9_]+(\.[a-z0-9_]+)*')
 FIELD = re.compile(r'\{(\w+)\}')
+TEMPLATE = re.compile(r'\{(\w+)(:[^{}!]*)?\}')    # {name} or {name:format-spec}
 
 
 class ConfigError(ValueError):
@@ -54,8 +55,15 @@ class HealthConfig:
 
 
 def render(template, **fields):
-    """Fill ``{name}`` from ``fields``; unknown names are left as written."""
-    return FIELD.sub(lambda m: str(fields[m[1]]) if m[1] in fields else m[0], template)
+    """Fill ``{name}`` and ``{name:spec}`` from ``fields``; unknown names or bad specs stay as written."""
+    def fill(match):
+        if match[1] not in fields:
+            return match[0]
+        try:
+            return format(fields[match[1]], (match[2] or ':')[1:])
+        except (ValueError, TypeError):
+            return match[0]
+    return TEMPLATE.sub(fill, template)
 
 
 RUNTIME_KEYS = ('message', 'hint')
@@ -136,6 +144,9 @@ def _spec(raw):
         if key in SPEC_TYPES and not (key == 'raise_after' and value is None) \
                 and not registry.fits(value, SPEC_TYPES[key]):
             raise ConfigError(f'{where}: {key} {value!r} must be {SPEC_TYPES[key].__name__}')
+    for key in ('raise_after', 'clear_after'):
+        if fields.get(key) is not None and fields[key] < 0:
+            raise ConfigError(f'{where}: {key} {fields[key]!r} must not be negative')
     if not isinstance(fields.get('when', {}), dict):
         raise ConfigError(f'{where}: when must be a mapping')
     try:
@@ -145,6 +156,8 @@ def _spec(raw):
     for key in ('show', 'gates', 'profiles'):
         value = fields.get(key, ())
         fields[key] = (value,) if isinstance(value, str) else tuple(value)
+        if not all(isinstance(item, str) for item in fields[key]):
+            raise ConfigError(f'{where}: {key} entries must be strings')
     fields.setdefault('title', fields['id'].replace('.', ' '))
     try:
         return CheckSpec(params=params, **fields)
@@ -273,9 +286,9 @@ def lint(specs, procedures=(), unmatched=()):
         known = {*RESULT_FIELDS, *vars(spec.params), *registry.KINDS[spec.kind].fields}
         for text in (spec.message, spec.hint):
             for chunk in re.findall(r'\{([^{}]*)\}', text):
-                if not re.fullmatch(r'\w+', chunk):
+                if not re.fullmatch(r'\w+(:[^{}!]*)?', chunk):
                     add(f'template field {{{chunk}}} may not index or call')
-                elif chunk not in known and not _named_group(spec, chunk):
+                elif (name := chunk.split(':')[0]) not in known and not _named_group(spec, name):
                     add(f'template field {{{chunk}}} is unknown')
     return problems
 

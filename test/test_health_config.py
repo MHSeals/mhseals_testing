@@ -194,3 +194,23 @@ def test_field_types_fail_at_load(tmp_path, field):
 def test_numeric_fields_accept_ints_and_null_raise_after(tmp_path):
     spec, = specs(tmp_path, "checks: [{id: a, kind: rate, topic: /t, hz: 5, clear_after: 2, raise_after: null}]").specs
     assert (spec.params.hz, spec.clear_after, spec.raise_after) == (5, 2, None)
+
+
+def test_format_specs_lint_and_render(tmp_path):
+    config = specs(tmp_path, """
+checks:
+  - {id: a, kind: rate, topic: /t, message: '{label} {value:+.3f}s, {value:.0%} lost, {topic.x} {value:!r}'}
+""")
+    problems = lint(config.specs, procedures=[])
+    assert sum('may not index' in p for p in problems) == 2
+    assert render('{label} {value:+.3f}s {value:.0%}', label='clk', value=0.5) == 'clk +0.500s 50%'
+    assert render('{value:.2f} {value:z} {gone:.1f}', value='text') == '{value:.2f} {value:z} {gone:.1f}'
+
+
+@pytest.mark.parametrize('line', [
+    'raise_after: -1', 'clear_after: -2', 'raise_after: .nan', 'clear_after: .inf', 'hz: .nan',
+    'hz: -.inf', 'show: [1]',
+])
+def test_loader_rejects_non_finite_and_bad_entries(tmp_path, line):
+    with pytest.raises(ConfigError):
+        specs(tmp_path, f'checks: [{{id: a, kind: rate, topic: /t, {line}}}]')
