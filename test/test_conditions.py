@@ -361,10 +361,20 @@ def noise_free_step(jump):
     return tuple(np.concatenate(p) for p in zip(first, second))
 
 
-def test_a_millimetre_step_in_noise_free_sim_is_changed_but_not_material():
+def test_a_millimetre_step_in_noise_free_sim_is_not_a_change_and_not_material():
     est = c.estimate(windows_of(noise_free_step(0.003)), S)
-    assert est.state == 'changed' and est.size == pytest.approx(0.003, abs=5e-4)
+    assert est.state != 'changed' and est.drift is not None and not est.material(S)
+
+
+def test_a_slow_sub_practical_ramp_keeps_its_pool_and_drift():
+    est = c.estimate(windows_of(neutral(80, sigma=0.0, ramp=(1e-4, 0))), S)   # 8 mm over 80 s
+    assert est.state in ('steady', 'trending') and est.drift is not None and len(est.pool) == 10
     assert not est.material(S)
+
+
+def test_a_practical_step_size_excludes_the_first_outlier_from_before():
+    est = c.estimate(windows_of(noise_free_step(0.05)), S)
+    assert est.size == pytest.approx(0.05, abs=2e-3)
 
 
 def test_a_practical_step_is_material():
