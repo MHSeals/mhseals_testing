@@ -132,9 +132,21 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         return _within(tuple(base[sign][3 * k + axis] for k in cross_axes(axis)), room)
 
     survey, start = {}, None
+    conditions, water = ctx.services.get('conditions'), None
     with ctx.motion('characterization', directions=1 if only else 6) as runner:
+        if conditions:
+            # Step 1: rate the water at neutral. This gates the start only, never the survey itself.
+            start = runner.hold(NEUTRAL, settings.neutral, 'conditions')
+            water = conditions.summary(runner.clock())
+            if water['verdict'] == 'poor':
+                runner.stop()
+                refusal = dict(procedure='characterization', verdict='ABORTED', conditions=water,
+                               reason=f'conditions poor: {water["reason"]}')
+                ctx.record(refusal)
+                return refusal
         if only is None:
-            start = runner.hold(NEUTRAL, cfg['neutral_s'], 'neutral')
+            if water is None:
+                start = runner.hold(NEUTRAL, cfg['neutral_s'], 'neutral')
             windows.append((NEUTRAL, *start))
             # Wiring gate: the first hold of each axis must move the boat the right way.
             for level in (hi, lo):
@@ -175,6 +187,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     summary = dict(procedure='characterization', directions={
         name: {key: (list(value) if isinstance(value, tuple) else value)
                for key, value in found.items()} for name, found in refined.items()}, holds=holds)
+    if water:
+        summary['conditions'] = water
     result = None
     if only is None:
         # Holds touched by an override (the interrupted one included) never reach the fit.

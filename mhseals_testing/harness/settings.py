@@ -84,6 +84,7 @@ SPECS = (
     Spec('nav_distance', 4.0, low=1, high=50, step=1, group='Navigation', note='waypoint square side, m'),
     Spec('station_hold', 60.0, low=10, high=600, step=10, group='Navigation', note='station keeping, s'),
     Spec('station_tolerance', 1.5, low=0.2, high=10, step=0.1, group='Navigation', note='radius, m'),
+    _timing('neutral', 20.0, 'characterization: neutral s to rate the water first'),
     Spec('direction', '', str, group='Trials', reset=True,
          note='characterization: re-refine only this column, e.g. sway+'),
 )

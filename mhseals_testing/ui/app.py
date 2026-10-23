@@ -33,6 +33,7 @@ from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
+from mhseals_testing.harness.conditions import Conditions
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health import legacy as health
@@ -182,6 +183,7 @@ class App:
         self.console = console or Console()
         self.arming = arming
         self.plant = plant
+        self.conditions = Conditions()      # fed by the ingest path (ts054); unfed it reads unknown
         self.open_keys = open_keys
         self.live_factory = live
         self.clock = clock
@@ -472,7 +474,8 @@ class App:
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
-                              self.args.hardware_config, journal_events=journal.read(self.paths.journal))
+                              self.args.hardware_config, journal_events=journal.read(self.paths.journal),
+                              conditions=self.conditions.summary())
         path = write_report(report, self.paths.report)
         self.notice = f'Report saved: {path}'
         return path
@@ -1127,7 +1130,8 @@ class App:
         return host.context(
             self, self.profile, self.monitor, self.settings, self.args.stale_after,
             dict(
-                nav2=self.nav2, task_watcher=self.task_watcher, start=self.processes.start,
+                conditions=self.conditions, nav2=self.nav2, task_watcher=self.task_watcher,
+                start=self.processes.start,
                 running=self.processes.running, stop=self.processes.stop,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
