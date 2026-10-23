@@ -873,7 +873,7 @@ def test_children_die_with_the_suite(tmp_path):
 
 
 @pytest.mark.parametrize('focus', ['status', 'motion', 'procedures', 'activity', 'thrusters'])
-@pytest.mark.parametrize('key', ['f', 'b'])
+@pytest.mark.parametrize('key', ['f'])
 def test_characterize_shortcut_reaches_procedure_from_every_panel(tmp_path, focus, key):
     app, _ = make_app(tmp_path)
     app.focus = focus

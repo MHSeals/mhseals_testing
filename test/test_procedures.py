@@ -23,3 +23,8 @@ def test_availability_reasons():
     assert unavailable(procedure('velocity'), boat.with_velocity_control(), armed=True) == ''
     assert 'ODROID' in unavailable(procedure('hardware'), load_profile('crane_full_stack'), True)
     assert 'bench' in unavailable(procedure('sensors'), boat, True, bench_override=True)
+
+
+def test_thruster_balance_is_not_registered():
+    from mhseals_testing.procedures import PROCEDURES
+    assert 'b' not in {p.key for p in PROCEDURES}
