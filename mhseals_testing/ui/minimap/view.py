@@ -8,17 +8,24 @@ canvas in metres; half-width is horizontal, and canvas dots are square.
 import math
 
 FIT = 'fit'
-LADDER = (FIT, 5, 10, 20, 40, 80)  # half-width in m, `z` steps right and `Z` left
+PRESETS = (5, 10, 20, 40, 80)  # half-width presets in m; `z` zooms in, `Z` out, `0` back to FIT
 MARGIN = 0.10  # per side, around the fitted box
 MIN_HALF = 5.0  # m, so a one-point course does not fit to nothing
 SCALE_CELLS = (4, 10)  # the scale bar spans this many cells
 NICE = (1, 2, 5)  # leading digits of a scale-bar length
 
 
-def zoom_step(zoom, direction):
-    """The next ladder entry in or out of ``zoom``, staying on the ladder's ends."""
-    i = LADDER.index(zoom) + (1 if direction > 0 else -1)
-    return LADDER[min(max(i, 0), len(LADDER) - 1)]
+def zoom_step(zoom, direction, fit_half=MIN_HALF):
+    """The preset half-width one step in (``direction`` > 0) or out of ``zoom``.
+
+    ``zoom`` is FIT, using ``fit_half`` as its half-width, or any half-width in metres.
+    In picks the largest preset below it and stops at the smallest; out picks the next
+    larger and stops at the largest. Returning to FIT is the caller's `0`.
+    """
+    half = fit_half if zoom == FIT else zoom
+    if direction > 0:
+        return max((p for p in PRESETS if p < half), default=PRESETS[0])
+    return min((p for p in PRESETS if p > half), default=PRESETS[-1])
 
 
 def fit(points, dots_wide, dots_high):

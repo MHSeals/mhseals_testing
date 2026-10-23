@@ -6,11 +6,18 @@ import pytest
 from mhseals_testing.ui.minimap import view
 
 
-def test_zoom_ladder_stops_at_both_ends():
-    assert view.zoom_step(view.FIT, 1) == 5
-    assert view.zoom_step(5, -1) == view.FIT
-    assert view.zoom_step(view.FIT, -1) == view.FIT
-    assert view.zoom_step(80, 1) == 80
+def test_z_zooms_in_to_a_smaller_half_width_and_Z_out_to_a_larger():
+    assert view.zoom_step(20, 1) == 10
+    assert view.zoom_step(20, -1) == 40
+    assert view.zoom_step(view.FIT, 1, fit_half=28) == 20
+    assert view.zoom_step(view.FIT, -1, fit_half=28) == 40
+
+
+def test_zoom_stops_at_both_ends_and_accepts_off_ladder_widths():
+    assert view.zoom_step(5, 1) == 5
+    assert view.zoom_step(80, -1) == 80
+    assert view.zoom_step(7, 1) == 5
+    assert view.zoom_step(7, -1) == 10
 
 
 def test_fit_holds_every_point_with_the_margin():
