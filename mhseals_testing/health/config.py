@@ -47,6 +47,22 @@ def _health_dir():
 HEALTH_DIR = _health_dir()
 
 
+def share_dir(package):
+    """A package's share directory: installed, else the sibling checkout in the same workspace."""
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return Path(get_package_share_directory(package))
+    except (ImportError, KeyError, LookupError):
+        return Path(__file__).resolve().parents[2].parent / package
+
+
+class Share:
+    """Fills ``{share:mhseals_nav}`` in YAML with that package's share directory."""
+
+    def __format__(self, package):
+        return str(share_dir(package))
+
+
 @dataclasses.dataclass(frozen=True)
 class HealthConfig:
     specs: tuple
@@ -205,7 +221,7 @@ def load(directory=None, profile=None, user=None):
     if user is None and directory == HEALTH_DIR:
         user = USER_FILE
     registry.discover()
-    context = profile_context(profile)
+    context = {**profile_context(profile), 'share': Share()}
     raws, probes = [], {}
     for path in sorted(directory.glob('*.yaml')):
         data = _read(path)
