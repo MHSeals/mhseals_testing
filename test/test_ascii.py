@@ -22,6 +22,16 @@ for width, height in ((160, 50), (120, 40), (100, 30), (80, 24), (40, 12), (10, 
     sys.stdout.write(text(render(snapshot, view(profile, armed=True, test_pulses=[1600, 1500, 1400, 1500],
                                       pwm_readback=[theme.DASH] * 4),
                                  width, height), width, height))
+# The app's own hint lists, Help popup and a choose popup (literals that bypass the dashboard).
+from types import SimpleNamespace
+from mhseals_testing.ui import app
+from mhseals_testing.ui.dashboard import popup
+choice = app.App.choose(SimpleNamespace(popup=lambda modal, handle: modal), 'Pick', ['one', 'two'])
+help_rows = dict(kind='message', title='Help', rows=app.HELP)
+for hints in [app.MANUAL_HINTS, *app.PANEL_HINTS.values()]:
+    sys.stdout.write(text(render(snapshot, view(profile, hints=hints + app.GLOBAL_HINTS, pwm_readback=[theme.DASH] * 4), 200, 40), 200, 40))
+for modal in (choice, help_rows):
+    sys.stdout.write(text(popup(modal, 100)[0], 100, 40))
 sys.stdout.write(str(theme.ASCII))
 """
 

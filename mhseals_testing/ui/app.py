@@ -73,23 +73,25 @@ def decoupled(config):
 
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
+UPDOWN, LEFTRIGHT = theme.pick('↑↓', 'Up/Down'), theme.pick('←→', 'Left/Right')
+MICRO, PLUSMINUS = theme.pick('µ', 'u'), theme.pick('±', '+/-')
 GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm panel'), ('Space', 'Stop'), ('?', 'Help'),
                 ('q', 'Quit')]
 PANEL_HINTS = {
-    'status': [('↑↓', 'Select'), ('Enter', 'Details')],
+    'status': [(UPDOWN, 'Select'), ('Enter', 'Details')],
     'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
-    'thrusters': [('←→', 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
+    'thrusters': [(LEFTRIGHT, 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
                   ('c', 'Clear decoupling')],
-    'procedures': [('Enter', 'Run'), ('↑↓', 'Select')],
+    'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
-MANUAL_HINTS = [('W/S ↑↓', 'Surge'), ('A/D', 'Sway'), ('←→', 'Yaw'), ('+/-', 'Speed'),
+MANUAL_HINTS = [(f'W/S {UPDOWN}', 'Surge'), ('A/D', 'Sway'), (LEFTRIGHT, 'Yaw'), ('+/-', 'Speed'),
                 ('Space', 'Stop'), ('x / Esc', 'Leave manual')]
 HELP = [
     ('Ctrl h j k l / arrows', 'Focus the panel to the left, below, above, right'),
     ('Tab / Shift Tab', 'Cycle focus through the panels'),
-    ('↑↓ / j k', 'Move within the focused panel'),
+    (f'{UPDOWN} / j k', 'Move within the focused panel'),
     ('Procedure keys', 'Run from any panel; focused-panel edit keys take precedence'),
     ('Enter', 'Run, open or show details'),
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
@@ -97,9 +99,10 @@ HELP = [
     ('m', 'Manual control'),
     ('+ / -', 'Trial amplitude'),
     ('x', 'Write the session report'),
-    ('Thrusters ←→', f'Test pulse ±{PULSE_STEP} µs on the selected thruster (armed)'),
+    (f'Thrusters {LEFTRIGHT}',
+     f'Test pulse {PLUSMINUS}{PULSE_STEP} {MICRO}s on the selected thruster (armed)'),
     ('Thrusters 0', 'All test pulses back to neutral'),
-    ('Thrusters Enter', 'Pick up the thruster; ↑↓ moves it, Enter drops it'),
+    ('Thrusters Enter', f'Pick up the thruster; {UPDOWN} moves it, Enter drops it'),
     ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
     ('Thrusters s / u', 'Save the draft to the config (hot-reloaded) / undo it'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
@@ -609,7 +612,7 @@ class App:
             self.clear_pulses('Test pulses neutral')
         elif key == 'enter':
             self.grabbed = None if self.grabbed is not None else position
-            self.notice = ('Moving ' + dashboard.POSITIONS[position].upper() + '; ↑↓ moves it, '
+            self.notice = ('Moving ' + dashboard.POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
                            'Enter drops' if self.grabbed is not None else 'Dropped')
         elif key in ('1', '2', '3', '4'):
             other = channel_map.index(int(key))
@@ -662,7 +665,7 @@ class App:
         pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
         self.test_pulses = pulses
         self.ros.emit('test_pulses', pulses=pulses)
-        self.notice = f'Testing output {output + 1}: {pulses[output]} {theme.pick('µs', 'us')}; 0 or Tab ends'
+        self.notice = f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends'
 
     def clear_pulses(self, notice=None):
         if self.test_pulses is not None:
@@ -717,7 +720,8 @@ class App:
                selected=0, width=64):
         modal = dict(kind='choice', title=title, message=message, options=list(options),
                      selected=selected, danger=danger, rows=rows, width=width,
-                     hint='↑↓ select · Enter choose · Esc cancel', keys=[None] * len(options))
+                     hint=theme.SEPARATOR.join((f'{UPDOWN} select', 'Enter choose', 'Esc cancel')),
+                     keys=[None] * len(options))
         for key, index in (shortcuts or {}).items():
             modal['keys'][index] = key
 
