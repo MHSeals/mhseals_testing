@@ -13,7 +13,7 @@ GET, UBXMessage, UBXReader = pyubx2.GET, pyubx2.UBXMessage, pyubx2.UBXReader
 calc_crc24q = pyrtcm.calc_crc24q
 
 from mhseals_testing.rtk import (BaseSession, DEFAULTS, Radio, base_commands, coordinates, fragments,
-                                 load_config, save_config, split_position)
+                                 load_config, rtcm_reader, save_config, split_position)
 
 
 def rtcm_frame(number=1005):
@@ -118,10 +118,24 @@ def test_reader_drops_a_corrupt_frame_and_keeps_the_good_one():
     frame = rtcm_frame()
     errors = []
     bad = frame[:-1] + bytes([frame[-1] ^ 1])
-    reader = UBXReader(io.BytesIO(bad + frame), protfilter=7, quitonerror=1, errorhandler=errors.append)
+    reader = rtcm_reader(io.BytesIO(bad + frame), protfilter=7, quitonerror=1, errorhandler=errors.append)
     raw, message = reader.read()
     assert raw == frame and message.identity == '1005'
     assert len(errors) == 1
+
+
+def test_reader_forwards_a_crc_valid_frame_pyrtcm_cannot_decode():
+    # An MSM4 header with a truncated body: valid CRC24Q, but pyrtcm cannot walk it.
+    frame = rtcm_frame(1074)
+    payload = (1074 << 12 | 1).to_bytes(3, 'big')
+    body = b'\xd3\0' + bytes([len(payload)]) + payload
+    body += calc_crc24q(body).to_bytes(3, 'big')
+    with pytest.raises(Exception):
+        UBXReader(io.BytesIO(body), protfilter=7, quitonerror=2).read()
+    errors = []
+    raw, message = rtcm_reader(io.BytesIO(body + frame), protfilter=7, quitonerror=1,
+                               errorhandler=errors.append).read()
+    assert raw == body and message.identity == '1074' and not errors
 
 
 def test_config_and_negative_high_precision_coordinates_round_trip(tmp_path):

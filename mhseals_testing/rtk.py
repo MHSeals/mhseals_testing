@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 
 import yaml
 
@@ -176,6 +177,27 @@ class Radio:
         self.link.close()
 
 
+def rtcm_reader(port, **options):
+    """UBXReader that gates RTCM3 on its CRC24Q alone, so a body pyrtcm cannot decode is still forwarded."""
+    from pyubx2 import UBXReader
+    from pyrtcm import calc_crc24q
+    from pyrtcm.exceptions import RTCMParseError
+
+    class Reader(UBXReader):
+        def _parse_rtcm3(self, header):
+            # Metadata-only parsing skips pyrtcm's decode (and its CRC check); UBX stays fully parsed.
+            full, self._parsing = self._parsing, 2
+            try:
+                raw, _ = super()._parse_rtcm3(header)
+            finally:
+                self._parsing = full
+            if calc_crc24q(raw[:-3]) != int.from_bytes(raw[-3:], 'big'):
+                raise RTCMParseError('RTCM3 CRC24Q mismatch')
+            return raw, SimpleNamespace(identity=str(int.from_bytes(raw[3:5], 'big') >> 4))
+
+    return Reader(port, **options)
+
+
 class BaseSession:
     """Reads one base receiver and calls each sink as sink(frame, stamp) per RTCM3 frame.
 
@@ -244,15 +266,14 @@ class BaseSession:
         identified = False
         try:
             import serial
-            from pyubx2 import UBXReader
             while not self.stopped.is_set():
                 try:
                     if serial_port is None:
                         self.update(phase='connecting', detail='opening ' + self.config['device'], survey=None)
                         serial_port = serial.Serial(self.config['device'], 115200, timeout=.2,
                                                     write_timeout=1, exclusive=True)
-                        reader = UBXReader(serial_port, protfilter=7, quitonerror=1,
-                                           errorhandler=lambda _: self.count('errors'))
+                        reader = rtcm_reader(serial_port, protfilter=7, quitonerror=1,
+                                             errorhandler=lambda _: self.count('errors'))
                         model = self._identify(serial_port, reader)
                         identified = True
                         if self.configure:
