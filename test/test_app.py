@@ -328,6 +328,21 @@ def test_space_aborts_motion_and_disarms(tmp_path):
     assert any('cancelled' in message for _, message in app.monitor.events)
 
 
+def test_space_still_disarms_when_the_hold_request_fails(tmp_path):
+    app, boat = make_app(tmp_path, keys=['space', 'q'])
+
+    def broken(cause='keys'):
+        raise RuntimeError('publisher gone')
+
+    boat.hold = broken
+    app.arming.armed = True
+    try:
+        app.dispatch('space')
+    except RuntimeError:
+        pass
+    assert not app.armed and boat.sent[-1] == 'neutral'
+
+
 def test_lost_sensors_mid_trial_stop_the_boat(tmp_path):
     app, boat = make_app(tmp_path, keys=['f'])
     press(app, 'enter', 'y')
