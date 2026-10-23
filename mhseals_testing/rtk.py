@@ -15,6 +15,8 @@ from types import SimpleNamespace
 
 import yaml
 
+from mhseals_testing import data
+
 DEFAULTS = dict(device='', radio='', radio_baud=57600, survey_seconds=120,
                 survey_accuracy=2.0, positions={})
 
@@ -49,12 +51,16 @@ def load_config(path=None):
 
 
 def save_config(config, path=None):
-    """Write beside the target and rename, so a crash never leaves half a file."""
+    """Write atomically (fsync, rename) and log the change; a hand edit before it is logged as external."""
     path = Path(path or config_path())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(yaml.safe_dump(config, sort_keys=False))
-    temporary.replace(path)
+    versioned = path == config_path()       # an explicit scratch path is not the versioned file
+    if versioned:
+        from mhseals_testing.history import History, adapters
+        history = History()
+        adapters.observe_file(history, 'rtk', path)
+    data.atomic_write(path, yaml.safe_dump(config, sort_keys=False))
+    if versioned:
+        adapters.record_file(history, 'rtk', 'tui:rtk', path)
 
 
 def coordinates(position):

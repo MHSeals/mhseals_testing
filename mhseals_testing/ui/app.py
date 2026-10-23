@@ -38,6 +38,7 @@ from mhseals_testing.health import legacy as health
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.journal import Journal
+from mhseals_testing.history import History, adapters
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
@@ -213,6 +214,7 @@ class App:
         self.closed = False
         self.started = clock()
         self.config_file = config_path(args.config)
+        self.history = History()
         self.config_mtime = self.config_seen = self.mtime()
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
 
@@ -379,16 +381,25 @@ class App:
                       channel_map=list(self.args.hardware_config['channel_map']),
                       reversed=list(self.args.hardware_config['reversed']))
 
+    def warn_history(self, message):
+        self.notice = message
+
+    def observe_config(self):
+        """At start: log config files edited since the last session as external changes."""
+        adapters.observe_all(self.history, {'hardware': self.config_file}, self.warn_history)
+
     def save_hardware(self, **changes):
         """Write ``changes`` into the operator's hardware YAML; the watcher applies it.
 
         Returns False, keeping the draft, when the file on disk is broken.
         """
+        adapters.observe_file(self.history, 'hardware', self.config_file, self.warn_history)   # a hand edit first
         try:
             update_config(changes, self.args.config)
         except (OSError, ValueError, TypeError, yaml.YAMLError):
             self.notice = f'Fix hardware.yaml first: {self.config_file}'
             return False
+        adapters.record_file(self.history, 'hardware', 'tui:hardware', self.config_file, self.warn_history)
         self.draft = self.grabbed = None
         self.config_mtime = None  # reload on the next tick even within one mtime tick
         self.watch_config()
@@ -1345,6 +1356,7 @@ def main(argv=None):
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))
+            app.observe_config()
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')

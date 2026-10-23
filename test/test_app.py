@@ -1363,3 +1363,24 @@ def test_clear_decoupling_also_clears_the_negative_matrix(tmp_path):
     saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
     assert saved.get('decoupling_negative') is None
     assert decoupled(app.args.hardware_config) is None
+
+
+
+
+def test_save_hardware_records_after_logging_a_hand_edit(tmp_path):
+    app, _ = make_app(tmp_path)
+    (tmp_path / 'hardware.yaml').write_text('frequency: 50.0\nchannel_map: [4, 3, 2, 1]\n')   # hand edit
+    assert app.save_hardware(channel_map=[2, 1, 3, 4])
+    changes = app.history.changes('hardware')
+    assert [c['source'] for c in changes] == ['external', 'tui:hardware']
+    assert app.history.version(changes[-1])['value']['overrides']['channel_map'] == [2, 1, 3, 4]
+
+
+def test_arming_copy_is_never_recorded(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    with app.attached():
+        arm(app)
+        app.save_hardware(channel_map=[2, 1, 3, 4])
+        app.tick()                                  # reload copies the config for the driver
+        assert app.paths.hardware.exists()
+        assert [c['source'] for c in app.history.changes()] == ['external', 'tui:hardware']   # the first file seen, then our write
