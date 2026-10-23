@@ -23,7 +23,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing.harness import recwatch
-from mhseals_testing.ui import chrome, theme
+from mhseals_testing.ui import chrome, scrubber, theme
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels.motion import motion_panel
@@ -133,6 +133,12 @@ def fit_hints(hints, capacity):
     return rest[:max(capacity - len(pinned), 0)] + pinned[-capacity:]
 
 
+def playing(view):
+    """The ui.review.Review being played, or None (``review: True`` only asks for the chip)."""
+    review = view.get('review')
+    return review if review and not isinstance(review, bool) else None
+
+
 def footer(view, width):
     status = Table.grid(expand=True, padding=(0, 1))
     status.add_column(ratio=4, no_wrap=True, overflow=theme.OVERFLOW)
@@ -142,6 +148,9 @@ def footer(view, width):
     if position:
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
     status.add_row(focus, Text(view['notice'], style=MUTED))
+    review = playing(view)
+    if review:  # the scrubber rows take the status line's place; the notice rides on their last row
+        status = Group(*scrubber.rows(review, width, view['notice']))
     hints = view['hints']
     columns = 4 if width >= WIDE else 3 if width >= 60 else 2
     grid = Table.grid(expand=True)
@@ -263,10 +272,11 @@ def too_small(view):
 def render(snapshot, view, width=120, height=34):
     if width < MIN_SIZE[0] or height < MIN_SIZE[1]:
         return too_small(view)
-    body_height = max(5, height - 5)
+    extra = scrubber.ROWS - 1 if playing(view) else 0   # the scrubber's rows below the footer line
+    body_height = max(5, height - 5 - extra)
     layout = Layout()
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
-                        Layout(footer(view, width), size=3))
+                        Layout(footer(view, width), size=3 + extra))
     body = layout['body']
     if view.get('tab', TABS[0]) != TABS[0]:
         body.update(theme.block(Text(f"{view['tab']} is not built yet", style=MUTED), view['tab'], True))

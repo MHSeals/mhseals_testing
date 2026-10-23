@@ -56,6 +56,7 @@ from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import odometry, pins
+from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
 from mhseals_testing.ui.source import LiveSource
 from mhseals_testing.ui.takeover import decide
 
@@ -112,6 +113,11 @@ PANEL_HINTS = {
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
+REVIEW_HINTS = [('p', 'Play/pause'), (f'{LEFTRIGHT} {{ }}', 'Seek 5 s / 30 s'),
+                (', .', 'Prev/next mark'), ('< >', 'Rate'), ('Esc', 'Leave review'),
+                ('?', 'Help'), ('q', 'Quit')]
+REVIEW_KEYS = {'left': (SMALL, -1), 'h': (SMALL, -1), 'right': (SMALL, 1), 'l': (SMALL, 1),
+               'shift-left': (BIG, -1), '{': (BIG, -1), 'shift-right': (BIG, 1), '}': (BIG, 1)}
 MANUAL_HINTS = [(f'W/S {UPDOWN}', 'Surge'), ('A/D', 'Sway'), (LEFTRIGHT, 'Yaw'), ('+/-', 'Speed'),
                 ('Space', 'Stop'), ('x / Esc', 'Leave manual')]
 HELP = [
@@ -173,11 +179,13 @@ class App:
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
-                 facts=None, source=None, nav2_file=None):
+                 facts=None, source=None, nav2_file=None,
+                 review=None):
         self.args = args
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
         self.foreign_seen, self.guests_seen = {}, set()
+        self.review = review     # a ui.review.Review while a past session plays; live work is off
         self.profile = profile
         self.monitor = monitor
         self.ros = ros
@@ -222,6 +230,7 @@ class App:
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
         self.last_frame = 0.0
+        self.last_tick = clock()
         self.quit = False
         self.closed = False
         self.started = clock()
@@ -317,6 +326,10 @@ class App:
     # --- background work, every tick ---------------------------------------------
 
     def tick(self):
+        if self.review:
+            self.review.tick(self.clock(), self.clock() - self.last_tick)
+            self.last_tick = self.clock()
+            return
         self.source.tick(self.clock())
         if not self.source.live:
             return  # replay: no host reads, config watching or driving
@@ -462,8 +475,9 @@ class App:
         notice = self.notice if not blockers or self.running else (
             f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
-        hints = MANUAL_HINTS if self.manual else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS
-        if self.nav2_file is not None and self.focus == 'status' and not self.manual:
+        hints = (REVIEW_HINTS if self.review else MANUAL_HINTS if self.manual
+                 else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS)
+        if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         return dict(
             tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
@@ -480,7 +494,7 @@ class App:
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
             draft=self.draft, grabbed=self.grabbed,
-            config_note=self.config_note,
+            config_note=self.config_note, review=self.review,
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
 
@@ -567,6 +581,9 @@ class App:
     # --- quitting ------------------------------------------------------------------
 
     def confirm_quit(self):
+        if self.review:
+            self.quit = True
+            return
         """Say what quitting does, and offer to keep an unsaved mapping."""
         rows = [('Outputs', 'neutral, then disarm' if self.armed else 'already disarmed'),
                 ('Recording', f'flush {self.paths.bag}'),
@@ -597,6 +614,8 @@ class App:
         if self.closed:
             return
         self.closed = True
+        if self.args.review is not None:
+            return  # nothing of ours to flush; the session's report must not be rewritten
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
                  ('Report', self.close_report), ('Recording', self.close_recording)]
         if self.detaching:   # the children and the recording go on under the next owner
@@ -681,6 +700,8 @@ class App:
     def dispatch(self, key):
         """Apply one key on the page."""
         raw, key = key, fold(key)
+        if self.review and self.dispatch_review(key):
+            return
         panels = self.panels()
         if key in ('[', ']'):
             self.switch_tab(-1 if key == '[' else 1)
@@ -772,6 +793,42 @@ class App:
             elif len(key) == 1 and key.isprintable():
                 modal['text'] += key
         return self.popup(modal, handle) or None
+
+    # --- review ---------------------------------------------------------------------
+
+    def dispatch_review(self, key):
+        """Review's own keys (context global -> review). True when the key was consumed.
+
+        Keys that would act on the boat (arm, procedures, export) are refused here, so the
+        live paths never see them; focus, help and quit fall through to the page.
+        """
+        review, now = self.review, self.clock()
+        if key in REVIEW_KEYS:
+            seconds, sign = REVIEW_KEYS[key]
+            review.seek(sign * seconds, now)
+        elif key in (',', '.'):
+            review.jump(-1 if key == ',' else 1, now)
+        elif key in ('<', '>'):
+            review.faster(-1 if key == '<' else 1)
+        elif key in ('p', 'space'):
+            review.pause() if key == 'space' else review.toggle()
+        elif key == 'escape':
+            self.leave_review()
+        elif key == 'q':
+            self.quit = True
+        elif key == 'a' or key in {p.key for p in PROCEDURES} or key in ('x', 'm', '+', '=', '-', '_'):
+            self.notice = 'Review: arming, procedures and edits are off'
+        else:
+            return False
+        return True
+
+    def leave_review(self):
+        """Back to live; a session opened with --review has no live to return to, so it quits."""
+        if self.args.review is not None:
+            self.quit = True
+        else:
+            self.review = None
+            self.notice = 'Left review'
 
     # --- panel keys --------------------------------------------------------------
 
@@ -987,6 +1044,9 @@ class App:
 
     def arm_panel(self):
         """One popup for both directions; Space still stops without it."""
+        if self.review:
+            self.notice = 'Review: arming is off'
+            return
         if not self.source.live:
             self.notice = 'Arming is disabled in review'
             return
@@ -1106,6 +1166,9 @@ class App:
         self.ros.emit('health_snapshot', procedure=procedure.key, **entry)
 
     def run_procedure(self, procedure):
+        if self.review:
+            self.notice = f'{procedure.title}: procedures are off in review'
+            return
         if not self.source.live:
             self.notice = 'Procedures are disabled in review'
             return
@@ -1304,6 +1367,9 @@ def build_parser():
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                         help='override a setting for this run (see harness/settings.py), e.g. '
                              'amplitude=0.4, command_mode=velocity, bench_override=on')
+    parser.add_argument('--review', nargs='?', const='', default=None, metavar='SESSION',
+                        help='play back a past session (path or name under the data root; '
+                             'default the newest) with no ROS node and no outputs')
     parser.add_argument('--output', type=Path, default=None,
                         help='session bag path (default $MHSEALS_DATA or <workspace>/bags, <profile>_<time>)')
     return parser
@@ -1359,8 +1425,24 @@ def detach(*_):
     raise Detach
 
 
+def review_main(args, profile):
+    """--review: the dashboard over a past session, with no ROS, bag recorder or outputs."""
+    try:
+        review = load_session(find_session(args.review))
+    except ValueError as error:
+        raise SystemExit(f'boat_test --review: {error}')
+    review.host = socket.gethostname()
+    console = Console()
+    offline = Offline()
+    app = App(args, profile, BoatMonitor(args.stale_after), offline, offline,
+              SessionPaths.from_output(args.output), console, review=review)
+    app.run()
+
+
 def main(argv=None):
     args, profile = parse_args(argv)
+    if args.review is not None:
+        return review_main(args, profile)
     # ROS imports stay here so the App (and its tests) never need rclpy.
     import rclpy
 

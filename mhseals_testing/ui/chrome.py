@@ -41,6 +41,10 @@ def deploy_item(deploy):
 
 
 def host_item(view, short=False):
+    review = view.get('review')
+    if review and hasattr(review, 'title'):     # a past session: its title and host, no domain
+        host = f'{review.title}{SEPARATOR}{review.host}'.strip(' ' + SEPARATOR)
+        return Text(review.host if short else host, style=MUTED)
     host = view['host'] if short else f"{view['host']}{SEPARATOR}ROS {view['domain']}"
     return Text(host, style=MUTED)
 
