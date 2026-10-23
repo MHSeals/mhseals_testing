@@ -91,7 +91,7 @@ def test_header_reads_track_percent_and_a_dash_when_gated():
 def test_short_header_below_44_columns_drops_the_label():
     tracking = dict(pred=[[], [], []], score=(0.91, None, 0.5), colour=['green', None, 'red'])
     out = panel(36, tracking)
-    assert 'Surge 91%   +60% → +0.20' in out and f'Sway {theme.DASH}  ' in out and 'track' not in out
+    assert f"Surge 91%   +60% {theme.pick('→', '->')} +0.20" in out and f'Sway {theme.DASH}  ' in out and 'track' not in out
 
 
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode golden')
