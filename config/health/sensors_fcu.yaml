@@ -1,0 +1,58 @@
+# Flight controller, compass and GPS checks. The `fcu` probe (health/probes/fcu.py) and
+# the `params` probe publish the facts. Read only: nothing here ever writes to the FCU.
+group: FCU
+probes:
+  fcu: {wmm_total_mG: 470}      # Fort Worth 32.61 N; per-site, change it at competition
+checks:
+  - {id: fcu.link, kind: threshold, fact: fcu.connected, expect: true, severity: fail,
+     gates: [motion], title: FCU link, hint: 'No MAVROS heartbeat; check the Cube USB and fcu_url'}
+  # fcu.mode lives in system.yaml (the flight controller advisory row)
+  - {id: fcu.armed, kind: threshold, fact: fcu.armed, expect: false, title: FCU armed,
+     hint: An armed FCU can also drive the outputs}
+  - id: fcu.params                       # 10-19: EK3_SRC1_YAW 1->8, COMPASS_USE 1->0
+    kind: params
+    node: /mavros/param
+    reference: '{share:mhseals_nav}/config/fcu/blastoise.param'
+    names: [EK3_SRC1_YAW, COMPASS_USE, COMPASS_USE2, COMPASS_PRIO1_ID, ARMING_CHECK, GPS_INJECT_TO,
+            GPS1_TYPE, BATT_MONITOR]
+    severity: fail
+    title: FCU parameters
+    hint: Differs from blastoise.param; compare before any write
+  - id: compass.field                    # 2663 mG vs 875 max; Here4 horizontal ~238 mG
+    kind: threshold
+    fact: mag.field_mG
+    scale: 470                           # probes.fcu.wmm_total_mG
+    warn: [0.8, 1.25]
+    fail: [0.6, 1.8]
+    fmt: '{:.2f}×'
+    show: [rose, odometry]
+    missing: skip                        # until nav requests the mag stream
+    title: Compass field
+    hint: Run Magcal; if the ratio stays high, move the Here4 mast
+  - {id: compass.innovation, kind: threshold, fact: ekf.compass_variance, warn: [0, 0.5], fail: [0, 1.0],
+     show: [rose, odometry], missing: skip, title: Compass innovation}
+  - {id: gps.fix, kind: threshold, fact: gps.fix_type, fail: [3, 6], warn: [4, 6], fmt: '{:.0f}',
+     show: [odometry], title: GPS fix}                                   # 5 float, 6 fixed
+  - {id: gps.h_acc, kind: threshold, fact: gps.h_acc, warn: [0, 1.0], fail: [0, 3.0], unit: ' m',
+     show: [odometry], title: GPS accuracy}
+  - id: nav.speed_agreement              # 10-18: FCU 3.8 vs GPS 0.1 skewed the fits
+    kind: threshold
+    fact: nav.speed_disagreement
+    warn: [0, 0.5]
+    fail: [0, 1.5]
+    unit: ' m/s'
+    show: [odometry]
+    title: FCU vs GPS speed
+    hint: FCU odometry disagrees with GPS ground speed; do not trust fits
+  - {id: imu.free_fall, kind: threshold, fact: imu.accel_norm, warn: [5.0, 20.0], fail: [2.0, 40.0],
+     unit: ' m/s²', missing: skip, title: IMU acceleration}
+  - id: battery.diag                     # MAVROS 'Battery' diagnostic, WARN "Low voltage" on the 6.0-6.8 V bag
+    kind: threshold
+    fact: battery.diag_level
+    warn: 0.5
+    fail: 1.5
+    below: false
+    fmt: '{:.0f}'
+    missing: skip
+    title: MAVROS battery
+    message: 'MAVROS: {label}'

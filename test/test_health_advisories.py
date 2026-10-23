@@ -48,7 +48,7 @@ def battery_rows(health, clock, *args, **kwargs):
     return settle(health, clock)
 
 
-def test_shipped_checks_lint_clean():
+def test_shipped_checks_lint_clean(nav_share):
     config = load(HEALTH_DIR, load_profile('boat'), user=False)  # templates need a profile
     assert {'clock.offset', 'compute.load', 'fcu.mode', 'power.charge'} <= {s.id for s in config.specs}
     assert lint(config.specs, unmatched=config.unmatched) == []

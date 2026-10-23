@@ -50,7 +50,7 @@ def run(spec_id, graph, topics=()):
     return engine.tick(facts, probes).results[spec_id]
 
 
-def test_shipped_graph_checks_lint_clean():
+def test_shipped_graph_checks_lint_clean(nav_share):
     assert lint(load(user=False, profile=load_profile('boat')).specs) == []
 
 

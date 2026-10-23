@@ -19,7 +19,7 @@ def kinds():
         importlib.reload(threshold)
 
 
-def test_shipped_health_config_loads_and_lints_clean():
+def test_shipped_health_config_loads_and_lints_clean(nav_share):
     assert HEALTH_DIR.is_dir() and list(HEALTH_DIR.glob('*.yaml'))
     config = load(user=False, profile=load_profile('boat'))
     assert any(s.id == 'cmd.owner' for s in config.specs)
@@ -33,3 +33,11 @@ def test_low_cell_voltage_fails_the_shipped_check():
     assert report.results['power.cell_voltage'].status == 'fail'
     report = Engine([spec]).tick({'battery.cell_v': Fact(3.9)}, {'battery': (0, None)})
     assert report.results['power.cell_voltage'].status == 'ok'
+
+
+def test_fcu_checks_load_and_lint_clean(nav_share):
+    config = load(user=False)
+    specs = [s for s in config.specs if s.group == 'FCU']
+    assert {'fcu.params', 'compass.field', 'battery.diag'} <= {s.id for s in specs}
+    assert lint(specs) == []
+    assert config.probes['fcu']['wmm_total_mG'] == 470

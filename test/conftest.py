@@ -42,3 +42,13 @@ def data_root(tmp_path, monkeypatch):
 def isolated_user_config(tmp_path_factory, monkeypatch):
     """Keep the persisted settings file of the real user out of every test."""
     monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path_factory.mktemp('xdg')))
+
+
+@pytest.fixture
+def nav_share(monkeypatch, tmp_path):
+    """A stand-in mhseals_nav share holding the FCU parameter reference."""
+    from mhseals_testing.health import config
+    path = tmp_path / 'mhseals_nav' / 'config' / 'fcu'
+    path.mkdir(parents=True)
+    (path / 'blastoise.param').write_text('EK3_SRC1_YAW,1\nCOMPASS_USE,1\n')
+    monkeypatch.setattr(config, 'share_dir', lambda package: tmp_path / package)
