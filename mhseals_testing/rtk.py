@@ -241,6 +241,7 @@ class BaseSession:
     def _run(self):
         # Imports are lazy so the UI still works without the USB extras.
         serial_port = None
+        identified = False
         try:
             import serial
             from pyubx2 import UBXReader
@@ -253,6 +254,7 @@ class BaseSession:
                         reader = UBXReader(serial_port, protfilter=7, quitonerror=1,
                                            errorhandler=lambda _: self.count('errors'))
                         model = self._identify(serial_port, reader)
+                        identified = True
                         if self.configure:
                             self._configure(serial_port, reader, model)
                             # Only the operator's request configures; a reconnect never does.
@@ -264,7 +266,10 @@ class BaseSession:
                         serial_port.write(self._poll('NAV-SVIN').serialize())
                         polled = self.clock()
                     self._handle(*reader.read())
-                except (serial.SerialException, OSError) as error:
+                except (serial.SerialException, OSError, RuntimeError, ValueError) as error:
+                    # A slow or odd receiver is only fatal before the first success (wrong device).
+                    if not identified and not isinstance(error, (serial.SerialException, OSError)):
+                        raise
                     if serial_port:
                         serial_port.close()
                     serial_port = None

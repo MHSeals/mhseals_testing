@@ -229,3 +229,31 @@ def test_radio_connects_as_a_ground_station(monkeypatch):
     Radio('/dev/radio')
     assert (seen['source_system'], seen['source_component']) == (255, 190)
     assert seen['autoreconnect'] is True
+
+
+def test_slow_identify_after_a_good_session_keeps_retrying(monkeypatch):
+    import serial
+
+    class Silent(FakeReceiver):
+        def write(self, data):  # swallows the MON-VER poll
+            return len(data)
+
+    class Unplugged(FakeReceiver):
+        def read(self, count=-1):  # works until the first survey poll, then the cable goes
+            if 'NAV-SVIN' in self.sent:
+                raise OSError('unplugged')
+            return super().read(count)
+
+    ports = [Unplugged(), Silent(), FakeReceiver()]
+    opened = []
+    monkeypatch.setattr(serial, 'Serial', lambda *a, **k: opened.append(1) or ports[len(opened) - 1])
+    # A fast clock shortens the 4 s MON-VER deadline.
+    session = BaseSession([], dict(DEFAULTS, device='/dev/test'), clock=lambda: time.monotonic() * 100)
+    session.start(survey=False)
+    deadline = time.monotonic() + 15
+    while not (session.snapshot().get('model') and len(opened) >= 3) and time.monotonic() < deadline:
+        time.sleep(.01)
+    time.sleep(.3)
+    state = session.snapshot()
+    session.close()
+    assert state['phase'] != 'error', state
