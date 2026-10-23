@@ -1,0 +1,58 @@
+"""Activity panel: the event log or the procedure results."""
+
+from rich.text import Text
+
+from mhseals_testing.ui import theme
+from mhseals_testing.ui.panels import TITLES, window
+from mhseals_testing.ui.theme import MUTED, SEPARATOR
+
+
+def result_label(result):
+    label = result.get('procedure', result.get('axis', '?'))
+    if 'check' in result:
+        label += f" {result['check']}"
+    if 'direction' in result:
+        label += ' +' if result['direction'] > 0 else ' -'
+    return label
+
+
+def result_detail(result):
+    """The one number that matters for each kind of result."""
+    for key, unit in (('response', ''), ('points', ' pts'), ('overshoot', ''),
+                      ('cross_track_rms', ' m xtrack'), ('rms_radius', ' m radius')):
+        value = result.get(key)
+        if isinstance(value, (int, float)):
+            if key == 'overshoot':
+                return f'{value:.0%} overshoot'
+            if key == 'points':
+                return f"{value}/{result.get('possible', '?')}{unit}"
+            return f'{value:+.3f}{unit}' if key == 'response' else f'{value:.2f}{unit}'
+    return str(result.get('detail', result.get('status', '')))
+
+
+def activity_panel(snapshot, view, height):
+    focused = view['focus'] == 'activity'
+    cursor = view['cursors'].get('activity', 0)
+    budget = max(1, height - 3)
+    if view['activity'] == 'log':
+        table = theme.grid({'header': '  Event', 'ratio': 1}, {'header': 'Age', 'justify': 'right'},
+                           padding=(0, 1))
+        events = list(reversed(snapshot['events']))
+        start, visible = window(events, cursor, budget)
+        for index, (stamp, message) in enumerate(visible, start):
+            table.add_row(theme.row(None, message, focused and index == cursor),
+                          Text(f'{view["now"] - stamp:.0f}s', style=MUTED))
+        body = table if events else Text('No events yet', style=MUTED)
+        return theme.block(body, TITLES['activity'], focused, 'log')
+    table = theme.grid({'header': '    Procedure', 'ratio': 3},
+                       {'header': 'Result', 'width': 11},
+                       {'header': 'Detail', 'ratio': 3}, padding=(0, 1))
+    results = list(reversed(snapshot['results']))
+    start, visible = window(results, cursor, budget)
+    for index, result in enumerate(visible, start):
+        verdict = str(result.get('verdict', theme.DASH))
+        table.add_row(theme.row(verdict, result_label(result), focused and index == cursor),
+                      Text(verdict.lower()), Text(result_detail(result), style=MUTED))
+    body = table if results else Text(f'No results yet{SEPARATOR}Enter on a procedure runs it',
+                                      style=MUTED)
+    return theme.block(body, TITLES['activity'], focused, f'results{SEPARATOR}{len(results)}')
