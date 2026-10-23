@@ -11,9 +11,11 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+import errno
 import math
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import time
@@ -400,6 +402,14 @@ class App:
                         self.quit = True
                         self.modal = None
                         self.notice = 'Interrupted'
+                    except (EOFError, OSError) as error:
+                        if not terminal_gone(error):
+                            raise
+                        # docker exec never hangs up a dead client's pty; quit like q
+                        # instead of lingering headless with the recorder and outputs.
+                        self.quit = True
+                        self.modal = None
+                        self.notice = 'Terminal closed'
             finally:
                 self.close()  # on q and on Ctrl+C alike, while the page is still up
 
@@ -493,6 +503,7 @@ class App:
 
     def dispatch(self, key):
         """Apply one key on the page."""
+        key = fold(key)
         panels = self.panels()
         if key in ('\t', 'backtab'):
             index = panels.index(self.focus) if self.focus in panels else 0
@@ -685,6 +696,7 @@ class App:
     def prompt(self, message, title='Ready'):
         """Wait for Enter; Escape cancels the procedure."""
         def handle(key):
+            key = fold(key)
             if key == 'enter':
                 return ''
             if key in ('escape', 'q'):
@@ -1024,6 +1036,16 @@ def bringup_command(profile, args):
             *(f'{key}:={value}' for key, value in arguments.items())]
 
 
+def terminal_gone(error):
+    """True for the key reader's EOF or EIO: the terminal is gone, not a stopping error."""
+    return isinstance(error, EOFError) or error.errno == errno.EIO
+
+
+def hang_up(*_):
+    """SIGHUP and SIGTERM stop like Ctrl+C: neutral, disarm, flush, then exit."""
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
     args, profile = parse_args(argv)
     # ROS imports stay here so the App (and its tests) never need rclpy.
@@ -1044,6 +1066,8 @@ def main(argv=None):
     # rclpy's own SIGINT handler would shut ROS down before the graceful close could
     # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    for hangup in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(hangup, hang_up)
     monitor = BoatMonitor(args.stale_after, history_sensors=tuple(
         sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'))
     ros = RosIO(profile, monitor, args.stale_after)
