@@ -37,7 +37,7 @@ from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailabl
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
-from mhseals_testing.ros.arming import EFFORT_TOPIC
+from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import dashboard, theme
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
@@ -254,7 +254,7 @@ class App:
         if exited:
             self.monitor.advise('processes', 'WARN', 'exited: ' + ', '.join(exited))
         if self.profile.outputs != 'none':
-            topic = EFFORT_TOPIC if self.profile.velocity_controller else self.profile.command_topic
+            topic = EFFORT_TOPIC if self.profile.velocity_controller else command_input(self.profile)
             self.monitor.advise('PWM driver', *health.pwm_driver(
                 self.ros.nodes(), self.ros.subscribers(topic), topic,
                 self.armed, self.processes.running('hardware')))

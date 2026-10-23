@@ -8,17 +8,19 @@ from mhseals_testing.ros.arming import Arming, driver_commands
 
 def test_driver_argv_for_effort_and_velocity_control(tmp_path):
     config = tmp_path / 'hardware.yaml'
-    [(name, argv)] = driver_commands(load_profile('boat'), config)
+    [(name, argv), mux] = driver_commands(load_profile('boat'), config)
     assert name == 'hardware'
     assert argv == ['ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node', '--ros-args',
                     '-p', f'config_file:={config}', '-p', 'use_sim_time:=false',
-                    '-p', 'output_backend:=odroid', '-r', 'cmd_vel:=/cmd_vel']
+                    '-p', 'output_backend:=odroid', '-r', 'cmd_vel:=/cmd_vel/applied']
+    assert mux[0] == 'mux' and mux[1][:5] == ['ros2', 'run', 'mhseals_hardware',
+                                              'command_mux', '--ros-args']
     children = dict(driver_commands(load_profile('crane_full_stack').with_velocity_control(),
                                     config))
     assert children['hardware'][-1] == 'cmd_vel:=/cmd_vel_effort'
     assert 'output_backend:=topic' in children['hardware']
     assert 'use_sim_time:=true' in children['velocity']
-    assert 'input_topic:=/cmd_vel' in children['velocity']
+    assert 'input_topic:=/cmd_vel/applied' in children['velocity']
     assert 'odom_topic:=/odom/local' in children['velocity']
 
 
@@ -73,7 +75,7 @@ def arming(profile='boat', die=False, subscribers=(), tmp_path=None):
 def test_arm_snapshots_config_and_waits_for_the_driver(tmp_path):
     armed, processes = arming('crane_full_stack', tmp_path=tmp_path)
     armed.arm()
-    assert armed.armed and processes.started == ['hardware'] and armed.fault() == ''
+    assert armed.armed and processes.started == ['hardware', 'mux'] and armed.fault() == ''
     assert yaml.safe_load((tmp_path / 'hardware.yaml').read_text())['output_backend'] == 'topic'
     processes.stopped.append('hardware')  # the driver dies while armed
     assert 'hardware exited' in armed.fault()
@@ -89,7 +91,7 @@ def test_arm_refuses_a_second_driver_and_cleans_up_a_dead_one(tmp_path):
     dead, processes = arming(die=True, tmp_path=tmp_path)
     with pytest.raises(RuntimeError, match='exited during startup: Traceback: no pwm chip'):
         dead.arm()
-    assert processes.stopped == ['hardware'] and not dead.armed
+    assert processes.stopped == ['mux', 'hardware'] and not dead.armed
 
 
 def test_plants_without_outputs_arm_without_children(tmp_path):
@@ -110,14 +112,14 @@ def test_begin_polls_until_the_driver_listens_and_times_out_after_ten_seconds(tm
     slow.sleep(10.5)
     with pytest.raises(RuntimeError, match='did not subscribe'):
         slow.poll()
-    assert processes.stopped == ['hardware'] and slow.pending is None
+    assert processes.stopped == ['mux', 'hardware'] and slow.pending is None
 
 
 def test_cancel_stops_a_start_in_progress(tmp_path):
     slow, processes = arming(tmp_path=tmp_path)
     slow.begin()
     slow.cancel()
-    assert slow.pending is None and not slow.armed and processes.stopped == ['hardware']
+    assert slow.pending is None and not slow.armed and processes.stopped == ['mux', 'hardware']
 
 
 def test_an_invalid_velocity_model_fails_at_once_without_starting_anything(tmp_path):
@@ -180,3 +182,11 @@ def test_a_controller_timeout_names_the_topic_it_subscribes_to(tmp_path):
     slow.sleep(10.5)
     with pytest.raises(RuntimeError, match=f'did not subscribe to {slow.profile.command_topic}'):
         slow.poll()
+
+
+def test_a_boat_velocity_controller_listens_on_the_mux_output(tmp_path):
+    profile = load_profile('boat').with_velocity_control()
+    children = dict(driver_commands(profile, tmp_path / 'hardware.yaml'))
+    assert 'input_topic:=/cmd_vel/applied' in children['velocity']
+    assert 'cmd_vel:=/cmd_vel_effort' in children['hardware']
+    assert list(children) == ['hardware', 'velocity', 'mux']

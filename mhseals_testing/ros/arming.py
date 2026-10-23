@@ -14,23 +14,38 @@ from mhseals_hardware.velocity_law import Plant
 DRIVER = 'thruster_pwm_node'
 CONTROLLER = 'calibrated_velocity_controller'
 EFFORT_TOPIC = '/cmd_vel_effort'
+MUX = 'command_mux'
+MUX_INPUT = '/cmd_vel'  # the topic Nav2, tasks and agents publish; the mux owns it
+APPLIED_TOPIC = '/cmd_vel/applied'  # what the mux lets through to the driver
+
+
+def muxed(profile):
+    """True when a command_mux child arbitrates the profile's command topic."""
+    return profile.outputs != 'none' and profile.command_topic == MUX_INPUT
+
+
+def command_input(profile):
+    """The topic the first child after the mux (driver or controller) listens on."""
+    return APPLIED_TOPIC if muxed(profile) else profile.command_topic
 
 
 def driver_commands(profile, config_path):
-    """(name, argv) for each child, the driver first so it holds neutral before commands."""
+    """(name, argv) for each child, the driver first so it holds neutral before commands, the mux last."""
     common = ['-p', f'config_file:={config_path}',
               '-p', f'use_sim_time:={str(profile.use_sim_time).lower()}']
     driver = ['ros2', 'run', 'mhseals_hardware', DRIVER, '--ros-args', *common,
               '-p', f'output_backend:={profile.outputs}']
+    mux = [('mux', ['ros2', 'run', 'mhseals_hardware', MUX, '--ros-args', *common])]
+    mux = mux if muxed(profile) else []
     if not profile.velocity_controller:
-        return [('hardware', driver + ['-r', f'cmd_vel:={profile.command_topic}'])]
+        return [('hardware', driver + ['-r', f'cmd_vel:={command_input(profile)}']), *mux]
     controller = ['ros2', 'run', 'mhseals_hardware', 'calibrated_velocity_controller',
                   '--ros-args', *common,
-                  '-p', f'input_topic:={profile.command_topic}',
+                  '-p', f'input_topic:={command_input(profile)}',
                   '-p', f'output_topic:={EFFORT_TOPIC}',
                   '-p', f'odom_topic:={profile.odometry}']
     return [('hardware', driver + ['-r', f'cmd_vel:={EFFORT_TOPIC}']),
-            ('velocity', controller)]
+            ('velocity', controller), *mux]
 
 
 class Arming:
@@ -48,7 +63,7 @@ class Arming:
 
     @property
     def driver_topic(self):
-        return EFFORT_TOPIC if self.profile.velocity_controller else self.profile.command_topic
+        return EFFORT_TOPIC if self.profile.velocity_controller else command_input(self.profile)
 
     def children(self):
         return [name for name, _ in driver_commands(self.profile, self.config_path)]
@@ -91,7 +106,7 @@ class Arming:
         """The topic each child must subscribe to before arming completes."""
         topics = {DRIVER: self.driver_topic}
         if self.profile.velocity_controller:
-            topics[CONTROLLER] = self.profile.command_topic
+            topics[CONTROLLER] = command_input(self.profile)
         return topics
 
     def listening(self):

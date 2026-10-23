@@ -838,7 +838,7 @@ def test_status_tracks_driver_and_kernel_pwm_independently(tmp_path, velocity):
     assert status['PWM driver']['level'] == status['PWM readback']['level'] == 'OK'
     assert status['PWM driver']['detail'].startswith('RUNNING;')
     assert status['PWM readback']['detail'].startswith('4/4 ON;')
-    assert set(topics) == {'/cmd_vel_effort' if velocity else '/cmd_vel'}
+    assert set(topics) == {'/cmd_vel_effort' if velocity else '/cmd_vel/applied'}
     assert app.pwm_readback == ['ON 1500us / 50Hz'] * 4
 
     # A live driver endpoint must not hide a disabled hardware output.
