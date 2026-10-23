@@ -17,7 +17,10 @@ from mhseals_testing.health import registry
 from mhseals_testing.health.model import MISSING, SEVERITIES, CheckSpec
 
 USER_FILE = Path.home() / '.config' / 'mhseals' / 'health.yaml'
+ANCHORS = ('rose', 'thrusters', 'header.deploy', 'odometry')    # plus sensor:<name>
 SPEC_KEYS = {f.name for f in dataclasses.fields(CheckSpec)} - {'params'}
+RESULT_FIELDS = ('value', 'detail', 'label', 'status')           # known to message templates
+ID_PATTERN = re.compile(r'[a-z0-9_]+(\.[a-z0-9_]+)*')
 FIELD = re.compile(r'\{(\w+)\}')
 
 
@@ -208,3 +211,53 @@ def load(directory=None, profile=None, user=None):
             raw['enabled'] = False
         specs.append(_spec(raw))
     return HealthConfig(tuple(specs), probes)
+
+
+def _regex_fields(params):
+    return [getattr(params, name) for name in ('pattern', 'match') if hasattr(params, name)]
+
+
+def lint(specs, procedures=()):
+    """Problems in loaded specs as strings; empty when the files are sound.
+
+    ``procedures`` are the real procedure keys that ``gates`` may name.
+    """
+    problems, seen = [], set()
+    for spec in specs:
+        add = lambda text, spec=spec: problems.append(f'{spec.id}: {text}')
+        if not ID_PATTERN.fullmatch(spec.id):
+            add('id must be dotted lowercase words (unresolved template?)')
+        if spec.id in seen:
+            add('duplicate id')
+        seen.add(spec.id)
+        if spec.severity not in SEVERITIES:
+            add(f'severity {spec.severity!r} is not one of {SEVERITIES}')
+        if spec.missing not in MISSING:
+            add(f'missing {spec.missing!r} is not one of {MISSING}')
+        for anchor in spec.show:
+            if anchor not in ANCHORS and not re.fullmatch(r'sensor:\S+', anchor):
+                add(f'unknown anchor {anchor!r}')
+        for key in spec.gates:
+            if key != 'motion' and key not in procedures:
+                add(f'gate {key!r} is not a procedure key')
+        for pattern in _regex_fields(spec.params):
+            try:
+                re.compile(pattern)
+            except re.error as error:
+                add(f'bad regex {pattern!r}: {error}')
+        reference = getattr(spec.params, 'reference', None)
+        if reference and not Path(reference).expanduser().exists():
+            add(f'reference {reference} does not exist')
+        known = {*RESULT_FIELDS, *vars(spec.params), *registry.KINDS[spec.kind].fields}
+        for text in (spec.message, spec.hint):
+            for chunk in re.findall(r'\{([^{}]*)\}', text):
+                if not re.fullmatch(r'\w+', chunk):
+                    add(f'template field {{{chunk}}} may not index or call')
+                elif chunk not in known and not _named_group(spec, chunk):
+                    add(f'template field {{{chunk}}} is unknown')
+    return problems
+
+
+def _named_group(spec, name):
+    """True when a log pattern defines ``(?P<name>...)``."""
+    return any(f'(?P<{name}>' in pattern for pattern in _regex_fields(spec.params))

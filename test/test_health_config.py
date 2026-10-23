@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
 from mhseals_testing.health import registry
-from mhseals_testing.health.config import ConfigError, load, render
+from mhseals_testing.health.config import ConfigError, HEALTH_DIR, load, lint, render
 from mhseals_testing.health.model import Result
 from mhseals_testing.profiles import load_profile
 
@@ -66,7 +66,7 @@ checks:
   - {id: log, kind: rate, topic: /t, pattern: 'a\\d{2}', message: '{topic} slow {value}'}
 """)
     assert config.specs[0].params.pattern == r'a\d{2}'
-    assert config.specs[0].message == '{topic} slow {value}'
+    assert lint(config.specs) == []
 
 
 def test_profile_fields_do_not_fill_runtime_templates(tmp_path):
@@ -123,6 +123,22 @@ probes: {git: {fetch: 900}}
     assert config.probes == {'git': {'fetch': 900}, 'host': {'subnet': '10.0.0.0/24'}}
 
 
+def test_lint_reports_every_problem(tmp_path):
+    config = specs(tmp_path, """
+checks:
+  - {id: a, kind: rate, topic: /t, pattern: '(', show: [bogus, 'sensor:GPS'], gates: [zz, motion]}
+  - {id: a, kind: rate, topic: /t, message: '{topic.x} {nothing}'}
+  - {id: 'rate.{name}', kind: rate, topic: /t}
+""")
+    loaded = list(config.specs)
+    loaded[1] = replace(loaded[1], severity='loud')      # load() rejects it; lint still reports
+    problems = '\n'.join(lint(loaded, procedures=['f']))
+    for text in ('bad regex', "unknown anchor 'bogus'", "gate 'zz'", 'duplicate id',
+                 'may not index', '{nothing} is unknown', "severity 'loud'", 'unresolved'):
+        assert text in problems
+    assert 'sensor:GPS' not in problems and "'motion'" not in problems
+
+
 @pytest.mark.parametrize('text, match', [
     ('checks: [{kind: rate, topic: /t}]', 'without an id'),
     ('checks: {id: a}', 'checks must be a list'),
@@ -149,5 +165,17 @@ def test_scalar_list_fields_become_one_item(tmp_path):
     assert (spec.show, spec.gates) == (('rose',), ('motion',))
 
 
+def test_lint_accepts_kind_result_fields(tmp_path):
+    registry.kind('owner', RateParams, needs=['graph'], fields=['count', 'nodes'])(lambda p, f: Result('ok'))
+    text = "checks: [{id: a, kind: owner, topic: /t, message: '{topic}: {count} ({nodes})'}]"
+    assert lint(specs(tmp_path, text).specs) == []
+    assert '{count} is unknown' in '\n'.join(lint(specs(tmp_path, text.replace('owner', 'rate')).specs))
+
+
 def test_render_leaves_unknown_fields():
     assert render('{a} {b}', a=1) == '1 {b}'
+
+
+def test_shipped_files_lint_clean():
+    if HEALTH_DIR.is_dir():
+        assert lint(load(user=False).specs) == []
