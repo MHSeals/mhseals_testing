@@ -29,6 +29,7 @@ class Settings:
     neutral_max_gap_s: float
     drift_trend_z: float
     drift_change_chi2: float
+    drift_practical: float
     noise_s0_floor: float
 
 
@@ -42,13 +43,33 @@ def _config_path():
 
 
 def load_settings(path=None) -> Settings:
-    """Settings from the YAML; a group's keys are prefixed with its name (coast: {min_s} -> coast_min_s)."""
-    raw = yaml.safe_load(Path(path or _config_path()).read_text())
+    """Settings from the YAML; a group's keys are prefixed with its name (coast: {min_s} -> coast_min_s).
+
+    Raises one ValueError naming the file and the key for anything unusable.
+    """
+    path = Path(path or _config_path())
+    raw = yaml.safe_load(path.read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f'{path}: expected a mapping of settings')
     flat = {}
     for key, value in raw.items():
         flat.update({f'{key}_{k}': v for k, v in value.items()} if isinstance(value, dict) else {key: value})
-    known = {f.name for f in fields(Settings)}      # the file is shared with the readiness parts
-    return Settings(**{k: v for k, v in flat.items() if k in known})
+    values = {}
+    for f in fields(Settings):                      # the file is shared with the readiness parts, so extra keys are fine
+        if f.name not in flat:
+            raise ValueError(f'{path}: missing setting {f.name!r}')
+        try:
+            values[f.name] = float(flat[f.name])
+        except (TypeError, ValueError):
+            raise ValueError(f'{path}: {f.name!r} must be a number, got {flat[f.name]!r}') from None
+    values['coast_max_drop'] = int(values['coast_max_drop'])
+    s = Settings(**values)
+    for ok, why in ((s.noise_s0_floor > 0, 'noise_s0_floor must be > 0'),
+                    (s.window_s >= s.min_window_s, 'window_s must be >= min_window_s'),
+                    (s.batch_s <= s.window_s, 'batch_s must be <= window_s')):
+        if not ok:
+            raise ValueError(f'{path}: {why}')
+    return s
 
 
 @dataclass
@@ -80,6 +101,11 @@ class Estimate:
     trend: np.ndarray | None = None   # (2,) m/s per s
     drift_trend_z: float = 0.0
     pool: tuple = ()        # the windows behind the drift: those since the last change
+    size: float = 0.0       # m/s: the latest step, or the trend accumulated over the pool
+
+    def material(self, s: Settings) -> bool:
+        """Changed or trending by at least ``drift_practical`` m/s: significance alone is not enough."""
+        return self.state in ('changed', 'trending') and self.size >= s.drift_practical
 
 
 # --- neutral samples and windows -------------------------------------------------------
@@ -293,7 +319,7 @@ def estimate(windows, s: Settings):
     s0 = spectral_level(usable, s)
     if len(usable) < 3 or s0 is None:
         return Estimate('unknown')
-    start, state, prev = 0, 'steady', False
+    start, state, prev, before = 0, 'steady', False, None
     for i in range(3, len(usable)):
         pool = usable[start:i]
         if len(pool) < 3:
@@ -301,15 +327,20 @@ def estimate(windows, s: Settings):
         w, d = usable[i], _pool(pool, s0).vector
         out = w.duration * ((w.mean[:2] - d) ** 2).sum() / s0 > s.drift_change_chi2
         if out and prev:
+            before = d
             start, state, out = i - 1, 'changed', False
         prev = out
     pool = usable[start:]
     if len(pool) < 3:
-        return Estimate('changed' if state == 'changed' else 'unknown')
+        return Estimate('changed' if state == 'changed' else 'unknown',
+                        size=float(np.hypot(*(w.mean[:2] - before))) if before is not None else 0.0)
     slope, z = _trend(pool, s0)
     if state == 'steady' and z > _trend_limit(s.drift_trend_z, 2 * len(pool)):
         state = 'trending'
-    return Estimate(state, _pool(pool, s0), slope, z, tuple(pool))
+    drift = _pool(pool, s0)
+    span = pool[-1].t0 + pool[-1].duration - pool[0].t0
+    size = float(np.hypot(*(drift.vector - before))) if before is not None else float(np.hypot(*slope) * span)
+    return Estimate(state, drift, slope, z, tuple(pool), size)
 
 
 def world_drift(windows, s: Settings):

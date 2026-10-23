@@ -279,3 +279,44 @@ def test_locally_swapped_samples_give_the_clean_windows():
 def test_reversed_samples_give_the_clean_windows():
     clean = neutral(60)
     _same_windows(windows_of([a[::-1] for a in clean]), windows_of(clean))
+
+
+def noise_free_step(jump):
+    first = neutral(8 * 8, sigma=0.0)
+    second = neutral(8 * 8, drift=(0.08 + jump, -0.05), sigma=0.0, t0=8 * 8)
+    return tuple(np.concatenate(p) for p in zip(first, second))
+
+
+def test_a_millimetre_step_in_noise_free_sim_is_changed_but_not_material():
+    est = c.estimate(windows_of(noise_free_step(0.003)), S)
+    assert est.state == 'changed' and est.size == pytest.approx(0.003, abs=5e-4)
+    assert not est.material(S)
+
+
+def test_a_practical_step_is_material():
+    est = c.estimate(windows_of(noise_free_step(0.05)), S)
+    assert est.material(S)
+
+
+def _same_windows(a, b):
+    assert len(a) == len(b) > 0
+    for x, y in zip(a, b):
+        assert x.t0 == y.t0 and x.flag == y.flag and x.hz == pytest.approx(y.hz)
+        assert x.mean == pytest.approx(y.mean)
+
+
+def test_duplicated_samples_give_the_clean_windows():
+    clean = neutral(60)
+    _same_windows(windows_of([np.repeat(a, 2, axis=0) for a in clean]), windows_of(clean))
+
+
+def test_locally_swapped_samples_give_the_clean_windows():
+    clean = neutral(60)
+    order = np.arange(len(clean[0]))
+    order[0:-1:3], order[1::3] = order[1::3].copy(), order[0:-1:3].copy()
+    _same_windows(windows_of([a[order] for a in clean]), windows_of(clean))
+
+
+def test_reversed_samples_give_the_clean_windows():
+    clean = neutral(60)
+    _same_windows(windows_of([a[::-1] for a in clean]), windows_of(clean))
