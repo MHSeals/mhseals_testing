@@ -24,7 +24,8 @@ Cell = namedtuple('Cell', 'text fg chip bg')
 
 
 def rank(layer):
-    """Sort key where a smaller number wins."""
+    """Sort key where a smaller number wins; a ``layer:token`` suffix names the colour only."""
+    layer = layer.split(':')[0]
     return PRIORITY.index(layer) if layer in PRIORITY else len(PRIORITY)
 
 

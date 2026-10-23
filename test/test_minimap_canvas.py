@@ -47,3 +47,8 @@ def test_gap_mark_yields_to_glyphs_and_to_dots_above_trail_priority():
     c.dot(4, 0, 'plan')   # col 2, below trail
     assert c.text() == ['o' + chr(0x2801) + canvas.GAP + canvas.GAP]
     assert c.cells()[0][1].fg == 'boat' and c.cells()[0][2].fg == 'trail'
+
+
+def test_a_layer_colour_suffix_does_not_change_its_rank():
+    assert canvas.rank('object:obj.red') == canvas.rank('object')
+    assert canvas.rank('contact:x') < canvas.rank('object:obj.red')
