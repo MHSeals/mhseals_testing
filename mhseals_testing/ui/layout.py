@@ -28,6 +28,7 @@ from mhseals_testing.ui.panels import scrubber
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels import correction
+from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
 from mhseals_testing.ui.panels.status import status_panel, status_rows
@@ -37,6 +38,7 @@ from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
 WIDE = 106          # below this the Motion panel folds away
 SIDEBAR = 36
+MINIMAP = 150       # from this width Drive gains the minimap column (ui U6)
 FOLD = 60           # below this the Status sidebar folds away so Thrusters keeps its width
 TOP_ROW = 10        # Motion and Thrusters height: three one-row axes with headers, two drift lines
 STRIP_FULL, STRIP_SHORT = 100, 5   # below 100 columns the strip shows its first five items
@@ -378,7 +380,7 @@ def drive_slots(snapshot, view, width, height):
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
         'procedures': procedures_panel(view, lower if wide else half),
         'activity': activity_panel(snapshot, view, lower if wide else height - TOP_ROW - half),
-        'minimap': None,
+        'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,
     }
 
 
@@ -391,7 +393,8 @@ def drive_body(snapshot, view, width, height):
         top = Layout(size=TOP_ROW)
         right = Layout()   # Conditions over Thrusters; an empty slot takes no rows
         right.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters'])]))
-        top.split_row(*_cells([('motion', slots['motion']), ('right', right), ('minimap', slots['minimap'])]))
+        top.split_row(*_cells([('motion', slots['motion']), ('right', right), ('minimap', slots['minimap'])],
+                              {'minimap': MINIMAP_WIDTH}))
         bottom = Layout()
         bottom.split_row(*_cells([('procedures', slots['procedures']), ('activity', slots['activity'])],
                                  {'procedures': SIDEBAR}))

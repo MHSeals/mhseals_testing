@@ -59,7 +59,8 @@ from mhseals_testing.ui.feeds import authority as authority_feed, health as heal
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
-from mhseals_testing.ui.layout import WIDE, TabMemory
+from mhseals_testing.ui.layout import MINIMAP, WIDE, TabMemory
+from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
@@ -76,7 +77,8 @@ DIRECTIONS = {'ctrl-h': 'left', 'ctrl-left': 'left', 'ctrl-l': 'right', 'ctrl-ri
 NEIGHBOURS = {
     True: {'status': {'right': 'motion'},
            'motion': {'left': 'status', 'right': 'thrusters', 'down': 'procedures'},
-           'thrusters': {'left': 'motion', 'down': 'activity'},
+           'thrusters': {'left': 'motion', 'right': 'minimap', 'down': 'activity'},
+           'minimap': {'left': 'thrusters', 'down': 'activity'},
            'procedures': {'left': 'status', 'right': 'activity', 'up': 'motion'},
            'activity': {'left': 'procedures', 'up': 'thrusters'}},
     False: {'status': {'right': 'thrusters'},
@@ -119,6 +121,7 @@ PANEL_HINTS = {
                   ('c', 'Clear decoupling'), ('p', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'Results/log')],
+    'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom')],
 }
 CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
                     ('R', 'Run all'), ('A', 'Apply pending'), ('I', 'Hardware changed')]
@@ -228,6 +231,7 @@ class App:
         self.run_id = None  # the procedure run in progress; its results carry this id
         self.settings = args.settings
         self.tabs = TabMemory()
+        self.minimap = minimap_panel.MiniMap(self.map_state)
         self.focus = 'status'
         self.cursors = {panel: 0 for panel in PANELS}
         self.column = None   # Correction tab column; None follows the worst one
@@ -512,7 +516,8 @@ class App:
     def panels(self):
         if self.tab != 'Drive':
             return [self.focus]
-        return [p for p in PANELS if p != 'motion' or self.console.size.width >= WIDE]
+        width = self.console.size.width
+        return [p for p in PANELS if (p != 'motion' or width >= WIDE) and (p != 'minimap' or width >= MINIMAP)]
 
     def rows(self, panel):
         if panel == 'status':
@@ -546,7 +551,7 @@ class App:
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         shared = feeds_module.merged(self.feeds)
         own = dict(
-            tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
+            tab=self.tab, minimap=self.minimap, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
@@ -766,6 +771,23 @@ class App:
             self.clear_pulses()  # test pulses only while their panel has focus
         self.focus = panel
 
+    def map_state(self):
+        """The ``MapState`` the ROS feeds fill, or None without them."""
+        return getattr(getattr(self.ros, 'map', None), 'state', None)
+
+    def show_tab(self, name):
+        """Switch to the tab ``name`` (focus and cursors are restored by TabMemory)."""
+        step = self.tabs.tabs.index(name) - self.tabs.tabs.index(self.tab)
+        if step:
+            self.switch_tab(step)
+
+    def on_minimap(self, key):
+        """view.minimap keys on the Drive column: z/Z zoom, 0 back to +-20 m."""
+        if key in ('z', 'Z'):
+            self.minimap.zoom(1 if key == 'z' else -1)
+        elif key == '0':
+            self.minimap.reset()
+
     def switch_tab(self, step):
         """Move to the next or previous tab, restoring the focus and cursors it was left with."""
         if self.focus == 'thrusters':
@@ -801,7 +823,7 @@ class App:
         elif key in DIRECTIONS:
             wide = 'motion' in panels
             neighbour = NEIGHBOURS[wide].get(self.focus, {}).get(DIRECTIONS[key])
-            if neighbour:
+            if neighbour in panels:
                 self.focus_on(neighbour)
         elif key in ('up', 'down', 'j', 'k'):
             step = -1 if key in ('up', 'k') else 1
@@ -837,7 +859,7 @@ class App:
               and not (self.focus == 'status' and key == 'e')):  # Nav2 popup there; interference elsewhere
             self.on_procedures(key)
         else:
-            getattr(self, f'on_{self.focus}', lambda key: None)(key)
+            getattr(self, f'on_{self.focus}', lambda key: None)(raw if self.focus == 'minimap' else key)
 
     # --- markers -----------------------------------------------------------------
 
@@ -1477,6 +1499,8 @@ class App:
             self.notice = f'{procedure.title}: {reason}'
             return
         self.clear_pulses()
+        if self.settings.auto_tab and getattr(procedure, 'group', '') in ('Navigate', 'Mission'):
+            self.show_tab('Map')
         self.running = procedure.title
         results = len(self.snapshot()['results'])
         self.run_id = runs.next_run_id(self.paths.runs, procedure.title)

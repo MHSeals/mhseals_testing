@@ -85,6 +85,7 @@ SPECS = (
     Spec('station_hold', 60.0, low=10, high=600, step=10, group='Navigation', note='station keeping, s'),
     Spec('station_tolerance', 1.5, low=0.2, high=10, step=0.1, group='Navigation', note='radius, m'),
     _timing('neutral', 20.0, 'characterization: neutral s to rate the water first'),
+    Spec('auto_tab', True, bool, group='Navigation', note='switch to Map when Navigate or Mission starts'),
     Spec('agents', 'allow', str, choices=('allow', 'block'), group='Control', reset=True,
          note='block refuses new agent claims; allow again at start'),
     Spec('direction', '', str, group='Trials', reset=True,
