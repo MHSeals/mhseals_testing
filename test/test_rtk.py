@@ -6,8 +6,10 @@ import io
 import time
 
 import pytest
-from pyrtcm import calc_crc24q
 from pyubx2 import GET, UBXMessage, UBXReader
+
+pyrtcm = pytest.importorskip('pyrtcm')  # test-only CRC reference; skip the module when absent
+calc_crc24q = pyrtcm.calc_crc24q
 
 from mhseals_testing.rtk import (BaseSession, DEFAULTS, Radio, base_commands, coordinates, fragments,
                                  load_config, save_config, split_position)
