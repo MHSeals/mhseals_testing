@@ -22,5 +22,18 @@ and rejects absolute parts and `..`.
 | `read_json`, `read_jsonl` | readers; `read_jsonl` skips a torn last line |
 
 Every JSON file carries a first `schema` field such as `mhseals.run/1`.
-Layout and per-file schemas are summarised in `data_layout.md` of the plan and
-in the generated `README.md` at the root.
+## Sessions today
+
+`boat_test` still writes the flat layout, all under the root:
+
+| Path | Content |
+|---|---|
+| `<profile>_<YYYYmmdd_HHMMSS>/` | the session bag (rosbag2, MCAP) |
+| `<session>.report.json` | procedure results |
+| `<session>.hardware.yaml` | the hardware config the driver ran with |
+| `<session>.nav2.yaml` | Nav2 limits from a characterization |
+| `logs/<session>/` | one log per child process |
+
+The `sessions/<id>/session.json` layout, `INDEX.json` and a generated root
+`README.md` arrive with the session harness; until then nothing reads or writes
+them.

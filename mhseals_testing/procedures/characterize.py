@@ -104,7 +104,7 @@ def run(ctx):
         overlay.write_text(yaml.safe_dump(nav2_profile(result, nav2_params), sort_keys=False))
         summary['nav2_overlay'] = str(overlay)
     ctx.record(dict(summary, characterization=result))
-    # No decouple option: the secant C over-corrects (see thrust.md section 1, R17).
+    # No decouple option: the secant C over-corrects by two (docs/math.pdf, "One column per axis and sign").
     choice = ctx.choose('Save the characterization to the hardware config?',
                         ('no', 'save'), {'n': 0, 's': 1})
     if choice != 'no':
