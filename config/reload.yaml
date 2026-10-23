@@ -1,0 +1,20 @@
+# Hot-reload field classes (authority_hotreload.md section 7.2). Each surface lists key
+# prefixes (dotted paths into the parsed YAML) per class; the longest prefix wins and keys
+# nobody names fall to `default`.
+#   live       takes effect at once
+#   next       takes effect at the next procedure, goal or segment; a running one keeps its snapshot
+#   disarmed   plant fields: refused while armed, held pending until the boat is disarmed
+#   child      one component restarts; the operator asks for it (Enter on the row)
+profiles:
+  default: disarmed
+  live: [name, description, sensors]
+  next: [bringup, components]
+settings:
+  default: next
+missions:
+  default: next
+rtk:
+  default: child
+  live: [positions, system_id]
+bags:
+  default: next
