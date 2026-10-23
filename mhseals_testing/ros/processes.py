@@ -52,6 +52,14 @@ class ProcessManager:
         process = self.processes.get(name)
         return process is not None and process.poll() is None
 
+    def last_line(self, name):
+        """The last non-empty line of a child's log, or '' (why it died)."""
+        try:
+            lines = (self.log_directory / f'{name}.log').read_text(errors='replace').splitlines()
+        except OSError:
+            return ''
+        return next((line.strip() for line in reversed(lines) if line.strip()), '')
+
     def exited(self):
         """Names of children that stopped on their own."""
         return [name for name, process in self.processes.items() if process.poll() is not None]

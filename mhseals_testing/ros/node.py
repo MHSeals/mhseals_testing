@@ -113,6 +113,11 @@ class RosIO:
         return [f'{namespace.rstrip("/")}/{name}'
                 for name, namespace in self.node.get_node_names_and_namespaces()]
 
+    def parameter_service(self, name):
+        """Whether node ``name`` serves parameters (a dead service hides the node's config)."""
+        return any(service.endswith(f'/{name}/get_parameters')
+                   for service, _ in self.node.get_service_names_and_types())
+
     def close(self):
         self._spinning = False
         self.thread.join(timeout=1)
