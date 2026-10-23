@@ -1100,7 +1100,7 @@ def main(argv=None):
     from mhseals_testing.ros.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO
     from mhseals_testing.ros.plant import Plant
-    from mhseals_testing.ros.processes import ProcessManager, bag_command, unique_path
+    from mhseals_testing.harness.processes import ProcessManager, bag_command, unique_path
 
     from rclpy.signals import SignalHandlerOptions
 

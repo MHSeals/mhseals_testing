@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from mhseals_testing.ros.processes import ProcessManager, bag_command, unique_path
+from mhseals_testing.harness.processes import ProcessManager, bag_command, unique_path
 
 
 def test_children_log_stop_cleanly_and_report_exit(tmp_path):
@@ -66,7 +66,7 @@ def test_child_dies_with_a_killed_parent_that_ignored_sigint(tmp_path):
     parent = (
         'import signal, subprocess, sys, time\n'
         'signal.signal(signal.SIGINT, signal.SIG_IGN)\n'
-        'from mhseals_testing.ros.processes import ProcessManager\n'
+        'from mhseals_testing.harness.processes import ProcessManager\n'
         f'manager = ProcessManager({str(tmp_path / "logs")!r})\n'
         'child = manager.start("sleeper", [sys.executable, "-c", "import time; time.sleep(60)"])\n'
         'print(child.pid, flush=True)\n'

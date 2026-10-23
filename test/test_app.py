@@ -950,7 +950,7 @@ def test_children_die_with_the_suite(tmp_path):
     import os, signal, subprocess, sys, time
     # A middle process starts a child through ProcessManager, then is killed hard.
     script = (f"import sys, time; sys.path[:0] = {sys.path!r}\n"
-              "from mhseals_testing.ros.processes import ProcessManager\n"
+              "from mhseals_testing.harness.processes import ProcessManager\n"
               f"p = ProcessManager({str(tmp_path)!r})\n"
               "c = p.start('sleeper', [sys.executable, '-c', 'import time; time.sleep(60)'])\n"
               "print(c.pid, flush=True); time.sleep(60)\n")
