@@ -2,14 +2,15 @@
 
 Each event is a transition: ``phase == 'gps_fix'`` with ``fix`` (a name) or ``fix_type``
 (the GPS_RAW_INT number) and a ``t`` in seconds, else the ISO ``time``. Time is always
-passed in (``now``), so live, replay and tests share one fold.
+passed in (``now``), so live, replay and tests share one fold. A 2D fix counts as ``none``
+(it overstates nothing that way); gps.md section 6 lists 2D only on the row.
 """
 
 from datetime import datetime
 
 STATES = ('none', '3D', 'DGPS', 'FLOAT', 'FIXED')  # the strip's order, worst to best
-_BY_TYPE = {0: 'none', 1: 'none', 2: '3D', 3: '3D', 4: 'DGPS', 5: 'FLOAT', 6: 'FIXED'}
-_ALIASES = {'2d': '3D', '3d': '3D', 'dgps': 'DGPS', 'float': 'FLOAT', 'fixed': 'FIXED'}
+_BY_TYPE = {0: 'none', 1: 'none', 2: 'none', 3: '3D', 4: 'DGPS', 5: 'FLOAT', 6: 'FIXED'}
+_ALIASES = {'2d': 'none', '3d': '3D', 'dgps': 'DGPS', 'float': 'FLOAT', 'fixed': 'FIXED'}
 
 
 def state_of(event):
@@ -50,19 +51,22 @@ class Fixlog:
         for i, (at, state) in enumerate(steps):
             end = steps[i + 1][0] if i + 1 < len(steps) else self.now
             self.seconds[state] += max(0.0, end - max(at, self.start))
-            self.entries[state] += 1
-        fixed = [at for at, state in steps if state == 'FIXED']
+            if at >= self.start:  # a state carried in at start is not an entry
+                self.entries[state] += 1
+        fixed = [at for at, state in steps if state == 'FIXED' and at >= self.start]
         self.first_fixed = fixed[0] - self.start if fixed else None
 
     def bins(self, width):
-        """One state (or None before the first event) per column across start..now."""
+        """Per column across start..now, the worst state seen in it (None before any event)."""
         span = max(self.now - self.start, 1e-9)
         out = []
         for col in range(width):
-            mid = self.start + span * (col + .5) / width
-            state = None
-            for at, name in self.steps:
-                if at <= mid:
-                    state = name
-            out.append(state)
+            lo = self.start + span * col / width
+            hi = self.start + span * (col + 1) / width
+            seen = []
+            for i, (at, name) in enumerate(self.steps):
+                end = self.steps[i + 1][0] if i + 1 < len(self.steps) else self.now
+                if at < hi and (end > lo or (at <= lo <= end and i + 1 == len(self.steps))):
+                    seen.append(STATES.index(name))
+            out.append(STATES[min(seen)] if seen else None)
         return out

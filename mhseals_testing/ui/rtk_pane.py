@@ -6,8 +6,8 @@
 from mhseals_testing.analysis.fixlog import STATES, Fixlog
 
 KEYS = {'r': 'base_controls'}
-_BLOCKS = {'none': ' ', '3D': '▂', 'DGPS': '▄', 'FLOAT': '▆', 'FIXED': '█'}
-_ASCII = {'none': '_', '3D': '-', 'DGPS': '=', 'FLOAT': '+', 'FIXED': '#'}
+_BLOCKS = {'none': '▁', '3D': '▃', 'DGPS': '▄', 'FLOAT': '▆', 'FIXED': '█', None: '·'}
+_ASCII = {'none': '_', '3D': '-', 'DGPS': '=', 'FLOAT': '+', 'FIXED': '#', None: '.'}
 
 
 def clock(seconds):
@@ -17,7 +17,7 @@ def clock(seconds):
 
 def strip(log, width, ascii=False):
     glyphs = _ASCII if ascii else _BLOCKS
-    return ''.join(' ' if s is None else glyphs[s] for s in log.bins(width))
+    return ''.join(glyphs[s] for s in log.bins(width))
 
 
 def rtk_pane(events, now, width=40, ascii=False, start=None):
