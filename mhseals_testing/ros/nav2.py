@@ -18,8 +18,8 @@ from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
 
 # The servers mhseals_nav's navigation.launch.py brings up.
-SERVERS = ('controller_server', 'planner_server', 'smoother_server', 'behavior_server',
-           'bt_navigator', 'waypoint_follower', 'velocity_smoother')
+SERVERS = ('controller_server', 'planner_server', 'behavior_server', 'bt_navigator',
+           'waypoint_follower', 'velocity_smoother')
 
 
 def wait(future, timeout, what):
