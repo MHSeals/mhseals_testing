@@ -76,3 +76,25 @@ def test_empty_data_renders_dashes_before_the_first_fit():
     view = correction_view(dict(matrix=MATRIX))
     page = text(render(view, 80, 24), 80, 24)
     assert 'not fitted' in page and 'Trust hi/lo' in page
+
+
+def test_numbers_keep_integer_zeros():
+    from mhseals_testing.ui.panels.correction import _num
+    assert _num(10.0, 2, False) == '10.00' and _num(-20.5) == theme.pick('−', '-') + '20.500'
+    assert _num(.031) == '+.031' and _num(-.042) == theme.pick('−', '-') + '.042'
+
+
+def test_side_column_fits_a_short_terminal():
+    big = data()
+    big['readiness']['rows'] = [('row', 'x')] * 8
+    big['tracking']['rows'] = [('surge', '9', '8', 'flat')] * 3
+    lines = text(render(correction_view(big), 110, 24), 110, 24).splitlines()
+    assert len(lines) <= 24 and 'holds' in '\n'.join(lines)
+
+
+def test_cursor_tint_on_256_colours(monkeypatch):
+    monkeypatch.setattr(theme, 'ASCII', False)
+    monkeypatch.delenv('NO_COLOR', raising=False)
+    monkeypatch.delenv('COLORTERM', raising=False)
+    monkeypatch.setenv('TERM', 'xterm-256color')
+    assert correction._tint() == 'on grey15'

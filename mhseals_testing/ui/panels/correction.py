@@ -40,7 +40,11 @@ def _num(value, digits=3, signed=True):
     if value is None:
         return MISSING
     text = f'{value:+.{digits}f}' if signed else f'{value:.{digits}f}'
-    return text.replace('0.', '.', 1).replace('-', theme.pick('−', '-'))
+    sign = text[0] if text[0] in '+-' else ''
+    body = text[len(sign):]
+    if body.startswith('0.'):
+        body = body[1:]
+    return sign.replace('-', theme.pick('−', '-')) + body
 
 
 def _signs(matrix, axis, sign):
@@ -132,9 +136,12 @@ _DROP = ('tracking', 'ceiling', 'fit', 'iterations', 'residual', 't95', 'drag', 
 
 
 def _tint():
-    """Cursor stripe style: a tint on truecolor, underline everywhere else (ui U10)."""
-    plain = theme.ASCII or os.environ.get('NO_COLOR') or os.environ.get('COLORTERM') not in ('truecolor', '24bit')
-    return 'underline' if plain else 'on #232A36'
+    """Cursor stripe style: a tint on truecolor and 256 colours, underline otherwise (ui U10)."""
+    if theme.ASCII or os.environ.get('NO_COLOR'):
+        return 'underline'
+    if os.environ.get('COLORTERM') in ('truecolor', '24bit'):
+        return 'on #232A36'
+    return 'on grey15' if '256' in os.environ.get('TERM', '') else 'underline'
 
 
 def _cell(row, col, settings):
@@ -205,8 +212,11 @@ def _side(view, width, room):
         body += [Text(f'{a:<6} {n:<5} {s:<8} {tr}') for a, n, s, tr in t.get('rows', [])]
         body += [Text(x, style=MUTED) for x in t.get('notes', [])]
         blocks.append(theme.block(Group(*body), f"Tracking{theme.SEPARATOR}{t.get('version', '')}".rstrip(theme.SEPARATOR)))
-    blocks.append(details(view, width, max(6, room - 14 * len(blocks))))
-    return Group(*blocks)
+    holds = details(view, width, max(6, room - 14 * len(blocks)))
+    # Drop Tracking, then Readiness, until the column fits the height (holds always stay).
+    while blocks and sum(len(b.renderable.renderables) + 2 for b in blocks + [holds]) > room:
+        blocks.pop()
+    return Group(*blocks, holds)
 
 
 def details(view, width=34, height=None):
