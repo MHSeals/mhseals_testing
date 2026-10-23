@@ -11,17 +11,17 @@ from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 from mhseals_testing.ros.arming import DRIVER
 
 
-def pwm_driver(nodes, subscribers, topic, armed, managed):
+def pwm_driver(nodes, subscribers, topic, armed, managed, driver=DRIVER):
     """Compare the driver's ROS endpoint and supervised process with arm state."""
-    drivers = [name for name in subscribers if name.rsplit('/', 1)[-1] == DRIVER]
-    names = [name for name in nodes if name.rsplit('/', 1)[-1] == DRIVER]
+    drivers = [name for name in subscribers if name.rsplit('/', 1)[-1] == driver]
+    names = [name for name in nodes if name.rsplit('/', 1)[-1] == driver]
     count = max(len(names), len(drivers))
     if count > 1:
-        return 'FAIL', f'DUPLICATE; {count} {DRIVER} nodes/endpoints discovered'
+        return 'FAIL', f'DUPLICATE; {count} {driver} nodes/endpoints discovered'
     if not count:
         if armed or managed:
             return ('FAIL' if armed else 'WARN',
-                    f'NO NODE; no {DRIVER} subscription on {topic}; '
+                    f'NO NODE; no {driver} subscription on {topic}; '
                     f"managed process {'running' if managed else 'stopped'}")
         return 'OK', 'STOPPED; starts on arm'
     if not drivers:
