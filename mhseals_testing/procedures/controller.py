@@ -1,6 +1,6 @@
 """Velocity-controller validation: step each axis and measure how it tracks.
 
-Needs velocity commands (--velocity-control or a velocity profile), so the
+Needs velocity commands (--set command_mode=velocity or a velocity profile), so the
 calibrated controller closes the loop on odometry. Metrics: analysis/step_response.py.
 """
 

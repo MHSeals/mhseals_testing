@@ -66,9 +66,9 @@ def unavailable(procedure, profile, armed, bench_override=False):
     if 'armed' in needs and not armed:
         return 'arm first (a)'
     if 'effort' in needs and profile.command_units != 'effort':
-        return 'needs effort commands; run without --velocity-control'
+        return 'needs effort commands; use --set command_mode=effort'
     if 'velocity' in needs and profile.command_units != 'velocity':
-        return 'needs velocity commands; use --velocity-control or a velocity profile'
+        return 'needs velocity commands; use --set command_mode=velocity'
     if 'outputs' in needs and profile.outputs == 'none':
         return 'the profile has no thruster outputs'
     if 'hardware' in needs and profile.outputs != 'odroid':

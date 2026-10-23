@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import errno
-import math
 import os
 from pathlib import Path
 import signal

@@ -18,8 +18,8 @@ def test_availability_reasons():
     assert unavailable(procedure(), sim, armed=False) == ''
     assert 'arm' in unavailable(procedure('armed'), boat, armed=False)
     assert unavailable(procedure('armed', 'effort'), boat, armed=True) == ''
-    assert 'effort' in unavailable(procedure('effort'), sim, armed=True)
-    assert 'velocity' in unavailable(procedure('velocity'), boat, armed=True)
+    assert 'command_mode=effort' in unavailable(procedure('effort'), sim, armed=True)
+    assert 'command_mode=velocity' in unavailable(procedure('velocity'), boat, armed=True)
     assert unavailable(procedure('velocity'), boat.with_velocity_control(), armed=True) == ''
     assert 'ODROID' in unavailable(procedure('hardware'), load_profile('crane_full_stack'), True)
     assert 'bench' in unavailable(procedure('sensors'), boat, True, bench_override=True)
