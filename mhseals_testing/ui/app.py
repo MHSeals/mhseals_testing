@@ -54,7 +54,7 @@ from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import feeds as feeds_module, layout, perception, popups, theme
-from mhseals_testing.ui.feeds import health as health_feed
+from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
@@ -1594,7 +1594,7 @@ def main(argv=None):
     plant = Plant(ros, profile)
     stack = Stack(components(profile, stack_overlay(profile, args)), processes, time.monotonic)
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
-    app = None
+    app = authority = None
     facts = Facts()
     try:
         for name, child in choice.children.items():
@@ -1629,6 +1629,8 @@ def main(argv=None):
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))
             app.observe_config()
+        authority = None if watching else authority_feed.start(
+            app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
@@ -1640,6 +1642,8 @@ def main(argv=None):
                 plant.neutral()
                 arming.disarm()
         finally:
+            if authority is not None:   # claims end with the session unless a successor adopts them
+                authority.arbiter.close(keep_claims=app.detaching)
             plant.close()
             processes.stop_all()   # a detach already released the children it hands on
             if watching:
