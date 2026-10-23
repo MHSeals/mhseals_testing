@@ -21,7 +21,10 @@ def die_with_parent():
 
     Without this, a killed suite leaves the thruster driver running with its outputs
     armed; with it, the driver gets the same clean shutdown as a normal disarm.
+    SIGINT is also reset to default: a suite started with & or from a script inherits
+    SIG_IGN, which the child would keep, so the death signal (and stop) would do nothing.
     """
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     if sys.platform.startswith('linux'):
         ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGINT)
 
