@@ -43,6 +43,8 @@ def test_rtk_positions_are_live_but_the_device_needs_a_base_restart():
     assert state.note('rtk') == '↻ base restart needed'
 
     class Base:
+        position = None
+
         def __init__(self):
             self.calls = []
         def close(self):
@@ -51,10 +53,11 @@ def test_rtk_positions_are_live_but_the_device_needs_a_base_restart():
             self.calls.append(kw)
 
     base, events = Base(), []
-    assert rtk_restart(state, base, {'dock': [1, 2, 4]}, lambda *a, **k: events.append((a, k)))
+    assert rtk_restart(state, base, new, {'dock': [1, 2, 4]}, lambda *a, **k: events.append((a, k)))
     assert base.calls == ['close', {'survey': False, 'position': [1, 2, 4]}]
     assert events[0][0] == ('rtk_restart',) and state.note('rtk') == ''
-    assert not rtk_restart(state, base, {}, lambda *a, **k: None)
+    assert base.config == new
+    assert not rtk_restart(state, base, new, {}, lambda *a, **k: None)
 
 
 def test_a_topic_change_waits_then_enter_starts_a_new_segment_and_logs_it():
@@ -80,3 +83,27 @@ def test_install_symlinked_names_the_copies(tmp_path):
     (share / 'b.yaml').write_text('copy')
     assert reload.copies(source, share) == ['b.yaml']
     assert reload.copies(source, tmp_path / 'missing') is None
+
+
+def test_later_edits_keep_what_is_already_waiting():
+    state = Reload(RULES)
+    state.apply('profiles', PROFILE, edited(use_sim_time=True), armed=True)
+    state.apply('profiles', PROFILE, edited(name='x'), armed=True)
+    assert state.disarmed('profiles') == ['use_sim_time']
+    state.apply('rtk', {}, {'device': 'a'})
+    state.apply('rtk', {}, {'system_id': 2})
+    assert state.pending['rtk'] == {'child': ['device']}
+
+
+def test_rtk_restart_reuses_the_position_in_use():
+    state = Reload(RULES)
+    state.apply('rtk', {'device': 'a'}, {'device': 'b'})
+
+    class Base:
+        position, config = [9, 9, 9], None
+        def close(self): pass
+        def start(self, **kw): self.kw = kw
+
+    base = Base()
+    assert rtk_restart(state, base, {'device': 'b'}, {'dock': [1, 2, 3]}, lambda *a, **k: None)
+    assert base.kw == {'survey': False, 'position': [9, 9, 9]} and base.config == {'device': 'b'}

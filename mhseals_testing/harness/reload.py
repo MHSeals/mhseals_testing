@@ -6,6 +6,7 @@ plant fields while the boat is armed, child restarts until the operator asks. Th
 applies the ``live`` and ``next`` keys itself and shows ``Reload.note(surface)`` on the row.
 """
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -55,13 +56,15 @@ class Reload:
     def apply(self, surface, before, after, armed=False):
         """Return the keys to apply now: {'live': [...], 'next': [...]}; the rest stay pending."""
         changes = classify(self.rules, surface, before, after)
-        held = {name: keys for name, keys in changes.items()
-                if (name == DISARMED and armed) or name == CHILD}
-        if held:
-            self.pending[surface] = held
-        else:
-            self.pending.pop(surface, None)
-        return {name: keys for name, keys in changes.items() if name not in held}
+        held = self.pending.setdefault(surface, {})
+        if not armed and DISARMED in held:  # the boat is disarmed now: release what waited
+            changes[DISARMED] = sorted(set(changes.get(DISARMED, ())) | set(held.pop(DISARMED)))
+        for name in (CHILD,) + ((DISARMED,) if armed else ()):
+            if name in changes:  # merge, so a later edit never drops keys already waiting
+                held[name] = sorted(set(held.get(name, ())) | set(changes.pop(name)))
+        if not held:
+            del self.pending[surface]
+        return changes
 
     def disarmed(self, surface):
         """Plant keys held for ``surface``, released once the boat is disarmed (else None)."""
@@ -138,12 +141,14 @@ class Segments:
         return True
 
 
-def rtk_restart(reload, base, positions, emit):
-    """Enter on the RTK row: restart the base, without a re-survey when a position is saved."""
+def rtk_restart(reload, base, config, positions, emit):
+    """Enter on the RTK row: restart the base on the new ``config``, without a re-survey when
+    a position is known (the one in use, else the first saved)."""
     if not reload.pending.get('rtk', {}).get(CHILD):
         return False
-    position = next(iter(positions.values()), None)
+    position = base.position or next(iter(positions.values()), None)
     base.close()
+    base.config = deepcopy(config)
     base.start(survey=position is None, position=position)
     emit('rtk_restart', keys=reload.settle('rtk', CHILD), survey=position is None)
     return True
