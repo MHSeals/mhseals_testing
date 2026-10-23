@@ -1,14 +1,24 @@
 """docs/health.md stays true to the code: its YAML loads and lints, and it names every kind and check key."""
 
 import dataclasses
+import importlib
 from pathlib import Path
 import re
 
+import pytest
 import yaml
 
 from mhseals_testing.health import registry
 from mhseals_testing.health.config import load, lint
 from mhseals_testing.health.model import CheckSpec
+
+@pytest.fixture(autouse=True)
+def kinds():
+    """Register the shipped kinds even if an earlier test imported them into a patched registry."""
+    from mhseals_testing.health.kinds import threshold
+    if 'threshold' not in registry.KINDS:
+        importlib.reload(threshold)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / 'docs' / 'health.md').read_text()
