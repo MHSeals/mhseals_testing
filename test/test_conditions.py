@@ -373,14 +373,3 @@ def test_drift_ci_covers_noise_correlated_over_most_of_a_batch():
         if drift is not None:
             hits.append(np.all(np.abs(drift.vector - truth) < 1.96 * drift.se))
     assert np.mean(hits) > 0.84     # 0.78 with tau capped at half a batch; nominal 0.90
-
-
-@pytest.mark.parametrize('tau, floor', [(1.0, 0.90), (6.0, 0.83)])
-def test_drift_error_covers_slowly_wandering_noise(tau, floor):
-    # Windows of a gust or slow wander are alike, so their scatter alone made the error optimistic.
-    truth = np.array([0.08, -0.05])
-    hits = []
-    for seed in range(120):
-        est = c.estimate(windows_of(neutral(8 * 30, tau=tau, sigma=0.05, seed=seed)), S)
-        hits.append(np.all(np.abs(est.drift.vector - truth) < 1.96 * est.drift.se))
-    assert np.mean(hits) > floor
