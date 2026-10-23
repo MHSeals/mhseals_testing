@@ -25,7 +25,27 @@ def _default_path():
         return source
 
 
+FIELDS = ('glyph', 'ascii', 'colour', 'radius', 'name')
+
+
+class _UniqueLoader(yaml.SafeLoader):
+    """SafeLoader that rejects a repeated mapping key instead of keeping the last."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=True)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(
+                    None, None, f'duplicate key {key!r}', key_node.start_mark)
+            seen.add(key)
+        return super().construct_mapping(node, deep)
+
+
 def _symbol(label, entry):
+    missing = [f for f in FIELDS if not isinstance(entry, dict) or f not in entry]
+    if missing:
+        raise ValueError(f'class {label!r} is missing {", ".join(missing)}')
     return Symbol(label, entry['glyph'], entry['ascii'], entry['colour'],
                   float(entry['radius']), str(entry['name']))
 
