@@ -7,6 +7,9 @@ def _name(value):
     return getattr(value, 'name', str(value)).lower()
 
 
+_INFINITE_NS = 2 ** 63 - 1  # rclpy reports an unset lifespan as this many ns
+
+
 def _hash(info):
     """Hex type hash, or None when this rclpy does not report one (Humble)."""
     value = getattr(info, 'topic_type_hash', None)
@@ -20,6 +23,8 @@ def endpoint(info, own):
     fqn = f'{info.node_namespace.rstrip("/")}/{info.node_name}'
     qos = getattr(info, 'qos_profile', None)
     lifespan = getattr(getattr(qos, 'lifespan', None), 'nanoseconds', 0)
+    if lifespan >= _INFINITE_NS:  # Duration.Infinite: no lifespan set
+        lifespan = 0
     return Endpoint(
         fqn, info.topic_type, _hash(info),
         {'reliability': _name(getattr(qos, 'reliability', 'unknown')),

@@ -109,23 +109,26 @@ def test_missing_graph_sample_is_unknown():
 
 
 def test_rclpy_adapter_tags_own_endpoint_and_reads_hash_and_qos():
-    def info(name, **extra):
+    def info(name, life=2_000_000_000, **extra):
         qos = SimpleNamespace(reliability=SimpleNamespace(name='RELIABLE'),
                               durability=SimpleNamespace(name='VOLATILE'),
-                              lifespan=SimpleNamespace(nanoseconds=2_000_000_000))
+                              lifespan=SimpleNamespace(nanoseconds=life))
         return SimpleNamespace(node_name=name, node_namespace='/', topic_type='t/msg/T',
                                endpoint_gid=b'\x01\x02', qos_profile=qos, **extra)
 
     node = SimpleNamespace(
         get_name=lambda: 'me', get_namespace=lambda: '/',
         get_publishers_info_by_topic=lambda t: [info('me', topic_type_hash=SimpleNamespace(value=bytes(32))),
-                                                info('other')],
+                                                info('other'),
+                                                info('inf', life=9223372036854775807)],
         get_subscriptions_info_by_topic=lambda t: [],
         get_node_names_and_namespaces=lambda: [('me', '/'), ('me', '/')],
         get_topic_names_and_types=lambda: [('/t', ['t/msg/T'])])
     pubs, _ = RclpyGraph(node).endpoints('/t')
-    assert [(p.node, p.own, p.hash is None) for p in pubs] == [('/me', True, False), ('/other', False, True)]
+    assert [(p.node, p.own, p.hash is None) for p in pubs] == [('/me', True, False), ('/other', False, True),
+                                                                  ('/inf', False, True)]
     assert pubs[0].legacy and not pubs[1].legacy
     assert pubs[0].qos == {'reliability': 'reliable', 'durability': 'volatile', 'lifespan': 2.0}
+    assert pubs[2].qos['lifespan'] == 0.0  # Duration.Infinite means no lifespan
     assert pubs[0].gid == '0102'
     assert RclpyGraph(node).node_names() == ['/me', '/me']
