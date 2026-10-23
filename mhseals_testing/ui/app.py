@@ -354,7 +354,7 @@ class App:
         rows = self.watcher.rows()
         bad = [name for name, ok, _, _ in rows if not ok]
         self.monitor.advise('Config', 'WARN' if bad else 'OK',
-                            f'{bad[0]} error' if bad else f'{len(rows)} files')
+                            f'{bad[0]} error' if bad else f'{len(rows)} file' + 's' * (len(rows) != 1))
 
     def announce(self, change):
         if not change.ok:
@@ -364,7 +364,7 @@ class App:
             return
         self.config_note = self.config_file.name
         self.notice = f'Config reloaded from {self.config_file.name}'
-        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, path=str(self.config_file))
+        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok', path=str(self.config_file))
 
     def config_popup(self):
         """popup.config: one row per watched surface, with its state."""

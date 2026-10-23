@@ -80,7 +80,7 @@ class Watcher:
             watched.seen = key
             if key == watched.key:
                 continue
-            if watched.key is not None and key != previous:
+            if key != previous:
                 continue  # still changing: an in-place save caught mid-write is not read
             changes.append(self.reload(watched.name))
         return changes

@@ -1408,7 +1408,7 @@ def test_bad_yaml_keeps_the_old_config_with_one_notice_per_distinct_error(tmp_pa
 def test_config_row_and_popup_list_the_watched_files(tmp_path):
     app, _ = make_app(tmp_path)
     app.watch_config()
-    assert app.monitor.advisories['Config'][1:] == ('OK', '1 files')
+    assert app.monitor.advisories['Config'][1:] == ('OK', '1 file')
     shown = []
     app.show = lambda title, rows=None, **_: shown.append((title, rows))
     app.config_popup()

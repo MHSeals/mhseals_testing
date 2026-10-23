@@ -51,3 +51,13 @@ def test_reload_skips_the_settle_wait(tmp_path):
     path.write_text('a: 3\n')
     assert watcher.reload('x').ok and applied == [{'a': 3}]
     assert watcher.poll() == []
+
+
+def test_a_file_created_later_waits_one_settled_poll(tmp_path):
+    path = tmp_path / 'late.yaml'
+    applied = []
+    watcher = Watcher(clock=lambda: 5.0)
+    watcher.add(Watched('late', path, lambda p: yaml.safe_load(p.read_text()), applied.append))
+    path.write_text('a: 1\n')
+    assert watcher.poll() == [] and applied == []  # first sight: maybe half-written
+    assert [c.ok for c in watcher.poll()] == [True] and applied == [{'a': 1}]
