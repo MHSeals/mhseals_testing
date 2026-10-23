@@ -1,5 +1,6 @@
 """The perception popup's camera view: subscription lifetime, kitty delete, half-block golden, overlay cells."""
 import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,7 +39,8 @@ def frame8():
 def view(bus, size=(8, 4), kitty=False, out=None, **kwargs):
     feed = CameraFeed(bus.subscribe, bus.unsubscribe, clock=lambda: bus.t)
     out = [] if out is None else out
-    return camera_view.CameraView(feed, size, out.append, kitty=kitty, decode=lambda data: frame8(),
+    decode = kwargs.pop('decode', lambda data: frame8())
+    return camera_view.CameraView(feed, size, out.append, kitty=kitty, decode=decode,
                                   encode=lambda image: b'png', **kwargs), out
 
 
@@ -61,7 +63,7 @@ def test_half_block_fallback_matches_golden_from_a_fixed_8x8_frame():
 
 def test_closing_releases_the_subscription_and_deletes_the_kitty_image():
     bus = Bus()
-    v, out = view(bus, kitty=True)
+    v, out = view(bus, kitty=True, decode=lambda data: np.kron(frame8(), np.ones((8, 8, 1), np.uint8)))
     assert len(bus.live) == 1
     bus.publish()
     rows = v.lines()
@@ -108,20 +110,78 @@ def test_boxes_land_on_the_expected_cells_and_d_toggles_them():
     assert ansi(v.lines()) == plain
 
 
-def test_freeze_holds_the_frame_save_writes_a_png_and_rate_steps(tmp_path):
+def test_freeze_holds_the_frame_save_writes_the_jpeg_and_detections_and_rate_steps(tmp_path):
     bus = Bus()
-    v, _ = view(bus, save_dir=tmp_path / 'camera')
-    bus.publish()
+    v, _ = view(bus, save_dir=tmp_path / 'snapshots',
+                detections=lambda size, floor: [] if floor else [((1, 2, 3, 4), (255, 0, 0))])
+    v.clock = lambda: 1700000000.0
+    bus.publish(b'JPEGDATA')
     held = ansi(v.lines())
     v.key('f')
     bus.t = 5.0
-    bus.publish()
+    bus.publish(b'OTHER')
     assert ansi(v.lines()) == held
-    assert v.key('s') and v.notice == 'saved camera_001.png'
-    assert (tmp_path / 'camera' / 'camera_001.png').read_bytes() == b'png'
+    assert v.key('s') and v.notice.startswith('saved camera_') and v.notice.endswith('.jpg')
+    name = v.notice.split()[1][:-4]
+    assert (tmp_path / 'snapshots' / f'{name}.jpg').read_bytes() == b'JPEGDATA'   # the frame shown, original bytes
+    saved = json.loads((tmp_path / 'snapshots' / f'{name}.json').read_text())
+    assert saved['size'] == [8, 8] and saved['detections'] == {
+        'boxes': [{'rect': [1, 2, 3, 4], 'rgb': [255, 0, 0]}], 'floor': []}
+    v.key('s')
+    assert len(list((tmp_path / 'snapshots').glob('*.jpg'))) == 2                # same second: suffix, no overwrite
     v.key('+')
     assert v.feed.hz == 2
     v.key('-')
     v.key('-')
     assert v.feed.hz == 1
     assert not v.key('x')
+
+
+def test_the_pane_keeps_the_source_aspect_and_never_upscales():
+    # 16:9 in a 96x12 pane: 43 cols of 8x16 px (half-block: 43 x 24 px), not 96
+    assert camera_view.fit(96, 12, 1280, 720) == (43, 12)
+    assert camera_view.fit(96, 12, 1280, 720, (1, 2)) == (43, 12)
+    assert camera_view.fit(30, 12, 1280, 720) == (30, 12)           # the width limit still wins
+    assert camera_view.fit(96, 12, 40, 32) == (5, 2)                # a tiny source is not enlarged
+    bus = Bus()
+    v, _ = view(bus, size=(20, 12))                                 # an 8x8 source in a 20x12 pane
+    bus.publish()
+    lines = v.lines()
+    assert v.pane == (8, 4) and len(lines) == 12 and all(not l.plain for l in lines[4:])
+    k, out = view(bus, size=(20, 12), kitty=True)
+    bus.publish()
+    k.lines()
+    assert ',c=1,r=1' in out[0]                                      # 8 px wide: one cell
+
+
+def test_a_bad_frame_becomes_a_notice_and_a_good_one_clears_it():
+    bus = Bus()
+    feed = CameraFeed(bus.subscribe, bus.unsubscribe, clock=lambda: bus.t)
+
+    def decode(data):
+        if data == b'bad':
+            raise ValueError('not a jpeg')
+        return frame8()
+
+    def encode(image):
+        raise OSError('disk')
+    v = camera_view.CameraView(feed, (8, 4), lambda text: None, kitty=True, decode=decode, encode=encode)
+    bus.publish(b'bad')
+    assert 'waiting' in v.lines()[0].plain and v.notice == 'bad frame'
+    v.lines()                                                        # not retried every refresh
+    assert 'bad frame' in v.status()
+    bus.t = 2.0
+    bus.publish(b'good')
+    assert len(v.lines()) == 4 and v.notice == 'image encode failed'  # encode failure: half-blocks, no raise
+
+
+def test_status_line_shows_rate_age_and_frozen():
+    bus = Bus()
+    v, _ = view(bus)
+    assert v.status() == '1 Hz'
+    bus.publish()
+    bus.t = 0.3
+    v.lines()
+    assert v.status() == '1 Hz · 0.3 s old'
+    v.key('f')
+    assert v.status().endswith('0.3 s old · frozen')

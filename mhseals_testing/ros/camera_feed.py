@@ -62,6 +62,10 @@ class CameraFeed:
         self.hz = RATES_HZ[(RATES_HZ.index(self.hz) + 1) % len(RATES_HZ)]
         return self.hz
 
+    def now(self):
+        """The feed clock, so a frame's age is measured on the clock that stamped it."""
+        return self._clock()
+
     def latest(self):
         """The newest accepted frame (or None) as ``(data, received_at)``."""
         with self._lock:
@@ -80,7 +84,9 @@ class CameraFeed:
 
 def node_feed(node, **kwargs):
     """A CameraFeed whose subscription is a BEST_EFFORT depth-1 CompressedImage on ``node``."""
-    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
     from sensor_msgs.msg import CompressedImage
+    qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                     history=QoSHistoryPolicy.KEEP_LAST, depth=1)
     return CameraFeed(lambda topic, callback: node.create_subscription(
-        CompressedImage, topic, callback, qos_profile_sensor_data), node.destroy_subscription, **kwargs)
+        CompressedImage, topic, callback, qos), node.destroy_subscription, **kwargs)
