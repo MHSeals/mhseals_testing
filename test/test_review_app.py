@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -120,12 +122,55 @@ def test_scrubber_is_pure_ascii_in_ascii_mode():
     import os, subprocess, sys
     code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
             "from test_review import review\n"
-            "from mhseals_testing.ui import scrubber\n"
+            "from mhseals_testing.ui.panels import scrubber\n"
             "r = review(); r.go(140, 0)\n"
             "for w in (120, 48):\n"
-            "    for t in scrubber.rows(r, w, 'note'): sys.stdout.write(t.plain)\n")
+            "    for t in scrubber.review_footer(r, w, 'note'): sys.stdout.write(t.plain)\n")
     env = {k: v for k, v in os.environ.items() if k not in ('MHS_ASCII', 'TERM')}
     out = subprocess.run([sys.executable, '-c', code, os.path.dirname(__file__)],
                          env={**env, 'MHS_ASCII': '1'}, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.isascii() and out.stdout
+
+
+GOLDEN = Path(__file__).parent / 'golden' / 'timeline'
+
+
+@pytest.mark.parametrize('width', [120, 80])
+def test_review_footer_golden(width, tmp_path, monkeypatch):
+    monkeypatch.setattr('mhseals_testing.ui.theme.ASCII', False)
+    app, _ = make_app_review(tmp_path)
+    app.review.go(140, 0)
+    lines = _text(app, width, 40).splitlines()
+    text = '\n'.join(line.rstrip() for line in lines[-6:]) + '\n'
+    path = GOLDEN / f'review_footer_{width}.txt'
+    if os.environ.get('UPDATE_GOLDEN'):
+        path.write_text(text)
+    assert path.read_text() == text
+
+
+def test_z_cycles_the_activity_loupe_and_changes_its_label(tmp_path):
+    app, _ = make_app_review(tmp_path)
+    app.focus = 'activity'
+    seen = []
+    for _ in range(4):
+        seen.append(next(line for line in _text(app, 120, 40).splitlines() if 'loupe' in line and 'review' in line))
+        app.dispatch('z')
+    assert ['12m' in seen[0], '30m' in seen[1], '2m' in seen[2], seen[3] == seen[0]] == [True] * 4
+
+
+def test_ui_scrubber_module_is_gone():
+    root = Path(__file__).parent.parent / 'mhseals_testing'
+    assert not (root / 'ui' / 'scrubber.py').exists()
+    for path in list(root.rglob('*.py')) + list(Path(__file__).parent.glob('*.py')):
+        text = path.read_text()
+        assert 'from mhseals_testing.ui import scrubber' not in text.replace('ui.panels', '') or path.name == Path(__file__).name
+        assert 'ui.scrubber' not in text or path.name == Path(__file__).name
+
+
+def test_loupe_hint_shows_only_with_activity_focused(tmp_path):
+    app, _ = make_app_review(tmp_path)
+    app.focus = 'status'
+    assert ('z', 'Loupe') not in app.view()['hints']
+    app.focus = 'activity'
+    assert ('z', 'Loupe') in app.view()['hints']

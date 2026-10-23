@@ -98,6 +98,7 @@ class Review:
             sorted(markers), list(windows), list(gaps), list(fails))
         self.title, self.host, self.load = title, host, load
         self.playhead, self.rate, self.playing = t0, 1.0, False
+        self.loupe = 720.0               # s, the Activity loupe (z cycles it; panels.scrubber.LOUPES)
         self.due = None                  # when the pending seek loads
 
     @property

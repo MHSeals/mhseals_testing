@@ -237,7 +237,8 @@ def rows(axis, spans=(), points=(), armed=(), holds=(), bands=(), form='panel', 
     """Rich lines of the strip, each exactly axis.width cells wide.
 
     form 'footer' (review): events, one skyline row and the axis with the loupe
-    `window` bracket and the `play` head.
+    `window` bracket and the `play` head. `play` also puts the head on the panel
+    form's axis row (the Activity loupe).
     """
     g = theme.timeline(ascii_mode)
     color = not os.environ.get('NO_COLOR') if color is None else color
@@ -258,5 +259,5 @@ def rows(axis, spans=(), points=(), armed=(), holds=(), bands=(), form='panel', 
             return [_events(axis, points, g, color).text(), one.text(),
                     _loupe_row(axis, bands, g, window, play).text()]
         return [one.text()]
-    return [_events(axis, points, g, color).text(), top.text(), bottom.text(),
-            _axis_row(axis, bands, g).text(), _labels(axis, g, end_text, sel, fmt).text()]
+    axis_row = _loupe_row(axis, bands, g, None, play) if play is not None else _axis_row(axis, bands, g)
+    return [_events(axis, points, g, color).text(), top.text(), bottom.text(), axis_row.text(), _labels(axis, g, end_text, sel, fmt).text()]

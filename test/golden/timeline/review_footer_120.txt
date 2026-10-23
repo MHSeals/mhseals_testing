@@ -1,0 +1,6 @@
+                                                ▾                                               ✗
+            c███████████████████████
+├───────────────────────────────────────────────●───────────╌╌╌╌╌╌╌╌╌╌╌╌───────────────────────────────────────────────┤
+⏸ 1× · 0:40 / 1:40 · ▾1/2 wobble · Passive monitor; a opens the arm panel · loupe 12m
+ p Play/pause                  ←→ { } Seek 5 s / 30 s        , . Prev/next mark            < > Rate
+ Esc Leave review              ? Help                        q Quit

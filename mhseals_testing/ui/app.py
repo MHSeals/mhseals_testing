@@ -60,7 +60,7 @@ from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
-from mhseals_testing.ui.panels import PANELS, activity, correction
+from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
@@ -518,13 +518,19 @@ class App:
             return len(snapshot['events' if self.activity == 'log' else 'results'])
         return 0
 
+    def review_hints(self):
+        """REVIEW_HINTS, with `z Loupe` only while Activity (where z acts) is focused."""
+        i = next(k for k, h in enumerate(REVIEW_HINTS) if h[0] == 'Esc')
+        return REVIEW_HINTS[:i] + ([('z', 'Loupe')] if self.focus == 'activity' else []) + REVIEW_HINTS[i:]
+
     def view(self):
         config = self.args.hardware_config
         blockers = self.motion_blockers() if self.armed else self.blockers()
         notice = self.notice if not blockers or self.running else (
             f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
-        hints = (REVIEW_HINTS if self.review else MANUAL_HINTS if self.manual
+        hints = (self.review_hints()
+                 if self.review else MANUAL_HINTS if self.manual
                  else PANEL_HINTS.get(self.focus, []) + GLOBAL_HINTS)
         if self.tab == 'Correction' and not self.review:
             hints = CORRECTION_HINTS
@@ -888,6 +894,8 @@ class App:
             review.jump(-1 if key == ',' else 1, now)
         elif key in ('<', '>'):
             review.faster(-1 if key == '<' else 1)
+        elif key == 'z' and self.focus == 'activity':        # review.activity zoom
+            review.loupe = scrubber.next_loupe(review.loupe)
         elif key == 'p':
             review.toggle()
         elif key == 'space':

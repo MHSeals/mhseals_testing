@@ -23,7 +23,8 @@ from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing.harness import recwatch
-from mhseals_testing.ui import chrome, scrubber, theme
+from mhseals_testing.ui import chrome, theme
+from mhseals_testing.ui.panels import scrubber
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels import correction
@@ -151,8 +152,8 @@ def footer(view, width):
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
     status.add_row(focus, Text(view['notice'], style=MUTED))
     review = playing(view)
-    if review:  # the scrubber rows take the status line's place; the notice rides on their last row
-        status = Group(*scrubber.rows(review, width, view['notice']))
+    if review:  # the strip footer takes the status line's place; the notice rides on its status line
+        status = Group(*scrubber.review_footer(review, width, view['notice']))
     hints = view['hints']
     columns = 4 if width >= WIDE else 3 if width >= 60 else 2
     grid = Table.grid(expand=True)
@@ -318,6 +319,7 @@ class Overlay:
 
 HEADER_ROWS = 2
 FOOTER_ROWS = 3
+REVIEW_ROWS = 3   # events, skyline and axis join the status line
 MIN_SIZE = (36, 10)  # below this no panel is legible; only the stop hint is
 
 
@@ -335,7 +337,7 @@ def too_small(view):
 def render(snapshot, view, width=120, height=34):
     if width < MIN_SIZE[0] or height < MIN_SIZE[1]:
         return too_small(view)
-    extra = scrubber.height(width) - 1 if playing(view) else 0   # scrubber rows below the footer line
+    extra = REVIEW_ROWS if playing(view) else 0   # strip footer rows below the focus line
     body_height = max(5, height - 5 - extra)
     layout = Layout()
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
