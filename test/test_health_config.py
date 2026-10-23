@@ -179,3 +179,18 @@ def test_render_leaves_unknown_fields():
 def test_shipped_files_lint_clean():
     if HEALTH_DIR.is_dir():
         assert lint(load(user=False).specs) == []
+
+
+def test_empty_each_expands_to_no_checks(tmp_path):
+    assert specs(tmp_path, "checks: [{id: 'rate.{name}', kind: rate, topic: '{name}', each: []}]").specs == ()
+
+
+@pytest.mark.parametrize('field', ["clear_after: three", "raise_after: '2'", "enabled: 'no'", "hz: fast", "topic: 5"])
+def test_field_types_fail_at_load(tmp_path, field):
+    with pytest.raises(ConfigError, match=field.split(':')[0]):
+        specs(tmp_path, f"checks: [{{id: a, kind: rate, topic: /t, {field}}}]")
+
+
+def test_numeric_fields_accept_ints_and_null_raise_after(tmp_path):
+    spec, = specs(tmp_path, "checks: [{id: a, kind: rate, topic: /t, hz: 5, clear_after: 2, raise_after: null}]").specs
+    assert (spec.params.hz, spec.clear_after, spec.raise_after) == (5, 2, None)

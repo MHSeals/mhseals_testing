@@ -19,7 +19,8 @@ from mhseals_testing.health.model import MISSING, SEVERITIES, CheckSpec
 USER_FILE = Path.home() / '.config' / 'mhseals' / 'health.yaml'
 ANCHORS = ('rose', 'thrusters', 'header.deploy', 'odometry')    # plus sensor:<name>
 SPEC_KEYS = {f.name for f in dataclasses.fields(CheckSpec)} - {'params'}
-SPEC_TYPES = {'enabled': bool, 'raise_after': (int, float), 'clear_after': (int, float),
+SPEC_TYPES = {'enabled': bool, 'raise_after': float, 'clear_after': float,    # ints pass as floats
+             
               'title': str, 'group': str, 'message': str, 'hint': str}
 RESULT_FIELDS = ('value', 'detail', 'label', 'status')           # known to message templates
 ID_PATTERN = re.compile(r'[a-z0-9_]+(\.[a-z0-9_]+)*')
@@ -132,10 +133,9 @@ def _spec(raw):
         if key in fields and fields[key] not in allowed:
             raise ConfigError(f'{where}: {key} {fields[key]!r} is not one of {allowed}')
     for key, value in fields.items():
-        if key in SPEC_TYPES and (isinstance(value, bool) != (SPEC_TYPES[key] is bool)
-                                  or not isinstance(value, SPEC_TYPES[key])) \
-                and not (key == 'raise_after' and value is None):
-            raise ConfigError(f'{where}: {key} {value!r} must be {SPEC_TYPES[key].__name__ if SPEC_TYPES[key] is not (int, float) else "a number"}')
+        if key in SPEC_TYPES and not (key == 'raise_after' and value is None) \
+                and not registry.fits(value, SPEC_TYPES[key]):
+            raise ConfigError(f'{where}: {key} {value!r} must be {SPEC_TYPES[key].__name__}')
     if not isinstance(fields.get('when', {}), dict):
         raise ConfigError(f'{where}: when must be a mapping')
     try:
