@@ -26,6 +26,7 @@ from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 PANELS = ('status', 'motion', 'thrusters', 'procedures', 'activity')
 TITLES = {'status': 'Status', 'motion': 'Motion', 'thrusters': 'Thrusters',
           'procedures': 'Procedures', 'activity': 'Activity'}
+PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
 WIDE = 100          # below this the Motion panel folds away
 SIDEBAR = 36
 TOP_ROW = 8         # Motion and Thrusters height
@@ -423,12 +424,13 @@ def header(snapshot, view, width=120):
     return Group(top, strip)
 
 
-def fit_hints(hints, cells):
-    """Truncate to ``cells`` hints, dropping from the front first so Space (else ?) keeps the last cell."""
-    if len(hints) <= cells:
+def fit_hints(hints, capacity):
+    """Cut the hints to ``capacity`` but never the PINNED keys, which keep the last cells."""
+    if len(hints) <= capacity:
         return hints
-    keep = next((hint for key in ('Space', '?') for hint in hints if hint[0] == key), hints[-1])
-    return [hint for hint in hints if hint is not keep][:cells - 1] + [keep]
+    pinned = [hint for hint in hints if hint[0] in PINNED_HINTS]
+    rest = [hint for hint in hints if hint[0] not in PINNED_HINTS]
+    return rest[:max(capacity - len(pinned), 0)] + pinned[-capacity:]
 
 
 def footer(view, width):
