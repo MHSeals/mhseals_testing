@@ -21,6 +21,7 @@ that failed too; returns ``'confirmed'`` or ``'pending'``) and, for ``set``, ``p
 """
 
 import argparse
+import copy
 import datetime
 import json
 import re
@@ -47,6 +48,22 @@ def flatten(value, prefix=''):
     for key, node in value.items():
         flat.update(flatten(node, f'{prefix}.{key}' if prefix else str(key)))
     return flat
+
+
+def keep_live(old, live, is_cal):
+    """Copy of ``old`` (same nesting) with every live leaf whose dotted path is calibration kept."""
+    value = copy.deepcopy(old)
+    for path, leaf in flatten(live).items():
+        if not is_cal(path):
+            continue
+        node = value
+        *parents, last = path.split('.')
+        for key in parents:
+            if not isinstance(node.get(key), dict):
+                node[key] = {}
+            node = node[key]
+        node[last] = leaf
+    return value
 
 
 def diff_rows(before, after):
@@ -214,8 +231,7 @@ class Command:
         state = adapter.read() if adapter else None
         is_cal = getattr(adapter, 'calibration', None)
         if state and is_cal and not args.include_calibration:      # offsets measured later stay
-            now, old = flatten(state[0]), flatten(value)
-            value = {k: (now[k] if is_cal(k) and k in now else v) for k, v in old.items()}
+            value = keep_live(value, state[0], is_cal)
         return self.commit(sub, {'value': value, 'raw': version.get('raw'), 'meta': version.get('meta')}, args,
                            'cli:revert', revert_of=target['id'])
 

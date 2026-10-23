@@ -144,6 +144,22 @@ def test_fcu_revert_leaves_calibration_unless_asked(env):
     assert adapters['fcu'].value == {'EK3_SRC1_YAW': 1.0, 'CAL_X': 5.0}
 
 
+def test_revert_keeps_nested_shape_and_live_calibration(tmp_path):
+    hist = History(tmp_path / 'h')
+    nested = Fake({})
+    nested.calibration = lambda path: path.startswith('imu.')
+    old = {'pins': {'l': 1}, 'imu': {'off': 0}}
+    live = {'pins': {'l': 5}, 'imu': {'off': 3, 'scale': 2}}
+    hist.record('hardware', old, source='t')
+    nested.value = live
+    hist.record('hardware', live, source='t')
+    out = io.StringIO()
+    assert main(['revert', 'c0001', '--yes'], adapters={'hardware': nested}, history=hist, out=out, ask=None) == 0
+    expect = {'pins': {'l': 1}, 'imu': {'off': 3, 'scale': 2}}
+    assert nested.value == expect
+    assert hist.version(hist.changes('hardware')[-1])['value'] == expect
+
+
 def test_set_fcu_needs_reboot_flag_terminal_and_typed_word(env, tmp_path):
     run, hist, adapters = env
     param = tmp_path / 'p.param'
