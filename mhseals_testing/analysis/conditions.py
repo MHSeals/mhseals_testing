@@ -255,9 +255,9 @@ def spectral_level(windows, s: Settings, channels=(0, 1), rotate=False):
     Returns None without a window of two or more batches.
     """
     rho = _autocorrelation(windows, [0, 1] if rotate else channels)
-    # A few long-correlated windows can read past the curve; bound tau by half a batch so S0 stays sane.
+    # A few long-correlated windows can read past the curve; bound tau by one batch so S0 stays sane.
     hz = float(np.median([w.hz for w in windows]))
-    rho = min(rho, float(np.exp(-1 / hz / (s.batch_s / 2))))
+    rho = min(rho, float(np.exp(-1 / hz / (s.batch_s * 1))))
     total = expected = 0.0
     for w in windows:
         if len(w.sub) < 2:

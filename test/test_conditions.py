@@ -257,7 +257,7 @@ def test_spectral_level_stays_bounded_with_few_windows(tau, count):
     truth = 2 * 0.03 ** 2 * tau
     ratio = [c.spectral_level(windows_of(neutral(8 * count, tau=tau, seed=seed)), S) / truth
              for seed in range(150)]
-    assert np.percentile(ratio, 95) < 3
+    assert np.percentile(ratio, 95) < 5
 
 
 @pytest.mark.parametrize('tau, count', [(0.5, 3), (1.0, 4), (1.0, 6)])
@@ -352,6 +352,27 @@ def test_locally_swapped_samples_give_the_clean_windows():
 def test_reversed_samples_give_the_clean_windows():
     clean = neutral(60)
     _same_windows(windows_of([a[::-1] for a in clean]), windows_of(clean))
+
+
+@pytest.mark.parametrize('tau, floor', [(1.0, 0.90), (6.0, 0.83)])
+def test_drift_error_covers_slowly_wandering_noise(tau, floor):
+    # Windows of a gust or slow wander are alike, so their scatter alone made the error optimistic.
+    truth = np.array([0.08, -0.05])
+    hits = []
+    for seed in range(120):
+        est = c.estimate(windows_of(neutral(8 * 30, tau=tau, sigma=0.05, seed=seed)), S)
+        hits.append(np.all(np.abs(est.drift.vector - truth) < 1.96 * est.drift.se))
+    assert np.mean(hits) > floor
+
+
+def test_drift_ci_covers_noise_correlated_over_most_of_a_batch():
+    truth = np.array([0.08, -0.05])
+    hits = []
+    for seed in range(100):
+        drift = c.estimate(windows_of(neutral(80, tau=3.0, seed=seed)), S).drift
+        if drift is not None:
+            hits.append(np.all(np.abs(drift.vector - truth) < 1.96 * drift.se))
+    assert np.mean(hits) > 0.84     # 0.78 with tau capped at half a batch; nominal 0.90
 
 
 @pytest.mark.parametrize('tau, floor', [(1.0, 0.90), (6.0, 0.83)])
