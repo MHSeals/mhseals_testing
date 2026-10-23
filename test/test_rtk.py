@@ -4,6 +4,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 import io
 import pathlib
+import pathlib
 import time
 
 import pytest
@@ -137,6 +138,12 @@ def test_reader_forwards_a_crc_valid_frame_pyrtcm_cannot_decode():
     raw, message = rtcm_reader(io.BytesIO(body + frame), protfilter=7, quitonerror=1,
                                errorhandler=errors.append).read()
     assert raw == body and message.identity == '1074' and not errors
+
+
+def test_pyubx2_floor_has_the_metadata_only_parse_mode_the_reader_relies_on():
+    # Older pyubx2 treats _parsing as a bool, so the override would silently decode (and drop) again.
+    assert getattr(pyubx2, 'PARSE_META', None) == 2
+    assert 'pyubx2>=1.3.9' in (pathlib.Path(__file__).parent.parent / 'setup.py').read_text()
 
 
 def test_pyubx2_floor_has_the_metadata_only_parse_mode_the_reader_relies_on():
