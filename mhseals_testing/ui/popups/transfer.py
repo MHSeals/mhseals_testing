@@ -20,6 +20,7 @@ EIGHTHS = ' ▏▎▍▌▋▊▉█'
 SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 SPIN_ASCII = '|/-\\'
 SPIN_S = 0.16
+STAGES = ('index', 'reports', 'bags')
 
 
 @dataclasses.dataclass
@@ -95,7 +96,8 @@ def bar(fraction, width):
         return '[' + '#' * full + '-' * (width - 2 - full) + ']'
     cells = fraction * width
     whole = int(cells)
-    tail = EIGHTHS[int((cells - whole) * 8)] if whole < width else ''
+    eighth = int((cells - whole) * 8) if whole < width else 0
+    tail = EIGHTHS[eighth] if eighth else ''
     return ('█' * whole + tail).ljust(width, '░')
 
 
@@ -104,16 +106,32 @@ def frame(t, now, width=WIDTH):
     panel_width = max(20, min(width - 4, WIDTH))
     inner = panel_width - 4
     spin = SPIN_ASCII if theme.ASCII else SPIN
-    glyph = spin[int(now / SPIN_S) % len(spin)]
-    ok, cur = theme.pick('✓', '+'), glyph
-    mark = lambda name, active: f"{cur if active else ok} {name}"   # noqa: E731
-    stage = t.stage
-    steps = '   '.join((mark('index', stage == 'index'), mark('reports', stage == 'reports'),
-                        f"{mark('bags', stage == 'bags')} {t.passes[0]}/{t.passes[1]}"))
-    lines = [Text(f'{glyph} {t.session}' + (theme.SEPARATOR + t.detail if t.detail else '')),
-             Text('  ' + steps + (f'   {t.address}' if t.address else ''), style=None)]
+    spinner = spin[int(now / SPIN_S) % len(spin)]
+    head = Text()
+    if t.state == 'running':
+        head.append(spinner)
+    else:
+        head.append_text(theme.icon({'done': 'good', 'failed': 'bad', 'cancelled': 'warn'}[t.state]))
+    head.append(f' {t.session}' + (theme.SEPARATOR + t.detail if t.detail else ''))
+    row = Text('  ')
+    here = STAGES.index(t.stage) if t.stage in STAGES else 0
+    for i, name in enumerate(STAGES):
+        if t.state == 'done' or i < here:
+            mark = theme.icon('good')
+        elif i > here:
+            mark = theme.icon('off')
+        elif t.state == 'running':
+            mark = Text(spinner)
+        else:
+            mark = theme.icon('bad' if t.state == 'failed' else 'warn')
+        row.append_text(mark)
+        row.append(f' {name}', style=theme.MUTED if i > here else None)
+        if name == 'bags':
+            row.append(f' {t.passes[0]}/{t.passes[1]}', style=theme.MUTED if i > here else None)
+        row.append('   ' if name != 'bags' else '')
     if t.address:
-        lines[1].stylize(theme.MUTED, len(lines[1].plain) - len(t.address))
+        row.append(f'   {t.address}', style=theme.MUTED)
+    lines = [head, row]
     lines.append(Text(''))
     pct = f'{round(t.shown * 100):3d}%'
     lines.append(Text(bar(t.shown, max(4, inner - 6)) + '  ' + pct, style=theme.GOOD if t.state == 'done' else None))
@@ -125,10 +143,10 @@ def frame(t, now, width=WIDTH):
         info = Text(f'{size(t.done)} / {size(t.total)}')
         info.append(f'{theme.SEPARATOR}{size(t.rate)}/s', style=theme.MUTED)
         eta = t.eta(now)
-        if eta is not None:
-            info.append(f'{theme.SEPARATOR}eta {eta // 60}:{eta % 60:02d}')
         if t.stalled(now):
-            info.append(f'{theme.SEPARATOR}stalled', style=theme.WARN)
+            info.append(f'{theme.SEPARATOR}stalled', style=theme.WARN)   # the ETA means nothing now
+        elif eta is not None:
+            info.append(f'{theme.SEPARATOR}eta {eta // 3600}:{eta // 60 % 60:02d}:{eta % 60:02d}')
         lines += [info, Text(t.file, style=theme.MUTED)]
     keys = {'running': 'Esc hide · c cancel', 'done': 'Esc close', 'failed': 'Esc hide · r retry',
             'cancelled': 'Esc hide · r retry'}[t.state]

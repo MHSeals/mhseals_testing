@@ -86,3 +86,42 @@ def test_quit_guard_only_while_running():
     t.finish('done')
     assert tp.quit_guard([t]) is None
     assert tp.completion_toast(t)[0] == 'ok'
+
+
+def stage_row(t, now=0.0):
+    return lines(t, now, 80)[2]   # border, header, stage row
+
+
+def test_stage_row_marks_earlier_done_and_later_pending():
+    t = tp.Transfer('s', 'h')
+    t.update(0.0, total=10, stage='index')
+    row = stage_row(t)
+    assert '⠋ index' in row and '· reports' in row and '· bags' in row and '✓' not in row
+    t.update(0.1, stage='reports')
+    row = stage_row(t)
+    assert '✓ index' in row and '⠋ reports' in row and '· bags' in row
+    t.update(0.2, stage='bags', passes=(1, 2))
+    row = stage_row(t)
+    assert '✓ index' in row and '✓ reports' in row and '⠋ bags 1/2' in row
+
+
+@pytest.mark.parametrize('state,glyph', [('done', '✓'), ('failed', '✗'), ('cancelled', '!')])
+def test_no_spinner_after_finish(state, glyph):
+    t = running()
+    t.finish(state)
+    out = lines(t, 0.0, 80)
+    assert not any(c in '\n'.join(out) for c in tp.SPIN)
+    assert out[1].lstrip('│ ').startswith(glyph)
+    if state == 'done':
+        assert stage_row(t).count('✓') == 3
+    else:
+        assert '· ' not in stage_row(t) and glyph in stage_row(t)
+
+
+def test_bar_has_no_blank_tail_and_eta_is_hms():
+    assert tp.bar(0, 10) == '░' * 10
+    assert tp.bar(0.5, 10) == '█' * 5 + '░' * 5
+    t = tp.Transfer('s', 'h')
+    t.update(0.0, done=0, total=1000)
+    t.update(1.0, done=100)
+    assert 'eta 0:00:09' in '\n'.join(lines(t, 3.0, 80))
