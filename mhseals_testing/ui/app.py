@@ -81,9 +81,13 @@ class Detach(KeyboardInterrupt):
 
 
 def decoupled(config):
-    """The active decoupling matrix, or None when it is the identity."""
-    values = tuple(float(value) for value in config.get('decoupling', sum(IDENTITY, ())))
-    return None if values == sum(IDENTITY, ()) else values
+    """The active decoupling matrix, or None when both C+ and C- are the identity."""
+    identity = sum(IDENTITY, ())
+    values = tuple(float(value) for value in config.get('decoupling', identity))
+    negative = config.get('decoupling_negative')
+    if negative is not None and tuple(float(value) for value in negative) != identity:
+        return values
+    return None if values == identity else values
 
 
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
@@ -824,7 +828,7 @@ class App:
                 self.notice = 'No decoupling to clear'
             elif self.choose('Clear the fitted decoupling? Thrust goes back to the plain mixer.',
                              ('Keep', 'Clear'), {'n': 0, 'y': 1}) == 'Clear':
-                if self.save_hardware(decoupling=list(sum(IDENTITY, ()))):
+                if self.save_hardware(decoupling=list(sum(IDENTITY, ())), decoupling_negative=None):
                     self.notice = 'Decoupling cleared'
 
     def move_grabbed(self, step):

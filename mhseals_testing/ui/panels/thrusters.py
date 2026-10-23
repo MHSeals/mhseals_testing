@@ -1,5 +1,7 @@
 """Thrusters panel: output map, reversal, pulse and readback per position."""
 
+import re
+
 from rich.text import Text
 
 from mhseals_hardware.odroid_pwm import J2_PINS
@@ -13,7 +15,7 @@ SATURATED = 0.98    # |effort| at or above this is drawn as saturated
 NEUTRAL = 1500
 
 
-def effort_bar(pulse, testing=False, width=9):
+def effort_bar(pulse, testing=False, width=9, saturated=False):
     """A centred bar: left of the tick is reverse, right is forward."""
     effort = max(-1.0, min(1.0, (pulse - NEUTRAL) / 400))
     half = width // 2
@@ -21,13 +23,22 @@ def effort_bar(pulse, testing=False, width=9):
     cells[half] = theme.BAR
     for step in range(1, round(abs(effort) * half) + 1):
         cells[half + step if effort > 0 else half - step] = theme.FILL
-    return Text(''.join(cells), style=theme.WARN if testing else ACCENT)
+    return Text(''.join(cells), style=theme.WARN if testing or saturated else ACCENT)
 
 
-def readback_glyph(text):
-    """Rb: the kernel's PWM state as one glyph (on, off, unreadable, not read yet)."""
-    return ('✓' if text.startswith('ON') else theme.MIDDOT if text.startswith('OFF')
-            else '?' if text == 'unavailable' else theme.DASH)
+READBACK_TOLERANCE = 2  # µs between the sysfs duty and the commanded pulse
+
+
+def readback_glyph(text, pulse=None, armed=True):
+    """Rb: ✓ when the sysfs duty matches the commanded ``pulse`` while armed, × when it does not
+    (or is on while disarmed), · when off, ? when unreadable, a dash when not read yet."""
+    if text.startswith('ON'):
+        match = re.match(r'ON\s+(\d+)\s*us', text)
+        good = (armed and match is not None and pulse is not None
+                and abs(int(match.group(1)) - pulse) <= READBACK_TOLERANCE)
+        return '✓' if good else '×'
+    return (theme.MIDDOT if text.startswith('OFF') else '?' if text == 'unavailable'
+            else theme.DASH)
 
 
 def split_decoupling(config):
@@ -72,21 +83,28 @@ def thrusters_panel(view, compact=False, pins=True):
     columns = (['   Thr', 'Out', 'Rev', {'header': theme.pick('µs', 'us'), 'justify': 'right'}] if compact else
                ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
     if pins:
-        columns += ['Pin', 'Rb']
+        columns.insert(1, 'Pin')
+        columns.append('Rb')
     table = theme.grid(*columns, padding=(0, 1))
+    saturated = []
     for index, row in enumerate(thruster_rows(view)):
         active = view['armed'] and row['pulse'] != NEUTRAL
         state = ('WARN' if testing else 'LIVE') if active else ('IDLE' if view['armed'] else 'OFF')
         grabbed = view['grabbed'] == index
+        if active and row['saturated']:
+            saturated.append(row['position'])
         label = Text(row['position'] + (' ⇅' if grabbed else ''))
-        cells = [theme.row(state, label, focused and index == cursor),
-                 Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
-                 Text(theme.pick('↺', '(') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else MUTED),
-                 Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style=theme.WARN if row['saturated'] and active else 'bold' if active else MUTED)]
-        if not compact:
-            cells.append(effort_bar(row['pulse'], testing))
+        cells = [theme.row(state, label, focused and index == cursor)]
         if pins:
-            cells += [Text(f"p{row['pin']}", style=MUTED), Text(readback_glyph(row['readback']))]
+            cells.append(Text(f"p{row['pin']}", style=MUTED))
+        cells += [
+            Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
+            Text(theme.pick('↺', '(') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else MUTED),
+            Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style=theme.WARN if row['saturated'] and active else 'bold' if active else MUTED)]
+        if not compact:
+            cells.append(effort_bar(row['pulse'], testing, saturated=row['saturated'] and active))
+        if pins:
+            cells += [Text(readback_glyph(row['readback'], row['pulse'], view['armed']))]
         table.add_row(*cells)
     driver = view.get('driver') or {}
     parts = ['testing' if testing else driver.get('owner') or view['outputs']]
@@ -95,6 +113,8 @@ def thrusters_panel(view, compact=False, pins=True):
     saved = view['hardware']
     if saved.get('decoupling_negative') not in (None, saved['decoupling']):
         parts.append('C± split')
+    if saturated:
+        parts.append('sat ' + ','.join(saturated))
     parts.append('unsaved' if view['draft'] else
                  'config out of sync' if driver.get('config_sync') is False else view['config_note'])
     subtitle = SEPARATOR.join(parts)

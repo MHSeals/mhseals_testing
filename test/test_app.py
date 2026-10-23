@@ -14,7 +14,8 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import theme
 from mhseals_testing.harness.registry import Registry as RegistryBase
-from mhseals_testing.ui.app import App, Detach, SessionPaths, parse_args, stack_overlay
+from mhseals_testing.ui.app import (
+    App, Detach, SessionPaths, decoupled, parse_args, stack_overlay)
 
 
 class Clock:
@@ -1347,3 +1348,18 @@ def test_review_source_refuses_arming_and_procedures(tmp_path):
         assert not app.armed and app.notice == 'Arming is disabled in review'
         app.run_procedure(procedure('m'))
     assert app.notice == 'Procedures are disabled in review' and boat.sent == []
+
+
+def test_clear_decoupling_also_clears_the_negative_matrix(tmp_path):
+    split = [1, 0, 0, 0, 1, 0.3, 0, 0, 1]
+    (tmp_path / 'hardware.yaml').write_text(
+        f'frequency: 50.0\nchannel_map: [1, 2, 3, 4]\ndecoupling_negative: {split}\n')
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    assert decoupled(app.args.hardware_config) is not None  # C- alone counts
+    with app.attached():
+        app.focus = 'thrusters'
+        press(app, 'y')
+        app.dispatch('c')
+    saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
+    assert saved.get('decoupling_negative') is None
+    assert decoupled(app.args.hardware_config) is None

@@ -11,7 +11,8 @@ from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.dashboard import (
-    MARKS, PANELS, health_strip, readback_glyph, render, short, status_rows, thruster_rows)
+    MARKS, PANELS, effort_bar, health_strip, readback_glyph, render, short, status_rows,
+    thruster_rows, thrusters_panel)
 
 
 def view(profile, **overrides):
@@ -375,11 +376,27 @@ def test_split_pulses_equal_thruster_pulses_with_decoupling_negative():
 def test_thrusters_show_pin_readback_saturation_and_driver_status():
     profile = load_profile('boat')
     hardware = dict(load_defaults(), decoupling_negative=[1, 0, 0, 0, 1, 0.3, 0, 0, 1])
-    page = text(render(monitor().snapshot(profile.required_tf), view(
+    v = view(
         profile, focus='thrusters', outputs='odroid', hardware=hardware, armed=True, units='effort',
         command=(1.0, 0.0, 0.0), pwm_readback=['ON 1900us / 50Hz', 'OFF 1500us / 50Hz', 'unavailable', '—'],
-        driver=dict(owner='ours', mosfet=True, config_sync=True)), 120, 40), 120, 40)
+        driver=dict(owner='ours', mosfet=True, config_sync=True))
+    page = text(render(monitor().snapshot(profile.required_tf), v, 120, 40), 120, 40)
     assert 'Rb' in page and 'p7' in page and 'p33' in page
-    assert 'ours · p13 on · C± spli' in page  # the title border clips the tail
-    assert readback_glyph('ON 1900us') == '✓' and readback_glyph('unavailable') == '?'
+    title = thrusters_panel(v).title.plain  # the page clips the title border
+    assert 'ours · p13 on · C± split' in title and 'sat FL,FR' in title
+    assert re.search(r'FL +p7 ', page)  # Pin is the second column
     assert 'config out of sync' not in page
+
+
+def test_readback_glyph_checks_the_duty_against_the_commanded_pulse():
+    on = 'ON 1900us / 50Hz'
+    assert readback_glyph(on, 1900) == readback_glyph(on, 1902) == '✓'
+    assert readback_glyph(on, 1850) == '×'            # wrong duty
+    assert readback_glyph(on, 1900, armed=False) == '×'  # ON while disarmed
+    assert readback_glyph('OFF 1500us', 1500) == theme.MIDDOT
+    assert readback_glyph('unavailable', 1500) == '?'
+
+
+def test_effort_bar_is_warn_when_saturated():
+    assert effort_bar(1900, saturated=True).style == theme.WARN
+    assert effort_bar(1900).style != theme.WARN
