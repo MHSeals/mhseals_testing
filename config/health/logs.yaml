@@ -1,0 +1,26 @@
+# Known-failure log lines (see kinds/log_pattern.py). /rosout WARN+ and managed child logs.
+# Severity caps the result; a match holds the check active for 30 s unless `hold` says otherwise.
+group: Logs
+defaults: {severity: warn}
+checks:
+  - {id: log.prearm, kind: log_pattern, pattern: 'PreArm: (?P<why>.+)', key: why, severity: fail,
+     gates: [motion], message: 'FCU: {why}', hint: 'Read the PreArm text; it names what the FCU refuses.'}
+  - {id: log.imu_freefall, kind: log_pattern, pattern: 'IMU seems to be in free fall|stores unscaled raw acceleration',
+     hint: 'If madgwick is not in the fused path, remove the node instead of living with the alert.'}
+  - {id: log.gps_vel_stale, kind: log_pattern, pattern: 'GPS velocity is stale'}
+  - {id: log.ekf_rate, kind: log_pattern, pattern: 'Failed to meet update rate', min_count: 5}
+  - {id: log.costmap_lag, kind: log_pattern, pattern: 'buffer updated in .* should be', min_count: 3}
+  - {id: log.rate_request, kind: log_pattern, pattern: 'set_message_interval',
+     hint: 'Re-request the message rates after the FCU reconnects.'}
+  - {id: log.heartbeat, kind: log_pattern, pattern: 'HEARTBEAT timed out|Wrong FCU time', severity: fail}
+  - {id: log.nav2_bringup, kind: log_pattern, pattern: 'Aborting bringup|Failed to change state for node', severity: fail}
+  - {id: log.rtps, kind: log_pattern, pattern: 'RTPS_\w+ Error',
+     hint: 'Fast DDS prints these to a child stderr, never to /rosout. See graph.legacy for a Foxy or Humble peer.'}
+  - {id: log.qos, kind: log_pattern, pattern: 'incompatible QoS'}
+  - {id: log.bag_drops, kind: log_pattern, pattern: 'messages lost'}
+  - {id: log.process_died, kind: log_pattern, key: proc,
+     pattern: 'process has died \[pid \d+, exit code (?P<code>-?\d+), cmd ''(?P<proc>[^ '']+)',
+     message: '{proc} exited with {code}'}
+  - {id: log.watchdog, kind: log_pattern, pattern: 'commands timed out', severity: info, when: {procedure: running}}
+  - {id: log.noise, kind: log_pattern, suppress: true,
+     pattern: 'Publisher already registered for node name|CMD: Unexpected command|VER: broadcast request timeout'}

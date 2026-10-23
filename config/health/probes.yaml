@@ -8,3 +8,4 @@ probes:
   battery: {period: 5}
   graph: {period: 2}
   params: {period: 300}
+  logs: {period: 1}     # child log tails and the /rosout matches publish each tick
