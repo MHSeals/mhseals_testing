@@ -1,7 +1,8 @@
-"""popup.history: browse the config history (ui.md 4.3, config_history.md 5-6).
+"""popup.history: browse the config history and revert a subsystem (ui.md 4.3, config_history.md 5-6).
 
-``State`` is the whole popup (tab, cursor, scroll); ``body`` draws it at a terminal width and
+``State`` is the whole popup (tab, cursor, plan); ``body`` draws it at a terminal width and
 ``handle`` applies one key, so both run without a terminal. ``open_history`` is the modal loop.
+Reverting is ``history.revert.plan`` then ``.execute``; nothing here applies a config itself.
 
 Glyph grammar (ui.md section 9): the head of a subsystem carries an accent ``now`` tag, a revert
 is named with the word ``revert``, ``±`` marks a change made outside boat_test, ``◌`` one still
@@ -15,7 +16,7 @@ import textwrap
 from rich.text import Text
 
 from mhseals_testing import calibration
-from mhseals_testing.history import render
+from mhseals_testing.history import render, revert
 from mhseals_testing.ui import theme
 
 SUBS = ('hardware', 'nav2', 'fcu', 'rtk', 'health', 'keymap')
@@ -30,12 +31,16 @@ CADENCES = ('site', 'build')
 
 @dataclasses.dataclass
 class State:
-    """Everything the popup shows."""
+    """Everything the popup shows. ``backends`` and ``env`` are the revert seams."""
     history: object
+    backends: dict
+    env: object
     tab: int = 0                 # 0 is All, then one per subsystem that has history
     cursor: int = 0
     detail: bool = False         # narrow layout: the detail replaces the list
     base: str = 'current'        # current: what selecting would change; previous: what the change did
+    plan: object = None
+    message: Text = None
     rows: int = 14               # list rows that fit
     height: int = 30             # terminal rows; the body is fitted to it so the layout never clips
     scroll: int = 0              # first visible diff line (J/K), when the diff outruns the popup
@@ -150,8 +155,22 @@ def list_lines(state, width):
     return lines[start:start + state.rows] or [Text('no changes recorded', style='dim')]
 
 
+def plan_lines(plan, width):
+    """The revert plan: its head, every changed key wrapped (never collapsed), blockers, the hold."""
+    lines = [Text(f'Revert {plan.sub} to {plan.target["id"]}:', style='bold')]
+    lines += [Text(f'  {row}', style='bold') for row in textwrap.wrap(', '.join(plan.keys) or 'nothing changes', max(10, width - 2))]
+    lines += [Text(f'{theme.DASH} {b}', style=theme.BAD) for b in plan.blockers]
+    if plan.hold:
+        lines.append(Text('armed: the mux holds neutral during the apply', style='dim'))
+    return lines
+
+
 def detail_lines(state, width, avail=None):
-    """The detail pane: what the change is, then its diff, windowed (J/K) to ``avail`` lines."""
+    """The detail pane: what the change is, the revert plan or outcome, then the diff.
+
+    The plan, blockers and message sit above the diff so a long diff cannot push them off the
+    screen; with ``avail`` lines the diff is windowed (J/K) to what is left.
+    """
     change = state.selected()
     if change is None:
         return []
@@ -162,8 +181,13 @@ def detail_lines(state, width, avail=None):
              Text(f"{name}{theme.SEPARATOR}{change['source']}{theme.SEPARATOR}{change.get('applied', '')}")]
     if change.get('note'):
         lines.append(Text(change['note'], style='dim'))
+    if state.plan is not None:
+        lines += plan_lines(state.plan, width)
+    if state.message is not None:
+        lines.append(state.message)
     head = state.history.head(change['subsystem'])
-    if state.base == 'current' and head and head['id'] != change['id']:
+    # a plan always shows current -> target, whatever `d` says: that is the diff being applied
+    if (state.base == 'current' or state.plan is not None) and head and head['id'] != change['id']:
         rows, vs = rows_of(state, change, head), f"vs current {head['id']}"
     else:
         rows, vs = rows_of(state, change), 'vs previous'
@@ -193,9 +217,11 @@ def tab_line(state, width):
 
 
 def footer(state, cols=120):
+    if state.plan is not None:
+        return theme.SEPARATOR.join(('y apply', 'Esc cancel'))
     if cols < WIDE:
-        return theme.SEPARATOR.join(('n name', 'l detail', '[ ] tab', 'Esc'))
-    keys = ['d vs ' + ('previous' if state.base == 'current' else 'current'), 'n name', 'N note']
+        return theme.SEPARATOR.join(('Enter revert', 'n name', 'l detail', '[ ] tab', 'Esc'))
+    keys = ['Enter revert', 'd vs ' + ('previous' if state.base == 'current' else 'current'), 'n name', 'N note']
     return theme.SEPARATOR.join(keys + ['l detail', '[ ] subsystem', 'Esc close'])
 
 
@@ -217,7 +243,7 @@ def body(state, cols):
                 line += right[i]
             out.append(line)
     else:
-        out += detail_lines(state, width, avail) if state.detail else list_lines(state, width)
+        out += detail_lines(state, width, avail) if state.detail or state.plan else list_lines(state, width)
         for line in out:
             line.truncate(width, overflow='ellipsis')
     return Text('\n').join(out)
@@ -228,17 +254,23 @@ def modal(state, cols):
                 hint=footer(state, cols), danger=False)
 
 
+def say(state, text, bad=False):
+    state.message = Text(text, style=theme.BAD if bad else theme.GOOD)
+
+
 def handle(state, key, app):
     """Apply one key; returns True when the popup should close."""
     change = state.selected()
-    if key in ('escape', 'q'):
+    if key in ('escape', 'q') and state.plan is not None:
+        state.plan = None
+    elif key in ('escape', 'q'):
         return True
     elif key in ('[', 'left', ']', 'right'):
         state.tab = (state.tab + (1 if key in (']', 'right') else -1)) % len(state.tabs())
-        state.cursor, state.scroll = 0, 0
+        state.cursor, state.plan, state.message, state.scroll = 0, None, None, 0
     elif key in ('up', 'k', 'down', 'j'):
         state.cursor = max(0, min(len(state.entries()) - 1, state.cursor + (1 if key in ('down', 'j') else -1)))
-        state.scroll = 0
+        state.plan, state.message, state.scroll = None, None, 0
     elif key in ('J', 'K'):
         state.scroll = max(0, state.scroll + (1 if key == 'J' else -1))
     elif key == 'l':
@@ -247,6 +279,17 @@ def handle(state, key, app):
         state.base = 'previous' if state.base == 'current' else 'current'
     elif change is None:
         pass
+    elif key == 'enter':
+        state.message, state.scroll = None, 0
+        if change['subsystem'] not in state.backends:
+            say(state, f'cannot revert {change["subsystem"]}: not wired', bad=True)
+            return False
+        try:
+            state.plan = revert.plan(state.history, state.backends, state.env, change['id'], change['subsystem'])
+        except KeyError as error:
+            say(state, f'cannot revert {change["subsystem"]}: {error.args[0]}', bad=True)
+    elif key == 'y' and state.plan is not None:
+        confirm(state, app)
     elif key in ('n', 'N'):
         field = 'name' if key == 'n' else 'note'
         text = app.ask_text(f'Name {change["id"]}' if key == 'n' else f'Note on {change["id"]}', '', change.get(field, ''))
@@ -255,9 +298,21 @@ def handle(state, key, app):
     return False
 
 
+def confirm(state, app):
+    """y: execute the planned revert unless a blocker or no-op stops it; show the outcome."""
+    plan, state.plan = state.plan, None
+    if not plan.ok:
+        say(state, '; '.join(plan.blockers) or 'already at that version', bad=True)
+        return
+    out = revert.execute(state.history, state.backends, state.env, plan)
+    say(state, f"Reverted {plan.sub} to {plan.target['id']}" if out.status == 'reverted' else f'{out.status}: {out.detail}',
+        bad=out.status != 'reverted')
+    app.notice = state.message.plain
+
+
 def open_history(app, sub=None):
     """H: the history popup, optionally on one subsystem's tab."""
-    state = State(app.history, fields=render.load_fields())
+    state = State(app.history, getattr(app, 'config_backends', {}), app.revert_env(), fields=render.load_fields())
     if sub in state.tabs():
         state.tab = state.tabs().index(sub)
     shell = {}

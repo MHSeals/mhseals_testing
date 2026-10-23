@@ -46,7 +46,7 @@ from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.journal import Journal
 from mhseals_testing.health.network import NetworkRow
-from mhseals_testing.history import History, adapters
+from mhseals_testing.history import History, adapters, revert
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
@@ -954,6 +954,18 @@ class App:
             return False
         opener(self)
         return True
+
+    def revert_env(self):
+        """The revert blocker probes over this session, and the mux hold used while armed.
+
+        ``ros.mux_hold(token)`` (a context manager) is optional; without it an armed revert of
+        live-only keys runs unheld, which only the hardware backend's live keys allow.
+        """
+        hold = getattr(self.ros, 'mux_hold', None)
+        return revert.Env(
+            probes={'procedure': lambda: self.running is not None, 'pulses': lambda: self.test_pulses is not None},
+            armed=lambda: self.armed,
+            **({'hold': hold} if hold else {}))
 
     def odometry(self):
         """Fused sources popup. Parameters and rows are read here, once, so nothing is

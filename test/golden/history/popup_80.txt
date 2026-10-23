@@ -6,4 +6,4 @@
 │ › ◌ c0002  14:05  split C v2                                  cal hw │
 │ Wed Oct 21                                                           │
 │     c0001  09:00  output, reversed                            cal hw │
-╰─  n name · l detail · [ ] tab · Esc  ────────────────────────────────╯
+╰─  Enter revert · n name · l detail · [ ] tab · Esc  ─────────────────╯

@@ -18,4 +18,4 @@
 │                                              │   yaw ← sway  0 → 0.08                    │
 │                                              │ Timing                                    │
 │                                              │   Command timeout  0.3 → 0.5 s            │
-╰─  d vs previous · n name · N note · l detail · [ ] subsystem · Esc close  ───────────────╯
+╰─  Enter revert · d vs previous · n name · N note · l detail · [ ] subsystem · Esc close ─╯
