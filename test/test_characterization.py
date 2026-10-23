@@ -276,10 +276,10 @@ def test_audit_accepts_complete_holds():
 
 
 def test_audit_rejects_a_hold_inside_an_odometry_gap():
-    audit = audit_holds(*hold_history(gap=(12.0, 18.0)))
+    audit = audit_holds(*hold_history(gap=(12.0, 18.05)))
     assert [hold['ok'] for hold in audit] == [True, True, False, True, True]
     assert audit[2]['samples'] == 0 and audit[2]['coverage'] == 0.0
 
 
 def test_audit_rejects_frozen_odometry():
-    assert not any(hold['ok'] for hold in audit_holds(*hold_history(frozen=True)))
+    assert [hold['ok'] for hold in audit_holds(*hold_history(frozen=True))] == [True] + [False] * 4

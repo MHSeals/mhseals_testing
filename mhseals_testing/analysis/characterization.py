@@ -21,7 +21,7 @@ import numpy
 from mhseals_hardware.configuration import load_config, update_config
 from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
 from mhseals_hardware.velocity_law import decoupling_for, raw_gain
-from mhseals_testing.analysis.thrust import speed_curves
+from mhseals_testing.analysis.thrust import ACTIVE, speed_curves
 
 
 # Share of the boat's limits Nav2 may plan with: all of it. (A share held back for the
@@ -286,20 +286,25 @@ def audit_holds(history, windows, transient=1.0, minimum=MIN_COVERAGE):
     """One record per hold: samples, coverage against the median density, and whether it is usable.
 
     Odometry gaps (replay, bags) leave holds with few or no samples, and a frozen
-    sensor with fresh stamps leaves a constant velocity; either would silently
-    bend the speed curves. ``ok`` is false for both.
+    sensor with fresh stamps never moves, not even through the switching
+    transient of a commanded hold; either would silently bend the speed curves.
+    Holds no longer than ``transient`` leave nothing to fit and are not judged
+    for coverage.
     """
     holds = []
     for command, start, end in windows:
         samples = samples_from_windows(history, [(command, start, end)], transient)
-        span = max(end - start - transient, 1e-9)
+        everything = samples_from_windows(history, [(command, start, end)], 0.0)
+        span = end - start - transient
         holds.append(dict(command=list(command), start=start, end=end, samples=len(samples),
-                          density=len(samples) / span,
-                          flat=len(samples) > 1 and not numpy.ptp(
-                              [s["velocity"] for s in samples], axis=0).any()))
-    typical = float(numpy.median([hold["density"] for hold in holds])) if holds else 0.0
+                          density=len(samples) / span if span > 0 else None,
+                          flat=len(everything) > 1 and any(abs(value) > ACTIVE for value in command)
+                          and not numpy.ptp([s["velocity"] for s in everything], axis=0).any()))
+    densities = [hold["density"] for hold in holds if hold["density"] is not None]
+    typical = float(numpy.median(densities)) if densities else 0.0
     for hold in holds:
-        hold["coverage"] = hold.pop("density") / typical if typical else 0.0
+        density = hold.pop("density")
+        hold["coverage"] = 1.0 if density is None else (density / typical if typical else 0.0)
         hold["ok"] = hold["coverage"] >= minimum and not hold["flat"]
     return holds
 
