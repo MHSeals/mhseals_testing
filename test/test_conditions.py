@@ -66,7 +66,7 @@ def test_a_stationary_gps_bias_is_reported_as_drift_not_removed():
     # readiness gate to judge, not treat it as zero.
     drift = c.world_drift(windows_of(neutral(8 * 12, drift=(0.038, 0.0), seed=7)), S)
     assert np.hypot(*drift.vector) == pytest.approx(0.038, abs=3 * drift.se)
-    assert drift.se < 0.005
+    assert drift.se < 0.006
 
 
 def test_drift_matches_truth_within_its_error():
@@ -352,3 +352,14 @@ def test_locally_swapped_samples_give_the_clean_windows():
 def test_reversed_samples_give_the_clean_windows():
     clean = neutral(60)
     _same_windows(windows_of([a[::-1] for a in clean]), windows_of(clean))
+
+
+@pytest.mark.parametrize('tau, floor', [(1.0, 0.90), (6.0, 0.83)])
+def test_drift_error_covers_slowly_wandering_noise(tau, floor):
+    # Windows of a gust or slow wander are alike, so their scatter alone made the error optimistic.
+    truth = np.array([0.08, -0.05])
+    hits = []
+    for seed in range(120):
+        est = c.estimate(windows_of(neutral(8 * 30, tau=tau, sigma=0.05, seed=seed)), S)
+        hits.append(np.all(np.abs(est.drift.vector - truth) < 1.96 * est.drift.se))
+    assert np.mean(hits) > floor

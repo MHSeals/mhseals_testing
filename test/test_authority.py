@@ -42,7 +42,7 @@ def test_stale_or_missing_mux_is_unknown():
 
 def test_malformed_mux_state_is_unknown_not_a_crash():
     for bad in ({'t_ns': int(NOW * 1e9)}, {'input': 'auto'}, {}, 'junk'):
-        record = run(bad)
+        record = derive(bad, [], None, None, None, None, NOW)  # bypass run(), which wraps str into a valid dict
         assert record['owner'] == 'unknown' and record['source'] == 'mux state malformed'
     assert run({'input': 'auto'}, mux_age_s=0.5)['owner'] != 'unknown'  # receipt age stands in for the stamp
 
