@@ -83,7 +83,8 @@ def _registry():
     from functools import partial
 
     from mhseals_testing.procedures import (
-        axis, characterize, combined, controller, manual, mission, nav, perception, thrusters,
+        axis, characterize, combined, controller, magcal, manual, mission, nav, perception,
+        thrusters,
     )
     trial = frozenset({'armed', 'sensors'})
     return (
@@ -101,6 +102,8 @@ def _registry():
                   'step response of the calibrated velocity controller'),
         Procedure('m', 'Manual control', manual.run, frozenset({'armed'}),
                   'deadman keyboard driving under the interlocks'),
+        Procedure('g', 'Compass calibration', magcal.run, frozenset(),
+                  'handheld bearing -> fixed-yaw calibration (42006), written only on your yes'),
         Procedure('i', 'Thruster set', thrusters.run, frozenset({'armed', 'outputs'}),
                   'pulse each output; map and reverse thrusters'),
         Procedure('n', 'Nav2 bring-up', nav.bringup, frozenset(),
