@@ -1,0 +1,97 @@
+{
+ "note": "Synthetic stand-in for one crane_full_stack frame: camera_info and /tf_static as crane_ml publishes them (link x fwd,y left,z up -> optical); buoy pixels fixed first, boxes derived from them.",
+ "image": [
+  1280,
+  720
+ ],
+ "K": [
+  600.0,
+  0,
+  640.0,
+  0,
+  600.0,
+  360.0,
+  0,
+  0,
+  1
+ ],
+ "tf_static": {
+  "parent": "front_camera_link",
+  "child": "front_camera_rgb_optical_frame",
+  "translation": [
+   0,
+   0,
+   0
+  ],
+  "quaternion": [
+   -0.5,
+   0.5,
+   -0.5,
+   0.5
+  ]
+ },
+ "detections": [
+  {
+   "class_id": "red",
+   "center": [
+    8.0,
+    3.2,
+    -0.267
+   ],
+   "size": [
+    0.4,
+    0.4,
+    0.5
+   ]
+  },
+  {
+   "class_id": "green",
+   "center": [
+    12.0,
+    -1.2,
+    -0.24
+   ],
+   "size": [
+    0.4,
+    0.4,
+    0.5
+   ]
+  },
+  {
+   "class_id": "yellow",
+   "center": [
+    20.0,
+    -12.0,
+    -0.167
+   ],
+   "size": [
+    0.4,
+    0.4,
+    0.5
+   ]
+  }
+ ],
+ "buoys": [
+  {
+   "name": "red_a",
+   "pixel": [
+    400,
+    380
+   ]
+  },
+  {
+   "name": "green_a",
+   "pixel": [
+    700,
+    372
+   ]
+  },
+  {
+   "name": "yellow_a",
+   "pixel": [
+    1000,
+    365
+   ]
+  }
+ ]
+}
