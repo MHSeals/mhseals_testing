@@ -99,5 +99,152 @@ class ClaimTable:
         self.pending.append({'phase': phase, 't_ns': _ns(now), 'rec': dict(claim)})
 
 
+def derive(mux, claims, nav, task, procedure, graph, now, prev=None):
+    """The authority record for this instant.
+
+    ``mux``: the command_mux state, or None. ``claims``: the table's claims.
+    ``nav``: {'goals': [{'id', 'status', 'by'}]}, ``by`` is 'nav' for goals
+    the TUI sent. ``task``: {'status', 'name'} or None. ``procedure``:
+    {'name', 'run'} or None. ``graph``: {'cmd_vel': {'age_s', 'nonzero'},
+    'publishers': [{'node', 'gid'}], 'own_gids': [...]}. ``prev`` is the last
+    record, so ``since_ns`` only moves when the owner or source changes.
+    """
+    record = {'schema': 'mhseals.authority/1', 't_ns': _ns(now), 'owner': 'none', 'source': '',
+              'reason': '', 'input': None, 'cause': None, 'holds': [], 'conflict': False,
+              'claims': [], 'nav': nav, 'task': task, 'procedure': procedure,
+              'rc': (mux or {}).get('rc')}
+    if mux is None or now - mux['t_ns'] / 1e9 > STALE_S:
+        # unknown means paused, but the claims stay visible
+        record['claims'] = _effective(claims, True)
+        return _finish(record, 'unknown', 'no fresh mux state', now, prev)
+
+    record['input'] = mux['input']
+    record['cause'] = mux.get('cause')
+    record['holds'] = _holds(mux)
+    human = HUMAN.get(mux['input'])
+    record['claims'] = _effective(claims, human)
+    if human:
+        return _finish(record, human, _human_source(mux, human), now, prev)
+
+    sources = _sources(record['claims'], task, procedure)
+    goals = [g for g in (nav or {}).get('goals', []) if g.get('status') == 'executing']
+    if not sources:
+        sources = _unclaimed(goals, graph, mux['input'])
+    if len(sources) > 1:
+        record['conflict'] = True
+        names = ', '.join(f"{owner} {text}" for owner, text, _ in sources)
+        return _finish(record, 'external', f'? conflict: {names}', now, prev)
+    if sources:
+        owner, text, reason = sources[0]
+        return _finish(record, owner, text, now, prev, reason)
+    return _finish(record, 'none', '', now, prev)
+
+
+def events(prev, record):
+    """Journal events for the change from ``prev`` to ``record`` (claim edges excluded)."""
+    if prev is None:
+        return []
+    out = []
+    if prev['owner'] != record['owner'] and record['owner'] != 'unknown':
+        by = _by(record)
+        out.append(_event('authority', record, {
+            'from': {'owner': prev['owner'], 'source': prev['source']},
+            'to': {'owner': record['owner'], 'source': record['source']},
+            'cause': record['cause'] or 'claim', 'reason': record['reason'], 'by': by}))
+    old = {c['id']: c['state'] for c in prev['claims']}
+    for claim in record['claims']:
+        was = old.get(claim['id'])
+        if was == 'active' and claim['state'] == 'suspended':
+            out.append(_event('claim_suspend', record, {'claim': claim}))
+        elif was == 'suspended' and claim['state'] == 'active':
+            out.append(_event('claim_resume', record, {'claim': claim}))
+    if prev['owner'] in CLAIM_OWNERS and record['owner'] in HUMAN.values():
+        out.append(_event('override', record, {
+            'by': record['owner'], 'procedure': (prev['procedure'] or {}).get('name'),
+            'run': (prev['procedure'] or {}).get('run'), 'holds_invalidated': []}))
+    return out
+
+
+def _effective(claims, human):
+    """Claims as shown: suspended under a human override or unknown mux state.
+
+    A stored revoked (or otherwise non-active) state is kept as it is.
+    """
+    return [claim if claim.get('state', 'active') not in ('active', 'suspended')
+            else dict(claim, state='suspended' if human else 'active') for claim in claims]
+
+
+def _holds(mux):
+    """The mux hold set, oldest first; a lone ``hold`` is a set of one."""
+    return list(mux.get('holds') or ([mux['hold']] if mux.get('hold') else []))
+
+
+def _sources(claims, task, procedure):
+    """Top-level automated sources as (owner, source text, reason).
+
+    Goals and tasks started while a claim is active belong to that claim, so
+    only claim-less state adds implicit procedure and task sources.
+    """
+    active = [c for c in claims if c['state'] == 'active']
+    sources = [(c['owner'], _claim_text(c), c['reason']) for c in active]
+    if active:
+        return sources
+    if procedure:
+        sources.append(('procedure', procedure['name'], ''))
+    if task and task.get('status') == 'RUNNING':
+        sources.append(('task', task.get('name', 'task'), ''))
+    return sources
+
+
+def _unclaimed(goals, graph, input):
+    """Nothing claimed: a TUI goal is nav, any other driver is external.
+
+    A /cmd_vel publisher only counts while the mux reads auto.
+    """
+    if goals:
+        if all(g.get('by') == 'nav' for g in goals):
+            return [('nav', 'cursor goal', '')]
+        return [('external', '? goal (unclaimed)', '')]
+    cmd = (graph or {}).get('cmd_vel') or {}
+    if input != 'auto':
+        return []
+    age = cmd.get('age_s')
+    if cmd.get('nonzero') and age is not None and age <= CMD_VEL_WINDOW_S:
+        own = set(graph.get('own_gids', ()))
+        names = [p['node'] for p in graph.get('publishers', ()) if p.get('gid') not in own]
+        return [('external', '? ' + (', '.join(names) or 'unknown publisher'), '')]
+    return []
+
+
+def _claim_text(claim):
+    where = f" ({claim['host']} pid {claim['pid']})" if claim.get('host') else ''
+    return f"claim {claim['id']} {claim['who']}{where}"
+
+
+def _human_source(mux, human):
+    if human == 'rc':
+        return f"rc {(mux.get('rc') or {}).get('mode', '')}".strip()
+    if human == 'hold':
+        hold = (_holds(mux) or [{}])[0]
+        return f"hold {hold.get('cause', '')} by {hold.get('by', '?')}".strip()
+    return 'keyboard'
+
+
+def _by(record):
+    active = [c['who'] for c in record['claims'] if c['state'] == 'active']
+    return active[0] if active and record['owner'] in CLAIM_OWNERS else record['owner']
+
+
+def _finish(record, owner, source, now, prev, reason=''):
+    record['owner'], record['source'], record['reason'] = owner, source, reason
+    same = prev and prev['owner'] == owner and prev['source'] == source
+    record['since_ns'] = prev['since_ns'] if same else _ns(now)
+    return record
+
+
+def _event(phase, record, fields):
+    return {'phase': phase, 't_ns': record['t_ns'], 'rec': fields}
+
+
 def _ns(seconds):
     return int(seconds * 1e9)
