@@ -71,3 +71,10 @@ def driving(feed, arbiter, manual, running, now):
             return STALE
         return chip(feed['authority_record'], now)
     return (('human', 'KEYS') if manual else ('ours', running.upper()) if running else None)
+
+
+def control(record, driving_chip, now, setting):
+    """The ``snapshot['control']`` dict the Control rows read; ``setting`` is the Agents value."""
+    return {'driving': driving_chip, 'rc': (record or {}).get('rc'),
+            'holds': [dict(h, age=age(now - h['since_ns'] / 1e9) if h.get('since_ns') else '')
+                      for h in (record or {}).get('holds', ())], 'agents': setting}

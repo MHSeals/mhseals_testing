@@ -10,6 +10,7 @@ import pytest
 
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui import authority_chip, chrome, layout, theme
+from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.feeds import authority as feed_module
 
 from test_app import make_app
@@ -214,3 +215,90 @@ def test_without_an_arbiter_the_local_state_is_the_guess(tmp_path):
     assert app.view()['authority'] == ('human', 'KEYS')
     app.manual, app.running = False, 'Drift'
     assert app.view()['authority'] == ('ours', 'DRIFT')
+
+
+# --- Control rows --------------------------------------------------------------------------------
+
+def control(name, setting='allow'):
+    rows = status_rows({**monitor().snapshot(), 'control': authority_chip.control(STATES[name], authority_chip.chip(STATES[name], NOW), NOW, setting)},
+                       load_profile('boat').sensors)
+    return {r['name']: r for r in rows if r['group'] == 'Control'}
+
+
+def test_control_rows_in_order_and_before_components():
+    profile = load_profile('boat')
+    rows = status_rows({**monitor().snapshot(profile.required_tf),
+                        'control': authority_chip.control(STATES['rc'], authority_chip.chip(STATES['rc'], NOW), NOW, 'allow')}, profile.sensors)
+    names = [r['name'] for r in rows]
+    assert names.index('Agents') < names.index('odometry')
+    assert [r['name'] for r in rows if r['group'] == 'Control'] == ['Driving', 'RC', 'Hold', 'Agents']
+
+
+def test_control_values():
+    rows = control('rc')
+    assert rows['Driving']['value'] == 'RC 46 ms'
+    assert rows['RC']['value'] == f'GUIDED{theme.SEPARATOR}25 Hz ~46ms' and rows['RC']['state'] == 'OK'
+    assert rows['Hold']['value'] == 'off'
+    assert rows['Agents']['value'] == theme.pick('‹ allow ›', '< allow >')
+    held = control('hold')
+    assert held['Hold']['value'] == 'HOLD manual 40 s' and held['Hold']['style'] == theme.auth_style('hold')
+    assert control('idle')['Driving']['value'] == 'idle' and control('idle')['Driving']['style'] is None
+    assert control('idle')['RC']['value'] == 'no receiver'
+
+
+def test_slow_rc_is_flagged():
+    slow = dict(STATES['rc'], rc=dict(RC, rate_hz=2.0, latency_ms=560))
+    rows = status_rows({**monitor().snapshot(), 'control': authority_chip.control(slow, authority_chip.chip(slow, NOW), NOW, 'allow')},
+                       load_profile('boat').sensors)
+    rc = next(r for r in rows if r['name'] == 'RC')
+    assert rc['state'] == 'WARN' and not rc['plain'] and '2 Hz' in rc['value']
+
+
+def test_no_control_rows_without_a_live_source():
+    assert not [r for r in status_rows(monitor().snapshot(), load_profile('boat').sensors)
+                if r['group'] == 'Control']
+
+
+# --- the app: the feed replaces the local guess; Agents flips -------------------------------------
+
+def test_invariant_5_authority_hue_on_the_driving_row_only():
+    rows = control('agent')
+    assert rows['Driving']['style'] == theme.auth_style('agent') and rows['Driving']['plain']   # no status glyph
+    assert rows['Hold']['plain']
+
+
+def test_driving_row_shows_stale_in_red_when_the_feed_is_paused(tmp_path):
+    app, _ = make_app(tmp_path)
+    clock = [1000.0]
+    feed, _ = start(app, clock)
+    snapshot = app.snapshot()
+    driving = next(r for r in status_rows(snapshot, app.profile.sensors) if r['name'] == 'Driving')
+    assert driving['value'] == '? authority stale' and driving['style'] == theme.BAD
+    feed.arbiter.tick()
+    snapshot = app.snapshot()
+    assert snapshot['control']['driving'] is None             # fresh and idle
+    clock[0] += 10.0
+    assert app.snapshot()['control']['driving'] == ('unclaimed', '? authority stale')
+
+
+def test_driving_row_falls_back_to_the_local_guess_without_an_arbiter(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.manual = True
+    assert app.snapshot()['control']['driving'] == ('human', 'KEYS')
+
+
+def test_agents_row_flips_with_left_and_right(tmp_path):
+    app, _ = make_app(tmp_path)
+    rows = status_rows(app.snapshot(), app.profile.sensors)
+    app.cursors['status'] = next(i for i, r in enumerate(rows) if r['name'] == 'Agents')
+    assert app.settings.agents == 'allow'
+    app.dispatch('right')
+    assert app.settings.agents == 'block'
+    assert status_rows(app.snapshot(), app.profile.sensors)[app.cursors['status']]['value'] == theme.pick('‹ block ›', '< block >')
+    app.dispatch('left')
+    assert app.settings.agents == 'allow'
+    app.arbiter = SimpleNamespace(allow_agents=True)   # the one Arbiter attribute
+    app.dispatch('left')
+    assert app.arbiter.allow_agents is False
+    app.dispatch('left')
+    assert app.arbiter.allow_agents is True

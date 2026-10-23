@@ -12,6 +12,7 @@ from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
          '⏱': theme.pick('⏱', 't'), '×': theme.pick('×', 'x')}
+RC_MIN_HZ = 10                      # below this the RC link reads '!' (authority 4.3)
 RATE_STYLE = {'warn': theme.WARN, 'fail': theme.BAD}  # Hz colour; a healthy rate stays muted
 
 
@@ -76,6 +77,43 @@ def health_rows(snapshot, specs):
                  detail=health.get('worst') or 'all checks ok', required=False)]
 
 
+def control_rows(snapshot, specs):
+    """Driving, RC, Hold, Agents from ``snapshot['control']`` (ui.feeds.authority.control); ui 6.1."""
+    data = snapshot.get('control')
+    if data is None:
+        return []
+
+    def row(name, value, detail, state='OK', style=None, **extra):
+        return dict(group='Control', state=state, name=name, value=theme.ascii_safe(value), detail=detail,
+                    required=False, plain=state == 'OK', style=style, **extra)
+
+    kind, word = data.get('driving') or (None, 'idle')
+    rows = [row('Driving', word, 'who drives; Enter opens the authority popup',
+                style=theme.auth_style(kind) if kind else None)]
+    rc = data.get('rc')
+    if not rc:
+        rows.append(row('RC', 'no receiver', 'no RC_CHANNELS seen', 'OFF'))
+    elif not rc.get('valid', True):
+        rows.append(row('RC', 'lost', 'receiver present but not valid', 'WARN'))
+    else:
+        hz, latency = rc.get('rate_hz') or 0, rc.get('latency_ms')
+        value = f"{rc.get('mode', '')}{SEPARATOR}{hz:.0f} Hz" + (f' ~{latency:.0f}ms' if latency else '')
+        slow = hz < RC_MIN_HZ
+        rows.append(row('RC', value, f'RC_CHANNELS at {hz:.0f} Hz: N1 not applied or FCU rebooted' if slow
+                        else 'rc mode, rate and estimated latency', 'WARN' if slow else 'OK'))
+    holds = data.get('holds') or []
+    if holds:
+        hold = holds[0]
+        rows.append(row('Hold', f"HOLD {hold.get('cause') or hold.get('by', '')} {hold.get('age', '')}".strip(),
+                        'Enter releases the hold', style=theme.auth_style('hold')))
+    else:
+        rows.append(row('Hold', 'off', 'no hold on the command mux'))
+    left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
+    rows.append(row('Agents', f"{left}{data.get('agents', 'allow')}{right}", 'left/right: allow or block new agent claims',
+                    style='', setting='agents'))
+    return rows
+
+
 def session_rows(snapshot, specs):
     """Rows the app feeds into ``snapshot['session']`` (Command effort, Bench)."""
     return list(snapshot.get('session', ()))
@@ -131,7 +169,7 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
 
 # A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
 # providers (Control, Recording, Config, RTK) without touching the grouping below.
-PROVIDERS = [health_rows, component_rows, localization_rows, frame_rows, system_rows, session_rows]
+PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame_rows, system_rows, session_rows]
 # Placeholder until the Command-effort and Bench items publish these advisories (ui.md 6.1, Session group);
 # no producer exists yet, so only the test advises them.
 SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System
@@ -197,7 +235,8 @@ def status_panel(snapshot, view, height):
         else:
             row = rows[key]
             table.add_row(row_label(row, focused and key == cursor),
-                          Text(row['value'], style=RATE_STYLE.get(row.get('rate'), MUTED)))
+                          Text(row['value'], style=row['style'] if row.get('style') is not None
+                               else RATE_STYLE.get(row.get('rate'), MUTED)))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row.get('source') == 'sensor' and row['state'] == 'LIVE')

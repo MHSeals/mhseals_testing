@@ -268,6 +268,8 @@ class App:
         snapshot = self.source.snapshot()
         if self.nav2_file is not None:
             snapshot['components'] = [self.nav2_file.row()]
+        if self.source.live:    # a past session shows no live control state
+            snapshot['control'] = self.control()
         counts = health_feed.summary(self.engine)
         if counts:
             snapshot['health'] = counts
@@ -517,8 +519,7 @@ class App:
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
-            authority=authority_chip.driving(shared, getattr(self, 'arbiter', None), self.manual,
-                                             self.running, time.time()),
+            authority=self.driving(shared),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command,
             profile=self.profile.name, units=self.profile.command_units,
@@ -533,6 +534,16 @@ class App:
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
         return {**shared, **own}  # App's own keys win a collision
+
+    def driving(self, shared=None):
+        """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
+        return authority_chip.driving(shared if shared is not None else feeds_module.merged(self.feeds),
+                                      getattr(self, 'arbiter', None), self.manual, self.running, time.time())
+
+    def control(self):
+        """``snapshot['control']`` for the Status Control rows."""
+        record = feeds_module.merged(self.feeds).get('authority_record')
+        return authority_chip.control(record, self.driving(), time.time(), self.settings.agents)
 
     def render(self):
         return layout.render(self.snapshot(), self.view(),
@@ -886,7 +897,9 @@ class App:
 
     def on_status(self, key):
         rows = status_rows(self.snapshot(), self.profile.sensors)
-        if key == 'o':
+        if key in ('left', 'right') and self.agents_row(rows):
+            self.toggle_agents()
+        elif key == 'o':
             self.open('odometry')
         elif key == 'e':
             row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
@@ -902,6 +915,18 @@ class App:
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
+
+    def agents_row(self, rows):
+        row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
+        return row is not None and row.get('setting') == 'agents'
+
+    def toggle_agents(self):
+        """Flip the Agents setting; a bound arbiter follows (block refuses new agent claims)."""
+        self.settings.agents = 'block' if self.settings.agents == 'allow' else 'allow'
+        arbiter = getattr(self, 'arbiter', None)
+        if arbiter is not None:
+            arbiter.allow_agents = self.settings.agents == 'allow'
+        self.notice = f'Agents {self.settings.agents}'
 
     def open(self, action_id):
         """Open the popup registered for ``action_id`` in ``popups.OPENERS``; an unbound id does nothing."""
