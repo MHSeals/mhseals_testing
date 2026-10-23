@@ -1,0 +1,7 @@
+# Thresholds for the neutral-water estimator (analysis/conditions.py).
+window_s: 8             # back-to-back window length while idle
+min_window_s: 4         # shortest window kept after a coast
+batch_s: 4              # sub-batch length for the spectral level
+coast: {min_s: 2, t95_mult: 1.33, settle_sigma: 2, max_drop: 2}
+neutral: {gps_hz: 5, vel_acc_max: 0.3, yaw_rate_max: 0.05, coverage: 0.8, max_gap_s: 0.5}
+drift: {trend_z: 3, change_chi2: 13.8}
