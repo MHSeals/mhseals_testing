@@ -1,33 +1,33 @@
  boat_test  [Drive]  Correction  Map  Bags  boat · effort              boat · ROS 42  idle  disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                        
-╭─ ▸ Status · 1/8 live ────╮╭─ Thrusters · odroid · defaults ──────────────────────────────────────╮
-│ Components               ││    Thr                 Out             Rev                        µs │
-│ › ✓ odometry        once ││   · FL                 1               ·                        1500 │
-│   · FCU odometry         ││   · FR                 2               ·                        1500 │
-│   ✗ GPS                  ││   · RR                 3               ·                        1500 │
-│   ! IMU            once× ││   · RL                 4               ·                        1500 │
-│   · GPS raw              ││                                                                      │
-│   · compass              ││                                                                      │
-│   · LiDAR                ││                                                                      │
-│   · tracks               │╰──────────────────────────────────────────────────────────────────────╯
-│ Localization             │╭─ Procedures · 1 ready ───────────────────────────────────────────────╮
-│   ✓ map → odom           ││   ✓ 1 Surge trial                                                    │
-│   ✗ odom → base_li…      ││                                                                      │
-│ System                   ││ both ways                                                            │
-│   ! compute         78°C ││                                                                      │
+╭─ ▸ Status · 1/8 live ────╮╭─ Conditions · measuring ─────────────────────────────────────────────╮
+│ Components               ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀N⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀ │ Command                                      │
+│ › ✓ odometry        once ││ ⠀⠀⠀⠀⠠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠠⠀⠀⠀⠀ │  ╭─────────╮                                 │
+│   · FCU odometry         ││ ⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀ │  │         │                                 │
+│   ✗ GPS                  ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │  │         │                                 │
+│   ! IMU            once× ││ ⠀⠀W⠀⠀⠀⠀⠀⠀⠀┼⠀⠀⠀⠀⠀⠀⠀⠀E⠀ │  │         │                                 │
+│   · GPS raw              ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │  ╰─────────╯                                 │
+│   · compass              ││ ⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠀ │ 0 0 0                                        │
+│   · LiDAR                ││ ⠀⠀⠀⠀⠠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠠⠀⠀⠀⠀ │ single key                                   │
+│   · tracks               ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀S⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀ │                                              │
+│ Localization             ││ drift —                                                              │
+│   ✓ map → odom           ││ floor —                                                              │
+│   ✗ odom → base_li…      │╰──────────────────────────────────────────────────────────────────────╯
+│ System                   │╭─ Thrusters · odroid · defaults ──────────────────────────────────────╮
+│   ! compute         78°C ││    Thr                 Out             Rev                        µs │
+│                          ││   · FL                 1               ·                        1500 │
+│ /odom/local              ││   · FR                 2               ·                        1500 │
+│                          ││   · RR                 3               ·                        1500 │
+│                          ││   · RL                 4               ·                        1500 │
+│                          │╰──────────────────────────────────────────────────────────────────────╯
+│                          │╭─ Procedures · 1 ready ───────────────────────────────────────────────╮
+│                          ││   ✓ 1 Surge trial                                                    │
 │                          ││                                                                      │
-│ /odom/local              ││                                                                      │
-│                          ││                                                                      │
-│                          ││                                                                      │
+│                          ││ both ways                                                            │
 │                          │╰──────────────────────────────────────────────────────────────────────╯
 │                          │╭─ Activity · results · 1 ─────────────────────────────────────────────╮
 │                          ││     Procedure                Result       Detail                     │
 │                          ││   ✓ surge +                  sign match   +0.200                     │
-│                          ││                                                                      │
-│                          ││                                                                      │
-│                          ││                                                                      │
-│                          ││                                                                      │
-│                          ││                                                                      │
 │                          ││                                                                      │
 │                          ││                                                                      │
 ╰──────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯

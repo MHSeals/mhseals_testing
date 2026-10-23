@@ -1,0 +1,30 @@
+ boat_test  [Drive]  Correction  Map  Bags       boat · ROS 42   KEYS   disarmed
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                    
+╭─ ▸ Status · 1/8 live ──────╮╭─ Conditions ───────────────────────────────────╮
+│ Components                 ││ Cond good 94% · drift .12→045° ±.02            │
+│ › ✓ odometry          once ││ Cmd ↑ +60% 0 +20% · chords                     │
+│   · FCU odometry           │╰────────────────────────────────────────────────╯
+│   ✗ GPS                    │╭─ Thrusters · odroid · defaults ────────────────╮
+│   ! IMU              once× ││    Thr          Out        Rev              µs │
+│   · GPS raw                ││   · FL          1          ·              1500 │
+│   · compass                ││   · FR          2          ·              1500 │
+│   · LiDAR                  ││   · RR          3          ·              1500 │
+│   · tracks                 ││   · RL          4          ·              1500 │
+│ Localization               │╰────────────────────────────────────────────────╯
+│   ✓ map → odom             │╭─ Procedures · 1 ready ─────────────────────────╮
+│   ✗ odom → base_link       ││   ✓ 1 Surge trial                              │
+│ System                     ││                                                │
+│   ! compute           78°C ││ both ways                                      │
+│                            ││                                                │
+│ /odom/local                ││                                                │
+│                            │╰────────────────────────────────────────────────╯
+│                            │╭─ Activity · results · 1 ───────────────────────╮
+│                            ││     Procedure     Result       Detail          │
+│                            ││   ✓ surge +       sign match   +0.200          │
+│                            ││                                                │
+│                            ││                                                │
+│                            ││                                                │
+╰────────────────────────────╯╰────────────────────────────────────────────────╯
+ Focus Status · 1/9                                                        Ready
+ Tab Focus                  a Arm                      Space Stop               
+ ? Help                     q Quit                                              

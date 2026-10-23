@@ -14,6 +14,7 @@ from mhseals_testing.ui.panels.status import MARKS, short, status_rows
 from mhseals_testing.ui.panels import PANELS
 from mhseals_testing.ui.panels.thrusters import (
     effort_bar, readback_glyph, thruster_rows, thrusters_panel)
+from mhseals_testing.ui import layout
 from mhseals_testing.ui.layout import health_strip, render
 
 
@@ -241,7 +242,7 @@ def test_odroid_thrusters_and_motion_read_whole_with_unavailable_readback(width,
     page = text(render(monitor().snapshot(profile.required_tf),
                        view(profile, pwm_readback=['unavailable'] * 4), width, height), width, height)
     lines = page.splitlines()
-    top = ''.join(lines[:next(i for i, line in enumerate(lines) if 'Procedures' in line)])
+    top = ''.join(line[layout.status_width(width):] for line in lines[:next(i for i, line in enumerate(lines) if 'Procedures' in line)])
     assert '…' not in top and ('Rb' in top) == (width >= 106)  # narrower folds the Pin column away
 
 

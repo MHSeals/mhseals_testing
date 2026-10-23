@@ -60,6 +60,7 @@ from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
+from mhseals_testing.ui.feeds.conditions import ConditionsFeed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
@@ -219,7 +220,8 @@ class App:
         self.monitor = monitor
         self.network = network
         self.tracking = TrackingFeed()  # model ghost and live scores; session scores recorded at close
-        self.feeds = [health_feed.HealthFeed(), self.tracking]  # ui.feeds objects: ticked live, their view() merged into view()
+        # ui.feeds objects: ticked live, their view() merged into view()
+        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed()]
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -261,6 +263,7 @@ class App:
         self.grabbed = None      # thruster row being moved with ↑↓
         self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
+        self.chords = False             # the manual mode, for the Command glyph's label
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
@@ -605,7 +608,7 @@ class App:
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
-            if self.armed else 'disarmed', command=self.command,
+            if self.armed else 'disarmed', command=self.command, chords=self.chords,
             profile=self.profile.name, units=self.profile.command_units,
             plot_scale=self.profile.plot_scale,
             outputs=self.profile.outputs, specs=self.profile.sensors,
@@ -1843,7 +1846,7 @@ class App:
     def manual_show(self, command, amplitude, chords, done=False):
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""
         self.manual = not done
-        self.command = tuple(command)
+        self.command, self.chords = tuple(command), bool(chords)
         self.monitor.command(command)
         if 'motion' in self.panels():
             self.focus = 'motion'

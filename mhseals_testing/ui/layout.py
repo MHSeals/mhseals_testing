@@ -29,6 +29,7 @@ from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels import bags as bags_panel
+from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
@@ -41,7 +42,10 @@ WIDE = 106          # below this the Motion panel folds away
 SIDEBAR = 36
 MINIMAP = 150       # from this width Drive gains the minimap column (ui U6)
 FOLD = 60           # below this the Status sidebar folds away so Thrusters keeps its width
-TOP_ROW = 10        # Motion and Thrusters height: three one-row axes with headers, two drift lines
+COND_ROWS, THRUSTER_ROWS = 13, 7   # the right column: Conditions over Thrusters (ui.md 4.5)
+FULL_CONDITIONS = 90               # below this Conditions is the two-line Cond/Cmd form
+COMPACT_ROWS = 4
+TOP_ROW = COND_ROWS + THRUSTER_ROWS   # Motion height, and the right column's
 STRIP_FULL, STRIP_SHORT = 100, 5   # below 100 columns the strip shows its first five items
 
 
@@ -364,8 +368,13 @@ def _cells(slots, sizes=None):
 
 def _drive_dims(width, height):
     """``(wide, lower, half)``: the wide tier, the rows under the top row, and half of them (min 4)."""
-    lower = height - TOP_ROW
+    lower = height - top_rows(width)
     return width >= WIDE, lower, max(4, lower // 2)
+
+
+def top_rows(width):
+    """Rows of the Conditions + Thrusters stack at ``width``."""
+    return (COND_ROWS if width >= FULL_CONDITIONS else COMPACT_ROWS) + THRUSTER_ROWS
 
 
 def drive_slots(snapshot, view, width, height):
@@ -377,10 +386,10 @@ def drive_slots(snapshot, view, width, height):
     return {
         'status': status_panel(snapshot, view, height) if width >= FOLD else None,
         'motion': motion_panel(snapshot, view, TOP_ROW) if wide else None,
-        'conditions': None,
+        'conditions': conditions_panel(view, width < FULL_CONDITIONS),
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
         'procedures': procedures_panel(view, lower if wide else half),
-        'activity': activity_panel(snapshot, view, lower if wide else height - TOP_ROW - half),
+        'activity': activity_panel(snapshot, view, lower if wide else height - top_rows(width) - half),
         'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,
     }
 
@@ -393,7 +402,8 @@ def drive_body(snapshot, view, width, height):
     if wide:
         top = Layout(size=TOP_ROW)
         right = Layout()   # Conditions over Thrusters; an empty slot takes no rows
-        right.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters'])]))
+        right.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters'])],
+                                   {'conditions': COND_ROWS}))
         top.split_row(*_cells([('motion', slots['motion']), ('right', right), ('minimap', slots['minimap'])],
                               {'minimap': MINIMAP_WIDTH}))
         bottom = Layout()
@@ -401,9 +411,10 @@ def drive_body(snapshot, view, width, height):
                                  {'procedures': SIDEBAR}))
         main.split_column(top, bottom)
     else:
-        main.split_column(*_cells([('thrusters', slots['thrusters']), ('procedures', slots['procedures']),
-                                   ('activity', slots['activity'])],
-                                  {'thrusters': TOP_ROW, 'procedures': half}))
+        main.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters']),
+                                   ('procedures', slots['procedures']), ('activity', slots['activity'])],
+                                  {'conditions': top_rows(width) - THRUSTER_ROWS, 'thrusters': THRUSTER_ROWS,
+                                   'procedures': half}))
     page = Layout()
     page.split_row(*_cells([('status', slots['status'])], {'status': status_width(width) or 30}), main)
     return page

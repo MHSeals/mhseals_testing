@@ -50,7 +50,7 @@ def test_drive_page_draws_three_braille_axes(width, height):
     rows = [line for line in out.splitlines() if ('meas' in line and 'cmd' in line) or ' → ' in line]
     for axis in ('Surge', 'Sway', 'Yaw'):
         assert any(axis in line for line in out.splitlines()), axis
-    assert BRAILLE & set(out) and '…' not in out.split('Procedures')[0]
+    assert BRAILLE & set(out) and '…' not in ''.join(line[layout.status_width(width):] for line in out.split('Procedures')[0].splitlines())
     assert any('meas +0.20' in line or '→ +0.20' in line for line in out.splitlines())
     assert rows
 
