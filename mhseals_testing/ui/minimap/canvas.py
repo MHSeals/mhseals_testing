@@ -40,6 +40,15 @@ class Canvas:
         self._gaps = set()
         self._tint = {}    # (col, row) -> background token
 
+    def copy(self):
+        """An independent canvas with the same content, so a cached layer is never painted on."""
+        other = Canvas(self.cols, self.rows)
+        other._dots = {pos: dict(bits) for pos, bits in self._dots.items()}
+        other._glyphs = dict(self._glyphs)
+        other._gaps = set(self._gaps)
+        other._tint = dict(self._tint)
+        return other
+
     @property
     def dots_wide(self):
         return self.cols * 2
