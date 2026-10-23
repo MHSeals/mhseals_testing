@@ -104,10 +104,11 @@ def test_build_windows_flags_coast_and_trims_leading_batches():
 
 
 def test_window_gates_coverage_and_spin_and_gaps_split_runs():
-    t, vel, heading, rate, mask = neutral(16, sigma=0.0)
-    thin = np.arange(len(t)) % 3 != 0                      # 3.3 Hz of a 5 Hz stream
-    sparse = c.build_windows(t[thin], vel[thin], heading[thin], rate[thin], mask[thin], S)
+    fast = neutral(16, sigma=0.0, hz=20)
+    thin = fast[0] % 1.5 >= 0.45                           # 0.45 s dropouts, short enough not to split the run
+    sparse = c.build_windows(*(a[thin] for a in fast), S)
     assert {w.flag for w in sparse} == {'sparse'}
+    t, vel, heading, rate, mask = neutral(16, sigma=0.0)
     spin = c.build_windows(t, vel, heading, np.full(len(t), 0.1), mask, S)
     assert {w.flag for w in spin} == {'spin'}
     assert [w.flag for w in c.build_windows(t, vel, heading, rate, mask, S)] == ['', '']
@@ -320,3 +321,26 @@ def test_locally_swapped_samples_give_the_clean_windows():
 def test_reversed_samples_give_the_clean_windows():
     clean = neutral(60)
     _same_windows(windows_of([a[::-1] for a in clean]), windows_of(clean))
+
+
+def _stamped(t):
+    """Windows over gapless-by-construction samples stamped at ``t``."""
+    n = len(t)
+    return c.build_windows(t, np.tile([0.08, -0.05], (n, 1)), np.zeros(n), np.zeros(n), np.ones(n, bool), S)
+
+
+@pytest.mark.parametrize('name', ['alternating', 'jitter', 'bursts', 'one_dropped'])
+def test_rate_estimate_is_not_fooled_by_stamp_pattern(name):
+    rng = np.random.default_rng(1)
+    n = 20 * 40
+    if name == 'alternating':                              # sim header stamps on 10 ms /clock ticks
+        t = np.cumsum(np.tile([0.04, 0.06], n // 2))
+    elif name == 'jitter':                                 # +/-40 % receipt jitter on a 20 Hz stream
+        t = np.cumsum(0.05 * rng.uniform(0.6, 1.4, n))
+    elif name == 'bursts':                                 # delivered in pairs
+        t = np.repeat(np.arange(n // 2) * 0.1, 2) + np.tile([0.0, 0.002], n // 2)
+    else:                                                  # one sample lost per window
+        t = np.delete(np.arange(n) / 20, np.arange(100, n, 160))
+    windows = _stamped(t)
+    assert len(windows) >= 4 and {w.flag for w in windows} == {''}
+    assert windows[0].hz == pytest.approx(20, rel=0.1)

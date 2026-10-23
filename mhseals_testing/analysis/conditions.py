@@ -174,7 +174,9 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     steps = steps[steps <= s.neutral_max_gap_s]
     if not len(steps):
         return []
-    hz = 1 / float(np.percentile(steps, 25))                   # the source sets the rate, not the yaml; a quartile keeps dropouts visible
+    # the source sets the rate, not the yaml; the mean step ignores stamp jitter and bursts (a quartile reads
+    # them fast), and steps over twice the mean stay out of it so a real dropout still shows as missing coverage
+    hz = 1 / float(steps[steps <= 2 * steps.mean()].mean())
     windows = []
     for run in (r for r in runs if len(r)):
         start, unsettled = t[run[0]], False
