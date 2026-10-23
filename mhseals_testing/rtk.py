@@ -160,12 +160,16 @@ class Radio:
     def __init__(self, device, baud=57600, link=None):
         if link is None:
             from pymavlink import mavutil
-            link = mavutil.mavlink_connection(device, baud=baud, source_system=GCS_SYSTEM, source_component=GCS_COMPONENT)
+            link = mavutil.mavlink_connection(device, baud=baud, source_system=GCS_SYSTEM, source_component=GCS_COMPONENT,
+                                              autoreconnect=True)
         self.link, self.seq = link, 0
 
     def __call__(self, frame, stamp):
         for flags, length, data in fragments(frame, self.seq):
             self.link.mav.gps_rtcm_data_send(flags, length, data)
+            # pymavlink swallows write errors on a vanished device and only sets portdead
+            if getattr(self.link, 'portdead', False):
+                raise OSError('radio link is dead')
         self.seq = (self.seq + 1) & 0x1F
 
     def close(self):

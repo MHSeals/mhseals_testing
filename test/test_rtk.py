@@ -190,12 +190,12 @@ def test_exact_multiple_gets_an_empty_terminator_and_oversize_is_refused():
         fragments(b'c' * 721, 0)
 
 
-def radio_link(sent, fail=False):
+def radio_link(sent, fail=False, dead=False):
     def send(*args):
         if fail:
             raise OSError('radio unplugged')
         sent.append(args)
-    return SimpleNamespace(mav=SimpleNamespace(gps_rtcm_data_send=send), close=lambda: None)
+    return SimpleNamespace(mav=SimpleNamespace(gps_rtcm_data_send=send), close=lambda: None, portdead=dead)
 
 
 def test_session_gives_radio_and_second_sink_each_frame_with_rising_seq(monkeypatch):
@@ -216,9 +216,16 @@ def test_failing_radio_does_not_stop_the_other_sink(monkeypatch):
     assert state['errors'] == 2
 
 
+def test_dead_radio_link_counts_as_an_error_even_though_pymavlink_does_not_raise(monkeypatch):
+    radio = Radio('', link=radio_link([], dead=True))
+    state, frames = run_session(monkeypatch, FakeReceiver('M8P', mode=1, valid=True), extra=[radio])
+    assert state['errors'] == 2
+
+
 def test_radio_connects_as_a_ground_station(monkeypatch):
     from pymavlink import mavutil
     seen = {}
     monkeypatch.setattr(mavutil, 'mavlink_connection', lambda device, **kw: seen.update(kw) or radio_link([]))
     Radio('/dev/radio')
     assert (seen['source_system'], seen['source_component']) == (255, 190)
+    assert seen['autoreconnect'] is True
