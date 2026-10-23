@@ -27,7 +27,7 @@ from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
-from mhseals_testing import health
+from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile

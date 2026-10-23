@@ -5,8 +5,8 @@ spins on its own thread so the TUI loop can block on keys.
 """
 
 from functools import partial
-import os
 import json
+import os
 import threading
 
 from geometry_msgs.msg import Vector3Stamped

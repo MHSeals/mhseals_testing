@@ -1,6 +1,6 @@
 import pytest
 
-from mhseals_testing import health
+from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
 
 
@@ -143,3 +143,10 @@ def test_missing_and_unexported_pwm_do_not_claim_to_be_active(tmp_path):
     assert level == 'OK' and rows == ['OFF (unexported)']
     assert health.pwm_readback([chip], [0], armed=True)[0] == 'FAIL'
     assert not (chip / 'pwm0').exists()  # status checks never export/enable a pin
+
+
+def test_battery_ignores_percentage_without_current_and_flags_low_voltage():
+    """Real boat_20261019_002558 samples: 6 V, 100 %, current 0 while MAVROS warned."""
+    assert health.battery(6.0, 1.0, -0.0) == ('WARN', '6.0 V (low for 4S) (no charge estimate)')
+    assert health.battery(15.9, 1.0, 0.0) == ('OK', '15.9 V (no charge estimate)')
+    assert health.battery(15.9, 0.8, 5.0) == ('OK', '15.9 V, 80%')

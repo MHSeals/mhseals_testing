@@ -2,7 +2,7 @@
 
 from rclpy.qos import qos_profile_sensor_data
 
-from mhseals_testing import health
+from mhseals_testing.health import legacy as health
 
 
 def subscribe_fcu(ros, monitor):
@@ -19,7 +19,8 @@ def subscribe_fcu(ros, monitor):
                        *health.flight_controller(message.connected, message.armed, message.mode))
 
     def battery(message):
-        monitor.advise('battery', *health.battery(message.voltage, message.percentage))
+        monitor.advise('battery', *health.battery(
+            message.voltage, message.percentage, message.current))
 
     ros.node.create_subscription(State, '/mavros/state', state, 10)
     ros.node.create_subscription(BatteryState, '/mavros/battery', battery,
