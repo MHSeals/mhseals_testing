@@ -3,6 +3,7 @@
 from copy import deepcopy
 from types import SimpleNamespace
 import io
+import pathlib
 import time
 
 import pytest
@@ -138,6 +139,12 @@ def test_reader_forwards_a_crc_valid_frame_pyrtcm_cannot_decode():
     assert raw == body and message.identity == '1074' and not errors
 
 
+def test_pyubx2_floor_has_the_metadata_only_parse_mode_the_reader_relies_on():
+    # Older pyubx2 treats _parsing as a bool, so the override would silently decode (and drop) again.
+    assert getattr(pyubx2, 'PARSE_META', None) == 2
+    assert 'pyubx2>=1.3.9' in (pathlib.Path(__file__).parent.parent / 'setup.py').read_text()
+
+
 def test_config_and_negative_high_precision_coordinates_round_trip(tmp_path):
     p = dict(latitude=-33.234567899, longitude=-80.123456789, height=-12.3456, accuracy=.04)
     lat, lat_hp, lon, lon_hp, alt, alt_hp = split_position(p)
@@ -271,3 +278,22 @@ def test_slow_identify_after_a_good_session_keeps_retrying(monkeypatch):
     state = session.snapshot()
     session.close()
     assert state['phase'] != 'error', state
+
+
+def test_routes_count_per_sink_and_recovery_clears_the_dead_detail():
+    link = radio_link([], dead=True)
+    session = BaseSession([Radio('', link=link)], dict(DEFAULTS, device='x'), clock=lambda: 7.0)
+    session.state['phase'] = 'ready'
+    message = SimpleNamespace(identity='1005')
+    raw = rtcm_frame()
+
+    session._handle(raw, message)
+    state = session.snapshot()
+    assert (state['delivered'], state['errors'], state['detail']) == (0, 1, 'radio link is dead')
+    assert state['routes'] == [dict(sent=0, failed=1, error='radio link is dead', error_at=7.0)]
+
+    link.portdead = False
+    session._handle(raw, message)
+    state = session.snapshot()
+    assert (state['delivered'], state['detail']) == (1, 'sending corrections')
+    assert state['routes'][0]['sent'] == 1 and state['routes'][0]['failed'] == 1
