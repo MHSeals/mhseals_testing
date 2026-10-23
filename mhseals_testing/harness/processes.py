@@ -1,59 +1,109 @@
-"""Supervised child processes (launch files, drivers, the bag recorder).
+"""Supervised child processes (launch files, drivers, the bag recorder), ROS-free.
 
-Children get their own process group and /dev/null stdin, so they can't
-steal TUI keystrokes, and their output goes to per-process log files next
-to the session bag. Stopping sends SIGINT first, so ros2 bag and ros2
-launch shut down cleanly, then escalates.
+Every child runs under a keeper (harness/keeper.py): its own process group, /dev/null
+stdin, output in a per-process log next to the session bag. The keeper stops the whole
+group when the owner dies (kill -9 included) and writes the return code to ``<name>.exit``.
+Stopping signals the group, SIGINT first so ros2 bag and ros2 launch shut down cleanly.
 """
 
-import ctypes
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 
 import yaml
 
-PR_SET_PDEATHSIG = 1
+from mhseals_testing.harness.registry import alive
 
 
-def die_with_parent():
-    """Linux: SIGINT the child when the suite dies, however it dies (even kill -9).
+class Child:
+    """A keeper-managed child: pid/pgid of the real process, the keeper's exit file.
 
-    Without this, a killed suite leaves the thruster driver running with its outputs
-    armed; with it, the driver gets the same clean shutdown as a normal disarm.
-    SIGINT and SIGTERM are reset to default: a suite started with & or from a
-    script inherits SIG_IGN, which the child would keep, so the death signal and stop()
-    would do nothing and a recorder would outlive the suite.
+    ``keeper`` is the Popen of a keeper we started (reaped by poll); an adopted child
+    has none and is judged by its exit file and liveness.
     """
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
-    signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    if sys.platform.startswith('linux'):
-        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGINT)
+
+    def __init__(self, name, pid, exit_file, keeper=None, log=None):
+        self.name, self.pid, self.pgid = name, pid, pid
+        self.exit_file, self.keeper, self.log = Path(exit_file), keeper, log
+        self.returncode = None
+
+    def poll(self):
+        if self.returncode is None:
+            if self.keeper is not None:
+                self.keeper.poll()
+            try:
+                self.returncode = int(self.exit_file.read_text())
+            except (OSError, ValueError):
+                # Adopted, or the keeper itself died (kill -9): no exit file will come.
+                if (self.keeper is None or self.keeper.returncode is not None) and not alive(self.pid):
+                    self.returncode = -1
+        return self.returncode
+
+    def wait(self, timeout=None):
+        deadline = None if timeout is None else time.time() + timeout
+        while self.poll() is None:
+            if deadline is not None and time.time() > deadline:
+                raise subprocess.TimeoutExpired(self.name, timeout)
+            time.sleep(0.05)
+        return self.returncode
+
+    def signal(self, signum):
+        os.killpg(self.pgid, signum)
+
+    def terminate(self):
+        self.signal(signal.SIGTERM)
+
+    def record(self):
+        return {'pid': self.pid, 'pgid': self.pgid, 'keeper': self.keeper.pid if self.keeper else None,
+                'log': str(self.log), 'exit': str(self.exit_file)}
 
 
 class ProcessManager:
-    def __init__(self, log_directory, popen=subprocess.Popen):
+    def __init__(self, log_directory, registry=None, popen=subprocess.Popen, grace=10,
+                 last=('bag',), last_grace=20):
         self.log_directory = Path(log_directory)
-        self.popen = popen
+        self.registry, self.popen, self.grace = registry, popen, grace
+        self.last, self.last_grace = tuple(last), last_grace  # the recorder gets longer (tui.md §6)
         self.processes = {}
-        self.logs = {}
 
     def start(self, name, command):
         if self.running(name):
             raise RuntimeError(f'{name} is already running')
         self.stop(name)
         self.log_directory.mkdir(parents=True, exist_ok=True)
-        log = (self.log_directory / f'{name}.log').open('a', encoding='utf-8')
-        self.logs[name] = log
+        log, exit_file = self.log_directory / f'{name}.log', self.log_directory / f'{name}.exit'
+        for stale in (exit_file, exit_file.with_suffix('.pid')):
+            stale.unlink(missing_ok=True)
         # Unbuffered, so a child's log is current while it runs, not only after it exits.
         environment = dict(os.environ, PYTHONUNBUFFERED='1', RCUTILS_LOGGING_BUFFERED_STREAM='0')
-        self.processes[name] = self.popen(
-            [str(part) for part in command], start_new_session=True, env=environment,
-            preexec_fn=die_with_parent, stdin=subprocess.DEVNULL, stdout=log,
-            stderr=subprocess.STDOUT)
+        argv = [sys.executable, '-m', 'mhseals_testing.harness.keeper', '--owner', str(os.getpid()),
+                '--log', str(log), '--exit', str(exit_file), '--grace', str(self.last_grace if name in self.last else self.grace)]
+        if self.registry is not None:
+            argv += ['--registry', str(self.registry.path)]
+        keeper = self.popen(argv + ['--', *[str(part) for part in command]], start_new_session=True,
+                            env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+        pid_file = exit_file.with_suffix('.pid')
+        deadline = time.time() + 5
+        while not pid_file.exists() and keeper.poll() is None and time.time() < deadline:
+            time.sleep(0.01)
+        try:
+            pid = int(pid_file.read_text())
+        except (OSError, ValueError):
+            raise RuntimeError(f'keeper for {name} did not start the child') from None
+        self.processes[name] = Child(name, pid, exit_file, keeper, log)
         return self.processes[name]
+
+    def adopt(self, name, record):
+        """Take over a child another instance started (a registry record)."""
+        self.processes[name] = Child(name, record['pid'], record['exit'], None, record.get('log'))
+        return self.processes[name]
+
+    def records(self):
+        return {name: child.record() for name, child in self.processes.items()}
 
     def running(self, name):
         process = self.processes.get(name)
@@ -73,25 +123,25 @@ class ProcessManager:
 
     def stop(self, name, timeout=10):
         process = self.processes.pop(name, None)
-        if process is not None and process.poll() is None:
-            for signum, wait in ((signal.SIGINT, timeout), (signal.SIGTERM, 3), (signal.SIGKILL, None)):
-                try:
-                    os.killpg(process.pid, signum)
-                except ProcessLookupError:
-                    break
-                try:
-                    process.wait(timeout=wait)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-        log = self.logs.pop(name, None)
-        if log is not None:
-            log.close()
+        if process is None:
+            return
+        for signum, wait in ((signal.SIGINT, timeout), (signal.SIGTERM, 3), (signal.SIGKILL, 5)):
+            if process.poll() is not None:
+                break
+            try:
+                process.signal(signum)
+            except ProcessLookupError:
+                break
+            try:
+                process.wait(timeout=wait)
+            except subprocess.TimeoutExpired:
+                continue
 
-    def stop_all(self, last=('bag',)):
+    def stop_all(self, last=None):
         """Stop everything, the recorder last so it captures the shutdown."""
+        last = self.last if last is None else last
         for name in sorted(self.processes, key=lambda name: name in last):
-            self.stop(name, timeout=20 if name in last else 10)
+            self.stop(name, timeout=self.last_grace if name in last else self.grace)
 
     def summary(self):
         return '\n'.join(

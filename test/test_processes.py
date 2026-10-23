@@ -85,7 +85,8 @@ def test_stop_interrupts_a_child_when_the_suite_ignores_signals(tmp_path):
     ignored = [signal.signal(signum, signal.SIG_IGN) for signum in (signal.SIGINT, signal.SIGTERM)]
     manager = ProcessManager(tmp_path / 'logs')
     try:
-        child = manager.start('sleeper', [sys.executable, '-c', 'import time; time.sleep(60)'])
+        child = manager.start('sleeper', [sys.executable, '-c', 'import time; print("up", flush=True); time.sleep(60)'])
+        _wait_up(tmp_path / 'logs' / 'sleeper.log')  # SIGINT during interpreter start exits 1
         started = time.time()
         manager.stop('sleeper', timeout=3)
         assert child.returncode == -signal.SIGINT
@@ -113,3 +114,22 @@ def _state(pid):
         return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
     except OSError:
         return 'Z'
+
+
+def test_manager_children_survive_a_handover_and_record_for_the_registry(tmp_path):
+    manager = ProcessManager(tmp_path / 'logs')
+    child = manager.start('sleeper', [sys.executable, '-c', 'import time; time.sleep(60)'])
+    record = manager.records()['sleeper']
+    assert record['pid'] == child.pid and record['pgid'] == child.pid and record['keeper']
+    other = ProcessManager(tmp_path / 'logs')
+    adopted = other.adopt('sleeper', record)
+    assert other.running('sleeper') and adopted.pid == child.pid
+    other.stop('sleeper', timeout=3)
+    assert not other.running('sleeper')
+    assert manager.processes['sleeper'].wait(timeout=5) is not None
+
+
+def _wait_up(log):
+    deadline = time.time() + 5
+    while time.time() < deadline and 'up' not in (log.read_text() if log.exists() else ''):
+        time.sleep(0.02)
