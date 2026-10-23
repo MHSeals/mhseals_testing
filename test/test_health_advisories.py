@@ -14,7 +14,7 @@ from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import Fact
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui.dashboard import short
+from mhseals_testing.ui.panels.status import short
 
 
 CALM = {'host.load': Fact(.1, label='0.4/4'), 'host.disk_free_gb': Fact(50.0)}

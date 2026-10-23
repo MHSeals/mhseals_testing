@@ -1,6 +1,6 @@
 """Where the dashboard's data comes from.
 
-``snapshot`` is what ``dashboard.render`` consumes. ``live`` gates every App
+``snapshot`` is what ``layout.render`` consumes. ``live`` gates every App
 path that touches the real host or boat (host reads, config watching, arming,
 procedures); a replay source sets it False.
 """

@@ -1,5 +1,7 @@
 """Motion plots: command history and gyro in the monitor, braille axes at 120 and 80 columns."""
 
+import importlib
+
 import pytest
 import yaml
 
@@ -109,3 +111,8 @@ def test_two_decimal_scale_widens_the_gutter_without_wrapping():
                             20), 46, 20)
     lines = out.splitlines()
     assert '+0.25' in out and max(len(line) for line in lines) <= 46 and len(lines) == 20
+
+
+def test_dashboard_shim_is_gone():
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module('mhseals_testing.ui.dashboard')

@@ -10,9 +10,11 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.dashboard import (
-    MARKS, PANELS, effort_bar, health_strip, readback_glyph, render, short, status_rows,
-    thruster_rows, thrusters_panel)
+from mhseals_testing.ui.panels.status import MARKS, short, status_rows
+from mhseals_testing.ui.panels import PANELS
+from mhseals_testing.ui.panels.thrusters import (
+    effort_bar, readback_glyph, thruster_rows, thrusters_panel)
+from mhseals_testing.ui.layout import health_strip, render
 
 
 def view(profile, **overrides):
@@ -138,7 +140,7 @@ def test_pwm_status_rows_remain_visible_and_fit(width, height, driver, pwm, leve
 
 
 def test_drift_arrows_are_drawn_bow_up_in_the_body_frame():
-    from mhseals_testing.ui.dashboard import drift_arrow
+    from mhseals_testing.ui.panels.motion import drift_arrow
     assert drift_arrow(0.3, 0.0) == '↑'     # forward
     assert drift_arrow(0.0, 0.3) == '←'     # port
     assert drift_arrow(-0.3, 0.0) == '↓'
@@ -148,7 +150,7 @@ def test_drift_arrows_are_drawn_bow_up_in_the_body_frame():
 
 
 def drift_text(command, bias, vx=0.1, vy=0.1, yaw=0.0, drift=None, live=None):
-    from mhseals_testing.ui.dashboard import drift_line
+    from mhseals_testing.ui.panels.motion import drift_line
     m = BoatMonitor(clock=lambda: 10)
     m.observe('odometry', {'vx': vx, 'vy': vy, 'wz': 0.0, 'yaw': yaw}, stamp_age=0)
     if live is not None:
@@ -394,7 +396,7 @@ def test_effort_bar_is_warn_when_saturated():
 
 
 def test_deploy_state_sits_before_the_host_in_the_header():
-    from mhseals_testing.ui.dashboard import header
+    from mhseals_testing.ui.layout import header
     from mhseals_testing.ui.deploy import deploy_text
     profile = load_profile('boat')
     snapshot = monitor().snapshot(profile.required_tf)
@@ -405,7 +407,7 @@ def test_deploy_state_sits_before_the_host_in_the_header():
 
 
 def test_narrow_header_keeps_the_short_host_after_deploy():
-    from mhseals_testing.ui.dashboard import header
+    from mhseals_testing.ui.layout import header
     from mhseals_testing.ui.deploy import deploy_text
     profile = load_profile('boat')
     snapshot = monitor().snapshot(profile.required_tf)
@@ -420,7 +422,7 @@ def test_narrow_header_keeps_the_short_host_after_deploy():
 
 
 def test_procedure_headings_are_drawn_and_the_cursor_row_is_a_procedure():
-    from mhseals_testing.ui.dashboard import procedures_panel
+    from mhseals_testing.ui.panels.procedures import procedures_panel
     items = [dict(key='f', title='Characterize', description='', reason='', group='Thrust'),
              dict(key='m', title='Manual control', description='', reason='', group='Drive')]
     page = text(procedures_panel(dict(focus='procedures', cursors={'procedures': 1},

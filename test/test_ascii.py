@@ -15,7 +15,7 @@ sys.path.insert(0, sys.argv[1])
 from test_dashboard import monitor, text, view
 from mhseals_testing.ui import theme
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui.dashboard import render
+from mhseals_testing.ui.layout import render
 profile = load_profile('boat')
 for width, height in ((160, 50), (120, 40), (100, 30), (80, 24), (40, 12), (10, 4)):
     snapshot = monitor().snapshot(profile.required_tf)
@@ -25,7 +25,7 @@ for width, height in ((160, 50), (120, 40), (100, 30), (80, 24), (40, 12), (10, 
 # The app's own hint lists, Help popup and a choose popup (literals that bypass the dashboard).
 from types import SimpleNamespace
 from mhseals_testing.ui import app
-from mhseals_testing.ui.dashboard import popup
+from mhseals_testing.ui.layout import popup
 choice = app.App.choose(SimpleNamespace(popup=lambda modal, handle: modal), 'Pick', ['one', 'two'])
 help_rows = dict(kind='message', title='Help', rows=app.HELP)
 for hints in [app.MANUAL_HINTS, *app.PANEL_HINTS.values()]:

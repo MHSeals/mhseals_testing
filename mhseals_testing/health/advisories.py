@@ -2,7 +2,7 @@
 
 Checks that share an ``advisory:`` name become one row: the level is the worst
 of their results; the detail is the first check's detail, then the rest after
-a ``;`` (``dashboard.short`` shows what precedes it, so the first check leads). A row with no
+a ``;`` (``panels.status.short`` shows what precedes it, so the first check leads). A row with no
 evidence yet is left out, so a boat without an FCU shows no battery row; once a
 row has shown a value, a silent probe turns it N/A instead of hiding it.
 """

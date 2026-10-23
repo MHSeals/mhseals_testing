@@ -4,7 +4,7 @@ import pytest
 
 from mhseals_testing.analysis import magnetic
 from mhseals_testing.monitor import BoatMonitor
-from mhseals_testing.ui.dashboard import localization_rows
+from mhseals_testing.ui.panels.status import localization_rows
 
 # WMM at the site: 470 mG total, 235 horizontal, 405 vertical.
 WMM = (235e-7, 0.0, 405e-7)

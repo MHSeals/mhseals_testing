@@ -3,7 +3,7 @@ import io
 
 from rich.console import Console
 
-from mhseals_testing.ui import dashboard
+from mhseals_testing.ui import layout
 from mhseals_testing.ui.popups import odometry
 from test_fusion import PARAMS
 
@@ -26,7 +26,7 @@ def test_trust_line_only_with_two_sources():
 def test_popup_render():
     modal = dict(kind='message', title='Odometry', rows=odometry.rows({'ekf_local': PARAMS}, []),
                  width=76, hint='Esc close')
-    panel, width = dashboard.popup(modal, 100, 40)
+    panel, width = layout.popup(modal, 100, 40)
     console = Console(width=width, file=io.StringIO(), record=True)
     console.print(panel)
     assert '/odom/mavros' in console.export_text()

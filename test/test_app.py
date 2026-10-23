@@ -1473,7 +1473,7 @@ def test_nav2_file_change_toasts_and_marks_navigation_pending(tmp_path):
 
 
 def dashboard_rows(app):
-    from mhseals_testing.ui.dashboard import status_rows
+    from mhseals_testing.ui.panels.status import status_rows
     return status_rows(app.snapshot(), app.profile.sensors)
 
 

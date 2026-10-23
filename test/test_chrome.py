@@ -14,7 +14,7 @@ import pytest
 from rich.console import Console
 
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui import dashboard, theme
+from mhseals_testing.ui import layout, theme
 from test_dashboard import monitor, text, view
 
 HERE = Path(__file__).parent
@@ -45,7 +45,7 @@ def dump(no_color=False):
     for width in WIDTHS:
         for name, page in scenes(profile).items():
             out.append(f'== {name} {width}')
-            for part in (dashboard.header(snapshot, page, width), dashboard.footer(page, width)):
+            for part in (layout.header(snapshot, page, width), layout.footer(page, width)):
                 if no_color:
                     console = Console(width=width, no_color=True, force_terminal=True,
                                       color_system='standard', file=__import__('io').StringIO())
@@ -53,7 +53,7 @@ def dump(no_color=False):
                     out.append(console.file.getvalue().replace('\x1b', '<ESC>').rstrip('\n'))
                 else:
                     out.append(text(part, width, 3).rstrip('\n'))
-    modal, panel_width = dashboard.popup(dict(POPUP), 100)
+    modal, panel_width = layout.popup(dict(POPUP), 100)
     out.append('== popup')
     out.append(text(modal, panel_width, 8).rstrip('\n'))
     return '\n'.join(out) + '\n'
@@ -97,12 +97,12 @@ def test_chrome_ascii_golden_is_pure_ascii_with_bracket_chips():
 @pytest.mark.parametrize('width', WIDTHS)
 def test_agent_banner_keeps_its_keys_and_the_row_width(width):
     page = scenes(load_profile('boat'))['agent']
-    row = text(dashboard.header(monitor().snapshot(), page, width), width, 3).splitlines()[1]
+    row = text(layout.header(monitor().snapshot(), page, width), width, 3).splitlines()[1]
     assert len(row) <= width and row.rstrip().endswith('E revoke · Space stop')
 
 
 @pytest.mark.parametrize('width', WIDTHS)
 def test_header_row_never_exceeds_the_width_and_keeps_the_arm_chip(width):
     page = scenes(load_profile('boat'))['running']
-    row = text(dashboard.header(monitor().snapshot(), page, width), width, 3).splitlines()[0]
+    row = text(layout.header(monitor().snapshot(), page, width), width, 3).splitlines()[0]
     assert len(row) <= width and row.rstrip().endswith('ARMED')

@@ -6,7 +6,8 @@ from rich.console import Console
 
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui import layout
-from mhseals_testing.ui.dashboard import render, status_rows
+from mhseals_testing.ui.layout import render
+from mhseals_testing.ui.panels.status import status_rows
 
 from test_app import make_app
 from test_dashboard import monitor, view

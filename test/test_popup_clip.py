@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from mhseals_testing.ui import app, dashboard
+from mhseals_testing.ui import app, layout
 
 
 def draw(modal, width, height):
-    panel, panel_width = dashboard.popup(modal, width, height)
+    panel, panel_width = layout.popup(modal, width, height)
     console = Console(width=panel_width, file=io.StringIO(), record=True)
     console.print(panel)
     return console.export_text().splitlines()

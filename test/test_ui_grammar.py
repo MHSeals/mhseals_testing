@@ -12,7 +12,8 @@ from rich.console import Console
 
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.dashboard import PANELS, render
+from mhseals_testing.ui.panels import PANELS
+from mhseals_testing.ui.layout import render
 from test_dashboard import monitor, view
 
 OBJECT_GLYPHS = '●○▲▴▼■▪⊠◉◆◇△⊕'

@@ -28,7 +28,7 @@ from mhseals_hardware.configuration import config_path, configure_args, load_con
 from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
-from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
+from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import nav2_limits
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
@@ -50,12 +50,13 @@ from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
-from mhseals_testing.ui import dashboard, popups, theme
-from mhseals_testing.ui.takeover import decide
-from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
-from mhseals_testing.ui.layout import TabMemory
+from mhseals_testing.ui import layout, popups, theme
+from mhseals_testing.ui.layout import WIDE, TabMemory
+from mhseals_testing.ui.panels import PANELS, activity
+from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import odometry, pins
 from mhseals_testing.ui.source import LiveSource
+from mhseals_testing.ui.takeover import decide
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
 #   wide:   Status | Motion     | Thrusters        narrow:  Status | Thrusters
@@ -447,7 +448,7 @@ class App:
         config = self.args.hardware_config
         blockers = self.motion_blockers() if self.armed else self.blockers()
         notice = self.notice if not blockers or self.running else (
-            f'{self.notice}{dashboard.SEPARATOR}blocked: {blockers[0]}')
+            f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
         hints = MANUAL_HINTS if self.manual else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS
         if self.nav2_file is not None and self.focus == 'status' and not self.manual:
@@ -457,7 +458,7 @@ class App:
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             authority=('human', 'KEYS') if self.manual else ('ours', self.running.upper()) if self.running else None,
-            armed=self.armed, arm_label=('armed' + dashboard.SEPARATOR + self.profile.outputs)
+            armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command,
             profile=self.profile.name, units=self.profile.command_units,
             plot_scale=self.profile.plot_scale,
@@ -472,7 +473,7 @@ class App:
                              reason=self.availability(p)) for p in PROCEDURES])
 
     def render(self):
-        return dashboard.render(self.snapshot(), self.view(),
+        return layout.render(self.snapshot(), self.view(),
                                 self.console.size.width, self.console.size.height)
 
     def refresh(self, force=True):
@@ -642,7 +643,7 @@ class App:
     def summary(self):
         """What the session left behind, printed once the page is gone."""
         results = self.snapshot()['results']
-        passed = sum(1 for r in results if dashboard.theme.kind(r.get('verdict', '')) == 'good')
+        passed = sum(1 for r in results if theme.kind(r.get('verdict', '')) == 'good')
         minutes = (self.clock() - self.started) / 60
         return [('Duration', f'{minutes:.1f} min'), ('Results', f'{passed}/{len(results)} good'),
                 ('Bag', str(self.paths.bag)), ('Report', str(self.paths.report))]
@@ -811,7 +812,7 @@ class App:
             results = list(reversed(self.snapshot()['results']))
             if results:
                 result = results[min(self.cursors['activity'], len(results) - 1)]
-                self.show(dashboard.result_label(result), width=76, rows=[
+                self.show(activity.result_label(result), width=76, rows=[
                     (name, value) for name, value in result.items()
                     if not isinstance(value, dict)])
 
@@ -836,7 +837,7 @@ class App:
             self.clear_pulses('Test pulses neutral')
         elif key == 'enter':
             self.grabbed = None if self.grabbed is not None else position
-            self.notice = ('Moving ' + dashboard.POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
+            self.notice = ('Moving ' + POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
                            'Enter drops' if self.grabbed is not None else 'Dropped')
         elif key in ('1', '2', '3', '4'):
             other = channel_map.index(int(key))
@@ -980,10 +981,10 @@ class App:
         if self.watching:
             self.notice = f'Watching pid {self.watching}: no arming'
             return
-        title = f'Arm{dashboard.SEPARATOR}{self.profile.name}'
+        title = f'Arm{theme.SEPARATOR}{self.profile.name}'
         try:
             if self.armed:
-                if self.choose(f'Armed{dashboard.SEPARATOR}{self.profile.name}',
+                if self.choose(f'Armed{theme.SEPARATOR}{self.profile.name}',
                                ('Disarm', 'Close'), {'d': 0, 'c': 1}, rows=self.arm_rows(),
                                danger=True, width=72) == 'Disarm':
                     self.disarm()
@@ -1207,7 +1208,7 @@ class App:
         def show(command, remaining, label):
             self.command = command
             self.monitor.command(command)
-            self.notice = f'{label or name}{dashboard.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts'
+            self.notice = f'{label or name}{theme.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts'
             if self.test_pulses is not None and self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
             self.refresh(force=False)
@@ -1264,7 +1265,7 @@ class App:
         active = ' '.join(f'{axis} {value:+.2f}' for axis, value in
                           zip(('surge', 'sway', 'yaw'), command) if value) or 'neutral'
         self.notice = ('Manual control ended' if done else
-                       f"Manual {amplitude:.0%}{dashboard.SEPARATOR}{active}{dashboard.SEPARATOR}"
+                       f"Manual {amplitude:.0%}{theme.SEPARATOR}{active}{theme.SEPARATOR}"
                        + ('Chords' if chords else 'Single key'))
         self.refresh(force=done)
 
@@ -1448,12 +1449,12 @@ def main(argv=None):
     if app is not None and app.detaching:
         console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
     if app is not None:
-        table = dashboard.theme.grid({'header': '', 'style': f'bold {dashboard.ACCENT}'},
+        table = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}'},
                                      {'header': '', 'ratio': 1}, padding=(0, 2))
         table.show_header = False
         for label, value in app.summary():
             table.add_row(label, value)
-        console.print(dashboard.theme.block(table, 'Session closed', expand=False))
+        console.print(theme.block(table, 'Session closed', expand=False))
 
 
 if __name__ == '__main__':
