@@ -168,6 +168,7 @@ class Ros:
 
     def emit(self, phase, **details):
         self.events.append(phase)
+        self.lines = getattr(self, 'lines', []) + [(phase, details)]
 
 
 class Processes:
@@ -933,6 +934,29 @@ def test_manual_control_stops_on_an_interlock(tmp_path):
     assert not app.armed and boat.sent[-1] == 'neutral'
 
 
+def test_manual_interlock_trip_is_journaled_as_a_guard_stop(tmp_path):
+    app, boat = make_app(tmp_path)
+
+    class Tripping(Events):
+        def read(self, timeout=None):
+            if len(self.keys) < 4:
+                app.ros.fault = 'executor stopped'  # trips between two drive ticks
+            return super().read(timeout)
+
+    app.open_events = lambda: Tripping(app.clock, ['press:w', None, 'repeat:w', None, 'repeat:w', None])
+    with app.attached():
+        arm(app)
+        try:
+            app.dispatch('m')
+        except Exception as error:  # run() turns this into a stop
+            app.stop(str(error))
+    phases = [(p, d) for p, d in app.ros.lines if p.startswith('manual_')]
+    start, stop = phases[0][1], phases[-1][1]
+    assert [p for p, _ in phases] == ['manual_start', 'manual_stop']
+    assert stop['by'] == 'guard' and stop['cause'] == 'guard:ROS fault'
+    assert start['run_id'] == stop['run_id'] and boat.sent[-1] == 'neutral'
+
+
 def test_ctrl_c_closes_gracefully_like_quit(tmp_path):
     app, boat = make_app(tmp_path)
     app.arming.armed = True
@@ -1548,3 +1572,38 @@ def test_nav2_text_is_ascii_safe_in_ascii_mode(tmp_path, monkeypatch):
     edit_nav2(app, path, 'a: 1\n')
     row = next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')
     assert '·' not in app.notice and '·' not in row['detail'] and '|' in app.notice
+
+
+
+
+def test_events_carry_run_id_by_and_cause_for_the_timeline(tmp_path):
+    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
+    with app.attached():
+        arm(app)
+        press(app, 'enter', 'n')
+        app.dispatch('f')
+        app.disarm('done', by='fault')
+    lines = dict(reversed(app.ros.lines))
+    start = next(d for p, d in app.ros.lines if p == 'characterization_start')
+    stop = lines['characterization_stop']
+    assert start['run_id'] == stop['run_id'] and start['key'] == 'f'
+    assert start['procedure'] == 'Characterize' and stop['by'] == 'procedure'
+    result = next(d for p, d in app.ros.lines if p == 'result' and d.get('verdict') == 'FITTED')
+    assert result['run_id'] == start['run_id']
+    t0, t1 = result['window']
+    edges = [result['slices'][0]['window'][0]] + [s['window'][1] for s in result['slices']]
+    assert (t0, t1) == (edges[0], edges[-1])
+    assert all(a['window'][1] == b['window'][0] for a, b in zip(result['slices'], result['slices'][1:]))
+    assert dict(app.ros.lines)['disarmed']['by'] == 'fault'
+
+
+def test_manual_drive_is_bracketed_by_manual_events(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    app.open_events = lambda: Events(app.clock, ['press:w', None, 'press:x'])
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    phases = [(p, d) for p, d in app.ros.lines if p.startswith('manual_')]
+    assert [p for p, _ in phases] == ['manual_start', 'manual_stop']
+    assert phases[1][1]['by'] == 'operator' and phases[0][1]['run_id'] == phases[1][1]['run_id']

@@ -26,7 +26,21 @@ def fold(key):
 
 
 class Aborted(RuntimeError):
-    """Motion stopped by the operator or an interlock; the plant is neutral."""
+    """Motion stopped by the operator or an interlock; the plant is neutral.
+
+    ``by`` and ``cause`` say who ended it for the timeline: the operator's abort
+    key (``space``) or a guard (``guard:<first blocker>``).
+    """
+
+    def __init__(self, message, by='operator', cause='space'):
+        super().__init__(message)
+        self.by, self.cause = by, cause
+
+
+def interlock_abort(reasons):
+    """The Aborted for a tripped interlock: stopped by the guard, caused by the first blocker's head."""
+    return Aborted('interlock: ' + '; '.join(reasons), by='guard',
+                   cause='guard:' + reasons[0].split(':')[0])
 
 
 class Overridden(Aborted):
@@ -91,7 +105,7 @@ class Runner:
             raise Overridden(cause)
         reasons = self.blockers()
         if reasons:
-            raise Aborted('interlock: ' + '; '.join(reasons))
+            raise interlock_abort(reasons)
 
     def hold(self, command, seconds, label=''):
         """Publish ``command`` for ``seconds``; returns (start, end) clock times.
@@ -216,15 +230,15 @@ class Runner:
         """Bracket a procedure: start/stop events, neutral on every exit path."""
         self.check()
         self.emit(name + '_start', **details)
-        outcome = 'complete'
+        outcome, ended = 'complete', dict(by='procedure')
         try:
             yield self
         except Aborted as error:
-            outcome = str(error)
+            outcome, ended = str(error), dict(by=error.by, cause=error.cause)
             raise
         except BaseException as error:
-            outcome = f'error: {error}'
+            outcome, ended = f'error: {error}', dict(by='error')
             raise
         finally:
             self.stop()
-            self.emit(name + '_stop', outcome=outcome)
+            self.emit(name + '_stop', outcome=outcome, **ended)

@@ -92,6 +92,19 @@ def refuse(ctx, reason):
     return refusal
 
 
+def slices(wall, windows, end):
+    """One journal window [t0_ns, t1_ns] per command, contiguous: each begins where the last ended.
+
+    ``windows`` are the (command, start, end) holds, neutral settles included; a slice
+    runs from the end of the previous command to the end of its own, so its settle
+    belongs to it. The first starts with the run and the last ends at ``end``.
+    """
+    holds = [window for window in windows if tuple(window[0]) != NEUTRAL]
+    edges = [windows[0][1]] + [hold[2] for hold in holds[:-1]] + [end]
+    return [dict(command=list(hold[0]), window=[wall(t0), wall(t1)])
+            for hold, t0, t1 in zip(holds, edges, edges[1:])]
+
+
 def run(ctx):
     cfg, settings = load_settings(), ctx.settings
     only = parse_direction(settings.direction)
@@ -190,6 +203,9 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                for key, value in found.items()} for name, found in refined.items()}, holds=holds)
     if water:
         summary['conditions'] = water
+    if windows:  # the timeline's run window and one contiguous slice per command
+        wall = ctx.services.get('wall_ns', lambda t: int(t * 1e9))
+        summary.update(window=[wall(windows[0][1]), wall(end)], slices=slices(wall, windows, end))
     result = profile = None
     if only is None:
         # Holds touched by an override (the interrupted one included) never reach the fit.

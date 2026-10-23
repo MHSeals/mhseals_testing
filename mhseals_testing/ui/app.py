@@ -206,6 +206,8 @@ class App:
         self.activity = 'results'
         self.modal = None
         self.running = None
+        self._wall_offset = None
+        self.tags = {}           # procedure, key and run_id of the run in progress
         self.test_pulses = None
         self.draft = None        # unsaved thruster mapping: channel_map and reversed
         self.grabbed = None      # thruster row being moved with ↑↓
@@ -321,7 +323,7 @@ class App:
         if self.test_pulses is not None and self.publish_pulses is not None:
             self.publish_pulses(self.test_pulses)
         if self.armed and self.arming.fault():
-            self.stop(self.arming.fault())
+            self.stop(self.arming.fault(), by='fault')
 
     def refresh_advisories(self):
         """Sample the non-blocking checks at most once per ADVISORY_PERIOD."""
@@ -527,7 +529,7 @@ class App:
                             try:
                                 self.dispatch(key)
                             except STOPPING_ERRORS as error:
-                                self.stop(str(error) or type(error).__name__)
+                                self.stop(str(error) or type(error).__name__, by='error')
                         self.tick()
                         self.refresh(force=key is not None)
                     except KeyboardInterrupt as error:
@@ -1030,7 +1032,7 @@ class App:
                 self.arming.cancel()
                 raise Cancelled('arming cancelled')
 
-    def disarm(self, reason='disarmed'):
+    def disarm(self, reason='disarmed', by='operator'):
         self.clear_pulses()
         if self.plant is not None:
             self.plant.neutral()
@@ -1038,15 +1040,18 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         if self.armed:
             self.arming.disarm()
-            self.ros.emit('disarmed', reason=reason)
+            self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'
 
-    def stop(self, reason):
-        """Neutral and disarmed, whatever happened. A watcher publishes neutral too: Space always works."""
+    def stop(self, reason, by='operator'):
+        """Neutral and disarmed, whatever happened; ``by`` is operator, fault or error.
+
+        A watcher publishes neutral too: Space always works.
+        """
         try:
             if self.watching and self.plant is not None:
                 self.plant.engage()  # a second publisher also aborts the owner's motion
-            self.disarm(reason)
+            self.disarm(reason, by)
         finally:
             self.monitor.event('STOP: ' + reason)
 
@@ -1102,6 +1107,7 @@ class App:
         self.running = procedure.title
         results = len(self.snapshot()['results'])
         self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
+        self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
         self.notice = f'Running {procedure.title}'
         self.health_snapshot('start', procedure)
         began = self.engine.clock() if self.engine else 0.0
@@ -1121,7 +1127,7 @@ class App:
             self.disarm(f'{procedure.title} cancelled')
             return
         finally:
-            self.running = None
+            self.running, self.tags = None, {}
             self.write_run(procedure, results, aborted)
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
@@ -1166,12 +1172,13 @@ class App:
                 running=self.processes.running, stop=self.processes.stop,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 nav2_user=nav2_limits.path(),
-                hardware_config=self.args.hardware_config, user_config=self.args.config,
+                hardware_config=self.args.hardware_config, wall_ns=self.wall_ns,
+                user_config=self.args.config,
                 history=self.history, warn=self.warn_history,
                 staging=self.staging(),
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
-                            open_events=self.open_events, show=self.manual_show,
+                            open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             clock=self.monitor.clock)))
 
     def set_pulses(self, pulses):
@@ -1205,7 +1212,7 @@ class App:
             self.refresh(force=False)
 
         runner = Runner(self.plant, blockers, self.keys, show=show,
-                        emit=self.ros.emit, clock=self.monitor.clock)
+                        emit=self.emit, clock=self.monitor.clock)
         try:
             with runner.session(name, **details):
                 yield runner
@@ -1225,6 +1232,19 @@ class App:
                 raise RuntimeError('no Nav2 client in this session')
             self._nav2 = self.nav2_factory()
         return self._nav2
+
+    def clock_ns(self):
+        """Wall nanoseconds, the journal's time base, for a time on the monitor clock."""
+        return self.wall_ns(self.monitor.clock())
+
+    def wall_ns(self, t):
+        if self._wall_offset is None:  # fixed once, so windows stay contiguous
+            self._wall_offset = time.time_ns() - int(self.monitor.clock() * 1e9)
+        return self._wall_offset + int(t * 1e9)
+
+    def emit(self, phase, **details):
+        """Journal an event stamped with the running procedure; explicit details win."""
+        self.ros.emit(phase, **{**self.tags, **details})
 
     def record(self, result):
         if self.run_id:

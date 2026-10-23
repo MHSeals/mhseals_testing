@@ -9,7 +9,7 @@ key reader that reports key releases, so the dashboard stays on screen.
 import time
 
 from mhseals_hardware.manual_state import ManualState
-from mhseals_testing.runner import Aborted, fold
+from mhseals_testing.runner import Aborted, fold, interlock_abort
 
 EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
 STOP_KEYS = ('space', 'press:space', 'focus-out')
@@ -29,7 +29,7 @@ class GuardedPublisher:
             reasons = self.blockers()
             if reasons:
                 self.plant.neutral()
-                raise Aborted('interlock: ' + '; '.join(reasons))
+                raise interlock_abort(reasons)
         self.command = command
         self.plant.publish(command)
 
@@ -60,9 +60,19 @@ def run(ctx):
     state = ManualState(config['manual_amplitude'], config['manual_repeat_timeout'],
                         config['manual_initial_timeout'], config['manual_yaw_scale'])
     publisher = GuardedPublisher(manual['plant'], manual['blockers'])
+    emit = manual.get('emit', lambda *args, **details: None)
+    emit('manual_start')
+    outcome = dict(outcome='complete', by='operator', cause='exit')
     try:
         with manual['open_events']() as keys:
             drive(keys, state, publisher, manual['show'], manual.get('clock', time.monotonic))
+    except Aborted as error:
+        outcome = dict(outcome=str(error), by=error.by, cause=error.cause)
+        raise
+    except BaseException as error:
+        outcome = dict(outcome=f'error: {error}', by='error')
+        raise
     finally:
         manual['plant'].neutral()
+        emit('manual_stop', **outcome)
         manual['show']((0.0, 0.0, 0.0), state.amplitude, state.chords, done=True)

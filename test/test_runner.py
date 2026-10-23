@@ -76,7 +76,7 @@ def test_session_brackets_events_and_ends_neutral():
     with run.session('axis', axis='surge'):
         run.hold((0.1, 0, 0), 0.2)
     assert [phase for phase, _ in events] == ['axis_start', 'axis_stop']
-    assert events[-1][1] == {'outcome': 'complete'}
+    assert events[-1][1] == {'outcome': 'complete', 'by': 'procedure'}
     assert plant.sent[-1] == 'neutral'
 
 
@@ -204,3 +204,42 @@ def test_a_pause_still_honours_the_abort_key():
     with pytest.raises(Aborted, match='cancelled'):
         run.supervise(10.0)
     assert plant.sent == ['neutral']
+
+
+
+
+def stop_of(events):
+    return events[-1][1]
+
+
+def test_session_stop_says_who_ended_it():
+    run, _, events, _ = runner({2: 'space'})
+    with pytest.raises(Aborted):
+        with run.session('axis'):
+            run.hold((0.1, 0, 0), 5.0)
+    assert stop_of(events)['by'] == 'operator' and stop_of(events)['cause'] == 'space'
+
+    run, _, events, _ = runner()
+    with pytest.raises(ValueError):
+        with run.session('axis'):
+            raise ValueError('boom')
+    assert stop_of(events)['by'] == 'error' and 'cause' not in stop_of(events)
+
+    run, _, events, _ = runner()
+    with run.session('axis'):
+        pass
+    assert stop_of(events)['by'] == 'procedure'
+
+
+def test_guard_trip_mid_hold_is_stamped_guard():
+    ticks = []
+
+    def blockers():
+        ticks.append(1)
+        return ['odometry: STALE'] if len(ticks) > 2 else []
+
+    run, _, events, _ = runner(blockers=blockers)
+    with pytest.raises(Aborted):
+        with run.session('axis'):
+            run.hold((0.1, 0, 0), 5.0)
+    assert stop_of(events)['by'] == 'guard' and stop_of(events)['cause'] == 'guard:odometry'
