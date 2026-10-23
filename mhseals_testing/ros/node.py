@@ -6,6 +6,7 @@ spins on its own thread so the TUI loop can block on keys.
 
 from datetime import datetime
 from functools import partial
+import os
 import json
 import threading
 
@@ -31,6 +32,11 @@ EVENTS_TOPIC = '/mhseals_testing/events'
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
 
 
+def node_name(pid=None):
+    """Per-process node name, so publishers() can tell a second suite from ourselves."""
+    return f'mhseals_testing_{os.getpid() if pid is None else pid}'
+
+
 class RosIO:
     """Owns the node, its executor thread and the publishers the suite needs."""
 
@@ -39,7 +45,7 @@ class RosIO:
         self.monitor = monitor
         self.stale_after = stale_after
         self.fault = ''
-        self.node = Node('mhseals_testing', parameter_overrides=[
+        self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
         self.events = self.node.create_publisher(String, EVENTS_TOPIC, 10)
         for sensor in profile.sensors:
