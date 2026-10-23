@@ -1,6 +1,6 @@
 """popup.history: browse the config history (ui.md 4.3, config_history.md 5-6).
 
-``State`` is the whole popup (tab, cursor); ``body`` draws it at a terminal width and
+``State`` is the whole popup (tab, cursor, scroll); ``body`` draws it at a terminal width and
 ``handle`` applies one key, so both run without a terminal. ``open_history`` is the modal loop.
 
 Glyph grammar (ui.md section 9): the head of a subsystem carries an accent ``now`` tag, a revert
@@ -10,6 +10,7 @@ pending, and the italic slate ``hw`` / ``cal`` tags say which kind of key the ch
 
 import dataclasses
 import datetime
+import textwrap
 
 from rich.text import Text
 
@@ -19,6 +20,8 @@ from mhseals_testing.ui import theme
 
 SUBS = ('hardware', 'nav2', 'fcu', 'rtk', 'health', 'keymap')
 LABELS = {'hardware': 'Hardware', 'nav2': 'Nav2', 'fcu': 'FCU', 'rtk': 'RTK', 'health': 'Health', 'keymap': 'Keymap'}
+WIDE = 100            # terminal columns from which the detail sits beside the list
+LIST_W = 44
 EXTERNAL, PENDING = theme.pick('±', '~'), theme.pick('◌', 'o')
 SLATE = f"italic {theme.PALETTE.style('slate')}"
 ACCENT = f'bold {theme.ACCENT}'
@@ -31,7 +34,11 @@ class State:
     history: object
     tab: int = 0                 # 0 is All, then one per subsystem that has history
     cursor: int = 0
+    detail: bool = False         # narrow layout: the detail replaces the list
+    base: str = 'current'        # current: what selecting would change; previous: what the change did
     rows: int = 14               # list rows that fit
+    height: int = 30             # terminal rows; the body is fitted to it so the layout never clips
+    scroll: int = 0              # first visible diff line (J/K), when the diff outruns the popup
     now: datetime.datetime = None
     pins: dict = None
     fields: dict = None
@@ -99,6 +106,14 @@ def day_label(when, now):
     return f'Today{theme.SEPARATOR}{stamp}' if days == 0 else 'Yesterday' if days == 1 else stamp
 
 
+def age(when, now):
+    seconds = max(0, (now - when).total_seconds())
+    for size, unit in ((86400, 'd'), (3600, 'h'), (60, 'min')):
+        if seconds >= size:
+            return f'{int(seconds // size)} {unit} ago'
+    return 'just now'
+
+
 def change_line(state, change, active, width, heads):
     """One list row: cursor, mark, id, time, name, and the right-hand tags."""
     when = datetime.datetime.fromisoformat(change['time'])
@@ -135,6 +150,35 @@ def list_lines(state, width):
     return lines[start:start + state.rows] or [Text('no changes recorded', style='dim')]
 
 
+def detail_lines(state, width, avail=None):
+    """The detail pane: what the change is, then its diff, windowed (J/K) to ``avail`` lines."""
+    change = state.selected()
+    if change is None:
+        return []
+    when = datetime.datetime.fromisoformat(change['time'])
+    now = state.clock()
+    name, _ = name_of(state, change)
+    lines = [Text(f"{change['id']}{theme.SEPARATOR}{when:%a %b %d %H:%M}{theme.SEPARATOR}{age(when, now)}", style='bold'),
+             Text(f"{name}{theme.SEPARATOR}{change['source']}{theme.SEPARATOR}{change.get('applied', '')}")]
+    if change.get('note'):
+        lines.append(Text(change['note'], style='dim'))
+    head = state.history.head(change['subsystem'])
+    if state.base == 'current' and head and head['id'] != change['id']:
+        rows, vs = rows_of(state, change, head), f"vs current {head['id']}"
+    else:
+        rows, vs = rows_of(state, change), 'vs previous'
+    lines.append(Text(vs, style='dim'))
+    diff = render.render(rows, width, ascii_=theme.ASCII).split('\n')
+    room = None if avail is None else max(2, avail - len(lines))
+    if room is not None and len(diff) > room:
+        start = state.scroll = max(0, min(state.scroll, len(diff) - (room - 1)))
+        lines += diff[start:start + room - 1]
+        lines.append(Text(f'{start + 1}-{start + room - 1} of {len(diff)}{theme.SEPARATOR}J/K scroll', style='dim'))
+    else:
+        lines += diff
+    return lines
+
+
 def tab_line(state, width):
     line = Text()
     for index, sub in enumerate(state.tabs()):
@@ -148,22 +192,40 @@ def tab_line(state, width):
     return line
 
 
-def footer():
-    return theme.SEPARATOR.join(('n name', 'N note', '[ ] tab', 'Esc'))
+def footer(state, cols=120):
+    if cols < WIDE:
+        return theme.SEPARATOR.join(('n name', 'l detail', '[ ] tab', 'Esc'))
+    keys = ['d vs ' + ('previous' if state.base == 'current' else 'current'), 'n name', 'N note']
+    return theme.SEPARATOR.join(keys + ['l detail', '[ ] subsystem', 'Esc close'])
 
 
 def body(state, cols):
-    """The popup body for a ``cols``-column terminal: the tabs, then the list."""
+    """The popup body for a ``cols``-column terminal: tabs, then list and detail side by side
+    (or one at a time below ``WIDE`` columns)."""
     width = min(cols - 8, 92) - 4 if cols >= 80 else cols - 4
-    out = [tab_line(state, width), Text(''), *list_lines(state, width)]
-    for line in out:
-        line.truncate(width, overflow='ellipsis')
+    out = [tab_line(state, width), Text('')]
+    avail = max(6, state.height - 7)         # popup border, tab line, blank, hint, slack
+    if cols >= WIDE:
+        left = list_lines(state, LIST_W)
+        right = detail_lines(state, width - LIST_W - 3, avail)
+        for i in range(max(len(left), len(right))):
+            cell = left[i] if i < len(left) else Text('')
+            cell.truncate(LIST_W, overflow='ellipsis', pad=True)
+            line = cell + Text(f' {theme.BAR} ', style='dim')
+            if i < len(right):
+                right[i].truncate(width - LIST_W - 3, overflow='ellipsis')
+                line += right[i]
+            out.append(line)
+    else:
+        out += detail_lines(state, width, avail) if state.detail else list_lines(state, width)
+        for line in out:
+            line.truncate(width, overflow='ellipsis')
     return Text('\n').join(out)
 
 
 def modal(state, cols):
     return dict(kind='custom', title='Config history', body=body(state, cols), width=min(cols - 8, 92) if cols >= 80 else cols,
-                hint=footer(), danger=False)
+                hint=footer(state, cols), danger=False)
 
 
 def handle(state, key, app):
@@ -173,9 +235,16 @@ def handle(state, key, app):
         return True
     elif key in ('[', 'left', ']', 'right'):
         state.tab = (state.tab + (1 if key in (']', 'right') else -1)) % len(state.tabs())
-        state.cursor = 0
+        state.cursor, state.scroll = 0, 0
     elif key in ('up', 'k', 'down', 'j'):
         state.cursor = max(0, min(len(state.entries()) - 1, state.cursor + (1 if key in ('down', 'j') else -1)))
+        state.scroll = 0
+    elif key in ('J', 'K'):
+        state.scroll = max(0, state.scroll + (1 if key == 'J' else -1))
+    elif key == 'l':
+        state.detail = not state.detail
+    elif key == 'd':
+        state.base = 'previous' if state.base == 'current' else 'current'
     elif change is None:
         pass
     elif key in ('n', 'N'):
@@ -195,7 +264,7 @@ def open_history(app, sub=None):
 
     def redraw():
         size = app.console.size
-        state.rows = max(6, size.height - 14)
+        state.height, state.rows = size.height, max(6, size.height - 14)
         shell.update(modal(state, size.width))
 
     def on_key(key):

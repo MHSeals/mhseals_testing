@@ -1,4 +1,4 @@
-"""popup.history: goldens at 120 and 80 columns (UIW15)."""
+"""popup.history: goldens at 120 and 80 columns and the diff windowing (UIW15)."""
 
 import datetime
 import io
@@ -48,6 +48,7 @@ def state(tmp_path):
 
 
 def paint(state, cols, rows=30):
+    state.height = rows
     modal = popup.modal(state, cols)
     panel, width = layout.popup(modal, cols, rows)
     out = io.StringIO()
@@ -67,7 +68,7 @@ def check(request, name, text):
 @pytest.mark.parametrize('cols', [120, 80])
 def test_golden(request, state, cols):
     state.tab = 1                      # Hardware: three changes
-    state.cursor = 1
+    state.cursor = 1                   # the pending one, so the diff shows against the current version
     text = paint(state, cols)
     assert all(len(line) <= cols for line in text.splitlines())
     check(request, f'popup_{cols}.txt', text)
@@ -102,3 +103,28 @@ def test_capital_h_opens_the_popup(monkeypatch):
     fake = type('A', (), {'open': lambda self, name: opened.append(name)})()
     app_module.App.dispatch(fake, 'H')
     assert opened == ['history']
+
+
+def long_diff(state):
+    """A hardware change whose diff is long: it touches outputs, reversed, timing and decoupling."""
+    state.history.record('hardware', hw(channel_map=[4, 3, 2, 1], reversed=[True] * 4, command_timeout=0.9,
+                                        decoupling=[1, 0.2, 0, 0, 1, 0, 0, 0.3, 1]),
+                         source='external', time='2026-10-23T15:50:00+00:00')
+    state.tab, state.cursor = 1, 0
+
+
+@pytest.mark.parametrize('cols,rows', [(100, 30), (60, 24), (80, 20)])
+def test_a_long_diff_is_windowed_not_clipped(state, cols, rows):
+    long_diff(state)
+    state.detail = True
+    text = paint(state, cols, rows)
+    assert 'j/k scroll' not in text and len(text.splitlines()) <= rows and 'J/K scroll' in text
+
+
+def test_the_diff_scrolls_with_capital_j_and_k(state):
+    long_diff(state)
+    first = [line.plain for line in popup.detail_lines(state, 60, 10)]
+    popup.handle(state, 'J', FakeApp())
+    assert state.scroll == 1 and [line.plain for line in popup.detail_lines(state, 60, 10)] != first
+    popup.handle(state, 'K', FakeApp())
+    assert state.scroll == 0
