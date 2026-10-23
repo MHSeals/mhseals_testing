@@ -27,6 +27,7 @@ from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
+from mhseals_testing.data import data_root
 from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailable
@@ -171,7 +172,7 @@ class App:
         self.closed = False
         self.started = clock()
         self.config_file = config_path(args.config)
-        self.config_mtime = self.mtime()
+        self.config_mtime = self.config_seen = self.mtime()
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
 
     @property
@@ -252,15 +253,20 @@ class App:
     # --- hardware config: edits from the panel or any editor, hot-reloaded -------
 
     def mtime(self):
+        """The file's (mtime, size, inode): equal on two polls means the write has settled."""
         try:
-            return self.config_file.stat().st_mtime_ns
+            stat = self.config_file.stat()
         except OSError:
             return None
+        return stat.st_mtime_ns, stat.st_size, stat.st_ino
 
     def watch_config(self):
-        mtime = self.mtime()
+        mtime, previous = self.mtime(), self.config_seen
+        self.config_seen = mtime
         if mtime == self.config_mtime:
             return
+        if self.config_mtime is not None and mtime != previous:
+            return  # still changing: an in-place save caught mid-write is not applied
         self.config_mtime = mtime
         try:
             self.reload_config()
@@ -284,11 +290,19 @@ class App:
                       reversed=list(self.args.hardware_config['reversed']))
 
     def save_hardware(self, **changes):
-        """Write ``changes`` into the operator's hardware YAML; the watcher applies it."""
-        update_config(changes, self.args.config)
+        """Write ``changes`` into the operator's hardware YAML; the watcher applies it.
+
+        Returns False, keeping the draft, when the file on disk is broken.
+        """
+        try:
+            update_config(changes, self.args.config)
+        except (OSError, ValueError, TypeError, yaml.YAMLError):
+            self.notice = f'Fix hardware.yaml first: {self.config_file}'
+            return False
         self.draft = self.grabbed = None
         self.config_mtime = None  # reload on the next tick even within one mtime tick
         self.watch_config()
+        return True
 
     # --- rendering ---------------------------------------------------------------
 
@@ -410,7 +424,8 @@ class App:
             return
         if choice == 'Save mapping and quit':
             channel_map, reversed_ = self.mapping()
-            self.save_hardware(channel_map=channel_map, reversed=reversed_)
+            if not self.save_hardware(channel_map=channel_map, reversed=reversed_):
+                return
         self.quit = True
 
     def close(self):
@@ -587,8 +602,8 @@ class App:
             if self.draft is None:
                 self.notice = 'Nothing to save'
                 return
-            self.save_hardware(channel_map=channel_map, reversed=reversed_)
-            self.notice = f'Mapping saved to {self.config_file.name}'
+            if self.save_hardware(channel_map=channel_map, reversed=reversed_):
+                self.notice = f'Mapping saved to {self.config_file.name}'
         elif key == 'u':
             self.draft = self.grabbed = None
             self.notice = 'Mapping changes undone'
@@ -599,8 +614,8 @@ class App:
                 self.notice = 'No decoupling to clear'
             elif self.choose('Clear the fitted decoupling? Thrust goes back to the plain mixer.',
                              ('Keep', 'Clear'), {'n': 0, 'y': 1}) == 'Clear':
-                self.save_hardware(decoupling=list(sum(IDENTITY, ())))
-                self.notice = 'Decoupling cleared'
+                if self.save_hardware(decoupling=list(sum(IDENTITY, ()))):
+                    self.notice = 'Decoupling cleared'
 
     def move_grabbed(self, step):
         """Swap the grabbed thruster's output and reversal with its neighbour's, and follow it."""
@@ -969,7 +984,7 @@ def build_parser():
     parser.add_argument('--station-tolerance', type=float, default=1.5,
                         help='station keeping radius, m')
     parser.add_argument('--output', type=Path, default=None,
-                        help='session bag path (default bags/<profile>_<time>)')
+                        help='session bag path (default $MHSEALS_DATA or <workspace>/bags, <profile>_<time>)')
     return parser
 
 
@@ -993,7 +1008,7 @@ def parse_args(argv=None):
                      '--station-tolerance (0.2-10 m) are out of range')
     if not 1 <= args.repeats <= 5:
         parser.error('--repeats must be within 1..5')
-    args.output = args.output or Path('bags') / (
+    args.output = args.output or data_root() / (
         f"{profile.name.replace('+', '_')}_{datetime.now():%Y%m%d_%H%M%S}")
     return args, profile
 
