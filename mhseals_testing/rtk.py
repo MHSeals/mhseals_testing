@@ -15,7 +15,9 @@ import time
 import yaml
 
 DEFAULTS = dict(device='', radio='', radio_baud=57600, survey_seconds=120,
-                survey_accuracy=2.0, system_id=1, positions={})
+                survey_accuracy=2.0, positions={})
+
+GCS_SYSTEM, GCS_COMPONENT = 255, 190
 
 
 def config_path():
@@ -38,8 +40,6 @@ def load_config(path=None):
         raise ValueError('survey accuracy must be .001..100 metres')
     if not 1200 <= int(config['radio_baud']) <= 921600:
         raise ValueError('radio baud must be 1200..921600')
-    if not 1 <= int(config['system_id']) <= 255:
-        raise ValueError('vehicle system ID must be 1..255')
     if not isinstance(config['positions'], dict):
         raise ValueError('positions must be a mapping of names to latitude, longitude, height')
     for position in config['positions'].values():
@@ -125,6 +125,51 @@ def mode_poll(model):
     if model == 'M8P':
         return UBXMessage('CFG', 'CFG-TMODE3', POLL), 'CFG-TMODE3'
     return UBXMessage.config_poll(0, 0, ['CFG_TMODE_MODE']), 'CFG-VALGET'
+
+
+# GPS_RTCM_DATA carries 180 B; a longer frame goes out as up to four fragments.
+CHUNK, MAX_FRAME = 180, 720
+
+
+def fragments(frame, seq):
+    """Split one RTCM3 frame into (flags, length, padded data) GPS_RTCM_DATA payloads.
+
+    flags = fragmented | fragment_id << 1 | seq << 3, with a 5-bit sequence shared by a
+    frame's fragments. A frame that fills its last fragment exactly is closed with an
+    empty one, as the FCU only completes a block on a short fragment.
+    """
+    if len(frame) > MAX_FRAME:
+        raise ValueError(f'RTCM frame of {len(frame)} B exceeds {MAX_FRAME} B')
+    seq &= 0x1F
+    if len(frame) <= CHUNK:
+        return [(seq << 3, len(frame), frame.ljust(CHUNK, b'\0'))]
+    parts = [frame[i:i + CHUNK] for i in range(0, len(frame), CHUNK)]
+    if len(frame) % CHUNK == 0 and len(parts) < 4:
+        parts.append(b'')
+    return [(1 | n << 1 | seq << 3, len(part), part.ljust(CHUNK, b'\0'))
+            for n, part in enumerate(parts)]
+
+
+class Radio:
+    """BaseSession sink for a telemetry radio: sink(frame, stamp) sends the frame as GPS_RTCM_DATA.
+
+    Runs beside the MAVROS sink; the FCU de-duplicates the same corrections arriving on two links.
+    Sends as a ground station (system 255, component 190) so the FCU never learns a route for its own ID.
+    """
+
+    def __init__(self, device, baud=57600, link=None):
+        if link is None:
+            from pymavlink import mavutil
+            link = mavutil.mavlink_connection(device, baud=baud, source_system=GCS_SYSTEM, source_component=GCS_COMPONENT)
+        self.link, self.seq = link, 0
+
+    def __call__(self, frame, stamp):
+        for flags, length, data in fragments(frame, self.seq):
+            self.link.mav.gps_rtcm_data_send(flags, length, data)
+        self.seq = (self.seq + 1) & 0x1F
+
+    def close(self):
+        self.link.close()
 
 
 class BaseSession:

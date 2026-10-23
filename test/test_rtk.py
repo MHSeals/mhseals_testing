@@ -1,6 +1,7 @@
 """Base receiver wire formats, frame forwarding and resume-without-reconfigure; no ROS or hardware."""
 
 from copy import deepcopy
+from types import SimpleNamespace
 import io
 import time
 
@@ -8,8 +9,8 @@ import pytest
 from pyrtcm import calc_crc24q
 from pyubx2 import GET, UBXMessage, UBXReader
 
-from mhseals_testing.rtk import (BaseSession, DEFAULTS, base_commands, coordinates, load_config,
-                                 save_config, split_position)
+from mhseals_testing.rtk import (BaseSession, DEFAULTS, Radio, base_commands, coordinates, fragments,
+                                 load_config, save_config, split_position)
 
 
 def rtcm_frame(number=1005):
@@ -65,12 +66,12 @@ class FakeReceiver(io.BytesIO):
         return UBXMessage('CFG', 'CFG-VALGET', GET, payload=payload)
 
 
-def run_session(monkeypatch, port, **start):
+def run_session(monkeypatch, port, extra=(), **start):
     """Run one session on the fake receiver until two pushed frames are read; return its state and the frames."""
     import serial
     monkeypatch.setattr(serial, 'Serial', lambda *a, **k: port)
     frames = []
-    session = BaseSession([lambda frame, stamp: frames.append(frame)], dict(DEFAULTS, device='/dev/test'))
+    session = BaseSession([lambda frame, stamp: frames.append(frame), *extra], dict(DEFAULTS, device='/dev/test'))
     session.start(**start)
     deadline = time.monotonic() + 5
     while session.snapshot()['phase'] in ('off', 'connecting', 'configuring') and time.monotonic() < deadline:
@@ -171,3 +172,50 @@ def test_resume_never_configures_or_resets_the_survey(monkeypatch, model, mode, 
     assert not any(name in port.sent for name in ('CFG-VALSET', 'CFG-MSG', 'CFG-RATE'))
     assert state['phase'] == phase
     assert len(frames) == forwarded
+
+
+def test_fragments_follow_the_gps_rtcm_data_layout():
+    assert fragments(b'a' * 10, 3) == [(3 << 3, 10, b'a' * 10 + bytes(170))]
+    flags = [(f, n) for f, n, _ in fragments(b'b' * 400, 33)]
+    assert flags == [(1 | 1 << 3, 180), (1 | 2 | 1 << 3, 180), (1 | 4 | 1 << 3, 40)]
+
+
+def test_exact_multiple_gets_an_empty_terminator_and_oversize_is_refused():
+    assert [n for _, n, _ in fragments(b'c' * 360, 0)] == [180, 180, 0]
+    assert [n for _, n, _ in fragments(b'c' * 720, 0)] == [180] * 4
+    with pytest.raises(ValueError):
+        fragments(b'c' * 721, 0)
+
+
+def radio_link(sent, fail=False):
+    def send(*args):
+        if fail:
+            raise OSError('radio unplugged')
+        sent.append(args)
+    return SimpleNamespace(mav=SimpleNamespace(gps_rtcm_data_send=send), close=lambda: None)
+
+
+def test_session_gives_radio_and_second_sink_each_frame_with_rising_seq(monkeypatch):
+    sent, other = [], []
+    radio = Radio('', link=radio_link(sent))
+    state, frames = run_session(monkeypatch, FakeReceiver('M8P', mode=1, valid=True),
+                                extra=[lambda f, s: other.append(f), radio])
+    assert len(frames) == len(other) == 2
+    assert [a[0] >> 3 for a in sent] == [0, 1]
+
+
+def test_failing_radio_does_not_stop_the_other_sink(monkeypatch):
+    other = []
+    radio = Radio('', link=radio_link([], fail=True))
+    state, frames = run_session(monkeypatch, FakeReceiver('M8P', mode=1, valid=True),
+                                extra=[radio, lambda f, s: other.append(f)])
+    assert len(other) == 2
+    assert state['errors'] == 2
+
+
+def test_radio_connects_as_a_ground_station(monkeypatch):
+    from pymavlink import mavutil
+    seen = {}
+    monkeypatch.setattr(mavutil, 'mavlink_connection', lambda device, **kw: seen.update(kw) or radio_link([]))
+    Radio('/dev/radio')
+    assert (seen['source_system'], seen['source_component']) == (255, 190)
