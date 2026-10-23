@@ -754,7 +754,8 @@ class App:
             settings.save(self.settings)
         elif (key in {p.key for p in PROCEDURES} and self.tab == 'Drive'
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
-              and not (self.focus == 'activity' and key == 'v')):
+              and not (self.focus == 'activity' and key == 'v')
+              and not (self.focus == 'status' and key == 'e')):  # Nav2 popup there; interference elsewhere
             self.on_procedures(key)
         else:
             getattr(self, f'on_{self.focus}', lambda key: None)(key)
