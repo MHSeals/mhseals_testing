@@ -30,7 +30,7 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing.data import data_root
-from mhseals_testing.harness import host, journal, settings
+from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
@@ -130,6 +130,7 @@ class SessionPaths:
     hardware: Path  # snapshot of the hardware config the driver runs with
     nav2: Path      # Nav2 params with measured limits, written by characterization
     journal: Path   # append-only events: markers, phases, results
+    runs: Path      # one runs/<run_id>.json per procedure run
 
     @classmethod
     def from_output(cls, output):
@@ -137,7 +138,7 @@ class SessionPaths:
         return cls(output, output.with_suffix('.report.json'),
                    output.parent / 'logs' / output.name,
                    output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'),
-                   output.with_suffix('.events.jsonl'))
+                   output.with_suffix('.events.jsonl'), output.with_suffix('.runs'))
 
 
 ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
@@ -176,6 +177,7 @@ class App:
         self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
         self.watcher_factory, self._watcher = task_watcher, None
+        self.run_id = None  # the procedure run in progress; its results carry this id
         self.settings = args.settings
         self.focus = 'status'
         self.cursors = {panel: 0 for panel in PANELS}
@@ -969,19 +971,37 @@ class App:
         self.clear_pulses()
         self.running = procedure.title
         results = len(self.snapshot()['results'])
+        self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
         self.notice = f'Running {procedure.title}'
+        aborted = None
         try:
             procedure.run(self.procedure_context())
-        except Cancelled:
+        except STOPPING_ERRORS as error:
+            aborted = str(error)
+            if not isinstance(error, Cancelled):
+                raise
             self.notice = f'{procedure.title} cancelled'
             self.disarm(f'{procedure.title} cancelled')
             return
         finally:
             self.running = None
+            self.write_run(procedure, results, aborted)
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
             self.cursors['activity'] = 0
             self.notice = f'{procedure.title} complete'
+
+    def write_run(self, procedure, start, aborted):
+        """The one run file for a procedure run: every result it recorded since ``start``."""
+        found = self.snapshot()['results'][start:]
+        run_id, self.run_id = self.run_id, None
+        if not found and aborted is None:
+            return
+        record = dict(procedure=procedure.title, run_id=run_id, results=found)
+        if aborted is not None:
+            record['reason'] = aborted
+        runs.write_run(self.paths.runs, record, settings=vars(self.settings),
+                       status=runs.ABORTED if aborted is not None else None)
 
     def procedure_context(self):
         return host.context(
@@ -1049,6 +1069,8 @@ class App:
         return self._nav2
 
     def record(self, result):
+        if self.run_id:
+            result = {**result, 'run_id': self.run_id}
         self.monitor.record_result(result)
         self.ros.emit('result', **result)
         self.export()

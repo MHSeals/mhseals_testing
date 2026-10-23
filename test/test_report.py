@@ -24,3 +24,9 @@ def test_report_round_trips_and_refuses_nan(tmp_path):
         write_report(report, path)
     assert json.loads(path.read_text()) == loaded  # previous report intact
     assert [p.name for p in path.parent.iterdir()] == ['session.json']
+
+
+def test_report_records_git_provenance(tmp_path):
+    prov = {'mhseals_testing': dict(hash='abc', dirty=True, diff_sha='d1')}
+    report = build_report(load_profile('boat'), BoatMonitor(clock=lambda: 2).snapshot(), provenance=prov)
+    assert report['provenance'] == prov

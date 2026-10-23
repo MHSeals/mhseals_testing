@@ -1,5 +1,8 @@
 """Session report: one JSON file next to the session bag.
 
+Per-run records (status, exclusion) live in harness/runs.py; this file only
+summarises the session and its git provenance.
+
 It records what was tested (profile, hardware config), what happened (events,
 procedure results with their time windows) and where the raw data is (the
 bag), so any result can be re-analysed from the bag later.
@@ -15,7 +18,8 @@ import tempfile
 from mhseals_testing.harness import journal
 
 
-def build_report(profile, snapshot, bag=None, hardware_config=None, now=None, journal_events=None):
+def build_report(profile, snapshot, bag=None, hardware_config=None, now=None, journal_events=None,
+                 provenance=None):
     """``journal_events`` (the session journal) replaces the monitor's capped, monotonic event list."""
     if journal_events:
         logged = journal_events
@@ -25,6 +29,7 @@ def build_report(profile, snapshot, bag=None, hardware_config=None, now=None, jo
         time=(now or datetime.now().astimezone()).isoformat(),
         profile=asdict(profile),
         hardware_config=hardware_config,
+        provenance=provenance,  # per-repo git hash, dirty flag and diff sha from the git probe
         bag=str(bag) if bag else None,
         results=snapshot['results'],
         events=logged,

@@ -1261,3 +1261,37 @@ def test_no_popup_while_moving(tmp_path):
     app.dispatch('B')
     [mark] = journal.markers(journal.read(app.paths.journal))
     assert mark['note'] == '' and app.notice == 'Not while moving'
+
+
+def test_one_run_file_per_procedure_run_with_settings(tmp_path):
+    from mhseals_testing.procedures import Procedure
+
+    def several(ctx):
+        for name in 'abc':
+            ctx.record(dict(procedure=name, verdict='OK'))
+
+    app, _ = make_app(tmp_path)
+    app.run_procedure(Procedure('z', 'nav2 bring-up', several))
+    files = sorted((tmp_path / 'session.runs').glob('*.json'))
+    assert [f.name for f in files] == ['001-nav2-bring-up.json']
+    saved = json.loads(files[0].read_text())
+    assert len(saved['result']['results']) == 3 and saved['status'] == 'MEASURED'
+    assert saved['settings']['amplitude'] == app.settings.amplitude
+    assert {r['run_id'] for r in saved['result']['results']} == {'001-nav2-bring-up'}
+
+
+def test_error_out_of_a_procedure_leaves_one_aborted_run(tmp_path):
+    from mhseals_testing.procedures import Procedure
+    from mhseals_testing.runner import Aborted
+
+    def stopped(ctx):
+        ctx.record(dict(procedure='a', verdict='OK'))
+        raise Aborted('interlock')
+
+    app, _ = make_app(tmp_path)
+    with pytest.raises(Aborted):
+        app.run_procedure(Procedure('z', 'step', stopped))
+    files = list((tmp_path / 'session.runs').glob('*.json'))
+    assert len(files) == 1
+    saved = json.loads(files[0].read_text())
+    assert saved['status'] == 'ABORTED' and saved['result']['reason'] == 'interlock'
