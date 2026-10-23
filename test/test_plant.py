@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -16,7 +17,7 @@ class Node:
         self.live = []
 
     def create_publisher(self, kind, topic, depth):
-        publisher = SimpleNamespace(topic=topic, sent=[], publish=lambda m: None)
+        publisher = SimpleNamespace(topic=topic, sent=[], publish=lambda m: publisher.sent.append(m))
         self.live.append(publisher)
         return publisher
 
@@ -35,7 +36,8 @@ class Ros:
 
 
 PROFILE = SimpleNamespace(command_type='twist', command_topic='/cmd_vel',
-                          command_limit=(1.0, 1.0, 1.0), base_frame='base_link')
+                          command_limit=(1.0, 1.0, 1.0), base_frame='base_link',
+                          manual_topic='/cmd_vel/manual', muxed=True)
 
 
 def pair():
@@ -59,3 +61,20 @@ def test_release_withdraws_the_publisher():
     armed.release()
     assert idle.conflicts() == []
     armed.release()  # twice is harmless
+
+
+def test_keys_publish_on_the_manual_topic_and_space_asks_the_mux_to_hold():
+    plant, _ = pair()
+    plant.engage()
+    plant.hold('keys')
+    plant.hold('keys')
+    topics = [p.topic for p in plant.ros.node.live]
+    assert topics == ['/cmd_vel/manual', '/command_mux/request']
+    request = plant.request_publisher.sent[0].data
+    assert json.loads(request) == {'op': 'hold', 'cause': 'keys', 'by': 'tui'}
+
+
+def test_unmuxed_plants_send_no_hold_request():
+    plant = Plant(Ros(Node(), 'a'), SimpleNamespace(**dict(vars(PROFILE), muxed=False)))
+    plant.hold()
+    assert plant.request_publisher is None

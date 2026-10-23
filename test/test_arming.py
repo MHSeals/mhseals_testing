@@ -34,6 +34,9 @@ class Ros:
             return self.names.get(topic, [])
         return self.names
 
+    def publishers(self, topic):
+        return []
+
     def nodes(self):
         return self.node_names
 
@@ -200,3 +203,17 @@ def test_arm_refuses_a_driver_node_listening_on_another_topic(tmp_path):
     with pytest.raises(RuntimeError, match='owns the outputs'):
         busy.begin()
     assert processes.started == []
+
+
+def test_arm_refuses_a_foreign_publisher_on_applied(tmp_path):
+    from mhseals_testing.ros.arming import APPLIED_TOPIC
+    armed, processes = arming(tmp_path=tmp_path)
+    armed.ros.publishers = lambda topic: ['/command_mux'] if topic == APPLIED_TOPIC else []
+    with pytest.raises(RuntimeError, match='already has a publisher'):
+        armed.arm()
+    assert processes.started == []
+
+
+def test_profile_manual_topic_follows_the_mux():
+    assert load_profile('boat').manual_topic == '/cmd_vel/manual'
+    assert load_profile('crane_direct').manual_topic == '/crane/cmd_vel_stamped'

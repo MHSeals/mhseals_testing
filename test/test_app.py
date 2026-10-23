@@ -55,6 +55,9 @@ class Boat:
     def neutral(self):
         self.sent.append('neutral')
 
+    def hold(self, cause='keys'):
+        self.holds = getattr(self, 'holds', []) + [cause]
+
     def conflicts(self):
         return []
 
@@ -321,6 +324,7 @@ def test_space_aborts_motion_and_disarms(tmp_path):
     app.arming.armed = True
     app.run()
     assert not app.armed and boat.sent[-1] == 'neutral'
+    assert boat.holds == ['keys']
     assert any('cancelled' in message for _, message in app.monitor.events)
 
 

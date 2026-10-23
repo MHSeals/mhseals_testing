@@ -160,6 +160,8 @@ class Runner:
                 self.show(command, deadline - now, label)
                 key = self.keys.read(timeout=min(self.period, deadline - now))
                 if fold(key) in ABORT_KEYS:
+                    if fold(key) == 'space':
+                        self.plant.hold('keys')
                     raise Aborted(f'{label or "motion"} cancelled by operator')
         except BaseException:
             self.stop()
@@ -216,6 +218,8 @@ class Runner:
                 self.show(self.command, deadline - now, text)
                 key = self.keys.read(timeout=min(self.period, deadline - now))
                 if fold(key) in ABORT_KEYS:
+                    if fold(key) == 'space':
+                        self.plant.hold('keys')
                     raise Aborted(f'{text or "supervision"} cancelled by operator')
         except BaseException:
             self.stop()

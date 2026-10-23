@@ -935,6 +935,8 @@ class App:
             else:
                 self.move(step)
         elif key == 'space':
+            if self.plant is not None:
+                self.plant.hold('keys')
             self.stop('stopped by operator')
         elif key == 'q':
             self.confirm_quit()

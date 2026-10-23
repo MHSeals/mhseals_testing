@@ -51,3 +51,9 @@ def test_lean_regex_matches_events_rtk_status_and_pwm():
     pattern = yaml.safe_load(PROFILE.read_text())['lean']['regex']
     for topic in ('/mhseals_testing/events', '/mhseals_testing/rtk/status', '/thrusters/pwm'):
         assert re.match(pattern, topic)
+
+
+def test_lean_profile_records_the_authority_set():
+    for needed in ('/cmd_vel', '/cmd_vel/manual', '/cmd_vel/applied', '/command_mux/state',
+                   '/command_mux/request', '/mhseals_testing/authority'):
+        assert needed in lean_topics()

@@ -12,6 +12,7 @@ lean:
     - /cmd_vel/applied
     - /cmd_vel_effort
     - /command_mux/state
+    - /command_mux/request
     - /mhseals_testing/authority
     - /thrusters/pwm
     - /odom/local

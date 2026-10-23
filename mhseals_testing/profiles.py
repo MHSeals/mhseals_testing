@@ -33,6 +33,10 @@ PLOT_SCALE = (0.6, 0.3, 0.5)   # about 1.5x the limits_v2.yaml limits; fixed, ne
 OUTPUTS = ('none', 'odroid', 'topic')
 
 
+MUX_INPUT = '/cmd_vel'  # the topic Nav2, tasks and agents publish; the mux owns it
+MANUAL_TOPIC = '/cmd_vel/manual'  # the mux input that outranks auto and yields to rc
+
+
 @dataclass(frozen=True)
 class SensorSpec:
     name: str
@@ -77,6 +81,16 @@ class PlantProfile:
         """True when the odometry component brings up MAVROS (a real flight controller)."""
         odometry = (self.components or {}).get('odometry', {})
         return 'launch' in odometry and odometry.get('args', {}).get('fcu', 'true') != 'false'
+
+    @property
+    def muxed(self):
+        """True when a command_mux child arbitrates the command topic when armed."""
+        return self.outputs != 'none' and self.command_topic == MUX_INPUT
+
+    @property
+    def manual_topic(self):
+        """Where the TUI's own keys publish: the mux's manual input, else the command topic."""
+        return MANUAL_TOPIC if self.muxed else self.command_topic
 
     @property
     def can_arm(self):

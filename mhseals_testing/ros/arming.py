@@ -15,13 +15,12 @@ DRIVER = 'thruster_pwm_node'
 CONTROLLER = 'calibrated_velocity_controller'
 EFFORT_TOPIC = '/cmd_vel_effort'
 MUX = 'command_mux'
-MUX_INPUT = '/cmd_vel'  # the topic Nav2, tasks and agents publish; the mux owns it
 APPLIED_TOPIC = '/cmd_vel/applied'  # what the mux lets through to the driver
 
 
 def muxed(profile):
     """True when a command_mux child arbitrates the profile's command topic."""
-    return profile.outputs != 'none' and profile.command_topic == MUX_INPUT
+    return profile.muxed
 
 
 def command_input(profile):
@@ -82,6 +81,8 @@ class Arming:
         # A driver on another topic (the sim rig's own) would still write the same outputs.
         if any(name.rsplit('/', 1)[-1] == DRIVER for name in self.ros.nodes()):
             return f'another {DRIVER} node is on the graph; it owns the outputs'
+        if muxed(self.profile) and self.ros.publishers(APPLIED_TOPIC):
+            return f'{APPLIED_TOPIC} already has a publisher (another {MUX}?); stop it first'
         return ''
 
     def begin(self):

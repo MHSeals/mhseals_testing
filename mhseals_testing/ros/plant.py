@@ -4,14 +4,17 @@ The runner calls ``publish`` every tick and ``neutral`` on every exit; this
 module only knows how to turn (surge, sway, yaw) into the right message.
 """
 
+import json
+
 from geometry_msgs.msg import Twist, TwistStamped
-from std_msgs.msg import UInt16MultiArray
+from std_msgs.msg import String, UInt16MultiArray
 
 from mhseals_testing.health.probes.graph import topic_fact_name
 
 NEUTRAL_REPEATS = 3  # a few copies so one dropped message can't leave thrust on
 # thruster_pwm_node's raw-pulse input: physical outputs 1-4 in µs, for bench tests.
 TEST_PULSES_TOPIC = '/thruster_pwm_node/test_pulses'
+MUX_REQUEST_TOPIC = '/command_mux/request'  # command_mux ~/request: {op, cause, by}
 
 
 class Plant:
@@ -21,12 +24,13 @@ class Plant:
         self.stamped = profile.command_type == 'twist_stamped'
         self.publisher = None  # exists only while armed, so an idle suite is no conflict
         self.pulse_publisher = None
+        self.request_publisher = None
 
     def engage(self):
         """Start publishing on the command topic (on arm, or the first command)."""
         if self.publisher is None:
             self.publisher = self.ros.node.create_publisher(
-                TwistStamped if self.stamped else Twist, self.profile.command_topic, 10)
+                TwistStamped if self.stamped else Twist, self.profile.manual_topic, 10)
 
     def release(self):
         """Stop being a publisher of the command topic (on disarm)."""
@@ -59,6 +63,16 @@ class Plant:
             return
         for _ in range(NEUTRAL_REPEATS):
             self.publisher.publish(self.message((0.0, 0.0, 0.0)))
+
+    def hold(self, cause='keys'):
+        """Ask the mux to hold (zeros, sticky) so no auto command resumes behind Space."""
+        if not self.profile.muxed:
+            return
+        if self.request_publisher is None:
+            self.request_publisher = self.ros.node.create_publisher(
+                String, MUX_REQUEST_TOPIC, 10)
+        self.request_publisher.publish(String(data=json.dumps(
+            {'op': 'hold', 'cause': cause, 'by': 'tui'})))
 
     def test_pulses(self, pulses):
         if self.pulse_publisher is None:

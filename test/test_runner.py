@@ -5,13 +5,16 @@ from mhseals_testing.runner import NEUTRAL, Aborted, Runner
 
 class Plant:
     def __init__(self):
-        self.sent = []
+        self.sent, self.holds = [], []
 
     def publish(self, command):
         self.sent.append(command)
 
     def neutral(self):
         self.sent.append('neutral')
+
+    def hold(self, cause='keys'):
+        self.holds.append(cause)
 
 
 class Keys:
@@ -48,6 +51,7 @@ def test_abort_key_stops_at_neutral(key):
         run.hold((0.2, 0, 0), 5.0, 'surge')
     assert plant.sent[-1] == 'neutral' and len(plant.sent) == 4
     assert run.command == NEUTRAL
+    assert plant.holds == (['keys'] if key == 'space' else [])  # only Space asks for a hold
 
 
 def test_blocker_mid_hold_stops_before_publishing_again():
