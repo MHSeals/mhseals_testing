@@ -22,6 +22,13 @@ PALETTE, OVERLAY_WARNING = palette.load_theme()
 ACCENT, MUTED = PALETTE.style('accent'), PALETTE.style('muted')
 GOOD, WARN, BAD, BUSY = (PALETTE.style(token) for token in ('ok', 'warn', 'fail', 'busy'))
 
+# Who drives, as a hue (ui.md U4); the command arrow wears the same one. Never a status hue
+# except unclaimed. Owners are harness.authority.OWNERS.
+AUTHORITY_HUES = {
+    'rc': 'bold', 'keyboard': 'bold', 'hold': 'bright_black', 'agent': 'bright_magenta',
+    'task': ACCENT, 'procedure': ACCENT, 'nav': 'magenta', 'external': BAD, 'none': MUTED,
+}
+
 
 def pick(glyph, ascii_glyph):
     """The Unicode glyph, or its ASCII stand-in when ASCII mode is on."""
