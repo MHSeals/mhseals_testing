@@ -13,6 +13,8 @@ import signal
 import subprocess
 import sys
 
+import yaml
+
 PR_SET_PDEATHSIG = 1
 
 
@@ -105,7 +107,18 @@ def unique_path(path):
     return candidate
 
 
+def bag_exclude_regex():
+    """The topic exclusion from config/bags.yaml (source tree, else the installed share)."""
+    path = Path(__file__).resolve().parents[2] / 'config' / 'bags.yaml'
+    if not path.exists():
+        from ament_index_python.packages import get_package_share_directory
+        path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'bags.yaml'
+    return yaml.safe_load(path.read_text())['exclude_regex']
+
+
 def bag_command(path):
-    # -a records every topic, including /mhseals_testing/events, so results
-    # can be re-scored from the bag alone. Jazzy's default storage is MCAP.
-    return ['ros2', 'bag', 'record', '-a', '-o', str(path)]
+    # Every topic except the heavy ones, so /mhseals_testing/events is kept and results
+    # can be re-scored from the bag alone. Not -a: it records images and clouds at
+    # ~50 MB/s, and Jazzy has no -x. Jazzy's default storage is MCAP.
+    return ['ros2', 'bag', 'record', '--all-topics', '--exclude-regex', bag_exclude_regex(),
+            '-o', str(path)]

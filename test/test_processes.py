@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -24,7 +25,17 @@ def test_unique_paths_and_bag_records_everything(tmp_path):
     (tmp_path / 'session_01').mkdir()
     assert unique_path(tmp_path / 'session').name == 'session_02'
     assert unique_path(tmp_path / 'other').name == 'other'
-    assert bag_command(tmp_path / 'b')[:4] == ['ros2', 'bag', 'record', '-a']
+
+
+def test_bag_command_excludes_heavy_topics_instead_of_recording_all(tmp_path):
+    command = bag_command(tmp_path / 'b')
+    assert '-a' not in command and '--all-topics' in command
+    regex = re.compile(command[command.index('--exclude-regex') + 1])
+    for heavy in ('/front_camera/depth/image', '/points', '/costmap/costmap'):
+        assert regex.fullmatch(heavy)
+    for kept in ('/mhseals_testing/events', '/mavros/local_position/odom'):
+        assert not regex.fullmatch(kept)
+    assert command[-2:] == ['-o', str(tmp_path / 'b')]
 
 
 def test_child_dies_with_a_killed_parent_that_ignored_sigint(tmp_path):
