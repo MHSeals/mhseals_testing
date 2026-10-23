@@ -1,0 +1,53 @@
+"""The Network row: netstat facts judged by the shipped config/health/network.yaml."""
+
+from pathlib import Path
+
+import pytest
+
+from mhseals_testing.health.network import NetworkRow
+from test_network import Clock, proc
+
+
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+def row(tmp_path, clock, **kwargs):
+    config = Path(__file__).resolve().parents[1] / 'config' / 'health'
+    net = NetworkRow(config, root=tmp_path, clock=clock, environ={'ASTRO_DDS_ADDRESS': '192.168.0.152'},
+                     addresses=lambda names: {'end0': '192.168.0.152'}, **kwargs)
+    return net
+
+
+def test_row_is_hidden_without_a_boat_interface(tmp_path, clock):
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path, clock=clock,
+                     environ={}, addresses=lambda names: {})
+    proc(tmp_path)
+    assert net.poll() is None
+
+
+def test_row_reads_ok_then_flags_udp_drops(tmp_path, clock):
+    net = row(tmp_path, clock)
+    proc(tmp_path)
+    assert net.poll()[0] == 'OK'
+    clock.now += 5
+    proc(tmp_path, rx=625_000, tx=625_000)
+    level, detail = net.poll()
+    assert level == 'OK' and detail.startswith('2.0 Mb/s')
+    clock.now += 5
+    proc(tmp_path, rx=625_000, tx=625_000, rcvbuf=100)         # 20 /s
+    net.poll()
+    clock.now += 5
+    proc(tmp_path, rx=625_000, tx=625_000, rcvbuf=200)         # still 20 /s: persists past the raise time
+    level, detail = net.poll()
+    assert (level, 'UDP drops' in detail) == ('WARN', True)
+
+
+def test_row_throttles_reads_to_its_period(tmp_path, clock):
+    net = row(tmp_path, clock)
+    proc(tmp_path)
+    first = net.poll()
+    proc(tmp_path, rcvbuf=10_000)
+    clock.now += 1
+    assert net.poll() == first

@@ -1,0 +1,59 @@
+# Boat-link checks. The `network` probe (health/netstat.py) publishes the facts;
+# nothing here gates motion. Bandwidth is a percentage of the link speed in /sys.
+group: Network & DDS
+probes:
+  network:
+    subnet: 192.168.0.0/24       # the interface holding an address here is the boat link
+    period: 5
+defaults:
+  missing: skip                  # rates need two samples; no boat interface hides the group
+checks:
+  - id: net.bw
+    kind: threshold
+    fact: net.bw_pct
+    warn: 40
+    fail: 80
+    below: false
+    unit: ' %'
+    title: Link use
+  - id: net.errs
+    kind: threshold
+    fact: net.errs_ps
+    warn: 0
+    fail: 10
+    below: false
+    unit: ' /s'
+    title: Interface errors
+  - id: udp.drops
+    kind: threshold
+    fact: udp.drops_ps
+    warn: 0
+    fail: 50
+    below: false
+    unit: ' /s'
+    title: UDP drops
+    hint: 'RcvbufErrors: raise net.core.rmem_max. ReasmFails: use the 1400 B MTU in fastdds.xml.'
+  - id: udp.noports
+    kind: threshold
+    fact: udp.noports_ps
+    warn: 200
+    fail: 1000000000
+    below: false
+    severity: info
+    unit: ' /s'
+    title: Packets to closed ports
+  - id: net.addr_changed
+    kind: threshold
+    fact: net.addr_changed
+    warn: 0.5
+    fail: 2
+    below: false
+    title: Address changed
+    hint: Nodes hold the old locator; restart them.
+  - id: net.addr_events
+    kind: threshold
+    fact: net.addr_events_5m
+    warn: 0.5
+    fail: 2.5
+    below: false
+    title: Address changes in 5 min

@@ -43,6 +43,7 @@ from mhseals_testing.health import legacy as health
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.journal import Journal
+from mhseals_testing.health.network import NetworkRow
 from mhseals_testing.history import History, adapters
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
@@ -184,7 +185,7 @@ class App:
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None,
-                 review=None):
+                 review=None, network=None):
         self.args = args
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -192,6 +193,7 @@ class App:
         self.review = review     # a ui.review.Review while a past session plays; live work is off
         self.profile = profile
         self.monitor = monitor
+        self.network = network
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -366,6 +368,9 @@ class App:
         if self.profile.use_sim_time and self.ros.now() == 0:
             # Without /clock every stamp looks stale; say why instead.
             self.monitor.advise('clock', 'FAIL', 'use_sim_time but no /clock received')
+        network = self.network.poll() if self.network else None
+        if network:
+            self.monitor.advise('network', *network)
         self.monitor.advise('recording', 'OK' if self.processes.running('bag') else 'FAIL',
                             str(self.paths.bag))
         self.watch_recording()
@@ -1587,7 +1592,7 @@ def main(argv=None):
                                     profile.base_frame),
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
                   registry=registry, watching=watching, facts=facts,
-                  nav2_file=Nav2File(nav2_limits.path()))
+                  nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow())
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))
