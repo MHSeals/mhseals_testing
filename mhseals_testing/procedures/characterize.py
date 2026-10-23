@@ -26,8 +26,19 @@ def schedule(amplitude):
     return commands + [scaled(vector, amplitude) for vector in VECTORS]
 
 
+def single_decoupling(config):
+    """True when one C serves both directions, the only case this fit can describe."""
+    negative = config.get('decoupling_negative')
+    return negative is None or list(negative) == list(config['decoupling'])
+
+
 def run(ctx):
     settings = ctx.settings
+    if not single_decoupling(ctx.services['hardware_config']):
+        # A fit with one C beside a sign-split C is a config the controller refuses.
+        return ctx.record(dict(procedure='characterization', verdict='REFUSED',
+                               reason='decoupling_negative differs from decoupling; '
+                                      'clear it to characterize with a single C'))
     commands = schedule(settings.amplitude)
     ctx.prompt(f'Characterization holds {len(commands)} commands for '
                f'{settings.command:g}s each, in every direction. Clear all sides and '
@@ -57,14 +68,11 @@ def run(ctx):
         overlay.write_text(yaml.safe_dump(nav2_profile(result, nav2_params), sort_keys=False))
         summary['nav2_overlay'] = str(overlay)
     ctx.record(dict(summary, characterization=result))
+    # No decouple option: the secant C over-corrects (see thrust.md section 1, R17).
     choice = ctx.choose('Save the characterization to the hardware config?',
-                        ('no', 'save', 'save + decouple'), {'n': 0, 's': 1, 'd': 2})
+                        ('no', 'save'), {'n': 0, 's': 1})
     if choice != 'no':
         path = ctx.services['user_config']
-        update = dict(characterization=result)
-        if choice == 'save + decouple':
-            update['decoupling'] = list(result['decoupling'])
-        saved = update_config(update, path)
-        ctx.record(dict(procedure='characterization', verdict='SAVED', path=str(saved),
-                        decoupled=choice == 'save + decouple'))
+        saved = update_config(dict(characterization=result), path)
+        ctx.record(dict(procedure='characterization', verdict='SAVED', path=str(saved)))
     return result

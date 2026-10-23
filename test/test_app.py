@@ -980,3 +980,22 @@ def test_manual_control_arms_without_odometry_but_trials_are_unavailable(tmp_pat
         assert app.manual_blockers() == []
         trial = next(p for p in PROCEDURES if 'sensors' in p.needs)
         assert app.availability(trial)  # can't be picked without odometry
+
+
+def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path):
+    app, _ = make_app(tmp_path, ['--amplitude', '0.4', '--command-duration', '3'])
+    offered = []
+    original = app.procedure_context
+
+    def context():
+        ctx = original()
+        ctx.choose = lambda title, options, shortcuts=None, **kw: offered.append(options) or 'save'
+        ctx.prompt = lambda message, title=None: ''
+        return ctx
+
+    with app.attached():
+        arm(app)
+        app.procedure_context = context
+        app.dispatch('f')
+    assert offered and all('save + decouple' not in options for options in offered)
+    assert 'decoupling' not in (tmp_path / 'hardware.yaml').read_text()

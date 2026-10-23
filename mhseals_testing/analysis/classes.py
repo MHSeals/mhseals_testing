@@ -6,6 +6,7 @@ token, a radius and a legend name. An unlisted label resolves to `unknown`.
 
 from collections import namedtuple
 from pathlib import Path
+from unicodedata import east_asian_width
 
 import yaml
 
@@ -25,12 +26,26 @@ def _default_path():
 
 
 def _symbol(label, entry):
-    return Symbol(label, str(entry['glyph']), str(entry['ascii']), entry['colour'],
+    return Symbol(label, entry['glyph'], entry['ascii'], entry['colour'],
                   float(entry['radius']), str(entry['name']))
 
 
 def check(symbols):
-    """Raise ValueError unless glyphs, ASCII letters and their pairs are unique."""
+    """Raise ValueError unless each symbol is well formed and glyphs and ASCII codes are unique.
+
+    Values stay raw from YAML so an unquoted `on` or `no` (a bool) is rejected, not stringified.
+    """
+    for symbol in symbols:
+        for field in ('glyph', 'ascii'):
+            value = getattr(symbol, field)
+            if not isinstance(value, str) or len(value) != 1 or not value.isprintable():
+                raise ValueError(f'{symbol.label}: {field} {value!r} must be one printable character (quote it)')
+        if not symbol.ascii.isascii():
+            raise ValueError(f'{symbol.label}: ascii {symbol.ascii!r} must be ASCII')
+        if east_asian_width(symbol.glyph) in 'WF':
+            raise ValueError(f'{symbol.label}: glyph {symbol.glyph!r} is wider than one cell')
+        if symbol.radius <= 0:
+            raise ValueError(f'{symbol.label}: radius must be positive')
     for field in ('glyph', 'ascii'):
         seen = {}
         for symbol in symbols:

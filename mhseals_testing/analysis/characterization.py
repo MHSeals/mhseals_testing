@@ -21,6 +21,7 @@ import numpy
 from mhseals_hardware.configuration import load_config, update_config
 from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
 from mhseals_hardware.velocity_law import decoupling_for, raw_gain
+from mhseals_testing.analysis.thrust import speed_curves
 
 
 # Share of the boat's limits Nav2 may plan with: all of it. (A share held back for the
@@ -168,6 +169,19 @@ def _normalize(samples):
     return normalized
 
 
+def check_wiring(decoupling):
+    """Reject a decoupling that would reverse or fight an axis in closed loop.
+
+    Each row needs a positive diagonal (right sign) and cross terms smaller
+    than it (|cross| < |main|); otherwise the fit is not trustworthy.
+    """
+    for i, row in enumerate(numpy.array(decoupling).reshape(3, 3)):
+        cross = max(abs(value) for j, value in enumerate(row) if j != i)
+        if row[i] <= 0 or cross >= row[i]:
+            raise ValueError(f"implausible decoupling on {AXES[i]} (diagonal {row[i]:.2f}, "
+                             f"largest cross {cross:.2f}): check wiring, run Thrusters")
+
+
 def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()),
                          source="samples", motion=None):
     """Return calibration data suitable for writing to hardware YAML.
@@ -194,6 +208,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         recommended = [float(value) for value in recommended.flatten()]
     except numpy.linalg.LinAlgError:
         recommended = list(sum(IDENTITY, ()))
+    check_wiring(recommended)
     # Limits describe observed motion; do not extrapolate untested full-throttle dynamics.
     effort = {axis: max(abs(row[0][index]) for row in normalized) or 1.0
               for index, axis in enumerate(AXES)}
@@ -217,6 +232,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         "sample_count": len(normalized),
         "mechanical_bias": {axis: bias[i] for i, axis in enumerate(AXES)},
         "velocity_gain": gain_map,
+        "speed_curves": speed_curves((c, v) for c, v, _, _ in normalized),
         "drift": (dict(x=drift[0], y=drift[1], speed=math.hypot(*drift),
                        toward=math.degrees(math.atan2(drift[1], drift[0])),
                        frame="odom", separated=True)

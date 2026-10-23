@@ -188,3 +188,12 @@ def test_rosbag_pairs_preceding_commands_and_preserves_transients(tmp_path):
     assert [sample['command_age'] for sample in motion] == [1., 3., .5, 1.]
     assert [sample['command'][0] for sample in motion] == [.5, .5, -.5, -.5]
     assert read_rosbag(path) == [sample for sample in motion if sample['command_age'] >= 1.]
+
+
+def test_implausible_decoupling_is_rejected():
+    from mhseals_testing.analysis.characterization import check_wiring
+    check_wiring([1, .2, 0, .1, 1, 0, 0, 0, 1])
+    # Field data of 2026-10-18: negative diagonals would reverse sway and yaw.
+    field = [1.191, .226, -.716, 1.429, -.824, -7.755, .19, -.297, -1.21]
+    with pytest.raises(ValueError, match="sway"):
+        check_wiring(field)

@@ -30,6 +30,7 @@ class Settings:
     neutral_max_gap_s: float
     drift_trend_z: float
     drift_change_chi2: float
+    noise_s0_floor: float
 
 
 def _config_path():
@@ -129,14 +130,15 @@ def _window(t, vel, heading, rate, s: Settings, flag=''):
 
 
 def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
-    """Back-to-back windows over each contiguous neutral run.
+    """Back-to-back windows over each neutral run; masked samples shorter than max_gap_s do not split it.
 
     ``hold`` is (direction, sigma_sub) of the last hold: leading batches that have not settled
     are dropped, and a first window that still fails is flagged ``coast``.
     """
     t, vel, heading, rate = (np.asarray(a, float) for a in (t, vel, heading, rate))
-    idx = np.nonzero(mask)[0]
-    runs = np.split(idx, np.nonzero((np.diff(idx) > 1) | (np.diff(t[idx]) > s.neutral_max_gap_s))[0] + 1)
+    finite = np.isfinite(vel).all(axis=1) & np.isfinite(heading) & np.isfinite(rate) & np.isfinite(t)
+    idx = np.nonzero(np.asarray(mask, bool) & finite)[0]       # a garbled sample splits the run, never poisons it
+    runs = np.split(idx, np.nonzero(np.diff(t[idx]) > s.neutral_max_gap_s)[0] + 1)
     windows = []
     for run in (r for r in runs if len(r)):
         start, unsettled = t[run[0]], False
@@ -226,7 +228,8 @@ def spectral_level(windows, s: Settings, channels=(0, 1), rotate=False):
         dev = (_body(dev, w.heading) if rotate else dev)[:, list(channels)]
         total += float((dev ** 2).sum())
         expected += dev.shape[1] * (len(w.sub) - 1) * _scatter_ratio(len(w.sub), rho, s)
-    return s.batch_s * total / expected if expected else None
+    # Noise-free input (the sim) would give S0 = 0 and divide every test by zero: floor it.
+    return max(s.batch_s * total / expected, s.noise_s0_floor) if expected else None
 
 
 def _body(world, heading):
