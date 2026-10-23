@@ -57,10 +57,14 @@ class Axis:
     """
 
     def __init__(self, t0, end, width, busy, window=None, exact=False):
+        # A clock stepped back (end < t0) leaves a zero-length session, not inverted columns.
+        finite = all(map(math.isfinite, (t0, end, *(window or ()))))
+        end = max(t0, end) if finite else end
         self.t0, self.end, self.width = t0, end, width
         self._right = end          # layout edge: `end`, or the window's right side
         self.start, self.folds, self.scale = t0, [], MIN_SCALE
-        if width < 1:
+        # Non-finite times cannot be laid out: show nothing rather than raise.
+        if width < 1 or not finite:
             self._cols = []
             return
         if window:
@@ -73,6 +77,9 @@ class Axis:
 
     def _plan(self, busy, exact):
         """Pick the trimmed start, the fold set and the scale together."""
+        # Peers with a fast clock stamp events after `end`: clip to the session, drop the rest.
+        busy = [(max(self.t0, a), min(self.end, b)) for a, b in busy
+                if math.isfinite(a) and math.isfinite(b) and a <= self.end and b >= self.t0]
         edge = [(max(self.t0, a - PAD), min(self.end, b + PAD)) for a, b in busy]
         busy = merge(edge + [(max(self.t0, self.end - TAIL), self.end)])
         gaps = [(busy[i][1], busy[i + 1][0]) for i in range(len(busy) - 1)]

@@ -158,3 +158,32 @@ def test_short_exact_axis_has_no_empty_columns():
     axis = Axis(0, 100, 118, [(0, 100)], exact=True)
     assert None not in axis.cols()
     assert axis.cols()[0][0] == 0 and axis.cols()[-1][1] == 100
+
+
+def sane(axis):
+    return all(c[0] <= c[1] for c in axis.cols() if c)
+
+
+def test_backward_clock_is_a_zero_length_session():
+    axis = Axis(100, 40, WIDTH, [(100, 120)])
+    assert axis.end == 100 and sane(axis)
+
+
+def test_future_events_are_clipped_to_the_session():
+    axis = Axis(0, 100, WIDTH, [(10, 60), (500, 900), (90, 400)])
+    assert sane(axis) and axis.cols()[-1][1] == 100
+    assert axis.cols() == Axis(0, 100, WIDTH, [(10, 60), (90, 100)]).cols()
+
+
+def test_non_finite_busy_intervals_are_dropped():
+    nan, inf = float('nan'), float('inf')
+    axis = Axis(0, 100, WIDTH, [(10, 60), (nan, 5), (20, inf), (-inf, 30)])
+    assert axis.cols() == Axis(0, 100, WIDTH, [(10, 60)]).cols()
+
+
+def test_non_finite_end_or_window_is_an_empty_layout():
+    for bad in (float('nan'), float('inf'), -float('inf')):
+        assert Axis(0, bad, WIDTH, [(0, 10)]).cols() == []
+        assert Axis(0, 100, WIDTH, [], window=(0, bad)).cols() == []
+        assert Axis(0, 100, WIDTH, [], window=(bad, 50)).cols() == []
+        assert Axis(bad, 100, WIDTH, []).cols() == []
