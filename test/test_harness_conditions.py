@@ -103,7 +103,6 @@ def run_characterize(sigma, tmp_path):
 
     @contextmanager
     def motion(name, **details):
-        runner.clock_fn = clock
         runner.clock = clock
         yield runner
 
@@ -123,9 +122,15 @@ def test_poor_water_ends_characterize_before_any_motion(tmp_path):
 
 def test_good_water_does_not_stop_the_start_and_is_not_rechecked(tmp_path):
     ctx, runner, records = run_characterize(0.01, tmp_path)
-    try:
-        characterize.run(ctx)
-    except Exception:
-        pass                    # the fake runner has no history for the fit; only the gate matters here
-    # The survey went on past the neutral step (it stops later only because the fake has no odometry).
-    assert runner.holds[0][1] == 'conditions' and len(runner.holds) > 1 and runner.holds[1][1] == 'settle'
+    result = characterize.run(ctx)      # empty history: it fails later, at the fit, not at the gate
+    assert not str(result.get('reason', '')).startswith('conditions poor') and len(runner.holds) > 1 and runner.holds[1][1] == 'settle'
+
+
+def test_feed_does_not_invalidate_the_cached_rating():
+    clock = Clock()
+    cond = Conditions(clock=clock)
+    feed(cond, clock, 5, 0.01)
+    first = cond.evaluate()
+    cond.feed(clock.now + 0.2, np.array([0.05, -0.02]), 0.3, 0.0, True, 0.1)
+    assert cond.evaluate(clock.now + 0.3) is first                 # inside REFRESH_S: no recompute
+    assert cond.evaluate(clock.now + 2.0) is not first

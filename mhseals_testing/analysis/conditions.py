@@ -67,6 +67,7 @@ def load_settings(path=None) -> Settings:
     values['coast_max_drop'] = int(values['coast_max_drop'])
     s = Settings(**values)
     for ok, why in ((s.noise_s0_floor > 0, 'noise_s0_floor must be > 0'),
+                    (s.drift_stale_s > 0, 'drift.stale_s must be > 0'),
                     (s.window_s >= s.min_window_s, 'window_s must be >= min_window_s'),
                     (s.batch_s <= s.window_s, 'batch_s must be <= window_s')):
         if not ok:

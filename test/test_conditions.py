@@ -250,6 +250,7 @@ def _edited(tmp_path, old, new):
     ('batch_s: 4 ', '# gone ', 'batch_s'),
     ('noise: {s0_floor: 2.0e-6}', '', 'noise_s0_floor'),
     ('s0_floor: 2.0e-6', 's0_floor: 0', 'noise_s0_floor'),
+    ('stale_s: 600', 'stale_s: 0', 'stale_s'),
     ('min_window_s: 4 ', 'min_window_s: 9 ', 'min_window_s'),
     ('batch_s: 4 ', 'batch_s: 9 ', 'batch_s'),
 ])

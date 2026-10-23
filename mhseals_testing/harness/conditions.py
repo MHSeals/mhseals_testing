@@ -37,7 +37,6 @@ class Conditions:
         self.samples.append((t, vel[0], vel[1], heading, rate, bool(ok), vel_acc))
         while self.samples[0][0] < t - self.s.drift_stale_s:
             self.samples.popleft()
-        self._at = -math.inf
 
     def cut(self, t, t95=0.0):
         """The last non-zero command ended at ``t``; samples count again after the coast."""
