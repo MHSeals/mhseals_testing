@@ -7,6 +7,7 @@ import pytest
 import yaml
 from rich.console import Console
 
+from mhseals_hardware.menu import Cancelled
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui.app import App, SessionPaths, bringup_command, parse_args
@@ -740,6 +741,17 @@ def test_escape_never_quits_and_quit_asks_first(tmp_path):
         press(app, 'enter')
         app.dispatch('q')
     assert app.quit
+
+
+def test_shifted_keys_still_quit_and_cancel_prompts(tmp_path):
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        press(app, 'enter')
+        app.dispatch('Q')
+        assert app.quit
+        press(app, 'Q')
+        with pytest.raises(Cancelled):
+            app.prompt('Ready?')
 
 
 def test_quitting_with_an_unsaved_mapping_can_save_it(tmp_path):
