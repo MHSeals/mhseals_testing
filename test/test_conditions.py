@@ -102,6 +102,15 @@ def test_window_gates_coverage_and_spin_and_gaps_split_runs():
     assert [w.t0 for w in gap] == pytest.approx([4.0, 12.0])
 
 
+def test_isolated_masked_samples_do_not_split_a_window():
+    t, vel, heading, rate, mask = neutral(80, seed=3)
+    mask[::17] = False                        # one rejected sample in 17, a 0.4 s gap at 5 Hz
+    masked = c.build_windows(t, vel, heading, rate, mask, S)
+    removed = c.build_windows(t[mask], vel[mask], heading[mask], rate[mask], mask[mask], S)
+    assert len(masked) == len(removed) == 10
+    assert {w.flag for w in masked} == {''}
+
+
 def test_trend_and_change_flags():
     steady = c.estimate(windows_of(neutral(8 * 15, seed=2)), S)
     assert steady.state == 'steady' and steady.drift.n == 15
@@ -209,3 +218,25 @@ def test_trend_false_alarms_stay_rare_on_stationary_data(tau, count):
     alarms = sum(c.estimate(windows_of(neutral(8 * count, tau=tau, seed=seed)), S).state == 'trending'
                  for seed in range(300))
     assert alarms <= 3
+
+
+@pytest.mark.parametrize('column', ['vel', 'heading', 'rate'])
+def test_a_non_finite_sample_is_dropped_not_propagated(column):
+    t, vel, heading, rate, mask = neutral(8 * 12, seed=5)
+    {'vel': vel, 'heading': heading, 'rate': rate}[column][400] = np.nan
+    est = c.estimate(windows_of((t, vel, heading, rate, mask)), S)
+    assert est.state == 'steady'
+    assert np.isfinite(est.drift.vector).all()
+    assert np.isfinite(c.wave_floor(windows_of((t, vel, heading, rate, mask)), S)).all()
+
+
+def test_noise_free_constant_drift_is_steady_with_finite_error():
+    t, vel, heading, _, mask = neutral(8 * 10, sigma=0.0)
+    samples = (t, vel, heading, np.zeros(len(t)), mask)
+    with np.errstate(all='raise'):
+        est = c.estimate(windows_of(samples), S)
+    assert est.state == 'steady'
+    assert est.drift.s0 == S.noise_s0_floor
+    assert np.isfinite(est.drift.dispersion) and est.drift.se > 0
+    assert est.drift.vector == pytest.approx([0.08, -0.05])
+    assert np.all(np.isfinite(c.wave_floor(windows_of(samples), S)))
