@@ -1,3 +1,4 @@
+import errno
 import io
 import math
 import json
@@ -883,6 +884,22 @@ def test_ctrl_c_closes_gracefully_like_quit(tmp_path):
     assert app.quit and app.closed and not app.armed and boat.sent[-1] == 'neutral'
     assert app.ros.events.count('session_stop') == 1
     assert (tmp_path / 'session.report.json').exists()
+
+
+@pytest.mark.parametrize('error', [EOFError('terminal input disconnected'),
+                                   OSError(errno.EIO, 'Input/output error')])
+def test_a_vanished_terminal_closes_like_quit(tmp_path, error):
+    app, boat = make_app(tmp_path)
+    app.arming.armed = True
+
+    class Gone(Keys):
+        def read(self, timeout):
+            raise error
+
+    app.open_keys = lambda: Gone(app.clock, boat)
+    app.run()
+    assert app.quit and app.closed and not app.armed and boat.sent[-1] == 'neutral'
+    assert app.ros.events.count('session_stop') == 1
 
 
 def test_children_die_with_the_suite(tmp_path):
