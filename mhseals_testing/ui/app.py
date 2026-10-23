@@ -529,6 +529,8 @@ class App:
                  ('Report', self.close_report), ('Recording', self.close_recording)]
         if self.detaching:   # the children and the recording go on under the next owner
             steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
+        if self.watching:    # not ours to stop: neutral, events and the report belong to the owner
+            steps = [('Watch', lambda: f'left pid {self.watching} running')]
         rows = [[name, '◌ waiting'] for name, _ in steps]
         self.modal = dict(kind='message', title='Closing session', rows=rows, width=64,
                           hint='Ctrl+C again skips the rest')
@@ -1166,7 +1168,9 @@ def main(argv=None):
             processes.stop_all()
         if profile.bringup and profile.bringup.get('fcu') != 'false':
             subscribe_fcu(ros, monitor, profile.battery_cells)
-        if not watching:
+        if watching:   # known to the owner, so it is not flagged as a foreign instance
+            registry.add_guest(os.getpid(), me['node'], 'watch')
+        else:
             registry.update(lambda state: state.update(session=str(paths.bag)))
             paths.bag.parent.mkdir(parents=True, exist_ok=True)
             if not processes.running('bag'):
@@ -1183,8 +1187,9 @@ def main(argv=None):
                                     profile.base_frame),
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
                   registry=registry, watching=watching)
-        ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
-                 profile=profile.name, bag=str(paths.bag))
+        if not watching:
+            ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
+                     profile=profile.name, bag=str(paths.bag))
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
@@ -1198,7 +1203,9 @@ def main(argv=None):
         finally:
             plant.close()
             processes.stop_all()   # a detach already released the children it hands on
-            if not watching:
+            if watching:
+                registry.remove_guest(os.getpid())
+            else:
                 registry.release(os.getpid(), keep_children=False)
             ros.close()
             rclpy.try_shutdown()

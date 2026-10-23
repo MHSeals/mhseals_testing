@@ -65,5 +65,11 @@ def test_stopping_a_live_owner_waits_for_it_to_exit_then_claims(tmp_path):
     world = owned(tmp_path, {1, 2})
     world.responder = lambda: world.alive.discard(1)             # SIGTERM kills it
     choice, _ = run(world, ['2'])
-    assert choice.mode == 'adopt' and choice.children == {}      # its close already stopped the bag
+    assert choice.mode == 'own' and choice.children == {}        # its close stopped the bag: start fresh
     assert world.registry().owner()['pid'] == 2
+
+
+def test_a_stale_owner_with_no_live_child_starts_fresh_not_in_the_old_directory(tmp_path):
+    world = owned(tmp_path, {2})                 # pid 1 and its bag are both gone
+    choice, _ = run(world, ['1'])
+    assert choice.mode == 'own' and choice.children == {}

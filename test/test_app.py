@@ -1191,6 +1191,16 @@ def test_a_watcher_cannot_arm_or_run_but_space_still_sends_neutral(tmp_path):
     assert boat.sent[-1] == 'neutral'
 
 
+def test_a_watcher_closing_leaves_the_owners_motion_events_and_report_alone(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.watching = 4012
+    sent = len(boat.sent)
+    with app.attached():
+        app.close()
+    assert len(boat.sent) == sent and 'session_stop' not in app.ros.events
+    assert not (tmp_path / 'session.report.json').exists()
+
+
 def test_a_stale_dds_node_is_an_advisory_for_30_s_then_blocks_arming(tmp_path):
     app, _ = make_app(tmp_path)
     app.ros.instances = lambda: ['mhseals_testing_h_5']

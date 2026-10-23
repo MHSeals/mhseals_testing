@@ -78,6 +78,8 @@ def claimed(registry, me, state, mode):
         return Choice('quit')
     children = {name: child for name, child in state.get('children', {}).items()
                 if registry.alive(child['pid'])}
+    if mode == 'adopt' and not children:    # nothing alive to adopt: a fresh bag, not the old directory
+        mode = 'own'
     return Choice(mode, children, state.get('session', ''))
 
 
