@@ -16,17 +16,11 @@ ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 
 Every state has its own glyph (✓ ok, ! warn, × fail, ◌ busy, ○ off), so the page reads without color (`NO_COLOR`). `TERM=dumb` or `MHS_ASCII=1` draws pure ASCII; `MHS_ASCII=0` leaves it off.
 
-| Key | Action |
-| --- | --- |
-| Ctrl hjkl / Ctrl arrows, Tab | Focus a neighbouring panel / cycle panels |
-| ↑↓ jk, Enter | Move in a panel; run or show details |
-| a | Arm panel: outputs, driver, command mux, config and interlocks; arm (typed `ARM` on real pins) or disarm |
-| Space | Stop: neutral and disarm |
-| m | Manual control: hold W/S, A/D and ←/→ together; +/- speed; x leaves |
-| q, Ctrl+C | Quit: neutral, disarm, stop children, write the report, flush the bag |
-| Thrusters ←→, 0 | Test pulse ±10 µs on the selected thruster; back to neutral |
-| Thrusters Enter, 1-4, r | Move a thruster, wire it to an output, reverse it (a draft) |
-| Thrusters s, u, i, c | Save or undo the draft; thruster set (identify by pulses); clear the decoupling |
+`?` lists every key and is the reference; the ones to know are:
+
+- **a** arm panel (outputs, driver, command mux, config, interlocks; typed `ARM` on real pins), **Space** stop (neutral and disarm), **q** quit (neutral, disarm, stop children, write the report, flush the bag);
+- **m** manual control (hold W/S, A/D and ←/→ together; +/- speed; x leaves);
+- Thrusters: ←→ and 0 test-pulse ±10 µs / back to neutral, Enter, 1-4, r edit a draft mapping, s/u save or undo it, i thruster set, c clear the decoupling.
 
 Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); others fall back to tap-repeat. Saved mappings hot-reload into the running driver. The Motion panel's drift line shows the live body-frame velocity (bow up, with a bearing) against what the model predicts: the boat's mechanical bias plus the current, turned into the body by the heading (the velocity controller's live estimate, else the characterization's).
 
@@ -40,7 +34,7 @@ The menu groups them: Calibrate (f, g, v), Drive (m, i), Navigate (n, w, s), Mis
 | --- | --- | --- |
 | f | Characterize: speed curves per axis and sign, mechanical bias, today's current, limits, Nav2 limits | armed, sensors, effort |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
-| g | Magcal (placeholder, never runnable until T17) | — |
+| g, e | Compass calibration from a handheld bearing (42006, written only on your yes); compass interference against thruster effort | —; armed, outputs |
 | m, i | Manual control; thruster set | armed |
 | n | Nav2 bring-up | — |
 | p | Perception rates and costmap | — |
@@ -69,7 +63,7 @@ For `pair_test` or `circle_test`, use this package's `config/courses/<task>.json
 
 ### Data
 
-Records go under one data root: `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory ([docs/data.md](docs/data.md)). Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events latched on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed.
+Records go under one data root: `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory ([docs/data.md](docs/data.md)). Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events latched on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed. Sessions are the flat layout in [docs/data.md](docs/data.md); the report and bag name are the session identity.
 
 ### Health
 
@@ -83,6 +77,6 @@ PYTHONPATH=.:../mhseals_hardware python -m pytest -q test
 make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 ```
 
-`docs/data.md` describes the data layout; `docs/health.md` the health system; `docs/field-2026-10-18.md` records the thrust coupling findings that shaped the speed curves and per-sign decoupling.
+`docs/data.md` describes the data layout; `docs/health.md` the health system; [docs/field-2026-10-18.md](docs/field-2026-10-18.md) holds the field-day findings (thrust coupling, method lessons, next holds) that shaped the speed curves and per-sign decoupling; the raw day notes are not kept in the repo.
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
