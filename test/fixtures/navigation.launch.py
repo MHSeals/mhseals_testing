@@ -10,19 +10,19 @@ from nav2_common.launch import RewrittenYaml
 import tempfile
 import os
 import yaml
-from mhseals_nav.navigation_config import merge_limits
+from mhseals_nav.navigation_config import load_overlay, merge_limits
 
 
 def navigation_nodes(context):
     source = LaunchConfiguration('params_file').perform(context)
-    limits = LaunchConfiguration('limits_file').perform(context)
-    if limits:
+    limits = os.path.expanduser(LaunchConfiguration('limits_file').perform(context))
+    # A missing overlay (~/.config/mhseals/nav2.yaml before the first edit) is no overlay.
+    if limits and os.path.exists(limits):
         from launch.actions import RegisterEventHandler
         from launch.event_handlers import OnShutdown
         with open(source) as stream:
             base = yaml.safe_load(stream)
-        with open(limits) as stream:
-            measured = yaml.safe_load(stream)
+        measured = load_overlay(limits)
         handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
         with handle:
             yaml.safe_dump(merge_limits(base, measured), handle)
@@ -87,7 +87,7 @@ def generate_launch_description():
             [share, 'config', 'nav2_params.yaml'])),
         DeclareLaunchArgument('sim', default_value='true'),
         DeclareLaunchArgument('limits_file', default_value='',
-                             description='Measured limits merged with current params_file'),
+                             description='Overlay (measured limits, ~/.config/mhseals/nav2.yaml) merged with params_file'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         LogInfo(msg='LIDAR DISABLED: no range-obstacle avoidance; visual supervision required.',
                 condition=UnlessCondition(LaunchConfiguration('use_lidar'))),

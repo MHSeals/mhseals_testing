@@ -1,0 +1,4 @@
+# Recorder topic filter. `ros2 bag record -a` also records images and point clouds
+# (crane_full_stack: ~50 MB/s), so the recorder takes every topic except these.
+# Python regex matched against the full topic name (ros2 bag --exclude-regex).
+exclude_regex: '.*(costmap|points|cloud|deskewed|image|camera_info).*'
