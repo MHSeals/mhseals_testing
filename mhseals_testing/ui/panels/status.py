@@ -7,7 +7,7 @@ from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.panels import GROUPS, TITLES, fold_groups, window
+from mhseals_testing.ui.panels import GROUPS, HEADERLESS, TITLES, fold_groups, window
 from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
@@ -61,6 +61,19 @@ def system_rows(snapshot, specs):
         rows.append(dict(group='Session' if name in SESSION else 'System', state=level, name=name,
                          value=short(detail), detail=detail, required=False))
     return rows
+
+
+def health_rows(snapshot, specs):
+    """Row 0, ``Health  41 ok`` or ``! Health  1 warn`` (``snapshot['health']`` from ui.feeds.health)."""
+    health = snapshot.get('health')
+    if not health:
+        return []
+    bad, warn = health.get('bad', 0), health.get('warn', 0)
+    parts = [f'{n} {word}' for n, word in ((bad, 'fail'), (warn, 'warn')) if n]
+    state = 'FAIL' if bad else 'WARN' if warn else 'OK'
+    value = ' · '.join(parts) or f"{health.get('ok', 0)} ok"
+    return [dict(group='Health', state=state, name='Health', value=theme.ascii_safe(value), plain=state == 'OK',
+                 detail=health.get('worst') or 'all checks ok', required=False)]
 
 
 def session_rows(snapshot, specs):
@@ -118,7 +131,7 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
 
 # A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
 # providers (Control, Recording, Config, RTK) without touching the grouping below.
-PROVIDERS = [component_rows, localization_rows, frame_rows, system_rows, session_rows]
+PROVIDERS = [health_rows, component_rows, localization_rows, frame_rows, system_rows, session_rows]
 # Placeholder until the Command-effort and Bench items publish these advisories (ui.md 6.1, Session group);
 # no producer exists yet, so only the test advises them.
 SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System
@@ -143,6 +156,13 @@ def short(detail, limit=10):
     return ''
 
 
+def row_label(row, active):
+    """The glyph and label cell; a healthy summary row keeps the glyph cell blank so labels align."""
+    name = Text(row['name'], style='bold' if row['required'] else None)
+    plain = row.get('plain')
+    return theme.row(None if plain else row['state'], name, active, prefix=' ' if plain else None)
+
+
 def status_panel(snapshot, view, height):
     rows = status_rows(snapshot, view['specs'])
     focused = view['focus'] == 'status'
@@ -162,7 +182,8 @@ def status_panel(snapshot, view, height):
         if group in folded:
             entries.append(('fold', group, len(states)))
         else:
-            entries.append(('head', group, 0))
+            if group not in HEADERLESS:
+                entries.append(('head', group, 0))
             entries += [('row', index, 0) for index in range(at, at + len(states))]
         at += len(states)
     place = next((i for i, e in enumerate(entries) if e[0] == 'row' and e[1] == cursor), 0)
@@ -175,8 +196,7 @@ def status_panel(snapshot, view, height):
                           Text(f'{count} ok', style=MUTED))
         else:
             row = rows[key]
-            name = Text(row['name'], style='bold' if row['required'] else None)
-            table.add_row(theme.row(row['state'], name, focused and key == cursor),
+            table.add_row(row_label(row, focused and key == cursor),
                           Text(row['value'], style=RATE_STYLE.get(row.get('rate'), MUTED)))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)

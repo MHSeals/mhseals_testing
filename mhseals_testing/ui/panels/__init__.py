@@ -9,6 +9,7 @@ TITLES = {'status': 'Status', 'motion': 'Motion', 'thrusters': 'Thrusters',
           'procedures': 'Procedures', 'activity': 'Activity'}
 QUIET = {'LIVE', 'OK', 'PASS', 'READY'}      # rows that may hide inside a folded group
 GROUPS = ('Health', 'Control', 'Components', 'Localization', 'Thrusters', 'System', 'Session')  # ui 6.1
+HEADERLESS = ('Health', 'Thrusters')   # one-line groups drawn without a heading (ui 6.1)
 FOLD_ORDER = ('Session', 'System', 'Components', 'Localization', 'Control')  # U13, quietest first
 
 
@@ -28,7 +29,7 @@ def fold_groups(groups, budget, cursor_group=None):
     ``FOLD_ORDER`` and only until the rows fit.
     """
     def lines(folded):
-        return sum(1 if name in folded else 1 + len(states) for name, states in groups.items())
+        return sum(1 if name in folded else len(states) + (name not in HEADERLESS) for name, states in groups.items())
 
     folded = set()
     for name in FOLD_ORDER:

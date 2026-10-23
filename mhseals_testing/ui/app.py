@@ -54,6 +54,7 @@ from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import feeds as feeds_module, layout, perception, popups, theme
+from mhseals_testing.ui.feeds import health as health_feed
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
@@ -196,7 +197,7 @@ class App:
         self.profile = profile
         self.monitor = monitor
         self.network = network
-        self.feeds = []          # ui.feeds objects: ticked live, their view() merged into view()
+        self.feeds = [health_feed.HealthFeed()]  # ui.feeds objects: ticked live, their view() merged into view()
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -259,6 +260,9 @@ class App:
         snapshot = self.source.snapshot()
         if self.nav2_file is not None:
             snapshot['components'] = [self.nav2_file.row()]
+        counts = health_feed.summary(self.engine)
+        if counts:
+            snapshot['health'] = counts
         return snapshot
 
     # --- interlocks ------------------------------------------------------------

@@ -15,6 +15,8 @@ from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import PANELS
 from mhseals_testing.ui.layout import render
 from test_dashboard import monitor, view
+from test_ui_health import engine
+from mhseals_testing.ui.feeds.health import summary
 
 OBJECT_GLYPHS = '●○▲▴▼■▪⊠◉◆◇△⊕'
 SGR = re.compile(r'\x1b\[([0-9;]*)m')
@@ -43,8 +45,9 @@ def pages(color):
                 continue
             console = Console(file=io.StringIO(), width=width, height=height,
                               color_system='standard' if color else None, force_terminal=color)
-            snapshot = monitor().snapshot(profile.required_tf)
-            console.print(render(snapshot, view(profile, focus=focus, armed=True), width, height))
+            counts = summary(engine(40, warn=('compass innovation',)))   # the health row and strip counts
+            snapshot = {**monitor().snapshot(profile.required_tf), 'health': counts}
+            console.print(render(snapshot, view(profile, focus=focus, armed=True, health=counts), width, height))
             yield console.file.getvalue()
 
 

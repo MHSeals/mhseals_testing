@@ -1,0 +1,2 @@
+ boat_test  [Drive]  Correction  Map  Bags  boat · effort                                  boat · ROS 42  idle  disarmed
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                health 41 ok
