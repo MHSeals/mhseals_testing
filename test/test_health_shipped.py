@@ -1,6 +1,7 @@
 """The shipped config/health files load, lint clean and drive the engine."""
 
 import importlib
+from dataclasses import replace
 
 import pytest
 
@@ -69,3 +70,35 @@ def test_poor_water_fails_the_shipped_conditions_check_with_its_reason():
     for ok in ('good', 'unknown'):
         results = Engine(specs).tick(facts(ok), {}).results
         assert {r.status for r in results.values()} <= {'ok', 'unknown'}
+
+
+
+
+def perception_ids(profile):
+    from mhseals_testing.profiles import load_profile
+    config = load(profile=load_profile(profile), user=False)
+    assert lint(config.specs, unmatched=config.unmatched) == []
+    return {s.id for s in config.specs if s.group == 'Perception'}
+
+
+def test_each_source_gets_its_own_perception_check_set(nav_share):
+    boat, sim = perception_ids('boat'), perception_ids('crane_full_stack')
+    assert {'perc.legacy_zed.rate', 'perc.legacy_zed.latency', 'perc.legacy_zed.clock'} <= boat
+    assert not any('.sim.' in i or 'zed_native' in i for i in boat)
+    assert sim == {'perc.sim.rate', 'perc.sim.latency'}
+    assert perception_ids('crane_direct') == set()
+
+
+def test_slow_legacy_rate_warns_and_anchors_the_camera_row():
+    from mhseals_testing.profiles import load_profile
+    config = load(profile=load_profile('boat'), user=False)
+    spec = replace(next(s for s in config.specs if s.id == 'perc.legacy_zed.rate'), raise_after=0.0)
+    assert spec.show == ('sensor:Camera',)
+    assert Engine([spec]).tick({'perc.legacy_zed.hz': Fact(2.0)}, {}).results[spec.id].status == 'warn'
+    assert Engine([spec]).tick({'perc.legacy_zed.hz': Fact(4.2)}, {}).results[spec.id].status == 'ok'
+
+
+def test_boat_profile_has_no_camera_or_detections_row():
+    from mhseals_testing.profiles import load_profile
+    names = {s.name for s in load_profile('boat').sensors}
+    assert 'camera' not in names and 'detections' not in names and 'tracks' in names

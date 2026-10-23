@@ -656,7 +656,7 @@ def test_perception_rates_and_costmap(tmp_path):
     app.open_keys = keys
     run(app, 'p')
     checks = {r['check']: r['verdict'] for r in app.snapshot()['results']}
-    assert checks['LiDAR'] == 'PASS' and checks['camera'] == 'MISSING'
+    assert checks['LiDAR'] == 'PASS' and 'camera' not in checks
     assert checks['tracks'] == 'MISSING' and checks['costmap'] == 'PASS'
 
 

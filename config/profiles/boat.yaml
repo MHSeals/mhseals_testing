@@ -33,6 +33,4 @@ sensors:
   - {name: GPS raw, topic: /mavros/gpsstatus/gps1/raw, kind: gpsraw}
   - {name: compass, topic: /mavros/imu/mag, kind: mag}
   - {name: LiDAR, topic: /points, kind: points}
-  - {name: camera, topic: /front_camera/rgb/image, kind: image}
-  - {name: detections, topic: /detections, kind: detections}
   - {name: tracks, topic: /objects/map, kind: detections}

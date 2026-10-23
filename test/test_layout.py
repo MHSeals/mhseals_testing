@@ -90,8 +90,8 @@ def test_status_panel_folds_nothing_when_every_row_fits():
     profile = load_profile('boat')
     m = monitor()
     m.transform('odom', 'base_link', authority='g')    # every frame edge is live
-    # Frames must stay open from height 25 up; it folds at 24 (the fold budget is height - 4).
-    for height in (25, 26, 27, 28, 30, 40):
+    # Frames must stay open from height 23 up; it folds at 22 (the fold budget is height - 4).
+    for height in (23, 24, 25, 26, 30, 40):
         out = status_out(profile, m, height)
         assert all(f'{group}  ▸' not in out for group in ('System', 'Frames', 'Sensors'))
-    assert 'Frames  ▸' in status_out(profile, m, 24)
+    assert 'Frames  ▸' in status_out(profile, m, 22)

@@ -1,0 +1,67 @@
+# Perception checks, one set per detection source (perception.md section 5).
+# The perception probe publishes perc.<source>.* facts from the canonical
+# /detections topic and /perception/status; the boat has no camera topic of
+# its own (the ZED runs on squirtle), so the camera row comes from these
+# checks and the sensor:Camera anchor, not from a profile sensors row.
+# A source is added by one row under each; its profiles list says where it runs.
+group: Perception
+defaults: {severity: warn, missing: skip}
+checks:
+  - id: perc.{source}.rate
+    kind: threshold
+    fact: perc.{source}.hz
+    unit: ' Hz'
+    show: ['sensor:Camera']
+    title: Detections rate {source}
+    message: '{value} of {nominal} Hz expected'
+    hint: Frames include empty arrays; a low rate means the camera, detector or bridge is slow
+    each:
+      - {source: legacy_zed, profiles: [boat], nominal: 4, warn: 2.5, fail: 1}
+      - {source: zed_native, profiles: [boat_jp6, dev_zed], nominal: 15, warn: 10, fail: 3}
+      - {source: sim, profiles: [crane_full_stack], nominal: 10, warn: 7, fail: 2}
+  - id: perc.{source}.latency
+    kind: threshold
+    fact: perc.{source}.latency
+    below: false
+    warn: 0.4
+    fail: 0.8
+    unit: ' s'
+    title: Detection latency {source}
+    hint: The tracker and converter reject stamps older than 1.0 s; check the clock offset and the funnel
+    each:
+      - {source: legacy_zed, profiles: [boat]}
+      - {source: zed_native, profiles: [boat_jp6, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: perc.{source}.funnel
+    kind: threshold
+    fact: perc.{source}.funnel_loss
+    below: false
+    warn: 0.15
+    fail: 0.5
+    title: Pipeline loss {source}
+    hint: Share of frames lost between the first and last stage
+    each:
+      - {source: legacy_zed, profiles: [boat]}
+      - {source: zed_native, profiles: [boat_jp6, dev_zed]}
+  - id: perc.{source}.inference
+    kind: threshold
+    fact: perc.{source}.inference_ms
+    below: false
+    warn: 300
+    fail: 480
+    unit: ' ms'
+    title: Inference time {source}
+    hint: The patched SDK 4 wrapper gives up on a frame after 500 ms
+    each:
+      - {source: legacy_zed, profiles: [boat]}
+      - {source: zed_native, profiles: [boat_jp6, dev_zed]}
+  - id: perc.legacy_zed.clock
+    kind: threshold
+    fact: clock.offset.squirtle
+    below: false
+    warn: 0.03
+    fail: 0.08
+    unit: ' s'
+    profiles: [boat]
+    title: Clock offset squirtle
+    hint: The detector drops images outside -0.1 to 0.5 s; sync squirtle to blastoise
