@@ -13,3 +13,5 @@ stale:
   low_runs: 2
   confidence: 0.99       # bootstrap interval the slope must clear
   bootstrap: 500
+live:
+  window_s: 10           # sliding window the Motion header scores over

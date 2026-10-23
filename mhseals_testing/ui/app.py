@@ -57,6 +57,7 @@ from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
+from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
@@ -200,7 +201,7 @@ class App:
         self.profile = profile
         self.monitor = monitor
         self.network = network
-        self.feeds = [health_feed.HealthFeed()]  # ui.feeds objects: ticked live, their view() merged into view()
+        self.feeds = [health_feed.HealthFeed(), TrackingFeed()]  # ui.feeds objects: ticked live, their view() merged into view()
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes

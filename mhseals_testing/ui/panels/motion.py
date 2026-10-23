@@ -14,6 +14,7 @@ from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 AXES = (('Surge', 'm/s', 'vx'), ('Sway', 'm/s', 'vy'), ('Yaw', 'rad/s', 'wz'))
 TALL = 20            # panel height at which each axis gets 4 braille rows (else 1)
 SHORT = 40           # inner width below which the axis header is `Surge  +60% -> +0.37`
+_HUE = {'green': theme.GOOD, 'yellow': theme.WARN, 'red': theme.BAD, None: MUTED}   # track score hues
 STALE = 2.0          # s; a measurement older than this reads as a dash
 
 
@@ -34,7 +35,9 @@ def _axis(index, snapshot, view, width, rows):
     if rows > 1:
         plot.hline(0.0, -scale, scale)
     series = plots['meas'].get(key, [])
-    pred = [(t, c[index] * (scale if effort else 1.0)) for t, c in plots['cmd']]
+    tracking = view.get('tracking')
+    pred = tracking['pred'][index] if tracking and tracking['pred'][index] else [
+        (t, c[index] * (scale if effort else 1.0)) for t, c in plots['cmd']]   # the command until a model runs
     plot.line(pred, now - window, now, -scale, scale, 'pred')
     clipped = plot.line(series, now - window, now, -scale, scale, 'meas')
     command = view['command'][index]
@@ -42,11 +45,22 @@ def _axis(index, snapshot, view, width, rows):
     meas = _latest(series, now)
     meas = f'{meas:+.2f}' if meas is not None else theme.DASH
     marks = ''.join(sorted(clipped))
-    if width < SHORT:
-        head = f'{name}  {cmd} {theme.pick("→", "->")} {meas}'
+    arrow = theme.pick('→', '->')
+    percent = theme.DASH if not tracking or tracking['score'][index] is None else f"{tracking['score'][index]:.0%}"
+    header = Text(f'{name}', style='bold', no_wrap=True, overflow='crop')
+    if width < SHORT:      # U14: the score yields before cmd and meas
+        header.append(f' {percent}   ' if tracking else '  ', style=_HUE[tracking['colour'][index]] if tracking else '')
+        header.append(f'{cmd} {arrow} {meas}', style='bold')
     else:
-        head = f'{name} {unit}{" gyro" if key == "wz" else ""}  cmd {cmd}  meas {meas}'
-    header = Text(head + (' ' + marks if marks else ''), style='bold', no_wrap=True, overflow='crop')
+        parts = [(f'{unit}{"" if tracking or key != "wz" else " gyro"}', 'bold')]    # gyro yields to the score
+        if tracking:
+            parts.append((f'track {percent}', _HUE[tracking['colour'][index]]))
+        parts += [(f'cmd {cmd}', 'bold'), (f'meas {meas}', 'bold')]
+        gap = '  ' if len(name) + 1 + sum(len(t) for t, _ in parts) + 2 * (len(parts) - 1) <= width else ' '   # tighten before cropping
+        for n, (part, style) in enumerate(parts):
+            header.append(' ' if n == 0 else gap)
+            header.append(part, style=style)
+    header.append(' ' + marks if marks else '', style='bold')
     lines = plot.rows()
     if rows > 1:
         labels = {0: top, braille._row(0.0, -scale, scale, rows * 4) // 4: '0', rows - 1: bottom}
