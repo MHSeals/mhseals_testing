@@ -22,6 +22,12 @@ def data_root(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_tmux(monkeypatch):
+    """Render goldens must not depend on whether the suite runs inside tmux."""
+    monkeypatch.delenv('TMUX', raising=False)
+
+
+@pytest.fixture(autouse=True)
 def isolated_user_config(tmp_path_factory, monkeypatch):
     """Keep the persisted settings file of the real user out of every test."""
     monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path_factory.mktemp('xdg')))
