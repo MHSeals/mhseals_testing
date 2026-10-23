@@ -4,6 +4,7 @@
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import theme
+from mhseals_testing.ui.popups import config
 
 UPDOWN = theme.pick('↑↓', 'Up/Down')
 
@@ -127,5 +128,6 @@ def type_word(app, title, message, word, rows=None, width=64):
 # than by another branch in App.dispatch. Ids not listed (health, history ...) wait for their popups.
 OPENERS = {
     'odometry': lambda app: app.odometry(),
+    'config': lambda app: config.open_config(app),
     'perception': lambda app: app.perception_popup(),
 }

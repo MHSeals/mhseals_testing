@@ -1,0 +1,7 @@
+│   ✓ Config            ✓ 1 file │
+==
+│   ✓ Config      ✓ 1 file │
+--
+│   ! Config            rejected │
+==
+│   ! Config      rejected │

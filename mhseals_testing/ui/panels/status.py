@@ -54,13 +54,19 @@ def frame_rows(snapshot, specs):
                  detail=chain['detail'], required=True) for chain in snapshot['tf']]
 
 
+def config_value(detail):
+    """The Config row's cell: ``✓ 9 files`` or ``rejected`` (the glyph is in col 3); the rest stays in the detail."""
+    head = detail.split(theme.SEPARATOR)[0]
+    return 'rejected' if head.startswith('!') else head
+
+
 def system_rows(snapshot, specs):
     """Engine advisories (compute, clock, FCU, network, Battery, ...) except the Session ones."""
     rows = []
     for name, level, detail in advisories(snapshot):
         detail = theme.ascii_safe(detail)
         rows.append(dict(group='Session' if name in SESSION else 'System', state=level, name=name,
-                         value=short(detail), detail=detail, required=False))
+                         value=config_value(detail) if name == 'Config' else short(detail), detail=detail, required=False))
     return rows
 
 

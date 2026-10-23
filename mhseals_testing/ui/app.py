@@ -61,7 +61,7 @@ from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
-from mhseals_testing.ui.popups import odometry, pins, run as run_popup
+from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
 from mhseals_testing.ui.source import LiveSource
 from mhseals_testing.ui.takeover import decide
@@ -444,10 +444,7 @@ class App:
         """Poll every watched file once; announce what changed (harness/watch.py)."""
         for change in self.watcher.poll():
             self.announce(change)
-        rows = self.watcher.rows()
-        bad = [name for name, ok, _, _ in rows if not ok]
-        self.monitor.advise('Config', 'WARN' if bad else 'OK',
-                            f'{bad[0]} error' if bad else f'{len(rows)} file' + 's' * (len(rows) != 1))
+        self.monitor.advise('Config', *config_popup.summary(self.watcher, self.history))
 
     def announce(self, change):
         if not change.ok:
@@ -458,13 +455,6 @@ class App:
         self.config_note = self.config_file.name
         self.notice = f'Config reloaded from {self.config_file.name}'
         self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok', path=str(self.config_file))
-
-    def config_popup(self):
-        """popup.config: one row per watched surface, with its state."""
-        rows = [(name, f'{theme.icon("ok" if ok else "bad").plain} {detail}'
-                 + (f' {datetime.fromtimestamp(at):%H:%M}' if ok and at else ''))
-                for name, ok, detail, at in self.watcher.rows()]
-        self.show('Config', rows=rows)
 
     def load_hardware(self, _path):
         return load_config(self.args.config)
@@ -934,7 +924,7 @@ class App:
                 if row.get('source') == 'sensor' and row['name'] == 'odometry':
                     return self.open('odometry')
                 if row['name'] == 'Config':
-                    return self.config_popup()
+                    return self.open('config')
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])

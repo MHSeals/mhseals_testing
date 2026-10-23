@@ -1435,11 +1435,11 @@ def test_bad_yaml_keeps_the_old_config_with_one_notice_per_distinct_error(tmp_pa
 def test_config_row_and_popup_list_the_watched_files(tmp_path):
     app, _ = make_app(tmp_path)
     app.watch_config()
-    assert app.monitor.advisories['Config'][1:] == ('OK', '1 file')
-    shown = []
-    app.show = lambda title, rows=None, **_: shown.append((title, rows))
-    app.config_popup()
-    assert shown[0][0] == 'Config' and shown[0][1][0][0] == 'hardware'
+    assert app.monitor.advisories['Config'][1] == 'OK' and '1 file' in app.monitor.advisories['Config'][2]
+    modals = []
+    app.popup = lambda modal, handle, refresh=None: modals.append(modal)
+    app.open('config')
+    assert modals[0]['title'] == 'Config' and 'hardware' in modals[0]['rows'][0][0]
     (tmp_path / 'hardware.yaml').write_text('channel_map: 5\n')
     app.announce(app.watcher.reload('hardware'))
     app.watch_config()
