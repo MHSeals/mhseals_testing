@@ -1,0 +1,40 @@
+{
+ "tracks": [
+  {
+   "label": "red_pole_buoy",
+   "score": 0.92,
+   "x": 418.677,
+   "y": -80.882
+  },
+  {
+   "label": "green_pole_buoy",
+   "score": 0.88,
+   "x": 420.464,
+   "y": -86.515
+  },
+  {
+   "label": "red_pole_buoy",
+   "score": 0.74,
+   "x": 429.897,
+   "y": -76.431
+  },
+  {
+   "label": "green_pole_buoy",
+   "score": 0.61,
+   "x": 431.868,
+   "y": -82.013
+  },
+  {
+   "label": "yellow_buoy",
+   "score": 0.55,
+   "x": 438.434,
+   "y": -69.431
+  },
+  {
+   "label": "black_buoy",
+   "score": 0.35,
+   "x": 449.073,
+   "y": -84.784
+  }
+ ]
+}

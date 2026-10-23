@@ -60,3 +60,9 @@ def nav2_user_file(tmp_path, monkeypatch):
     path = tmp_path / 'user' / 'nav2.yaml'
     monkeypatch.setenv('MHSEALS_NAV2', str(path))
     return path
+
+
+
+
+def pytest_addoption(parser):
+    parser.addoption('--update-goldens', action='store_true', help='rewrite the golden text renders')

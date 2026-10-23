@@ -1,0 +1,35 @@
+{
+ "name": "nav_channel",
+ "elements": [
+  {
+   "label": "red_pole_buoy",
+   "x": 8,
+   "y": 3
+  },
+  {
+   "label": "green_pole_buoy",
+   "x": 8,
+   "y": -3
+  },
+  {
+   "label": "red_pole_buoy",
+   "x": 20,
+   "y": 4
+  },
+  {
+   "label": "green_pole_buoy",
+   "x": 20,
+   "y": -2
+  },
+  {
+   "label": "yellow_buoy",
+   "x": 30,
+   "y": 8
+  },
+  {
+   "label": "black_buoy",
+   "x": 30,
+   "y": -8
+  }
+ ]
+}
