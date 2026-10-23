@@ -1,13 +1,16 @@
 """USB RTK base reader for a Here+ (M8P) or Here4 (F9P); no ROS imports.
 
-The base settings, the operator's saved positions and the UBX commands that
-configure a receiver for a survey or a known position, in RAM only.
+One worker owns the serial receiver and hands each CRC-checked RTCM3 frame to
+its sinks. The receiver is configured only when the operator asks for a survey
+or a known position; a reconnect polls the receiver and resumes instead.
 """
 
 from copy import deepcopy
 import math
 import os
 from pathlib import Path
+import threading
+import time
 
 import yaml
 
@@ -122,3 +125,210 @@ def mode_poll(model):
     if model == 'M8P':
         return UBXMessage('CFG', 'CFG-TMODE3', POLL), 'CFG-TMODE3'
     return UBXMessage.config_poll(0, 0, ['CFG_TMODE_MODE']), 'CFG-VALGET'
+
+
+class BaseSession:
+    """Reads one base receiver and calls each sink as sink(frame, stamp) per RTCM3 frame.
+
+    `stamp` is the monotonic time the frame was read, so a sink can drop old ones.
+    """
+
+    def __init__(self, sinks=(), config=None, clock=time.monotonic):
+        self.sinks, self.clock = list(sinks), clock
+        self.config = load_config() if config is None else deepcopy(config)
+        self.lock = threading.RLock()
+        self.state = dict(phase='off', detail='Enter to configure', received=0, delivered=0,
+                          errors=0, model='', survey=None, base_position=None, base_satellites=None)
+        self.stopped = threading.Event()
+        self.thread = None
+        self.position = None
+        self.configure = False
+        self.fixed = False
+
+    @property
+    def running(self):
+        return self.thread is not None and self.thread.is_alive()
+
+    def update(self, **values):
+        with self.lock:
+            self.state.update(values)
+
+    def count(self, key):
+        with self.lock:
+            self.state[key] += 1
+
+    def snapshot(self):
+        with self.lock:
+            state = deepcopy(self.state)
+        if not self.running and state['phase'] not in ('off', 'error'):
+            state['phase'] = 'off'
+        return state
+
+    def start(self, survey=False, position=None):
+        """Open the receiver; configure it only for a survey or a known position."""
+        if self.running:
+            raise ValueError('stop the current base session first')
+        if not self.config['device']:
+            raise ValueError('select a USB base receiver first')
+        if position:
+            coordinates(position)
+        self.position = deepcopy(position)
+        self.configure = bool(survey or position)
+        self.fixed = bool(position)
+        self.stopped.clear()
+        self.update(phase='connecting', detail='identifying receiver', survey=None, received=0,
+                    delivered=0, errors=0, base_position=None)
+        self.thread = threading.Thread(target=self._run, name='rtk-base', daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.stopped.set()
+        if self.thread:
+            self.thread.join(timeout=4)
+        if self.running:
+            raise RuntimeError('RTK worker did not stop')
+        self.update(phase='off', detail='stopped')
+
+    def _run(self):
+        # Imports are lazy so the UI still works without the USB extras.
+        serial_port = None
+        try:
+            import serial
+            from pyubx2 import UBXReader
+            while not self.stopped.is_set():
+                try:
+                    if serial_port is None:
+                        self.update(phase='connecting', detail='opening ' + self.config['device'], survey=None)
+                        serial_port = serial.Serial(self.config['device'], 115200, timeout=.2,
+                                                    write_timeout=1, exclusive=True)
+                        reader = UBXReader(serial_port, protfilter=7, quitonerror=1,
+                                           errorhandler=lambda _: self.count('errors'))
+                        model = self._identify(serial_port, reader)
+                        if self.configure:
+                            self._configure(serial_port, reader, model)
+                            # Only the operator's request configures; a reconnect never does.
+                            self.configure = False
+                        else:
+                            self._resume(serial_port, reader, model)
+                        polled = float('-inf')
+                    if self.clock() - polled >= 2:
+                        serial_port.write(self._poll('NAV-SVIN').serialize())
+                        polled = self.clock()
+                    self._handle(*reader.read())
+                except (serial.SerialException, OSError) as error:
+                    if serial_port:
+                        serial_port.close()
+                    serial_port = None
+                    self.update(phase='connecting', detail='receiver disconnected: ' + str(error))
+                    self.stopped.wait(1)
+        except Exception as error:
+            self.update(phase='error', detail=str(error))
+        finally:
+            if serial_port:
+                serial_port.close()
+
+    @staticmethod
+    def _poll(identity):
+        from pyubx2 import UBXMessage, POLL
+        return UBXMessage(identity.split('-')[0], identity, POLL)
+
+    def _handle(self, raw, message):
+        """Route one parsed receiver message: survey progress, satellites or an RTCM3 frame."""
+        if message is None:
+            return
+        identity = message.identity
+        if identity == 'NAV-SVIN':
+            self._survey(message)
+        elif identity == 'NAV-PVT':
+            self.update(base_satellites=message.numSV)
+        elif raw[:1] == b'\xd3':
+            # pyubx2 has already checked the CRC24Q of an RTCM3 frame by here.
+            self.count('received')
+            if self.state['phase'] not in ('ready', 'fixed'):
+                return
+            stamp = self.clock()
+            for sink in self.sinks:
+                try:
+                    sink(raw, stamp)
+                except (OSError, RuntimeError, ValueError) as error:
+                    self.update(detail=str(error))
+                    self.count('errors')
+            self.count('delivered')
+
+    def _survey(self, message):
+        from pyubx2 import ecef2llh
+        done = bool(message.valid) and not message.active
+        self.update(survey=dict(seconds=message.dur, accuracy=message.meanAcc / 10000,
+                                observations=message.obs, valid=bool(message.valid),
+                                active=bool(message.active)))
+        if done:
+            lla = ecef2llh(*(getattr(message, 'mean' + axis) / 100
+                             + getattr(message, 'mean' + axis + 'HP') / 10000 for axis in 'XYZ'))
+            self.update(base_position=dict(zip(('latitude', 'longitude', 'height'), lla)))
+        if not self.fixed:
+            phase = 'ready' if done else 'surveying' if message.active else 'idle'
+            self.update(phase=phase, detail='survey valid' if done else 'waiting for survey accuracy'
+                        if message.active else 'no survey running; start one to send corrections')
+
+    def _identify(self, port, reader):
+        port.write(self._poll('MON-VER').serialize())
+        deadline = self.clock() + 4
+        while not self.stopped.is_set() and self.clock() < deadline:
+            _, message = reader.read()
+            if message is not None and message.identity == 'MON-VER':
+                description = str(message)
+                for model in ('M8P', 'F9P'):
+                    if model in description:
+                        self.update(model=model)
+                        return model
+                raise ValueError('unsupported receiver: ' + description)
+        raise RuntimeError('receiver did not answer MON-VER; check selected USB device')
+
+    def _configure(self, port, reader, model):
+        self.update(phase='configuring', detail='configuring ' + model)
+        commands = base_commands(model, self.config, self.position)
+        for index, command in enumerate(commands):
+            if index == len(commands) - 1:
+                # Let the 1 Hz engine see time mode off before re-enabling, so survey-in restarts.
+                self.stopped.wait(1.2)
+            self._command(port, reader, command)
+        self.update(phase='fixed' if self.position else 'surveying',
+                    detail='known position' if self.position else 'waiting for survey observations')
+
+    def _resume(self, port, reader, model):
+        """Adopt whatever the receiver is already doing: fixed, surveyed, surveying or idle."""
+        request, identity = mode_poll(model)
+        port.write(request.serialize())
+        port.write(self._poll('NAV-SVIN').serialize())
+        deadline, mode, svin = self.clock() + 2, None, None
+        while not self.stopped.is_set() and self.clock() < deadline and (mode is None or svin is None):
+            _, message = reader.read()
+            if message is not None and message.identity == identity:
+                mode = getattr(message, 'rcvrMode', getattr(message, 'CFG_TMODE_MODE', None))
+            elif message is not None and message.identity == 'NAV-SVIN':
+                svin = message
+        self.fixed = mode == 2
+        if self.fixed:
+            self.update(phase='fixed', detail='resumed known position')
+        elif svin is not None and (svin.valid or svin.active):
+            self._survey(svin)
+        elif mode == 1:
+            self.update(phase='surveying', detail='waiting for survey observations')
+        else:
+            self.update(phase='idle', detail='no survey running; start one to send corrections')
+
+    def _command(self, port, reader, command):
+        if self.stopped.is_set():
+            return
+        port.write(command.serialize())
+        deadline = self.clock() + 3
+        while not self.stopped.is_set() and self.clock() < deadline:
+            _, message = reader.read()
+            if message is not None and message.identity in ('ACK-ACK', 'ACK-NAK'):
+                if (message.clsID, message.msgID) != (command.msg_cls[0], command.msg_id[0]):
+                    continue
+                if message.identity == 'ACK-NAK':
+                    raise ValueError(f'receiver rejected {command.identity}')
+                return
+        if not self.stopped.is_set():
+            raise RuntimeError(f'no receiver acknowledgement for {command.identity}')
