@@ -1,55 +1,6 @@
-import math
-
 import pytest
 
 from mhseals_testing.health import legacy as health
-from mhseals_testing.monitor import BoatMonitor
-
-
-@pytest.mark.parametrize('percentage,level', [(.8, 'OK'), (.2, 'WARN'), (.1, 'FAIL'),
-                                              (float('nan'), 'OK')])
-def test_battery_levels(percentage, level):
-    assert health.battery(15.9, percentage)[0] == level
-
-
-def test_battery_treats_fcu_unknowns_as_absent():
-    assert health.battery(15.2, -0.0099999998) == ('OK', '15.2 V; no charge estimate')
-    assert health.battery(65.535, -0.0099999998) == ('N/A', 'no battery data')
-    assert health.battery(65.535, .8) == ('OK', 'no voltage; 80%')
-
-
-def test_flight_controller_warns_when_it_could_drive():
-    assert health.flight_controller(False, False, '')[0] == 'WARN'
-    assert health.flight_controller(True, False, 'MANUAL') == ('OK', 'disarmed, MANUAL')
-    assert health.flight_controller(True, True, 'MANUAL')[0] == 'WARN'
-    assert health.flight_controller(True, False, 'AUTO')[0] == 'WARN'
-
-
-def test_clock_reports_worst_live_offset():
-    monitor = BoatMonitor(clock=lambda: 0)
-    assert health.clock(monitor.snapshot())[0] == 'N/A'
-    monitor.observe('IMU', stamp_age=.05)
-    monitor.observe('GPS', stamp_age=-.8)
-    assert health.clock(monitor.snapshot()) == ('WARN', 'worst GPS -0.80s')
-    monitor.observe('GPS', stamp_age=432123.4)
-    assert health.clock(monitor.snapshot()) == ('FAIL', 'worst GPS +432123s')
-
-
-@pytest.mark.parametrize('load,temps,disk,level', [
-    (1, [50], 50e9, 'OK'),
-    (8, [50], 50e9, 'WARN'),
-    (1, [80], 50e9, 'WARN'),
-    (1, [90], 50e9, 'FAIL'),
-    (1, [], 3e9, 'WARN'),
-    (8, [], .5e9, 'FAIL'),
-])
-def test_compute_levels(load, temps, disk, level):
-    assert health.compute(load, 4, temps, disk)[0] == level
-
-
-def test_read_compute_uses_existing_parent(tmp_path):
-    level, detail = health.read_compute(tmp_path / 'bags' / 'not_yet')
-    assert level in ('OK', 'WARN', 'FAIL') and 'GB free' in detail
 
 
 def test_pwm_readback(tmp_path):
@@ -147,25 +98,8 @@ def test_missing_and_unexported_pwm_do_not_claim_to_be_active(tmp_path):
     assert not (chip / 'pwm0').exists()  # status checks never export/enable a pin
 
 
-def test_battery_ignores_percentage_without_current_and_flags_implausible_voltage():
-    """Real boat_20261019_002558 samples: 6 V, 100 %, current 0 while MAVROS warned."""
-    assert health.battery(6.0, 1.0, -0.0) == ('WARN', '6.0 V; implausible for 4S (1.5 V/cell)')
-    assert health.battery(15.9, 1.0, 0.0) == ('OK', '15.9 V; no charge estimate')
-    assert health.battery(15.9, 0.8, 5.0) == ('OK', '15.9 V; 80%')
-
-
-def test_battery_judges_the_configured_cell_count():
-    assert health.battery(8.2, math.nan, 0.0, cells=2) == ('OK', '8.2 V; no charge estimate')
-    assert health.battery(12.4, math.nan, 0.0, cells=3)[0] == 'OK'
-    assert health.battery(12.4, math.nan, 0.0, cells=4) == ('WARN', '12.4 V; low for 4S')
-    assert health.battery(0.0, math.nan, 0.0) == ('WARN', '0.0 V; power brick not connected?')
-
-
-def test_battery_row_shows_the_voltage_and_profile_sets_cells():
-    from mhseals_testing.profiles import load_profile, parse_profile
-    from mhseals_testing.ui.dashboard import short
-    assert short(health.battery(6.0, 1.0, 0.0)[1]) == '6.0 V'
-    assert short(health.battery(15.9, 0.8, 5.0)[1]) == '15.9 V'
+def test_profile_sets_the_battery_cell_count():
+    from mhseals_testing.profiles import parse_profile
     data = {'name': 'x', 'command': {'topic': '/c', 'type': 'twist', 'units': 'effort',
                                      'limit': [1, 1, 1]},
             'odometry': '/o', 'frames': {'odom': 'odom', 'base': 'base'},

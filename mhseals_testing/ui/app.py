@@ -34,6 +34,8 @@ from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
+from mhseals_testing.health.advisories import Health
+from mhseals_testing.health.probes import Facts
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
@@ -154,7 +156,8 @@ class App:
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
-                 task_watcher=None, pulses=None, open_events=None, registry=None, watching=0):
+                 task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
+                 facts=None):
         self.args = args
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -190,6 +193,7 @@ class App:
         self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
+        self.health = Health(profile, paths.bag.parent, facts, clock)
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
         self.last_frame = 0.0
@@ -298,12 +302,13 @@ class App:
                             ', '.join(seen) if seen else 'no other instance')
         self.sync_guests()
         snapshot = self.snapshot()
+        for name, (level, detail) in self.health.tick(snapshot).items():
+            self.monitor.advise(name, level, detail)
+        if self.health.error:
+            self.monitor.advise('health config', 'FAIL', self.health.error)
         if self.profile.use_sim_time and self.ros.now() == 0:
             # Without /clock every stamp looks stale; say why instead.
             self.monitor.advise('clock', 'FAIL', 'use_sim_time but no /clock received')
-        else:
-            self.monitor.advise('clock', *health.clock(snapshot))
-        self.monitor.advise('compute', *health.read_compute(self.paths.bag.parent))
         self.monitor.advise('recording', 'OK' if self.processes.running('bag') else 'FAIL',
                             str(self.paths.bag))
         exited = [name for name in self.processes.exited() if name != 'bag']
@@ -1211,13 +1216,14 @@ def main(argv=None):
     plant = Plant(ros, profile)
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = None
+    facts = Facts()
     try:
         for name, child in choice.children.items():
             processes.adopt(name, child)
         if choice.mode == 'own':               # a stale owner's leftovers: stop, start fresh
             processes.stop_all()
         if profile.bringup and profile.bringup.get('fcu') != 'false':
-            subscribe_fcu(ros, monitor, profile.battery_cells)
+            subscribe_fcu(ros, monitor, facts, profile.battery_cells)
         if watching:   # known to the owner, so it is not flagged as a foreign instance
             registry.add_guest(os.getpid(), me['node'], 'watch')
         else:
@@ -1236,7 +1242,7 @@ def main(argv=None):
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
                                     profile.base_frame),
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
-                  registry=registry, watching=watching)
+                  registry=registry, watching=watching, facts=facts)
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))

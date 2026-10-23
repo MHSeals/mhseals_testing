@@ -1,12 +1,12 @@
-"""Flight controller advisories from MAVROS, when the profile has an FCU."""
+"""Flight controller and battery facts from MAVROS, when the profile has an FCU."""
 
 from rclpy.qos import qos_profile_sensor_data
 
-from mhseals_testing.health import legacy as health
+from mhseals_testing.health import probes
 
 
-def subscribe_fcu(ros, monitor, cells=None):
-    """Feed /mavros/state and /mavros/battery into advisories; no-op without mavros_msgs."""
+def subscribe_fcu(ros, monitor, facts, cells=None):
+    """Publish /mavros/state and /mavros/battery as health facts; no-op without mavros_msgs."""
     try:
         from mavros_msgs.msg import State
         from sensor_msgs.msg import BatteryState
@@ -15,13 +15,11 @@ def subscribe_fcu(ros, monitor, cells=None):
         return
 
     def state(message):
-        monitor.advise('flight controller',
-                       *health.flight_controller(message.connected, message.armed, message.mode))
+        facts.publish('fcu', probes.fcu_facts(message.connected, message.armed, message.mode))
 
     def battery(message):
-        monitor.advise('battery', *health.battery(
-            message.voltage, message.percentage, message.current,
-            cells or health.PACK_CELLS))
+        facts.publish('battery', probes.battery_facts(
+            message.voltage, message.percentage, message.current, cells))
 
     ros.node.create_subscription(State, '/mavros/state', state, 10)
     ros.node.create_subscription(BatteryState, '/mavros/battery', battery,

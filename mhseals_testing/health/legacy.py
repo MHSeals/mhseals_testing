@@ -1,115 +1,14 @@
-"""Advisory checks: power, flight controller, clock, compute and PWM readback.
+"""Advisory checks for the PWM driver and readback (ported by ts027).
 
 Each function turns raw readings into ``(level, detail)`` for
-``BoatMonitor.advise``. None of them can block motion (see readiness.py);
-they exist so the operator sees a weak battery or a hot computer before it
-matters.
+``BoatMonitor.advise``. None of them can block motion (see readiness.py).
+Power, flight controller, clock and compute are health checks now: see
+``health/probes.py`` and ``config/health/``.
 """
-
-import glob
-import math
-import os
-from pathlib import Path
-import shutil
 
 from mhseals_hardware.odroid_pwm import period_ns, resolve_pwm_chip
 from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 from mhseals_testing.ros.arming import DRIVER
-
-BATTERY_WARN, BATTERY_FAIL = 0.30, 0.15     # remaining fraction
-PACK_CELLS, CELL_WARN = 4, 3.3              # pack assumed when the profile gives no cells; volts per cell that is low
-CELL_PLAUSIBLE = (2.5, 5.0)                 # volts per cell outside which the reading is wrong, not low
-BRICK_ABSENT = 1.0                          # volts; below this the power brick is not feeding the FCU
-CURRENT_MIN = 0.05                          # amps; below this the coulomb-counted percentage is stale
-VOLTAGE_ABSENT = 65.5                       # volts; MAVLink UINT16_MAX reads 65.535
-CLOCK_FAIL = 60.0                           # seconds: far past sync error, e.g. replaying an old bag
-CLOCK_WARN = 0.5                           # seconds between sender stamp and our clock
-LOAD_WARN, TEMP_WARN, TEMP_FAIL = 0.9, 75.0, 85.0
-DISK_WARN, DISK_FAIL = 5e9, 1e9             # bytes free where the bag is written
-
-
-def battery(voltage, percentage, current=math.nan, cells=PACK_CELLS):
-    """``percentage`` is 0..1; the FCU's "unknown" arrives as NaN or a small negative (-1 %).
-
-    The detail leads with the voltage up to a ``;`` so the row can show it.
-    MAVLink's UINT16_MAX "no voltage" arrives as 65.535 V and counts as absent.
-    The FCU percentage is a coulomb count, so with no measured current it never
-    drops and is ignored; the voltage is then judged against ``cells`` (the profile's
-    ``battery: {cells: N}``). Volts per cell outside CELL_PLAUSIBLE is a mis-scaled
-    monitor or a wrong cell count, not a low pack; under BRICK_ABSENT it is no brick.
-    """
-    present = math.isfinite(voltage) and voltage < VOLTAGE_ABSENT
-    volts = f'{voltage:.1f} V' if present else None
-    if math.isfinite(current) and abs(current) < CURRENT_MIN:
-        percentage = math.nan
-    per_cell = voltage / cells if present else math.nan
-    problem = ''
-    if present and voltage < BRICK_ABSENT:
-        problem = 'power brick not connected?'
-    elif present and not CELL_PLAUSIBLE[0] <= per_cell <= CELL_PLAUSIBLE[1]:
-        problem = f'implausible for {cells}S ({per_cell:.1f} V/cell)'
-    low = present and not problem and per_cell < CELL_WARN
-    if low:
-        problem = f'low for {cells}S'
-    if not math.isfinite(percentage) or percentage < 0:
-        if not volts:
-            return 'N/A', 'no battery data'
-        return ('WARN' if problem else 'OK'), f'{volts}; {problem or "no charge estimate"}'
-    level = ('FAIL' if percentage < BATTERY_FAIL else
-             'WARN' if percentage < BATTERY_WARN or problem else 'OK')
-    return level, f'{volts or "no voltage"}; {problem + ", " if problem else ""}{percentage:.0%}'
-
-
-def flight_controller(connected, armed, mode):
-    """MAVROS state: an armed FCU or a mode other than MANUAL could also drive the thrusters."""
-    if not connected:
-        return 'WARN', 'not connected'
-    detail = f"{'ARMED' if armed else 'disarmed'}, {mode}"
-    return ('WARN' if armed or mode not in ('MANUAL', 'HOLD') else 'OK'), detail
-
-
-def clock(snapshot):
-    """Largest stamp offset among live sensors: big values mean an unsynced computer."""
-    ages = {name: row['stamp_age'] for name, row in snapshot['sensors'].items()
-            if row['status'] != 'STALE' and row['stamp_age'] is not None}
-    if not ages:
-        return 'N/A', 'no live stamped sensors'
-    name = max(ages, key=lambda key: abs(ages[key]))
-    offset = abs(ages[name])
-    level = 'FAIL' if offset > CLOCK_FAIL else 'WARN' if offset > CLOCK_WARN else 'OK'
-    digits = 2 if offset < 1000 else 0  # keeps the number short enough for the status column
-    return level, f'worst {name} {ages[name]:+.{digits}f}s'
-
-
-def worst(*levels):
-    return max(levels, key=('N/A', 'OK', 'WARN', 'FAIL').index)
-
-
-def compute(load1, cpus, temperatures, disk_free):
-    hottest = max(temperatures, default=None)
-    levels = [
-        'WARN' if load1 / max(cpus, 1) > LOAD_WARN else 'OK',
-        'OK' if hottest is None or hottest <= TEMP_WARN else
-        'WARN' if hottest <= TEMP_FAIL else 'FAIL',
-        'FAIL' if disk_free < DISK_FAIL else 'WARN' if disk_free < DISK_WARN else 'OK',
-    ]
-    hot = f', {hottest:.0f}°C' if hottest is not None else ''
-    return worst(*levels), f'load {load1:.1f}/{cpus}{hot}, {disk_free / 1e9:.1f} GB free'
-
-
-def read_compute(bag_directory):
-    """Sample this computer's load, thermal zones and the disk the bag is written to."""
-    temperatures = []
-    for zone in glob.glob('/sys/class/thermal/thermal_zone*/temp'):
-        try:
-            temperatures.append(int(Path(zone).read_text()) / 1000)
-        except (OSError, ValueError):
-            pass
-    directory = Path(bag_directory)
-    while not directory.exists():
-        directory = directory.parent
-    return compute(os.getloadavg()[0], os.cpu_count() or 1, temperatures,
-                   shutil.disk_usage(directory).free)
 
 
 def pwm_driver(nodes, subscribers, topic, armed, managed):
