@@ -1643,3 +1643,43 @@ def test_run_popup_stays_on_its_run_when_a_result_lands(tmp_path):
     first, second = app.monitor.snapshot()['results']
     assert first['excluded']['reason'] == 'operator error'
     assert 'excluded' not in second
+
+
+class FakeFeed:
+    def __init__(self):
+        self.ticks = []
+
+    def tick(self, app, snapshot, now):
+        self.ticks.append(now)
+
+    def view(self):
+        return {'fake_key': 42}
+
+
+def test_feed_view_reaches_layout_render_and_feeds_tick(tmp_path, monkeypatch):
+    app, _ = make_app(tmp_path)
+    feed = FakeFeed()
+    app.feeds.append(feed)
+    seen = {}
+    monkeypatch.setattr('mhseals_testing.ui.layout.render', lambda snapshot, view, *a, **k: seen.update(view))
+    app.tick()
+    app.render()
+    assert seen['fake_key'] == 42 and feed.ticks
+
+
+def test_app_view_keys_win_a_feed_collision(tmp_path):
+    app, _ = make_app(tmp_path)
+    feed = FakeFeed()
+    feed.view = lambda: {'tab': 'bogus', 'fake_key': 1}
+    app.feeds.append(feed)
+    view = app.view()
+    assert view['tab'] == app.tab and view['fake_key'] == 1
+
+
+def test_unbound_action_is_a_noop_and_odometry_opens_through_the_table(tmp_path):
+    app, _ = make_app(tmp_path)
+    assert app.open('no_such_action') is False
+    shown = []
+    app.show = lambda title, message=None, rows=None, width=60: shown.append(title)
+    assert app.open('odometry') is True
+    assert shown == ['Odometry']

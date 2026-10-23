@@ -121,3 +121,11 @@ def type_word(app, title, message, word, rows=None, width=64):
         elif len(key) == 1 and key.isprintable():
             modal['text'] += key.upper()
     return app.popup(modal, handle)
+
+
+# Keymap action id -> opener(app). App.open routes through it, so a popup is added here rather
+# than by another branch in App.dispatch. Ids not listed (health, history ...) wait for their popups.
+OPENERS = {
+    'odometry': lambda app: app.odometry(),
+    'perception': lambda app: app.perception_popup(),
+}

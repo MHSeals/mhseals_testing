@@ -52,7 +52,7 @@ from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
-from mhseals_testing.ui import layout, perception, popups, theme
+from mhseals_testing.ui import feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
@@ -195,6 +195,7 @@ class App:
         self.profile = profile
         self.monitor = monitor
         self.network = network
+        self.feeds = []          # ui.feeds objects: ticked live, their view() merged into view()
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -345,6 +346,10 @@ class App:
             return  # replay: no host reads, config watching or driving
         self.refresh_advisories()
         self.watch_config()
+        if self.feeds:
+            snapshot = self.snapshot()
+            for feed in self.feeds:
+                feed.tick(self, snapshot, self.clock())
         if self.nav2_file is not None:
             self.notice = self.nav2_file.poll() or self.notice
         if self.test_pulses is not None and self.publish_pulses is not None:
@@ -492,7 +497,7 @@ class App:
                  else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS)
         if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
-        return dict(
+        own = dict(
             tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
@@ -510,6 +515,7 @@ class App:
             config_note=self.config_note, review=self.review,
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
+        return {**feeds_module.merged(self.feeds), **own}  # App's own keys win a collision
 
     def render(self):
         return layout.render(self.snapshot(), self.view(),
@@ -710,7 +716,7 @@ class App:
     def dispatch(self, key):
         """Apply one key on the page."""
         if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
-            self.perception_popup()
+            self.open('perception')
             return
         raw, key = key, fold(key)
         if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
@@ -863,7 +869,7 @@ class App:
     def on_status(self, key):
         rows = status_rows(self.snapshot(), self.profile.sensors)
         if key == 'o':
-            self.odometry()
+            self.open('odometry')
         elif key == 'e':
             row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
             if row and row['group'] == 'Components' and self.nav2_file is not None:
@@ -872,12 +878,20 @@ class App:
             if rows:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
                 if row['group'] == 'Sensors' and row['name'] == 'odometry':
-                    return self.odometry()
+                    return self.open('odometry')
                 if row['name'] == 'Config':
                     return self.config_popup()
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
+
+    def open(self, action_id):
+        """Open the popup registered for ``action_id`` in ``popups.OPENERS``; an unbound id does nothing."""
+        opener = popups.OPENERS.get(action_id)
+        if opener is None:
+            return False
+        opener(self)
+        return True
 
     def odometry(self):
         """Fused sources popup. Parameters and rows are read here, once, so nothing is

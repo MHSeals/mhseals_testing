@@ -68,11 +68,13 @@ def test_no_facts_says_so_and_unknown_source_is_empty():
 def test_capital_v_opens_the_popup_and_lowercase_keeps_results_log():
     seen = []
     host = SimpleNamespace(perception_popup=lambda: seen.append('popup'), activity='results', review=None)
+    host.open = lambda action: app.App.open(host, action)
     app.App.dispatch(host, 'V')
     assert seen == ['popup']
     host = SimpleNamespace(perception_popup=lambda: seen.append('popup'), activity='results',
                            focus='activity', cursors={'activity': 3}, panels=lambda: ['activity'],
                            review=None, manual=False, tab='Drive')
+    host.open = lambda action: app.App.open(host, action)
     host.on_activity = lambda key: app.App.on_activity(host, key)
     app.App.dispatch(host, 'v')
     assert seen == ['popup'] and host.activity == 'log'
