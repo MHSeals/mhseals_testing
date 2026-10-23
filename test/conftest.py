@@ -52,3 +52,11 @@ def nav_share(monkeypatch, tmp_path):
     path.mkdir(parents=True)
     (path / 'blastoise.param').write_text('EK3_SRC1_YAW,1\nCOMPASS_USE,1\n')
     monkeypatch.setattr(config, 'share_dir', lambda package: tmp_path / package)
+
+
+@pytest.fixture(autouse=True)
+def nav2_user_file(tmp_path, monkeypatch):
+    """Keep tests off the real ~/.config/mhseals/nav2.yaml."""
+    path = tmp_path / 'user' / 'nav2.yaml'
+    monkeypatch.setenv('MHSEALS_NAV2', str(path))
+    return path

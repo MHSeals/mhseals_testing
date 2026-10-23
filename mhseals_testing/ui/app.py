@@ -29,6 +29,7 @@ from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
+from mhseals_testing import nav2_limits
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
@@ -1134,6 +1135,7 @@ class App:
                 start=self.processes.start,
                 running=self.processes.running, stop=self.processes.stop,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
+                nav2_user=nav2_limits.path(),
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
                 history=self.history, warn=self.warn_history,
                 staging=self.staging(),

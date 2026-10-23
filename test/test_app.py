@@ -395,7 +395,7 @@ def test_controller_steps_need_velocity_control_and_report_metrics(tmp_path):
     assert results[0]['steady_state_error'] == pytest.approx(-0.04, abs=0.005)
 
 
-def test_characterization_fits_and_saves_only_on_request(tmp_path):
+def test_characterization_fits_and_saves_only_on_request(tmp_path, nav2_user_file):
     app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
     nav2 = tmp_path / 'nav2_params.yaml'
     nav2.write_text(yaml.safe_dump({
@@ -418,6 +418,8 @@ def test_characterization_fits_and_saves_only_on_request(tmp_path):
     assert 'characterization' in (tmp_path / 'hardware.yaml').read_text()
     smoother = yaml.safe_load(app.paths.nav2.read_text())['velocity_smoother']['ros__parameters']
     assert smoother['max_velocity'][0] == pytest.approx(.48, rel=0.02)  # measured speed at 0.4 effort
+    # Saving also keeps the limits in the lasting file the Navigation component launches with.
+    assert yaml.safe_load(nav2_user_file.read_text()) == yaml.safe_load(app.paths.nav2.read_text())
 
 
 def test_thruster_panel_reverses_and_rewires_with_hot_reload(tmp_path):

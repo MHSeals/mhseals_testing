@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from mhseals_hardware.thruster_mixer import AXES
+from mhseals_testing import nav2_limits
 from mhseals_testing.analysis.characterization import (
     audit_holds, motion_limits, nav2_profile, samples_from_windows,
 )
@@ -189,7 +190,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                for key, value in found.items()} for name, found in refined.items()}, holds=holds)
     if water:
         summary['conditions'] = water
-    result = None
+    result = profile = None
     if only is None:
         # Holds touched by an override (the interrupted one included) never reach the fit.
         windows = [w for w in windows if not runner.invalid(w[1], w[2])]
@@ -216,7 +217,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         nav2_params, overlay = ctx.services.get('nav2_params'), ctx.services.get('nav2_overlay')
         if nav2_params and overlay:
             # Only measured keys; navigation.launch.py merges these with current defaults.
-            overlay.write_text(yaml.safe_dump(nav2_profile(result, nav2_params), sort_keys=False))
+            profile = nav2_profile(result, nav2_params)
+            overlay.write_text(yaml.safe_dump(profile, sort_keys=False))
             summary['nav2_overlay'] = str(overlay)
     else:
         summary['verdict'] = 'FITTED' if refined[label(*only)]['converged'] else 'PARTIAL'
@@ -234,6 +236,10 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     if any(columns[picked]):
         saved['verify'] = _verify(ctx, cfg, picked, columns[picked], lo, tolerance)
     ctx.record(saved)
+    if profile and ctx.services.get('nav2_user'):
+        # The lasting overlay the Navigation component launches with (config_history.md 2.3).
+        ctx.record(dict(procedure='characterization', verdict='SAVED',
+                        path=str(nav2_limits.save(profile, ctx.services['nav2_user']))))
     return result or summary
 
 
