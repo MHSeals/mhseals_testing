@@ -28,3 +28,11 @@ def test_rect_is_clipped_and_empty_dropped():
 
 def test_scale_for_reduced_decode():
     assert overlay.scale_rect((740, 323, 824, 397), 0.5) == (370, 162, 412, 198)
+
+
+def test_non_finite_input_has_no_rect():
+    nan, inf = float("nan"), float("inf")
+    assert overlay.rect_3d(overlay.box_corners([nan, 0, 10], [1, 1, 1]), K, SIZE) is None
+    assert overlay.rect_3d(overlay.box_corners([0, 0, inf], [1, 1, 1]), K, SIZE) is None
+    assert overlay.rect_2d((0, 0, nan, 50), SIZE) is None
+    assert overlay.rect_2d((0, 0, inf, 50), SIZE) is None

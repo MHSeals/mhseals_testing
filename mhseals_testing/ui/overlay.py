@@ -5,6 +5,8 @@ in the camera optical frame (x right, y down, z forward; the /tf_static cache
 supplies the transform, as in the minimap). 2D sources use `rect_2d` directly.
 """
 
+import math
+
 import numpy as np
 
 NEAR = 0.05  # m; corners nearer than this are behind or on the camera plane
@@ -31,9 +33,10 @@ def rect_3d(corners, k, size):
     plane, so its rect is unbounded) or when the clipped rect is empty.
     """
     c = np.asarray(corners, float).reshape(-1, 3)
-    if len(c) == 0 or np.any(c[:, 2] < NEAR):
+    if len(c) == 0 or not np.all(np.isfinite(c)) or np.any(c[:, 2] < NEAR):
         return None
-    return clip(project(c, k).min(axis=0).tolist() + project(c, k).max(axis=0).tolist(), size)
+    uv = project(c, k)
+    return clip(uv.min(axis=0).tolist() + uv.max(axis=0).tolist(), size)
 
 
 def rect_2d(bbox, size):
@@ -42,7 +45,9 @@ def rect_2d(bbox, size):
 
 
 def clip(rect, size):
-    """Clamp (x0, y0, x1, y1) to [0, w] x [0, h] and round to ints; None if nothing is left."""
+    """Clamp (x0, y0, x1, y1) to [0, w] x [0, h] and round to ints; None if empty or non-finite."""
+    if not all(math.isfinite(v) for v in rect):
+        return None
     w, h = size
     x0, y0, x1, y1 = (min(max(v, 0.0), lim) for v, lim in zip(rect, (w, h, w, h)))
     if x1 - x0 < 1 or y1 - y0 < 1:
