@@ -294,14 +294,18 @@ def _cells(slots, sizes=None):
     return [Layout(panel, size=sizes.get(name)) for name, panel in slots if panel is not None]
 
 
+def _drive_dims(width, height):
+    """``(wide, lower, half)``: the wide tier, the rows under the top row, and half of them (min 4)."""
+    lower = height - TOP_ROW
+    return width >= WIDE, lower, max(4, lower // 2)
+
+
 def drive_slots(snapshot, view, width, height):
     """The Drive panels by named slot for the tier of ``width`` (ui.md 4.5); None leaves a slot empty.
 
     A later item fills a slot (``minimap``, ``conditions``) by returning a panel here.
     """
-    wide = width >= WIDE
-    lower = height - TOP_ROW
-    half = max(4, lower // 2)
+    wide, lower, half = _drive_dims(width, height)
     return {
         'status': status_panel(snapshot, view, height) if width >= FOLD else None,
         'motion': motion_panel(snapshot, view, TOP_ROW) if wide else None,
@@ -316,13 +320,13 @@ def drive_slots(snapshot, view, width, height):
 def drive_body(snapshot, view, width, height):
     """Status column beside the main area: Motion and the right column over Procedures and Activity."""
     slots = drive_slots(snapshot, view, width, height)
-    wide = width >= WIDE
-    half = max(4, (height - TOP_ROW) // 2)
+    wide, _, half = _drive_dims(width, height)
     main = Layout()
     if wide:
         top = Layout(size=TOP_ROW)
-        top.split_row(*_cells([('motion', slots['motion']), ('conditions', slots['conditions']),
-                               ('thrusters', slots['thrusters'])]))
+        right = Layout()   # Conditions over Thrusters; an empty slot takes no rows
+        right.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters'])]))
+        top.split_row(*_cells([('motion', slots['motion']), ('right', right), ('minimap', slots['minimap'])]))
         bottom = Layout()
         bottom.split_row(*_cells([('procedures', slots['procedures']), ('activity', slots['activity'])],
                                  {'procedures': SIDEBAR}))

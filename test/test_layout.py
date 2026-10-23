@@ -134,3 +134,20 @@ def test_an_unregistered_tab_keeps_the_placeholder():
     console = Console(width=100, height=30, file=io.StringIO(), force_terminal=False)
     console.print(render(monitor().snapshot(), view(load_profile('boat'), tab='Bags'), 100, 30))
     assert 'Bags is not built yet' in console.file.getvalue()
+
+
+def test_filled_conditions_and_minimap_slots_render_with_conditions_above_thrusters(monkeypatch):
+    real = layout.drive_slots
+
+    def filled(*args):
+        slots = real(*args)
+        slots['conditions'], slots['minimap'] = Text('CONDITIONS SLOT'), Text('MINIMAP SLOT')
+        return slots
+
+    monkeypatch.setattr(layout, 'drive_slots', filled)
+    text = drive_text(160, 44)
+    assert 'MINIMAP SLOT' in text and 'CONDITIONS SLOT' in text
+    lines = text.splitlines()
+    row = next(i for i, line in enumerate(lines) if 'CONDITIONS SLOT' in line)
+    assert any('Thrusters' in line for line in lines[row + 1:])
+    assert not any('Thrusters' in line for line in lines[:row])
