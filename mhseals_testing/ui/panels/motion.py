@@ -79,9 +79,11 @@ class Plots:
         for index in range(3):
             yield from _axis(index, self.snapshot, self.view, options.max_width, self.rows)
         if self.rows > 1:
-            yield Text(f"{theme.pick('━', '=')} meas  {theme.pick('╌', '-')} pred"
+            tracking = self.view.get('tracking')
+            model = tracking and any(tracking['pred'])
+            yield Text(f"{theme.pick('━', '=')} meas  {theme.pick('╌', '-')} {'model' if model else 'pred'}"
                        f"  -{self.snapshot.get('plots', {}).get('window', 10):g}s"
-                       + ('  cmd (unscaled)' if self.view['units'] == 'effort' else ''),
+                       + ('  cmd (unscaled)' if not model and self.view['units'] == 'effort' else ''),
                        style=MUTED, no_wrap=True, overflow='crop')
 
 

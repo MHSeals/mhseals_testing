@@ -9,7 +9,7 @@ Only effort commands are modelled; with velocity units the feed contributes noth
 
 import numpy as np
 
-from mhseals_testing.analysis.predictor import Predictor
+from mhseals_testing.analysis.predictor import AXES, Predictor
 from mhseals_testing.analysis.tracking import load_settings, score_colour, tracking_score
 
 MEAS_KEYS = ('vx', 'vy', 'wz')          # plots['meas'] key of each axis in AXES order
@@ -24,6 +24,7 @@ class TrackingFeed:
         self.settings = settings or load_settings()
         self.window = self.settings['live']['window_s']
         self.key = self.predictor = None
+        self.fitted = (False, False, False)             # which axes have a speed curve (else the command ghost stays)
         self.last = None                                # time of the newest command sample consumed
         self.pred, self.cmd = ([], [], []), ([], [], [])   # per axis [(t, v)]
         self.scores = (None, None, None)
@@ -35,16 +36,20 @@ class TrackingFeed:
         key = repr((sorted(curves.items()), sorted(t95.items())))
         if key != self.key:
             self.key, self.predictor, self.last = key, Predictor(curves, t95), None
+            self.fitted = tuple(any(curves.get(a + s) for s in '+-') for a in AXES)
             self.pred, self.cmd = ([], [], []), ([], [], [])
         return self.predictor
 
     def tick(self, app, snapshot, now):
         plots = snapshot.get('plots')
         if not plots or app.profile.command_units != 'effort':
-            self.scores = (None, None, None)
+            self.clear()
             return
         characterization = app.args.hardware_config.get('characterization', {})
         predictor = self._model(characterization)
+        if not any(self.fitted):                        # nothing characterized: no model, no score
+            self.clear()
+            return
         conditions = app.conditions.evaluate()
         drift = conditions.get('drift') or (0.0, 0.0)
         odometry = snapshot['sensors'].get('odometry', {}).get('values', {})
@@ -54,6 +59,12 @@ class TrackingFeed:
         self.scores = self.score(plots['meas'], plots['now'], [floor[i] for i in FLOOR_INDEX],
                                  ignore=conditions.get('verdict') == POOR)
 
+    def clear(self):
+        """Drop the ghost, the commands behind it and the scores (and re-seed the next advance)."""
+        self.pred, self.cmd = ([], [], []), ([], [], [])
+        self.scores = (None, None, None)
+        self.last = None
+
     def advance(self, predictor, commands, drift, yaw):
         """Step the model over the command samples newer than the last one seen."""
         for t, command in commands:
@@ -61,6 +72,8 @@ class TrackingFeed:
                 continue
             if self.last is not None:
                 for i, v in enumerate(predictor.step(command, t - self.last, drift, yaw)):
+                    if not self.fitted[i]:
+                        continue
                     self.pred[i].append((t, v))
                     self.cmd[i].append((t, command[i]))
             self.last = t
@@ -74,7 +87,7 @@ class TrackingFeed:
         out = []
         for i, key in enumerate(MEAS_KEYS):
             samples = [s for s in meas.get(key, []) if s[0] >= now - self.window]
-            if not samples or not self.pred[i]:
+            if not samples or not self.pred[i] or not self.fitted[i]:
                 out.append(None)
                 continue
             times = [t for t, _ in self.pred[i]]
@@ -84,5 +97,7 @@ class TrackingFeed:
         return tuple(out)
 
     def view(self):
+        if not any(self.fitted):
+            return {}
         return {'tracking': dict(pred=[list(p) for p in self.pred], score=self.scores,
                                  colour=[score_colour(s, self.settings) for s in self.scores])}

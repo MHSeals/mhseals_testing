@@ -62,7 +62,7 @@ def test_a_poor_conditions_verdict_gates_every_axis():
 
 
 def test_velocity_units_are_not_modelled():
-    assert tracked(session((0.6, 0.0, 0.0)), units='velocity').view()['tracking']['pred'] == [[], [], []]
+    assert tracked(session((0.6, 0.0, 0.0)), units='velocity').view() == {}
 
 
 def test_a_new_calibration_restarts_the_ghost():
@@ -99,9 +99,42 @@ def test_motion_golden_with_the_model_ghost():
     plots = session((0.6, 0.0, 0.0))
     feed = tracked(plots)
     out = text(motion_panel(driven().snapshot(), view(load_profile('boat'), units='effort',
-                            command=(0.6, 0.0, 0.0), tracking=feed.view()['tracking']), 20), 46, 20)
+                            command=(0.6, 0.0, 0.0), tracking=feed.view()['tracking'],
+                            hardware={'characterization': dict(app().args.hardware_config['characterization'],
+                                                                mechanical_bias=dict(surge=0.0, sway=0.0, yaw=0.0))}), 20), 46, 20)
+    assert 'model' in out and 'pred' not in out
     golden = HERE / 'golden' / 'motion' / 'track_120.txt'
     if os.environ.get('UPDATE_GOLDEN'):
         golden.parent.mkdir(exist_ok=True)
         golden.write_text(out)
     assert out == golden.read_text()
+
+
+def test_axes_without_a_fit_keep_the_command_ghost_and_score_none():
+    one = app()
+    one.args.hardware_config['characterization']['speed_curves'] = {'surge+': CURVES['surge+']}
+    plots = session((0.6, 0.0, 0.0))
+    feed = TrackingFeed()
+    feed.tick(one, dict(plots=plots, sensors={}), plots['now'])
+    tracking = feed.view()['tracking']
+    assert tracking['pred'][0] and not tracking['pred'][1] and not tracking['pred'][2]
+    assert tracking['score'][1:] == (None, None)
+
+
+def test_an_uncharacterized_boat_contributes_nothing():
+    bare = app()
+    bare.args.hardware_config['characterization'] = {'wave_floor': [0.01, 0.01, 0.01]}
+    plots = session((0.6, 0.0, 0.0))
+    feed = TrackingFeed()
+    feed.tick(bare, dict(plots=plots, sensors={}), plots['now'])
+    assert feed.view() == {} and feed.scores == (None, None, None)
+
+
+def test_missing_plots_or_velocity_units_clear_the_stale_ghost():
+    feed = tracked(session((0.6, 0.0, 0.0)))
+    assert feed.view()['tracking']['pred'][0]
+    feed.tick(app(), dict(plots=None, sensors={}), 0.0)
+    assert not any(feed.pred) and not any(feed.cmd) and feed.scores == (None, None, None)
+    feed = tracked(session((0.6, 0.0, 0.0)))
+    feed.tick(app(units='velocity'), dict(plots=session((0.6, 0.0, 0.0)), sensors={}), 15.0)
+    assert not any(feed.pred) and not any(feed.cmd)
