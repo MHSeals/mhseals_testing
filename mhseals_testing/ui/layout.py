@@ -228,22 +228,78 @@ def popup(modal, width, height=None):
     return panel, panel_width
 
 
-class Overlay:
-    """Draw ``top`` centred over ``base``, dimming the base like a modal backdrop."""
+TOAST_STYLE = {'warn': theme.WARN, 'fail': theme.BAD, 'ok': theme.GOOD, 'info': ACCENT}
 
-    def __init__(self, base, top, top_width, width, height):
-        self.base, self.top, self.top_width = base, top, top_width
+
+TOAST_MIN, TOAST_MAX, TOAST_LINES = 26, 60, 2   # columns; text rows (plus 2 border rows = 4)
+FADE = 1.0                                      # seconds a finite toast is dimmed before it expires
+
+
+def toast_box(toast, width, now=None):
+    """One toast as a bordered box at most 4 rows tall, titled in its kind's hue.
+
+    Returns the panel and its height. Text beyond two rows is cut with an ellipsis.
+    """
+    hue = TOAST_STYLE[toast.kind]
+    text = Text(toast.text + (f'{theme.pick(" ×", " x")}{toast.count}' if toast.count > 1 else ''))
+    lines = text.wrap(Console(width=width - 4), width - 4)
+    for line in lines:
+        line.rstrip()
+    if len(lines) > TOAST_LINES:
+        last = lines[TOAST_LINES - 1]
+        last.truncate(width - 5)
+        last.append(theme.pick('…', '...'))
+        lines = lines[:TOAST_LINES]
+    panel = theme.block(Text('\n').join(lines), toast.title.strip())
+    panel.title = Text(toast.title.strip(), style=f'bold {hue}')
+    panel.border_style = hue
+    if now is not None and toast.expires is not None and toast.expires - now <= FADE:
+        panel.style = 'dim'
+    return panel, len(lines) + 2
+
+
+def toast_stack(toasts, more, width, now=None, rows=None):
+    """The toasts as bordered boxes, oldest on top, then a dim `+N more` line.
+
+    Width follows the longest text within 26-60 columns and the terminal. With ``rows`` the stack
+    is clipped to that many rows by dropping the oldest boxes (counted into `more`).
+    """
+    want = max((len(t.text) + 8 for t in toasts), default=TOAST_MIN)
+    panel_width = max(8, min(max(TOAST_MIN, min(want, TOAST_MAX)), width - 2))
+    boxes = [toast_box(t, panel_width, now) for t in toasts]
+    while rows is not None and boxes and sum(h for _, h in boxes) + bool(more) > rows:
+        boxes.pop(0)
+        more += 1
+    items = [box for box, _ in boxes]
+    if more and boxes:
+        items.append(Text(f'+{more} more{SEPARATOR}!', style=MUTED, justify='right'))
+    return Group(*items), panel_width
+
+
+class Overlay:
+    """Draw ``top`` centred over ``base``, dimming the base like a modal backdrop.
+
+    ``anchor='bottom_right'`` puts it in the body's corner above the footer instead, undimmed.
+    """
+
+    def __init__(self, base, top, top_width, width, height, anchor='center'):
+        self.base, self.top, self.top_width, self.anchor = base, top, top_width, anchor
         self.width, self.height = width, height
 
     def __rich_console__(self, console, options):
         options = options.update(width=self.width, height=self.height)
         lines = console.render_lines(self.base, options, pad=True)
         top = console.render_lines(self.top, options.update(width=self.top_width, height=None))
-        dim = Style(dim=True)
-        lines = [list(Segment.apply_style(line, post_style=dim)) for line in lines]
-        x = (self.width - self.top_width) // 2
-        y = max(0, (self.height - len(top)) // 2)
-        for offset, row in enumerate(top[:self.height]):
+        if self.anchor == 'bottom_right':
+            x = self.width - self.top_width - 1
+            top = top[max(0, len(top) - (self.height - HEADER_ROWS - FOOTER_ROWS)):]
+            y = max(HEADER_ROWS, self.height - FOOTER_ROWS - len(top))
+        else:
+            dim = Style(dim=True)
+            lines = [list(Segment.apply_style(line, post_style=dim)) for line in lines]
+            x = (self.width - self.top_width) // 2
+            y = max(0, (self.height - len(top)) // 2)
+        for offset, row in enumerate(top[:self.height - y]):
             line = lines[y + offset]
             left, _, right = Segment.divide(line, [x, x + self.top_width, self.width])
             lines[y + offset] = left + row + right
@@ -255,6 +311,8 @@ class Overlay:
 # --- the page --------------------------------------------------------------------
 
 
+HEADER_ROWS = 2
+FOOTER_ROWS = 3
 MIN_SIZE = (36, 10)  # below this no panel is legible; only the stop hint is
 
 
@@ -349,6 +407,11 @@ def _with_modal(layout, view, width, height):
     if view.get('modal'):
         panel, panel_width = popup(view['modal'], width, height)
         return Overlay(layout, panel, panel_width, width, height)
+    toasts = view.get('toasts')
+    if toasts:
+        stack, stack_width = toast_stack(toasts, view.get('toasts_more', 0), width, view.get('now'),
+                                         height - HEADER_ROWS - FOOTER_ROWS)
+        return Overlay(layout, stack, stack_width, width, height, anchor='bottom_right')
     return layout
 
 

@@ -55,6 +55,7 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.feeds import health as health_feed
+from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
 from mhseals_testing.ui.panels.status import status_rows
@@ -225,6 +226,7 @@ class App:
         self.cursors = {panel: 0 for panel in PANELS}
         self.activity = 'results'
         self.modal = None
+        self.toasts = Toasts()          # health transitions feed it; never takes keys
         self.facts = {}  # health facts by name; the perception probe fills perc.<source>.*
         self.running = None
         self._wall_offset = None
@@ -504,7 +506,9 @@ class App:
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         own = dict(
             tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
-            activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
+            activity=self.activity, now=self.monitor.clock(),
+            toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
+            toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             authority=('human', 'KEYS') if self.manual else ('ours', self.running.upper()) if self.running else None,
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
