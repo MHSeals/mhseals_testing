@@ -1,7 +1,7 @@
 """One look for every panel, after cx: ANSI colors, rounded blocks, status glyphs.
 
 Only the 16 terminal colors are used, so the terminal theme decides how they
-look. NO_COLOR is honoured by Rich, so each state has its own glyph (✓ ! × ◌ ○) and
+look. NO_COLOR is honoured by Rich, so each state has its own glyph (✓ ! ✗ ◌ ·) and
 never relies on color alone; TERM=dumb or MHS_ASCII swaps glyphs for ASCII.
 """
 
@@ -37,7 +37,7 @@ def ascii_safe(text):
 
 
 SEPARATOR = pick(' · ', ' | ')
-DOT, MIDDOT, DASH = pick('●', '*'), pick('·', '.'), pick('—', '-')
+MIDDOT, DASH = pick('·', '.'), pick('—', '-')
 BAR, RULE, FILL = pick('│', '|'), pick('─', '-'), pick('█', '#')
 SPARK = pick('▁▂▃▄▅▆▇█', '._-:=+*#')
 OVERFLOW = pick('ellipsis', 'crop')   # Rich's ellipsis cell is the Unicode …
@@ -59,10 +59,10 @@ def spinner(t):
 _GLYPHS = {
     'good': ('+' if ASCII else '✓', GOOD),
     'warn': ('!', WARN),
-    'bad': ('x' if ASCII else '×', BAD),
+    'bad': ('x' if ASCII else '✗', BAD),
     'busy': ('~' if ASCII else '◌', BUSY),
-    'off': ('o' if ASCII else '○', MUTED),
-    'unknown': ('?', MUTED),
+    'off': (MIDDOT, MUTED),
+    'unknown': (MIDDOT, MUTED),
 }
 _KINDS = {
     'good': {'LIVE', 'OK', 'PASS', 'SIGN MATCH', 'SETTLED', 'HELD', 'REACHED', 'FITTED',
@@ -88,7 +88,7 @@ def icon(state):
 
 
 def labelled(state, label=None, style=None):
-    """``● label`` with the glyph colored by state."""
+    """``✓ label`` with the glyph colored by state."""
     text = icon(state)
     text.append(' ' + (label if label is not None else str(state).lower()), style=style)
     return text
@@ -139,7 +139,7 @@ def hint(key, label):
 
 
 def row(state, label, active=False, prefix=None):
-    """One list entry: ``› ● label`` for the cursor row, ``  ● label`` otherwise.
+    """One list entry: ``› ✓ label`` for the cursor row, ``  ✓ label`` otherwise.
 
     ``state`` picks the glyph (None for none); ``prefix`` is extra text after the
     glyph, such as a shortcut key. The cursor row is cyan bold underlined, like cx.

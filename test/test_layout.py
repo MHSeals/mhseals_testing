@@ -43,7 +43,7 @@ def test_status_panel_folds_quiet_groups_but_keeps_the_warning_row():
     rows = status_rows(monitor().snapshot(), profile.sensors)
     warning = next(i for i, row in enumerate(rows) if row['name'] == 'compute')
     text = page(profile, 17, cursors={'status': warning})   # cursor on the System warning
-    assert 'compute' in text and '× odom' in text      # warn and fail rows are never folded
+    assert 'compute' in text and '✗ odom' in text      # warn and fail rows are never folded
     assert 'Frames  ▸' not in text                     # Frames holds a failure
     m = monitor()
     m.transform('odom', 'base_link', authority='g')    # now every frame edge is live

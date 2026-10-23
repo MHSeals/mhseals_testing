@@ -51,7 +51,7 @@ def run(ctx):
         services['pulses'](None)
     channel_map = channel_map_from_observations(observations)
     reversed_ = [p in flipped for p in POSITIONS]
-    summary = ', '.join(f"{p.upper()}→{o}{' ↺' if r else ''}"
+    summary = ', '.join(f"{p.upper()}→{o}{' −' if r else ''}"
                         for p, o, r in zip(POSITIONS, channel_map, reversed_))
     result = dict(procedure='thruster set', verdict='DONE', channel_map=list(channel_map),
                   reversed=reversed_, detail=summary)

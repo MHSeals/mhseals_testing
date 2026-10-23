@@ -807,7 +807,7 @@ def test_arm_panel_lists_interlocks_before_arming(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'], sensors=False)
     rows = dict(app.arm_rows())
     assert rows['Outputs'].startswith('simulator') and rows['Driver'] == 'starts on arm'
-    assert rows['Interlocks'].startswith('×')
+    assert rows['Interlocks'].startswith('✗')
 
 
 def test_arm_panel_shows_the_driver_check_and_wraps_long_reasons(tmp_path):

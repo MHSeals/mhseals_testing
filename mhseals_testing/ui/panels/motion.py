@@ -36,11 +36,11 @@ def drift_arrow(vx, vy):
 
 
 def drift_vector(vx, vy, wz=0.0):
-    """``↖ 0.12 m/s ↺`` : direction, speed and the turn sense of any yaw drift."""
+    """``↖ 0.12 m/s ↩`` : direction, speed and the turn sense of any yaw drift."""
     text = Text(drift_arrow(vx, vy), style=f'bold {ACCENT}')
     text.append(f' {math.hypot(vx, vy):.2f} m/s')
     if abs(wz) >= DRIFT_DEADBAND:
-        text.append(f" {theme.pick('↺', '(') if wz > 0 else theme.pick('↻', ')')}{abs(wz):.2f}", style=MUTED)
+        text.append(f" {theme.pick('↩', '<') if wz > 0 else theme.pick('↪', '>')}{abs(wz):.2f}", style=MUTED)
     return text
 
 

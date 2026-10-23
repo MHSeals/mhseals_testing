@@ -72,7 +72,7 @@ def test_tf_and_health_live_inside_the_page():
     page = text(render(monitor().snapshot(profile.required_tf), view(profile), 120, 40), 120, 40)
     assert 'map → odom' in page and 'odom → base_link' in page
     assert 'compute 78°C' in page  # health in the header strip
-    assert '× tf' in page            # odom -> base_link is missing
+    assert '✗ tf' in page            # odom -> base_link is missing
 
 
 def test_popup_overlays_the_page():
@@ -170,7 +170,7 @@ def test_drift_is_live_with_a_bearing_and_compared_with_the_fit():
     assert 'ahead' in drift_text((0, 0, 0), None, vx=0.3, vy=0.0)
     agree = drift_text((0, 0, 0), (0.1, 0.12, 0.0))
     assert 'fit ↖ 0.16 m/s' in agree and '✓ Δ 0.02' in agree
-    assert '× Δ' in drift_text((0, 0, 0), (-0.2, 0.0, 0.0))   # fit points the wrong way
+    assert '✗ Δ' in drift_text((0, 0, 0), (-0.2, 0.0, 0.0))   # fit points the wrong way
     driving = drift_text((0.2, 0, 0), (0.1, 0.1, 0.0))
     assert driving.startswith('Vel    ↖') and 'Δ' not in driving
 
@@ -190,7 +190,7 @@ def test_unsaved_mapping_is_marked():
     draft = dict(channel_map=[2, 1, 3, 4], reversed=[True, False, False, False])
     page = text(render(monitor().snapshot(), view(profile, focus='thrusters', draft=draft,
                                                   grabbed=0), 120, 40), 120, 40)
-    assert 'topic · unsaved' in page and 'FL ⇅' in page and '↺' in page
+    assert 'topic · unsaved' in page and 'FL ⇅' in page and '−' in page
 
 
 def test_world_drift_is_turned_into_the_body_by_the_heading():

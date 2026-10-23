@@ -596,7 +596,7 @@ class App:
             row[1] = theme.icon('busy').plain + ' working'
             self.refresh()
             try:
-                row[1] = theme.DOT + ' ' + step()
+                row[1] = theme.icon('ok').plain + ' ' + step()
             except Exception as error:  # keep going: later steps still matter
                 row[1] = f"{theme.icon('bad').plain} {error}"
         self.refresh()
@@ -959,7 +959,7 @@ class App:
                 ('Commands', f'{self.profile.command_topic} ({self.profile.command_units})'),
                 ('Config', str(self.config_file)),
                 ('Decoupling', theme.icon('off').plain + ' identity' if decoupled(self.args.hardware_config) is None
-                 else theme.DOT + ' fitted (Thrusters c clears)')]
+                 else theme.icon('ok').plain + ' fitted (Thrusters c clears)')]
         blockers = [] if self.armed else self.arm_blockers()
         if not blockers:
             rows.append(('Interlocks', theme.icon('ok').plain + ' clear'))

@@ -1,18 +1,18 @@
 == idle 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                      blastoise-odroid · ROS 42  idle  disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                                                                health 41 ok
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                health 41 ok
  Focus Status · 1/9                                                                                                Ready
  Tab Focus                     a Arm                         Space Stop                    ? Help                       
  q Quit                                                                                                                 
 == running 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort        ↑5 ↓39 ±2 ?7  blastoise-odroid   CHARACTERIZE    ARMED 
- × rec · × sensors 1/3 · × tf · ! compute 78°C                                             × 2  ! 3 · compass innovation
+ ✗ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                             ✗ 2  ! 3 · compass innovation
  Focus Status · 1/9                                                                                                Ready
  Tab Focus                     a Arm                         Space Stop                    ? Help                       
  q Quit                                                                                                                 
 == diverged 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort        ↕ code newer  blastoise-odroid · ROS 42   RC   disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                                                                            
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
  Focus Status · 1/9                                                                                                Ready
  Tab Focus                     a Arm                         Space Stop                    ? Help                       
  q Quit                                                                                                                 
@@ -24,25 +24,25 @@
  q Quit                                                                                                                 
 == review 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                                        boat · ROS 42   REVIEW 
- rec · × sensors 1/3 · × tf · ! compute 78°C                                                                            
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
  Focus Status · 1/9                                                                                                Ready
  Tab Focus                     a Arm                         Space Stop                    ? Help                       
  q Quit                                                                                                                 
 == idle 100
  boat_test  [Drive]  Correction  Map  Bags  boat · effort  blastoise-odroid · ROS 42  idle  disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                                            health 41 ok
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                            health 41 ok
  Focus Status · 1/9                                                                            Ready
  Tab Focus                         a Arm                            Space Stop                      
  ? Help                            q Quit                                                           
 == running 100
  boat_test  [Drive]  Correction  Map  Bags  boat · effort  blastoise-odroid   CHARACTERIZE    ARMED 
- × rec · × sensors 1/3 · × tf · ! compute 78°C                         × 2  ! 3 · compass innovation
+ ✗ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                         ✗ 2  ! 3 · compass innovation
  Focus Status · 1/9                                                                            Ready
  Tab Focus                         a Arm                            Space Stop                      
  ? Help                            q Quit                                                           
 == diverged 100
  boat_test  [Drive]  Correction  Map  Bags  boat · effort           blastoise-odroid   RC   disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                                                        
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                        
  Focus Status · 1/9                                                                            Ready
  Tab Focus                         a Arm                            Space Stop                      
  ? Help                            q Quit                                                           
@@ -54,25 +54,25 @@
  ? Help                            q Quit                                                           
 == review 100
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                    boat · ROS 42   REVIEW 
- rec · × sensors 1/3 · × tf · ! compute 78°C                                                        
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                        
  Focus Status · 1/9                                                                            Ready
  Tab Focus                         a Arm                            Space Stop                      
  ? Help                            q Quit                                                           
 == idle 80
  boat_test  [Drive]  Correction  Map  Bags      blastoise-odroid  idle  disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                        health 41 ok
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                        health 41 ok
  Focus Status · 1/9                                                        Ready
  Tab Focus                  a Arm                      Space Stop               
  ? Help                     q Quit                                              
 == running 80
  boat_test  [Drive]  Correction  Map  Bags                CHARACTERIZE    ARMED 
- × rec · × sensors 1/3 · × tf · ! compute 78°C     × 2  ! 3 · compass innovation
+ ✗ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C     ✗ 2  ! 3 · compass innovation
  Focus Status · 1/9                                                        Ready
  Tab Focus                  a Arm                      Space Stop               
  ? Help                     q Quit                                              
 == diverged 80
  boat_test  [Drive]  Correction  Map  Bags      blastoise-odroid   RC   disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                                    
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                    
  Focus Status · 1/9                                                        Ready
  Tab Focus                  a Arm                      Space Stop               
  ? Help                     q Quit                                              
@@ -84,25 +84,25 @@
  ? Help                     q Quit                                              
 == review 80
  boat_test  [Drive]  Correction  Map  Bags               boat · ROS 42   REVIEW 
- rec · × sensors 1/3 · × tf · ! compute 78°C                                    
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                    
  Focus Status · 1/9                                                        Ready
  Tab Focus                  a Arm                      Space Stop               
  ? Help                     q Quit                                              
 == idle 60
  boat_test  [Drive]         blastoise-odroid  idle  disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C    health 41 ok
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C    health 41 ok
  Focus Status · 1/9                                    Ready
  Tab Focus           a Arm               Space Stop         
  ? Help              q Quit                                 
 == running 60
  boat_test  [Drive]                   CHARACTERIZE    ARMED 
- × rec · × sensors 1/3 · +2    × 2  ! 3 · compass innovation
+ ✗ rec · ✗ sensors 1/3 · +2    ✗ 2  ! 3 · compass innovation
  Focus Status · 1/9                                    Ready
  Tab Focus           a Arm               Space Stop         
  ? Help              q Quit                                 
 == diverged 60
  boat_test  [Drive]         blastoise-odroid   RC   disarmed
- rec · × sensors 1/3 · × tf · ! compute 78°C                
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                
  Focus Status · 1/9                                    Ready
  Tab Focus           a Arm               Space Stop         
  ? Help              q Quit                                 
@@ -114,7 +114,7 @@
  ? Help              q Quit                                 
 == review 60
  boat_test  [Drive]                  boat · ROS 42   REVIEW 
- rec · × sensors 1/3 · × tf · ! compute 78°C                
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                
  Focus Status · 1/9                                    Ready
  Tab Focus           a Arm               Space Stop         
  ? Help              q Quit                                 
