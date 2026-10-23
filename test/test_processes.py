@@ -58,6 +58,20 @@ def test_child_dies_with_a_killed_parent_that_ignored_sigint(tmp_path):
     assert not os.path.exists(f'/proc/{child}') or 'Z' in _state(child)
 
 
+def test_stop_interrupts_a_child_when_the_suite_ignores_signals(tmp_path):
+    ignored = [signal.signal(signum, signal.SIG_IGN) for signum in (signal.SIGINT, signal.SIGTERM)]
+    manager = ProcessManager(tmp_path / 'logs')
+    try:
+        child = manager.start('sleeper', [sys.executable, '-c', 'import time; time.sleep(60)'])
+        started = time.time()
+        manager.stop('sleeper', timeout=3)
+        assert child.returncode == -signal.SIGINT
+        assert time.time() - started < 3
+    finally:
+        signal.signal(signal.SIGINT, ignored[0])
+        signal.signal(signal.SIGTERM, ignored[1])
+
+
 def _state(pid):
     try:
         return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
