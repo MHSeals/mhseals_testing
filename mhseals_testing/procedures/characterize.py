@@ -18,7 +18,7 @@ from mhseals_hardware.thruster_mixer import AXES
 from mhseals_testing.analysis.characterization import (
     audit_holds, motion_limits, nav2_profile, samples_from_windows,
 )
-from mhseals_testing.analysis.column import refine, worst
+from mhseals_testing.analysis.column import _within, refine, worst
 from mhseals_testing.analysis.thrust import speed_curve
 from mhseals_testing.harness.apply import IDENTITY, Staging
 from mhseals_testing.history import adapters
@@ -125,8 +125,11 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         holds.append(dict(command=list(command), start=hold[0], end=hold[1], label=name))
         return response(ctx.history(settle[0], hold[1]), settle, hold, transient)
 
+    room = cfg['refine']['headroom'] / hi - 1.0  # largest sum|c| that keeps a_hi(1 + sum|c|) in range
+
     def deployed_column(axis, sign):
-        return tuple(base[sign][3 * k + axis] for k in cross_axes(axis))
+        """The deployed cross entries, scaled into the headroom like every other column."""
+        return _within(tuple(base[sign][3 * k + axis] for k in cross_axes(axis)), room)
 
     survey, start = {}, None
     with ctx.motion('characterization', directions=1 if only else 6) as runner:
@@ -147,16 +150,22 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             begin = deployed_column(axis, sign)  # the survey drove it too: its response seeds the search
             known = () if only else [(begin, survey[(axis, sign, hi)][2])]
 
+            driven = []  # the refine holds actually run
+
             def measure(column, axis=axis, sign=sign):
+                driven.append(column)
                 delta = drive(runner, command_for(axis, sign, hi, column), settings.command,
                               label(axis, sign) + ' refine')
                 return cross_response(delta, axis, sign)[1]
 
             found = refine(measure, begin, tolerance[AXES[axis]], cfg['refine']['probe'],
-                           cfg['refine']['headroom'] / hi - 1.0, cfg['refine']['max_holds'], known)
-            # Homogeneity check: the final column at the low amplitude.
-            low = cross_response(drive(runner, command_for(axis, sign, lo, found['column']),
-                                       settings.command, label(axis, sign) + ' low'), axis, sign)[1]
+                           room,
+                           cfg['refine']['max_holds'] + (0 if known else 1), known)  # no survey: +1 for the start
+            if known and not driven:  # the survey point passed: its a_lo hold is the homogeneity check
+                low = survey[(axis, sign, lo)][2]
+            else:  # homogeneity check: the final column at the low amplitude
+                low = cross_response(drive(runner, command_for(axis, sign, lo, found['column']),
+                                           settings.command, label(axis, sign) + ' low'), axis, sign)[1]
             found['low_response'] = low
             found['low_ok'] = worst(low, tolerance[AXES[axis]]) <= 1.0
             columns[(axis, sign)], refined[label(axis, sign)] = found['column'], found

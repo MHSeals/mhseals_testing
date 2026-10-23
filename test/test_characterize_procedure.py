@@ -1,6 +1,7 @@
 """The characterization procedure against a fake boat whose coupling is known exactly."""
 from contextlib import contextmanager
 import math
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -178,3 +179,16 @@ def test_an_amplitude_with_no_room_for_the_correction_is_refused(config, tmp_pat
     ctx.settings = Settings(amplitude=1.0, settle=2, command=3)
     assert run(ctx)['verdict'] == 'REFUSED'
     assert load_config(config)['decoupling'] == C_OLD
+
+
+def test_a_corrected_boat_runs_only_the_survey_holds(config, tmp_path, monkeypatch):
+    """Every survey point already inside tolerance: neutral + 12 survey holds, no refine or low holds."""
+    monkeypatch.setattr(sys.modules[__name__], 'boat', lambda effort: [GAIN[0] * effort[0], GAIN[1] * effort[1], GAIN[2] * effort[2]])
+    update_config(dict(decoupling=[1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0]), config)
+    runner = Fake(config)
+    ctx, records, _ = context(tmp_path, runner, answer='no')
+    run(ctx)
+    moving = [c for c in runner.commands if any(c)]
+    assert len(moving) == 12
+    assert all(h['label'] in {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'} or h['label'] == 'neutral'
+               for h in records[-1]['holds'])

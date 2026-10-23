@@ -1082,8 +1082,8 @@ def test_characterization_offers_only_save_and_writes_unit_diagonal_columns(tmp_
         app.dispatch('f')
     assert offered and all('save + decouple' not in options for options in offered)
     saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
-    for key in ('decoupling', 'decoupling_negative'):
-        assert [saved[key][i] for i in (0, 4, 8)] == [1.0, 1.0, 1.0]
+    for key in ('decoupling', 'decoupling_negative'):  # absent C- equals C+
+        assert [saved.get(key, saved['decoupling'])[i] for i in (0, 4, 8)] == [1.0, 1.0, 1.0]
 
 
 def test_mid_write_operator_config_never_reaches_the_armed_snapshot(tmp_path):
