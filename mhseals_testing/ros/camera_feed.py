@@ -76,3 +76,11 @@ class CameraFeed:
                 return
             self._last = now
             self._frame = (bytes(message.data), now)
+
+
+def node_feed(node, **kwargs):
+    """A CameraFeed whose subscription is a BEST_EFFORT depth-1 CompressedImage on ``node``."""
+    from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import CompressedImage
+    return CameraFeed(lambda topic, callback: node.create_subscription(
+        CompressedImage, topic, callback, qos_profile_sensor_data), node.destroy_subscription, **kwargs)
