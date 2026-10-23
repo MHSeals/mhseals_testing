@@ -47,7 +47,7 @@ def test_steady_scores_never_flag_and_one_bad_run_does_not():
 
 
 def test_falling_trend_and_two_low_runs_flag():
-    falling = staleness(runs([0.95, 0.9, 0.85, 0.8, 0.75, 0.72]), 1, S)
+    falling = staleness(runs([0.97, 0.94, 0.9, 0.86, 0.83, 0.79, 0.75, 0.72]), 1, S)
     assert falling['flag'] and falling['reason'] == 'falling trend' and falling['slope'] < 0
     low = staleness(runs([0.9, 0.65, 0.65, 0.65]), 1, S)
     assert low['flag'] and low['reason'] == 'low scores'
@@ -56,3 +56,20 @@ def test_falling_trend_and_two_low_runs_flag():
 def test_other_versions_and_short_history_are_ignored():
     mixed = runs([0.2, 0.2, 0.2], version=1) + runs([0.9, 0.9], version=2)
     assert not staleness(mixed, 2, S)['flag'] and staleness(mixed, 2, S)['sessions'] == 2
+
+
+def test_non_finite_values_are_dropped():
+    full = np.ones_like(T)
+    holed = V.copy()
+    holed[3] = np.nan
+    assert tracking_score(holed, V, full, 0.02, S) > 0.99
+    assert staleness(runs([0.9, float('nan'), 0.9, 0.9]), 1, S)['sessions'] == 3
+
+
+def test_healthy_and_single_bad_last_sessions_rarely_flag():
+    rng = np.random.default_rng(7)
+    for k in (3, 4, 6, 8, 10):
+        healthy = sum(staleness(runs(rng.normal(0.88, 0.04, k)), 1, S, seed=i)['flag'] for i in range(200))
+        one_bad = sum(staleness(runs([*rng.normal(0.88, 0.04, k - 1), 0.3]), 1, S, seed=i)['flag']
+                      for i in range(200))
+        assert healthy <= 2 and one_bad <= 2, (k, healthy, one_bad)
