@@ -757,6 +757,9 @@ class App:
         if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
             self.open('perception')
             return
+        if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
+            self.open('history')
+            return
         raw, key = key, fold(key)
         if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
             return

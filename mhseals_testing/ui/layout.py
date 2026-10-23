@@ -191,6 +191,8 @@ def popup(modal, width, height=None):
     head, tail = [], []
     if modal.get('message'):
         head.append(Text(modal['message']))
+    if modal.get('body') is not None:       # a popup that draws itself (popup.history)
+        head.append(modal['body'])
     if modal.get('rows'):
         rows = theme.grid({'header': '', 'style': f'bold {ACCENT}'},
                           {'header': '', 'no_wrap': False, 'overflow': 'fold', 'ratio': 1},

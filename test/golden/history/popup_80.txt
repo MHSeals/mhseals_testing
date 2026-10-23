@@ -1,0 +1,9 @@
+╭─ ▸ Config history ───────────────────────────────────────────────────╮
+│  All  [Hardware]  Nav2                                               │
+│                                                                      │
+│ Today · Fri Oct 23                                                   │
+│   ± c0003  15:40  changed outside boat_test                  cal now │
+│ › ◌ c0002  14:05  split C v2                                  cal hw │
+│ Wed Oct 21                                                           │
+│     c0001  09:00  output, reversed                            cal hw │
+╰─  n name · N note · [ ] tab · Esc  ──────────────────────────────────╯
