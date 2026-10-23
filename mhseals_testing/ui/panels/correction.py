@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import os
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -16,7 +17,8 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing import calibration
+from mhseals_testing.ui import fitrows, theme
 from mhseals_testing.ui.theme import MUTED, WARN
 
 AXES = ('surge', 'sway', 'yaw')
@@ -119,6 +121,15 @@ def _percent(value):
     return MISSING if value is None else f'{value:.0f}'
 
 
+def _round(value):
+    return None if value is None else round(value)
+
+
+def _fit_record(fit):
+    """The fitrows record (verdict, ceiling at fit) of a state.json fit; empty when never fitted."""
+    return dict(verdict=fit.get('fit_label'), ceiling=_round(fit.get('fit')))
+
+
 def column(key, data, matrix):
     """The string cells of one direction column plus its flags (below_trust handled later)."""
     axis, sign = AXES.index(key[:-1]), 1 if key[-1] == '+' else -1
@@ -130,9 +141,10 @@ def column(key, data, matrix):
         value = None if c is None or k == axis else c[k][axis]
         cross.append(MISSING if value is None else _num(value) + (' L' if name in limited else ''))
     lo, hi = fit.get('trust_lo'), fit.get('trust_hi')
+    up = fitrows.better(fit.get('fit'), fit.get('ceiling'), min((t for t in (hi, lo) if t is not None), default=None))
     peak = fit.get('peak')
     return dict(
-        key=key, hi=hi, lo=lo, mark=fit.get('mark', ''),
+        key=key, hi=hi, lo=lo, mark=fit.get('mark', ''), up=up,
         cells={
             'mixer': _signs(matrix, axis, sign),
             'peak': _num(peak, 2, False) if peak is not None else MISSING,
@@ -142,8 +154,8 @@ def column(key, data, matrix):
             'trust': MISSING if hi is None else f"{_percent(hi)}/{_percent(lo)}" + ('%' if lo is not None else ''),
             'residual': fit.get('residual', MISSING),
             'iterations': (f"{fit['iterations']}" + (' lim' if limited else '')) if 'iterations' in fit else MISSING,
-            'fit': (f"{fit['fit_label']} {fit['fit']:.0f}" if fit.get('fit') is not None else MISSING),
-            'ceiling': _percent(fit.get('ceiling')),
+            'fit': fitrows.fit_cell(_fit_record(fit)),
+            'ceiling': fitrows.now_cell(dict(ceiling=_round(fit.get('ceiling')), hdg=fit.get('hdg'), up=up)),
             'speed': (f"{_num(fit['v_lo'], 2, False)}/{_num(fit['v_hi'], 2, False)}"
                       if fit.get('v_lo') is not None else MISSING),
             'drag': f"{fit['d1']:.1f}·{fit['d2']:.1f}" if fit.get('d1') is not None else MISSING,
@@ -195,14 +207,26 @@ def worst_column(view):
     return min(scored)[1] if scored else 0
 
 
-# (label, scope tag shown on the first row of its block, how to read the cells)
+# (label, config key whose scope tags the first row of its block, how to read the cells)
 _ROWS = (
-    ('Thrusters M', 'hw', 'mixer'), ('peak |t|', '', 'peak'),
-    ('C cross sw', 'cal', ('cross', 0)), ('ψ', '', ('cross', 1)), ('su', '', ('cross', 2)),
+    ('Thrusters M', 'thruster_matrix', 'mixer'), ('peak |t|', '', 'peak'),
+    ('C cross sw', 'decoupling', ('cross', 0)), ('ψ', '', ('cross', 1)), ('su', '', ('cross', 2)),
     ('± σ / age', '', 'sigma'), ('Trust hi/lo', '', 'trust'), ('residual', '', 'residual'),
     ('iterations', '', 'iterations'), ('fit under', '', 'fit'), ('ceiling now', '', 'ceiling'),
-    ('Drag v lo/hi', 'cal', 'speed'), ('d1 · d2', '', 'drag'), ('t95 · vmax', '', 't95'),
+    ('Drag v lo/hi', 'characterization.curves', 'speed'), ('d1 · d2', '', 'drag'), ('t95 · vmax', '', 't95'),
     ('tracking', '', 'tracking'))
+TAGS = {'hardware': 'hw', 'calibration': 'cal'}
+
+
+@lru_cache(maxsize=None)
+def scope_tag(key):
+    """``hw`` / ``cal`` for a config key from the fields.yaml scope (ts077), '' for a setting or no key.
+
+    Memoized: the scope is static config and load_fields would re-parse fields.yaml on every render.
+    """
+    return TAGS.get(calibration.scope_of(key)[0], '') if key else ''
+
+
 # Dropped first when the panel is short: later entries go before earlier ones.
 _DROP = ('tracking', 'ceiling', 'fit', 'iterations', 'residual', 't95', 'drag', 'peak')
 
@@ -251,11 +275,11 @@ def _table(view, width, height):
 
     heads = []
     for col in view['columns']:
-        mark = {'?': ' ?', '✗': ' ' + theme.pick('✗', 'x')}.get(col['mark'], '')
+        mark = {'?': ' ?', '✗': ' ' + theme.pick('✗', 'x')}.get(col['mark']) or (' ' + fitrows.UP if col['up'] else '')
         heads.append((col['key'].replace('-', theme.pick('−', '-')) + mark, 'bold'))
     lines = [line('', '', heads)]
     for row in rows:
-        lines.append(line(row[1], row[0], [_cell(row, c, s) for c in view['columns']]))
+        lines.append(line(scope_tag(row[1]), row[0], [_cell(row, c, s) for c in view['columns']]))
     return lines
 
 
@@ -326,8 +350,8 @@ def render(view, width=120, height=40, focused=True):
     footer = []
     if view.get('plan'):
         footer.append(Text('Plan  ' + view['plan']))
-    footer.append(Text.assemble(('scope ', MUTED), ('hw', SCOPE), ' hardware: refit when rebuilt  ',
-                                ('cal', SCOPE), ' calibration: refit each test'))
+    footer.append(Text.assemble(('scope ', MUTED), (TAGS['hardware'], SCOPE), ' hardware: refit when rebuilt  ',
+                                (TAGS['calibration'], SCOPE), ' calibration: refit each test'))
     pad = max(0, height - 2 - len(body) - len(lines) - len(footer) - 2)   # the box fills the body
     main = theme.block(Group(*body, Text(''), *lines, *[Text('')] * (pad + 1), *footer),
                        theme.SEPARATOR.join(_title(view)), focused=focused)

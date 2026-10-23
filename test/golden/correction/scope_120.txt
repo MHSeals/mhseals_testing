@@ -1,0 +1,40 @@
+╭─ ▸ Correction · C± fitted 10-22 14:05 · min 70% · 1 verify ────────────────────────╮╭─ Readiness · good ─────────────╮
+│ refine surge+ · hold 7/14                                                          ││ Verdict   good 94%             │
+│ thrust M → C± (driver adds) → speed curves (controller inverts)                    ││   ✓ afloat                     │
+│                                                                                    │╰────────────────────────────────╯
+│                   surge+    surge−    sway+ ↑   sway− ?   yaw+ ✗    yaw−           │╭─ Tracking · cal v c0150 ───────╮
+│ hw  Thrusters M   ++++      −−−−      +−+−      −+−+      −++−      +−−+           ││ axis   now   session  trend    │
+│     peak |t|      .71       .71       .71       .71       .71       —              ││ surge  91%   88%      flat     │
+│ cal C cross sw    +.031     +.031     —         —         +.020     +.020          ││ 5 sessions                     │
+│     ψ             −.042     −.042     +.084     +.084     —         —              │╰────────────────────────────────╯
+│     su            —         —         +.000     +.000     +.000     +.000          │╭─ sway− · holds ────────────────╮
+│     ± σ / age     .006 2h   .006 2h   .006 2h   .006 2h   .006 2h   —              ││ #  a    main   cross ψ  J      │
+│     Trust hi/lo   96/91%    96/91%    70/80%    96/91%    96/91%    —              ││ 1  .60  −.21   +.012    .31    │
+│     residual      .2°/s 1%  .2°/s 1%  .2°/s 1%  .2°/s 1%  .2°/s 1%  —              ││ 2  .60  −.22   −.004    .18 L  │
+│     iterations    1         1         1         1         1         —              │╰────────────────────────────────╯
+│     fit under     good 91   good 91   marg 66   good 91   good 91   —              │                                  
+│     ceiling now   99        98 hdg    93↑       99        99        —              │                                  
+│ cal Drag v lo/hi  .21/.38   .21/.38   .21/.38   .21/.38   .21/.38   —              │                                  
+│     d1 · d2       0.9·2.1   0.9·2.1   0.9·2.1   0.9·2.1   0.9·2.1   —              │                                  
+│     t95 · vmax    2.1 .42   2.1 .42   2.1 .42   2.1 .42   2.1 .42   —              │                                  
+│     tracking      91        91        91        91        91        —              │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│ Plan  refine sway− (71%)                                                           │                                  
+│ scope hw hardware: refit when rebuilt  cal calibration: refit each test            │                                  
+╰────────────────────────────────────────────────────────────────────────────────────╯                                  

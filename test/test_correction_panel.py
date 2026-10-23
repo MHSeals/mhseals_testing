@@ -1,9 +1,11 @@
 import io
+import os
+from pathlib import Path
 
 import pytest
 from rich.console import Console
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import fitrows, theme
 from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels.correction import correction_view, details, move, render, worst_column
 
@@ -98,3 +100,50 @@ def test_cursor_tint_on_256_colours(monkeypatch):
     monkeypatch.delenv('COLORTERM', raising=False)
     monkeypatch.setenv('TERM', 'xterm-256color')
     assert correction._tint() == 'on grey15'
+
+
+# --- UIW22: scope tags from fields.yaml, fit under / ceiling now, header marks ---
+
+def scope_data():
+    fits = {k: fit() for k in correction.DIRECTIONS}
+    fits['surge-'] = fit(ceiling=98, hdg=True)
+    fits['sway+'] = fit(70, 80, fit=66, fit_label='marg', ceiling=93)   # clearly better now, low trust: up mark
+    fits['sway-'] = fit(mark='?')
+    fits['yaw+'] = fit(mark='✗')
+    fits['yaw-'] = {}   # never fitted
+    return data(**fits)
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode golden')
+def test_scope_120_golden():
+    golden = Path(__file__).parent / 'golden' / 'correction' / 'scope_120.txt'
+    actual = text(render(correction_view(scope_data(), cursor=3), 120, 40), 120, 40)
+    if os.environ.get('UPDATE_GOLDEN'):
+        golden.write_text(actual)
+    assert actual == golden.read_text(), 'scope_120.txt differs; UPDATE_GOLDEN=1 to regenerate'
+
+
+def test_scope_tags_come_from_the_fields_scope():
+    assert [correction.scope_tag(k) for k in ('thruster_matrix', 'decoupling', 'characterization.curves',
+                                              'command_timeout', '')] == ['hw', 'cal', 'cal', '', '']
+
+
+def test_fit_rows_and_header_marks():
+    view = correction_view(scope_data())
+    cols = {c['key']: c for c in view['columns']}
+    assert cols['surge+']['cells']['fit'] == 'good 91' and cols['surge-']['cells']['ceiling'] == '98 hdg'
+    assert cols['sway+']['cells']['fit'] == 'marg 66' and cols['sway+']['cells']['ceiling'].endswith(fitrows.UP)
+    assert cols['yaw-']['cells']['fit'] == theme.DASH == cols['yaw-']['cells']['ceiling']   # never fitted
+    head = next(l for l in text(render(view, 120, 40), 120).splitlines() if 'yaw' in l and 'surge+' in l)
+    assert f'sway+ {fitrows.UP}' in head and 'sway' in head and ' ?' in head and ('✗' in head or 'x' in head)
+
+
+def test_scope_tags_never_take_a_status_hue():
+    status = {theme.OK, theme.WARN, theme.FAIL} if hasattr(theme, 'OK') else {theme.WARN}
+    assert correction.SCOPE == 'italic bright_black' and not any(h in correction.SCOPE for h in status)
+
+
+def test_rendered_scope_tag_spans_are_slate_italic():
+    tags = [seg for seg in Console(width=120).render(correction.render(correction_view(scope_data()), 120, 40))
+            if seg.text.strip() in ('hw', 'cal')]
+    assert tags and all(seg.style.italic and seg.style.color.name == 'bright_black' for seg in tags)

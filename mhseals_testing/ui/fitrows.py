@@ -45,19 +45,28 @@ def header(directions, states, flags=()):
     return (' ' * LABEL + ''.join(_cell((d + ' ' + mark(states.get(d, 'ok'), d in flags)).rstrip()) for d in directions)).rstrip()
 
 
+def fit_cell(fit):
+    """``<verdict> <ceiling at fit>`` of one direction's fit record, a dash when it was never fitted."""
+    if not fit or fit.get('verdict') is None or fit.get('ceiling') is None:
+        return theme.DASH
+    return f"{fit['verdict']} {fit['ceiling']}"
+
+
+def now_cell(now):
+    """``ceiling now`` cell: the ceiling, then ``hdg`` and the up mark; a dash when unknown."""
+    if not now or now.get('ceiling') is None:
+        return theme.DASH
+    return f"{now['ceiling']}" + (' ' + HDG if now.get('hdg') else '') + (UP if now.get('up') else '')
+
+
 def fit_under(directions, fits):
     """``fit under`` row: ``<verdict> <ceiling at fit>``; a direction never fitted shows a dash."""
-    cells = [f"{fits[d]['verdict']} {fits[d]['ceiling']}" if d in fits else theme.DASH for d in directions]
-    return _row('fit under', cells)
+    return _row('fit under', [fit_cell(fits.get(d)) for d in directions])
 
 
 def ceiling_now(directions, now):
     """``ceiling now`` row; ``now[d]`` is {'ceiling': int, 'hdg': bool, 'up': bool}, absent when unknown."""
-    cells = []
-    for d in directions:
-        n = now.get(d)
-        cells.append(theme.DASH if not n else f"{n['ceiling']}" + (' ' + HDG if n.get('hdg') else '') + (UP if n.get('up') else ''))
-    return _row('ceiling now', cells)
+    return _row('ceiling now', [now_cell(now.get(d)) for d in directions])
 
 
 def legend():
