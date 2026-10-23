@@ -9,6 +9,10 @@ pytest.importorskip('rclpy')
 from mhseals_testing.ros.node import RosIO, node_name
 
 
+def test_same_pid_on_two_hosts_gets_two_names():
+    assert node_name(1, 'odroid') != node_name(1, 'jetson.local')
+
+
 def test_node_name_is_per_process():
     assert node_name(1) != node_name(2)
 

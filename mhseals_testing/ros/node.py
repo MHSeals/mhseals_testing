@@ -7,6 +7,8 @@ spins on its own thread so the TUI loop can block on keys.
 from functools import partial
 import json
 import os
+import re
+import socket
 import threading
 
 from geometry_msgs.msg import Vector3Stamped
@@ -34,9 +36,13 @@ EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
-def node_name(pid=None):
-    """Per-process node name, so publishers() can tell a second suite from ourselves."""
-    return f'mhseals_testing_{os.getpid() if pid is None else pid}'
+def node_name(pid=None, host=None):
+    """Per-process, per-host node name, so publishers() can tell a second suite from ourselves.
+
+    Pids repeat across machines and pid-namespaced containers on one domain.
+    """
+    host = re.sub(r'\W', '_', socket.gethostname() if host is None else host)
+    return f'mhseals_testing_{host}_{os.getpid() if pid is None else pid}'
 
 
 class RosIO:

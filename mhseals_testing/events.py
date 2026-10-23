@@ -28,12 +28,14 @@ def ours(events, pid, host=None):
     """Events from instance ``pid`` (on ``host`` when given), plus tagged guest lines.
 
     Pids are per host and recycle, so a line that names a host must match it.
-    Without any pid in the bag (pre-tagging field bags) every event is kept.
+    Lines without a pid are pre-tagging legacy lines: they are kept while the session
+    holds at most one tagged instance, since they can only be that one's.
     """
-    if not any('pid' in e for e in events):
-        return list(events)
+    instances = {(e.get('host'), e['pid']) for e in events if 'pid' in e}
+    legacy = len(instances) <= 1
     return [e for e in events
-            if (e.get('pid') == pid and (host is None or e.get('host', host) == host))
+            if ('pid' not in e and legacy)
+            or (e.get('pid') == pid and (host is None or e.get('host', host) == host))
             or e.get('guest')]
 
 

@@ -36,3 +36,10 @@ def test_same_pid_on_another_host_is_not_ours():
              dict(phase='c', pid=1)]
     assert [e['phase'] for e in events.ours(lines, 1, 'boat')] == ['a', 'c']
     assert events.payload('p', 0.0, {})['host']
+
+
+def test_legacy_lines_join_a_single_tagged_instance_only():
+    one = [dict(phase='old'), dict(phase='a', pid=1, host='boat')]
+    assert [e['phase'] for e in events.ours(one, 1, 'boat')] == ['old', 'a']
+    two = one + [dict(phase='b', pid=1, host='tranq')]
+    assert [e['phase'] for e in events.ours(two, 1, 'boat')] == ['a']
