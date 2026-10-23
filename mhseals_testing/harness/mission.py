@@ -54,30 +54,39 @@ def mission_block(task, outcome, duration, elements=(), failures=(), contacts=()
     }
 
 
-def write_run(run_id, mission, status='MEASURED', started=None, root=None):
-    """Write ``runs/<run_id>.json`` with the mission block; returns the path."""
+def write_run(session, run_id, mission, status='MEASURED', started=None):
+    """Write ``<session>/runs/<run_id>.json`` with the mission block; returns the path.
+
+    Refuses an existing run so a later batch never overwrites an earlier one.
+    """
+    target = Path(session) / 'runs' / f'{run_id}.json'
+    if target.exists():
+        raise FileExistsError(f'run {run_id} already exists in {session}')
     record = {'run_id': run_id, 'procedure': 'mission', 'status': status,
               'started': started, 'mission': mission}
-    target = Path(root) / 'runs' / f'{run_id}.json' if root else data.path('runs', f'{run_id}.json')
     data.write_json(target, record, RUN_SCHEMA)
     return target
 
 
-def sim_batch(task, run_one, repeat=1, domain=200, profile=None, root=None, name=None):
+def sim_batch(session, task, run_one, repeat=1, domain=200, profile=None, name=None):
     """Run ``task`` ``repeat`` times in the sim and record each as a run.
 
     ``run_one(task, domain, profile, index)`` returns the keyword arguments of
     ``mission_block`` (minus task, plant and profile). Each repeat gets its own
     domain (``domain + index``) so overlapping sims never share a graph; every
-    domain is checked first, before anything runs. Returns the batch summary.
+    domain is checked first, before anything runs. Runs go under ``session``. Returns the batch summary.
     """
     domains = [check_domain(domain + i) for i in range(repeat)]
+    for index in range(1, repeat + 1):
+        target = Path(session) / 'runs' / f'{name or "sim"}_{task}_{index}.json'
+        if target.exists():
+            raise FileExistsError(f'run {target.name} already exists in {session}')
     runs = []
     for index, dom in enumerate(domains, 1):
         mission = mission_block(task, plant='crane', profile=profile,
                                 **run_one(task, dom, profile, index))
         run_id = f'{name or "sim"}_{task}_{index}'
-        write_run(run_id, mission, root=root)
+        write_run(session, run_id, mission)
         runs.append({'run_id': run_id, 'domain': dom, 'summary': mission['summary']})
     return {'summary': f'{task}: {len(runs)} sim run{"s" if len(runs) != 1 else ""}',
             'task': task, 'profile': profile, 'runs': runs}
