@@ -56,6 +56,7 @@ class PlantProfile:
     velocity_controller: bool    # put calibrated_velocity_controller in front of the PWM node
     bringup: dict | None         # measurement.launch.py arguments, or None to attach only
     sensors: tuple
+    battery_cells: int | None = None   # pack cell count from `battery: {cells: N}`; None assumes 4S
 
     @property
     def can_arm(self):
@@ -120,6 +121,10 @@ def parse_profile(data, where='profile'):
     bringup = data.get('bringup')
     if bringup is not None and not isinstance(bringup, dict):
         raise ValueError(f'{where}.bringup: mapping of launch arguments or null')
+    battery = data.get('battery') or {}
+    cells = battery.get('cells')
+    if cells is not None and (not isinstance(cells, int) or isinstance(cells, bool) or cells < 1):
+        raise ValueError(f'{where}.battery.cells: positive integer')
     return PlantProfile(
         name=_require(data, 'name', str, where),
         description=str(data.get('description', '')),
@@ -133,7 +138,7 @@ def parse_profile(data, where='profile'):
         base_frame=_require(frames, 'base', str, where + '.frames'),
         use_sim_time=bool(data.get('use_sim_time', False)),
         outputs=outputs, velocity_controller=controller, bringup=bringup,
-        sensors=tuple(sensors))
+        sensors=tuple(sensors), battery_cells=cells)
 
 
 def available_profiles(directory=PROFILE_DIR):

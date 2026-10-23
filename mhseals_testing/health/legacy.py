@@ -17,7 +17,9 @@ from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 from mhseals_testing.ros.arming import DRIVER
 
 BATTERY_WARN, BATTERY_FAIL = 0.30, 0.15     # remaining fraction
-PACK_CELLS, CELL_WARN = 4, 3.3                 # assumed pack; volts per cell under which it is low
+PACK_CELLS, CELL_WARN = 4, 3.3              # pack assumed when the profile gives no cells; volts per cell that is low
+CELL_PLAUSIBLE = (2.5, 5.0)                 # volts per cell outside which the reading is wrong, not low
+BRICK_ABSENT = 1.0                          # volts; below this the power brick is not feeding the FCU
 CURRENT_MIN = 0.05                          # amps; below this the coulomb-counted percentage is stale
 VOLTAGE_ABSENT = 65.5                       # volts; MAVLink UINT16_MAX reads 65.535
 CLOCK_FAIL = 60.0                           # seconds: far past sync error, e.g. replaying an old bag
@@ -26,26 +28,36 @@ LOAD_WARN, TEMP_WARN, TEMP_FAIL = 0.9, 75.0, 85.0
 DISK_WARN, DISK_FAIL = 5e9, 1e9             # bytes free where the bag is written
 
 
-def battery(voltage, percentage, current=math.nan):
+def battery(voltage, percentage, current=math.nan, cells=PACK_CELLS):
     """``percentage`` is 0..1; the FCU's "unknown" arrives as NaN or a small negative (-1 %).
 
+    The detail leads with the voltage up to a ``;`` so the row can show it.
     MAVLink's UINT16_MAX "no voltage" arrives as 65.535 V and counts as absent.
     The FCU percentage is a coulomb count, so with no measured current it never
-    drops and is ignored; the voltage is then judged against the pack's cell count.
+    drops and is ignored; the voltage is then judged against ``cells`` (the profile's
+    ``battery: {cells: N}``). Volts per cell outside CELL_PLAUSIBLE is a mis-scaled
+    monitor or a wrong cell count, not a low pack; under BRICK_ABSENT it is no brick.
     """
     present = math.isfinite(voltage) and voltage < VOLTAGE_ABSENT
     volts = f'{voltage:.1f} V' if present else None
     if math.isfinite(current) and abs(current) < CURRENT_MIN:
         percentage = math.nan
-    low = present and voltage < PACK_CELLS * CELL_WARN
-    note = f' (low for {PACK_CELLS}S)' if low else ''
+    per_cell = voltage / cells if present else math.nan
+    problem = ''
+    if present and voltage < BRICK_ABSENT:
+        problem = 'power brick not connected?'
+    elif present and not CELL_PLAUSIBLE[0] <= per_cell <= CELL_PLAUSIBLE[1]:
+        problem = f'implausible for {cells}S ({per_cell:.1f} V/cell)'
+    low = present and not problem and per_cell < CELL_WARN
+    if low:
+        problem = f'low for {cells}S'
     if not math.isfinite(percentage) or percentage < 0:
         if not volts:
             return 'N/A', 'no battery data'
-        return ('WARN' if low else 'OK'), f'{volts}{note} (no charge estimate)'
+        return ('WARN' if problem else 'OK'), f'{volts}; {problem or "no charge estimate"}'
     level = ('FAIL' if percentage < BATTERY_FAIL else
-             'WARN' if percentage < BATTERY_WARN or low else 'OK')
-    return level, f'{volts or "no voltage"}{note}, {percentage:.0%}'
+             'WARN' if percentage < BATTERY_WARN or problem else 'OK')
+    return level, f'{volts or "no voltage"}; {problem + ", " if problem else ""}{percentage:.0%}'
 
 
 def flight_controller(connected, armed, mode):

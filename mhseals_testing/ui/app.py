@@ -1096,7 +1096,7 @@ def main(argv=None):
     app = None
     try:
         if profile.bringup and profile.bringup.get('fcu') != 'false':
-            subscribe_fcu(ros, monitor)
+            subscribe_fcu(ros, monitor, profile.battery_cells)
         paths.bag.parent.mkdir(parents=True, exist_ok=True)
         processes.start('bag', bag_command(paths.bag))
         if args.start_stack:

@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from mhseals_testing.health import legacy as health
@@ -11,9 +13,9 @@ def test_battery_levels(percentage, level):
 
 
 def test_battery_treats_fcu_unknowns_as_absent():
-    assert health.battery(15.2, -0.0099999998) == ('OK', '15.2 V (no charge estimate)')
+    assert health.battery(15.2, -0.0099999998) == ('OK', '15.2 V; no charge estimate')
     assert health.battery(65.535, -0.0099999998) == ('N/A', 'no battery data')
-    assert health.battery(65.535, .8) == ('OK', 'no voltage, 80%')
+    assert health.battery(65.535, .8) == ('OK', 'no voltage; 80%')
 
 
 def test_flight_controller_warns_when_it_could_drive():
@@ -145,8 +147,29 @@ def test_missing_and_unexported_pwm_do_not_claim_to_be_active(tmp_path):
     assert not (chip / 'pwm0').exists()  # status checks never export/enable a pin
 
 
-def test_battery_ignores_percentage_without_current_and_flags_low_voltage():
+def test_battery_ignores_percentage_without_current_and_flags_implausible_voltage():
     """Real boat_20261019_002558 samples: 6 V, 100 %, current 0 while MAVROS warned."""
-    assert health.battery(6.0, 1.0, -0.0) == ('WARN', '6.0 V (low for 4S) (no charge estimate)')
-    assert health.battery(15.9, 1.0, 0.0) == ('OK', '15.9 V (no charge estimate)')
-    assert health.battery(15.9, 0.8, 5.0) == ('OK', '15.9 V, 80%')
+    assert health.battery(6.0, 1.0, -0.0) == ('WARN', '6.0 V; implausible for 4S (1.5 V/cell)')
+    assert health.battery(15.9, 1.0, 0.0) == ('OK', '15.9 V; no charge estimate')
+    assert health.battery(15.9, 0.8, 5.0) == ('OK', '15.9 V; 80%')
+
+
+def test_battery_judges_the_configured_cell_count():
+    assert health.battery(8.2, math.nan, 0.0, cells=2) == ('OK', '8.2 V; no charge estimate')
+    assert health.battery(12.4, math.nan, 0.0, cells=3)[0] == 'OK'
+    assert health.battery(12.4, math.nan, 0.0, cells=4) == ('WARN', '12.4 V; low for 4S')
+    assert health.battery(0.0, math.nan, 0.0) == ('WARN', '0.0 V; power brick not connected?')
+
+
+def test_battery_row_shows_the_voltage_and_profile_sets_cells():
+    from mhseals_testing.profiles import load_profile, parse_profile
+    from mhseals_testing.ui.dashboard import short
+    assert short(health.battery(6.0, 1.0, 0.0)[1]) == '6.0 V'
+    assert short(health.battery(15.9, 0.8, 5.0)[1]) == '15.9 V'
+    data = {'name': 'x', 'command': {'topic': '/c', 'type': 'twist', 'units': 'effort',
+                                     'limit': [1, 1, 1]},
+            'odometry': '/o', 'frames': {'odom': 'odom', 'base': 'base'},
+            'arming': {'outputs': 'none'}, 'sensors': [], 'battery': {'cells': 3}}
+    assert parse_profile(data).battery_cells == 3
+    with pytest.raises(ValueError, match='battery.cells'):
+        parse_profile({**data, 'battery': {'cells': 0}})
