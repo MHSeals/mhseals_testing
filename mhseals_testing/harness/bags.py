@@ -10,6 +10,11 @@ under ``data.root()`` as ``sessions/<id>/`` (``session.json``, optional ``summar
 ``runs/``, ``events.jsonl``, ``bag/NN/``). The older flat layout (``<root>/<name>/`` next to
 ``<name>.report.json``) is still listed; it keeps its edits in ``<name>.meta.json`` because it
 has no ``session.json``. Listing never starts or stops a recorder.
+
+Finalize (B7): a segment killed mid-write has ``.mcap`` files but no ``metadata.yaml``;
+``finalize`` repairs it with ``ros2 bag reindex`` run as a keeper child, only from the Bags tab
+``F`` key, never automatically (reindex reads the whole bag, too much for the ODROID to start
+on its own). There is no mcap-parsing fallback: a failed reindex leaves the segment as it was.
 """
 
 from dataclasses import dataclass
@@ -290,3 +295,52 @@ def delete(bag):
     if bag.legacy:
         for sidecar in bag.path.parent.glob(f'{bag.id}.*'):
             sidecar.unlink()
+
+
+# --- finalize ------------------------------------------------------------------------
+
+INDEXED, UNINDEXED, EMPTY = 'indexed', 'unindexed', 'empty'
+
+
+def mcap_files(segment):
+    return sorted(Path(segment).glob('*.mcap'))
+
+
+def segment_state(segment):
+    """``indexed`` (has metadata.yaml), ``empty`` (no data, or only 0-byte
+    files) or ``unindexed`` (data but no metadata)."""
+    segment = Path(segment)
+    if (segment / 'metadata.yaml').is_file():
+        return INDEXED
+    if not any(f.stat().st_size for f in mcap_files(segment)):
+        return EMPTY
+    return UNINDEXED
+
+
+def reindex_command(segment):
+    return ['ros2', 'bag', 'reindex', str(segment), '-s', 'mcap']
+
+
+def finalize(segment, run, recording=None):
+    """Repair one unindexed segment. Returns ``{'status', 'error'?}``.
+
+    ``run(argv)`` runs the command and returns its exit code. ``recording`` is
+    the segment being written now (a path or None); it is refused untouched.
+    Statuses: refused, indexed (already fine), empty (nothing to index, no
+    reindex), done, failed.
+    """
+    segment = Path(segment)
+    if recording is not None and segment.resolve() == Path(recording).resolve():
+        return {'status': 'refused', 'error': 'segment is being recorded'}
+    state = segment_state(segment)
+    if state == INDEXED:
+        return {'status': 'indexed'}
+    if state == EMPTY:
+        return {'status': 'empty'}
+    for f in mcap_files(segment):  # a 0-byte file makes reindex fail
+        if not f.stat().st_size:
+            f.unlink()
+    code = run(reindex_command(segment))
+    if code != 0 or segment_state(segment) != INDEXED:
+        return {'status': 'failed', 'error': f'ros2 bag reindex exited {code}'}
+    return {'status': 'done'}
