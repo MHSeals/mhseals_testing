@@ -278,28 +278,67 @@ def render(snapshot, view, width=120, height=34):
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
                         Layout(footer(view, width), size=3 + extra))
     body = layout['body']
-    if view.get('tab', TABS[0]) != TABS[0]:
-        body.update(theme.block(Text(f"{view['tab']} is not built yet", style=MUTED), view['tab'], True))
-        return _with_modal(layout, view, width, height)
-    if width >= FOLD:
-        body.split_row(Layout(status_panel(snapshot, view, body_height),
-                              size=status_width(width) or 30), Layout(name='main'))
-    else:
-        body.split_row(Layout(name='main'))  # Status folds away; the header still shows armed state
-    main = body['main']
-    lower = body_height - TOP_ROW
-    if width >= WIDE:
-        main.split_column(Layout(name='top', size=TOP_ROW), Layout(name='bottom'))
-        main['top'].split_row(Layout(motion_panel(snapshot, view, TOP_ROW)),
-                              Layout(thrusters_panel(view, width < 120)))
-        main['bottom'].split_row(Layout(procedures_panel(view, lower), size=SIDEBAR),
-                                 Layout(activity_panel(snapshot, view, lower)))
-    else:
-        half = max(4, (body_height - TOP_ROW) // 2)
-        main.split_column(Layout(thrusters_panel(view, True, pins=False), size=TOP_ROW),
-                          Layout(procedures_panel(view, half), size=half),
-                          Layout(activity_panel(snapshot, view, body_height - TOP_ROW - half)))
+    build = BODIES.get(view.get('tab', TABS[0]), placeholder_body)
+    body.update(build(snapshot, view, width, body_height))
     return _with_modal(layout, view, width, height)
+
+
+def placeholder_body(snapshot, view, width, height):
+    """The body of a tab nobody has built yet."""
+    return theme.block(Text(f"{view['tab']} is not built yet", style=MUTED), view['tab'], True)
+
+
+def _cells(slots, sizes=None):
+    """Layouts for the slots that hold a panel, in order; an empty slot (None) takes no space."""
+    sizes = sizes or {}
+    return [Layout(panel, size=sizes.get(name)) for name, panel in slots if panel is not None]
+
+
+def drive_slots(snapshot, view, width, height):
+    """The Drive panels by named slot for the tier of ``width`` (ui.md 4.5); None leaves a slot empty.
+
+    A later item fills a slot (``minimap``, ``conditions``) by returning a panel here.
+    """
+    wide = width >= WIDE
+    lower = height - TOP_ROW
+    half = max(4, lower // 2)
+    return {
+        'status': status_panel(snapshot, view, height) if width >= FOLD else None,
+        'motion': motion_panel(snapshot, view, TOP_ROW) if wide else None,
+        'conditions': None,
+        'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
+        'procedures': procedures_panel(view, lower if wide else half),
+        'activity': activity_panel(snapshot, view, lower if wide else height - TOP_ROW - half),
+        'minimap': None,
+    }
+
+
+def drive_body(snapshot, view, width, height):
+    """Status column beside the main area: Motion and the right column over Procedures and Activity."""
+    slots = drive_slots(snapshot, view, width, height)
+    wide = width >= WIDE
+    half = max(4, (height - TOP_ROW) // 2)
+    main = Layout()
+    if wide:
+        top = Layout(size=TOP_ROW)
+        top.split_row(*_cells([('motion', slots['motion']), ('conditions', slots['conditions']),
+                               ('thrusters', slots['thrusters'])]))
+        bottom = Layout()
+        bottom.split_row(*_cells([('procedures', slots['procedures']), ('activity', slots['activity'])],
+                                 {'procedures': SIDEBAR}))
+        main.split_column(top, bottom)
+    else:
+        main.split_column(*_cells([('thrusters', slots['thrusters']), ('procedures', slots['procedures']),
+                                   ('activity', slots['activity'])],
+                                  {'thrusters': TOP_ROW, 'procedures': half}))
+    page = Layout()
+    page.split_row(*_cells([('status', slots['status'])], {'status': status_width(width) or 30}), main)
+    return page
+
+
+# Tab -> body function (snapshot, view, width, height) -> renderable. A tab not listed shows the
+# placeholder; building a tab is registering its body here.
+BODIES = {'Drive': drive_body}
 
 
 def _with_modal(layout, view, width, height):

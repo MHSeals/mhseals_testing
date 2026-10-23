@@ -1,11 +1,16 @@
 """Breakpoints, Status folding (U13) and per-tab focus memory."""
 
 import io
+import os
+from pathlib import Path
+
+import pytest
 
 from rich.console import Console
+from rich.text import Text
 
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui import layout
+from mhseals_testing.ui import layout, theme
 from mhseals_testing.ui.layout import render
 from mhseals_testing.ui.panels.status import status_rows
 
@@ -95,3 +100,37 @@ def test_status_panel_folds_nothing_when_every_row_fits():
         out = status_out(profile, m, height)
         assert all(f'{group}  ▸' not in out for group in ('System', 'Frames', 'Sensors'))
     assert 'Frames  ▸' in status_out(profile, m, 22)
+
+
+# --- the Drive body table (UIW02): the seam must not change a pixel ---------------
+
+SIZES = ((120, 40), (100, 36), (80, 30), (60, 24))
+
+
+def drive_text(width, height):
+    console = Console(width=width, height=height, file=io.StringIO(), force_terminal=False)
+    console.print(render(monitor().snapshot(), view(load_profile('boat')), width, height))
+    return console.file.getvalue()
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode golden')
+@pytest.mark.parametrize('width,height', SIZES)
+def test_drive_matches_its_golden(width, height):
+    golden = Path(__file__).parent / 'golden' / 'layout' / f'drive_{width}x{height}.txt'
+    actual = drive_text(width, height)
+    if os.environ.get('UPDATE_GOLDEN'):
+        golden.write_text(actual)
+    assert actual == golden.read_text(), f'{golden.name} differs; UPDATE_GOLDEN=1 to regenerate'
+
+
+def test_a_registered_body_shows_on_its_tab(monkeypatch):
+    monkeypatch.setitem(layout.BODIES, 'Map', lambda snapshot, view, width, height: Text('FAKE MAP BODY'))
+    console = Console(width=100, height=30, file=io.StringIO(), force_terminal=False)
+    console.print(render(monitor().snapshot(), view(load_profile('boat'), tab='Map'), 100, 30))
+    assert 'FAKE MAP BODY' in console.file.getvalue()
+
+
+def test_an_unregistered_tab_keeps_the_placeholder():
+    console = Console(width=100, height=30, file=io.StringIO(), force_terminal=False)
+    console.print(render(monitor().snapshot(), view(load_profile('boat'), tab='Bags'), 100, 30))
+    assert 'Bags is not built yet' in console.file.getvalue()

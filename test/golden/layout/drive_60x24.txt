@@ -1,0 +1,24 @@
+ boat_test  [Drive]            boat · ROS 42  idle  disarmed
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                
+╭─ ▸ Status · 1/8 live ──────╮╭─ Thrusters · odroid · defa─╮
+│ Sensors                    ││    Thr    Out   Rev     µs │
+│ › ✓ odometry          once ││   · FL    1     ·     1500 │
+│   · FCU odometry           ││   · FR    2     ·     1500 │
+│   ✗ GPS                    ││   · RR    3     ·     1500 │
+│   ! IMU              once× ││   · RL    4     ·     1500 │
+│   · GPS raw                ││                            │
+│   · compass                ││                            │
+│   · LiDAR                  ││                            │
+│   · tracks                 │╰────────────────────────────╯
+│ Frames                     │╭─ Procedures · 1 ready ─────╮
+│   ✓ map → odom             ││   ✓ 1 Surge trial          │
+│   ✗ odom → base_link       ││                            │
+│ System                     │╰────────────────────────────╯
+│   ! compute           78°C │╭─ Activity · results · 1 ───╮
+│                            ││     P…  Result       Deta… │
+│ /odom/local                ││   ✓ s…  sign match   +0.2… │
+│                            ││                            │
+╰────────────────────────────╯╰────────────────────────────╯
+ Focus Status · 1/9                                    Ready
+ Tab Focus           a Arm               Space Stop         
+ ? Help              q Quit                                 
