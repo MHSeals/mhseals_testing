@@ -38,8 +38,18 @@ def test_unknown_while_measuring_then_good_in_calm_water():
     assert r['verdict'] == 'good', r
     assert abs(r['drift'][0] - 0.05) < 0.02 and r['neutral_s'] >= 24
     assert cond.facts()['conditions.verdict'].value == 'good'
-    assert r['floor'] > 0 and 0 < r['sea'] < 0.05 and r['sea_acc'] > 0     # the panel's floor and sea figures
+    assert r['floor'] > 0 and 0 < r['sea'] < 0.05 and 'sea_acc' not in r     # the panel's floor and sea figures
     assert cond.facts()['conditions.ceiling'].value is None      # no plan: the ceiling is not limiting
+
+
+def test_sea_ignores_non_finite_rates():
+    clock = Clock()
+    cond = Conditions(clock=clock)
+    feed(cond, clock, 30, 0.01)
+    for rate in (float('nan'), float('inf')):
+        clock.now += 1 / HZ
+        cond.feed(clock.now, np.array((0.05, -0.02)), 0.3, rate, True, 0.1)
+    assert np.isfinite(cond.summary(now=clock.now + 10)['sea'])
 
 
 def test_gusty_water_is_poor_with_a_reason():

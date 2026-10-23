@@ -83,7 +83,7 @@ class Conditions:
     def _rate(self):
         s = self.s
         out = dict(verdict='unknown', reason='', ceiling=None, drift_trust=None, neutral_s=0.0,
-                   drift=None, state='unknown', se=None, floor=None, sea=None, sea_acc=None)
+                   drift=None, state='unknown', se=None, floor=None, sea=None)
         self._detail = None
         if len(self.samples) < 2:
             out['reason'] = 'measuring 0 s'
@@ -136,12 +136,12 @@ class Conditions:
 
     def _sea(self, t, e, n, rate, mask, windows):
         """Wave level for the Conditions panel: ``floor`` the yaw trust floor (rad/s), ``sea`` the yaw-rate
-        scatter of the neutral samples (rad/s) and ``sea_acc`` their horizontal acceleration scatter (m/s^2)."""
+        scatter of the neutral samples (rad/s). There is no heave (a_z) source yet, so no up-down figure."""
         floor = est.wave_floor(windows, self.s)
         out = dict(floor=None if floor is None else float(floor[0]))
-        if mask.sum() > 2:
-            accel = np.hypot(np.gradient(e, t), np.gradient(n, t))[mask]
-            out.update(sea=float(np.std(rate[mask])), sea_acc=float(np.std(accel)))
+        scatter = rate[mask & np.isfinite(rate)]    # a bad sample must not turn the figure into NaN
+        if len(scatter) > 2:
+            out['sea'] = float(np.std(scatter))
         return out
 
     def facts(self, now=None):
