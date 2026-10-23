@@ -421,6 +421,27 @@ def test_external_config_edits_reload_and_bad_ones_are_refused(tmp_path):
     assert 'rejected' in app.notice and app.args.hardware_config['reversed'][0] is True
 
 
+def test_reload_refreshes_the_arming_copy_of_the_config(tmp_path):
+    app, _ = make_app(tmp_path)
+    (tmp_path / 'hardware.yaml').write_text('reversed: [true, false, false, false]\n')
+    app.reload_config()
+    assert app.arming.hardware_config is app.args.hardware_config
+    assert app.arming.hardware_config['reversed'][0] is True
+
+
+def test_manual_yaw_uses_the_configured_scale(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.console.size = (120, 40)
+    app.args.hardware_config['manual_yaw_scale'] = 0.2
+    app.open_events = lambda: Events(app.clock, ['press:left', None, 'x'])
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    yaws = [c[2] for c in boat.sent if c != 'neutral' and c[2] > 0]
+    amplitude = app.args.hardware_config['manual_amplitude']
+    assert yaws and yaws[0] == pytest.approx(0.2 * amplitude)
+
+
 def test_test_pulses_need_arming_follow_the_wiring_and_clear(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
     with app.attached():

@@ -261,6 +261,8 @@ class App:
     def reload_config(self):
         self.args.hardware_config = load_config(self.args.config)
         self.config_note = self.config_file.name
+        if self.arming is not None:
+            self.arming.hardware_config = self.args.hardware_config  # arming saves this copy
         if self.armed and self.profile.outputs != 'none':
             # The driver hot-reloads its snapshot; keep it the session's config.
             save_config(dict(self.args.hardware_config, output_backend=self.profile.outputs),

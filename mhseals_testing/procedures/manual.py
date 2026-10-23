@@ -58,7 +58,7 @@ def run(ctx):
     manual = ctx.services['manual']
     config = ctx.services['hardware_config']
     state = ManualState(config['manual_amplitude'], config['manual_repeat_timeout'],
-                        config['manual_initial_timeout'])
+                        config['manual_initial_timeout'], config['manual_yaw_scale'])
     publisher = GuardedPublisher(manual['plant'], manual['blockers'])
     try:
         with manual['open_events']() as keys:
