@@ -102,3 +102,13 @@ def test_boat_profile_has_no_camera_or_detections_row():
     from mhseals_testing.profiles import load_profile
     names = {s.name for s in load_profile('boat').sensors}
     assert 'camera' not in names and 'detections' not in names and 'tracks' in names
+
+
+def test_negative_squirtle_clock_offset_is_judged_by_magnitude():
+    from mhseals_testing.profiles import load_profile
+    config = load(profile=load_profile('boat'), user=False)
+    spec = replace(next(s for s in config.specs if s.id == 'perc.legacy_zed.clock'), raise_after=0.0)
+
+    def status(offset):
+        return Engine([spec]).tick({'clock.offset.squirtle': Fact(offset)}, {}).results[spec.id].status
+    assert [status(v) for v in (0.01, -0.05, -0.1, 0.1)] == ['ok', 'warn', 'fail', 'fail']

@@ -58,6 +58,8 @@ checks:
   - id: perc.legacy_zed.clock
     kind: threshold
     fact: clock.offset.squirtle
+    severity: fail
+    abs: true
     below: false
     warn: 0.03
     fail: 0.08
