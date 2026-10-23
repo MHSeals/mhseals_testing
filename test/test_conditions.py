@@ -7,9 +7,9 @@ S = c.load_settings()
 HZ = 5          # the rate the helpers generate at; the estimator measures it from the timestamps
 
 
-def ar1(n, tau, sigma, rng, columns=2):
+def ar1(n, tau, sigma, rng, columns=2, hz=HZ):
     """Unit-step AR(1) noise whose correlation time is ``tau`` s."""
-    rho = np.exp(-1 / HZ / tau)
+    rho = np.exp(-1 / hz / tau)
     x = np.zeros((n, columns))
     x[0] = rng.normal(0, sigma, columns)
     for i in range(1, n):
@@ -20,8 +20,8 @@ def ar1(n, tau, sigma, rng, columns=2):
 def neutral(seconds, drift=(0.08, -0.05), tau=1.0, sigma=0.03, seed=0, heading=0.0, t0=0.0, ramp=(0, 0), hz=HZ):
     """Samples of a drifting boat at neutral: (t, vel, heading, rate, mask)."""
     rng = np.random.default_rng(seed)
-    t = t0 + np.arange(int(seconds * HZ)) / HZ
-    vel = np.array(drift) + np.outer(t - t0, ramp) + ar1(len(t), tau, sigma, rng)
+    t = t0 + np.arange(int(seconds * hz)) / hz
+    vel = np.array(drift) + np.outer(t - t0, ramp) + ar1(len(t), tau, sigma, rng, hz=hz)
     return t, vel, np.full(len(t), heading), rng.normal(0, 0.002, len(t)), np.ones(len(t), bool)
 
 
@@ -39,6 +39,13 @@ def test_ar1_correction_recovers_spectral_level(tau):
     truth = 2 * sigma ** 2 * tau            # long-run level of an AR(1) with correlation time tau
     levels = [c.spectral_level(windows_of(neutral(8 * 300, tau=tau, sigma=sigma, seed=seed)), S)
               for seed in range(6)]
+    assert np.mean(levels) == pytest.approx(truth, rel=0.10)
+
+
+@pytest.mark.parametrize('hz', [5, 10, 20])
+def test_spectral_level_follows_the_sample_rate_of_the_data(hz):
+    truth = 2 * 0.03 ** 2 * 1.0
+    levels = [c.spectral_level(windows_of(neutral(8 * 100, sigma=0.03, seed=seed, hz=hz)), S) for seed in range(6)]
     assert np.mean(levels) == pytest.approx(truth, rel=0.10)
 
 

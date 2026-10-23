@@ -143,7 +143,7 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     steps = steps[steps <= s.neutral_max_gap_s]
     if not len(steps):
         return []
-    hz = 1 / float(np.median(steps))                           # the velocity source sets the rate, not the yaml
+    hz = 1 / float(np.percentile(steps, 25))                   # the source sets the rate, not the yaml; a quartile keeps dropouts visible
     windows = []
     for run in (r for r in runs if len(r)):
         start, unsettled = t[run[0]], False
