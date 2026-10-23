@@ -699,11 +699,21 @@ class App:
             self.modal = None
             self.refresh()
 
-    def show(self, title, message=None, rows=None, width=60):
-        def handle(key):
+    @staticmethod
+    def scroll(modal, key, keys):
+        """Move a clipped popup's body one line for a key in ``keys`` (up, down); True if it moved."""
+        if key in keys:
+            modal['scroll'] = max(0, modal.get('scroll', 0) + (1 if key == keys[1] else -1))
             return True
-        self.popup(dict(kind='message', title=title, message=message, rows=rows, width=width,
-                        hint='Any key closes'), handle)
+        return False
+
+    def show(self, title, message=None, rows=None, width=60):
+        modal = dict(kind='message', title=title, message=message, rows=rows, width=width,
+                     hint='Any key closes')
+
+        def handle(key):
+            return not (modal['clipped'] and self.scroll(modal, fold(key), ('k', 'j')))
+        self.popup(modal, handle)
 
     def prompt(self, message, title='Ready'):
         """Wait for Enter; Escape cancels the procedure."""
@@ -721,12 +731,15 @@ class App:
         modal = dict(kind='choice', title=title, message=message, options=list(options),
                      selected=selected, danger=danger, rows=rows, width=width,
                      hint=theme.SEPARATOR.join((f'{UPDOWN} select', 'Enter choose', 'Esc cancel')),
-                     keys=[None] * len(options))
+                     keys=[None] * len(options),
+                     scroll_hint='[ ]')
         for key, index in (shortcuts or {}).items():
             modal['keys'][index] = key
 
         def handle(key):
             key = fold(key)
+            if self.scroll(modal, key, ('[', ']')):
+                return None
             if key in ('up', 'k'):
                 modal['selected'] = (modal['selected'] - 1) % len(options)
             elif key in ('down', 'j'):

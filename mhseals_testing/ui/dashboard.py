@@ -9,9 +9,10 @@ and any popup. Tests render it to text. Layout, after cx:
   footer   armed state, focus, notice; key hints for the focused panel
 """
 
+import io
 import math
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.layout import Layout
 from rich.segment import Segment
 from rich.style import Style
@@ -465,11 +466,34 @@ def footer(view, width):
     return Group(status, grid)
 
 
-def popup(modal, width):
-    """A centred dialog: message, list of choices, or a text field."""
-    body = []
+def _height(renderable, width):
+    """Rows ``renderable`` takes at ``width``."""
+    console = Console(width=width, file=io.StringIO())
+    return len(console.render_lines(renderable, console.options.update(height=None), pad=False))
+
+
+class Window:
+    """``rows`` lines of ``renderable`` starting at line ``offset``."""
+
+    def __init__(self, renderable, offset, rows):
+        self.renderable, self.offset, self.rows = renderable, offset, rows
+
+    def __rich_console__(self, console, options):
+        lines = console.render_lines(self.renderable, options.update(height=None), pad=False)
+        for line in lines[self.offset:self.offset + self.rows]:
+            yield from line
+            yield Segment.line()
+
+
+def popup(modal, width, height=None):
+    """A centred dialog: message, list of choices, or a text field.
+
+    Given the terminal ``height`` the dialog never outgrows it: the choices and the hint stay
+    pinned and the message and rows scroll (``modal['scroll']``, clamped here).
+    """
+    head, tail = [], []
     if modal.get('message'):
-        body.append(Text(modal['message']))
+        head.append(Text(modal['message']))
     if modal.get('rows'):
         rows = theme.grid({'header': '', 'style': f'bold {ACCENT}'},
                           {'header': '', 'no_wrap': False, 'overflow': 'fold', 'ratio': 1},
@@ -477,23 +501,39 @@ def popup(modal, width):
         rows.show_header = False
         for label, value in modal['rows']:
             rows.add_row(str(label), str(value))
-        body.append(rows)
+        head.append(rows)
     if modal['kind'] == 'choice':
-        if body:
-            body.append(Text(''))
+        if head:
+            tail.append(Text(''))
         for index, option in enumerate(modal['options']):
             key = modal.get('keys', [None] * len(modal['options']))[index]
             line = Text(f'{key} ' if key else '', style=f'bold {ACCENT}')
             line.append_text(Text.from_markup(option) if '[' in option else Text(option))
-            body.append(theme.selected(line, index == modal['selected']))
+            tail.append(theme.selected(line, index == modal['selected']))
     elif modal['kind'] == 'input':
-        body += [Text(''), Text('> ', style=f'bold {ACCENT}') + Text(modal['text'] + theme.FILL)]
-    if modal.get('hint'):
-        body += [Text(''), Text(modal['hint'], style=MUTED)]
-    panel = theme.block(Group(*body), modal['title'], True)
+        tail += [Text(''), Text('> ', style=f'bold {ACCENT}') + Text(modal['text'] + theme.FILL)]
+    panel_width = min(width - 4, modal.get('width', 64))
+    inner = panel_width - 4
+    body = Group(*head)
+    modal['clipped'] = False
+    hint = modal.get('hint')
+    if height is not None:
+        total, pinned = _height(body, inner), _height(Group(*tail), inner)
+        if hint:
+            pinned += 1 + _height(Text(hint), inner)
+        if total + pinned > height - 2:
+            modal['clipped'] = True
+            hint = f"{hint or ''}{SEPARATOR}{modal.get('scroll_hint', 'j/k')} scroll".lstrip(SEPARATOR)
+            pinned = _height(Group(*tail), inner) + 1 + _height(Text(hint), inner)
+            room = max(1, height - 2 - pinned)
+            modal['scroll'] = max(0, min(modal.get('scroll', 0), total - room))
+            body = Window(body, modal['scroll'], room)
+    if hint:
+        tail += [Text(''), Text(hint, style=MUTED)]
+    panel = theme.block(Group(body, *tail), modal['title'], True)
     if modal.get('danger'):
         panel.border_style = theme.BAD
-    return panel, min(width - 4, modal.get('width', 64))
+    return panel, panel_width
 
 
 class Overlay:
@@ -564,6 +604,6 @@ def render(snapshot, view, width=120, height=34):
                           Layout(procedures_panel(view, half), size=half),
                           Layout(activity_panel(snapshot, view, body_height - TOP_ROW - half)))
     if view.get('modal'):
-        panel, panel_width = popup(view['modal'], width)
+        panel, panel_width = popup(view['modal'], width, height)
         return Overlay(layout, panel, panel_width, width, height)
     return layout
