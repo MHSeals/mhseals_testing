@@ -50,14 +50,14 @@ Anchors for `show`: `rose`, `thrusters`, `header.deploy`, `odometry` and `sensor
 ## Engine rules
 
 - `Engine.tick(facts, probes, session)` evaluates every enabled check and returns a `HealthReport(results, transitions)`.
-- A non-ok condition becomes active after `raise_after` (default 2 s for warn, immediate for fail) and clears after `clear_after` (default 3 s).
-- The shown status is `min(result.status, severity)`. Statuses sort `ok < info < unknown < warn < fail`.
+- A non-ok condition becomes active after `raise_after` (default: immediate for fail, 10 s for `unknown`, 2 s otherwise) and clears after `clear_after` (default 3 s).
+- The shown status is `min(result.status, severity)`; `unknown` is not capped. Statuses sort `ok < info < unknown < warn < fail`.
 - A fact whose probe raised or went stale gives `unknown` (following `missing`), never a stale value.
-- Transitions `(id, from, to, result, time)` feed toasts and the bag.
+- Transitions `(id, old, new, result, time)` feed toasts and the bag.
 
 ## User overrides
 
-`~/.config/mhseals/health.yaml` may `disable` ids (globs allowed), `override` fields of one id and set `probes:` options. Precedence: shipped file, user file, session mute. An entry that matches no check is a lint problem.
+`~/.config/mhseals/health.yaml` may `disable` ids (globs allowed), `override` fields of one id and set `probes:` options. Precedence: shipped file, then user file (session mutes arrive with the health popup). An entry that matches no check is a lint problem.
 
 ## Lint
 
