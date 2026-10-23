@@ -1,0 +1,11 @@
+schema: mhseals.challenge/1
+name: pair_test
+title: Pair test
+kind: gates
+tree: pair_test
+time_limit: 180.0
+judge:
+  red: red_pole_buoy
+  green: green_pole_buoy
+  max_width: 8.0
+  out_and_back: true

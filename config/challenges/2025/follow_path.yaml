@@ -1,0 +1,11 @@
+schema: mhseals.challenge/1
+name: follow_path
+title: Follow the path
+kind: gates
+tree: follow_path
+time_limit: 300.0
+judge:
+  red: red_buoy
+  green: green_buoy
+  max_width: 4.0
+  count: {label: yellow_buoy, event: species_count, name: species count, key: species}

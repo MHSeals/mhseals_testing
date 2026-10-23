@@ -1,24 +1,19 @@
 """Challenge judges: every assertion of test_referee.py has a twin here, plus the owner's record."""
-from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.referee import core, course
-from mhseals_testing.referee.challenges import gates
+from mhseals_testing.referee import core, course, pack
 from mhseals_testing.referee.core import Window
 from referee_helpers import TRUTH, element, line
 
 COURSE = course.from_truth(TRUTH)
-CHANNEL = dict(red='red_pole_buoy', green='green_pole_buoy', max_width=8.0)
+SPECS = {n: pack.load_spec(pack.CHALLENGE_DIR / d / f'{n}.yaml')
+         for d, n in (('2025', 'nav_channel'), ('commissioning', 'pair_test'))}
 
 
-def spec_for(name, **judge):
-    """A gates spec as pack.py will build it from the YAML, without the pack loader."""
-    return SimpleNamespace(name=name, module=gates, params={**gates.PARAMS, **CHANNEL, **judge},
-                           truth_task=name, time_limit=180.0)
-
-
-SPECS = dict(nav_channel=spec_for('nav_channel'), pair_test=spec_for('pair_test', out_and_back=True))
+def with_params(name, **judge):
+    spec = SPECS[name]
+    return pack.Spec(**{**spec.__dict__, 'params': {**spec.params, **judge}})
 
 
 def judge(name, track, events=(), truth_course=COURSE, final=True, banner=None, source='truth'):
@@ -87,3 +82,21 @@ def test_contacts_carry_the_basis_of_the_course_and_track():
     assert judge('nav_channel', track, source='estimate').basis == 'estimated'
     confirmed = core.Course('day', COURSE.elements, 'confirmed')
     assert judge('nav_channel', track, truth_course=confirmed, source='estimate').basis == 'confirmed'
+
+
+def test_sequence_order_flags_a_gate_taken_out_of_order():
+    spec = with_params('nav_channel', order='sequence')
+    nearest_first = Window(0, 10, tuple(line((11, 0), (15, 0)) + line((15, 0), (5, 0), t0=11)))
+    assert core.judge(spec, COURSE, nearest_first).verdict == 'PASS'
+    other_way = Window(0, 10, tuple(line((11, 0), (5, 0)) + line((5, 0), (16, 0), t0=11)))
+    result = core.judge(spec, COURSE, other_way)
+    assert result.verdict == 'FAIL' and 'gates in order' in result.failures
+
+
+def test_gates_in_order_is_undecided_while_open_and_holds_once_final():
+    spec = with_params('nav_channel', order='sequence')
+    track = tuple(line((0, 0), (16, 0)))
+    state = {c.name: c.ok for c in core.judge(spec, COURSE, Window(0, 10, track), final=False).checks}
+    assert state['gates in order'] is None
+    state = {c.name: c.ok for c in core.judge(spec, COURSE, Window(0, 10, track)).checks}
+    assert state['gates in order'] is True

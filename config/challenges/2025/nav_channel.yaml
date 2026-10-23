@@ -1,0 +1,10 @@
+schema: mhseals.challenge/1
+name: nav_channel
+title: Navigation channel
+kind: gates
+tree: nav_channel
+time_limit: 180.0
+judge:
+  red: red_pole_buoy
+  green: green_pole_buoy
+  max_width: 8.0
