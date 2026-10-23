@@ -3,6 +3,7 @@
 from rich.console import Group
 from rich.text import Text
 
+from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
@@ -36,6 +37,7 @@ def status_rows(snapshot, specs):
         rows.append(dict(group='Sensors', state=state, name=spec.name, value=value, rate=rate,
                          detail=f'{spec.topic}{SEPARATOR}{detail}' if detail != spec.topic
                          else spec.topic, required=spec.required))
+    rows.extend(localization_rows(snapshot))
     for chain in snapshot['tf']:
         rows.append(dict(group='Frames', state=chain['status'],
                          name=f"{chain['source']} {theme.ARROW} {chain['target']}", value='',
@@ -44,6 +46,41 @@ def status_rows(snapshot, specs):
         detail = theme.ascii_safe(detail)
         rows.append(dict(group='System', state=level, name=name, value=short(detail),
                          detail=detail, required=False))
+    return rows
+
+
+def localization_rows(snapshot, site=magnetic.SITE):
+    """GPS fix, compass field and yaw trust, from the optional gpsraw and mag sensors.
+
+    gpsraw values: fix, sats, h_acc (m). mag values: x, y, z (tesla); optional
+    compass_gyro (deg), magcal_residual (deg) and yaw_sigma (rad) from the monitor.
+    A missing sensor gives no row, so a boat without them looks as before.
+    """
+    rows = []
+    gps = snapshot['sensors'].get('gpsraw')
+    if gps:
+        v = gps['values']
+        state = 'OK' if v.get('fix', 0) >= 3 and gps['status'] == 'LIVE' else 'WARN'
+        fix = {0: 'none', 1: 'none', 2: '2D', 3: '3D', 4: 'DGPS', 5: 'FLOAT', 6: 'FIXED'}.get(v.get('fix'), '?')
+        value = f"{fix} {theme.SEPARATOR.strip()} {v.get('sats', 0)}"
+        if v.get('h_acc'):
+            value += f" {theme.SEPARATOR.strip()} {v['h_acc']:.1f}m"
+        rows.append(dict(group='Localization', state=state, name='GPS', value=value,
+                         detail='gpsraw fix, satellites, horizontal accuracy', required=False))
+    mag = snapshot['sensors'].get('mag')
+    if mag:
+        v = mag['values']
+        ratio = magnetic.field_ratio(v['x'], v['y'], v['z'], site)
+        bad = not magnetic.FIELD_RATIO[0] <= ratio <= magnetic.FIELD_RATIO[1]
+        field = magnetic.field_mg(v['x'], v['y'], v['z'])
+        rows.append(dict(group='Localization', state='ERROR' if bad else 'OK', name='Compass',
+                         value=f"{field:.0f}/{site['field_mg']:.0f} mG",
+                         detail='|B| against the site WMM field', required=False))
+        quality, reason = magnetic.yaw_quality(v.get('compass_gyro'), v.get('magcal_residual'),
+                                               v.get('yaw_sigma'), ratio)
+        rows.append(dict(group='Localization', state='OK' if quality == 'ok' else 'WARN', name='Yaw',
+                         value=reason or 'ok', detail='yaw_quality: compass, gyro, magcal, sigma',
+                         required=False))
     return rows
 
 
