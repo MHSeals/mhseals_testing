@@ -5,7 +5,6 @@ spins on its own thread so the TUI loop can block on keys.
 """
 
 from functools import partial
-import json
 import os
 import re
 import socket
@@ -29,8 +28,9 @@ from mhseals_testing import events
 from mhseals_testing.harness import journal
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.ros.graph import RclpyGraph
+from mhseals_testing.ros.ingest import ingest
 from mhseals_testing.ros.sources import subscribe_sources
-from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
+from mhseals_testing.validation import RAW_KINDS
 
 MESSAGE_TYPES = {
     'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix,
@@ -88,12 +88,10 @@ class RosIO:
                 continue
             raw = sensor.kind in RAW_KINDS
             self.node.create_subscription(
-                message, sensor.topic,
-                partial(self._sensor, sensor.name, 'raw' if raw else sensor.kind),
+                message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind),
                 qos_profile_sensor_data, raw=raw)
         self.node.create_subscription(
-            Vector3Stamped, DRIFT_TOPIC,
-            lambda message: monitor.estimate_drift(message.vector.x, message.vector.y), 10)
+            Vector3Stamped, DRIFT_TOPIC, partial(self._ingest, DRIFT_TOPIC, 'drift'), 10)
         self.node.create_subscription(TFMessage, '/tf', self._tf, qos_profile_sensor_data)
         self.node.create_subscription(
             TFMessage, '/tf_static', partial(self._tf, static=True),
@@ -116,29 +114,15 @@ class RosIO:
     def now(self):
         return self.node.get_clock().now().nanoseconds / 1e9
 
-    def _sensor(self, name, kind, message):
-        base = self.profile.base_frame if name == 'odometry' else None
-        stale_after = self.monitor.deadlines.get(name, self.stale_after)
-        if kind == 'raw':
-            result = validate_raw(message, self.now(), stale_after)
-        else:
-            result = validate(kind, message, self.now(), base, stale_after)
-        self.monitor.observe(name, result.values, result.issue, result.stamp_age)
+    def _ingest(self, topic, kind, message, authority=''):
+        ingest(self.monitor, self.profile, topic, kind, message, self.now(),
+               self.stale_after, authority)
 
     def _tf(self, message, info=None, static=False):
         # The publisher GID tells two publishers of the same edge apart.
         gid = getattr(info, 'publisher_gid', None) or (info or {}).get('publisher_gid', b'')
-        authority = bytes(getattr(gid, 'data', gid)).hex()
-        now = self.now()
-        for transform in message.transforms:
-            q, t = transform.transform.rotation, transform.transform.translation
-            if (not finite(q.x, q.y, q.z, q.w, t.x, t.y, t.z)
-                    or abs(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w - 1) > .1):
-                self.monitor.event('invalid TF transform: ' + transform.child_frame_id)
-                continue
-            stamp = transform.header.stamp
-            self.monitor.transform(transform.header.frame_id, transform.child_frame_id,
-                                   now - stamp.sec - stamp.nanosec / 1e9, static, authority)
+        self._ingest('/tf_static' if static else '/tf', 'tf_static' if static else 'tf',
+                     message, bytes(getattr(gid, 'data', gid)).hex())
 
     def emit(self, phase, **details):
         """Journal an event, publish it into the bag and show it on the dashboard."""
@@ -147,9 +131,7 @@ class RosIO:
         if self.journal_path:
             journal.append(self.journal_path, event)  # first: it survives a dead publisher
         self.events.publish(String(data=events.line(event)))
-        shown = {k: v for k, v in details.items() if k not in ('t_ns', 'rec')}
-        self.monitor.event(phase + (' ' + json.dumps(shown, sort_keys=True, default=str)
-                                    if shown else ''))
+        self._ingest(EVENTS_TOPIC, 'event', event)
 
     def endpoints(self, topic, subscribers=False):
         """Every publisher (or subscriber) of ``topic`` as ``{node, gid, self}``.

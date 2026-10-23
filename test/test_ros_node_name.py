@@ -53,7 +53,8 @@ def test_emit_journals_before_publishing_and_keeps_the_dashboard_line_clean(tmp_
         journal_path=path, recording=True, now=lambda: 1.0,
         node=SimpleNamespace(get_name=lambda: 'n'),
         events=SimpleNamespace(publish=lambda msg: order.append(('publish', journal.read(path)))),
-        monitor=SimpleNamespace(event=shown.append))
+        monitor=SimpleNamespace(event=shown.append), profile=None, stale_after=2.0)
+    fake._ingest = lambda *a: RosIO._ingest(fake, *a)
     RosIO.emit(fake, 'marker', id=3, t_ns=7)
     [event] = journal.read(path)
     assert event['t_ns'] == 7 and event['rec'] is True

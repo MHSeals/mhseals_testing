@@ -50,6 +50,7 @@ from mhseals_testing.ui.takeover import decide
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
 from mhseals_testing.ui.layout import TabMemory
 from mhseals_testing.ui.popups import odometry, pins
+from mhseals_testing.ui.source import LiveSource
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
 #   wide:   Status | Motion     | Thrusters        narrow:  Status | Thrusters
@@ -161,7 +162,7 @@ class App:
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
-                 facts=None):
+                 facts=None, source=None):
         self.args = args
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -169,6 +170,7 @@ class App:
         self.profile = profile
         self.monitor = monitor
         self.ros = ros
+        self.source = source or LiveSource(monitor, profile)
         self.processes = processes
         self.paths = paths
         self.console = console or Console()
@@ -215,7 +217,7 @@ class App:
         return self.arming is not None and self.arming.armed
 
     def snapshot(self):
-        return self.monitor.snapshot(self.profile.required_tf)
+        return self.source.snapshot()
 
     # --- interlocks ------------------------------------------------------------
 
@@ -291,6 +293,9 @@ class App:
     # --- background work, every tick ---------------------------------------------
 
     def tick(self):
+        self.source.tick(self.clock())
+        if not self.source.live:
+            return  # replay: no host reads, config watching or driving
         self.refresh_advisories()
         self.watch_config()
         if self.test_pulses is not None and self.publish_pulses is not None:
@@ -947,7 +952,8 @@ class App:
         self.notice = 'Armed at neutral'
 
     def arm(self):
-        self.arm_panel()
+        if self.source.live:
+            self.arm_panel()
 
     def wait_for_driver(self):
         """Start the driver and show it starting; Space or Esc cancels.
@@ -1026,6 +1032,9 @@ class App:
         self.ros.emit('health_snapshot', procedure=procedure.key, **entry)
 
     def run_procedure(self, procedure):
+        if not self.source.live:
+            self.notice = 'Procedures are disabled in review'
+            return
         reason = self.availability(procedure)
         if reason and 'armed' in procedure.needs and not self.armed:
             self.arm_panel()  # offer to arm, then carry on with the procedure
