@@ -114,6 +114,17 @@ def control_rows(snapshot, specs):
     return rows
 
 
+def recording_rows(snapshot, specs):
+    """``Recording ‹ lean · full · off ›`` (System group; ui 6.1) when the app owns a recorder."""
+    mode = snapshot.get('rec_mode')
+    if mode is None:
+        return []
+    left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
+    return [dict(group='System', state='OK' if mode != 'off' else 'WARN', name='Recording', required=False,
+                 value=f'{left}{mode}{right}', plain=mode != 'off', setting='recording',
+                 detail='left/right: lean, full or off; each change ends the segment and starts the next')]
+
+
 def session_rows(snapshot, specs):
     """Rows the app feeds into ``snapshot['session']`` (Command effort, Bench)."""
     return list(snapshot.get('session', ()))
@@ -169,7 +180,7 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
 
 # A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
 # providers (Control, Recording, Config, RTK) without touching the grouping below.
-PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame_rows, system_rows, session_rows]
+PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame_rows, system_rows, recording_rows, session_rows]
 # Placeholder until the Command-effort and Bench items publish these advisories (ui.md 6.1, Session group);
 # no producer exists yet, so only the test advises them.
 SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System

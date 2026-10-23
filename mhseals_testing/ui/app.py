@@ -32,6 +32,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITION
 from mhseals_testing import nav2_limits
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
+from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.conditions import Conditions
@@ -190,7 +191,7 @@ class App:
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None,
-                 review=None, network=None):
+                 review=None, network=None, recorder=None):
         self.args = args
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -241,6 +242,7 @@ class App:
         self.health = Health(profile, paths.bag.parent, facts, clock)
         self.feeds.append(ToastFeed(self.health))
         self.recwatch = RecWatch(self.clock)
+        self.recorder = recorder or Recorder(processes, paths.bag, profile.name)
         self.rec = None                 # latest RecSample, drawn in the header strip
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
@@ -270,6 +272,8 @@ class App:
             snapshot['components'] = [self.nav2_file.row()]
         if self.source.live:    # a past session shows no live control state
             snapshot['control'] = self.control()
+            if not self.watching:
+                snapshot['rec_mode'] = self.recorder.mode   # the Recording row (owner only)
         counts = health_feed.summary(self.engine)
         if counts:
             snapshot['health'] = counts
@@ -411,11 +415,28 @@ class App:
 
     def watch_recording(self):
         """Sample the recorder's health; below the free-disk floor stop it, mark it and say so."""
-        self.rec = self.recwatch.sample(self.paths.bag, self.processes.running('bag'))
+        self.rec = self.recwatch.sample(self.paths.bag, self.processes.running('bag'),
+                                       self.recorder.mode)
         if self.rec.stop_for_disk:
             self.ros.emit('marker', kind='system', note=DISK_MARKER)   # first, so it lands in the bag
-            self.processes.stop('bag', timeout=20)
+            self.set_recording('off', reason='disk')
             self.notice = f'{DISK_MARKER} ({self.rec.free_gb:.1f} GB free)'
+
+    def set_recording(self, mode, reason='operator'):
+        """Recording row: end the running segment (``rec_stop``), start the next unless ``off`` (``rec_start``)."""
+        if self.recorder.segment is not None:
+            self.ros.emit('rec_stop', segment=self.recorder.segment.name, reason=reason)
+        segment = self.recorder.set_mode(mode)
+        self.ros.recording = segment is not None  # events stamp ``rec`` from this (bags.md 1)
+        if segment is not None:
+            self.ros.emit('rec_start', segment=segment.name, mode=mode)
+        self.notice = f'Recording {mode}' + (f' {segment.name}' if segment else '')
+
+    def step_recording(self, key):
+        """left/right on the Recording row moves along lean, full, off without wrapping."""
+        i = REC_MODES.index(self.recorder.mode) + (1 if key == 'right' else -1)
+        if 0 <= i < len(REC_MODES):
+            self.set_recording(REC_MODES[i])
 
     # --- hardware config: edits from the panel or any editor, hot-reloaded -------
 
@@ -712,7 +733,7 @@ class App:
     def close_recording(self):
         if not self.processes.running('bag'):
             return 'was not running'
-        self.processes.stop('bag', timeout=20)  # SIGINT lets ros2 bag finish the file
+        self.set_recording('off', reason='quit')  # SIGINT lets ros2 bag finish the file
         return f'flushed {self.paths.bag.name}'
 
     def summary(self):
@@ -899,6 +920,8 @@ class App:
         rows = status_rows(self.snapshot(), self.profile.sensors)
         if key in ('left', 'right') and self.agents_row(rows):
             self.toggle_agents()
+        elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
+            self.step_recording(key)
         elif key == 'o':
             self.open('odometry')
         elif key == 'e':
@@ -916,9 +939,12 @@ class App:
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
 
-    def agents_row(self, rows):
+    def row_setting(self, rows):
         row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
-        return row is not None and row.get('setting') == 'agents'
+        return row.get('setting') if row else None
+
+    def agents_row(self, rows):
+        return self.row_setting(rows) == 'agents'
 
     def toggle_agents(self):
         """Flip the Agents setting; a bound arbiter follows (block refuses new agent claims)."""
@@ -1586,7 +1612,7 @@ def main(argv=None):
     from mhseals_testing.ros.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO, node_name
     from mhseals_testing.ros.plant import Plant
-    from mhseals_testing.harness.processes import ProcessManager, bag_command, unique_path
+    from mhseals_testing.harness.processes import ProcessManager, unique_path
 
     from rclpy.signals import SignalHandlerOptions
 
@@ -1636,8 +1662,6 @@ def main(argv=None):
             registry.update(lambda state: state.update(session=str(paths.bag)))
             paths.bag.parent.mkdir(parents=True, exist_ok=True)
             start_session(profile, paths.session, paths.truth)
-            if not processes.running('bag'):
-                processes.start('bag', bag_command(paths.bag))
             if args.start_stack and not any(processes.running(key) for key in stack.start_order()):
                 time.sleep(2.0)  # let discovery find an already-running stack
                 if ros.publishers(profile.odometry):
@@ -1656,6 +1680,11 @@ def main(argv=None):
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))
             app.observe_config()
+            if processes.running('bag'):               # adopted: the recorder keeps going
+                app.recorder.mode = 'lean'
+            else:
+                app.set_recording('lean')              # lean is the default at session start
+            registry.set_children(processes.records())
         authority = None if watching else authority_feed.start(
             app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
         app.run()

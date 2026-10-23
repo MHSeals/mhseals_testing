@@ -36,7 +36,7 @@ def unfinalized(session):
 
 @dataclass(frozen=True)
 class RecSample:
-    mode: str                   # 'lean' or 'off'
+    mode: str                   # 'lean', 'full' or 'off'
     rate_bps: float             # EMA of the live segment's growth, 0 until two samples
     free_gb: float
     minutes_left: float | None  # None while the rate is unknown
@@ -58,7 +58,7 @@ class RecWatch:
         self._rate = None
         self.tripped = False    # the disk stop fired; clears once recording is off
 
-    def sample(self, segment, recording):
+    def sample(self, segment, recording, mode='lean'):
         """One reading. ``stop_for_disk`` is true once per trip, only while recording."""
         now, free = self.clock(), self.free(segment)
         if recording:
@@ -75,7 +75,7 @@ class RecWatch:
         self.tripped = self.tripped or stop
         rate = self._rate or 0.0
         left = free * 1e9 / rate / 60 if rate > 0 else None
-        return RecSample('lean' if recording else 'off', rate, free, left, stop)
+        return RecSample(mode if recording and mode in ('lean', 'full') else 'lean' if recording else 'off', rate, free, left, stop)
 
 
 def strip_text(sample, armed=False, sep=' · ', approx='≈'):

@@ -1,0 +1,19 @@
+╭─ ▸ Status · 1/8 live ──────────╮
+│ Components                     │
+│ › ✓ odometry              once │
+│   · FCU odometry               │
+│   ✗ GPS                        │
+│   ! IMU                  once× │
+│   · GPS raw                    │
+│   · compass                    │
+│   · LiDAR                      │
+│   · tracks                     │
+│ Localization                   │
+│   ✓ map → odom                 │
+│   ✗ odom → base_link           │
+│ System                         │
+│   ! compute               78°C │
+│     Recording         ‹ lean › │
+│                                │
+│ /odom/local                    │
+╰────────────────────────────────╯
