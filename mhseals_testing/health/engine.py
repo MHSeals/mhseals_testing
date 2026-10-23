@@ -79,7 +79,12 @@ class Engine:
             period = self.periods.get(probe)
             if period and now - taken > STALE_PERIODS * period:
                 return self._missing(spec, f'no {probe} sample for {now - taken:.1f} s')
-        result = kind.evaluate(spec.params, facts)
+        try:
+            result = kind.evaluate(spec.params, facts)
+            if result.status not in STATUSES:
+                raise ValueError(f'unknown status {result.status!r}')
+        except Exception as error:               # a buggy kind or odd fact must not stop the tick
+            result = Result('unknown', detail=f'{spec.kind} failed: {error!r}')
         if result.status == 'unknown':
             return self._missing(spec, result.detail, result)
         return self._cap(spec, result)

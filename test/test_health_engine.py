@@ -104,3 +104,16 @@ def test_when_mismatch_reports_ok():
     clock.now = 0
     report = engine.tick({'level': Fact('fail')}, {'p': (0, None)}, session={'armed': False})
     assert report.results['c'].status == 'ok'
+
+
+def test_a_kind_that_raises_or_returns_a_bad_status_reads_unknown():
+    for name, body in (('t_raise', lambda p, f: f['absent'].value),
+                       ('t_bad', lambda p, f: Result('bad'))):
+        registry.kind(name, Params, needs=('p',))(body)
+        try:
+            engine = Engine([CheckSpec(id='c', kind=name, params=Params(), missing='unknown')],
+                            periods={'p': 1.0}, clock=lambda: 0.0)
+            result = engine.tick({}, {'p': (0.0, None)}).results['c']
+        finally:
+            registry.KINDS.pop(name, None)
+        assert result.status == 'ok' and name in result.detail     # unknown is debounced in
