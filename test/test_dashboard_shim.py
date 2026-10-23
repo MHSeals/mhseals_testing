@@ -7,7 +7,7 @@ from mhseals_testing.ui.panels import activity, motion, procedures, status, thru
 def test_shim_reexports_the_split_modules():
     for module, names in ((layout, ('render', 'popup', 'footer', 'header', 'fit_hints', 'MIN_SIZE')),
                           (status, ('status_panel', 'status_rows', 'short')),
-                          (motion, ('motion_panel', 'drift_line', 'sparkline')),
+                          (motion, ('motion_panel', 'drift_line')),
                           (thrusters, ('thrusters_panel', 'thruster_rows', 'effort_bar')),
                           (procedures, ('procedures_panel',)),
                           (activity, ('activity_panel', 'result_label', 'result_detail'))):

@@ -75,7 +75,7 @@ def _gps(message):
 
 def _imu(message):
     rate = message.angular_velocity
-    values = dict(summary=f'wz {rate.z:+.3f} rad/s | {message.header.frame_id}')
+    values = dict(wz=rate.z, summary=f'wz {rate.z:+.3f} rad/s | {message.header.frame_id}')
     if not _quaternion_ok(message.orientation):
         return values, 'invalid orientation quaternion'
     # REP 145: covariance[0] == -1 means the IMU provides no orientation.

@@ -1,25 +1,74 @@
-"""Motion panel: commanded and measured velocity, trends and the drift line."""
+"""Motion panel: braille plots of commanded and measured velocity, and the drift line."""
 
 import math
 
 from rich.console import Group
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.profiles import PLOT_SCALE
+from mhseals_testing.ui import braille, theme
 from mhseals_testing.ui.panels import TITLES
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 
 
-def sparkline(values, width=10):
-    if not values:
-        return Text(theme.MIDDOT * width, style=MUTED)
-    values = values[-width:]
-    low, high = min(values), max(values)
-    bars = theme.SPARK
-    if high - low < 1e-3:
-        return Text(theme.RULE * len(values), style=MUTED)
-    return Text(''.join(bars[min(7, int(7 * (v - low) / (high - low)))] for v in values),
-                style=ACCENT)
+AXES = (('Surge', 'm/s', 'vx'), ('Sway', 'm/s', 'vy'), ('Yaw', 'rad/s', 'wz'))
+TALL = 20            # panel height at which each axis gets 4 braille rows (else 1)
+SHORT = 40           # inner width below which the axis header is `Surge  +60% -> +0.37`
+STALE = 2.0          # s; a measurement older than this reads as a dash
+
+
+def _latest(series, now):
+    return series[-1][1] if series and now - series[-1][0] <= STALE else None
+
+
+def _axis(index, snapshot, view, width, rows):
+    """One axis: a header row, then ``rows`` braille rows (with ±scale labels when 4)."""
+    plots = snapshot.get('plots') or dict(now=0.0, window=10.0, meas={}, cmd=[])
+    name, unit, key = AXES[index]
+    scale = view.get('plot_scale', PLOT_SCALE)[index]
+    effort = view['units'] == 'effort'
+    now, window = plots['now'], plots['window']
+    top, bottom = f'{scale:+g}', f'{-scale:+g}'
+    gutter = max(len(top), len(bottom)) + 1 if rows > 1 else 0
+    plot = braille.canvas(max(1, width - gutter), rows)
+    if rows > 1:
+        plot.hline(0.0, -scale, scale)
+    series = plots['meas'].get(key, [])
+    pred = [(t, c[index] * (scale if effort else 1.0)) for t, c in plots['cmd']]
+    plot.line(pred, now - window, now, -scale, scale, 'pred')
+    clipped = plot.line(series, now - window, now, -scale, scale, 'meas')
+    command = view['command'][index]
+    cmd = f'{command:+.0%}' if effort else f'{command:+.2f}'
+    meas = _latest(series, now)
+    meas = f'{meas:+.2f}' if meas is not None else theme.DASH
+    marks = ''.join(sorted(clipped))
+    if width < SHORT:
+        head = f'{name}  {cmd} {theme.pick("→", "->")} {meas}'
+    else:
+        head = f'{name} {unit}{" gyro" if key == "wz" else ""}  cmd {cmd}  meas {meas}'
+    header = Text(head + (' ' + marks if marks else ''), style='bold', no_wrap=True, overflow='crop')
+    lines = plot.rows()
+    if rows > 1:
+        labels = {0: top, braille._row(0.0, -scale, scale, rows * 4) // 4: '0', rows - 1: bottom}
+        lines = [Text(f'{labels.get(i, ""):>{gutter - 1}} ', style=MUTED) + line
+                 for i, line in enumerate(lines)]
+    return [header, *lines]
+
+
+class Plots:
+    """The three axes at whatever width the panel is given; ``rows`` braille rows each."""
+
+    def __init__(self, snapshot, view, rows):
+        self.snapshot, self.view, self.rows = snapshot, view, rows
+
+    def __rich_console__(self, console, options):
+        for index in range(3):
+            yield from _axis(index, self.snapshot, self.view, options.max_width, self.rows)
+        if self.rows > 1:
+            yield Text(f"{theme.pick('━', '=')} meas  {theme.pick('╌', '-')} pred"
+                       f"  -{self.snapshot.get('plots', {}).get('window', 10):g}s"
+                       + ('  cmd (unscaled)' if self.view['units'] == 'effort' else ''),
+                       style=MUTED, no_wrap=True, overflow='crop')
 
 
 # Body frame drawn bow-up: +x (forward) is ↑, +y (port) is ←. Index by 45° sector from +x.
@@ -116,20 +165,11 @@ def drift_line(snapshot, view):
     return line
 
 
-def motion_panel(snapshot, view):
-    effort = view['units'] == 'effort'
+def motion_panel(snapshot, view, height=0):
+    """Three braille axes over the drift lines; 4 rows an axis once ``height`` reaches TALL."""
     measured = snapshot['sensors'].get('odometry', {})
-    values = measured.get('values', {})
-    table = theme.grid('', {'header': 'Cmd', 'justify': 'right'},
-                       {'header': 'Meas', 'justify': 'right'}, {'header': '', 'style': MUTED},
-                       {'header': 'Trend', 'no_wrap': False, 'overflow': 'crop'},  # shrinks first
-                       padding=(0, 1))
-    for axis, key, unit in (('Surge', 'vx', 'm/s'), ('Sway', 'vy', 'm/s'), ('Yaw', 'wz', 'rad/s')):
-        command = view['command'][('vx', 'vy', 'wz').index(key)]
-        table.add_row(axis, f'{command:+.0%}' if effort else f'{command:+.2f}',
-                      f'{values[key]:+.2f}' if values.get(key) is not None else theme.DASH, unit,
-                      sparkline(snapshot.get('trends', {}).get(key, [])))
-    subtitle = ('effort' if effort else 'm/s') + SEPARATOR + theme.labelled(
+    subtitle = ('effort' if view['units'] == 'effort' else 'm/s') + SEPARATOR + theme.labelled(
         measured.get('status', 'MISSING'), 'odom').plain
-    return theme.block(Group(table, drift_line(snapshot, view)), TITLES['motion'],
-                       view['focus'] == 'motion', subtitle)
+    rows = 4 if height >= TALL else 1
+    return theme.block(Group(Plots(snapshot, view, rows), drift_line(snapshot, view)),
+                       TITLES['motion'], view['focus'] == 'motion', subtitle)

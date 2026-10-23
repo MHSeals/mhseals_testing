@@ -11,6 +11,8 @@ import math
 import threading
 import time
 
+PLOT_WINDOW = 10.0    # seconds of motion history the Motion plots draw
+COMMAND_SAMPLES = 2000  # about 40 s of the Runner's 50 Hz command loop
 HISTORY_SAMPLES = 120000  # 40 minutes at 50 Hz, covering a full 30-minute mission
 
 GAP_WINDOW = 10  # s of arrivals that max_gap looks back over
@@ -20,7 +22,7 @@ ADVISORY_LEVELS = ('OK', 'WARN', 'FAIL', 'N/A')
 
 class BoatMonitor:
     def __init__(self, stale_after=2.0, clock=time.monotonic, history_sensors=('odometry',),
-                 deadlines=None):
+                 deadlines=None, gyro_sensor=None):
         self.stale_after = stale_after
         self.deadlines = dict(deadlines or {})  # per-sensor freshness, derived from rates
         self.clock = clock
@@ -30,6 +32,8 @@ class BoatMonitor:
         self.advisories = {}
         # Full-rate samples for trial analysis, per configured sensor.
         self.histories = {name: deque(maxlen=HISTORY_SAMPLES) for name in history_sensors}
+        self.gyro_sensor = gyro_sensor  # the IMU whose angular rate is the yaw plot's measurement
+        self.commands = deque(maxlen=COMMAND_SAMPLES)  # (time, (surge, sway, yaw)) as published
         self.events = deque(maxlen=12)
         self.results = deque(maxlen=100)
         self.drift = None  # (x, y) the velocity controller estimates, odom frame, with time
@@ -74,6 +78,11 @@ class BoatMonitor:
     def event(self, message):
         with self.lock:
             self.events.append((self.clock(), str(message)))
+
+    def command(self, command):
+        """Record the command the Runner, manual drive or a test pulse just published."""
+        with self.lock:
+            self.commands.append((self.clock(), tuple(float(v) for v in command)))
 
     def record_result(self, result):
         with self.lock:
@@ -153,6 +162,31 @@ class BoatMonitor:
             rows.append(dict(source=source, target=target, status=status, detail=detail))
         return rows
 
+    def _plots(self, now, trend_sensor):
+        """The last PLOT_WINDOW seconds for the Motion plots; call with the lock held.
+
+        ``meas`` has odometry vx and vy and the gyro's wz as (time, value) lists,
+        ``cmd`` the commanded (surge, sway, yaw) as (time, tuple).
+        """
+        since = now - PLOT_WINDOW
+        meas = {key: [] for key in ('vx', 'vy', 'wz')}
+        for t, values, issue in reversed(self.histories.get(trend_sensor, ())):
+            if t < since:
+                break
+            for key in ('vx', 'vy'):
+                if not issue and values.get(key) is not None:
+                    meas[key].append((t, values[key]))
+        # A gyro sample with an orientation issue still measures the rate.
+        for t, values, _ in reversed(self.histories.get(self.gyro_sensor, ())):
+            if t < since:
+                break
+            if values.get('wz') is not None:
+                meas['wz'].append((t, values['wz']))
+        for series in meas.values():
+            series.reverse()
+        return dict(now=now, window=PLOT_WINDOW, meas=meas,
+                    cmd=[(t, c) for t, c in self.commands if t >= since])
+
     def snapshot(self, required_tf=(('map', 'odom'), ('odom', 'base_link')), trend_sensor='odometry'):
         now = self.clock()
         with self.lock:
@@ -160,17 +194,8 @@ class BoatMonitor:
             tf = self._tf_rows(now, required_tf)
             advisories = {name: dict(level=level, detail=detail, age=now - received)
                           for name, (received, level, detail) in self.advisories.items()}
-            recent = []
-            for t, v, issue in reversed(self.histories.get(trend_sensor, ())):
-                if now - t > 10:
-                    break
-                if not issue:
-                    recent.append((t, v))
-            recent.reverse()
-            step = max(1, len(recent) // 32)
-            trends = {key: [v[key] for _, v in recent[::step] if v.get(key) is not None][-32:]
-                      for key in ('vx', 'vy', 'wz')}
+            plots = self._plots(now, trend_sensor)
             drift = (self.drift[:2] if self.drift and now - self.drift[2] <= self.stale_after
                      else None)
             return dict(sensors=sensors, tf=tf, advisories=advisories, events=list(self.events),
-                        trends=trends, results=deepcopy(list(self.results)), drift=drift)
+                        plots=plots, results=deepcopy(list(self.results)), drift=drift)

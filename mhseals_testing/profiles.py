@@ -29,6 +29,7 @@ def _profile_dir():
 PROFILE_DIR = _profile_dir()
 SENSOR_KINDS = ('odometry', 'imu', 'gps', 'gpsraw', 'mag', 'points', 'image', 'compressed', 'detections')
 MIN_DEADLINE = 1.5   # s, floor of the rate-derived freshness deadline (real GPS gaps reach 1.13 s)
+PLOT_SCALE = (0.6, 0.3, 0.5)   # about 1.5x the limits_v2.yaml limits; fixed, never autoscaled
 OUTPUTS = ('none', 'odroid', 'topic')
 
 
@@ -69,6 +70,7 @@ class PlantProfile:
     sensors: tuple
     components: dict | None = None   # stack components (harness.components); None attaches only
     battery_cells: int | None = None   # pack cell count from `battery: {cells: N}`; None assumes 4S
+    plot_scale: tuple = PLOT_SCALE     # Motion plot half-range for surge, sway (m/s) and yaw (rad/s)
 
     @property
     def uses_fcu(self):
@@ -149,6 +151,9 @@ def parse_profile(data, where='profile'):
     if len({sensor.name for sensor in sensors}) != len(sensors):
         raise ValueError(f'{where}.sensors: names must be unique')
     components = parse_components(data.get('components'), where + '.components')
+    scale = tuple(float(value) for value in data.get('plot_scale', PLOT_SCALE))
+    if len(scale) != 3 or not all(0 < value < float('inf') for value in scale):
+        raise ValueError(f'{where}.plot_scale: three positive numbers')
     battery = data.get('battery') or {}
     cells = battery.get('cells')
     if cells is not None and (not isinstance(cells, int) or isinstance(cells, bool) or cells < 1):
@@ -166,7 +171,8 @@ def parse_profile(data, where='profile'):
         base_frame=_require(frames, 'base', str, where + '.frames'),
         use_sim_time=bool(data.get('use_sim_time', False)),
         outputs=outputs, velocity_controller=controller,
-        sensors=tuple(sensors), components=components or None, battery_cells=cells)
+        sensors=tuple(sensors), components=components or None, battery_cells=cells,
+        plot_scale=scale)
 
 
 def available_profiles(directory=PROFILE_DIR):

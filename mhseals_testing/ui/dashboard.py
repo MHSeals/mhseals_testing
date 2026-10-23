@@ -14,7 +14,7 @@ from mhseals_testing.ui.panels import PANELS, TITLES, window  # noqa: F401
 from mhseals_testing.ui.panels.activity import activity_panel, result_detail, result_label  # noqa: F401
 from mhseals_testing.ui.panels.motion import (  # noqa: F401
     ARROWS, DRIFT_AGREE, DRIFT_DEADBAND, bearing, drift_arrow, drift_line, drift_now, drift_vector,
-    expected_drift, motion_panel, sparkline)
+    expected_drift, motion_panel)
 from mhseals_testing.ui.panels.procedures import procedures_panel  # noqa: F401
 from mhseals_testing.ui.panels.status import (  # noqa: F401
     MARKS, localization_rows, short, status_panel, status_rows)

@@ -35,7 +35,7 @@ PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut 
 WIDE = 106          # below this the Motion panel folds away
 SIDEBAR = 36
 FOLD = 60           # below this the Status sidebar folds away so Thrusters keeps its width
-TOP_ROW = 8         # Motion and Thrusters height
+TOP_ROW = 10        # Motion and Thrusters height: three one-row axes with headers, two drift lines
 STRIP_FULL, STRIP_SHORT = 100, 5   # below 100 columns the strip shows its first five items
 
 
@@ -268,7 +268,7 @@ def render(snapshot, view, width=120, height=34):
     lower = body_height - TOP_ROW
     if width >= WIDE:
         main.split_column(Layout(name='top', size=TOP_ROW), Layout(name='bottom'))
-        main['top'].split_row(Layout(motion_panel(snapshot, view)),
+        main['top'].split_row(Layout(motion_panel(snapshot, view, TOP_ROW)),
                               Layout(thrusters_panel(view, width < 120)))
         main['bottom'].split_row(Layout(procedures_panel(view, lower), size=SIDEBAR),
                                  Layout(activity_panel(snapshot, view, lower)))

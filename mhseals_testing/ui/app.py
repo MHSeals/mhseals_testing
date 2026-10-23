@@ -460,6 +460,7 @@ class App:
             armed=self.armed, arm_label=('armed' + dashboard.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command,
             profile=self.profile.name, units=self.profile.command_units,
+            plot_scale=self.profile.plot_scale,
             outputs=self.profile.outputs, specs=self.profile.sensors,
             host=socket.gethostname(), domain=os.environ.get('ROS_DOMAIN_ID', '0'),
             recording=self.processes.running('bag'), bench_override=self.args.bench_override,
@@ -1205,6 +1206,7 @@ class App:
     def session(self, name, blockers, details):
         def show(command, remaining, label):
             self.command = command
+            self.monitor.command(command)
             self.notice = f'{label or name}{dashboard.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts'
             if self.test_pulses is not None and self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
@@ -1256,6 +1258,7 @@ class App:
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""
         self.manual = not done
         self.command = tuple(command)
+        self.monitor.command(command)
         if 'motion' in self.panels():
             self.focus = 'motion'
         active = ' '.join(f'{axis} {value:+.2f}' for axis, value in
@@ -1376,10 +1379,13 @@ def main(argv=None):
     for hangup in (signal.SIGHUP, signal.SIGTERM):
         signal.signal(hangup, hang_up)
     signal.signal(signal.SIGUSR1, detach)
-    monitor = BoatMonitor(args.stale_after, history_sensors=tuple(
-        sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'),
-        deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
-                   if sensor.deadline is not None})
+    gyros = [sensor.name for sensor in profile.sensors if sensor.kind == 'imu']
+    monitor = BoatMonitor(args.stale_after, gyro_sensor=gyros[0] if gyros else None,
+                          history_sensors=tuple(
+                              sensor.name for sensor in profile.sensors
+                              if sensor.kind == 'odometry' or sensor.name == (gyros or [None])[0]),
+                          deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
+                                     if sensor.deadline is not None})
     ros = RosIO(profile, monitor, args.stale_after, paths.journal)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
