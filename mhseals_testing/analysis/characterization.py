@@ -261,6 +261,22 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
     }
 
 
+def motion_limits(samples, motion, efforts):
+    """Speeds, accelerations and decelerations the boat showed, in the shape ``nav2_profile`` reads.
+
+    ``samples`` are the settled hold samples (peak speed); ``motion`` includes the switching
+    transients (acceleration). ``efforts`` is the effort each axis was driven at, kept so a
+    limit is never read as more than what was tested.
+    """
+    normalized = _normalize(samples)
+    if not normalized:
+        raise ValueError("no usable hold samples")
+    velocity = {axis: max(abs(row[1][index]) for row in normalized) for index, axis in enumerate(AXES)}
+    acceleration, deceleration = acceleration_limits(_normalize(motion))
+    return dict(velocity=velocity, acceleration=acceleration, deceleration=deceleration,
+                measured_at_effort=dict(zip(AXES, efforts)))
+
+
 def samples_from_windows(history, windows, transient=1.0):
     """Pair each odometry sample with the command held when it was measured.
 

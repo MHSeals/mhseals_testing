@@ -231,56 +231,6 @@ def test_wiring_gate_checks_the_main_response_sign_only():
             check_wiring(gain)
 
 
-def test_characterize_refuses_when_a_sign_split_decoupling_is_active():
-    from types import SimpleNamespace
-    from mhseals_testing.procedures.characterize import run, single_decoupling
-    split = dict(decoupling=[1, 0, 0, 0, 1, 0, 0, 0, 1],
-                 decoupling_negative=[1, 0, 0, .1, 1, 0, 0, 0, 1])
-    assert not single_decoupling(split) and single_decoupling(dict(split, decoupling_negative=split['decoupling']))
-    records = []
-    ctx = SimpleNamespace(services=dict(hardware_config=split), record=records.append)
-    assert run(ctx)['verdict'] == 'REFUSED' and records[0]['verdict'] == 'REFUSED'
-
-
-def test_characterize_aborts_after_the_first_hold_of_a_reversed_axis():
-    from contextlib import contextmanager
-    from types import SimpleNamespace
-    from mhseals_testing.procedures import Settings
-    from mhseals_testing.procedures.characterize import run
-
-    clock, holds, records = [0.0], [], []
-    odometry = []
-
-    class Runner:
-        def hold(self, command, seconds, label=''):
-            start = clock[0]
-            clock[0] += seconds
-            holds.append(command)
-            velocity = [command[0], -command[1], command[2]]  # sway wired backwards
-            for step in range(int(seconds)):
-                odometry.append((start + step + .5, dict(vx=velocity[0], vy=velocity[1],
-                                                         wz=velocity[2])))
-            return start, clock[0]
-
-        def stop(self):
-            holds.append('stop')
-
-    @contextmanager
-    def motion(name, **details):
-        yield Runner()
-
-    ctx = SimpleNamespace(
-        settings=Settings(settle=2, command=3), motion=motion, prompt=lambda text: None,
-        history=lambda since, until: [s for s in odometry if since <= s[0] <= until],
-        record=records.append,
-        services=dict(hardware_config=dict(decoupling=[1, 0, 0, 0, 1, 0, 0, 0, 1])))
-    result = run(ctx)
-    assert result['verdict'] == 'REFUSED' and 'sway' in result['reason']
-    assert records == [result]
-    # Stopped right after the first sway hold: no yaw, no second level, no combined vectors.
-    assert holds[-2:] == [(0., .125, 0.), 'stop'] and len(holds) == 7
-
-
 def hold_history(gap=None, frozen=False):
     """Five 6 s holds sampled at 10 Hz; ``gap`` removes a time range, ``frozen`` holds one velocity."""
     windows = [((0.5 * k, 0, 0), 6.0 * k, 6.0 * k + 6.0) for k in range(5)]

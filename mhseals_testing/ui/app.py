@@ -234,7 +234,8 @@ class App:
         reasons = motion_blockers(self.snapshot(), self.profile, self.args.bench_override)
         if self.ros.fault:
             reasons.insert(0, 'ROS fault: ' + self.ros.fault)
-        return reasons + self.staging().blockers()
+        # A running survey staged the backup itself; it restores it when it ends or aborts.
+        return reasons + ([] if self.running else self.staging().blockers())
 
     def staging(self):
         """The identity-correction backup for this session's hardware YAML (harness/apply.py)."""
@@ -1131,6 +1132,7 @@ class App:
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
                 history=self.history, warn=self.warn_history,
+                staging=self.staging(),
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show,

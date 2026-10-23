@@ -97,7 +97,7 @@ def _registry():
         Procedure('c', 'Combined trials', combined.run, trial,
                   'diagonal and turning commands'),
         Procedure('f', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
-                  'fit the velocity model and measured limits'),
+                  'survey the boat, refine the thrust correction per direction'),
         Procedure('v', 'Controller steps', controller.run, trial | {'velocity'},
                   'step response of the calibrated velocity controller'),
         Procedure('m', 'Manual control', manual.run, frozenset({'armed'}),

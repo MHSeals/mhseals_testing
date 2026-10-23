@@ -40,7 +40,7 @@ class Spec:
                 value = bool(value)
             elif self.kind is str:
                 value = str(value)
-                if value not in self.choices:
+                if self.choices and value not in self.choices:   # no choices: the user checks it
                     raise ValueError
             else:
                 value = self.kind(value)
@@ -57,6 +57,8 @@ class Spec:
     def describe(self):
         if self.choices:
             return 'one of ' + '/'.join(self.choices)
+        if self.kind is str:
+            return 'text'
         if self.kind is bool:
             return 'on or off'
         low = '(' if self.lower_open else '['
@@ -82,7 +84,8 @@ SPECS = (
     Spec('nav_distance', 4.0, low=1, high=50, step=1, group='Navigation', note='waypoint square side, m'),
     Spec('station_hold', 60.0, low=10, high=600, step=10, group='Navigation', note='station keeping, s'),
     Spec('station_tolerance', 1.5, low=0.2, high=10, step=0.1, group='Navigation', note='radius, m'),
-    _timing('turn', 20.0, 'characterization: s of steady turning'),
+    Spec('direction', '', str, group='Trials', reset=True,
+         note='characterization: re-refine only this column, e.g. sway+'),
 )
 BY_KEY = {spec.key: spec for spec in SPECS}
 

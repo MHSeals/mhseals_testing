@@ -413,7 +413,8 @@ def test_characterization_fits_and_saves_only_on_request(tmp_path):
         app.procedure_context = context
         app.dispatch('f')
     fitted = app.snapshot()['results'][0]['characterization']
-    assert fitted['velocity_gain']['surge']['surge'] == pytest.approx(1.2, rel=0.02)
+    assert set(fitted['speed_curves']) == {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'}
+    assert fitted['motion_limits']['velocity']['surge'] == pytest.approx(.48, rel=0.02)
     assert 'characterization' in (tmp_path / 'hardware.yaml').read_text()
     smoother = yaml.safe_load(app.paths.nav2.read_text())['velocity_smoother']['ros__parameters']
     assert smoother['max_velocity'][0] == pytest.approx(.48, rel=0.02)  # measured speed at 0.4 effort
@@ -1062,6 +1063,10 @@ def test_manual_control_arms_without_odometry_but_trials_are_unavailable(tmp_pat
 
 def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path):
     app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
+
+
+def test_characterization_offers_only_save_and_writes_unit_diagonal_columns(tmp_path):
+    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
     offered = []
     original = app.procedure_context
 
@@ -1076,7 +1081,9 @@ def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path
         app.procedure_context = context
         app.dispatch('f')
     assert offered and all('save + decouple' not in options for options in offered)
-    assert 'decoupling' not in yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
+    saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
+    for key in ('decoupling', 'decoupling_negative'):
+        assert [saved[key][i] for i in (0, 4, 8)] == [1.0, 1.0, 1.0]
 
 
 def test_mid_write_operator_config_never_reaches_the_armed_snapshot(tmp_path):
