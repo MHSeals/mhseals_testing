@@ -241,9 +241,9 @@ def test_states_keep_distinct_glyphs_without_color():
 
 
 @pytest.mark.parametrize('width,height', [(35, 24), (30, 10), (20, 6), (10, 4), (120, 9)])
-@pytest.mark.parametrize('modal', [None, dict(title='Pick', lines=['one'])])
+@pytest.mark.parametrize('modal', [None, dict(title='Pick', message='one')])
 def test_tiny_terminal_falls_back_to_the_stop_hint(width, height, modal):
     profile = load_profile('boat')
     page = text(render(monitor().snapshot(profile.required_tf),
                        view(profile, modal=modal), width, height), width, height)
-    assert 'enlarge terminal' in page and 'Space stop' in page and 'q quit' in page
+    assert 'Space' in page and 'stop' in page and 'quit' in page

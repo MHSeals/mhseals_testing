@@ -515,7 +515,17 @@ class Overlay:
 def render(snapshot, view, width=120, height=34):
     body_height = max(5, height - 5)
     layout = Layout()
+MIN_SIZE = (36, 10)  # below this no panel is legible; only the stop hint is
+
+
+def too_small():
+    """What replaces the page in a terminal too small for it; Space still stops."""
+    return Text(f'boat_test{SEPARATOR}enlarge terminal\nSpace stop{SEPARATOR}q quit')
+
+
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
+    if width < MIN_SIZE[0] or height < MIN_SIZE[1]:
+        return too_small()
                         Layout(footer(view, width), size=3))
     body = layout['body']
     sidebar = SIDEBAR if width >= WIDE else 30
