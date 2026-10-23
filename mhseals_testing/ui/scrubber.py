@@ -4,11 +4,16 @@ from rich.text import Text
 
 from mhseals_testing.ui import theme
 
-TRACK, WINDOW, GAP, HEAD = theme.pick('━', '-'), theme.pick('▬', '='), theme.pick('╌', '.'), theme.pick('┃', '|')
+TRACK, WINDOW, GAP, HEAD = theme.pick('─', '-'), theme.pick('━', '='), theme.pick('╌', '.'), theme.pick('┃', '|')
 MARK, FAIL = theme.pick('▾', 'v'), theme.BAR
 PLAY, PAUSE, TIMES = theme.pick('▶', '>'), theme.pick('‖', '||'), theme.pick('×', 'x')
 OUTCOME = {'PASS': theme.GOOD, 'FAIL': theme.BAD, 'ABORTED': theme.WARN}   # else busy (running)
 ROWS = 3
+NARROW = 60                                  # below this the tick row folds into the track
+
+
+def height(width):
+    return ROWS if width >= NARROW else ROWS - 1
 
 
 def clock(seconds):
@@ -30,13 +35,18 @@ def rows(review, width, notice=''):
         ticks[col(t)] = (FAIL, theme.BAD)
     for t, _, kind in review.markers:
         ticks[col(t)] = (MARK, theme.ACCENT if kind == 'user' else theme.MUTED)
+    if width < NARROW:
+        track = [(MARK, theme.ACCENT) if ticks[i][0] == MARK else cell for i, cell in enumerate(track)]
     track[col(review.playhead)] = (HEAD, f'bold {theme.ACCENT}')
     status = Text(f" {PLAY if review.playing else PAUSE} {review.rate:g}{TIMES}", style='bold')
     status.append(f"{theme.SEPARATOR}{clock(review.playhead - review.t0)} / {clock(review.length)}")
+    under = review.window_at()
+    if under:
+        status.append(f'{theme.SEPARATOR}{under[0]} {under[1] or "running"}'.rstrip())
     near = review.nearest()
     if near:
         status.append(f'{theme.SEPARATOR}{MARK}{near[0]}/{near[1]} {near[2]}'.rstrip())
     if notice:
         status.append(f'{theme.SEPARATOR}{notice}', style=theme.MUTED)
     status.truncate(width, overflow='ellipsis')
-    return [Text.assemble(*line) for line in (ticks, track)] + [status]
+    return [Text.assemble(*line) for line in ((ticks, track) if width >= NARROW else (track,))] + [status]

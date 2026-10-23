@@ -329,6 +329,8 @@ class App:
         if self.review:
             self.review.tick(self.clock(), self.clock() - self.last_tick)
             self.last_tick = self.clock()
+            if self.args.review is None and self.armed and self.arming.fault():
+                self.stop(self.arming.fault())  # review over a live session still stops on a fault
             return
         self.source.tick(self.clock())
         if not self.source.live:
@@ -581,9 +583,6 @@ class App:
     # --- quitting ------------------------------------------------------------------
 
     def confirm_quit(self):
-        if self.review:
-            self.quit = True
-            return
         """Say what quitting does, and offer to keep an unsaved mapping."""
         rows = [('Outputs', 'neutral, then disarm' if self.armed else 'already disarmed'),
                 ('Recording', f'flush {self.paths.bag}'),
@@ -700,7 +699,7 @@ class App:
     def dispatch(self, key):
         """Apply one key on the page."""
         raw, key = key, fold(key)
-        if self.review and self.dispatch_review(key):
+        if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
             return
         panels = self.panels()
         if key in ('[', ']'):
@@ -715,7 +714,7 @@ class App:
                 self.focus_on(neighbour)
         elif key in ('up', 'down', 'j', 'k'):
             step = -1 if key in ('up', 'k') else 1
-            if self.focus == 'thrusters' and self.grabbed is not None:
+            if self.focus == 'thrusters' and self.grabbed is not None and not self.review:
                 self.move_grabbed(step)
             else:
                 self.move(step)
@@ -810,17 +809,31 @@ class App:
             review.jump(-1 if key == ',' else 1, now)
         elif key in ('<', '>'):
             review.faster(-1 if key == '<' else 1)
-        elif key in ('p', 'space'):
-            review.pause() if key == 'space' else review.toggle()
+        elif key == 'p':
+            review.toggle()
+        elif key == 'space':
+            self.stop('stopped by operator')  # Space stops outputs everywhere (bags.md 4.2)
+            review.pause()
         elif key == 'escape':
             self.leave_review()
         elif key == 'q':
-            self.quit = True
+            if self.args.review is not None:
+                self.quit = True        # nothing of ours to lose, no popup
+            else:
+                self.confirm_quit()
+        elif key == 'v' and self.focus == 'activity':
+            return False            # the view switch is read-only
         elif key == 'a' or key in {p.key for p in PROCEDURES} or key in ('x', 'm', '+', '=', '-', '_'):
             self.notice = 'Review: arming, procedures and edits are off'
         else:
             return False
         return True
+
+    def review_allows(self, key):
+        """Whitelist for keys that reach the page in review: focus, cursor, help and read-only details."""
+        return (key in ('\t', 'backtab', 'up', 'down', 'j', 'k', '?') or key in DIRECTIONS
+                or (key == 'enter' and self.focus in ('status', 'activity'))
+                or (key == 'v' and self.focus == 'activity'))
 
     def leave_review(self):
         """Back to live; a session opened with --review has no live to return to, so it quits."""
@@ -1431,7 +1444,6 @@ def review_main(args, profile):
         review = load_session(find_session(args.review))
     except ValueError as error:
         raise SystemExit(f'boat_test --review: {error}')
-    review.host = socket.gethostname()
     console = Console()
     offline = Offline()
     app = App(args, profile, BoatMonitor(args.stale_after), offline, offline,

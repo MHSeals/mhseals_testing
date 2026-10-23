@@ -272,7 +272,7 @@ def too_small(view):
 def render(snapshot, view, width=120, height=34):
     if width < MIN_SIZE[0] or height < MIN_SIZE[1]:
         return too_small(view)
-    extra = scrubber.ROWS - 1 if playing(view) else 0   # the scrubber's rows below the footer line
+    extra = scrubber.height(width) - 1 if playing(view) else 0   # scrubber rows below the footer line
     body_height = max(5, height - 5 - extra)
     layout = Layout()
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),

@@ -70,3 +70,62 @@ def test_review_flag_opens_a_session_and_quits_on_escape(tmp_path):
     assert parse_args(['--output', str(tmp_path / 's')])[0].review is None
     with pytest.raises(ValueError):
         find_session('nope', tmp_path)
+
+
+def test_space_in_review_stops_outputs_and_pauses(tmp_path):
+    app, _ = make_app_review(tmp_path)
+    app.review.playing = True
+    app.arming.armed = True
+    app.dispatch('space')
+    assert not app.review.playing and 'disarm' in app.arming.calls
+
+
+def test_armed_fault_still_stops_in_review_over_a_live_session(tmp_path):
+    app, _ = make_app_review(tmp_path)
+    app.arming.armed = True
+    app.arming.fault = lambda: 'driver died'
+    app.tick()
+    assert 'disarm' in app.arming.calls
+    app.arming.armed = True
+    app.arming.calls.clear()
+    app.args.review = ''                       # --review has no live outputs to guard
+    app.tick()
+    assert app.arming.calls == []
+
+
+def test_panel_edit_keys_do_not_reach_the_thrusters_in_review(tmp_path):
+    app, _ = make_app_review(tmp_path)
+    app.focus = 'thrusters'
+    before = (app.draft, app.grabbed)
+    for key in ('r', '4', 'enter', 'u', 'down', 'enter', 'down'):
+        app.dispatch(key)
+    assert (app.draft, app.grabbed) == before and app.modal is None
+    app.focus = 'activity'
+    app.dispatch('v')
+    assert app.activity == 'log'
+
+
+def test_q_confirms_in_review_unless_it_is_the_review_flag(tmp_path):
+    app, _ = make_app_review(tmp_path)
+    called = []
+    app.confirm_quit = lambda: called.append(1)
+    app.dispatch('q')
+    assert called and not app.quit
+    app.args.review = ''
+    app.dispatch('q')
+    assert app.quit
+
+
+def test_scrubber_is_pure_ascii_in_ascii_mode():
+    import os, subprocess, sys
+    code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
+            "from test_review import review\n"
+            "from mhseals_testing.ui import scrubber\n"
+            "r = review(); r.go(140, 0)\n"
+            "for w in (120, 48):\n"
+            "    for t in scrubber.rows(r, w, 'note'): sys.stdout.write(t.plain)\n")
+    env = {k: v for k, v in os.environ.items() if k not in ('MHS_ASCII', 'TERM')}
+    out = subprocess.run([sys.executable, '-c', code, os.path.dirname(__file__)],
+                         env={**env, 'MHS_ASCII': '1'}, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.isascii() and out.stdout

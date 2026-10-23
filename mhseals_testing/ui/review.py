@@ -68,7 +68,9 @@ def load_session(path):
     t0, t1, markers, windows, gaps, fails = timeline(events)
     if t1 <= t0:
         raise ValueError(f'{path}: no timed events to review')
-    return Review(t0, t1, markers, windows, gaps, fails, title=path.name)
+    host = data.read_json(path / 'session.json', {}).get('host') or next(
+        (e['host'] for e in events if e.get('host')), '')
+    return Review(t0, t1, markers, windows, gaps, fails, title=path.name, host=host)
 
 
 def find_session(name, root=None):
@@ -139,6 +141,13 @@ class Review:
             self.due = None
             if self.load:
                 self.load(self.playhead)
+
+    def window_at(self):
+        """(name, outcome) of the procedure under the playhead, or None."""
+        for a, b, outcome, name in self.windows:
+            if a <= self.playhead <= b:
+                return name, outcome
+        return None
 
     def nearest(self):
         """(index, total, note) of the marker nearest the playhead, or None."""
