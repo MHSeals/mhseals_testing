@@ -5,6 +5,7 @@ saves columns, every other column covers the same span, and columns are whole
 and anchored at the right edge so the picture shifts a column at a time.
 """
 
+import bisect
 import math
 import time
 
@@ -61,6 +62,7 @@ class Axis:
         finite = all(map(math.isfinite, (t0, end, *(window or ()))))
         end = max(t0, end) if finite else end
         self.t0, self.end, self.width = t0, end, width
+        self._real = self._starts = None
         self._right = end          # layout edge: `end`, or the window's right side
         self.start, self.folds, self.scale = t0, [], MIN_SCALE
         # Non-finite times cannot be laid out: show nothing rather than raise.
@@ -143,9 +145,12 @@ class Axis:
 
     def col(self, t):
         """Column holding time t, or None when it is folded or off the axis."""
-        for i, c in enumerate(self._cols):
-            if c and c[0] != FOLD and c[0] <= t < c[1]:
-                return i
+        if self._real is None:      # columns never change after layout
+            self._real = [i for i, c in enumerate(self._cols) if c and c[0] != FOLD]
+            self._starts = [self._cols[i][0] for i in self._real]
+        k = bisect.bisect_right(self._starts, t) - 1
+        if k >= 0 and t < self._cols[self._real[k]][1]:
+            return self._real[k]
         return None
 
     def extent(self, t0, t1):

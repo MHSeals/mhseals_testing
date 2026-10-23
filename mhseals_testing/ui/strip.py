@@ -7,6 +7,7 @@ driving, the head letter which procedure, colour only how bad (U11: a hold is
 slate, never yellow); a NO_COLOR run keeps bad slices visible with a texture.
 """
 
+import bisect
 import os
 from dataclasses import dataclass
 
@@ -77,6 +78,19 @@ def _hits(col, a, b):
     return col and col[0] != FOLD and a < col[1] and b > col[0]
 
 
+def _reach(cols):
+    """Real (unfolded) column indices with their start and end times, for bisecting."""
+    real = [i for i, c in enumerate(cols) if c and c[0] != FOLD]
+    return real, [cols[i][0] for i in real], [cols[i][1] for i in real]
+
+
+def _span_range(reach, a, b):
+    """Positions (lo, hi) in `real` of the columns that a..b overlaps, or None (O(log cols))."""
+    _, starts, ends = reach
+    lo, hi = bisect.bisect_right(ends, a), bisect.bisect_left(starts, b) - 1
+    return (lo, hi) if lo <= hi else None
+
+
 def _level_style(level, bold=False):
     base = {WARN: 'yellow', FAIL: 'red'}.get(level, '')
     return f'bold {base}'.strip() if bold else base
@@ -86,10 +100,18 @@ def _skyline(axis, spans, armed, holds, g, color):
     """Two rows (top, bottom) of the skyline; folded columns are filled by the caller."""
     top, bottom = Line(axis.width), Line(axis.width)
     cols = axis.cols()
+    reach = _reach(cols)
+    real = reach[0]
+    ranges = {id(sp): _span_range(reach, sp.a, sp.b) for sp in spans}
+    begins = {}         # real position -> number of procedures whose first column is there
     for sp in spans:
-        idx = [i for i, c in enumerate(cols) if _hits(c, sp.a, sp.b)]
-        if not idx:
+        if sp.kind != MANUAL and ranges[id(sp)]:
+            begins[ranges[id(sp)][0]] = begins.get(ranges[id(sp)][0], 0) + 1
+    for sp in spans:
+        if not ranges[id(sp)]:
             continue
+        lo, hi = ranges[id(sp)]
+        idx = real[lo:hi + 1]
         first, last = idx[0], idx[-1]
         proc = sp.kind != MANUAL
         for i in idx:
@@ -110,9 +132,7 @@ def _skyline(axis, spans, armed, holds, g, color):
             top.put(last, g['cap'], cap)
         elif sp.running:
             top.put(last, g['tip'], 'bold')
-        elif proc and last + 1 < len(cols) and any(
-                o is not sp and o.kind != MANUAL and _hits(cols[last + 1], o.a, o.b)
-                and not _hits(cols[last], o.a, o.b) for o in spans):
+        elif proc and hi + 1 < len(real) and real[hi + 1] == last + 1 and begins.get(hi + 1):
             top.put(last, g['notch'], '')
     for i, c in enumerate(cols):
         if c and c[0] != FOLD and bottom.cells[i][0] == ' ':
