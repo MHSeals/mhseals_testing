@@ -197,6 +197,38 @@ def test_settings_ignore_keys_of_other_parts(tmp_path):
     assert c.load_settings(path) == S
 
 
+def _edited(tmp_path, old, new):
+    path = tmp_path / 'c.yaml'
+    path.write_text(c._config_path().read_text().replace(old, new))
+    return path
+
+
+@pytest.mark.parametrize('old, new, key', [
+    ('window_s: 8 ', "window_s: '8x' ", 'window_s'),
+    ('batch_s: 4 ', '# gone ', 'batch_s'),
+    ('noise: {s0_floor: 2.0e-6}', '', 'noise_s0_floor'),
+    ('s0_floor: 2.0e-6', 's0_floor: 0', 'noise_s0_floor'),
+    ('min_window_s: 4 ', 'min_window_s: 9 ', 'min_window_s'),
+    ('batch_s: 4 ', 'batch_s: 9 ', 'batch_s'),
+])
+def test_bad_settings_raise_one_error_naming_file_and_key(tmp_path, old, new, key):
+    path = _edited(tmp_path, old, new)
+    with pytest.raises(ValueError, match=str(path)) as err:
+        c.load_settings(path)
+    assert key in str(err.value)
+
+
+def test_empty_settings_file_is_a_value_error(tmp_path):
+    path = tmp_path / 'c.yaml'
+    path.write_text('')
+    with pytest.raises(ValueError, match=str(path)):
+        c.load_settings(path)
+
+
+def test_numeric_strings_are_coerced(tmp_path):
+    assert c.load_settings(_edited(tmp_path, 'window_s: 8 ', "window_s: '8' ")) == S
+
+
 def test_wave_floor_keeps_surge_and_sway_levels_apart():
     # Heading 0: surge is north, sway is minus east.
     rng = np.random.default_rng(3)
