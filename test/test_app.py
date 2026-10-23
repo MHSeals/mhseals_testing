@@ -1309,3 +1309,41 @@ def test_o_on_status_opens_the_odometry_popup_without_running_perception(tmp_pat
     app.focus = 'procedures'
     app.dispatch('o')
     assert app.ran and len(shown) == 1
+
+
+class ReplaySource:
+    """A source that is not live: a fixed snapshot and no host access."""
+
+    live = False
+
+    def __init__(self, snapshot):
+        self._snapshot = snapshot
+        self.ticks = []
+
+    def snapshot(self):
+        return self._snapshot
+
+    def tick(self, now):
+        self.ticks.append(now)
+
+
+def test_review_source_feeds_snapshots_and_skips_live_only_work(tmp_path):
+    app, boat = make_app(tmp_path)
+    marker = object()
+    app.source = ReplaySource(marker)
+    called = []
+    app.refresh_advisories = lambda: called.append('advisories')
+    app.watch_config = lambda: called.append('watch')
+    app.tick()
+    assert app.snapshot() is marker
+    assert app.source.ticks == [app.clock()] and called == []
+
+
+def test_review_source_refuses_arming_and_procedures(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.source = ReplaySource(app.snapshot())
+    with app.attached():
+        app.dispatch('a')
+        assert not app.armed and app.notice == 'Arming is disabled in review'
+        app.run_procedure(procedure('m'))
+    assert app.notice == 'Procedures are disabled in review' and boat.sent == []

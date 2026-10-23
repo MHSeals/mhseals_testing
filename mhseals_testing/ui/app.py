@@ -918,6 +918,9 @@ class App:
 
     def arm_panel(self):
         """One popup for both directions; Space still stops without it."""
+        if not self.source.live:
+            self.notice = 'Arming is disabled in review'
+            return
         if self.watching:
             self.notice = f'Watching pid {self.watching}: no arming'
             return
@@ -952,8 +955,7 @@ class App:
         self.notice = 'Armed at neutral'
 
     def arm(self):
-        if self.source.live:
-            self.arm_panel()
+        self.arm_panel()
 
     def wait_for_driver(self):
         """Start the driver and show it starting; Space or Esc cancels.
