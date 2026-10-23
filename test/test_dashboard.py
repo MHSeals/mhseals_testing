@@ -208,3 +208,15 @@ def test_stale_sensor_reads_stale_not_once():
     m.clock = lambda: 100
     row = next(r for r in status_rows(m.snapshot(), profile.sensors) if r['name'] == 'IMU')
     assert row['state'] == 'STALE' and row['value'] == 'stale'
+
+
+@pytest.mark.parametrize('width,height', [(60, 24), (40, 16)])
+def test_narrow_header_keeps_its_separator_strip_and_thruster_headers(width, height):
+    profile = load_profile('crane_full_stack')
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, host='innovation'), width, height), width, height)
+    lines = page.splitlines()
+    assert 'stack innovation' not in lines[0]  # profile and host never run together
+    assert 'rec' in lines[1]  # the health strip survives, shortened with +N if it must
+    assert '…' not in ''.join(line for line in lines if 'Thr' in line)
+    assert all(len(line) <= width for line in lines)

@@ -286,11 +286,13 @@ def thruster_rows(view):
                 zip(POSITIONS, channel_map, reversed_))]
 
 
-def thrusters_panel(view):
+def thrusters_panel(view, compact=False):
+    """Thruster table; ``compact`` drops the unit and the effort bar to fit a narrow pane."""
     focused = view['focus'] == 'thrusters'
     cursor = view['cursors'].get('thrusters', 0)
     testing = view['test_pulses'] is not None
-    columns = ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort']
+    columns = (['   Thr', 'Out', 'Rev', {'header': 'µs', 'justify': 'right'}] if compact else
+               ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
     if view['outputs'] == 'odroid':
         columns.append('Pin')
     table = theme.grid(*columns, padding=(0, 1))
@@ -302,8 +304,9 @@ def thrusters_panel(view):
         cells = [theme.row(state, label, focused and index == cursor),
                  Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
                  Text('↺' if row['reversed'] else '·', style=theme.WARN if row['reversed'] else MUTED),
-                 Text(f"{row['pulse']} µs", style='bold' if active else MUTED),
-                 effort_bar(row['pulse'], testing)]
+                 Text(f"{row['pulse']}" + ('' if compact else ' µs'), style='bold' if active else MUTED)]
+        if not compact:
+            cells.append(effort_bar(row['pulse'], testing))
         if view['outputs'] == 'odroid':
             cells.append(Text(row['readback'], style=MUTED))
         table.add_row(*cells)
@@ -363,7 +366,7 @@ def activity_panel(snapshot, view, height):
 # --- header, footer, popups ------------------------------------------------------
 
 
-def health_strip(snapshot, view):
+def health_strip(snapshot, view, width=None):
     rows = status_rows(snapshot, view['specs'])
     sensors = [row for row in rows if row['group'] == 'Sensors' and row['required']]
     sensors_ok = all(row['state'] == 'LIVE' for row in sensors)
@@ -377,7 +380,18 @@ def health_strip(snapshot, view):
             parts.append(theme.labelled(row['state'], f"{row['name']} {row['value']}".strip()))
     if view['bench_override']:
         parts.append(theme.labelled('WARN', 'bench override'))
-    return Text('   ').join(parts)
+    return Text('   ').join(parts) if width is None else fit_strip(parts, width)
+
+
+def fit_strip(chips, width):
+    """Join the chips, replacing those that do not fit with a ``+N`` chip."""
+    gap = Text('   ')
+    for shown in range(len(chips), 0, -1):
+        parts = chips[:shown] + ([Text(f'+{len(chips) - shown}', style=MUTED)] if shown < len(chips) else [])
+        line = gap.join(parts)
+        if len(line) + 1 <= width:
+            return line
+    return chips[0]
 
 
 def arm_state(armed, detail=None):
@@ -389,18 +403,32 @@ def arm_state(armed, detail=None):
     return text
 
 
-def header(snapshot, view):
+def header(snapshot, view, width=120):
+    """Name, profile and host over the health strip; the host's ROS domain goes first when narrow."""
     top = Table.grid(expand=True)
-    top.add_column()
-    top.add_column(justify='right')
+    top.add_column(no_wrap=True, overflow='ellipsis')
+    top.add_column(justify='right', no_wrap=True)
     title = Text(' boat_test ', style=f'bold {ACCENT}')
     title.append(f" {view['profile']}", style='bold')
-    right = Text(f"{view['host']}{SEPARATOR}ROS {view['domain']}  ", style=MUTED)
-    right.append_text(arm_state(view['armed']))
+    arm = arm_state(view['armed'])
+    room = width - len(title) - len(arm) - 4
+    host = f"{view['host']}{SEPARATOR}ROS {view['domain']}"
+    if len(host) > room:
+        host = view['host']
+    right = Text(f'{host}  ' if len(host) <= room else '', style=MUTED)
+    right.append_text(arm)
     top.add_row(title, right)
     strip = Text(' ')
-    strip.append_text(health_strip(snapshot, view))
+    strip.append_text(health_strip(snapshot, view, width - 1))
     return Group(top, strip)
+
+
+def fit_hints(hints, cells):
+    """Truncate to ``cells`` hints, dropping from the front first so Space (else ?) keeps the last cell."""
+    if len(hints) <= cells:
+        return hints
+    keep = next((hint for key in ('Space', '?') for hint in hints if hint[0] == key), hints[-1])
+    return [hint for hint in hints if hint is not keep][:cells - 1] + [keep]
 
 
 def footer(view, width):
@@ -419,7 +447,7 @@ def footer(view, width):
     grid = Table.grid(expand=True)
     for _ in range(columns):
         grid.add_column(ratio=1, no_wrap=True, overflow='ellipsis')
-    hints = hints[:columns * 2]
+    hints = fit_hints(hints, columns * 2)
     for row in range(2):
         cells = [theme.hint(*hint) for hint in hints[row * columns:(row + 1) * columns]]
         grid.add_row(*(cells + [''] * (columns - len(cells))))
@@ -487,7 +515,7 @@ class Overlay:
 def render(snapshot, view, width=120, height=34):
     body_height = max(5, height - 5)
     layout = Layout()
-    layout.split_column(Layout(header(snapshot, view), size=2), Layout(name='body'),
+    layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
                         Layout(footer(view, width), size=3))
     body = layout['body']
     sidebar = SIDEBAR if width >= WIDE else 30
@@ -498,12 +526,12 @@ def render(snapshot, view, width=120, height=34):
     if width >= WIDE:
         main.split_column(Layout(name='top', size=TOP_ROW), Layout(name='bottom'))
         main['top'].split_row(Layout(motion_panel(snapshot, view)),
-                              Layout(thrusters_panel(view)))
+                              Layout(thrusters_panel(view, width < 120)))
         main['bottom'].split_row(Layout(procedures_panel(view, lower), size=SIDEBAR),
                                  Layout(activity_panel(snapshot, view, lower)))
     else:
         half = max(4, (body_height - TOP_ROW) // 2)
-        main.split_column(Layout(thrusters_panel(view), size=TOP_ROW),
+        main.split_column(Layout(thrusters_panel(view, True), size=TOP_ROW),
                           Layout(procedures_panel(view, half), size=half),
                           Layout(activity_panel(snapshot, view, body_height - TOP_ROW - half)))
     if view.get('modal'):
