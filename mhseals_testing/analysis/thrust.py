@@ -1,7 +1,8 @@
 """Per axis-sign speed curves from steady holds (the model the controller inverts).
 
 A hold drives one axis at a normalized effort e and settles at speed v. Drag in
-normalized wrench units is e = d1*v + d2*v|v|, so a boat with quadratic drag is
+normalized wrench units is w = e|e| = d1*v + d2*v|v| (thrust goes with e|e|, so the
+effort itself is sqrt of that), and a boat with quadratic drag is
 not described by one linear gain: the secant gain errs by tens of percent away
 from the amplitudes it was fitted at. Two or more levels per axis-sign give the
 curve. ROS-free; see thrust.md section 1 ("Drag and gain").
@@ -18,7 +19,7 @@ ACTIVE = 0.02  # an axis counts as commanded above this effort
 
 
 def speed_curve(points):
-    """Fit e = d1*v + d2*v|v| to (speed, effort) points; both terms stay >= 0.
+    """Fit w = e^2 = d1*v + d2*v|v| to (speed, effort) points; both terms stay >= 0.
 
     Returns None without a usable point. A negative term (noise, or a single
     level) is dropped and the other refitted, so the curve is always monotone.
@@ -27,6 +28,7 @@ def speed_curve(points):
     if not points:
         return None
     v, e = (numpy.array(column, dtype=float) for column in zip(*points))
+    e = e * e  # wrench w = e|e|, the quantity that is linear in drag
     basis = (v, v * v)
     d1, d2 = numpy.linalg.lstsq(numpy.column_stack(basis), e, rcond=None)[0] \
         if len(points) > 1 and len(set(v)) > 1 else (0.0, -1.0)

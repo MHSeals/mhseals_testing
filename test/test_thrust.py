@@ -7,8 +7,8 @@ from mhseals_testing.analysis.thrust import speed_curve, speed_curves
 
 
 def settle(effort, d1=0.5, d2=1.5):
-    """Steady speed where d1*v + d2*v*v = effort."""
-    return (-d1 + math.sqrt(d1 * d1 + 4 * d2 * effort)) / (2 * d2)
+    """Steady speed where d1*v + d2*v*v = effort**2 (thrust goes with e|e|)."""
+    return (-d1 + math.sqrt(d1 * d1 + 4 * d2 * effort ** 2)) / (2 * d2)
 
 
 def test_curve_recovers_quadratic_drag():
@@ -47,7 +47,7 @@ def test_characterization_writes_curves_that_beat_the_linear_gain():
     curve = curves['sway-']
     # Unfitted midpoint: the curve predicts it, the secant gain at 0.6 does not.
     d1, d2, effort = curve['d1'], curve['d2'], 0.45
-    predicted = (-d1 + math.sqrt(d1 * d1 + 4 * d2 * effort)) / (2 * d2)
+    predicted = (-d1 + math.sqrt(d1 * d1 + 4 * d2 * effort ** 2)) / (2 * d2)
     assert predicted == approx(settle(effort), rel=1e-6)
     linear = effort * settle(0.6) / 0.6
     assert abs(linear - settle(effort)) / settle(effort) > 0.05
@@ -94,3 +94,12 @@ def test_curves_remove_the_body_projected_drift():
     for sign in '+-':
         assert curves['sway' + sign]['d1'] == approx(0.5) and curves['sway' + sign]['d2'] == approx(1.5)
     assert speed_curves(samples)['sway+']['d1'] != approx(0.5)
+
+
+def test_quadratic_thrust_boat_is_recovered_at_an_unfitted_level():
+    # Thrust ~ e|e| against linear plus quadratic drag: the curve must predict a level it never saw.
+    curve = speed_curve([(settle(e, 0.8, 0.3), e) for e in (0.2, 0.3, 0.6, 0.8)])
+    d1, d2 = curve['d1'], curve['d2']
+    for effort in (0.25, 0.45):
+        predicted = (-d1 + math.sqrt(d1 * d1 + 4 * d2 * effort ** 2)) / (2 * d2)
+        assert predicted == approx(settle(effort, 0.8, 0.3), rel=0.05)
