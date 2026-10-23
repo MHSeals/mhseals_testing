@@ -151,3 +151,72 @@ def test_fetch_age_resolves_fetch_head_in_a_worktree(repos, tmp_path):
     git(tree, 'fetch')                    # FETCH_HEAD is per worktree
     age = state(tree, fetch=0)['fetch_age']
     assert age is not None and age < 60
+
+
+def header_row(health, width=100):
+    """Row 1 of the dashboard header for a health whose git probe has sampled."""
+    from mhseals_testing.profiles import load_profile
+    from test_dashboard import monitor, text, view
+    from mhseals_testing.ui import layout
+    profile = load_profile('boat')
+    page = view(profile, host='blastoise', deploy=health.deploy())
+    return text(layout.header(monitor().snapshot(profile.required_tf), page, width), width, 3).splitlines()[0].rstrip()
+
+
+def deploy_health(tmp_path, clone, monkeypatch):
+    """A Health over four copies of ``clone`` whose probe samples inline; returns it and the git calls."""
+    from mhseals_testing.health import advisories
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.run(cmd, **kw)
+    probe = GitProbe({n: clone for n in ('astro_dock', 'hardware', 'nav', 'testing')}, run=run)
+    monkeypatch.setattr(probe, 'start', lambda period: setattr(probe, 'latest', probe.sample()) or 'worker')
+    health = advisories.Health(None, tmp_path, host=lambda: {}, git=probe)
+    health.tick({'sensors': {}})
+    return health, calls
+
+
+def test_header_deploy_item_clean_dirty_and_diverged_from_the_git_probe(repos, tmp_path, monkeypatch):
+    origin, clone = repos
+    health, calls = deploy_health(tmp_path, clone, monkeypatch)
+    assert health.periods['git'] == 30
+    assert '≡' in header_row(health) and 'code newer' not in header_row(health)
+    commit(clone, 'local')
+    (clone / 'a').write_text('changed')
+    (clone / 'scratch').write_text('x')
+    health, calls = deploy_health(tmp_path, clone, monkeypatch)
+    assert '↑4 ±4 ?4' in header_row(health)
+    commit(origin, 'remote')
+    git(clone, 'fetch')
+    health, calls = deploy_health(tmp_path, clone, monkeypatch)
+    row = header_row(health)
+    assert '↕ ↑4 ↓4 ±4 ?4' in row
+    assert not [c for c in calls if 'fetch' in c]            # the probe never fetches
+    health.running_hash = 'older00'
+    health.tick({'sensors': {}})
+    assert 'code newer' in header_row(health, 120)
+
+
+def test_errored_testing_repo_does_not_break_deploy(repos, tmp_path, monkeypatch):
+    from mhseals_testing.health.model import Result
+    _, clone = repos
+    health, _ = deploy_health(tmp_path, clone, monkeypatch)
+    health.running_hash = 'older00'
+    health.engine.last = dict(health.engine.last, **{'git.testing': Result('unknown')})   # data == {}
+    assert health.deploy() is not None                       # no KeyError on the data-less result
+
+
+def test_git_checks_go_stale_when_the_worker_stops_sampling(repos, tmp_path, monkeypatch):
+    from mhseals_testing.health import advisories
+    _, clone = repos
+    now = [0.0]
+    probe = GitProbe({n: clone for n in ('astro_dock', 'hardware', 'nav', 'testing')})
+    monkeypatch.setattr(probe, 'start', lambda period: setattr(probe, 'latest', probe.sample()) or 'worker')
+    health = advisories.Health(None, tmp_path, host=lambda: {}, git=probe, clock=lambda: now[0])
+    health.tick({'sensors': {}})
+    assert health.deploy() is not None
+    now[0] += 200                                            # worker dead: same latest, 3 periods (90 s) pass
+    health.tick({'sensors': {}})
+    assert health.deploy() is None

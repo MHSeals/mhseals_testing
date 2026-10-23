@@ -14,10 +14,11 @@ def _age(seconds):
     return f'{int(seconds)}s'
 
 
-def deploy_text(states, stale=STALE):
+def deploy_text(states, stale=STALE, code_newer=False):
     """Sum the git_state ``Result.data`` dicts: ``≡`` clean, else ``↑ahead ↓behind ±modified ?untracked``.
 
     A red ``↕`` marks a diverged repo, and a dim ``↻age`` the oldest fetch when it is stale.
+    ``code_newer`` appends ``code newer``: the running code is older than the checkout.
     Returns None without states (the probe has not run).
     """
     states = [s for s in states if s]
@@ -38,4 +39,6 @@ def deploy_text(states, stale=STALE):
     ages = [s['fetch_age'] for s in states if s.get('fetch_age') is not None]
     if ages and max(ages) > stale:
         text.append(f' {theme.pick("↻", "~")}{_age(max(ages))}', style=theme.MUTED)
+    if code_newer:
+        text.append(' code newer', style=theme.WARN)
     return text

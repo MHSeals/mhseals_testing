@@ -14,6 +14,8 @@ from mhseals_testing.health import probes as probe_module
 from mhseals_testing.health.config import ConfigError, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import STATUSES
+from mhseals_testing.health.probes import git as git_probe
+from mhseals_testing.ui.deploy import deploy_text
 
 LEVELS = {'ok': 'OK', 'info': 'OK', 'unknown': 'N/A', 'warn': 'WARN', 'fail': 'FAIL'}
 
@@ -44,7 +46,7 @@ def rows(specs, report, seen):
 class Health:
     """The engine, the shared fact store and the App-tick probes."""
 
-    def __init__(self, profile, bag_directory, facts=None, clock=None, directory=None, host=None):
+    def __init__(self, profile, bag_directory, facts=None, clock=None, directory=None, host=None, git=None):
         self.facts = facts or probe_module.Facts(clock or time.monotonic)
         self.host = host or (lambda: probe_module.host_facts(bag_directory))
         self.error = ''
@@ -58,6 +60,12 @@ class Health:
         self.engine = Engine(self.specs, periods, self.facts.clock)
         self.periods = periods
         self._ran, self._seen = {}, set()
+        # The git worker (health.md 5.1: 30 s, fetch off) fills its own `latest`; tick() hands that to the facts.
+        self.git = git if git is not None else git_probe.from_specs(
+            self.specs, (config.probes if config else {}).get('git'))
+        self.git_thread = None
+        self._git_published = None      # the last `latest` handed to the facts
+        self.running_hash = None        # the testing checkout's commit when the first sample landed
         self.transitions = []           # engine transitions not yet taken by drain()
 
     def tick(self, snapshot):
@@ -72,10 +80,36 @@ class Health:
                     self.facts.publish(name, probe())
                 except Exception as error:      # a failing probe reads as unknown, not a crash
                     self.facts.publish(name, {}, error=repr(error))
+        self.sample_git()
         facts, probes = self.facts.read()
         report = self.engine.tick(facts, probes)
         self.transitions.extend(report.transitions)
         return rows(self.specs, report, self._seen)
+
+    def sample_git(self):
+        """Start the git worker on first use and publish whatever it has sampled."""
+        if not self.git.repos:
+            return
+        if self.git_thread is None:
+            self.git_thread = self.git.start(self.periods.get('git', git_probe.PERIOD))
+        latest = self.git.latest
+        if latest and latest is not self._git_published:    # republishing would restamp old facts as fresh
+            self._git_published = latest
+            self.facts.publish('git', latest)
+            hash_ = getattr(latest.get('git.testing'), 'value', {}).get('hash')
+            self.running_hash = self.running_hash or hash_
+
+    def deploy(self):
+        """The header deploy Text from the git_state results (None until the probe has run)."""
+        report = self.engine.last or {}
+        states = [r.data for i, r in report.items() if i.startswith('git.') and isinstance(r.data, dict)]
+        testing = report.get('git.testing')
+        hash_ = testing.data.get('hash') if testing and isinstance(testing.data, dict) else None
+        newer = bool(self.running_hash and hash_ and hash_ != self.running_hash)
+        return deploy_text(states, code_newer=newer)
+
+    def close(self):
+        self.git.stop()
 
     def drain(self):
         """The transitions since the last call, oldest first."""

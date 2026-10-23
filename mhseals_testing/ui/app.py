@@ -563,7 +563,7 @@ class App:
             profile=self.profile.name, units=self.profile.command_units,
             plot_scale=self.profile.plot_scale,
             outputs=self.profile.outputs, specs=self.profile.sensors,
-            host=socket.gethostname(), domain=os.environ.get('ROS_DOMAIN_ID', '0'),
+            deploy=self.health.deploy(), host=socket.gethostname(), domain=os.environ.get('ROS_DOMAIN_ID', '0'),
             recording=self.processes.running('bag'), rec=self.rec, bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
@@ -696,6 +696,7 @@ class App:
         if self.closed:
             return
         self.closed = True
+        self.health.close()
         if self.args.review is not None:
             return  # nothing of ours to flush; the session's report must not be rewritten
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
