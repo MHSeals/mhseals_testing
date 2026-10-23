@@ -40,6 +40,13 @@ def test_stale_or_missing_mux_is_unknown():
     assert not is_unknown(run(), NOW + 1)
 
 
+def test_malformed_mux_state_is_unknown_not_a_crash():
+    for bad in ({'t_ns': int(NOW * 1e9)}, {'input': 'auto'}, {}, 'junk'):
+        record = run(bad)
+        assert record['owner'] == 'unknown' and record['source'] == 'mux state malformed'
+    assert run({'input': 'auto'}, mux_age_s=0.5)['owner'] != 'unknown'  # receipt age stands in for the stamp
+
+
 def test_staleness_uses_local_receipt_age_not_the_senders_clock():
     behind = mux() | {'t_ns': int((NOW - 5) * 1e9)}  # sender clock 5 s behind, just received
     ahead = mux() | {'t_ns': int((NOW + 5) * 1e9)}  # sender clock 5 s ahead, received 4 s ago
@@ -209,6 +216,27 @@ def test_holds_are_carried_as_a_list():
     assert record['holds'] == two and record['source'] == 'hold keys by tui'
     assert run(mux('hold', hold=two[0]))['holds'] == two[:1]
     assert run()['holds'] == []
+
+
+def test_override_survives_a_stale_gap():
+    claims = table()
+    claims.claim('agent', 'tune', NOW)
+    procedure = {'name': 'sq', 'run': 'r1'}
+    auto = run(claims=claims.claims)
+    gap = run(claims=claims.claims, procedure=procedure, now=NOW + 4, prev=auto)
+    assert gap['owner'] == 'unknown' and gap['last_owner'] == 'agent'
+    assert run(claims=claims.claims, now=NOW + 8, prev=gap)['last_owner'] == 'agent'
+    rc = derive(mux('rc', t_ns=int((NOW + 5) * 1e9)), claims.claims, None, None, procedure, None,
+                NOW + 5, prev=gap)
+    override = [e for e in events(gap, rc) if e['phase'] == 'override']
+    assert override and override[0]['rec']['run'] == 'r1'
+
+
+def test_a_human_gap_human_sequence_is_no_override():
+    human = run(mux('rc'))
+    gap = run(None, now=NOW + 4, prev=human)
+    back = derive(mux('keyboard', t_ns=int((NOW + 5) * 1e9)), [], None, None, None, None, NOW + 5, prev=gap)
+    assert not [e for e in events(gap, back) if e['phase'] == 'override']
 
 
 def test_rebuilt_table_never_reuses_a_revoked_claims_id():

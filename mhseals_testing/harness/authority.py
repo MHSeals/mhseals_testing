@@ -123,11 +123,15 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=N
     record = {'schema': 'mhseals.authority/1', 't_ns': _ns(now), 'owner': 'none', 'source': '',
               'reason': '', 'input': None, 'cause': None, 'holds': [], 'conflict': False,
               'claims': [], 'nav': nav, 'task': task, 'procedure': procedure,
-              'rc': (mux or {}).get('rc')}
-    if mux is None or _age(mux, now, mux_age_s) > STALE_S:
+              'rc': mux.get('rc') if isinstance(mux, dict) else None}
+    malformed = mux is not None and (not isinstance(mux, dict) or 'input' not in mux
+                                     or (mux_age_s is None and 't_ns' not in mux))
+    if mux is None or malformed or _age(mux, now, mux_age_s) > STALE_S:
         # unknown means paused, but the claims stay visible
         record['claims'] = _effective(claims, True)
-        return _finish(record, 'unknown', 'no fresh mux state', now, prev)
+        record['last_owner'] = _last_known(prev)
+        return _finish(record, 'unknown', 'mux state malformed' if malformed else 'no fresh mux state',
+                       now, prev)
 
     record['input'] = mux['input']
     record['cause'] = mux.get('cause')
@@ -169,11 +173,19 @@ def events(prev, record):
             out.append(_event('claim_suspend', record, {'claim': claim}))
         elif was == 'suspended' and claim['state'] == 'active':
             out.append(_event('claim_resume', record, {'claim': claim}))
-    if prev['owner'] in CLAIM_OWNERS and record['owner'] in HUMAN.values():
+    # unknown is transparent: an agent interrupted during a stale gap is still overridden
+    if _last_known(prev) in CLAIM_OWNERS and record['owner'] in HUMAN.values():
         out.append(_event('override', record, {
             'by': record['owner'], 'procedure': (prev['procedure'] or {}).get('name'),
             'run': (prev['procedure'] or {}).get('run'), 'holds_invalidated': []}))
     return out
+
+
+def _last_known(prev):
+    """The owner before any run of unknown records ending at ``prev``."""
+    if prev is None:
+        return 'none'
+    return prev.get('last_owner', 'none') if prev['owner'] == 'unknown' else prev['owner']
 
 
 def _effective(claims, human):
