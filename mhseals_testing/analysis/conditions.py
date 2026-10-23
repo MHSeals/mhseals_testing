@@ -1,7 +1,8 @@
 """Water conditions at neutral: world drift, wave floor and stationarity (conditions spec 1.1 to 1.4).
 
 ROS-free. Inputs are arrays: ``t`` in s, world velocity ``vel`` (E, N) in m/s, compass heading
-``heading`` in rad (clockwise from north) and gyro yaw rate ``rate`` in rad/s. Thrust is dead
+``heading`` in rad (clockwise from north) and gyro yaw rate ``rate`` in rad/s (the ROS
+``angular.z`` convention, left/CCW positive, so opposite in sign to the compass rate). Thrust is dead
 in the samples used here, so the mean GPS velocity is the boat's drift.
 """
 from __future__ import annotations
@@ -32,6 +33,10 @@ class Settings:
     drift_corr_max: float
     drift_practical: float
     drift_stale_s: float
+    windage_geometry_min: float
+    windage_significance: float
+    sea_window_s: float
+    gyro_bias_min_s: float
     noise_s0_floor: float
 
 
@@ -95,6 +100,39 @@ class Drift:
     n: int                  # windows pooled
     dispersion: float       # D = chi2 / df
     s0: float               # spectral level of the velocity noise, m^2/s
+
+
+@dataclass
+class Windage:
+    state: str              # abstain, constant (no heading dependence) or heading-dependent
+    reason: str = ''        # why it abstained: windows, rank, geometry or precision
+    a: np.ndarray | None = None     # (2,) heading-free drift (current + wind leeway), E, N m/s
+    b: np.ndarray | None = None     # (2,) windage term of Q(2psi) b, E, N m/s; Q = [[-cos2psi, sin2psi], [sin2psi, cos2psi]] for a compass heading
+    se_b: float = 0.0       # per component, inflated by overdispersion
+    z: float = 0.0          # |b| / se_b
+    n: int = 0              # windows fitted
+
+    def drift_at(self, heading):
+        """Expected world drift (E, N) at a compass heading: ``a + Q(2 psi) b``; ``a`` alone unless heading-dependent."""
+        if self.state != 'heading-dependent':
+            return None if self.a is None else self.a
+        c2, s2 = np.cos(2 * heading), np.sin(2 * heading)
+        return self.a + np.array([-c2 * self.b[0] + s2 * self.b[1], s2 * self.b[0] + c2 * self.b[1]])
+
+    def wind_from(self):
+        """Compass bearing (deg) the wind comes from, or None. b is parallel to -w (beam leeway is larger),
+        so the wind blows against b. A direction only: no speed is observable."""
+        if self.state != 'heading-dependent':
+            return None
+        return float(np.degrees(np.arctan2(self.b[0], self.b[1])) % 360)
+
+
+@dataclass
+class Sea:
+    gyro_dps: float         # RMS of the yaw rate, deg/s
+    roll_pitch_dps: float   # RMS of sqrt(p^2 + q^2), deg/s
+    heave: float            # RMS of a_z - g, m/s^2
+    span: float             # s of data behind it
 
 
 @dataclass
@@ -297,6 +335,14 @@ def _body(world, heading):
     return np.column_stack([forward, left])
 
 
+def _inflation(dev, r_max):
+    """Error growth (1 + r) / (1 - r) for the lag-1 correlation r of time-ordered deviations (n, k), capped at ``r_max``."""
+    spread = float((dev ** 2).sum())
+    r = float((dev[1:] * dev[:-1]).sum()) / spread if spread > 0 else 0.0
+    r = min(max(r + 1 / len(dev), 0.0), r_max)                   # 1/n undoes the demeaning bias
+    return (1 + r) / (1 - r)
+
+
 def _pool(windows, s0, r_max):
     """Duration-weighted drift with overdispersion D (spec 1.2).
 
@@ -309,11 +355,7 @@ def _pool(windows, s0, r_max):
     df = 2 * len(windows) - 2
     chi2 = float((t * ((m - vector) ** 2).sum(axis=1)).sum() / s0)
     dispersion = chi2 / df if df > 0 else 1.0
-    dev = m - vector
-    spread = float((dev ** 2).sum())
-    r = float((dev[1:] * dev[:-1]).sum()) / spread if spread > 0 else 0.0
-    r = min(max(r + 1 / len(windows), 0.0), r_max)               # 1/n undoes the demeaning bias
-    var = s0 / t.sum() * max(1.0, dispersion) * (1 + r) / (1 - r)
+    var = s0 / t.sum() * max(1.0, dispersion) * _inflation(m - vector, r_max)
     return Drift(vector, float(np.sqrt(var)), len(windows), dispersion, s0)
 
 
@@ -400,3 +442,96 @@ def wave_floor(windows, s: Settings):
                     (body[:, 1], spectral_level(usable, s, channels=(1,), rotate=True))):
         floor.append(np.sqrt(max((s0 or 0.0) / s.window_s, float((res ** 2).sum() / (len(res) - 1)))))
     return np.array(floor)
+
+
+# --- windage, sea and gyro bias (spec 1.3, 1.4) ------------------------------------------
+
+def windage(windows, s: Settings):
+    """Fit ``d(psi) = a + Q(2 psi) b`` to the pooled window means (spec 1.3).
+
+    Gates in crane_ml ``separate_current_bias`` order: rank, then geometry (smallest singular
+    value of the centred 2psi design / sqrt(n) >= windage_geometry_min), then precision. Any
+    failure abstains with a reason. ``b`` is significant when |b| / se_b exceeds
+    ``windage_significance``; otherwise the drift is constant in heading.
+    """
+    pool = [w for w in windows if not w.flag]       # not estimate().pool: heading-dependent drift would read as a change
+    s0 = spectral_level(pool, s)
+    if len(pool) < 3 or s0 is None:
+        return Windage('abstain', 'windows')
+    psi = 2 * np.array([w.heading for w in pool])
+    c2, s2 = np.cos(psi), np.sin(psi)
+    n = len(pool)
+    spread = np.column_stack([c2 - c2.mean(), s2 - s2.mean()]) / np.sqrt(n)
+    if np.linalg.matrix_rank(np.column_stack([np.ones(n), c2, s2])) < 3:
+        return Windage('abstain', 'rank', n=n)
+    if np.linalg.svd(spread, compute_uv=False)[-1] < s.windage_geometry_min:
+        return Windage('abstain', 'geometry', n=n)
+    one, zero = np.ones(n), np.zeros(n)
+    x = np.vstack([np.column_stack([one, zero, -c2, s2]), np.column_stack([zero, one, s2, c2])])
+    y = np.concatenate([[w.mean[0] for w in pool], [w.mean[1] for w in pool]])
+    weight = np.tile([w.duration / s0 for w in pool], 2)
+    gram = x.T @ (weight[:, None] * x)
+    beta = np.linalg.solve(gram, x.T @ (weight * y))
+    df = 2 * n - 4
+    dispersion = float(weight @ (y - x @ beta) ** 2) / df if df > 0 else 1.0
+    order = np.argsort([w.t0 for w in pool], kind='stable')
+    res = (y - x @ beta).reshape(2, n).T[order]               # time-ordered, so slow wander shows as correlation
+    cov = np.linalg.inv(gram) * max(1.0, dispersion) * _inflation(res, s.drift_corr_max)
+    se = float(np.sqrt((cov[2, 2] + cov[3, 3]) / 2))
+    if not np.isfinite(se) or se <= 0:
+        return Windage('abstain', 'precision', n=n)
+    b = beta[2:]
+    z = float(np.hypot(*b) / se)
+    state = 'heading-dependent' if z > s.windage_significance else 'constant'
+    if state == 'constant':                       # refit without b: the constant drift is the plain pooled mean
+        beta[:2] = _pool(pool, s0, s.drift_corr_max).vector
+    return Windage(state, '', beta[:2], b, se, z, n)
+
+
+def _detrend(t, x):
+    """``x`` (n, k) minus its least-squares line in ``t``."""
+    u = t - t[0]
+    return x - np.column_stack([np.polyval(np.polyfit(u, x[:, k], 1), u) for k in range(x.shape[1])])
+
+
+def sea_state(t, gyro, accel_z, s: Settings, g=9.80665):
+    """Display-only sea: RMS of the last ``sea_window_s`` of neutral IMU, linearly detrended.
+
+    ``gyro`` is (n, 3) p, q, r in rad/s and ``accel_z`` the specific force along z in m/s^2
+    (``g`` is removed before detrending). Feeds no gate. None under 4 samples.
+    """
+    t, gyro, az = np.asarray(t, float), np.asarray(gyro, float), np.asarray(accel_z, float)
+    ok = np.isfinite(t) & np.isfinite(gyro).all(axis=1) & np.isfinite(az)
+    t, gyro, az = t[ok], gyro[ok], az[ok]
+    keep = t >= t[-1] - s.sea_window_s if len(t) else np.zeros(0, bool)
+    if keep.sum() < 4:
+        return None
+    t, gyro, az = t[keep], gyro[keep], az[keep]
+    d = _detrend(t, np.column_stack([gyro, az - g]))
+    rms = lambda v: float(np.sqrt(np.mean(v ** 2)))
+    return Sea(np.degrees(rms(d[:, 2])), np.degrees(rms(np.hypot(d[:, 0], d[:, 1]))), rms(d[:, 3]),
+               float(t[-1] - t[0]))
+
+
+def gyro_bias(t, rate, heading, s: Settings, yaw_reliable=True):
+    """Yaw-rate bias ``b_r = mean(r) + dpsi/dt`` over a neutral stretch (rad/s), and its error; None if unusable.
+
+    ``r`` is the ROS angular.z (left/CCW positive) while psi is the clockwise compass, so a true
+    turn gives r = -dpsi/dt and the bias is what remains. dpsi/dt is the slope of the unwrapped compass, which uses every sample rather than only the
+    ends. Skipped (None) while yaw is unreliable or the stretch is under ``gyro_bias_min_s``.
+    The error is that slope's, so compass noise shows; the gyro's own noise is far smaller.
+    """
+    t, rate, heading = np.asarray(t, float), np.asarray(rate, float), np.asarray(heading, float)
+    if not yaw_reliable:
+        return None
+    ok = np.isfinite(t) & np.isfinite(rate) & np.isfinite(heading)
+    t, rate, heading = t[ok], rate[ok], np.unwrap(heading[ok])
+    if len(t) < 3 or t[-1] - t[0] < s.gyro_bias_min_s:         # the span of the usable samples, not of the stretch
+        return None
+    x = t - t.mean()
+    if not (x ** 2).sum() > 0:
+        return None
+    slope = float((x * (heading - heading.mean())).sum() / (x ** 2).sum())
+    resid = heading - heading.mean() - slope * x
+    se = float(np.sqrt((resid ** 2).sum() / (len(t) - 2) / (x ** 2).sum()))
+    return float(rate.mean()) + slope, se

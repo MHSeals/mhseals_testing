@@ -235,7 +235,7 @@ def test_wave_floor_ignores_retired_windows():
 
 def test_settings_ignore_keys_of_other_parts(tmp_path):
     path = tmp_path / 'c.yaml'
-    path.write_text(c._config_path().read_text() + 'windage: {k: 1}\nhint: x\ndrift_tau: 90\n')
+    path.write_text(c._config_path().read_text() + 'readiness: {k: 1}\nhint: x\ndrift_tau: 90\n')
     assert c.load_settings(path) == S
 
 
@@ -456,3 +456,148 @@ def test_heading_in_degrees_is_refused():
     with pytest.raises(ValueError, match='rad'):
         c.build_windows(t, vel, np.full(len(t), 90.0), rate, mask, S)
     assert c.build_windows(t, vel, np.full(len(t), np.radians(90.0)), rate, mask, S)
+
+
+# --- part 2: windage, sea and gyro bias ------------------------------------------------------
+
+def _q(psi):
+    """R(psi) diag(1, -1) R(psi)^T, body forward (sin psi, cos psi), left (-cos psi, sin psi)."""
+    f, l = np.array([np.sin(psi), np.cos(psi)]), np.array([-np.cos(psi), np.sin(psi)])
+    return np.outer(f, f) - np.outer(l, l)
+
+
+def spread_windows(headings_deg, a=(0.06, -0.04), b=(0.0, 0.0), seed=0, seconds=48, sigma=0.01):
+    """Windows from holds at each heading, drifting ``a + Q(2 psi) b``."""
+    out, t0 = [], 0.0
+    for i, deg in enumerate(headings_deg):
+        psi = np.radians(deg)
+        d = tuple(np.asarray(a) + _q(psi) @ np.asarray(b))
+        out += windows_of(neutral(seconds, drift=d, sigma=sigma, seed=seed + i, heading=psi, t0=t0))
+        t0 += seconds + 5
+    return out
+
+
+def test_windage_recovers_b_with_heading_spread():
+    w = c.windage(spread_windows(range(0, 360, 45), b=(0.03, -0.02)), S)
+    assert w.state == 'heading-dependent' and w.z > S.windage_significance
+    assert w.b == pytest.approx([0.03, -0.02], abs=0.008)
+    assert w.a == pytest.approx([0.06, -0.04], abs=0.008)
+    assert w.wind_from() == pytest.approx(np.degrees(np.arctan2(0.03, -0.02)) % 360, abs=15)
+
+
+def test_beam_leeway_boat_is_heading_dependent_and_wind_is_from_the_east():
+    kx, ky, wind = 0.02, 0.06, np.array([-1.0, 0.0])       # wind from 090 blows toward west
+    out, t0 = [], 0.0
+    for i, deg in enumerate(range(0, 360, 45)):
+        psi = np.radians(deg)
+        f, l = np.array([np.sin(psi), np.cos(psi)]), np.array([-np.cos(psi), np.sin(psi)])
+        d = kx * f * (f @ wind) + ky * l * (l @ wind)
+        out += windows_of(neutral(48, drift=tuple(d), sigma=0.01, seed=i, heading=psi, t0=t0))
+        t0 += 53
+    w = c.windage(out, S)
+    assert w.state == 'heading-dependent'
+    assert w.wind_from() == pytest.approx(90, abs=10)
+
+
+def test_windage_abstains_below_the_2psi_geometry_gate():
+    w = c.windage(spread_windows([0, 10, 20, 0, 10, 20], b=(0.03, -0.02)), S)
+    assert (w.state, w.reason) == ('abstain', 'geometry') and w.b is None and w.wind_from() is None
+
+
+def test_windage_abstains_on_rank_with_one_heading():
+    w = c.windage(spread_windows([30, 30, 30, 30]), S)
+    assert (w.state, w.reason) == ('abstain', 'rank')
+
+
+def test_windage_abstains_without_windows():
+    assert c.windage([], S).reason == 'windows'
+
+
+def test_no_windage_is_constant_and_keeps_the_pooled_drift():
+    w = c.windage(spread_windows(range(0, 360, 45)), S)
+    assert w.state == 'constant' and w.wind_from() is None
+    assert w.drift_at(1.0) == pytest.approx([0.06, -0.04], abs=0.008)
+
+
+def test_drift_at_follows_the_fit_per_heading():
+    b = (0.03, -0.02)
+    w = c.windage(spread_windows(range(0, 360, 45), b=b), S)
+    for deg in (0, 60, 200):
+        psi = np.radians(deg)
+        want = np.array([0.06, -0.04]) + _q(psi) @ np.array(b)
+        assert w.drift_at(psi) == pytest.approx(want, abs=0.01)
+
+
+def imu(seconds, hz=20, r=0.0, noise=0.002, heave=0.0, seed=0):
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(seconds * hz)) / hz
+    gyro = rng.normal(0, noise, (len(t), 3))
+    gyro[:, 2] += r * np.sin(2 * np.pi * t / 3) + 0.01 * t           # a ramp that detrending must remove
+    az = 9.80665 + 0.5 + heave * np.sin(2 * np.pi * t / 2) + 0.0 * t
+    return t, gyro, az
+
+
+def test_sea_rms_is_detrended_and_uses_the_last_30_s():
+    t, gyro, az = imu(60, r=np.radians(1.0) * np.sqrt(2), heave=0.3 * np.sqrt(2))
+    sea = c.sea_state(t, gyro, az, S)
+    assert sea.span == pytest.approx(30, abs=0.1)
+    assert sea.gyro_dps == pytest.approx(1.0, abs=0.15)
+    assert sea.heave == pytest.approx(0.3, abs=0.03)
+    assert sea.roll_pitch_dps == pytest.approx(np.degrees(0.002 * np.sqrt(2)), abs=0.05)
+
+
+def test_sea_needs_samples():
+    assert c.sea_state([0.0], np.zeros((1, 3)), [9.8], S) is None
+
+
+def bias_data(seconds, bias, yaw_rate=0.0, hz=10, start=3.0):
+    rng = np.random.default_rng(1)
+    t = np.arange(int(seconds * hz)) / hz
+    heading = (start + yaw_rate * t + rng.normal(0, 0.002, len(t))) % (2 * np.pi)     # wraps through north
+    return t, -yaw_rate + bias + rng.normal(0, 0.003, len(t)), heading
+
+
+def test_gyro_bias_is_rate_plus_compass_slope_across_the_wrap():
+    t, rate, heading = bias_data(40, bias=0.004, yaw_rate=0.02)
+    bias, se = c.gyro_bias(t, rate, heading, S)
+    assert bias == pytest.approx(0.004, abs=0.0015) and se < 0.001
+
+
+def test_gyro_bias_with_a_turn_has_opposite_gyro_and_compass_signs():
+    t, rate, heading = bias_data(40, bias=-0.003, yaw_rate=0.05)     # clockwise turn: compass up, gyro negative
+    assert rate.mean() < 0 < np.unwrap(heading)[-1] - np.unwrap(heading)[0]
+    bias, _ = c.gyro_bias(t, rate, heading, S)
+    assert bias == pytest.approx(-0.003, abs=0.0015)
+
+
+def test_gyro_bias_waits_for_twenty_seconds_and_a_reliable_yaw():
+    t, rate, heading = bias_data(15, bias=0.004)
+    assert c.gyro_bias(t, rate, heading, S) is None
+    t, rate, heading = bias_data(40, bias=0.004)
+    assert c.gyro_bias(t, rate, heading, S, yaw_reliable=False) is None
+
+
+def test_gyro_bias_span_counts_finite_samples_only():
+    t, rate, heading = bias_data(40, bias=0.004)
+    heading[int(10 * 10):] = np.nan                            # only the first 10 s have a heading
+    assert c.gyro_bias(t, rate, heading, S) is None
+    assert c.gyro_bias(np.full(40, 5.0), rate[:40], heading[:40] * 0 + 1.0, S) is None
+
+
+def test_a_nan_sample_does_not_change_the_sea_state():
+    t, gyro, az = imu(60, r=0.02, heave=0.3)
+    clean = c.sea_state(t, gyro, az, S)
+    gyro[-5, 2], az[-9] = np.nan, np.nan
+    keep = np.isfinite(gyro).all(axis=1) & np.isfinite(az)
+    assert c.sea_state(t, gyro, az, S) == c.sea_state(t[keep], gyro[keep], az[keep], S)
+    assert np.isfinite(c.sea_state(t, gyro, az, S).gyro_dps)
+    assert c.sea_state(t, gyro, az, S).gyro_dps == pytest.approx(clean.gyro_dps, rel=0.05)
+
+
+def test_slow_wander_over_eight_headings_is_not_heading_dependent():
+    out, t0 = [], 0.0
+    for i, deg in enumerate(range(0, 360, 45)):                # wander that happens to line up with 2 psi across the holds
+        drift = (0.06 + 0.012 * np.cos(np.pi * i / 2 + 1), -0.04 + 0.012 * np.sin(np.pi * i / 2 + 0.3))
+        out += windows_of(neutral(48, drift=drift, sigma=0.01, seed=i, heading=np.radians(deg), t0=t0))
+        t0 += 53
+    assert c.windage(out, S).state == 'constant'
