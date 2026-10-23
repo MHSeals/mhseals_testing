@@ -11,7 +11,7 @@ import yaml
 from mhseals_hardware.configuration import update_config
 from mhseals_hardware.thruster_mixer import AXES, axis_command
 from mhseals_testing.analysis.characterization import (
-    characterize_samples, nav2_profile, samples_from_windows,
+    audit_holds, characterize_samples, nav2_profile, samples_from_windows,
 )
 from mhseals_testing.procedures.combined import VECTORS, scaled
 from mhseals_testing.runner import NEUTRAL
@@ -86,10 +86,15 @@ def run(ctx):
         runner_end = runner.hold(NEUTRAL, settings.settle, 'settle')[1]
     history = ctx.history(windows[0][1], runner_end)
     config = ctx.services['hardware_config']
+    # Holds with odometry gaps or a frozen velocity would bend the curves silently.
+    audit = audit_holds(history, windows)
+    windows = [window for window, hold in zip(windows, audit) if hold['ok']]
+    rejected = [hold for hold in audit if not hold['ok']]
     result = characterize_samples(samples_from_windows(history, windows),
                                   config['decoupling'], source='mhseals_testing session',
                                   motion=samples_from_windows(history, windows, transient=0.0))
-    summary = dict(procedure='characterization', verdict='FITTED',
+    summary = dict(procedure='characterization', verdict='PARTIAL' if rejected else 'FITTED',
+                   holds_rejected=rejected,
                    samples=result['sample_count'],
                    velocity_limit=result['motion_limits']['velocity'],
                    drift=result['drift'])

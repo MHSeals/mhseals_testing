@@ -7,7 +7,7 @@ import pytest
 from pytest import approx
 
 from mhseals_testing.analysis.characterization import (
-    characterize_samples, nav2_profile, read_json_samples)
+    audit_holds, characterize_samples, nav2_profile, read_json_samples)
 
 
 def samples():
@@ -262,3 +262,25 @@ def test_characterize_aborts_after_the_first_hold_of_a_reversed_axis():
     assert result['verdict'] == 'REFUSED' and 'sway' in result['reason']
     assert records == [result]
     assert len(holds) == 5  # surge settle/hold, sway settle/hold, then stop
+
+
+def hold_history(gap=None, frozen=False):
+    """Five 6 s holds sampled at 10 Hz; ``gap`` removes a time range, ``frozen`` holds one velocity."""
+    windows = [((0.5 * k, 0, 0), 6.0 * k, 6.0 * k + 6.0) for k in range(5)]
+    history = [(t / 10, {'vx': 0.3 if frozen else 0.3 + 0.01 * math.sin(t), 'vy': 0.0, 'wz': 0.0})
+               for t in range(300) if not gap or not gap[0] <= t / 10 < gap[1]]
+    return history, windows
+
+
+def test_audit_accepts_complete_holds():
+    assert all(hold['ok'] for hold in audit_holds(*hold_history()))
+
+
+def test_audit_rejects_a_hold_inside_an_odometry_gap():
+    audit = audit_holds(*hold_history(gap=(12.0, 18.0)))
+    assert [hold['ok'] for hold in audit] == [True, True, False, True, True]
+    assert audit[2]['samples'] == 0 and audit[2]['coverage'] == 0.0
+
+
+def test_audit_rejects_frozen_odometry():
+    assert not any(hold['ok'] for hold in audit_holds(*hold_history(frozen=True)))
