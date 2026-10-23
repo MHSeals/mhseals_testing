@@ -83,12 +83,14 @@ def ceilings(planned, floor, sigma_e, tol, gyro_bias_se=0.0) -> dict:
 def rate(est, planned, now, tol=None, settings=None, thresholds=None, gyro_bias_se=0.0):
     """The conditions verdict as ``(verdict, reason, ceiling, drift_trust)``.
 
-    ``ceiling`` is the minimum over ``planned``. Unknown without a drift estimate; poor when the drift
-    is materially trending or changed (a significant but sub-practical one is not); else the graded
+    ``ceiling`` is the minimum over ``planned``. Poor when the drift is materially trending or changed (a significant but
+    sub-practical one is not), even with no drift estimate; unknown without one; else the graded
     ceiling and drift trust, the reason naming the limiting direction.
     """
     settings = settings or conditions.load_settings()
     tol = tol or load_tolerances()
+    if est.material(settings):
+        return 'poor', f'{est.state} {est.size:.3f} m/s', None, None
     floor = conditions.wave_floor(est.pool, settings) if est.drift is not None else None
     if floor is None or not planned:
         return 'unknown', 'not measured yet', None, None
@@ -96,7 +98,5 @@ def rate(est, planned, now, tol=None, settings=None, thresholds=None, gyro_bias_
     by_direction = ceilings(planned, floor, sigma_e, tol, gyro_bias_se)
     worst = min(by_direction, key=by_direction.get)
     ceiling, trust = by_direction[worst], drift_trust(sigma_e, settings.drift_practical)
-    if est.material(settings):
-        return 'poor', f'{est.state} {est.size:.3f} m/s', ceiling, trust
     grade, reason = grading.verdict(ceiling, trust, thresholds)
     return grade, reason.replace('ceiling', f'{worst} ceiling', 1), ceiling, trust

@@ -74,3 +74,9 @@ def test_material_trend_is_poor_whatever_the_ceiling():
     est = cond.Estimate('trending', est.drift, est.trend, 9.0, est.pool, size=0.03)
     grade, reason, *_ = r.rate(est, [r.Direction('surge+', 'surge', 0.38)], now, settings=s)
     assert grade == 'poor' and reason.startswith('trending')
+
+
+def test_material_change_without_a_drift_estimate_is_poor():
+    est = cond.Estimate('changed', size=0.05)
+    grade, reason, ceiling, trust = r.rate(est, [r.Direction('surge+', 'surge', 0.38)], 0)
+    assert grade == 'poor' and reason.startswith('changed') and ceiling is None and trust is None
