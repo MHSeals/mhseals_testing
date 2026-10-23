@@ -1,0 +1,41 @@
+# ROS graph checks. The `graph` probe publishes the facts they read.
+group: ROS graph
+checks:
+  - id: cmd.owner                         # two TUIs both commanding
+    kind: endpoints
+    topic: '{command_topic}'
+    publishers: [0, 1]
+    severity: fail
+    raise_after: 0
+    gates: [motion]
+    message: '{topic}: {count} publishers ({nodes})'
+    hint: Another boat_test or teleop is commanding; quit it or take over.
+  - {id: node.unique, kind: nodes, unique: true, severity: fail, raise_after: 3}
+  - id: tui.single                        # per-instance names hide a second TUI from node.unique
+    kind: nodes
+    count: {'/mhseals_testing_*': [0, 1]}
+    raise_after: 5                        # takeover overlaps briefly
+    severity: fail
+  - id: pub.{name}
+    kind: endpoints
+    publishers: [1, 1]
+    each:
+      - {name: ekf_local, topic: /odom/local, gates: [motion]}
+      - {name: mavros_state, topic: /mavros/state, gates: [motion]}
+      - {name: gps, topic: /gps/fix}
+      - {name: imu, topic: /imu/raw}
+  - id: qos.{name}
+    kind: endpoints
+    qos: true
+    each:
+      - {name: odom, topic: /odom/local}
+      - {name: cmd, topic: '{command_topic}'}
+      - {name: rtcm, topic: /mavros/gps_rtk/send_rtcm, forbid_qos: [lifespan]}   # lifespan + skew drops RTCM
+      - {name: detections, topic: /detections}
+  - {id: type.detections, kind: endpoints, topic: /detections, type: true}
+  - id: graph.legacy                      # a Foxy container on our domain
+    kind: nodes
+    legacy: true
+    severity: fail
+    message: '{count} graph problems'
+    hint: A Foxy/Humble container is on our domain; stop it or move it to another domain.

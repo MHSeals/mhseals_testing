@@ -8,6 +8,7 @@ from mhseals_testing.health import registry
 from mhseals_testing.health.config import HEALTH_DIR, lint, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import Fact
+from mhseals_testing.profiles import load_profile
 
 
 @pytest.fixture(autouse=True)
@@ -20,8 +21,8 @@ def kinds():
 
 def test_shipped_health_config_loads_and_lints_clean():
     assert HEALTH_DIR.is_dir() and list(HEALTH_DIR.glob('*.yaml'))
-    config = load(user=False)
-    assert config.specs
+    config = load(user=False, profile=load_profile('boat'))
+    assert any(s.id == 'cmd.owner' for s in config.specs)
     assert lint(config.specs, unmatched=config.unmatched) == []
 
 

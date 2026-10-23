@@ -13,6 +13,7 @@ from mhseals_testing.health.config import HEALTH_DIR, lint, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import Fact
 from mhseals_testing.monitor import BoatMonitor
+from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.dashboard import short
 
 
@@ -48,7 +49,7 @@ def battery_rows(health, clock, *args, **kwargs):
 
 
 def test_shipped_checks_lint_clean():
-    config = load(HEALTH_DIR, user=False)
+    config = load(HEALTH_DIR, load_profile('boat'), user=False)  # templates need a profile
     assert {'clock.offset', 'compute.load', 'fcu.mode', 'power.charge'} <= {s.id for s in config.specs}
     assert lint(config.specs, unmatched=config.unmatched) == []
 

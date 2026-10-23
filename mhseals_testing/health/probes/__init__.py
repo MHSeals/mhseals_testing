@@ -1,4 +1,7 @@
-"""Probes: read the world once and publish named facts for the threshold kind.
+"""Probes: the only health code that reads the outside world; each publishes named facts.
+
+The functions here read the world once and publish named facts for the threshold kind;
+submodules (``graph``) hold the larger probes.
 
 Each function returns ``{name: Fact}`` and takes its inputs as arguments, so
 tests need no ROS and no hardware. ``Facts`` is the thread-safe store the ROS
