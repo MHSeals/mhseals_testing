@@ -95,16 +95,22 @@ def labelled(state, label=None, style=None):
 
 
 # Solid chips (ui spec 1, 2): the word in reverse video on the authority hue; ASCII brackets the word.
-CHIPS = {'human': '', 'ours': ACCENT, 'nav': 'magenta', 'agent': 'bold magenta', 'hold': '',
-         'unclaimed': BAD, 'armed': BAD}
+CHIPS = {'human': 'auth.human', 'ours': 'auth.ours', 'nav': 'auth.nav', 'agent': 'auth.agent',
+         'hold': 'auth.hold', 'unclaimed': 'auth.unclaimed', 'armed': 'fail'}   # chip kind -> palette token
 AGENT_BANNER = 'reverse bold magenta'
 
 
 def chip(word, kind):
-    """``word`` as a solid chip in the ``kind`` hue (reverse video, so NO_COLOR keeps it)."""
-    if ASCII:
-        return Text(f'[{word}]', style='bold')
-    return Text(f' {word} ', style=f'reverse {CHIPS[kind]}'.strip())
+    """``word`` as a solid chip in the ``kind`` hue (reverse video on 16 colours, so NO_COLOR keeps it)."""
+    chip_ = PALETTE.chip(word, CHIPS[kind], ascii=ASCII)
+    if ASCII or kind == 'agent':        # the agent chip stays bold where colour is absent
+        chip_.stylize('bold')
+    return chip_
+
+
+def auth_style(kind):
+    """The foreground style of an authority hue: the Driving value, the command arrow, subtitles."""
+    return PALETTE.style(CHIPS.get(kind, 'auth.human'))
 
 
 def block(renderable, title, focused=False, subtitle=None, keys=None, **kwargs):
@@ -114,7 +120,8 @@ def block(renderable, title, focused=False, subtitle=None, keys=None, **kwargs):
     """
     heading = Text(f'{FOCUS} {title}' if focused else title, style=f'bold {ACCENT}')
     if subtitle:
-        heading.append(SEPARATOR + subtitle, style=MUTED)
+        heading.append(SEPARATOR, style=MUTED)
+        heading.append_text(subtitle) if isinstance(subtitle, Text) else heading.append(subtitle, style=MUTED)
     bottom = Text(f' {keys} ', style=MUTED) if keys else None
     return Panel(renderable, title=heading, title_align='left', subtitle=bottom, subtitle_align='left',
                  box=box.ASCII if ASCII else box.ROUNDED,

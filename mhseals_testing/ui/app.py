@@ -53,7 +53,7 @@ from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
-from mhseals_testing.ui import feeds as feeds_module, layout, perception, popups, theme
+from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.toasts import Toasts
@@ -510,13 +510,15 @@ class App:
                  else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS)
         if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
+        shared = feeds_module.merged(self.feeds)
         own = dict(
             tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
-            authority=('human', 'KEYS') if self.manual else ('ours', self.running.upper()) if self.running else None,
+            authority=authority_chip.driving(shared, getattr(self, 'arbiter', None), self.manual,
+                                             self.running, time.time()),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command,
             profile=self.profile.name, units=self.profile.command_units,
@@ -530,7 +532,7 @@ class App:
             config_note=self.config_note, review=self.review,
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
-        return {**feeds_module.merged(self.feeds), **own}  # App's own keys win a collision
+        return {**shared, **own}  # App's own keys win a collision
 
     def render(self):
         return layout.render(self.snapshot(), self.view(),

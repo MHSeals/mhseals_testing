@@ -77,6 +77,7 @@ def start(app, ros, bind=arbiter_module.bind, subscribe=None, registry=None):
     feed.arbiter.publish = feed.publish
     if subscribe:
         subscribe(ros, feed)
+    app.arbiter = feed.arbiter                 # the one name the popups, banner and Agents setting read
     app.feeds.append(feed)
     return feed
 

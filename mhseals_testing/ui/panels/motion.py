@@ -170,6 +170,10 @@ def motion_panel(snapshot, view, height=0):
     measured = snapshot['sensors'].get('odometry', {})
     subtitle = ('effort' if view['units'] == 'effort' else 'm/s') + SEPARATOR + theme.labelled(
         measured.get('status', 'MISSING'), 'odom').plain
+    subtitle = Text(subtitle, style=MUTED)
+    if view.get('authority'):                       # who drives, in their hue (ui U4)
+        subtitle.append(SEPARATOR, style=MUTED)
+        subtitle.append(view['authority'][1], style=theme.auth_style(view['authority'][0]))
     rows = 4 if height >= TALL else 1
     return theme.block(Group(Plots(snapshot, view, rows), drift_line(snapshot, view)),
                        TITLES['motion'], view['focus'] == 'motion', subtitle)
