@@ -166,3 +166,21 @@ def selected(text, active):
         text.stylize(f'bold {ACCENT}')
         prefix.stylize(f'bold {ACCENT}')
     return prefix + text
+
+
+# Activity timeline glyphs (timeline.md section 4, ui U8): name -> (Unicode, ASCII).
+_TIMELINE = {
+    'body': ('█', '#'), 'bad': ('▓', '%'), 'cap': ('×', 'x'), 'tip': ('◌', '~'),
+    'notch': ('▌', '|'), 'clip': ('┄', '.'), 'idle': ('▁', '_'), 'manual1': ('▄', '='),
+    'mark': ('▾', 'v'), 'config': ('Δ', '*'), 'health_warn': ('!', '^'),
+    'health_fail': ('✗', 'x'), 'auth': ('↔', '@'), 'off_left': ('◂', '<'),
+    'ok': ('─', '-'), 'recoff': ('╌', '.'), 'armrecoff': ('╍', ','),
+    'warn': ('━', '='), 'fail': ('═', '!'), 'fold': ('┊', ':'),
+    'bracket': ('╰─╯', '\\_/'), 'single': ('▲', '^'),
+}
+
+
+def timeline(ascii_mode=None):
+    """Glyph table of the timeline strip, Unicode or ASCII (default: the current mode)."""
+    ascii_mode = ASCII if ascii_mode is None else ascii_mode
+    return {name: pair[1 if ascii_mode else 0] for name, pair in _TIMELINE.items()}
