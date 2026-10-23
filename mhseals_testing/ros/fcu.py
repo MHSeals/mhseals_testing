@@ -110,17 +110,27 @@ class FcuParams:
         if self.link.armed() is not False:
             return self._result('refused', 'the FCU is armed or its state is unknown')
         problems = self.check(changes)
-        before = {} if problems else self.link.get(list(changes))
+        try:
+            before = {} if problems else self.link.get(list(changes))
+        except Exception as error:      # nothing has been set yet
+            return self._result('refused', f'could not read the current values: {error}')
         problems += [f'{name}: not on the FCU' for name in changes if name not in before and name in self.meta.get('params', {})]
         if problems:
             return self._result('refused', '; '.join(problems))
         written = []
         for name, value in changes.items():
-            if not self.link.set(name, value):
+            try:
+                acked = self.link.set(name, value)
+            except Exception as error:      # a timed-out set may still have reached the FCU
+                return self._rollback(written + [name], before, f'{name}: {error}')
+            if not acked:
                 return self._rollback(written, before, f'{name} was not acknowledged')
             written.append(name)
         self.sleep(self.settle)
-        now = self.link.get(written)
+        try:
+            now = self.link.get(written)
+        except Exception as error:
+            return self._rollback(written, before, f'readback failed: {error}')
         wrong = [n for n in written if n not in now or not same_float32(now[n], changes[n])]
         if wrong:
             return self._rollback(written, before, f'readback differs for {", ".join(wrong)}')
@@ -130,10 +140,13 @@ class FcuParams:
 
     def _rollback(self, written, before, why):
         """Put back what was written, newest first, and check it took."""
-        for name in reversed(written):
-            self.link.set(name, before[name])
-        self.sleep(self.settle)
-        now = self.link.get(written)
+        try:
+            for name in reversed(written):
+                self.link.set(name, before[name])
+            self.sleep(self.settle)
+            now = self.link.get(written)
+        except Exception as error:
+            return self._result('unknown', f'{why}; rollback failed: {error}', written)
         failed = [n for n in written if n not in now or not same_float32(now[n], before[n])]
         if failed:
             return self._result('unknown', f'{why}; rollback failed for {", ".join(failed)}', written)
@@ -219,4 +232,6 @@ class MavrosLink:
         request.broadcast, request.command = False, command
         for i, value in enumerate(params, 1):
             setattr(request, f'param{i}', float(value))
-        return bool(self._call(self.commanding, request, f'command {command}').success)
+        response = self._call(self.commanding, request, f'command {command}')
+        # MAVROS sets success for any COMMAND_ACK; only MAV_RESULT_ACCEPTED (0) means it was done
+        return bool(response.success) and response.result == 0

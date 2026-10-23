@@ -4,7 +4,7 @@ import math
 
 import yaml
 
-from mhseals_testing.ros.fcu import FIXED_MAG_CAL_YAW, META as SHIPPED, FcuParams, load_meta, same_float32
+from mhseals_testing.ros.fcu import FIXED_MAG_CAL_YAW, META as SHIPPED, FcuParams, MavrosLink, load_meta, same_float32
 
 
 class FakeLink:
@@ -125,6 +125,62 @@ def test_mid_batch_failure_rolls_back_in_reverse():
     assert result['status'] == 'rolled_back'
     assert link.sets == [('A', 2), ('B', 3.5), ('C', 4), ('B', 2.5), ('A', 1)]
     assert link.params == PARAMS
+
+
+class RaisingLink(FakeLink):
+    """Raises on the n-th set (1-based), as MavrosLink does on a client timeout; after that on every set if ``always``."""
+
+    def __init__(self, params, raise_on=2, always=False):
+        super().__init__(params)
+        self.raise_on, self.always, self.raised = raise_on, always, False
+
+    def set(self, name, value):
+        if len(self.sets) + 1 == self.raise_on or (self.always and self.raised):
+            self.sets.append((name, value))
+            self.raised = True
+            raise TimeoutError('set timed out')
+        return super().set(name, value)
+
+
+def test_set_that_raises_counts_as_unacknowledged_and_rolls_back_in_reverse():
+    link = RaisingLink(PARAMS, raise_on=2)
+    result = fcu(link).apply({'A': 2, 'B': 3.5, 'C': 4})
+    assert result['status'] == 'rolled_back'
+    assert link.sets == [('A', 2), ('B', 3.5), ('B', 2.5), ('A', 1)]
+    assert link.params == PARAMS
+
+
+def test_rollback_that_raises_is_unknown():
+    link = RaisingLink(PARAMS, raise_on=2, always=True)
+    assert fcu(link).apply({'A': 2, 'B': 3.5})['status'] == 'unknown'
+
+
+def test_raising_readback_rolls_back_and_raising_before_read_refuses():
+    link = FakeLink(PARAMS)
+    real, calls = link.get, []
+
+    def get(names):
+        calls.append(names)
+        if len(calls) == 2:
+            raise TimeoutError('get timed out')
+        return real(names)
+    link.get = get
+    assert fcu(link).apply({'A': 2})['status'] == 'rolled_back'
+    assert link.params == PARAMS
+    broken = FakeLink(PARAMS)
+    broken.get = lambda names: (_ for _ in ()).throw(TimeoutError('x'))
+    assert fcu(broken).apply({'A': 2})['status'] == 'refused' and broken.sets == []
+
+
+def test_command_is_done_only_when_the_ack_is_accepted():
+    link = object.__new__(MavrosLink)
+    request = type('Request', (), {})
+    link.types = (None, None, None, type('T', (), {'Request': request}))
+    link.commanding = None
+    for success, result, expected in ((True, 0, True), (True, 2, False), (False, 0, False)):
+        response = type('Response', (), {'success': success, 'result': result})()
+        link._call = lambda client, req, what, r=response: r
+        assert link.command(FIXED_MAG_CAL_YAW, [1, 0, 0, 0, 0, 0, 0]) is expected
 
 
 def test_readback_mismatch_rolls_back_when_the_old_values_return():
