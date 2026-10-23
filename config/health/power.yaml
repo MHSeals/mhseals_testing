@@ -1,0 +1,12 @@
+# Power checks. The `power` probe publishes the facts they read.
+group: Power
+checks:
+  - id: power.cell_voltage
+    kind: threshold
+    fact: battery.cell_v
+    warn: 3.5
+    fail: 3.3
+    unit: ' V'
+    severity: fail
+    title: Cell voltage
+    message: 'Lowest cell {value}'
