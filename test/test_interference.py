@@ -33,7 +33,7 @@ def test_sign_split_fit_recovers_asymmetric_coefficients():
             efforts[i] = u
             dx, dy = field_change(efforts)
             samples.append((efforts, (dx + rng.gauss(0, .2), dy + rng.gauss(0, .2))))
-    rows = fit(samples, FIELD)
+    rows = fit(samples)
     for row, p, n in zip(rows, POS, NEG):
         assert row['pos'] == pytest.approx(p, abs=1.0)
         assert row['neg'] == pytest.approx(n, abs=1.0)
@@ -44,9 +44,17 @@ def test_sign_split_fit_recovers_asymmetric_coefficients():
 
 
 def test_fit_needs_samples_and_ignores_non_finite():
-    assert fit([], FIELD) is None
-    assert fit([([0.5, 0, 0, 0], (float('nan'), 0))] * 20, FIELD) is None
+    assert fit([]) is None
+    assert fit([([0.5, 0, 0, 0], (float('nan'), 0))] * 20) is None
     assert heading_error((10, 0), (0, 0)) != heading_error((10, 0), (0, 0))  # nan
+
+
+def test_calibration_verdict_is_worst_case_over_headings():
+    # k parallel to the field reads 0 degrees at this heading, but not after a 90 degree turn
+    assert heading_error((50, 0), FIELD) == 0
+    rows = fit([([u if i == 0 else 0 for i in range(4)], (50 * u, 0)) for u in (0.25, 0.5, 0.75, 1.0) * 2])
+    assert rows[0]['error_deg'] == pytest.approx(math.degrees(math.atan(50 / 235)), abs=0.1)
+    assert verdict(rows)[0] != 'ACCEPT'
 
 
 def test_live_fit_waits_then_predicts_the_error_at_current_effort():
@@ -70,7 +78,7 @@ class Keys:
         self.clock[0] += timeout
 
 
-def make_ctx(blockers, services_extra=None):
+def make_ctx(blockers, services_extra=None, drift=(0.0, 0.0)):
     clock = [0.0]
     pulses, checks, recorded = [], [], []
     state = dict(efforts=[0.0] * 4)
@@ -79,7 +87,7 @@ def make_ctx(blockers, services_extra=None):
         # the pulse in force right now decides the field
         efforts = [(p - NEUTRAL_PWM) / 400 for p in pulses[-1]] if pulses and pulses[-1] else [0] * 4
         dx, dy = field_change(efforts)
-        return (FIELD[0] + dx, FIELD[1] + dy, 400.0)
+        return (FIELD[0] + dx + drift[0] * clock[0], FIELD[1] + dy + drift[1] * clock[0], 400.0)
 
     def guard():
         checks.append(clock[0])
@@ -104,6 +112,15 @@ def test_calibrate_step_fits_and_every_tick_goes_through_the_guard():
     assert pulses[-1] is None                      # always ends released
     assert result['verdict'] == 'REROUTE' and recorded == [result]
     assert result['outputs'][1]['neg'][1] == pytest.approx(-30, abs=2)
+
+
+def test_heading_drift_over_the_run_is_removed_by_the_neighbouring_neutral_holds():
+    # 0.3 mG/s over ~100 s is 30 mG, 7 degrees of apparent field change if baselined run-wide
+    ctx, *_ = make_ctx(lambda t: [], drift=(0.2, 0.3))
+    result = interference.run(ctx)
+    for row, p, n in zip(result['outputs'], POS, NEG):
+        assert row['pos'] == pytest.approx(p, abs=2.0)
+        assert row['neg'] == pytest.approx(n, abs=2.0)
 
 
 def test_guard_blocker_aborts_the_pulses_and_releases_them():

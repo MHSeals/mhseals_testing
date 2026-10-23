@@ -20,13 +20,24 @@ HORIZONTAL_MG = 235.0  # horizontal Earth field at the site; 10 mG is about 2.4 
 OUTPUTS = 4
 
 
-def heading_error(k, field):
-    """Degrees of heading error from a field change ``k`` (mG, xy) given the field (xy)."""
-    norm = math.hypot(*field)
-    if norm == 0 or not all(math.isfinite(v) for v in (*k, *field)):
+def heading_error(k, field=None):
+    """Degrees of heading error from a field change ``k`` (mG, xy).
+
+    With ``field`` (xy) only the part perpendicular to it counts: the error at the
+    current heading. Without it the whole of ``k`` counts: the worst case over
+    headings, which is what calibration reports because the boat's heading at the
+    dock is arbitrary.
+    """
+    if not all(math.isfinite(v) for v in (*k, *(field or ()))):
         return float('nan')
-    perpendicular = abs(field[0] * k[1] - field[1] * k[0]) / norm
-    return math.degrees(math.atan2(perpendicular, HORIZONTAL_MG))
+    if field is None:
+        size = math.hypot(*k)
+    else:
+        norm = math.hypot(*field)
+        if norm == 0:
+            return float('nan')
+        size = abs(field[0] * k[1] - field[1] * k[0]) / norm
+    return math.degrees(math.atan2(size, HORIZONTAL_MG))
 
 
 def _solve(columns, db):
@@ -34,11 +45,11 @@ def _solve(columns, db):
     return numpy.linalg.lstsq(numpy.asarray(columns, float), numpy.asarray(db, float), rcond=None)[0]
 
 
-def fit(samples, field):
-    """Sign-split fit of ``samples`` = [(efforts[4], (dBx, dBy))] against ``field`` = (Bx, By).
+def fit(samples):
+    """Sign-split fit of ``samples`` = [(efforts[4], (dBx, dBy))].
 
-    Returns per output ``{'pos': (kx, ky), 'neg': (kx, ky), 'error_deg': worst heading
-    error at full effort}`` with k in mG per 100% effort, or None without enough samples.
+    Returns per output ``{'pos': (kx, ky), 'neg': (kx, ky), 'error_deg': worst-case heading
+    error at full effort, any heading}`` with k in mG per 100% effort, or None without enough samples.
     A sign that was never driven gets k = 0 (lstsq's minimum-norm answer).
     """
     samples = [(u, b) for u, b in samples
@@ -51,7 +62,7 @@ def fit(samples, field):
     for i in range(OUTPUTS):
         pos, neg = tuple(solution[i]), tuple(solution[OUTPUTS + i])
         rows.append(dict(pos=pos, neg=neg,
-                         error_deg=max(heading_error(pos, field), heading_error(neg, field))))
+                         error_deg=max(heading_error(pos), heading_error(neg))))
     return rows
 
 
