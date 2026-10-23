@@ -68,7 +68,7 @@ from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import MINIMAP, ROW, TabMemory, body_rows, motion_shown
 from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
-from mhseals_testing.ui import keymap as keymap_module
+from mhseals_testing.ui import keymap as keymap_module, rtk
 from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
@@ -208,6 +208,8 @@ class App:
     ROS, processes, arming, the plant, keys, the live view and the raw-pulse
     publisher are injected so tests drive the whole loop with fakes.
     """
+
+    rtk_link = None       # the running RTK base (ui/rtk.py): .base and .reload; None means no base
 
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
@@ -1183,13 +1185,21 @@ class App:
         sources = [(row['name'], row['state'].lower(), row['value'])
                    for row in status_rows(self.snapshot(), self.profile.sensors)
                    if row.get('source') == 'sensor']
+        rows = odometry.rows(params, sources)
+        events = [e for e in journal.read(self.paths.journal) if e.get('phase') == 'gps_fix']
+        options, keys = ['Restart EKFs', 'Close'], {'e': 0}
+        if events or self.rtk_link is not None:
+            rows += rtk.pane_rows(events, time.time(), 44, theme.ASCII)
+            options.insert(1, 'Base controls')   # r, next to e
+            keys['r'] = 1
         try:
-            answer = self.choose('Odometry', ['Restart EKFs', 'Close'], {'e': 0}, selected=1,
-                                 rows=odometry.rows(params, sources), width=76)
+            answer = self.choose('Odometry', options, keys, selected=len(options) - 1, rows=rows, width=76)
         except Cancelled:
             return
         if answer == 'Restart EKFs':
             self.restart_ekf()
+        elif answer == 'Base controls':
+            rtk.open_controls(self)
 
     def restart_ekf(self):
         """Restart the EKF child (popup.odometry e); refused with the reason while the boat is busy.

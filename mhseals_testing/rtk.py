@@ -38,6 +38,12 @@ def load_config(path=None):
         if not isinstance(saved, dict):
             raise ValueError('RTK settings must be a YAML mapping')
         config.update(saved)
+    validate(config)
+    return config
+
+
+def validate(config):
+    """Raise ValueError for a setting outside its range."""
     if not 1 <= int(config['survey_seconds']) <= 86400:
         raise ValueError('survey duration must be 1..86400 seconds')
     if not math.isfinite(float(config['survey_accuracy'])) or not .001 <= float(config['survey_accuracy']) <= 100:
@@ -48,7 +54,6 @@ def load_config(path=None):
         raise ValueError('positions must be a mapping of names to latitude, longitude, height')
     for position in config['positions'].values():
         coordinates(position)
-    return config
 
 
 def save_config(config, path=None):
