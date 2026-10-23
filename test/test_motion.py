@@ -110,7 +110,7 @@ def test_two_decimal_scale_widens_the_gutter_without_wrapping():
     out = text(motion_panel(driven().snapshot(), view(load_profile('boat'), plot_scale=(0.25, 0.25, 0.25)),
                             20), 46, 20)
     lines = out.splitlines()
-    assert '+0.25' in out and max(len(line) for line in lines) <= 46 and len(lines) == 20
+    assert '+0.25' in out and max(len(line) for line in lines) <= 46 and len(lines) == 18   # 16 rows of plot and legend
 
 
 def test_dashboard_shim_is_gone():

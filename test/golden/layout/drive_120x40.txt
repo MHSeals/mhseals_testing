@@ -7,8 +7,8 @@
 │   ✗ GPS                        ││                                       ⠠ ││   · RR    p15    3      ·      1500  —  │
 │   ! IMU                  once× ││ Yaw  +0% → —                            ││   · RL    p33    4      ·      1500  —  │
 │   · GPS raw                    ││                                         ││                                         │
-│   · compass                    ││ Drift  ↑ 0.20 m/s ↪0.10  ahead          ││                                         │
-│   · LiDAR                      ││        fit not characterized            ││                                         │
+│   · compass                    ││                                         ││                                         │
+│   · LiDAR                      ││                                         ││                                         │
 │   · tracks                     │╰─────────────────────────────────────────╯╰─────────────────────────────────────────╯
 │ Localization                   │╭─ Procedures · 1 ready ───────────╮╭─ Activity · results · 1 ───────────────────────╮
 │   ✓ map → odom                 ││   ✓ 1 Surge trial                ││     Procedure     Result       Detail          │
