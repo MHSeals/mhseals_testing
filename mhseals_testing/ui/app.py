@@ -410,6 +410,7 @@ class App:
             focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
+            authority=('human', 'KEYS') if self.manual else ('ours', self.running.upper()) if self.running else None,
             armed=self.armed, arm_label=('armed' + dashboard.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command,
             profile=self.profile.name, units=self.profile.command_units,

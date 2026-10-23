@@ -8,7 +8,7 @@ from mhseals_hardware.thruster_mixer import POSITIONS  # noqa: F401  (app reads 
 from mhseals_testing.ui import theme  # noqa: F401  (dashboard.theme)
 from mhseals_testing.ui.layout import *  # noqa: F401,F403
 from mhseals_testing.ui.layout import (  # noqa: F401
-    FOLD, MIN_SIZE, PINNED_HINTS, SIDEBAR, TOP_ROW, WIDE, Overlay, Window, _height, arm_state,
+    FOLD, MIN_SIZE, PINNED_HINTS, SIDEBAR, TOP_ROW, WIDE, Overlay, Window, _height,
     fit_hints, fit_strip, footer, header, health_strip, popup, render, too_small)
 from mhseals_testing.ui.panels import PANELS, TITLES, window  # noqa: F401
 from mhseals_testing.ui.panels.activity import activity_panel, result_detail, result_label  # noqa: F401

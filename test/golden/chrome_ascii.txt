@@ -1,0 +1,127 @@
+== idle 120
+ boat_test   boat | effort                                                     blastoise-odroid | ROS 42  idle  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                                                                     health 41 ok
+ Focus Status | 1/9                                                                                                Ready
+ Tab Focus                     a Arm                         Space Stop                    ? Help                       
+ q Quit                                                                                                                 
+== running 120
+ boat_test   boat | effort                             ^5 v39 +-2 ?7  blastoise-odroid | ROS 42  [CHARACTERIZE]  [ARMED]
+ x rec | x sensors 1/3 | x tf | ! compute                                                  x 2  ! 3 | compass innovation
+ Focus Status | 1/9                                                                                                Ready
+ Tab Focus                     a Arm                         Space Stop                    ? Help                       
+ q Quit                                                                                                                 
+== diverged 120
+ boat_test   boat | effort                                      <> code newer  blastoise-odroid | ROS 42  [RC]  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                                                                                 
+ Focus Status | 1/9                                                                                                Ready
+ Tab Focus                     a Arm                         Space Stop                    ? Help                       
+ q Quit                                                                                                                 
+== agent 120
+ boat_test   boat | effort                                                          blastoise | ROS 42  [AGENT]  [ARMED]
+ AGENT DRIVING | tune_mppi | tranquility pid 5120 | "MPPI vx_max sweep 3/8" | 4m12s               E revoke | Space stop 
+ Focus Status | 1/9                                                                                                Ready
+ Tab Focus                     a Arm                         Space Stop                    ? Help                       
+ q Quit                                                                                                                 
+== review 120
+ boat_test   boat | effort                                                                       boat | ROS 42  [REVIEW]
+ rec | x sensors 1/3 | x tf | ! compute                                                                                 
+ Focus Status | 1/9                                                                                                Ready
+ Tab Focus                     a Arm                         Space Stop                    ? Help                       
+ q Quit                                                                                                                 
+== idle 100
+ boat_test   boat | effort                                 blastoise-odroid | ROS 42  idle  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                                                 health 41 ok
+ Focus Status | 1/9                                                                            Ready
+ Tab Focus                         a Arm                            Space Stop                      
+ ? Help                            q Quit                                                           
+== running 100
+ boat_test   boat | effort         ^5 v39 +-2 ?7  blastoise-odroid | ROS 42  [CHARACTERIZE]  [ARMED]
+ x rec | x sensors 1/3 | x tf | ! compute                              x 2  ! 3 | compass innovation
+ Focus Status | 1/9                                                                            Ready
+ Tab Focus                         a Arm                            Space Stop                      
+ ? Help                            q Quit                                                           
+== diverged 100
+ boat_test   boat | effort                  <> code newer  blastoise-odroid | ROS 42  [RC]  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                                                             
+ Focus Status | 1/9                                                                            Ready
+ Tab Focus                         a Arm                            Space Stop                      
+ ? Help                            q Quit                                                           
+== agent 100
+ boat_test   boat | effort                                      blastoise | ROS 42  [AGENT]  [ARMED]
+ AGENT DRIVING | tune_mppi | tranquil...120 | "MPPI vx_max sweep 3/8" | 4m12s E revoke | Space stop 
+ Focus Status | 1/9                                                                            Ready
+ Tab Focus                         a Arm                            Space Stop                      
+ ? Help                            q Quit                                                           
+== review 100
+ boat_test   boat | effort                                                   boat | ROS 42  [REVIEW]
+ rec | x sensors 1/3 | x tf | ! compute                                                             
+ Focus Status | 1/9                                                                            Ready
+ Tab Focus                         a Arm                            Space Stop                      
+ ? Help                            q Quit                                                           
+== idle 80
+ boat_test                             blastoise-odroid | ROS 42  idle  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                             health 41 ok
+ Focus Status | 1/9                                                        Ready
+ Tab Focus                  a Arm                      Space Stop               
+ ? Help                     q Quit                                              
+== running 80
+ boat_test     ^5 v39 +-2 ?7  blastoise-odroid | ROS 42  [CHARACTERIZE]  [ARMED]
+ x rec | x sensors 1/3 | x tf | ! compute          x 2  ! 3 | compass innovation
+ Focus Status | 1/9                                                        Ready
+ Tab Focus                  a Arm                      Space Stop               
+ ? Help                     q Quit                                              
+== diverged 80
+ boat_test              <> code newer  blastoise-odroid | ROS 42  [RC]  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                                         
+ Focus Status | 1/9                                                        Ready
+ Tab Focus                  a Arm                      Space Stop               
+ ? Help                     q Quit                                              
+== agent 80
+ boat_test                                  blastoise | ROS 42  [AGENT]  [ARMED]
+ AGENT DRIVING | tune_mppi ...I vx_max sweep 3/8" | 4m12s E revoke | Space stop 
+ Focus Status | 1/9                                                        Ready
+ Tab Focus                  a Arm                      Space Stop               
+ ? Help                     q Quit                                              
+== review 80
+ boat_test                                               boat | ROS 42  [REVIEW]
+ rec | x sensors 1/3 | x tf | ! compute                                         
+ Focus Status | 1/9                                                        Ready
+ Tab Focus                  a Arm                      Space Stop               
+ ? Help                     q Quit                                              
+== idle 60
+ boat_test         blastoise-odroid | ROS 42  idle  disarmed
+ rec | x sensors 1/3 | x tf | ! compute         health 41 ok
+ Focus Status | 1/9                                    Ready
+ Tab Focus           a Arm               Space Stop         
+ ? Help              q Quit                                 
+== running 60
+ boat_test         blastoise-odroid  [CHARACTERIZE]  [ARMED]
+ x rec | x sensors 1/3 | +2    x 2  ! 3 | compass innovation
+ Focus Status | 1/9                                    Ready
+ Tab Focus           a Arm               Space Stop         
+ ? Help              q Quit                                 
+== diverged 60
+ boat_test   <> code newer  blastoise-odroid  [RC]  disarmed
+ rec | x sensors 1/3 | x tf | ! compute                     
+ Focus Status | 1/9                                    Ready
+ Tab Focus           a Arm               Space Stop         
+ ? Help              q Quit                                 
+== agent 60
+ boat_test              blastoise | ROS 42  [AGENT]  [ARMED]
+ AGENT DRIVING | ...weep 3/8" | 4m12s E revoke | Space stop 
+ Focus Status | 1/9                                    Ready
+ Tab Focus           a Arm               Space Stop         
+ ? Help              q Quit                                 
+== review 60
+ boat_test                           boat | ROS 42  [REVIEW]
+ rec | x sensors 1/3 | x tf | ! compute                     
+ Focus Status | 1/9                                    Ready
+ Tab Focus           a Arm               Space Stop         
+ ? Help              q Quit                                 
+== popup
++- > Authority ------------------------------------------------+
+| Driving AGENT                                                |
+|                                                              |
+| > E Revoke                                                   |
+|   Esc Close                                                  |
++-  E revoke selected  U release hold  Esc close  -------------+

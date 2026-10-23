@@ -17,7 +17,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import chrome, theme
 from mhseals_testing.ui.panels import TITLES
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels.motion import motion_panel
@@ -31,9 +31,17 @@ WIDE = 106          # below this the Motion panel folds away
 SIDEBAR = 36
 FOLD = 60           # below this the Status sidebar folds away so Thrusters keeps its width
 TOP_ROW = 8         # Motion and Thrusters height
+STRIP_FULL, STRIP_SHORT = 100, 5   # below 100 columns the strip shows its first five items
 
 
 # --- header, footer, popups ------------------------------------------------------
+
+
+def strip_item(state, label):
+    """A healthy item is plain muted text; anything else gets its status glyph and hue."""
+    if theme.kind(state) == 'good':
+        return Text(label, style=MUTED)
+    return theme.labelled(state, label)
 
 
 def health_strip(snapshot, view, width=None):
@@ -41,21 +49,39 @@ def health_strip(snapshot, view, width=None):
     sensors = [row for row in rows if row['group'] == 'Sensors' and row['required']]
     sensors_ok = all(row['state'] == 'LIVE' for row in sensors)
     frames_ok = all(row['state'] == 'LIVE' for row in rows if row['group'] == 'Frames')
-    parts = [theme.labelled('LIVE' if view['recording'] else 'FAIL', 'rec'),
-             theme.labelled('LIVE' if sensors_ok else 'FAIL',
-                            f"sensors {sum(r['state'] == 'LIVE' for r in sensors)}/{len(sensors)}"),
-             theme.labelled('LIVE' if frames_ok else 'FAIL', 'tf')]
+    parts = [strip_item('LIVE' if view['recording'] else 'FAIL', 'rec'),
+             strip_item('LIVE' if sensors_ok else 'FAIL',
+                        f"sensors {sum(r['state'] == 'LIVE' for r in sensors)}/{len(sensors)}"),
+             strip_item('LIVE' if frames_ok else 'FAIL', 'tf')]
     for row in rows:
         if row['group'] == 'System' and row['state'] != 'OK':
-            parts.append(theme.labelled(row['state'], f"{row['name']} {row['value']}".strip()))
+            parts.append(strip_item(row['state'], f"{row['name']} {row['value']}".strip()))
     if view['bench_override']:
         parts.append(theme.labelled('WARN', 'bench override'))
-    return Text('   ').join(parts) if width is None else fit_strip(parts, width)
+    if width is not None and width < STRIP_FULL:
+        parts = parts[:STRIP_SHORT]  # only the first five items show below 100 columns
+    return Text(SEPARATOR).join(parts) if width is None else fit_strip(parts, width)
+
+
+def health_total(health):
+    """The right end of the strip: ``health 41 ok`` or the fail and warn counts and the worst check."""
+    if not health:
+        return Text('')
+    if not health.get('bad') and not health.get('warn'):
+        return Text(f"health {health.get('ok', 0)} ok", style=MUTED)
+    total = Text()
+    for state, count in (('bad', health.get('bad')), ('warn', health.get('warn'))):
+        if count:
+            total.append_text(theme.icon(state)).append(f' {count}  ')
+    if health.get('worst'):
+        total.rstrip()
+        total.append(SEPARATOR + health['worst'], style=MUTED)
+    return total
 
 
 def fit_strip(chips, width):
     """Join the chips, replacing those that do not fit with a ``+N`` chip."""
-    gap = Text('   ')
+    gap = Text(SEPARATOR)
     for shown in range(len(chips), 0, -1):
         parts = chips[:shown] + ([Text(f'+{len(chips) - shown}', style=MUTED)] if shown < len(chips) else [])
         line = gap.join(parts)
@@ -64,33 +90,17 @@ def fit_strip(chips, width):
     return chips[0]
 
 
-def arm_state(armed, detail=None):
-    """Armed or disarmed, drawn like every other status: a glyph that differs per state and a label."""
-    text = Text(theme.icon('warn' if armed else 'good').plain + ' ', style=theme.BAD if armed else theme.GOOD)
-    text.append('Armed' if armed else 'Disarmed', style='bold')
-    if detail:
-        text.append(SEPARATOR + detail, style=MUTED)
-    return text
-
-
 def header(snapshot, view, width=120):
-    """Name, profile and host over the health strip; the host's ROS domain goes first when narrow."""
-    top = Table.grid(expand=True)
-    top.add_column(no_wrap=True, overflow=theme.OVERFLOW)
-    top.add_column(justify='right', no_wrap=True, overflow=theme.OVERFLOW)
-    title = Text(' boat_test ', style=f'bold {ACCENT}')
-    title.append(f" {view['profile']}", style='bold')
-    arm = arm_state(view['armed'])
-    room = width - len(title) - len(arm) - 4
-    host = f"{view['host']}{SEPARATOR}ROS {view['domain']}"
-    if len(host) > room:
-        host = view['host']
-    right = Text(f'{host}  ' if len(host) <= room else '', style=MUTED)
-    right.append_text(arm)
-    top.add_row(title, right)
-    strip = Text(' ')
-    strip.append_text(health_strip(snapshot, view, width - 1))
-    return Group(top, strip)
+    """Row 1: title, profile, deploy, host and the authority and arm chips; row 2: the health strip or agent banner."""
+    top = chrome.top_row(view, width)
+    if view.get('agent'):
+        return Group(top, chrome.banner(view['agent'], width))
+    total = health_total(view.get('health'))
+    row = Table.grid(expand=True)
+    row.add_column(no_wrap=True, overflow=theme.OVERFLOW)
+    row.add_column(justify='right', no_wrap=True)
+    row.add_row(Text(' ') + health_strip(snapshot, view, width - len(total) - 3), total + Text(' '))
+    return Group(top, row)
 
 
 def fit_hints(hints, capacity):
@@ -104,15 +114,13 @@ def fit_hints(hints, capacity):
 
 def footer(view, width):
     status = Table.grid(expand=True, padding=(0, 1))
-    status.add_column(ratio=3, no_wrap=True, overflow=theme.OVERFLOW)
-    status.add_column(ratio=3, no_wrap=True, overflow=theme.OVERFLOW)
-    status.add_column(ratio=4, justify='right', no_wrap=True, overflow=theme.OVERFLOW)
+    status.add_column(ratio=4, no_wrap=True, overflow=theme.OVERFLOW)
+    status.add_column(ratio=6, justify='right', no_wrap=True, overflow=theme.OVERFLOW)
     position = view['position']
-    focus = Text(f"Focus: {TITLES[view['focus']]}", style=f'bold {ACCENT}')
+    focus = Text(f" Focus {TITLES[view['focus']]}", style=f'bold {ACCENT}')
     if position:
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
-    status.add_row(arm_state(view['armed'], view['outputs'] if view['armed'] else None),
-                   focus, Text(view['notice'], style=MUTED))
+    status.add_row(focus, Text(view['notice'], style=MUTED))
     hints = view['hints']
     columns = 4 if width >= WIDE else 3
     grid = Table.grid(expand=True)
@@ -178,18 +186,13 @@ def popup(modal, width, height=None):
     hint = modal.get('hint')
     if height is not None:
         total, pinned = _height(body, inner), _height(Group(*tail), inner)
-        if hint:
-            pinned += 1 + _height(Text(hint), inner)
         if total + pinned > height - 2:
             modal['clipped'] = True
-            hint = f"{hint or ''}{SEPARATOR}{modal.get('scroll_hint', 'j/k')} scroll".lstrip(SEPARATOR)
-            pinned = _height(Group(*tail), inner) + 1 + _height(Text(hint), inner)
+            hint = f"{modal.get('scroll_hint', 'j/k')} scroll{SEPARATOR}{hint or ''}".rstrip(SEPARATOR)  # first: the border may crop
             room = max(1, height - 2 - pinned)
             modal['scroll'] = max(0, min(modal.get('scroll', 0), total - room))
             body = Window(body, modal['scroll'], room)
-    if hint:
-        tail += [Text(''), Text(hint, style=MUTED)]
-    panel = theme.block(Group(body, *tail), modal['title'], True)
+    panel = theme.block(Group(body, *tail), modal['title'], True, keys=hint)  # keys sit on the bottom border
     if modal.get('danger'):
         panel.border_style = theme.BAD
     return panel, panel_width

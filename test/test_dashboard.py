@@ -10,7 +10,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.dashboard import MARKS, PANELS, arm_state, render, short, status_rows
+from mhseals_testing.ui.dashboard import MARKS, PANELS, render, short, status_rows
 
 
 def view(profile, **overrides):
@@ -178,9 +178,9 @@ def test_header_badge_says_armed_or_disarmed():
     snapshot = monitor().snapshot(profile.required_tf)
     disarmed = text(render(snapshot, view(profile), 120, 40), 120, 40)
     armed = text(render(snapshot, view(profile, armed=True), 120, 40), 120, 40)
-    assert disarmed.splitlines()[0].rstrip().endswith('✓ Disarmed')
-    assert armed.splitlines()[0].rstrip().endswith('! Armed')
-    assert '! Armed · odroid' in armed  # the footer uses the same indicator
+    assert disarmed.splitlines()[0].rstrip().endswith('idle  disarmed')
+    assert armed.splitlines()[0].rstrip().endswith('idle   ARMED')
+    assert 'ARMED' not in ''.join(armed.splitlines()[1:])  # only the header chip says so
 
 
 def test_unsaved_mapping_is_marked():
@@ -238,7 +238,6 @@ def test_footer_keeps_space_stop_with_the_apps_real_hints(width, focus):
 def test_states_keep_distinct_glyphs_without_color():
     glyphs = [theme.icon(s).plain for s in ('good', 'warn', 'bad', 'busy', 'off')]
     assert len(set(glyphs)) == len(glyphs)
-    assert arm_state(True).plain.split()[0] != arm_state(False).plain.split()[0]
 
 
 @pytest.mark.parametrize('width,height', [(35, 24), (30, 10), (20, 6), (10, 4), (120, 9)])

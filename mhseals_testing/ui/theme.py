@@ -82,12 +82,29 @@ def labelled(state, label=None, style=None):
     return text
 
 
-def block(renderable, title, focused=False, subtitle=None, **kwargs):
-    """A rounded panel; the focused one gets a bold border and a ▸ before its title."""
+# Solid chips (ui spec 1, 2): the word in reverse video on the authority hue; ASCII brackets the word.
+CHIPS = {'human': '', 'ours': ACCENT, 'nav': 'magenta', 'agent': 'bold magenta', 'hold': '',
+         'unclaimed': BAD, 'armed': BAD}
+AGENT_BANNER = 'reverse bold magenta'
+
+
+def chip(word, kind):
+    """``word`` as a solid chip in the ``kind`` hue (reverse video, so NO_COLOR keeps it)."""
+    if ASCII:
+        return Text(f'[{word}]', style='bold')
+    return Text(f' {word} ', style=f'reverse {CHIPS[kind]}'.strip())
+
+
+def block(renderable, title, focused=False, subtitle=None, keys=None, **kwargs):
+    """A rounded panel; the focused one gets a bold border and a ▸ before its title.
+
+    ``keys`` is written on the bottom border (popup key hints).
+    """
     heading = Text(f'{FOCUS} {title}' if focused else title, style=f'bold {ACCENT}')
     if subtitle:
         heading.append(SEPARATOR + subtitle, style=MUTED)
-    return Panel(renderable, title=heading, title_align='left',
+    bottom = Text(f' {keys} ', style=MUTED) if keys else None
+    return Panel(renderable, title=heading, title_align='left', subtitle=bottom, subtitle_align='left',
                  box=box.ASCII if ASCII else box.ROUNDED,
                  border_style='bold' if focused else 'default', padding=(0, 1), **kwargs)
 
