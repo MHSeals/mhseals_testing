@@ -7,6 +7,7 @@
 """
 
 import datetime
+import re
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -26,10 +27,10 @@ def read_param_file(path, ignore=FCU_IGNORE):
         line = line.strip()
         if not line or line.startswith('#'):
             continue
-        name, _, value = line.replace('\t', ',').replace(' ', ',').partition(',')
+        name, value = re.split(r'[,\s]+', line)[:2]
         if any(fnmatch(name, pattern) for pattern in ignore):
             continue
-        params[name] = float(value.strip().split(',')[0])
+        params[name] = float(value)
     return params
 
 

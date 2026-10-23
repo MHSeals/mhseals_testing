@@ -6,7 +6,7 @@ from mhseals_testing.history.seed import FCU_NAME, read_param_file, seed
 
 def _param(tmp_path):
     f = tmp_path / 'blastoise.param'
-    f.write_text('# header\nEK3_SRC1_YAW,8\nCOMPASS_USE,0\nSTAT_RUNTIME,123\nBARO1_GND_PRESS 101325\n')
+    f.write_text('# header\nEK3_SRC1_YAW,8\nCOMPASS_USE,0\nCOMPASS_ORIENT         0.000000\nSTAT_RUNTIME,123\nBARO1_GND_PRESS 101325\n')
     return f
 
 
@@ -22,7 +22,7 @@ def _snapshots(tmp_path):
 
 
 def test_param_file_drops_ignored_and_comments(tmp_path):
-    assert read_param_file(_param(tmp_path)) == {'EK3_SRC1_YAW': 8.0, 'COMPASS_USE': 0.0}
+    assert read_param_file(_param(tmp_path)) == {'EK3_SRC1_YAW': 8.0, 'COMPASS_USE': 0.0, 'COMPASS_ORIENT': 0.0}
 
 
 def test_seed_observes_names_fcu_and_is_idempotent(tmp_path):
