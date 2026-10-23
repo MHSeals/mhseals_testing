@@ -46,3 +46,8 @@ extra:
     topics:
       - /clock
       - /crane/odom
+# Send targets (bags.md section 7). Give hosts by mDNS name; an empty host means a local path (tests).
+transfer:
+  targets:
+    - {name: tranquility, host: tranquility.local, user: peace, path: astro_dock/bags}
+  bwlimit_kbps: 0
