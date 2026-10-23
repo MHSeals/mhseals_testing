@@ -25,6 +25,7 @@ from tf2_msgs.msg import TFMessage
 from vision_msgs.msg import Detection3DArray
 
 from mhseals_testing import events
+from mhseals_testing.harness import journal
 from mhseals_testing.validation import finite, validate
 
 MESSAGE_TYPES = {
@@ -49,11 +50,13 @@ def node_name(pid=None, host=None):
 class RosIO:
     """Owns the node, its executor thread and the publishers the suite needs."""
 
-    def __init__(self, profile, monitor, stale_after=2.0):
+    def __init__(self, profile, monitor, stale_after=2.0, journal_path=None):
         self.profile = profile
         self.monitor = monitor
         self.stale_after = stale_after
         self.fault = ''
+        self.journal_path = journal_path
+        self.recording = True  # stamped on each event as ``rec``
         self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
@@ -107,11 +110,15 @@ class RosIO:
                                    now - stamp.sec - stamp.nanosec / 1e9, static, authority)
 
     def emit(self, phase, **details):
-        """Publish an event into the bag and show it on the dashboard."""
-        self.events.publish(String(data=events.line(
-            events.payload(phase, self.now(), details, node=self.node.get_name()))))
-        self.monitor.event(phase + (' ' + json.dumps(details, sort_keys=True, default=str)
-                                    if details else ''))
+        """Journal an event, publish it into the bag and show it on the dashboard."""
+        rec = details.get('rec', self.recording)
+        event = events.payload(phase, self.now(), dict(details, rec=rec), node=self.node.get_name())
+        if self.journal_path:
+            journal.append(self.journal_path, event)  # first: it survives a dead publisher
+        self.events.publish(String(data=events.line(event)))
+        shown = {k: v for k, v in details.items() if k not in ('t_ns', 'rec')}
+        self.monitor.event(phase + (' ' + json.dumps(shown, sort_keys=True, default=str)
+                                    if shown else ''))
 
     def publishers(self, topic):
         """Other nodes publishing ``topic`` (e.g. a second /cmd_vel source)."""

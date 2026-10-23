@@ -12,15 +12,23 @@ import os
 from pathlib import Path
 import tempfile
 
+from mhseals_testing.harness import journal
 
-def build_report(profile, snapshot, bag=None, hardware_config=None, now=None):
+
+def build_report(profile, snapshot, bag=None, hardware_config=None, now=None, journal_events=None):
+    """``journal_events`` (the session journal) replaces the monitor's capped, monotonic event list."""
+    if journal_events:
+        logged = journal_events
+    else:
+        logged = [dict(time=time, message=message) for time, message in snapshot['events']]
     return dict(
         time=(now or datetime.now().astimezone()).isoformat(),
         profile=asdict(profile),
         hardware_config=hardware_config,
         bag=str(bag) if bag else None,
         results=snapshot['results'],
-        events=[dict(time=time, message=message) for time, message in snapshot['events']],
+        events=logged,
+        markers=journal.markers(journal_events or []),
         telemetry={key: snapshot[key] for key in ('sensors', 'tf', 'advisories')})
 
 

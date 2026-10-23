@@ -29,3 +29,19 @@ def test_instances_lists_other_suite_nodes_only():
     fake = SimpleNamespace(node=SimpleNamespace(
         get_name=lambda: node_name(1), get_node_names_and_namespaces=lambda: names))
     assert RosIO.instances(fake) == [node_name(2)]
+
+
+def test_emit_journals_before_publishing_and_keeps_the_dashboard_line_clean(tmp_path):
+    from mhseals_testing.harness import journal
+    path, order, shown = tmp_path / 'j.jsonl', [], []
+    fake = SimpleNamespace(
+        journal_path=path, recording=True, now=lambda: 1.0,
+        node=SimpleNamespace(get_name=lambda: 'n'),
+        events=SimpleNamespace(publish=lambda msg: order.append(('publish', journal.read(path)))),
+        monitor=SimpleNamespace(event=shown.append))
+    RosIO.emit(fake, 'marker', id=3, t_ns=7)
+    [event] = journal.read(path)
+    assert event['t_ns'] == 7 and event['rec'] is True
+    assert order == [('publish', [event])]  # the journal line existed when publish ran
+    [text] = shown
+    assert text == 'marker {"id": 3}'

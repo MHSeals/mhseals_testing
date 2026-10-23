@@ -10,6 +10,7 @@ import itertools
 import json
 import os
 import socket
+import time
 
 NODE = 'mhseals_testing'
 
@@ -18,8 +19,13 @@ _seq = itertools.count()
 
 
 def payload(phase, ros_time, details, pid=None, node=NODE):
-    """The event dict; ``details`` may not override the instance identity."""
-    return dict(details, time=datetime.now().astimezone().isoformat(), ros_time=ros_time,
+    """The event dict; ``details`` may not override the instance identity.
+
+    ``t_ns`` (wall-clock ns at emit, the one time axis of the bag and the journal) and ``rec``
+    (whether the recorder was on) default here; a caller that stamped a keypress passes its own ``t_ns``.
+    """
+    return dict({'t_ns': time.time_ns(), 'rec': True, **details},
+                time=datetime.now().astimezone().isoformat(), ros_time=ros_time,
                 phase=phase, pid=os.getpid() if pid is None else pid, node=node,
                 host=socket.gethostname(), seq=next(_seq))
 

@@ -30,7 +30,7 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing.data import data_root
-from mhseals_testing.harness import host, settings
+from mhseals_testing.harness import host, journal, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
@@ -108,6 +108,7 @@ HELP = [
     ('m', 'Manual control'),
     ('+ / -', 'Trial amplitude'),
     ('x', 'Write the session report'),
+    ('b / B', 'Mark the moment (journal) / add a note to the last marker'),
     (f'Thrusters {LEFTRIGHT}',
      f'Test pulse {PLUSMINUS}{PULSE_STEP} {MICRO}s on the selected thruster (armed)'),
     ('Thrusters 0', 'All test pulses back to neutral'),
@@ -128,13 +129,15 @@ class SessionPaths:
     logs: Path
     hardware: Path  # snapshot of the hardware config the driver runs with
     nav2: Path      # Nav2 params with measured limits, written by characterization
+    journal: Path   # append-only events: markers, phases, results
 
     @classmethod
     def from_output(cls, output):
         output = Path(output)
         return cls(output, output.with_suffix('.report.json'),
                    output.parent / 'logs' / output.name,
-                   output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'))
+                   output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'),
+                   output.with_suffix('.events.jsonl'))
 
 
 ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
@@ -426,7 +429,7 @@ class App:
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
-                              self.args.hardware_config)
+                              self.args.hardware_config, journal_events=journal.read(self.paths.journal))
         path = write_report(report, self.paths.report)
         self.notice = f'Report saved: {path}'
         return path
@@ -597,7 +600,7 @@ class App:
 
     def dispatch(self, key):
         """Apply one key on the page."""
-        key = fold(key)
+        raw, key = key, fold(key)
         panels = self.panels()
         if key in ('\t', 'backtab'):
             index = panels.index(self.focus) if self.focus in panels else 0
@@ -627,6 +630,8 @@ class App:
             self.arm_panel()
         elif key == 'x':
             self.export()
+        elif key == 'b':
+            self.mark_note() if raw == 'B' else self.mark()
         elif key in ('+', '=', '-', '_'):
             step = 0.05 if key in ('+', '=') else -0.05
             self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
@@ -638,6 +643,53 @@ class App:
             self.on_procedures(key)
         else:
             getattr(self, f'on_{self.focus}')(key)
+
+    # --- markers -----------------------------------------------------------------
+
+    def moving(self):
+        return bool(self.running or self.manual)
+
+    def mark(self):
+        """Journal a marker stamped now; ask for a note unless something is moving."""
+        t_ns = time.time_ns()
+        number = journal.next_marker_id(journal.read(self.paths.journal))
+        self.ros.emit('marker', kind='user', id=number, note='', t_ns=t_ns)
+        if self.moving():
+            self.notice = f'{theme.pick("▾", "v")}{number} marked{theme.SEPARATOR}B adds a note'
+        else:
+            self.mark_note(number)
+
+    def mark_note(self, number=None):
+        """Type a note for marker ``number`` (default the last); never while moving."""
+        found = journal.markers(journal.read(self.paths.journal))
+        if number is None:
+            number = found[-1]['id'] if found else None
+        if number is None:
+            self.notice = 'No marker yet; b adds one'
+        elif self.moving():
+            self.notice = 'Not while moving'
+        else:
+            note = self.text_input(f'Marker {number}', 'Note, Enter saves, Esc keeps it bare')
+            if note:
+                self.ros.emit('marker_note', id=number, note=note)
+
+    def text_input(self, title, message):
+        """A one-line text popup; the typed text on Enter, None on Esc."""
+        modal = dict(kind='input', title=title, message=message, text='', width=64,
+                     hint=f'Enter save{theme.SEPARATOR}Esc cancel')
+
+        def handle(key):
+            if key == 'enter':
+                return modal['text'].strip()
+            if key == 'escape':
+                return ''
+            if key in ('backspace', 'ctrl-h', '\x7f'):
+                modal['text'] = modal['text'][:-1]
+            elif key == 'space':
+                modal['text'] += ' '
+            elif len(key) == 1 and key.isprintable():
+                modal['text'] += key
+        return self.popup(modal, handle) or None
 
     # --- panel keys --------------------------------------------------------------
 
@@ -1131,7 +1183,7 @@ def main(argv=None):
     signal.signal(signal.SIGUSR1, detach)
     monitor = BoatMonitor(args.stale_after, history_sensors=tuple(
         sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'))
-    ros = RosIO(profile, monitor, args.stale_after)
+    ros = RosIO(profile, monitor, args.stale_after, paths.journal)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)

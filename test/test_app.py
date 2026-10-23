@@ -9,6 +9,7 @@ import yaml
 from rich.console import Console
 
 from mhseals_hardware.menu import Cancelled
+from mhseals_testing import events
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import theme
@@ -224,6 +225,7 @@ def test_session_paths_sit_next_to_the_bag(tmp_path):
     assert paths.logs == tmp_path / 'bags' / 'logs' / 's1'
     assert paths.hardware == tmp_path / 'bags' / 's1.hardware.yaml'
     assert paths.nav2 == tmp_path / 'bags' / 's1.nav2.yaml'
+    assert paths.journal == tmp_path / 'bags' / 's1.events.jsonl'
 
 
 def test_parse_args_profile_bringup_and_limits(tmp_path):
@@ -1224,3 +1226,38 @@ def test_a_registered_instance_is_not_foreign_and_guests_are_announced(tmp_path)
     app.registry.remove_guest(8)
     app.sync_guests()
     assert app.ros.events == ['guest_attach', 'guest_detach']
+
+
+def journaling(app):
+    """Make the fake ROS append to the session journal like RosIO.emit."""
+    from mhseals_testing.harness import journal
+
+    def emit(phase, **details):
+        journal.append(app.paths.journal, events.payload(phase, 1.0, details))
+    app.ros.emit = emit
+    return journal
+
+
+def test_b_marks_and_asks_for_a_note_when_idle(tmp_path):
+    app, _ = make_app(tmp_path)
+    journal = journaling(app)
+    with app.attached():
+        press(app, 'w', 'space', 'o', 'enter')
+        app.dispatch('b')
+        assert [(m['id'], m['note']) for m in journal.markers(journal.read(app.paths.journal))] == [(1, 'w o')]
+        press(app, 'x', 'escape')  # Esc keeps the marker bare
+        app.dispatch('b')
+        press(app, 'n', 'enter')
+        app.dispatch('B')  # raw capital: note on the last marker
+    assert [m['note'] for m in journal.markers(journal.read(app.paths.journal))] == ['w o', 'n']
+
+
+def test_no_popup_while_moving(tmp_path):
+    app, _ = make_app(tmp_path)
+    journal = journaling(app)
+    app.running = 'Manual'
+    app.dispatch('b')  # a popup would fail the test: no answers queued
+    assert app.notice == f'{theme.pick("▾", "v")}1 marked{theme.SEPARATOR}B adds a note'
+    app.dispatch('B')
+    [mark] = journal.markers(journal.read(app.paths.journal))
+    assert mark['note'] == '' and app.notice == 'Not while moving'
