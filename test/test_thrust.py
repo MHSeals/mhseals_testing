@@ -70,3 +70,42 @@ def test_fitted_curves_are_saved_and_drive_the_plant(tmp_path):
     plant = Plant(load_config(path))
     assert plant.curves['sway-'] == approx((result['speed_curves']['sway-']['d1'],
                                             result['speed_curves']['sway-']['d2']))
+
+
+def test_speed_curve_drops_non_finite_samples():
+    clean = [(0.5, 0.2), (1.0, 0.5), (1.5, 0.9)]
+    noisy = clean + [(math.inf, 0.4), (0.8, math.inf), (math.nan, 0.3)]
+    assert speed_curve(noisy) == speed_curve(clean)
+
+
+def test_fitted_curves_are_saved_and_drive_the_plant(tmp_path):
+    from mhseals_hardware.configuration import load_config, update_config
+    from mhseals_hardware.velocity_law import Plant
+    result = characterize_samples(rows())
+    limits = dict(surge=1.0, sway=1.0, yaw=1.0)
+    result['motion_limits'] = dict(velocity=limits)
+    path = tmp_path / 'boat.yaml'
+    update_config(dict(characterization=result), path)
+    plant = Plant(load_config(path))
+    assert plant.curves['sway-'] == approx((result['speed_curves']['sway-']['d1'],
+                                            result['speed_curves']['sway-']['d2']))
+
+
+def test_curves_remove_the_body_projected_drift():
+    drift, yaw = (0.15, 0.0), math.pi / 2  # current along odom x is -sway when facing +y
+    samples = []
+    for sign in (1, -1):
+        for level in (0.3, 0.6):
+            speed = settle(level)
+            # Sway hold: through-water speed plus the body-frame current (0, -0.15).
+            samples.append(((0, sign * level, 0), (0, sign * speed - 0.15, 0), yaw))
+    curves = speed_curves(samples, drift)
+    for sign in '+-':
+        assert curves['sway' + sign]['d1'] == approx(0.5) and curves['sway' + sign]['d2'] == approx(1.5)
+    assert speed_curves(samples)['sway+']['d1'] != approx(0.5)
+
+
+def test_speed_curve_drops_non_finite_samples():
+    clean = [(0.5, 0.2), (1.0, 0.5), (1.5, 0.9)]
+    noisy = clean + [(math.inf, 0.4), (0.8, math.inf), (math.nan, 0.3)]
+    assert speed_curve(noisy) == speed_curve(clean)
