@@ -15,7 +15,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image, Imu, NavSatFix, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
@@ -30,6 +30,8 @@ MESSAGE_TYPES = {
 }
 EVENTS_TOPIC = '/mhseals_testing/events'
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
+EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
+                        durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def node_name(pid=None):
@@ -47,7 +49,8 @@ class RosIO:
         self.fault = ''
         self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
-        self.events = self.node.create_publisher(String, EVENTS_TOPIC, 10)
+        # Latched, so a recorder that starts (or is discovered) late still gets session_start.
+        self.events = self.node.create_publisher(String, EVENTS_TOPIC, EVENTS_QOS)
         for sensor in profile.sensors:
             self.node.create_subscription(
                 MESSAGE_TYPES[sensor.kind], sensor.topic,
