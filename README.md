@@ -77,4 +77,6 @@ PYTHONPATH=.:../mhseals_hardware python -m pytest -q test
 make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 ```
 
+`docs/data.md` describes the data layout; `docs/field-2026-10-18.md` records the thrust coupling findings that shaped the speed curves and per-sign decoupling.
+
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
