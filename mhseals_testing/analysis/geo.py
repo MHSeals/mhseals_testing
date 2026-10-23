@@ -56,3 +56,55 @@ def fit_rigid(pairs):
     squares = sum((cos * x - sin * y + tx - u) ** 2 + (sin * x + cos * y + ty - v) ** 2
                   for (x, y), (u, v) in pairs)
     return theta, tx, ty, math.sqrt(squares / count)
+
+
+class MapRotation:
+    """Rolling fit of /odom/gps against enu(/gps/fix): the map frame's rotation.
+
+    Samples are dropped while /odom/gps still sits at its (0, 0) start value
+    and until /odom/global has been live for settle seconds, because the
+    navsat datum and ekf_global are still converging. A map-frame jump over
+    jump metres in either odom stream clears the pairs and restarts the wait.
+    """
+
+    PAIRS = 200      # newest pairs kept for the fit
+    BASELINE = 5.0   # metres of spread the pairs need before a fit is trusted
+    SETTLE = 10.0    # seconds of /odom/global before samples count
+    JUMP = 5.0       # metres; the home re-projection threshold
+
+    def __init__(self, settle=SETTLE, jump=JUMP):
+        self.settle = settle
+        self.jump = jump
+        self._pairs = []
+        self._live = None   # time of the first /odom/global sample since a reset
+        self._last = {}     # last odom point per stream, for jump detection
+
+    def _jumped(self, name, point):
+        last = self._last.get(name)
+        self._last[name] = point
+        return last is not None and math.hypot(point[0] - last[0], point[1] - last[1]) > self.jump
+
+    def add(self, t, odom_gps, odom_global, enu_xy):
+        """Offer one stamped sample: /odom/gps xy, /odom/global xy and enu(/gps/fix) xy."""
+        if self._jumped('global', odom_global) | self._jumped('gps', odom_gps):
+            self._pairs.clear()
+            self._live = None
+        if self._live is None:
+            self._live = t
+        if tuple(odom_gps) == (0.0, 0.0) or t - self._live < self.settle:
+            return
+        self._pairs.append((tuple(enu_xy), tuple(odom_gps)))
+        del self._pairs[:-self.PAIRS]
+
+    def fit(self):
+        """(theta radians, rms metres) of the kept pairs, or None without enough baseline."""
+        if len(self._pairs) < 2:
+            return None
+        first = self._pairs[0][0]
+        if max(math.hypot(s[0] - first[0], s[1] - first[1]) for s, _ in self._pairs) < self.BASELINE:
+            return None
+        try:
+            theta, _, _, rms = fit_rigid(self._pairs)
+        except ValueError:
+            return None
+        return theta, rms

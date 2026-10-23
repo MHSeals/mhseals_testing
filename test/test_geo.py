@@ -52,3 +52,37 @@ def test_fit_rigid_on_rotated_noisy_pairs_recovers_theta_within_point_two_degree
     theta, _, _, rms = fit_rigid(pairs)
     assert math.degrees(abs(theta - 0.5)) < 0.2
     assert 0 < rms < 0.5
+
+
+def _stream(rotation, start=0.0, zeros=2.6, rate=10, seconds=40, **kw):
+    """Drive MapRotation with a boat moving 0.5 m/s east, odom frame rotated 2 degrees."""
+    import math as m
+    from mhseals_testing.analysis.geo import MapRotation
+    fit = MapRotation(**kw)
+    cos, sin = m.cos(m.radians(rotation)), m.sin(m.radians(rotation))
+    for i in range(seconds * rate):
+        t = start + i / rate
+        x, y = 0.5 * t, 0.1 * t
+        gps = (cos * x - sin * y, sin * x + cos * y)
+        fit.add(t, (0.0, 0.0) if t < zeros else gps, (gps[0] + 1, gps[1]), (x, y))
+    return fit
+
+
+def test_map_rotation_ignores_zero_start_samples():
+    import math as m
+    theta, rms = _stream(2.0).fit()
+    assert abs(m.degrees(theta) - 2.0) < 0.01
+    assert rms < 0.01
+
+
+def test_map_rotation_waits_for_global_to_settle():
+    fit = _stream(2.0, seconds=12)
+    assert len(fit._pairs) == 20  # 12 s of stream, the first 10 s dropped
+
+
+def test_map_rotation_resets_on_map_jump():
+    from mhseals_testing.analysis.geo import MapRotation
+    fit = _stream(2.0)
+    assert fit.fit() is not None
+    fit.add(100.0, (50.0, 50.0), (60.0, 50.0), (0.0, 0.0))
+    assert fit.fit() is None
