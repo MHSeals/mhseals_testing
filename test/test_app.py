@@ -1491,6 +1491,21 @@ def test_e_on_navigation_previews_and_y_applies_once(tmp_path):
     assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
 
 
+def test_e_opens_the_nav2_popup_only_on_the_navigation_row(tmp_path):
+    app, path = nav2_app(tmp_path)
+    opened = []
+    app.nav2_popup = lambda: opened.append(1)
+    app.focus = 'status'
+    rows = dashboard_rows(app)
+    other = next(i for i, r in enumerate(rows) if r['group'] == 'Components' and r['name'] != 'Navigation')
+    app.cursors['status'] = other
+    app.dispatch('e')
+    assert not opened
+    app.cursors['status'] = next(i for i, r in enumerate(rows) if r['name'] == 'Navigation')
+    app.dispatch('e')
+    assert opened == [1]
+
+
 def test_escape_leaves_navigation_pending_and_a_bad_edit_keeps_the_last_good(tmp_path):
     app, path = nav2_app(tmp_path)
     edit_nav2(app, path, 'controller_server: [unclosed\n')

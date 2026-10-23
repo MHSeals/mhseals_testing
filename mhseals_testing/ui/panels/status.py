@@ -119,6 +119,8 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
 # A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
 # providers (Control, Recording, Config, RTK) without touching the grouping below.
 PROVIDERS = [component_rows, localization_rows, frame_rows, system_rows, session_rows]
+# Placeholder until the Command-effort and Bench items publish these advisories (ui.md 6.1, Session group);
+# no producer exists yet, so only the test advises them.
 SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System
 
 

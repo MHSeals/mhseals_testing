@@ -35,6 +35,7 @@ from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.harness import nav2_edit
 from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
 from mhseals_testing.harness.registry import Registry
@@ -872,7 +873,7 @@ class App:
             self.open('odometry')
         elif key == 'e':
             row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
-            if row and row['group'] == 'Components' and self.nav2_file is not None:
+            if row and row['name'] == nav2_edit.NAME and self.nav2_file is not None:
                 self.nav2_popup()
         elif key == 'enter':
             if rows:
