@@ -38,13 +38,22 @@ class Referee:
         self._frozen, self._open, self._view = {}, {}, None
 
     def update(self, track, events, t):
-        """Results per task and the strip text, for the track and events up to ``t``."""
+        """Results per task and the strip text, for the track and events up to ``t``.
+
+        Rules follow ``judge_mission``: a stage with no start is PENDING, a skipped one
+        SKIPPED (FAIL on contact), a finished one judged in full and frozen. A window still
+        open is PENDING, or FAIL once it touched something, so a verdict never flips back.
+        """
         track = track[:bisect.bisect_right(track, t, key=lambda p: p[0])]
         events = [e for e in events if e.get('time', 0) <= t]
+        staged = any(e.get('event') == 'stage_started' for e in events)
         results = {}
         for task in self.tasks:
-            start, end = _window(events, task, t)
-            lo = bisect.bisect_left(track, start, key=lambda p: p[0]) if start is not None else 0
+            start, end = _window(events, task, t) if staged else (0.0, None)
+            if start is None:
+                results[task] = dict(task=task, verdict='PENDING', checks={})
+                continue
+            lo = bisect.bisect_left(track, start, key=lambda p: p[0])
             part = track[lo:]
             if end is not None:
                 part = part[:bisect.bisect_right(part, end, key=lambda p: p[0])]
@@ -56,11 +65,23 @@ class Referee:
             if memo and (memo[0] == key or (end is None and 0 <= t - memo[1] < self.period)):
                 results[task] = memo[2]
                 continue
-            stage = [e for e in events if (start is None or e.get('time', 0) >= start)]
-            results[task] = judging.judge(task, self.truth, part, stage, self.banner)
+            results[task] = self._judge(task, part, events, start, end)
             self._open[task] = (key, t, results[task])
             if end is not None:
                 self._frozen[task] = results[task]
         passed = sum(r['verdict'] == 'PASS' for r in results.values())
         self._view = dict(results=results, strip=f'referee {passed}/{len(results)}')
         return self._view
+
+    def _judge(self, task, part, events, start, end):
+        """One window's result; events are cut to the window so a closed stage is bounded."""
+        stage = [e for e in events if start <= e.get('time', 0) <= (end if end is not None
+                                                                      else math.inf)]
+        skipped = any(e.get('event') == 'stage_skipped' and e.get('stage') == task for e in stage)
+        if end is not None and not skipped:
+            return judging.judge(task, self.truth, part, stage, self.banner)
+        touched = judging.contacts(
+            part, [e for e in judging.elements(self.truth, task) if e.get('label')])
+        verdict = 'FAIL' if touched else 'SKIPPED' if skipped else 'PENDING'
+        return dict(task=task, verdict=verdict, checks={'no contact': not touched},
+                    contacts=touched)

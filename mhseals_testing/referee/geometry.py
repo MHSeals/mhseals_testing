@@ -74,10 +74,13 @@ def hull_clearance(pose, centre, radius, hull=HULL):
 
 def contacts(track, items):
     """Labels of the course objects the hull touched, each once."""
+    reach = math.hypot(*HULL) / 2
     touched = []
     for index, item in enumerate(items):
-        if any(hull_clearance(pose[1:], (item['x'], item['y']), item.get('radius', 0.2)) < 0
-               for pose in track):
+        cx, cy, radius = item['x'], item['y'], item.get('radius', 0.2)
+        near = (reach + radius) ** 2          # cheap reject before the rectangle test
+        if any((pose[1] - cx) ** 2 + (pose[2] - cy) ** 2 <= near
+               and hull_clearance(pose[1:], (cx, cy), radius) < 0 for pose in track):
             touched.append(f"{item.get('label') or item.get('template') or 'object'}#{index}")
     return touched
 
