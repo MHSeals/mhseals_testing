@@ -4,18 +4,16 @@ Pure helpers: which owner an item opens, the popup rows for a run, and the
 exclusion record. ``App`` supplies the modal loop and the destinations.
 """
 
-# Item kind -> owner opened by Enter (timeline.md section 8).
+# Item kind (the ts095 Item kinds, plus hold and cluster) -> owner opened by Enter.
 ROUTES = {
-    'procedure': 'run', 'manual': 'run',
+    'run': 'run', 'abort': 'run', 'proc': 'run', 'manual': 'run',
     'config': 'history',   # H popup, preselected on that id
     'health': 'health',    # popup.health on its History tab
-    'marker': 'marker',    # note text or a show popup
-    'hold': 'show',        # who, pid, host, reason, duration
+    'mark': 'marker',      # note text or a show popup
+    'auth': 'show',        # who, pid, host, reason, duration
+    'hold': 'show',
     'cluster': 'choose',   # members to pick from
 }
-
-# Keys the run popup lets through to the global handlers (Space must always stop).
-PASSTHROUGH = ('space', 'b', 'H', '!')
 
 
 def route(item):

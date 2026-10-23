@@ -901,13 +901,11 @@ class App:
         total = len(self.snapshot()['results'])
         if not total:
             return
-        state = dict(index=min(self.cursors['activity'], total - 1))
-
-        def results():
-            return list(reversed(self.snapshot()['results']))
+        # Pinned by oldest-first index so a result landing mid-popup cannot change the run shown.
+        state = dict(index=total - 1 - min(self.cursors['activity'], total - 1))
 
         def fill():
-            result = results()[state['index']]
+            result = self.snapshot()['results'][state['index']]
             modal.update(title=activity.result_label(result), rows=run_popup.run_rows(result),
                          hint=theme.SEPARATOR.join((f'{UPDOWN} prev/next', 'X exclude', 'Esc close')))
 
@@ -919,17 +917,16 @@ class App:
                     reason = None
                 self.modal = modal  # the nested popup cleared it
                 if reason:
-                    size = len(results())
-                    self.monitor.exclude_result(size - 1 - state['index'],
-                                                run_popup.exclusion(reason))
+                    self.monitor.exclude_result(state['index'], run_popup.exclusion(reason))
             else:
                 key = fold(key)
                 if key == 'space':
                     self.stop('stopped by operator')
                 elif key in ('up', 'k', 'down', 'j'):
-                    state['index'] = min(max(state['index'] + (-1 if key in ('up', 'k') else 1), 0),
-                                         len(results()) - 1)
-                    self.cursors['activity'] = state['index']
+                    last = len(self.snapshot()['results']) - 1
+                    state['index'] = min(max(state['index'] + (1 if key in ('up', 'k') else -1),
+                                             0), last)
+                    self.cursors['activity'] = last - state['index']
                 elif key in ('escape', 'q'):
                     return True
             fill()

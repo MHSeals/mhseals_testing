@@ -1621,3 +1621,25 @@ def test_enter_on_a_result_opens_the_run_popup_and_capital_x_excludes_it(tmp_pat
         app.on_activity('enter')
     first, second = app.monitor.snapshot()['results']
     assert first['excluded']['reason'] == 'operator error' and 'excluded' not in second
+
+
+def test_run_popup_stays_on_its_run_when_a_result_lands(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.monitor.record_result(dict(procedure='axis', verdict='SIGN MATCH'))
+    app.cursors['activity'] = 0
+    reader = app.reader
+    read = reader.read
+
+    def landing(timeout):
+        key = read(timeout)
+        if key == 'down':  # a harmless popup key; a new result lands while the popup is open
+            app.monitor.record_result(dict(procedure='step', verdict='OK'))
+        return key
+
+    reader.read = landing
+    with app.attached():
+        press(app, 'down', 'X', 'enter', 'escape')
+        app.on_activity('enter')
+    first, second = app.monitor.snapshot()['results']
+    assert first['excluded']['reason'] == 'operator error'
+    assert 'excluded' not in second
