@@ -47,7 +47,7 @@ def test_strip_text_ok_off_armed_and_low_disk_has_no_dots():
     watch.sample('bag', True)
     fake.now, fake.size = 10, 2_000_000
     state, text = strip_text(watch.sample('bag', True))
-    assert (state, text) == ('ok', 'rec lean ≈0.2 MB/s · 4 h') or state == 'ok' and text.startswith('rec lean ≈0.2 MB/s')
+    assert (state, text) == ('ok', 'rec lean ≈0.2 MB/s · 69 h')     # 50 GB at 0.2 MB/s
     off = watch.sample('bag', False)
     assert strip_text(off) == ('off', 'rec off') and strip_text(off, armed=True) == ('warn', 'rec off')
     fake.free = 0.4

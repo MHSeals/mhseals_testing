@@ -367,8 +367,8 @@ class App:
         """Sample the recorder's health; below the free-disk floor stop it, mark it and say so."""
         self.rec = self.recwatch.sample(self.paths.bag, self.processes.running('bag'))
         if self.rec.stop_for_disk:
+            self.ros.emit('marker', kind='system', note=DISK_MARKER)   # first, so it lands in the bag
             self.processes.stop('bag', timeout=20)
-            self.ros.emit('marker', kind='system', note=DISK_MARKER)
             self.notice = f'{DISK_MARKER} ({self.rec.free_gb:.1f} GB free)'
 
     # --- hardware config: edits from the panel or any editor, hot-reloaded -------

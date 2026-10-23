@@ -1593,3 +1593,17 @@ def test_manual_drive_is_bracketed_by_manual_events(tmp_path):
     phases = [(p, d) for p, d in app.ros.lines if p.startswith('manual_')]
     assert [p for p, _ in phases] == ['manual_start', 'manual_stop']
     assert phases[1][1]['by'] == 'operator' and phases[0][1]['run_id'] == phases[1][1]['run_id']
+
+
+
+
+def test_disk_trip_marks_then_stops_the_bag_and_says_so(tmp_path):
+    from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
+    app, _ = make_app(tmp_path)
+    order = []
+    app.ros.emit = lambda phase, **details: order.append((phase, details.get('note')))
+    app.processes.stop = lambda name, timeout=10: order.append(('stop', name))
+    app.recwatch = RecWatch(app.clock, free=lambda _: 0.5, size=lambda _: 0)
+    app.watch_recording()
+    assert order == [('marker', DISK_MARKER), ('stop', 'bag')]
+    assert DISK_MARKER in app.notice
