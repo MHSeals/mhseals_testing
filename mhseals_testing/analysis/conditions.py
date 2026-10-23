@@ -136,8 +136,13 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     are dropped, and a first window that still fails is flagged ``coast``.
     """
     t, vel, heading, rate = (np.asarray(a, float) for a in (t, vel, heading, rate))
+    mask = np.asarray(mask, bool)
+    order = np.argsort(t, kind='stable')                       # receipt-order jitter: put the stamps back in time order
+    t, vel, heading, rate, mask = t[order], vel[order], heading[order], rate[order], mask[order]
+    keep = np.r_[True, np.diff(t) > 0]                         # a re-delivered stamp keeps its first sample only
+    t, vel, heading, rate, mask = t[keep], vel[keep], heading[keep], rate[keep], mask[keep]
     finite = np.isfinite(vel).all(axis=1) & np.isfinite(heading) & np.isfinite(rate) & np.isfinite(t)
-    idx = np.nonzero(np.asarray(mask, bool) & finite)[0]       # a garbled sample splits the run, never poisons it
+    idx = np.nonzero(mask & finite)[0]       # a garbled sample splits the run, never poisons it
     runs = np.split(idx, np.nonzero(np.diff(t[idx]) > s.neutral_max_gap_s)[0] + 1)
     steps = np.diff(t[idx])
     steps = steps[steps <= s.neutral_max_gap_s]
