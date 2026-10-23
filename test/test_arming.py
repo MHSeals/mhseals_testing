@@ -86,3 +86,22 @@ def test_plants_without_outputs_arm_without_children(tmp_path):
     assert direct.armed and processes.started == []
     direct.disarm()
     assert processes.stopped == []
+
+
+def test_begin_polls_until_the_driver_listens_and_times_out_after_ten_seconds(tmp_path):
+    slow, processes = arming(tmp_path=tmp_path)
+    slow.ros.names.clear()
+    processes.start = lambda name, argv: processes.started.append(name)  # never subscribes
+    slow.begin()
+    assert slow.poll() == 'starting' and not slow.armed
+    slow.sleep(10.5)
+    with pytest.raises(RuntimeError, match='did not subscribe'):
+        slow.poll()
+    assert processes.stopped == ['hardware'] and slow.pending is None
+
+
+def test_cancel_stops_a_start_in_progress(tmp_path):
+    slow, processes = arming(tmp_path=tmp_path)
+    slow.begin()
+    slow.cancel()
+    assert slow.pending is None and not slow.armed and processes.stopped == ['hardware']

@@ -42,6 +42,7 @@ class Arming:
         self.clock = clock
         self.sleep = sleep
         self.armed = False
+        self.pending = None
 
     @property
     def driver_topic(self):
@@ -57,8 +58,9 @@ class Arming:
         exited = [name for name in self.children() if not self.processes.running(name)]
         return f"{', '.join(exited)} exited; disarm and check its log" if exited else ''
 
-    def arm(self, timeout=10.0):
-        if self.armed:
+    def begin(self):
+        """Start the driver without waiting; ``poll`` reports when it listens."""
+        if self.armed or self.pending is not None:
             return
         if self.profile.outputs == 'none':  # the plant takes commands directly
             self.armed = True
@@ -69,21 +71,40 @@ class Arming:
                     self.config_path)
         for name, argv in driver_commands(self.profile, self.config_path):
             self.processes.start(name, argv)
-        deadline = self.clock() + timeout
-        while not any(name.endswith(DRIVER) for name in self.ros.subscribers(self.driver_topic)):
-            exited = [name for name in self.children() if not self.processes.running(name)]
-            if exited or self.clock() > deadline:
-                self.stop_children()
-                raise RuntimeError(f"{', '.join(exited)} exited during startup" if exited
-                                   else f'{DRIVER} did not subscribe to {self.driver_topic}')
+        self.pending = self.clock()
+
+    def poll(self, timeout=10.0):
+        """'armed' once the driver subscribes, 'starting' until then; raises on failure."""
+        if self.armed:
+            return 'armed'
+        if self.pending is None:
+            raise RuntimeError('arming was not started')
+        if any(name.endswith(DRIVER) for name in self.ros.subscribers(self.driver_topic)):
+            self.armed, self.pending = True, None
+            return 'armed'
+        exited = [name for name in self.children() if not self.processes.running(name)]
+        if exited or self.clock() - self.pending > timeout:
+            self.cancel()
+            raise RuntimeError(f"{', '.join(exited)} exited during startup" if exited
+                               else f'{DRIVER} did not subscribe to {self.driver_topic}')
+        return 'starting'
+
+    def cancel(self):
+        """Abandon a start in progress: the driver is stopped, nothing is armed."""
+        self.pending = None
+        self.stop_children()
+
+    def arm(self, timeout=10.0):
+        """Blocking arm, for callers without a view to keep drawing."""
+        self.begin()
+        while self.poll(timeout) == 'starting':
             self.sleep(0.1)
-        self.armed = True
 
     def stop_children(self):
         for name in reversed(self.children()):  # controller first, then the driver
             self.processes.stop(name)
 
     def disarm(self):
-        self.armed = False
+        self.armed, self.pending = False, None
         if self.profile.outputs != 'none':
             self.stop_children()

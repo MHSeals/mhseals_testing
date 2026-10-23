@@ -58,6 +58,15 @@ class Arming:
         self.armed = True
         self.calls.append('arm')
 
+    def begin(self):  # the driver subscribes at once in the fake
+        self.arm()
+
+    def poll(self):
+        return 'armed' if self.armed else 'starting'
+
+    def cancel(self):
+        self.calls.append('cancel')
+
     def disarm(self):
         self.armed = False
         self.calls.append('disarm')
@@ -843,7 +852,7 @@ def test_manual_control_stops_on_an_interlock(tmp_path):
     app.open_events = lambda: Events(app.clock, ['press:w'] + ['repeat:w'] * 80)
     with app.attached():
         arm(app)
-        boat.sensors = False
+        app.ros.fault = 'executor stopped'
         try:
             app.dispatch('m')
         except Exception as error:  # run() turns this into a stop
@@ -942,3 +951,32 @@ def test_manual_wasd_reserved_after_yaw_and_speed_change(tmp_path, letter, expec
     assert sent[-1] == pytest.approx(expected)
     assert boat.sent[-1] == 'neutral' and app.armed and not app.manual
     assert not app.snapshot()['results']  # S did not run station keeping.
+
+
+def test_arming_shows_progress_and_space_cancels_a_slow_driver(tmp_path):
+    app, boat = make_app(tmp_path)
+
+    class Slow(type(app.arming)):
+        def begin(self):
+            self.calls.append('begin')
+
+        def poll(self):
+            return 'starting'
+
+    app.arming = Slow()
+    app.open_events = lambda: Events(app.clock, [])
+    with app.attached():
+        app.keys.script[:0] = [None, None, 'space']
+        with pytest.raises(Exception, match='cancelled'):
+            app.wait_for_driver()
+    assert app.arming.calls == ['begin', 'cancel'] and not app.armed
+    assert 'starting the thruster driver' in app.notice
+
+
+def test_manual_control_arms_without_odometry_but_trials_are_unavailable(tmp_path):
+    app, boat = make_app(tmp_path, sensors=False)  # no odometry or TF ever arrives
+    with app.attached():
+        arm(app)
+        assert app.manual_blockers() == []
+        trial = next(p for p in PROCEDURES if 'sensors' in p.needs)
+        assert app.availability(trial)  # can't be picked without odometry

@@ -195,6 +195,17 @@ class App:
         fault = self.arming.fault()
         return ([fault] if fault else []) + self.blockers()
 
+    def manual_blockers(self):
+        """Manual driving needs armed outputs and no other command source, not odometry or TF:
+        the operator is watching the boat, and a localization fault must not take it away."""
+        if not self.armed:
+            return ['outputs are not armed']
+        fault = self.arming.fault()
+        reasons = [fault] if fault else []
+        if self.ros.fault:
+            reasons.append('ROS fault: ' + self.ros.fault)
+        return reasons + self.plant.conflicts()
+
     def motion_blockers(self):
         """When the suite commands, nothing else may publish the command topic."""
         return self.supervision_blockers() + (self.plant.conflicts() if self.armed else [])
@@ -748,13 +759,32 @@ class App:
             return
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
-        self.arming.arm()
+        self.wait_for_driver()
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
         self.notice = 'Armed at neutral'
 
     def arm(self):
         self.arm_panel()
+
+    def wait_for_driver(self):
+        """Start the driver and show it starting; Space or Esc cancels.
+
+        The view keeps redrawing while the driver comes up, so arming reads as
+        loading, never as a frozen screen.
+        """
+        self.arming.begin()
+        started = self.clock()
+        while self.arming.poll() == 'starting':  # raises when the driver fails
+            self.notice = (f'Arming: starting the thruster driver '
+                           f'{self.clock() - started:.0f} s · Space cancels')
+            self.refresh()
+            key = self.keys.read(0.1) if self.keys is not None else None
+            if key is None and self.keys is None:
+                self.arming.sleep(0.1)
+            if key in ('space', 'escape', 'press:space', 'press:escape'):
+                self.arming.cancel()
+                raise Cancelled('arming cancelled')
 
     def disarm(self, reason='disarmed'):
         self.clear_pulses()
@@ -776,7 +806,13 @@ class App:
     # --- procedures ---------------------------------------------------------------
 
     def availability(self, procedure):
-        return unavailable(procedure, self.profile, self.armed, self.args.bench_override)
+        reason = unavailable(procedure, self.profile, self.armed, self.args.bench_override)
+        # Procedures that measure motion can't be picked without odometry and TF.
+        if not reason and 'sensors' in procedure.needs and not self.args.bench_override:
+            blockers = motion_blockers(self.snapshot(), self.profile)
+            if blockers:
+                reason = blockers[0]
+        return reason
 
     def run_procedure(self, procedure):
         reason = self.availability(procedure)
@@ -814,7 +850,7 @@ class App:
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
-                manual=dict(plant=self.plant, blockers=self.motion_blockers,
+                manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show,
                             clock=self.monitor.clock)))
 
