@@ -1,0 +1,210 @@
+# boat_test keymap (prototype of mhseals_testing/config/keymap.yaml).  One file for every spec.
+#
+# Contexts
+#   layered:  global → tab.<drive|correction|map|bags> → panel.<name> | view.minimap
+#             review: global → review → review.activity (Drive) | view.minimap (Map)
+#   modal:    manual, runner, minimap.goal, popup.<name>: own bindings + `passthrough` actions only
+# `override:` in a layered child lists the ancestor actions it shadows on purpose.
+# Key names are KeyReader's (case-sensitive after K1).  Labels and hint priority live in ui/actions.py.
+schema: mhseals.keymap/1
+
+global:
+  stop: [space]                 # locked; neutral + keys hold, aborts our run, cancels our goals, suspends claims
+  quit: [q]                     # locked
+  arm: [a]
+  help: ['?']
+  report: [x]
+  odometry: [o]
+  health: ['!']
+  history: [H]                  # config history popup
+  camera: [V]                   # perception popup with View open
+  release_hold: [U]             # confirm names who resumes; refused while the RC switch is HOLD/MANUAL
+  revoke_agent: [E]             # no confirm; locked while Agents = allow
+  mark: [b]
+  mark_note: [B]
+  tab_prev: ['[']
+  tab_next: [']']
+  focus_next: [tab]
+  focus_prev: [backtab]
+  focus_left: [ctrl-h, ctrl-left]
+  focus_down: [ctrl-j, ctrl-down]
+  focus_up: [ctrl-k, ctrl-up]
+  focus_right: [ctrl-l, ctrl-right]
+  up: [up, k]
+  down: [down, j]
+  activate: [enter]
+  back: [escape]
+  amplitude_up: ['+', '=']
+  amplitude_down: ['-', '_']
+
+# -- tabs ----------------------------------------------------------------------------
+tab.drive:                      # procedure letters exist only here
+  characterize: [f]
+  magcal: [g]
+  controller_check: [v]
+  manual: [m]
+  thruster_set: [i]
+  nav2_bringup: [n]
+  square: [w]
+  station: [s]
+  mission: [t]
+  perception: [p]
+
+tab.correction:
+  column_prev: [left, h]
+  column_next: [right, l]
+  rerun_direction: [r]
+  run_all: [R]
+  apply_pending: [A]
+  hardware_changed: [I]
+
+tab.map: {}                     # view.minimap is the focused child
+
+tab.bags:
+  pin: [p]
+  title: [n]
+  delete: [d]
+  prune: [P]
+  send: [y]
+  finalize: [F]
+
+# -- panels (Drive) ------------------------------------------------------------------
+panel.status:
+  adjust_down: [left, h]        # setting rows only
+  adjust_up: [right, l]
+  params: [e]                   # Navigation → Nav2 popup, Odometry → EKF/MAVROS popup
+
+panel.motion: {}
+panel.conditions: {}            # Enter → popup.conditions
+
+panel.thrusters:
+  override: [station]           # s = save here
+  pulse_down: [left, h]
+  pulse_up: [right, l]
+  neutral: ['0']
+  wire_1: ['1']
+  wire_2: ['2']
+  wire_3: ['3']
+  wire_4: ['4']
+  reverse: [r]
+  save: [s]
+  undo: [u]
+  clear_decoupling: [c]
+  pins: [M]
+
+panel.procedures:
+  fold: [left, h]               # procedure row: fold settings · setting row: step down
+  unfold: [right, l]            # procedure row: unfold settings · setting row: step up
+
+panel.activity:
+  view_prev: [left, h]          # results · events · markers
+  view_next: [right, l]
+  zoom: [z]                     # fit · 30m · 10m · 2m
+  exclude: [X]
+
+view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols
+  layer_costmap: [c]
+  costmap_source: [C]
+  layer_hits: [r]
+  layer_detections: [d]
+  detection_floor: [D]
+  trail_mode: [y]
+  trail_restart: [Y]
+  referee: [R]
+  course: [K]
+  up_mode: [u]
+  zoom_in: [z]
+  zoom_out: [Z]
+  zoom_fit: ['0']
+  centre: [e]
+  goal_mode: [G]
+  cancel_goal: [X]
+
+# -- review --------------------------------------------------------------------------
+review:
+  override: [back]
+  play: [p]
+  seek_back: [left, h]          # 5 s
+  seek_fwd: [right, l]
+  seek_back_big: [shift-left, '{']   # 30 s ({ } because H is history everywhere)
+  seek_fwd_big: [shift-right, '}']
+  jump_prev: [',']
+  jump_next: ['.']
+  rate_down: ['<']
+  rate_up: ['>']
+  goto: [g]
+  leave: [escape]
+
+review.activity:
+  zoom: [z]                     # loupe 12m · 30m · 2m
+
+# -- modal ---------------------------------------------------------------------------
+manual:
+  passthrough: [mark, revoke_agent, release_hold]
+  surge_fwd: [w, up]
+  surge_back: [s, down]
+  sway_left: [a]
+  sway_right: [d]
+  yaw_left: [left]
+  yaw_right: [right]
+  speed_up: ['+', '=']
+  speed_down: ['-', '_']
+  stop: [space, focus-out]
+  leave: [m, escape, x]
+
+runner:
+  passthrough: [mark, revoke_agent, release_hold]
+  abort: [space, q, escape]
+
+minimap.goal:
+  passthrough: [stop, mark, revoke_agent]
+  cursor_up: [up, k]
+  cursor_down: [down, j]
+  cursor_left: [left, h]
+  cursor_right: [right, l]
+  cursor_up_fast: [K]
+  cursor_down_fast: [J]
+  cursor_left_fast: [H, shift-left]
+  cursor_right_fast: [L, shift-right]
+  yaw_left: [',']
+  yaw_right: ['.']
+  yaw_auto: ['/']
+  zoom_in: [z]
+  zoom_out: [Z]
+  cancel_goal: [X]
+  send: [enter]
+  leave: [escape, G]
+
+popup.choose:     {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], select: [enter], cancel: [escape, q]}
+popup.prompt:     {passthrough: [stop, revoke_agent], continue: [enter], cancel: [escape, q]}
+popup.show:       {passthrough: [stop, revoke_agent], close: [any]}
+popup.text:       {confirm: [enter], cancel: [escape], erase: [backspace, ctrl-h]}   # never open while anything moves
+popup.help:       {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], close: [escape, q, '?']}
+popup.health:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], history: [tab],
+                   mute: [m], recheck: [r], ack: [x], close: [escape]}
+popup.odometry:   {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], fold: [enter],
+                   rtk_base: [r], magcal: [c], restart_ekf: [e], close: [escape]}
+popup.authority:  {passthrough: [stop, mark, release_hold], up: [up, k], down: [down, j],
+                   revoke_selected: [E], close: [escape]}
+popup.history:    {passthrough: [stop, mark, revoke_agent], tab_prev: ['[', left], tab_next: [']', right],
+                   up: [up, k], down: [down, j], detail: [l], revert: [enter], confirm: [y], base: [d],
+                   name: [n], note: [N], trials: [s], raw: [v], calibration: [c], reboot: [r],
+                   filter: ['/'], close: [escape, q]}
+popup.config:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], apply: [enter],
+                   restart_code: [r], close: [escape]}
+popup.nav2:       {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], edit: [enter],
+                   step_down: [left, h], step_up: [right, l], apply: [y], discard: [u], close: [escape]}
+popup.conditions: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], close: [escape]}
+popup.run:        {passthrough: [stop, mark, history, health, revoke_agent], prev: [up, k], next: [down, j],
+                   review_here: [r], exclude: [X], close: [escape, q]}
+popup.transfer:   {passthrough: [stop, mark, revoke_agent], hide: [escape], cancel: [c], retry: [r]}
+popup.perception: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], view: [v],
+                   boxes: [d], floor: [D], rate_up: ['+', '='], rate_down: ['-', '_'], freeze: [f],
+                   save: [s], source: [c], close: [escape]}
+popup.power:      {passthrough: [stop, mark, revoke_agent], close: [escape]}
+popup.magcal:     {passthrough: [stop, mark, revoke_agent], enter_heading: [enter], fit: [f],
+                   interference: [i], close: [escape]}
+popup.pins:       {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], change_down: [left, h],
+                   change_up: [right, l], edit: [enter], save: [s], close: [escape]}
+popup.referee:    {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], jump: [enter],
+                   close: [escape]}
