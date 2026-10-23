@@ -120,6 +120,8 @@ PANEL_HINTS = {
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'Results/log')],
 }
+CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
+                    ('R', 'Run all'), ('A', 'Apply pending'), ('I', 'Hardware changed')]
 REVIEW_HINTS = [('p', 'Play/pause'), (f'{LEFTRIGHT} {{ }}', 'Seek 5 s / 30 s'),
                 (', .', 'Prev/next mark'), ('< >', 'Rate'), ('Esc', 'Leave review'),
                 ('?', 'Help'), ('q', 'Quit')]
@@ -523,7 +525,9 @@ class App:
             f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
         hints = (REVIEW_HINTS if self.review else MANUAL_HINTS if self.manual
-                 else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS)
+                 else PANEL_HINTS.get(self.focus, []) + GLOBAL_HINTS)
+        if self.tab == 'Correction' and not self.review:
+            hints = CORRECTION_HINTS
         if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         shared = feeds_module.merged(self.feeds)
@@ -533,6 +537,7 @@ class App:
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
+            focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command,
@@ -994,6 +999,11 @@ class App:
         fits = (data.read_json(data.path('state.json'), {}) or {}).get('fits')
         return dict(fits=fits, column=self.column)
 
+    def correction_focus(self):
+        """(title, position) of the footer's focus line: the cursor column, as in ui 5.7."""
+        model = correction.tab_view(self.args.hardware_config, self.correction_state())
+        return 'Correction', f"{model['columns'][model['cursor']]['key'].replace('-', theme.pick('−', '-'))} column"
+
     def on_correction(self, key):
         """Correction tab keys (keymap tab.correction); True when the key was one of them."""
         step = {'left': -1, 'h': -1, 'right': 1, 'l': 1}.get(key)
@@ -1008,15 +1018,51 @@ class App:
             holds = correction.hold_rows(model)
             self.show(f"{model['columns'][model['cursor']]['key']} holds", rows=holds, width=50)
         elif key == 'A':
-            restored = self.staging().restore()
-            self.notice = 'Restored the saved correction' if restored else 'Nothing pending'
+            self.apply_pending()
         elif key == 'I':
-            epoch = self.args.hardware_config.get('hardware_epoch', 0) + 1
-            if self.save_hardware(hardware_epoch=epoch):
-                self.notice = f'Hardware changed: epoch {epoch}, calibrations need a refit'
+            self.hardware_changed()
         else:
             return False
         return True
+
+    def apply_pending(self):
+        """A: after a confirm, restore the staged C, reload the config and record it in the history."""
+        if self.staging().pending() is None:
+            self.notice = 'Nothing pending'
+            return
+        try:
+            if self.choose('Restore the saved correction?', ('Restore', 'Keep'), {'y': 0},
+                           message='Puts the backed-up C+/C- back in the hardware file.') != 'Restore':
+                return
+        except Cancelled:
+            return
+        self.staging().restore()
+        adapters.record_file(self.history, 'hardware', 'tui:correction', self.config_file, self.warn_history)
+        self.announce(self.watcher.reload('hardware'))
+        self.watch_config()
+        self.notice = 'Restored the saved correction'
+
+    def hardware_changed(self):
+        """I: a typed note, then a confirm, then hardware_epoch + 1 (invalidates every fit); never while moving."""
+        if self.moving():
+            self.notice = 'Not while moving'
+            return
+        epoch = self.args.hardware_config.get('hardware_epoch', 0) + 1
+        try:
+            note = self.ask_text('Hardware changed', 'What changed? (e.g. new thruster on pin 3)')
+            if note is None:
+                return
+            if self.choose(f'Bump hardware epoch to {epoch}?', ('Bump', 'Cancel'), {'y': 0},
+                           message='Every C+/C- and speed-curve fit becomes stale and needs a refit.',
+                           danger=True) != 'Bump':
+                return
+        except Cancelled:
+            return
+        if self.save_hardware(hardware_epoch=epoch):
+            self.notice = f'Hardware changed: epoch {epoch}, calibrations need a refit'
+            change = self.history.head('hardware')
+            if change:
+                self.history.label(change['id'], note=note)
 
     def characterize(self, direction):
         """Run Characterize for one direction ('' is all six), leaving the setting as it was."""

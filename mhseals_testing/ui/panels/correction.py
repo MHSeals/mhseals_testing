@@ -54,7 +54,9 @@ def correction_data(hardware, fits=None, running=None):
             fit.setdefault(name, curve.get(name))
     stamp = str(result.get('identified_at') or '')
     fitted = f'{stamp[5:10]} {stamp[11:16]}' if len(stamp) >= 16 else None
-    return dict(matrix=hardware.get('thruster_matrix'), c_positive=_square(hardware.get('decoupling')),
+    flat = hardware.get('thruster_matrix')   # the config holds 12 values; a list of rows also passes
+    matrix = [flat[i:i + 3] for i in range(0, 12, 3)] if flat and not hasattr(flat[0], '__len__') else flat
+    return dict(matrix=matrix, c_positive=_square(hardware.get('decoupling')),
                 c_negative=_square(hardware.get('decoupling_negative')), fits=fits,
                 header=dict(fitted=fitted, activity=running))
 
@@ -289,7 +291,8 @@ def render(view, width=120, height=40, focused=True):
         footer.append(Text('Plan  ' + view['plan']))
     footer.append(Text.assemble(('scope ', MUTED), ('hw', SCOPE), ' hardware: refit when rebuilt  ',
                                 ('cal', SCOPE), ' calibration: refit each test'))
-    main = theme.block(Group(*body, Text(''), *lines, Text(''), *footer),
+    pad = max(0, height - 2 - len(body) - len(lines) - len(footer) - 2)   # the box fills the body
+    main = theme.block(Group(*body, Text(''), *lines, *[Text('')] * (pad + 1), *footer),
                        theme.SEPARATOR.join(_title(view)), focused=focused)
     if not side:
         return main

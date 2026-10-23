@@ -21,16 +21,16 @@
 │     t95 · vmax    —         —         —         —         —         —                            │
 │     tracking      —         —         —         —         —         —                            │
 │                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
 │ scope hw hardware: refit when rebuilt  cal calibration: refit each test                          │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- Focus Table · 1/9                                                                             Ready
- Tab Focus                         a Arm                            Space Stop                      
- ? Help                            q Quit                                                           
+ Focus Correction · sway− column                                                               Ready
+ ←→ Direction                      Enter Holds                      r Rerun direction               
+ R Run all                         A Apply pending                  I Hardware changed              

@@ -145,7 +145,8 @@ def footer(view, width):
     status.add_column(ratio=4, no_wrap=True, overflow=theme.OVERFLOW)
     status.add_column(ratio=6, justify='right', no_wrap=True, overflow=theme.OVERFLOW)
     position = view['position']
-    focus = Text(f" Focus {TITLES.get(view['focus'], view['focus'].title())}", style=f'bold {ACCENT}')
+    title, position = view.get('focus_title') or (TITLES.get(view['focus'], view['focus'].title()), position)
+    focus = Text(f' Focus {title}', style=f'bold {ACCENT}')
     if position:
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
     status.add_row(focus, Text(view['notice'], style=MUTED))
