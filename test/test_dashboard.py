@@ -400,3 +400,16 @@ def test_readback_glyph_checks_the_duty_against_the_commanded_pulse():
 def test_effort_bar_is_warn_when_saturated():
     assert effort_bar(1900, saturated=True).style == theme.WARN
     assert effort_bar(1900).style != theme.WARN
+
+
+
+
+def test_deploy_state_sits_before_the_host_in_the_header():
+    from mhseals_testing.ui.dashboard import header
+    from mhseals_testing.ui.deploy import deploy_text
+    profile = load_profile('boat')
+    snapshot = monitor().snapshot(profile.required_tf)
+    state = dict(ahead=0, behind=2, dirty=1, untracked=0, diverged=False, fetch_age=None)
+    page = text(header(snapshot, view(profile, deploy=deploy_text([state])), 120), 120, 2)
+    assert '↓2 ±1  boat' in page and page.index('↓2') < page.index('boat · ROS')
+    assert '↓2' not in text(header(snapshot, view(profile), 120), 120, 2)

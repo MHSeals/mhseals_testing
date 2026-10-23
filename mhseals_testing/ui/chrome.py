@@ -20,9 +20,14 @@ PROFILE_AT = 100   # the profile shows from this width
 
 
 def deploy_item(deploy):
-    """``≡`` clean, counts in warn, ``↕`` diverged, ``code newer`` when the running code is stale."""
+    """``≡`` clean, counts in warn, ``↕`` diverged, ``code newer`` when the running code is stale.
+
+    ``deploy`` is that dict, or the Text ``ui.deploy.deploy_text`` already built from the git probe.
+    """
     if not deploy:
         return None
+    if isinstance(deploy, Text):
+        return deploy
     if deploy.get('diverged'):
         item = Text(theme.pick('↕', '<>'), style=BAD)
     else:

@@ -10,6 +10,8 @@ from mhseals_testing.health.config import load, lint
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.kinds import git_state
 from mhseals_testing.health.probes.git import GitProbe, from_specs, parse_status
+from mhseals_testing.ui import theme
+from mhseals_testing.ui.deploy import deploy_text
 
 ENV = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
 
@@ -125,3 +127,16 @@ def test_shipped_config_lints_and_skips_without_probe(shipped_kinds):
     assert not Engine(specs).tick({}, {}).results            # missing: skip, hidden
     probe = from_specs(specs, config.probes['git'])
     assert set(probe.repos) == {'astro_dock', 'hardware', 'nav', 'testing'}
+
+
+def test_deploy_text_glyphs(monkeypatch):
+    clean = dict(ahead=0, behind=0, dirty=0, untracked=0, diverged=False, fetch_age=None)
+    assert deploy_text([clean, clean]).plain == '≡'
+    assert deploy_text([]) is None
+    busy = [dict(clean, ahead=1, dirty=2), dict(clean, behind=3, untracked=4, fetch_age=7300)]
+    assert deploy_text(busy).plain == '↑1 ↓3 ±2 ?4 ↻2h'
+    diverged = deploy_text([dict(clean, ahead=1, behind=1, diverged=True)])
+    assert diverged.plain == '↕ ↑1 ↓1' and diverged.spans[0].style == theme.BAD
+    monkeypatch.setattr(theme, 'ASCII', True)
+    assert deploy_text(busy).plain == '^1 v3 *2 ?4 ~2h'
+    assert deploy_text([clean]).plain == '='
