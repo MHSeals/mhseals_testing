@@ -332,14 +332,13 @@ def finalize(segment, run, recording=None):
     segment = Path(segment)
     if recording is not None and segment.resolve() == Path(recording).resolve():
         return {'status': 'refused', 'error': 'segment is being recorded'}
-    state = segment_state(segment)
-    if state == INDEXED:
+    if segment_state(segment) == INDEXED:
         return {'status': 'indexed'}
-    if state == EMPTY:
-        return {'status': 'empty'}
     for f in mcap_files(segment):  # a 0-byte file makes reindex fail
         if not f.stat().st_size:
             f.unlink()
+    if segment_state(segment) == EMPTY:  # nothing left: never a reindex
+        return {'status': 'empty'}
     code = run(reindex_command(segment))
     if code != 0 or segment_state(segment) != INDEXED:
         return {'status': 'failed', 'error': f'ros2 bag reindex exited {code}'}

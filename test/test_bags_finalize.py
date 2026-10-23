@@ -36,7 +36,7 @@ def test_only_zero_byte_files_is_empty_without_reindex(tmp_path):
     run = Runner()
     assert segment_state(d) == EMPTY
     assert finalize(d, run)['status'] == 'empty'
-    assert not run.calls
+    assert not run.calls and not list(d.glob('*.mcap'))
 
 
 def test_zero_byte_removed_before_reindex(tmp_path):
