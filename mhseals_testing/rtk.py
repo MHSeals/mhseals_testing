@@ -209,12 +209,16 @@ class BaseSession:
         self.config = load_config() if config is None else deepcopy(config)
         self.lock = threading.RLock()
         self.state = dict(phase='off', detail='Enter to configure', received=0, delivered=0,
-                          errors=0, model='', survey=None, base_position=None, base_satellites=None)
+                          errors=0, routes=self._blank_routes(), model='', survey=None,
+                          base_position=None, base_satellites=None)
         self.stopped = threading.Event()
         self.thread = None
         self.position = None
         self.configure = False
         self.fixed = False
+
+    def _blank_routes(self):
+        return [dict(sent=0, failed=0, error='', error_at=None) for _ in self.sinks]
 
     @property
     def running(self):
@@ -248,7 +252,7 @@ class BaseSession:
         self.fixed = bool(position)
         self.stopped.clear()
         self.update(phase='connecting', detail='identifying receiver', survey=None, received=0,
-                    delivered=0, errors=0, base_position=None)
+                    delivered=0, errors=0, routes=self._blank_routes(), base_position=None)
         self.thread = threading.Thread(target=self._run, name='rtk-base', daemon=True)
         self.thread.start()
 
@@ -322,13 +326,28 @@ class BaseSession:
             if self.state['phase'] not in ('ready', 'fixed'):
                 return
             stamp = self.clock()
-            for sink in self.sinks:
+            sent = 0
+            for index, sink in enumerate(self.sinks):
                 try:
                     sink(raw, stamp)
                 except (OSError, RuntimeError, ValueError) as error:
+                    self._route(index, failed=1, error=str(error), error_at=stamp)
                     self.update(detail=str(error))
                     self.count('errors')
-            self.count('delivered')
+                else:
+                    sent += 1
+                    self._route(index, sent=1)
+                    if self.state['detail'] == self.state['routes'][index]['error']:
+                        self.update(detail='sending corrections')    # the sink that set it has recovered
+            if sent:
+                self.count('delivered')
+
+    def _route(self, index, **change):
+        """Per-sink sent/failed counts and the last error with its time, for a per-route status line."""
+        with self.lock:
+            route = self.state['routes'][index]
+            for key, value in change.items():
+                route[key] = route[key] + value if key in ('sent', 'failed') else value
 
     def _survey(self, message):
         from pyubx2 import ecef2llh
