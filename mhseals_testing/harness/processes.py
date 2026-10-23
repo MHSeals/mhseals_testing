@@ -105,6 +105,11 @@ class ProcessManager:
     def records(self):
         return {name: child.record() for name, child in self.processes.items()}
 
+    def release(self, names):
+        """Forget ``names`` without stopping them (a handover: their keepers wait for the adopter)."""
+        for name in names:
+            self.processes.pop(name, None)
+
     def running(self, name):
         process = self.processes.get(name)
         return process is not None and process.poll() is None

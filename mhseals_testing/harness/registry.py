@@ -2,7 +2,9 @@
 
 One JSON file in the runtime directory, read-modify-written under a flock and
 replaced atomically, so keepers and other instances can read it without a lock.
-ROS-free.
+An owner whose pid is dead is stale: it can be claimed, and its children adopted
+or stopped, without a handshake. The clock, sleep, kill and liveness test are
+injectable so two instances can be simulated in one test. ROS-free.
 """
 
 import fcntl
@@ -12,6 +14,8 @@ from pathlib import Path
 import signal
 import tempfile
 import time
+
+HANDOVER_TIMEOUT = 5.0
 
 
 def runtime_dir():
@@ -40,8 +44,9 @@ class Busy(RuntimeError):
 
 
 class Registry:
-    def __init__(self, path=None):
+    def __init__(self, path=None, alive=alive, clock=time.time, sleep=time.sleep, kill=os.kill):
         self.path = Path(path) if path else runtime_dir() / 'session.json'
+        self.alive, self.clock, self.sleep, self.kill = alive, clock, sleep, kill
 
     def read(self):
         try:
@@ -61,38 +66,69 @@ class Registry:
             os.replace(temporary, self.path)
             return result
 
-    def claim(self, owner, session):
-        """Become the owner; raises Busy while another live process owns it."""
+    def state(self):
+        """The entry, {} when there is none yet."""
+        return self.read() or {}
+
+    def owner(self):
+        """The recorded owner, live or not, or None when the seat is free."""
+        return self.state().get('owner')
+
+    def stale(self):
+        owner = self.owner()
+        return owner is not None and not self.alive(owner['pid'])
+
+    def claim(self, owner, session=None):
+        """Become the owner; raises Busy while another live process owns it.
+
+        ``session`` None keeps the recorded session (an adopter continues it).
+        """
         def change(entry):
             current = entry.get('owner')
-            if current and current['pid'] != owner['pid'] and alive(current['pid']):
+            if current and current['pid'] != owner['pid'] and self.alive(current['pid']):
                 raise Busy(entry)
-            entry.update(owner=owner, session=session, handover=None)
+            entry.update(owner=owner, handover=None)
+            if session is not None:
+                entry['session'] = session
             entry.setdefault('children', {})
             entry.setdefault('guests', {})
         self._locked(change)
 
-    def update(self, **fields):
-        self._locked(lambda entry: entry.update(fields))
+    def update(self, change=None, **fields):
+        """Set ``fields``, or run ``change(entry)`` on the entry, under the lock."""
+        self._locked(change or (lambda entry: entry.update(fields)))
 
-    def request_handover(self, to_pid, timeout=5.0):
-        """Ask the owner to detach (SIGUSR1) and wait until it lets go; returns the entry."""
-        entry = self.read() or {}
-        owner = entry.get('owner')
-        self.update(handover={'to': to_pid, 'deadline': time.time() + timeout})
-        if owner and alive(owner['pid']):
-            os.kill(owner['pid'], signal.SIGUSR1)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            entry = self.read() or {}
-            if entry.get('owner') is None:
-                return entry
-            time.sleep(0.1)
-        raise TimeoutError('the owner did not let go')
+    def set_children(self, children):
+        self.update(children=children)
 
-    def release(self, keep_children):
-        """Give up ownership; drop the children unless they are handed on."""
-        self.update(owner=None, **({} if keep_children else {'children': {}, 'handover': None}))
+    def children(self):
+        return self.state().get('children', {})
+
+    def request_handover(self, to_pid, timeout=HANDOVER_TIMEOUT):
+        """Ask the owner to detach (SIGUSR1) and wait for the seat to empty. True if it let go."""
+        owner = self.owner()
+        if owner is None:
+            return True
+        deadline = self.clock() + timeout
+        # The keepers read the deadline: an unexpired handover keeps the children alive.
+        self.update(handover={'to': to_pid, 'deadline': deadline})
+        if self.alive(owner['pid']):
+            self.kill(owner['pid'], signal.SIGUSR1)
+        while self.clock() < deadline:
+            if self.owner() is None:
+                return True
+            self.sleep(0.1)
+        return self.owner() is None
+
+    def release(self, pid=None, keep_children=True):
+        """Give up the seat (only ``pid``'s, when given); drop the children unless handed on."""
+        def change(entry):
+            if pid is not None and (entry.get('owner') or {}).get('pid') != pid:
+                return
+            entry['owner'] = None
+            if not keep_children:
+                entry.update(children={}, handover=None)
+        self._locked(change)
 
     def add_guest(self, pid, node, procedure):
         self._locked(lambda entry: entry.setdefault('guests', {}).update(
