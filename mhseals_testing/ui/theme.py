@@ -5,6 +5,8 @@ look. NO_COLOR is honoured by Rich, so each state has its own glyph (✓ ! × �
 never relies on color alone; TERM=dumb or MHS_ASCII swaps glyphs for ASCII.
 """
 
+import math
+
 from rich import box
 from rich.panel import Panel
 from rich.table import Table
@@ -45,6 +47,13 @@ CURSOR = '> ' if ASCII else '› '
 TINT = palette.detect_tier() in ('truecolor', '256') and not ASCII
 SEL_BG = f"on {PALETTE.style('sel_bg')}" if TINT else ''
 ARROW = '->' if ASCII else '→'
+SPINNER = '|/-\\' if ASCII else '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+SPINNER_HZ = 10
+
+
+def spinner(t):
+    """The spinner frame for time ``t`` seconds, advancing SPINNER_HZ frames a second."""
+    return SPINNER[int(t * SPINNER_HZ) % len(SPINNER)] if math.isfinite(t) else SPINNER[0]
 
 # Glyph and color per state; every state the suite reports maps to one of these.
 _GLYPHS = {

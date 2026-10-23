@@ -131,7 +131,7 @@ def footer(view, width):
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
     status.add_row(focus, Text(view['notice'], style=MUTED))
     hints = view['hints']
-    columns = 4 if width >= WIDE else 3
+    columns = 4 if width >= WIDE else 3 if width >= 60 else 2
     grid = Table.grid(expand=True)
     for _ in range(columns):
         grid.add_column(ratio=1, no_wrap=True, overflow=theme.OVERFLOW)

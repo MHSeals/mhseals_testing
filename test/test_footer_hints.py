@@ -22,3 +22,14 @@ def test_manual_keeps_stop_and_leave_when_narrow():
 
 def test_short_lists_are_untouched():
     assert dashboard.fit_hints([('a', 'A')], 6) == [('a', 'A')]
+
+
+def test_footer_columns_follow_the_width():
+    from rich.console import Console
+    import io
+    view = {'armed': False, 'outputs': None, 'focus': 'motion', 'position': '', 'notice': '',
+            'hints': [(f'k{i}', f'l{i}') for i in range(8)]}
+    for width, shown in ((59, 4), (60, 6), (105, 6), (106, 8)):
+        out = io.StringIO()
+        Console(file=out, width=width, color_system=None).print(dashboard.footer(view, width))
+        assert sum(f'k{i}' in out.getvalue() for i in range(8)) == shown, width
