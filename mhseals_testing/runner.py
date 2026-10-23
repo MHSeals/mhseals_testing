@@ -58,6 +58,7 @@ class Runner:
     none). ``on_pause()`` restores the real correction C for the human and
     ``on_resume()`` re-stages identity; both are optional. A pause longer than
     ``pause_limit`` seconds aborts with ``override_timeout``.
+    ``supervise`` (navigation) pauses instead while ``override()`` names a cause.
     """
 
     def __init__(self, plant, blockers, keys, show=lambda *args: None,
@@ -77,13 +78,15 @@ class Runner:
         self.settle, self.pause_limit = settle, pause_limit
         self.overrides = []   # {by, start, end, paused_s, window, holds_invalidated}
         self.done = []        # (start, end) of completed holds
+        self.paused = 0.0     # s spent overridden inside supervise, summed over the session
 
     def invalid(self, start, end):
         """True when [start, end] overlaps an override window (the pause plus its settle)."""
         return any(start < o['window'][1] and end > o['window'][0] for o in self.overrides)
 
-    def check(self):
-        cause = self.override()
+    def check(self, overrides=True):
+        """Raise on an override (holds re-run; ``supervise`` pauses instead) or an interlock."""
+        cause = self.override() if overrides else ''
         if cause:
             raise Overridden(cause)
         reasons = self.blockers()
@@ -148,24 +151,53 @@ class Runner:
             self.stop()
             raise
 
-    def supervise(self, seconds, done=lambda: False, label='', sample=None):
+    def supervise(self, seconds, done=lambda: False, label='', sample=None,
+                  on_pause=lambda: None, on_resume=lambda: None):
         """Watch while something else drives (Nav2): interlocks and abort keys, no publishing.
 
-        Ends when ``done()`` is true or after ``seconds``; ``sample(now)`` runs each
-        tick; ``label`` may be a callable for live text. Returns (start, end, finished).
+        Ends when ``done()`` is true or after ``seconds``; ``sample(t)`` runs each
+        tick with the clock minus the paused time; ``label`` may be a callable for live
+        text. Returns (start, end, finished).
+
+        While ``override()`` is set the run is paused: ``on_pause()`` fires once (cancel
+        the goal), nothing is sampled, the deadline slides by the paused time, and
+        ``on_resume()`` fires when control returns (re-send the goal). The returned
+        ``end`` excludes the paused time, so durations and metrics drop it.
         """
         start = self.clock()
         deadline = start + seconds
+        paused_at, paused_before = None, self.paused
         try:
             while True:
                 now = self.clock()
-                if done():
-                    return start, now, True
-                if now >= deadline:
-                    return start, now, False
-                self.check()
+                cause = self.override()
+                if paused_at is None and cause:
+                    paused_at = now
+                    self.emit('pause', cause=cause)
+                    on_pause()
+                elif paused_at is not None and not cause:
+                    self.paused += now - paused_at
+                    deadline += now - paused_at
+                    self.emit('pause_end', outcome='resume', paused_s=now - paused_at)
+                    paused_at = None
+                    on_resume()
+                lost = self.paused - paused_before
+                if paused_at is not None:
+                    lost += now - paused_at
+                if paused_at is None and done():
+                    return start, now - lost, True
+                if paused_at is None and now >= deadline:
+                    return start, now - lost, False
+                self.check(overrides=False)   # an override pauses here, it does not abort
+                if paused_at is not None:
+                    self.show(self.command, deadline - paused_at, 'paused: manual override')
+                    key = self.keys.read(timeout=self.period)
+                    if fold(key) in ABORT_KEYS:
+                        self.emit('pause_end', outcome='aborted', paused_s=now - paused_at)
+                        raise Aborted('supervision cancelled by operator')
+                    continue
                 if sample is not None:
-                    sample(now)
+                    sample(now - lost)
                 text = label() if callable(label) else label
                 self.show(self.command, deadline - now, text)
                 key = self.keys.read(timeout=min(self.period, deadline - now))

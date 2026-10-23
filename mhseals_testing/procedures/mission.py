@@ -35,6 +35,7 @@ def run(ctx):
     command = ['ros2', 'launch', 'mhseals_nav', 'task.launch.py', f'task:={task}',
                f'sim:={str(ctx.profile.use_sim_time).lower()}']
     with ctx.supervise('mission', task=task) as runner:
+        paused_before = runner.paused
         services['start'](f'task_{task}', command)
         try:
             start, end, _ = runner.supervise(
@@ -43,8 +44,11 @@ def run(ctx):
                 label=lambda: f"{task}: {watcher.status.get('tip') or 'starting'}")
         finally:
             services['stop'](f'task_{task}')  # SIGINT: the task cancels its Nav2 goal
-    result = dict(score(watcher.events, rubric), procedure='mission', task=task)
-    judged = judge(ctx, task, rubric, watcher.events, start, end)
+    paused = runner.paused - paused_before
+    result = dict(score(watcher.events, rubric), procedure='mission', task=task,
+                  paused_s=paused)
+    # The referee reads the wall-clock track; supervise's end excludes the paused time.
+    judged = judge(ctx, task, rubric, watcher.events, start, end + paused)
     if judged is not None:
         result['referee'] = judged['verdict']
         result['referee_detail'] = judged

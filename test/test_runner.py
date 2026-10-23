@@ -178,3 +178,29 @@ def test_override_cause_reads_the_mux_state():
     assert override_cause({'input': 'auto'}) == '' and override_cause({'input': 'idle'}) == ''
     assert override_cause({'input': 'rc'}) == 'rc'
     assert override_cause({'input': 'auto'}, age_s=3.5) == 'unknown' and override_cause(None) == 'unknown'
+
+
+def test_supervise_pauses_while_overridden_and_drops_the_paused_time():
+    run, plant, events, clock = runner(rate=4.0)
+    run.override = lambda: 'rc' if 2.0 <= clock[0] < 5.0 else ''
+    calls, samples = [], []
+    began, ended, finished = run.supervise(
+        10.0, sample=samples.append, on_pause=lambda: calls.append(('pause', clock[0])),
+        on_resume=lambda: calls.append(('resume', clock[0])))
+    assert calls == [('pause', 2.0), ('resume', 5.0)] and not finished
+    assert (began, ended) == (0.0, 10.0)           # 13 s on the clock, 3 s paused
+    assert clock[0] == 13.0 and run.paused == 3.0
+    assert plant.sent == []
+    # Samples run on the clock minus the paused time: no gap where the pause was.
+    assert samples[0] == 0.0 and all(b - a == 0.25 for a, b in zip(samples, samples[1:]))
+    assert max(samples) < 10.0
+    assert events == [('pause', dict(cause='rc')),
+                      ('pause_end', dict(outcome='resume', paused_s=3.0))]
+
+
+def test_a_pause_still_honours_the_abort_key():
+    run, plant, _, clock = runner({12: 'space'}, rate=4.0)
+    run.override = lambda: 'rc' if clock[0] >= 2.0 else ''
+    with pytest.raises(Aborted, match='cancelled'):
+        run.supervise(10.0)
+    assert plant.sent == ['neutral']

@@ -37,6 +37,19 @@ def current_pose(nav):
     return pose
 
 
+REACHED_RADIUS = 1.0  # m; a waypoint this close to a sampled point counts as passed on resume
+
+
+def remaining_route(route, points):
+    """The waypoints still to do: those after the leading run that the track already reached."""
+    done = 0
+    for corner in route:
+        if not any(math.dist(corner[:2], point) <= REACHED_RADIUS for point in points):
+            break
+        done += 1
+    return route[done:]
+
+
 def bringup(ctx):
     """Lifecycle, costmap and planning, without moving."""
     nav = ctx.services['nav2']()
@@ -83,17 +96,26 @@ def waypoints(ctx):
             times.append(now)
             points.append(pose[:2])
 
+    def resume():
+        # Back from an override: carry on from wherever the boat is now.
+        state['goal'] = nav.navigate(remaining_route(route, points) or route[-1:])
+
     timeout = 60.0 + 15.0 * len(route)
+    state = {}
     with ctx.supervise('waypoints', route=route) as runner:
-        goal = nav.navigate(route)
+        paused_before = runner.paused
+        state['goal'] = nav.navigate(route)
         try:
-            began, ended, _ = runner.supervise(timeout, done=lambda: goal.done,
-                                               label='following waypoints', sample=sample)
+            began, ended, _ = runner.supervise(
+                timeout, done=lambda: state['goal'].done, label='following waypoints',
+                sample=sample, on_pause=lambda: state['goal'].cancel(), on_resume=resume)
         finally:
-            goal.cancel()
+            state['goal'].cancel()
+    goal = state['goal']
     status = goal.status if goal.done else 'TIMEOUT'
     result = dict(waypoint_metrics(points, [corner[:2] for corner in route], start=start[:2]),
                   procedure='waypoints', status=status, duration=ended - began,
+                  paused_s=runner.paused - paused_before,
                   verdict='REACHED' if status == 'SUCCEEDED' else status)
     ctx.record(result)
     return result
@@ -121,13 +143,17 @@ def station(ctx):
             state['resends'] += 1
 
     with ctx.supervise('station_keeping', center=center, hold=settings.station_hold) as runner:
+        paused_before = runner.paused
         state['goal'] = nav.navigate([center])
         try:
-            runner.supervise(settings.station_hold, label='station keeping', sample=sample)
+            runner.supervise(settings.station_hold, label='station keeping', sample=sample,
+                             on_pause=lambda: state['goal'].cancel(),
+                             on_resume=lambda: state.update(goal=nav.navigate([center])))
         finally:
             state['goal'].cancel()
     result = dict(station_keeping(times, points, center[:2], settings.station_tolerance),
                   procedure='station keeping', resends=state['resends'],
+                  paused_s=runner.paused - paused_before,
                   tolerance=settings.station_tolerance)
     ctx.record(result)
     return result

@@ -28,3 +28,21 @@ def test_availability_reasons():
 def test_thruster_balance_is_not_registered():
     from mhseals_testing.procedures import PROCEDURES
     assert 'b' not in {p.key for p in PROCEDURES}
+
+
+def test_remaining_route_skips_reached_leading_waypoints():
+    from mhseals_testing.procedures.nav import remaining_route
+    route = [(4, 0, 0), (4, 4, 0), (0, 4, 0), (0, 0, 0)]
+    assert remaining_route(route, [(3.5, 0.2), (4, 3.8)]) == route[2:]
+    assert remaining_route(route, [(0, 4)]) == route   # later corner alone does not count
+    assert remaining_route(route, []) == route
+
+
+def test_thruster_set_refuses_unless_the_mux_is_auto():
+    from types import SimpleNamespace
+
+    from mhseals_testing.procedures import thrusters
+    for state in ('rc', 'hold'):
+        ctx = SimpleNamespace(services={'mux_input': lambda s=state: s})
+        with pytest.raises(RuntimeError, match='needs the mux in auto'):
+            thrusters.run(ctx)

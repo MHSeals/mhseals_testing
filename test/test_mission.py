@@ -51,3 +51,33 @@ def test_commissioning_courses_match_detector_labels_and_truth(task, labels):
     course = json.loads(path.read_text())
     assert {item['label'] for item in course['elements']} == labels
     assert all(item['task'] == task for item in course['elements'])
+
+
+def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    runner = SimpleNamespace(paused=5.0)
+
+    def supervise(*args, **kwargs):
+        runner.paused += 3.0       # a 3 s override inside this run
+        return 10.0, 17.0, True    # end excludes the pause (wall end is 20)
+    runner.supervise = supervise
+    watcher = SimpleNamespace(events=[], status={}, reset=lambda: None)
+    seen = []
+
+    @contextmanager
+    def supervised(*args, **kwargs):
+        yield runner
+    ctx = SimpleNamespace(
+        choose=lambda *a: 'gate', prompt=lambda *a: None, supervise=supervised,
+        profile=SimpleNamespace(use_sim_time=False), record=lambda r: None,
+        services={'task_watcher': lambda: watcher, 'start': lambda *a: None,
+                  'stop': lambda *a: None, 'running': lambda *a: False})
+    monkeypatch.setattr(mission, 'available', lambda: ['gate'])
+    monkeypatch.setattr(mission, 'score', lambda events, rubric: {})
+    monkeypatch.setattr(mission, 'judge', lambda *a: seen.append(a[-2:]))
+    monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: {})
+    monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
+    result = mission.run(ctx)
+    assert seen == [(10.0, 20.0)] and result['paused_s'] == 3.0

@@ -16,6 +16,12 @@ SETTLE_SECONDS = 1.0
 
 def run(ctx):
     services = ctx.services
+    # With a command mux the raw pulses only reach the thrusters in auto.
+    mux_input = services.get('mux_input')
+    mode = mux_input() if mux_input is not None else 'auto'
+    if mode != 'auto':
+        raise RuntimeError(f'thruster set needs the mux in auto, not {mode}; '
+                           'release the override first')
     neutral = [NEUTRAL_PWM] * 4
     observations, flipped = {}, set()
     try:
