@@ -71,6 +71,10 @@ For `pair_test` or `circle_test`, use this package's `config/courses/<task>.json
 
 Records go under one data root: `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory ([docs/data.md](docs/data.md)). Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events latched on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed.
 
+### Health
+
+Health checks are YAML (`config/health/*.yaml`) over facts that probes publish; a `fail` blocks a procedure from starting, a `warn` shows its reason, and nothing interrupts a run. `~/.config/mhseals/health.yaml` can `disable` or `override` checks. How to add a fact, a kind or a check is in [docs/health.md](docs/health.md).
+
 ### Development
 
 ```bash
@@ -79,6 +83,6 @@ PYTHONPATH=.:../mhseals_hardware python -m pytest -q test
 make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 ```
 
-`docs/data.md` describes the data layout; `docs/field-2026-10-18.md` records the thrust coupling findings that shaped the speed curves and per-sign decoupling.
+`docs/data.md` describes the data layout; `docs/health.md` the health system; `docs/field-2026-10-18.md` records the thrust coupling findings that shaped the speed curves and per-sign decoupling.
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
