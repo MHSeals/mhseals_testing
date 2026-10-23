@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -5,7 +6,26 @@ import yaml
 
 from mhseals_testing.analysis.classes import ClassTable, load_classes
 
-DETECTOR = Path(__file__).resolve().parents[2] / 'mhseals_nav/config/custom_object_detection.yaml'
+CONFIG = 'config/custom_object_detection.yaml'
+
+
+def find_detector(env=None, sibling=None):
+    """Locate the detector YAML: $MHSEALS_NAV, then the ament share dir, then a sibling checkout."""
+    env = os.environ if env is None else env
+    sibling = sibling or Path(__file__).resolve().parents[2] / 'mhseals_nav'
+    candidates = []
+    if env.get('MHSEALS_NAV'):
+        candidates.append(Path(env['MHSEALS_NAV']))
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        candidates.append(Path(get_package_share_directory('mhseals_nav')))
+    except Exception:
+        pass
+    candidates.append(sibling)
+    return next((c / CONFIG for c in candidates if (c / CONFIG).exists()), sibling / CONFIG)
+
+
+DETECTOR = find_detector()
 TRUTH_LABELS = ['red_pole_buoy', 'red_buoy', 'green_pole_buoy', 'green_buoy',
                 'yellow_buoy', 'black_buoy', 'blue_buoy']
 
@@ -54,3 +74,26 @@ def test_duplicate_glyph_or_ascii_is_rejected():
         ClassTable({'one': entry, 'two': dict(entry, ascii='b')}, unknown)
     with pytest.raises(ValueError):
         ClassTable({'one': entry, 'two': dict(entry, glyph='B')}, unknown)
+
+
+def test_find_detector_prefers_env_over_sibling(tmp_path):
+    (tmp_path / 'config').mkdir()
+    (tmp_path / CONFIG).write_text('labels: []\n')
+    assert find_detector({'MHSEALS_NAV': str(tmp_path)}, tmp_path / 'missing') == tmp_path / CONFIG
+
+
+def _table(**changes):
+    entry = {'glyph': 'o', 'ascii': 'a', 'colour': 'red', 'radius': 1.0, 'name': 'A'}
+    return ClassTable({'a': {**entry, **changes}}, {**entry, 'glyph': '?', 'ascii': '?'})
+
+
+@pytest.mark.parametrize('changes', [
+    {'ascii': True}, {'glyph': False}, {'ascii': 'ab'}, {'ascii': '\u00e9'}, {'ascii': ''},
+    {'glyph': 'AB'}, {'glyph': '\U0001f534'}, {'glyph': '\uff21'}, {'radius': 0}, {'radius': -1}])
+def test_malformed_class_entries_are_rejected(changes):
+    with pytest.raises(ValueError):
+        _table(**changes)
+
+
+def test_well_formed_entry_is_accepted():
+    assert _table().symbol('a').ascii == 'a'
