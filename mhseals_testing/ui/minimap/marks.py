@@ -10,7 +10,7 @@ from collections import namedtuple
 from mhseals_testing.ui.minimap.view import rotate
 
 Obj = namedtuple('Obj', 'x y label score contact', defaults=(False,))
-SCORE_FLOOR = 0.3   # below this the object is hidden
+SCORE_FLOOR = 0.3   # default detection floor D (0, .3, .5, .7); below it the object is hidden
 RING_HALF = 5.0     # rings show at or below this half-width, labels at LABEL_HALF
 LABEL_HALF = 10.0
 
@@ -47,13 +47,20 @@ def line(canvas, a, b, layer):
             err, y = err + dx, y + sy
 
 
-def draw_objects(proj, objects, table, boat=None, ascii_=False):
+def strength(score):
+    """Colour strength percent: full from .7, 78 from .5, 50 below (map.md 2.2)."""
+    return 100 if score >= 0.7 else 78 if score >= 0.5 else 50
+
+
+def draw_objects(proj, objects, table, boat=None, ascii_=False, floor=SCORE_FLOOR):
     """Class glyphs (best score keeps a cell), contact chips, rings and labels.
+
+    A faded glyph's layer ends ``@<percent>`` (like ts115 tints); ``floor`` hides lower scores.
 
     ``boat`` orders label placement nearest first; without it the view centre is used.
     """
     canvas, taken, placed = proj.canvas, set(), []
-    for o in sorted((o for o in objects if o.score >= SCORE_FLOOR), key=lambda o: -o.score):
+    for o in sorted((o for o in objects if o.score >= floor), key=lambda o: -o.score):
         sym, pos = table.symbol(o.label), proj.cell((o.x, o.y))
         if pos in taken or not canvas._inside(*pos):
             continue
@@ -62,7 +69,8 @@ def draw_objects(proj, objects, table, boat=None, ascii_=False):
         if o.contact:
             canvas.glyph(*pos, 'X' if ascii_ else char, 'contact', chip=True)
         else:
-            canvas.glyph(*pos, char, f'object:{sym.colour}')
+            fade = strength(o.score)
+            canvas.glyph(*pos, char, f'object:{sym.colour}' + (f'@{fade}' if fade < 100 else ''))
         placed.append((o, sym, pos))
         if proj.half <= RING_HALF:
             _ring(proj, o, sym.radius)

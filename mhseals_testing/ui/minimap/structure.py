@@ -20,9 +20,9 @@ BRACKET = 4.5       # cells a bay needs for the ASCII [bs] form
 
 
 def bay_cells(proj, bay):
-    """The bay mouth's width in cells."""
-    (xa, _), (xb, _) = proj.dot(bay.a), proj.dot(bay.b)
-    return abs(xb - xa) / 2
+    """The bay mouth's length in cells (cells are 2 dots wide, 4 high), at any rotation."""
+    (xa, ya), (xb, yb) = proj.dot(bay.a), proj.dot(bay.b)
+    return math.hypot((xb - xa) / 2, (yb - ya) / 4)
 
 
 def draw_dock(proj, bay, tier='colour'):
