@@ -290,3 +290,14 @@ def test_motion_rows_read_whole_with_a_full_trend_history(width):
     rows = [line for line in page.splitlines() if re.search(r'\b(Surge|Sway|Yaw) +[+-]', line)]
     assert len(rows) == 3
     assert all('…' not in line and re.search(r'\b(m|rad)/s\b', line) for line in rows)
+
+
+@pytest.mark.parametrize('width', [40, 48, 54, 59])
+def test_thrusters_panel_is_not_truncated_below_60_columns(width):
+    profile = load_profile('boat')
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, focus='thrusters', outputs='odroid'), width, 24), width, 24)
+    lines = page.splitlines()
+    top = next(i for i, line in enumerate(lines) if '╭─' in line and 'Thr' in line)
+    bottom = next(i for i in range(top, len(lines)) if '╰' in lines[i])
+    assert '…' not in ''.join(lines[top + 1:bottom])

@@ -29,6 +29,7 @@ TITLES = {'status': 'Status', 'motion': 'Motion', 'thrusters': 'Thrusters',
 PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
 WIDE = 106          # below this the Motion panel folds away
 SIDEBAR = 36
+FOLD = 60           # below this the Status sidebar folds away so Thrusters keeps its width
 READBACK_SHORT = {'unavailable': 'n/a'}  # keeps the Pin column inside a half-width panel
 TOP_ROW = 8         # Motion and Thrusters height
 NEUTRAL = 1500
@@ -538,9 +539,11 @@ def render(snapshot, view, width=120, height=34):
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
                         Layout(footer(view, width), size=3))
     body = layout['body']
-    sidebar = SIDEBAR if width >= WIDE else 30
-    body.split_row(Layout(status_panel(snapshot, view, body_height), size=sidebar),
-                   Layout(name='main'))
+    if width >= FOLD:
+        body.split_row(Layout(status_panel(snapshot, view, body_height),
+                              size=SIDEBAR if width >= WIDE else 30), Layout(name='main'))
+    else:
+        body.split_row(Layout(name='main'))  # Status folds away; the header still shows armed state
     main = body['main']
     lower = body_height - TOP_ROW
     if width >= WIDE:
