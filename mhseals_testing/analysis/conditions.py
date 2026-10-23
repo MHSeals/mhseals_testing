@@ -23,7 +23,6 @@ class Settings:
     coast_t95_mult: float
     coast_settle_sigma: float
     coast_max_drop: int
-    neutral_gps_hz: float
     neutral_vel_acc_max: float
     neutral_yaw_rate_max: float
     neutral_coverage: float
@@ -61,6 +60,7 @@ class Window:
     heading: float          # circular mean of the compass
     sub: np.ndarray         # (k, 3) means of consecutive batch_s slices
     moments: np.ndarray     # (5, 3) per channel: sum x[i]x[i-1], sum x^2, sum x, x[0]+x[-1], count
+    hz: float               # sample rate measured from the timestamps
     flag: str = ''          # '' usable; sparse, spin or coast keeps it out of the pool
 
 
@@ -109,15 +109,15 @@ def settle_coast(sub_means, direction, sigma_sub, s: Settings):
     return s.coast_max_drop, False
 
 
-def _window(t, vel, heading, rate, s: Settings, flag=''):
+def _window(t, vel, heading, rate, hz, s: Settings, flag=''):
     """Window statistics for the samples of one chunk."""
     x = np.column_stack([vel, rate])
-    duration = float(t[-1] - t[0]) + 1 / s.neutral_gps_hz
-    eps = 0.5 / s.neutral_gps_hz                     # half a sample absorbs float error in t
+    duration = float(t[-1] - t[0]) + 1 / hz
+    eps = 0.5 / hz                     # half a sample absorbs float error in t
     cuts = int((duration + eps) // s.batch_s)
     parts = [x[(t >= t[0] + i * s.batch_s - eps) & (t < t[0] + (i + 1) * s.batch_s - eps)] for i in range(cuts)]
     mean = x.mean(axis=0)
-    if not flag and len(t) < s.neutral_coverage * s.neutral_gps_hz * duration:
+    if not flag and len(t) < s.neutral_coverage * hz * duration:
         flag = 'sparse'
     elif not flag and abs(mean[2]) >= s.neutral_yaw_rate_max:
         flag = 'spin'
@@ -126,7 +126,7 @@ def _window(t, vel, heading, rate, s: Settings, flag=''):
         heading=float(np.arctan2(np.sin(heading).mean(), np.cos(heading).mean())),
         sub=np.array([p.mean(axis=0) for p in parts if len(p)]).reshape(-1, 3),
         moments=np.array([(x[1:] * x[:-1]).sum(axis=0), (x ** 2).sum(axis=0), x.sum(axis=0),
-                          x[0] + x[-1], np.full(3, len(x))]), flag=flag)
+                          x[0] + x[-1], np.full(3, len(x))]), hz=hz, flag=flag)
 
 
 def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
@@ -139,6 +139,11 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     finite = np.isfinite(vel).all(axis=1) & np.isfinite(heading) & np.isfinite(rate) & np.isfinite(t)
     idx = np.nonzero(np.asarray(mask, bool) & finite)[0]       # a garbled sample splits the run, never poisons it
     runs = np.split(idx, np.nonzero(np.diff(t[idx]) > s.neutral_max_gap_s)[0] + 1)
+    steps = np.diff(t[idx])
+    steps = steps[steps <= s.neutral_max_gap_s]
+    if not len(steps):
+        return []
+    hz = 1 / float(np.median(steps))                           # the velocity source sets the rate, not the yaml
     windows = []
     for run in (r for r in runs if len(r)):
         start, unsettled = t[run[0]], False
@@ -151,9 +156,9 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
                 start, unsettled = start + drop * s.batch_s, not settled
         while True:
             chunk = run[(t[run] >= start) & (t[run] < start + s.window_s)]
-            if not len(chunk) or t[chunk[-1]] - start + 1 / s.neutral_gps_hz < s.min_window_s:
+            if not len(chunk) or t[chunk[-1]] - start + 1 / hz < s.min_window_s:
                 break
-            windows.append(_window(t[chunk], vel[chunk], heading[chunk], rate[chunk], s,
+            windows.append(_window(t[chunk], vel[chunk], heading[chunk], rate[chunk], hz, s,
                                    'coast' if unsettled else ''))
             start, unsettled = start + s.window_s, False
     return windows
@@ -194,7 +199,7 @@ def _autocorrelation(windows, channels):
     return float(np.interp(num / pairs * samples / den, expected, rho))
 
 
-def _scatter_ratio(k, rho, s: Settings):
+def _scatter_ratio(k, rho, hz, s: Settings):
     """E[sum of squared deviations of k batch means about their mean] over (k - 1) S0 / batch_s.
 
     Exact for AR(1) noise: it covers the correlation inside a batch (the factor f of spec 1.2)
@@ -202,7 +207,7 @@ def _scatter_ratio(k, rho, s: Settings):
     """
     if rho <= 0 or k < 2:
         return 1.0
-    b, tau = s.batch_s, -1 / s.neutral_gps_hz / np.log(rho)
+    b, tau = s.batch_s, -1 / hz / np.log(rho)
     e = np.exp(-b / tau)
     var = 1 - tau / b * (1 - e)                                  # f
     cov = [tau / (2 * b) * (1 - e) ** 2 * e ** (d - 1) for d in range(1, k)]
@@ -219,7 +224,8 @@ def spectral_level(windows, s: Settings, channels=(0, 1), rotate=False):
     """
     rho = _autocorrelation(windows, [0, 1] if rotate else channels)
     # A few long-correlated windows can read past the curve; bound tau by half a batch so S0 stays sane.
-    rho = min(rho, float(np.exp(-1 / s.neutral_gps_hz / (s.batch_s / 2))))
+    hz = float(np.median([w.hz for w in windows]))
+    rho = min(rho, float(np.exp(-1 / hz / (s.batch_s / 2))))
     total = expected = 0.0
     for w in windows:
         if len(w.sub) < 2:
@@ -227,7 +233,7 @@ def spectral_level(windows, s: Settings, channels=(0, 1), rotate=False):
         dev = w.sub - w.sub.mean(axis=0)
         dev = (_body(dev, w.heading) if rotate else dev)[:, list(channels)]
         total += float((dev ** 2).sum())
-        expected += dev.shape[1] * (len(w.sub) - 1) * _scatter_ratio(len(w.sub), rho, s)
+        expected += dev.shape[1] * (len(w.sub) - 1) * _scatter_ratio(len(w.sub), rho, w.hz, s)
     # Noise-free input (the sim) would give S0 = 0 and divide every test by zero: floor it.
     return max(s.batch_s * total / expected, s.noise_s0_floor) if expected else None
 

@@ -33,7 +33,6 @@ def single_decoupling(config):
 
 
 def run(ctx):
-    settings = ctx.settings
     if not single_decoupling(ctx.services['hardware_config']):
         # A fit with one C beside a sign-split C is a config the controller refuses.
         refusal = dict(procedure='characterization', verdict='REFUSED',
@@ -41,6 +40,7 @@ def run(ctx):
                               'clear it to characterize with a single C')
         ctx.record(refusal)
         return refusal
+    settings = ctx.settings
     commands = schedule(settings.amplitude)
     ctx.prompt(f'Characterization holds {len(commands)} commands for '
                f'{settings.command:g}s each, in every direction. Clear all sides and '

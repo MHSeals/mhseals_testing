@@ -4,7 +4,7 @@ import pytest
 from mhseals_testing.analysis import conditions as c
 
 S = c.load_settings()
-HZ = S.neutral_gps_hz
+HZ = 5          # the rate the helpers generate at; the estimator measures it from the timestamps
 
 
 def ar1(n, tau, sigma, rng, columns=2):
@@ -17,7 +17,7 @@ def ar1(n, tau, sigma, rng, columns=2):
     return x
 
 
-def neutral(seconds, drift=(0.08, -0.05), tau=1.0, sigma=0.03, seed=0, heading=0.0, t0=0.0, ramp=(0, 0)):
+def neutral(seconds, drift=(0.08, -0.05), tau=1.0, sigma=0.03, seed=0, heading=0.0, t0=0.0, ramp=(0, 0), hz=HZ):
     """Samples of a drifting boat at neutral: (t, vel, heading, rate, mask)."""
     rng = np.random.default_rng(seed)
     t = t0 + np.arange(int(seconds * HZ)) / HZ

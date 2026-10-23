@@ -10,6 +10,12 @@ def test_battery_levels(percentage, level):
     assert health.battery(15.9, percentage)[0] == level
 
 
+def test_battery_treats_fcu_unknowns_as_absent():
+    assert health.battery(12.4, -0.0099999998) == ('OK', '12.4 V (no charge estimate)')
+    assert health.battery(65.535, -0.0099999998) == ('N/A', 'no battery data')
+    assert health.battery(65.535, .8) == ('OK', 'no voltage, 80%')
+
+
 def test_flight_controller_warns_when_it_could_drive():
     assert health.flight_controller(False, False, '')[0] == 'WARN'
     assert health.flight_controller(True, False, 'MANUAL') == ('OK', 'disarmed, MANUAL')
