@@ -9,6 +9,7 @@ callbacks and the App tick publish into; the engine reads a copy of it.
 
 Fact catalogue (this module):
   snapshot  clock.stamp_offset (worst live sensor stamp offset, label = sensor)
+  calibration  calibration.stale (axes with a stale-tracking verdict in calibration/current.json)
   host      host.load (load1 per CPU), host.temp_max, host.disk_free_gb
   fcu       fcu.connected, fcu.armed, fcu.mode
   battery   battery.voltage (pack, label = cell count), battery.cell_v, battery.plausible,
@@ -66,6 +67,23 @@ def snapshot_facts(snapshot):
         return {}
     name = max(ages, key=lambda key: abs(ages[key]))
     return {'clock.stamp_offset': Fact(ages[name], label=name)}
+
+
+def staleness_facts(current):
+    """``calibration.stale``: how many axes the stored staleness verdicts flag (absent before any session).
+
+    Tolerates a malformed file: anything that is not a dict at any level counts as no verdict.
+    """
+    provenance = current.get('provenance') if isinstance(current, dict) else None
+    axes = provenance.get('tracking') if isinstance(provenance, dict) else None
+    if not isinstance(axes, dict):
+        return {}
+    verdicts = {axis: row.get('staleness') for axis, row in axes.items() if isinstance(row, dict)}
+    verdicts = {axis: v for axis, v in verdicts.items() if isinstance(v, dict)}
+    if not verdicts:
+        return {}
+    flagged = sorted(axis for axis, verdict in verdicts.items() if verdict.get('flag'))
+    return {'calibration.stale': Fact(len(flagged), label=', '.join(flagged))}
 
 
 def host_facts(bag_directory, load=os.getloadavg, cpus=os.cpu_count, zones=THERMAL_ZONES):

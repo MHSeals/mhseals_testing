@@ -70,7 +70,8 @@ def record(direction, fit, hardware, *, extra=None, path=None, fields=None):
     """Store the provenance of one direction's fit in calibration/current.json and return the entry.
 
     ``fit`` is {id, time, session, run, config}; ``hardware`` is the hardware config at fit time.
-    Other directions are kept; the entry is replaced whole.
+    Other directions are kept; the entry is replaced whole. A new fit ends the stored staleness
+    verdicts (they judged the old fit), so ``calib.stale`` clears; the session scores are kept.
     """
     deps = depends_on(fields)
     entry = {'fit': fit, **(extra or {}),
@@ -79,7 +80,13 @@ def record(direction, fit, hardware, *, extra=None, path=None, fields=None):
     target = Path(path) if path else data.path('calibration', 'current.json')
     current = data.read_json(target, {})
     directions = {**current.get('directions', {}), direction: entry}
-    data.write_json(target, {**current, 'directions': directions}, SCHEMA)
+    updated = {**current, 'directions': directions}
+    tracking = (current.get('provenance') or {}).get('tracking')
+    if isinstance(tracking, dict):
+        cleared = {a: ({k: v for k, v in row.items() if k != 'staleness'} if isinstance(row, dict) else row)
+                   for a, row in tracking.items()}
+        updated['provenance'] = {**current['provenance'], 'tracking': cleared}
+    data.write_json(target, updated, SCHEMA)
     return entry
 
 

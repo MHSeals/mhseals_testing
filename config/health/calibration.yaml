@@ -1,0 +1,17 @@
+# Calibration staleness. The `calibration` probe publishes calibration.stale (the number of axes whose
+# stored tracking scores say the model drifted, label = those axes) from calibration/current.json,
+# judged by analysis/tracking.py with the thresholds in config/tracking.yaml. Information only.
+group: Calibration
+checks:
+  - id: calib.stale
+    kind: threshold
+    fact: calibration.stale
+    below: false
+    warn: 0.5
+    fail: 1000
+    severity: info
+    missing: skip
+    raise_after: 0      # the verdict is already judged across sessions; no second debounce
+    title: Recharacterize suggested
+    message: 'Tracking has fallen on {label}'
+    hint: Run Characterize again; one bad run never raises this

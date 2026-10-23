@@ -9,6 +9,7 @@ row has shown a value, a silent probe turns it N/A instead of hiding it.
 
 import time
 
+from mhseals_testing import calibration
 from mhseals_testing.health import probes as probe_module
 from mhseals_testing.health.config import ConfigError, load
 from mhseals_testing.health.engine import Engine
@@ -63,6 +64,7 @@ class Health:
         """Run the due App-tick probes, evaluate, and return the advisory rows."""
         now = self.facts.clock()
         for name, probe in (('snapshot', lambda: probe_module.snapshot_facts(snapshot)),
+                            ('calibration', lambda: probe_module.staleness_facts(calibration.load())),
                             ('host', self.host)):
             if now - self._ran.get(name, float('-inf')) >= self.periods.get(name, 1):
                 self._ran[name] = now

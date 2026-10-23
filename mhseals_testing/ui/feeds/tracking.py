@@ -5,10 +5,16 @@ hardware config's speed curves and t95 lags, plus the world drift from Condition
 body frame. The predicted series is the Motion ghost; ``analysis.tracking.tracking_score`` over the
 last ``live.window_s`` seconds is the header's ``track NN%`` (None while gated, drawn as a dash).
 Only effort commands are modelled; with velocity units the feed contributes nothing.
+
+``add`` takes each gated window score for the session summary; ``close`` appends one summary per
+axis to ``provenance.tracking`` in calibration/current.json via ``tracking.record_session``, which
+also re-judges staleness for the health info check.
 """
 
 import numpy as np
 
+from mhseals_testing import data
+from mhseals_testing.analysis import tracking
 from mhseals_testing.analysis.predictor import AXES, Predictor
 from mhseals_testing.analysis.tracking import load_settings, score_colour, tracking_score
 
@@ -18,10 +24,13 @@ POOR = 'poor'                           # conditions verdict that drops the wind
 
 
 class TrackingFeed:
-    """Holds the predicted series per axis and the latest scores; ``view()`` hands them to Motion."""
+    """Predicted series and latest scores per axis for Motion (``view()``), plus the session sums for close."""
 
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, path=None):
         self.settings = settings or load_settings()
+        self.path = path                                # calibration/current.json unless given
+        self.version = None
+        self.axes = {}                                  # session sums: axis -> [score sum, windows, trust sum]
         self.window = self.settings['live']['window_s']
         self.key = self.predictor = None
         self.fitted = (False, False, False)             # which axes have a speed curve (else the command ghost stays)
@@ -101,3 +110,22 @@ class TrackingFeed:
             return {}
         return {'tracking': dict(pred=[list(p) for p in self.pred], score=self.scores,
                                  colour=[score_colour(s, self.settings) for s in self.scores])}
+
+    def add(self, axis, score, trust, version):
+        """One window's score (None or NaN is ignored) and the conditions trust it ran under."""
+        if score is None or score != score:
+            return
+        self.version = version
+        row = self.axes.setdefault(axis, [0.0, 0, 0.0])
+        row[0] += score
+        row[1] += 1
+        row[2] += trust
+
+    def close(self):
+        """Record every axis that scored; returns {axis: staleness verdict}."""
+        path = self.path or data.path('calibration', 'current.json')
+        verdicts = {axis: tracking.record_session(
+            path, axis, dict(mean=total / n, n=n, trust=trust / n, version=self.version), self.settings)
+            for axis, (total, n, trust) in self.axes.items()}
+        self.axes = {}
+        return verdicts

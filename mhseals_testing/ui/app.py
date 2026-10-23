@@ -201,7 +201,8 @@ class App:
         self.profile = profile
         self.monitor = monitor
         self.network = network
-        self.feeds = [health_feed.HealthFeed(), TrackingFeed()]  # ui.feeds objects: ticked live, their view() merged into view()
+        self.tracking = TrackingFeed()  # model ghost and live scores; session scores recorded at close
+        self.feeds = [health_feed.HealthFeed(), self.tracking]  # ui.feeds objects: ticked live, their view() merged into view()
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -673,7 +674,8 @@ class App:
         if self.args.review is not None:
             return  # nothing of ours to flush; the session's report must not be rewritten
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
-                 ('Report', self.close_report), ('Recording', self.close_recording)]
+                 ('Report', self.close_report), ('Tracking', self.close_tracking),
+                 ('Recording', self.close_recording)]
         if self.detaching:   # the children and the recording go on under the next owner
             steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
         if self.watching:    # not ours to stop: neutral, events and the report belong to the owner
@@ -720,6 +722,10 @@ class App:
     def close_report(self):
         self.ros.emit('session_stop')
         return self.export().name
+
+    def close_tracking(self):
+        verdicts = self.tracking.close()
+        return ', '.join(f"{a} {'stale' if v['flag'] else 'ok'}" for a, v in verdicts.items()) or 'no scores'
 
     def close_recording(self):
         if not self.processes.running('bag'):
