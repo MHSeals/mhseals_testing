@@ -41,3 +41,11 @@ def test_fcu_checks_load_and_lint_clean(nav_share):
     assert {'fcu.params', 'compass.field', 'battery.diag'} <= {s.id for s in specs}
     assert lint(specs) == []
     assert config.probes['fcu']['wmm_total_mG'] == 470
+
+
+def test_rtk_converge_warns_only_after_180_seconds_below_fixed():
+    spec = next(s for s in load(user=False).specs if s.id == 'rtk.converge')
+    assert spec.show == ('odometry',) and spec.missing == 'skip'
+    for seconds, status in ((60, 'ok'), (181, 'warn')):
+        report = Engine([spec]).tick({'rtk.seconds_below_fixed': Fact(seconds)}, {})
+        assert report.results['rtk.converge'].status == status

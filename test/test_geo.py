@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from mhseals_testing.analysis.geo import enu, fit_rigid, geodetic
+from mhseals_testing.analysis.geo import baseline, ecef, enu, fit_rigid, geodetic
 
 ORIGIN = (42.3601, -71.0589)
 
@@ -115,3 +115,10 @@ def test_enu_takes_the_short_way_across_the_antimeridian():
     east, _ = enu(0, -179.9999, (0, 179.9999))
     assert east == pytest.approx(22.24, abs=0.1)
     assert enu(0, 179.9999, (0, -179.9999))[0] == pytest.approx(-22.24, abs=0.1)
+
+
+def test_baseline_is_the_ecef_distance():
+    base = ecef(42.0, -71.0, 10.0)
+    assert baseline(base, 42.0, -71.0, 10.0) == pytest.approx(0, abs=1e-6)
+    assert baseline(base, 42.0, -71.0, 22.5) == pytest.approx(12.5, abs=1e-6)       # straight up
+    assert baseline(base, 42.0001, -71.0, 10.0) == pytest.approx(11.1, abs=0.1)     # 1e-4 deg north

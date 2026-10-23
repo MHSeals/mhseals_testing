@@ -120,3 +120,19 @@ class MapRotation:
         except ValueError:
             return None
         return theta, rms
+
+
+def ecef(lat, lon, alt):
+    """WGS84 ECEF (x, y, z) metres of geodetic lat/lon in degrees and ellipsoid height in metres."""
+    a, f = EARTH_RADIUS, 1 / 298.257223563
+    e2 = f * (2 - f)
+    sin_lat, cos_lat = math.sin(math.radians(lat)), math.cos(math.radians(lat))
+    n = a / math.sqrt(1 - e2 * sin_lat ** 2)
+    return ((n + alt) * cos_lat * math.cos(math.radians(lon)),
+            (n + alt) * cos_lat * math.sin(math.radians(lon)),
+            (n * (1 - e2) + alt) * sin_lat)
+
+
+def baseline(base_ecef, lat, lon, alt):
+    """ECEF distance in metres from the base (x, y, z) to the rover's lat/lon/alt (GPS_RAW_INT, no GPS_RTK)."""
+    return math.dist(base_ecef, ecef(lat, lon, alt))

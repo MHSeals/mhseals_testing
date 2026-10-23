@@ -1,0 +1,16 @@
+# RTK checks (gps.md 7.4). The rtk probe counts seconds_below_fixed only while the link is fresh.
+group: RTK
+checks:
+  - id: rtk.converge
+    kind: threshold
+    fact: rtk.seconds_below_fixed
+    below: false
+    warn: 180
+    fail: 1000000000.0         # warn only: FLOAT that never converges is a warning, not a failure
+    unit: ' s'
+    severity: warn
+    show: [odometry]
+    missing: skip
+    raise_after: 0       # the 180 s is already the debounce
+    title: RTK convergence
+    message: 'Below FIXED for {value}'
