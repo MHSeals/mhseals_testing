@@ -56,7 +56,7 @@ def survey_fraction(t, t_min, acc, acc0, target, valid):
 def _state(view):
     """(link, glyph state): link is one of off/identifying/surveying/fresh/stale/dead."""
     if view.base != 'streaming':
-        link = {'none': 'off', 'identifying': 'identifying', 'surveying': 'surveying'}[view.base]
+        link = {'identifying': 'identifying', 'surveying': 'surveying'}.get(view.base, 'off')   # unknown = no base
     elif view.age is None or view.age > DEAD:
         link = 'dead'
     else:
@@ -133,8 +133,11 @@ def _tail_items(view, link, ascii, narrow, long):
         yield _distance(view.baseline, narrow), ''
 
 
-def rtk_row(view, width, ascii=False):
-    """The RTK row for an inner ``width``; empty Text below 26 columns, where the header strip stands in."""
+def rtk_row(view, width, ascii=False, cursor=None):
+    """The RTK row for an inner ``width``; empty Text below 26 columns, where the header strip stands in.
+
+    ``cursor`` is the Status cursor glyph (2 cols), drawn in the gutter when the cursor is on this row.
+    """
     tier = next((tail for floor, tail in TIERS if width >= floor), None)
     if tier is None:
         return Text()
@@ -154,7 +157,8 @@ def rtk_row(view, width, ascii=False):
         if used + len(text) + bool(tail) <= tail_width:
             used += len(text) + bool(tail)
             tail.append((text, item_style))
-    row = Text(' ' * GUTTER)
+    row = Text(' ')
+    row.append(cursor if cursor else '  ', style='bold cyan')
     row.append(plain if ascii else glyph, style=style)
     row.append(' RTK ')
     row.append_text(_link(view, link, cells, ascii))
@@ -166,3 +170,34 @@ def rtk_row(view, width, ascii=False):
         row.append(('' if i == 0 else ' ') + text, style=item_style)
     row.append(' ')
     return row
+
+
+# Status row state and strip state per glyph state (Status vocabulary: OK, WARN, ERROR)
+ROW_STATES = {'good': 'OK', 'busy': 'CHECKING', 'off': 'OK', 'warn': 'WARN', 'bad': 'ERROR'}
+ROW_STATES_STRIP = {'good': 'LIVE', 'busy': 'CHECKING', 'off': 'LIVE', 'warn': 'WARN', 'bad': 'FAIL'}
+BASE_WORDS = {'off': 'off', 'identifying': 'base', 'surveying': 'svin'}
+
+
+def strip_item(view):
+    """(state, label) for the header strip: ``rtk FLOAT``, ``rtk stale`` (warn), ``rtk 14s`` (fail)."""
+    link, state = _state(view)
+    if view.pubs > 1:
+        return 'FAIL', f'rtk {view.pubs} pubs'
+    if link == 'dead':
+        return 'FAIL', 'rtk ' + ('none' if view.age is None else _age(view.age, True))
+    if state == 'bad':
+        return 'FAIL', f'rtk {view.fix}'
+    if link == 'stale':
+        return 'WARN', 'rtk stale'
+    word = BASE_WORDS.get(link, view.fix)
+    return ROW_STATES_STRIP[state], f'rtk {word}'
+
+
+class RtkCell:
+    """Rich renderable: the row at whatever width the Status column gives it."""
+
+    def __init__(self, view, ascii=False, cursor=None):
+        self.view, self.ascii, self.cursor = view, ascii, cursor
+
+    def __rich_console__(self, console, options):
+        yield rtk_row(self.view, options.max_width, self.ascii, self.cursor)

@@ -61,6 +61,7 @@ from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as f
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
+from mhseals_testing.ui.feeds.rtk import RtkFeed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
@@ -224,8 +225,9 @@ class App:
         self.monitor = monitor
         self.network = network
         self.tracking = TrackingFeed()  # model ghost and live scores; session scores recorded at close
+        self.rtk = RtkFeed(profile)
         # ui.feeds objects: ticked live, their view() merged into view()
-        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed()]
+        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed(), self.rtk]
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -317,6 +319,8 @@ class App:
         counts = health_feed.summary(self.engine)
         if counts:
             snapshot['health'] = counts
+        if self.rtk.current is not None:
+            snapshot['rtk_view'] = self.rtk.current
         return snapshot
 
     # --- interlocks ------------------------------------------------------------

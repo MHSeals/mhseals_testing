@@ -7,6 +7,7 @@ from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
+from mhseals_testing.ui.rtk_row import ROW_STATES, RtkCell, _state
 from mhseals_testing.ui.panels import GROUPS, HEADERLESS, TITLES, fold_groups, window
 from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
@@ -166,6 +167,10 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
             value += f" {theme.SEPARATOR.strip()} {v['h_acc']:.1f}m"
         rows.append(dict(group='Localization', state=state, name='GPS', value=value,
                          detail='gpsraw fix, satellites, horizontal accuracy', required=False))
+    view = snapshot.get('rtk_view')     # the RTK feed gates it: a base in the profile, or the topic exists
+    if view is not None:
+        rows.append(dict(group='Localization', state=ROW_STATES[_state(view)[1]], name='RTK', value=view.fix,
+                         cell=view, required=False, detail='RTK base link, rover fix rung and the most urgent number'))
     mag = sensor(snapshot, specs, 'mag')
     if mag:
         v = mag['values']
@@ -282,6 +287,9 @@ def status_panel(snapshot, view, height):
                           Text(f'{count} ok', style=MUTED))
         else:
             row = rows[key]
+            if row.get('cell') is not None:     # a row that draws itself at the column width
+                table.add_row(RtkCell(row['cell'], theme.ASCII, theme.CURSOR if focused and key == cursor else None), '')
+                continue
             table.add_row(row_label(row, focused and key == cursor),
                           Text(row['value'], style=row['style'] if row.get('style') is not None
                                else RATE_STYLE.get(row.get('rate'), MUTED)))

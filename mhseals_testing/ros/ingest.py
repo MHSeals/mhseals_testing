@@ -11,7 +11,27 @@ import json
 from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
 
 IDENTITY = ('time', 'ros_time', 'phase', 'pid', 'node', 'host', 'seq', 't_ns', 'rec')
-KINDS = ('tf', 'tf_static', 'drift', 'event')
+KINDS = ('tf', 'tf_static', 'drift', 'event', 'rtk')
+RTK_TOPIC = '/mhseals_testing/rtk/status'
+
+
+def parse_rtk(msg):
+    """The RTK status dict of a message: std_msgs/String JSON (mhseals.rtk_status/1), or a legacy
+    diagnostic_msgs/DiagnosticArray whose key/values are numbers where they parse. None if unreadable."""
+    try:
+        if hasattr(msg, 'data'):
+            status = json.loads(msg.data)
+        else:
+            status = {}
+            for entry in msg.status:
+                for pair in entry.values:
+                    try:
+                        status[pair.key] = float(pair.value)
+                    except ValueError:
+                        status[pair.key] = pair.value
+    except (ValueError, AttributeError, TypeError):
+        return None
+    return status if isinstance(status, dict) else None
 
 
 def ingest(monitor, profile, topic, kind, msg, t, stale_after=2.0, authority=''):
@@ -24,6 +44,12 @@ def ingest(monitor, profile, topic, kind, msg, t, stale_after=2.0, authority='')
         _tf(monitor, msg, t, kind == 'tf_static', authority)
     elif kind == 'drift':
         monitor.estimate_drift(msg.vector.x, msg.vector.y)
+    elif kind == 'rtk':
+        status = parse_rtk(msg)
+        if status is None:
+            monitor.event('unreadable rtk status')
+        else:
+            monitor.observe_rtk(status)
     elif kind == 'event':
         details = {k: v for k, v in msg.items() if k not in IDENTITY}
         monitor.event(msg['phase'] + (' ' + json.dumps(details, sort_keys=True, default=str)

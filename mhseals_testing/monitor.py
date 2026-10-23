@@ -30,6 +30,7 @@ class BoatMonitor:
         self.sensors = {}
         self.edges = {}
         self.advisories = {}
+        self.rtk = None     # (received, status dict) of the latest rtk/status message
         # Full-rate samples for trial analysis, per configured sensor.
         self.histories = {name: deque(maxlen=HISTORY_SAMPLES) for name in history_sensors}
         self.gyro_sensor = gyro_sensor  # the IMU whose angular rate is the yaw plot's measurement
@@ -74,6 +75,11 @@ class BoatMonitor:
             raise ValueError(f'advisory level must be one of {ADVISORY_LEVELS}')
         with self.lock:
             self.advisories[name] = (self.clock(), level, str(detail))
+
+    def observe_rtk(self, status):
+        """Keep the newest RTK base status (ros.ingest.parse_rtk), stamped on receipt."""
+        with self.lock:
+            self.rtk = (self.clock(), dict(status))
 
     def event(self, message):
         with self.lock:
@@ -202,5 +208,8 @@ class BoatMonitor:
             plots = self._plots(now, trend_sensor)
             drift = (self.drift[:2] if self.drift and now - self.drift[2] <= self.stale_after
                      else None)
-            return dict(sensors=sensors, tf=tf, advisories=advisories, events=list(self.events),
-                        plots=plots, results=deepcopy(list(self.results)), drift=drift)
+            snapshot = dict(sensors=sensors, tf=tf, advisories=advisories, events=list(self.events),
+                            plots=plots, results=deepcopy(list(self.results)), drift=drift)
+            if self.rtk:
+                snapshot['rtk'] = dict(self.rtk[1], received_age=now - self.rtk[0])
+            return snapshot

@@ -84,13 +84,14 @@ def test_points_images_detections_and_unknown_kind():
 
 def gpsraw(fix=3, vel=150, cog=9000, **kwargs):
     return NS(header=header('gps'), fix_type=fix, satellites_visible=12, h_acc=2100,
-              vel_acc=280, vel=vel, cog=cog, **kwargs)
+              vel_acc=280, vel=vel, cog=cog, lat=430001234, lon=-760000000, alt=100500, **kwargs)
 
 
 def test_gpsraw_reports_quality_and_world_velocity():
     result = validate('gpsraw', gpsraw(), NOW)
     assert result.issue == ''
     assert result.values['h_acc'] == 2.1 and result.values['vel_acc'] == .28
+    assert (result.values['lat'], result.values['lon'], result.values['alt']) == (43.0001234, -76.0, 100.5)
     assert result.values['ve'] == pytest.approx(1.5) and result.values['vn'] == pytest.approx(0, abs=1e-9)
 
 

@@ -30,7 +30,7 @@ from mhseals_testing.harness import journal
 from mhseals_testing.harness.simsession import ClockWatch
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.ros.graph import RclpyGraph
-from mhseals_testing.ros.ingest import ingest
+from mhseals_testing.ros.ingest import RTK_TOPIC, ingest
 from mhseals_testing.ros.minimap_feeds import MapFeeds
 from mhseals_testing.ros.sources import subscribe_sources
 from mhseals_testing.validation import RAW_KINDS
@@ -103,6 +103,9 @@ class RosIO:
         self.node.create_subscription(
             TFMessage, '/tf_static', partial(self._tf, static=True),
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        # Latched JSON from the RTK base; a legacy DiagnosticArray is read by ingest.parse_rtk from bags
+        self.node.create_subscription(
+            String, RTK_TOPIC, partial(self._ingest, RTK_TOPIC, 'rtk'), EVENTS_QOS)
         subscribe_sources(self)
         self.map = MapFeeds(self.node, facts=facts, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
         self.executor = SingleThreadedExecutor()

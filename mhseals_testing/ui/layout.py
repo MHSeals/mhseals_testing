@@ -23,7 +23,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing.harness import recwatch
-from mhseals_testing.ui import chrome, theme
+from mhseals_testing.ui import chrome, rtk_row, theme
 from mhseals_testing.ui.panels import scrubber
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
@@ -86,6 +86,8 @@ def health_strip(snapshot, view, width=None):
     for row in rows:
         if row['group'] == 'System' and row['state'] != 'OK':
             parts.append(strip_item(row['state'], f"{row['name']} {row['value']}".strip()))
+    if snapshot.get('rtk_view') is not None:
+        parts.append(strip_item(*rtk_row.strip_item(snapshot['rtk_view'])))
     if view['bench_override']:
         parts.append(theme.labelled('WARN', 'bench override'))
     if width is None:

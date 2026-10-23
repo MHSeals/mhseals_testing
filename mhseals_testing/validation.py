@@ -96,7 +96,8 @@ def _gpsraw(message):
     """Receiver quality plus the world velocity MAVROS fuses (vel cm/s along cog cdeg)."""
     fix = message.fix_type
     values = dict(fix=fix, sats=message.satellites_visible, h_acc=message.h_acc / 1000,
-                  vel_acc=message.vel_acc / 1000, speed=None, cog=None)
+                  vel_acc=message.vel_acc / 1000, speed=None, cog=None,
+                  lat=message.lat / 1e7, lon=message.lon / 1e7, alt=message.alt / 1000)
     if GPSRAW_UNKNOWN not in (message.vel, message.cog):
         values['speed'], values['cog'] = message.vel / 100, message.cog / 100
         heading = math.radians(values['cog'])
