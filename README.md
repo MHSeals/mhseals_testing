@@ -34,13 +34,16 @@ Status checks **PWM driver** (managed process and ROS subscription) and **PWM re
 
 ### Procedures
 
+The menu groups them: Calibrate (f, g, v), Drive (m, i), Navigate (n, w, s), Mission (t), Perception (p).
+
 | Key | Procedure | Needs |
 | --- | --- | --- |
-| 1 2 3, c | Surge, sway, yaw and combined trials: drift-corrected response | armed, sensors |
 | f | Characterize: speed curves per axis and sign, mechanical bias, today's current, limits, Nav2 limits | armed, sensors, effort |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
+| g | Magcal (placeholder, never runnable until T17) | — |
 | m, i | Manual control; thruster set | armed |
-| n, o | Nav2 bring-up; perception rates and costmap | — |
+| n | Nav2 bring-up | — |
+| p | Perception rates and costmap | — |
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
 | t | Mission rehearsal: run an `mhseals_nav` task (`pair_test`, `circle_test`, a 2025 task or the whole `mission`), score its events (`config/missions/`) and, in crane_ml, have the referee judge the true track against the course | armed, sensors, velocity, Nav2 |
 

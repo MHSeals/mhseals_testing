@@ -53,6 +53,7 @@ class Procedure:
     run: object         # run(ctx) -> result dict or None
     needs: frozenset = field(default_factory=frozenset)
     description: str = ''
+    group: str = ''     # heading it sits under in the menu; a group's procedures are adjacent
 
     def __post_init__(self):
         unknown = set(self.needs) - NEEDS
@@ -80,43 +81,46 @@ def unavailable(procedure, profile, armed, bench_override=False):
 
 def _registry():
     # Imported here: the procedure modules use the classes above.
-    from functools import partial
-
     from mhseals_testing.procedures import (
-        axis, characterize, combined, controller, magcal, manual, mission, nav, perception,
-        thrusters,
+        characterize, controller, magcal, manual, mission, nav, perception, thrusters,
     )
     trial = frozenset({'armed', 'sensors'})
     return (
-        Procedure('1', 'Surge trial', partial(axis.run, axis='surge'), trial,
-                  'forward and astern; scores the drift-corrected response sign'),
-        Procedure('2', 'Sway trial', partial(axis.run, axis='sway'), trial,
-                  'port and starboard'),
-        Procedure('3', 'Yaw trial', partial(axis.run, axis='yaw'), trial,
-                  'counterclockwise and clockwise'),
-        Procedure('c', 'Combined trials', combined.run, trial,
-                  'diagonal and turning commands'),
         Procedure('f', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
-                  'survey the boat, refine the thrust correction per direction'),
-        Procedure('v', 'Controller steps', controller.run, trial | {'velocity'},
-                  'step response of the calibrated velocity controller'),
-        Procedure('m', 'Manual control', manual.run, frozenset({'armed'}),
-                  'deadman keyboard driving under the interlocks'),
+                  'survey the boat, refine the thrust correction per direction', 'Calibrate'),
         Procedure('g', 'Compass calibration', magcal.run, frozenset(),
-                  'handheld bearing -> fixed-yaw calibration (42006), written only on your yes'),
+                  'handheld bearing -> fixed-yaw calibration (42006), written only on your yes',
+                  'Calibrate'),
+        Procedure('v', 'Controller steps', controller.run, trial | {'velocity'},
+                  'step response of the calibrated velocity controller', 'Calibrate'),
+        Procedure('m', 'Manual control', manual.run, frozenset({'armed'}),
+                  'deadman keyboard driving under the interlocks', 'Drive'),
         Procedure('i', 'Thruster set', thrusters.run, frozenset({'armed', 'outputs'}),
-                  'pulse each output; map and reverse thrusters'),
+                  'pulse each output; map and reverse thrusters', 'Drive'),
         Procedure('n', 'Nav2 bring-up', nav.bringup, frozenset(),
-                  'lifecycle, costmap and a plan, without moving'),
+                  'lifecycle, costmap and a plan, without moving', 'Navigate'),
         Procedure('w', 'Waypoint square', nav.waypoints, trial | {'velocity'},
-                  'Nav2 through four waypoints; cross-track error'),
+                  'Nav2 through four waypoints; cross-track error', 'Navigate'),
         Procedure('s', 'Station keeping', nav.station, trial | {'velocity'},
-                  'hold position with Nav2; radius and drift'),
-        Procedure('o', 'Perception', perception.run, frozenset(),
-                  'camera, LiDAR, detection and track rates; costmap obstacles'),
+                  'hold position with Nav2; radius and drift', 'Navigate'),
         Procedure('t', 'Mission rehearsal', mission.run, trial | {'velocity'},
-                  "run one of mhseals_nav's task trees and score it"),
+                  "run one of mhseals_nav's task trees and score it", 'Mission'),
+        Procedure('p', 'Perception', perception.run, frozenset(),
+                  'camera, LiDAR, detection and track rates; costmap obstacles', 'Perception'),
     )
 
 
 PROCEDURES = _registry()
+
+
+def tree(groups):
+    """Menu rows for procedures with these group names: ``('heading', group)`` before each
+    group's first procedure, else ``('item', index)``. Headings are never selectable."""
+    rows, current = [], None
+    for index, group in enumerate(groups):
+        if group != current:
+            current = group
+            if group:
+                rows.append(('heading', group))
+        rows.append(('item', index))
+    return rows

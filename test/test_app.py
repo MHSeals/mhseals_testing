@@ -302,31 +302,17 @@ def test_simulator_arms_with_a_button_and_escape_cancels(tmp_path):
         assert app.armed
 
 
-def test_axis_trial_scores_both_directions_and_ends_neutral(tmp_path):
-    app, boat = make_app(tmp_path)
-    with app.attached():
-        arm(app)
-        press(app, 'enter', 'enter')  # one prompt per direction
-        app.run_procedure(procedure('1'))
-    results = app.snapshot()['results']
-    assert [(r['procedure'], r['direction'], r['verdict']) for r in results] == [
-        ('surge', 1, 'SIGN MATCH'), ('surge', -1, 'SIGN MATCH')]
-    assert results[0]['response'] == pytest.approx(1.2 * 0.25, rel=0.05)
-    assert boat.sent[-1] == 'neutral' and app.armed
-    assert app.focus == 'activity' and app.ros.events.count('axis_trial_start') == 2
-
-
 def test_escape_at_a_prompt_cancels_and_disarms(tmp_path):
     app, boat = make_app(tmp_path)
     with app.attached():
         arm(app)
         press(app, 'escape')
-        app.run_procedure(procedure('1'))
+        app.run_procedure(procedure('f'))
     assert not app.armed and 'cancelled' in app.notice and app.running is None
 
 
 def test_space_aborts_motion_and_disarms(tmp_path):
-    app, boat = make_app(tmp_path, keys=['1'] + [None] * 15 + ['space', 'q'])
+    app, boat = make_app(tmp_path, keys=['f'] + [None] * 15 + ['space', 'q'])
     press(app, 'enter', 'y')
     app.focus = 'procedures'
     app.arming.armed = True
@@ -336,7 +322,7 @@ def test_space_aborts_motion_and_disarms(tmp_path):
 
 
 def test_lost_sensors_mid_trial_stop_the_boat(tmp_path):
-    app, boat = make_app(tmp_path, keys=['1'])
+    app, boat = make_app(tmp_path, keys=['f'])
     press(app, 'enter', 'y')
     app.focus = 'procedures'
     app.arming.armed = True
@@ -363,12 +349,12 @@ def test_procedures_explain_why_they_cannot_run(tmp_path):
     app, boat = make_app(tmp_path)
     with app.attached():
         press(app, 'escape')
-        app.run_procedure(procedure('1'))
+        app.run_procedure(procedure('f'))
     assert 'arm first' in app.notice and boat.sent == []
     bench, _ = make_app(tmp_path, ['--set', 'bench_override=on'])
     with bench.attached():
         arm(bench)
-        bench.run_procedure(procedure('1'))
+        bench.run_procedure(procedure('f'))
     assert 'bench override' in bench.notice
 
 
@@ -668,7 +654,7 @@ def test_perception_rates_and_costmap(tmp_path):
         return reader
 
     app.open_keys = keys
-    run(app, 'o')
+    run(app, 'p')
     checks = {r['check']: r['verdict'] for r in app.snapshot()['results']}
     assert checks['LiDAR'] == 'PASS' and checks['camera'] == 'MISSING'
     assert checks['tracks'] == 'MISSING' and checks['costmap'] == 'PASS'
@@ -1226,7 +1212,7 @@ def test_a_watcher_cannot_arm_or_run_but_space_still_sends_neutral(tmp_path):
     app.watching = 4012
     app.dispatch('a')
     assert not app.armed and 'no arming' in app.notice
-    assert 'watching pid 4012' in app.availability(procedure('1'))
+    assert 'watching pid 4012' in app.availability(procedure('f'))
     app.dispatch('space')
     assert boat.sent[-1] == 'neutral'
 
@@ -1346,7 +1332,7 @@ def test_o_on_status_opens_the_odometry_popup_without_running_perception(tmp_pat
     assert shown[0][0] == 'Odometry' and shown[0][1][0] == ('Estimates', '')
     assert ('ekf_local', 'parameters unavailable') in shown[0][1] and not app.ran
     app.focus = 'procedures'
-    app.dispatch('o')
+    app.dispatch('p')                       # Perception moved to p (procedure groups)
     assert app.ran and len(shown) == 1
 
 

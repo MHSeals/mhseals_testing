@@ -6,8 +6,9 @@ calibrated controller closes the loop on odometry. Metrics: analysis/step_respon
 
 from mhseals_hardware.thruster_mixer import AXES, axis_command
 from mhseals_testing.analysis.step_response import step_metrics
-from mhseals_testing.analysis.trial import COMPONENT
 from mhseals_testing.runner import NEUTRAL
+
+COMPONENT = {'surge': 'vx', 'sway': 'vy', 'yaw': 'wz'}
 
 
 def run(ctx, axes=AXES):

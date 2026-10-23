@@ -426,3 +426,17 @@ def test_narrow_header_keeps_the_short_host_after_deploy():
     narrowest_long = min(w for w, line in lines.items() if 'ROS' in line)
     line = lines[narrowest_long - 1]            # one column less: only the short host fits beside deploy
     assert '↓2' in line and 'ROS' not in line and '↓2 ±1  boat  ' in line
+
+
+
+
+def test_procedure_headings_are_drawn_and_the_cursor_row_is_a_procedure():
+    from mhseals_testing.ui.dashboard import procedures_panel
+    items = [dict(key='f', title='Characterize', description='', reason='', group='Thrust'),
+             dict(key='m', title='Manual control', description='', reason='', group='Drive')]
+    page = text(procedures_panel(dict(focus='procedures', cursors={'procedures': 1},
+                                      procedures=items, running=None), 12), 60, 12)
+    lines = [line.strip() for line in page.splitlines()]
+    assert any('Thrust' in line for line in lines)
+    assert any('Drive' in line and 'Manual' not in line for line in lines)
+    assert page.index('Characterize') < page.index('Drive') < page.index('Manual control')

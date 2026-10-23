@@ -46,3 +46,35 @@ def test_thruster_set_refuses_unless_the_mux_is_auto():
         ctx = SimpleNamespace(services={'mux_input': lambda s=state: s})
         with pytest.raises(RuntimeError, match='needs the mux in auto'):
             thrusters.run(ctx)
+
+
+
+
+def test_tree_puts_a_heading_before_each_group_and_keeps_item_indices():
+    from mhseals_testing.procedures import tree
+    assert tree(['A', 'A', 'B', '']) == [
+        ('heading', 'A'), ('item', 0), ('item', 1), ('heading', 'B'), ('item', 2), ('item', 3)]
+
+
+def test_every_procedure_has_a_group_and_groups_are_contiguous():
+    from mhseals_testing.procedures import PROCEDURES
+    groups = [p.group for p in PROCEDURES]
+    assert all(groups)
+    assert len(set(groups)) == len({g for i, g in enumerate(groups) if i == 0 or groups[i - 1] != g})
+
+
+def test_groups_and_keys_follow_the_spec():
+    from mhseals_testing.procedures import PROCEDURES
+    by_group = {}
+    for p in PROCEDURES:
+        by_group.setdefault(p.group, []).append(p.key)
+    assert by_group == {'Calibrate': ['f', 'g', 'v'], 'Drive': ['m', 'i'],
+                        'Navigate': ['n', 'w', 's'], 'Mission': ['t'], 'Perception': ['p']}
+
+
+def test_tree_headings_are_not_items_so_the_cursor_skips_them():
+    from mhseals_testing.procedures import PROCEDURES, tree
+    rows = tree([p.group for p in PROCEDURES])
+    items = [i for kind, i in rows if kind == 'item']
+    assert items == list(range(len(PROCEDURES)))
+    assert sum(kind == 'heading' for kind, _ in rows) == 5

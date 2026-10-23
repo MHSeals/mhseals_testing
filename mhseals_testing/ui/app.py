@@ -467,7 +467,7 @@ class App:
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
             draft=self.draft, grabbed=self.grabbed,
             config_note=self.config_note,
-            procedures=[dict(key=p.key, title=p.title, description=p.description,
+            procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
 
     def render(self):
@@ -707,8 +707,7 @@ class App:
             settings.save(self.settings)
         elif (key in {p.key for p in PROCEDURES} and self.tab == 'Drive'
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
-              and not (self.focus == 'activity' and key == 'v')
-              and not (self.focus == 'status' and key == 'o')):  # Odometry popup; Perception stays on o elsewhere
+              and not (self.focus == 'activity' and key == 'v')):
             self.on_procedures(key)
         else:
             getattr(self, f'on_{self.focus}', lambda key: None)(key)

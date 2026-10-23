@@ -23,7 +23,7 @@ def engine_with(status, key):
 
 def test_a_failing_gated_check_makes_the_procedure_unavailable(tmp_path):
     app, _ = make_app(tmp_path)
-    p = procedure('o')
+    p = procedure('p')
     assert 'Compass' not in app.availability(p)
     app.health.engine = engine_with('fail', p.key)
     assert app.availability(p).startswith('Compass')
@@ -33,7 +33,7 @@ def test_a_failing_gated_check_makes_the_procedure_unavailable(tmp_path):
 
 def test_health_is_snapshotted_and_a_bad_window_is_flagged(tmp_path):
     app, _ = make_app(tmp_path)
-    p = procedure('o')
+    p = procedure('p')
     app.health.engine = engine_with('ok', p.key)
     events = []
     app.ros.emit = lambda phase, **d: events.append((phase, d))
@@ -58,14 +58,14 @@ def test_a_failing_motion_gate_blocks_motion_procedures_only(tmp_path):
     app, _ = make_app(tmp_path)
     app.health.engine = motion_engine()
     assert 'Link' not in app.availability(procedure('n'))
-    assert 'Link' not in app.availability(procedure('o'))
+    assert 'Link' not in app.availability(procedure('p'))
     app.arming = SimpleNamespace(armed=True, fault=lambda: "")
     assert app.availability(procedure('f')).startswith('Link')
 
 
 def test_end_snapshot_is_taken_when_the_procedure_raises(tmp_path):
     app, _ = make_app(tmp_path)
-    p = procedure('o')
+    p = procedure('p')
     app.health.engine = engine_with('ok', p.key)
     events = []
     app.ros.emit = lambda phase, **d: events.append(phase)
@@ -80,7 +80,7 @@ def test_end_snapshot_is_taken_when_the_procedure_raises(tmp_path):
 
 def test_health_tick_journals_transitions_so_the_window_goes_invalid(tmp_path):
     app, _ = make_app(tmp_path)
-    p = procedure('o')
+    p = procedure('p')
     app.health.engine = engine_with('ok', p.key)
     ticks = iter([5.0, 6.0])
     app.health.engine.clock = lambda: next(ticks)
@@ -94,7 +94,7 @@ def test_health_tick_journals_transitions_so_the_window_goes_invalid(tmp_path):
 
 def test_invalid_window_notice_survives_the_complete_notice(tmp_path):
     app, _ = make_app(tmp_path)
-    p = procedure('o')
+    p = procedure('p')
     app.health.engine = engine_with('ok', p.key)
     results = []
     app.availability = lambda proc: None
