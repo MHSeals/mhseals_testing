@@ -1,0 +1,16 @@
+# Map checks. The map feeds publish the nav.map_rotation fact: |rotation| of /odom/gps against
+# enu(/gps/fix) in degrees. A bad yaw at the navsat datum or a missing declination shows here.
+group: Navigation
+checks:
+  - id: nav.map_rotation
+    kind: threshold
+    fact: nav.map_rotation
+    below: false
+    warn: 3
+    fail: 10
+    unit: ' deg'
+    severity: warn
+    missing: skip
+    show: [odometry]
+    title: Map rotation
+    message: 'Map frame is rotated {value}'

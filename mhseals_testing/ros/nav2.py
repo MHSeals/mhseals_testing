@@ -4,6 +4,7 @@ Calls run on the RosIO executor thread; these methods wait on futures, so the
 TUI thread can call them directly.
 """
 
+from contextlib import contextmanager
 import math
 import time
 
@@ -16,6 +17,8 @@ from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
+
+from mhseals_testing.ros.minimap_feeds import LazySub
 
 # The servers mhseals_nav's navigation.launch.py brings up.
 SERVERS = ('controller_server', 'planner_server', 'behavior_server', 'bt_navigator',
@@ -77,12 +80,30 @@ class Nav2:
         self.planner = ActionClient(node, ComputePathToPose, 'compute_path_to_pose')
         self.states = {name: node.create_client(GetState, f'/{name}/get_state') for name in SERVERS}
         self.costmap, self.costmap_time = None, None
-        # Costmaps publish transient-local, so a late subscriber still gets the last one.
-        node.create_subscription(OccupancyGrid, costmap, self._costmap,
-                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        # Costmaps publish transient-local, so a late subscriber still gets the last one. The grid
+        # is 0.58 MB/s, so it is subscribed only inside costmap_lease().
+        self._costmap_sub = LazySub(node, OccupancyGrid, costmap, self._costmap,
+                                    QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
     def _costmap(self, message):
         self.costmap, self.costmap_time = message, time.monotonic()
+
+    @contextmanager
+    def costmap_lease(self, who):
+        """Subscribe to the costmap for the block; ``costmap`` holds the last grid afterwards."""
+        self._costmap_sub.lease(who)
+        try:
+            yield self
+        finally:
+            self._costmap_sub.lease(who, False)
+
+    def fetch_costmap(self, timeout=2.0):
+        """The latest costmap, subscribing just long enough to get one; None if none arrives."""
+        with self.costmap_lease('fetch'):
+            deadline = time.monotonic() + timeout
+            while self.costmap is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+        return self.costmap
 
     def now(self):
         return self.node.get_clock().now().to_msg()

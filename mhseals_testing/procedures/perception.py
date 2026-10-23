@@ -36,11 +36,12 @@ def run(ctx):
         results.append(dict(procedure='perception', check=sensor.name, verdict=level,
                             detail=f'{sensor.topic}: {detail}'))
     nav = ctx.services['nav2']()
-    if nav.costmap is None:
+    costmap = nav.fetch_costmap()
+    if costmap is None:
         results.append(dict(procedure='perception', check='costmap', verdict='N/A',
                             detail='no local costmap (Nav2 not running)'))
     else:
-        cells = occupied_cells(nav.costmap)
+        cells = occupied_cells(costmap)
         lidar = sensors.get('LiDAR', {}).get('status')
         results.append(dict(procedure='perception', check='costmap',
                             verdict='PASS' if cells else ('WARN' if lidar == 'LIVE' else 'N/A'),

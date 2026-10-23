@@ -1,3 +1,4 @@
+import contextlib
 import errno
 import io
 import math
@@ -557,6 +558,13 @@ class FakeNav:
         self.clock, self.drift = clock, drift
         self.costmap = Grid([0, 0, 100, 99, 50])
         self.goals, self.route, self.sent_at = [], None, None
+
+    @contextlib.contextmanager
+    def costmap_lease(self, who):
+        yield self
+
+    def fetch_costmap(self, timeout=2.0):
+        return self.costmap
 
     def lifecycle(self):
         return {'controller_server': 'active', 'bt_navigator': 'active'}

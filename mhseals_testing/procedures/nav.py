@@ -62,7 +62,7 @@ def bringup(ctx):
     inactive = {name: state for name, state in states.items() if state != 'active'}
     record('lifecycle', not inactive,
            ', '.join(f'{name}: {state}' for name, state in inactive.items()) or 'all active')
-    with ctx.observe('nav2_bringup') as runner:
+    with nav.costmap_lease('bringup'), ctx.observe('nav2_bringup') as runner:
         runner.supervise(COSTMAP_WAIT, done=lambda: nav.costmap is not None,
                          label='waiting for costmap')
     lidar = ctx.monitor.snapshot()['sensors'].get('LiDAR', {}).get('status', 'MISSING')
