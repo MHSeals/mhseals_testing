@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.harness.components import parse_components
+
 
 def _profile_dir():
     """config/profiles in the source tree, else the installed share directory."""
@@ -64,9 +66,15 @@ class PlantProfile:
     use_sim_time: bool
     outputs: str                 # thruster outputs to arm: none, odroid (pins) or topic (sim)
     velocity_controller: bool    # put calibrated_velocity_controller in front of the PWM node
-    bringup: dict | None         # measurement.launch.py arguments, or None to attach only
     sensors: tuple
+    components: dict | None = None   # stack components (harness.components); None attaches only
     battery_cells: int | None = None   # pack cell count from `battery: {cells: N}`; None assumes 4S
+
+    @property
+    def uses_fcu(self):
+        """True when the odometry component brings up MAVROS (a real flight controller)."""
+        odometry = (self.components or {}).get('odometry', {})
+        return 'launch' in odometry and odometry.get('args', {}).get('fcu', 'true') != 'false'
 
     @property
     def can_arm(self):
@@ -140,9 +148,7 @@ def parse_profile(data, where='profile'):
         sensors.append(sensor)
     if len({sensor.name for sensor in sensors}) != len(sensors):
         raise ValueError(f'{where}.sensors: names must be unique')
-    bringup = data.get('bringup')
-    if bringup is not None and not isinstance(bringup, dict):
-        raise ValueError(f'{where}.bringup: mapping of launch arguments or null')
+    components = parse_components(data.get('components'), where + '.components')
     battery = data.get('battery') or {}
     cells = battery.get('cells')
     if cells is not None and (not isinstance(cells, int) or isinstance(cells, bool) or cells < 1):
@@ -159,8 +165,8 @@ def parse_profile(data, where='profile'):
         odom_frame=_require(frames, 'odom', str, where + '.frames'),
         base_frame=_require(frames, 'base', str, where + '.frames'),
         use_sim_time=bool(data.get('use_sim_time', False)),
-        outputs=outputs, velocity_controller=controller, bringup=bringup,
-        sensors=tuple(sensors), battery_cells=cells)
+        outputs=outputs, velocity_controller=controller,
+        sensors=tuple(sensors), components=components or None, battery_cells=cells)
 
 
 def available_profiles(directory=PROFILE_DIR):

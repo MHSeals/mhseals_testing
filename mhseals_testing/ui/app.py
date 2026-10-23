@@ -32,6 +32,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
+from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
 from mhseals_testing.health.advisories import Health
@@ -1192,11 +1193,10 @@ def build_parser():
     parser.add_argument('--profile', default='boat',
                         help=f'plant profile name ({", ".join(available_profiles())}) or YAML path')
     parser.add_argument('--start-stack', action='store_true',
-                        help="launch the profile's measurement stack; default attaches to running topics")
+                        help="start the profile's components marked start; default attaches to "
+                             'running topics (the other components start from the Status rows)')
     parser.add_argument('--fcu-url', default='',
                         help='MAVROS FCU URL for --start-stack (default: detect the flight controller)')
-    parser.add_argument('--start-sensors', action='store_true',
-                        help='with --start-stack, also start local sensor drivers')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                         help='override a setting for this run (see harness/settings.py), e.g. '
                              'amplitude=0.4, command_mode=velocity, bench_override=on')
@@ -1225,22 +1225,19 @@ def parse_args(argv=None):
     profile = load_profile(args.profile)
     if args.settings.command_mode == 'velocity':
         profile = profile.with_velocity_control()
-    if args.start_stack and profile.bringup is None:
-        parser.error(f'profile {profile.name} has no bring-up; start its stack separately')
+    if args.start_stack and not profile.components:
+        parser.error(f'profile {profile.name} has no components; start its stack separately')
     args.output = args.output or data_root() / (
         f"{profile.name.replace('+', '_')}_{datetime.now():%Y%m%d_%H%M%S}")
     return args, profile
 
 
-def bringup_command(profile, args):
-    arguments = dict(profile.bringup)
-    if arguments.get('fcu') != 'false':
-        # The flight controller's stable /dev/serial/by-id name when one is plugged in.
-        arguments['fcu_url'] = args.fcu_url or default_fcu_url()
-    if args.start_sensors:
-        arguments['start_sensors'] = 'true'
-    return ['ros2', 'launch', 'mhseals_testing', 'measurement.launch.py',
-            *(f'{key}:={value}' for key, value in arguments.items())]
+def stack_overlay(profile, args):
+    """Launch arguments the command line adds to the profile's components."""
+    if not profile.uses_fcu:
+        return {}
+    # The flight controller's stable /dev/serial/by-id name when one is plugged in.
+    return {'odometry': {'fcu_url': args.fcu_url or default_fcu_url()}}
 
 
 def terminal_gone(error):
@@ -1299,6 +1296,7 @@ def main(argv=None):
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
+    stack = Stack(components(profile, stack_overlay(profile, args)), processes, time.monotonic)
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = None
     facts = Facts()
@@ -1307,7 +1305,7 @@ def main(argv=None):
             processes.adopt(name, child)
         if choice.mode == 'own':               # a stale owner's leftovers: stop, start fresh
             processes.stop_all()
-        if profile.bringup and profile.bringup.get('fcu') != 'false':
+        if profile.uses_fcu:
             subscribe_fcu(ros, monitor, facts, profile.battery_cells)
         if watching:   # known to the owner, so it is not flagged as a foreign instance
             registry.add_guest(os.getpid(), me['node'], 'watch')
@@ -1316,12 +1314,13 @@ def main(argv=None):
             paths.bag.parent.mkdir(parents=True, exist_ok=True)
             if not processes.running('bag'):
                 processes.start('bag', bag_command(paths.bag))
-            if args.start_stack and not processes.running('measurement'):
+            if args.start_stack and not any(processes.running(key) for key in stack.start_order()):
                 time.sleep(2.0)  # let discovery find an already-running stack
                 if ros.publishers(profile.odometry):
                     raise RuntimeError(f'{profile.odometry} already has publishers; '
                                        'attach without --start-stack')
-                processes.start('measurement', bringup_command(profile, args))
+                for key in stack.start_order():
+                    stack.start(key, ros.nodes())
             registry.set_children(processes.records())
         app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,

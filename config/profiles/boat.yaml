@@ -8,7 +8,23 @@ ground_truth: null
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: false
 arming: {outputs: odroid}
-bringup: {fcu: 'true', start_sensors: 'false'}
+# --start-stack starts the components marked start; the Status rows start the rest.
+components:
+  odometry: {launch: [mhseals_nav, odom.launch.py], args: {sim: 'false', fcu: 'true'},
+             nodes: [ekf_local, ekf_global, navsat_transform], start: true}
+  sensors: {launch: [mhseals_nav, sensors.launch.py], args: {sim: 'false', sensors_ignore: camera},
+            nodes: [velodyne_driver_node]}
+  mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'false'}, nodes: [rtabmap],
+            needs: [odometry]}
+  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'false'}, limits: true,
+               nodes: [bt_navigator], needs: [odometry]}
+  objects: {launch: [mhseals_nav, objects.launch.py],
+            args: {sim: 'false', rosbridge_url: 'ws://192.168.0.153:9090',
+                   camera_root_frame: front_camera_link},
+            nodes: [object_tracker]}
+  # The ZED camera runs on squirtle (Foxy, domain 142); its detections reach us through
+  # the zed_detections_converter on this host (perception.md 0.4).
+  camera: {remote: squirtle, nodes: [zed_detections_converter], topic: /detections}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}

@@ -47,7 +47,9 @@ def test_profile_path_and_unknown_name(tmp_path):
     (lambda d: d['sensors'][0].update(hz=0), r'sensors\[0\]\.hz'),
     (lambda d: d['sensors'][0].update(stale_after='soon'), 'stale_after'),
     (lambda d: d['sensors'].append(dict(d['sensors'][0])), 'unique'),
-    (lambda d: d.update(bringup='yes'), 'bringup'),
+    (lambda d: d.update(components='yes'), 'components'),
+    (lambda d: d.update(components={'a': {'nodes': []}}), 'launch or remote'),
+    (lambda d: d.update(components={'a': {'launch': ['p', 'f'], 'needs': ['b']}}), 'unknown component'),
 ])
 def test_invalid_profiles_name_the_field(edit, message):
     data = copy.deepcopy(base())

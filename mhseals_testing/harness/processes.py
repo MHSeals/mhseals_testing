@@ -114,6 +114,11 @@ class ProcessManager:
         process = self.processes.get(name)
         return process is not None and process.poll() is None
 
+    def returncode(self, name):
+        """Exit code of a child that stopped on its own, else None (running or unknown)."""
+        process = self.processes.get(name)
+        return None if process is None else process.poll()
+
     def last_line(self, name):
         """The last non-empty line of a child's log, or '' (why it died)."""
         try:

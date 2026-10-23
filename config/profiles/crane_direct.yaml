@@ -9,7 +9,6 @@ ground_truth: /crane/odom
 frames: {map: null, odom: odom, base: base_link}
 use_sim_time: true
 arming: {outputs: none}
-bringup: null
 sensors:
   - {name: odometry, topic: /crane/odom, kind: odometry, required: true}
   - {name: LiDAR, topic: /points, kind: points}

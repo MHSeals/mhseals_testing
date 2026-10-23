@@ -14,7 +14,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import theme
 from mhseals_testing.harness.registry import Registry as RegistryBase
-from mhseals_testing.ui.app import App, Detach, SessionPaths, bringup_command, parse_args
+from mhseals_testing.ui.app import App, Detach, SessionPaths, parse_args, stack_overlay
 
 
 class Clock:
@@ -228,14 +228,13 @@ def test_session_paths_sit_next_to_the_bag(tmp_path):
     assert paths.journal == tmp_path / 'bags' / 's1.events.jsonl'
 
 
-def test_parse_args_profile_bringup_and_limits(tmp_path):
-    args, profile = parse_args(['--profile', 'crane_full_stack', '--start-stack', '--start-sensors'])
+def test_parse_args_profile_components_and_limits(tmp_path):
+    args, profile = parse_args(['--profile', 'crane_full_stack', '--start-stack'])
     assert profile.use_sim_time and args.output.name.startswith('crane_full_stack_')
-    command = bringup_command(profile, args)
-    assert 'fcu:=false' in command and 'start_sensors:=true' in command
-    assert not any(part.startswith('fcu_url') for part in command)  # simulation: no FCU
+    assert not profile.uses_fcu and stack_overlay(profile, args) == {}  # simulation: no FCU
     boat_args, boat = parse_args(['--start-stack'])
-    assert any(part.startswith('fcu_url:=serial://') for part in bringup_command(boat, boat_args))
+    assert boat.uses_fcu
+    assert stack_overlay(boat, boat_args)['odometry']['fcu_url'].startswith('serial://')
     assert parse_args(['--set', 'command_mode=velocity'])[1].command_units == 'velocity'
     with pytest.raises(SystemExit):
         parse_args(['--set', 'repeats=9'])
