@@ -12,16 +12,15 @@ def sim_profile(**changes):
     return SimpleNamespace(**{**values, **changes})
 
 
-def test_crane_profile_argv_includes_the_truth_odometry_and_clock(tmp_path):
-    command = bag_command(tmp_path / 'b', simsession.extra_topics('crane_full_stack'))
-    topics = command[command.index('--topics') + 1:command.index('--exclude-regex')]
-    assert '/crane/odom' in topics and '/clock' in topics
-    assert command[-2:] == ['-o', str(tmp_path / 'b')]
-
-
-def test_boat_profile_adds_no_topics(tmp_path):
+def test_crane_profile_extras_are_not_dropped_by_the_bag_excludes(tmp_path):
+    import re
+    command = bag_command(tmp_path / 'b')
+    assert '--topics' not in command  # --all-topics would override it and record almost nothing
+    regex = command[command.index('--exclude-regex') + 1]
+    extras = simsession.extra_topics('crane_full_stack')
+    assert '/crane/odom' in extras and '/clock' in extras
+    assert not [t for t in extras if re.match(regex, t)]
     assert simsession.extra_topics('boat') == []
-    assert '--topics' not in bag_command(tmp_path / 'b', simsession.extra_topics('boat'))
 
 
 def test_sim_session_records_clock_domain_and_copies_the_truth(tmp_path):
@@ -31,7 +30,7 @@ def test_sim_session_records_clock_domain_and_copies_the_truth(tmp_path):
                                       tmp_path / 's.course_truth.json')
     assert record['clock']['domain'] == 'sim' and record['profile']['ground_truth'] == '/crane/odom'
     assert (tmp_path / 's.course_truth.json').read_text() == '{"bays": []}'
-    assert yaml.safe_load((tmp_path / 's.session.yaml').read_text())['course_truth'] == 'course_truth.json'
+    assert yaml.safe_load((tmp_path / 's.session.yaml').read_text())['course_truth'] == 's.course_truth.json'
 
 
 def test_missing_truth_is_recorded_not_fatal_and_the_boat_has_a_wall_clock(tmp_path):

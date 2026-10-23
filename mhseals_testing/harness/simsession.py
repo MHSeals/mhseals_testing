@@ -1,6 +1,6 @@
 """What a simulator session records beyond a boat session (bags.md B14). ROS-free.
 
-* the profile's extra bag topics (``extra:`` in config/bags/topics.yaml: ``/clock`` and the truth odometry);
+* the profile's extra bag topics (not passed to ros2 bag in full mode) (``extra:`` in config/bags/topics.yaml: ``/clock`` and the truth odometry);
 * ``<session>.session.yaml`` with the clock domain, so readers know bag stamps are wall time while
   ``ros_time`` in the journal is sim time;
 * a copy of the profile's course truth next to the session, so the run can be judged after the
@@ -44,7 +44,7 @@ def start_session(profile, session_path, truth_path):
     """Write ``session.yaml`` (and the truth copy for a simulator) beside the session bag."""
     session_path, record = Path(session_path), session_record(profile, Path(session_path).name.split('.')[0])
     if profile.use_sim_time:
-        record['course_truth'] = 'course_truth.json' if copy_course_truth(
+        record['course_truth'] = Path(truth_path).name if copy_course_truth(
             profile.course_truth, truth_path) else None
     session_path.write_text(yaml.safe_dump(record, sort_keys=False))
     return record

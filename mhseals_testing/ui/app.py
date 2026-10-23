@@ -1498,7 +1498,7 @@ def main(argv=None):
     # ROS imports stay here so the App (and its tests) never need rclpy.
     import rclpy
 
-    from mhseals_testing.harness.simsession import extra_topics, start_session
+    from mhseals_testing.harness.simsession import start_session
     from mhseals_testing.ros.arming import Arming
     from mhseals_testing.ros.health import subscribe_fcu
     from mhseals_testing.ros.mission import TaskWatcher
@@ -1556,7 +1556,7 @@ def main(argv=None):
             paths.bag.parent.mkdir(parents=True, exist_ok=True)
             start_session(profile, paths.session, paths.truth)
             if not processes.running('bag'):
-                processes.start('bag', bag_command(paths.bag, extra_topics(profile.name)))
+                processes.start('bag', bag_command(paths.bag))
             if args.start_stack and not any(processes.running(key) for key in stack.start_order()):
                 time.sleep(2.0)  # let discovery find an already-running stack
                 if ros.publishers(profile.odometry):
