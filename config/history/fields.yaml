@@ -31,3 +31,32 @@ scope:
   ignored:
     patterns: ['INS_GYROFFS*']
     keys: [mechanical_bias]
+# How config diffs read (history/render.py): labels, units, enums and matrix grids.
+# A key not listed here still diffs, under "Other", by its own name.
+# kind: scalar (default) | bool | enum | per (a list with one value per thruster) | matrix.
+# digits: least decimals to show; more are added only when the difference needs them.
+thrusters: [FL, FR, RR, RL]
+axes: [surge, sway, yaw]
+hardware:
+  groups: [Thrusters, Correction, Timing, Manual, Output, Other]
+  fields:
+    channel_map: {label: output, group: Thrusters, kind: per, pins: true}
+    reversed: {label: reversed, group: Thrusters, kind: per}
+    thruster_matrix: {label: Mixer, group: Thrusters, kind: matrix, rows: thrusters, cols: axes, note: 'rows: thruster · cols: axis'}
+    decoupling: {label: Correction C⁺, group: Correction, kind: matrix, rows: axes, cols: axes, note: 'rows: command · cols: applied'}
+    decoupling_negative: {label: Correction C⁻, group: Correction, kind: matrix, rows: axes, cols: axes, note: 'rows: command · cols: applied'}
+    command_timeout: {label: Command timeout, group: Timing, unit: s}
+    frequency: {label: PWM frequency, group: Timing, unit: Hz}
+    manual_amplitude: {label: Manual amplitude, group: Manual}
+    manual_yaw_scale: {label: Manual yaw scale, group: Manual}
+    manual_repeat_timeout: {label: Manual repeat timeout, group: Manual, unit: s}
+    manual_initial_timeout: {label: Manual initial timeout, group: Manual, unit: s}
+    output_backend: {label: Output backend, group: Output, kind: enum, choices: {odroid: ODROID PWM, topic: Topic}}
+    pwm_topic: {label: PWM topic, group: Output}
+    mosfet_chip: {label: MOSFET chip, group: Output}
+    mosfet_line: {label: MOSFET line, group: Output}
+    mosfet_active_high: {label: MOSFET active high, group: Output, kind: bool}
+nav2:
+  # Top-level sections shown under a plain name; "ros__parameters" levels are dropped.
+  groups: {controller_server: Controller, planner_server: Planner, smoother_server: Smoother, bt_navigator: Navigator}
+  units: {vx_max: m/s, vx_min: m/s, vy_max: m/s, wz_max: rad/s, ax_max: m/s², wz_acc: rad/s², lookahead: m, xy_goal_tolerance: m, yaw_goal_tolerance: rad}
