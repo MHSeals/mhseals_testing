@@ -395,8 +395,8 @@ def fit_strip(chips, width):
 
 
 def arm_state(armed, detail=None):
-    """Armed or disarmed, drawn like every other status: a colored dot and a label."""
-    text = Text('● ', style=theme.BAD if armed else theme.GOOD)
+    """Armed or disarmed, drawn like every other status: a glyph that differs per state and a label."""
+    text = Text(theme.icon('warn' if armed else 'good').plain + ' ', style=theme.BAD if armed else theme.GOOD)
     text.append('Armed' if armed else 'Disarmed', style='bold')
     if detail:
         text.append(SEPARATOR + detail, style=MUTED)

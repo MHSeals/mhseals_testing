@@ -1,7 +1,8 @@
 """One look for every panel, after cx: ANSI colors, rounded blocks, status glyphs.
 
 Only the 16 terminal colors are used, so the terminal theme decides how they
-look. NO_COLOR is honoured by Rich; TERM=dumb or MHS_ASCII swaps glyphs for ASCII.
+look. NO_COLOR is honoured by Rich, so each state has its own glyph (✓ ! × ◌ ○) and
+never relies on color alone; TERM=dumb or MHS_ASCII swaps glyphs for ASCII.
 """
 
 import os
@@ -23,8 +24,8 @@ ARROW = '->' if ASCII else '→'
 
 # Glyph and color per state; every state the suite reports maps to one of these.
 _GLYPHS = {
-    'good': ('+' if ASCII else '●', GOOD),
-    'warn': ('!' if ASCII else '●', WARN),
+    'good': ('+' if ASCII else '✓', GOOD),
+    'warn': ('!', WARN),
     'bad': ('x' if ASCII else '×', BAD),
     'busy': ('~' if ASCII else '◌', BUSY),
     'off': ('o' if ASCII else '○', MUTED),
