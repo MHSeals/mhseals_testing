@@ -1,6 +1,7 @@
 """Lazy costmap leases, the recorded costmap's crop and gate, the trail file and the rotation fact."""
 
 import math
+import types
 
 import numpy as np
 import pytest
@@ -107,3 +108,21 @@ def test_rotation_fact_reports_degrees_once_there_is_baseline():
                                 math.sin(theta) * x + math.cos(theta) * y), (x, y), (x, y))
     fact = feeds.rotation_fact(rotation, 1.0)
     assert fact.value == pytest.approx(7.0, abs=0.01)
+
+
+def test_second_fetch_waits_for_a_fresh_costmap():
+    pytest.importorskip('rclpy')
+    from mhseals_testing.ros.nav2 import Nav2
+
+    node = FakeNode()
+    nav = types.SimpleNamespace(costmap=None, costmap_time=None)
+    nav._costmap_sub = feeds.LazySub(node, object, '/c', lambda m: None, None)
+    nav.costmap_lease = types.MethodType(Nav2.costmap_lease, nav)
+    with nav.costmap_lease('first'):
+        nav.costmap = 'old'
+    assert nav.costmap == 'old' and not node.live  # kept after the lease
+    assert Nav2.fetch_costmap(nav, timeout=0.1) is None  # stale grid is not returned
+    with nav.costmap_lease('a'):
+        nav.costmap = 'live'
+        with nav.costmap_lease('b'):  # a nested lease keeps the live grid
+            assert nav.costmap == 'live'

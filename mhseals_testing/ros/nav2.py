@@ -90,7 +90,11 @@ class Nav2:
 
     @contextmanager
     def costmap_lease(self, who):
-        """Subscribe to the costmap for the block; ``costmap`` holds the last grid afterwards."""
+        """Subscribe to the costmap for the block; ``costmap`` holds the last grid afterwards.
+
+        Opening the first lease drops the old grid, so a later wait sees only a fresh one."""
+        if not self._costmap_sub.holders:
+            self.costmap = self.costmap_time = None
         self._costmap_sub.lease(who)
         try:
             yield self
