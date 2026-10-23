@@ -36,7 +36,7 @@ def _matches(key, block):
 
 def scope_of(key, fields=None):
     """``('hardware', None)``, ``('calibration', 'run')``, ``('ignored', None)`` or ``('setting', None)``."""
-    fields = fields or load_fields()
+    fields = (fields or load_fields())['scope']
     if _matches(key, fields['hardware']):
         return 'hardware', None
     for cadence, block in fields['calibration'].items():
@@ -49,12 +49,21 @@ def scope_of(key, fields=None):
 
 def depends_on(fields=None):
     """The ``{invalid: [...], verify: [...]}`` keys the run calibrations (C+/-, curves) depend on."""
-    return (fields or load_fields())['calibration']['run']['depends_on']
+    return (fields or load_fields())['scope']['calibration']['run']['depends_on']
+
+
+def is_yaw_dep(key, fields=None):
+    """Whether ``key`` is a setting whose change asks for a yaw check (EK3_SRC1_YAW, COMPASS_USE*, magcal)."""
+    return _matches(key, (fields or load_fields())['scope']['yaw_deps'])
 
 
 def dependency_hash(hardware, keys):
-    """Hash of the ``keys`` in ``hardware``; stable under key order, absent keys hash as None."""
-    return 'sha256:' + digest({k: hardware.get(k) for k in sorted(keys)})
+    """Hash of the ``keys`` in ``hardware``; stable under key order, absent keys hash as None
+    except ``hardware_epoch``, where absent equals 0 so adding ``hardware_epoch: 0`` later invalidates nothing."""
+    values = {k: hardware.get(k) for k in sorted(keys)}
+    if 'hardware_epoch' in values and values['hardware_epoch'] is None:
+        values['hardware_epoch'] = 0
+    return 'sha256:' + digest(values)
 
 
 def record(direction, fit, hardware, *, extra=None, path=None, fields=None):
@@ -79,12 +88,16 @@ def load(path=None):
     return data.read_json(Path(path) if path else data.path('calibration', 'current.json'), {'directions': {}})
 
 
+def _num(change_id):
+    return int(change_id[1:])
+
+
 def _changed_after(history, fit_config):
     """The id of the first hardware change after the config the fit was made under, for messages."""
     if history is None:
         return None
     for change in history.changes('hardware'):
-        if fit_config is None or change['id'] > fit_config:
+        if fit_config is None or _num(change['id']) > _num(fit_config):
             return change['id']
     return None
 

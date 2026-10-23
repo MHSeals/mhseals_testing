@@ -2,22 +2,32 @@
 # calibration = fitted values (cadence run|site|build|derived); setting = operator choices (the default).
 # depends_on: a calibration's `invalid` keys hash into its provenance (change => x),
 # its `verify` keys only ask for a wiring check (change => ?).
-hardware:
-  keys: [output_backend, pwm_topic, pwm_chips, pwm_channels, frequency, channel_map, reversed, thruster_matrix, hardware_epoch]
-  patterns: ['mosfet_*', '*_TYPE', 'SERIAL*', 'CAN_*', 'BRD_*', 'GPS1_POS_*', 'COMPASS_ORIENT*', BATT_MONITOR, BATT_VOLT_MULT]
-calibration:
-  run:
-    keys: [decoupling, decoupling_negative, velocity_gain, 'characterization.curves']
-    patterns: ['characterization.directions.*']
-    depends_on:
-      invalid: [thruster_matrix, reversed, hardware_epoch]
-      verify: [channel_map, pwm_channels]
-  derived:
-    keys: ['characterization.motion_limits']
-  site:
-    patterns: ['COMPASS_OFS*', 'DIA*', 'ODI*', 'MOT*']
-  build:
-    patterns: ['INS_ACC*OFFS*', 'INS_ACC*SCAL*', 'AHRS_TRIM*']
-ignored:
-  patterns: ['INS_GYROFFS*']
-  keys: [mechanical_bias]
+# Everything is under `scope:` so it unions cleanly with other top-level blocks in this file.
+# Keys that would be ambiguous bare are subsystem-qualified (rtk.device, nav2.vx_max).
+scope:
+  hardware:
+    keys: [output_backend, pwm_topic, pwm_chips, pwm_channels, frequency, channel_map, reversed, thruster_matrix,
+           hardware_epoch, gps_link, rtk.device, rtk.radio]
+    patterns: ['mosfet_*', '*_TYPE', 'SERIAL*', 'CAN_*', 'BRD_*', 'GPS1_POS_*', 'COMPASS_ORIENT*', BATT_MONITOR, BATT_VOLT_MULT]
+  calibration:
+    run:
+      keys: [decoupling, decoupling_negative, velocity_gain, 'characterization.curves']
+      patterns: ['characterization.directions.*']
+      depends_on:
+        invalid: [thruster_matrix, reversed, hardware_epoch]
+        verify: [channel_map, pwm_channels]
+    derived:
+      keys: ['characterization.motion_limits']
+      patterns: ['nav2.v?_max', 'nav2.wz_max', 'nav2.acc_lim_*']
+    site:
+      keys: ['rtk.positions']
+      patterns: ['COMPASS_OFS*', 'DIA*', 'ODI*', 'MOT*']
+    build:
+      patterns: ['INS_ACC*OFFS*', 'INS_ACC*SCAL*', 'AHRS_TRIM*']
+  # setting keys whose change asks crab/yaw users for a check (shown as ?)
+  yaw_deps:
+    keys: [EK3_SRC1_YAW, magcal]
+    patterns: ['COMPASS_USE*']
+  ignored:
+    patterns: ['INS_GYROFFS*']
+    keys: [mechanical_bias]

@@ -21,6 +21,28 @@ def test_scope_classes():
     assert cal.scope_of('INS_GYROFFS_X') == ('ignored', None)
 
 
+def test_new_classes_and_yaw_deps():
+    assert cal.scope_of('rtk.device') == ('hardware', None)
+    assert cal.scope_of('gps_link') == ('hardware', None)
+    assert cal.scope_of('rtk.positions') == ('calibration', 'site')
+    assert cal.scope_of('nav2.vx_max') == ('calibration', 'derived')
+    assert cal.scope_of('EK3_SRC1_YAW') == ('setting', None) and cal.is_yaw_dep('COMPASS_USE2')
+    assert not cal.is_yaw_dep('kp')
+
+
+def test_absent_epoch_hashes_as_zero_and_ids_compare_as_integers(tmp_path):
+    bare = {k: v for k, v in HW.items() if k != 'hardware_epoch'}
+    path = tmp_path / 'c.json'
+    cal.record('sway-', {**FIT, 'config': 'c999'}, bare, path=path)
+    entry = cal.load(path)['directions']['sway-']
+    assert cal.status(entry, {**bare, 'hardware_epoch': 0})[0] == cal.OK
+    class Log:
+        def changes(self, subsystem):
+            return [{'id': 'c0100'}]
+    entry['fit']['config'] = 'c99'
+    assert 'c0100' in cal.status(entry, {**bare, 'hardware_epoch': 1}, Log())[1]
+
+
 def test_record_keeps_other_directions_and_provenance(tmp_path):
     path = _record(tmp_path, battery_v=15.8)
     cal.record('sway+', FIT, HW, path=path)
