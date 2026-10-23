@@ -7,6 +7,8 @@ module only knows how to turn (surge, sway, yaw) into the right message.
 from geometry_msgs.msg import Twist, TwistStamped
 from std_msgs.msg import UInt16MultiArray
 
+from mhseals_testing.health.probes.graph import topic_fact_name
+
 NEUTRAL_REPEATS = 3  # a few copies so one dropped message can't leave thrust on
 # thruster_pwm_node's raw-pulse input: physical outputs 1-4 in µs, for bench tests.
 TEST_PULSES_TOPIC = '/thruster_pwm_node/test_pulses'
@@ -66,8 +68,9 @@ class Plant:
 
     def conflicts(self):
         """Another node commanding the same topic would fight every trial."""
-        return [f'{self.profile.command_topic} also published by {name}'
-                for name in self.ros.publishers(self.profile.command_topic)]
+        topic = self.profile.command_topic
+        pubs = self.ros.graph_facts([topic])[topic_fact_name(topic)].value['pub']
+        return [f'{topic} also published by {ep.node}' for ep in pubs if not ep.own]
 
     def close(self):
         self.neutral()

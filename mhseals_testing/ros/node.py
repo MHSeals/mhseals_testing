@@ -10,6 +10,7 @@ import os
 import re
 import socket
 import threading
+import time
 
 from geometry_msgs.msg import Vector3Stamped
 from nav_msgs.msg import Odometry
@@ -26,6 +27,8 @@ from vision_msgs.msg import Detection3DArray
 
 from mhseals_testing import events
 from mhseals_testing.harness import journal
+from mhseals_testing.health.probes.graph import collect
+from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
 
 MESSAGE_TYPES = {
@@ -159,6 +162,10 @@ class RosIO:
     def publishers(self, topic):
         """Other nodes publishing ``topic`` (e.g. a second /cmd_vel source)."""
         return [e['node'] for e in self.endpoints(topic) if not e['self']]
+
+    def graph_facts(self, topics, full=False):
+        """The graph probe's facts for ``topics`` (see health/probes/graph.py)."""
+        return collect(RclpyGraph(self.node), topics, time.monotonic(), full)
 
     def subscribers(self, topic):
         return [e['node'] for e in self.endpoints(topic, True) if not e['self']]

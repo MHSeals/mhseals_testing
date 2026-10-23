@@ -4,6 +4,8 @@ import pytest
 
 pytest.importorskip('geometry_msgs')
 
+from mhseals_testing.health.model import Fact
+from mhseals_testing.health.probes.graph import Endpoint, topic_fact_name
 from mhseals_testing.ros.plant import Plant
 
 
@@ -26,8 +28,10 @@ class Ros:
     def __init__(self, node, name):
         self.node, self.name, self.peers = node, name, []
 
-    def publishers(self, topic):
-        return [peer.name for peer in self.peers if peer.node.live]
+    def graph_facts(self, topics):
+        """Every live publisher on the topic, ours tagged own, as the graph probe reports them."""
+        pubs = [Endpoint(ros.name, own=ros is self) for ros in [self, *self.peers] if ros.node.live]
+        return {topic_fact_name(t): Fact({'pub': tuple(pubs), 'sub': ()}) for t in topics}
 
 
 PROFILE = SimpleNamespace(command_type='twist', command_topic='/cmd_vel',
