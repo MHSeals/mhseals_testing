@@ -41,7 +41,7 @@ def test_row_reads_ok_then_flags_udp_drops(tmp_path, clock):
     clock.now += 5
     proc(tmp_path, rx=625_000, tx=625_000, rcvbuf=200)         # still 20 /s: persists past the raise time
     level, detail = net.poll()
-    assert (level, 'UDP drops' in detail) == ('WARN', True)
+    assert (level, detail) == ('WARN', '20.00 /s; UDP drops')
 
 
 def test_row_throttles_reads_to_its_period(tmp_path, clock):
@@ -51,3 +51,14 @@ def test_row_throttles_reads_to_its_period(tmp_path, clock):
     proc(tmp_path, rcvbuf=10_000)
     clock.now += 1
     assert net.poll() == first
+
+
+def test_row_reads_fail_when_the_address_is_lost_after_being_shown(tmp_path, clock):
+    held = {'end0': '192.168.0.152'}
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path, clock=clock,
+                     environ={}, addresses=lambda names: dict(held))
+    proc(tmp_path)
+    assert net.poll()[0] == 'OK'
+    held.clear()                                   # cable pulled or DHCP lost
+    clock.now += 5
+    assert net.poll() == ('FAIL', 'no 192.168.0.0/24 address')

@@ -49,18 +49,6 @@ def parse_snmp(text):
     return out
 
 
-def parse_udp(text, ports=range(7400, 7701)):
-    """(port, drops) for each UDP socket in /proc/net/udp bound to an RTPS port."""
-    rows = []
-    for line in text.splitlines()[1:]:
-        fields = line.split()
-        if len(fields) >= 13:
-            port = int(fields[1].rpartition(':')[2], 16)
-            if port in ports:
-                rows.append((port, int(fields[12])))
-    return rows
-
-
 def rates(old, new, dt):
     """Per-second change of each counter; None for a counter that went backwards."""
     return {k: (new[k] - old[k]) / dt if new[k] >= old[k] else None for k in new if k in old}
@@ -120,7 +108,6 @@ class Link:
         try:
             dev = parse_dev(self.read('proc/net/dev'))
             snmp = parse_snmp(self.read('proc/net/snmp'))
-            udp = parse_udp(self.read('proc/net/udp'))
         except (OSError, ValueError):
             return {}
         name, address = self.find(dev)

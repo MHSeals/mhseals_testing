@@ -2,7 +2,7 @@
 
 import pytest
 
-from mhseals_testing.health.netstat import Link, parse_dev, parse_snmp, parse_udp, rates
+from mhseals_testing.health.netstat import Link, parse_dev, parse_snmp, rates
 
 DEV = """Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
@@ -16,19 +16,14 @@ Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumE
 Udp: 5 {noports} {inerr} 5 {rcvbuf} 0 0 0 0
 """
 SNMP_DOCK = SNMP_BOAT.replace(' MemErrors', '').replace('0 0 0 0\n', '0 0 0\n')
-UDP = """  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
- 1: 00000000:1D1B 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000 0 1 2 0000000000000000 {d}
- 2: 00000000:0050 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000 0 1 2 0000000000000000 9
-"""
 
 
-def proc(root, rx=0, tx=0, errs=0, drop=0, noports=0, inerr=0, rcvbuf=0, reasm=0, d=0, snmp=SNMP_BOAT, speed='1000'):
+def proc(root, rx=0, tx=0, errs=0, drop=0, noports=0, inerr=0, rcvbuf=0, reasm=0, snmp=SNMP_BOAT, speed='1000'):
     """Write a fake /proc and /sys under root."""
     (root / 'proc/net').mkdir(parents=True, exist_ok=True)
     (root / 'sys/class/net/end0').mkdir(parents=True, exist_ok=True)
     (root / 'proc/net/dev').write_text(DEV.format(rx=rx, tx=tx, errs=errs, drop=drop))
     (root / 'proc/net/snmp').write_text(snmp.format(noports=noports, inerr=inerr, rcvbuf=rcvbuf, reasm=reasm))
-    (root / 'proc/net/udp').write_text(UDP.format(d=d))
     (root / 'sys/class/net/end0/speed').write_text(speed + '\n')
 
 
@@ -67,10 +62,6 @@ def test_parse_snmp_matches_by_header_on_both_kernels(template):
     assert ('MemErrors' in parsed['Udp']) == (template is SNMP_BOAT)
 
 
-def test_parse_udp_keeps_only_rtps_ports():
-    assert parse_udp(UDP.format(d=7)) == [(0x1D1B, 7)]       # 7451; port 80 is not RTPS
-
-
 def test_rates_report_a_reset_as_none():
     assert rates({'a': 10, 'b': 10}, {'a': 30, 'b': 4}, 2) == {'a': 10.0, 'b': None}
 
@@ -80,7 +71,7 @@ def test_rates_over_two_samples(tmp_path, clock):
     proc(tmp_path, rx=0, tx=0)
     assert 'net.rx_bps' not in net.sample()                  # one sample is no rate
     clock.now += 5
-    proc(tmp_path, rx=1_250_000, tx=125_000, errs=5, drop=5, noports=1000, inerr=10, rcvbuf=15, reasm=5, d=3)
+    proc(tmp_path, rx=1_250_000, tx=125_000, errs=5, drop=5, noports=1000, inerr=10, rcvbuf=15, reasm=5)
     facts = net.sample()
     assert facts['net.rx_bps'].value == pytest.approx(2e6)
     assert facts['net.tx_bps'].value == pytest.approx(2e5)

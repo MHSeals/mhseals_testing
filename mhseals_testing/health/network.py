@@ -12,7 +12,8 @@ PERIOD = 5.0                 # seconds between /proc reads
 class NetworkRow:
     """``poll()`` returns (level, detail) for ``monitor.advise('network', ...)``, or None when hidden.
 
-    Hidden while no interface holds an address in the subnet (laptop, simulation).
+    Hidden while no interface has held an address in the subnet (laptop, simulation); once one has,
+    losing it reads FAIL so the row cannot keep its last OK.
     """
 
     def __init__(self, directory=None, user=None, root='/', clock=None, **link):
@@ -26,6 +27,7 @@ class NetworkRow:
         self.next = None
         self.facts = {}
         self.shown = None
+        self.seen = False            # a boat link has been shown; losing it must not go quiet
 
     def poll(self):
         now = self.link.clock()
@@ -33,7 +35,12 @@ class NetworkRow:
             return self.shown
         self.next = now + self.period
         self.facts = self.link.sample()
-        self.shown = self.render() if self.facts else None
+        if self.facts:
+            self.seen, self.shown = True, self.render()
+        elif self.seen and self.link.known == set():
+            self.shown = ('FAIL', f'no {self.link.net} address')
+        else:
+            self.shown = None
         return self.shown
 
     def render(self):
@@ -42,7 +49,7 @@ class NetworkRow:
         bad = [(i, r) for i, r in report.results.items() if r.status in ('warn', 'fail')]
         if bad:
             i, r = max(bad, key=lambda b: (b[1].status == 'fail',))
-            return LEVELS[r.status], f'{r.value}; {titles[i]} {r.detail}'
+            return LEVELS[r.status], f'{r.value}; {titles[i]}'
         rx, tx = self.facts.get('net.rx_bps'), self.facts.get('net.tx_bps')
         iface = next(iter(self.facts.values())).label
         if rx is None or tx is None:
