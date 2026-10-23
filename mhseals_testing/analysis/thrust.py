@@ -39,14 +39,25 @@ def speed_curve(points):
                 points=[[float(a), float(b)] for a, b in sorted(points)])
 
 
-def speed_curves(samples):
-    """{'surge+'..'yaw-': curve} (the keys hardware configuration expects) from single-axis (command, velocity) samples.
+def body_drift(drift, yaw):
+    """The odom-frame drift (x, y) seen in the body frame at ``yaw``: (surge, sway, 0)."""
+    c, s = math.cos(yaw), math.sin(yaw)
+    return (drift[0] * c + drift[1] * s, -drift[0] * s + drift[1] * c, 0.0)
 
-    ``samples`` are normalized (command, velocity) tuples; samples where another
-    axis is commanded are skipped, so cross coupling never enters the curve.
+
+def speed_curves(samples, drift=None):
+    """{'surge+'..'yaw-': curve} (the keys hardware configuration expects) from single-axis samples.
+
+    ``samples`` are (command, velocity, yaw) tuples; samples where another axis
+    is commanded are skipped, so cross coupling never enters the curve. ``drift``
+    is the odom-frame current (x, y) from the same fit: it is projected onto the
+    body at each sample's yaw and removed, so a hold's speed is the boat's
+    through the water, not over the ground.
     """
     levels = {}
-    for command, velocity in samples:
+    for command, velocity, yaw in samples:
+        if drift and yaw is not None:
+            velocity = [v - d for v, d in zip(velocity, body_drift(drift, yaw))]
         active = [i for i, value in enumerate(command) if abs(value) > ACTIVE]
         if len(active) != 1:
             continue

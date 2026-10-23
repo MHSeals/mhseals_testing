@@ -231,7 +231,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         "sample_count": len(normalized),
         "mechanical_bias": {axis: bias[i] for i, axis in enumerate(AXES)},
         "velocity_gain": gain_map,
-        "speed_curves": speed_curves((c, v) for c, v, _, _ in normalized),
+        "speed_curves": speed_curves(((c, v, yaw) for c, v, _, yaw in normalized), drift),
         "drift": (dict(x=drift[0], y=drift[1], speed=math.hypot(*drift),
                        toward=math.degrees(math.atan2(drift[1], drift[0])),
                        frame="odom", separated=True)
