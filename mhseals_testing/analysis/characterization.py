@@ -14,13 +14,15 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+import sys
 from typing import Iterable, Mapping
 
 import numpy
 
-from mhseals_hardware.configuration import load_config, update_config
+from mhseals_hardware.configuration import config_path, load_config, update_config
 from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
 from mhseals_hardware.velocity_law import decoupling_for, raw_gain
+from mhseals_testing.history import History, adapters
 from mhseals_testing.analysis.thrust import ACTIVE, speed_curves
 
 
@@ -287,6 +289,10 @@ def samples_from_windows(history, windows, transient=1.0):
 MIN_COVERAGE = 0.5
 
 
+def print_warning(message):
+    print(message, file=sys.stderr)
+
+
 def audit_holds(history, windows, transient=1.0, minimum=MIN_COVERAGE):
     """One record per hold: samples, coverage against the median density, and whether it is usable.
 
@@ -424,7 +430,12 @@ def main(argv=None):
         if args.config and target != args.config:
             import yaml
             changes = dict(yaml.safe_load(args.config.read_text()), **changes)
+        operator = Path(target) == Path(config_path())     # only the operator's file is versioned
+        if operator:
+            adapters.observe_file(History(), 'hardware', target, print_warning)
         update_config(changes, target)
+        if operator:
+            adapters.record_file(History(), 'hardware', 'cli:characterization', target, print_warning)
     if args.nav2_overlay:
         if not args.nav2_params:
             parser.error('--nav2-overlay requires --nav2-params')

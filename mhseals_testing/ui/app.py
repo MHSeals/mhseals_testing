@@ -1126,6 +1126,7 @@ class App:
                 running=self.processes.running, stop=self.processes.stop,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 hardware_config=self.args.hardware_config, user_config=self.args.config,
+                history=self.history, warn=self.warn_history,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show,

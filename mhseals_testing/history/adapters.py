@@ -7,6 +7,7 @@ arming copy of the hardware config is a derived file and is never passed here.
 History never blocks a config write: failures go to ``warn`` and return None.
 """
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -20,6 +21,7 @@ _USER = Path.home() / '.config' / 'mhseals'
 class Adapter:
     path: Callable[[], Path]                          # where the operator's file lives
     effective: Optional[Callable[[Path], dict]] = None   # merged config, for subsystems with defaults
+    meta: Optional[Callable[[], dict]] = None            # version meta, e.g. the defaults hash
 
 
 def _hardware_path():
@@ -35,6 +37,13 @@ def _hardware_effective(path):
     return load_config(path)
 
 
+def _hardware_meta():
+    """``defaults_sha``: the shipped defaults text, so a later warning can say they moved."""
+    from mhseals_hardware import configuration
+    text = Path(configuration.__file__).with_name('config').joinpath('default.yaml').read_text()
+    return {'defaults_sha': hashlib.sha256(text.encode()).hexdigest()[:12]}
+
+
 def _rtk_path():
     from mhseals_testing import rtk
     return rtk.config_path()
@@ -46,7 +55,7 @@ def _health_path():
 
 
 SUBSYSTEMS = {
-    'hardware': Adapter(_hardware_path, _hardware_effective),
+    'hardware': Adapter(_hardware_path, _hardware_effective, _hardware_meta),
     'rtk': Adapter(_rtk_path),
     'health': Adapter(_health_path),
     'keymap': Adapter(lambda: _USER / 'keymap.yaml'),
@@ -71,9 +80,13 @@ def read(sub, path=None):
     if adapter.effective is None:
         return parsed, raw, {}
     try:
-        return {'overrides': parsed, 'effective': adapter.effective(path)}, raw, {}
+        meta = adapter.meta() if adapter.meta else {}
+    except Exception:       # defaults unreadable: the version simply has no hash
+        meta = {}
+    try:
+        return {'overrides': parsed, 'effective': adapter.effective(path)}, raw, meta
     except Exception:       # an invalid file still has a version: its overrides
-        return {'overrides': parsed}, raw, {}
+        return {'overrides': parsed}, raw, meta
 
 
 def _capture(history, sub, path, warn, **kwargs):

@@ -47,3 +47,11 @@ def test_rtk_save_records_and_atomic_write_is_used(tmp_path, monkeypatch):
     assert [c['source'] for c in changes] == ['external', 'tui:rtk']
     assert yaml.safe_load(path.read_text())['device'] == '/dev/ttyACM0'
     assert not list(tmp_path.glob('*.tmp')) and not list(tmp_path.glob('.*.tmp'))
+
+
+def test_hardware_version_carries_the_defaults_hash_and_never_the_arming_copy(tmp_path):
+    path, history = tmp_path / 'hardware.yaml', History(tmp_path / 'h')
+    path.write_text('channel_map: [3, 1, 2, 0]\n')
+    change = adapters.observe_file(history, 'hardware', path)
+    assert len(history.version(change)['meta']['defaults_sha']) == 12
+    assert 'hardware' in adapters.SUBSYSTEMS and 'session' not in adapters.SUBSYSTEMS   # arming copy has no subsystem

@@ -13,6 +13,7 @@ from mhseals_hardware.thruster_mixer import AXES, axis_command
 from mhseals_testing.analysis.characterization import (
     audit_holds, characterize_samples, nav2_profile, samples_from_windows,
 )
+from mhseals_testing.history import adapters
 from mhseals_testing.procedures.combined import VECTORS, scaled
 from mhseals_testing.runner import NEUTRAL
 
@@ -109,6 +110,11 @@ def run(ctx):
                         ('no', 'save'), {'n': 0, 's': 1})
     if choice != 'no':
         path = ctx.services['user_config']
+        history, warn = ctx.services.get('history'), ctx.services.get('warn')
+        if history:     # a hand edit is logged before this write can merge it away
+            adapters.observe_file(history, 'hardware', path, warn)
         saved = update_config(dict(characterization=result), path)
+        if history:
+            adapters.record_file(history, 'hardware', 'characterize', path, warn)
         ctx.record(dict(procedure='characterization', verdict='SAVED', path=str(saved)))
     return result
