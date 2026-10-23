@@ -44,6 +44,7 @@ def compass_gyro(history_yaw, history_gyro, window=10.0):
 
     Both are lists of (time, value): yaw in degrees, gyro in rad/s. Over each
     ``window`` seconds, compare the compass change with the integrated rate.
+    The caller trims both histories to the span that matters (tui.md §13: the last 60 s).
     """
     if len(history_yaw) < 2 or len(history_gyro) < 2:
         return 0.0

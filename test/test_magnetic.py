@@ -60,3 +60,22 @@ def test_localization_rows():
     assert rows['GPS']['state'] == 'OK' and '3D' in rows['GPS']['value'] and '21' in rows['GPS']['value']
     assert rows['Compass']['state'] == 'ERROR' and rows['Compass']['value'] == '1669/470 mG'
     assert rows['Yaw']['state'] == 'WARN' and 'comp–gyro 7' in rows['Yaw']['value']
+
+
+def test_stale_mag_rows_are_stale():
+    now = [10]
+    m = BoatMonitor(clock=lambda: now[0])
+    m.observe('mag', dict(x=235e-7, y=0, z=405e-7), stamp_age=0)
+    now[0] = 100
+    rows = {r['name']: r for r in localization_rows(m.snapshot())}
+    assert rows['Compass']['state'] == 'STALE' and rows['Yaw']['state'] == 'STALE'
+
+
+def test_localization_rows_ascii(monkeypatch):
+    from mhseals_testing.ui import theme
+    monkeypatch.setattr(theme, 'ASCII', True)
+    m = BoatMonitor(clock=lambda: 10)
+    m.observe('mag', dict(x=1669e-7, y=0, z=0, compass_gyro=70, yaw_sigma=1.0), stamp_age=0)
+    for row in localization_rows(m.snapshot()):
+        assert str(row['value']).isascii(), row
+    assert 'sigma' in {r['name']: r for r in localization_rows(m.snapshot())}['Yaw']['value']

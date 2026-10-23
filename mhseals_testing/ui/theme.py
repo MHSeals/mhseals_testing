@@ -27,8 +27,11 @@ def pick(glyph, ascii_glyph):
 
 
 def ascii_safe(text):
-    """Free text from the suite (health details) with ° spelled out in ASCII mode."""
-    return text.replace('°', ' deg ').replace('  ', ' ').strip() if ASCII else text
+    """Free text from the suite with °, –, σ and × spelled out in ASCII mode."""
+    if not ASCII:
+        return text
+    text = text.replace('°', ' deg ').replace('–', '-').replace('σ', 'sigma').replace('×', 'x')
+    return text.replace('  ', ' ').replace(' ,', ',').strip()
 
 
 SEPARATOR = pick(' · ', ' | ')

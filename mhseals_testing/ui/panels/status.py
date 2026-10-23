@@ -54,6 +54,7 @@ def localization_rows(snapshot, site=magnetic.SITE):
 
     gpsraw values: fix, sats, h_acc (m). mag values: x, y, z (tesla); optional
     compass_gyro (deg), magcal_residual (deg) and yaw_sigma (rad) from the monitor.
+    A sensor that is not LIVE shows STALE rather than its last good value.
     A missing sensor gives no row, so a boat without them looks as before.
     """
     rows = []
@@ -73,13 +74,14 @@ def localization_rows(snapshot, site=magnetic.SITE):
         ratio = magnetic.field_ratio(v['x'], v['y'], v['z'], site)
         bad = not magnetic.FIELD_RATIO[0] <= ratio <= magnetic.FIELD_RATIO[1]
         field = magnetic.field_mg(v['x'], v['y'], v['z'])
-        rows.append(dict(group='Localization', state='ERROR' if bad else 'OK', name='Compass',
+        live = mag['status'] == 'LIVE'
+        rows.append(dict(group='Localization', state=('STALE' if not live else 'ERROR' if bad else 'OK'), name='Compass',
                          value=f"{field:.0f}/{site['field_mg']:.0f} mG",
                          detail='|B| against the site WMM field', required=False))
         quality, reason = magnetic.yaw_quality(v.get('compass_gyro'), v.get('magcal_residual'),
                                                v.get('yaw_sigma'), ratio)
-        rows.append(dict(group='Localization', state='OK' if quality == 'ok' else 'WARN', name='Yaw',
-                         value=reason or 'ok', detail='yaw_quality: compass, gyro, magcal, sigma',
+        rows.append(dict(group='Localization', state='STALE' if not live else 'OK' if quality == 'ok' else 'WARN',
+                         name='Yaw', value=theme.ascii_safe(reason) or 'ok', detail='yaw_quality: compass, gyro, magcal, sigma',
                          required=False))
     return rows
 
