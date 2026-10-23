@@ -33,6 +33,7 @@ MESSAGE_TYPES = {
     'image': Image, 'compressed': CompressedImage, 'detections': Detection3DArray,
 }
 EVENTS_TOPIC = '/mhseals_testing/events'
+GUID_PREFIX = 12             # bytes of an endpoint gid that name its DDS participant
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
 EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -57,6 +58,7 @@ class RosIO:
         self.fault = ''
         self.journal_path = journal_path
         self.recording = True  # stamped on each event as ``rec``
+        self._prefix = None
         self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
@@ -120,16 +122,40 @@ class RosIO:
         self.monitor.event(phase + (' ' + json.dumps(shown, sort_keys=True, default=str)
                                     if shown else ''))
 
+    def endpoints(self, topic, subscribers=False):
+        """Every publisher (or subscriber) of ``topic`` as ``{node, gid, self}``.
+
+        Our own endpoints are tagged ``self`` by GUID prefix, never dropped by node name, so a
+        second suite (or any node that shares our name) still shows up. The prefix is shared by
+        every endpoint of one DDS participant; it is learned from our events publisher. If the
+        graph cannot tell which participant is ours, nothing is tagged ``self`` (fail visible).
+        """
+        get = (self.node.get_subscriptions_info_by_topic if subscribers
+               else self.node.get_publishers_info_by_topic)
+        own = self._own_prefix()
+        out = []
+        for info in get(topic):
+            gid = bytes(getattr(info, 'endpoint_gid', ()) or ())
+            out.append({'node': f'{info.node_namespace.rstrip("/")}/{info.node_name}',
+                        'gid': gid.hex(), 'self': own is not None and gid[:GUID_PREFIX] == own})
+        return out
+
+    def _own_prefix(self):
+        """GUID prefix of this process's DDS participant, or None while ambiguous."""
+        if self._prefix is None:
+            prefixes = {bytes(getattr(i, 'endpoint_gid', ()) or ())[:GUID_PREFIX]
+                        for i in self.node.get_publishers_info_by_topic(EVENTS_TOPIC)
+                        if i.node_name == self.node.get_name()}
+            if len(prefixes) == 1 and b'' not in prefixes:
+                self._prefix = prefixes.pop()
+        return self._prefix
+
     def publishers(self, topic):
         """Other nodes publishing ``topic`` (e.g. a second /cmd_vel source)."""
-        return [f'{info.node_namespace.rstrip("/")}/{info.node_name}'
-                for info in self.node.get_publishers_info_by_topic(topic)
-                if info.node_name != self.node.get_name()]
+        return [e['node'] for e in self.endpoints(topic) if not e['self']]
 
     def subscribers(self, topic):
-        return [f'{info.node_namespace.rstrip("/")}/{info.node_name}'
-                for info in self.node.get_subscriptions_info_by_topic(topic)
-                if info.node_name != self.node.get_name()]
+        return [e['node'] for e in self.endpoints(topic, True) if not e['self']]
 
     def nodes(self):
         return [f'{namespace.rstrip("/")}/{name}'
