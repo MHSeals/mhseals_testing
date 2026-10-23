@@ -67,6 +67,7 @@ def test_set_meta_round_trips_and_keeps_other_fields(root):
 
 def test_set_meta_on_legacy_uses_a_sidecar(root):
     (root / 'old').mkdir(parents=True)
+    (root / 'old' / 'metadata.yaml').write_text('x')
     bags.set_meta(bags.scan(root)[0], note='n')
     assert bags.scan(root)[0].note == 'n' and (root / 'old.meta.json').exists()
 
@@ -110,3 +111,26 @@ def test_disk_reports_filesystem_and_bag_bytes(root):
     used, total, size = bags.disk(root)
     assert 0 < used <= total and size >= 1234
     assert bags.disk(root / 'missing')[2] == 0
+
+
+def test_legacy_folder_with_bag_data_is_not_empty_or_pruned(root):
+    legacy = root / 'boat_x'
+    legacy.mkdir(parents=True)
+    (legacy / 'boat_x_0.mcap').write_bytes(b'x' * 10)
+    found = bags.scan(root)
+    assert not found[0].empty
+    assert bags.prune_candidates(found, budget=10**9) == []
+
+
+def test_summary_flags_decide_empty_when_present(root):
+    folder = session(root, 'a', 1000, size=10)
+    data.write_json(folder / 'summary.json', {'flags': ['empty']}, 'mhseals.summary/1')
+    assert bags.scan(root)[0].empty
+
+
+def test_legacy_scan_skips_folders_without_a_bag(root):
+    (root / 'holding' / 'notes').mkdir(parents=True)
+    (root / 'holding' / 'notes' / 'a.txt').write_text('x')
+    (root / 'real' / 'sub').mkdir(parents=True)
+    (root / 'real' / 'sub' / 'metadata.yaml').write_text('x')
+    assert [b.id for b in bags.scan(root)] == ['real']

@@ -75,7 +75,8 @@ def gauge_line(usage, bag_bytes, budget, rate=None):
                 f'{theme.SEPARATOR}budget {budget / GB:.0f} GB')
     if rate:
         hours = (total - used) / rate / 3600
-        text.append(f'{theme.SEPARATOR}rec ≈{rate / 1e6:.1f} MB/s{theme.SEPARATOR}{hours:.0f} h left')
+        approx = theme.pick('≈', '~')
+        text.append(f'{theme.SEPARATOR}rec {approx}{rate / 1e6:.1f} MB/s{theme.SEPARATOR}{hours:.0f} h left')
     return text
 
 

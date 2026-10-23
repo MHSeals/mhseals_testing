@@ -189,8 +189,31 @@ def _load(folder, legacy, recording):
     bag.markers = _markers(folder)
     bag.size = _size(folder) + (_size_of_siblings(folder) if legacy else 0)
     bag.unfinalized = _has_unfinalized(folder) and not bag.recording
-    bag.empty = not runs and not bag.markers
+    flagged = summary.get('flags')
+    if isinstance(flagged, list):
+        bag.empty = 'empty' in flagged
+    else:
+        bag.empty = not runs and not bag.markers and not _has_bag_data(folder)
     return bag
+
+
+def _has_bag_data(path):
+    """True when a non-zero ``.mcap`` or ``.db3`` file lies anywhere under ``path``."""
+    for folder, _, names in os.walk(path):
+        for name in names:
+            if name.endswith(('.mcap', '.db3')):
+                try:
+                    if os.lstat(os.path.join(folder, name)).st_size:
+                        return True
+                except OSError:
+                    pass
+    return False
+
+
+def _holds_bag(path):
+    """True when ``metadata.yaml``, an ``.mcap`` or a ``.db3`` lies anywhere under ``path``."""
+    return any(name == 'metadata.yaml' or name.endswith(('.mcap', '.db3'))
+               for _, _, names in os.walk(path) for name in names)
 
 
 def _size_of_siblings(folder):
@@ -210,7 +233,8 @@ def scan(root=None, recording=()):
         if folder.is_dir():
             found.append(_load(folder, False, recording))
     for folder in sorted(root.glob('*')):
-        if folder.is_dir() and folder.name not in RESERVED and not folder.name.startswith('.'):
+        if folder.is_dir() and folder.name not in RESERVED and not folder.name.startswith('.') \
+                and _holds_bag(folder):
             found.append(_load(folder, True, recording))
     return sorted(found, key=lambda bag: bag.start, reverse=True)
 
@@ -255,7 +279,11 @@ def set_meta(bag, **fields):
 
 
 def delete(bag):
-    """Remove a session and its legacy sidecars; refused for pinned or recording ones."""
+    """Remove a session and its legacy sidecars; refused for pinned or recording ones.
+
+    The session index is not rebuilt here: no ``harness/index`` module exists yet (ts023 follow-up),
+    so the Bags tab rescans after a delete. Hook ``index.rebuild`` in here when that module lands.
+    """
     if bag.pinned or bag.recording:
         raise PermissionError(f'{bag.id} is {"recording" if bag.recording else "pinned"}')
     shutil.rmtree(bag.path)

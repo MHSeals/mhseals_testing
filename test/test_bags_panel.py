@@ -58,3 +58,10 @@ def test_summary_shows_note_or_nothing_selected():
     text = draw(panel.summary(bag(id='boat_a', title='t', note='calm', outcome='manual', start=1e9)))
     assert 'boat_a' in text and 'note: calm' in text and 'outcome: manual' in text
     assert 'nothing selected' in draw(panel.summary(None))
+
+
+def test_gauge_rate_uses_ascii_approx_in_ascii_mode(monkeypatch):
+    assert '≈' in str(panel.gauge_line((1e9, 10e9), 1e8, 2e10, rate=2e5))
+    monkeypatch.setattr(panel.theme, 'ASCII', True)
+    line = str(panel.gauge_line((1e9, 10e9), 1e8, 2e10, rate=2e5))
+    assert '~0.2 MB/s' in line and '≈' not in line
