@@ -28,6 +28,7 @@
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-rich</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
   <test_depend>rosbag2_storage_default_plugins</test_depend>
