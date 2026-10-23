@@ -1,0 +1,68 @@
+from mhseals_testing import calibration as cal
+from mhseals_testing.history import History
+
+HW = {'thruster_matrix': [[1, 0], [0, 1]], 'reversed': [], 'hardware_epoch': 3, 'channel_map': [1, 2], 'pwm_channels': [0, 1]}
+FIT = {'id': 'f1', 'time': 't', 'session': 's', 'run': 'r', 'config': 'c0131'}
+
+
+def _record(tmp_path, **extra):
+    path = tmp_path / 'calibration' / 'current.json'
+    cal.record('sway-', FIT, HW, extra=extra, path=path)
+    return path
+
+
+def test_scope_classes():
+    assert cal.scope_of('thruster_matrix') == ('hardware', None)
+    assert cal.scope_of('BRD_TYPE') == ('hardware', None)
+    assert cal.scope_of('decoupling') == ('calibration', 'run')
+    assert cal.scope_of('COMPASS_OFS_X') == ('calibration', 'site')
+    assert cal.scope_of('INS_ACC2OFFS_X') == ('calibration', 'build')
+    assert cal.scope_of('kp') == ('setting', None)
+    assert cal.scope_of('INS_GYROFFS_X') == ('ignored', None)
+
+
+def test_record_keeps_other_directions_and_provenance(tmp_path):
+    path = _record(tmp_path, battery_v=15.8)
+    cal.record('sway+', FIT, HW, path=path)
+    stored = cal.load(path)
+    assert stored['schema'] == cal.SCHEMA and set(stored['directions']) == {'sway-', 'sway+'}
+    assert stored['directions']['sway-']['hardware']['epoch'] == 3
+    assert stored['directions']['sway-']['fit']['config'] == 'c0131'
+
+
+def test_status_ok_and_settings_or_key_order_do_not_matter(tmp_path):
+    entry = cal.load(_record(tmp_path))['directions']['sway-']
+    assert cal.status(entry, HW) == (cal.OK, '')
+    shuffled = dict(reversed(list({**HW, 'kp': 9}.items())))
+    assert cal.status(entry, shuffled)[0] == cal.OK
+
+
+def test_epoch_bump_and_matrix_change_invalidate_with_change_id(tmp_path):
+    entry = cal.load(_record(tmp_path))['directions']['sway-']
+    history = History(tmp_path / 'h')
+    history.record('hardware', {'a': 1}, source='t')
+    assert cal.status(entry, {**HW, 'hardware_epoch': 4})[0] == cal.INVALID
+    state, reason = cal.status(entry, {**HW, 'thruster_matrix': [[0, 1], [1, 0]]}, history)
+    assert state == cal.INVALID and 'hardware changed' in reason
+
+
+def test_verify_battery_and_muted_gate(tmp_path):
+    entry = cal.load(_record(tmp_path, battery_v=15.8, gate={'muted': False}))['directions']['sway-']
+    assert cal.status(entry, {**HW, 'channel_map': [2, 1]})[0] == cal.VERIFY
+    assert cal.status(entry, HW, battery_v=14.9)[0] == cal.VERIFY
+    assert cal.status(entry, HW, battery_v=15.5)[0] == cal.OK
+    muted = cal.load(_record(tmp_path, gate={'muted': True}))['directions']['sway-']
+    assert cal.status(muted, HW)[0] == cal.VERIFY
+    assert cal.status(entry, {**HW, 'hardware_epoch': 9, 'channel_map': [2, 1]})[0] == cal.INVALID    # worst wins
+
+
+def test_invalidation_never_deletes_and_status_is_computed_at_display_time(tmp_path):
+    path = _record(tmp_path)
+    before = path.read_text()
+    changed = {**HW, 'hardware_epoch': 4}
+    current = cal.load(path)
+    assert cal.invalid_count(changed, current=current) == 1
+    assert cal.snapshot(changed, current=current)['entries']['sway-']['state'] == cal.INVALID
+    assert path.read_text() == before                              # nothing written or removed
+    assert 'status' not in cal.load(path)                          # the snapshot is derived, not stored
+    assert cal.invalid_count(HW, current=current) == 0             # reverting the hardware clears it again
