@@ -29,3 +29,10 @@ def nav_root():
     if root is None:
         pytest.skip('mhseals_nav not found: set MHSEALS_NAV')
     return root
+
+
+@pytest.fixture(autouse=True)
+def data_root(tmp_path, monkeypatch):
+    """Keep tests off the developer's real data root (state.json, sessions)."""
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    return tmp_path

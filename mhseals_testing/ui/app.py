@@ -35,6 +35,7 @@ from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
+from mhseals_testing.harness.apply import Staging
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
@@ -199,7 +200,24 @@ class App:
         reasons = motion_blockers(self.snapshot(), self.profile, self.args.bench_override)
         if self.ros.fault:
             reasons.insert(0, 'ROS fault: ' + self.ros.fault)
-        return reasons
+        return reasons + self.staging().blockers()
+
+    def staging(self):
+        """The identity-correction backup for this session's hardware YAML (harness/apply.py)."""
+        return Staging(self.args.config)
+
+    def offer_restore(self):
+        """At start: an unrestored backup means a survey died with identity C in the file."""
+        if self.staging().pending() is None:
+            return
+        try:
+            if self.choose('A survey was interrupted: restore the saved correction?',
+                           ('restore', 'keep'), {'r': 0, 'k': 1},
+                           message='Until restored, motion is refused.') == 'restore':
+                self.staging().restore()
+                self.watch_config()
+        except Cancelled:
+            pass
 
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
@@ -400,6 +418,7 @@ class App:
     def run(self):
         with self.attached():
             try:
+                self.offer_restore()
                 while not self.quit:
                     try:
                         key = self.keys.read(timeout=0.1)
