@@ -7,7 +7,9 @@ from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.thruster_mixer import THRUSTER_MIXER
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui.dashboard import PANELS, render, short, status_rows
+from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
+from mhseals_testing.ui import theme
+from mhseals_testing.ui.dashboard import PANELS, arm_state, render, short, status_rows
 
 
 def view(profile, **overrides):
@@ -164,7 +166,7 @@ def test_drift_is_live_with_a_bearing_and_compared_with_the_fit():
     assert 'stbd' in drift_text((0, 0, 0), None, vx=-0.1, vy=-0.3)
     assert 'ahead' in drift_text((0, 0, 0), None, vx=0.3, vy=0.0)
     agree = drift_text((0, 0, 0), (0.1, 0.12, 0.0))
-    assert 'fit ↖ 0.16 m/s' in agree and '● Δ 0.02' in agree
+    assert 'fit ↖ 0.16 m/s' in agree and '✓ Δ 0.02' in agree
     assert '× Δ' in drift_text((0, 0, 0), (-0.2, 0.0, 0.0))   # fit points the wrong way
     driving = drift_text((0.2, 0, 0), (0.1, 0.1, 0.0))
     assert driving.startswith('Vel    ↖') and 'Δ' not in driving
@@ -175,9 +177,9 @@ def test_header_badge_says_armed_or_disarmed():
     snapshot = monitor().snapshot(profile.required_tf)
     disarmed = text(render(snapshot, view(profile), 120, 40), 120, 40)
     armed = text(render(snapshot, view(profile, armed=True), 120, 40), 120, 40)
-    assert disarmed.splitlines()[0].rstrip().endswith('● Disarmed')
-    assert armed.splitlines()[0].rstrip().endswith('● Armed')
-    assert '● Armed · odroid' in armed  # the footer uses the same indicator
+    assert disarmed.splitlines()[0].rstrip().endswith('✓ Disarmed')
+    assert armed.splitlines()[0].rstrip().endswith('! Armed')
+    assert '! Armed · odroid' in armed  # the footer uses the same indicator
 
 
 def test_unsaved_mapping_is_marked():
@@ -192,7 +194,7 @@ def test_world_drift_is_turned_into_the_body_by_the_heading():
     import math
     # A current setting north (+y in odom): heading north, it pushes the boat ahead.
     north = drift_text((0, 0, 0), None, vx=0.2, vy=0.0, yaw=math.pi / 2, drift=(0.0, 0.2))
-    assert 'fit ↑ 0.20 m/s' in north and '● Δ 0.00' in north
+    assert 'fit ↑ 0.20 m/s' in north and '✓ Δ 0.00' in north
     # Heading east, the same current pushes the boat to port.
     east = drift_text((0, 0, 0), None, vx=0.0, vy=0.2, yaw=0.0, drift=(0.0, 0.2))
     assert 'fit ← 0.20 m/s' in east
@@ -220,3 +222,28 @@ def test_narrow_header_keeps_its_separator_strip_and_thruster_headers(width, hei
     assert 'rec' in lines[1]  # the health strip survives, shortened with +N if it must
     assert '…' not in ''.join(line for line in lines if 'Thr' in line)
     assert all(len(line) <= width for line in lines)
+
+
+@pytest.mark.parametrize('width', [120, 100, 80, 60])
+@pytest.mark.parametrize('focus', PANELS)
+def test_footer_keeps_space_stop_with_the_apps_real_hints(width, focus):
+    profile = load_profile('crane_full_stack')
+    hints = PANEL_HINTS[focus] + GLOBAL_HINTS
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, focus=focus, hints=hints), width, 40), width, 40)
+    assert 'Space' in page and 'Stop' in page
+
+
+def test_states_keep_distinct_glyphs_without_color():
+    glyphs = [theme.icon(s).plain for s in ('good', 'warn', 'bad', 'busy', 'off')]
+    assert len(set(glyphs)) == len(glyphs)
+    assert arm_state(True).plain.split()[0] != arm_state(False).plain.split()[0]
+
+
+@pytest.mark.parametrize('width,height', [(35, 24), (30, 10), (20, 6), (10, 4), (120, 9)])
+@pytest.mark.parametrize('modal', [None, dict(title='Pick', lines=['one'])])
+def test_tiny_terminal_falls_back_to_the_stop_hint(width, height, modal):
+    profile = load_profile('boat')
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, modal=modal), width, height), width, height)
+    assert 'enlarge terminal' in page and 'Space stop' in page and 'q quit' in page
