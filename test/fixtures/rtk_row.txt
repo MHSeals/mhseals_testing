@@ -1,0 +1,83 @@
+== 42 unicode
+   · RTK no base      ▃ 3D                
+   ◌ RTK ⠹ base       ▃ 3D                
+   ◌ RTK ████▊░░░░░░░ ▃ 3D       72s left 
+   ◌ RTK █████████▉░░ ▃ 3D       2.4→2.0m 
+   ◌ RTK ━━━━━━━━━━━▸ ▄ DGPS              
+   ◌ RTK ━━━━━━━━━━━▸ ▆ FLOAT       12.3m 
+   ! RTK ━━━━━━━━━━━▸ ▆ FLOAT       12.3m 
+   ✓ RTK ━━━━━━━━━━━▸ █ FIXED       12.3m 
+   ! RTK ╌╌╌╌╌╌╌╌╌╌╌╌ ▆ FLOAT    3.1s −14 
+   ✗ RTK ╌╌╌╌╌╌×╌╌╌╌╌ █ FIXED   14s 12.3m 
+   ✗ RTK ━━━━━━━━━━━▸ ▆ FLOAT      2 pubs 
+   ✗ RTK ━━━━━━━━━━━▸ ▁ none              
+
+== 32 unicode
+   · RTK no base ▃ 3D           
+   ◌ RTK ⠹ base  ▃ 3D           
+   ◌ RTK ██▊░░░░ ▃ 3D       72s 
+   ◌ RTK █████▊░ ▃ 3D      2.4m 
+   ◌ RTK ━━━━━━▸ ▄ DGPS         
+   ◌ RTK ━━━━━━▸ ▆ FLOAT  12.3m 
+   ! RTK ━━━━━━▸ ▆ FLOAT  12.3m 
+   ✓ RTK ━━━━━━▸ █ FIXED  12.3m 
+   ! RTK ╌╌╌╌╌╌╌ ▆ FLOAT   3.1s 
+   ✗ RTK ╌╌╌×╌╌╌ █ FIXED    14s 
+   ✗ RTK ━━━━━━▸ ▆ FLOAT 2 pubs 
+   ✗ RTK ━━━━━━▸ ▁ none         
+
+== 28 unicode
+   · RTK off   ▃ 3D         
+   ◌ RTK ⠹     ▃ 3D         
+   ◌ RTK ██░░░ ▃ 3D     72s 
+   ◌ RTK ████▏ ▃ 3D    2.4m 
+   ◌ RTK ━━━━▸ ▄ DGPS       
+   ◌ RTK ━━━━▸ ▆ FLOAT  12m 
+   ! RTK ━━━━▸ ▆ FLOAT  12m 
+   ✓ RTK ━━━━▸ █ FIXED  12m 
+   ! RTK ╌╌╌╌╌ ▆ FLOAT   3s 
+   ✗ RTK ╌╌×╌╌ █ FIXED  14s 
+   ✗ RTK ━━━━▸ ▆ FLOAT 2pub 
+   ✗ RTK ━━━━▸ ▁ none       
+
+== 42 ascii
+   o RTK no base      - 3D                
+   ~ RTK | base       - 3D                
+   ~ RTK #####....... - 3D       72s left 
+   ~ RTK ##########.. - 3D       2.4>2.0m 
+   ~ RTK ===========> = DGPS              
+   ~ RTK ===========> + FLOAT       12.3m 
+   ! RTK ===========> + FLOAT       12.3m 
+   + RTK ===========> # FIXED       12.3m 
+   ! RTK - - - - - -  + FLOAT    3.1s -14 
+   x RTK - - - x - -  # FIXED   14s 12.3m 
+   x RTK ===========> + FLOAT      2 pubs 
+   x RTK ===========> _ none              
+
+== 28 ascii
+   o RTK off   - 3D         
+   ~ RTK |     - 3D         
+   ~ RTK ##... - 3D     72s 
+   ~ RTK ####. - 3D    2.4m 
+   ~ RTK ====> = DGPS       
+   ~ RTK ====> + FLOAT  12m 
+   ! RTK ====> + FLOAT  12m 
+   + RTK ====> # FIXED  12m 
+   ! RTK - - - + FLOAT   3s 
+   x RTK - x - # FIXED  14s 
+   x RTK ====> + FLOAT 2pub 
+   x RTK ====> _ none       
+
+== 32 ascii
+   o RTK no base - 3D           
+   ~ RTK | base  - 3D           
+   ~ RTK ###.... - 3D       72s 
+   ~ RTK ######. - 3D      2.4m 
+   ~ RTK ======> = DGPS         
+   ~ RTK ======> + FLOAT  12.3m 
+   ! RTK ======> + FLOAT  12.3m 
+   + RTK ======> # FIXED  12.3m 
+   ! RTK - - - - + FLOAT   3.1s 
+   x RTK - -x- - # FIXED    14s 
+   x RTK ======> + FLOAT 2 pubs 
+   x RTK ======> _ none         
