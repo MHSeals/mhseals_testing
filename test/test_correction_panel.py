@@ -1,0 +1,78 @@
+import io
+
+import pytest
+from rich.console import Console
+
+from mhseals_testing.ui import theme
+from mhseals_testing.ui.panels import correction
+from mhseals_testing.ui.panels.correction import correction_view, details, move, render, worst_column
+
+MATRIX = [(1, 1, -1), (1, -1, 1), (1, 1, 1), (1, -1, -1)]
+C = [[1, .0, .0], [.031, 1, .02], [-.042, .084, 1]]
+
+
+def fit(hi=96, lo=91, **extra):
+    base = dict(trust_hi=hi, trust_lo=lo, sigma=.006, age='2h', residual='.2°/s 1%', iterations=1,
+                fit=91, fit_label='good', ceiling=99, peak=.71, v_lo=.21, v_hi=.38, d1=.9, d2=2.1,
+                t95=2.1, vmax=.42, tracking=.91,
+                holds=[dict(a=.6, main=-.21, cross=.012, j=.31), dict(a=.6, main=-.22, cross=-.004, j=.18, limited=True)])
+    base.update(extra)
+    return base
+
+
+def data(**fits):
+    return dict(matrix=MATRIX, c_positive=C, c_negative=None,
+                fits={k: fit() for k in correction.DIRECTIONS} | fits,
+                header=dict(fitted='10-22 14:05', activity='refine surge+ · hold 7/14'),
+                readiness=dict(verdict='good', rows=[('Verdict', 'good 94%')], gates=[('good', 'afloat')]),
+                tracking=dict(version='cal v c0150', rows=[('surge', '91%', '88%', 'flat')], notes=['5 sessions']),
+                plan='refine sway− (71%)')
+
+
+def text(renderable, width, height=40):
+    console = Console(file=io.StringIO(), width=width, height=height, color_system=None)
+    console.print(renderable)
+    return console.file.getvalue()
+
+
+@pytest.mark.parametrize('width,height', [(120, 40), (100, 30), (80, 24)])
+def test_renders_inside_width_and_height(width, height):
+    view = correction_view(data(**{'sway-': fit(71, None, mark='?')}), cursor=3)
+    lines = text(render(view, width, height), width, height).splitlines()
+    page = '\n'.join(lines)
+    assert all(len(line) <= width for line in lines) and len(lines) <= height
+    for needle in ('surge+', theme.pick('yaw−', 'yaw-'), 'Trust hi/lo', 'Plan', '71/' + theme.DASH, theme.pick('sway− ?', 'sway- x'.replace('x', '?'))):
+        assert needle in page
+    assert ('Readiness' in page) == (width >= 110)
+
+
+def test_scope_tags_sit_on_the_first_row_of_each_block():
+    lines = text(render(correction_view(data()), 120), 120).splitlines()
+    tagged = [line[2:5].strip() for line in lines if line[2:5].strip() in ('hw', 'cal')]
+    assert tagged == ['hw', 'cal', 'cal']
+
+
+def test_cross_entries_follow_the_columns_and_mark_limited():
+    view = correction_view(data(**{'surge+': fit(hi=70, limited=['ψ'])}))
+    surge = view['columns'][0]['cells']
+    assert surge['cross'] == ['+.031', theme.pick('−', '-') + '.042 L', theme.DASH]
+    assert view['columns'][2]['cells']['cross'][0] == theme.DASH   # the sway column has no sway entry
+    assert view['header']['min_trust'] == 70
+
+
+def test_cursor_moves_clamped_and_defaults_to_least_trust():
+    view = correction_view(data(**{'yaw+': fit(55, 80)}), cursor=0)
+    assert worst_column(view) == 4
+    assert move(view, -1) == 0 and move(correction_view(data(), cursor=5), 1) == 5
+
+
+def test_details_lists_the_cursor_columns_holds():
+    page = text(details(correction_view(data(), cursor=2)), 40)
+    assert 'sway+' in page and '.21' in page and 'L' in page
+    assert 'no holds yet' in text(details(correction_view(dict(matrix=MATRIX), cursor=1)), 40)
+
+
+def test_empty_data_renders_dashes_before_the_first_fit():
+    view = correction_view(dict(matrix=MATRIX))
+    page = text(render(view, 80, 24), 80, 24)
+    assert 'not fitted' in page and 'Trust hi/lo' in page

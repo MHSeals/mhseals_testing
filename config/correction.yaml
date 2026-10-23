@@ -1,0 +1,7 @@
+# Correction tab (ui/panels/correction.py, ui spec 6.7).
+trust_warn: 80        # a trust cell below this percent is drawn warn bold
+side_min_width: 110   # at this width and above the Readiness, Tracking and holds column shows
+side_width: 34        # outer width of that column
+label_width: 18       # row-label column; shrinks to 14 when the cells would drop under 8
+cell_max: 10          # widest direction column
+cell_min: 8
