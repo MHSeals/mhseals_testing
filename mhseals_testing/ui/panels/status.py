@@ -110,7 +110,7 @@ def status_panel(snapshot, view, height):
     for row in rows:
         groups.setdefault(row['group'], []).append(row['state'])
     cursor_group = rows[cursor]['group'] if rows else None
-    folded = fold_groups(groups, budget - 3, cursor_group)
+    folded = fold_groups(groups, budget, cursor_group)
     # Entries are heading lines, folded-group lines and rows; the window keeps the cursor row in view.
     entries, at = [], 0
     for group, states in groups.items():

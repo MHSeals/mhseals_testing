@@ -77,3 +77,20 @@ def test_procedure_keys_do_nothing_off_the_drive_tab(tmp_path):
     app.dispatch(']')
     app.dispatch('1')
     assert app.running is None and app.tab == 'Correction'
+
+
+def status_out(profile, m, height):
+    console = Console(width=120, height=height, file=io.StringIO())
+    console.print(render(m.snapshot(), view(profile), 120, height))
+    return console.file.getvalue()
+
+
+def test_status_panel_folds_nothing_when_every_row_fits():
+    profile = load_profile('boat')
+    m = monitor()
+    m.transform('odom', 'base_link', authority='g')    # every frame edge is live
+    # Frames must stay open from height 25 up; it folds at 24 (the fold budget is height - 4).
+    for height in (25, 26, 27, 28, 30, 40):
+        out = status_out(profile, m, height)
+        assert all(f'{group}  ▸' not in out for group in ('System', 'Frames', 'Sensors'))
+    assert 'Frames  ▸' in status_out(profile, m, 24)
