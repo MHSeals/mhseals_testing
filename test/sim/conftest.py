@@ -32,5 +32,5 @@ def session(rig, tmp_path_factory):
     given = os.environ.get('SIMRIG_SESSION')
     if given:
         return Path(given)
-    domain = 230 + uuid.uuid4().int % 20
+    domain = 200 + uuid.uuid4().int % 29  # network rule 200..228; run_sim.sh refuses > 232
     return run_hold_still(rig, tmp_path_factory.mktemp('hold_still') / 's', domain=domain)

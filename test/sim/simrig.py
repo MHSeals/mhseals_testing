@@ -19,8 +19,11 @@ def rig_dir(env=None):
 
 
 def run_hold_still(rig, out, seconds=45, domain=None):
-    """Record a neutral boat (no drive) for ``seconds`` into ``out``; the rig's own gates are on."""
-    cmd = [str(rig / 'run_sim.sh'), '--no-drive', '--smoke', '-d', str(seconds), '-o', str(out)]
+    """Record a neutral boat (no drive) for ``seconds`` into ``out``.
+
+    No ``--smoke``: its gates need thruster frames, which a neutral session lacks.
+    """
+    cmd = [str(rig / 'run_sim.sh'), '--no-drive', '-d', str(seconds), '-o', str(out)]
     if domain:
         cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
     subprocess.run(cmd, check=True, timeout=seconds + 300)
