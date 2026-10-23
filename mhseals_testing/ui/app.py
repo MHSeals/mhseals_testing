@@ -31,16 +31,17 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing.data import data_root
+from mhseals_testing.harness import host
 from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
-from mhseals_testing.procedures import PROCEDURES, Context, Settings, unavailable
+from mhseals_testing.procedures import PROCEDURES, Settings, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
-from mhseals_testing.ui import dashboard, theme
+from mhseals_testing.ui import dashboard, popups, theme
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
 from mhseals_testing.ui.popups import pins
 
@@ -699,117 +700,32 @@ class App:
         if notice:
             self.notice = notice
 
-    # --- popups --------------------------------------------------------------------
+    # --- popups (see ui/popups) ------------------------------------------------------
 
     def popup(self, modal, handle):
-        """Show ``modal`` and feed it keys until ``handle(key)`` returns a value.
+        return popups.popup(self, modal, handle)
 
-        Background work keeps ticking while the popup waits, so test pulses keep
-        flowing and the dashboard behind it stays live.
-        """
-        self.modal = modal
-        try:
-            while True:
-                self.refresh()
-                key = self.keys.read(timeout=0.1)
-                self.tick()
-                if key is None:
-                    continue
-                result = handle(key)
-                if result is not None:
-                    return result
-        finally:
-            self.modal = None
-            self.refresh()
-
-    @staticmethod
-    def scroll(modal, key, keys):
-        """Move a clipped popup's body one line for a key in ``keys`` (up, down); True if it moved."""
-        if key in keys:
-            modal['scroll'] = max(0, modal.get('scroll', 0) + (1 if key == keys[1] else -1))
-            return True
-        return False
+    scroll = staticmethod(popups.scroll)
 
     def show(self, title, message=None, rows=None, width=60):
-        modal = dict(kind='message', title=title, message=message, rows=rows, width=width,
-                     hint='Any key closes')
-
-        def handle(key):
-            return not (modal['clipped'] and self.scroll(modal, fold(key), ('k', 'j')))
-        self.popup(modal, handle)
+        return popups.show(self, title, message, rows, width)
 
     def prompt(self, message, title='Ready'):
-        """Wait for Enter; Escape cancels the procedure."""
-        def handle(key):
-            key = fold(key)
-            if key == 'enter':
-                return ''
-            if key in ('escape', 'q'):
-                raise Cancelled('cancelled by operator')
-        return self.popup(dict(kind='message', title=title, message=message,
-                               hint=f'Enter continue{theme.SEPARATOR}Esc cancel'), handle)
+        return popups.prompt(self, message, title)
 
     def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None,
                selected=0, width=64):
-        modal = dict(kind='choice', title=title, message=message, options=list(options),
-                     selected=selected, danger=danger, rows=rows, width=width,
-                     hint=theme.SEPARATOR.join((f'{UPDOWN} select', 'Enter choose', 'Esc cancel')),
-                     keys=[None] * len(options),
-                     scroll_hint='[ ]')
-        for key, index in (shortcuts or {}).items():
-            modal['keys'][index] = key
-
-        def handle(key):
-            key = fold(key)
-            if self.scroll(modal, key, ('[', ']')):
-                return None
-            if key in ('up', 'k'):
-                modal['selected'] = (modal['selected'] - 1) % len(options)
-            elif key in ('down', 'j'):
-                modal['selected'] = (modal['selected'] + 1) % len(options)
-            elif key == 'enter':
-                return options[modal['selected']]
-            elif shortcuts and key in shortcuts:
-                return options[shortcuts[key]]
-            elif key in ('escape', 'q'):
-                raise Cancelled('cancelled by operator')
-        return self.popup(modal, handle)
+        return popups.choose(self, title, options, shortcuts, message, danger, rows, selected, width)
 
     def ask_text(self, title, message, text=''):
-        """Edit one line of text in a popup; None when cancelled."""
-        modal = dict(kind='input', title=title, message=message, text=text, danger=False,
-                     rows=None, width=64, hint=f'Enter apply{theme.SEPARATOR}Esc cancel')
-
-        def handle(key):
-            if key == 'enter':
-                return modal['text']
-            if key == 'escape':
-                return False
-            if key in ('backspace', 'ctrl-h', '\x7f'):
-                modal['text'] = modal['text'][:-1]
-            elif len(key) == 1 and key.isprintable():
-                modal['text'] += key
-        return self.popup(modal, handle) or None
+        return popups.ask_text(self, title, message, text)
 
     def driver_values(self, keys):
         """The thruster driver's live parameters for ``keys``, or None without an answer."""
         return self.ros.driver_parameters('thruster_pwm_node', keys)
 
     def type_word(self, title, message, word, rows=None, width=64):
-        """A typed confirmation for real outputs: only the exact word proceeds."""
-        modal = dict(kind='input', title=title, message=message, text='', danger=True,
-                     rows=rows, width=width, hint=f'Type {word.upper()} and Enter{theme.SEPARATOR}Esc cancel')
-
-        def handle(key):
-            if key == 'enter':
-                return modal['text'].strip().lower() == word.lower()
-            if key == 'escape':
-                return False
-            if key in ('backspace', 'ctrl-h', '\x7f'):
-                modal['text'] = modal['text'][:-1]
-            elif len(key) == 1 and key.isprintable():
-                modal['text'] += key.upper()
-        return self.popup(modal, handle)
+        return popups.type_word(self, title, message, word, rows, width)
 
     # --- arming --------------------------------------------------------------------
 
@@ -948,11 +864,9 @@ class App:
             self.notice = f'{procedure.title} complete'
 
     def procedure_context(self):
-        return Context(
-            profile=self.profile, monitor=self.monitor, settings=self.settings,
-            motion=self.motion, prompt=self.prompt, choose=self.choose, record=self.record,
-            supervise=self.supervise, observe=self.observe, stale_after=self.args.stale_after,
-            services=dict(
+        return host.context(
+            self, self.profile, self.monitor, self.settings, self.args.stale_after,
+            dict(
                 nav2=self.nav2, task_watcher=self.task_watcher, start=self.processes.start,
                 running=self.processes.running, stop=self.processes.stop,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
