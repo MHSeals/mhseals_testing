@@ -14,23 +14,22 @@ checks:
     show: ['sensor:Camera']
     title: Detections rate {source}
     message: '{value} of {nominal} Hz expected'
-    hint: Frames include empty arrays; a low rate means the camera, detector or bridge is slow
+    hint: Frames include empty arrays; a low rate means the camera or detector is slow
     each:
-      - {source: legacy_zed, profiles: [boat], nominal: 4, warn: 2.5, fail: 1}
-      - {source: zed_native, profiles: [boat_jp6, dev_zed], nominal: 15, warn: 10, fail: 3}
+      - {source: zed_native, profiles: [boat, dev_zed], nominal: 15, warn: 10, fail: 3}  # provisional until the Orin hz is measured (orin.md T3)
       - {source: sim, profiles: [crane_full_stack], nominal: 10, warn: 7, fail: 2}
   - id: perc.{source}.latency
     kind: threshold
     fact: perc.{source}.latency
+    severity: fail
     below: false
-    warn: 0.4
-    fail: 0.8
+    warn: 0.25
+    fail: 0.5
     unit: ' s'
     title: Detection latency {source}
     hint: The tracker and converter reject stamps older than 1.0 s; check the clock offset and the funnel
     each:
-      - {source: legacy_zed, profiles: [boat]}
-      - {source: zed_native, profiles: [boat_jp6, dev_zed]}
+      - {source: zed_native, profiles: [boat, dev_zed]}
       - {source: sim, profiles: [crane_full_stack]}
   - id: perc.{source}.funnel
     kind: threshold
@@ -41,29 +40,28 @@ checks:
     title: Pipeline loss {source}
     hint: Share of frames lost between the first and last stage
     each:
-      - {source: legacy_zed, profiles: [boat]}
-      - {source: zed_native, profiles: [boat_jp6, dev_zed]}
+      - {source: zed_native, profiles: [boat, dev_zed]}
   - id: perc.{source}.inference
     kind: threshold
     fact: perc.{source}.inference_ms
     below: false
-    warn: 300
-    fail: 480
+    warn: 70
+    fail: 130
     unit: ' ms'
     title: Inference time {source}
-    hint: The patched SDK 4 wrapper gives up on a frame after 500 ms
+    hint: Object detection processing time from the ZED diagnostics; bands are provisional (about one and two frame periods at 15 Hz)
     each:
-      - {source: legacy_zed, profiles: [boat]}
-      - {source: zed_native, profiles: [boat_jp6, dev_zed]}
-  - id: perc.legacy_zed.clock
+      - {source: zed_native, profiles: [boat, dev_zed]}
+  - id: perc.{source}.clock
     kind: threshold
-    fact: clock.offset.squirtle
+    fact: perc.{source}.clock_offset
     severity: fail
     abs: true
     below: false
     warn: 0.03
     fail: 0.08
     unit: ' s'
-    profiles: [boat]
-    title: Clock offset squirtle
-    hint: The detector drops images outside -0.1 to 0.5 s; sync squirtle to blastoise
+    title: Clock offset {source}
+    hint: DDS source_timestamp offset on /front/zed_node; check chrony on the Orin
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}

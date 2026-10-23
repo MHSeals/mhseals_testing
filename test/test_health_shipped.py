@@ -83,19 +83,19 @@ def perception_ids(profile):
 
 def test_each_source_gets_its_own_perception_check_set(nav_share):
     boat, sim = perception_ids('boat'), perception_ids('crane_full_stack')
-    assert {'perc.legacy_zed.rate', 'perc.legacy_zed.latency', 'perc.legacy_zed.clock'} <= boat
-    assert not any('.sim.' in i or 'zed_native' in i for i in boat)
+    assert {'perc.zed_native.rate', 'perc.zed_native.latency', 'perc.zed_native.clock'} <= boat
+    assert not any('.sim.' in i or 'legacy_zed' in i for i in boat)
     assert sim == {'perc.sim.rate', 'perc.sim.latency'}
     assert perception_ids('crane_direct') == set()
 
 
-def test_slow_legacy_rate_warns_and_anchors_the_camera_row():
+def test_slow_zed_native_rate_warns_and_anchors_the_camera_row():
     from mhseals_testing.profiles import load_profile
     config = load(profile=load_profile('boat'), user=False)
-    spec = replace(next(s for s in config.specs if s.id == 'perc.legacy_zed.rate'), raise_after=0.0)
+    spec = replace(next(s for s in config.specs if s.id == 'perc.zed_native.rate'), raise_after=0.0)
     assert spec.show == ('sensor:Camera',)
-    assert Engine([spec]).tick({'perc.legacy_zed.hz': Fact(2.0)}, {}).results[spec.id].status == 'warn'
-    assert Engine([spec]).tick({'perc.legacy_zed.hz': Fact(4.2)}, {}).results[spec.id].status == 'ok'
+    assert Engine([spec]).tick({'perc.zed_native.hz': Fact(8.0)}, {}).results[spec.id].status == 'warn'
+    assert Engine([spec]).tick({'perc.zed_native.hz': Fact(15.0)}, {}).results[spec.id].status == 'ok'
 
 
 def test_boat_profile_has_no_camera_or_detections_row():
@@ -104,11 +104,21 @@ def test_boat_profile_has_no_camera_or_detections_row():
     assert 'camera' not in names and 'detections' not in names and 'tracks' in names
 
 
-def test_negative_squirtle_clock_offset_is_judged_by_magnitude():
+def test_negative_zed_native_clock_offset_is_judged_by_magnitude():
     from mhseals_testing.profiles import load_profile
     config = load(profile=load_profile('boat'), user=False)
-    spec = replace(next(s for s in config.specs if s.id == 'perc.legacy_zed.clock'), raise_after=0.0)
+    spec = replace(next(s for s in config.specs if s.id == 'perc.zed_native.clock'), raise_after=0.0)
 
     def status(offset):
-        return Engine([spec]).tick({'clock.offset.squirtle': Fact(offset)}, {}).results[spec.id].status
+        return Engine([spec]).tick({'perc.zed_native.clock_offset': Fact(offset)}, {}).results[spec.id].status
     assert [status(v) for v in (0.01, -0.05, -0.1, 0.1)] == ['ok', 'warn', 'fail', 'fail']
+
+
+def test_zed_native_latency_bands_follow_the_orin_decision():
+    from mhseals_testing.profiles import load_profile
+    config = load(profile=load_profile('boat'), user=False)
+    spec = replace(next(s for s in config.specs if s.id == 'perc.zed_native.latency'), raise_after=0.0)
+
+    def status(v):
+        return Engine([spec]).tick({'perc.zed_native.latency': Fact(v)}, {}).results[spec.id].status
+    assert [status(v) for v in (0.1, 0.3, 0.6)] == ['ok', 'warn', 'fail']
