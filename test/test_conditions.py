@@ -33,7 +33,32 @@ def test_settings_load_from_the_yaml():
     assert (S.window_s, S.batch_s, S.coast_max_drop, S.drift_trend_z) == (8, 4, 2, 3)
 
 
+@pytest.mark.parametrize('tau', [0.5, 1.0, 2.0])
+def test_ar1_correction_recovers_spectral_level(tau):
+    sigma = 0.03
+    truth = 2 * sigma ** 2 * tau            # long-run level of an AR(1) with correlation time tau
+    levels = [c.spectral_level(windows_of(neutral(8 * 300, tau=tau, sigma=sigma, seed=seed)), S)
+              for seed in range(6)]
+    assert np.mean(levels) == pytest.approx(truth, rel=0.10)
 
+
+def test_circular_heading_mean_and_vector_drift():
+    # Heading wobbles across north; a plain mean would give 180 degrees.
+    t, vel, _, rate, mask = neutral(8 * 6, sigma=0.0)
+    heading = np.where(np.arange(len(t)) % 2, 0.1, 2 * np.pi - 0.1)
+    windows = c.build_windows(t, vel, heading, rate, mask, S)
+    assert windows[0].heading == pytest.approx(0.0, abs=1e-9)
+    # Averaged components keep a drift that speed averaging would inflate.
+    noisy = neutral(8 * 40, drift=(0.0, 0.0), sigma=0.05, seed=1)
+    drift = c.world_drift(windows_of(noisy), S)
+    assert np.linalg.norm(drift.vector) < 3 * drift.se
+
+
+def test_drift_matches_truth_within_its_error():
+    drift = c.world_drift(windows_of(neutral(8 * 12, seed=5)), S)
+    assert drift.n == 12
+    assert drift.vector == pytest.approx([0.08, -0.05], abs=3 * drift.se)
+    assert drift.dispersion < 3
 
 
 def test_coast_time_and_mask():
@@ -77,7 +102,31 @@ def test_window_gates_coverage_and_spin_and_gaps_split_runs():
     assert [w.t0 for w in gap] == pytest.approx([4.0, 12.0])
 
 
+def test_trend_and_change_flags():
+    steady = c.estimate(windows_of(neutral(8 * 15, seed=2)), S)
+    assert steady.state == 'steady' and steady.drift.n == 15
+    ramp = c.estimate(windows_of(neutral(8 * 15, seed=2, ramp=(0.0006, 0))), S)
+    assert ramp.state == 'trending' and ramp.trend[0] == pytest.approx(0.0006, rel=0.3)
+    first, second = neutral(8 * 6, seed=2), neutral(8 * 6, drift=(0.25, -0.05), seed=4, t0=8 * 6)
+    stepped = c.estimate(windows_of(tuple(np.concatenate(p) for p in zip(first, second))), S)
+    assert stepped.state == 'changed'
+    assert stepped.drift.vector[0] == pytest.approx(0.25, abs=0.04)
 
+
+def test_too_few_windows_is_unknown():
+    assert c.estimate(windows_of(neutral(16)), S).state == 'unknown'
+    assert c.world_drift(windows_of(neutral(16)), S) is None
+
+
+def test_wave_floor_follows_gyro_and_velocity_scatter():
+    samples = neutral(8 * 20, sigma=0.01, seed=7)
+    t, vel, heading, rate, mask = samples
+    # A gust: alternate windows lean on the gyro, which window means must show.
+    rate = rate + np.where((t // 8) % 2 == 0, 0.01, -0.01)
+    floor = c.wave_floor(c.build_windows(t, vel, heading, rate, mask, S), S)
+    assert floor[0] == pytest.approx(0.01, rel=0.2)
+    assert floor[1] < 0.02 and floor[2] < 0.02
+    assert c.wave_floor([], S) is None
 
 
 def test_gps_truncation_bias_is_below_half_a_centimetre():
@@ -87,12 +136,76 @@ def test_gps_truncation_bias_is_below_half_a_centimetre():
     assert 0 <= (speed - truncated).mean() <= 0.005
 
 
+def stepped(jump, sigma, seed=2):
+    first = neutral(8 * 8, sigma=sigma, seed=seed)
+    second = neutral(8 * 8, drift=(0.08 + jump, -0.05), sigma=sigma, seed=seed + 2, t0=8 * 8)
+    return tuple(np.concatenate(p) for p in zip(first, second))
 
 
+def test_a_drift_step_does_not_inflate_the_spectral_level():
+    level = c.spectral_level(windows_of(stepped(0.17, 0.03)), S)
+    assert level == pytest.approx(c.spectral_level(windows_of(stepped(0.0, 0.03)), S), rel=0.10)
 
+
+def test_calm_water_step_is_changed_not_trending():
+    assert c.estimate(windows_of(stepped(0.2, 0.01)), S).state == 'changed'
+
+
+def test_one_outlier_after_a_restart_is_not_a_second_change():
+    samples = list(stepped(0.25, 0.02))
+    t, vel = samples[0], samples[1].copy()
+    vel[(t >= 8 * 11) & (t < 8 * 12)] += (0.06, 0.0)             # window 11, the first a pool of three tests
+    windows = windows_of((t, vel, *samples[2:]))
+    est = c.estimate(windows, S)
+    assert est.state == "changed" and est.pool[0].t0 == pytest.approx(8 * 8)
+
+
+def test_wave_floor_ignores_retired_windows():
+    samples = stepped(0.25, 0.01)
+    both = c.wave_floor(windows_of(samples), S)
+    after = c.wave_floor([w for w in windows_of(samples) if w.t0 >= 8 * 8], S)
+    assert both[1] < 0.02 and both == pytest.approx(after, rel=0.5)
 
 
 def test_settings_ignore_keys_of_other_parts(tmp_path):
     path = tmp_path / 'c.yaml'
     path.write_text(c._config_path().read_text() + 'windage: {k: 1}\nhint: x\ndrift_tau: 90\n')
     assert c.load_settings(path) == S
+
+
+def test_wave_floor_keeps_surge_and_sway_levels_apart():
+    # Heading 0: surge is north, sway is minus east.
+    rng = np.random.default_rng(3)
+    t, vel, heading, rate, mask = neutral(8 * 40, sigma=0.0)
+    noise = ar1(len(t), 1.0, 1.0, rng)
+    vel = vel + noise * np.array([0.06, 0.005])
+    floor = c.wave_floor(c.build_windows(t, vel, heading, rate, mask, S), S)
+    truth = lambda sd: np.sqrt(2 * sd ** 2 * 1.0 / S.window_s)
+    assert floor[1] == pytest.approx(truth(0.005), rel=0.5)
+    assert floor[2] == pytest.approx(truth(0.06), rel=0.5)
+
+
+def test_wave_floor_survives_a_pool_of_short_windows():
+    # The Characterize shape: full windows, then a drift step seen only through 5 s windows.
+    parts = [neutral(8 * 3, seed=1)]
+    for i in range(4):
+        parts.append(neutral(5, drift=(0.3, 0.1), seed=10 + i, t0=24 + 10 * i + 3))
+    samples = tuple(np.concatenate(p) for p in zip(*parts))
+    windows = windows_of(samples)
+    assert c.estimate(windows, S).state == 'changed'
+    assert np.all(np.isfinite(c.wave_floor(windows, S)))
+
+
+@pytest.mark.parametrize('tau, count', [(2.0, 5), (2.0, 3), (3.0, 10)])
+def test_spectral_level_stays_bounded_with_few_windows(tau, count):
+    truth = 2 * 0.03 ** 2 * tau
+    ratio = [c.spectral_level(windows_of(neutral(8 * count, tau=tau, seed=seed)), S) / truth
+             for seed in range(150)]
+    assert np.percentile(ratio, 95) < 3
+
+
+@pytest.mark.parametrize('tau, count', [(0.5, 3), (1.0, 4), (1.0, 6)])
+def test_trend_false_alarms_stay_rare_on_stationary_data(tau, count):
+    alarms = sum(c.estimate(windows_of(neutral(8 * count, tau=tau, seed=seed)), S).state == 'trending'
+                 for seed in range(300))
+    assert alarms <= 3
