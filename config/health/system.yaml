@@ -1,0 +1,19 @@
+# Computer, clock and flight controller. Each `advisory` is a dashboard System row.
+group: System
+checks:
+  - {id: clock.offset, kind: threshold, fact: clock.stamp_offset, abs: true, below: false,
+     label_first: true, warn: 0.5, fail: 60, unit: s, probe: snapshot, advisory: clock, severity: fail,
+     title: Sensor clock offset}
+  - {id: compute.load, kind: threshold, fact: host.load, below: false, warn: 0.9, unit: ' load',
+     probe: host, advisory: compute, severity: warn, title: CPU load per core}
+  - {id: compute.temp, kind: threshold, fact: host.temp_max, below: false, warn: 75, fail: 85,
+     digits: 0, unit: °C, probe: host, advisory: compute, severity: fail, missing: skip,
+     title: Temperature}
+  - {id: compute.disk, kind: threshold, fact: host.disk_free_gb, warn: 5, fail: 1, digits: 1,
+     unit: ' GB free', probe: host, advisory: compute, severity: fail, title: Free disk}
+  - {id: fcu.connected, kind: threshold, fact: fcu.connected, expect: true, probe: fcu,
+     advisory: flight controller, severity: warn, title: FCU link}
+  - {id: fcu.disarmed, kind: threshold, fact: fcu.armed, expect: false, quiet: true,
+     probe: fcu, advisory: flight controller, severity: warn, missing: skip, title: FCU disarmed}
+  - {id: fcu.mode, kind: threshold, fact: fcu.mode, expect: [MANUAL, HOLD], probe: fcu,
+     advisory: flight controller, severity: warn, missing: skip, title: FCU mode}

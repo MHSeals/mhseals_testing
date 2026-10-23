@@ -1,12 +1,45 @@
-# Power checks. The `power` probe publishes the facts they read.
+# Power checks. The `battery` probe publishes the facts they read.
 group: Power
 checks:
+  - id: power.pack_voltage
+    kind: threshold
+    fact: battery.voltage
+    digits: 1
+    unit: V
+    probe: battery
+    advisory: battery
+    severity: info
+    missing: skip
+    title: Pack voltage
   - id: power.cell_voltage
     kind: threshold
     fact: battery.cell_v
     warn: 3.5
     fail: 3.3
-    unit: ' V'
+    unit: V
+    probe: battery
+    advisory: battery
     severity: fail
     title: Cell voltage
     message: 'Lowest cell {value}'
+  - id: power.plausible
+    kind: threshold
+    fact: battery.plausible
+    expect: true
+    probe: battery
+    advisory: battery
+    severity: warn
+    missing: skip
+    title: Battery reading
+  - id: power.charge
+    kind: threshold
+    fact: battery.percent
+    warn: 30
+    fail: 15
+    digits: 0
+    unit: '%'
+    probe: battery
+    advisory: battery
+    severity: fail
+    missing: skip
+    title: Charge estimate

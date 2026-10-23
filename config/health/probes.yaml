@@ -1,0 +1,7 @@
+# How often each probe publishes. A fact older than three periods reads as unknown.
+# `snapshot` and `host` run on the App tick; `fcu` and `battery` are MAVROS callbacks.
+probes:
+  snapshot: {period: 1}
+  host: {period: 5}
+  fcu: {period: 5}
+  battery: {period: 5}

@@ -28,7 +28,7 @@ def test_shipped_health_config_loads_and_lints_clean():
 def test_low_cell_voltage_fails_the_shipped_check():
     spec = next(s for s in load(user=False).specs if s.id == 'power.cell_voltage')
     engine = Engine([spec])
-    report = engine.tick({'battery.cell_v': Fact(3.1)}, {})
+    report = engine.tick({'battery.cell_v': Fact(3.1)}, {'battery': (0, None)})
     assert report.results['power.cell_voltage'].status == 'fail'
-    report = Engine([spec]).tick({'battery.cell_v': Fact(3.9)}, {})
+    report = Engine([spec]).tick({'battery.cell_v': Fact(3.9)}, {'battery': (0, None)})
     assert report.results['power.cell_voltage'].status == 'ok'
