@@ -146,50 +146,50 @@ and the boat turns while sliding sideways. There are two ways to fix it:
         what the driver does.
 \end{enumerate}
 
-\subsection{The decoupling matrix}
+\subsection{The decoupling columns}
 
-The characterization (Section~\ref{sec:char}) measures the gain $G$: how much
-of each velocity each effort axis produces. On an ideal boat $G$ is diagonal.
-Its off-diagonal entries are exactly the leakage above: $G_{\psi y} \neq 0$ means
-sway effort also turns the boat. The driver cancels it with a matrix $C$ applied
-to the command before the mixer,
+The characterization (Section~\ref{sec:char}) shows that some efforts leak:
+sway effort that also turns the boat, surge that drifts sideways. The driver
+cancels the leak with a correction applied to the command before the mixer,
+one column per axis and sign,
 \[
-  \bm t = M\,(C\bm e).
+  \bm e' = C^{+}\max(\bm e, 0) + C^{-}\min(\bm e, 0),\qquad
+  \bm t = M\,\bm e',\qquad c^{\pm}_{jj} = 1 .
 \]
-\paragraph{Choosing $C$.} Through $C$, the boat responds as $\bm v = G C\bm e$
-(plus the drift). We want each axis to drive only itself, at the strength it
-already has, so we ask for $GC = D$ with $D = \operatorname{diag}(G_{xx}, G_{yy},
-G_{\psi\psi})$:
-\[
-  C = G^{-1} D .
-\]
-For an ideal boat $G = D$ and $C = I$: the decoupling vanishes, as it should.
-For a nearly ideal boat $C$ is the identity plus small off-diagonal terms.
+With $C^{+} = C^{-}$ this is one matrix and $\bm t = M\,(C\bm e)$. The unit
+diagonal keeps the main axis as it was: $e_x = 1$ still means full surge, and
+the correction only adds small cross efforts that cancel the leak. $C$ maps
+effort to effort, so it never changes units.
+
+\paragraph{Local slope, not the secant gain.} A column is found by asking how
+the cross response changes for a small change of the cross efforts while the
+main axis is held. That is the \emph{local slope} of the response, taken at the
+measured state (Section~\ref{sec:thrust}). The fitted gain $G$ of the affine
+model is a \emph{secant}: it divides the response at one effort by that effort.
+Thrust grows as $e|e|$, whose slope is twice its secant, so a matrix built from
+secants, $C = G^{-1}\operatorname{diag}(G)$, corrects twice as much as needed
+and is often worse than no correction. It is not used. The columns are computed
+from the local slope and refined hold by hold, each update accepted only when
+the mismatch exceeds three standard deviations.
+
 \begin{example}
-If surge also turns the boat, $G_{\psi x} = 0.05$ with $G_{\psi\psi} = 0.3$, then
-$C_{\psi x} = -0.05/0.3 \approx -0.17$: every unit of surge adds $0.17$ of
-counter-yaw, and pure surge comes out straight.
+If surge turns the boat, the surge column of $C^{+}$ has a yaw entry that adds
+counter-yaw effort in proportion to surge, so pure surge comes out straight.
+Whether the entry is good enough is not a matter of one fitted number but of
+its \emph{trust}: the probability that the remaining yaw rate per m/s of
+surge lies inside its tolerance given the wave noise
+(Section~\ref{sec:thrust}). A direction below $80\%$ is rerun.
 \end{example}
-This $C$ is built from secant gains and over-corrects by a factor of two;
-Section~\ref{sec:thrust} explains why and replaces it with one column per axis
-and sign.
 
-\paragraph{Effort keeps its meaning.} $C$ maps effort to effort, so $e_x = 1$
-still means full surge. An earlier version folded $G^{-1}$ itself into the
-mixer. But $G^{-1}$ maps a velocity in m/s to effort, so it changes units, and
-with $G_{xx} \approx 4.5$ in the simulator it would have cut full surge to about
-$22\%$. Multiplying by $D$ is what puts the units back.
-
-\paragraph{Refitting with a decoupling active.} A later characterization runs
-with $C_\text{old}$ already in the driver, so it measures
-$G_\text{fit} = G\,C_\text{old}$. The boat's own gain is recovered as
-$G = G_\text{fit} C_\text{old}^{-1}$, and the new matrix is $C = G^{-1}D$ from
-that. Refits therefore replace the old correction rather than stacking on it.
-The fit records which $C$ was active for this reason.
+\paragraph{Speed comes from curves.} How fast an effort drives the boat is a
+per-axis, per-sign speed curve (Section~\ref{sec:thrust}), not a gain. Because
+$c_{jj}=1$, the main speed is unchanged by $C$ to first order, so the curves
+stay valid when a column changes and no old matrix has to be divided out on a
+refit.
 
 \paragraph{The controller sees the decoupled boat.} The velocity controller
-inverts $G_\text{eff} = G\,C$, which is close to diagonal. The decoupling and the
-controller never correct the same coupling twice, whether $C$ is the identity or
-not. Because the decoupling lives in the driver, it also straightens manual
-driving and the open-loop trials, which never pass through the controller.
-\file{mhseals\_hardware/thruster\_mixer.py (decouple, mix\_thrusters), velocity\_law.py (decoupling\_for, raw\_gain)}
+inverts the speed curves on the main axis, and the driver's columns cancel the
+cross terms. The two never correct the same coupling twice, and because the
+columns live in the driver they also straighten manual driving and open-loop
+trials.
+\file{mhseals\_hardware/thruster\_mixer.py (decouple, mix\_thrusters)}

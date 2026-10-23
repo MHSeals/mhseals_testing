@@ -123,10 +123,26 @@ simulator, $e_x = 0.2$ produced about $0.9$\,m/s, so $G_{xx}\approx 4.5$.
 \paragraph{How linear is it?} Not exactly. Prop thrust grows roughly with prop
 speed squared, hull drag with speed squared, and reverse thrust is weaker than
 forward. These partly cancel, so steady speed is close to linear in effort over
-a working range, but $G$ is a straight line through a curve: it is best near
-the efforts it was fitted at. Fit at the speeds you will drive, and expect the
-velocity controller's integral term (Section~\ref{sec:controller}) to absorb the
-rest.
+a working range, but $G$ is a \emph{secant}: a straight line through the origin
+and a curve, best near the efforts it was fitted at.
+
+\paragraph{What the fit is, and is not, used for.} The affine fit supplies the
+bias and drift below, the velocity limits, and a first estimate of the gain.
+It is \emph{not} used to build the decoupling. The off-diagonal entries of a
+secant $G$ are about twice the local slope that matters near an operating
+point, and a correction $G^{-1}\operatorname{diag}(G)$ built from them
+over-corrects by that factor. Instead:
+\begin{itemize}[nosep]
+  \item speed per axis and sign comes from a speed curve fitted at two or more
+        efforts, not a single gain (Section~\ref{sec:thrust});
+  \item the cross coupling is cancelled by one column per axis and sign of
+        $C^{\pm}$ computed from the local slope (Section~\ref{sec:mixer});
+  \item how far a column can be believed is its trust, from the wave noise
+        measured in neutral windows, not from the least-squares standard error,
+        which is too optimistic for 5\,Hz sample-and-hold GPS.
+\end{itemize}
+Fit at the speeds you will drive, and expect the velocity controller's integral
+term (Section~\ref{sec:controller}) to absorb the rest.
 
 \subsection{Two kinds of drift: the boat's and the weather's}
 
