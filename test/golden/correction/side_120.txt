@@ -1,0 +1,40 @@
+ boat_test   Drive [Correction]  Map  Bags  boat · effort                                  boat · ROS 42  idle  disarmed
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
+╭─ ▸ Correction · C± fitted 10-22 14:05 · min 71% ───────────────────────────────────╮╭─ Readiness · marginal ─────────╮
+│ —                                                                                  ││ drift     .050 m/s             │
+│ thrust M → C± (driver adds) → speed curves (controller inverts)                    ││ floor     .003 .012 .011       │
+│                                                                                    ││ ceiling   82%                  │
+│                   surge+    surge−    sway+     sway−     yaw+      yaw−           ││   ✗ Thrusters: no 12 V         │
+│ hw  Thrusters M   ++++      −−−−      +−+−      −+−+      −++−      +−−+           ││   ! IMU: 40 Hz                 │
+│     peak |t|      .70       .70       .70       .70       .70       .70            │╰────────────────────────────────╯
+│ cal C cross sw    +.031     +.031     —         —         +.020     +.020          │╭─ Tracking · v3 ────────────────╮
+│     ψ             −.042     −.042     +.084     +.084     —         —              ││ axis   now   session  trend    │
+│     su            —         —         +.000     +.000     +.000     +.000          ││ surge  91%   90%      ↗        │
+│     ± σ / age     .006 2h   .006 2h   .006 2h   .006 2h   .006 2h   .006 2h        ││ sway   —     —        ↘        │
+│     Trust hi/lo   96/91%    96/91%    96/91%    71/—      96/91%    96/91%         ││ yaw    74%   —        —        │
+│     residual      —         —         —         —         —         —              ││ stale: sway falling trend      │
+│     iterations    —         —         —         —         —         —              │╰────────────────────────────────╯
+│     fit under     good 91   good 91   good 91   good 91   good 91   good 91        │╭─ sway− · holds ────────────────╮
+│     ceiling now   —         —         —         —         —         —              ││ #  a    main   cross ψ  J      │
+│ cal Drag v lo/hi  —         —         —         —         —         —              ││ 1  .60  −.21   +.012    .31    │
+│     d1 · d2       —         —         —         2.2·5.8   —         —              │╰────────────────────────────────╯
+│     t95 · vmax    —         —         —         —         —         —              │                                  
+│     tracking      —         —         —         —         —         —              │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│ scope hw hardware: refit when rebuilt  cal calibration: refit each test            │                                  
+╰────────────────────────────────────────────────────────────────────────────────────╯                                  
+ Focus Correction · sway− column                                                                                   Ready
+ ←→ Direction                  Enter Holds                   r Rerun direction             R Run all                    
+ A Apply pending               I Hardware changed                                                                       

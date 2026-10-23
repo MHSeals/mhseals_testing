@@ -2,10 +2,12 @@
 
 import io
 import os
+import re
 from pathlib import Path
 
 import pytest
 from rich.console import Console
+from rich.text import Text
 
 from mhseals_testing import data
 from mhseals_testing.profiles import load_profile
@@ -172,3 +174,78 @@ def test_i_is_refused_while_moving(tmp_path):
     app.dispatch('I')
     assert app.notice == 'Not while moving'
     assert app.args.hardware_config.get('hardware_epoch', 0) == 0
+
+
+SUMMARY = dict(verdict='marginal', drift=[.03, .04], ceiling=.82)
+PROVENANCE = dict(sway=dict(staleness=dict(flag=True, reason='falling trend', slope=-.02)),
+                  surge=dict(staleness=dict(flag=False, slope=.01)))
+
+
+def side_page(width, blocking=('Thrusters: no 12 V',), height=40):
+    state = dict(fits=FITS, column=None,
+                 readiness=correction.readiness_data(SUMMARY, blocking, ['IMU: 40 Hz'], [.003, .012, .011]),
+                 tracking=correction.tracking_data((.91, None, .74), dict(surge=[1.8, 2, 1.6]), PROVENANCE, 'v3'))
+    v = view(load_profile('boat'), tab='Correction', focus='table', hardware=HARDWARE, correction=state,
+             focus_title=('Correction', 'sway− column'), hints=CORRECTION_HINTS)
+    console = Console(width=width, height=height, file=io.StringIO(), force_terminal=True, color_system='standard')
+    console.print(render(monitor().snapshot(), v, width, height))
+    return console.file.getvalue()
+
+
+def plain(text):
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode golden')
+def test_side_column_matches_its_golden():
+    golden = Path(__file__).parent / 'golden' / 'correction' / 'side_120.txt'
+    actual = plain(side_page(120))
+    if os.environ.get('UPDATE_GOLDEN'):
+        golden.write_text(actual)
+    assert actual == golden.read_text(), 'side_120.txt differs; UPDATE_GOLDEN=1 to regenerate'
+
+
+def sgr(style, text):
+    """``text`` in ``style`` on the same 16-colour console the page uses, so the codes follow the rich version."""
+    console = Console(width=40, file=io.StringIO(), force_terminal=True, color_system='standard')
+    console.print(Text(text, style=style), end='')
+    return console.file.getvalue()
+
+
+def test_failing_gate_shows_the_fail_glyph_in_the_fail_hue():
+    page = side_page(120)
+    assert f"{sgr(theme.BAD, '✗')} Thrusters: no 12 V" in page
+    assert f"{sgr(theme.WARN, '!')} IMU: 40 Hz" in page
+
+
+def test_correction_side_asks_the_characterize_gate_and_reads_feed_and_provenance(tmp_path):
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import PROCEDURES
+    app = tab_app(tmp_path)
+    calls = []
+
+    def gate(key, bench, armed):
+        calls.append((key, bench, armed))
+        return ['Thrusters: no 12 V'], ['IMU: 40 Hz']
+
+    app.health = SimpleNamespace(engine=SimpleNamespace(gate=gate))
+    data.write_json(data.path('calibration', 'current.json'), dict(provenance=dict(tracking=PROVENANCE)), 'mhseals.calibration/1')
+    app.tracking.scores, app.tracking.axes, app.tracking.version = (.9, None, .7), dict(surge=[1.8, 2, 1.6]), 'v9'
+    characterize = next(p for p in PROCEDURES if p.title == 'Characterize')
+    side = app.correction_side()
+    assert calls == [(characterize.key, app.args.bench_override, 'armed' in characterize.needs)]
+    assert side['readiness']['gates'] == [('bad', 'Thrusters: no 12 V'), ('warn', 'IMU: 40 Hz')]
+    assert side['tracking']['rows'][0][:3] == ('surge', '90%', '90%')
+    assert side['tracking']['notes'] == ['stale: sway falling trend'] and side['tracking']['version'] == 'v9'
+
+
+def test_no_side_column_at_100():
+    text = plain(side_page(100, height=36))
+    assert 'Readiness' not in text and 'Tracking ·' not in text
+
+
+def test_readiness_and_tracking_models():
+    r = correction.readiness_data(SUMMARY, [], [])
+    assert r['gates'] == [('good', 'gates clear')] and r['rows'][0] == ('drift', '.050 m/s')
+    t = correction.tracking_data((.91, None, .74), dict(surge=[1.8, 2, 1.6]), PROVENANCE)
+    assert t['rows'][0][:3] == ('surge', '91%', '90%') and t['notes'] == ['stale: sway falling trend']

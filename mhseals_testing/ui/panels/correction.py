@@ -7,6 +7,7 @@ table shows is thrust matrix -> C (driver adds) -> speed curves (controller inve
 """
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def _square(flat):
     return [list(flat[i:i + 3]) for i in (0, 3, 6)] if flat and len(flat) == 9 else None
 
 
-def correction_data(hardware, fits=None, running=None):
+def correction_data(hardware, fits=None, running=None, side=None):
     """The ``data`` of ``correction_view`` from the hardware config and the state.json fit records.
 
     C+/C- and the thruster matrix come from ``hardware``; ``fits`` is {direction: record}, to which
@@ -58,7 +59,42 @@ def correction_data(hardware, fits=None, running=None):
     matrix = [flat[i:i + 3] for i in range(0, 12, 3)] if flat and not hasattr(flat[0], '__len__') else flat
     return dict(matrix=matrix, c_positive=_square(hardware.get('decoupling')),
                 c_negative=_square(hardware.get('decoupling_negative')), fits=fits,
-                header=dict(fitted=fitted, activity=running))
+                header=dict(fitted=fitted, activity=running), **(side or {}))
+
+
+def readiness_data(summary, blocking=(), warnings=(), floor=None):
+    """The Readiness box model from ``Conditions.summary`` and ``engine.gate('characterize')``.
+
+    Rows are drift (|d| m/s), floor (the wave floor, yaw/surge/sway) and ceiling; each gate reason
+    becomes a line with its status glyph (blocking fail, warning warn, none: one good line).
+    """
+    drift, ceiling = summary.get('drift'), summary.get('ceiling')
+    rows = [('drift', MISSING if not drift else _num(math.hypot(*drift), 3, False) + ' m/s'),
+            ('floor', MISSING if not floor else ' '.join(_num(x, 3, False) for x in floor)),
+            ('ceiling', MISSING if ceiling is None else f'{ceiling * 100:.0f}%')]
+    gates = [('bad', r) for r in blocking] + [('warn', r) for r in warnings] or [('good', 'gates clear')]
+    return dict(verdict=summary.get('verdict', MISSING), rows=rows, gates=gates)
+
+
+def tracking_data(scores, sessions, provenance, version=None):
+    """The Tracking box model: per axis the live score, this session's mean and the stored trend.
+
+    ``scores`` are the feed's live scores (surge, sway, yaw; None gated), ``sessions`` its
+    {axis: [score sum, windows, trust sum]}, ``provenance`` calibration/current.json's
+    ``provenance.tracking``. The staleness line names the axes whose verdict is flagged.
+    """
+    pct = lambda v: MISSING if v is None else f'{v * 100:.0f}%'   # noqa: E731
+    rows, stale = [], []
+    for axis, now in zip(AXES, scores):
+        total, n, _ = sessions.get(axis, (0, 0, 0))
+        entry = (provenance.get(axis) or {}).get('staleness') or {}
+        slope = entry.get('slope')
+        trend = MISSING if slope is None else theme.pick('↘' if slope < 0 else '↗', '-' if slope < 0 else '+')
+        rows.append((axis, pct(now), pct(total / n if n else None), trend))
+        if entry.get('flag'):
+            stale.append(f"{axis} {entry.get('reason', '')}".strip())
+    line = 'stale: ' + ', '.join(stale) if stale else 'calibration current'
+    return dict(rows=rows, notes=[line], version=version or '')
 
 
 def _num(value, digits=3, signed=True):
@@ -140,7 +176,8 @@ def correction_view(data, cursor=0, settings=None):
 def tab_view(hardware, state=None, running=None):
     """The model of the tab from the config and ``state`` ({'fits', 'column'}); column None is the worst."""
     state = state or {}
-    view = correction_view(correction_data(hardware, state.get('fits'), running))
+    side = {k: state[k] for k in ('readiness', 'tracking', 'plan') if state.get(k)}
+    view = correction_view(correction_data(hardware, state.get('fits'), running, side))
     column = state.get('column')
     view['cursor'] = worst_column(view) if column is None else max(0, min(column, len(DIRECTIONS) - 1))
     return view
@@ -239,7 +276,7 @@ def _side(view, width, room):
     r = view.get('readiness')
     if r:
         body = [Text(f"{k:<9} {v}") for k, v in r.get('rows', [])]
-        body += [Text.assemble('  ', theme.icon(state), f' {label}') for state, label in r.get('gates', [])]
+        body += [Text.assemble('  ', theme.icon(state), f' {label}'[:width - 6]) for state, label in r.get('gates', [])]
         blocks.append(theme.block(Group(*body), f"Readiness{theme.SEPARATOR}{r.get('verdict', MISSING)}"))
     t = view.get('tracking')
     if t:

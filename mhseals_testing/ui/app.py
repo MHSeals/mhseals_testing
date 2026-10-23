@@ -997,7 +997,23 @@ class App:
         if self.tab != 'Correction':
             return None
         fits = (data.read_json(data.path('state.json'), {}) or {}).get('fits')
-        return dict(fits=fits, column=self.column)
+        return dict(fits=fits, column=self.column, **self.correction_side())
+
+    def correction_side(self):
+        """Readiness (conditions + the characterize gates) and Tracking (feed + calibration file) models."""
+        blocking, warnings = (), ()
+        if self.engine is not None:
+            # gates are keyed by the procedure letter, as availability() does
+            procedure = next(p for p in PROCEDURES if p.title == 'Characterize')
+            blocking, warnings = self.engine.gate(
+                procedure.key, self.args.bench_override, 'armed' in procedure.needs)
+        characterization = self.args.hardware_config.get('characterization') or {}
+        provenance = (data.read_json(data.path('calibration', 'current.json'), {}) or {}).get('provenance') or {}
+        return dict(
+            readiness=correction.readiness_data(self.conditions.summary(), blocking, warnings,
+                                                characterization.get('wave_floor')),
+            tracking=correction.tracking_data(self.tracking.scores, self.tracking.axes,
+                                              provenance.get('tracking') or {}, self.tracking.version))
 
     def correction_focus(self):
         """(title, position) of the footer's focus line: the cursor column, as in ui 5.7."""
