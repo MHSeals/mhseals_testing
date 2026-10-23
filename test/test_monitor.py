@@ -94,14 +94,23 @@ def test_real_gps_gaps_do_not_flicker_stale():
     # Any rate-derived deadline (ts028) must stay above this, so floor it at 1.5 s.
     clock = [0.0]
     monitor = BoatMonitor(clock=lambda: clock[0])
+    monitor.observe('GPS', stamp_age=0)
     stale = []
     for gap in [.2] * 20 + [.65, 1.13] + [.2] * 20 + [.7, .8]:
-        clock[0] += gap
-        monitor.observe('GPS', stamp_age=0)
-        # Sample just before the next fix would arrive.
-        clock[0] += .01
+        # Sample just before the next fix arrives, so the age checked is the whole gap.
+        clock[0] += gap - .01
         stale.append(monitor.snapshot()['sensors']['GPS']['status'] == 'STALE')
-        clock[0] -= .01
+        clock[0] += .01
+        monitor.observe('GPS', stamp_age=0)
     assert not any(stale)
     clock[0] += 2.1
+    assert monitor.snapshot()['sensors']['GPS']['status'] == 'STALE'
+
+
+def test_gps_gap_regression_test_detects_a_short_stale_threshold():
+    # Mutation guard: a 0.3 s deadline sits below the real 1.13 s gap and must read STALE.
+    clock = [0.0]
+    monitor = BoatMonitor(stale_after=.3, clock=lambda: clock[0])
+    monitor.observe('GPS', stamp_age=0)
+    clock[0] += 1.13 - .01
     assert monitor.snapshot()['sensors']['GPS']['status'] == 'STALE'
