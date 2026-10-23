@@ -1,0 +1,11 @@
+╭─ ▸ Power ────────────────────────────────────────────────────╮
+│ Source       mavros                                          │
+│ Pack         15.80 V · 4S                                    │
+│ Cell         3.95 V min                                      │
+│ Percent      75% (from voltage)                              │
+│ Current      +4.0 A · 63 W                                   │
+│ Sag          —                                               │
+│ Used         6 mAh                                           │
+│ Left         75 min                                          │
+│ Pack swap    1 detected · usage reset                        │
+╰─  Esc close  ────────────────────────────────────────────────╯

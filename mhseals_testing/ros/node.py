@@ -77,6 +77,7 @@ class RosIO:
         self.monitor = monitor
         self.stale_after = stale_after
         self.fault = ''
+        self.power_facts = None   # analysis.power facts of /mavros/battery; None without a voltage source
         self.journal_path = journal_path
         self.recording = True  # stamped on each event as ``rec``
         self._prefix = None

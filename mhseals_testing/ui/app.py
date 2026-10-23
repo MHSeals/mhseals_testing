@@ -982,9 +982,15 @@ class App:
                     return self.open('odometry')
                 if row['name'] == 'Config':
                     return self.open('config')
+                if row['name'] == 'Battery':
+                    return self.open('power')
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
+
+    def power_facts(self):
+        """The latest ``power.*`` facts (ros.health feeds them), or None without a voltage source."""
+        return getattr(self.ros, 'power_facts', None)
 
     def row_setting(self, rows):
         row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None

@@ -4,7 +4,7 @@
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.popups import conditions, config, history
+from mhseals_testing.ui.popups import conditions, config, history, power
 
 UPDOWN = theme.pick('↑↓', 'Up/Down')
 
@@ -131,5 +131,6 @@ OPENERS = {
     'odometry': lambda app: app.odometry(),
     'conditions': lambda app: conditions.open_conditions(app),
     'config': lambda app: config.open_config(app),
+    'power': lambda app: power.open_power(app),
     'perception': lambda app: app.perception_popup(),
 }

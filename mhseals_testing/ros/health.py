@@ -2,6 +2,7 @@
 
 from rclpy.qos import qos_profile_sensor_data
 
+from mhseals_testing.analysis import power
 from mhseals_testing.health import probes
 
 
@@ -17,7 +18,12 @@ def subscribe_fcu(ros, monitor, facts, cells=None):
     def state(message):
         facts.publish('fcu', probes.fcu_facts(message.connected, message.armed, message.mode))
 
+    tracker = power.Power({'cells': cells})
+
     def battery(message):
+        sample = power.from_mavros(message, ros.node.get_clock().now().nanoseconds * 1e-9)
+        if sample is not None:
+            ros.power_facts = tracker.update(sample)    # read by the Power popup
         facts.publish('battery', probes.battery_facts(
             message.voltage, message.percentage, message.current, cells))
 
