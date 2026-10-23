@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -80,8 +82,22 @@ def test_coast_time_and_mask():
     assert c.coast_time(10, 0.3, S) == pytest.approx(12.0)          # floor of 2 s
     assert c.coast_time(10, 3.0, S) == pytest.approx(10 + 1.33 * 3)
     t = np.arange(10.0)
-    mask = c.neutral_mask(t, t > 1, np.where(t == 6, 0.5, 0.1), 3.0, S)
-    assert list(np.nonzero(mask)[0]) == [3, 4, 5, 7, 8, 9]
+    mask = c.neutral_mask(t, t > 1, np.full(10, 0.1), 3.0, S)
+    assert list(np.nonzero(mask)[0]) == [3, 4, 5, 6, 7, 8, 9]
+    assert not c.neutral_mask(t, t > 1, np.full(10, 0.5), 3.0, S).any()      # poor accuracy throughout
+
+
+def test_patchy_vel_acc_gates_on_the_window_median_not_each_sample():
+    # Real Here GPS at rest: a third of the samples over 0.3 m/s, often two in a row.
+    t, vel, heading, rate, _ = neutral(80, seed=3)
+    acc = np.where(np.arange(len(t)) % 3 == 0, 0.36, 0.22)
+    acc[1::9] = 0.36                                              # some pairs in a row
+    assert (acc > S.neutral_vel_acc_max).mean() > 0.3
+    mask = c.neutral_mask(t, np.ones(len(t), bool), acc, 0.0, S)
+    assert mask.all()
+    assert len(c.build_windows(t, vel, heading, rate, mask, S)) == 10
+    bad = c.neutral_mask(t, np.ones(len(t), bool), np.full(len(t), 0.36), 0.0, S)
+    assert not bad.any()                                          # a genuinely poor fix still gates
 
 
 def test_coast_settle_drops_decay_and_keeps_flat_series():
@@ -104,10 +120,11 @@ def test_build_windows_flags_coast_and_trims_leading_batches():
 
 
 def test_window_gates_coverage_and_spin_and_gaps_split_runs():
-    t, vel, heading, rate, mask = neutral(16, sigma=0.0)
-    thin = np.arange(len(t)) % 3 != 0                      # 3.3 Hz of a 5 Hz stream
-    sparse = c.build_windows(t[thin], vel[thin], heading[thin], rate[thin], mask[thin], S)
+    fast = neutral(16, sigma=0.0, hz=20)
+    thin = fast[0] % 1.5 >= 0.45                           # 0.45 s dropouts, short enough not to split the run
+    sparse = c.build_windows(*(a[thin] for a in fast), S)
     assert {w.flag for w in sparse} == {'sparse'}
+    t, vel, heading, rate, mask = neutral(16, sigma=0.0)
     spin = c.build_windows(t, vel, heading, np.full(len(t), 0.1), mask, S)
     assert {w.flag for w in spin} == {'spin'}
     assert [w.flag for w in c.build_windows(t, vel, heading, rate, mask, S)] == ['', '']
@@ -126,6 +143,14 @@ def test_isolated_masked_samples_do_not_split_a_window():
     assert {w.flag for w in masked} == {''}
 
 
+def test_a_flapping_mask_reads_as_missing_coverage_not_a_slower_source():
+    t, vel, heading, rate, mask = neutral(16, sigma=0.0)
+    mask[2::3] = False                        # one in three rejected at 5 Hz: coverage 0.67, below the gate
+    windows = c.build_windows(t, vel, heading, rate, mask, S)
+    assert windows and {w.flag for w in windows} == {'sparse'}
+    assert all(w.hz == pytest.approx(5.0) for w in windows)
+
+
 def test_trend_and_change_flags():
     steady = c.estimate(windows_of(neutral(8 * 15, seed=2)), S)
     assert steady.state == 'steady' and steady.drift.n == 15
@@ -137,9 +162,26 @@ def test_trend_and_change_flags():
     assert stepped.drift.vector[0] == pytest.approx(0.25, abs=0.04)
 
 
+def test_burst_stamped_input_still_cuts_every_batch():
+    t, *rest = neutral(80, hz=20, seed=3)
+    t = t.copy()
+    t[1::2] = t[::2] + 0.002                    # 20 Hz delivered in pairs: steps of 2 ms and 98 ms
+    windows = windows_of((t, *rest))
+    assert all(len(w.sub) == 2 for w in windows)
+    assert c.estimate(windows, S).state == 'steady'
+
+
 def test_too_few_windows_is_unknown():
     assert c.estimate(windows_of(neutral(16)), S).state == 'unknown'
     assert c.world_drift(windows_of(neutral(16)), S) is None
+
+
+def test_empty_input_gives_no_windows_and_an_unknown_estimate_without_warning():
+    empty = np.empty(0)
+    assert c.build_windows(empty, np.empty((0, 2)), empty, empty, empty.astype(bool), S) == []
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert c.estimate([], S).state == 'unknown'
 
 
 def test_wave_floor_follows_gyro_and_velocity_scatter():
@@ -373,3 +415,33 @@ def test_drift_ci_covers_noise_correlated_over_most_of_a_batch():
         if drift is not None:
             hits.append(np.all(np.abs(drift.vector - truth) < 1.96 * drift.se))
     assert np.mean(hits) > 0.84     # 0.78 with tau capped at half a batch; nominal 0.90
+
+
+def _stamped(t):
+    """Windows over gapless-by-construction samples stamped at ``t``."""
+    n = len(t)
+    return c.build_windows(t, np.tile([0.08, -0.05], (n, 1)), np.zeros(n), np.zeros(n), np.ones(n, bool), S)
+
+
+@pytest.mark.parametrize('name', ['alternating', 'jitter', 'bursts', 'one_dropped'])
+def test_rate_estimate_is_not_fooled_by_stamp_pattern(name):
+    rng = np.random.default_rng(1)
+    n = 20 * 40
+    if name == 'alternating':                              # sim header stamps on 10 ms /clock ticks
+        t = np.cumsum(np.tile([0.04, 0.06], n // 2))
+    elif name == 'jitter':                                 # +/-40 % receipt jitter on a 20 Hz stream
+        t = np.cumsum(0.05 * rng.uniform(0.6, 1.4, n))
+    elif name == 'bursts':                                 # delivered in pairs
+        t = np.repeat(np.arange(n // 2) * 0.1, 2) + np.tile([0.0, 0.002], n // 2)
+    else:                                                  # one sample lost per window
+        t = np.delete(np.arange(n) / 20, np.arange(100, n, 160))
+    windows = _stamped(t)
+    assert len(windows) >= 4 and {w.flag for w in windows} == {''}
+    assert windows[0].hz == pytest.approx(20, rel=0.1)
+
+
+def test_heading_in_degrees_is_refused():
+    t, vel, _, rate, mask = neutral(30)
+    with pytest.raises(ValueError, match='rad'):
+        c.build_windows(t, vel, np.full(len(t), 90.0), rate, mask, S)
+    assert c.build_windows(t, vel, np.full(len(t), np.radians(90.0)), rate, mask, S)

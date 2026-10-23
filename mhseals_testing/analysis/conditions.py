@@ -117,8 +117,16 @@ def coast_time(t_cut, t95, s: Settings):
 
 
 def neutral_mask(t, ok, vel_acc, t_coast, s: Settings):
-    """Samples that are neutral: ``ok`` (zero command, neutral PWM, afloat, 3D fix) and settled."""
-    return np.asarray(ok, bool) & (np.asarray(vel_acc) <= s.neutral_vel_acc_max) & (np.asarray(t) >= t_coast)
+    """Samples that are neutral: ``ok`` (zero command, neutral PWM, afloat, 3D fix) and settled.
+
+    The vel_acc gate uses the median over ``window_s`` around each sample: real Here GPS crosses
+    the limit on about a third of its samples, so a per-sample gate would shred the runs.
+    """
+    t, vel_acc = np.asarray(t, float), np.asarray(vel_acc, float)
+    lo = np.searchsorted(t, t - s.window_s / 2, side='left')
+    hi = np.searchsorted(t, t + s.window_s / 2, side='right')
+    median = np.array([np.median(vel_acc[a:b]) for a, b in zip(lo, hi)])
+    return np.asarray(ok, bool) & (median <= s.neutral_vel_acc_max) & (t >= t_coast)
 
 
 def settle_coast(sub_means, direction, sigma_sub, s: Settings):
@@ -136,12 +144,12 @@ def settle_coast(sub_means, direction, sigma_sub, s: Settings):
     return s.coast_max_drop, False
 
 
-def _window(t, vel, heading, rate, hz, s: Settings, flag=''):
-    """Window statistics for the samples of one chunk."""
+def _window(t, vel, heading, rate, hz, s: Settings, flag='', span=None):
+    """Window statistics for the samples of one chunk; ``span`` is the window length the chunk covers."""
     x = np.column_stack([vel, rate])
     duration = float(t[-1] - t[0]) + 1 / hz
     eps = 0.5 / hz                     # half a sample absorbs float error in t
-    cuts = int((duration + eps) // s.batch_s)
+    cuts = int(((duration if span is None else span) + eps) // s.batch_s)   # bursty stamps must not shorten the span
     parts = [x[(t >= t[0] + i * s.batch_s - eps) & (t < t[0] + (i + 1) * s.batch_s - eps)] for i in range(cuts)]
     mean = x.mean(axis=0)
     if not flag and len(t) < s.neutral_coverage * hz * duration:
@@ -169,13 +177,18 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     keep = np.r_[True, np.diff(t) > 0]                         # a re-delivered stamp keeps its first sample only
     t, vel, heading, rate, mask = t[keep], vel[keep], heading[keep], rate[keep], mask[keep]
     finite = np.isfinite(vel).all(axis=1) & np.isfinite(heading) & np.isfinite(rate) & np.isfinite(t)
+    if np.abs(heading[finite]).max(initial=0) > 2 * np.pi + 0.1:
+        raise ValueError('heading is in rad; convert a compass in degrees with np.radians first')
     idx = np.nonzero(mask & finite)[0]       # a garbled sample splits the run, never poisons it
     runs = np.split(idx, np.nonzero(np.diff(t[idx]) > s.neutral_max_gap_s)[0] + 1)
-    steps = np.diff(t[idx])
+    seen = t[finite]                         # the rate is the source's: masked-out time must still count as missing coverage
+    steps = np.diff(seen)
     steps = steps[steps <= s.neutral_max_gap_s]
     if not len(steps):
         return []
-    hz = 1 / float(np.percentile(steps, 25))                   # the source sets the rate, not the yaml; a quartile keeps dropouts visible
+    # the source sets the rate, not the yaml; the mean step ignores stamp jitter and bursts (a quartile reads
+    # them fast), and steps over twice the mean stay out of it so a real dropout still shows as missing coverage
+    hz = 1 / float(steps[steps <= 2 * steps.mean()].mean())
     windows = []
     for run in (r for r in runs if len(r)):
         start, unsettled = t[run[0]], False
@@ -191,7 +204,8 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
             if not len(chunk) or t[chunk[-1]] - start + 1 / hz < s.min_window_s:
                 break
             windows.append(_window(t[chunk], vel[chunk], heading[chunk], rate[chunk], hz, s,
-                                   'coast' if unsettled else ''))
+                                   'coast' if unsettled else '',
+                                   span=min(s.window_s, t[run[-1]] - start + 1 / hz)))
             start, unsettled = start + s.window_s, False
     return windows
 
@@ -322,7 +336,9 @@ def estimate(windows, s: Settings):
     """Drift, trend and change over the usable windows, in time order.
 
     A window whose mean departs from the earlier pool by more than ``drift_change_chi2`` on two
-    consecutive windows is a change: the older windows retire and the pool restarts there.
+    consecutive windows is a change: the older windows retire and the pool restarts there. A
+    departure under ``drift_practical`` m/s is never a change, so a slow sub-practical ramp
+    keeps its pool (and a drift to subtract) however noise-free the input is.
     """
     usable = sorted((w for w in windows if not w.flag), key=lambda w: w.t0)
     s0 = spectral_level(usable, s)
@@ -334,9 +350,10 @@ def estimate(windows, s: Settings):
         if len(pool) < 3:
             continue
         w, d = usable[i], _pool(pool, s0, s.drift_corr_max).vector
-        out = w.duration * ((w.mean[:2] - d) ** 2).sum() / s0 > s.drift_change_chi2
+        gap = float(np.hypot(*(w.mean[:2] - d)))
+        out = w.duration * gap ** 2 / s0 > s.drift_change_chi2 and gap >= s.drift_practical
         if out and prev:
-            before = d
+            before = _pool(usable[start:i - 1], s0, s.drift_corr_max).vector if i - 1 - start >= 1 else d
             start, state, out = i - 1, 'changed', False
         prev = out
     pool = usable[start:]
