@@ -154,3 +154,69 @@ class FcuParams:
         if not math.isfinite(yaw) or not 0 <= yaw < 360:
             return False
         return bool(self.link.command(FIXED_MAG_CAL_YAW, [float(yaw), float(mask), 0, 0, 0, 0, 0]))
+
+
+def _wait(future, timeout, what):
+    deadline = time.monotonic() + timeout
+    while not future.done():
+        if time.monotonic() > deadline:
+            raise TimeoutError(f'{what} timed out after {timeout:g}s')
+        time.sleep(0.02)
+    return future.result()
+
+
+class MavrosLink:
+    """The link over MAVROS 2.x services; the node is spun elsewhere, so calls poll their futures."""
+
+    def __init__(self, node, namespace='/mavros', timeout=3.0):
+        from mavros_msgs.msg import State
+        from mavros_msgs.srv import CommandLong, ParamSetV2
+        from rcl_interfaces.srv import GetParameters, ListParameters
+        self.node, self.timeout, self.state = node, timeout, None
+        base = namespace.rstrip('/')
+        self.listing = node.create_client(ListParameters, base + '/param/list_parameters')
+        self.getting = node.create_client(GetParameters, base + '/param/get_parameters')
+        self.setting = node.create_client(ParamSetV2, base + '/param/set')
+        self.commanding = node.create_client(CommandLong, base + '/cmd/command')
+        node.create_subscription(State, base + '/state', self._on_state, 10)
+        self.types = (ListParameters, GetParameters, ParamSetV2, CommandLong)
+
+    def _on_state(self, message):
+        self.state = message
+
+    def _call(self, client, request, what):
+        if not client.wait_for_service(timeout_sec=self.timeout):
+            raise TimeoutError(f'{what} service is not available')
+        return _wait(client.call_async(request), self.timeout, what)
+
+    def armed(self):
+        return None if self.state is None or not self.state.connected else bool(self.state.armed)
+
+    def names(self):
+        request = self.types[0].Request()
+        request.depth = 0
+        return list(self._call(self.listing, request, 'list_parameters').result.names)
+
+    def get(self, names):
+        request = self.types[1].Request()
+        request.names = list(names)
+        values = self._call(self.getting, request, 'get_parameters').values
+        # type 2 integer, 3 double; 0 means the name does not exist
+        return {n: (v.integer_value if v.type == 2 else v.double_value)
+                for n, v in zip(names, values) if v.type in (2, 3)}
+
+    def set(self, name, value):
+        request = self.types[2].Request()
+        request.param_id = name
+        if isinstance(value, int):
+            request.value.type, request.value.integer_value = 2, value
+        else:
+            request.value.type, request.value.double_value = 3, float(value)
+        return bool(self._call(self.setting, request, f'set {name}').success)
+
+    def command(self, command, params):
+        request = self.types[3].Request()
+        request.broadcast, request.command = False, command
+        for i, value in enumerate(params, 1):
+            setattr(request, f'param{i}', float(value))
+        return bool(self._call(self.commanding, request, f'command {command}').success)

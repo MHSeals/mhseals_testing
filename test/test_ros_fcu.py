@@ -2,7 +2,9 @@
 
 import math
 
-from mhseals_testing.ros.fcu import FIXED_MAG_CAL_YAW, FcuParams, load_meta, same_float32
+import yaml
+
+from mhseals_testing.ros.fcu import FIXED_MAG_CAL_YAW, META as SHIPPED, FcuParams, load_meta, same_float32
 
 
 class FakeLink:
@@ -146,3 +148,14 @@ def test_mag_cal_needs_confirmation_and_disarmed():
     assert link.commands == []
     assert fcu(link).fixed_mag_cal(90., confirmed=True)
     assert link.commands == [(FIXED_MAG_CAL_YAW, [90., 1., 0, 0, 0, 0, 0])]
+
+
+def test_shipped_meta_lists_the_blastoise_parameters():
+    meta = load_meta()
+    assert meta['count'] == len(meta['params']) > 900 and 'EK3_SRC1_YAW' in meta['params']
+    assert 'COMPASS_OFS_X' in meta['params']
+
+
+def test_shipped_classes_name_the_calibration_and_ignored_parameters():
+    classes = yaml.safe_load((SHIPPED.parent / 'fcu.yaml').read_text())
+    assert 'COMPASS_OFS*' in classes['calibration'] and 'STAT_*' in classes['ignore']
