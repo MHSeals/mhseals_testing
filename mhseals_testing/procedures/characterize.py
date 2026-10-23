@@ -32,6 +32,19 @@ def single_decoupling(config):
     return negative is None or list(negative) == list(config['decoupling'])
 
 
+def response_sign(history, settle, hold, index, transient=1.0):
+    """Mean main-axis velocity of a hold, minus the preceding neutral, signed by the command.
+
+    Positive means the axis answers the right way. ``settle`` and ``hold`` are
+    (start, end) windows; the hold's first ``transient`` seconds are skipped.
+    """
+    def mean(window, skip):
+        values = [v[key] for t, v in history if window[0] + skip <= t <= window[1]
+                  for key in (('vx', 'vy', 'wz')[index],) if v.get(key) is not None]
+        return sum(values) / len(values) if values else 0.0
+    return mean(hold, transient) - mean(settle, 0.0)
+
+
 def run(ctx):
     if not single_decoupling(ctx.services['hardware_config']):
         # A fit with one C beside a sign-split C is a config the controller refuses.
@@ -47,10 +60,26 @@ def run(ctx):
                'press Enter... ')
     windows = []
     with ctx.motion('characterization', commands=len(commands)) as runner:
-        for command in commands:
+        for number, command in enumerate(commands):
             # The neutral before each command doubles as a zero-command sample window.
-            windows.append((NEUTRAL, *runner.hold(NEUTRAL, settings.settle, 'settle')))
-            windows.append((command, *runner.hold(command, settings.command, 'command')))
+            settle = runner.hold(NEUTRAL, settings.settle, 'settle')
+            windows.append((NEUTRAL, *settle))
+            hold = runner.hold(command, settings.command, 'command')
+            windows.append((command, *hold))
+            axis = number // 2  # the first hold of each axis is its positive direction
+            if number % 2 == 0 and axis < len(AXES):
+                sign = response_sign(ctx.history(settle[0], hold[1]), settle, hold, axis)
+                if sign * command[axis] <= 0:
+                    refusal = dict(procedure='characterization', verdict='REFUSED',
+                                   reason=f'{AXES[axis]} responds backwards: '
+                                          'check wiring, run Thrusters')
+                    break
+        else:
+            refusal = None
+        if refusal:
+            runner.stop()
+            ctx.record(refusal)
+            return refusal
         # Turning shows every heading, which separates the current from the boat.
         turn = axis_command('yaw', settings.amplitude)
         windows.append((turn, *runner.hold(turn, settings.turn, 'turn')))

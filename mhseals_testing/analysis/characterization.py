@@ -267,6 +267,33 @@ def samples_from_windows(history, windows, transient=1.0):
     return samples
 
 
+# A hold with fewer samples than this share of the typical sample density, or with
+# a velocity that never changed, says the odometry dropped out or froze.
+MIN_COVERAGE = 0.5
+
+
+def audit_holds(history, windows, transient=1.0, minimum=MIN_COVERAGE):
+    """One record per hold: samples, coverage against the median density, and whether it is usable.
+
+    Odometry gaps (replay, bags) leave holds with few or no samples, and a frozen
+    sensor with fresh stamps leaves a constant velocity; either would silently
+    bend the speed curves. ``ok`` is false for both.
+    """
+    holds = []
+    for command, start, end in windows:
+        samples = samples_from_windows(history, [(command, start, end)], transient)
+        span = max(end - start - transient, 1e-9)
+        holds.append(dict(command=list(command), start=start, end=end, samples=len(samples),
+                          density=len(samples) / span,
+                          flat=len(samples) > 1 and not numpy.ptp(
+                              [s["velocity"] for s in samples], axis=0).any()))
+    typical = float(numpy.median([hold["density"] for hold in holds])) if holds else 0.0
+    for hold in holds:
+        hold["coverage"] = hold.pop("density") / typical if typical else 0.0
+        hold["ok"] = hold["coverage"] >= minimum and not hold["flat"]
+    return holds
+
+
 def read_json_samples(path: Path):
     text = path.read_text()
     try:

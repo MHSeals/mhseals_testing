@@ -50,7 +50,7 @@ _GLYPHS = {
 _KINDS = {
     'good': {'LIVE', 'OK', 'PASS', 'SIGN MATCH', 'SETTLED', 'HELD', 'REACHED', 'FITTED',
              'SAVED', 'DONE', 'RECORDED', 'SUCCEEDED', 'ARMED', 'READY'},
-    'warn': {'WARN', 'STALE', 'LOW RESPONSE', 'NOT SETTLED', 'LEFT TOLERANCE', 'UNAVAILABLE'},
+    'warn': {'WARN', 'PARTIAL', 'STALE', 'LOW RESPONSE', 'NOT SETTLED', 'LEFT TOLERANCE', 'UNAVAILABLE'},
     'bad': {'FAIL', 'MISSING', 'SIGN MISMATCH', 'TIMEOUT', 'ABORTED', 'CANCELED', 'ERROR'},
     'busy': {'RUNNING', 'CHECKING'},
     'off': {'N/A', 'OFF', 'IDLE', 'OPTIONAL'},
