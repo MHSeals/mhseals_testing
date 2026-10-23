@@ -155,6 +155,8 @@ class SessionPaths:
     nav2: Path      # Nav2 params with measured limits, written by characterization
     journal: Path   # append-only events: markers, phases, results
     runs: Path      # one runs/<run_id>.json per procedure run
+    session: Path   # session.yaml: identity and clock domain
+    truth: Path     # simulator course truth, copied at start
 
     @classmethod
     def from_output(cls, output):
@@ -162,7 +164,8 @@ class SessionPaths:
         return cls(output, output.with_suffix('.report.json'),
                    output.parent / 'logs' / output.name,
                    output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'),
-                   output.with_suffix('.events.jsonl'), output.with_suffix('.runs'))
+                   output.with_suffix('.events.jsonl'), output.with_suffix('.runs'),
+                   output.with_suffix('.session.yaml'), output.with_suffix('.course_truth.json'))
 
 
 ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
@@ -1495,6 +1498,7 @@ def main(argv=None):
     # ROS imports stay here so the App (and its tests) never need rclpy.
     import rclpy
 
+    from mhseals_testing.harness.simsession import extra_topics, start_session
     from mhseals_testing.ros.arming import Arming
     from mhseals_testing.ros.health import subscribe_fcu
     from mhseals_testing.ros.mission import TaskWatcher
@@ -1550,8 +1554,9 @@ def main(argv=None):
         else:
             registry.update(lambda state: state.update(session=str(paths.bag)))
             paths.bag.parent.mkdir(parents=True, exist_ok=True)
+            start_session(profile, paths.session, paths.truth)
             if not processes.running('bag'):
-                processes.start('bag', bag_command(paths.bag))
+                processes.start('bag', bag_command(paths.bag, extra_topics(profile.name)))
             if args.start_stack and not any(processes.running(key) for key in stack.start_order()):
                 time.sleep(2.0)  # let discovery find an already-running stack
                 if ros.publishers(profile.odometry):

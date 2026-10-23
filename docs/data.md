@@ -32,6 +32,8 @@ Every JSON file carries a first `schema` field such as `mhseals.run/1`.
 | `<session>.report.json` | procedure results |
 | `<session>.hardware.yaml` | the hardware config the driver ran with |
 | `<session>.nav2.yaml` | Nav2 limits from a characterization |
+| `<session>.session.yaml` | profile, clock domain (`wall` or `sim`) |
+| `<session>.course_truth.json` | simulator course truth, copied at start |
 | `logs/<session>/` | one log per child process |
 
 `harness/session.py` creates `sessions/<YYYYMMDD_HHMMSS>_<host>_<profile>/` with

@@ -19,6 +19,7 @@ from rclpy.node import Node
 from rcl_interfaces.srv import GetParameters
 from rclpy.parameter import Parameter, parameter_value_to_python
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CompressedImage, Image, Imu, MagneticField, NavSatFix, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
@@ -26,6 +27,7 @@ from vision_msgs.msg import Detection3DArray
 
 from mhseals_testing import events
 from mhseals_testing.harness import journal
+from mhseals_testing.harness.simsession import ClockWatch
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.ros.ingest import ingest
@@ -92,6 +94,9 @@ class RosIO:
                 qos_profile_sensor_data, raw=raw)
         self.node.create_subscription(
             Vector3Stamped, DRIFT_TOPIC, partial(self._ingest, DRIFT_TOPIC, 'drift'), 10)
+        if profile.use_sim_time:
+            self.clock_watch = ClockWatch()
+            self.node.create_subscription(Clock, '/clock', self._clock, qos_profile_sensor_data)
         self.node.create_subscription(TFMessage, '/tf', self._tf, qos_profile_sensor_data)
         self.node.create_subscription(
             TFMessage, '/tf_static', partial(self._tf, static=True),
@@ -113,6 +118,11 @@ class RosIO:
 
     def now(self):
         return self.node.get_clock().now().nanoseconds / 1e9
+
+    def _clock(self, message):
+        # An episode reset rewinds /clock; one system marker per rewind (bags.md B14).
+        if self.clock_watch.feed(message.clock.sec + message.clock.nanosec / 1e9):
+            self.emit('marker', kind='system', note='sim reset')
 
     def _ingest(self, topic, kind, message, authority=''):
         ingest(self.monitor, self.profile, topic, kind, message, self.now(),

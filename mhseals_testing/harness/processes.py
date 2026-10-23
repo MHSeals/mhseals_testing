@@ -191,11 +191,13 @@ def bag_filters():
     return config['exclude_regex'], list(config.get('exclude_types', []))
 
 
-def bag_command(path):
+def bag_command(path, extra=()):
     # Every topic except the heavy ones, so /mhseals_testing/events is kept and results
     # can be re-scored from the bag alone. Not -a: it records images and clouds at
     # ~50 MB/s. The name regex and the message-type list both apply. Jazzy's default storage is MCAP.
     regex, types = bag_filters()
     type_args = ['--exclude-topic-types', *types] if types else []
-    return ['ros2', 'bag', 'record', '--all-topics', '--exclude-regex', regex, *type_args,
+    # A simulator's profile names /clock and the truth odometry too, so a later filter edit cannot drop them.
+    extra_args = ['--topics', *extra] if extra else []
+    return ['ros2', 'bag', 'record', '--all-topics', *extra_args, '--exclude-regex', regex, *type_args,
             '-o', str(path)]
