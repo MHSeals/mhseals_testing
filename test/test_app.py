@@ -52,6 +52,12 @@ class Boat:
     def conflicts(self):
         return []
 
+    def engage(self):
+        pass
+
+    def release(self):
+        pass
+
 
 class Arming:
     def __init__(self):

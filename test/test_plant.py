@@ -1,5 +1,9 @@
 from types import SimpleNamespace
 
+import pytest
+
+pytest.importorskip('geometry_msgs')
+
 from mhseals_testing.ros.plant import Plant
 
 
