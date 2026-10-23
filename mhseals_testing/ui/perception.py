@@ -132,4 +132,4 @@ def modal(facts, source=None, width=100):
     body = rows(facts, source) if source else []
     return dict(kind='message', title=f'Perception{theme.SEPARATOR}{source or "no source"}',
                 rows=body or [('', 'No perception facts yet')], width=width,
-                hint=f'Esc close{theme.SEPARATOR}j/k scroll')
+                hint=f'v view{theme.SEPARATOR}Esc close{theme.SEPARATOR}j/k scroll')

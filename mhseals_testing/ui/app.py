@@ -56,7 +56,7 @@ from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import authority_chip, graphics, feeds as feeds_module, layout, perception, popups, theme
+from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
@@ -810,7 +810,7 @@ class App:
     def dispatch(self, key):
         """Apply one key on the page."""
         if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
-            self.open('perception')
+            self.perception_popup(view=True)  # ui.md keymap camera: View already open
             return
         if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
             self.open('history')
@@ -1173,22 +1173,28 @@ class App:
             self.cursors['procedures'] = PROCEDURES.index(procedure)
             self.run_procedure(procedure)
 
-    def perception_popup(self):
+    def perception_popup(self, view=False):
         """V: the perception view of ``self.facts`` (filled by the perception probe).
 
-        ``v`` opens the camera view (its subscription exists only while it is open); Esc closes
-        the view first, then the popup. Closing, resizing and detaching delete the kitty image.
+        ``v`` opens the camera view (its subscription exists only while it is open); ``view=True``
+        opens it at once (ui.md keymap camera). Esc closes the view first, then the popup.
+        Closing, resizing and detaching delete the kitty image.
         """
         modal = perception.modal(self.facts)
-        state = dict(view=None, size=None)
+        state = dict(view=None, note='')
+        idle_hint = modal['hint']
 
         def refresh():  # the probe fills facts while the popup is open; scroll is kept
             modal['rows'] = perception.modal(self.facts)['rows']
-            view = state['view']
-            if view is not None:
-                size = (min(self.console.size.width - 8, 96), CAMERA_ROWS)
-                view.resize(size)
-                modal['body'] = Group(*view.lines(), Text(view.notice, style=theme.MUTED))
+            current = state['view']
+            if current is None:
+                modal['hint'] = idle_hint
+                if state['note']:
+                    modal['body'] = Text(state['note'], style=theme.MUTED)
+                return
+            current.resize((min(self.console.size.width - 8, 96), CAMERA_ROWS))
+            modal['hint'] = theme.SEPARATOR.join(('Esc close view', camera_view.KEYS_HINT))
+            modal['body'] = Group(*current.lines(), Text(current.status(), style=theme.MUTED))
 
         def close_view():
             if state['view'] is not None:
@@ -1196,29 +1202,38 @@ class App:
                 state['view'] = None
                 modal.pop('body', None)
 
+        def open_view():
+            feed = self.camera_feed()
+            if feed is None:
+                state['note'] = 'camera view needs a ROS node (none in this session)'
+                self.notice = state['note']
+                return
+            state['note'] = ''
+            reader = self.keys
+            state['view'] = CameraView(
+                feed, (1, CAMERA_ROWS), self.write_terminal,
+                kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
+                                             getattr(reader, 'xtversion', None)),
+                save_dir=self.paths.runs.with_suffix('.snapshots'), detections=self.camera_detections)
+
         def handle(key):
-            view = state['view']
-            if view is not None and view.key(key):  # raw: d and D differ
+            current = state['view']
+            if current is not None and current.key(key):  # raw: d and D differ
                 return None
             key = fold(key)
             if self.scroll(modal, key, ('k', 'j')):
                 return None
             if key == 'v':
-                if view is None and (feed := self.camera_feed()) is not None:
-                    reader = self.keys
-                    state['view'] = CameraView(
-                        feed, (1, CAMERA_ROWS), self.write_terminal,
-                        kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
-                                                     getattr(reader, 'xtversion', None)),
-                        save_dir=self.paths.journal.parent, detections=self.camera_detections)
-                else:
-                    close_view()
+                close_view() if current is not None else open_view()
             elif key in ('escape', 'q'):
-                if view is not None and key == 'escape':
+                if current is not None and key == 'escape':
                     close_view()
                 else:
                     return True
         try:
+            if view:
+                open_view()
+                refresh()
             self.popup(modal, handle, refresh)
         finally:
             close_view()

@@ -43,7 +43,7 @@ def draw(width, height=40, **kwargs):
 def test_popup_shows_each_section_at_100_columns():
     text = draw(100)
     for want in ('Perception', 'legacy_zed', 'camera 4.8', 'p50 231', 'p95 312', 'clock -4 ms',
-                 'infer 188 ms', 'ingest 1', 'nodes 4/4', 'red_buoy', '1.9/s', '41%',
+                 'infer 188 ms', 'ingest 1', 'nodes 4/4', 'red_buoy', '1.9/s', '41%', 'v view',
                  '4 not seen', 'a_pole, black_buoy, blue_buoy', 'Esc close'):
         assert want in text, want
     assert text.index('red_buoy') < text.index('green_buoy')   # busiest class first
@@ -69,11 +69,11 @@ def test_no_facts_says_so_and_unknown_source_is_empty():
 
 def test_capital_v_opens_the_popup_and_lowercase_keeps_results_log():
     seen = []
-    host = SimpleNamespace(perception_popup=lambda: seen.append('popup'), activity='results', review=None)
+    host = SimpleNamespace(perception_popup=lambda view=False: seen.append('popup'), activity='results', review=None)
     host.open = lambda action: app.App.open(host, action)
     app.App.dispatch(host, 'V')
     assert seen == ['popup']
-    host = SimpleNamespace(perception_popup=lambda: seen.append('popup'), activity='results',
+    host = SimpleNamespace(perception_popup=lambda view=False: seen.append('popup'), activity='results',
                            focus='activity', cursors={'activity': 3}, panels=lambda: ['activity'],
                            review=None, manual=False, tab='Drive')
     host.open = lambda action: app.App.open(host, action)
@@ -166,9 +166,52 @@ def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
         seen.append(handle_result)
     host = SimpleNamespace(
         facts={}, scroll=app.App.scroll, popup=popup, write_terminal=written.append,
-        keys=SimpleNamespace(graphics=True, xtversion='kitty(0.35)'), paths=SimpleNamespace(journal=tmp_path / 'j'),
+        keys=SimpleNamespace(graphics=True, xtversion='kitty(0.35)'), paths=SimpleNamespace(runs=tmp_path / 'x.runs'),
         camera_detections=lambda size, floor: [],
         camera_feed=lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe))
     app.App.perception_popup(host)
     assert seen[:4] == [1, 1, 0, 1] and seen[4] == [None, True]    # v opens, v closes, v reopens; Esc closes the view, then the popup
     assert not bus.live
+
+
+def view_host(bus, tmp_path, popup, feed=True):
+    return SimpleNamespace(
+        facts={}, scroll=app.App.scroll, popup=popup, write_terminal=lambda text: None, notice='',
+        keys=SimpleNamespace(graphics=False), paths=SimpleNamespace(runs=tmp_path / 'x.runs'),
+        console=SimpleNamespace(size=SimpleNamespace(width=60)), camera_detections=lambda size, floor: [],
+        camera_feed=(lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe)) if feed else (lambda: None))
+
+
+def test_view_lists_its_keys_and_status_and_v_without_a_node_says_so(tmp_path):
+    bus = Bus()
+    shown = {}
+
+    def popup(modal, handle, refresh=None):
+        shown['hint'] = modal['hint']
+        handle('v')
+        refresh()
+        shown['hint_open'], shown['body'] = modal['hint'], modal['body']
+        handle('escape')
+        shown['closed'] = 'body' not in modal
+    app.App.perception_popup(view_host(bus, tmp_path, popup))
+    assert 'v view' in shown['hint'] and shown['closed']
+    for want in ('d boxes', 'D floor', 'f freeze', 's save', '+- rate'):
+        assert want in shown['hint_open']
+    assert '1 Hz' in shown['body'].renderables[-1].plain
+
+    host = view_host(bus, tmp_path, lambda modal, handle, refresh=None: (handle('v'), refresh(), shown.update(
+        body=modal['body'])), feed=False)
+    app.App.perception_popup(host)
+    assert 'needs a ROS node' in host.notice and 'needs a ROS node' in shown['body'].plain
+
+
+def test_capital_v_opens_the_popup_with_the_view_already_open(tmp_path):
+    bus = Bus()
+    seen = []
+    host = view_host(bus, tmp_path, lambda modal, handle, refresh=None: seen.append(len(bus.live)))
+    app.App.perception_popup(host, view=True)
+    assert seen == [1] and not bus.live                             # open inside the popup, released after
+    calls = []
+    outer = SimpleNamespace(perception_popup=lambda view=False: calls.append(view), review=None)
+    app.App.dispatch(outer, 'V')
+    assert calls == [True]
