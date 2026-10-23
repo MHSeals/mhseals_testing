@@ -11,7 +11,7 @@ def test_battery_levels(percentage, level):
 
 
 def test_battery_treats_fcu_unknowns_as_absent():
-    assert health.battery(12.4, -0.0099999998) == ('OK', '12.4 V (no charge estimate)')
+    assert health.battery(15.2, -0.0099999998) == ('OK', '15.2 V (no charge estimate)')
     assert health.battery(65.535, -0.0099999998) == ('N/A', 'no battery data')
     assert health.battery(65.535, .8) == ('OK', 'no voltage, 80%')
 

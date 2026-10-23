@@ -17,6 +17,8 @@ from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 from mhseals_testing.ros.arming import DRIVER
 
 BATTERY_WARN, BATTERY_FAIL = 0.30, 0.15     # remaining fraction
+PACK_CELLS, CELL_WARN = 4, 3.3                 # assumed pack; volts per cell under which it is low
+CURRENT_MIN = 0.05                          # amps; below this the coulomb-counted percentage is stale
 VOLTAGE_ABSENT = 65.5                       # volts; MAVLink UINT16_MAX reads 65.535
 CLOCK_FAIL = 60.0                           # seconds: far past sync error, e.g. replaying an old bag
 CLOCK_WARN = 0.5                           # seconds between sender stamp and our clock
@@ -24,17 +26,26 @@ LOAD_WARN, TEMP_WARN, TEMP_FAIL = 0.9, 75.0, 85.0
 DISK_WARN, DISK_FAIL = 5e9, 1e9             # bytes free where the bag is written
 
 
-def battery(voltage, percentage):
+def battery(voltage, percentage, current=math.nan):
     """``percentage`` is 0..1; the FCU's "unknown" arrives as NaN or a small negative (-1 %).
 
     MAVLink's UINT16_MAX "no voltage" arrives as 65.535 V and counts as absent.
+    The FCU percentage is a coulomb count, so with no measured current it never
+    drops and is ignored; the voltage is then judged against the pack's cell count.
     """
-    volts = f'{voltage:.1f} V' if math.isfinite(voltage) and voltage < VOLTAGE_ABSENT else None
+    present = math.isfinite(voltage) and voltage < VOLTAGE_ABSENT
+    volts = f'{voltage:.1f} V' if present else None
+    if math.isfinite(current) and abs(current) < CURRENT_MIN:
+        percentage = math.nan
+    low = present and voltage < PACK_CELLS * CELL_WARN
+    note = f' (low for {PACK_CELLS}S)' if low else ''
     if not math.isfinite(percentage) or percentage < 0:
-        return ('OK', f'{volts} (no charge estimate)') if volts else ('N/A', 'no battery data')
+        if not volts:
+            return 'N/A', 'no battery data'
+        return ('WARN' if low else 'OK'), f'{volts}{note} (no charge estimate)'
     level = ('FAIL' if percentage < BATTERY_FAIL else
-             'WARN' if percentage < BATTERY_WARN else 'OK')
-    return level, f'{volts or "no voltage"}, {percentage:.0%}'
+             'WARN' if percentage < BATTERY_WARN or low else 'OK')
+    return level, f'{volts or "no voltage"}{note}, {percentage:.0%}'
 
 
 def flight_controller(connected, armed, mode):
