@@ -1,4 +1,5 @@
 import io
+import re
 
 import pytest
 from rich.console import Console
@@ -278,3 +279,14 @@ def test_odroid_thrusters_and_motion_read_whole_with_unavailable_readback(width,
     lines = page.splitlines()
     top = ''.join(lines[:next(i for i, line in enumerate(lines) if 'Procedures' in line)])
     assert '…' not in top and ('n/a' in top) == (width >= 106)  # narrower folds the Pin column away
+
+
+@pytest.mark.parametrize('width', [106, 108, 110])
+def test_motion_rows_read_whole_with_a_full_trend_history(width):
+    profile = load_profile('boat')
+    snapshot = monitor().snapshot(profile.required_tf)
+    snapshot['trends'] = {key: [i / 10 for i in range(12)] for key in ('vx', 'vy', 'wz')}
+    page = text(render(snapshot, view(profile, pwm_readback=['unavailable'] * 4), width, 34), width, 34)
+    rows = [line for line in page.splitlines() if re.search(r'\b(Surge|Sway|Yaw) +[+-]', line)]
+    assert len(rows) == 3
+    assert all('…' not in line and re.search(r'\b(m|rad)/s\b', line) for line in rows)

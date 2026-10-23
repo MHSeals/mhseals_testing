@@ -246,7 +246,8 @@ def motion_panel(snapshot, view):
     values = measured.get('values', {})
     table = theme.grid('', {'header': 'Cmd', 'justify': 'right'},
                        {'header': 'Meas', 'justify': 'right'}, {'header': '', 'style': MUTED},
-                       'Trend', padding=(0, 1))
+                       {'header': 'Trend', 'no_wrap': False, 'overflow': 'crop'},  # shrinks first
+                       padding=(0, 1))
     for axis, key, unit in (('Surge', 'vx', 'm/s'), ('Sway', 'vy', 'm/s'), ('Yaw', 'wz', 'rad/s')):
         command = view['command'][('vx', 'vy', 'wz').index(key)]
         table.add_row(axis, f'{command:+.0%}' if effort else f'{command:+.2f}',
