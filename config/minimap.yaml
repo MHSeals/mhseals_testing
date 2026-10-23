@@ -1,0 +1,19 @@
+# Map object classes: label -> glyph, ASCII fallback, palette token, radius and legend name.
+# The ASCII letter doubles as the label code. Glyphs and letters are unique per class.
+# A new class for a new year is an entry here; a label not listed falls back to `unknown`.
+classes:
+  red_pole_buoy:      {glyph: "▲", ascii: R, colour: obj.red,    radius: 0.25, name: red pole}
+  red_buoy:           {glyph: "▴", ascii: r, colour: obj.red,    radius: 0.20, name: red round}
+  red_light_buoy:     {glyph: "▼", ascii: L, colour: obj.red,    radius: 0.25, name: red light}
+  green_pole_buoy:    {glyph: "■", ascii: G, colour: obj.green,  radius: 0.25, name: green pole}
+  green_buoy:         {glyph: "▪", ascii: g, colour: obj.green,  radius: 0.20, name: green round}
+  green_light_buoy:   {glyph: "⊠", ascii: l, colour: obj.green,  radius: 0.25, name: green light}
+  yellow_buoy:        {glyph: "●", ascii: y, colour: obj.yellow, radius: 0.20, name: yellow}
+  black_buoy:         {glyph: "○", ascii: k, colour: obj.black,  radius: 0.20, name: black}
+  blue_buoy:          {glyph: "◉", ascii: b, colour: obj.blue,   radius: 0.30, name: blue mark}
+  yellow_target_boat: {glyph: "◆", ascii: Y, colour: obj.yellow, radius: 0.60, name: yellow boat}
+  black_target_boat:  {glyph: "◇", ascii: K, colour: obj.black,  radius: 0.60, name: black boat}
+  black_triangle:     {glyph: "△", ascii: t, colour: obj.black,  radius: 0.30, name: black tri}
+  black_cross:        {glyph: "⊕", ascii: x, colour: obj.black,  radius: 0.30, name: black cross}
+
+unknown: {glyph: "?", ascii: "?", colour: obj.unknown, radius: 0.20, name: unknown}
