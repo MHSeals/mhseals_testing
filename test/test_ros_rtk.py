@@ -127,3 +127,25 @@ def test_replacement_publisher_is_warned_after_count_changes():
     node.others = [SimpleNamespace(node_name='second', node_namespace='/')]
     send(bytes(8), 100.)
     assert len(node.logger.warnings) == 2 and 'second' in node.logger.warnings[1]
+
+
+def test_status_publisher_is_latched_json_and_the_entry_point_imports():
+    import json
+    from mhseals_testing.ros.rtk import StatusPublisher, serve
+    from mhseals_testing.rtk import main
+    node = FakeNode()
+    node.create_timer = lambda period, callback: SimpleNamespace(period=period, callback=callback)
+    node.create_publisher = lambda kind, topic, qos: (setattr(node, 'qos', qos), setattr(node, 'topic', topic),
+                                                      SimpleNamespace(publish=node.published.append))[2]
+    status = StatusPublisher(node, SimpleNamespace(status=lambda: dict(schema='mhseals.rtk_status/1', age=0.4)))
+    assert node.topic == '/mhseals_testing/rtk/status' and status.timer.period == 1.0
+    assert node.qos.durability.name == 'TRANSIENT_LOCAL'
+    status.timer.callback()
+    assert json.loads(node.published[0].data) == dict(schema='mhseals.rtk_status/1', age=0.4)
+    assert callable(serve) and callable(main)
+
+
+def test_sink_tracks_bytes_and_the_last_frame_time():
+    send = sink(FakeNode(), now=100.)
+    send(bytes(100), 99.9)
+    assert send.bytes == 100 and send.last == 100.

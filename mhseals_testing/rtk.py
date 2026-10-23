@@ -5,6 +5,7 @@ its sinks. The receiver is configured only when the operator asks for a survey
 or a known position; a reconnect polls the receiver and resumes instead.
 """
 
+import argparse
 from copy import deepcopy
 import math
 import os
@@ -433,3 +434,105 @@ class BaseSession:
                 return
         if not self.stopped.is_set():
             raise RuntimeError(f'no receiver acknowledgement for {command.identity}')
+
+
+# --- rtk_base: console entry point and the status document (no ROS imports) ---
+
+STATUS_SCHEMA = 'mhseals.rtk_status/1'
+BASE_VIEW = dict(off='none', idle='none', error='none', connecting='identifying',
+                 configuring='identifying', surveying='surveying', ready='streaming', fixed='streaming')
+
+
+class StatusTracker:
+    """Builds the 1 Hz status dict from a BaseSession and the MAVROS sink's counters.
+
+    `sink` needs `.counts` (sent/stale), `.bytes` and `.last` (monotonic stamp of the last
+    frame published, or None); `pubs` is a callable returning the RTCM publisher count.
+    """
+
+    def __init__(self, session, sink, pubs=lambda: 1, clock=time.monotonic):
+        self.session, self.sink, self.pubs, self.clock = session, sink, pubs, clock
+        self.mark = (clock(), 0, 0)
+        self.first_accuracy = None
+        self.drops = []             # stamps of stale drops, to count the last 60 s
+        self.stale = 0
+
+    def status(self):
+        now, state = self.clock(), self.session.snapshot()
+        sent, size = self.sink.counts['sent'], self.sink.bytes
+        then, sent0, size0 = self.mark
+        span = max(now - then, 1e-6)
+        rates = dict(frames_per_s=round((sent - sent0) / span, 2), bytes_per_s=round((size - size0) / span))
+        self.mark = (now, sent, size)
+        self.drops += [now] * (self.sink.counts['stale'] - self.stale)
+        self.stale = self.sink.counts['stale']
+        self.drops = [t for t in self.drops if now - t <= 60]
+        last = self.sink.last
+        return dict(schema=STATUS_SCHEMA, base=BASE_VIEW.get(state['phase'], 'none'), phase=state['phase'],
+                    detail=state['detail'], model=state['model'], satellites=state['base_satellites'],
+                    **self._survey(state), base_position=state['base_position'], base_ecef=self._ecef(state['base_position']),
+                    age=None if last is None else round(max(now - last, 0.0), 2),
+                    drops=len(self.drops), pubs=self.pubs(), rates=rates,
+                    frames=dict(received=state['received'], delivered=state['delivered'],
+                                errors=state['errors'], oversize=self.sink.counts['oversize']))
+
+    @staticmethod
+    def _ecef(position):
+        if not position:
+            return None
+        from mhseals_testing.analysis import geo
+        return [round(v, 3) for v in geo.ecef(position['latitude'], position['longitude'], position['height'])]
+
+    def _survey(self, state):
+        """RtkView survey fields (fraction, limit, left, acc, target) plus the raw NAV-SVIN under `svin`."""
+        survey = state['survey']
+        if not survey:
+            self.first_accuracy = None
+            return dict(survey=0.0, survey_limit='time', survey_left=None, survey_acc=None,
+                        survey_target=None, svin=None)
+        from mhseals_testing.ui.rtk_row import survey_fraction
+        # a0 (gps.md 7.3): worst accuracy in the first 10 s; a resumed survey already past that uses the first seen
+        if survey['accuracy'] and (not self.first_accuracy or survey['seconds'] <= 10):
+            self.first_accuracy = max(self.first_accuracy or 0.0, survey['accuracy'])
+        target, minimum = self.session.config['survey_accuracy'], self.session.config['survey_seconds']
+        seconds, acc, a0 = survey['seconds'], survey['accuracy'], self.first_accuracy
+        fraction = survey_fraction(seconds, minimum, acc, a0, target, survey['valid'])
+        f_acc = survey_fraction(0, 0, acc, a0, target, True)        # the accuracy term alone
+        svin = dict(seconds=seconds, min_seconds=minimum, accuracy=acc, observations=survey['observations'],
+                    valid=survey['valid'], active=survey['active'])
+        return dict(survey=round(fraction, 3), survey_limit='time' if seconds / minimum <= f_acc else 'accuracy',
+                    survey_left=max(minimum - seconds, 0), survey_acc=acc, survey_target=target, svin=svin)
+
+
+def parse(argv):
+    """argv -> (config, survey, position); ValueError on a bad config or an unknown position name."""
+    ap = argparse.ArgumentParser(prog='rtk_base', description='USB RTK base station: RTCM3 to MAVROS (and radio)')
+    ap.add_argument('port', nargs='?', help='serial device of the base receiver (default: config device)')
+    ap.add_argument('--config', help='settings YAML (default: $MHSEALS_RTK_CONFIG or ~/.config/mhseals_testing/rtk.yaml)')
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument('--survey', action='store_true', help='start a new survey-in')
+    mode.add_argument('--known', metavar='NAME', help='fix the base at a named position from the config')
+    mode.add_argument('--resume', action='store_true', help='adopt the receiver as it is (the default)')
+    args = ap.parse_args(argv)
+    config = load_config(args.config)
+    if args.port:
+        config['device'] = args.port
+    position = None
+    if args.known:
+        if args.known not in config['positions']:
+            raise ValueError(f'no known position {args.known!r}; have: ' + (', '.join(config['positions']) or 'none'))
+        position = config['positions'][args.known]
+    if not config['device']:
+        raise ValueError('no base receiver: pass a port or set device in the settings')
+    return config, args.survey, position
+
+
+def main(argv=None, serve=None):
+    """Run the base until interrupted. `serve(session, survey, position)` defaults to the ROS loop."""
+    try:
+        config, survey, position = parse(argv)
+    except ValueError as error:
+        raise SystemExit(f'rtk_base: {error}')
+    if serve is None:
+        from mhseals_testing.ros.rtk import serve
+    serve(config, survey, position)

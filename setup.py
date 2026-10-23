@@ -35,6 +35,7 @@ setup(
         'console_scripts': [
             'boat_test = mhseals_testing.ui.app:main',
             'boat_trial = mhseals_testing.harness.cli:main',
+            'rtk_base = mhseals_testing.rtk:main',
         ],
     },
 )

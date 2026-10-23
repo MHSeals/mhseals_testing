@@ -1,9 +1,13 @@
 """RTCM sink: one mavros_msgs/RTCM per base frame, published once with no acks."""
 
+import json
 import time
 
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from mavros_msgs.msg import RTCM
+from std_msgs.msg import String
+
+STATUS_TOPIC = '/mhseals_testing/rtk/status'
 
 # MAVROS fragments up to 4 x 180 B; a longer message is dropped on its side with an error.
 MAX_FRAME = 720
@@ -31,6 +35,7 @@ class MavrosSink:
             QoSProfile(depth=16, reliability=ReliabilityPolicy.RELIABLE))
         self.counts = dict(sent=0, stale=0, oversize=0, split=0)
         self.warned, self.count = None, 0
+        self.bytes, self.last = 0, None     # published payload bytes; clock stamp of the last frame
 
     def __call__(self, frame, stamp):
         n = self.node.count_publishers(self.topic)
@@ -56,6 +61,8 @@ class MavrosSink:
             message.data = list(part)
             self.publisher.publish(message)
         self.counts['sent'] += 1
+        self.bytes += len(frame)
+        self.last = self.clock()
 
     def check_owner(self, n):
         """Warn once per other live node publishing corrections; two senders interleave frames."""
@@ -77,3 +84,39 @@ class MavrosSink:
 
     def close(self):
         self.node.destroy_publisher(self.publisher)
+
+
+class StatusPublisher:
+    """Latched std_msgs/String JSON of StatusTracker.status() at 1 Hz."""
+
+    def __init__(self, node, tracker, topic=STATUS_TOPIC):
+        self.tracker = tracker
+        self.publisher = node.create_publisher(
+            String, topic, QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                                      durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.timer = node.create_timer(1.0, self.publish)
+
+    def publish(self):
+        self.publisher.publish(String(data=json.dumps(self.tracker.status())))
+
+
+def serve(config, survey=False, position=None):
+    """Own the node: session -> MavrosSink (+ Radio if configured), status at 1 Hz, until Ctrl-C."""
+    import rclpy
+    from mhseals_testing.rtk import BaseSession, Radio, StatusTracker
+    rclpy.init()
+    node = rclpy.create_node('rtk_base')
+    sink = MavrosSink(node)
+    sinks = [sink] + ([Radio(config['radio'], config['radio_baud'])] if config['radio'] else [])
+    session = BaseSession(sinks, config)
+    StatusPublisher(node, StatusTracker(session, sink, lambda: node.count_publishers(sink.topic)))
+    session.start(survey=survey, position=position)
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        session.close()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
