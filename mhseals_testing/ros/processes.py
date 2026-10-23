@@ -100,12 +100,24 @@ class ProcessManager:
 
 
 def unique_path(path):
-    """``path``, or ``path_01``, ``path_02``... if it already exists."""
-    path, candidate, index = Path(path), Path(path), 1
-    while candidate.exists():
-        candidate = path.with_name(f'{path.name}_{index:02d}')
+    """``path``, or ``path_01``, ``path_02``... if it is taken, claimed atomically.
+
+    ros2 bag only creates its directory later, so existence is no claim: two suites
+    started together would share one name. The session's ``logs/<name>`` directory is
+    created with mkdir, which fails for the second claimant, and the name is retried.
+    """
+    path, index = Path(path), 0
+    (path.parent / 'logs').mkdir(parents=True, exist_ok=True)
+    while True:
+        candidate = path if index == 0 else path.with_name(f'{path.name}_{index:02d}')
         index += 1
-    return candidate
+        if candidate.exists():
+            continue
+        try:
+            (path.parent / 'logs' / candidate.name).mkdir()
+            return candidate
+        except FileExistsError:
+            continue
 
 
 def bag_exclude_regex():
