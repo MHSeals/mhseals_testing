@@ -9,11 +9,15 @@ keep the meaning when colour is off. No ROS here.
 from dataclasses import dataclass
 from pathlib import Path
 
+from rich.text import Text
 import yaml
+
+from mhseals_testing.ui import theme
 
 FIELDS_FILE = Path(__file__).resolve().parents[2] / 'config' / 'history' / 'fields.yaml'
 OTHER = 'Other'
 _MISSING = object()
+_ASCII = str.maketrans({'⁺': '+', '⁻': '-', '·': '.', '←': '<', '→': '>', '•': '*', '−': '-'})
 
 
 @dataclass
@@ -28,6 +32,7 @@ class Row:
     path: str = ''
     note: str = ''
     grid: dict = None
+    choices: dict = None     # enum value -> name
 
 
 def load_fields(path=FIELDS_FILE):
@@ -82,7 +87,7 @@ def _rows(sub, path, old, new, spec, conf, fields, pins):
                 note = f'(pin {pins[a][0]} → {pins[b][0]})' if field.get('pins') and pins and a in pins and b in pins else ''
                 rows.append(Row(group, f'{fields["thrusters"][i]} {label}', a, b, unit, path=f'{key}[{i}]', note=note))
         return rows
-    return [Row(group, label, old, new, unit, path=key)]
+    return [Row(group, label, old, new, unit, path=key, choices=field.get('choices'))]
 
 
 def diff(sub, before, after, pins=None, fields=None):
@@ -111,3 +116,165 @@ def diff(sub, before, after, pins=None, fields=None):
     order = {name: i for i, name in enumerate(groups if isinstance(groups, list) else [])}
     rows.sort(key=lambda r: order.get(r.group, len(order)))      # stable: field order survives inside a group
     return rows
+
+
+def glyphs(ascii_):
+    """(arrow, left arrow, changed mark, removed mark) for the glyph set."""
+    return ('->', '<-', '*', '-') if ascii_ else ('→', '←', '•', '−')
+
+
+def _number(before, after):
+    """Both numbers with the fewest significant digits (from 3) that tell them apart."""
+    for sig in range(3, 10):
+        a, b = f'{before:.{sig}g}', f'{after:.{sig}g}'
+        if a != b:
+            break
+    return a, b
+
+
+def _is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _text(value, choices=None):
+    if isinstance(value, bool):
+        return 'yes' if value else 'no'
+    if value is None:
+        return 'none'
+    if choices and value in choices:
+        return str(choices[value])
+    return f'{value:.6g}' if _is_num(value) else str(value)
+
+
+def _change(row):
+    """('before', 'after') as words; numbers get just enough digits to differ."""
+    if _is_num(row.before) and _is_num(row.after):
+        return _number(row.before, row.after)
+    return _text(row.before, row.choices), _text(row.after, row.choices)
+
+
+def _block(title, grid, values, marks, mark, cw):
+    """One labelled grid as Text lines: title, column heads, then a row per line; ``marks`` get bold yellow."""
+    rows, cols = grid['rows'], grid['cols']
+    rl = max(map(len, rows)) + 2
+    lines = [Text(' ' * (rl + 1) + title, style='dim'),
+             Text(' ' * rl + ''.join((' ' + c).ljust(cw) for c in cols), style='dim')]
+    for r, name in enumerate(rows):
+        line = Text(name.ljust(rl))
+        for c, value in enumerate(values[r]):
+            changed = marks[r][c]
+            line.append(((mark if changed else ' ') + value).ljust(cw), style='bold yellow' if changed else '')
+        lines.append(line)
+    return lines
+
+
+def _matrix(row, width, ascii_):
+    arrow, left, mark, _ = glyphs(ascii_)
+    grid = row.grid
+    changed = [[a != b for a, b in zip(x, y)] for x, y in zip(grid['before'], grid['after'])]
+    digits = 3
+    while digits < 6 and any(f'{a:.{digits}f}' == f'{b:.{digits}f}' for xs, ys, cs in
+                             zip(grid['before'], grid['after'], changed) for a, b, c in zip(xs, ys, cs) if c):
+        digits += 1
+    fmt = [[[f'{v:.{digits}f}' for v in line] for line in grid[side]] for side in ('before', 'after')]
+    none = [[False] * len(grid['cols']) for _ in grid['rows']]
+    cw = max(len(v) for side in fmt for line in side for v in line) + 3
+    before = _block('before', grid, fmt[0], none, mark, cw)
+    after = _block('after', grid, fmt[1], changed, mark, cw)
+    out = [Text(row.label, style='bold')]
+    if row.note:
+        out[0].append(f'  ({row.note})', style='dim')
+    block = before[2].cell_len
+    if 2 + 2 * block + 4 <= width:
+        out += [Text('  ') + b + Text(' ' * (block - b.cell_len + 4)) + a for b, a in zip(before, after)]
+    else:
+        out += [Text('  ') + line for line in before + after]
+    notes = []
+    for r, line in enumerate(changed):
+        for c, hit in enumerate(line):
+            if hit:
+                was, now = _number(grid['before'][r][c], grid['after'][r][c])
+                notes.append(Text(f'{grid["rows"][r]} {left} {grid["cols"][c]}  {was} {arrow} ') .append(now, style='bold'))
+    return out + _wrap(notes, width)
+
+
+def _wrap(items, width):
+    """Pieces joined by ' · ' onto lines of at most ``width``, indented two spaces."""
+    lines, cur = [], Text('  ')
+    for item in items:
+        if cur.cell_len > 2 and cur.cell_len + 3 + item.cell_len > width:
+            lines.append(cur)
+            cur = Text('  ')
+        if cur.cell_len > 2:
+            cur.append(' · ', style='dim')
+        cur.append_text(item)
+    return lines + [cur] if cur.cell_len > 2 else lines
+
+
+def render(rows, width=80, *, meta='', ascii_=None):
+    """The rows as a Rich Text for ``width`` columns; ``meta`` sits at the right of the first heading."""
+    ascii_ = theme.ASCII if ascii_ is None else ascii_
+    arrow, _, _, minus = glyphs(ascii_)
+    if not rows:
+        return Text('no differences', style='dim')
+    plain = [r for r in rows if r.kind == 'change']
+    lw = min(max((len(r.label) for r in plain), default=0) + 2, 26)
+    vw = max((len(' '.join(_change(r)[:1] + (arrow,) + _change(r)[1:])) + len(r.unit) + bool(r.unit) for r in plain), default=0)
+    out, group = [], None
+    for row in rows:
+        if row.group != group:
+            group = row.group
+            if row.kind != 'matrix':                  # a matrix title is its own heading
+                out.append(Text(group, style='bold'))
+        if row.kind == 'matrix':
+            out += _matrix(row, width, ascii_)
+        elif row.kind in ('added', 'removed'):
+            sign = '+' if row.kind == 'added' else minus
+            value = _text(row.after if row.kind == 'added' else row.before)
+            out.append(Text(f'  {sign} {row.label}  {value}' + (f' {row.unit}' if row.unit else ''), style='dim'))
+        else:
+            before, after = _change(row)
+            unit = f' {row.unit}' if row.unit else ''
+            line = Text('  ' + row.label.ljust(lw))
+            line.append(before).append(f' {arrow} ', style='dim').append(after + unit, style='bold')
+            line.append(' ' * (vw - len(before) - len(after) - len(unit) - len(arrow) - 2))
+            if row.note:
+                line.append('  ' + row.note.replace('→', arrow), style='dim')
+            if line.cell_len > width:                 # too narrow for one line: value goes below the label
+                out.append(Text('  ' + row.label))
+                line = Text('    ' + before).append(f' {arrow} ', style='dim').append(after + unit, style='bold')
+                if row.note:
+                    line.append('  ' + row.note.replace('→', arrow), style='dim')
+            out.append(line)
+    if meta:                                       # right-aligned on the first heading
+        out[0].append(' ' * max(2, width - out[0].cell_len - len(meta)) + meta, style='dim')
+    for line in out:
+        line.rstrip()
+    result = Text('\n').join(out)
+    if ascii_:                                      # one character each, so the styled spans stay put
+        result.plain = result.plain.translate(_ASCII)
+    return result
+
+
+def auto_name(change, rows=(), target=None, ascii_=None):
+    """The dim name shown until a person sets one: the first two rows, or what kind of change it was."""
+    ascii_ = theme.ASCII if ascii_ is None else ascii_
+    arrow, *_ = glyphs(ascii_)
+    source = change.get('source', '')
+    if source == 'external':
+        return 'changed outside boat_test'
+    if change.get('revert_of'):
+        was = f' "{target["name"]}"' if target and target.get('name') else ''
+        return f'{"<-" if ascii_ else "↶"} revert to {change["revert_of"]}{was}'
+    if source.endswith('characterize'):
+        return 'characterize fit'
+    names = []
+    for row in rows[:2]:
+        if row.kind != 'change':
+            names.append(row.label)
+        elif isinstance(row.before, bool):
+            names.append(row.label)
+        else:
+            before, after = _change(row)
+            names.append(f'{row.label} {before}{arrow}{after}')
+    return ', '.join(names)

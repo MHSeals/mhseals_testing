@@ -1,0 +1,3 @@
+Controller                                                                                   hardware · tui:pins · c0142
+  FollowPath · vx_max  0.4 → 0.38 m/s
+  FollowPath · wz_max  1.2 → 0.9 rad/s
