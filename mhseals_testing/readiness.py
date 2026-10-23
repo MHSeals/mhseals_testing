@@ -30,7 +30,21 @@ def motion_blockers(snapshot, profile, bench_override=False):
     return blockers
 
 
+# Advisories fed by subscriptions rather than polled: nothing refreshes them
+# when the publisher dies, so their age decides whether they still count.
+SUBSCRIBED = ('flight controller', 'battery')
+STALE_AFTER = 3.0
+
+
 def advisories(snapshot, order=('FAIL', 'WARN', 'N/A', 'OK')):
-    """Advisory rows, worst first: (name, level, detail). Never consulted for interlocks."""
-    rows = [(name, row['level'], row['detail']) for name, row in snapshot['advisories'].items()]
+    """Advisory rows, worst first: (name, level, detail). Never consulted for interlocks.
+
+    A subscription-fed row older than STALE_AFTER seconds is shown N/A, not its last verdict.
+    """
+    rows = []
+    for name, row in snapshot['advisories'].items():
+        if name in SUBSCRIBED and row.get('age', 0) > STALE_AFTER:
+            rows.append((name, 'N/A', f"stale ({row['age']:.0f}s)"))
+        else:
+            rows.append((name, row['level'], row['detail']))
     return sorted(rows, key=lambda row: (order.index(row[1]), row[0]))

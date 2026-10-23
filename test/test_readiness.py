@@ -41,3 +41,17 @@ def test_advisories_never_block_and_sort_worst_first():
     snapshot = monitor.snapshot(profile.required_tf)
     assert motion_blockers(snapshot, profile) == []
     assert [name for name, _, _ in advisories(snapshot)] == ['battery', 'cpu', 'clock']
+
+
+def test_subscribed_advisories_go_stale_but_polled_ones_do_not():
+    now = [1]
+    monitor = BoatMonitor(clock=lambda: now[0])
+    monitor.advise('flight controller', 'OK')
+    monitor.advise('battery', 'WARN', 'low')
+    monitor.advise('clock', 'OK')
+    assert dict((n, l) for n, l, _ in advisories(monitor.snapshot()))['flight controller'] == 'OK'
+    now[0] += 5
+    rows = {name: (level, detail) for name, level, detail in advisories(monitor.snapshot())}
+    assert rows['flight controller'] == ('N/A', 'stale (5s)')
+    assert rows['battery'][0] == 'N/A'
+    assert rows['clock'][0] == 'OK'
