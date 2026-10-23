@@ -143,6 +143,7 @@ HELP = [
     ('Thrusters s / u', 'Save the draft to the config (hot-reloaded) / undo it'),
     ('Thrusters p', 'Edit the PWM pins and MOSFET line; applied live, refused while armed'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
+    ('Thrusters c', 'Clear the fitted decoupling (asks first)'),
     ('Activity v', 'Switch between results and the event log'),
     ('q', 'Quit: neutral, disarm, flush the bag'),
 ]

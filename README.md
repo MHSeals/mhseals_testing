@@ -63,7 +63,7 @@ For `pair_test` or `circle_test`, use this package's `config/courses/<task>.json
 
 ### Data
 
-Records go under one data root: `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory ([docs/data.md](docs/data.md)). Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events latched on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed. Sessions are the flat layout in [docs/data.md](docs/data.md); the report and bag name are the session identity.
+Records go under one data root: `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory ([docs/data.md](docs/data.md)). Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events latched on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed.
 
 ### Health
 
