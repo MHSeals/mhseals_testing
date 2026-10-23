@@ -37,17 +37,19 @@ def label(size):
     return f'{size / 60:g}m'
 
 
-def status(play, t0, end, size, speed=1.0, playing=True, note=None, fmt=clock):
+def status(play, t0, end, size, speed=1.0, playing=True, note=None, fmt=clock,
+           ascii_mode=None):
     """Status line: rate, position over length, an optional note, loupe size."""
+    ascii_ = theme.ASCII if ascii_mode is None else ascii_mode
     total = int(end - t0)
     length = f'{total // 3600}h{total // 60 % 60:02d}' if total >= 3600 else f'{total // 60}m'
-    parts = [f'{"▶" if playing else "⏸"} {speed:g}×' if not theme.ASCII
+    parts = [f'{"▶" if playing else "⏸"} {speed:g}×' if not ascii_
              else f'{">" if playing else "|"} {speed:g}x',
              f'{fmt(play)} / {length}']
     if note:
         parts.append(note)
     parts.append(f'loupe {label(size)}')
-    return Text((' | ' if theme.ASCII else ' · ').join(parts), no_wrap=True)
+    return Text((' | ' if ascii_ else ' · ').join(parts), no_wrap=True)
 
 
 def footer(width, t0, end, play, size, spans=(), points=(), bands=(), armed=(), holds=(),
@@ -60,7 +62,7 @@ def footer(width, t0, end, play, size, spans=(), points=(), bands=(), armed=(), 
     lines = rows(axis, spans=spans, points=points, armed=armed, holds=holds, bands=bands,
                  form='footer', fmt=fmt, ascii_mode=ascii_mode, color=color,
                  window=window, play=play)
-    status_line = status(play, t0, end, size, fmt=fmt, **status_args)
+    status_line = status(play, t0, end, size, fmt=fmt, ascii_mode=ascii_mode, **status_args)
     status_line.truncate(width, overflow='crop')
     status_line.pad_right(width - status_line.cell_len)
     return lines + [status_line]

@@ -68,3 +68,8 @@ def test_loupe_clamps_to_the_session_and_z_cycles():
     assert sizes == [720.0, 1800.0, 120.0, 720.0]
     axis = scrubber.loupe_axis(PLAY, 720.0, T0, END, 48)
     assert axis.folds == [] and axis.scale == 15.0
+
+
+def test_forced_ascii_footer_has_ascii_status():
+    lines = scrubber.footer(78, 0, 3600, 1800, 720, ascii_mode=True)
+    assert '·' not in lines[-1].plain and '▶' not in lines[-1].plain
