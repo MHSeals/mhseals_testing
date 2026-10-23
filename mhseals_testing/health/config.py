@@ -263,7 +263,7 @@ def _regex_fields(params):
     return [getattr(params, name) for name in ('pattern', 'match') if hasattr(params, name)]
 
 
-def lint(specs, procedures=(), unmatched=(), probes=None):
+def lint(specs, procedures=None, unmatched=(), probes=None):
     """Problems in loaded specs as strings; empty when the files are sound.
 
     ``procedures`` are the real procedure keys that ``gates`` may name (None

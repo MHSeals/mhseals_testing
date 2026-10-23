@@ -4,7 +4,7 @@ min_window_s: 4         # shortest window kept after a coast
 batch_s: 4              # sub-batch length for the spectral level
 coast: {min_s: 2, t95_mult: 1.33, settle_sigma: 2, max_drop: 2}
 neutral: {vel_acc_max: 0.3, yaw_rate_max: 0.05, coverage: 0.8, max_gap_s: 0.5}
-drift: {trend_z: 3, change_chi2: 13.8, practical: 0.02, corr_max: 0.6}   # practical: m/s a step or trend must reach to count (tau_d)
+drift: {trend_z: 3, change_chi2: 13.8, practical: 0.02, corr_max: 0.6, stale_s: 600}   # practical: m/s a step or trend must reach to count (tau_d); stale_s: samples older than this leave the live ring
 noise: {s0_floor: 2.0e-6}   # m^2/s: white noise of the 1 cm/s GPS velocity step at 5 Hz (0.01^2/12/5); keeps a noise-free sim from giving S0 = 0
 verdict: {good: {ceiling: 0.90, drift_trust: 0.80}, poor: {ceiling: 0.60, drift_trust: 0.50}}   # below poor blocks, below good warns
 tolerance: {psi: 0.015, ell: 0.10}   # trust tolerances (thrust spec 2): gyro rad/s per m/s for translations, rotation-centre offset m for yaw rows

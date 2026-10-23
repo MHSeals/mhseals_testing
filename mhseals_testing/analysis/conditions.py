@@ -31,6 +31,7 @@ class Settings:
     drift_change_chi2: float
     drift_corr_max: float
     drift_practical: float
+    drift_stale_s: float
     noise_s0_floor: float
 
 
