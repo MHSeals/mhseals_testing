@@ -1,0 +1,12 @@
+schema: mhseals.challenge/1
+name: docking
+title: Docking
+kind: dock
+tree: docking
+time_limit: 240.0
+judge:
+  hold_s: 5.0
+  wrong_s: 1.0
+  facing_deg: 30.0
+  margin: 0.3
+  banner: blue_square   # the day's banner (course.day.docking.banner) overrides this

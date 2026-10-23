@@ -96,15 +96,15 @@ def circled(track, centre, radius=8.0):
     return abs(math.degrees(swept))
 
 
-def held_in_bay(track, bay, seconds):
+def held_in_bay(track, bay, seconds, facing_deg=30.0, margin=0.3):
     """Longest stay (s) with the boat's centre inside the bay, facing into it."""
     c, s = math.cos(bay['yaw']), math.sin(bay['yaw'])
     best, since = 0.0, None
     for t, x, y, yaw in track:
         dx, dy = x - bay['x'], y - bay['y']
         along, across = c * dx + s * dy, -s * dx + c * dy
-        facing = math.cos(yaw - (bay['yaw'] + math.pi)) > math.cos(math.radians(30))
-        inside = abs(along) <= bay['depth'] / 2 + 0.3 and abs(across) <= bay['width'] / 2
+        facing = math.cos(yaw - (bay['yaw'] + math.pi)) > math.cos(math.radians(facing_deg))
+        inside = abs(along) <= bay['depth'] / 2 + margin and abs(across) <= bay['width'] / 2
         if inside and facing:
             since = t if since is None else since
             best = max(best, t - since)

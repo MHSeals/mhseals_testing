@@ -10,10 +10,15 @@ from mhseals_testing.referee import pack
 NAV_TASKS = Path(os.environ.get('MHSEALS_NAV', Path(__file__).resolve().parents[2] / 'mhseals_nav')) / 'config' / 'tasks'
 
 
-def test_every_challenge_file_loads_with_a_kind_that_exists():
-    files = sorted(pack.CHALLENGE_DIR.glob('*/*.yaml'))
-    specs = [pack.load_spec(f) for f in files if f.name != 'pack.yaml']
-    assert specs and all(s.kind in pack.kinds() for s in specs)
+@pytest.mark.parametrize('name', ['2025', 'commissioning'])
+def test_shipped_packs_load(name):
+    loaded = pack.load(name)
+    assert loaded.challenges and all(s.kind in pack.kinds() for s in loaded.challenges.values())
+
+
+def test_the_2025_pack_has_the_five_tasks_in_order():
+    assert list(pack.load('2025').challenges) == [
+        'nav_channel', 'follow_path', 'docking', 'speed_challenge', 'return_home']
 
 
 def bad(tmp_path, **changes):
@@ -49,9 +54,7 @@ def nav_view(spec):
     return view
 
 
-CHALLENGES = [(f.parent.name, pack.load_spec(f)) for f in sorted(pack.CHALLENGE_DIR.glob('*/*.yaml'))
-              if f.name != 'pack.yaml']
-CHALLENGES = [(n, s) for n, s in CHALLENGES if s.tree]
+CHALLENGES = [(n, s) for n in ('2025', 'commissioning') for s in pack.load(n).challenges.values() if s.tree]
 
 
 @pytest.mark.parametrize('name,spec', CHALLENGES, ids=[s.name for _, s in CHALLENGES])

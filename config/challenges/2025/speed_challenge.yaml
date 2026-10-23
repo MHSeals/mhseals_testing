@@ -1,0 +1,11 @@
+schema: mhseals.challenge/1
+name: speed_challenge
+title: Speed challenge
+kind: speed
+tree: speed_challenge
+time_limit: 240.0
+judge:
+  gate: {red: red_buoy, green: green_buoy, max_width: 4.0}
+  mark: blue_buoy
+  circle_deg: 300.0
+  count: {label: black_buoy, event: spill_count, name: spill count, key: spills}
