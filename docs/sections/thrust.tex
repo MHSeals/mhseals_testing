@@ -1,0 +1,85 @@
+\section{Speed curves and per-direction coupling}
+\label{sec:thrust}
+
+The affine model of Section~\ref{sec:char} has one gain per axis. A boat with
+quadratic drag does not have one: the secant gain fitted at one effort is wrong
+by tens of percent at another. This section replaces it with a curve per axis
+and sign, and replaces the decoupling $C = G^{-1}D$ of Section~\ref{sec:mixer}
+with one column per axis and sign.
+
+\subsection{Speed curves}
+
+A T200's thrust grows with $e|e|$, not with $e$. In normalized wrench units
+$w = e|e|$, a hold on one axis at effort $e$ settles where thrust meets drag:
+\[
+  e|e| = d_1 v + d_2 v|v| ,\qquad d_1, d_2 \ge 0 .
+\]
+Each of the six directions (\code{surge+} \dots\ \code{yaw-}) has its own pair
+$(d_1, d_2)$, fitted by least squares on the hold means at two or more effort
+levels. A negative term (noise, or a single level) is dropped and the other is
+refitted, so every curve rises with speed and can be inverted: the controller
+asks for $v^\star$ and drives $e = \operatorname{sign}(w)\sqrt{|w|}$ with
+$w = d_1 v^\star + d_2 v^\star|v^\star|$.
+
+Speeds are through the water: the world drift of Section~\ref{sec:char} is
+turned into the body at each sample's heading and removed before the fit, and
+only samples that command a single axis enter, so cross coupling never bends a
+curve. Because the coupling columns below keep $c_{jj} = 1$, the main speed is
+unchanged by $C$ to first order, and the curves stay valid after it changes.
+\file{mhseals\_testing/analysis/thrust.py (speed\_curve, speed\_curves), mhseals\_hardware/velocity\_law.py (Plant)}
+
+\subsection{One column per axis and sign}
+
+The driver applies
+\[
+  \bm e' = C^{+}\max(\bm e, 0) + C^{-}\min(\bm e, 0),\qquad c^{\pm}_{jj} = 1,
+\]
+before the mixer: column $j$ of $C^{+}$ serves axis $j$ driven forward, column
+$j$ of $C^{-}$ the same axis driven backward. With $C^{+} = C^{-}$ this is the
+single matrix of Section~\ref{sec:mixer}.
+
+\paragraph{Why a column does not depend on the effort.} Hold axis $j$ with no
+cross velocity. Every Coriolis and added-mass term is a product of two velocity
+components, so all vanish, and the steady balance is
+$W(\bm e) + H(V\hat{\bm e}_j) = D_j(V)\,\hat{\bm e}_j$, with $H$ the hull's cross
+terms at main speed $V$. If (i) the cross drag at zero cross velocity is
+diagonal, (ii) each thruster curve is homogeneous per sign,
+$f(\lambda t) = \lambda^n f(t)$, and (iii) $H_x(V)/D_j(V)$ does not depend on
+$V$, then a column that nulls the cross terms at one amplitude nulls them at
+every amplitude. Condition (ii) fails inside the T200 deadband (about $0.06$),
+and (iii) fails for linear-plus-quadratic drag, so a characterization checks
+the column again at a lower amplitude.
+
+\paragraph{Why the sign matters.} A single matrix holds only the odd part of the
+coupling. The 2026-10-18 field holds turned the boat when it moved forward or
+left and hardly at all when it moved back or right: a one-sided coupling, whose
+even part $(C^{+} - C^{-})/2$ is as large as its odd part. Two columns per axis
+represent odd, even and one-sided terms alike.
+
+\paragraph{Local slope, not secant.} With $\varphi(t) = t|t|$, reverse thrust
+ratio $\rho$ and the boat's mixer $M$, the cross wrench produced by a small
+change of the cross efforts, while the main effort is $s a$, is
+\[
+  J_A(j,s,a) = a\left[(1+\rho)\,I_2 - s\,(1-\rho)\begin{bmatrix}0&1\\1&0\end{bmatrix}\right],
+\]
+well conditioned ($\kappa = 1.28$ at $\rho = 0.78$). The secant gain
+$f(a)/a$ is $J_A/n$ with $n = 2$, so $C = G^{-1}D$ built from secant gains
+corrects twice as much as it should; simulated boats came out worse than with no
+correction in most cases. Characterize therefore no longer offers to install
+it. The columns are to be computed from the local slope at the measured state
+and refined by Broyden updates, each accepted only when the mismatch exceeds
+three standard deviations.
+
+\paragraph{What the mixer guarantees.} Every column of the boat's $M$ sums to
+zero. A uniform reverse weakness then produces no cross wrench and equal
+forward and reverse main gains; a single thruster with a weak reverse leaks only
+in the three directions where it runs reversed, in proportion to its row of $M$,
+which the pattern of $C^{\pm}$ reveals.
+
+\paragraph{Trust (planned).} A direction's trust is the probability that every cross
+response lies inside its tolerance (yaw $0.015$ rad/s per m/s, crab $0.05$,
+rotation centre $0.10$ m for the yaw rows) given its noise. The noise is the
+spread of 8\,s \emph{window means} pooled over neutral windows, not the sample
+standard error, which the 5\,Hz GPS sample-and-hold makes about $3\times$ too
+optimistic. A direction below $80\%$ is rerun.
+\file{mhseals\_hardware/thruster\_mixer.py (decouple)}

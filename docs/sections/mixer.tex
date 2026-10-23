@@ -170,6 +170,10 @@ If surge also turns the boat, $G_{\psi x} = 0.05$ with $G_{\psi\psi} = 0.3$, the
 $C_{\psi x} = -0.05/0.3 \approx -0.17$: every unit of surge adds $0.17$ of
 counter-yaw, and pure surge comes out straight.
 \end{example}
+This $C$ is built from secant gains and over-corrects by a factor of two;
+Section~\ref{sec:thrust} explains why and replaces it with one column per axis
+and sign.
+
 \paragraph{Effort keeps its meaning.} $C$ maps effort to effort, so $e_x = 1$
 still means full surge. An earlier version folded $G^{-1}$ itself into the
 mixer. But $G^{-1}$ maps a velocity in m/s to effort, so it changes units, and

@@ -5,7 +5,7 @@ normalized wrench units is w = e|e| = d1*v + d2*v|v| (thrust goes with e|e|, so 
 effort itself is sqrt of that), and a boat with quadratic drag is
 not described by one linear gain: the secant gain errs by tens of percent away
 from the amplitudes it was fitted at. Two or more levels per axis-sign give the
-curve. ROS-free; see thrust.md section 1 ("Drag and gain").
+curve. ROS-free; the maths is in docs/math.pdf, "Speed curves".
 """
 from __future__ import annotations
 
