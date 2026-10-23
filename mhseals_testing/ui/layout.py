@@ -22,6 +22,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
+from mhseals_testing.harness import recwatch
 from mhseals_testing.ui import chrome, theme
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
@@ -49,12 +50,23 @@ def strip_item(state, label):
     return theme.labelled(state, label)
 
 
+def rec_chip(view):
+    """The recorder item: plain muted text when fine, a glyph only when it needs attention."""
+    sample = view.get('rec')
+    if sample is None:                           # no watcher (tests, headless): running or not
+        return strip_item('LIVE' if view['recording'] else 'FAIL', 'rec')
+    state, text = recwatch.strip_text(sample, view['armed'], SEPARATOR, theme.pick('≈', '~'))
+    if state in ('warn', 'fail'):
+        return theme.labelled('WARN' if state == 'warn' else 'FAIL', text)
+    return Text(text, style=MUTED if state == 'ok' else 'dim')
+
+
 def health_strip(snapshot, view, width=None):
     rows = status_rows(snapshot, view['specs'])
     sensors = [row for row in rows if row['group'] == 'Sensors' and row['required']]
     sensors_ok = all(row['state'] == 'LIVE' for row in sensors)
     frames_ok = all(row['state'] == 'LIVE' for row in rows if row['group'] == 'Frames')
-    parts = [strip_item('LIVE' if view['recording'] else 'FAIL', 'rec'),
+    parts = [rec_chip(view),
              strip_item('LIVE' if sensors_ok else 'FAIL',
                         f"sensors {sum(r['state'] == 'LIVE' for r in sensors)}/{len(sensors)}"),
              strip_item('LIVE' if frames_ok else 'FAIL', 'tf')]

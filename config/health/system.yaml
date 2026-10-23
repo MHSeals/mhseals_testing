@@ -17,3 +17,22 @@ checks:
      probe: fcu, advisory: flight controller, severity: warn, missing: skip, title: FCU disarmed}
   - {id: fcu.mode, kind: threshold, fact: fcu.mode, expect: [MANUAL, HOLD], probe: fcu,
      advisory: flight controller, severity: warn, missing: skip, title: FCU mode}
+  # Recording (harness/recwatch.py publishes bag.*; free disk is compute.disk above).
+  - id: bag.off_armed
+    kind: threshold
+    fact: bag.off_armed
+    below: false
+    warn: 0.5
+    fail: 2
+    severity: warn
+    title: Recording off while armed
+    message: 'Armed with the recorder off'
+  - id: bag.unfinalized
+    kind: threshold
+    fact: bag.unfinalized
+    below: false
+    warn: 0.5
+    fail: 1000
+    severity: info
+    title: Unfinalized segments
+    message: '{value} segments lack metadata.yaml'

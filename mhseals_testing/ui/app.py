@@ -36,6 +36,7 @@ from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.conditions import Conditions
 from mhseals_testing.harness.nav2_edit import Nav2File
+from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health import legacy as health
@@ -216,6 +217,8 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock)
+        self.recwatch = RecWatch(self.clock)
+        self.rec = None                 # latest RecSample, drawn in the header strip
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
         self.last_frame = 0.0
@@ -345,6 +348,7 @@ class App:
             self.monitor.advise('clock', 'FAIL', 'use_sim_time but no /clock received')
         self.monitor.advise('recording', 'OK' if self.processes.running('bag') else 'FAIL',
                             str(self.paths.bag))
+        self.watch_recording()
         exited = [name for name in self.processes.exited() if name != 'bag']
         if exited:
             self.monitor.advise('processes', 'WARN', 'exited: ' + ', '.join(exited))
@@ -358,6 +362,14 @@ class App:
             level, detail, self.pwm_readback = health.pwm_readback(
                 config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
             self.monitor.advise('PWM readback', level, detail)
+
+    def watch_recording(self):
+        """Sample the recorder's health; below the free-disk floor stop it, mark it and say so."""
+        self.rec = self.recwatch.sample(self.paths.bag, self.processes.running('bag'))
+        if self.rec.stop_for_disk:
+            self.processes.stop('bag', timeout=20)
+            self.ros.emit('marker', kind='system', note=DISK_MARKER)
+            self.notice = f'{DISK_MARKER} ({self.rec.free_gb:.1f} GB free)'
 
     # --- hardware config: edits from the panel or any editor, hot-reloaded -------
 
@@ -464,7 +476,7 @@ class App:
             plot_scale=self.profile.plot_scale,
             outputs=self.profile.outputs, specs=self.profile.sensors,
             host=socket.gethostname(), domain=os.environ.get('ROS_DOMAIN_ID', '0'),
-            recording=self.processes.running('bag'), bench_override=self.args.bench_override,
+            recording=self.processes.running('bag'), rec=self.rec, bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
             draft=self.draft, grabbed=self.grabbed,
