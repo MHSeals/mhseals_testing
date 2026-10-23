@@ -4,6 +4,7 @@ import math
 import pytest
 
 from mhseals_testing.monitor import BoatMonitor, HISTORY_SAMPLES
+from mhseals_testing.profiles import SensorSpec
 
 
 def test_receipt_rate_quality_and_stamp_freshness():
@@ -114,3 +115,39 @@ def test_gps_gap_regression_test_detects_a_short_stale_threshold():
     monitor.observe('GPS', stamp_age=0)
     clock[0] += 1.13 - .01
     assert monitor.snapshot()['sensors']['GPS']['status'] == 'STALE'
+
+
+def test_five_hz_gps_is_never_stale_at_a_quarter_second():
+    # The derived deadline max(3/hz, 1.5) is 1.5 s at 5 Hz; a 0.25 s gap must not trip it.
+    clock = [0.0]
+    spec = SensorSpec('GPS', '/gps/fix', 'gps', hz=5)
+    assert spec.deadline == 1.5
+    monitor = BoatMonitor(clock=lambda: clock[0], deadlines={'GPS': spec.deadline})
+    monitor.observe('GPS', stamp_age=0)
+    for _ in range(20):
+        clock[0] += .25
+        assert monitor.snapshot()['sensors']['GPS']['status'] == 'LIVE'
+        monitor.observe('GPS', stamp_age=0)
+    clock[0] += 1.5
+    assert monitor.snapshot()['sensors']['GPS']['status'] == 'LIVE'
+    clock[0] += .1
+    assert monitor.snapshot()['sensors']['GPS']['status'] == 'STALE'
+
+
+def test_deadline_is_floored_overridable_and_absent_without_a_rate():
+    assert SensorSpec('IMU', '/i', 'imu', hz=20).deadline == 1.5
+    assert SensorSpec('x', '/x', 'imu', hz=1).deadline == 3
+    assert SensorSpec('x', '/x', 'imu', hz=5, stale_after=1.5).deadline == 1.5
+    assert SensorSpec('x', '/x', 'imu').deadline is None
+
+
+def test_max_gap_reports_the_longest_silence_in_ten_seconds():
+    clock = [0.0]
+    monitor = BoatMonitor(clock=lambda: clock[0])
+    for gap in (.2, .9, .2):
+        clock[0] += gap
+        monitor.observe('GPS')
+    assert math.isclose(monitor.snapshot()['sensors']['GPS']['max_gap'], .9)
+    clock[0] += 11
+    monitor.observe('GPS')
+    assert monitor.snapshot()['sensors']['GPS']['max_gap'] == 0

@@ -12,8 +12,8 @@ bringup: {fcu: 'true', start_sensors: 'false'}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
-  - {name: GPS, topic: /gps/fix, kind: gps, required: true}
-  - {name: IMU, topic: /imu/raw, kind: imu, required: true}
+  - {name: GPS, topic: /gps/fix, kind: gps, required: true, hz: 5}
+  - {name: IMU, topic: /imu/raw, kind: imu, required: true, hz: 20}
   - {name: LiDAR, topic: /points, kind: points}
   - {name: camera, topic: /front_camera/rgb/image, kind: image}
   - {name: detections, topic: /detections, kind: detections}

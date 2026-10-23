@@ -3,10 +3,14 @@
 from rich.console import Group
 from rich.text import Text
 
+from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES, window
 from mhseals_testing.ui.theme import MUTED, SEPARATOR
+
+MARKS = dict(zip('↓↑~×', theme.pick('↓↑~×', 'v^~x')))
+RATE_STYLE = {'warn': theme.WARN, 'fail': theme.BAD}  # Hz colour; a healthy rate stays muted
 
 
 def status_rows(snapshot, specs):
@@ -22,7 +26,13 @@ def status_rows(snapshot, specs):
             value = ('stale' if row['status'] == 'STALE' else
                      f"{row['hz']:.0f} Hz" if row['hz'] else 'once')
             detail = row['issue'] or row['values'].get('summary', '') or spec.topic
-        rows.append(dict(group='Sensors', state=state, name=spec.name, value=value,
+        rate = ''
+        if row is not None and spec.hz and state != 'STALE':
+            rate, mark = classify(spec.hz, row['hz'], row['max_gap'], row['stamp_age'],
+                                  limit=spec.deadline)
+            rate = '' if rate == 'ok' else rate
+            value += MARKS.get(mark, '')
+        rows.append(dict(group='Sensors', state=state, name=spec.name, value=value, rate=rate,
                          detail=f'{spec.topic}{SEPARATOR}{detail}' if detail != spec.topic
                          else spec.topic, required=spec.required))
     for chain in snapshot['tf']:
@@ -64,7 +74,7 @@ def status_panel(snapshot, view, height):
             table.add_row(Text(group, style=f'{MUTED} bold'), '')
         name = Text(row['name'], style='bold' if row['required'] else None)
         table.add_row(theme.row(row['state'], name, focused and index == cursor),
-                      Text(row['value'], style=MUTED))
+                      Text(row['value'], style=RATE_STYLE.get(row.get('rate'), MUTED)))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row['group'] == 'Sensors' and row['state'] == 'LIVE')

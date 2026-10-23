@@ -44,6 +44,8 @@ def test_profile_path_and_unknown_name(tmp_path):
     (lambda d: d['arming'].update(outputs='gpio'), 'arming.outputs'),
     (lambda d: d['arming'].update(velocity_controller=True), 'velocity_controller'),
     (lambda d: d['sensors'][0].update(kind='sonar'), 'kind'),
+    (lambda d: d['sensors'][0].update(hz=0), r'sensors\[0\]\.hz'),
+    (lambda d: d['sensors'][0].update(stale_after='soon'), 'stale_after'),
     (lambda d: d['sensors'].append(dict(d['sensors'][0])), 'unique'),
     (lambda d: d.update(bringup='yes'), 'bringup'),
 ])
@@ -52,3 +54,8 @@ def test_invalid_profiles_name_the_field(edit, message):
     edit(data)
     with pytest.raises(ValueError, match=message):
         parse_profile(data)
+
+
+def test_boat_gps_declares_its_rate():
+    gps = next(s for s in load_profile('boat').sensors if s.name == 'GPS')
+    assert gps.hz == 5 and gps.deadline >= 1.13  # real gaps reach 1.13 s

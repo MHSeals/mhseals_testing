@@ -13,12 +13,16 @@ import time
 
 HISTORY_SAMPLES = 120000  # 40 minutes at 50 Hz, covering a full 30-minute mission
 
+GAP_WINDOW = 10  # s of arrivals that max_gap looks back over
+
 ADVISORY_LEVELS = ('OK', 'WARN', 'FAIL', 'N/A')
 
 
 class BoatMonitor:
-    def __init__(self, stale_after=2.0, clock=time.monotonic, history_sensors=('odometry',)):
+    def __init__(self, stale_after=2.0, clock=time.monotonic, history_sensors=('odometry',),
+                 deadlines=None):
         self.stale_after = stale_after
+        self.deadlines = dict(deadlines or {})  # per-sensor freshness, derived from rates
         self.clock = clock
         self.lock = threading.RLock()
         self.sensors = {}
@@ -85,20 +89,24 @@ class BoatMonitor:
     def _sensor_rows(self, now):
         sensors = {}
         for name, entry in self.sensors.items():
+            stale_after = self.deadlines.get(name, self.stale_after)
             times = [t for t in entry['times'] if now - t <= 5]
+            recent = [t for t in entry['times'] if now - t <= GAP_WINDOW]
+            max_gap = max((b - a for a, b in zip(recent, recent[1:])), default=0.0)
             age = now - entry['times'][-1]
             stamp_age, issue = entry['stamp_age'], entry['issue']
             if stamp_age is not None:
                 stamp_age += age  # the message has aged since it arrived
                 if stamp_age < -0.25:
                     issue = issue or 'timestamp is in the future'
-                elif stamp_age > self.stale_after:
+                elif stamp_age > stale_after:
                     issue = issue or 'stale message timestamp'
-            status = 'STALE' if age > self.stale_after else ('WARN' if issue else 'LIVE')
+            status = 'STALE' if age > stale_after else ('WARN' if issue else 'LIVE')
             hz = ((len(times) - 1) / (times[-1] - times[0])
                   if len(times) > 1 and times[-1] > times[0] else 0)
             sensors[name] = dict(age=age, status=status, issue=issue, stamp_age=stamp_age,
-                                 count=entry['count'], hz=hz, values=deepcopy(entry['values']))
+                                 count=entry['count'], hz=hz, max_gap=max_gap,
+                                 values=deepcopy(entry['values']))
         return sensors
 
     def _tf_rows(self, now, required_tf):

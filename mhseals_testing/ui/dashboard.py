@@ -16,7 +16,7 @@ from mhseals_testing.ui.panels.motion import (  # noqa: F401
     ARROWS, DRIFT_AGREE, DRIFT_DEADBAND, bearing, drift_arrow, drift_line, drift_now, drift_vector,
     expected_drift, motion_panel, sparkline)
 from mhseals_testing.ui.panels.procedures import procedures_panel  # noqa: F401
-from mhseals_testing.ui.panels.status import short, status_panel, status_rows  # noqa: F401
+from mhseals_testing.ui.panels.status import MARKS, short, status_panel, status_rows  # noqa: F401
 from mhseals_testing.ui.panels.thrusters import (  # noqa: F401
     NEUTRAL, READBACK_SHORT, effort_bar, thruster_rows, thrusters_panel)
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR  # noqa: F401

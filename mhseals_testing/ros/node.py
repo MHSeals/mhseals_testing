@@ -26,7 +26,7 @@ from vision_msgs.msg import Detection3DArray
 
 from mhseals_testing import events
 from mhseals_testing.harness import journal
-from mhseals_testing.validation import finite, validate
+from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
 
 MESSAGE_TYPES = {
     'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix, 'points': PointCloud2,
@@ -64,9 +64,11 @@ class RosIO:
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
         self.events = self.node.create_publisher(String, EVENTS_TOPIC, EVENTS_QOS)
         for sensor in profile.sensors:
+            raw = sensor.kind in RAW_KINDS
             self.node.create_subscription(
                 MESSAGE_TYPES[sensor.kind], sensor.topic,
-                partial(self._sensor, sensor.name, sensor.kind), qos_profile_sensor_data)
+                partial(self._sensor, sensor.name, 'raw' if raw else sensor.kind),
+                qos_profile_sensor_data, raw=raw)
         self.node.create_subscription(
             Vector3Stamped, DRIFT_TOPIC,
             lambda message: monitor.estimate_drift(message.vector.x, message.vector.y), 10)
@@ -93,7 +95,11 @@ class RosIO:
 
     def _sensor(self, name, kind, message):
         base = self.profile.base_frame if name == 'odometry' else None
-        result = validate(kind, message, self.now(), base, self.stale_after)
+        stale_after = self.monitor.deadlines.get(name, self.stale_after)
+        if kind == 'raw':
+            result = validate_raw(message, self.now(), stale_after)
+        else:
+            result = validate(kind, message, self.now(), base, stale_after)
         self.monitor.observe(name, result.values, result.issue, result.stamp_age)
 
     def _tf(self, message, info=None, static=False):

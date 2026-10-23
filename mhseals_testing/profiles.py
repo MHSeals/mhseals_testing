@@ -26,6 +26,7 @@ def _profile_dir():
 
 PROFILE_DIR = _profile_dir()
 SENSOR_KINDS = ('odometry', 'imu', 'gps', 'points', 'image', 'compressed', 'detections')
+MIN_DEADLINE = 1.5   # s, floor of the rate-derived freshness deadline (real GPS gaps reach 1.13 s)
 OUTPUTS = ('none', 'odroid', 'topic')
 
 
@@ -35,6 +36,15 @@ class SensorSpec:
     topic: str
     kind: str
     required: bool = False
+    hz: float | None = None            # nominal rate; None leaves rate and deadline unchecked
+    stale_after: float | None = None   # explicit freshness deadline, normally derived from hz
+
+    @property
+    def deadline(self):
+        """Seconds of silence before the sensor is stale: ``max(3/hz, 1.5)`` unless set."""
+        if self.stale_after is not None:
+            return self.stale_after
+        return None if not self.hz else max(3 / self.hz, MIN_DEADLINE)
 
 
 @dataclass(frozen=True)
@@ -86,6 +96,17 @@ def _require(data, key, kind, where):
     return value
 
 
+def _positive(data, key, where):
+    """Optional positive finite number, or None when absent."""
+    value = data.get(key)
+    if value is None:
+        return None
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not 0 < value < float('inf')):
+        raise ValueError(f'{where}.{key}: positive number')
+    return float(value)
+
+
 def parse_profile(data, where='profile'):
     """Validate a profile mapping and return a PlantProfile."""
     if not isinstance(data, dict):
@@ -112,7 +133,8 @@ def parse_profile(data, where='profile'):
     for index, spec in enumerate(_require(data, 'sensors', list, where)):
         here = f'{where}.sensors[{index}]'
         sensor = SensorSpec(_require(spec, 'name', str, here), _require(spec, 'topic', str, here),
-                            _require(spec, 'kind', str, here), bool(spec.get('required', False)))
+                            _require(spec, 'kind', str, here), bool(spec.get('required', False)),
+                            _positive(spec, 'hz', here), _positive(spec, 'stale_after', here))
         if sensor.kind not in SENSOR_KINDS:
             raise ValueError(f'{here}.kind: one of {SENSOR_KINDS}')
         sensors.append(sensor)

@@ -10,7 +10,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.dashboard import PANELS, arm_state, render, short, status_rows
+from mhseals_testing.ui.dashboard import MARKS, PANELS, arm_state, render, short, status_rows
 
 
 def view(profile, **overrides):
@@ -301,3 +301,16 @@ def test_thrusters_panel_is_not_truncated_below_60_columns(width):
     top = next(i for i, line in enumerate(lines) if '╭─' in line and 'Thr' in line)
     bottom = next(i for i in range(top, len(lines)) if '╰' in lines[i])
     assert '…' not in ''.join(lines[top + 1:bottom])
+
+
+def test_status_hz_is_coloured_only_when_the_rate_is_off():
+    profile = load_profile('boat')
+    clock = [0.0]
+    mon = BoatMonitor(clock=lambda: clock[0],
+                      deadlines={s.name: s.deadline for s in profile.sensors if s.deadline})
+    for tick in range(25):
+        clock[0] += .1
+        mon.observe('GPS' if tick % 2 else 'IMU', stamp_age=0)  # GPS 5 Hz, IMU 5 Hz of 20
+    rows = {r['name']: r for r in status_rows(mon.snapshot(profile.required_tf), profile.sensors)}
+    assert rows['GPS']['rate'] == '' and rows['GPS']['value'] == '5 Hz'
+    assert rows['IMU']['rate'] == 'fail' and rows['IMU']['value'].endswith(MARKS['↓'])

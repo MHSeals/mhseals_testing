@@ -7,6 +7,7 @@ frame, missing fix, bad quaternion, stale or future timestamp).
 
 from dataclasses import dataclass
 import math
+import struct
 
 # A unit quaternion has squared norm 1; allow slack for float32 publishers.
 QUATERNION_TOLERANCE = 0.1
@@ -125,3 +126,24 @@ def validate(kind, message, now, base_frame=None, stale_after=2.0):
     elif stamp_age < -FUTURE_TOLERANCE or stamp_age > stale_after:
         issue = issue or 'message timestamp outside freshness window'
     return Observation(values, issue, stamp_age)
+
+
+RAW_KINDS = ('points', 'image', 'compressed')  # heavy messages: only the header is read
+
+
+def validate_raw(data, now, stale_after=2.0):
+    """Like ``validate`` for a serialized CDR message, reading only ``header.stamp``.
+
+    Skips deserializing multi-megabyte clouds and images on the ODROID; the first
+    eight payload bytes after the 4-byte encapsulation header are the stamp.
+    """
+    if len(data) < 12:
+        return Observation({}, 'truncated message', None)
+    sec, nanosec = struct.unpack_from('<iI' if data[1] & 1 else '>iI', data, 4)
+    stamp_age = now - (sec + nanosec * 1e-9)
+    issue = ''
+    if sec == 0 and nanosec == 0:
+        issue = 'zero message timestamp'
+    elif stamp_age < -FUTURE_TOLERANCE or stamp_age > stale_after:
+        issue = 'message timestamp outside freshness window'
+    return Observation({}, issue, stamp_age)

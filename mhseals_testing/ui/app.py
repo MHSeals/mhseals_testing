@@ -1209,7 +1209,9 @@ def main(argv=None):
         signal.signal(hangup, hang_up)
     signal.signal(signal.SIGUSR1, detach)
     monitor = BoatMonitor(args.stale_after, history_sensors=tuple(
-        sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'))
+        sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'),
+        deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
+                   if sensor.deadline is not None})
     ros = RosIO(profile, monitor, args.stale_after, paths.journal)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
