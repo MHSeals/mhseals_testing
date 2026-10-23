@@ -1,0 +1,42 @@
+# Lean recorder profile (master section 4). The odometry group includes /odom/gps and
+# /odom/global: nav.map_rotation reads /odom/gps against enu(/gps/fix) and falls back to
+# the first /odom/global pose, and no field bag so far carries either topic.
+lean:
+  topics:
+    - /tf
+    - /tf_static
+    - /rosout
+    - /diagnostics
+    - /cmd_vel
+    - /cmd_vel/manual
+    - /cmd_vel/applied
+    - /cmd_vel_effort
+    - /command_mux/state
+    - /mhseals_testing/authority
+    - /thrusters/pwm
+    - /odom/local
+    - /odom/global
+    - /odom/mavros
+    - /odom/gps
+    - /imu/raw
+    - /gps/fix
+    - /mavros/state
+    - /mavros/imu/data
+    - /mavros/imu/mag
+    - /mavros/rc/in
+    - /mavros/battery
+    - /fcu/ekf_status
+    - /mavros/global_position/raw/fix
+    - /mavros/global_position/raw/gps_vel
+    - /mavros/gpsstatus/gps1/raw
+    - /mhseals_testing/rtk/status
+    - /plan
+    - /local_plan
+    - /navigate_to_pose/_action/status
+    - /task/status
+    - /task/events
+    - /objects/map
+    - /detections
+    - /perception/status
+    - /mhseals_testing/minimap/costmap
+  exclude_regex: '^/(mhseals_testing|thrusters)/.*'
