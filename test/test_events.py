@@ -43,3 +43,20 @@ def test_legacy_lines_join_a_single_tagged_instance_only():
     assert [e['phase'] for e in events.ours(one, 1, 'boat')] == ['old', 'a']
     two = one + [dict(phase='b', pid=1, host='tranq')]
     assert [e['phase'] for e in events.ours(two, 1, 'boat')] == ['a']
+
+
+def test_unique_keeps_distinct_events_sharing_a_sim_ros_time():
+    a = events.payload('marker', 0.0, dict(note='one'))
+    b = events.payload('marker', 0.0, dict(note='two'))
+    assert [e['note'] for e in events.unique([b, a, a, b])] == ['one', 'two']
+
+
+def test_unique_orders_by_wall_time_across_a_clock_rewind():
+    before = events.payload('marker', 50.0, dict(note='before reset'))
+    after = events.payload('marker', 1.0, dict(note='after reset'))
+    assert [e['note'] for e in events.unique([after, before])] == ['before reset', 'after reset']
+
+
+def test_unique_collapses_legacy_lines_without_seq():
+    old = dict(phase='p', ros_time=1.0, pid=1, host='h')
+    assert events.unique([old, dict(old), dict(old, ros_time=2.0)]) == [old, dict(old, ros_time=2.0)]

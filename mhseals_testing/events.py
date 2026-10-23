@@ -6,18 +6,22 @@ a bag whose lines carry no pid at all predates tagging and is one instance.
 """
 
 from datetime import datetime
+import itertools
 import json
 import os
 import socket
 
 NODE = 'mhseals_testing'
 
+# Per-process emission counter: ros_time is 0.0 until the first sim /clock and repeats within a tick
+_seq = itertools.count()
+
 
 def payload(phase, ros_time, details, pid=None, node=NODE):
     """The event dict; ``details`` may not override the instance identity."""
     return dict(details, time=datetime.now().astimezone().isoformat(), ros_time=ros_time,
                 phase=phase, pid=os.getpid() if pid is None else pid, node=node,
-                host=socket.gethostname())
+                host=socket.gethostname(), seq=next(_seq))
 
 
 def line(event):
@@ -40,13 +44,16 @@ def ours(events, pid, host=None):
 
 
 def unique(events):
-    """One copy of each event, in ros_time order.
+    """One copy of each event, in wall-time order.
 
     Transient-local replays the retained events into every new segment's recorder and into
     other instances' recorders, stamped at receipt. Readers therefore merge segments through
-    this and place events by the payload ``ros_time``, never by the bag message stamp.
+    this and never place events by the bag message stamp. ``ros_time`` is not an identity or
+    an order: in sim it is 0.0 before the first /clock, repeats within a tick and rewinds on
+    reset, so it is for display only. Lines without ``seq`` (older bags) are keyed whole.
     """
     seen = {}
     for e in events:
-        seen.setdefault((e.get('host'), e.get('pid'), e.get('ros_time'), e.get('phase')), e)
-    return sorted(seen.values(), key=lambda e: e.get('ros_time') or 0.0)
+        key = (e.get('host'), e.get('pid'), e['seq']) if 'seq' in e else line(e)
+        seen.setdefault(key, e)
+    return sorted(seen.values(), key=lambda e: (e.get('time') or '', e.get('seq') or 0))
