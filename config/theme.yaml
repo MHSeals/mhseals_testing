@@ -1,0 +1,92 @@
+# One look for the whole TUI: palette, status tokens, CVD swaps and glyphs (ui.md section 3).
+# Rendering code names tokens and glyph ids, never hex values or characters (ui/palette.py).
+# Overlay: ~/.config/mhseals/theme.yaml may set theme, cvd and individual tokens or glyphs.
+schema: mhseals.theme/1
+theme: auto            # auto | dark | light   (auto: COLORFGBG, else dark)
+cvd: false             # swaps status and trail tokens only; obj.* never change
+
+# {dark, light, x256: [dark, light], ansi} | {alias: token}; `fixed: true` = never CVD-swapped.
+# ansi is a Rich colour name, `bold` for sand, or null (no 16-colour form: sel_bg underlines).
+tokens:
+  bg:        {dark: '#171B22', light: '#FAF9F6', x256: [234, 231], ansi: default}
+  fg:        {dark: '#D5DBE5', light: '#2B313B', x256: [253, 236], ansi: default}
+  muted:     {dark: '#7C8595', light: '#7A828F', x256: [245, 244], ansi: bright_black}
+  faint:     {dark: '#3B4351', light: '#A9B0BB', x256: [238, 249], ansi: bright_black}
+  border:    {dark: '#3E4656', light: '#C3C8D0', x256: [238, 251], ansi: bright_black}
+  sel_bg:    {dark: '#232A36', light: '#ECEFF3', x256: [235, 255], ansi: null}
+  accent:    {dark: '#7DD3DC', light: '#0F7A85', x256: [116, 30],  ansi: cyan}
+  slate:     {dark: '#A6B0C2', light: '#4A5466', x256: [146, 59],  ansi: default}
+  violet:    {dark: '#BCA9F2', light: '#6A4FC6', x256: [147, 62],  ansi: magenta}
+  sand:      {dark: '#E8CDA0', light: '#8B6A2F', x256: [187, 94],  ansi: bold}
+  ok:        {dark: '#8FD19E', light: '#2C8A4C', x256: [114, 29],  ansi: green}
+  warn:      {dark: '#EDCB78', light: '#9A7400', x256: [222, 136], ansi: yellow}
+  fail:      {dark: '#F0898C', light: '#C23B41', x256: [210, 131], ansi: red}
+  unknown:   {alias: muted}
+  busy:      {alias: accent}
+  auth.human:     {alias: fg}
+  auth.ours:      {alias: accent}
+  auth.nav:       {alias: violet}
+  auth.agent:     {dark: '#EFA6E2', light: '#A3369A', x256: [219, 133], ansi: magenta}
+  auth.hold:      {alias: slate}
+  auth.unclaimed: {alias: fail}
+  obj.red:     {alias: fail,  fixed: true}
+  obj.green:   {alias: ok,    fixed: true}
+  obj.yellow:  {alias: warn,  fixed: true}
+  obj.blue:    {dark: '#8AB2F5', light: '#2F62C8', x256: [111, 26], ansi: blue}
+  obj.black:   {alias: slate, fixed: true}
+  obj.unknown: {alias: muted, fixed: true}
+  gps.fix:     {dark: '#80B098', light: '#3A7A5C', x256: [108, 29],  ansi: green}
+  gps.float:   {dark: '#A0B985', light: '#5F7F3A', x256: [150, 65],  ansi: green}
+  gps.dgps:    {dark: '#BDB57E', light: '#857C34', x256: [144, 100], ansi: yellow}
+  gps.3d:      {dark: '#C49C76', light: '#9A6A3A', x256: [180, 137], ansi: yellow}
+  gps.none:    {dark: '#C08585', light: '#9C5454', x256: [174, 131], ansi: red}
+  xte.ok:      {alias: gps.fix}
+  xte.mid:     {alias: gps.3d}
+  xte.bad:     {alias: gps.none}
+  spd.0:       {dark: '#5F6B7C', light: '#8C96A4', x256: [60, 247],  ansi: bright_black}
+  spd.1:       {dark: '#7091B8', light: '#4A6E9C', x256: [67, 24],   ansi: blue}
+  spd.2:       {dark: '#B4A88E', light: '#857550', x256: [144, 101], ansi: yellow}
+  spd.3:       {dark: '#D49A80', light: '#A8603E', x256: [173, 130], ansi: yellow}
+  spd.4:       {dark: '#D88FB0', light: '#AA4C7A', x256: [175, 132], ansi: magenta}
+  spd.5:       {dark: '#DE86D0', light: '#A8409A', x256: [176, 133], ansi: magenta}
+  cost_bg:     {dark: '#2A3442', light: '#E2E7EE', x256: [236, 254], ansi: null}
+  lethal_bg:   {dark: '#4B3A3A', light: '#ECDAD3', x256: [239, 224], ansi: null}
+
+# ui.cvd: status and trail tokens swap to a blue-to-orange sequence; aliases follow their target.
+cvd_swap:
+  ok:       {dark: '#86B8F7', light: '#2D63C4', x256: [111, 26],  ansi: blue}
+  fail:     {dark: '#F2AE78', light: '#B4601A', x256: [216, 130], ansi: yellow}
+  gps.fix:   {dark: '#7BB0EE', light: '#2F66C0', x256: [111, 26],  ansi: blue}
+  gps.float: {dark: '#9FB4D0', light: '#4F76A8', x256: [146, 67],  ansi: blue}
+  gps.dgps:  {dark: '#C2B8A4', light: '#7C7A6E', x256: [181, 101], ansi: yellow}
+  gps.3d:    {dark: '#D9A872', light: '#A8683A', x256: [179, 137], ansi: yellow}
+  gps.none:  {dark: '#E08F5A', light: '#B4501A', x256: [173, 130], ansi: yellow}
+
+# NO_COLOR tier: attributes only (bold, dim, reverse, underline, italic).
+mono:
+  muted: dim
+  faint: dim
+  border: dim
+  unknown: dim
+  fail: bold
+  sel_bg: underline
+
+# id: [unicode, ascii]. `off` is a YAML 1.1 boolean, so that key stays quoted.
+glyphs:
+  ok:        ['✓', '+']
+  warn:      ['!', '!']
+  fail:      ['✗', 'x']
+  busy:      ['◌', '~']
+  'off':     ['·', '.']
+  focus:     ['▸', '>']
+  cursor:    ['›', '>']
+  adjust:    [['‹', '›'], ['<', '>']]
+  sep:       [' · ', ' | ']
+  enter:     ['⏎', '<']
+  mark:      ['▾', 'v']
+  config:    ['Δ', '*']
+  authority: ['↔', '@']
+  reversed:  ['−', '-']
+  yaw_ccw:   ['↩', '<']
+  yaw_cw:    ['↪', '>']
+  spinner:   ['⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', '|/-\']
