@@ -87,3 +87,21 @@ def test_mission_history_retains_the_start_of_a_thirty_minute_run():
         clock[0] = i / 50
         monitor.observe('ground truth', {'x': i / 50})
     assert monitor.history('ground truth', 0, 1)[0][0] == 0.
+
+
+def test_real_gps_gaps_do_not_flicker_stale():
+    # tranquility bag boat_20261019_002558: 4.61 Hz with a 1.13 s worst gap in 41 s.
+    # Any rate-derived deadline (ts028) must stay above this, so floor it at 1.5 s.
+    clock = [0.0]
+    monitor = BoatMonitor(clock=lambda: clock[0])
+    stale = []
+    for gap in [.2] * 20 + [.65, 1.13] + [.2] * 20 + [.7, .8]:
+        clock[0] += gap
+        monitor.observe('GPS', stamp_age=0)
+        # Sample just before the next fix would arrive.
+        clock[0] += .01
+        stale.append(monitor.snapshot()['sensors']['GPS']['status'] == 'STALE')
+        clock[0] -= .01
+    assert not any(stale)
+    clock[0] += 2.1
+    assert monitor.snapshot()['sensors']['GPS']['status'] == 'STALE'
