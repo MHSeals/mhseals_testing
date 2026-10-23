@@ -35,6 +35,7 @@ from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health import legacy as health
@@ -170,7 +171,7 @@ class App:
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
-                 facts=None, source=None):
+                 facts=None, source=None, nav2_file=None):
         self.args = args
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -195,6 +196,7 @@ class App:
         self.open_events = open_events or (lambda: KeyReader(report_events=True))
         self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
+        self.nav2_file = nav2_file  # harness.nav2_edit.Nav2File, or None
         self.watcher_factory, self._watcher = task_watcher, None
         self.run_id = None  # the procedure run in progress; its results carry this id
         self.settings = args.settings
@@ -229,7 +231,10 @@ class App:
         return self.arming is not None and self.arming.armed
 
     def snapshot(self):
-        return self.source.snapshot()
+        snapshot = self.source.snapshot()
+        if self.nav2_file is not None:
+            snapshot['components'] = [self.nav2_file.row()]
+        return snapshot
 
     # --- interlocks ------------------------------------------------------------
 
@@ -311,6 +316,8 @@ class App:
             return  # replay: no host reads, config watching or driving
         self.refresh_advisories()
         self.watch_config()
+        if self.nav2_file is not None:
+            self.notice = self.nav2_file.poll() or self.notice
         if self.test_pulses is not None and self.publish_pulses is not None:
             self.publish_pulses(self.test_pulses)
         if self.armed and self.arming.fault():
@@ -441,6 +448,8 @@ class App:
             f'{self.notice}{dashboard.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
         hints = MANUAL_HINTS if self.manual else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS
+        if self.nav2_file is not None and self.focus == 'status' and not self.manual:
+            hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         return dict(
             tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
@@ -752,10 +761,14 @@ class App:
     # --- panel keys --------------------------------------------------------------
 
     def on_status(self, key):
+        rows = status_rows(self.snapshot(), self.profile.sensors)
         if key == 'o':
             self.odometry()
+        elif key == 'e':
+            row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
+            if row and row['group'] == 'Components' and self.nav2_file is not None:
+                self.nav2_popup()
         elif key == 'enter':
-            rows = status_rows(self.snapshot(), self.profile.sensors)
             if rows:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
                 if row['group'] == 'Sensors' and row['name'] == 'odometry':
@@ -896,6 +909,20 @@ class App:
 
     def show(self, title, message=None, rows=None, width=60):
         return popups.show(self, title, message, rows, width)
+
+    def nav2_popup(self):
+        """Preview the Nav2 file against what was applied; y applies, Esc leaves it pending."""
+        source = self.nav2_file
+        rows = [(key, f'{old if old is not None else theme.DASH} {theme.ARROW} '
+                      f'{new if new is not None else theme.DASH}')
+                for key, old, new in source.changes()] or [('', 'No changes pending')]
+        try:
+            answer = self.choose('Nav2 parameters', ['Apply', 'Close'], {'y': 0}, rows=rows,
+                                 selected=0 if source.pending else 1, width=76)
+        except Cancelled:
+            return
+        if answer == 'Apply':
+            self.notice = source.apply()
 
     def prompt(self, message, title='Ready'):
         return popups.prompt(self, message, title)
@@ -1365,7 +1392,8 @@ def main(argv=None):
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
                                     profile.base_frame),
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
-                  registry=registry, watching=watching, facts=facts)
+                  registry=registry, watching=watching, facts=facts,
+                  nav2_file=Nav2File(nav2_limits.path()))
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))

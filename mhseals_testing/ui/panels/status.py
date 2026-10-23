@@ -42,6 +42,7 @@ def status_rows(snapshot, specs):
         rows.append(dict(group='Frames', state=chain['status'],
                          name=f"{chain['source']} {theme.ARROW} {chain['target']}", value='',
                          detail=chain['detail'], required=True))
+    rows.extend(snapshot.get('components', ()))
     for name, level, detail in advisories(snapshot):
         detail = theme.ascii_safe(detail)
         rows.append(dict(group='System', state=level, name=name, value=short(detail),

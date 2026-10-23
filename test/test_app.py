@@ -1426,3 +1426,85 @@ def test_config_row_and_popup_list_the_watched_files(tmp_path):
     app.announce(app.watcher.reload('hardware'))
     app.watch_config()
     assert app.monitor.advisories['Config'][1] == 'WARN'
+
+
+# --- Nav2 parameters from the Navigation row (ts089) --------------------------------------
+
+
+def nav2_app(tmp_path, applier=None, **kwargs):
+    from mhseals_testing.harness.nav2_edit import Nav2File
+    path = tmp_path / 'nav2.yaml'
+    path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.5\n')
+    app, boat = make_app(tmp_path, **kwargs)
+    app.nav2_file = Nav2File(path, applier)
+    return app, path
+
+
+def edit_nav2(app, path, text):
+    path.write_text(text)
+    app.tick()  # sees the new stat key
+    app.tick()  # unchanged for one tick: settled
+
+
+def test_nav2_file_change_toasts_and_marks_navigation_pending(tmp_path):
+    app, path = nav2_app(tmp_path)
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
+    edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.8\n')
+    assert app.notice.startswith('nav2.yaml changed')
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'pending'
+
+
+def dashboard_rows(app):
+    from mhseals_testing.ui.dashboard import status_rows
+    return status_rows(app.snapshot(), app.profile.sensors)
+
+
+def test_e_on_navigation_previews_and_y_applies_once(tmp_path):
+    seen = []
+    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or {})
+    edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.8\n')
+    app.focus = 'status'
+    app.cursors['status'] = next(i for i, r in enumerate(dashboard_rows(app)) if r['name'] == 'Navigation')
+    press(app, 'y')
+    with app.attached():
+        app.dispatch('e')
+    assert seen == [{'controller_server.ros__parameters.FollowPath.vx_max': 0.8}]
+    assert app.notice == 'Nav2 applied 1 key(s)'
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
+
+
+def test_escape_leaves_navigation_pending_and_a_bad_edit_keeps_the_last_good(tmp_path):
+    app, path = nav2_app(tmp_path)
+    edit_nav2(app, path, 'controller_server: [unclosed\n')
+    assert 'rejected' in app.notice
+    edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.9\n')
+    app.focus = 'status'
+    app.cursors['status'] = next(i for i, r in enumerate(dashboard_rows(app)) if r['name'] == 'Navigation')
+    press(app, 'escape')
+    with app.attached():
+        app.dispatch('e')
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'pending'
+
+
+@pytest.mark.parametrize('size', [(120, 40), (80, 30)])
+def test_navigation_row_and_popup_render_at_120_and_80(tmp_path, size):
+    app, path = nav2_app(tmp_path)
+    edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.8\n')
+    app.console = Console(file=io.StringIO(), width=size[0], height=size[1], color_system=None, record=True)
+    app.console.print(app.render())
+    text = app.console.export_text()
+    assert 'Navigation' in text and 'pending' in text
+    app.modal = dict(kind='choice', title='Nav2 parameters', message=None, options=['Apply', 'Close'],
+                     selected=0, danger=False, rows=[('vx_max', '0.5 -> 0.8')], width=76,
+                     hint='', keys=[None, None], scroll_hint='[ ]')
+    app.console.print(app.render())
+    assert 'Nav2 parameters' in app.console.export_text()
+
+
+def test_nav2_file_diff_and_apply_refusal(tmp_path):
+    from mhseals_testing.harness.nav2_edit import diff
+    assert diff({'a': {'b': 1, 'c': 2}}, {'a': {'b': 1, 'c': 3}, 'd': 4}) == [('a.c', 2, 3), ('d', None, 4)]
+    app, path = nav2_app(tmp_path, applier=lambda changes: {'refused': 'goal active'})
+    edit_nav2(app, path, 'a: 1\n')
+    assert app.nav2_file.apply() == 'Nav2 apply refused: goal active'
+    assert app.nav2_file.pending
