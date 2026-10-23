@@ -24,7 +24,10 @@ class Plant:
         self.stamped = profile.command_type == 'twist_stamped'
         self.publisher = None  # exists only while armed, so an idle suite is no conflict
         self.pulse_publisher = None
-        self.request_publisher = None
+        # Created up front: the mux's reliable subscription needs discovery time, so a
+        # publisher made at the first Space would lose that first (safety) request.
+        self.request_publisher = (ros.node.create_publisher(String, MUX_REQUEST_TOPIC, 10)
+                                  if profile.muxed else None)
 
     def engage(self):
         """Start publishing on the command topic (on arm, or the first command)."""
@@ -66,11 +69,8 @@ class Plant:
 
     def hold(self, cause='keys'):
         """Ask the mux to hold (zeros, sticky) so no auto command resumes behind Space."""
-        if not self.profile.muxed:
-            return
         if self.request_publisher is None:
-            self.request_publisher = self.ros.node.create_publisher(
-                String, MUX_REQUEST_TOPIC, 10)
+            return
         self.request_publisher.publish(String(data=json.dumps(
             {'op': 'hold', 'cause': cause, 'by': 'tui'})))
 

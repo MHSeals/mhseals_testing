@@ -65,11 +65,12 @@ def test_release_withdraws_the_publisher():
 
 def test_keys_publish_on_the_manual_topic_and_space_asks_the_mux_to_hold():
     plant, _ = pair()
+    assert [p.topic for p in plant.ros.node.live] == ['/command_mux/request']  # before any hold
     plant.engage()
     plant.hold('keys')
     plant.hold('keys')
     topics = [p.topic for p in plant.ros.node.live]
-    assert topics == ['/cmd_vel/manual', '/command_mux/request']
+    assert topics == ['/command_mux/request', '/cmd_vel/manual']
     request = plant.request_publisher.sent[0].data
     assert json.loads(request) == {'op': 'hold', 'cause': 'keys', 'by': 'tui'}
 

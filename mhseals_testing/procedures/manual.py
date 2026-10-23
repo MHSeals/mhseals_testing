@@ -23,6 +23,10 @@ class GuardedPublisher:
         self.blockers = blockers
         self.command = (0.0, 0.0, 0.0)
 
+    def hold(self):
+        """Space: ask the mux to hold so auto commands cannot resume behind the stop."""
+        self.plant.hold('keys')
+
     def publish(self, command):
         command = tuple(float(value) for value in command)
         if any(command):
@@ -47,6 +51,8 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
             if fold(key) in EXIT_KEYS:
                 return
             command = state.update(key, clock())
+            if fold(key) in ('space', 'press:space'):
+                publisher.hold()
             if key in STOP_KEYS:
                 break  # Stop must not be hidden by queued input.
             key = keys.read(timeout=0)

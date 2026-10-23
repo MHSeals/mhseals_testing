@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from mhseals_testing.runner import NEUTRAL, Aborted, Runner
@@ -247,3 +249,16 @@ def test_guard_trip_mid_hold_is_stamped_guard():
         with run.session('axis'):
             run.hold((0.1, 0, 0), 5.0)
     assert stop_of(events)['by'] == 'guard' and stop_of(events)['cause'] == 'guard:odometry'
+
+def test_manual_space_requests_a_hold_as_well_as_neutral():
+    from mhseals_testing.procedures.manual import GuardedPublisher, drive
+    from mhseals_hardware.manual_state import ManualState
+    events = []
+    plant = SimpleNamespace(hold=lambda cause: events.append(('hold', cause)),
+                            publish=lambda c: events.append(('pub', c)),
+                            neutral=lambda: events.append(('neutral',)))
+    keys = iter(['space', 'x'])
+    reader = SimpleNamespace(read=lambda timeout=None: next(keys))
+    drive(reader, ManualState(0.5, 0.5, 0.5, 1.0), GuardedPublisher(plant, lambda: []),
+          lambda *a: None)
+    assert events == [('hold', 'keys'), ('pub', (0.0, 0.0, 0.0))]
