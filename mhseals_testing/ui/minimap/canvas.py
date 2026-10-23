@@ -19,13 +19,14 @@ BLANK = '⠀'  # empty braille cell
 BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
         (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 
-# text/fg: the glyph and the layer owning its colour; chip: fg is painted as the cell's bg.
+# text/fg: the glyph and the layer (optionally ``layer.token``) owning its colour; chip: fg is painted as the cell's bg.
 Cell = namedtuple('Cell', 'text fg chip bg')
 
 
 def rank(layer):
-    """Sort key where a smaller number wins; a ``layer:token`` suffix names the colour only."""
-    layer = layer.split(':')[0]
+    """Sort key where a smaller number wins; a ``layer:token`` suffix names the colour only and
+    ``trail.gps.fix`` ranks as ``trail``."""
+    layer = layer.split(':')[0].split('.')[0]
     return PRIORITY.index(layer) if layer in PRIORITY else len(PRIORITY)
 
 
