@@ -4,7 +4,6 @@ Callbacks only validate and record; they never command anything. The node
 spins on its own thread so the TUI loop can block on keys.
 """
 
-from datetime import datetime
 from functools import partial
 import os
 import json
@@ -22,6 +21,7 @@ from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 from vision_msgs.msg import Detection3DArray
 
+from mhseals_testing import events
 from mhseals_testing.validation import finite, validate
 
 MESSAGE_TYPES = {
@@ -98,9 +98,8 @@ class RosIO:
 
     def emit(self, phase, **details):
         """Publish an event into the bag and show it on the dashboard."""
-        payload = dict(time=datetime.now().astimezone().isoformat(), ros_time=self.now(),
-                       phase=phase, **details)
-        self.events.publish(String(data=json.dumps(payload, sort_keys=True, default=str)))
+        self.events.publish(String(data=events.line(
+            events.payload(phase, self.now(), details, node=self.node.get_name()))))
         self.monitor.event(phase + (' ' + json.dumps(details, sort_keys=True, default=str)
                                     if details else ''))
 
