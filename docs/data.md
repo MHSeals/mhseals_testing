@@ -34,6 +34,7 @@ Every JSON file carries a first `schema` field such as `mhseals.run/1`.
 | `<session>.nav2.yaml` | Nav2 limits from a characterization |
 | `logs/<session>/` | one log per child process |
 
-The `sessions/<id>/session.json` layout, `INDEX.json` and a generated root
-`README.md` arrive with the session harness; until then nothing reads or writes
-them.
+`harness/session.py` creates `sessions/<YYYYMMDD_HHMMSS>_<host>_<profile>/` with
+`session.json`, `logs/` and `snapshots/`, and lists the flat sessions above
+read-only. `boat_test` is not switched to it yet; `INDEX.json` and the generated
+root `README.md` arrive later.
