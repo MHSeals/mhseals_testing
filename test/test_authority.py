@@ -47,6 +47,13 @@ def test_malformed_mux_state_is_unknown_not_a_crash():
     assert run({'input': 'auto'}, mux_age_s=0.5)['owner'] != 'unknown'  # receipt age stands in for the stamp
 
 
+def test_mux_rc_that_is_not_a_dict_is_malformed_not_a_crash():
+    for rc in ('MANUAL', 5, ['MANUAL']):
+        record = derive({'input': 'rc', 't_ns': int(NOW * 1e9), 'rc': rc}, [], None, None, None, None, NOW)
+        assert record['owner'] == 'unknown' and record['source'] == 'mux state malformed'
+    assert derive({'input': 'rc', 't_ns': int(NOW * 1e9), 'rc': None}, [], None, None, None, None, NOW)['owner'] == 'rc'
+
+
 def test_staleness_uses_local_receipt_age_not_the_senders_clock():
     behind = mux() | {'t_ns': int((NOW - 5) * 1e9)}  # sender clock 5 s behind, just received
     ahead = mux() | {'t_ns': int((NOW + 5) * 1e9)}  # sender clock 5 s ahead, received 4 s ago

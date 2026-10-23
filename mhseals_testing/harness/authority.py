@@ -125,7 +125,8 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=N
               'claims': [], 'nav': nav, 'task': task, 'procedure': procedure,
               'rc': mux.get('rc') if isinstance(mux, dict) else None}
     malformed = mux is not None and (not isinstance(mux, dict) or 'input' not in mux
-                                     or (mux_age_s is None and 't_ns' not in mux))
+                                     or (mux_age_s is None and 't_ns' not in mux)
+                                     or not isinstance(mux.get('rc') or {}, dict))
     if mux is None or malformed or _age(mux, now, mux_age_s) > STALE_S:
         # unknown means paused, but the claims stay visible
         record['claims'] = _effective(claims, True)
