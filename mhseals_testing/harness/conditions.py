@@ -83,7 +83,7 @@ class Conditions:
     def _rate(self):
         s = self.s
         out = dict(verdict='unknown', reason='', ceiling=None, drift_trust=None, neutral_s=0.0,
-                   drift=None, state='unknown', se=None)
+                   drift=None, state='unknown', se=None, floor=None, sea=None, sea_acc=None)
         self._detail = None
         if len(self.samples) < 2:
             out['reason'] = 'measuring 0 s'
@@ -97,6 +97,7 @@ class Conditions:
         if estimate.drift is None:
             out['reason'] = f'measuring {out["neutral_s"]:.0f}/{NEEDED_WINDOWS * s.min_window_s:.0f} s'
             return out
+        out.update(self._sea(t, e, n, rate, mask, windows))
         sigma_e = readiness.drift_sigma(estimate, t[-1])
         ceiling, limiting = self._ceiling(estimate, windows, sigma_e)
         out.update(drift=[float(x) for x in estimate.drift.vector], se=float(estimate.drift.se),
@@ -132,6 +133,16 @@ class Conditions:
         """
         self.evaluate(now)
         return self._detail
+
+    def _sea(self, t, e, n, rate, mask, windows):
+        """Wave level for the Conditions panel: ``floor`` the yaw trust floor (rad/s), ``sea`` the yaw-rate
+        scatter of the neutral samples (rad/s) and ``sea_acc`` their horizontal acceleration scatter (m/s^2)."""
+        floor = est.wave_floor(windows, self.s)
+        out = dict(floor=None if floor is None else float(floor[0]))
+        if mask.sum() > 2:
+            accel = np.hypot(np.gradient(e, t), np.gradient(n, t))[mask]
+            out.update(sea=float(np.std(rate[mask])), sea_acc=float(np.std(accel)))
+        return out
 
     def facts(self, now=None):
         """Health facts for the snapshot probe; the verdict carries its reason in ``data``."""

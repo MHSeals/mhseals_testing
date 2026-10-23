@@ -38,6 +38,7 @@ def test_unknown_while_measuring_then_good_in_calm_water():
     assert r['verdict'] == 'good', r
     assert abs(r['drift'][0] - 0.05) < 0.02 and r['neutral_s'] >= 24
     assert cond.facts()['conditions.verdict'].value == 'good'
+    assert r['floor'] > 0 and 0 < r['sea'] < 0.05 and r['sea_acc'] > 0     # the panel's floor and sea figures
     assert cond.facts()['conditions.ceiling'].value is None      # no plan: the ceiling is not limiting
 
 
