@@ -48,7 +48,7 @@ class MapState:
         self.plan = []            # latest /plan
         self.initial_plan = []    # first /plan of the current goal: the xte reference
         self.objects = []
-        self.detections = []      # raw detections at or above the floor
+        self._detections = []     # raw detections; the floor is applied on read
         self.latest = {}          # local_plan, hits, costmap
         self.tf_static = {}       # (parent, child) -> (x, y, z, yaw), kept for the session
         self._gps = (0, 0.0, None)  # fix_type, h_acc_m, speed_mps
@@ -66,7 +66,7 @@ class MapState:
         elif kind == 'objects':
             self.objects = list(f['items'])
         elif kind == 'detections':
-            self.detections = [d for d in f['items'] if d['score'] >= self.floor]
+            self._detections = list(f['items'])
         elif kind == 'tf_static':
             self.tf_static.update(f['transforms'])
         elif kind in LATEST:
@@ -75,12 +75,21 @@ class MapState:
             raise ValueError(f'unknown minimap kind {kind!r}')
 
     def set_floor(self, floor):
-        """Set the detection floor; detections already held are refiltered on the next ingest."""
+        """Set the detection floor; applies at once, up or down, to the held detections."""
         self.floor = floor
 
+    @property
+    def detections(self):
+        """Raw detections at or above the floor."""
+        return [d for d in self._detections if d['score'] >= self.floor]
+
     def new_epoch(self):
-        """Start a new map epoch (the datum moved); older crumbs stay and are drawn DIM."""
+        """Start a new map epoch (the datum moved); older crumbs stay and are drawn DIM.
+
+        The initial plan is dropped: it is in the old frame, the next /plan becomes the reference.
+        """
         self.epoch += 1
+        self.initial_plan = []
         self._last = None
 
     def restart_trail(self):

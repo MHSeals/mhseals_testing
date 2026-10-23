@@ -64,3 +64,23 @@ def test_detection_floor_tf_static_and_latest_kinds():
     assert s.latest['costmap'] == 'b'
     with pytest.raises(ValueError):
         s.ingest('bogus')
+
+
+def test_floor_works_both_ways_without_a_new_ingest():
+    s = MapState(floor=0.5)
+    s.ingest('detections', items=[{'score': 0.2}, {'score': 0.6}])
+    assert len(s.detections) == 1
+    s.set_floor(0.0)
+    assert len(s.detections) == 2
+    s.set_floor(0.7)
+    assert s.detections == []
+
+
+def test_new_epoch_clears_the_initial_plan():
+    s = MapState()
+    s.ingest('pose_map', t=0, x=0, y=0)
+    s.ingest('plan', points=LINE)
+    s.ingest('pose_map', t=1, x=50, y=0)  # datum jump
+    assert s.initial_plan == [] and s.xte((50, 0)) is None
+    s.ingest('plan', points=[(50, 0), (60, 0)])
+    assert s.initial_plan == [(50, 0), (60, 0)]
