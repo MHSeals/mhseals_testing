@@ -162,3 +162,12 @@ def test_a_broken_user_file_is_reported_not_fatal(tmp_path):
     (tmp_path / 'bad.yaml').write_text('checks: [{id: x, kind: nope}]')
     health = advisories.Health(None, tmp_path, directory=tmp_path)
     assert 'unknown kind' in health.error and health.tick(BoatMonitor().snapshot()) == {}
+
+
+def test_battery_row_hidden_until_the_first_plausible_sample(health):
+    health, clock = health
+    assert 'battery' not in battery_rows(health, clock, 65.535, -0.01)   # FCU "unknown" on both
+    assert 'battery' not in battery_rows(health, clock, math.nan, math.nan)
+    assert battery_rows(health, clock, 15.9, 0.8, 5.0)['battery'][0] == 'OK'
+    # once shown, an empty sample keeps the row and reports it unknown
+    assert battery_rows(health, clock, 65.535, -0.01)['battery'][0] == 'N/A'
