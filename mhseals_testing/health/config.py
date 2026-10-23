@@ -13,6 +13,7 @@ import re
 
 import yaml
 
+from mhseals_testing.data import workspace
 from mhseals_testing.health import registry
 from mhseals_testing.health.model import MISSING, SEVERITIES, CheckSpec
 
@@ -221,7 +222,7 @@ def load(directory=None, profile=None, user=None):
     if user is None and directory == HEALTH_DIR:
         user = USER_FILE
     registry.discover()
-    context = {**profile_context(profile), 'share': Share()}
+    context = {'workspace': str(workspace()), **profile_context(profile), 'share': Share()}
     raws, probes = [], {}
     for path in sorted(directory.glob('*.yaml')):
         data = _read(path)

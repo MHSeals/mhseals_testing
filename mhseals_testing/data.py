@@ -23,13 +23,17 @@ def _absolute_env(name):
     return candidate if candidate.is_absolute() else None
 
 
+def workspace():
+    """``$ROS_WS``, else ``~/astro_dock``."""
+    explicit = _absolute_env('ROS_WS')
+    return explicit.resolve() if explicit else Path.home() / 'astro_dock'
+
+
 def root():
     """``$MHSEALS_DATA``, else ``$ROS_WS/bags``, else ``~/astro_dock/bags``; never the working directory."""
     if (explicit := _absolute_env('MHSEALS_DATA')):
         return explicit.resolve()
-    if (workspace := _absolute_env('ROS_WS')):
-        return workspace.resolve() / 'bags'
-    return Path.home() / 'astro_dock' / 'bags'
+    return workspace() / 'bags'
 
 
 def data_root():

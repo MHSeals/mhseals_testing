@@ -1,0 +1,17 @@
+# Deploy state: each repo against its origin. Fetch is off; at the dock set
+# probes.git.fetch: 900 in ~/.config/mhseals/health.yaml.
+group: Deploy
+probes:
+  git: {period: 30, fetch: 0}   # health.md: 30 s on the worker; fetch is opt-in
+checks:
+  - id: git.{repo}
+    kind: git_state
+    title: Git {repo}
+    show: [header.deploy]
+    missing: skip
+    message: '{detail}'
+    each:
+      - {repo: astro_dock, path: '{workspace}'}
+      - {repo: hardware,   path: '{workspace}/src/mhseals_hardware'}
+      - {repo: nav,        path: '{workspace}/src/mhseals_nav'}
+      - {repo: testing,    path: '{workspace}/src/mhseals_testing'}
