@@ -25,7 +25,7 @@ def _profile_dir():
 
 
 PROFILE_DIR = _profile_dir()
-SENSOR_KINDS = ('odometry', 'imu', 'gps', 'points', 'image', 'compressed', 'detections')
+SENSOR_KINDS = ('odometry', 'imu', 'gps', 'gpsraw', 'mag', 'points', 'image', 'compressed', 'detections')
 MIN_DEADLINE = 1.5   # s, floor of the rate-derived freshness deadline (real GPS gaps reach 1.13 s)
 OUTPUTS = ('none', 'odroid', 'topic')
 

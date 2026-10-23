@@ -13,6 +13,7 @@ import threading
 import time
 
 from geometry_msgs.msg import Vector3Stamped
+from mavros_msgs.msg import GPSRAW
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -20,7 +21,7 @@ from rclpy.node import Node
 from rcl_interfaces.srv import GetParameters
 from rclpy.parameter import Parameter, parameter_value_to_python
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from sensor_msgs.msg import CompressedImage, Image, Imu, NavSatFix, PointCloud2
+from sensor_msgs.msg import CompressedImage, Image, Imu, MagneticField, NavSatFix, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 from vision_msgs.msg import Detection3DArray
@@ -29,10 +30,12 @@ from mhseals_testing import events
 from mhseals_testing.harness import journal
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.ros.graph import RclpyGraph
+from mhseals_testing.ros.sources import subscribe_sources
 from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
 
 MESSAGE_TYPES = {
-    'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix, 'points': PointCloud2,
+    'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix,
+    'gpsraw': GPSRAW, 'mag': MagneticField, 'points': PointCloud2,
     'image': Image, 'compressed': CompressedImage, 'detections': Detection3DArray,
 }
 EVENTS_TOPIC = '/mhseals_testing/events'
@@ -79,6 +82,7 @@ class RosIO:
         self.node.create_subscription(
             TFMessage, '/tf_static', partial(self._tf, static=True),
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        subscribe_sources(self)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self._spinning = True

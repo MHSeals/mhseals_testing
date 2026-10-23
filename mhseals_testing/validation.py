@@ -86,6 +86,40 @@ def _imu(message):
     return values, ''
 
 
+# GPSRAW fix_type: 0-1 none, 2 2D, 3 3D, 4 DGPS, 5 RTK float, 6 RTK fixed. MAVLink marks an
+# unknown speed or course with 65535.
+GPSRAW_UNKNOWN = 65535
+FIX_NAMES = {0: 'none', 1: 'none', 2: '2D', 3: '3D', 4: 'DGPS', 5: 'float', 6: 'fixed'}
+
+
+def _gpsraw(message):
+    """Receiver quality plus the world velocity MAVROS fuses (vel cm/s along cog cdeg)."""
+    fix = message.fix_type
+    values = dict(fix=fix, sats=message.satellites_visible, h_acc=message.h_acc / 1000,
+                  vel_acc=message.vel_acc / 1000, speed=None, cog=None)
+    if GPSRAW_UNKNOWN not in (message.vel, message.cog):
+        values['speed'], values['cog'] = message.vel / 100, message.cog / 100
+        heading = math.radians(values['cog'])
+        values['ve'], values['vn'] = (values['speed'] * math.sin(heading),
+                                      values['speed'] * math.cos(heading))
+    values['summary'] = (f"{FIX_NAMES.get(fix, fix)} | {values['sats']} sats | "
+                         f"h_acc {values['h_acc']:.2f}m")
+    if fix < 3:
+        return values, 'GPS raw has no 3D fix'
+    return values, ''
+
+
+def _mag(message):
+    field = message.magnetic_field
+    values = dict(summary='')
+    if not finite(field.x, field.y, field.z):
+        return values, 'non-finite magnetic field'
+    # Tesla to milligauss (1 mG = 1e-7 T).
+    values['field_mg'] = math.sqrt(field.x ** 2 + field.y ** 2 + field.z ** 2) * 1e7
+    values['summary'] = f"|B| {values['field_mg']:.0f} mG | {message.header.frame_id}"
+    return values, '' if values['field_mg'] > 0 else 'magnetic field is zero'
+
+
 def _points(message):
     values = dict(summary=f'{message.width * message.height} points | {message.header.frame_id}')
     return values, '' if message.width and message.data else 'empty point cloud'
@@ -110,6 +144,10 @@ def validate(kind, message, now, base_frame=None, stale_after=2.0):
         values, issue = _gps(message)
     elif kind == 'imu':
         values, issue = _imu(message)
+    elif kind == 'gpsraw':
+        values, issue = _gpsraw(message)
+    elif kind == 'mag':
+        values, issue = _mag(message)
     elif kind == 'points':
         values, issue = _points(message)
     elif kind in ('image', 'compressed'):

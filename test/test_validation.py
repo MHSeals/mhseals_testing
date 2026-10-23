@@ -80,3 +80,31 @@ def test_points_images_detections_and_unknown_kind():
     assert validate('detections', detections, NOW).values['count'] == 2
     with pytest.raises(ValueError):
         validate('sonar', cloud, NOW)
+
+
+def gpsraw(fix=3, vel=150, cog=9000, **kwargs):
+    return NS(header=header('gps'), fix_type=fix, satellites_visible=12, h_acc=2100,
+              vel_acc=280, vel=vel, cog=cog, **kwargs)
+
+
+def test_gpsraw_reports_quality_and_world_velocity():
+    result = validate('gpsraw', gpsraw(), NOW)
+    assert result.issue == ''
+    assert result.values['h_acc'] == 2.1 and result.values['vel_acc'] == .28
+    assert result.values['ve'] == pytest.approx(1.5) and result.values['vn'] == pytest.approx(0, abs=1e-9)
+
+
+def test_gpsraw_flags_no_fix_and_skips_unknown_velocity():
+    assert 'no 3D fix' in validate('gpsraw', gpsraw(fix=2), NOW).issue
+    unknown = validate('gpsraw', gpsraw(vel=65535), NOW)
+    assert unknown.values['speed'] is None and 've' not in unknown.values
+
+
+def mag(x=2e-5, y=0., z=0.):
+    return NS(header=header('imu_link'), magnetic_field=vector(x, y, z))
+
+
+def test_mag_reports_field_in_milligauss():
+    assert validate('mag', mag(), NOW).values['field_mg'] == pytest.approx(200)
+    assert validate('mag', mag(x=float('nan')), NOW).issue == 'non-finite magnetic field'
+    assert validate('mag', mag(x=0.), NOW).issue == 'magnetic field is zero'
