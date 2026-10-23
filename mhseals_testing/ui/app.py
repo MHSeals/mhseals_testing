@@ -34,8 +34,8 @@ from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC
-from mhseals_testing.runner import Aborted, Runner
-from mhseals_testing.ui import dashboard
+from mhseals_testing.runner import Aborted, Runner, fold
+from mhseals_testing.ui import dashboard, theme
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
@@ -164,7 +164,7 @@ class App:
         self.notice = 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
-        self.pwm_readback = ['—'] * 4
+        self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
         self.last_frame = 0.0
         self.quit = False
@@ -427,12 +427,12 @@ class App:
         self.modal = dict(kind='message', title='Closing session', rows=rows, width=64,
                           hint='Ctrl+C again skips the rest')
         for row, (_, step) in zip(rows, steps):
-            row[1] = '◌ working'
+            row[1] = theme.icon('busy').plain + ' working'
             self.refresh()
             try:
-                row[1] = '● ' + step()
+                row[1] = theme.DOT + ' ' + step()
             except Exception as error:  # keep going: later steps still matter
-                row[1] = f'× {error}'
+                row[1] = f"{theme.icon('bad').plain} {error}"
         self.refresh()
         self.modal = None
 
@@ -627,7 +627,7 @@ class App:
         pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
         self.test_pulses = pulses
         self.ros.emit('test_pulses', pulses=pulses)
-        self.notice = f'Testing output {output + 1}: {pulses[output]} µs; 0 or Tab ends'
+        self.notice = f'Testing output {output + 1}: {pulses[output]} {theme.pick('µs', 'us')}; 0 or Tab ends'
 
     def clear_pulses(self, notice=None):
         if self.test_pulses is not None:
@@ -675,7 +675,7 @@ class App:
             if key in ('escape', 'q'):
                 raise Cancelled('cancelled by operator')
         return self.popup(dict(kind='message', title=title, message=message,
-                               hint='Enter continue · Esc cancel'), handle)
+                               hint=f'Enter continue{theme.SEPARATOR}Esc cancel'), handle)
 
     def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None,
                selected=0, width=64):
@@ -686,6 +686,7 @@ class App:
             modal['keys'][index] = key
 
         def handle(key):
+            key = fold(key)
             if key in ('up', 'k'):
                 modal['selected'] = (modal['selected'] - 1) % len(options)
             elif key in ('down', 'j'):
@@ -701,7 +702,7 @@ class App:
     def type_word(self, title, message, word, rows=None, width=64):
         """A typed confirmation for real outputs: only the exact word proceeds."""
         modal = dict(kind='input', title=title, message=message, text='', danger=True,
-                     rows=rows, width=width, hint=f'Type {word.upper()} and Enter · Esc cancel')
+                     rows=rows, width=width, hint=f'Type {word.upper()} and Enter{theme.SEPARATOR}Esc cancel')
 
         def handle(key):
             if key == 'enter':
@@ -726,11 +727,11 @@ class App:
         rows = [('Outputs', outputs), ('Driver', driver),
                 ('Commands', f'{self.profile.command_topic} ({self.profile.command_units})'),
                 ('Config', str(self.config_file)),
-                ('Decoupling', '○ identity' if decoupled(self.args.hardware_config) is None
-                 else '● fitted (Thrusters c clears)')]
+                ('Decoupling', theme.icon('off').plain + ' identity' if decoupled(self.args.hardware_config) is None
+                 else theme.DOT + ' fitted (Thrusters c clears)')]
         blockers = self.blockers()
-        rows.append(('Interlocks', '● clear' if not blockers else f'× {blockers[0]}'))
-        rows += [('', f'× {reason}') for reason in blockers[1:4]]
+        rows.append(('Interlocks', theme.DOT + ' clear' if not blockers else f"{theme.icon('bad').plain} {blockers[0]}"))
+        rows += [('', f"{theme.icon('bad').plain} {reason}") for reason in blockers[1:4]]
         if self.args.bench_override:
             rows.append(('Override', 'bench: sensor and TF interlocks off'))
         return rows
@@ -778,7 +779,7 @@ class App:
         started = self.clock()
         while self.arming.poll() == 'starting':  # raises when the driver fails
             self.notice = (f'Arming: starting the thruster driver '
-                           f'{self.clock() - started:.0f} s · Space cancels')
+                           f'{self.clock() - started:.0f} s{theme.SEPARATOR}Space cancels')
             self.refresh()
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
@@ -880,7 +881,7 @@ class App:
     def session(self, name, blockers, details):
         def show(command, remaining, label):
             self.command = command
-            self.notice = f'{label or name}{dashboard.SEPARATOR}{remaining:.1f}s · Space aborts'
+            self.notice = f'{label or name}{dashboard.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts'
             if self.test_pulses is not None and self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
             self.refresh(force=False)

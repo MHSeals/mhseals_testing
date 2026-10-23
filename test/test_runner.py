@@ -41,7 +41,7 @@ def test_hold_publishes_at_rate_and_returns_window():
     assert plant.sent == [(0.2, 0.0, 0.0)] * 4
 
 
-@pytest.mark.parametrize('key', ['space', 'q', 'escape'])
+@pytest.mark.parametrize('key', ['space', 'q', 'Q', 'escape'])
 def test_abort_key_stops_at_neutral(key):
     run, plant, _, _ = runner({3: key})
     with pytest.raises(Aborted, match='cancelled'):
@@ -111,3 +111,15 @@ def test_supervise_aborts_on_keys_and_blockers_at_neutral():
     with pytest.raises(Aborted, match='TF'):
         blocked.supervise(5.0)
     assert plant.sent == ['neutral']
+
+
+def test_fold_lowers_single_letters_only():
+    from mhseals_testing.runner import fold
+    assert (fold('Q'), fold('press:M'), fold('Escape'), fold(None)) == ('q', 'press:m', 'Escape', None)
+
+
+def test_manual_exit_keys_ignore_case():
+    from mhseals_testing.procedures.manual import drive
+    class Held:
+        read = staticmethod(lambda timeout=None: 'press:M')
+    drive(Held, None, None, None)

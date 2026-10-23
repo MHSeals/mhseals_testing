@@ -14,6 +14,11 @@ ABORT_KEYS = ('space', 'q', 'escape')
 NEUTRAL = (0.0, 0.0, 0.0)
 
 
+def fold(key):
+    """Single letters (and press:<letter>) compare lower-case, so Shift or Caps Lock cannot defeat a key."""
+    return key.lower() if key and (len(key) == 1 or key.startswith('press:')) else key
+
+
 class Aborted(RuntimeError):
     """Motion stopped by the operator or an interlock; the plant is neutral."""
 
@@ -58,7 +63,7 @@ class Runner:
                 self.command = command
                 self.show(command, deadline - now, label)
                 key = self.keys.read(timeout=min(self.period, deadline - now))
-                if key in ABORT_KEYS:
+                if fold(key) in ABORT_KEYS:
                     raise Aborted(f'{label or "motion"} cancelled by operator')
         except BaseException:
             self.stop()
@@ -85,7 +90,7 @@ class Runner:
                 text = label() if callable(label) else label
                 self.show(self.command, deadline - now, text)
                 key = self.keys.read(timeout=min(self.period, deadline - now))
-                if key in ABORT_KEYS:
+                if fold(key) in ABORT_KEYS:
                     raise Aborted(f'{text or "supervision"} cancelled by operator')
         except BaseException:
             self.stop()

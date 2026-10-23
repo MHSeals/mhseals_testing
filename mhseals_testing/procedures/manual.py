@@ -9,7 +9,7 @@ key reader that reports key releases, so the dashboard stays on screen.
 import time
 
 from mhseals_hardware.manual_state import ManualState
-from mhseals_testing.runner import Aborted
+from mhseals_testing.runner import Aborted, fold
 
 EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
 STOP_KEYS = ('space', 'press:space', 'focus-out')
@@ -44,7 +44,7 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
         for _ in range(64):
             if key is None:
                 break
-            if key in EXIT_KEYS:
+            if fold(key) in EXIT_KEYS:
                 return
             command = state.update(key, clock())
             if key in STOP_KEYS:
