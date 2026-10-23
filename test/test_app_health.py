@@ -90,3 +90,19 @@ def test_health_tick_journals_transitions_so_the_window_goes_invalid(tmp_path):
     app.health.engine.clock = lambda: 10.0
     app.health_window(p, began=0.0)
     assert events[-1][0] == 'trial_window_invalid'
+
+
+def test_invalid_window_notice_survives_the_complete_notice(tmp_path):
+    app, _ = make_app(tmp_path)
+    p = procedure('o')
+    app.health.engine = engine_with('ok', p.key)
+    results = []
+    app.availability = lambda proc: None
+    app.snapshot = lambda: {'results': list(results)}
+    app.journal.window_problems = lambda *a: ['Compass was fail']
+    stub = SimpleNamespace(title='Obs', key=p.key, needs=(), run=lambda ctx: results.append({'verdict': 'OK'}))
+    app.run_procedure(stub)
+    assert app.notice == 'Obs: window invalid, Compass was fail'
+    app.journal.window_problems = lambda *a: []
+    app.run_procedure(stub)
+    assert app.notice == 'Obs complete'

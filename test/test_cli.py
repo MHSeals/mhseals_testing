@@ -85,3 +85,21 @@ def test_bad_arguments_exit_2():
     with pytest.raises(SystemExit) as exit_:
         cli.main(['check', '--fail-on', 'loud'])
     assert exit_.value.code == 2
+
+
+def test_missing_fact_reports_unknown_at_once():
+    def nothing():
+        return {}, {}, {}
+    t = [0.0]
+    report, code = cli.run_check(config(), 'boat', collect=nothing, clock=lambda: t[0],
+                                 sleep=lambda s: t.__setitem__(0, t[0] + s), window=5.0, host='h')
+    assert {c['status'] for c in report['checks']} == {'unknown'}
+    assert report['summary']['unknown'] == 2 and code == 0
+    assert 'unknown' in cli.table(report)
+
+
+def test_gate_with_a_non_procedure_key_exits_2(monkeypatch, capsys):
+    monkeypatch.setattr(cli, 'procedure_keys', lambda: {'go'})
+    monkeypatch.setattr(cli.health_config, 'load', lambda profile=None: config())
+    assert cli.main(['check', '--gate', 'typo', '--window', '0']) == 2
+    assert "'typo'" in capsys.readouterr().err

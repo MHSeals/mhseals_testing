@@ -1011,7 +1011,7 @@ class App:
             except BaseException:
                 self.health_window(procedure, began)   # before teardown, whatever the exit
                 raise
-            self.health_window(procedure, began)
+            invalid = self.health_window(procedure, began)
         except STOPPING_ERRORS as error:
             aborted = str(error)
             if not isinstance(error, Cancelled):
@@ -1025,7 +1025,8 @@ class App:
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
             self.cursors['activity'] = 0
-            self.notice = f'{procedure.title} complete'
+            if not invalid:
+                self.notice = f'{procedure.title} complete'
 
     def write_run(self, procedure, start, aborted):
         """The one run file for a procedure run: every result it recorded since ``start``."""
@@ -1040,15 +1041,20 @@ class App:
                        status=runs.ABORTED if aborted is not None else None)
 
     def health_window(self, procedure, began):
-        """Snapshot health and flag the trial window invalid when a gated check left ok."""
+        """Snapshot health and flag the trial window invalid when a gated check left ok.
+
+        Returns the invalid notice (also shown), or None.
+        """
         self.health_snapshot('end', procedure)
         if self.engine is None:
-            return
+            return None
         problems = self.journal.window_problems(
             self.engine, procedure.key, began, self.engine.clock(), 'armed' in procedure.needs)
         if problems:
             self.ros.emit('trial_window_invalid', procedure=procedure.key, reasons=problems)
             self.notice = f'{procedure.title}: window invalid, {problems[0]}'
+            return self.notice
+        return None
 
     def procedure_context(self):
         return host.context(

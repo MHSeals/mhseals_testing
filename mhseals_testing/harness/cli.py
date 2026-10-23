@@ -58,7 +58,8 @@ def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5
     """
     specs = select(config.specs, only)
     engine = Engine(specs, periods={n: s['period'] for n, s in config.probes.items()
-                                    if isinstance(s, dict) and 'period' in s}, clock=clock)
+                                    if isinstance(s, dict) and 'period' in s}, clock=clock,
+                    unknown_after=0.0)       # a one-shot check has no time to wait for evidence
     start = clock()
     while True:
         report = engine.tick(*collect())
@@ -113,6 +114,10 @@ def main(argv=None, collect=no_samples):
         return 2 if problems else 0
     if args.window < 0:
         print('boat_trial: --window must not be negative', file=sys.stderr)
+        return 2
+    known = procedure_keys()
+    if args.gate and known is not None and args.gate not in known:
+        print(f'boat_trial: --gate {args.gate!r} is not a procedure key', file=sys.stderr)
         return 2
     report, code = run_check(config, profile.name, args.only, args.gate, args.fail_on,
                              args.window, collect)

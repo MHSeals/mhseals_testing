@@ -35,10 +35,11 @@ class HealthReport:
 class Engine:
     """Turns `tick(facts, probes)` calls into a HealthReport."""
 
-    def __init__(self, specs, periods=None, clock=time.monotonic):
+    def __init__(self, specs, periods=None, clock=time.monotonic, unknown_after=None):
         self.specs = [s for s in specs if s.enabled]
         self.periods = periods or {}             # probe -> seconds between samples
         self.clock = clock
+        self.unknown_after = unknown_after       # overrides the unknown raise time (headless check: 0)
         self.muted = set()                       # session mutes; the TUI popup edits them
         self.last = None                         # shown results of the latest tick; None before one
         self._shown = {}                         # id -> status currently shown
@@ -185,8 +186,9 @@ class Engine:
             return peak
         return shown
 
-    @staticmethod
-    def _raise_after(spec, status):
+    def _raise_after(self, spec, status):
         if spec.raise_after is not None:
             return spec.raise_after
+        if status == 'unknown' and self.unknown_after is not None:
+            return self.unknown_after
         return RAISE_DEFAULT.get(status, RAISE_OTHER)
