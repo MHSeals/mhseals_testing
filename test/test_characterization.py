@@ -109,6 +109,17 @@ def test_fit_separates_a_world_current_from_the_boat():
     assert result['velocity_gain']['yaw']['surge'] == approx(0.05)
 
 
+def test_one_sample_without_a_heading_does_not_switch_off_drift_separation():
+    yaws = [2 * math.pi * i / 64 for i in range(64)]
+    samples = boat_samples((0.1, 0.15), yaws)
+    clean = characterize_samples(samples)
+    samples[5] = dict(samples[5], yaw=None)
+    result = characterize_samples(samples)
+    assert result['drift']['separated']
+    assert (result['drift']['x'], result['drift']['y']) == approx((0.1, 0.15), abs=1e-6)
+    assert result['speed_curves'] == approx(clean['speed_curves'], abs=1e-6)
+
+
 def test_one_heading_cannot_separate_and_falls_back_to_a_body_bias():
     result = characterize_samples(boat_samples((0.1, 0.0), [0.3] * 64))
     assert result['drift'] == {'separated': False}

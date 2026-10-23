@@ -103,6 +103,7 @@ def acceleration_limits(samples, span=0.5, percentile=0.99):
 # Headings closer together than this (mean resultant length of the unit
 # heading vectors) can't tell a world-fixed drift from a body-fixed bias.
 SEPARATION_SPREAD = 0.9
+MIN_SAMPLES = 8
 
 
 def heading_spread(yaws):
@@ -141,11 +142,20 @@ def _normal_equations(samples, drift):
     return numpy.linalg.solve(gram, rows.T @ values)
 
 
+def _headed(samples):
+    """The samples with a heading, when enough of them remain to fit on."""
+    headed = [sample for sample in samples if sample[3] is not None]
+    return headed if len(headed) >= MIN_SAMPLES else []
+
+
 def fit(samples):
     """Fit the model; separate drift from bias only when the headings allow it.
 
     Returns (mechanical bias, gain, drift (x, y) or None).
     """
+    # Samples without a heading can't be placed in the world frame: leave them
+    # out of the fit instead of letting one of them switch drift separation off.
+    samples = _headed(samples) or samples
     yaws = [sample[3] for sample in samples]
     drift = all(yaw is not None for yaw in yaws) and heading_spread(yaws) < SEPARATION_SPREAD
     theta = _normal_equations(samples, drift)
@@ -195,7 +205,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
     included, for the acceleration limits (default: the samples themselves).
     """
     normalized = _normalize(samples)
-    if len(normalized) < 8:
+    if len(normalized) < MIN_SAMPLES:
         raise ValueError("at least eight command/odometry samples are required")
     bias, gain, drift = fit(normalized)
     used = numpy.array(validate_decoupling(decoupling))
@@ -231,7 +241,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         "sample_count": len(normalized),
         "mechanical_bias": {axis: bias[i] for i, axis in enumerate(AXES)},
         "velocity_gain": gain_map,
-        "speed_curves": speed_curves(((c, v, yaw) for c, v, _, yaw in normalized), drift),
+        "speed_curves": speed_curves(((c, v, yaw) for c, v, _, yaw in (_headed(normalized) or normalized)), drift),
         "drift": (dict(x=drift[0], y=drift[1], speed=math.hypot(*drift),
                        toward=math.degrees(math.atan2(drift[1], drift[0])),
                        frame="odom", separated=True)
