@@ -67,6 +67,15 @@ def test_one_publish_per_frame_without_splitting():
     assert send.counts['sent'] == 2
 
 
+def test_exact_multiples_of_a_fragment_are_split_so_the_fcu_sees_the_end():
+    node = FakeNode()
+    send = sink(node)
+    for size in (180, 360, 540, 720, 361):
+        send(bytes(size), 100.)
+    assert [len(m.data) for m in node.published] == [180, 359, 1, 539, 1, 720, 361]
+    assert send.counts['sent'] == 5 and send.counts['split'] == 2
+
+
 def test_stale_frame_is_dropped_and_counted():
     node = FakeNode()
     send = sink(node)

@@ -8,6 +8,10 @@ from mavros_msgs.msg import RTCM
 # MAVROS fragments up to 4 x 180 B; a longer message is dropped on its side with an error.
 MAX_FRAME = 720
 
+# MAVROS fragments in 180 B pieces and sends no empty terminator, so the FCU cannot tell where a
+# 360 or 540 B frame ends and drops it. 720 B is ended by the full fourth fragment.
+FRAGMENT = 180
+
 # A frame older than this when it reaches us is worth less than the next epoch.
 MAX_AGE = 2.0
 
@@ -25,7 +29,7 @@ class MavrosSink:
         self.publisher = node.create_publisher(
             RTCM, self.topic,
             QoSProfile(depth=16, reliability=ReliabilityPolicy.RELIABLE))
-        self.counts = dict(sent=0, stale=0, oversize=0)
+        self.counts = dict(sent=0, stale=0, oversize=0, split=0)
         self.warned, self.count = None, 0
 
     def __call__(self, frame, stamp):
@@ -39,10 +43,18 @@ class MavrosSink:
         if self.clock() - stamp > MAX_AGE:
             self.counts['stale'] += 1
             return
-        message = RTCM()
-        message.header.stamp = self.node.get_clock().now().to_msg()
-        message.data = list(frame)
-        self.publisher.publish(message)
+        frame = bytes(frame)
+        if FRAGMENT < len(frame) < MAX_FRAME and len(frame) % FRAGMENT == 0:
+            # The FCU gets a byte stream, so a 1 B tail ends the last fragment short and in order
+            self.counts['split'] += 1
+            parts = [frame[:-1], frame[-1:]]
+        else:
+            parts = [frame]
+        for part in parts:
+            message = RTCM()
+            message.header.stamp = self.node.get_clock().now().to_msg()
+            message.data = list(part)
+            self.publisher.publish(message)
         self.counts['sent'] += 1
 
     def check_owner(self, n):
