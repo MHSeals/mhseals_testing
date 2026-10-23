@@ -58,9 +58,10 @@ class GitProbe:
         return done.stdout
 
     def _fetch_age(self, path):
-        try:
-            return self.clock() - os.stat(os.path.join(path, '.git', 'FETCH_HEAD')).st_mtime
-        except OSError:
+        try:                                  # .git may be a file (worktree, submodule)
+            head = self._git(path, 'rev-parse', '--git-path', 'FETCH_HEAD', timeout=FETCH_TIMEOUT).strip()
+            return self.clock() - os.stat(os.path.join(path, head)).st_mtime
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
             return None
 
     def _repo(self, name, path):

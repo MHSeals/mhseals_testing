@@ -140,3 +140,14 @@ def test_deploy_text_glyphs(monkeypatch):
     monkeypatch.setattr(theme, 'ASCII', True)
     assert deploy_text(busy).plain == '^1 v3 *2 ?4 ~2h'
     assert deploy_text([clean]).plain == '='
+
+
+def test_fetch_age_resolves_fetch_head_in_a_worktree(repos, tmp_path):
+    _, clone = repos
+    git(clone, 'fetch')
+    tree = tmp_path / 'wt'
+    git(clone, 'worktree', 'add', '-b', 'side', str(tree))
+    assert (tree / '.git').is_file()
+    git(tree, 'fetch')                    # FETCH_HEAD is per worktree
+    age = state(tree, fetch=0)['fetch_age']
+    assert age is not None and age < 60

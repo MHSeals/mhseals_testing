@@ -413,3 +413,16 @@ def test_deploy_state_sits_before_the_host_in_the_header():
     page = text(header(snapshot, view(profile, deploy=deploy_text([state])), 120), 120, 2)
     assert '↓2 ±1  boat' in page and page.index('↓2') < page.index('boat · ROS')
     assert '↓2' not in text(header(snapshot, view(profile), 120), 120, 2)
+
+
+def test_narrow_header_keeps_the_short_host_after_deploy():
+    from mhseals_testing.ui.dashboard import header
+    from mhseals_testing.ui.deploy import deploy_text
+    profile = load_profile('boat')
+    snapshot = monitor().snapshot(profile.required_tf)
+    state = dict(ahead=0, behind=2, dirty=1, untracked=0, diverged=False, fetch_age=None)
+    v = view(profile, deploy=deploy_text([state]))
+    lines = {w: text(header(snapshot, v, w), w, 2).split('\n')[0] for w in range(120, 40, -1)}
+    narrowest_long = min(w for w, line in lines.items() if 'ROS' in line)
+    line = lines[narrowest_long - 1]            # one column less: only the short host fits beside deploy
+    assert '↓2' in line and 'ROS' not in line and '↓2 ±1  boat  ' in line
