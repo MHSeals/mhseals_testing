@@ -5,7 +5,7 @@ app's view state; none reads ROS. ``ui.layout`` places them on the page.
 """
 
 PANELS = ('status', 'motion', 'thrusters', 'procedures', 'activity', 'minimap')
-TITLES = {'status': 'Status', 'motion': 'Motion', 'thrusters': 'Thrusters',
+TITLES = {'status': 'Status', 'motion': 'Motion', 'conditions': 'Conditions', 'thrusters': 'Thrusters',
           'procedures': 'Procedures', 'activity': 'Activity', 'minimap': 'Minimap'}
 QUIET = {'LIVE', 'OK', 'PASS', 'READY'}      # rows that may hide inside a folded group
 GROUPS = ('Health', 'Control', 'Components', 'Localization', 'Thrusters', 'System', 'Session')  # ui 6.1
