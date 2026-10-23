@@ -4,7 +4,7 @@ import io
 from rich.console import Console
 from rich.text import Text
 
-from mhseals_testing.ui import layout
+from mhseals_testing.ui import layout, theme
 from mhseals_testing.ui.toasts import MAX_SHOWN, Toasts
 
 
@@ -119,7 +119,7 @@ def test_toast_capped_at_four_rows_with_ellipsis():
     toasts = Toasts()
     toasts.push('a', 'fail', 'word ' * 60, 0)
     lines = [l for l in drawn(toasts.visible(0), 80, 20) if l != 'B' * 80]
-    assert len(lines) == 4 and '…' in lines[2]
+    assert len(lines) == 4 and theme.pick('…', '...') in lines[2]
 
 
 def test_width_follows_text_within_bounds():
@@ -166,3 +166,14 @@ def test_ascii_mode_has_no_unicode_in_toasts(monkeypatch):
     quiet.visible(1, suppressed=True)
     (summary,) = quiet.visible(2)
     assert summary.text == 'Health: 2 new | ! details'
+
+
+def test_ascii_toast_capped_at_four_rows_with_ellipsis(monkeypatch):
+    monkeypatch.setattr(layout.theme, 'ASCII', True)
+    toasts = Toasts()
+    toasts.push('a', 'fail', 'word ' * 60, 0)
+    (toast,) = toasts.visible(0)
+    for width in (26, 41, 60):
+        assert layout.toast_box(toast, width)[1] == 4
+    lines = [l for l in drawn(toasts.visible(0), 80, 20) if l != 'B' * 80]
+    assert len(lines) == 4 and '...' in lines[2] and '\n'.join(lines).isascii()

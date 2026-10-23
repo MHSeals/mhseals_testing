@@ -247,8 +247,9 @@ def toast_box(toast, width, now=None):
         line.rstrip()
     if len(lines) > TOAST_LINES:
         last = lines[TOAST_LINES - 1]
-        last.truncate(width - 5)
-        last.append(theme.pick('…', '...'))
+        ellipsis = theme.pick('…', '...')
+        last.truncate(width - 4 - len(ellipsis))      # the box interior is width - 4 columns
+        last.append(ellipsis)
         lines = lines[:TOAST_LINES]
     panel = theme.block(Text('\n').join(lines), toast.title.strip())
     panel.title = Text(toast.title.strip(), style=f'bold {hue}')

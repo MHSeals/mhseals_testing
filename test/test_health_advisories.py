@@ -171,3 +171,11 @@ def test_battery_row_hidden_until_the_first_plausible_sample(health):
     assert battery_rows(health, clock, 15.9, 0.8, 5.0)['battery'][0] == 'OK'
     # once shown, an empty sample keeps the row and reports it unknown
     assert battery_rows(health, clock, 65.535, -0.01)['battery'][0] == 'N/A'
+
+
+def test_drain_hands_over_each_transition_once(health):
+    health, clock = health
+    settle(health, clock)
+    first = health.drain()
+    assert first and all(t.new != t.old for t in first)
+    assert health.drain() == []

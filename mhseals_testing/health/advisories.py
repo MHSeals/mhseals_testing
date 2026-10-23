@@ -57,6 +57,7 @@ class Health:
         self.engine = Engine(self.specs, periods, self.facts.clock)
         self.periods = periods
         self._ran, self._seen = {}, set()
+        self.transitions = []           # engine transitions not yet taken by drain()
 
     def tick(self, snapshot):
         """Run the due App-tick probes, evaluate, and return the advisory rows."""
@@ -70,4 +71,11 @@ class Health:
                 except Exception as error:      # a failing probe reads as unknown, not a crash
                     self.facts.publish(name, {}, error=repr(error))
         facts, probes = self.facts.read()
-        return rows(self.specs, self.engine.tick(facts, probes), self._seen)
+        report = self.engine.tick(facts, probes)
+        self.transitions.extend(report.transitions)
+        return rows(self.specs, report, self._seen)
+
+    def drain(self):
+        """The transitions since the last call, oldest first."""
+        taken, self.transitions = self.transitions, []
+        return taken

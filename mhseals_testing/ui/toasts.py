@@ -66,6 +66,18 @@ class Toasts:
         detail = transition.result.detail
         self.push(transition.id, transition.new, f'{title}: {detail}' if detail else title, now)
 
+    def summary(self, text, now):
+        """Show one info toast (the start-up summary); it expires like a warning."""
+        self._items.pop('summary', None)
+        self._items['summary'] = Toast('summary', 'info', text, now, expires=now + LIFETIME['warn'])
+
+    def ack_newest(self, now):
+        """Dismiss the newest toast; False when none is showing."""
+        live = self._live(now)
+        if live:
+            self._items.pop(live[-1].id)
+        return bool(live)
+
     def ack(self, id=None):
         """Dismiss one toast, or every standing one."""
         for key in [id] if id else list(self._items):

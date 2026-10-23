@@ -55,6 +55,7 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import feeds as feeds_module, layout, perception, popups, theme
 from mhseals_testing.ui.feeds import health as health_feed
+from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
 from mhseals_testing.ui.panels import PANELS, activity
@@ -238,6 +239,7 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock)
+        self.feeds.append(ToastFeed(self.health))
         self.recwatch = RecWatch(self.clock)
         self.rec = None                 # latest RecSample, drawn in the header strip
         self.pwm_readback = [theme.DASH] * 4
@@ -257,6 +259,10 @@ class App:
     @property
     def armed(self):
         return self.arming is not None and self.arming.armed
+
+    def ack_toasts(self, id=None):
+        """Dismiss one toast, or every standing one (the Health popup's x)."""
+        self.toasts.ack(id)
 
     def snapshot(self):
         snapshot = self.source.snapshot()
@@ -760,7 +766,8 @@ class App:
         elif key == 'a':
             self.arm_panel()
         elif key == 'x':
-            self.export()
+            if not self.toasts.ack_newest(self.monitor.clock()):   # x dismisses a toast first
+                self.export()
         elif key == 'b':
             self.mark_note() if raw == 'B' else self.mark()
         elif key in ('+', '=', '-', '_'):
