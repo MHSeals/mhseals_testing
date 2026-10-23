@@ -34,13 +34,13 @@ def test_matching_parameters_are_ok(reference):
 def test_the_ts035_incident_values_differ(reference):
     result = params_kind.evaluate(check(reference, ['EK3_SRC1_YAW', 'COMPASS_USE']),
                                   facts(EK3_SRC1_YAW=8.0, COMPASS_USE=0.0))
-    assert result.status == 'warn' and 'EK3_SRC1_YAW 8 (want 1)' in result.detail
+    assert result.status == 'fail' and 'EK3_SRC1_YAW 8 (want 1)' in result.detail
 
 
 def test_unread_parameters_are_unknown_unless_something_differs(reference):
     names = ['EK3_SRC1_YAW', 'COMPASS_USE']
     assert params_kind.evaluate(check(reference, names), facts(COMPASS_USE=1)).status == 'unknown'
-    assert params_kind.evaluate(check(reference, names), facts(COMPASS_USE=0)).status == 'warn'
+    assert params_kind.evaluate(check(reference, names), facts(COMPASS_USE=0)).status == 'fail'
 
 
 def test_inline_expect_overrides_the_file(reference):

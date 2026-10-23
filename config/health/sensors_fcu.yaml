@@ -13,6 +13,9 @@ checks:
     kind: params
     node: /mavros/param
     reference: '{share:mhseals_nav}/config/fcu/blastoise.param'
+    # blastoise.param is still the 10-22 as-found dump (8/0), not the target. This inline
+    # expect wins over it; drop it once mhseals_nav refreshes blastoise.param.
+    expect: {EK3_SRC1_YAW: 1, COMPASS_USE: 1}
     names: [EK3_SRC1_YAW, COMPASS_USE, COMPASS_USE2, COMPASS_PRIO1_ID, ARMING_CHECK, GPS_INJECT_TO,
             GPS1_TYPE, BATT_MONITOR]
     severity: fail

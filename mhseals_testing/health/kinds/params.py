@@ -2,7 +2,8 @@
 
 The reference is an ArduPilot ``.param`` file (``NAME,value`` lines) and/or an
 inline ``expect`` mapping, which wins. Incident 10-19: EK3_SRC1_YAW 1->8 and
-COMPASS_USE 1->0 froze the EKF yaw at 0. Names the probe has not read give
+COMPASS_USE 1->0 froze the EKF yaw at 0.
+A mismatch returns ``fail``; the check's severity caps it. Names the probe has not read give
 ``unknown`` unless something already differs.
 """
 
@@ -63,7 +64,7 @@ def evaluate(params, facts):
         elif abs(fact.value - reference[name]) > params.tol:
             differ.append(f'{name} {fact.value:g} (want {reference[name]:g})')
     if differ:
-        return Result('warn', value=f'{len(differ)} differ', detail='; '.join(differ))
+        return Result('fail', value=f'{len(differ)} differ', detail='; '.join(differ))
     if unread:
         return Result('unknown', detail='; '.join(unread))
     return Result('ok', value='match', detail=f'{len(params.names)} parameters match')

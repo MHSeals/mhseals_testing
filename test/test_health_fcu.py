@@ -8,6 +8,8 @@ from mhseals_testing.health import anchors
 from mhseals_testing.health.config import load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.probes.fcu import FcuProbe, TESLA_TO_MG
+from mhseals_testing.health.model import Fact
+from mhseals_testing.health.probes import params as probe
 
 
 @pytest.fixture
@@ -81,3 +83,28 @@ def test_anchor_colours_follow_the_worst_status():
     assert colour(a='ok', b='ok') == '' and colour(a='warn', b='ok') == 'yellow'
     assert colour(a='warn', b='fail') == 'red' and colour(a='unknown', b='ok') == 'dim'
     assert colour(c='fail') == ''
+
+
+def test_lost_fcu_link_fails_and_default_severity_expect_checks_cap_at_warn(specs):
+    p = FcuProbe()
+    p.on_state(False, False, 'MANUAL', 1.0)
+    results = report(specs, p)
+    assert results['fcu.link'].status == 'fail'            # kind says fail, severity fail keeps it
+    p.on_state(True, True, 'MANUAL', 1.0)
+    assert report(specs, p)['fcu.armed'].status == 'warn'   # default severity caps fail at warn
+
+
+def test_shipped_fcu_params_target_beats_the_as_found_reference(nav_share, tmp_path):
+    """blastoise.param holds the 10-22 as-found 8/0; the inline expect keeps 1/1 the target."""
+    reference = tmp_path / 'mhseals_nav' / 'config' / 'fcu' / 'blastoise.param'
+    spec = next(s for s in load(user=False).specs if s.id == 'fcu.params')
+    names = spec.params.names
+    reference.write_text(''.join(f'{n},{8 if n == "EK3_SRC1_YAW" else 0 if n == "COMPASS_USE" else 1}\n'
+                                 for n in names))
+
+    def status(yaw, use):
+        values = {n: 1 for n in names} | {'EK3_SRC1_YAW': yaw, 'COMPASS_USE': use}
+        facts = {probe.fact_name(spec.params.node, n): Fact(v) for n, v in values.items()}
+        return Engine([spec]).tick(facts, {'params': (0.0, None)}).results['fcu.params'].status
+
+    assert status(8, 0) == 'fail' and status(1, 1) == 'ok'
