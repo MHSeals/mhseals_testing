@@ -1,0 +1,53 @@
+== 28x30
+╭─ ▸ Status · 1/8 live ────╮
+│ Components               │
+│ › ✓ odometry        once │
+│   · FCU odometry         │
+│   ✗ GPS                  │
+│   ! IMU            once× │
+│   · GPS raw              │
+│   · compass              │
+│   · LiDAR                │
+│   · tracks               │
+│ Localization             │
+│   ✓ map → odom           │
+│   ✗ odom → base_li…      │
+│ System                   │
+│   ! compute         78°C │
+│                          │
+│ /odom/local              │
+╰──────────────────────────╯
+== 28x20
+╭─ ▸ Status · 1/8 live ────╮
+│ Components               │
+│ › ✓ odometry        once │
+│   · FCU odometry         │
+│   ✗ GPS                  │
+│   ! IMU            once× │
+│   · GPS raw              │
+│   · compass              │
+│   · LiDAR                │
+│   · tracks               │
+│ Localization             │
+│   ✓ map → odom           │
+│   ✗ odom → base_li…      │
+│ System                   │
+│   ! compute         78°C │
+│                          │
+│ /odom/local              │
+╰──────────────────────────╯
+== 28x14
+╭─ ▸ Status · 1/8 live ────╮
+│ Components               │
+│ › ✓ odometry        once │
+│   · FCU odometry         │
+│   ✗ GPS                  │
+│   ! IMU            once× │
+│   · GPS raw              │
+│   · compass              │
+│   · LiDAR                │
+│   · tracks               │
+│ Localization             │
+│                          │
+│ /odom/local              │
+╰──────────────────────────╯

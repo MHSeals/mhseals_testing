@@ -63,9 +63,9 @@ def rec_chip(view):
 
 def health_strip(snapshot, view, width=None):
     rows = status_rows(snapshot, view['specs'])
-    sensors = [row for row in rows if row['group'] == 'Sensors' and row['required']]
+    sensors = [row for row in rows if row.get('source') == 'sensor' and row['required']]
     sensors_ok = all(row['state'] == 'LIVE' for row in sensors)
-    frames_ok = all(row['state'] == 'LIVE' for row in rows if row['group'] == 'Frames')
+    frames_ok = all(row['state'] == 'LIVE' for row in rows if row.get('source') == 'tf')
     parts = [rec_chip(view),
              strip_item('LIVE' if sensors_ok else 'FAIL',
                         f"sensors {sum(r['state'] == 'LIVE' for r in sensors)}/{len(sensors)}"),

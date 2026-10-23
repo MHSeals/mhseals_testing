@@ -7,7 +7,7 @@ from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.panels import TITLES, fold_groups, window
+from mhseals_testing.ui.panels import GROUPS, TITLES, fold_groups, window
 from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
@@ -15,8 +15,8 @@ MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
 RATE_STYLE = {'warn': theme.WARN, 'fail': theme.BAD}  # Hz colour; a healthy rate stays muted
 
 
-def status_rows(snapshot, specs):
-    """Sensors, TF chains and advisories as one navigable list."""
+def sensor_rows(snapshot, specs):
+    """One Components row per profile sensor (``source='sensor'``, read by the health strip)."""
     rows = []
     for spec in specs:
         row = snapshot['sensors'].get(spec.name)
@@ -34,20 +34,38 @@ def status_rows(snapshot, specs):
                                   limit=spec.deadline)
             rate = '' if rate == 'ok' else rate
             value += MARKS.get(mark, '')
-        rows.append(dict(group='Sensors', state=state, name=spec.name, value=value, rate=rate,
+        rows.append(dict(group='Components', source='sensor', state=state, name=spec.name,
+                         value=value, rate=rate, required=spec.required,
                          detail=f'{spec.topic}{SEPARATOR}{detail}' if detail != spec.topic
-                         else spec.topic, required=spec.required))
-    rows.extend(localization_rows(snapshot, specs))
-    for chain in snapshot['tf']:
-        rows.append(dict(group='Frames', state=chain['status'],
-                         name=f"{chain['source']} {theme.ARROW} {chain['target']}", value='',
-                         detail=chain['detail'], required=True))
-    rows.extend(snapshot.get('components', ()))
+                         else spec.topic))
+    return rows
+
+
+def component_rows(snapshot, specs):
+    """Sensors, then the managed components the app feeds into ``snapshot['components']``."""
+    return sensor_rows(snapshot, specs) + list(snapshot.get('components', ()))
+
+
+def frame_rows(snapshot, specs):
+    """TF chains, as Localization detail (``source='tf'``, read by the health strip)."""
+    return [dict(group='Localization', source='tf', state=chain['status'],
+                 name=f"{chain['source']} {theme.ARROW} {chain['target']}", value='',
+                 detail=chain['detail'], required=True) for chain in snapshot['tf']]
+
+
+def system_rows(snapshot, specs):
+    """Engine advisories (compute, clock, FCU, network, Battery, ...) except the Session ones."""
+    rows = []
     for name, level, detail in advisories(snapshot):
         detail = theme.ascii_safe(detail)
-        rows.append(dict(group='System', state=level, name=name, value=short(detail),
-                         detail=detail, required=False))
+        rows.append(dict(group='Session' if name in SESSION else 'System', state=level, name=name,
+                         value=short(detail), detail=detail, required=False))
     return rows
+
+
+def session_rows(snapshot, specs):
+    """Rows the app feeds into ``snapshot['session']`` (Command effort, Bench)."""
+    return list(snapshot.get('session', ()))
 
 
 def sensor(snapshot, specs, kind):
@@ -96,6 +114,19 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
                          name='Yaw', value=theme.ascii_safe(reason) or 'ok', detail='yaw_quality: compass, gyro, magcal, sigma',
                          required=False))
     return rows
+
+
+# A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
+# providers (Control, Recording, Config, RTK) without touching the grouping below.
+PROVIDERS = [component_rows, localization_rows, frame_rows, system_rows, session_rows]
+SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System
+
+
+def status_rows(snapshot, specs):
+    """The ui 6.1 groups in order (``GROUPS``), each row a dict with a ``group`` key."""
+    rows = [row for provider in PROVIDERS for row in provider(snapshot, specs)]
+    return sorted(rows, key=lambda row: GROUPS.index(row['group']) if row['group'] in GROUPS
+                  else len(GROUPS))
 
 
 def short(detail, limit=10):
@@ -147,7 +178,7 @@ def status_panel(snapshot, view, height):
                           Text(row['value'], style=RATE_STYLE.get(row.get('rate'), MUTED)))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
-    live = sum(1 for row in rows if row['group'] == 'Sensors' and row['state'] == 'LIVE')
-    sensors = sum(1 for row in rows if row['group'] == 'Sensors')
+    live = sum(1 for row in rows if row.get('source') == 'sensor' and row['state'] == 'LIVE')
+    sensors = sum(1 for row in rows if row.get('source') == 'sensor')
     return theme.block(Group(table, Text(''), detail), TITLES['status'], focused,
                        f'{live}/{sensors} live')

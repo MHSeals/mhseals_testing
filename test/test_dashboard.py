@@ -105,7 +105,7 @@ def test_balance_review_fits_with_all_four_thrusters(width, height):
 def test_status_rows_and_short_values():
     profile = load_profile('boat')
     rows = status_rows(monitor().snapshot(profile.required_tf), profile.sensors)
-    assert [row['group'] for row in rows].count('Frames') == 2
+    assert [row['group'] for row in rows].count('Localization') == 2
     assert next(r for r in rows if r['name'] == 'IMU')['state'] == 'WARN'
     assert short('load 7.8/20, 78°C, 688 GB free') == '78°C'
     assert short('worst GPS +0.04s') == '+0.04s'

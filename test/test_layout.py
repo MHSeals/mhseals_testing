@@ -26,10 +26,10 @@ def test_tiers_follow_the_density_table():
 
 
 def test_fold_takes_quiet_groups_only_until_the_rows_fit():
-    groups = {'Sensors': ['LIVE'] * 3, 'Frames': ['LIVE'], 'System': ['OK'] * 5}
+    groups = {'Components': ['LIVE'] * 3, 'Localization': ['LIVE'], 'System': ['OK'] * 5}
     assert layout.fold_groups(groups, 100) == set()
     assert layout.fold_groups(groups, 10) == {'System'}
-    assert layout.fold_groups(groups, 1) == {'System', 'Frames', 'Sensors'}
+    assert layout.fold_groups(groups, 1) == {'System', 'Localization', 'Components'}
 
 
 def test_fold_never_hides_warn_fail_busy_or_the_cursor_group():
@@ -50,12 +50,12 @@ def test_status_panel_folds_quiet_groups_but_keeps_the_warning_row():
     warning = next(i for i, row in enumerate(rows) if row['name'] == 'compute')
     text = page(profile, 17, cursors={'status': warning})   # cursor on the System warning
     assert 'compute' in text and '✗ odom' in text      # warn and fail rows are never folded
-    assert 'Frames  ▸' not in text                     # Frames holds a failure
+    assert 'Localization  ▸' not in text              # Localization holds a failure
     m = monitor()
     m.transform('odom', 'base_link', authority='g')    # now every frame edge is live
     console = Console(width=120, height=17, file=io.StringIO())
     console.print(render(m.snapshot(), view(profile, cursors={'status': warning}), 120, 17))
-    assert 'Frames  ▸' in console.file.getvalue()
+    assert 'Localization  ▸' in console.file.getvalue()
 
 
 def test_only_drive_draws_status():
@@ -95,11 +95,11 @@ def test_status_panel_folds_nothing_when_every_row_fits():
     profile = load_profile('boat')
     m = monitor()
     m.transform('odom', 'base_link', authority='g')    # every frame edge is live
-    # Frames must stay open from height 23 up; it folds at 22 (the fold budget is height - 4).
+    # Localization must stay open from height 23 up; it folds at 22 (the fold budget is height - 4).
     for height in (23, 24, 25, 26, 30, 40):
         out = status_out(profile, m, height)
-        assert all(f'{group}  ▸' not in out for group in ('System', 'Frames', 'Sensors'))
-    assert 'Frames  ▸' in status_out(profile, m, 22)
+        assert all(f'{group}  ▸' not in out for group in ('System', 'Localization', 'Components'))
+    assert 'Localization  ▸' in status_out(profile, m, 22)
 
 
 # --- the Drive body table (UIW02): the seam must not change a pixel ---------------

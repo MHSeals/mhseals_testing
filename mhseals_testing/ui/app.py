@@ -877,7 +877,7 @@ class App:
         elif key == 'enter':
             if rows:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
-                if row['group'] == 'Sensors' and row['name'] == 'odometry':
+                if row.get('source') == 'sensor' and row['name'] == 'odometry':
                     return self.open('odometry')
                 if row['name'] == 'Config':
                     return self.config_popup()
@@ -900,7 +900,7 @@ class App:
         params = {node: fetch(node) for node in odometry.ESTIMATES}
         sources = [(row['name'], row['state'].lower(), row['value'])
                    for row in status_rows(self.snapshot(), self.profile.sensors)
-                   if row['group'] == 'Sensors']
+                   if row.get('source') == 'sensor']
         self.show('Odometry', rows=odometry.rows(params, sources), width=76)
 
     def on_motion(self, key):

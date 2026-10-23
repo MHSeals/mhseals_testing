@@ -8,7 +8,8 @@ PANELS = ('status', 'motion', 'thrusters', 'procedures', 'activity')
 TITLES = {'status': 'Status', 'motion': 'Motion', 'thrusters': 'Thrusters',
           'procedures': 'Procedures', 'activity': 'Activity'}
 QUIET = {'LIVE', 'OK', 'PASS', 'READY'}      # rows that may hide inside a folded group
-FOLD_ORDER = ('System', 'Frames', 'Sensors')  # quietest first, as U13 folds Session, then System
+GROUPS = ('Health', 'Control', 'Components', 'Localization', 'Thrusters', 'System', 'Session')  # ui 6.1
+FOLD_ORDER = ('Session', 'System', 'Components', 'Localization', 'Control')  # U13, quietest first
 
 
 def window(items, cursor, size):
