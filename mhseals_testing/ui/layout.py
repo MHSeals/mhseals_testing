@@ -26,6 +26,7 @@ from mhseals_testing.harness import recwatch
 from mhseals_testing.ui import chrome, scrubber, theme
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
+from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
 from mhseals_testing.ui.panels.status import status_panel, status_rows
@@ -403,7 +404,13 @@ def drive_body(snapshot, view, width, height):
 
 # Tab -> body function (snapshot, view, width, height) -> renderable. A tab not listed shows the
 # placeholder; building a tab is registering its body here.
-BODIES = {'Drive': drive_body}
+def correction_body(snapshot, view, width, height):
+    """The Correction tab: the table (full width below 110 columns) and its side column."""
+    model = correction.tab_view(view.get('hardware') or {}, view.get('correction'), view.get('running'))
+    return correction.render(model, width, height)
+
+
+BODIES = {'Drive': drive_body, 'Correction': correction_body}
 
 
 def _with_modal(layout, view, width, height):

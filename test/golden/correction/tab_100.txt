@@ -1,0 +1,36 @@
+ boat_test   Drive [Correction]  Map  Bags  boat · effort              boat · ROS 42  idle  disarmed
+ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                        
+╭─ ▸ Correction · C± fitted 10-22 14:05 · min 71% ─────────────────────────────────────────────────╮
+│ —                                                                                                │
+│ thrust M → C± (driver adds) → speed curves (controller inverts)                                  │
+│                                                                                                  │
+│                   surge+    surge−    sway+     sway−     yaw+      yaw−                         │
+│ hw  Thrusters M   ++++      −−−−      +−+−      −+−+      −++−      +−−+                         │
+│     peak |t|      .70       .70       .70       .70       .70       .70                          │
+│ cal C cross sw    +.031     +.031     —         —         +.020     +.020                        │
+│     ψ             −.042     −.042     +.084     +.084     —         —                            │
+│     su            —         —         +.000     +.000     +.000     +.000                        │
+│     ± σ / age     .006 2h   .006 2h   .006 2h   .006 2h   .006 2h   .006 2h                      │
+│     Trust hi/lo   96/91%    96/91%    96/91%    71/—      96/91%    96/91%                       │
+│     residual      —         —         —         —         —         —                            │
+│     iterations    —         —         —         —         —         —                            │
+│     fit under     good 91   good 91   good 91   good 91   good 91   good 91                      │
+│     ceiling now   —         —         —         —         —         —                            │
+│ cal Drag v lo/hi  —         —         —         —         —         —                            │
+│     d1 · d2       —         —         —         2.2·5.8   —         —                            │
+│     t95 · vmax    —         —         —         —         —         —                            │
+│     tracking      —         —         —         —         —         —                            │
+│                                                                                                  │
+│ scope hw hardware: refit when rebuilt  cal calibration: refit each test                          │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ Focus Table · 1/9                                                                             Ready
+ Tab Focus                         a Arm                            Space Stop                      
+ ? Help                            q Quit                                                           

@@ -35,6 +35,30 @@ def load_settings(path=None) -> dict:
     return yaml.safe_load(Path(path or source).read_text())
 
 
+def _square(flat):
+    """A flat row-major 9-list as 3x3 rows; None when the config has none."""
+    return [list(flat[i:i + 3]) for i in (0, 3, 6)] if flat and len(flat) == 9 else None
+
+
+def correction_data(hardware, fits=None, running=None):
+    """The ``data`` of ``correction_view`` from the hardware config and the state.json fit records.
+
+    C+/C- and the thruster matrix come from ``hardware``; ``fits`` is {direction: record}, to which
+    the speed curves of ``hardware['characterization']`` (d1, d2) are added when a record has none.
+    """
+    result = hardware.get('characterization') or {}
+    fits = {k: dict(v) for k, v in (fits or {}).items()}
+    for key, curve in (result.get('speed_curves') or {}).items():
+        fit = fits.setdefault(key, {})
+        for name in ('d1', 'd2'):
+            fit.setdefault(name, curve.get(name))
+    stamp = str(result.get('identified_at') or '')
+    fitted = f'{stamp[5:10]} {stamp[11:16]}' if len(stamp) >= 16 else None
+    return dict(matrix=hardware.get('thruster_matrix'), c_positive=_square(hardware.get('decoupling')),
+                c_negative=_square(hardware.get('decoupling_negative')), fits=fits,
+                header=dict(fitted=fitted, activity=running))
+
+
 def _num(value, digits=3, signed=True):
     """+.031 style: no leading zero, explicit sign, em dash when missing."""
     if value is None:
@@ -109,6 +133,15 @@ def correction_view(data, cursor=0, settings=None):
     return dict(columns=columns, cursor=max(0, min(cursor, len(columns) - 1)), header=header,
                 readiness=data.get('readiness'), tracking=data.get('tracking'),
                 plan=data.get('plan'), settings=settings)
+
+
+def tab_view(hardware, state=None, running=None):
+    """The model of the tab from the config and ``state`` ({'fits', 'column'}); column None is the worst."""
+    state = state or {}
+    view = correction_view(correction_data(hardware, state.get('fits'), running))
+    column = state.get('column')
+    view['cursor'] = worst_column(view) if column is None else max(0, min(column, len(DIRECTIONS) - 1))
+    return view
 
 
 def move(view, delta):
@@ -217,6 +250,14 @@ def _side(view, width, room):
     while blocks and sum(len(b.renderable.renderables) + 2 for b in blocks + [holds]) > room:
         blocks.pop()
     return Group(*blocks, holds)
+
+
+def hold_rows(view):
+    """(label, text) rows of the cursor column's holds for a popup."""
+    holds = view['columns'][view['cursor']]['holds']
+    return [(str(n), f"a {_num(h.get('a'), 2, False)}  main {_num(h.get('main'), 2)}  "
+                     f"cross {_num(h.get('cross'), 3)}  J {_num(h.get('j'), 2, False)}"
+                     + (' L' if h.get('limited') else '')) for n, h in enumerate(holds, 1)] or [('', 'no holds yet')]
 
 
 def details(view, width=34, height=None):

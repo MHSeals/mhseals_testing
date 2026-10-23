@@ -29,7 +29,7 @@ from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
-from mhseals_testing import nav2_limits
+from mhseals_testing import data, nav2_limits
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
@@ -60,7 +60,7 @@ from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import WIDE, TabMemory
-from mhseals_testing.ui.panels import PANELS, activity
+from mhseals_testing.ui.panels import PANELS, activity, correction
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
@@ -228,6 +228,7 @@ class App:
         self.tabs = TabMemory()
         self.focus = 'status'
         self.cursors = {panel: 0 for panel in PANELS}
+        self.column = None   # Correction tab column; None follows the worst one
         self.activity = 'results'
         self.modal = None
         self.toasts = Toasts()          # health transitions feed it; never takes keys
@@ -543,7 +544,7 @@ class App:
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
             draft=self.draft, grabbed=self.grabbed,
-            config_note=self.config_note, review=self.review,
+            config_note=self.config_note, review=self.review, correction=self.correction_state(),
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
         return {**shared, **own}  # App's own keys win a collision
@@ -768,6 +769,8 @@ class App:
             self.open('history')
             return
         raw, key = key, fold(key)
+        if self.tab == 'Correction' and not self.review and self.on_correction(raw):
+            return
         if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
             return
         panels = self.panels()
@@ -983,6 +986,46 @@ class App:
                    for row in status_rows(self.snapshot(), self.profile.sensors)
                    if row.get('source') == 'sensor']
         self.show('Odometry', rows=odometry.rows(params, sources), width=76)
+
+    def correction_state(self):
+        """What the Correction tab draws besides the config: the column and the state.json fits."""
+        if self.tab != 'Correction':
+            return None
+        fits = (data.read_json(data.path('state.json'), {}) or {}).get('fits')
+        return dict(fits=fits, column=self.column)
+
+    def on_correction(self, key):
+        """Correction tab keys (keymap tab.correction); True when the key was one of them."""
+        step = {'left': -1, 'h': -1, 'right': 1, 'l': 1}.get(key)
+        if step is not None:
+            model = correction.tab_view(self.args.hardware_config, self.correction_state())
+            self.column = correction.move(model, step)
+        elif key in ('r', 'R'):
+            model = correction.tab_view(self.args.hardware_config, self.correction_state())
+            self.characterize(model['columns'][model['cursor']]['key'] if key == 'r' else '')
+        elif key == 'enter':
+            model = correction.tab_view(self.args.hardware_config, self.correction_state())
+            holds = correction.hold_rows(model)
+            self.show(f"{model['columns'][model['cursor']]['key']} holds", rows=holds, width=50)
+        elif key == 'A':
+            restored = self.staging().restore()
+            self.notice = 'Restored the saved correction' if restored else 'Nothing pending'
+        elif key == 'I':
+            epoch = self.args.hardware_config.get('hardware_epoch', 0) + 1
+            if self.save_hardware(hardware_epoch=epoch):
+                self.notice = f'Hardware changed: epoch {epoch}, calibrations need a refit'
+        else:
+            return False
+        return True
+
+    def characterize(self, direction):
+        """Run Characterize for one direction ('' is all six), leaving the setting as it was."""
+        procedure = next(p for p in PROCEDURES if p.title == 'Characterize')
+        before, self.settings.direction = self.settings.direction, direction
+        try:
+            self.run_procedure(procedure)
+        finally:
+            self.settings.direction = before
 
     def on_motion(self, key):
         pass
