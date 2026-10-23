@@ -21,3 +21,9 @@ def test_lean_profile_is_unique_absolute_names():
     topics = lean_topics()
     assert len(topics) == len(set(topics))
     assert all(topic.startswith('/') for topic in topics)
+
+
+def test_lean_profile_keeps_the_rtk_status_topic():
+    # Bags up to boat_20261023_035709 carry it as diagnostic_msgs/DiagnosticArray; readers must go by the
+    # recorded type, so the topic name stays stable instead of being renamed when ts041 changes the payload.
+    assert '/mhseals_testing/rtk/status' in lean_topics()

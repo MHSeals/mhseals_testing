@@ -29,7 +29,7 @@ lean:
     - /mavros/global_position/raw/fix
     - /mavros/global_position/raw/gps_vel
     - /mavros/gpsstatus/gps1/raw
-    - /mhseals_testing/rtk/status
+    - /mhseals_testing/rtk/status  # legacy bags: DiagnosticArray; keep the name, readers dispatch on type
     - /plan
     - /local_plan
     - /navigate_to_pose/_action/status
