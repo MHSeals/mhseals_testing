@@ -84,16 +84,36 @@ def wrench_slope(direction, amplitude, cross, mixer=THRUSTER_MIXER, rho=0.78):
     return (s * amplitude) * (m[:, ks].T * slope) @ m[:, ks] / 4
 
 
+def axis_gain(axis, sign, mixer=THRUSTER_MIXER, rho=0.78):
+    """Normalized wrench of a unit single-axis command on its own axis (about (1 + rho) / 2 = 0.89).
+
+    ``thrust.speed_curve`` fits drag against the command squared, while ``wrench`` is in the mixer's
+    normalized units; their ratio is this gain, so every curve used against a wrench is scaled by it.
+    """
+    effort = np.zeros(3)
+    effort[axis] = sign
+    return abs(float(wrench(effort, mixer, rho)[axis]))
+
+
 def _slope(curve, v):
-    """Drag slope d1 + 2 d2 |v| of a speed curve at speed v."""
+    """Drag slope d1 + 2 d2 |v| of a speed curve at speed v (command-squared units)."""
     return curve['d1'] + 2 * curve['d2'] * abs(v)
 
 
-def damping_block(direction, main, cross_velocity, curves, masses):
+def drag_wrench(curves, axis, v, mixer=THRUSTER_MIXER, rho=0.78):
+    """Signed drag d1 v + d2 v|v| of a speed curve in normalized wrench units (zero for a missing curve)."""
+    curve = curves.get(AXES[axis] + ('-' if v < 0 else '+'))
+    if not curve:
+        return 0.0
+    return axis_gain(axis, -1 if v < 0 else 1, mixer, rho) * (curve['d1'] * v + curve['d2'] * v * abs(v))
+
+
+def damping_block(direction, main, cross_velocity, curves, masses, rho=0.78):
     """A_c (2x2): the cross block of damping slopes plus the Coriolis/Munk Jacobian at the measured state.
 
     ``main`` is the signed main-axis velocity, ``masses`` is (m_u, m_v). For a surge hold the block is
     [[d_v, m_u V], [(m_v - m_u) V, d_r]], whose determinant goes to 0 as the hull turns directionally unstable.
+    The drag slopes are scaled by ``axis_gain`` so they share the wrench units of ``wrench_slope``.
     """
     j, _, ks = split(direction)
     v = np.zeros(3)
@@ -105,13 +125,16 @@ def damping_block(direction, main, cross_velocity, curves, masses):
                          [(mv - mu) * w, (mv - mu) * u, 0]])
     a = coriolis.copy()
     for i in range(3):
-        a[i, i] += _slope(curves[AXES[i] + ('-' if v[i] < 0 else '+')], v[i])
+        sign = -1 if v[i] < 0 else 1
+        curve = curves.get(AXES[i] + ('-' if sign < 0 else '+'))
+        if curve:
+            a[i, i] += axis_gain(i, sign, rho=rho) * _slope(curve, v[i])
     return a[np.ix_(ks, ks)]
 
 
-def stability(direction, main, curves, masses):
+def stability(direction, main, curves, masses, rho=0.78):
     """det A_c at a hold's main speed with no cross motion (reported as the directional stability)."""
-    return float(np.linalg.det(damping_block(direction, main, [0.0, 0.0], curves, masses)))
+    return float(np.linalg.det(damping_block(direction, main, [0.0, 0.0], curves, masses, rho)))
 
 
 def entry_states(entry, direction, settings):
@@ -124,7 +147,7 @@ def entry_states(entry, direction, settings):
 
 def _model_jacobian(entry, direction, curves, masses, settings):
     state = (entry['main'] * (1 if split(direction)[1] > 0 else -1), entry['cross'])
-    block = damping_block(direction, state[0], state[1], curves, masses)
+    block = damping_block(direction, state[0], state[1], curves, masses, settings.reverse_ratio)
     slope = wrench_slope(direction, entry['amplitude'], entry['column'], rho=settings.reverse_ratio)
     return np.linalg.solve(block, slope)
 
@@ -158,36 +181,43 @@ def next_column(history, direction, curves, masses, settings):
     except np.linalg.LinAlgError:
         return column.tolist(), j.tolist()
     step = np.clip(step, -settings.max_step, settings.max_step)
-    new = column.copy()
-    new[active] += step
+    delta = np.zeros(2)
+    delta[active] = step
     budget = settings.headroom / last['amplitude'] - 1       # a (1 + sum |c|) <= headroom
-    if np.abs(new).sum() > budget:
-        new = new * max(budget, 0.0) / np.abs(new).sum()
+    lo, hi = 0.0, 1.0                                        # shrink only the step: the largest fraction that fits
+    if np.abs(column + hi * delta).sum() > budget:
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if np.abs(column + mid * delta).sum() <= budget else (lo, mid)
+        hi = lo
+    new = column + hi * delta
     return new.tolist(), j.tolist()
 
 
 def attribution(survey, curves, settings, mixer=THRUSTER_MIXER):
-    """Hull share of each direction's yaw balance, from the gyro steps at thrust onset and cut (diagnostic only).
+    """Hull share of each direction's yaw balance, from the gyro steps at thrust onset (diagnostic only).
 
     ``survey`` maps direction -> {'amplitude', 'column' (3-vector), 'onset', 'cut' (yaw acceleration steps,
-    rad/s^2), 'steady' (yaw rate), 'sigma' (SE of one step)}. The yaw holds give the scale between the
-    nominal yaw wrench and the measured onset step; a translation hold's actuator torque is then
-    onset / scale, and what is left of the yaw drag (from ``curves``) at its steady rate is the hull's.
+    rad/s^2), 'steady' (yaw rate), 'sigma' (SE of one step)}. At a yaw hold's steady rate the actuator
+    torque equals the yaw drag ``D_r(r_ss)`` from ``curves`` (wrench units), which fixes the scale between
+    onset step and torque. A translation hold's actuator torque is onset / scale, signed relative to its
+    steady yaw rate, and the hull's share is what is left of the yaw drag: a hull moment opposing the
+    actuator gives a share above 1. Without a usable yaw hold every share is None.
     ``onset_vs_cut`` marks steps that disagree by more than 3 sigma (prop inflow or hull interaction).
     """
-    def nominal(direction, hold):
-        effort = split(direction)[1] * hold['amplitude'] * np.asarray(hold['column'])
-        return abs(wrench(effort, mixer, settings.reverse_ratio)[2])
-    yaws = [(nominal(d, h), abs(h['onset'])) for d, h in survey.items() if d.startswith('yaw')]
-    scale = sum(w * o for w, o in yaws) / sum(w * w for w, _ in yaws)       # onset per unit of wrench
+    def drag(hold):
+        return drag_wrench(curves, 2, hold['steady'], mixer, settings.reverse_ratio)
+    yaws = [(drag(h), h['onset']) for d, h in survey.items() if d.startswith('yaw')]
+    norm = sum(w * w for w, _ in yaws)
+    scale = sum(w * o for w, o in yaws) / norm if norm > 0 else 0.0         # onset per unit of wrench
     out = {}
     for direction, hold in survey.items():
         flag = bool(abs(abs(hold['onset']) - abs(hold['cut'])) > 3 * hold['sigma'] * np.sqrt(2))
         share = None
-        if not direction.startswith('yaw'):
-            curve = curves['yaw+' if hold['steady'] >= 0 else 'yaw-']
-            drag = curve['d1'] * abs(hold['steady']) + curve['d2'] * hold['steady'] ** 2
-            share = float((drag - abs(hold['onset']) / scale) / drag) if drag > 0 else None
+        if not direction.startswith('yaw') and scale != 0:
+            total = drag(hold)
+            if total != 0:
+                share = float((total - hold['onset'] / scale) / total)
         out[direction] = dict(hull_share=share, onset_vs_cut=flag)
     return out
 

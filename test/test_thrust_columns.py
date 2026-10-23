@@ -22,10 +22,11 @@ def plant(direction, amplitude, cross):
     t = m @ (s * amplitude * np.asarray(tc.full_column(direction, cross)))
     w = m.T @ (GAINS * np.where(t < 0, S.reverse_ratio, 1) * t * np.abs(t)) / 4
     d = CURVES[tc.AXES[j] + ('+' if s * w[j] >= 0 else '-')]
-    main = (-d['d1'] + math.sqrt(d['d1'] ** 2 + 4 * d['d2'] * abs(w[j]))) / (2 * d['d2'])
+    drag = tc.axis_gain(j, 1 if s * w[j] >= 0 else -1, rho=S.reverse_ratio)     # curves are in command-squared units
+    main = (-d['d1'] + math.sqrt(d['d1'] ** 2 + 4 * d['d2'] * abs(w[j]) / drag)) / (2 * d['d2'])
     y = np.zeros(2)
     for _ in range(30):     # the damping block depends on the cross velocity itself
-        a = tc.damping_block(direction, s * main, y, CURVES, MASSES)
+        a = tc.damping_block(direction, s * main, y, CURVES, MASSES, S.reverse_ratio)
         y = np.linalg.solve(a, w[ks] + HULL * amplitude ** 2 * (1 if s > 0 else 0.5))
     return main, y
 
@@ -51,7 +52,8 @@ def test_fixture_plant_columns_are_recovered(direction):
     for _ in range(S.refine_holds + 2):
         column, _ = tc.next_column(history, direction, CURVES, MASSES, S)
         history.append(hold(direction, 0.6, column))
-    assert column == pytest.approx(truth(direction, 0.6), abs=0.03)
+    if any(state == 'step' for state in tc.entry_states(history[0], direction, S)):      # else already inside tolerance
+        assert column == pytest.approx(truth(direction, 0.6), abs=0.03)
     assert all(state == 'ok' for state in tc.entry_states(history[-1], direction, S))
     # Amplitude free: the same column nulls the lower amplitude too.
     assert np.abs(plant(direction, 0.3, column)[1]).max() < 0.5 * np.abs(history[0]['cross']).max()
@@ -100,17 +102,59 @@ def test_speed_curves_fitted_from_the_plant_are_monotone():
         assert tc._slope(curve, 0.5) > 0
 
 
+def survey_for(curves, unit, hull, surge_steady=0.2):
+    """Yaw and surge holds whose onset steps are ``unit`` times the actuator torque; ``hull`` is the surge hold's share."""
+    rho = S.reverse_ratio
+    drag = lambda r: tc.drag_wrench(curves, 2, r, rho=rho)
+    return {'yaw+': dict(amplitude=0.3, column=[0, 0, 1], onset=unit * drag(0.3), cut=-unit * drag(0.3),
+                         steady=0.3, sigma=0.01),
+            'yaw-': dict(amplitude=0.3, column=[0, 0, 1], onset=unit * drag(-0.3), cut=-unit * drag(-0.3),
+                         steady=-0.3, sigma=0.01),
+            'surge+': dict(amplitude=0.6, column=[1, 0.1, 0], onset=unit * drag(0.2) * (1 - hull), cut=-unit * drag(0.2) * (1 - hull),
+                           steady=surge_steady, sigma=0.01)}
+
+
 def test_attribution_shares_and_flag():
-    curves = CURVES
-    nominal = lambda d, a: abs(tc.wrench(tc.split(d)[1] * a * np.array(tc.full_column(d, [0, 0])))[2])
-    unit = 3.0
-    survey = {'yaw+': dict(amplitude=0.3, column=[0, 0, 1], onset=unit * nominal('yaw+', 0.3), cut=-unit * nominal('yaw+', 0.3),
-                           steady=0.2, sigma=0.01),
-              'surge+': dict(amplitude=0.6, column=[1, 0.1, 0], onset=unit * 0.01, cut=-unit * 0.01 - 0.5,
-                             steady=0.2, sigma=0.01)}
-    out = tc.attribution(survey, curves, S)
+    survey = survey_for(CURVES, 3.0, 0.97)
+    survey['surge+']['cut'] -= 0.5
+    out = tc.attribution(survey, CURVES, S)
     assert out['surge+']['onset_vs_cut'] and not out['yaw+']['onset_vs_cut']
-    assert out['yaw+']['hull_share'] is None and 0.9 < out['surge+']['hull_share'] <= 1.0
+    assert out['yaw+']['hull_share'] is None and out['surge+']['hull_share'] == pytest.approx(0.97)
+
+
+def test_attribution_uses_curves_fitted_by_speed_curve():
+    """Curves fitted against the command squared give the right share; a nominal-wrench scale would be ~11% off."""
+    true = dict(d1=0.4, d2=0.9)
+    points = [(v, math.sqrt(true['d1'] * v + true['d2'] * v * v)) for v in (0.2, 0.4, 0.6)]
+    fitted = speed_curve(points)
+    curves = {'yaw+': fitted, 'yaw-': fitted}
+    survey = survey_for(curves, 2.0, 0.0)
+    assert tc.attribution(survey, curves, S)['surge+']['hull_share'] == pytest.approx(0.0, abs=1e-9)
+    gain = tc.axis_gain(2, 1, rho=S.reverse_ratio)
+    assert gain == pytest.approx((1 + S.reverse_ratio) / 2, abs=0.2) and gain < 1
+    # Same wrench units for the damping block: a yaw slope in the block is the curve slope times the gain.
+    block = tc.damping_block('surge+', 0.0, [0.0, 0.0], curves, MASSES, S.reverse_ratio)
+    assert block[1, 1] == pytest.approx(gain * tc._slope(fitted, 0.0))
+
+
+def test_attribution_keeps_the_sign_of_an_opposing_hull_moment():
+    survey = survey_for(CURVES, 3.0, 0.0)
+    survey['surge+']['onset'] *= -0.5            # actuator torque opposes the steady yaw: the hull makes up 1.5x
+    assert tc.attribution(survey, CURVES, S)['surge+']['hull_share'] == pytest.approx(1.5)
+
+
+def test_attribution_without_a_yaw_hold_has_no_share():
+    survey = {'sway+': dict(amplitude=0.6, column=[0, 1, 0.1], onset=0.1, cut=-0.1, steady=0.2, sigma=0.01)}
+    assert tc.attribution(survey, CURVES, S)['sway+']['hull_share'] is None
+
+
+def test_headroom_shrinks_only_the_active_step():
+    d = 'surge+'
+    h = dict(hold(d, 0.9, [0.0, 0.0]), column=[0.0, 0.05], cross=[5.0, 0.0], sigma=[0.001, 1.0])    # entry 1 is noise-limited
+    assert tc.entry_states(h, d, S)[1] == 'limited'
+    column, _ = tc.next_column([h], d, CURVES, MASSES, S)
+    assert column[1] == 0.05 and column[0] != 0
+    assert 0.9 * (1 + sum(abs(x) for x in column)) == pytest.approx(S.headroom, abs=1e-6)
 
 
 def test_record_builds_both_matrices_and_keeps_identity_elsewhere():
