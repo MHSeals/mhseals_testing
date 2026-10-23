@@ -17,9 +17,20 @@ class Plant:
         self.ros = ros
         self.profile = profile
         self.stamped = profile.command_type == 'twist_stamped'
-        self.publisher = ros.node.create_publisher(
-            TwistStamped if self.stamped else Twist, profile.command_topic, 10)
+        self.publisher = None  # exists only while armed, so an idle suite is no conflict
         self.pulse_publisher = None
+
+    def engage(self):
+        """Start publishing on the command topic (on arm, or the first command)."""
+        if self.publisher is None:
+            self.publisher = self.ros.node.create_publisher(
+                TwistStamped if self.stamped else Twist, self.profile.command_topic, 10)
+
+    def release(self):
+        """Stop being a publisher of the command topic (on disarm)."""
+        if self.publisher is not None:
+            self.ros.node.destroy_publisher(self.publisher)
+            self.publisher = None
 
     def clamp(self, command):
         return tuple(max(-limit, min(limit, float(value)))
@@ -38,9 +49,12 @@ class Plant:
         return message
 
     def publish(self, command):
+        self.engage()
         self.publisher.publish(self.message(command))
 
     def neutral(self):
+        if self.publisher is None:  # never commanded, so nothing to zero
+            return
         for _ in range(NEUTRAL_REPEATS):
             self.publisher.publish(self.message((0.0, 0.0, 0.0)))
 
@@ -57,4 +71,4 @@ class Plant:
 
     def close(self):
         self.neutral()
-        self.ros.node.destroy_publisher(self.publisher)
+        self.release()

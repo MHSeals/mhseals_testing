@@ -10,6 +10,7 @@ from rich.console import Console
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
+from mhseals_testing.ui import theme
 from mhseals_testing.ui.app import App, SessionPaths, bringup_command, parse_args
 
 
@@ -51,6 +52,12 @@ class Boat:
     def conflicts(self):
         return []
 
+    def engage(self):
+        pass
+
+    def release(self):
+        pass
+
 
 class Arming:
     def __init__(self):
@@ -74,6 +81,9 @@ class Arming:
         self.calls.append('disarm')
 
     def fault(self):
+        return ''
+
+    def rival(self):
         return ''
 
 
@@ -779,6 +789,19 @@ def test_arm_panel_lists_interlocks_before_arming(tmp_path):
     rows = dict(app.arm_rows())
     assert rows['Outputs'].startswith('simulator') and rows['Driver'] == 'starts on arm'
     assert rows['Interlocks'].startswith('×')
+
+
+def test_arm_panel_shows_the_driver_check_and_wraps_long_reasons(tmp_path):
+    app, boat = make_app(tmp_path)
+    assert dict(app.arm_rows())['Interlocks'] == theme.icon('ok').plain + ' clear'
+    app.arming.rival = lambda: 'another thruster_pwm_node already drives /thrusters/pwm'
+    boat.conflicts = lambda: ['/cmd_vel also published by /mhseals_teleop_node_12345 (pid 12345)']
+    rows = app.arm_rows()
+    start = [label for label, _ in rows].index('Interlocks')
+    shown = rows[start:]
+    assert 'already drives' in ' '.join(value for _, value in shown)
+    assert any('12345)' in value for _, value in shown)
+    assert all(len(value) <= 54 for _, value in shown)
 
 
 @pytest.mark.parametrize('velocity', [False, True])

@@ -18,6 +18,7 @@ from pathlib import Path
 import signal
 import socket
 import subprocess
+import textwrap
 import time
 
 import yaml
@@ -123,6 +124,9 @@ class SessionPaths:
                    output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'))
 
 
+ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
+
+
 class App:
     """The page, its key handling and the procedure context.
 
@@ -191,6 +195,11 @@ class App:
         if self.ros.fault:
             reasons.insert(0, 'ROS fault: ' + self.ros.fault)
         return reasons
+
+    def arm_blockers(self):
+        """What the arm panel shows: the interlocks plus what arming itself would refuse."""
+        rival = self.arming.rival() if self.arming and self.profile.outputs != 'none' else ''
+        return self.blockers() + ([rival] if rival else []) + self.plant.conflicts()
 
     def supervision_blockers(self):
         """What must hold while anything drives the boat, the suite or Nav2."""
@@ -756,9 +765,14 @@ class App:
                 ('Config', str(self.config_file)),
                 ('Decoupling', theme.icon('off').plain + ' identity' if decoupled(self.args.hardware_config) is None
                  else theme.DOT + ' fitted (Thrusters c clears)')]
-        blockers = self.blockers()
-        rows.append(('Interlocks', theme.DOT + ' clear' if not blockers else f"{theme.icon('bad').plain} {blockers[0]}"))
-        rows += [('', f"{theme.icon('bad').plain} {reason}") for reason in blockers[1:4]]
+        blockers = [] if self.armed else self.arm_blockers()
+        if not blockers:
+            rows.append(('Interlocks', theme.icon('ok').plain + ' clear'))
+        # Long reasons wrap onto continuation rows instead of being cut by the popup.
+        for index, reason in enumerate(blockers[:4]):
+            for number, line in enumerate(textwrap.wrap(reason, ARM_WRAP)):
+                label = 'Interlocks' if not index and not number else ''
+                rows.append((label, (theme.icon('bad').plain + ' ' if not number else '  ') + line))
         if self.args.bench_override:
             rows.append(('Override', 'bench: sensor and TF interlocks off'))
         return rows
@@ -789,6 +803,8 @@ class App:
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
         self.wait_for_driver()
+        if self.plant is not None:
+            self.plant.engage()
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
         self.notice = 'Armed at neutral'
@@ -819,6 +835,7 @@ class App:
         self.clear_pulses()
         if self.plant is not None:
             self.plant.neutral()
+            self.plant.release()
         self.command = (0.0, 0.0, 0.0)
         if self.armed:
             self.arming.disarm()
@@ -836,9 +853,11 @@ class App:
 
     def availability(self, procedure):
         reason = unavailable(procedure, self.profile, self.armed, self.args.bench_override)
-        # Procedures that measure motion can't be picked without odometry and TF.
+        # Procedures that measure motion can't be picked without odometry and TF, nor
+        # while another node commands the same topic.
         if not reason and 'sensors' in procedure.needs and not self.args.bench_override:
-            blockers = motion_blockers(self.snapshot(), self.profile)
+            blockers = self.motion_blockers() if self.armed else motion_blockers(
+                self.snapshot(), self.profile)
             if blockers:
                 reason = blockers[0]
         return reason

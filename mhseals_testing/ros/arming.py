@@ -60,6 +60,12 @@ class Arming:
         exited = [name for name in self.children() if not self.processes.running(name)]
         return f"{', '.join(exited)} exited; disarm and check its log" if exited else ''
 
+    def rival(self):
+        """Why arming would be refused because another driver owns the topic, or ''."""
+        if any(name.endswith(DRIVER) for name in self.ros.subscribers(self.driver_topic)):
+            return f'another {DRIVER} already drives {self.driver_topic}'
+        return ''
+
     def begin(self):
         """Start the driver without waiting; ``poll`` reports when it listens."""
         if self.armed or self.pending is not None:
@@ -67,8 +73,9 @@ class Arming:
         if self.profile.outputs == 'none':  # the plant takes commands directly
             self.armed = True
             return
-        if any(name.endswith(DRIVER) for name in self.ros.subscribers(self.driver_topic)):
-            raise RuntimeError(f'another {DRIVER} already drives {self.driver_topic}')
+        rival = self.rival()
+        if rival:
+            raise RuntimeError(rival)
         if self.profile.velocity_controller:  # fail now, not after the 10 s timeout
             try:
                 Plant(self.hardware_config)
