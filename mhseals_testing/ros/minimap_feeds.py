@@ -16,6 +16,7 @@ import numpy as np
 from mhseals_testing import data
 from mhseals_testing.analysis.geo import MapRotation, enu
 from mhseals_testing.health.model import Fact
+from mhseals_testing.ui.minimap.state import MapState
 
 LOCAL, GLOBAL = '/local_costmap/costmap', '/global_costmap/costmap'
 RECORDED = '/mhseals_testing/minimap/costmap'
@@ -23,6 +24,7 @@ RECORD_PERIOD = 5.0     # s between recorded costmaps (0.2 Hz)
 RECORD_RES = 0.4        # m per cell of the recorded costmap
 RECORD_HALF = 40.0      # m around the boat that the recorded costmap covers
 LOCAL_HALF = 6.0        # view half-width (m) up to which the local costmap is the source
+FACT_PERIOD = 1.0       # s between nav.map_rotation publishes
 TRAIL_SCHEMA = 'mhseals.trail/1'
 TRAIL_SPACING, TRAIL_PERIOD = 0.25, 1.0     # one crumb per 0.25 m or 1 s
 
@@ -114,23 +116,26 @@ def rotation_fact(rotation, now):
 class MapFeeds:
     """ROS wiring: map rotation samples always, costmaps only on lease, the decimated costmap while recording."""
 
-    def __init__(self, node):
+    def __init__(self, node, state=None, facts=None, clock=time.monotonic):
         from nav_msgs.msg import OccupancyGrid, Odometry
         from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
         from sensor_msgs.msg import NavSatFix
-        self.node, self.grid_type = node, OccupancyGrid
+        self.node, self.grid_type, self.clock = node, OccupancyGrid, clock
+        self.state, self.facts = state if state is not None else MapState(), facts
         self.rotation, self.origin = MapRotation(), None
         self.costmaps = {}           # topic -> latest message
         self.fix_xy = self.gps_xy = self.global_xy = None
         keep = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.subs = {topic: LazySub(node, OccupancyGrid, topic, lambda m, t=topic: self.costmaps.__setitem__(t, m), keep)
+        self.subs = {topic: LazySub(node, OccupancyGrid, topic, lambda m, t=topic: self._costmap(t, m), keep)
                      for topic in (LOCAL, GLOBAL)}
         node.create_subscription(NavSatFix, '/gps/fix', self._fix, qos_profile_sensor_data)
         node.create_subscription(Odometry, '/odom/gps', self._odom('gps_xy'), 10)
         node.create_subscription(Odometry, '/odom/global', self._odom('global_xy', sample=True), 10)
+        self.fact_timer = node.create_timer(FACT_PERIOD, self.publish_fact)
         self.publisher = node.create_publisher(OccupancyGrid, RECORDED, keep)
         self.timer = node.create_timer(RECORD_PERIOD, self._publish)
         self.record = False
+        self.layer_topic = None      # the one costmap topic the layers read into state
 
     def want_layers(self, costmap, hits, half_width, choice='auto'):
         """Lease the costmap the view needs while the c or r layer is on; drop the other source."""
@@ -139,11 +144,20 @@ class MapFeeds:
             sub.lease('layers', topic == wanted)
             if topic != wanted and not sub.holders:
                 self.costmaps.pop(topic, None)
+        if wanted != self.layer_topic:
+            self.layer_topic = wanted
+            self.state.latest.pop('costmap', None)
 
     def want_record(self, owner, recording, nav_running):
         """Hold the global costmap and publish the decimated one under should_record's gate."""
         self.record = should_record(owner, recording, nav_running)
         self.subs[GLOBAL].lease('recorder', self.record)
+
+    def _costmap(self, topic, message):
+        """Keep the newest grid per topic; only the layers' topic goes to the map state (the recorder's may differ)."""
+        self.costmaps[topic] = message
+        if topic == self.layer_topic:
+            self.state.ingest('costmap', data=message)
 
     def _fix(self, m):
         if m.status.status >= 0 and math.isfinite(m.latitude):
@@ -152,13 +166,24 @@ class MapFeeds:
 
     def _odom(self, name, sample=False):
         def callback(m):
+            now = self.clock()
             setattr(self, name, (m.pose.pose.position.x, m.pose.pose.position.y))
-            if sample and self.fix_xy and self.gps_xy:
-                self.rotation.add(time.monotonic(), self.gps_xy, self.global_xy, self.fix_xy)
+            if sample:
+                q = m.pose.pose.orientation
+                self.state.ingest('pose_map', t=now, x=self.global_xy[0], y=self.global_xy[1],
+                                  yaw=math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
+                if self.fix_xy and self.gps_xy:
+                    self.rotation.add(now, self.gps_xy, self.global_xy, self.fix_xy)
         return callback
 
     def fact(self):
-        return rotation_fact(self.rotation, time.monotonic())
+        return rotation_fact(self.rotation, self.clock())
+
+    def publish_fact(self):
+        """Publish nav.map_rotation into the health facts; none while the fit lacks baseline."""
+        fact = self.fact()
+        if self.facts is not None:
+            self.facts.publish('map', {} if fact is None else {'nav.map_rotation': fact})
 
     def _publish(self):
         grid = self.costmaps.get(GLOBAL)

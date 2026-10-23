@@ -126,3 +126,102 @@ def test_second_fetch_waits_for_a_fresh_costmap():
         nav.costmap = 'live'
         with nav.costmap_lease('b'):  # a nested lease keeps the live grid
             assert nav.costmap == 'live'
+
+
+class WiringNode(FakeNode):
+    """A node that records subscriptions, publishers and timers without rclpy executing anything."""
+
+    def create_publisher(self, kind, topic, qos):
+        return types.SimpleNamespace(publish=lambda m: None)
+
+    def create_timer(self, period, callback):
+        return callback
+
+
+def wired(clock):
+    pytest.importorskip('rclpy')
+    from mhseals_testing.health.probes import Facts
+    node, facts = WiringNode(), Facts()
+    return node, facts, feeds.MapFeeds(node, facts=facts, clock=clock)
+
+
+def odom(x, y):
+    return types.SimpleNamespace(pose=types.SimpleNamespace(
+        pose=types.SimpleNamespace(position=types.SimpleNamespace(x=x, y=y),
+                                   orientation=types.SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0))))
+
+
+def feed_pairs(node, count, theta):
+    """Drive count fake /gps/fix, /odom/gps, /odom/global triples; /odom/gps is rotated by theta."""
+    from mhseals_testing.analysis.geo import geodetic
+    topics = {topic: callback for topic, callback in node.live}
+    for k in range(count):
+        x, y = k * 0.5, 0.2 * k
+        lat, lon = geodetic(x, y, (43.0, -70.0))
+        topics['/gps/fix'](types.SimpleNamespace(
+            status=types.SimpleNamespace(status=2), latitude=lat, longitude=lon))
+        topics['/odom/gps'](odom(math.cos(theta) * x - math.sin(theta) * y,
+                                 math.sin(theta) * x + math.cos(theta) * y))
+        topics['/odom/global'](odom(x, y))
+
+
+def test_no_costmap_subscription_until_a_layer_lease():
+    now = [0.0]
+    node, _, map_feeds = wired(lambda: now[0])
+    assert sorted(t for t, _ in node.live) == ['/gps/fix', '/odom/global', '/odom/gps']
+    map_feeds.want_layers(True, False, 20)
+    assert feeds.GLOBAL in [t for t, _ in node.live]
+    map_feeds.want_layers(False, False, 20)
+    assert feeds.GLOBAL not in [t for t, _ in node.live]
+
+
+def test_costmap_reaches_map_state_and_record_follows_the_gate():
+    node, _, map_feeds = wired(lambda: 0.0)
+    map_feeds.want_layers(True, False, 2)
+    dict(node.live)[feeds.LOCAL]('grid')
+    assert map_feeds.state.latest['costmap'] == 'grid'
+    map_feeds.want_layers(False, False, 2)
+    assert 'costmap' not in map_feeds.state.latest
+    map_feeds.want_record(True, True, True)
+    assert feeds.GLOBAL in [t for t, _ in node.live]
+    map_feeds.want_record(True, False, True)
+    assert feeds.GLOBAL not in [t for t, _ in node.live]
+
+
+def test_recorder_lease_does_not_leak_global_grid_into_state():
+    node, _, map_feeds = wired(lambda: 0.0)
+    map_feeds.want_record(True, True, True)
+    map_feeds.want_layers(True, False, 2)
+    live = dict(node.live)
+    live[feeds.LOCAL]('local')
+    live[feeds.GLOBAL]('global')
+    assert map_feeds.state.latest['costmap'] == 'local'
+    map_feeds.want_layers(False, False, 2)
+    live[feeds.GLOBAL]('global')
+    assert 'costmap' not in map_feeds.state.latest
+    assert map_feeds.costmaps[feeds.GLOBAL] == 'global'     # the recorder still gets it
+
+
+def test_rotation_fact_reaches_health_and_the_check_goes_live():
+    from mhseals_testing.health.config import load
+    from mhseals_testing.health.engine import Engine
+
+    now = [0.0]
+
+    def clock():
+        now[0] += 1.0
+        return now[0]
+
+    node, facts, map_feeds = wired(clock)
+    spec = next(s for s in load(user=False).specs if s.id == 'nav.map_rotation')
+    map_feeds.publish_fact()
+    assert 'nav.map_rotation' not in facts.read()[0]
+    engine = Engine([spec], clock=lambda: now[0] + 100)
+    assert 'nav.map_rotation' not in engine.tick(*facts.read()).results   # missing: skip
+    feed_pairs(node, 40, math.radians(12.0))
+    map_feeds.publish_fact()
+    fact = facts.read()[0]['nav.map_rotation']
+    assert abs(fact.data['signed_deg']) == pytest.approx(12.0, abs=0.2)
+    engine.tick(*facts.read())
+    now[0] += 100       # past the debounce
+    assert engine.tick(*facts.read()).results['nav.map_rotation'].status == 'warn'   # severity: warn

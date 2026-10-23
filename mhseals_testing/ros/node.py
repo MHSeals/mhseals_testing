@@ -31,6 +31,7 @@ from mhseals_testing.harness.simsession import ClockWatch
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.ros.ingest import ingest
+from mhseals_testing.ros.minimap_feeds import MapFeeds
 from mhseals_testing.ros.sources import subscribe_sources
 from mhseals_testing.validation import RAW_KINDS
 
@@ -71,7 +72,7 @@ def node_name(pid=None, host=None):
 class RosIO:
     """Owns the node, its executor thread and the publishers the suite needs."""
 
-    def __init__(self, profile, monitor, stale_after=2.0, journal_path=None):
+    def __init__(self, profile, monitor, stale_after=2.0, journal_path=None, facts=None):
         self.profile = profile
         self.monitor = monitor
         self.stale_after = stale_after
@@ -102,6 +103,7 @@ class RosIO:
             TFMessage, '/tf_static', partial(self._tf, static=True),
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         subscribe_sources(self)
+        self.map = MapFeeds(self.node, facts=facts)  # rotation always, costmaps on lease
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self._spinning = True

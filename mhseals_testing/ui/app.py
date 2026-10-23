@@ -387,6 +387,7 @@ class App:
             return
         self.last_advisory = self.clock()
         seen, live = self.foreign_instances()
+        self.feed_map()
         self.monitor.advise('instances', 'FAIL' if live else 'WARN' if seen else 'OK',
                             ', '.join(seen) if seen else 'no other instance')
         self.sync_guests()
@@ -417,6 +418,13 @@ class App:
             level, detail, self.pwm_readback = health.pwm_readback(
                 config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
             self.monitor.advise('PWM readback', level, detail)
+
+    def feed_map(self):
+        """The recorded costmap follows the Recorder mode and the session owner (map.md 4)."""
+        feeds = getattr(self.ros, 'map', None)
+        if feeds is not None:
+            nav = any(n.rsplit('/', 1)[-1] == 'planner_server' for n in self.ros.nodes())
+            feeds.want_record(not self.watching, self.recorder.mode != 'off', nav)
 
     def watch_recording(self):
         """Sample the recorder's health; below the free-disk floor stop it, mark it and say so."""
@@ -1770,14 +1778,14 @@ def main(argv=None):
                               if sensor.kind == 'odometry' or sensor.name == (gyros or [None])[0]),
                           deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
                                      if sensor.deadline is not None})
-    ros = RosIO(profile, monitor, args.stale_after, paths.journal)
+    facts = Facts()
+    ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
     stack = Stack(components(profile, stack_overlay(profile, args)), processes, time.monotonic)
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = authority = None
-    facts = Facts()
     try:
         for name, child in choice.children.items():
             processes.adopt(name, child)
