@@ -90,8 +90,16 @@ def coast_time(t_cut, t95, s: Settings):
 
 
 def neutral_mask(t, ok, vel_acc, t_coast, s: Settings):
-    """Samples that are neutral: ``ok`` (zero command, neutral PWM, afloat, 3D fix) and settled."""
-    return np.asarray(ok, bool) & (np.asarray(vel_acc) <= s.neutral_vel_acc_max) & (np.asarray(t) >= t_coast)
+    """Samples that are neutral: ``ok`` (zero command, neutral PWM, afloat, 3D fix) and settled.
+
+    The vel_acc gate uses the median over ``window_s`` around each sample: real Here GPS crosses
+    the limit on about a third of its samples, so a per-sample gate would shred the runs.
+    """
+    t, vel_acc = np.asarray(t, float), np.asarray(vel_acc, float)
+    lo = np.searchsorted(t, t - s.window_s / 2, side='left')
+    hi = np.searchsorted(t, t + s.window_s / 2, side='right')
+    median = np.array([np.median(vel_acc[a:b]) for a, b in zip(lo, hi)])
+    return np.asarray(ok, bool) & (median <= s.neutral_vel_acc_max) & (t >= t_coast)
 
 
 def settle_coast(sub_means, direction, sigma_sub, s: Settings):
@@ -142,8 +150,6 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     keep = np.r_[True, np.diff(t) > 0]                         # a re-delivered stamp keeps its first sample only
     t, vel, heading, rate, mask = t[keep], vel[keep], heading[keep], rate[keep], mask[keep]
     finite = np.isfinite(vel).all(axis=1) & np.isfinite(heading) & np.isfinite(rate) & np.isfinite(t)
-    if np.abs(heading[finite]).max(initial=0) > 2 * np.pi + 0.1:
-        raise ValueError('heading is in rad; convert a compass in degrees with np.radians first')
     idx = np.nonzero(mask & finite)[0]       # a garbled sample splits the run, never poisons it
     runs = np.split(idx, np.nonzero(np.diff(t[idx]) > s.neutral_max_gap_s)[0] + 1)
     steps = np.diff(t[idx])

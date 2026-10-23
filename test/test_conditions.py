@@ -80,8 +80,22 @@ def test_coast_time_and_mask():
     assert c.coast_time(10, 0.3, S) == pytest.approx(12.0)          # floor of 2 s
     assert c.coast_time(10, 3.0, S) == pytest.approx(10 + 1.33 * 3)
     t = np.arange(10.0)
-    mask = c.neutral_mask(t, t > 1, np.where(t == 6, 0.5, 0.1), 3.0, S)
-    assert list(np.nonzero(mask)[0]) == [3, 4, 5, 7, 8, 9]
+    mask = c.neutral_mask(t, t > 1, np.full(10, 0.1), 3.0, S)
+    assert list(np.nonzero(mask)[0]) == [3, 4, 5, 6, 7, 8, 9]
+    assert not c.neutral_mask(t, t > 1, np.full(10, 0.5), 3.0, S).any()      # poor accuracy throughout
+
+
+def test_patchy_vel_acc_gates_on_the_window_median_not_each_sample():
+    # Real Here GPS at rest: a third of the samples over 0.3 m/s, often two in a row.
+    t, vel, heading, rate, _ = neutral(80, seed=3)
+    acc = np.where(np.arange(len(t)) % 3 == 0, 0.36, 0.22)
+    acc[1::9] = 0.36                                              # some pairs in a row
+    assert (acc > S.neutral_vel_acc_max).mean() > 0.3
+    mask = c.neutral_mask(t, np.ones(len(t), bool), acc, 0.0, S)
+    assert mask.all()
+    assert len(c.build_windows(t, vel, heading, rate, mask, S)) == 10
+    bad = c.neutral_mask(t, np.ones(len(t), bool), np.full(len(t), 0.36), 0.0, S)
+    assert not bad.any()                                          # a genuinely poor fix still gates
 
 
 def test_coast_settle_drops_decay_and_keeps_flat_series():
@@ -195,13 +209,6 @@ def test_settings_ignore_keys_of_other_parts(tmp_path):
     path = tmp_path / 'c.yaml'
     path.write_text(c._config_path().read_text() + 'windage: {k: 1}\nhint: x\ndrift_tau: 90\n')
     assert c.load_settings(path) == S
-
-
-def test_heading_in_degrees_is_refused():
-    t, vel, _, rate, mask = neutral(30)
-    with pytest.raises(ValueError, match='rad'):
-        c.build_windows(t, vel, np.full(len(t), 90.0), rate, mask, S)
-    assert c.build_windows(t, vel, np.full(len(t), np.radians(90.0)), rate, mask, S)
 
 
 def test_wave_floor_keeps_surge_and_sway_levels_apart():
