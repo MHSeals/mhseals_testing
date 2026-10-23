@@ -16,7 +16,8 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.parameter import Parameter
+from rcl_interfaces.srv import GetParameters
+from rclpy.parameter import Parameter, parameter_value_to_python
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image, Imu, NavSatFix, PointCloud2
 from std_msgs.msg import String
@@ -131,6 +132,23 @@ class RosIO:
         """Whether node ``name`` serves parameters (a dead service hides the node's config)."""
         return any(service.endswith(f'/{name}/get_parameters')
                    for service, _ in self.node.get_service_names_and_types())
+
+    def driver_parameters(self, name, keys, timeout=0.5):
+        """Node ``name``'s live values for parameters ``keys`` (the config readback), or None."""
+        client = self.node.create_client(GetParameters, f'/{name}/get_parameters')
+        try:
+            if not client.wait_for_service(timeout_sec=timeout):
+                return None
+            done = threading.Event()
+            future = client.call_async(GetParameters.Request(names=list(keys)))
+            future.add_done_callback(lambda _: done.set())
+            if not done.wait(timeout) or future.result() is None:
+                return None
+            values = [parameter_value_to_python(v) for v in future.result().values]
+            return dict(zip(keys, (list(v) if isinstance(v, (list, tuple)) or hasattr(v, 'tolist')
+                                   else v for v in values)))
+        finally:
+            self.node.destroy_client(client)
 
     def close(self):
         self._spinning = False

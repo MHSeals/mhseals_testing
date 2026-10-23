@@ -1109,3 +1109,32 @@ def test_parse_args_broken_hardware_yaml_names_the_file(tmp_path, capsys, text, 
         assert exit_info.value.code == 2
         err = capsys.readouterr().err
         assert str(path) in err and message in err and 'Traceback' not in err
+
+
+def test_pins_popup_applies_through_the_driver_readback(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.ros.parameter_service = lambda name: True
+    app.ros.driver_parameters = lambda name, keys: {k: app.args.hardware_config[k] for k in keys}
+    app.ask_text = lambda *a: '1 0 0 0 29'
+    app.on_thrusters('p')
+    assert app.notice == 'Pins applied'
+    assert app.args.hardware_config['pwm_channels'] == [1, 0, 0, 0]
+
+
+def test_pins_popup_saves_for_the_next_arm_without_a_driver(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.ros.parameter_service = lambda name: False
+    app.ros.driver_parameters = lambda name, keys: pytest.fail('no driver to read back')
+    app.ask_text = lambda *a: '1 0 0 0 29'
+    app.on_thrusters('p')
+    assert app.notice == 'Pins saved; applied at next arm'
+    assert app.args.hardware_config['pwm_channels'] == [1, 0, 0, 0]
+
+
+def test_pins_popup_refuses_while_armed(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.arming.armed = True
+    app.ask_text = lambda *a: '1 0 0 0 29'
+    app.on_thrusters('p')
+    assert app.notice.startswith('Pins refused')
+    assert app.args.hardware_config['pwm_channels'] != [1, 0, 0, 0]

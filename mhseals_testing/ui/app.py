@@ -41,6 +41,7 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import dashboard, theme
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
+from mhseals_testing.ui.popups import pins
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
 #   wide:   Status | Motion     | Thrusters        narrow:  Status | Thrusters
@@ -82,7 +83,7 @@ PANEL_HINTS = {
     'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
     'thrusters': [(LEFTRIGHT, 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
-                  ('c', 'Clear decoupling')],
+                  ('c', 'Clear decoupling'), ('p', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Details'), ('v', 'Results/log')],
 }
@@ -105,6 +106,7 @@ HELP = [
     ('Thrusters Enter', f'Pick up the thruster; {UPDOWN} moves it, Enter drops it'),
     ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
     ('Thrusters s / u', 'Save the draft to the config (hot-reloaded) / undo it'),
+    ('Thrusters p', 'Edit the PWM pins and MOSFET line; applied live, refused while armed'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Activity v', 'Switch between results and the event log'),
     ('q', 'Quit: neutral, disarm, flush the bag'),
@@ -630,6 +632,8 @@ class App:
         elif key == 'u':
             self.draft = self.grabbed = None
             self.notice = 'Mapping changes undone'
+        elif key == 'p':
+            self.notice = pins.edit_pins(self)
         elif key == 'i':
             self.run_procedure(next(p for p in PROCEDURES if p.key == 'i'))
         elif key == 'c':
@@ -751,6 +755,26 @@ class App:
             elif key in ('escape', 'q'):
                 raise Cancelled('cancelled by operator')
         return self.popup(modal, handle)
+
+    def ask_text(self, title, message, text=''):
+        """Edit one line of text in a popup; None when cancelled."""
+        modal = dict(kind='input', title=title, message=message, text=text, danger=False,
+                     rows=None, width=64, hint=f'Enter apply{theme.SEPARATOR}Esc cancel')
+
+        def handle(key):
+            if key == 'enter':
+                return modal['text']
+            if key == 'escape':
+                return False
+            if key in ('backspace', 'ctrl-h', '\x7f'):
+                modal['text'] = modal['text'][:-1]
+            elif len(key) == 1 and key.isprintable():
+                modal['text'] += key
+        return self.popup(modal, handle) or None
+
+    def driver_values(self, keys):
+        """The thruster driver's live parameters for ``keys``, or None without an answer."""
+        return self.ros.driver_parameters('thruster_pwm_node', keys)
 
     def type_word(self, title, message, word, rows=None, width=64):
         """A typed confirmation for real outputs: only the exact word proceeds."""
