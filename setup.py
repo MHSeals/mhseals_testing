@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'boat_test = mhseals_testing.ui.app:main',
+            'boat_trial = mhseals_testing.harness.cli:main',
             'thrust_characterize = mhseals_testing.analysis.characterization:main',
         ],
     },

@@ -36,6 +36,7 @@ from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
+from mhseals_testing.health.journal import Journal
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
@@ -175,6 +176,7 @@ class App:
         self.clock = clock
         self.foreground = foreground
         self.publish_pulses = pulses
+        self.journal = Journal()
         # Manual control needs key releases (Kitty protocol) to tell held keys from taps.
         self.open_events = open_events or (lambda: KeyReader(report_events=True))
         self.manual = False
@@ -963,7 +965,22 @@ class App:
                 self.snapshot(), self.profile)
             if blockers:
                 reason = blockers[0]
+        if not reason and self.engine is not None:
+            blocking, _ = self.engine.gate(procedure.key, self.args.bench_override)
+            reason = blocking[0] if blocking else ''
         return reason
+
+    @property
+    def engine(self):
+        """The health engine behind the advisory rows (gates, snapshots), or None."""
+        return getattr(self.health, 'engine', None)
+
+    def health_snapshot(self, label, procedure):
+        """Journal and emit the shown health; 'end' is taken before teardown."""
+        if self.engine is None or self.engine.last is None:
+            return
+        entry = self.journal.snapshot(label, self.engine.last, self.engine.clock())
+        self.ros.emit('health_snapshot', procedure=procedure.key, **entry)
 
     def run_procedure(self, procedure):
         reason = self.availability(procedure)
@@ -978,13 +995,17 @@ class App:
         results = len(self.snapshot()['results'])
         self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
         self.notice = f'Running {procedure.title}'
+        self.health_snapshot('start', procedure)
+        began = self.engine.clock() if self.engine else 0.0
         aborted = None
         try:
             procedure.run(self.procedure_context())
+            self.health_window(procedure, began)
         except STOPPING_ERRORS as error:
             aborted = str(error)
             if not isinstance(error, Cancelled):
                 raise
+            self.health_snapshot('end', procedure)
             self.notice = f'{procedure.title} cancelled'
             self.disarm(f'{procedure.title} cancelled')
             return
@@ -1007,6 +1028,17 @@ class App:
             record['reason'] = aborted
         runs.write_run(self.paths.runs, record, settings=vars(self.settings),
                        status=runs.ABORTED if aborted is not None else None)
+
+    def health_window(self, procedure, began):
+        """Snapshot health and flag the trial window invalid when a gated check left ok."""
+        self.health_snapshot('end', procedure)
+        if self.engine is None:
+            return
+        problems = self.journal.window_problems(
+            self.engine, procedure.key, began, self.engine.clock())
+        if problems:
+            self.ros.emit('trial_window_invalid', procedure=procedure.key, reasons=problems)
+            self.notice = f'{procedure.title}: window invalid, {problems[0]}'
 
     def procedure_context(self):
         return host.context(
