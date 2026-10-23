@@ -86,7 +86,7 @@ def circled(track, centre, radius=8.0):
     """Degrees the boat went round ``centre`` while within ``radius`` of it."""
     swept, previous = 0.0, None
     for _, x, y, _ in track:
-        if math.dist((x, y), centre) > radius:
+        if not math.isfinite(x + y) or math.dist((x, y), centre) > radius:
             previous = None
             continue
         angle = math.atan2(y - centre[1], x - centre[0])

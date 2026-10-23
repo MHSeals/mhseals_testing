@@ -109,3 +109,9 @@ def test_map_rotation_keeps_fit_through_a_slow_hold():
         fit.add(t, (x, 0.0), (x + 1, 0.0), (x, 0.0))
         if 60 < t < 160 and t > 70:
             assert fit.fit() is not None, t
+
+
+def test_enu_takes_the_short_way_across_the_antimeridian():
+    east, _ = enu(0, -179.9999, (0, 179.9999))
+    assert east == pytest.approx(22.24, abs=0.1)
+    assert enu(0, 179.9999, (0, -179.9999))[0] == pytest.approx(-22.24, abs=0.1)

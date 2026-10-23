@@ -12,7 +12,8 @@ def enu(lat, lon, origin):
     Equirectangular: under 1 cm of error within 1 km.
     """
     lat0, lon0 = origin
-    east = math.radians(lon - lon0) * math.cos(math.radians(lat0)) * EARTH_RADIUS
+    dlon = (lon - lon0 + 180.0) % 360.0 - 180.0  # shortest way round the antimeridian
+    east = math.radians(dlon) * math.cos(math.radians(lat0)) * EARTH_RADIUS
     north = math.radians(lat - lat0) * EARTH_RADIUS
     return east, north
 

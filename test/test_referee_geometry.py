@@ -64,3 +64,9 @@ def test_held_in_bay_needs_facing_in():
     outward = [(t, 0, 0, 0.0) for t in range(8)]
     assert geometry.held_in_bay(inward, bay, 5) == 7
     assert geometry.held_in_bay(outward, bay, 5) == 0
+
+
+def test_circled_skips_non_finite_samples_instead_of_going_nan():
+    lap = walk([(5 * math.cos(a / 10), 5 * math.sin(a / 10)) for a in range(70)])
+    lap[30] = (30.0, math.nan, math.nan, 0.0)
+    assert math.isfinite(geometry.circled(lap, (0, 0)))
