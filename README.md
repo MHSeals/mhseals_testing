@@ -10,7 +10,6 @@ The ASV test suite: sensor and TF checks, thruster trials, characterization, con
 ros2 run mhseals_testing boat_test                                   # attach to a running stack
 ros2 run mhseals_testing boat_test --start-stack                     # also start the profile's odometry (more from the Status rows)
 ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
-ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardware.yaml>
 ```
 
 `boat_test` starts passive and commands nothing until the outputs are armed. It is one page of five panels: Status (sensors, TF, system health), Motion, Thrusters, Procedures and Activity (results or log). The header shows health and `✓ Disarmed` / `! Armed`; the footer shows the keys for the focused panel and always keeps Space Stop, Help and Quit; prompts are popups that scroll when the terminal is short. `?` lists every key. Letter keys ignore Shift and Caps Lock. Below 60 columns the Status column folds away; below 36×10 the page becomes an enlarge-terminal hint that still shows the armed state and Space stop.
@@ -51,7 +50,7 @@ Only sensors and TF block motion (required sensors live and fresh; `map → odom
 
 Use `i` to verify wiring and reversals before running the trials.
 
-Characterization saves only explicit hardware overrides. Motion limits are the speeds and accelerations observed at the tested effort; partial-throttle runs do not grant unmeasured full-throttle limits. Review them before use. The generated `<session>.nav2.yaml` contains only limits; restart Nav2 with `ros2 launch mhseals_nav navigation.launch.py sim:=false limits_file:=<session>.nav2.yaml`. Current planner/costmap settings and the reverse-speed cap remain in the base profile. Regenerate older full-profile overlays. Offline: add `--nav2-params <nav2_params.yaml> --nav2-overlay <limits.yaml>` to `thrust_characterize`.
+Characterization stages an identity correction, surveys every direction, refines the correction columns C+/C- per direction (`--direction sway+` reruns one) and saves speed curves and C+/C- only on request; an abort restores the saved correction. Motion limits are the speeds and accelerations observed at the tested effort; partial-throttle runs do not grant unmeasured full-throttle limits. Review them before use. The generated `<session>.nav2.yaml` contains only limits; restart Nav2 with `ros2 launch mhseals_nav navigation.launch.py sim:=false limits_file:=<session>.nav2.yaml`. Current planner/costmap settings and the reverse-speed cap remain in the base profile. Regenerate older full-profile overlays.
 
 ### Profiles
 

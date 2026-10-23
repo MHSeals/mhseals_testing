@@ -2,7 +2,6 @@ import math
 
 from pytest import approx
 
-from mhseals_testing.analysis.characterization import characterize_samples
 from mhseals_testing.analysis.thrust import speed_curve, speed_curves
 
 
@@ -40,9 +39,12 @@ def rows():
     return out
 
 
+def fitted():
+    return speed_curves([(r['command'], r['velocity'], None) for r in rows()])
+
+
 def test_characterization_writes_curves_that_beat_the_linear_gain():
-    result = characterize_samples(rows())
-    curves = result['speed_curves']
+    curves = fitted()
     assert set(curves) == {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'}
     curve = curves['sway-']
     # Unfitted midpoint: the curve predicts it, the secant gain at 0.6 does not.
@@ -56,7 +58,7 @@ def test_characterization_writes_curves_that_beat_the_linear_gain():
 def test_speed_curves_round_trip_through_hardware_validation():
     from mhseals_hardware.configuration import load_defaults, validate_config
     from mhseals_hardware.velocity_law import Plant
-    curves = characterize_samples(rows())['speed_curves']
+    curves = fitted()
     assert all(set(curve) == {'d1', 'd2'} for curve in curves.values())
     config = validate_config(dict(load_defaults(), characterization=dict(
         speed_curves=curves, motion_limits=dict(velocity=dict(surge=1.0, sway=1.0, yaw=1.0)))))
@@ -72,7 +74,7 @@ def test_speed_curve_drops_non_finite_samples():
 def test_fitted_curves_are_saved_and_drive_the_plant(tmp_path):
     from mhseals_hardware.configuration import load_config, update_config
     from mhseals_hardware.velocity_law import Plant
-    result = characterize_samples(rows())
+    result = dict(speed_curves=fitted())
     limits = dict(surge=1.0, sway=1.0, yaw=1.0)
     result['motion_limits'] = dict(velocity=limits)
     path = tmp_path / 'boat.yaml'
