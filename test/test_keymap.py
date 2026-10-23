@@ -1,8 +1,13 @@
-"""Keymap validation rules 1-6 and the ui.md negative cases, with inline YAML."""
+"""Keymap validation rules 1-6, overlay, resolve and hints, with inline YAML."""
 
+import sys
+import types
+
+import pytest
 import yaml
 
 from mhseals_testing.ui import keymap
+from mhseals_testing.ui.keymap import Keymap, KeymapError
 
 BASE = """
 schema: mhseals.keymap/1
@@ -106,3 +111,62 @@ def test_negative_review_h_shadows_history():
     assert has(keymap.validate(d), 'review H shadows global history')
     d['review']['override'] = ['history']
     assert keymap.validate(d) == []
+
+
+def test_overlay_rebinds_and_unbinds():
+    merged = keymap.overlay(doc(), {'global': {'arm': ['A'], 'mark': []}, 'tab.drive': {'manual': ['m']}})
+    assert merged['global']['arm'] == ['A'] and 'mark' not in merged['global']
+    assert merged['tab.drive']['manual'] == ['m']
+    assert doc()['global']['arm'] == ['a']                 # input untouched
+
+
+def test_overlay_shape_errors():
+    with pytest.raises(KeymapError, match='arm must be a list|action keys must be a list'):
+        keymap.overlay(doc(), {'global': {'arm': 'ctrl-a'}})
+    with pytest.raises(KeymapError, match='tab.bags must be a mapping'):
+        keymap.overlay(doc(), {'tab.bags': ['x']})
+
+
+def test_load_applies_overlay_and_falls_back_when_bad(tmp_path):
+    base = tmp_path / 'base.yaml'
+    base.write_text(BASE)
+    user = tmp_path / 'user.yaml'
+    user.write_text('global: {arm: [A]}\n')
+    km, warning = keymap.load(base, user)
+    assert warning is None and km.resolve(['global'], 'A') == 'arm' and km.resolve(['global'], 'a') is None
+    assert keymap.load(base, tmp_path / 'missing.yaml')[0].resolve(['global'], 'a') == 'arm'
+    for text in ('global: {stop: []}\n', 'global: {arm: ctrl-a}\n', 'tab.drvie: {arm: [x]}\n', 'global: [\n'):
+        user.write_text(text)                                   # unbound stop, shape, name, syntax
+        km, warning = keymap.load(base, user)
+        assert warning and 'ignored' in warning
+        assert km.resolve(['global'], 'a') == 'arm' and km.resolve(['global'], 'space') == 'stop'
+
+
+def test_resolve_innermost_wins_and_modal_passthrough():
+    km = Keymap(doc(panel__status={'characterize': ['a'], 'override': ['arm']}))
+    assert km.resolve(['global', 'tab.drive', 'panel.status'], 'a') == 'characterize'
+    assert km.resolve(['global', 'tab.drive', 'panel.status'], 'k') == 'up'
+    assert km.resolve(['popup.show'], 'space') == 'stop'
+    assert km.resolve(['popup.show'], 'a') == 'close'           # any
+    assert km.resolve(['popup.text'], 'a') is None
+
+
+def test_hints_ordered_by_priority_and_follow_rebinding():
+    km = Keymap(doc())
+    hints = km.hints(['global', 'tab.drive'])
+    assert hints[:3] == [('space', 'stop'), ('a', 'arm'), ('b', 'mark')]
+    assert ('up', 'up') not in hints and ('f', 'characterize') in hints
+    assert ('A', 'arm') in Keymap(keymap.overlay(doc(), {'global': {'arm': ['A']}})).hints(['global'])
+
+
+def test_shipped_file_falls_back_to_the_share_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(keymap, 'SHIPPED_FILE', tmp_path / 'nope' / 'keymap.yaml')
+    share = tmp_path / 'share'
+    (share / 'config').mkdir(parents=True)
+    (share / 'config' / 'keymap.yaml').write_text(BASE)
+    fake = types.ModuleType('ament_index_python.packages')
+    fake.get_package_share_directory = lambda name: str(share)
+    monkeypatch.setitem(sys.modules, 'ament_index_python', types.ModuleType('ament_index_python'))
+    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', fake)
+    assert keymap.shipped_file() == share / 'config' / 'keymap.yaml'
+    assert keymap.load(user=None)[0].resolve(['global'], 'a') == 'arm'

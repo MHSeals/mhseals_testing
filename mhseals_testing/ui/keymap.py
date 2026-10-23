@@ -1,4 +1,4 @@
-"""Validate the keymap (config/keymap.yaml).
+"""Load, overlay, validate and query the keymap (config/keymap.yaml).
 
 A keymap maps context -> action id -> key names. Contexts are layered
 (``global`` -> ``tab.*`` -> ``panel.*``/``view.*``, review on top) or modal
@@ -6,17 +6,24 @@ A keymap maps context -> action id -> key names. Contexts are layered
 keys of their ``passthrough`` actions, nothing from outside). A layered child
 may shadow an ancestor's key only for actions it lists in ``override``.
 
-Rules (see ``validate``):
+``~/.config/mhseals/keymap.yaml`` rebinds per context: ``{context: {action:
+[keys]}}`` replaces that action's keys (``[]`` unbinds). The result is
+validated like the shipped file. Rules (see ``validate``):
   1 a key bound twice in a context      4 unknown key, action or context name,
                                           or a malformed (non list / mapping) value
   2 undeclared shadowing                5 Space stops and E revokes in every stack
   3 modal key collides with passthrough 6 stop, quit, revoke_agent stay bound
 """
 
+import copy
+from pathlib import Path
+
 import yaml
 
 from mhseals_testing.ui.actions import ACTIONS
 
+USER_FILE = Path.home() / '.config' / 'mhseals' / 'keymap.yaml'
+SHIPPED_FILE = Path(__file__).resolve().parents[2] / 'config' / 'keymap.yaml'   # source tree
 KEY_NAMES = set('space enter escape tab backtab backspace up down left right shift-left shift-right '
                 'ctrl-up ctrl-down ctrl-left ctrl-right ctrl-h ctrl-j ctrl-k ctrl-l focus-out any'.split())
 OPTIONS = ('override', 'passthrough')
@@ -156,3 +163,74 @@ def _invariants(label, keys, modal):
     if keys.get('E') not in (('revoke_agent', 'revoke_selected') if modal else ('revoke_agent',)):
         errors.append('%s: E is %s, not revoke_agent' % (label, keys.get('E')))
     return errors
+
+
+def overlay(doc, user):
+    """A copy of ``doc`` with the user's per-context rebinds applied (``[]`` unbinds)."""
+    errors = _shape_errors(user or {}, known=False)
+    if errors:
+        raise KeymapError(errors)
+    merged = copy.deepcopy(doc)
+    for name, rebinds in (user or {}).items():
+        if name == 'schema':
+            continue
+        context = merged.get(name) or {}
+        merged[name] = context
+        for action, keys in (rebinds or {}).items():
+            if keys or action in OPTIONS:
+                context[action] = list(keys or [])
+            else:
+                context.pop(action, None)
+    return merged
+
+
+class Keymap:
+    """A validated keymap: resolve keys to actions and list footer hints for a stack."""
+
+    def __init__(self, doc):
+        errors = validate(doc)
+        if errors:
+            raise KeymapError(errors)
+        self.doc = doc
+
+    def resolve(self, stack, key):
+        """Action id for ``key`` in ``stack`` (outermost context first), or None."""
+        keys = _stack_keys(self.doc, stack)
+        return keys.get(key, keys.get('any'))
+
+    def hints(self, stack):
+        """[(key, label)] for the footer, most important first; only keys that win in the stack."""
+        shown = {}
+        for key, action in _stack_keys(self.doc, stack).items():
+            if key != 'any' and ACTIONS[action].hint and action not in shown:
+                shown[action] = key
+        order = sorted(shown, key=lambda a: (ACTIONS[a].hint, ACTIONS[a].label))
+        return [(shown[a], ACTIONS[a].label) for a in order]
+
+
+def shipped_file():
+    """config/keymap.yaml in the source tree, else the installed share directory."""
+    if SHIPPED_FILE.is_file():
+        return SHIPPED_FILE
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'keymap.yaml'
+    except (ImportError, KeyError):
+        return SHIPPED_FILE
+
+
+def load(path=None, user=USER_FILE):
+    """Return ``(Keymap, warning)``: the shipped file (invalid raises) with the user overlay applied.
+
+    A bad overlay (syntax, shape or rule violation) is ignored: the shipped keymap comes back
+    with a warning string for the toast.
+    """
+    doc = yaml.safe_load(Path(path or shipped_file()).read_text()) or {}
+    shipped = Keymap(doc)
+    if not (user and Path(user).is_file()):
+        return shipped, None
+    try:
+        return Keymap(overlay(doc, yaml.safe_load(Path(user).read_text()))), None
+    except (KeymapError, yaml.YAMLError, OSError) as exc:
+        first = exc.errors[0] if isinstance(exc, KeymapError) else str(exc).splitlines()[0]
+        return shipped, 'keymap overlay ignored: %s' % first
