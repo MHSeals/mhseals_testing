@@ -197,6 +197,13 @@ def test_settings_ignore_keys_of_other_parts(tmp_path):
     assert c.load_settings(path) == S
 
 
+def test_heading_in_degrees_is_refused():
+    t, vel, _, rate, mask = neutral(30)
+    with pytest.raises(ValueError, match='rad'):
+        c.build_windows(t, vel, np.full(len(t), 90.0), rate, mask, S)
+    assert c.build_windows(t, vel, np.full(len(t), np.radians(90.0)), rate, mask, S)
+
+
 def test_wave_floor_keeps_surge_and_sway_levels_apart():
     # Heading 0: surge is north, sway is minus east.
     rng = np.random.default_rng(3)

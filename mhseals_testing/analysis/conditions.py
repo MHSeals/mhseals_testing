@@ -142,6 +142,8 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     keep = np.r_[True, np.diff(t) > 0]                         # a re-delivered stamp keeps its first sample only
     t, vel, heading, rate, mask = t[keep], vel[keep], heading[keep], rate[keep], mask[keep]
     finite = np.isfinite(vel).all(axis=1) & np.isfinite(heading) & np.isfinite(rate) & np.isfinite(t)
+    if np.abs(heading[finite]).max(initial=0) > 2 * np.pi + 0.1:
+        raise ValueError('heading is in rad; convert a compass in degrees with np.radians first')
     idx = np.nonzero(mask & finite)[0]       # a garbled sample splits the run, never poisons it
     runs = np.split(idx, np.nonzero(np.diff(t[idx]) > s.neutral_max_gap_s)[0] + 1)
     steps = np.diff(t[idx])
