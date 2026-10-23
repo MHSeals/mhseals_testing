@@ -1,0 +1,14 @@
+# Live tracking score and calibration staleness (analysis/tracking.py, thrust spec addendum).
+score:
+  k: 2.0                 # noise-floor weight: score = 1 - |v - vhat| / (|vhat| + k*sigma_wave)
+  deadband: 0.06         # an axis counts as commanded above this normalized effort
+  active_sigma: 2.0      # ... or while the predicted speed exceeds this many sigma_wave
+  min_active: 0.5        # fraction of the window that must count, else the score is "-"
+  green: 0.80            # health colours: green >= green, yellow >= yellow, else red
+  yellow: 0.60
+stale:
+  min_sessions: 3        # sessions on one calibration version before a trend is judged
+  low_score: 0.70        # weighted mean below this for `low_runs` sessions in a row flags
+  low_runs: 2
+  confidence: 0.95       # bootstrap interval the slope must clear
+  bootstrap: 300
