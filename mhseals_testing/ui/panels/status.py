@@ -37,7 +37,7 @@ def status_rows(snapshot, specs):
         rows.append(dict(group='Sensors', state=state, name=spec.name, value=value, rate=rate,
                          detail=f'{spec.topic}{SEPARATOR}{detail}' if detail != spec.topic
                          else spec.topic, required=spec.required))
-    rows.extend(localization_rows(snapshot))
+    rows.extend(localization_rows(snapshot, specs))
     for chain in snapshot['tf']:
         rows.append(dict(group='Frames', state=chain['status'],
                          name=f"{chain['source']} {theme.ARROW} {chain['target']}", value='',
@@ -50,16 +50,27 @@ def status_rows(snapshot, specs):
     return rows
 
 
-def localization_rows(snapshot, site=magnetic.SITE):
-    """GPS fix, compass field and yaw trust, from the optional gpsraw and mag sensors.
+def sensor(snapshot, specs, kind):
+    """The snapshot row of the first profile sensor of ``kind``; None if absent or silent."""
+    for spec in specs:
+        if spec.kind == kind:
+            return snapshot['sensors'].get(spec.name)
+    return None
+
+
+def localization_rows(snapshot, specs, site=magnetic.SITE):
+    """GPS fix, compass field and yaw trust, from the optional GPS raw and compass sensors.
+
+    The sensors are found in ``specs`` by their profile ``kind`` ('gpsraw', 'mag'), not by display
+    name or topic, because a profile may call them anything or put them on other topics.
 
     gpsraw values: fix, sats, h_acc (m). mag values: x, y, z (tesla); optional
     compass_gyro (deg), magcal_residual (deg) and yaw_sigma (rad) from the monitor.
     A sensor that is not LIVE shows STALE rather than its last good value.
-    A missing sensor gives no row, so a boat without them looks as before.
+    A sensor the profile lacks, or that has not reported, gives no row, so a boat without them looks as before.
     """
     rows = []
-    gps = snapshot['sensors'].get('gpsraw')
+    gps = sensor(snapshot, specs, 'gpsraw')
     if gps:
         v = gps['values']
         state = 'OK' if v.get('fix', 0) >= 3 and gps['status'] == 'LIVE' else 'WARN'
@@ -69,7 +80,7 @@ def localization_rows(snapshot, site=magnetic.SITE):
             value += f" {theme.SEPARATOR.strip()} {v['h_acc']:.1f}m"
         rows.append(dict(group='Localization', state=state, name='GPS', value=value,
                          detail='gpsraw fix, satellites, horizontal accuracy', required=False))
-    mag = snapshot['sensors'].get('mag')
+    mag = sensor(snapshot, specs, 'mag')
     if mag:
         v = mag['values']
         ratio = magnetic.field_ratio(v['x'], v['y'], v['z'], site)
