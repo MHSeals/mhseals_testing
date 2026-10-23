@@ -61,3 +61,10 @@ def test_invalid_profiles_name_the_field(edit, message):
 def test_boat_gps_declares_its_rate():
     gps = next(s for s in load_profile('boat').sensors if s.name == 'GPS')
     assert gps.hz == 5 and gps.deadline >= 1.13  # real gaps reach 1.13 s
+
+
+def test_boat_proof_nodes_are_node_names():
+    """Proof nodes are ROS node names (launch name=), not executables: the velodyne
+    driver's executable is velodyne_driver_node but its node is velodyne_driver."""
+    components = load_profile('boat').components
+    assert tuple(components['sensors']['nodes']) == ('velodyne_driver',)
