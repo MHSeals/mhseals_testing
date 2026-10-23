@@ -265,12 +265,17 @@ def samples_from_windows(history, windows, transient=1.0):
     ``history`` is (time, values) odometry; ``windows`` are (command, start,
     end) from the suite's runner. The first ``transient`` seconds of each
     window are skipped, so the fit sees the response, not the switching.
+    Samples with a missing or non-finite vx/vy/wz are dropped (one NaN would
+    otherwise abort the whole fit), as are windows with a non-finite command.
     """
     samples = []
     for command, start, end in windows:
+        if not all(math.isfinite(c) for c in command):
+            continue
         for stamp, values in history:
             if start + transient <= stamp <= end and all(
-                    values.get(key) is not None for key in ('vx', 'vy', 'wz')):
+                    values.get(key) is not None and math.isfinite(values[key])
+                    for key in ('vx', 'vy', 'wz')):
                 samples.append({"time": stamp, "command": tuple(command),
                                 "velocity": (values["vx"], values["vy"], values["wz"]),
                                 "yaw": values.get("yaw")})

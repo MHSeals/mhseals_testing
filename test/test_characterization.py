@@ -81,6 +81,24 @@ def test_samples_from_windows_skips_transients_and_pairs_commands():
     assert min(s['time'] for s in samples if s['command'][0]) == pytest.approx(3.0)
 
 
+@pytest.mark.parametrize('bad', [math.nan, math.inf, -math.inf])
+def test_samples_from_windows_drops_a_non_finite_sample(bad):
+    from mhseals_testing.analysis.characterization import samples_from_windows
+    clean = [(t / 10, {'vx': 0.5, 'vy': 0.0, 'wz': 0.0}) for t in range(50)]
+    dirty = list(clean)
+    dirty[30] = (3.0, {'vx': bad, 'vy': 0.0, 'wz': 0.0})
+    windows = [((0.5, 0, 0), 0.0, 4.0)]
+    kept = samples_from_windows(dirty, windows)
+    assert len(kept) == len(samples_from_windows(clean, windows)) - 1
+    assert all(math.isfinite(v) for s in kept for v in s['velocity'])
+
+
+def test_samples_from_windows_skips_a_non_finite_command():
+    from mhseals_testing.analysis.characterization import samples_from_windows
+    history = [(t / 10, {'vx': 0.5, 'vy': 0.0, 'wz': 0.0}) for t in range(50)]
+    assert samples_from_windows(history, [((math.nan, 0, 0), 0.0, 4.0)]) == []
+
+
 GAIN = numpy.array(((0.6, 0.0, 0.0), (0.0, 0.4, 0.0), (0.05, 0.0, 0.3)))
 BIAS = numpy.array((0.02, -0.01, 0.0))
 
