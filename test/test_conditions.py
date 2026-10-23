@@ -54,6 +54,14 @@ def test_circular_heading_mean_and_vector_drift():
     assert np.linalg.norm(drift.vector) < 3 * drift.se
 
 
+def test_a_stationary_gps_bias_is_reported_as_drift_not_removed():
+    # Recorded Here GPS at rest read 0.038 m/s (se 0.002): the estimator must pass it on for the
+    # readiness gate to judge, not treat it as zero.
+    drift = c.world_drift(windows_of(neutral(8 * 12, drift=(0.038, 0.0), seed=7)), S)
+    assert np.hypot(*drift.vector) == pytest.approx(0.038, abs=3 * drift.se)
+    assert drift.se < 0.005
+
+
 def test_drift_matches_truth_within_its_error():
     drift = c.world_drift(windows_of(neutral(8 * 12, seed=5)), S)
     assert drift.n == 12
