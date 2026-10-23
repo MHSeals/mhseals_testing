@@ -66,7 +66,4 @@ def judge(ctx, task, rubric, events, start, end):
     track = [(t, v['x'], v['y'], v.get('yaw') or 0.0) for t, v in samples
              if v.get('x') is not None]
     events = [dict(e, time=e.get('received', e.get('time', 0.0))) for e in events]
-    options = rubric.get('referee', {})
-    if task == 'mission':
-        return referee.judge_mission(truth, track, events, rubric['tasks'], **options)
-    return referee.judge(task, truth, track, events, **options)
+    return referee.judge_task(task, truth, track, events, rubric)

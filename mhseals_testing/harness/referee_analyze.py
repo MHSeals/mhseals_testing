@@ -36,7 +36,8 @@ def load(session):
     if truth is None:
         raise Refused(f'{session.name}: no course_truth.json to judge against')
     track = [(r['t'], r['x'], r['y'], r.get('yaw') or 0.0)
-             for r in data.read_jsonl(session / 'track.jsonl') if 't' in r and 'x' in r and 'y' in r]
+             for r in data.read_jsonl(session / 'track.jsonl')
+             if 't' in r and 'x' in r and 'y' in r]
     if not track:
         raise Refused(f'{session.name}: no track.jsonl samples')
     events = [dict(e, time=e.get('received', e.get('time', 0.0)))
@@ -61,13 +62,10 @@ def analyze(session, task=None, now=None):
                              else None)
     rubric_file = MISSION_DIR / f'{task}.yaml'
     if not task or not rubric_file.is_file():
-        raise Refused(f'unknown task {task!r}; one of {", ".join(sorted(p.stem for p in MISSION_DIR.glob("*.yaml")))}')
+        known = ', '.join(sorted(p.stem for p in MISSION_DIR.glob('*.yaml')))
+        raise Refused(f'unknown task {task!r}; one of {known}')
     rubric = yaml.safe_load(rubric_file.read_text())
-    options = rubric.get('referee', {})
-    if task == 'mission':
-        judged = referee.judge_mission(truth, track, events, rubric['tasks'], **options)
-    else:
-        judged = referee.judge(task, truth, track, events, **options)
+    judged = referee.judge_task(task, truth, track, events, rubric)
     record = dict(summary=summary(judged), basis='truth', track_source='truth',
                   window=[track[0][0], track[-1][0]], verdict=judged['verdict'], result=judged)
     stamp = (now or datetime.now().astimezone()).strftime('%Y%m%dT%H%M%S')
@@ -80,7 +78,7 @@ def main(argv=None, out=sys.stdout):
     """CLI body: exit 0 on PASS/SKIPPED/N/A, 1 on FAIL, 2 when the session cannot be judged."""
     parser = argparse.ArgumentParser(prog='boat_trial analyze --referee')
     parser.add_argument('session')
-    parser.add_argument('--task', help='task to judge (default: from session.json, or the mission)')
+    parser.add_argument('--task', help='task to judge (default: session.json task, else mission)')
     parser.add_argument('--json', action='store_true', help='print the record that was written')
     args = parser.parse_args(argv)
     try:

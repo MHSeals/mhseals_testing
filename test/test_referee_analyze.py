@@ -2,11 +2,17 @@
 import io
 import json
 
-import pytest
-
 from mhseals_testing import data
 from mhseals_testing.harness import referee_analyze as ra
-from test.test_referee import TRUTH, line
+
+TRUTH = dict(elements=[
+    dict(task='nav_channel', label=label, template='', x=x, y=y, radius=0.2)
+    for x in (7, 13) for label, y in (('red_pole_buoy', 1.5), ('green_pole_buoy', -1.5))])
+
+
+def line(a, b, steps=50, dt=0.2):
+    return [(i * dt, a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps, 0.0)
+            for i in range(steps + 1)]
 
 
 def session(tmp_path, track, task='nav_channel', events=()):

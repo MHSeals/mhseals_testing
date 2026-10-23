@@ -105,3 +105,11 @@ def judge_mission(truth, track, events, tasks, banner=None, dock_time=5.0,
         results[name] = judge(name, truth, part, stage_events, banner, dock_time)
     passed = all(result['verdict'] in ('PASS', 'SKIPPED') for result in results.values())
     return dict(task='mission', verdict='PASS' if passed else 'FAIL', stages=results)
+
+
+def judge_task(task, truth, track, events, rubric):
+    """Judge ``task`` (or the whole ``mission``) with the options and stages of its rubric."""
+    options = rubric.get('referee', {})
+    if task == 'mission':
+        return judge_mission(truth, track, events, rubric['tasks'], **options)
+    return judge(task, truth, track, events, **options)
