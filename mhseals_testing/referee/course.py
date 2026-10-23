@@ -30,8 +30,8 @@ def from_truth(truth):
     for bay in truth.get('bays', ()):
         keep = {k: bay[k] for k in ('dock', 'yaw', 'width', 'depth', 'banner', 'occupied') if k in bay}
         elements.append(Element(f"{BAY_CHALLENGE}/bay{bay['index']}", BAY_CHALLENGE, '',
-                                bay['x'], bay['y'], 0.0, 0.0, keep))
-    return Course(truth.get('name', ''), truth.get('frame', 'world'), 'truth', tuple(elements))
+                                bay['x'], bay['y'], 0.0, keep))
+    return Course(truth.get('name', ''), tuple(elements), 'truth', frame=truth.get('frame', 'world'))
 
 
 def check_datum(course, datum, max_m=DATUM_MAX_M, max_deg=DATUM_MAX_DEG):
@@ -61,8 +61,8 @@ def load(path, datum=None):
         raise ValueError(f'{path} is not a {SCHEMA} file')
     elements = tuple(Element(**{k: e[k] for k in Element.__dataclass_fields__ if k in e})
                      for e in record.get('elements', ()))
-    course = Course(record.get('name', ''), record.get('frame', 'map'), record.get('source', 'confirmed'),
-                    elements, record.get('day') or {}, record.get('datum'))
+    course = Course(record.get('name', ''), elements, record.get('source', 'confirmed'),
+                    record.get('day') or {}, record.get('frame', 'map'), record.get('datum'))
     if datum is not None:
         check_datum(course, datum)
     return course

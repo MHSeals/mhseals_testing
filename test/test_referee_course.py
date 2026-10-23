@@ -38,7 +38,7 @@ DATUM = {'lat': 42.0, 'lon': -71.0, 'yaw': 0.1}
 
 
 def saved(tmp_path):
-    course = Course('day', 'map', 'confirmed', (Element('a/1', 'a', 'red', 1.0, 2.0, sigma=0.3),), datum=DATUM)
+    course = Course('day', (Element('a/1', 'a', 'red', 1.0, 2.0, sigma=0.3),), 'confirmed', frame='map', datum=DATUM)
     course_mod.save(tmp_path / 'c.json', course)
     return tmp_path / 'c.json'
 
