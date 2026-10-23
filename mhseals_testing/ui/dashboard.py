@@ -27,8 +27,9 @@ PANELS = ('status', 'motion', 'thrusters', 'procedures', 'activity')
 TITLES = {'status': 'Status', 'motion': 'Motion', 'thrusters': 'Thrusters',
           'procedures': 'Procedures', 'activity': 'Activity'}
 PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
-WIDE = 100          # below this the Motion panel folds away
+WIDE = 106          # below this the Motion panel folds away
 SIDEBAR = 36
+READBACK_SHORT = {'unavailable': 'n/a'}  # keeps the Pin column inside a half-width panel
 TOP_ROW = 8         # Motion and Thrusters height
 NEUTRAL = 1500
 
@@ -315,7 +316,7 @@ def thrusters_panel(view, compact=False, pins=True):
         if not compact:
             cells.append(effort_bar(row['pulse'], testing))
         if pins:
-            cells.append(Text(row['readback'], style=MUTED))
+            cells.append(Text(READBACK_SHORT.get(row['readback'], row['readback']), style=MUTED))
         table.add_row(*cells)
     subtitle = ('testing' if testing else view['outputs']) + SEPARATOR + (
         'unsaved' if view['draft'] else view['config_note'])

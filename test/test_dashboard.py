@@ -263,3 +263,13 @@ def test_thrusters_panel_drops_the_pin_column_at_60_columns():
                        view(profile, focus='thrusters', outputs='odroid'), 60, 24), 60, 24)
     rows = [line for line in page.splitlines() if 'Thr' in line or '1500' in line]
     assert rows and '…' not in ''.join(rows) and 'Pin' not in ''.join(rows)
+
+
+@pytest.mark.parametrize('width,height', [(100, 34), (106, 34), (120, 40)])
+def test_odroid_thrusters_and_motion_read_whole_with_unavailable_readback(width, height):
+    profile = load_profile('boat')
+    page = text(render(monitor().snapshot(profile.required_tf),
+                       view(profile, pwm_readback=['unavailable'] * 4), width, height), width, height)
+    lines = page.splitlines()
+    top = ''.join(lines[:next(i for i, line in enumerate(lines) if 'Procedures' in line)])
+    assert '…' not in top and ('n/a' in top) == (width >= 106)  # narrower folds the Pin column away
