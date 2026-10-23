@@ -1,0 +1,20 @@
+╭─ ▸ Conditions ───────────────────────────────────────────────────────────╮
+│ Verdict       marginal · ceiling 66%                                     │
+│ Reason        ceiling 66% under 70%                                      │
+│ Drift         0.12 m/s (E +0.09, N +0.09) · CI 0.020 · trust 88%         │
+│ D             1.12                                                       │
+│ beta          0.013 m/s per min · z 1.4                                  │
+│ State         steady · 2 windows pooled                                  │
+│ Wave floor    yaw 0.14 deg/s                                             │
+│ Sea state     0.9 deg/s                                                  │
+│ Neutral       31 s                                                       │
+│ Windage       not wired                                                  │
+│ Observer      not wired                                                  │
+│ C_d           not wired                                                  │
+│ Gates         Characterize start: warn unless good/unknown               │
+│               (conditions.marginal)                                      │
+│ Windows          T      v_N      v_E   psi    r-bar  flag                │
+│ -120 s          60   +0.081   +0.090    44    +0.02  retired             │
+│ -60 s           60   +0.088   +0.084    47    -0.05                      │
+│ -0 s            24   +0.100   +0.100    50    +1.50  turn                │
+╰─  ↑↓ scroll · Esc close  ────────────────────────────────────────────────╯

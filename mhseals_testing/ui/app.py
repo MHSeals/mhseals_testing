@@ -980,6 +980,10 @@ class App:
     def on_motion(self, key):
         pass
 
+    def on_conditions(self, key):
+        if key == 'enter':
+            self.open('conditions')
+
     def on_procedures(self, key):
         if key == 'enter':
             self.run_procedure(PROCEDURES[self.cursors['procedures']])

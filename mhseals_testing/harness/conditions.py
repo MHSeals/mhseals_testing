@@ -23,6 +23,24 @@ REFRESH_S = 1.0         # the estimate is recomputed at most this often
 NEEDED_WINDOWS = 3      # the estimator's minimum, for the "measuring" text
 
 
+FLAGS = {'sparse': 'gap', 'spin': 'turn', 'coast': 'coast'}     # estimator flag -> spec 5.1 name
+
+
+def _detail(estimate, windows, t_end):
+    """The popup's figures from one estimate; usable windows outside its pool are ``retired``."""
+    pool = {id(w) for w in estimate.pool}
+    rows = []
+    for w in sorted(windows, key=lambda w: w.t0):
+        flag = FLAGS.get(w.flag, w.flag) or ('' if id(w) in pool or not estimate.pool else 'retired')
+        rows.append(dict(ago=float(t_end - w.t0), T=float(w.duration), v_n=float(w.mean[1]), v_e=float(w.mean[0]),
+                         psi=math.degrees(w.heading) % 360, r=math.degrees(float(w.mean[2])), flag=flag))
+    drift = estimate.drift
+    return dict(windows=rows, state=estimate.state, pool=len(estimate.pool),
+                dispersion=None if drift is None else float(drift.dispersion),
+                trend=None if estimate.trend is None else [float(x) for x in estimate.trend],
+                trend_z=float(estimate.drift_trend_z))
+
+
 class Conditions:
     def __init__(self, settings=None, thresholds=None, clock=time.monotonic, ceiling=None):
         self.s = settings or est.load_settings()
@@ -31,6 +49,7 @@ class Conditions:
         self.samples = deque()              # (t, E, N, heading, rate, ok, vel_acc)
         self.t_coast = -math.inf
         self._cache, self._at = None, -math.inf
+        self._detail = None                 # window table and estimator figures behind the last rating
 
     def feed(self, t, vel, heading, rate, ok, vel_acc):
         """One sample: world velocity (E, N) m/s, compass rad, yaw rate rad/s, ``ok`` = neutral and afloat."""
@@ -53,6 +72,7 @@ class Conditions:
         s = self.s
         out = dict(verdict='unknown', reason='', ceiling=None, drift_trust=None, neutral_s=0.0,
                    drift=None, state='unknown', se=None)
+        self._detail = None
         if len(self.samples) < 2:
             out['reason'] = 'measuring 0 s'
             return out
@@ -60,6 +80,7 @@ class Conditions:
         mask = est.neutral_mask(t, ok.astype(bool), acc, self.t_coast, s)
         windows = est.build_windows(t, np.column_stack([e, n]), heading, rate, mask, s)
         estimate = est.estimate(windows, s)
+        self._detail = _detail(estimate, windows, t[-1])
         out.update(state=estimate.state, neutral_s=sum(w.duration for w in windows if not w.flag))
         if estimate.drift is None:
             out['reason'] = f'measuring {out["neutral_s"]:.0f}/{NEEDED_WINDOWS * s.min_window_s:.0f} s'
@@ -74,6 +95,16 @@ class Conditions:
             out['verdict'], out['reason'] = verdict(
                 1.0 if out['ceiling'] is None else out['ceiling'], out['drift_trust'], self.thresholds)
         return out
+
+    def detail(self, now=None):
+        """Estimator detail for the conditions popup, or None before any window exists.
+
+        ``windows``: per window ``ago`` (s before the newest sample), ``T`` (s), ``v_n``, ``v_e`` (m/s),
+        ``psi`` (compass deg), ``r`` (deg/s) and ``flag`` (coast, gap, turn or retired; '' = pooled).
+        Also ``dispersion`` (D), ``trend`` (m/s per s, E and N), ``trend_z``, ``state`` and ``pool`` size.
+        """
+        self.evaluate(now)
+        return self._detail
 
     def facts(self, now=None):
         """Health facts for the snapshot probe; the verdict carries its reason in ``data``."""
