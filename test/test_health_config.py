@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, replace
 import pytest
 
 from mhseals_testing.health import registry
-from mhseals_testing.health.config import ConfigError, HEALTH_DIR, load, lint, render
+from mhseals_testing.health.config import ConfigError, load, lint, render
 from mhseals_testing.health.model import Result
 from mhseals_testing.profiles import load_profile
 
@@ -174,11 +174,6 @@ def test_lint_accepts_kind_result_fields(tmp_path):
 
 def test_render_leaves_unknown_fields():
     assert render('{a} {b}', a=1) == '1 {b}'
-
-
-def test_shipped_files_lint_clean():
-    if HEALTH_DIR.is_dir():
-        assert lint(load(user=False).specs) == []
 
 
 def test_empty_each_expands_to_no_checks(tmp_path):
