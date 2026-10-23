@@ -193,10 +193,10 @@ def test_rosbag_pairs_preceding_commands_and_preserves_transients(tmp_path):
 def test_implausible_decoupling_is_rejected():
     from mhseals_testing.analysis.characterization import check_wiring
     check_wiring([1, .2, 0, .1, 1, 0, 0, 0, 1])
-    # Field data of 2026-10-18: negative diagonals would reverse sway and yaw.
-    field = [1.191, .226, -.716, 1.429, -.824, -7.755, .19, -.297, -1.21]
+    # Synthetic reversed sway axis (the 2026-10-18 matrix was a replay artifact).
+    reversed_sway = [1, 0, 0, 0, -.8, 0, 0, 0, 1]
     with pytest.raises(ValueError, match="sway"):
-        check_wiring(field)
+        check_wiring(reversed_sway)
 
 
 def test_characterize_refuses_when_a_sign_split_decoupling_is_active():
