@@ -1508,3 +1508,35 @@ def test_nav2_file_diff_and_apply_refusal(tmp_path):
     edit_nav2(app, path, 'a: 1\n')
     assert app.nav2_file.apply() == 'Nav2 apply refused: goal active'
     assert app.nav2_file.pending
+
+
+def test_deleted_nav2_file_keeps_the_last_good_and_sends_no_none(tmp_path):
+    seen = []
+    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or {})
+    path.unlink()
+    app.tick()
+    app.tick()
+    assert 'changed' not in app.notice
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
+    edit_nav2(app, path, 'a: 1\n')  # the old FollowPath key is now removed from the file
+    assert app.nav2_file.removed() == ['controller_server.ros__parameters.FollowPath.vx_max']
+    app.nav2_file.apply()
+    assert seen == [{'a': 1}]
+
+
+def test_edit_between_preview_and_apply_stays_pending(tmp_path):
+    app, path = nav2_app(tmp_path, applier=lambda changes: {})
+    edit_nav2(app, path, 'a: 1\n')
+    previewed = app.nav2_file.current
+    edit_nav2(app, path, 'a: 2\n')
+    app.nav2_file.apply(previewed)
+    assert app.nav2_file.changes() == [('a', 1, 2)]
+
+
+def test_nav2_text_is_ascii_safe_in_ascii_mode(tmp_path, monkeypatch):
+    from mhseals_testing.ui import theme
+    monkeypatch.setattr(theme, 'SEPARATOR', ' | ')
+    app, path = nav2_app(tmp_path)
+    edit_nav2(app, path, 'a: 1\n')
+    row = next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')
+    assert '·' not in app.notice and '·' not in row['detail'] and '|' in app.notice

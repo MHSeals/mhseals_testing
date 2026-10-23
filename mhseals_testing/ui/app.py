@@ -913,16 +913,19 @@ class App:
     def nav2_popup(self):
         """Preview the Nav2 file against what was applied; y applies, Esc leaves it pending."""
         source = self.nav2_file
+        previewed = source.current  # apply exactly what is shown, even if the file changes meanwhile
         rows = [(key, f'{old if old is not None else theme.DASH} {theme.ARROW} '
                       f'{new if new is not None else theme.DASH}')
-                for key, old, new in source.changes()] or [('', 'No changes pending')]
+                for key, old, new in source.changes()]
+        rows += [(key, f'removed from file {theme.ARROW} restart to reset') for key in source.removed()]
+        rows = rows or [('', 'No changes pending')]
         try:
             answer = self.choose('Nav2 parameters', ['Apply', 'Close'], {'y': 0}, rows=rows,
                                  selected=0 if source.pending else 1, width=76)
         except Cancelled:
             return
         if answer == 'Apply':
-            self.notice = source.apply()
+            self.notice = source.apply(previewed)
 
     def prompt(self, message, title='Ready'):
         return popups.prompt(self, message, title)

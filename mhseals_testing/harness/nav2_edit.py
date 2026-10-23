@@ -31,15 +31,26 @@ def diff(before, after):
             if old.get(key) != new.get(key)]
 
 
+def separator():
+    """The UI's separator (ASCII-safe); imported late so this module stays UI-free."""
+    from mhseals_testing.ui import theme
+    return theme.SEPARATOR
+
+
 class Nav2File:
-    """Tracks ``path`` against the last applied content."""
+    """Tracks ``path`` against the last applied content.
+
+    The file is parsed once, when it settles; ``current`` is the last good parse. A
+    missing or broken file keeps ``current`` (never reads as "every key removed").
+    """
 
     def __init__(self, path, applier=None):
         self.path, self.applier = Path(path), applier
-        self.applied = self.load() or {}
-        self.seen = self.key()
-        self.settled = self.seen
         self.error = ''
+        self.current = {}
+        self.read()
+        self.applied = self.current
+        self.seen = self.settled = self.key()
 
     def key(self):
         try:
@@ -48,12 +59,21 @@ class Nav2File:
             return None
         return stat.st_mtime_ns, stat.st_size, stat.st_ino
 
-    def load(self):
+    def read(self):
+        """Parse the file into ``current``; set ``error`` ('' when usable or missing)."""
+        self.error = ''
         try:
             data = yaml.safe_load(self.path.read_text())
-        except (OSError, yaml.YAMLError):
-            return None
-        return data if isinstance(data, dict) else {}
+        except OSError:
+            return  # deleted: keep the last good content
+        except yaml.YAMLError as error:
+            mark = getattr(error, 'problem_mark', None)
+            self.error = f'line {mark.line + 1}' if mark else 'unparsable'
+            return
+        if data is not None and not isinstance(data, dict):
+            self.error = 'not a mapping'
+            return
+        self.current = data or {}
 
     def poll(self):
         """One tick; the toast text once a changed file has settled, else ''."""
@@ -62,27 +82,18 @@ class Nav2File:
         if key == self.settled or key != previous:
             return ''  # unchanged, or still being written
         self.settled = key
-        self.error = self.problem()
+        self.read()
         if self.error:
             return f'{self.path.name} rejected ({self.error})'
-        return f'{self.path.name} changed · e preview' if self.changes() else ''
-
-    def problem(self):
-        """Why the file cannot be used ('' when it parses to a mapping)."""
-        try:
-            data = yaml.safe_load(self.path.read_text())
-        except OSError:
-            return ''
-        except yaml.YAMLError as error:
-            mark = getattr(error, 'problem_mark', None)
-            return f'line {mark.line + 1}' if mark else 'unparsable'
-        return '' if data is None or isinstance(data, dict) else 'not a mapping'
+        return f'{self.path.name} changed{separator()}e preview' if self.changes() else ''
 
     def changes(self):
-        """Pending ``(key, old, new)``; [] for a missing or broken file (the last good one stays)."""
-        if self.problem():
-            return []
-        return diff(self.applied, self.load() or {})
+        """Pending ``(key, old, new)`` to apply; keys removed from the file are not included."""
+        return [c for c in diff(self.applied, self.current) if c[2] is not None]
+
+    def removed(self):
+        """Keys dropped from the file; they cannot be unset live (a restart resets them)."""
+        return [key for key, _, new in diff(self.applied, self.current) if new is None]
 
     @property
     def pending(self):
@@ -96,14 +107,19 @@ class Nav2File:
         changes = self.changes()
         if changes:
             return dict(group='Components', state='WARN', name=NAME, value='pending',
-                        detail=f'{len(changes)} key(s) in {self.path.name} not applied · e preview',
-                        required=False)
+                        detail=f'{len(changes)} key(s) in {self.path.name} not applied'
+                               f'{separator()}e preview', required=False)
         return dict(group='Components', state='OK', name=NAME, value='applied',
-                    detail=f'{self.path.name} · e Nav2 parameters', required=False)
+                    detail=f'{self.path.name}{separator()}e Nav2 parameters', required=False)
 
-    def apply(self):
-        """Hand the pending changes to the applier; the outcome text. Pending stays on failure."""
-        changes = self.changes()
+    def apply(self, content=None):
+        """Hand ``content`` (default: current; pass the previewed parse) to the applier.
+
+        Returns the outcome text. Pending stays on failure, and a save made after the
+        preview stays pending because exactly the previewed content is recorded.
+        """
+        content = self.current if content is None else content
+        changes = [c for c in diff(self.applied, content) if c[2] is not None]
         if self.applier is None:
             return 'Nav2 apply is not wired in this session'
         if not changes:
@@ -114,5 +130,5 @@ class Nav2File:
             return f'Nav2 apply failed: {error}'
         if outcome.get('refused') or outcome.get('blocked'):
             return f"Nav2 apply refused: {outcome.get('refused') or outcome.get('blocked')}"
-        self.applied = self.load() or {}
+        self.applied = content
         return f'Nav2 applied {len(changes)} key(s)'
