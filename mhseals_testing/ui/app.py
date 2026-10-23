@@ -47,7 +47,7 @@ from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import dashboard, popups, theme
 from mhseals_testing.ui.takeover import decide
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
-from mhseals_testing.ui.popups import pins
+from mhseals_testing.ui.popups import odometry, pins
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
 #   wide:   Status | Motion     | Thrusters        narrow:  Status | Thrusters
@@ -106,6 +106,7 @@ HELP = [
     (f'{UPDOWN} / j k', 'Move within the focused panel'),
     ('Procedure keys', 'Run from any panel; focused-panel edit keys take precedence'),
     ('Enter', 'Run, open or show details'),
+    ('o (Status)', 'Odometry: what the EKFs fuse, and the sources'),
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('Space', 'Stop: neutral and disarm'),
     ('m', 'Manual control'),
@@ -648,7 +649,8 @@ class App:
             settings.save(self.settings)
         elif (key in {p.key for p in PROCEDURES}
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
-              and not (self.focus == 'activity' and key == 'v')):
+              and not (self.focus == 'activity' and key == 'v')
+              and not (self.focus == 'status' and key == 'o')):  # Odometry popup; Perception stays on o elsewhere
             self.on_procedures(key)
         else:
             getattr(self, f'on_{self.focus}')(key)
@@ -703,13 +705,27 @@ class App:
     # --- panel keys --------------------------------------------------------------
 
     def on_status(self, key):
-        if key == 'enter':
+        if key == 'o':
+            self.odometry()
+        elif key == 'enter':
             rows = status_rows(self.snapshot(), self.profile.sensors)
             if rows:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
+                if row['group'] == 'Sensors' and row['name'] == 'odometry':
+                    return self.odometry()
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
+
+    def odometry(self):
+        """Fused sources popup. Parameters and rows are read here, once, so nothing is
+        computed while it is closed. ``ros.get_parameters(node)`` is optional (None: unreadable)."""
+        fetch = getattr(self.ros, 'get_parameters', lambda node: None)
+        params = {node: fetch(node) for node in odometry.ESTIMATES}
+        sources = [(row['name'], row['state'].lower(), row['value'])
+                   for row in status_rows(self.snapshot(), self.profile.sensors)
+                   if row['group'] == 'Sensors']
+        self.show('Odometry', rows=odometry.rows(params, sources), width=76)
 
     def on_motion(self, key):
         pass

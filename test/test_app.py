@@ -1295,3 +1295,18 @@ def test_error_out_of_a_procedure_leaves_one_aborted_run(tmp_path):
     assert len(files) == 1
     saved = json.loads(files[0].read_text())
     assert saved['status'] == 'ABORTED' and saved['result']['reason'] == 'interlock'
+
+
+def test_o_on_status_opens_the_odometry_popup_without_running_perception(tmp_path):
+    app, _ = make_app(tmp_path)
+    shown = []
+    app.show = lambda title, rows=None, **kw: shown.append((title, rows))
+    app.ran = []
+    app.run_procedure = app.ran.append
+    app.focus = 'status'
+    app.dispatch('o')
+    assert shown[0][0] == 'Odometry' and shown[0][1][0] == ('Estimates', '')
+    assert ('ekf_local', 'parameters unavailable') in shown[0][1] and not app.ran
+    app.focus = 'procedures'
+    app.dispatch('o')
+    assert app.ran and len(shown) == 1
