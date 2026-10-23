@@ -43,7 +43,9 @@ def status_rows(snapshot, specs):
             state, value, detail = ('MISSING' if spec.required else 'OFF'), '', spec.topic
         else:
             state = row['status']
-            value = f"{row['hz']:.0f} Hz" if row['hz'] else 'once'
+            # A silent sensor reads stale, not 'once': its rate window has simply emptied.
+            value = ('stale' if row['status'] == 'STALE' else
+                     f"{row['hz']:.0f} Hz" if row['hz'] else 'once')
             detail = row['issue'] or row['values'].get('summary', '') or spec.topic
         rows.append(dict(group='Sensors', state=state, name=spec.name, value=value,
                          detail=f'{spec.topic}{SEPARATOR}{detail}' if detail != spec.topic

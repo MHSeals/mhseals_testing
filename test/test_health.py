@@ -29,6 +29,8 @@ def test_clock_reports_worst_live_offset():
     monitor.observe('IMU', stamp_age=.05)
     monitor.observe('GPS', stamp_age=-.8)
     assert health.clock(monitor.snapshot()) == ('WARN', 'worst GPS -0.80s')
+    monitor.observe('GPS', stamp_age=432123.4)
+    assert health.clock(monitor.snapshot()) == ('FAIL', 'worst GPS +432123s')
 
 
 @pytest.mark.parametrize('load,temps,disk,level', [

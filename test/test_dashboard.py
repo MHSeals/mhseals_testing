@@ -102,6 +102,7 @@ def test_status_rows_and_short_values():
     assert next(r for r in rows if r['name'] == 'IMU')['state'] == 'WARN'
     assert short('load 7.8/20, 78°C, 688 GB free') == '78°C'
     assert short('worst GPS +0.04s') == '+0.04s'
+    assert short('worst odometry +432123s') == '+432123s'
     assert short('/bags/session') == ''
     assert short('RUNNING; managed process and ROS subscription') == 'RUNNING'
     assert short('0/4 ON; output 1: OFF 1500us / 50Hz') == '0/4 ON'
@@ -198,3 +199,12 @@ def test_world_drift_is_turned_into_the_body_by_the_heading():
     # The controller's live estimate wins over the characterization.
     live = drift_text((0, 0, 0), None, vx=0.0, vy=0.1, yaw=0.0, drift=(0.0, 0.2), live=(0.0, 0.1))
     assert 'live ← 0.10 m/s' in live
+
+
+def test_stale_sensor_reads_stale_not_once():
+    profile = load_profile('boat')
+    m = BoatMonitor(clock=lambda: 10)
+    m.observe('IMU')
+    m.clock = lambda: 100
+    row = next(r for r in status_rows(m.snapshot(), profile.sensors) if r['name'] == 'IMU')
+    assert row['state'] == 'STALE' and row['value'] == 'stale'

@@ -18,7 +18,8 @@ from mhseals_testing.ros.arming import DRIVER
 
 BATTERY_WARN, BATTERY_FAIL = 0.30, 0.15     # remaining fraction
 VOLTAGE_ABSENT = 65.5                       # volts; MAVLink UINT16_MAX reads 65.535
-CLOCK_WARN = 0.5                            # seconds between sender stamp and our clock
+CLOCK_FAIL = 60.0                           # seconds: far past sync error, e.g. replaying an old bag
+CLOCK_WARN = 0.5                           # seconds between sender stamp and our clock
 LOAD_WARN, TEMP_WARN, TEMP_FAIL = 0.9, 75.0, 85.0
 DISK_WARN, DISK_FAIL = 5e9, 1e9             # bytes free where the bag is written
 
@@ -51,8 +52,10 @@ def clock(snapshot):
     if not ages:
         return 'N/A', 'no live stamped sensors'
     name = max(ages, key=lambda key: abs(ages[key]))
-    level = 'WARN' if abs(ages[name]) > CLOCK_WARN else 'OK'
-    return level, f'worst {name} {ages[name]:+.2f}s'
+    offset = abs(ages[name])
+    level = 'FAIL' if offset > CLOCK_FAIL else 'WARN' if offset > CLOCK_WARN else 'OK'
+    digits = 2 if offset < 1000 else 0  # keeps the number short enough for the status column
+    return level, f'worst {name} {ages[name]:+.{digits}f}s'
 
 
 def worst(*levels):
