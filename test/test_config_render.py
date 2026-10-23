@@ -74,3 +74,23 @@ def test_first_version_diffs_against_nothing():
     assert diff('hardware', {'effective': {}}, {'effective': {'command_timeout': 0.5}})[0].kind == 'added'
     assert diff('nav2', None, NAV_AFTER)[0].kind == 'added'
     assert diff('nav2', None, None) == []
+
+
+@pytest.mark.parametrize('width', [60, 80])
+def test_matrix_with_a_null_side_renders_as_a_grid(width):
+    ident = [1.0, 0, 0, 0, 1.0, 0, 0, -0.0123456, 1.0]
+    for before, after in ((None, ident), (ident, None)):
+        rows = diff('hardware', {'effective': {'decoupling_negative': before}},
+                    {'effective': {'decoupling_negative': after}})
+        assert [r.kind for r in rows] == ['matrix']
+        lines = render(rows, width, ascii_=True).plain.splitlines()
+        assert max(len(line) for line in lines) <= width
+        assert any('none' in line for line in lines) and any('-0.012' in line for line in lines)
+
+
+def test_short_row_is_not_wrapped_by_the_padding_for_a_long_one():
+    rows = diff('hardware', {'effective': {'pwm_channels': [0, 0, 0, 0], 'output_backend': 'a' * 30}},
+                {'effective': {'pwm_channels': [0, 1, 0, 0], 'output_backend': 'b' * 30}})
+    lines = render(rows, 80, ascii_=True).plain.splitlines()
+    assert all(len(line) <= 80 for line in lines)
+    assert any('[0, 0, 0, 0] -> [0, 1, 0, 0]' in line and line.startswith('  ') and 'pwm' in line.lower() for line in lines), lines

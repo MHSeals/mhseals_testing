@@ -49,12 +49,13 @@ def _flatten(node, prefix=()):
 
 
 def _grid(old, new, spec, fields):
-    """Both sides reshaped to rows x cols, or None when the lists don't fit that shape."""
+    """Both sides reshaped to rows x cols (a null side becomes all None), or None when the lists don't fit."""
     rows, cols = fields[spec['rows']], fields[spec['cols']]
-    if not all(isinstance(v, (list, tuple)) and len(v) == len(rows) * len(cols) for v in (old, new)):
+    if not all(v is None or isinstance(v, (list, tuple)) and len(v) == len(rows) * len(cols) for v in (old, new)):
         return None
 
     def shape(flat):
+        flat = flat if flat is not None else [None] * (len(rows) * len(cols))
         return [list(flat[r * len(cols):(r + 1) * len(cols)]) for r in range(len(rows))]
     return {'rows': rows, 'cols': cols, 'before': shape(old), 'after': shape(new)}
 
@@ -174,9 +175,9 @@ def _matrix(row, width, ascii_):
     changed = [[a != b for a, b in zip(x, y)] for x, y in zip(grid['before'], grid['after'])]
     digits = 3
     while digits < 6 and any(f'{a:.{digits}f}' == f'{b:.{digits}f}' for xs, ys, cs in
-                             zip(grid['before'], grid['after'], changed) for a, b, c in zip(xs, ys, cs) if c):
+                             zip(grid['before'], grid['after'], changed) for a, b, c in zip(xs, ys, cs) if c and a is not None and b is not None):
         digits += 1
-    fmt = [[[f'{v:.{digits}f}' for v in line] for line in grid[side]] for side in ('before', 'after')]
+    fmt = [[['none' if v is None else f'{v:.{digits}f}' for v in line] for line in grid[side]] for side in ('before', 'after')]
     none = [[False] * len(grid['cols']) for _ in grid['rows']]
     cw = max(len(v) for side in fmt for line in side for v in line) + 3
     before = _block('before', grid, fmt[0], none, mark, cw)
@@ -192,7 +193,7 @@ def _matrix(row, width, ascii_):
     notes = []
     for r, line in enumerate(changed):
         for c, hit in enumerate(line):
-            if hit:
+            if hit and None not in (grid['before'][r][c], grid['after'][r][c]):
                 was, now = _number(grid['before'][r][c], grid['after'][r][c])
                 notes.append(Text(f'{grid["rows"][r]} {left} {grid["cols"][c]}  {was} {arrow} ') .append(now, style='bold'))
     return out + _wrap(notes, width)
@@ -237,8 +238,8 @@ def render(rows, width=80, *, meta='', ascii_=None):
             unit = f' {row.unit}' if row.unit else ''
             line = Text('  ' + row.label.ljust(lw))
             line.append(before).append(f' {arrow} ', style='dim').append(after + unit, style='bold')
-            line.append(' ' * (vw - len(before) - len(after) - len(unit) - len(arrow) - 2))
             if row.note:
+                line.append(' ' * (vw - len(before) - len(after) - len(unit) - len(arrow) - 2))
                 line.append('  ' + row.note.replace('→', arrow), style='dim')
             if line.cell_len > width:                 # too narrow for one line: value goes below the label
                 out.append(Text('  ' + row.label))
