@@ -29,6 +29,7 @@ class Settings:
     neutral_max_gap_s: float
     drift_trend_z: float
     drift_change_chi2: float
+    drift_corr_max: float
     drift_practical: float
     noise_s0_floor: float
 
@@ -276,16 +277,24 @@ def _body(world, heading):
     return np.column_stack([forward, left])
 
 
-def _pool(windows, s0):
-    """Duration-weighted drift with overdispersion D (spec 1.2)."""
+def _pool(windows, s0, r_max):
+    """Duration-weighted drift with overdispersion D (spec 1.2).
+
+    Slow wander makes neighbouring window means alike, so the mean is less certain than their
+    scatter says: the error grows by (1 + r) / (1 - r) for their lag-1 correlation r, capped at ``r_max``.
+    """
     t = np.array([w.duration for w in windows])
     m = np.array([w.mean[:2] for w in windows])
     vector = (t[:, None] * m).sum(axis=0) / t.sum()
     df = 2 * len(windows) - 2
     chi2 = float((t * ((m - vector) ** 2).sum(axis=1)).sum() / s0)
     dispersion = chi2 / df if df > 0 else 1.0
-    return Drift(vector, float(np.sqrt(s0 / t.sum() * max(1.0, dispersion))), len(windows),
-                 dispersion, s0)
+    dev = m - vector
+    spread = float((dev ** 2).sum())
+    r = float((dev[1:] * dev[:-1]).sum()) / spread if spread > 0 else 0.0
+    r = min(max(r + 1 / len(windows), 0.0), r_max)               # 1/n undoes the demeaning bias
+    var = s0 / t.sum() * max(1.0, dispersion) * (1 + r) / (1 - r)
+    return Drift(vector, float(np.sqrt(var)), len(windows), dispersion, s0)
 
 
 def _trend(windows, s0):
@@ -324,7 +333,7 @@ def estimate(windows, s: Settings):
         pool = usable[start:i]
         if len(pool) < 3:
             continue
-        w, d = usable[i], _pool(pool, s0).vector
+        w, d = usable[i], _pool(pool, s0, s.drift_corr_max).vector
         out = w.duration * ((w.mean[:2] - d) ** 2).sum() / s0 > s.drift_change_chi2
         if out and prev:
             before = d
@@ -337,7 +346,7 @@ def estimate(windows, s: Settings):
     slope, z = _trend(pool, s0)
     if state == 'steady' and z > _trend_limit(s.drift_trend_z, 2 * len(pool)):
         state = 'trending'
-    drift = _pool(pool, s0)
+    drift = _pool(pool, s0, s.drift_corr_max)
     span = pool[-1].t0 + pool[-1].duration - pool[0].t0
     size = float(np.hypot(*(drift.vector - before))) if before is not None else float(np.hypot(*slope) * span)
     return Estimate(state, drift, slope, z, tuple(pool), size)
