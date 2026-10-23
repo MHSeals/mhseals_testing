@@ -193,3 +193,10 @@ def test_an_old_fact_is_ignored_even_when_its_probe_just_ran():
     clock.now = 10
     fresh = {'level': Fact('fail', time=9.0)}
     assert Engine(engine.specs, {'p': 1.0}, clock).tick(fresh, {'p': (10, None)}).results['c'].status == 'fail'
+
+
+def test_motion_gate_ignores_procedures_that_do_not_move_the_boat():
+    engine, clock = make(severity='fail', gates=('motion',))
+    step(engine, clock, 'fail', 0)
+    assert engine.gate('x', motion=False) == ([], [])
+    assert engine.gate('x', motion=True)[0]

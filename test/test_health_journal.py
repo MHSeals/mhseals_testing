@@ -40,5 +40,5 @@ def test_muted_checks_do_not_invalidate():
 
 def test_snapshot_counts_and_lists_only_bad_checks():
     entry = Journal().snapshot('end', {'a': Result('ok'), 'b': Result('warn'), 'c': Result('fail')}, 7.0)
-    assert entry == {'label': 'end', 'time': 7.0, 'counts': {'ok': 1, 'warn': 1, 'fail': 1},
+    assert entry == {'label': 'end', 'at': 7.0, 'counts': {'ok': 1, 'warn': 1, 'fail': 1},
                      'bad': {'b': 'warn', 'c': 'fail'}}

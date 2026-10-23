@@ -73,11 +73,12 @@ class Engine:
         """Silence (or restore) one check for the session: no toasts, no gating."""
         (self.muted.add if muted else self.muted.discard)(check_id)
 
-    def gate(self, procedure_key, bench=False):
+    def gate(self, procedure_key, bench=False, motion=True):
         """(blocking reasons, warnings) from the last tick for starting ``procedure_key``.
 
         A check gates a procedure when its `gates` names the key, or `motion`
-        (skipped under the bench override, which runs without sensors). fail
+        (only when ``motion``, i.e. the procedure moves the boat, and skipped
+        under the bench override, which runs without sensors). fail
         blocks; warn and unknown (nothing known, e.g. no session) only warn.
         Muted checks never gate.
         """
@@ -85,7 +86,7 @@ class Engine:
             return [], ['health has not been evaluated yet']
         blocking, warnings = [], []
         for spec in self.specs:
-            wanted = procedure_key in spec.gates or ('motion' in spec.gates and not bench)
+            wanted = procedure_key in spec.gates or ('motion' in spec.gates and motion and not bench)
             result = self.last.get(spec.id)
             if not wanted or result is None or spec.id in self.muted:
                 continue

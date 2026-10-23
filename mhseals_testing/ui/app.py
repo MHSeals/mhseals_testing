@@ -966,7 +966,8 @@ class App:
             if blockers:
                 reason = blockers[0]
         if not reason and self.engine is not None:
-            blocking, _ = self.engine.gate(procedure.key, self.args.bench_override)
+            blocking, _ = self.engine.gate(
+                procedure.key, self.args.bench_override, 'armed' in procedure.needs)
             reason = blocking[0] if blocking else ''
         return reason
 
@@ -974,6 +975,12 @@ class App:
     def engine(self):
         """The health engine behind the advisory rows (gates, snapshots), or None."""
         return getattr(self.health, 'engine', None)
+
+    def health_tick(self, facts, probes, session=None):
+        """Evaluate health and journal its transitions, so trial windows can be judged."""
+        report = self.engine.tick(facts, probes, session)
+        self.journal.record(report)
+        return report
 
     def health_snapshot(self, label, procedure):
         """Journal and emit the shown health; 'end' is taken before teardown."""
@@ -999,13 +1006,16 @@ class App:
         began = self.engine.clock() if self.engine else 0.0
         aborted = None
         try:
-            procedure.run(self.procedure_context())
+            try:
+                procedure.run(self.procedure_context())
+            except BaseException:
+                self.health_window(procedure, began)   # before teardown, whatever the exit
+                raise
             self.health_window(procedure, began)
         except STOPPING_ERRORS as error:
             aborted = str(error)
             if not isinstance(error, Cancelled):
                 raise
-            self.health_snapshot('end', procedure)
             self.notice = f'{procedure.title} cancelled'
             self.disarm(f'{procedure.title} cancelled')
             return
@@ -1035,7 +1045,7 @@ class App:
         if self.engine is None:
             return
         problems = self.journal.window_problems(
-            self.engine, procedure.key, began, self.engine.clock())
+            self.engine, procedure.key, began, self.engine.clock(), 'armed' in procedure.needs)
         if problems:
             self.ros.emit('trial_window_invalid', procedure=procedure.key, reasons=problems)
             self.notice = f'{procedure.title}: window invalid, {problems[0]}'

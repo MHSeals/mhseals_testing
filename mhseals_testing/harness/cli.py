@@ -28,6 +28,15 @@ def procedure_keys():
     return {p.key for p in PROCEDURES}
 
 
+def moves_boat(key):
+    """Whether procedure ``key`` needs the boat armed; True when procedures cannot be imported."""
+    try:
+        from mhseals_testing.procedures import PROCEDURES
+    except ImportError:
+        return True
+    return any(p.key == key and 'armed' in p.needs for p in PROCEDURES)
+
+
 def select(specs, only):
     """Specs whose group (any case) or id (glob) matches one of ``only``; all when empty."""
     if not only:
@@ -57,7 +66,7 @@ def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5
             break
         sleep(TICK)
     keys = [gate] if gate else sorted({g for s in specs for g in s.gates if g != 'motion'})
-    gates = {k: dict(zip(('blocking', 'warnings'), engine.gate(k))) for k in keys}
+    gates = {k: dict(zip(('blocking', 'warnings'), engine.gate(k, motion=moves_boat(k)))) for k in keys}
     checks = [{'id': s.id, 'group': s.group, 'status': report.results[s.id].status,
                'value': report.results[s.id].value, 'detail': report.results[s.id].detail,
                'hint': s.hint, 'data': report.results[s.id].data, 'age': None, 'source': s.kind}
