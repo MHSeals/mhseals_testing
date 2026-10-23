@@ -43,3 +43,11 @@ def test_lean_profile_regex_is_an_include_and_no_listed_topic_is_excluded():
 def test_crane_profile_extra_carries_the_truth_odometry():
     extra = yaml.safe_load(PROFILE.read_text())['extra']['crane_full_stack']['topics']
     assert '/crane/odom' in extra and '/clock' in extra
+
+
+def test_lean_regex_matches_events_rtk_status_and_pwm():
+    import re
+    # Jazzy `--topics X -e R` records X plus R's matches; the events topic is only in R, never in the list.
+    pattern = yaml.safe_load(PROFILE.read_text())['lean']['regex']
+    for topic in ('/mhseals_testing/events', '/mhseals_testing/rtk/status', '/thrusters/pwm'):
+        assert re.match(pattern, topic)
