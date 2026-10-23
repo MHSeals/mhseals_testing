@@ -1138,3 +1138,10 @@ def test_pins_popup_refuses_while_armed(tmp_path):
     app.on_thrusters('p')
     assert app.notice.startswith('Pins refused')
     assert app.args.hardware_config['pwm_channels'] != [1, 0, 0, 0]
+
+
+def test_bad_theme_overlay_is_the_first_notice(tmp_path, monkeypatch):
+    monkeypatch.setattr(theme, 'OVERLAY_WARNING', 'theme overlay x ignored: bad')
+    assert make_app(tmp_path)[0].notice == 'theme overlay x ignored: bad'
+    monkeypatch.setattr(theme, 'OVERLAY_WARNING', None)
+    assert make_app(tmp_path)[0].notice.startswith('Passive monitor')

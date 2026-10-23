@@ -174,7 +174,7 @@ class App:
         self.test_pulses = None
         self.draft = None        # unsaved thruster mapping: channel_map and reversed
         self.grabbed = None      # thruster row being moved with ↑↓
-        self.notice = 'Passive monitor; a opens the arm panel'
+        self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
         self.pwm_readback = [theme.DASH] * 4

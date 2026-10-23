@@ -96,6 +96,7 @@ class Theme:
         self.tokens = data['tokens']
         self.swap = data.get('cvd_swap') or {}
         self.mono = data.get('mono') or {}
+        self.attr16 = data.get('attr16') or {}
         self.glyphs = data['glyphs']
         self.mode = data.get('theme', 'auto')
         self.cvd = bool(data.get('cvd', False))
@@ -175,8 +176,8 @@ class Theme:
         if tier == '16' and colour in ('bold', 'default'):
             return '' if colour == 'default' else colour
         if tier == '16':
-            # The mono attribute rides on the ansi name (ui.md: unknown = bright_black + dim).
-            attr = self.mono.get(token, self.mono.get(self._entry(token, cvd)[1], ''))
+            # Only the attr16 tokens carry an attribute (ui.md: unknown = bright_black + dim).
+            attr = self.attr16.get(token, '')
             return f'{colour} {attr}'.strip() if attr not in colour.split() else colour
         return colour
 
@@ -201,7 +202,7 @@ class Theme:
 def _merge(base, overlay):
     merged = {key: (dict(value) if isinstance(value, dict) else value) for key, value in base.items()}
     for key, value in overlay.items():
-        if key in ('tokens', 'cvd_swap', 'mono', 'glyphs'):
+        if key in ('tokens', 'cvd_swap', 'mono', 'attr16', 'glyphs'):
             if not isinstance(value, dict):
                 raise ValueError(f'{key}: expected a mapping')
             merged.setdefault(key, {}).update(value)

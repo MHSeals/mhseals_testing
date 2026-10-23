@@ -80,8 +80,15 @@ def test_unknown_token_and_alias_loops_are_rejected():
         palette.load_theme(overlay=False)[0].style('nope')
 
 
-def test_unknown_is_bright_black_dim_in_16_colours(theme):
+def test_16_colour_attributes_are_only_on_unknown_and_sel_bg(theme):
     assert theme.style('unknown', 'dark', '16') == 'bright_black dim'
+    assert theme.style('muted', 'dark', '16') == 'bright_black'
+    assert theme.style('fail', 'dark', '16') == 'red'
+    assert theme.style('faint', 'dark', '16') == 'bright_black'
+    assert theme.style('border', 'dark', '16') == 'bright_black'
+    assert theme.style('sel_bg', 'dark', '16') == 'underline'
+    assert theme.style('sand', 'dark', '16') == 'bold'
+    assert theme.style('fail', 'dark', 'mono') == 'bold'
 
 
 def test_chip_tiers(theme):

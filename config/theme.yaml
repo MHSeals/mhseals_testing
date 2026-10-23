@@ -62,6 +62,11 @@ cvd_swap:
   gps.3d:    {dark: '#D9A872', light: '#A8683A', x256: [179, 137], ansi: yellow}
   gps.none:  {dark: '#E08F5A', light: '#B4501A', x256: [173, 130], ansi: yellow}
 
+# 16-colour tier: the one attribute added to a token's ansi name (ui.md section 3).
+attr16:
+  unknown: dim
+  sel_bg: underline
+
 # NO_COLOR tier: attributes only (bold, dim, reverse, underline, italic).
 mono:
   muted: dim
