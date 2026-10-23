@@ -13,13 +13,15 @@ ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 ros2 run mhseals_testing thrust_characterize --bag <session_bag> --config <hardware.yaml>
 ```
 
-`boat_test` starts passive and commands nothing until the outputs are armed. It is one page of five panels: Status (sensors, TF, system health), Motion, Thrusters, Procedures and Activity (results or log). The header shows health and `● Armed`/`● Disarmed`; the footer shows the keys for the focused panel; prompts are popups. `?` lists every key.
+`boat_test` starts passive and commands nothing until the outputs are armed. It is one page of five panels: Status (sensors, TF, system health), Motion, Thrusters, Procedures and Activity (results or log). The header shows health and `✓ Disarmed` / `! Armed`; the footer shows the keys for the focused panel and always keeps Space Stop, Help and Quit; prompts are popups that scroll when the terminal is short. `?` lists every key. Letter keys ignore Shift and Caps Lock. Below 60 columns the Status column folds away; below 36×10 the page becomes an enlarge-terminal hint that still shows the armed state and Space stop.
+
+Every state has its own glyph (✓ ok, ! warn, × fail, ◌ busy, ○ off), so the page reads without color (`NO_COLOR`). `TERM=dumb` or `MHS_ASCII=1` draws pure ASCII; `MHS_ASCII=0` leaves it off.
 
 | Key | Action |
 | --- | --- |
 | Ctrl hjkl / Ctrl arrows, Tab | Focus a neighbouring panel / cycle panels |
 | ↑↓ jk, Enter | Move in a panel; run or show details |
-| a | Arm panel: outputs, driver, config and interlocks; arm (typed `ARM` on real pins) or disarm |
+| a | Arm panel: outputs, driver, command mux, config and interlocks; arm (typed `ARM` on real pins) or disarm |
 | Space | Stop: neutral and disarm |
 | m | Manual control: hold W/S, A/D and ←/→ together; +/- speed; x leaves |
 | q, Ctrl+C | Quit: neutral, disarm, stop children, write the report, flush the bag |
@@ -36,7 +38,7 @@ Status checks **PWM driver** (managed process and ROS subscription) and **PWM re
 | Key | Procedure | Needs |
 | --- | --- | --- |
 | 1 2 3, c | Surge, sway, yaw and combined trials: drift-corrected response | armed, sensors |
-| f | Characterize: gain, mechanical bias, decoupling, today's current, limits, Nav2 limits | armed, sensors, effort |
+| f | Characterize: speed curves per axis and sign, mechanical bias, today's current, limits, Nav2 limits | armed, sensors, effort |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
 | m, i | Manual control; thruster set | armed |
 | n, o | Nav2 bring-up; perception rates and costmap | — |
@@ -59,13 +61,13 @@ Characterization saves only explicit hardware overrides. Motion limits are the s
 | `crane_full_stack` | `/cmd_vel`, effort | `/odom/local`, truth `/crane/odom` | `/thrusters/pwm` | EKFs without an FCU, sim time |
 | `crane_direct` | `/crane/cmd_vel_stamped`, m/s | `/crane/odom` | none | attach only |
 
-`--velocity-control` puts `calibrated_velocity_controller` in front of the outputs (commands in m/s). `--profile <file.yaml>` loads your own. Start crane_ml for `crane_full_stack` with `--crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-roboboat-course Tools/RoboBoat/courses/roboboat_2025.json --crane-roboboat-course-truth <bags>/course_truth.json --crane-lidar-returns-only --crane-lidar-water-level 0.02`, adding `--crane-wind 8,90 --crane-water-current 0.15,0 --crane-disturbance-after 60` for a moderate breeze and current. The referee reads `course_truth` from the profile.
+`--velocity-control` puts `calibrated_velocity_controller` in front of the outputs (commands in m/s). On profiles that command `/cmd_vel` (`boat`, `crane_full_stack`), arming also starts `mhseals_hardware`'s `command_mux`, which arbitrates RC, TUI keys, holds and autonomy onto `/cmd_vel/applied`; the driver, or the controller in front of it, listens there. `--profile <file.yaml>` loads your own. Start crane_ml for `crane_full_stack` with `--crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-roboboat-course Tools/RoboBoat/courses/roboboat_2025.json --crane-roboboat-course-truth <bags>/course_truth.json --crane-lidar-returns-only --crane-lidar-water-level 0.02`, adding `--crane-wind 8,90 --crane-water-current 0.15,0 --crane-disturbance-after 60` for a moderate breeze and current. The referee reads `course_truth` from the profile.
 
 For `pair_test` or `circle_test`, use this package's `config/courses/<task>.json` as the simulator course and choose the matching task under `t`. Negate both buoy `y` coordinates in the pair course to swap the colours. These courses tag their objects for the referee; without matching course truth it reports `N/A`, while event scoring still runs. Task distances and timeouts live in `mhseals_nav/config/tasks/`.
 
 ### Data
 
-Each session records one bag (`bags/<profile>_<time>`, `--output`), with procedure events on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `bags/logs/<session>/`. Children stop with the suite, even if it is killed.
+Records go under one data root: `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory ([docs/data.md](docs/data.md)). Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events latched on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed.
 
 ### Development
 
