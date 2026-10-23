@@ -21,8 +21,9 @@ import textwrap
 import time
 
 import yaml
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
+from rich.text import Text
 
 from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config, update_config
 from mhseals_hardware.fcu import default_fcu_url
@@ -54,7 +55,9 @@ from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
-from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, perception, popups, theme
+from mhseals_testing.ros import camera_feed
+from mhseals_testing.ui import authority_chip, graphics, feeds as feeds_module, layout, perception, popups, theme
+from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
@@ -89,6 +92,7 @@ NEIGHBOURS = {
 ADVISORY_PERIOD = 1.0
 FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease expires; later it counts as live
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
+CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
 
@@ -1170,16 +1174,68 @@ class App:
             self.run_procedure(procedure)
 
     def perception_popup(self):
-        """V: the perception view of ``self.facts`` (filled by the perception probe)."""
+        """V: the perception view of ``self.facts`` (filled by the perception probe).
+
+        ``v`` opens the camera view (its subscription exists only while it is open); Esc closes
+        the view first, then the popup. Closing, resizing and detaching delete the kitty image.
+        """
         modal = perception.modal(self.facts)
+        state = dict(view=None, size=None)
 
         def refresh():  # the probe fills facts while the popup is open; scroll is kept
             modal['rows'] = perception.modal(self.facts)['rows']
+            view = state['view']
+            if view is not None:
+                size = (min(self.console.size.width - 8, 96), CAMERA_ROWS)
+                view.resize(size)
+                modal['body'] = Group(*view.lines(), Text(view.notice, style=theme.MUTED))
+
+        def close_view():
+            if state['view'] is not None:
+                state['view'].close()
+                state['view'] = None
+                modal.pop('body', None)
 
         def handle(key):
-            if not self.scroll(modal, fold(key), ('k', 'j')) and fold(key) in ('escape', 'q', 'v'):
-                return True
-        self.popup(modal, handle, refresh)
+            view = state['view']
+            if view is not None and view.key(key):  # raw: d and D differ
+                return None
+            key = fold(key)
+            if self.scroll(modal, key, ('k', 'j')):
+                return None
+            if key == 'v':
+                if view is None and (feed := self.camera_feed()) is not None:
+                    reader = self.keys
+                    state['view'] = CameraView(
+                        feed, (1, CAMERA_ROWS), self.write_terminal,
+                        kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
+                                                     getattr(reader, 'xtversion', None)),
+                        save_dir=self.paths.journal.parent, detections=self.camera_detections)
+                else:
+                    close_view()
+            elif key in ('escape', 'q'):
+                if view is not None and key == 'escape':
+                    close_view()
+                else:
+                    return True
+        try:
+            self.popup(modal, handle, refresh)
+        finally:
+            close_view()
+
+    def camera_feed(self):
+        """A CameraFeed on the ROS node, or None without one."""
+        node = getattr(self.ros, 'node', None)
+        return None if node is None else camera_feed.node_feed(node)
+
+    def camera_detections(self, size, floor):
+        """Detection rects in camera pixels for the overlay (needs the tf cache; none wired yet)."""
+        return []
+
+    def write_terminal(self, text):
+        """Kitty uploads and deletes go straight to the terminal, after Rich's refresh."""
+        self.console.file.write(text)
+        self.console.file.flush()
 
     def on_activity(self, key):
         if key == 'v':

@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from rich.console import Console
 
 from mhseals_testing.health.model import Fact
+from mhseals_testing.ros import camera_feed
+from test_camera_view import Bus
 from mhseals_testing.ui import app, layout, perception
 
 TESTS = Path(__file__).parent
@@ -148,3 +150,25 @@ def test_no_color_output_has_no_colour_codes():
     text = run(NO_COLOR='1')
     assert 'red_buoy' in text and not colour.search(text)   # bold/dim may stay
     assert colour.search(run())                              # control: colour without NO_COLOR
+
+
+def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
+    bus = Bus()
+    written = []
+    keys = iter(['v', 'd', 'v', 'v', 'escape', 'escape'])
+    seen = []
+
+    def popup(modal, handle, refresh=None):
+        for _ in range(4):
+            handle(next(keys))
+            seen.append(len(bus.live))
+        handle_result = [handle(next(keys)), handle(next(keys))]
+        seen.append(handle_result)
+    host = SimpleNamespace(
+        facts={}, scroll=app.App.scroll, popup=popup, write_terminal=written.append,
+        keys=SimpleNamespace(graphics=True, xtversion='kitty(0.35)'), paths=SimpleNamespace(journal=tmp_path / 'j'),
+        camera_detections=lambda size, floor: [],
+        camera_feed=lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe))
+    app.App.perception_popup(host)
+    assert seen[:4] == [1, 1, 0, 1] and seen[4] == [None, True]    # v opens, v closes, v reopens; Esc closes the view, then the popup
+    assert not bus.live
