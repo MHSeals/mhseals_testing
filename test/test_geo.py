@@ -1,4 +1,5 @@
 import math
+import random
 
 import pytest
 
@@ -33,3 +34,21 @@ def test_fit_rigid_reports_residual_and_needs_two_pairs():
     assert fit_rigid(pairs)[3] > 0.5
     with pytest.raises(ValueError):
         fit_rigid(pairs[:1])
+
+
+def test_fit_rigid_rejects_coincident_and_non_finite_input():
+    with pytest.raises(ValueError):
+        fit_rigid([((1, 1), (5, 5)), ((1, 1), (6, 6))])
+    with pytest.raises(ValueError):
+        fit_rigid([((0, 0), (0, 0)), ((10, float('nan')), (10, 0))])
+
+
+def test_fit_rigid_on_rotated_noisy_pairs_recovers_theta_within_point_two_degrees():
+    rng = random.Random(7)
+    cos, sin = math.cos(0.5), math.sin(0.5)
+    source = [(0, 0), (20, 0), (20, 15), (-5, 18), (8, -9), (30, 10)]
+    pairs = [((x, y), (cos * x - sin * y + 4 + rng.gauss(0, 0.2),
+                       sin * x + cos * y - 2 + rng.gauss(0, 0.2))) for x, y in source]
+    theta, _, _, rms = fit_rigid(pairs)
+    assert math.degrees(abs(theta - 0.5)) < 0.2
+    assert 0 < rms < 0.5

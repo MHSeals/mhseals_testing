@@ -3,6 +3,7 @@
 import math
 
 EARTH_RADIUS = 6378137.0
+MIN_SPREAD = 1e-6  # metres; below this the source has no usable baseline
 
 
 def enu(lat, lon, origin):
@@ -29,14 +30,20 @@ def fit_rigid(pairs):
 
     pairs is [((x, y), (x2, y2)), ...]. Returns (theta, tx, ty, rms) with
     dst = R(theta) @ src + (tx, ty); the 2-D Umeyama fit without scale.
+    Raises ValueError on fewer than two pairs, a non-finite coordinate, or
+    coincident source points, where the rotation is undefined.
     """
     count = len(pairs)
     if count < 2:
         raise ValueError('need at least two pairs')
+    if not all(math.isfinite(c) for src, dst in pairs for c in (*src, *dst)):
+        raise ValueError('non-finite coordinate')
     sx = sum(s[0] for s, _ in pairs) / count
     sy = sum(s[1] for s, _ in pairs) / count
     dx = sum(d[0] for _, d in pairs) / count
     dy = sum(d[1] for _, d in pairs) / count
+    if max(math.hypot(s[0] - sx, s[1] - sy) for s, _ in pairs) < MIN_SPREAD:
+        raise ValueError('source points are coincident')
     dot = cross = 0.0
     for (x, y), (u, v) in pairs:
         x, y, u, v = x - sx, y - sy, u - dx, v - dy
