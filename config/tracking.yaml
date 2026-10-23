@@ -7,7 +7,8 @@ score:
   green: 0.80            # health colours: green >= green, yellow >= yellow, else red
   yellow: 0.60
 stale:
-  min_sessions: 3        # sessions on one calibration version before a trend is judged
+  min_sessions: 3        # sessions on one calibration version before staleness is judged
+  trend_sessions: 5      # ... and before a falling trend can fire (fewer points cannot bootstrap)
   low_score: 0.70        # weighted mean below this for `low_runs` sessions in a row flags
   low_runs: 2
   confidence: 0.95       # bootstrap interval the slope must clear

@@ -85,7 +85,12 @@ class MapRotation:
         return last is not None and math.hypot(point[0] - last[0], point[1] - last[1]) > self.jump
 
     def add(self, t, odom_gps, odom_global, enu_xy):
-        """Offer one stamped sample: /odom/gps xy, /odom/global xy and enu(/gps/fix) xy."""
+        """Offer one stamped sample: /odom/gps xy, /odom/global xy and enu(/gps/fix) xy.
+
+        A sample with any non-finite coordinate is ignored whole.
+        """
+        if not all(map(math.isfinite, (*odom_gps, *odom_global, *enu_xy))):
+            return
         if self._jumped('global', odom_global) | self._jumped('gps', odom_gps):
             self._pairs.clear()
             self._live = None

@@ -27,3 +27,19 @@ def test_lean_profile_keeps_the_rtk_status_topic():
     # Bags up to boat_20261023_035709 carry it as diagnostic_msgs/DiagnosticArray; readers must go by the
     # recorded type, so the topic name stays stable instead of being renamed when ts041 changes the payload.
     assert '/mhseals_testing/rtk/status' in lean_topics()
+
+
+def test_lean_profile_regex_is_an_include_and_no_listed_topic_is_excluded():
+    import re
+    lean = yaml.safe_load(PROFILE.read_text())['lean']
+    # `-e` includes; an exclude key would drop listed topics such as /mhseals_testing/minimap/costmap.
+    assert 'exclude_regex' not in lean
+    assert 'regex' in lean
+    excludes = [v for k, v in lean.items() if k.startswith('exclude')]
+    for pattern in excludes:
+        assert not [t for t in lean['topics'] if re.search(pattern, t)]
+
+
+def test_crane_profile_extra_carries_the_truth_odometry():
+    extra = yaml.safe_load(PROFILE.read_text())['extra']['crane_full_stack']['topics']
+    assert '/crane/odom' in extra and '/clock' in extra

@@ -261,7 +261,8 @@ def test_thrusters_panel_drops_the_pin_column_at_60_columns():
     profile = load_profile('boat')
     page = text(render(monitor().snapshot(profile.required_tf),
                        view(profile, focus='thrusters', outputs='odroid'), 60, 24), 60, 24)
-    rows = [line for line in page.splitlines() if 'Thr' in line or '1500' in line]
+    # The column header and rows, not the panel title, which may legitimately shorten at 60 columns.
+    rows = [line for line in page.splitlines() if ' Thr ' in line or '1500' in line]
     assert rows and '…' not in ''.join(rows) and 'Pin' not in ''.join(rows)
 
 

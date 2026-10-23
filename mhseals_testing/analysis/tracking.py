@@ -32,6 +32,10 @@ def tracking_score(measured, predicted, command, sigma_wave, settings, ignore=Fa
     measured, predicted, command = (np.asarray(x, dtype=float) for x in (measured, predicted, command))
     if ignore or not len(measured):
         return None
+    finite = np.isfinite(measured) & np.isfinite(predicted) & np.isfinite(command)
+    measured, predicted, command = measured[finite], predicted[finite], command[finite]
+    if not len(measured):
+        return None
     counted = (np.abs(command) > s['deadband']) | (np.abs(predicted) > s['active_sigma'] * sigma_wave)
     if counted.mean() < s['min_active']:
         return None
@@ -63,33 +67,45 @@ def theil_sen(x, y, weights):
     return _weighted_median(slopes, [weights[i] * weights[j] for i, j in pairs])
 
 
+def _falling(x, y, w, s, rng):
+    """(slope, whether it is negative beyond its bootstrap interval) of one session series."""
+    slope = theil_sen(x, y, w)
+    boots = []
+    for _ in range(s['bootstrap']):
+        pick = rng.integers(0, len(x), len(x))
+        if len(set(pick)) < 3:          # a resample with fewer than 3 distinct sessions has no trend
+            continue
+        value = theil_sen(x[pick], y[pick], w[pick])
+        if value is not None:
+            boots.append(value)
+    if slope is None or not boots:
+        return slope, False
+    return slope, bool(np.quantile(boots, (1 + s['confidence']) / 2) < 0)
+
+
 def staleness(sessions, version, settings, seed=0):
     """Judge whether the calibration ``version`` should be recharacterized.
 
     ``sessions`` are oldest-first dicts {'mean', 'n', 'trust', 'version'} of one axis. Only
-    sessions on ``version`` count. Flags when the weighted Theil-Sen slope is negative beyond
-    its bootstrap interval, or the last ``low_runs`` session means are all below ``low_score``;
-    a single bad session does neither. Returns {'flag', 'reason', 'slope', 'sessions'}.
+    sessions on ``version`` with a finite mean count. Flags when, with at least ``trend_sessions``
+    sessions, the weighted Theil-Sen slope is negative beyond its bootstrap interval and still is
+    with the newest session dropped (so one bad run cannot make a trend), or when the last
+    ``low_runs`` means are all below ``low_score``. Returns {'flag', 'reason', 'slope', 'sessions'}.
     """
     s = settings['stale']
-    used = [r for r in sessions if r['version'] == version and r['mean'] is not None]
+    used = [r for r in sessions if r['version'] == version and r['mean'] is not None
+            and np.isfinite(r['mean'])]
     result = dict(flag=False, reason='', slope=None, sessions=len(used))
     if len(used) < s['min_sessions']:
         return result
     x = np.arange(len(used), dtype=float)
     y = np.array([r['mean'] for r in used])
     w = np.array([max(r['n'] * r['trust'], 1e-9) for r in used])
-    result['slope'] = slope = theil_sen(x, y, w)
-    rng = np.random.default_rng(seed)
-    boots = []
-    for _ in range(s['bootstrap']):
-        pick = rng.integers(0, len(used), len(used))
-        value = theil_sen(x[pick], y[pick], w[pick])
-        if value is not None:
-            boots.append(value)
-    upper = np.quantile(boots, (1 + s['confidence']) / 2) if boots else None
-    if slope is not None and upper is not None and upper < 0:
-        result.update(flag=True, reason='falling trend')
-    elif len(used) >= s['low_runs'] and all(r['mean'] < s['low_score'] for r in used[-s['low_runs']:]):
+    if len(used) >= s['trend_sessions']:
+        result['slope'], falling = _falling(x, y, w, s, np.random.default_rng(seed))
+        if falling and _falling(x[:-1], y[:-1], w[:-1], s, np.random.default_rng(seed))[1]:
+            result.update(flag=True, reason='falling trend')
+            return result
+    if len(used) >= s['low_runs'] and all(r['mean'] < s['low_score'] for r in used[-s['low_runs']:]):
         result.update(flag=True, reason='low scores')
     return result

@@ -39,4 +39,10 @@ lean:
     - /detections
     - /perception/status
     - /mhseals_testing/minimap/costmap
-  exclude_regex: '^/(mhseals_testing|thrusters)/.*'
+  regex: '^/(mhseals_testing|thrusters)/.*'  # the -e include regex, not an exclude
+# Per-profile additions merged into either mode (bags.md section 2); the map truth golden needs /crane/odom.
+extra:
+  crane_full_stack:
+    topics:
+      - /clock
+      - /crane/odom
