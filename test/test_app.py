@@ -52,12 +52,6 @@ class Boat:
     def conflicts(self):
         return []
 
-    def engage(self):
-        pass
-
-    def release(self):
-        pass
-
 
 class Arming:
     def __init__(self):
@@ -1061,3 +1055,25 @@ def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path
         app.dispatch('f')
     assert offered and all('save + decouple' not in options for options in offered)
     assert 'decoupling' not in yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
+
+
+def test_mid_write_operator_config_never_reaches_the_armed_snapshot(tmp_path):
+    config = tmp_path / 'hardware.yaml'
+    config.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, true]\n')
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    with app.attached():
+        arm(app)
+        config.write_text(config.read_text() + 'manual_amplitude: 0.3\n')
+        app.watch_config()
+        app.watch_config()  # settled, so the armed snapshot now exists
+        before = app.paths.hardware.read_text()
+        with open(config, 'w') as handle:  # an in-place save caught after its first chunk
+            handle.write('manual_amplitude: 0.35\n')
+            handle.flush()
+            app.watch_config()
+            assert app.paths.hardware.read_text() == before
+            handle.write('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, true]\n')
+        app.watch_config()  # settling: the stat key moved again since the last poll
+        app.watch_config()  # unchanged on two polls, so now it is applied
+    snapshot = yaml.safe_load(app.paths.hardware.read_text())
+    assert snapshot['channel_map'] == [3, 1, 2, 4] and snapshot['reversed'] == [True, False, False, True]
