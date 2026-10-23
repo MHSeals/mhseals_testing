@@ -123,3 +123,58 @@ def test_manual_exit_keys_ignore_case():
     class Held:
         read = staticmethod(lambda timeout=None: 'press:M')
     drive(Held, None, None, None)
+
+
+def overridden_runner(script, **kwargs):
+    """A runner whose override cause follows ``script``: time -> cause, last entry at or before now wins."""
+    run, plant, events, clock = runner(rate=4.0)
+    run.override = lambda: next((c for t, c in sorted(script.items(), reverse=True) if t <= clock[0]), '')
+    run.settle = 1.0
+    for name, value in kwargs.items():
+        setattr(run, name, value)
+    return run, plant, events, clock
+
+
+def test_override_pauses_invalidates_the_interrupted_hold_and_reruns_it():
+    from mhseals_testing.runner import Overridden  # noqa: F401
+    restored = []
+    run, plant, events, clock = overridden_runner({3.0: 'rc', 6.0: ''},
+                                                  on_pause=lambda: restored.append('C'),
+                                                  on_resume=lambda: restored.append('identity'))
+    early = run.hold((0.1, 0, 0), 2.0)            # finishes before the override
+    window = run.hold((0.2, 0, 0), 2.0)           # interrupted at t=3, re-run from its start
+    assert early == (0.0, 2.0) and not run.invalid(*early)
+    assert window[0] >= 7.0 and window[1] - window[0] == 2.0 and not run.invalid(*window)
+    assert run.invalid(2.0, 3.5)                  # the interrupted attempt
+    assert restored == ['C', 'identity'] and 'neutral' in plant.sent
+    assert [p for p, _ in events if p in ('override', 'pause', 'pause_end')] == ['override', 'pause', 'pause_end']
+    entry = run.overrides[0]
+    assert entry['by'] == 'rc' and entry['paused_s'] >= 3.0 and entry['holds_invalidated'] == []
+
+
+def test_override_just_after_a_hold_invalidates_it_within_the_guard():
+    run, _, _, _ = overridden_runner({2.25: 'rc', 3.0: ''})
+    first = run.hold((0.1, 0, 0), 2.0)
+    run.hold((0.1, 0, 0), 1.0)
+    assert run.invalid(*first) and run.overrides[0]['holds_invalidated'] == [first]
+
+
+def test_pause_waits_for_the_resume_gate():
+    gate = iter([['moving'], ['moving'], []])
+    run, _, _, clock = overridden_runner({1.0: 'rc', 1.5: ''}, gate=lambda: next(gate, []))
+    run.hold((0.1, 0, 0), 2.0)
+    assert run.overrides[0]['end'] >= 2.0
+
+
+def test_pause_times_out_after_the_limit():
+    run, plant, events, _ = overridden_runner({1.0: 'rc'}, pause_limit=600.0)
+    with pytest.raises(Aborted, match='override_timeout'):
+        run.hold((0.1, 0, 0), 5.0)
+    assert plant.sent[-1] == 'neutral' and events[-1] == ('pause_end', {'outcome': 'override_timeout'})
+
+
+def test_override_cause_reads_the_mux_state():
+    from mhseals_testing.runner import override_cause
+    assert override_cause({'input': 'auto'}) == '' and override_cause({'input': 'idle'}) == ''
+    assert override_cause({'input': 'rc'}) == 'rc'
+    assert override_cause({'input': 'auto'}, age_s=3.5) == 'unknown' and override_cause(None) == 'unknown'

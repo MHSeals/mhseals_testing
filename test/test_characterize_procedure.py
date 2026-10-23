@@ -53,6 +53,9 @@ class Fake:
     def stop(self):
         pass
 
+    def invalid(self, start, end):
+        return False    # no human override in these runs
+
 
 def context(tmp_path, runner, answer='save', direction='', nav2=None):
     config = tmp_path / 'hardware.yaml'

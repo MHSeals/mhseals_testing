@@ -177,6 +177,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                for key, value in found.items()} for name, found in refined.items()}, holds=holds)
     result = None
     if only is None:
+        # Holds touched by an override (the interrupted one included) never reach the fit.
+        windows = [w for w in windows if not runner.invalid(w[1], w[2])]
         history = ctx.history(start[0], end)
         audit = audit_holds(history, windows, transient)
         windows = [w for w, hold in zip(windows, audit) if hold['ok']]
