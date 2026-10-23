@@ -66,7 +66,8 @@ class LogProbe:
                 size = path.stat().st_size
                 offset = self._offsets.get(path, 0)
                 if size < offset:
-                    offset, self._partial.pop(path, None)
+                    offset = 0
+                    self._partial.pop(path, None)
                 if size == offset:
                     continue
                 with path.open('rb') as handle:

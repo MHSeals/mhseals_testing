@@ -20,7 +20,8 @@ def kinds():
     """Register the shipped kinds even if an earlier test imported them into a patched registry."""
     from mhseals_testing.health.kinds import threshold
     for module in (threshold, log_pattern):
-        importlib.reload(module) if module.__name__.rsplit('.', 1)[1] not in registry.KINDS else None
+        if module.__name__.rsplit('.', 1)[1] not in registry.KINDS:
+            importlib.reload(module)
 
 
 @pytest.fixture
@@ -134,6 +135,17 @@ def test_tail_reads_only_new_lines_and_waits_for_a_whole_line(specs, tmp_path):
         f.write('om\n')
     probe.tail(tmp_path)
     assert list(probe.facts().values())[0].value == 2
+
+
+def test_tail_rereads_a_truncated_log_from_the_start(tmp_path):
+    probe = LogProbe(Clock())
+    probe.watch([log_pattern.Params(pattern='boom')])
+    log = tmp_path / 'child.log'
+    log.write_text('padding line that is long enough\n' * 3)
+    probe.tail(tmp_path)
+    log.write_text('boom\n')
+    probe.tail(tmp_path)
+    assert list(probe.facts().values())[0].value == 1
 
 
 def test_check_without_a_watching_probe_is_unknown(specs):
