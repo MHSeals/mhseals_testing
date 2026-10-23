@@ -1,3 +1,4 @@
+import json
 import math
 
 from pytest import approx
@@ -45,6 +46,25 @@ def test_record_session_writes_staleness_and_one_bad_run_never_flags(tmp_path):
     verdict = None
     for mean in (0.9, 0.91, 0.89, 0.9, 0.9, 0.3):
         verdict = record_session(path, 'surge', dict(mean=mean, n=30, trust=0.9, version=4), s)
-    import json
     stored = json.loads(path.read_text())['provenance']['tracking']['surge']
     assert len(stored['sessions']) == 6 and stored['staleness'] == verdict and not verdict['flag']
+
+
+def test_steady_speed_with_a_tiny_positive_d2():
+    assert steady_speed(dict(d1=0.5, d2=1e-16), 0.5) == approx(0.5)
+    assert steady_speed(dict(d1=0.5, d2=1e-17), 0.5) == approx(0.5)
+    assert steady_speed(dict(d1=0.5, d2=0.0), 0.5) == approx(0.5)
+
+
+def test_bad_samples_leave_the_predictor_state_alone():
+    p = Predictor({'surge+': CURVE, 'surge-': CURVE}, {'surge': 1.0})
+    before = p.step((0.5, 0, 0), 0.1)[0]
+    for effort, dt in ((float('nan'), 0.1), (0.5, float('nan')), (0.5, 0.0), (0.5, -1.0)):
+        assert p.step((effort, 0, 0), dt)[0] == approx(before)
+    assert p.step((0.5, 0, 0), 0.1)[0] > before
+
+
+def test_record_session_stores_a_nan_mean_as_null_and_leaves_valid_json(tmp_path):
+    path = tmp_path / 'current.json'
+    record_session(path, 'surge', dict(mean=float('nan'), n=3, trust=0.9, version=4), load_settings())
+    assert json.loads(path.read_text())['provenance']['tracking']['surge']['sessions'][0]['mean'] is None

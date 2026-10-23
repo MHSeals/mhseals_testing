@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from mhseals_testing.data import atomic_write, read_json
+
 
 def load_settings(path=None) -> dict:
     """The tracking.yaml groups ({'score': {...}, 'stale': {...}}), source tree first."""
@@ -120,11 +122,12 @@ def record_session(path, axis, summary, settings, seed=0):
     (flag, reason, slope), so agents can read the trend. Returns that verdict.
     """
     path = Path(path)
-    data = json.loads(path.read_text()) if path.exists() else {}
+    data = read_json(path, {})
+    if not np.isfinite(summary['mean'] if summary['mean'] is not None else np.nan):
+        summary = {**summary, 'mean': None}   # NaN is not JSON; staleness skips null means
     entry = data.setdefault('provenance', {}).setdefault('tracking', {}).setdefault(axis, {'sessions': []})
     entry['sessions'].append(summary)
     verdict = staleness(entry['sessions'], summary['version'], settings, seed)
     entry['staleness'] = verdict
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    atomic_write(path, json.dumps(data, indent=2, allow_nan=False) + '\n')
     return verdict

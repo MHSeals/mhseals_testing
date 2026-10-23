@@ -20,11 +20,8 @@ def steady_speed(curve, effort):
     if not curve or effort == 0:
         return 0.0
     d1, d2 = curve['d1'], curve['d2']
-    wrench = effort * effort
-    if d2 > 0:
-        speed = (-d1 + math.sqrt(d1 * d1 + 4 * d2 * wrench)) / (2 * d2)
-    else:
-        speed = wrench / d1 if d1 > 0 else 0.0
+    denom = d1 + math.sqrt(d1 * d1 + 4 * d2 * effort * effort)
+    speed = 2 * effort * effort / denom if denom > 0 else 0.0   # cancellation-free root
     return math.copysign(speed, effort)
 
 
@@ -38,6 +35,8 @@ class AxisPredictor:
 
     def step(self, effort, dt, drift=0.0):
         """Advance dt seconds on ``effort``; returns the predicted ground speed with ``drift``."""
+        if not (math.isfinite(effort) and math.isfinite(dt)) or dt <= 0:
+            return self.water + drift   # a bad sample must not poison the state
         target = steady_speed(self.curves.get('+' if effort >= 0 else '-'), effort)
         alpha = 1.0 if self.tau <= 0 else 1.0 - math.exp(-dt / self.tau)
         self.water += alpha * (target - self.water)
