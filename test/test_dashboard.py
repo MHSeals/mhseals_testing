@@ -10,7 +10,8 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import GLOBAL_HINTS, PANEL_HINTS
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.dashboard import MARKS, PANELS, health_strip, render, short, status_rows
+from mhseals_testing.ui.dashboard import (
+    MARKS, PANELS, health_strip, readback_glyph, render, short, status_rows, thruster_rows)
 
 
 def view(profile, **overrides):
@@ -289,7 +290,7 @@ def test_odroid_thrusters_and_motion_read_whole_with_unavailable_readback(width,
                        view(profile, pwm_readback=['unavailable'] * 4), width, height), width, height)
     lines = page.splitlines()
     top = ''.join(lines[:next(i for i, line in enumerate(lines) if 'Procedures' in line)])
-    assert '…' not in top and ('n/a' in top) == (width >= 106)  # narrower folds the Pin column away
+    assert '…' not in top and ('Rb' in top) == (width >= 106)  # narrower folds the Pin column away
 
 
 @pytest.mark.parametrize('width', [106, 108, 110])
@@ -353,3 +354,32 @@ def test_stale_header_stamp_is_marked_with_the_clock():
                if r['name'] == 'GPS')
     assert row['value'].endswith(MARKS['⏱']) and row['rate'] == 'warn'
     assert MARKS['⏱'] in ('⏱', 't')
+
+
+def test_split_pulses_equal_thruster_pulses_with_decoupling_negative():
+    from mhseals_hardware.thruster_mixer import thruster_pulses, validate_decoupling
+    profile = load_profile('boat')
+    hardware = dict(load_defaults(), decoupling=[1, 0, 0, 0, 1, 0, 0, 0, 1],
+                    decoupling_negative=[1, 0, 0, 0, 1, 0.3, 0, 0, 1])
+    command = (0.2, 0.0, -0.5)
+    rows = thruster_rows(view(profile, hardware=hardware, armed=True, units='effort', command=command))
+    expected = thruster_pulses(command, THRUSTER_MIXER, hardware['channel_map'],
+                               hardware.get('reversed', [False] * 4),
+                               validate_decoupling(hardware['decoupling']),
+                               validate_decoupling(hardware['decoupling_negative']))
+    assert [r['pulse'] for r in rows] == [expected[r['output'] - 1] for r in rows]
+    assert expected != thruster_pulses(command, THRUSTER_MIXER, hardware['channel_map'],
+                                       hardware.get('reversed', [False] * 4))
+
+
+def test_thrusters_show_pin_readback_saturation_and_driver_status():
+    profile = load_profile('boat')
+    hardware = dict(load_defaults(), decoupling_negative=[1, 0, 0, 0, 1, 0.3, 0, 0, 1])
+    page = text(render(monitor().snapshot(profile.required_tf), view(
+        profile, focus='thrusters', outputs='odroid', hardware=hardware, armed=True, units='effort',
+        command=(1.0, 0.0, 0.0), pwm_readback=['ON 1900us / 50Hz', 'OFF 1500us / 50Hz', 'unavailable', '—'],
+        driver=dict(owner='ours', mosfet=True, config_sync=True)), 120, 40), 120, 40)
+    assert 'Rb' in page and 'p7' in page and 'p33' in page
+    assert 'ours · p13 on · C± spli' in page  # the title border clips the tail
+    assert readback_glyph('ON 1900us') == '✓' and readback_glyph('unavailable') == '?'
+    assert 'config out of sync' not in page

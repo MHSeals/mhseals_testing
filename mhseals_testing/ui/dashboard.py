@@ -19,5 +19,5 @@ from mhseals_testing.ui.panels.procedures import procedures_panel  # noqa: F401
 from mhseals_testing.ui.panels.status import (  # noqa: F401
     MARKS, localization_rows, short, status_panel, status_rows)
 from mhseals_testing.ui.panels.thrusters import (  # noqa: F401
-    NEUTRAL, READBACK_SHORT, effort_bar, thruster_rows, thrusters_panel)
+    NEUTRAL, SATURATED, effort_bar, readback_glyph, split_decoupling, thruster_rows, thrusters_panel)
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR  # noqa: F401

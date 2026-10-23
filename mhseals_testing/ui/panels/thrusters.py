@@ -2,13 +2,14 @@
 
 from rich.text import Text
 
+from mhseals_hardware.odroid_pwm import J2_PINS
 from mhseals_hardware.thruster_mixer import POSITIONS, thruster_pulses, validate_decoupling
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 
 
-READBACK_SHORT = {'unavailable': 'n/a'}  # keeps the Pin column inside a half-width panel
+SATURATED = 0.98    # |effort| at or above this is drawn as saturated
 NEUTRAL = 1500
 
 
@@ -23,6 +24,19 @@ def effort_bar(pulse, testing=False, width=9):
     return Text(''.join(cells), style=theme.WARN if testing else ACCENT)
 
 
+def readback_glyph(text):
+    """Rb: the kernel's PWM state as one glyph (on, off, unreadable, not read yet)."""
+    return ('✓' if text.startswith('ON') else theme.MIDDOT if text.startswith('OFF')
+            else '?' if text == 'unavailable' else theme.DASH)
+
+
+def split_decoupling(config):
+    """(decoupling, decoupling_negative or None) as validated matrices."""
+    negative = config.get('decoupling_negative')
+    return (validate_decoupling(config['decoupling']),
+            None if negative is None else validate_decoupling(negative))
+
+
 def thruster_rows(view):
     """Per position: physical output, reversal and the pulse it gets now."""
     config = view['draft'] or view['hardware']
@@ -31,12 +45,14 @@ def thruster_rows(view):
         by_output = view['test_pulses']
     elif view['units'] == 'effort' and view['armed']:
         by_output = thruster_pulses(view['command'], view['matrix'], channel_map, reversed_,
-                                    validate_decoupling(view['hardware']['decoupling']))
+                                    *split_decoupling(view['hardware']))
     else:
         by_output = [NEUTRAL] * 4
     saved = view['hardware']
     return [dict(position=position.upper(), output=output, reversed=flip,
-                 pulse=by_output[output - 1], readback=view['pwm_readback'][output - 1],
+                 pulse=by_output[output - 1], pin=J2_PINS[output][0],
+                 saturated=abs(by_output[output - 1] - NEUTRAL) >= SATURATED * 400,
+                 readback=view['pwm_readback'][output - 1],
                  changed=(output != saved['channel_map'][index]
                           or flip != saved['reversed'][index]))
             for index, (position, output, flip) in enumerate(
@@ -56,7 +72,7 @@ def thrusters_panel(view, compact=False, pins=True):
     columns = (['   Thr', 'Out', 'Rev', {'header': theme.pick('µs', 'us'), 'justify': 'right'}] if compact else
                ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
     if pins:
-        columns.append('Pin')
+        columns += ['Pin', 'Rb']
     table = theme.grid(*columns, padding=(0, 1))
     for index, row in enumerate(thruster_rows(view)):
         active = view['armed'] and row['pulse'] != NEUTRAL
@@ -66,12 +82,20 @@ def thrusters_panel(view, compact=False, pins=True):
         cells = [theme.row(state, label, focused and index == cursor),
                  Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
                  Text(theme.pick('↺', '(') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else MUTED),
-                 Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style='bold' if active else MUTED)]
+                 Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style=theme.WARN if row['saturated'] and active else 'bold' if active else MUTED)]
         if not compact:
             cells.append(effort_bar(row['pulse'], testing))
         if pins:
-            cells.append(Text(READBACK_SHORT.get(row['readback'], row['readback']), style=MUTED))
+            cells += [Text(f"p{row['pin']}", style=MUTED), Text(readback_glyph(row['readback']))]
         table.add_row(*cells)
-    subtitle = ('testing' if testing else view['outputs']) + SEPARATOR + (
-        'unsaved' if view['draft'] else view['config_note'])
+    driver = view.get('driver') or {}
+    parts = ['testing' if testing else driver.get('owner') or view['outputs']]
+    if pins and driver.get('mosfet') is not None:
+        parts.append(f"p{J2_PINS['mosfet'][0]} {'on' if driver['mosfet'] else 'off'}")
+    saved = view['hardware']
+    if saved.get('decoupling_negative') not in (None, saved['decoupling']):
+        parts.append('C± split')
+    parts.append('unsaved' if view['draft'] else
+                 'config out of sync' if driver.get('config_sync') is False else view['config_note'])
+    subtitle = SEPARATOR.join(parts)
     return theme.block(table, TITLES['thrusters'], focused, subtitle)
