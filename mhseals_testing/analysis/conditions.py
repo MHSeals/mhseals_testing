@@ -172,6 +172,8 @@ def build_windows(t, vel, heading, rate, mask, s: Settings, hold=None):
     """
     t, vel, heading, rate = (np.asarray(a, float) for a in (t, vel, heading, rate))
     mask = np.asarray(mask, bool)
+    if not len(t):
+        return []
     order = np.argsort(t, kind='stable')                       # receipt-order jitter: put the stamps back in time order
     t, vel, heading, rate, mask = t[order], vel[order], heading[order], rate[order], mask[order]
     keep = np.r_[True, np.diff(t) > 0]                         # a re-delivered stamp keeps its first sample only
@@ -268,6 +270,8 @@ def spectral_level(windows, s: Settings, channels=(0, 1), rotate=False):
     ``channels`` then index those body columns. The lag-1 correlation stays pooled over E and N.
     Returns None without a window of two or more batches.
     """
+    if not windows:
+        return None
     rho = _autocorrelation(windows, [0, 1] if rotate else channels)
     # A few long-correlated windows can read past the curve; bound tau by one batch so S0 stays sane.
     hz = float(np.median([w.hz for w in windows]))
