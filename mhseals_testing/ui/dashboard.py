@@ -526,14 +526,20 @@ class Overlay:
 MIN_SIZE = (36, 10)  # below this no panel is legible; only the stop hint is
 
 
-def too_small():
-    """What replaces the page in a terminal too small for it; Space still stops."""
-    return Text(f'boat_test{SEPARATOR}enlarge terminal\nSpace stop{SEPARATOR}q quit')
+def too_small(view):
+    """What replaces the page in a terminal too small for it; Space still stops.
+
+    The first line keeps the one fact the operator needs at any size: armed or not, and the trial.
+    """
+    state = 'ARMED' if view.get('armed') else 'disarmed'
+    if view.get('running'):
+        state += f"{SEPARATOR}{view['running']}"
+    return Text(f'boat_test{SEPARATOR}{state}\nenlarge terminal{SEPARATOR}Space stop{SEPARATOR}q quit')
 
 
 def render(snapshot, view, width=120, height=34):
     if width < MIN_SIZE[0] or height < MIN_SIZE[1]:
-        return too_small()
+        return too_small(view)
     body_height = max(5, height - 5)
     layout = Layout()
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
