@@ -1,0 +1,25 @@
+# Revert settings (config_history.md section 5). Seconds each subsystem gets to show the reverted value.
+verify_timeout_s:
+  hardware: 3.0
+  nav2: 3.0
+  fcu: 1.0
+  rtk: 3.0
+  health: 3.0
+  keymap: 3.0
+
+# Blocker probes checked for every subsystem, and the extra ones per subsystem.
+# A probe is a name the host Env answers; the text is what the preview shows.
+blockers:
+  common:
+    procedure: a procedure is running
+    takeover: a takeover is in progress
+    locked: the history lock is held
+    hold: the command mux is held
+  hardware:
+    pulses: test pulses are active
+  fcu:
+    armed: the FCU is armed
+    disconnected: MAVROS is disconnected
+    loading: FCU params are loading
+  nav2:
+    goal: a Nav2 goal is active
