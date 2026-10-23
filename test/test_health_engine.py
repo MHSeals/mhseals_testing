@@ -60,7 +60,9 @@ def test_a_flicker_never_shows_and_fail_is_immediate():
     engine, clock = make()
     step(engine, clock, 'warn', 0)
     step(engine, clock, 'ok', 1)
-    assert step(engine, clock, 'warn', 2.5).status == 'ok'      # the timer restarted
+    step(engine, clock, 'ok', 4)                                # better for clear_after
+    assert step(engine, clock, 'warn', 5).status == 'ok'        # the timer restarted
+    assert step(engine, clock, 'warn', 6.5).status == 'ok'
     engine, clock = make(severity='fail')
     assert step(engine, clock, 'fail', 0).status == 'fail'
 
@@ -117,3 +119,32 @@ def test_a_kind_that_raises_or_returns_a_bad_status_reads_unknown():
         finally:
             registry.KINDS.pop(name, None)
         assert result.status == 'ok' and name in result.detail     # unknown is debounced in
+
+
+def run(levels, seconds=60, dt=0.5, **overrides):
+    """Shown statuses when `levels(i)` gives the raw level at each tick."""
+    engine, clock = make(**overrides)
+    return [step(engine, clock, levels(i), i * dt).status for i in range(int(seconds / dt))]
+
+
+@pytest.mark.parametrize('other', ['unknown', 'info'])
+def test_alternating_bad_results_are_shown_as_the_worst(other):
+    shown = run(lambda i: 'warn' if i % 2 else other)
+    assert shown[-1] == 'warn'
+
+
+def test_a_mostly_bad_check_with_brief_ok_blips_is_shown():
+    shown = run(lambda i: 'ok' if i % 4 == 0 else 'warn')       # warn 75% of the time
+    assert shown[-1] == 'warn'
+    shown = run(lambda i: 'unknown' if i % 4 == 0 else 'warn')
+    assert shown[-1] == 'warn'
+
+
+def test_a_shown_warn_clears_only_after_continuous_better_results():
+    engine, clock = make()
+    step(engine, clock, 'warn', 0)
+    step(engine, clock, 'warn', 2)
+    step(engine, clock, 'ok', 3)
+    assert step(engine, clock, 'warn', 4).status == 'warn'      # the clear timer restarted
+    step(engine, clock, 'ok', 5)
+    assert step(engine, clock, 'ok', 8).status == 'ok'

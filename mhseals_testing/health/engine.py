@@ -107,20 +107,36 @@ class Engine:
         return result
 
     def _debounce(self, spec, raw, now):
-        """The status to show: a change must persist for its raise or clear time."""
+        """The status to show: a change must persist for its raise or clear time.
+
+        A change is a band of results on one side of the shown status. The band
+        keeps its start while results stay in it, so alternating or blipping
+        results still count as persisting, and it resolves to the worst status
+        seen in it. A raise band survives clear_after of better results before
+        it is dropped; a clear band is dropped by the first result not better.
+        """
         shown = self._shown.get(spec.id, 'ok')
-        if raw == shown:
+        rank = STATUSES.index(raw) - STATUSES.index(shown)
+        band = self._pending.get(spec.id)          # [worse, since, worst status, off since]
+        if band and not (rank > 0 if band[0] else rank < 0):
+            if band[3] is None:
+                band[3] = now                      # first result outside the band
+            if now - band[3] >= (spec.clear_after if band[0] else 0):
+                band = None                        # it stayed outside long enough
+        elif band:
+            band[3] = None
+        if rank and band is None:
+            band = [rank > 0, now, raw, None]
+        if band and (rank > 0) == band[0] and rank:
+            band[2] = max(band[2], raw, key=STATUSES.index)
+        if band is None:
             self._pending.pop(spec.id, None)
             return shown
-        candidate, since = self._pending.get(spec.id, (None, now))
-        if candidate != raw:
-            since = now
-            self._pending[spec.id] = (raw, now)
-        worse = STATUSES.index(raw) > STATUSES.index(shown)
-        delay = self._raise_after(spec, raw) if worse else spec.clear_after
-        if now - since >= delay:
+        self._pending[spec.id] = band
+        worse, since, peak, _ = band
+        if now - since >= (self._raise_after(spec, peak) if worse else spec.clear_after):
             self._pending.pop(spec.id, None)
-            return raw
+            return peak
         return shown
 
     @staticmethod
