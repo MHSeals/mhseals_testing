@@ -238,9 +238,7 @@ def test_characterize_aborts_after_the_first_hold_of_a_reversed_axis():
             start = clock[0]
             clock[0] += seconds
             holds.append(command)
-            flip = -1 if command[1] > 0 else 1  # sway wired backwards
-            velocity = [command[0], flip * abs(command[1]) * (1 if command[1] > 0 else -1) * -1
-                        if command[1] else 0.0, command[2]]
+            velocity = [command[0], -command[1], command[2]]  # sway wired backwards
             for step in range(int(seconds)):
                 odometry.append((start + step + .5, dict(vx=velocity[0], vy=velocity[1],
                                                          wz=velocity[2])))
@@ -261,7 +259,8 @@ def test_characterize_aborts_after_the_first_hold_of_a_reversed_axis():
     result = run(ctx)
     assert result['verdict'] == 'REFUSED' and 'sway' in result['reason']
     assert records == [result]
-    assert len(holds) == 5  # surge settle/hold, sway settle/hold, then stop
+    # Stopped right after the first sway hold: no yaw, no second level, no combined vectors.
+    assert holds[-2:] == [(0., .125, 0.), 'stop'] and len(holds) == 7
 
 
 def hold_history(gap=None, frozen=False):
