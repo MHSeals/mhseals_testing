@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from conftest import find_nav
+from nav_paths import find_nav
 from mhseals_testing.analysis.classes import ClassTable, load_classes
 
 CONFIG = 'config/custom_object_detection.yaml'
