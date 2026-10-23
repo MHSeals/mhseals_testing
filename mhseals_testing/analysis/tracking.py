@@ -6,6 +6,7 @@ from config/tracking.yaml.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -109,3 +110,21 @@ def staleness(sessions, version, settings, seed=0):
     if len(used) >= s['low_runs'] and all(r['mean'] < s['low_score'] for r in used[-s['low_runs']:]):
         result.update(flag=True, reason='low scores')
     return result
+
+
+def record_session(path, axis, summary, settings, seed=0):
+    """Append one session's score summary to ``path`` (calibration/current.json) and re-judge.
+
+    ``summary`` is {'mean', 'n', 'trust', 'version'} for ``axis``. The file's
+    ``provenance.tracking[axis]`` keeps the sessions list and the latest staleness verdict
+    (flag, reason, slope), so agents can read the trend. Returns that verdict.
+    """
+    path = Path(path)
+    data = json.loads(path.read_text()) if path.exists() else {}
+    entry = data.setdefault('provenance', {}).setdefault('tracking', {}).setdefault(axis, {'sessions': []})
+    entry['sessions'].append(summary)
+    verdict = staleness(entry['sessions'], summary['version'], settings, seed)
+    entry['staleness'] = verdict
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
+    return verdict
