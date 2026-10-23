@@ -66,3 +66,11 @@ def test_auto_names():
     assert auto_name({'source': 'external'}) == 'changed outside boat_test'
     assert auto_name({'source': 'cli:revert', 'revert_of': 'c0131'}, target={'name': 'dock baseline'},
                      ascii_=False) == '↶ revert to c0131 "dock baseline"'
+
+
+def test_first_version_diffs_against_nothing():
+    rows = diff('hardware', None, {'effective': {'command_timeout': 0.5}})
+    assert [(r.kind, r.after) for r in rows] == [('added', 0.5)]
+    assert diff('hardware', {'effective': {}}, {'effective': {'command_timeout': 0.5}})[0].kind == 'added'
+    assert diff('nav2', None, NAV_AFTER)[0].kind == 'added'
+    assert diff('nav2', None, None) == []

@@ -41,7 +41,7 @@ def load_fields(path=FIELDS_FILE):
 
 def _flatten(node, prefix=()):
     """Leaf values keyed by key path; lists stay whole."""
-    if isinstance(node, dict) and node:
+    if isinstance(node, dict):
         for key, value in node.items():
             yield from _flatten(value, prefix + (str(key),))
     else:
@@ -158,12 +158,12 @@ def _block(title, grid, values, marks, mark, cw):
     rows, cols = grid['rows'], grid['cols']
     rl = max(map(len, rows)) + 2
     lines = [Text(' ' * (rl + 1) + title, style='dim'),
-             Text(' ' * rl + ''.join((' ' + c).ljust(cw) for c in cols), style='dim')]
+             Text(' ' * rl + ''.join(c.rjust(cw - 2).ljust(cw) for c in cols), style='dim')]
     for r, name in enumerate(rows):
         line = Text(name.ljust(rl))
         for c, value in enumerate(values[r]):
             changed = marks[r][c]
-            line.append(((mark if changed else ' ') + value).ljust(cw), style='bold yellow' if changed else '')
+            line.append(((mark if changed else ' ') + value).rjust(cw - 2).ljust(cw), style='bold yellow' if changed else '')
         lines.append(line)
     return lines
 

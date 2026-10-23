@@ -3,10 +3,10 @@ Thrusters                                                                       
   RR reversed      no → yes
 Correction C⁺  (rows: command · cols: applied)
           before                                after
-          surge    sway     yaw                 surge    sway     yaw
-  surge   1.000    0.000    0.000       surge   1.000    0.000    0.000
-  sway    0.000    1.000    0.000       sway    0.000    1.000    0.000
-  yaw     -0.037   0.100    1.000       yaw    •0.000   •0.080    1.000
+           surge     sway      yaw               surge     sway      yaw
+  surge    1.000    0.000    0.000      surge    1.000    0.000    0.000
+  sway     0.000    1.000    0.000      sway     0.000    1.000    0.000
+  yaw     -0.037    0.100    1.000      yaw     •0.000   •0.080    1.000
   yaw ← surge  -0.0375 → 0 · yaw ← sway  0.1 → 0.08
 Timing
   Command timeout  0.5 → 0.3 s

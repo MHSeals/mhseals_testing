@@ -33,8 +33,8 @@ scope:
     keys: [mechanical_bias]
 # How config diffs read (history/render.py): labels, units, enums and matrix grids.
 # A key not listed here still diffs, under "Other", by its own name.
-# kind: scalar (default) | bool | enum | per (a list with one value per thruster) | matrix.
-# digits: least decimals to show; more are added only when the difference needs them.
+# kind: scalar (default) | per (a list with one value per thruster) | matrix. Bools are told by type,
+# enums by `choices`.
 thrusters: [FL, FR, RR, RL]
 axes: [surge, sway, yaw]
 hardware:
