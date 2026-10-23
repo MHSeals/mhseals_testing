@@ -121,18 +121,21 @@ def unique_path(path):
             continue
 
 
-def bag_exclude_regex():
-    """The topic exclusion from config/bags.yaml (source tree, else the installed share)."""
+def bag_filters():
+    """The (exclude_regex, exclude_types) from config/bags.yaml (source tree, else the installed share)."""
     path = Path(__file__).resolve().parents[2] / 'config' / 'bags.yaml'
     if not path.exists():
         from ament_index_python.packages import get_package_share_directory
         path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'bags.yaml'
-    return yaml.safe_load(path.read_text())['exclude_regex']
+    config = yaml.safe_load(path.read_text())
+    return config['exclude_regex'], list(config.get('exclude_types', []))
 
 
 def bag_command(path):
     # Every topic except the heavy ones, so /mhseals_testing/events is kept and results
     # can be re-scored from the bag alone. Not -a: it records images and clouds at
-    # ~50 MB/s, and Jazzy has no -x. Jazzy's default storage is MCAP.
-    return ['ros2', 'bag', 'record', '--all-topics', '--exclude-regex', bag_exclude_regex(),
+    # ~50 MB/s. The name regex and the message-type list both apply. Jazzy's default storage is MCAP.
+    regex, types = bag_filters()
+    type_args = ['--exclude-topic-types', *types] if types else []
+    return ['ros2', 'bag', 'record', '--all-topics', '--exclude-regex', regex, *type_args,
             '-o', str(path)]

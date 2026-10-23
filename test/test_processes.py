@@ -51,6 +51,16 @@ def test_bag_command_excludes_heavy_topics_instead_of_recording_all(tmp_path):
     assert command[-2:] == ['-o', str(tmp_path / 'b')]
 
 
+def test_bag_command_excludes_heavy_message_types_the_name_regex_misses(tmp_path):
+    command = bag_command(tmp_path / 'b')
+    start = command.index('--exclude-topic-types') + 1
+    types = command[start:command.index('-o')]
+    for heavy in ('sensor_msgs/msg/PointCloud2', 'sensor_msgs/msg/Image', 'sensor_msgs/msg/CompressedImage',
+                  'stereo_msgs/msg/DisparityImage', 'nav_msgs/msg/OccupancyGrid'):
+        assert heavy in types
+    assert not any(t.startswith('--') for t in types)
+
+
 def test_child_dies_with_a_killed_parent_that_ignored_sigint(tmp_path):
     # A suite started with & or from a script inherits SIGINT=SIG_IGN; the child must not.
     parent = (
