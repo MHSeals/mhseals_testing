@@ -1,6 +1,7 @@
 import errno
 import io
 import math
+import os
 import json
 
 import pytest
@@ -11,7 +12,8 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.app import App, SessionPaths, bringup_command, parse_args
+from mhseals_testing.harness.registry import Registry as RegistryBase
+from mhseals_testing.ui.app import App, Detach, SessionPaths, bringup_command, parse_args
 
 
 class Clock:
@@ -180,6 +182,12 @@ class Processes:
 
     def summary(self):
         return 'bag: RUNNING'
+
+    def records(self):
+        return {'bag': {'pid': 9, 'pgid': 9}}
+
+    def release(self, names=()):
+        self.released = list(names)
 
 
 def make_app(tmp_path, argv=(), keys=(), sensors=True):
@@ -1145,3 +1153,64 @@ def test_bad_theme_overlay_is_the_first_notice(tmp_path, monkeypatch):
     assert make_app(tmp_path)[0].notice == 'theme overlay x ignored: bad'
     monkeypatch.setattr(theme, 'OVERLAY_WARNING', None)
     assert make_app(tmp_path)[0].notice.startswith('Passive monitor')
+
+
+class Registry(RegistryBase):
+    """A registry whose pids are all alive, in the test's own directory."""
+
+    def __init__(self, directory):
+        super().__init__(directory / 'session.json', alive=lambda pid: True)
+
+
+def test_sigusr1_detaches_at_neutral_and_leaves_the_children_recorded(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.registry = Registry(tmp_path / 'run')
+    app.registry.claim({'pid': os.getpid(), 'node': 'n'})
+    app.registry.update(lambda state: state.update(handover={'to': 77, 'deadline': 1e12}))
+    app.arming.armed = True
+
+    class Signalled(Keys):
+        def read(self, timeout):
+            raise Detach
+
+    app.open_keys = lambda: Signalled(app.clock, boat)
+    app.run()
+    assert app.detaching and not app.armed and boat.sent[-1] == 'neutral'
+    assert 'handover' in app.ros.events and 'session_stop' not in app.ros.events
+    assert app.processes.released == ['bag'] and not hasattr(app.processes, 'stopped')
+    assert app.registry.owner() is None and app.registry.children() == {'bag': {'pid': 9, 'pgid': 9}}
+
+
+def test_a_watcher_cannot_arm_or_run_but_space_still_sends_neutral(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.watching = 4012
+    app.dispatch('a')
+    assert not app.armed and 'no arming' in app.notice
+    assert 'watching pid 4012' in app.availability(procedure('1'))
+    app.dispatch('space')
+    assert boat.sent[-1] == 'neutral'
+
+
+def test_a_stale_dds_node_is_an_advisory_for_30_s_then_blocks_arming(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.ros.instances = lambda: ['mhseals_testing_h_5']
+    assert app.foreign_instances() == (['mhseals_testing_h_5'], []) and not app.foreign_blockers()
+    app.clock.now += 29
+    assert not app.foreign_blockers()
+    app.clock.now += 2
+    assert 'mhseals_testing_h_5' in app.foreign_blockers()[0]
+    app.ros.instances = lambda: []                  # the lease expired: nothing left to block
+    assert app.foreign_blockers() == [] and app.foreign_seen == {}
+
+
+def test_a_registered_instance_is_not_foreign_and_guests_are_announced(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.registry = Registry(tmp_path / 'run')
+    app.registry.claim({'pid': 5, 'node': 'mhseals_testing_h_5'})
+    app.ros.instances = lambda: ['mhseals_testing_h_5']
+    assert app.foreign_instances() == ([], [])
+    app.registry.add_guest(8, 'boat_trial_8', 'characterize')
+    app.sync_guests()
+    app.registry.remove_guest(8)
+    app.sync_guests()
+    assert app.ros.events == ['guest_attach', 'guest_detach']

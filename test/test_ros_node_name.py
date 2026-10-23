@@ -22,3 +22,10 @@ def test_second_instance_is_reported_as_a_publisher():
     fake = SimpleNamespace(node=SimpleNamespace(
         get_name=lambda: node_name(1), get_publishers_info_by_topic=lambda topic: infos))
     assert RosIO.publishers(fake, '/cmd_vel') == ['/' + node_name(2)]
+
+
+def test_instances_lists_other_suite_nodes_only():
+    names = [(node_name(1), '/'), (node_name(2), '/'), ('thruster_pwm_node', '/')]
+    fake = SimpleNamespace(node=SimpleNamespace(
+        get_name=lambda: node_name(1), get_node_names_and_namespaces=lambda: names))
+    assert RosIO.instances(fake) == [node_name(2)]

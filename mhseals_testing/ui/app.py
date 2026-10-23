@@ -32,6 +32,7 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, validate_mixer
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host
+from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health import legacy as health
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, Settings, unavailable
@@ -42,6 +43,7 @@ from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import dashboard, popups, theme
+from mhseals_testing.ui.takeover import decide
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
 from mhseals_testing.ui.popups import pins
 
@@ -63,9 +65,14 @@ NEIGHBOURS = {
             'activity': {'left': 'status', 'up': 'procedures'}},
 }
 ADVISORY_PERIOD = 1.0
+FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease expires; later it counts as live
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
+
+
+class Detach(KeyboardInterrupt):
+    """SIGUSR1: another instance is taking over. Unwinds like Ctrl+C, then hands the children on."""
 
 
 def decoupled(config):
@@ -144,8 +151,11 @@ class App:
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
-                 task_watcher=None, pulses=None, open_events=None):
+                 task_watcher=None, pulses=None, open_events=None, registry=None, watching=0):
         self.args = args
+        self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
+        self.detaching = False
+        self.foreign_seen, self.guests_seen = {}, set()
         self.profile = profile
         self.monitor = monitor
         self.ros = ros
@@ -223,7 +233,26 @@ class App:
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
         rival = self.arming.rival() if self.arming and self.profile.outputs != 'none' else ''
-        return self.blockers() + ([rival] if rival else []) + self.plant.conflicts()
+        return (self.blockers() + ([rival] if rival else []) + self.plant.conflicts()
+                + self.foreign_blockers())
+
+    def foreign_instances(self):
+        """Suite nodes on the graph that no live registry entry explains: (seen, confirmed live).
+
+        A crashed instance leaves its DDS node for tens of seconds, so a newcomer is only an
+        advisory for FOREIGN_GRACE; one still there after that is treated as live.
+        """
+        names = set(getattr(self.ros, 'instances', lambda: [])())
+        state = self.registry.state() if self.registry else {}
+        known = {entry['node'] for entry in [state.get('owner') or {}, *state.get('guests', {}).values()]
+                 if 'node' in entry}
+        now = self.clock()
+        self.foreign_seen = {name: self.foreign_seen.get(name, now) for name in names - known}
+        live = [name for name, since in self.foreign_seen.items() if now - since >= FOREIGN_GRACE]
+        return sorted(self.foreign_seen), live
+
+    def foreign_blockers(self):
+        return [f'another instance {name} is live' for name in self.foreign_instances()[1]]
 
     def supervision_blockers(self):
         """What must hold while anything drives the boat, the suite or Nav2."""
@@ -262,6 +291,10 @@ class App:
         if self.clock() - self.last_advisory < ADVISORY_PERIOD:
             return
         self.last_advisory = self.clock()
+        seen, live = self.foreign_instances()
+        self.monitor.advise('instances', 'FAIL' if live else 'WARN' if seen else 'OK',
+                            ', '.join(seen) if seen else 'no other instance')
+        self.sync_guests()
         snapshot = self.snapshot()
         if self.profile.use_sim_time and self.ros.now() == 0:
             # Without /clock every stamp looks stale; say why instead.
@@ -403,6 +436,17 @@ class App:
 
     # --- the loop ----------------------------------------------------------------
 
+    def sync_guests(self):
+        """Emit guest_attach / guest_detach as boat_trial guests join and leave the registry."""
+        if self.registry is None or self.watching:
+            return
+        guests = self.registry.state().get('guests', {})
+        for pid in sorted(set(guests) - self.guests_seen):
+            self.ros.emit('guest_attach', pid=pid, **guests[pid])
+        for pid in sorted(self.guests_seen - set(guests)):
+            self.ros.emit('guest_detach', pid=pid)
+        self.guests_seen = set(guests)
+
     @contextmanager
     def attached(self):
         """One key reader and one full-screen live view for the whole session."""
@@ -430,7 +474,8 @@ class App:
                                 self.stop(str(error) or type(error).__name__)
                         self.tick()
                         self.refresh(force=key is not None)
-                    except KeyboardInterrupt:
+                    except KeyboardInterrupt as error:
+                        self.detaching = isinstance(error, Detach)
                         # Ctrl+C quits like q, minus the question: anything moving has
                         # already stopped at neutral (the runner neutralizes on any exit).
                         self.quit = True
@@ -482,6 +527,8 @@ class App:
         self.closed = True
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
                  ('Report', self.close_report), ('Recording', self.close_recording)]
+        if self.detaching:   # the children and the recording go on under the next owner
+            steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
         rows = [[name, '◌ waiting'] for name, _ in steps]
         self.modal = dict(kind='message', title='Closing session', rows=rows, width=64,
                           hint='Ctrl+C again skips the rest')
@@ -499,6 +546,20 @@ class App:
         was_armed = self.armed
         self.stop('session ended')
         return 'neutral and disarmed' if was_armed else 'were disarmed'
+
+    def close_handover(self):
+        """Leave the children running, recorded for the successor, and give up the seat."""
+        children = self.processes.records()
+        handover = (self.registry.state().get('handover') or {}) if self.registry else {}
+        self.ros.emit('handover', to=handover.get('to'))
+        self.export()
+        if self.registry is not None:
+            self.registry.set_children(children)
+        self.processes.release(children)
+        if self.registry is not None:
+            self.registry.release(os.getpid())
+        self.handed_to = handover.get('to')
+        return f"{', '.join(children) or 'no children'} left running for pid {self.handed_to}"
 
     def close_children(self):
         names = [name for name in list(self.processes.processes)
@@ -755,6 +816,9 @@ class App:
 
     def arm_panel(self):
         """One popup for both directions; Space still stops without it."""
+        if self.watching:
+            self.notice = f'Watching pid {self.watching}: no arming'
+            return
         title = f'Arm{dashboard.SEPARATOR}{self.profile.name}'
         try:
             if self.armed:
@@ -819,8 +883,10 @@ class App:
         self.notice = f'{reason}; outputs neutral'
 
     def stop(self, reason):
-        """Neutral and disarmed, whatever happened."""
+        """Neutral and disarmed, whatever happened. A watcher publishes neutral too: Space always works."""
         try:
+            if self.watching and self.plant is not None:
+                self.plant.engage()  # a second publisher also aborts the owner's motion
             self.disarm(reason)
         finally:
             self.monitor.event('STOP: ' + reason)
@@ -828,6 +894,8 @@ class App:
     # --- procedures ---------------------------------------------------------------
 
     def availability(self, procedure):
+        if self.watching:
+            return f'watching pid {self.watching}: no commands'
         reason = unavailable(procedure, self.profile, self.armed, self.args.bench_override)
         # Procedures that measure motion can't be picked without odometry and TF, nor
         # while another node commands the same topic.
@@ -1046,6 +1114,11 @@ def hang_up(*_):
     raise KeyboardInterrupt
 
 
+def detach(*_):
+    """SIGUSR1: the next instance is taking over."""
+    raise Detach
+
+
 def main(argv=None):
     args, profile = parse_args(argv)
     # ROS imports stay here so the App (and its tests) never need rclpy.
@@ -1055,42 +1128,63 @@ def main(argv=None):
     from mhseals_testing.ros.health import subscribe_fcu
     from mhseals_testing.ros.mission import TaskWatcher
     from mhseals_testing.ros.nav2 import Nav2
-    from mhseals_testing.ros.node import RosIO
+    from mhseals_testing.ros.node import RosIO, node_name
     from mhseals_testing.ros.plant import Plant
     from mhseals_testing.harness.processes import ProcessManager, bag_command, unique_path
 
     from rclpy.signals import SignalHandlerOptions
 
-    paths = SessionPaths.from_output(unique_path(args.output))
     console = Console()
+    registry = Registry()
+    me = dict(pid=os.getpid(), node=node_name(), host=socket.gethostname(), started=time.time(),
+              profile=profile.name, tty=os.ttyname(0) if os.isatty(0) else '')
+    choice = decide(registry, console, me)
+    if choice.mode == 'quit':
+        return
+    watching = choice.watching if choice.mode == 'watch' else 0
+    # Adopted sessions keep the recording's directory, so the report and bag stay together.
+    paths = SessionPaths.from_output(
+        Path(choice.session) if choice.session and choice.mode != 'own' else unique_path(args.output))
     # rclpy's own SIGINT handler would shut ROS down before the graceful close could
     # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     for hangup in (signal.SIGHUP, signal.SIGTERM):
         signal.signal(hangup, hang_up)
+    signal.signal(signal.SIGUSR1, detach)
     monitor = BoatMonitor(args.stale_after, history_sensors=tuple(
         sensor.name for sensor in profile.sensors if sensor.kind == 'odometry'))
     ros = RosIO(profile, monitor, args.stale_after)
-    processes = ProcessManager(paths.logs)
+    # The keepers follow the registry owner, so a handover keeps the children for the adopter.
+    processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = None
     try:
+        for name, child in choice.children.items():
+            processes.adopt(name, child)
+        if choice.mode == 'own':               # a stale owner's leftovers: stop, start fresh
+            processes.stop_all()
         if profile.bringup and profile.bringup.get('fcu') != 'false':
             subscribe_fcu(ros, monitor, profile.battery_cells)
-        paths.bag.parent.mkdir(parents=True, exist_ok=True)
-        processes.start('bag', bag_command(paths.bag))
-        if args.start_stack:
-            time.sleep(2.0)  # let discovery find an already-running stack
-            if ros.publishers(profile.odometry):
-                raise RuntimeError(f'{profile.odometry} already has publishers; '
-                                   'attach without --start-stack')
-            processes.start('measurement', bringup_command(profile, args))
+        if not watching:
+            registry.update(lambda state: state.update(session=str(paths.bag)))
+            paths.bag.parent.mkdir(parents=True, exist_ok=True)
+            if not processes.running('bag'):
+                processes.start('bag', bag_command(paths.bag))
+            if args.start_stack and not processes.running('measurement'):
+                time.sleep(2.0)  # let discovery find an already-running stack
+                if ros.publishers(profile.odometry):
+                    raise RuntimeError(f'{profile.odometry} already has publishers; '
+                                       'attach without --start-stack')
+                processes.start('measurement', bringup_command(profile, args))
+            registry.set_children(processes.records())
         app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
                                     profile.base_frame),
-                  task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses)
-        ros.emit('session_start', profile=profile.name, bag=str(paths.bag))
+                  task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
+                  registry=registry, watching=watching)
+        ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
+                 profile=profile.name, bag=str(paths.bag))
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
@@ -1103,9 +1197,13 @@ def main(argv=None):
                 arming.disarm()
         finally:
             plant.close()
-            processes.stop_all()
+            processes.stop_all()   # a detach already released the children it hands on
+            if not watching:
+                registry.release(os.getpid(), keep_children=False)
             ros.close()
             rclpy.try_shutdown()
+    if app is not None and app.detaching:
+        console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
     if app is not None:
         table = dashboard.theme.grid({'header': '', 'style': f'bold {dashboard.ACCENT}'},
                                      {'header': '', 'ratio': 1}, padding=(0, 2))

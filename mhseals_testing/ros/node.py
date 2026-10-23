@@ -128,6 +128,11 @@ class RosIO:
         return [f'{namespace.rstrip("/")}/{name}'
                 for name, namespace in self.node.get_node_names_and_namespaces()]
 
+    def instances(self):
+        """Other suite nodes on the graph (names only); a crashed one lingers until its DDS lease ends."""
+        return sorted({name for name, _ in self.node.get_node_names_and_namespaces()
+                       if name.startswith('mhseals_testing_') and name != self.node.get_name()})
+
     def parameter_service(self, name):
         """Whether node ``name`` serves parameters (a dead service hides the node's config)."""
         return any(service.endswith(f'/{name}/get_parameters')
