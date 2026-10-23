@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from mhseals_testing.harness.config_cli import ApplyFailed, RollbackFailed, flatten, main, parse_since
+from mhseals_testing.harness.config_cli import ApplyFailed, RollbackFailed, entry, flatten, main, parse_since
 from mhseals_testing.history import History
 
 
@@ -82,6 +82,7 @@ def test_unknown_refs_and_bad_since_are_refused(env):
     run, *_ = env
     assert run('diff', 'c9999')[0] == 2
     assert run('name', 'nope', 'x')[0] == 2
+    assert run('revert', 'nope')[0] == 2
     assert run('log', '--since', 'soon')[0] == 2
     assert parse_since('3d').tzinfo is not None
 
@@ -95,16 +96,88 @@ def test_observe_exit_codes(env):
     assert run('observe', 'nope')[0] == 2
 
 
+def test_revert_without_yes_previews_and_writes_nothing(env):
+    run, hist, adapters = env
+    code, text = run('revert', 'c0001')
+    assert code == 2 and 'preview only' in text and 'a  9 -> 1' in text
+    assert adapters['hardware'].applied == [] and hist.head('hardware')['id'] == 'c0002'
+    assert run('revert', 'c0001', '--dry-run')[0] == 0
 
 
+def test_revert_applies_and_records(env):
+    run, hist, adapters = env
+    code, text = run('revert', 'c0001', '--yes', '--json')
+    assert code == 0 and json.loads(text)['outcome'] == 'applied'
+    head = hist.head('hardware')
+    assert head['revert_of'] == 'c0001' and head['source'] == 'cli:revert' and adapters['hardware'].value['a'] == 1
+    assert run('revert', 'current', '--yes')[0] == 1    # already there
 
 
+def test_revert_blocked_failed_and_unrollbackable(env):
+    run, hist, adapters = env
+    hw = adapters['hardware']
+    hw.blocked = ['armed']
+    assert run('revert', 'c0001', '--yes')[0] == 2
+    hw.blocked, hw.fail = [], 'verify'
+    assert run('revert', 'c0001', '--yes')[0] == 3
+    hw.fail = 'rollback'
+    hw.value['b'] = 4                                   # the failed write left something behind
+    assert run('revert', 'c0001', '--yes')[0] == 2      # outside change: review first
+    assert hist.head('hardware')['applied'] == 'observed'
+    assert run('revert', 'c0001', '--yes')[0] == 4
+    assert hist.head('hardware')['applied'] == 'observed'
 
 
+def test_fcu_revert_needs_the_typed_word(env):
+    run, _, adapters = env
+    assert run('revert', 'c0003', '--yes')[0] == 2                              # headless
+    assert run('revert', 'c0003', '--yes', ask=lambda _: 'yes')[0] == 2
+    assert adapters['fcu'].applied == []
 
 
+def test_fcu_revert_leaves_calibration_unless_asked(env):
+    run, hist, adapters = env
+    word = lambda _: 'FCU'
+    assert run('revert', 'c0003', '--yes', ask=word)[0] == 0
+    assert adapters['fcu'].value == {'EK3_SRC1_YAW': 1.0, 'CAL_X': 7.0}
+    assert run('revert', 'c0003', '--yes', '--include-calibration', ask=word)[0] == 0
+    assert adapters['fcu'].value == {'EK3_SRC1_YAW': 1.0, 'CAL_X': 5.0}
 
 
+def test_set_fcu_needs_reboot_flag_terminal_and_typed_word(env, tmp_path):
+    run, hist, adapters = env
+    param = tmp_path / 'p.param'
+    param.write_text('EK3_SRC1_YAW,1\n')
+    assert run('set', 'fcu', str(param), '--yes')[0] == 2                      # no --reboot
+    assert run('set', 'fcu', str(param), '--reboot', '--yes')[0] == 2          # headless: nobody can type FCU
+    assert run('set', 'fcu', str(param), '--reboot', '--yes', ask=lambda _: 'yes')[0] == 2
+    assert adapters['fcu'].applied == []
+    assert run('set', 'fcu', str(param), '--reboot')[0] == 2                   # preview
+    code, text = run('set', 'fcu', str(param), '--reboot', '--yes', ask=lambda _: 'FCU')
+    assert code == 0 and adapters['fcu'].applied == [True] and hist.head('fcu')['source'] == 'cli:set'
+    bad = tmp_path / 'bad.param'
+    bad.write_text('NOPE,1\n')
+    assert run('set', 'fcu', str(bad), '--reboot')[0] == 2
+    assert run('set', 'fcu', str(tmp_path / 'missing'), '--reboot')[0] == 2
 
 
+def test_set_plain_subsystem_and_flatten(env, tmp_path):
+    run, hist, adapters = env
+    f = tmp_path / 'c.txt'
+    f.write_text('a,9\n')
+    assert run('set', 'hardware', str(f), '--yes')[0] == 1                    # same as live
+    assert run('set', 'nope', str(f))[0] == 2
+    assert flatten({'x': {'y': [1, 2]}}) == {'x.y': [1, 2]}
 
+
+def test_main_never_reads_stdin_but_entry_may(env, monkeypatch):
+    """main(ask=None) must not block on input(); only entry() wires the terminal."""
+    run, *_ = env
+    monkeypatch.setattr('sys.stdin', type('Tty', (), {'isatty': lambda self: True})())
+    monkeypatch.setattr('builtins.input', lambda *_: pytest.fail('main read stdin'))
+    assert run('revert', 'c0003', '--yes')[0] == 2
+    answers = []
+    monkeypatch.setattr('builtins.input', lambda prompt: answers.append(prompt) or 'FCU')
+    out = io.StringIO()
+    assert entry(['revert', 'c0003', '--yes'], adapters=env[2], history=env[1], out=out) == 0
+    assert answers                                      # a terminal was found, so the word was asked

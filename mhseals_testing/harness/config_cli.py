@@ -152,6 +152,87 @@ class Command:
                   or ['nothing changed'])
         return DONE if recorded else NOTHING
 
+    # ---- writing verbs: one path for revert and set
+
+    def commit(self, sub, target, args, source, revert_of=None):
+        """Preview, then (with ``--yes``) apply ``target`` = {value, raw, meta} to ``sub``."""
+        adapter = self.adapters.get(sub)
+        if adapter is None:
+            return self.refuse(f'unknown subsystem {sub!r}; one of {", ".join(sorted(self.adapters))}')
+        state = adapter.read()
+        if state is None:
+            return self.refuse(f'{sub} cannot be read now')
+        if self.history.observe(sub, *state):
+            return self.refuse(f'{sub} changed outside boat_trial; run config observe and review it first')
+        rows = diff_rows(state[0], target['value'])
+        blockers = list(adapter.blockers())
+        reboot = bool(rows) and getattr(adapter, 'needs_reboot', lambda _: False)([r['path'] for r in rows])
+        plan = {'subsystem': sub, 'changes': rows, 'blockers': blockers, 'needs_reboot': bool(reboot)}
+        if not rows:
+            self.emit({**plan, 'outcome': 'nothing to do'}, ['nothing to do: already at that version'])
+            return NOTHING
+        lines = [f'{sub}: {len(rows)} change(s)', *self.rows_text(rows)]
+        lines += [f'blocked: {b}' for b in blockers] + (['reboot required'] if reboot else [])
+        if blockers:
+            self.emit({**plan, 'outcome': 'refused'}, lines)
+            return REFUSED
+        word = getattr(adapter, 'confirm_word', None)
+        if args.dry_run or not args.yes:
+            self.emit({**plan, 'outcome': 'preview'}, [*lines, 'preview only: pass --yes to apply'])
+            return REFUSED if not args.dry_run else DONE
+        if word and not self.confirmed(word, len(rows)):
+            return self.refuse(f'writing {sub} needs the operator to type {word} at a terminal', **plan)
+        try:
+            applied = adapter.apply(target, reboot=args.reboot)
+        except ApplyFailed as error:
+            self.emit({**plan, 'outcome': 'rolled back', 'error': str(error)}, [*lines, f'failed, rolled back: {error}'])
+            return ROLLED_BACK
+        except RollbackFailed as error:
+            fresh = adapter.read()
+            if fresh:
+                self.history.observe(sub, *fresh)
+            self.emit({**plan, 'outcome': 'rollback failed', 'error': str(error)}, [*lines, f'ROLLBACK FAILED: {error}'])
+            return ROLLBACK_FAILED
+        change = self.history.record(sub, target['value'], target.get('raw'), source=source, revert_of=revert_of,
+                                     applied=applied or 'confirmed', summary=[f'{r["path"]} {_show(r["before"])} -> {_show(r["after"])}'
+                                                                              for r in rows[:2]])
+        self.emit({**plan, 'outcome': 'applied', 'id': change and change['id'], 'applied': applied},
+                  [*lines, f'applied {applied}' + (f' as {change["id"]}' if change else '')])
+        return DONE
+
+    def confirmed(self, word, count):
+        """Typed confirmation; only when a person is at a terminal (``ask`` is None otherwise)."""
+        return self.ask is not None and self.ask(f'type {word} to write {count} value(s): ').strip() == word
+
+    def revert(self, args):
+        target = self.resolve(args.ref)
+        if target is None:
+            return REFUSED
+        sub = target['subsystem']
+        version = self.history.version(target)
+        adapter, value = self.adapters.get(sub), version['value']
+        state = adapter.read() if adapter else None
+        is_cal = getattr(adapter, 'calibration', None)
+        if state and is_cal and not args.include_calibration:      # offsets measured later stay
+            now, old = flatten(state[0]), flatten(value)
+            value = {k: (now[k] if is_cal(k) and k in now else v) for k, v in old.items()}
+        return self.commit(sub, {'value': value, 'raw': version.get('raw'), 'meta': version.get('meta')}, args,
+                           'cli:revert', revert_of=target['id'])
+
+    def set(self, args):
+        adapter = self.adapters.get(args.sub)
+        if adapter is None:
+            return self.refuse(f'unknown subsystem {args.sub!r}; one of {", ".join(sorted(self.adapters))}')
+        if getattr(adapter, 'confirm_word', None) and not args.reboot:
+            return self.refuse(f'set {args.sub} needs --reboot (parameters take effect on restart)')
+        state = adapter.read()
+        try:
+            text = open(args.file).read()
+            value, raw = adapter.parse(text, state[0] if state else {})
+        except (OSError, ValueError) as error:
+            return self.refuse(f'{args.file}: {error}')
+        return self.commit(args.sub, {'value': value, 'raw': raw, 'meta': {}}, args, 'cli:set')
+
 
 def build_parser():
     parser = argparse.ArgumentParser(prog='boat_trial config')
@@ -169,8 +250,12 @@ def build_parser():
     sub_flag = (('--sub',), dict(help='restrict refs to one subsystem'))
     verb('log', json_flag, (('--since',), {}), (('--session',), {}), positional=[('sub', dict(nargs='?'))])
     verb('diff', json_flag, sub_flag, positional=[('a', dict(nargs='?')), ('b', dict(nargs='?'))])
+    verb('revert', json_flag, (('--include-calibration',), dict(action='store_true')), (('--reboot',), dict(action='store_true')),
+         (('--dry-run',), dict(action='store_true')), (('--yes',), dict(action='store_true')), positional=[('ref', {})])
     verb('name', (('--note',), {}), positional=[('ref', {}), ('name', {})])
     verb('observe', positional=[('sub', dict(nargs='?'))])
+    verb('set', json_flag, (('--reboot',), dict(action='store_true')), (('--yes',), dict(action='store_true')),
+         positional=[('sub', {}), ('file', {})])
     return parser
 
 
