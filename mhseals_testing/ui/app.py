@@ -47,6 +47,7 @@ from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ui import dashboard, popups, theme
 from mhseals_testing.ui.takeover import decide
 from mhseals_testing.ui.dashboard import PANELS, WIDE, status_rows
+from mhseals_testing.ui.layout import TabMemory
 from mhseals_testing.ui.popups import odometry, pins
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
@@ -185,6 +186,7 @@ class App:
         self.watcher_factory, self._watcher = task_watcher, None
         self.run_id = None  # the procedure run in progress; its results carry this id
         self.settings = args.settings
+        self.tabs = TabMemory()
         self.focus = 'status'
         self.cursors = {panel: 0 for panel in PANELS}
         self.activity = 'results'
@@ -384,7 +386,13 @@ class App:
 
     # --- rendering ---------------------------------------------------------------
 
+    @property
+    def tab(self):
+        return self.tabs.current
+
     def panels(self):
+        if self.tab != 'Drive':
+            return [self.focus]
         return [p for p in PANELS if p != 'motion' or self.console.size.width >= WIDE]
 
     def rows(self, panel):
@@ -405,9 +413,9 @@ class App:
         notice = self.notice if not blockers or self.running else (
             f'{self.notice}{dashboard.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
-        hints = MANUAL_HINTS if self.manual else PANEL_HINTS[self.focus] + GLOBAL_HINTS
+        hints = MANUAL_HINTS if self.manual else PANEL_HINTS.get(self.focus, ()) + GLOBAL_HINTS
         return dict(
-            focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
+            tab=self.tab, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             authority=('human', 'KEYS') if self.manual else ('ours', self.running.upper()) if self.running else None,
@@ -604,6 +612,14 @@ class App:
             self.clear_pulses()  # test pulses only while their panel has focus
         self.focus = panel
 
+    def switch_tab(self, step):
+        """Move to the next or previous tab, restoring the focus and cursors it was left with."""
+        if self.focus == 'thrusters':
+            self.clear_pulses()  # test pulses only while their panel has focus
+        self.grabbed = None
+        self.focus, saved = self.tabs.switch(step, self.focus, self.cursors)
+        self.cursors = {**{panel: 0 for panel in PANELS}, **saved}
+
     def move(self, step):
         count = self.rows(self.focus)
         if count:
@@ -613,7 +629,9 @@ class App:
         """Apply one key on the page."""
         raw, key = key, fold(key)
         panels = self.panels()
-        if key in ('\t', 'backtab'):
+        if key in ('[', ']'):
+            self.switch_tab(-1 if key == '[' else 1)
+        elif key in ('\t', 'backtab'):
             index = panels.index(self.focus) if self.focus in panels else 0
             self.focus_on(panels[(index + (-1 if key == 'backtab' else 1)) % len(panels)])
         elif key in DIRECTIONS:
@@ -648,13 +666,13 @@ class App:
             self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
             settings.save(self.settings)
-        elif (key in {p.key for p in PROCEDURES}
+        elif (key in {p.key for p in PROCEDURES} and self.tab == 'Drive'
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
               and not (self.focus == 'activity' and key == 'v')
               and not (self.focus == 'status' and key == 'o')):  # Odometry popup; Perception stays on o elsewhere
             self.on_procedures(key)
         else:
-            getattr(self, f'on_{self.focus}')(key)
+            getattr(self, f'on_{self.focus}', lambda key: None)(key)
 
     # --- markers -----------------------------------------------------------------
 

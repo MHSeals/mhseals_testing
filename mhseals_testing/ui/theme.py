@@ -41,6 +41,9 @@ SPARK = pick('▁▂▃▄▅▆▇█', '._-:=+*#')
 OVERFLOW = pick('ellipsis', 'crop')   # Rich's ellipsis cell is the Unicode …
 FOCUS = '>' if ASCII else '▸'
 CURSOR = '> ' if ASCII else '› '
+# Cursor-row tint (ui.md U10) from the sel_bg token; 16-colour, NO_COLOR and ASCII underline instead.
+TINT = palette.detect_tier() in ('truecolor', '256') and not ASCII
+SEL_BG = f"on {PALETTE.style('sel_bg')}" if TINT else ''
 ARROW = '->' if ASCII else '→'
 
 # Glyph and color per state; every state the suite reports maps to one of these.
@@ -141,7 +144,7 @@ def row(state, label, active=False, prefix=None):
         text.append(' ')
     label = label if isinstance(label, Text) else Text(str(label))
     if active:
-        label.stylize(f'bold underline {ACCENT}')
+        label.stylize(f'bold {ACCENT} {SEL_BG}' if TINT else f'bold underline {ACCENT}')
     return text + label
 
 

@@ -7,7 +7,7 @@ from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.panels import TITLES, window
+from mhseals_testing.ui.panels import TITLES, fold_groups, window
 from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
@@ -106,15 +106,33 @@ def status_panel(snapshot, view, height):
                        padding=(0, 0))
     table.show_header = False
     budget = max(1, height - 4)
-    start, visible = window(rows, cursor, budget - 3)  # room for group headings
-    group = None
-    for index, row in enumerate(visible, start):
-        if row['group'] != group:
-            group = row['group']
-            table.add_row(Text(group, style=f'{MUTED} bold'), '')
-        name = Text(row['name'], style='bold' if row['required'] else None)
-        table.add_row(theme.row(row['state'], name, focused and index == cursor),
-                      Text(row['value'], style=RATE_STYLE.get(row.get('rate'), MUTED)))
+    groups = {}
+    for row in rows:
+        groups.setdefault(row['group'], []).append(row['state'])
+    cursor_group = rows[cursor]['group'] if rows else None
+    folded = fold_groups(groups, budget - 3, cursor_group)
+    # Entries are heading lines, folded-group lines and rows; the window keeps the cursor row in view.
+    entries, at = [], 0
+    for group, states in groups.items():
+        if group in folded:
+            entries.append(('fold', group, len(states)))
+        else:
+            entries.append(('head', group, 0))
+            entries += [('row', index, 0) for index in range(at, at + len(states))]
+        at += len(states)
+    place = next((i for i, e in enumerate(entries) if e[0] == 'row' and e[1] == cursor), 0)
+    start, visible = window(entries, place, budget)
+    for kind, key, count in visible:
+        if kind == 'head':
+            table.add_row(Text(key, style=f'{MUTED} bold'), '')
+        elif kind == 'fold':
+            table.add_row(Text(f'{key}  {theme.FOCUS}', style=f'{MUTED} bold'),
+                          Text(f'{count} ok', style=MUTED))
+        else:
+            row = rows[key]
+            name = Text(row['name'], style='bold' if row['required'] else None)
+            table.add_row(theme.row(row['state'], name, focused and key == cursor),
+                          Text(row['value'], style=RATE_STYLE.get(row.get('rate'), MUTED)))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row['group'] == 'Sensors' and row['state'] == 'LIVE')

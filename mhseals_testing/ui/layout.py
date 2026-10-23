@@ -6,6 +6,11 @@ state. Layout, after cx:
   header   name, profile, host; health strip of status icons
   body     Status (sensors, frames, system) | Motion, Thrusters | Procedures, Activity
   footer   armed state, focus, notice; key hints for the focused panel
+
+The pure decisions (ui.md section 4.5, U13) need no Rich: ``tier`` maps a terminal width to a
+density tier, ``fold_groups`` (from ui.panels) picks which quiet Status groups collapse when the
+column is short, and ``TabMemory`` keeps the focused panel and every panel's cursor per tab so
+switching tabs returns to where the operator was.
 """
 
 import io
@@ -18,7 +23,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing.ui import chrome, theme
-from mhseals_testing.ui.panels import TITLES
+from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
@@ -121,7 +126,7 @@ def footer(view, width):
     status.add_column(ratio=4, no_wrap=True, overflow=theme.OVERFLOW)
     status.add_column(ratio=6, justify='right', no_wrap=True, overflow=theme.OVERFLOW)
     position = view['position']
-    focus = Text(f" Focus {TITLES[view['focus']]}", style=f'bold {ACCENT}')
+    focus = Text(f" Focus {TITLES.get(view['focus'], view['focus'].title())}", style=f'bold {ACCENT}')
     if position:
         focus.append(f'{SEPARATOR}{position}', style=MUTED)
     status.add_row(focus, Text(view['notice'], style=MUTED))
@@ -251,9 +256,12 @@ def render(snapshot, view, width=120, height=34):
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
                         Layout(footer(view, width), size=3))
     body = layout['body']
+    if view.get('tab', TABS[0]) != TABS[0]:
+        body.update(theme.block(Text(f"{view['tab']} is not built yet", style=MUTED), view['tab'], True))
+        return _with_modal(layout, view, width, height)
     if width >= FOLD:
         body.split_row(Layout(status_panel(snapshot, view, body_height),
-                              size=SIDEBAR if width >= WIDE else 30), Layout(name='main'))
+                              size=status_width(width) or 30), Layout(name='main'))
     else:
         body.split_row(Layout(name='main'))  # Status folds away; the header still shows armed state
     main = body['main']
@@ -269,7 +277,51 @@ def render(snapshot, view, width=120, height=34):
         main.split_column(Layout(thrusters_panel(view, True, pins=False), size=TOP_ROW),
                           Layout(procedures_panel(view, half), size=half),
                           Layout(activity_panel(snapshot, view, body_height - TOP_ROW - half)))
+    return _with_modal(layout, view, width, height)
+
+
+def _with_modal(layout, view, width, height):
     if view.get('modal'):
         panel, panel_width = popup(view['modal'], width, height)
         return Overlay(layout, panel, panel_width, width, height)
     return layout
+
+
+# --- density tiers and per-tab memory (no Rich) -----------------------------------
+
+TABS = ('Drive', 'Correction', 'Map', 'Bags')
+DEFAULT_FOCUS = {'Drive': 'status', 'Correction': 'table', 'Map': 'map', 'Bags': 'list'}
+
+# (minimum width, tier name, Status column width on Drive); Status is hidden in 'single'.
+TIERS = ((150, 'wide', 34), (110, 'standard', 34), (90, 'compact', 28),
+         (70, 'narrow', 30), (0, 'single', 0))
+
+
+def tier(width):
+    """Name of the density tier for a terminal ``width``."""
+    return next(name for floor, name, _ in TIERS if width >= floor)
+
+
+def status_width(width):
+    """Columns the Status panel takes on Drive at ``width`` (0 when it folds away)."""
+    return next(columns for floor, _, columns in TIERS if width >= floor)
+
+
+class TabMemory:
+    """Focus and cursors remembered for each tab."""
+
+    def __init__(self, tabs=TABS):
+        self.tabs = tuple(tabs)
+        self.current = self.tabs[0]
+        self._saved = {}
+
+    def switch(self, step, focus, cursors):
+        """Save ``focus`` and ``cursors`` for the current tab, move ``step`` tabs on.
+
+        Returns the new tab's remembered ``(focus, cursors)``; a tab seen for the first time gets
+        its default focus and zero cursors.
+        """
+        self._saved[self.current] = (focus, dict(cursors))
+        self.current = self.tabs[(self.tabs.index(self.current) + step) % len(self.tabs)]
+        focus, cursors = self._saved.get(self.current, (DEFAULT_FOCUS[self.current], {}))
+        return focus, dict(cursors)

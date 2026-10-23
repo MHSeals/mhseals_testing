@@ -54,9 +54,23 @@ def join(items, gap='  '):
     return Text(gap).join([item for item in items if item is not None])
 
 
+def tab_strip(current, width=120):
+    """``[Drive]  Correction  Map  Bags``: the current tab bracketed and bold, the others muted.
+
+    Below 80 columns only the current tab shows (ui.md 4.2).
+    """
+    from mhseals_testing.ui.layout import TABS   # layout imports chrome
+    current = current or TABS[0]
+    strip = Text()
+    for name in TABS if width >= 80 else (current,):
+        strip.append(f' [{name}]' if name == current else f'  {name}',
+                     style=f'bold {ACCENT}' if name == current else MUTED)
+    return strip
+
+
 def top_row(view, width):
     """Title, profile (wide), then right-aligned deploy, host, authority, arm; the first drops what does not fit."""
-    title = Text.assemble((' boat_test ', f'bold {ACCENT}'))
+    title = Text.assemble((' boat_test ', f'bold {ACCENT}'), tab_strip(view.get('tab'), width))
     name = f"{view['profile']}{SEPARATOR}{view['units']}" if view.get('units') else view['profile']
     profile = Text.assemble((f'  {name}', MUTED))
     deploy, tail = deploy_item(view.get('deploy')), chips(view)
