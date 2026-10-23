@@ -19,13 +19,13 @@ class Params:
     warn: float = 0.85           # below this fraction of hz is warn
     fail: float = 0.5            # below this fraction is fail
     high: float = 1.6            # above this fraction is warn (a doubled publisher)
-    gap: float = 3.0             # a silence longer than this many periods is warn
+    gap: float = 3.0             # a silence longer than this many periods (floored at MIN_DEADLINE) is warn
     stamp_age: float = 0.0       # s; 0 derives max(3/hz, 1.5)
 
 
 def classify(nominal, measured, max_gap=0.0, stamp_age=None, warn=0.85, fail=0.5,
              high=1.6, gap=3.0, limit=0.0):
-    """(status, mark) for ``measured`` Hz against ``nominal``: mark is one of ' ↓↑~×'."""
+    """(status, mark) for ``measured`` Hz against ``nominal``: mark is one of ' ↓↑~⏱×'."""
     if not measured:
         return 'fail', '×'
     ratio = measured / nominal
@@ -35,10 +35,11 @@ def classify(nominal, measured, max_gap=0.0, stamp_age=None, warn=0.85, fail=0.5
         return 'warn', '↓'
     if ratio > high:
         return 'warn', '↑'
-    if max_gap > gap / nominal:
+    # Floored like the deadline: the real 4.61 Hz GPS has 0.65 s and 1.13 s gaps.
+    if max_gap > max(gap / nominal, MIN_DEADLINE):
         return 'warn', '~'
     if stamp_age is not None and stamp_age > (limit or max(3 / nominal, MIN_DEADLINE)):
-        return 'warn', '~'
+        return 'warn', '⏱'
     return 'ok', ''
 
 

@@ -9,7 +9,8 @@ from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES, window
 from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
-MARKS = dict(zip('↓↑~×', theme.pick('↓↑~×', 'v^~x')))
+MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
+         '⏱': theme.pick('⏱', 't'), '×': theme.pick('×', 'x')}
 RATE_STYLE = {'warn': theme.WARN, 'fail': theme.BAD}  # Hz colour; a healthy rate stays muted
 
 

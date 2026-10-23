@@ -17,13 +17,14 @@ def test_nominal_rate_is_ok_and_deviations_are_marked():
     assert (run(3.0).status, run(3.0).mark) == ('warn', '↓')
     assert (run(2.0).status, run(2.0).mark) == ('fail', '↓')
     assert (run(9.0).status, run(9.0).mark) == ('warn', '↑')
-    assert (run(5.0, max_gap=1.0).status, run(5.0, max_gap=1.0).mark) == ('warn', '~')
+    assert (run(5.0, max_gap=1.6).status, run(5.0, max_gap=1.6).mark) == ('warn', '~')
     assert run(0).mark == '×'
 
 
 def test_stamp_age_limit_derives_from_the_rate():
     assert topic_rate.classify(5, 5, stamp_age=1.4)[0] == 'ok'    # under max(0.6, 1.5)
-    assert topic_rate.classify(5, 5, stamp_age=1.6)[0] == 'warn'
+    assert topic_rate.classify(5, 5, stamp_age=1.6) == ('warn', '⏱')
+    assert topic_rate.classify(4.61, 4.61, max_gap=1.13) == ('ok', '')  # real GPS gaps
     assert topic_rate.classify(20, 20, stamp_age=1.4)[0] == 'ok'  # floor of 1.5 s
 
 
