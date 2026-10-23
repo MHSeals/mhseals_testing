@@ -19,6 +19,8 @@ from mhseals_testing.health.model import MISSING, SEVERITIES, CheckSpec
 USER_FILE = Path.home() / '.config' / 'mhseals' / 'health.yaml'
 ANCHORS = ('rose', 'thrusters', 'header.deploy', 'odometry')    # plus sensor:<name>
 SPEC_KEYS = {f.name for f in dataclasses.fields(CheckSpec)} - {'params'}
+SPEC_TYPES = {'enabled': bool, 'raise_after': (int, float), 'clear_after': (int, float),
+              'title': str, 'group': str, 'message': str, 'hint': str}
 RESULT_FIELDS = ('value', 'detail', 'label', 'status')           # known to message templates
 ID_PATTERN = re.compile(r'[a-z0-9_]+(\.[a-z0-9_]+)*')
 FIELD = re.compile(r'\{(\w+)\}')
@@ -47,6 +49,7 @@ HEALTH_DIR = _health_dir()
 class HealthConfig:
     specs: tuple
     probes: dict
+    unmatched: tuple = ()    # override ids and disable patterns that named no check
 
 
 def render(template, **fields):
@@ -96,7 +99,9 @@ def _param_names(kind):
 def expand(entry, defaults, group, context):
     """One YAML entry as raw check dicts: defaults merged, one per ``each`` row, templated."""
     entry = {**defaults, **{'group': group}, **entry}
-    rows = entry.pop('each', None) or [{}]
+    rows = entry.pop('each', None)
+    if rows is None:
+        rows = [{}]                # no each: one check; an empty each list: none
     out = []
     for row in rows:
         merged = _fill({**entry, **row}, {**context, **row})
@@ -126,6 +131,11 @@ def _spec(raw):
     for key, allowed in (('severity', SEVERITIES), ('missing', MISSING)):
         if key in fields and fields[key] not in allowed:
             raise ConfigError(f'{where}: {key} {fields[key]!r} is not one of {allowed}')
+    for key, value in fields.items():
+        if key in SPEC_TYPES and (isinstance(value, bool) != (SPEC_TYPES[key] is bool)
+                                  or not isinstance(value, SPEC_TYPES[key])) \
+                and not (key == 'raise_after' and value is None):
+            raise ConfigError(f'{where}: {key} {value!r} must be {SPEC_TYPES[key].__name__ if SPEC_TYPES[key] is not (int, float) else "a number"}')
     if not isinstance(fields.get('when', {}), dict):
         raise ConfigError(f'{where}: when must be a mapping')
     try:
@@ -202,27 +212,35 @@ def load(directory=None, profile=None, user=None):
     for key, change in changes.items():
         if not isinstance(change, dict):
             raise ConfigError(f'{user}: override {key} must be a mapping')
+    ids = [str(raw.get('id')) for raw in raws]
+    unmatched = tuple(
+        [f'override {key}' for key in changes if key not in ids]
+        + [f'disable {pattern}' for pattern in disabled
+           if not any(fnmatchcase(i, str(pattern)) for i in ids)])
     specs = []
     for raw in raws:
         raw = {**raw, **changes.get(raw.get('id'), {})}
-        if profile is not None and raw.get('profiles') and profile.name not in raw['profiles']:
+        names = raw.get('profiles') or ()
+        names = (names,) if isinstance(names, str) else tuple(names)
+        if profile is not None and names and profile.name not in names:
             continue
         if any(fnmatchcase(str(raw.get('id')), pattern) for pattern in disabled):
             raw['enabled'] = False
         specs.append(_spec(raw))
-    return HealthConfig(tuple(specs), probes)
+    return HealthConfig(tuple(specs), probes, unmatched)
 
 
 def _regex_fields(params):
     return [getattr(params, name) for name in ('pattern', 'match') if hasattr(params, name)]
 
 
-def lint(specs, procedures=()):
+def lint(specs, procedures=(), unmatched=()):
     """Problems in loaded specs as strings; empty when the files are sound.
 
-    ``procedures`` are the real procedure keys that ``gates`` may name.
+    ``procedures`` are the real procedure keys that ``gates`` may name;
+    ``unmatched`` is ``HealthConfig.unmatched`` (user entries naming no check).
     """
-    problems, seen = [], set()
+    problems, seen = [f'user file: {entry} matches no check' for entry in unmatched], set()
     for spec in specs:
         add = lambda text, spec=spec: problems.append(f'{spec.id}: {text}')
         if not ID_PATTERN.fullmatch(spec.id):
@@ -245,6 +263,10 @@ def lint(specs, procedures=()):
                 re.compile(pattern)
             except re.error as error:
                 add(f'bad regex {pattern!r}: {error}')
+        for text in _strings(vars(spec.params)):
+            for name in FIELD.findall(text):
+                if not name.isdigit():    # {3} is a regex quantifier
+                    add(f'unresolved template {{{name}}} in params')
         reference = getattr(spec.params, 'reference', None)
         if reference and not Path(reference).expanduser().exists():
             add(f'reference {reference} does not exist')

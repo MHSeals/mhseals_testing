@@ -44,7 +44,18 @@ def build_params(name, raw):
     missing = [n for n in required if n not in raw]
     if missing:
         raise ValueError(f'{name} needs {", ".join(missing)}')
+    for key, value in raw.items():
+        wanted = fields[key].type
+        if wanted in (str, int, float, bool) and not _fits(value, wanted):
+            raise ValueError(f'{name} parameter {key} {value!r} must be {wanted.__name__}')
     return cls(**raw)
+
+
+def _fits(value, wanted):
+    """True when ``value`` is a ``wanted`` scalar (ints count as floats, bools only as bools)."""
+    if wanted is float:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, wanted) and (wanted is bool or not isinstance(value, bool))
 
 
 def discover():
