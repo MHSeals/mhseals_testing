@@ -169,17 +169,16 @@ def _normalize(samples):
     return normalized
 
 
-def check_wiring(decoupling):
-    """Reject a decoupling that would reverse or fight an axis in closed loop.
+def check_wiring(gain):
+    """Reject a main response with the wrong sign: that axis is wired backwards.
 
-    Each row needs a positive diagonal (right sign) and cross terms smaller
-    than it (|cross| < |main|); otherwise the fit is not trustworthy.
+    ``gain`` is the fitted velocity gain G. Cross terms are not gated: they mix
+    m/s with rad/s, so only the sign of each diagonal is comparable.
     """
-    for i, row in enumerate(numpy.array(decoupling).reshape(3, 3)):
-        cross = max(abs(value) for j, value in enumerate(row) if j != i)
-        if row[i] <= 0 or cross >= row[i]:
-            raise ValueError(f"implausible decoupling on {AXES[i]} (diagonal {row[i]:.2f}, "
-                             f"largest cross {cross:.2f}): check wiring, run Thrusters")
+    for i, axis in enumerate(AXES):
+        if gain[i][i] <= 0:
+            raise ValueError(f"{axis} responds backwards (gain {gain[i][i]:.2f}): "
+                             "check wiring, run Thrusters")
 
 
 def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()),
@@ -208,7 +207,7 @@ def characterize_samples(samples: Iterable[Mapping], decoupling=sum(IDENTITY, ()
         recommended = [float(value) for value in recommended.flatten()]
     except numpy.linalg.LinAlgError:
         recommended = list(sum(IDENTITY, ()))
-    check_wiring(recommended)
+    check_wiring(gain)
     # Limits describe observed motion; do not extrapolate untested full-throttle dynamics.
     effort = {axis: max(abs(row[0][index]) for row in normalized) or 1.0
               for index, axis in enumerate(AXES)}

@@ -8,8 +8,6 @@ curve. ROS-free; see thrust.md section 1 ("Drag and gain").
 """
 from __future__ import annotations
 
-import math
-
 import numpy
 
 from mhseals_hardware.thruster_mixer import AXES
@@ -23,7 +21,7 @@ def speed_curve(points):
     Returns None without a usable point. A negative term (noise, or a single
     level) is dropped and the other refitted, so the curve is always monotone.
     """
-    points = [(v, e) for v, e in points if math.isfinite(v) and math.isfinite(e) and v > 0 and e > 0]
+    points = [(v, e) for v, e in points if v > 0 and e > 0]
     if not points:
         return None
     v, e = (numpy.array(column, dtype=float) for column in zip(*points))
@@ -40,7 +38,7 @@ def speed_curve(points):
 
 
 def speed_curves(samples):
-    """{'surge+'..'yaw-': curve} (the keys hardware configuration expects) from single-axis (command, velocity) samples.
+    """{axis: {'positive'|'negative': curve}} from single-axis (command, velocity) samples.
 
     ``samples`` are normalized (command, velocity) tuples; samples where another
     axis is commanded are skipped, so cross coupling never enters the curve.
@@ -60,5 +58,5 @@ def speed_curves(samples):
     for (i, sign), points in result.items():
         curve = speed_curve(points)
         if curve:
-            curves[AXES[i] + ('+' if sign > 0 else '-')] = curve
+            curves.setdefault(AXES[i], {})['positive' if sign > 0 else 'negative'] = curve
     return curves

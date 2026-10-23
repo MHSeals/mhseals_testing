@@ -190,13 +190,15 @@ def test_rosbag_pairs_preceding_commands_and_preserves_transients(tmp_path):
     assert read_rosbag(path) == [sample for sample in motion if sample['command_age'] >= 1.]
 
 
-def test_implausible_decoupling_is_rejected():
+def test_wiring_gate_checks_the_main_response_sign_only():
     from mhseals_testing.analysis.characterization import check_wiring
-    check_wiring([1, .2, 0, .1, 1, 0, 0, 0, 1])
-    # Synthetic reversed sway axis (the 2026-10-18 matrix was a replay artifact).
-    reversed_sway = [1, 0, 0, 0, -.8, 0, 0, 0, 1]
-    with pytest.raises(ValueError, match="sway"):
-        check_wiring(reversed_sway)
+    # Field replay of 2026-10-18: right signs, large rad/s-vs-m/s cross terms.
+    check_wiring([[1.13, 2.23, 0], [.1, .69, 0], [0, 0, 1.98]])
+    for axis in range(3):
+        gain = [[1., 0, 0], [0, 1., 0], [0, 0, 1.]]
+        gain[axis][axis] = -1.
+        with pytest.raises(ValueError, match=('surge', 'sway', 'yaw')[axis]):
+            check_wiring(gain)
 
 
 def test_characterize_refuses_when_a_sign_split_decoupling_is_active():
