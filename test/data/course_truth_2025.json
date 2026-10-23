@@ -1,0 +1,239 @@
+{
+    "schema": "crane-roboboat-course-truth-v1",
+    "name": "roboboat_2025",
+    "frame": "world",
+    "startX": -2.2750000953674318,
+    "startY": -4.752999782562256,
+    "startYaw": 0.0,
+    "currentSpeed": 0.20000000298023225,
+    "currentToward": 0.5235987901687622,
+    "elements": [
+        {
+            "task": "return_home",
+            "label": "black_buoy",
+            "template": "BlackBuoy0",
+            "x": -4.775000095367432,
+            "y": -3.1529998779296877,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "return_home",
+            "label": "black_buoy",
+            "template": "BlackBuoy0",
+            "x": -4.775000095367432,
+            "y": -6.352999687194824,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "nav_channel",
+            "label": "red_pole_buoy",
+            "template": "RedPoleBuoy0",
+            "x": 4.724999904632568,
+            "y": -3.252999782562256,
+            "radius": 0.24478259682655335
+        },
+        {
+            "task": "nav_channel",
+            "label": "green_pole_buoy",
+            "template": "GreenPoleBuoy0",
+            "x": 4.724999904632568,
+            "y": -6.252999782562256,
+            "radius": 0.2790388762950897
+        },
+        {
+            "task": "nav_channel",
+            "label": "red_pole_buoy",
+            "template": "RedPoleBuoy0",
+            "x": 10.725000381469727,
+            "y": -3.252999782562256,
+            "radius": 0.24478259682655335
+        },
+        {
+            "task": "nav_channel",
+            "label": "green_pole_buoy",
+            "template": "GreenPoleBuoy0",
+            "x": 10.725000381469727,
+            "y": -6.252999782562256,
+            "radius": 0.2790388762950897
+        },
+        {
+            "task": "follow_path",
+            "label": "red_buoy",
+            "template": "RedBuoy0",
+            "x": 16.725000381469728,
+            "y": -3.55299973487854,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "green_buoy",
+            "template": "GreenBuoy0",
+            "x": 16.725000381469728,
+            "y": -5.953000068664551,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "follow_path",
+            "label": "yellow_buoy",
+            "template": "RedBuoy0",
+            "x": 19.225000381469728,
+            "y": -4.252999782562256,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "red_buoy",
+            "template": "RedBuoy0",
+            "x": 21.725000381469728,
+            "y": -5.552999973297119,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "green_buoy",
+            "template": "GreenBuoy0",
+            "x": 21.725000381469728,
+            "y": -7.953000068664551,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "follow_path",
+            "label": "yellow_buoy",
+            "template": "RedBuoy0",
+            "x": 24.225000381469728,
+            "y": -7.352999687194824,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "black_target_boat",
+            "template": "BlackDeliveryBoat0",
+            "x": 24.725000381469728,
+            "y": -2.252999782562256,
+            "radius": 0.8359718322753906
+        },
+        {
+            "task": "follow_path",
+            "label": "red_buoy",
+            "template": "RedBuoy0",
+            "x": 26.225000381469728,
+            "y": -9.052999496459961,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "green_buoy",
+            "template": "GreenBuoy0",
+            "x": 26.225000381469728,
+            "y": -11.452999114990235,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "follow_path",
+            "label": "yellow_buoy",
+            "template": "RedBuoy0",
+            "x": 28.225000381469728,
+            "y": -10.753000259399414,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "red_buoy",
+            "template": "RedBuoy0",
+            "x": 29.725000381469728,
+            "y": -13.552999496459961,
+            "radius": 0.20373699069023133
+        },
+        {
+            "task": "follow_path",
+            "label": "green_buoy",
+            "template": "GreenBuoy0",
+            "x": 29.725000381469728,
+            "y": -15.952999114990235,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "docking",
+            "label": "",
+            "template": "Dock0",
+            "x": 9.725000381469727,
+            "y": -24.753000259399415,
+            "radius": 3.7500410079956056
+        },
+        {
+            "task": "speed_challenge",
+            "label": "red_buoy",
+            "template": "RedBuoy0",
+            "x": 0.7249999046325684,
+            "y": 7.497000217437744,
+            "radius": 0.3056055009365082
+        },
+        {
+            "task": "speed_challenge",
+            "label": "green_buoy",
+            "template": "GreenBuoy0",
+            "x": 0.7249999046325684,
+            "y": 4.997000217437744,
+            "radius": 0.30000001192092898
+        },
+        {
+            "task": "speed_challenge",
+            "label": "black_buoy",
+            "template": "BlackBuoy0",
+            "x": 7.724999904632568,
+            "y": 7.847000598907471,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "speed_challenge",
+            "label": "black_buoy",
+            "template": "BlackBuoy0",
+            "x": 11.725000381469727,
+            "y": 4.646999835968018,
+            "radius": 0.20000000298023225
+        },
+        {
+            "task": "speed_challenge",
+            "label": "blue_buoy",
+            "template": "RedBuoy0",
+            "x": 16.725000381469728,
+            "y": 6.247000217437744,
+            "radius": 0.3056055009365082
+        }
+    ],
+    "bays": [
+        {
+            "dock": 0,
+            "index": 0,
+            "x": 7.724993705749512,
+            "y": -23.003009796142579,
+            "yaw": 1.5708001852035523,
+            "width": 2.0,
+            "depth": 2.0005664825439455,
+            "banner": "blue_square",
+            "occupied": true
+        },
+        {
+            "dock": 0,
+            "index": 1,
+            "x": 9.724993705749512,
+            "y": -23.003002166748048,
+            "yaw": 1.5708001852035523,
+            "width": 2.0,
+            "depth": 2.0005664825439455,
+            "banner": "red_circle",
+            "occupied": false
+        },
+        {
+            "dock": 0,
+            "index": 2,
+            "x": 11.724993705749512,
+            "y": -23.002994537353517,
+            "yaw": 1.5708001852035523,
+            "width": 2.0,
+            "depth": 2.0005664825439455,
+            "banner": "blue_square",
+            "occupied": false
+        }
+    ]
+}
