@@ -85,6 +85,19 @@ def test_stop_interrupts_a_child_when_the_suite_ignores_signals(tmp_path):
         signal.signal(signal.SIGTERM, ignored[1])
 
 
+def test_a_child_gets_default_sigterm_when_the_suite_ignores_it(tmp_path):
+    previous = signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    manager = ProcessManager(tmp_path / 'logs')
+    try:
+        child = manager.start('sleeper', [sys.executable, '-c', 'import time; time.sleep(60)'])
+        child.terminate()
+        child.wait(timeout=3)
+        assert child.returncode == -signal.SIGTERM
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        manager.stop_all()
+
+
 def _state(pid):
     try:
         return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
