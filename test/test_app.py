@@ -430,6 +430,16 @@ def test_external_config_edits_reload_and_bad_ones_are_refused(tmp_path):
     assert 'rejected' in app.notice and app.args.hardware_config['reversed'][0] is True
 
 
+@pytest.mark.parametrize('text', ['reversed: [true, false\n', 'reversed:\n\t- true\n', 'channel_map: 5\n',
+                                  'manual_amplitude: "x"\n'])
+def test_unparsable_or_mistyped_config_is_refused_not_raised(tmp_path, text):
+    app, _ = make_app(tmp_path)
+    (tmp_path / 'hardware.yaml').write_text(text)
+    app.config_mtime = None
+    app.watch_config()  # a typo must not end the session
+    assert 'rejected' in app.notice and app.config_note == 'invalid edit'
+
+
 def test_reload_refreshes_the_arming_copy_of_the_config(tmp_path):
     app, _ = make_app(tmp_path)
     (tmp_path / 'hardware.yaml').write_text('reversed: [true, false, false, false]\n')

@@ -18,6 +18,7 @@ import socket
 import subprocess
 import time
 
+import yaml
 from rich.console import Console
 from rich.live import Live
 
@@ -263,7 +264,7 @@ class App:
         self.config_mtime = mtime
         try:
             self.reload_config()
-        except (OSError, ValueError, KeyError) as error:
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:  # bad syntax or types
             self.notice = f'Config rejected, keeping the last good one: {error}'
             self.config_note = 'invalid edit'
             return
