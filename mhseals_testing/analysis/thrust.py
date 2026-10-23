@@ -71,5 +71,6 @@ def speed_curves(samples, drift=None):
     for (i, sign), points in result.items():
         curve = speed_curve(points)
         if curve:
-            curves[AXES[i] + ('+' if sign > 0 else '-')] = curve
+            # Only the fitted terms go to hardware.yaml; points and max_speed stay in speed_curve.
+            curves[AXES[i] + ('+' if sign > 0 else '-')] = dict(d1=curve['d1'], d2=curve['d2'])
     return curves

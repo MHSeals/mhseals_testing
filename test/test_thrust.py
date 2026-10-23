@@ -53,6 +53,16 @@ def test_characterization_writes_curves_that_beat_the_linear_gain():
     assert abs(linear - settle(effort)) / settle(effort) > 0.05
 
 
+def test_speed_curves_round_trip_through_hardware_validation():
+    from mhseals_hardware.configuration import load_defaults, validate_config
+    from mhseals_hardware.velocity_law import Plant
+    curves = characterize_samples(rows())['speed_curves']
+    assert all(set(curve) == {'d1', 'd2'} for curve in curves.values())
+    config = validate_config(dict(load_defaults(), characterization=dict(
+        speed_curves=curves, motion_limits=dict(velocity=dict(surge=1.0, sway=1.0, yaw=1.0)))))
+    assert Plant(config).curves['surge+'] == approx((curves['surge+']['d1'], curves['surge+']['d2']))
+
+
 def test_speed_curve_drops_non_finite_samples():
     clean = [(0.5, 0.2), (1.0, 0.5), (1.5, 0.9)]
     noisy = clean + [(math.inf, 0.4), (0.8, math.inf), (math.nan, 0.3)]
