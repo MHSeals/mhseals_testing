@@ -58,13 +58,16 @@ def timeline(events):
 
 
 def load_session(path):
-    """A Review for a session folder, or its flat `<name>.report.json` events."""
+    """A Review for a session: its journal (`<name>.events.jsonl` beside the folder, or inside it),
+    else the events of `<name>.report.json`."""
     path = Path(path)
-    events = data.read_jsonl(path / 'events.jsonl') if (path / 'events.jsonl').exists() else []
-    if not events:
-        report = data.read_json(path.with_suffix('.report.json'), {})
-        events = [dict(phase='event', time=e.get('time'), note=e.get('message', ''))
-                  for e in report.get('events', [])]
+    events = []
+    for journal in (path.with_suffix('.events.jsonl'), path / 'events.jsonl'):
+        events = data.read_jsonl(journal) if journal.exists() else []   # flat, then foldered
+        if events:
+            break
+    if not events:      # report events are the journal's own records (phase, id, kind intact)
+        events = data.read_json(path.with_suffix('.report.json'), {}).get('events', [])
     t0, t1, markers, windows, gaps, fails = timeline(events)
     if t1 <= t0:
         raise ValueError(f'{path}: no timed events to review')

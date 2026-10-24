@@ -102,3 +102,23 @@ def test_session_host_comes_from_the_journal(tmp_path):
     assert load_session(tmp_path).host == 'odroid'
     (tmp_path / 'session.json').write_text('{"host": "blastoise"}')
     assert load_session(tmp_path).host == 'blastoise'
+
+
+def test_flat_session_journal_beside_the_folder_gives_markers(tmp_path):
+    import json
+    from mhseals_testing.ui.review import load_session
+    session = tmp_path / 'crane_full_stack_20261023'
+    session.mkdir()
+    (tmp_path / (session.name + '.events.jsonl')).write_text(
+        '\n'.join(json.dumps(e) for e in events()) + '\n')
+    review = load_session(session)
+    assert [m[1] for m in review.markers] == ['wobble', ''] and review.windows
+
+
+def test_report_events_keep_their_phase_when_there_is_no_journal(tmp_path):
+    import json
+    from mhseals_testing.ui.review import load_session
+    session = tmp_path / 'crane_full_stack_20261023'
+    session.mkdir()
+    (tmp_path / (session.name + '.report.json')).write_text(json.dumps({'events': events()}))
+    assert [m[1] for m in load_session(session).markers] == ['wobble', '']
