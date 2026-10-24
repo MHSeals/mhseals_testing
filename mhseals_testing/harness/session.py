@@ -7,7 +7,9 @@ the working directory. Legacy flat sessions (bag dirs next to ``*.report.json``)
 are listed read-only by ``scan_legacy``.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+import fcntl
 from datetime import datetime, timezone
 import re
 import socket
@@ -85,10 +87,11 @@ def create(profile, host=None, clock=None, git=None, config=None, now=None, dire
 def finish(directory, now=None):
     """Stamp ``ended`` (UTC) in a session header, so the index stops flagging it ``open``."""
     file = Path(directory) / 'session.json'
-    header = data.read_json(file)
-    if isinstance(header, dict):
-        header['ended'] = (now or datetime.now(timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        data.write_json(file, header, SCHEMA)
+    with _header_lock(directory):
+        header = data.read_json(file)
+        if isinstance(header, dict):
+            header['ended'] = (now or datetime.now(timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
+            data.write_json(file, header, SCHEMA)
 
 
 def update(session, **fields):
@@ -96,12 +99,13 @@ def update(session, **fields):
     unknown = set(fields) - set(EDITABLE)
     if unknown:
         raise ValueError(f'not editable: {sorted(unknown)}')
-    header = data.read_json(session.file)
-    if not isinstance(header, dict):
-        raise FileNotFoundError(f'{session.file} is missing or unreadable')
-    header.update(fields)
-    data.write_json(session.file, header, SCHEMA)
-    return header
+    with _header_lock(session.directory):
+        header = data.read_json(session.file)
+        if not isinstance(header, dict):
+            raise FileNotFoundError(f'{session.file} is missing or unreadable')
+        header.update(fields)
+        data.write_json(session.file, header, SCHEMA)
+        return header
 
 
 _STAMP = re.compile(r'_(\d{8}_\d{6})$')
@@ -135,3 +139,24 @@ def scan_legacy(root=None):
         if is_bag or (root / f'{entry.name}.report.json').exists():
             found.append({'name': entry.name, 'path': entry, 'legacy': True})
     return found
+
+
+@contextmanager
+def _header_lock(directory):
+    with (Path(directory) / '.session-header.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def persist_startup_selection(directory, reference):
+    """Owner-only write-once metadata, preserving unrelated session fields."""
+    file = Path(directory) / 'session.json'
+    with _header_lock(directory):
+        header = data.read_json(file)
+        if not isinstance(header, dict):
+            raise ValueError('session header missing')
+        previous = header.get('startup_selection')
+        if previous is not None and previous != reference:
+            raise ValueError('session configuration reference is immutable')
+        header['startup_selection'] = reference
+        data.write_json(file, header, SCHEMA)
