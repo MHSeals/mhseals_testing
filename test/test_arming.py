@@ -60,8 +60,8 @@ class Processes:
         self.stopped.append(name)
 
 
-def arming(profile='boat', die=False, subscribers=(), tmp_path=None):
-    ros = Ros(subscribers)
+def arming(profile='boat', die=False, subscribers=(), tmp_path=None, nodes=()):
+    ros = Ros(subscribers, nodes)
     clock = [0.0]
     processes = Processes(ros, die)
 
@@ -105,9 +105,9 @@ def test_plants_without_outputs_arm_without_children(tmp_path):
 def test_begin_polls_until_the_driver_listens_and_times_out_after_ten_seconds(tmp_path):
     slow, processes = arming(tmp_path=tmp_path)
     slow.ros.names.clear()
-    slow.ros.node_names.append('/thruster_pwm_node')  # discovered, yet never subscribes
     processes.start = lambda name, argv: processes.started.append(name)
     slow.begin()
+    slow.ros.node_names.append('/thruster_pwm_node')  # discovered, yet never subscribes
     assert slow.poll() == 'starting' and not slow.armed
     slow.sleep(10.5)
     with pytest.raises(RuntimeError, match='did not subscribe'):
@@ -153,9 +153,10 @@ def test_velocity_arming_waits_for_the_controller_subscription(tmp_path):
 def startup_failure(tmp_path, **ros):
     slow, processes = arming(tmp_path=tmp_path)
     slow.ros.names.clear()
-    slow.ros.node_names, slow.ros.parameters = ros.get('nodes', []), ros.get('parameters', True)
+    slow.ros.parameters = ros.get('parameters', True)
     processes.start = lambda name, argv: processes.started.append(name)
     slow.begin()
+    slow.ros.node_names = ros.get('nodes', [])  # discovered only after our driver started
     slow.sleep(10.5)
     with pytest.raises(RuntimeError) as error:
         slow.poll()
@@ -190,3 +191,12 @@ def test_a_boat_velocity_controller_listens_on_the_mux_output(tmp_path):
     assert 'input_topic:=/cmd_vel/applied' in children['velocity']
     assert 'cmd_vel:=/cmd_vel_effort' in children['hardware']
     assert list(children) == ['hardware', 'velocity', 'mux']
+
+
+def test_arm_refuses_a_driver_node_listening_on_another_topic(tmp_path):
+    """rv1-47: the sim rig's own thruster_pwm_node subscribes elsewhere; arming must still refuse."""
+    busy, processes = arming(nodes=['/thruster_pwm_node'], tmp_path=tmp_path)
+    assert 'owns the outputs' in busy.rival()
+    with pytest.raises(RuntimeError, match='owns the outputs'):
+        busy.begin()
+    assert processes.started == []

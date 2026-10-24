@@ -79,6 +79,9 @@ class Arming:
         """Why arming would be refused because another driver owns the topic, or ''."""
         if any(name.endswith(DRIVER) for name in self.ros.subscribers(self.driver_topic)):
             return f'another {DRIVER} already drives {self.driver_topic}'
+        # A driver on another topic (the sim rig's own) would still write the same outputs.
+        if any(name.rsplit('/', 1)[-1] == DRIVER for name in self.ros.nodes()):
+            return f'another {DRIVER} node is on the graph; it owns the outputs'
         return ''
 
     def begin(self):
