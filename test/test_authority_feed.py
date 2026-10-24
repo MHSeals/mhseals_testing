@@ -302,3 +302,17 @@ def test_agents_row_flips_with_left_and_right(tmp_path):
     assert app.arbiter.allow_agents is False
     app.dispatch('left')
     assert app.arbiter.allow_agents is True
+
+
+def test_sources_report_when_a_mux_is_expected(tmp_path):
+    app, _ = make_app(tmp_path)
+    feed, _ = start(app, [1000.0])
+    app.arming.armed = False
+    got = feed.sources()
+    assert (got['mux_expected'], got['muxed']) == (False, True)       # muxed, disarmed: idle
+    app.arming.armed = True
+    got = feed.sources()
+    assert (got['mux_expected'], got['muxed']) == (True, True)        # muxed, armed: silent mux is unknown
+    app.profile = load_profile('crane_direct')
+    got = feed.sources()
+    assert got['muxed'] is False                                      # unmuxed: derives as auto

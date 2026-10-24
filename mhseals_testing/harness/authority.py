@@ -108,7 +108,8 @@ class ClaimTable:
         self.pending.append({'phase': phase, 't_ns': _ns(now), 'rec': dict(claim)})
 
 
-def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=None):
+def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=None, mux_expected=True,
+           muxed=True):
     """The authority record for this instant.
 
     ``mux``: the command_mux state, or None. ``claims``: the table's claims.
@@ -119,7 +120,13 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=N
     record, so ``since_ns`` only moves when the owner or source changes.
     ``mux_age_s`` is the local time since the mux state arrived (see module
     docstring); without it the mux stamp is compared with ``now``.
+    ``mux_expected`` is False when a muxed profile is disarmed: a missing or
+    stale state is then 'none', not unknown. ``muxed`` False (an unmuxed
+    profile) has no mux state at all, so it derives as input 'auto' with no rc
+    and no holds and every driver still shows.
     """
+    if not muxed:
+        mux, mux_age_s = {'input': 'auto', 'rc': None}, 0.0
     record = {'schema': 'mhseals.authority/1', 't_ns': _ns(now), 'owner': 'none', 'source': '',
               'reason': '', 'input': None, 'cause': None, 'holds': [], 'conflict': False,
               'claims': [], 'nav': nav, 'task': task, 'procedure': procedure,
@@ -127,6 +134,10 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=N
     malformed = mux is not None and (not isinstance(mux, dict) or 'input' not in mux
                                      or (mux_age_s is None and 't_ns' not in mux)
                                      or not isinstance(mux.get('rc') or {}, dict))
+    gone = mux is None or (not malformed and _age(mux, now, mux_age_s) > STALE_S)
+    if gone and not mux_expected:
+        record['claims'] = _effective(claims, False)
+        return _finish(record, 'none', '', now, prev)
     if mux is None or malformed or _age(mux, now, mux_age_s) > STALE_S:
         # unknown means paused, but the claims stay visible
         record['claims'] = _effective(claims, True)

@@ -55,7 +55,8 @@ class AuthorityFeed:
         graph = {'cmd_vel': {'age_s': age, 'nonzero': bool(self.cmd_nonzero)},
                  'publishers': [{'node': p['node'], 'gid': p['gid']} for p in publishers],
                  'own_gids': [p['gid'] for p in publishers if p['self']]}
-        return {'procedure': procedure, 'task': task, 'graph': graph, 'nav': None}
+        return {'procedure': procedure, 'task': task, 'graph': graph, 'nav': None,
+                'mux_expected': bool(app.armed), 'muxed': bool(muxed(app.profile))}
 
     def tick(self, app, snapshot, now):
         pass                                   # the arbiter runs on its own ROS timer

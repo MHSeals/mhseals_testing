@@ -254,3 +254,28 @@ def test_rebuilt_table_never_reuses_a_revoked_claims_id():
     second, _ = rebuilt.claim('agent', 'b', NOW)
     assert second['id'] != first['id']
     assert rebuilt.get(first['id'])['state'] == 'revoked'
+
+
+def test_missing_mux_is_idle_when_none_is_expected():
+    """Disarmed or unmuxed: no mux state is not a stale authority (rv1-45)."""
+    from mhseals_testing.ui.authority_chip import chip
+    claims = table()
+    claim, _ = claims.claim('agent', 'tune', NOW)
+    for state in (None, mux(t_ns=int((NOW - 60) * 1e9))):
+        record = run(state, claims.claims, mux_expected=False)
+        assert record['owner'] == 'none' and record['claims'][0]['state'] == 'active'
+        assert chip(record, NOW) is None
+    assert run(None)['owner'] == 'unknown'  # armed and silent is still stale
+
+
+def test_unmuxed_profile_derives_as_auto_so_drivers_still_show():
+    """crane_direct has no mux state: procedure, claim and outside publishers must not read idle."""
+    claims = table()
+    assert run(None, muxed=False, mux_expected=False)['owner'] == 'none'
+    assert run(None, muxed=False, procedure={'name': 'Tune', 'run': 'r1'})['owner'] == 'procedure'
+    claim, _ = claims.claim('agent', 'tune', NOW)
+    record = run(None, claims.claims, muxed=False)
+    assert record['owner'] == 'agent' and record['claims'][0]['state'] == 'active'
+    graph = {'cmd_vel': {'age_s': 0.1, 'nonzero': True}, 'publishers': [{'node': '/other', 'gid': 'x'}],
+             'own_gids': []}
+    assert run(None, muxed=False, graph=graph)['owner'] == 'external'
