@@ -18,12 +18,13 @@ import numpy as np
 from rich.text import Text
 
 from mhseals_testing.ros.camera_feed import RATES_HZ
-from mhseals_testing.ui import graphics, theme
+from mhseals_testing.ui import graphics, palette, theme
 
 CELL_PX = (8, 16)       # pixels per cell sent to kitty (width, height)
 BOX_RGB = (255, 255, 0)
 BAD_FRAME = 'bad frame'
 WAITING = 'waiting for a frame'
+NEEDS_COLOUR = 'camera view needs colour'
 KEYS_HINT = 'd boxes  D floor  f freeze  s save  +- rate'
 
 
@@ -148,11 +149,29 @@ class CameraView:
                         draw_box(image, (x0, y0, max(x1, x0 + 1), max(y1, y0 + 1)), rgb)
         return image
 
+    def text_only(self):
+        """True under ASCII or NO_COLOR: half-blocks would be wrong there (health.md fallback)."""
+        return bool(theme.ASCII or palette.detect_tier() == 'mono')
+
+    def _detection_list(self, frame):
+        """The text fallback: a notice and one line per detection ('x0,y0-x1,y1 of WxH')."""
+        height, width = frame[1].shape[:2]
+        out = [NEEDS_COLOUR]
+        if self.detections:
+            for floor in (False, True):
+                if self.floor if floor else self.boxes:
+                    out += [('floor ' if floor else '') + '%d,%d-%d,%d' % tuple(round(v) for v in rect)
+                            for rect, _ in self.detections((width, height), floor)]
+        out = out[:self.rows]
+        return [Text(line, style=theme.MUTED) for line in out] + [Text('') for _ in range(self.rows - len(out))]
+
     def lines(self):
         """Rich Text lines for the pane (``rows`` of them); uploads the kitty frame when it changed."""
         frame = self._source()
         if frame is None:
             return [Text(WAITING if row == 0 else '', style=theme.MUTED) for row in range(self.rows)]
+        if self.text_only():
+            return self._detection_list(frame)
         image = self._annotated(frame[1], self.kitty)
         cols, rows = self.pane
         blank = [Text('') for _ in range(self.rows - rows)]

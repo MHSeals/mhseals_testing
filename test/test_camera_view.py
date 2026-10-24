@@ -185,3 +185,20 @@ def test_status_line_shows_rate_age_and_frozen():
     assert v.status() == '1 Hz · 0.3 s old'
     v.key('f')
     assert v.status().endswith('0.3 s old · frozen')
+
+
+def test_ascii_or_no_colour_lists_detections_instead_of_half_blocks(monkeypatch):
+    bus = Bus()
+    v, _ = view(bus, size=(8, 4), detections=lambda size, floor: [((1, 2, 5, 6), (255, 0, 0))])
+    bus.publish()
+    for setup in (lambda: monkeypatch.setattr(camera_view.theme, 'ASCII', True),
+                  lambda: (monkeypatch.setattr(camera_view.theme, 'ASCII', False),
+                           monkeypatch.setenv('NO_COLOR', '1'))):
+        setup()
+        lines = v.lines()
+        assert len(lines) == 4
+        text = '\n'.join(line.plain for line in lines)
+        assert '▀' not in text and camera_view.NEEDS_COLOUR in text and '1,2-5,6' not in text
+        v.boxes = True
+        assert '1,2-5,6' in '\n'.join(line.plain for line in v.lines())
+        v.boxes = False

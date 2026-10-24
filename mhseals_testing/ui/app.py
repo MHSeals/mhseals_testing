@@ -727,7 +727,7 @@ class App:
             steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
         if self.watching:    # not ours to stop: neutral, events and the report belong to the owner
             steps = [('Watch', lambda: f'left pid {self.watching} running')]
-        rows = [[name, '◌ waiting'] for name, _ in steps]
+        rows = [[name, theme.icon('busy').plain + ' waiting'] for name, _ in steps]
         self.modal = dict(kind='message', title='Closing session', rows=rows, width=64,
                           hint='Ctrl+C again skips the rest')
         for row, (_, step) in zip(rows, steps):
