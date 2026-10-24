@@ -51,14 +51,16 @@ def no_samples():
     return {}, {}, {}
 
 
-def host_collector(bag_directory='.', clock=time.monotonic):
+def host_collector(bag_directory=None, clock=time.monotonic):
     """Collector for the probes that need no ROS: host load, temperature and disk.
 
     The graph, network, FCU/battery and perception probes need a live node and
     are not sampled here; their checks stay unknown (see ``unchecked``).
     """
+    from mhseals_testing import data
     from mhseals_testing.health import probes
     store = probes.Facts(clock)
+    bag_directory = bag_directory or data.root()      # the bag disk, never the working directory
 
     def collect():
         try:

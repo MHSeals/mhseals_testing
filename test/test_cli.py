@@ -121,3 +121,13 @@ def test_banner_counts_partial_unknown():
     report = {'checks': [{}, {}], 'summary': {'unknown': 1}}
     assert cli.unchecked(report) == '1 of 2 checks unknown (no sample from their probes)'
     assert cli.unchecked({'checks': [], 'summary': {'unknown': 0}}) == ''
+
+
+def test_host_collector_measures_the_data_root_not_the_working_directory(monkeypatch, tmp_path):
+    from mhseals_testing.health import probes
+    seen = []
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    monkeypatch.chdir('/')
+    monkeypatch.setattr(probes, 'host_facts', lambda directory: seen.append(directory) or {})
+    cli.host_collector()()
+    assert [str(d) for d in seen] == [str(tmp_path.resolve())]
