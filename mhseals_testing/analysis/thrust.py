@@ -7,8 +7,7 @@ not described by one linear gain: the secant gain errs by tens of percent away
 from the amplitudes it was fitted at. Two or more levels per axis-sign give the
 curve. ROS-free; the maths is in docs/math.pdf, "Speed curves".
 
-Also the measurement of one hold (thrust spec 4): ``step_response``, ``body_velocity`` and
-``residual``, which turns a hold into main and cross responses with a trust.
+Also ``step_response``, the rise time and edge rates of one hold's signal.
 """
 from __future__ import annotations
 
@@ -82,34 +81,9 @@ def speed_curves(samples, drift=None):
     return curves
 
 
-# --- one hold: step response, body velocity, residual trust ---------------------------------
+# --- one hold: step response ----------------------------------------------------------------
 
-TAU_YAW = 0.015    # rad/s of yaw rate per m/s of translation (about 1 deg/s at field speed)
-TAU_CRAB = 0.05    # m/s of cross translation per m/s of main
-TAU_LEVER = 0.10   # m: rotation-centre offset |v|/|r| a yaw hold may show
 EDGE_S = 0.5       # window after thrust on and cut for the onset and cut rates
-
-
-@dataclass
-class Hold:
-    """One steady hold on ``direction`` ('surge+'..'yaw-') at effort ``amplitude``.
-
-    ``vel_world`` is (E, N) in m/s and ``gyro`` the yaw rate in rad/s (left positive) at times
-    ``t``. ``yaw`` is the compass heading (rad, clockwise from north) at the preceding neutral,
-    thrust off; the heading during the hold is that plus the gyro integral from ``t_on``.
-    The measurement window is ``t_settled`` to ``t_end``; thrust is cut at ``t_cut``.
-    """
-    direction: str
-    amplitude: float
-    column: tuple
-    t: numpy.ndarray
-    gyro: numpy.ndarray
-    vel_world: numpy.ndarray
-    yaw: float
-    t_on: float
-    t_settled: float
-    t_cut: float
-    t_end: float
 
 
 @dataclass
@@ -118,15 +92,6 @@ class Step:
     steady: float           # mean over the last third of the hold
     onset_rate: float       # slope in the first EDGE_S after t_on (yaw accel for a gyro)
     cut_rate: float         # slope in the first EDGE_S after t_cut
-
-
-@dataclass
-class Residual:
-    main: float             # signed-positive response of the commanded axis (m/s or rad/s)
-    cross: numpy.ndarray    # (2,) mean of the other axes, in index order, body frame
-    se: numpy.ndarray       # (2,) sigma_k: wave floor plus heading or lever error
-    trust: float            # P(every cross entry inside tolerance)
-    limited: numpy.ndarray  # (2,) bool: 2*sigma_k > tau_k*|main|, so noise sets the entry
 
 
 def _slope(t, y, low, high):
@@ -150,56 +115,3 @@ def step_response(t, y, t_on, t_cut):
         reached = numpy.nonzero(hold & ((y - base) / (steady - base) >= 0.95))[0]
         t95 = float(t[reached[0]] - t_on) if reached.size else None
     return Step(t95, steady, _slope(t, y, t_on, t_on + EDGE_S), _slope(t, y, t_cut, t_cut + EDGE_S))
-
-
-def body_velocity(hold: Hold, drift, lever_arm=(0.0, 0.0)):
-    """(n, 3) surge, sway-left, yaw rate of the rotation centre, with the world drift removed.
-
-    ``drift`` is a Drift or an (E, N) vector. The antenna at ``lever_arm`` (x forward, y left, m)
-    moves at v_c + r x lever, which is taken off before the result is the centre's velocity.
-    """
-    vector = numpy.asarray(getattr(drift, 'vector', drift), float)
-    t, r = hold.t, hold.gyro
-    area = numpy.concatenate([[0.0], numpy.cumsum(numpy.diff(t) * (r[1:] + r[:-1]) / 2)])
-    heading = hold.yaw - (area - numpy.interp(hold.t_on, t, area))   # clockwise heading falls as the boat turns left
-    east, north = (hold.vel_world - vector).T
-    forward = east * numpy.sin(heading) + north * numpy.cos(heading)
-    left = -east * numpy.cos(heading) + north * numpy.sin(heading)
-    return numpy.column_stack([forward + r * lever_arm[1], left - r * lever_arm[0], r])
-
-
-def _phi(x):
-    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
-
-
-def residual(hold: Hold, drift, floor, sigma_yaw, lever_arm=(0.0, 0.0), sigma_lever=0.05):
-    """Main and cross response of a hold over its window, with the trust of the column (thrust spec 2).
-
-    ``floor`` is conditions.wave_floor (yaw, surge, sway); ``sigma_yaw`` the heading error in rad,
-    which leaks the main translation into the other translation entry; ``sigma_lever`` (m) does the
-    same for yaw holds. The trust is the product over the two cross entries of
-    P(|y_k| < tau_k |main|) for y_k ~ N(measured, sigma_k).
-    """
-    axis = [*AXES].index(hold.direction[:-1])
-    sign = 1 if hold.direction[-1] == '+' else -1
-    window = (hold.t >= hold.t_settled) & (hold.t <= hold.t_end)
-    mean = body_velocity(hold, drift, lever_arm)[window].mean(axis=0)
-    main = sign * float(mean[axis])
-    wave = [floor[1], floor[2], floor[0]]            # wave_floor is (yaw, surge, sway); axes are (surge, sway, yaw)
-    others = [i for i in range(3) if i != axis]
-    tau, var = [], []
-    for i in others:
-        if axis == 2:                                # yaw hold: a surge or sway speed is a rotation-centre offset
-            tau.append(TAU_LEVER * abs(main))
-            var.append(wave[i] ** 2 + (sigma_lever * main) ** 2)
-        elif i == 2:                                 # translation hold: yaw rate
-            tau.append(TAU_YAW * abs(main))
-            var.append(wave[i] ** 2)
-        else:                                        # translation hold: crab, heading error rotates the main speed
-            tau.append(TAU_CRAB * abs(main))
-            var.append(wave[i] ** 2 + (sigma_yaw * main) ** 2)
-    cross, se, tau = mean[others], numpy.sqrt(var), numpy.array(tau)
-    trust = 1.0
-    for y, s, bound in zip(cross, se, tau):
-        trust *= _phi((bound - y) / s) - _phi((-bound - y) / s) if s > 0 else float(abs(y) <= bound)
-    return Residual(main, cross, se, float(trust), 2 * se > tau)
