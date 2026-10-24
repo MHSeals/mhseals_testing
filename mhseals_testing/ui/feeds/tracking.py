@@ -128,20 +128,25 @@ class TrackingFeed:
                                  colour=[score_colour(s, self.settings) for s in self.scores])}
 
     def add(self, axis, score, trust, version):
-        """One window's score (None or NaN is ignored) and the conditions trust it ran under."""
+        """One window's score (None or NaN is ignored) and the conditions trust it ran under.
+
+        Sums are per calibration version: a different ``version`` records the open sums (as ``close``) first.
+        """
         if score is None or score != score:
             return
+        if self.axes and version != self.version:       # recalibrated mid-session: bank the old fit's scores first
+            self.close(judge=False)
         self.version = version
         row = self.axes.setdefault(axis, [0.0, 0, 0.0])
         row[0] += score
         row[1] += 1
         row[2] += trust
 
-    def close(self):
-        """Record every axis that scored; returns {axis: staleness verdict}."""
+    def close(self, judge=True):
+        """Record every axis that scored; returns {axis: staleness verdict}. ``judge=False`` keeps stored verdicts."""
         path = self.path or data.path('calibration', 'current.json')
         verdicts = {axis: tracking.record_session(
-            path, axis, dict(mean=total / n, n=n, trust=trust / n, version=self.version), self.settings)
+            path, axis, dict(mean=total / n, n=n, trust=trust / n, version=self.version), self.settings, judge=judge)
             for axis, (total, n, trust) in self.axes.items()}
         self.axes = {}
         return verdicts

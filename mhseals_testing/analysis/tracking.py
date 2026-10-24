@@ -114,12 +114,13 @@ def staleness(sessions, version, settings, seed=0):
     return result
 
 
-def record_session(path, axis, summary, settings, seed=0):
+def record_session(path, axis, summary, settings, seed=0, judge=True):
     """Append one session's score summary to ``path`` (calibration/current.json) and re-judge.
 
     ``summary`` is {'mean', 'n', 'trust', 'version'} for ``axis``. The file's
     ``provenance.tracking[axis]`` keeps the sessions list and the latest staleness verdict
     (flag, reason, slope), so agents can read the trend. Returns that verdict.
+    ``judge=False`` only appends (a superseded version's sessions must not rewrite the verdict).
     """
     path = Path(path)
     data = read_json(path, {})
@@ -127,7 +128,8 @@ def record_session(path, axis, summary, settings, seed=0):
         summary = {**summary, 'mean': None}   # NaN is not JSON; staleness skips null means
     entry = data.setdefault('provenance', {}).setdefault('tracking', {}).setdefault(axis, {'sessions': []})
     entry['sessions'].append(summary)
-    verdict = staleness(entry['sessions'], summary['version'], settings, seed)
-    entry['staleness'] = verdict
+    if judge:
+        entry['staleness'] = staleness(entry['sessions'], summary['version'], settings, seed)
+    verdict = entry.get('staleness')
     atomic_write(path, json.dumps(data, indent=2, allow_nan=False) + '\n')
     return verdict

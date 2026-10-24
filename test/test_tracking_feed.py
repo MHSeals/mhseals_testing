@@ -163,3 +163,36 @@ def test_ticks_feed_the_session_summary_and_close_records_it(tmp_path):
     verdicts = feed.close()
     sessions = data.read_json(path)['provenance']['tracking']['surge']['sessions']
     assert sessions[0]['version'] == 'forward:C3' and sessions[0]['n'] == 1 and set(verdicts) == {'surge'}
+
+
+def test_a_recalibration_mid_session_records_one_session_per_version(tmp_path):
+    from mhseals_testing import data
+    path = tmp_path / 'current.json'
+    data.write_json(path, {'directions': {'forward': {'fit': {'id': 'C3'}}}}, 'mhseals.calibration/1')
+    feed = TrackingFeed(path=path)
+    plots = session((0.6, 0.0, 0.0))
+    snapshot = dict(plots=plots, sensors={})
+    feed.tick(app(), snapshot, plots['now'])
+    feed.tick(app(), snapshot, plots['now'])
+    data.write_json(path, {**data.read_json(path), 'directions': {'forward': {'fit': {'id': 'C4'}}}}, 'mhseals.calibration/1')
+    feed.tick(app(), snapshot, plots['now'])
+    feed.close()
+    sessions = data.read_json(path)['provenance']['tracking']['surge']['sessions']
+    assert [(s['version'], s['n']) for s in sessions] == [('forward:C3', 2), ('forward:C4', 1)]
+
+
+def test_banking_a_superseded_version_keeps_the_cleared_staleness(tmp_path):
+    from mhseals_testing import calibration, data
+    from mhseals_testing.analysis import tracking
+    from mhseals_testing.health import probes
+    path = tmp_path / 'current.json'
+    data.write_json(path, {'directions': {'forward': {'fit': {'id': 'C3'}}}}, 'mhseals.calibration/1')
+    feed = TrackingFeed(path=path)
+    for _ in range(3):
+        tracking.record_session(path, 'surge', dict(mean=0.1, n=5, trust=1.0, version='forward:C3'), feed.settings)
+    assert probes.staleness_facts(calibration.load(path)) != {}
+    feed.add('surge', 0.1, 1.0, 'forward:C3')
+    calibration.record('forward', dict(id='C4'), {}, path=path)
+    assert probes.staleness_facts(calibration.load(path)) == {}
+    feed.add('surge', 0.6, 1.0, 'forward:C4')            # banks the C3 sums without re-judging them
+    assert probes.staleness_facts(calibration.load(path)) == {}
