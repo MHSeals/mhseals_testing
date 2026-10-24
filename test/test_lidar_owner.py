@@ -30,12 +30,17 @@ def calibration_share(nav_root, tmp_path):
     return lambda name: nav_root if name == 'mhseals_nav' else package
 
 
-def sensor_argv(profile_args=None, overlay_args=None, route='sensors'):
+def sensor_argv(profile_args=None, overlay_args=None, route='sensors', use_sim_time=False):
     boat = load_profile('boat')
-    specs = {key: dict(value) for key, value in boat.components.items()}
+    specs = {key: {**value, 'args': dict(value.get('args', {}))}
+             for key, value in boat.components.items()}
+    if use_sim_time:
+        for spec in specs.values():
+            if 'sim' in spec['args']:
+                spec['args']['sim'] = 'true'
     specs['sensors']['args'] = {**specs['sensors']['args'], **(profile_args or {})}
     specs['sensors']['launch'] = ['mhseals_nav', f'{route}.launch.py']
-    boat = replace(boat, components=specs)
+    boat = replace(boat, components=specs, use_sim_time=use_sim_time)
     overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
     assert overlay == {'odometry': {'fcu_url': 'serial:///inert-fcu'}}
     overlay['sensors'] = overlay_args or {}
@@ -156,7 +161,8 @@ def test_tui_sim_or_ignored_lidar_never_constructs_physical_pair(
         nav_root, calibration_share, route, patch, packages):
     ns = sensor_factory(nav_root, calibration_share)
     ns['resolve_lidar'] = lambda *a, **kw: pytest.fail('resolved unused physical lidar')
-    argv = sensor_argv(overlay_args=dict(patch, lidar_params_file='/missing'), route=route)
+    argv = sensor_argv(overlay_args=dict(patch, lidar_params_file='/missing'), route=route,
+                       use_sim_time=patch.get('sim') == 'true')
     nodes = ns['sensor_nodes'](sensor_context(ns, nav_root, argv, route))
     assert [node.package for node in nodes] == packages
 
@@ -178,3 +184,12 @@ def test_tui_deployment_leaf_validation_cannot_be_masked(
     ns['Node'] = lambda **kw: pytest.fail('constructed pair from invalid masked deployment')
     with pytest.raises(ValueError):
         ns['sensor_nodes'](context)
+
+
+def test_tui_robot_sim_clock_conflict_refuses_before_component(monkeypatch):
+    from mhseals_testing.harness import components as module
+    constructors = []
+    monkeypatch.setattr(module, 'Component', lambda *args: constructors.append(args))
+    with pytest.raises(ValueError, match='sensors.sim must match use_sim_time'):
+        sensor_argv(overlay_args={'sim': 'true'}, route='robot')
+    assert constructors == []
