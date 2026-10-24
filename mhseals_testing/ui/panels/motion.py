@@ -53,9 +53,16 @@ def _axis(index, snapshot, view, width, rows):
     arrow = theme.pick('→', '->')
     percent = theme.DASH if not tracking or tracking['score'][index] is None else f"{tracking['score'][index]:.0%}"
     header = Text(f'{name}', style='bold', no_wrap=True, overflow='crop')
-    if width < SHORT:      # U14: the score yields before cmd and meas
-        header.append(f' {percent}   ' if tracking else '  ', style=_HUE[tracking['colour'][index]] if tracking else '')
-        header.append(f'{cmd} {arrow} {meas}', style='bold')
+    if width < SHORT:      # U14: shrink in order: drop the score, then the arrow and cmd; meas always shows whole
+        hue = _HUE[tracking['colour'][index]] if tracking else ''
+        tiers = ([[(f' {percent}   ', hue), (f'{cmd} {arrow} {meas}', 'bold')]] if tracking else []) + [
+            [('  ', ''), (f'{cmd} {arrow} {meas}', 'bold')], [(' ', ''), (f'{cmd} {arrow} {meas}', 'bold')],
+            [(' ', ''), (meas, 'bold')]]
+        for tier in tiers:
+            if len(name) + sum(len(t) for t, _ in tier) <= width or tier is tiers[-1]:
+                break
+        for part, style in tier:
+            header.append(part, style=style)
     else:
         parts = [(f'{unit}{"" if tracking or key != "wz" else " gyro"}', 'bold')]    # gyro yields to the score
         if tracking:

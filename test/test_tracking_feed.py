@@ -138,3 +138,15 @@ def test_missing_plots_or_velocity_units_clear_the_stale_ghost():
     feed = tracked(session((0.6, 0.0, 0.0)))
     feed.tick(app(units='velocity'), dict(plots=session((0.6, 0.0, 0.0)), sensors={}), 15.0)
     assert not any(feed.pred) and not any(feed.cmd)
+
+
+@pytest.mark.parametrize('inner', range(18, 28))
+def test_short_header_always_shows_the_whole_measurement(inner):
+    """Motion has 18-27 inner columns at 90-99: the score, then cmd and arrow, yield before the measurement."""
+    from mhseals_testing.ui.panels.motion import _axis
+    tracking = dict(pred=[[], [], []], score=(0.91, 0.5, 0.5), colour=['green', 'red', 'red'])
+    v = view(load_profile('boat'), units='effort', command=(0.6, 0.0, 0.0), tracking=tracking)
+    for index in range(3):
+        header = _axis(index, driven().snapshot(), v, inner, 1)[0].plain
+        assert ('+0.20', '+0.00', '+0.10')[index] in header
+        assert len(header) <= inner
