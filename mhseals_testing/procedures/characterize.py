@@ -293,10 +293,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     history, warn = ctx.services.get('history'), ctx.services.get('warn')
     if history:
         adapters.record_file(history, 'hardware', 'characterize', staging.config, warn)
-    context = dict((ctx.services.get('fit_context') or dict)())
-    head = history.head('hardware') if history else None
-    calibration.record_fit(list(refined), fit, load_config(staging.config),
-                           context=dict(context, config=head['id'] if head else None), conditions=water)
+    _record_calibration(ctx, refined, fit, water, staging.config, history)
     saved = dict(procedure='characterization', verdict='SAVED')
     picked = max((d for d in columns if d not in dead), default=None, key=lambda d: sum(abs(c) for c in columns[d]))
     if picked and any(columns[picked]):
@@ -307,6 +304,19 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         ctx.record(dict(procedure='characterization', verdict='SAVED',
                         path=str(nav2_limits.save(profile, ctx.services['nav2_user']))))
     return result or summary
+
+
+def _record_calibration(ctx, refined, fit, water, config, history):
+    """Store the fit's provenance in calibration/current.json. Best effort: a failure is a warning, never a lost save."""
+    services = ctx.services
+    try:
+        context = dict((services.get('fit_context') or dict)())
+        head = history.head('hardware') if history else None
+        calibration.record_fit(list(refined), fit, load_config(config), path=services.get('calibration_path'),
+                               context=dict(context, config=head['id'] if head else None), conditions=water)
+    except Exception as error:
+        if services.get('warn'):
+            services['warn'](f'Calibration provenance could not be recorded: {error}')
 
 
 def _verify(ctx, cfg, direction, column, amplitude, tolerance):

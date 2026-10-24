@@ -304,3 +304,35 @@ def test_save_records_fit_provenance(config, tmp_path, monkeypatch):
     assert set(saved['fit']) == set(stored) and saved['fit']['sway+']['id'] == stored['sway+']['fit']['id']
     assert stored['sway+']['battery_v'] == 15.5 and stored['sway+']['gate'] == {'muted': False}
     assert calibration.marks(load_config(config), current={'directions': stored}) == {}
+
+
+def test_save_clears_staleness_with_a_path_override(config, tmp_path):
+    from mhseals_testing import calibration, data
+    path = tmp_path / 'calibration' / 'current.json'
+    data.write_json(path, {'directions': {}, 'provenance': {'tracking': {'surge': {'staleness': {'stale': True}, 'n': 1}}}},
+                    calibration.SCHEMA)
+    ctx, _, _ = context(tmp_path, Fake(config))
+    ctx.services['calibration_path'] = path
+    run(ctx)
+    stored = calibration.load(path)
+    assert set(stored['directions']) == {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'}
+    assert 'staleness' not in stored['provenance']['tracking']['surge']
+
+
+def test_declined_save_records_no_calibration(config, tmp_path):
+    path = tmp_path / 'current.json'
+    ctx, _, _ = context(tmp_path, Fake(config), answer='no')
+    ctx.services['calibration_path'] = path
+    run(ctx)
+    assert not path.exists()
+
+
+def test_a_failed_provenance_write_warns_and_keeps_the_save(config, tmp_path, monkeypatch):
+    from mhseals_testing import calibration
+    monkeypatch.setattr(calibration, 'record_fit', lambda *a, **k: 1 / 0)
+    warnings = []
+    ctx, _, _ = context(tmp_path, Fake(config))
+    ctx.services['warn'] = warnings.append
+    run(ctx)
+    assert 'fit' in load_config(config)['characterization']
+    assert any('could not be recorded' in w for w in warnings)
