@@ -1,17 +1,21 @@
 """Malformed recorded event payloads are contained at the ReviewSource boundary."""
 from functools import partial
-import pytest
-from test_bags_open_review import selected_app, FakeReader, S
+
 from mhseals_testing.ui.source import ReviewSource
+import pytest
+from test_bags_open_review import FakeReader, S, selected_app
+
 
 class Msg:
     def __init__(self, data):
         self.data = data
 
+
 PAYLOADS = {
     'list': lambda: Msg('[1]'), 'text': lambda: Msg('"x"'),
     'int-phase': lambda: Msg('{"phase": 5}'), 'nodata-list': lambda: ['x'],
     'missing-phase': lambda: Msg('{}'), 'badjson': lambda: Msg('{')}
+
 
 def install(monkeypatch, bad_at, payload):
     def opener(segment):
@@ -23,8 +27,10 @@ def install(monkeypatch, bad_at, payload):
     monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
         ReviewSource, opener=opener, decode=lambda kind, message: message))
 
+
 def owners(app):
     return (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths)
+
 
 @pytest.mark.parametrize('name', sorted(PAYLOADS))
 def test_tick_payload(tmp_path, monkeypatch, name):
@@ -40,6 +46,7 @@ def test_tick_payload(tmp_path, monkeypatch, name):
         pytest.fail(f'tick escaped {type(error).__name__}: {error}')
     assert owners(app) == live and not app.closed and boat.sent == []
     assert app.notice
+
 
 @pytest.mark.parametrize('name', sorted(PAYLOADS))
 def test_entry_payload(tmp_path, monkeypatch, name):
