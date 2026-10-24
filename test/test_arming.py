@@ -217,3 +217,79 @@ def test_arm_refuses_a_foreign_publisher_on_applied(tmp_path):
 def test_profile_manual_topic_follows_the_mux():
     assert load_profile('boat').manual_topic == '/cmd_vel/manual'
     assert load_profile('crane_direct').manual_topic == '/crane/cmd_vel_stamped'
+
+
+def test_managed_controller_restart_keeps_complete_owner_snapshot(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from mhseals_testing.harness import session
+    from mhseals_testing.startup_owner import prepare_session
+    from mhseals_testing.ros.arming import controller_topics
+
+    profile = replace(load_profile('crane_full_stack').with_velocity_control(), components={})
+    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'store'))
+    operator = tmp_path / 'operator.yaml'
+    desired = dict(load_defaults(), characterization={'velocity_gain': {
+        row: {column: float(row == column) for column in ('surge', 'sway', 'yaw')}
+        for row in ('surge', 'sway', 'yaw')},
+        'motion_limits': {'velocity': {'surge': 1., 'sway': 1., 'yaw': 1.}}})
+    desired['controller'].update(kp=[2., 3., 4.], ki=[.1, .2, .3],
+                                 input_topic='/yaml/input', output_topic='/yaml/output',
+                                 odom_topic='/yaml/odom')
+    operator.write_text(yaml.safe_dump(desired))
+    created = session.create('controller', directory=tmp_path / 'session')
+    args = SimpleNamespace(config=str(operator))
+    reference = prepare_session(profile, args, created.directory, 'own', {})
+    from mhseals_hardware.startup_config import plain
+    captured = plain(reference.validate().documents['hardware-pure'])
+    topics = controller_topics(profile)
+    assert captured['baseline']['controller']['input_topic'] == '/yaml/input'
+    assert captured['effective']['controller']['kp'] == [2., 3., 4.]
+    for key, value in topics.items():
+        assert captured['effective']['controller'][key] == value
+        origin = captured['origins']['controller.' + key][-1]
+        assert origin['layer'] == 'session'
+        assert origin['source'] == f'testing profile {profile.name} controller topology'
+
+    ros = Ros()
+    processes = Processes(ros)
+    invocations = []
+    def start(name, argv):
+        invocations.append((name, argv))
+        processes.started.append(name)
+        if name == 'hardware':
+            ros.names.append('/thruster_pwm_node')
+        if name == 'velocity':
+            ros.names.append('/calibrated_velocity_controller')
+    processes.start = start
+    armed = Arming(profile, ros, processes, desired, tmp_path / 'snapshot.yaml',
+                   selection=reference)
+    for attempt in range(2):
+        armed.begin()
+        assert armed.poll() == 'armed'
+        assert armed.expected()['calibrated_velocity_controller'] == topics['input_topic']
+        snapshot = yaml.safe_load(armed.config_path.read_text())
+        assert snapshot['controller'] == captured['effective']['controller']
+        assert snapshot['characterization'] == captured['effective']['characterization']
+        argv = dict(invocations)['velocity']
+        for key, value in topics.items():
+            assert f'{key}:={value}' in argv
+        assert not any(value.startswith(('kp:=', 'ki:=')) for value in argv)
+        assert f"cmd_vel:={topics['output_topic']}" in dict(invocations)['hardware']
+        armed.disarm()
+        ros.names.clear()
+        processes.stopped.clear()
+        operator.write_text('invalid yaml: [')
+        desired['controller']['kp'] = [99., 99., 99.]
+        desired['characterization'] = {}
+        assert prepare_session(profile, args, created.directory, 'adopt', {}) == reference
+    changed = replace(profile, odometry='/different/odom')
+    with pytest.raises(ValueError, match='topology differs'):
+        prepare_session(changed, args, created.directory, 'adopt', {})
+    armed.profile = changed
+    before = len(invocations)
+    with pytest.raises(ValueError, match='topology differs'):
+        armed.begin()
+    assert len(invocations) == before
+    with pytest.raises(ValueError, match='topology differs'):
+        driver_commands(changed, armed.config_path, reference)

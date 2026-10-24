@@ -9,6 +9,7 @@ from mhseals_hardware.configuration import config_path
 from mhseals_testing import data, nav2_limits
 from mhseals_testing.configuration import Selection, bootstrap, hardware, navigation
 from mhseals_testing.harness import session
+from mhseals_testing.ros.arming import controller_topics
 
 NAV_LAUNCHES = {('mhseals_nav', 'navigation.launch.py'), ('mhseals_nav', 'robot.launch.py')}
 RESERVED = {'config_root', 'config_scope', 'config_candidate'}
@@ -65,6 +66,8 @@ def prepare_session(profile, args, directory, mode, overlay):
         if 'hardware' in domains and (selected.documents['hardware-pure']['effective']['output_backend']
                                       != profile.outputs):
             raise ValueError('output backend differs; create a new session')
+        if 'hardware' in domains:
+            controller_topics(profile, selected.documents['hardware-pure']['effective'])
         if 'navigation' in domains:
             invocation = navigation_args(profile, overlay)
             captured = selected.documents[navigation.PARTICIPANT]['invocation']
@@ -82,8 +85,13 @@ def prepare_session(profile, args, directory, mode, overlay):
         path = config_path(args.config)
         explicit = args.config or os.environ.get('MHSEALS_HARDWARE_CONFIG')
         operator = path if explicit or path.exists() else None
+        invocation = {'output_backend': profile.outputs}
+        topics = controller_topics(profile)
+        if topics:
+            invocation['controller'] = topics
         prepared['hardware'] = hardware.prepare_inputs(operator, session=(
-            yaml.safe_dump({'output_backend': profile.outputs}), 'testing profile invocation'))
+            yaml.safe_dump(invocation),
+            f"testing profile {getattr(profile, 'name', 'invocation')} controller topology"))
     if 'navigation' in domains:
         from ament_index_python.packages import get_package_share_directory
         share = Path(get_package_share_directory('mhseals_nav'))

@@ -31,14 +31,32 @@ def command_input(profile):
     return APPLIED_TOPIC if muxed(profile) else profile.command_topic
 
 
-def driver_commands(profile, config_path, selection=None):
+def controller_topics(profile, effective=None):
+    """Bind managed profile topology once, checking captured selection on reuse."""
+    if not getattr(profile, 'velocity_controller', False):
+        return {}
+    desired = dict(input_topic=command_input(profile), output_topic=EFFORT_TOPIC,
+                   odom_topic=profile.odometry)
+    if effective is None:
+        return desired
+    captured = {key: effective['controller'][key] for key in desired}
+    if captured != desired:
+        raise ValueError('controller topology differs; create a new session')
+    return captured
+
+
+def driver_commands(profile, config_path, selection=None, topics=None):
     """(name, argv) for each child, the driver first so it holds neutral before commands, the mux last."""
+    if selection is not None and 'hardware' not in selection.domains:
+        raise ValueError('hardware outside selected session closure')
+    if topics is None:
+        effective = (selection.validate().documents['hardware-pure']['effective']
+                     if selection is not None else None)
+        topics = controller_topics(profile, effective)
     common = ['-p', f'config_file:={config_path}',
               '-p', f'use_sim_time:={str(profile.use_sim_time).lower()}']
     mux_common = list(common)
     if selection is not None:
-        if 'hardware' not in selection.domains:
-            raise ValueError('hardware outside selected session closure')
         common += [part for key, value in selection.arguments().items()
                    for part in ('-p', f'{key}:={value}')]
     driver = ['ros2', 'run', 'mhseals_hardware', DRIVER, '--ros-args', *common,
@@ -49,10 +67,8 @@ def driver_commands(profile, config_path, selection=None):
         return [('hardware', driver + ['-r', f'cmd_vel:={command_input(profile)}']), *mux]
     controller = ['ros2', 'run', 'mhseals_hardware', 'calibrated_velocity_controller',
                   '--ros-args', *common,
-                  '-p', f'input_topic:={command_input(profile)}',
-                  '-p', f'output_topic:={EFFORT_TOPIC}',
-                  '-p', f'odom_topic:={profile.odometry}']
-    return [('hardware', driver + ['-r', f'cmd_vel:={EFFORT_TOPIC}']),
+                  *[part for key, value in topics.items() for part in ('-p', f'{key}:={value}')]]
+    return [('hardware', driver + ['-r', f"cmd_vel:={topics['output_topic']}"]),
             ('velocity', controller), *mux]
 
 
@@ -69,13 +85,23 @@ class Arming:
         self.armed = False
         self.pending = None
         self.selection = selection
+        self.topics = None
 
     @property
     def driver_topic(self):
-        return EFFORT_TOPIC if self.profile.velocity_controller else command_input(self.profile)
+        return (self.bindings()['output_topic'] if self.profile.velocity_controller
+                else command_input(self.profile))
+
+    def bindings(self):
+        if self.topics is not None:
+            return self.topics
+        effective = (self.selection.validate().documents['hardware-pure']['effective']
+                     if self.selection is not None else None)
+        return controller_topics(self.profile, effective)
 
     def children(self):
-        return [name for name, _ in driver_commands(self.profile, self.config_path, self.selection)]
+        return [name for name, _ in driver_commands(
+            self.profile, self.config_path, self.selection, self.bindings())]
 
     def fault(self):
         """Why the armed outputs can't be trusted, or ''."""
@@ -103,6 +129,8 @@ class Arming:
         hardware_config = (plain(captured.documents['hardware-pure']['effective'])
                            if captured is not None and 'hardware' in self.selection.domains
                            else self.hardware_config)
+        self.topics = controller_topics(
+            self.profile, hardware_config if captured is not None else None)
         if self.profile.outputs == 'none':  # the plant takes commands directly
             self.armed = True
             return
@@ -118,7 +146,8 @@ class Arming:
             raise RuntimeError('output backend differs from selected session')
         save_config(dict(hardware_config, output_backend=self.profile.outputs),
                     self.config_path)
-        for name, argv in driver_commands(self.profile, self.config_path, self.selection):
+        for name, argv in driver_commands(
+                self.profile, self.config_path, self.selection, self.bindings()):
             self.processes.start(name, argv)
         self.pending = self.clock()
 
@@ -126,7 +155,7 @@ class Arming:
         """The topic each child must subscribe to before arming completes."""
         topics = {DRIVER: self.driver_topic}
         if self.profile.velocity_controller:
-            topics[CONTROLLER] = command_input(self.profile)
+            topics[CONTROLLER] = self.bindings()['input_topic']
         return topics
 
     def listening(self):
