@@ -2,6 +2,9 @@
 
 Receipts are monotonic acquisition times, never projection/poll times. Sysfs
 records describe kernel settings, not measured voltage or propeller motion.
+Neutral means exactly NEUTRAL_PWM from the pinned hardware mixer (1500us),
+with zero tolerance, matching driver neutral(). The current hardware config
+has no per-output centers/tolerance; any future contract must update this seam.
 """
 
 from dataclasses import dataclass
