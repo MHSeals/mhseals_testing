@@ -28,7 +28,7 @@ GLYPHS = {'good': ('✓', '+', 'green'), 'warn': ('!', '!', 'yellow'), 'bad': ('
 @dataclass
 class RtkView:
     """Everything the row shows; ``None`` means unknown or not applicable."""
-    base: str = 'none'              # none | identifying | surveying | streaming
+    base: str = 'none'              # none | identifying | surveying | streaming | error
     fix: str = 'none'               # rover fix word, a key of FIXES
     age: float = None               # s since the last RTCM frame; None with base streaming = no frame yet
     drops: int = 0                  # stale drops in the last 60 s
@@ -54,9 +54,13 @@ def survey_fraction(t, t_min, acc, acc0, target, valid):
 
 
 def _state(view):
-    """(link, glyph state): link is one of off/identifying/surveying/fresh/stale/dead."""
+    """(link, glyph state): link is one of off/error/identifying/surveying/fresh/stale/dead."""
+    if view.base == 'error':
+        return 'error', 'bad'
     if view.base != 'streaming':
         link = {'identifying': 'identifying', 'surveying': 'surveying'}.get(view.base, 'off')   # unknown = no base
+        if link != 'off' and view.age is not None and view.age > STALE:
+            link = 'stale' if view.age <= DEAD else 'dead'      # it streamed once: corrections are dying while it reconnects
     elif view.age is None or view.age > DEAD:
         link = 'dead'
     else:
@@ -88,6 +92,8 @@ def _link(view, link, cells, ascii):
     short = cells < 7           # 'no base' is 7 cells
     if link == 'off':
         return Text(('off' if short else 'no base').ljust(cells), style='dim')
+    if link == 'error':
+        return Text(('err' if short else 'error').ljust(cells), style='red')
     if link == 'identifying':
         frame = '|/-\\'[view.tick % 4] if ascii else SPINNER[view.tick % len(SPINNER)]
         return Text((frame + ('' if short else ' base')).ljust(cells), style='dim')
@@ -175,7 +181,7 @@ def rtk_row(view, width, ascii=False, cursor=None):
 # Status row state and strip state per glyph state (Status vocabulary: OK, WARN, ERROR)
 ROW_STATES = {'good': 'OK', 'busy': 'CHECKING', 'off': 'OK', 'warn': 'WARN', 'bad': 'ERROR'}
 ROW_STATES_STRIP = {'good': 'LIVE', 'busy': 'CHECKING', 'off': 'LIVE', 'warn': 'WARN', 'bad': 'FAIL'}
-BASE_WORDS = {'off': 'off', 'identifying': 'base', 'surveying': 'svin'}
+BASE_WORDS = {'off': 'off', 'error': 'error', 'identifying': 'base', 'surveying': 'svin'}
 
 
 def strip_item(view):
@@ -183,6 +189,8 @@ def strip_item(view):
     link, state = _state(view)
     if view.pubs > 1:
         return 'FAIL', f'rtk {view.pubs} pubs'
+    if link == 'error':
+        return 'FAIL', 'rtk error'
     if link == 'dead':
         return 'FAIL', 'rtk ' + ('none' if view.age is None else _age(view.age, True))
     if state == 'bad':

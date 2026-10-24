@@ -1,5 +1,6 @@
 """The RTK feed (UIW32): status ingest, gating, the baseline, the Status row, the strip item, the converge fact."""
 
+import dataclasses
 import io
 import json
 from types import SimpleNamespace
@@ -183,3 +184,36 @@ def test_cursor_is_drawn_on_the_rtk_row_only_when_focused():
         return next(l for l in console.file.getvalue().splitlines() if 'RTK' in l)
     assert '›' in line(True, True) or '>' in line(True, True)
     assert '›' not in line(True, False) and '›' not in line(False, True)
+
+
+def test_dead_corrections_show_while_the_base_reconnects_and_error_reads_bad():
+    reconnect = lambda age: build(dict(base='identifying', age=age), gps_snapshot(fix=6), (SPEC,))
+    assert 'RTK ⠇' not in rtk_row(reconnect(11.3), 42).plain         # no spinner once dead
+    assert strip_item(reconnect(11.3)) == ('FAIL', 'rtk 11s')
+    assert strip_item(reconnect(3.0)) == ('WARN', 'rtk stale')
+    assert strip_item(reconnect(1.0))[0] == 'CHECKING'                # fresh frames: still just connecting
+    assert strip_item(reconnect(None))[0] == 'CHECKING'               # never streamed: spinner
+    error = build(dict(base='error'), gps_snapshot(fix=3), (SPEC,))
+    assert strip_item(error) == ('FAIL', 'rtk error')
+    assert 'error' in rtk_row(error, 42).plain and 'no base' not in rtk_row(error, 42).plain
+
+
+def test_age_and_flow_facts_drive_the_shipped_checks():
+    app, facts = app_with()
+    feed = RtkFeed(boat())
+    specs = [s for s in load(user=False).specs if s.id in ('rtk.age', 'rtk.flow')]
+    assert len(specs) == 2
+    specs = [dataclasses.replace(spec, raise_after=0.0) for spec in specs]     # the 2 s debounce is not under test
+
+    def run(**status):
+        feed.tick(app, dict(gps_snapshot(), rtk=dict(received_age=0, **status)), 1.0)
+        return Engine(specs).tick(*facts.read()).results
+
+    ok = run(base='streaming', age=0.5, rates=dict(bytes_per_s=900))
+    assert ok['rtk.age'].status == 'ok' and ok['rtk.flow'].status == 'ok'
+    dead = run(base='identifying', age=11.3, rates=dict(bytes_per_s=0))
+    assert dead['rtk.age'].status == 'fail'
+    assert 'rtk.flow' not in dead                                    # not streaming: no flow fact, check skips
+    assert run(base='streaming', age=0.5, rates=dict(bytes_per_s=10))['rtk.flow'].status == 'warn'
+    feed.tick(app, gps_snapshot(), 2.0)
+    assert 'rtk.correction_age' not in facts.read()[0]

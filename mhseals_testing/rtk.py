@@ -444,7 +444,7 @@ class BaseSession:
 # --- rtk_base: console entry point and the status document (no ROS imports) ---
 
 STATUS_SCHEMA = 'mhseals.rtk_status/1'
-BASE_VIEW = dict(off='none', idle='none', error='none', connecting='identifying',
+BASE_VIEW = dict(off='none', idle='none', error='error', connecting='identifying',
                  configuring='identifying', surveying='surveying', ready='streaming', fixed='streaming')
 
 

@@ -14,3 +14,22 @@ checks:
     raise_after: 0       # the 180 s is already the debounce
     title: RTK convergence
     message: 'Below FIXED for {value}'
+  - id: rtk.age
+    kind: threshold
+    fact: rtk.correction_age
+    warn: [0, 2]
+    fail: [0, 5]
+    severity: fail
+    unit: ' s'
+    show: [odometry]
+    missing: skip        # the base process reports the age; none before its first frame
+    raise_after: 0       # the 2 s and 5 s bands are already the debounce
+    title: RTK correction age
+  - id: rtk.flow
+    kind: threshold
+    fact: rtk.bytes_per_s
+    warn: [300, 1000000000.0]
+    unit: ' B/s'
+    show: [odometry]
+    missing: skip
+    title: RTK correction flow

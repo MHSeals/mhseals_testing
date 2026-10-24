@@ -2,7 +2,8 @@
 
 Each live tick it builds ``self.current`` (None when the profile has no RTK base and no status topic
 exists, so Status shows no row) and publishes ``rtk.seconds_below_fixed`` for config/health/rtk.yaml:
-seconds the rover has been below FIXED while the base streams, absent otherwise (that check skips).
+seconds the rover has been below FIXED while the base streams, absent otherwise (that check skips). It
+also publishes rtk.correction_age and rtk.bytes_per_s for rtk.age / rtk.flow.
 """
 
 import math
@@ -59,7 +60,18 @@ class RtkFeed:
                                  int(now * 5))
             self._count(now)
         facts = {} if self.below_since is None else {'rtk.seconds_below_fixed': Fact(now - self.below_since)}
+        facts.update(self._link_facts(status))
         app.health.facts.publish('rtk', facts)
+
+    def _link_facts(self, status):
+        """rtk.correction_age (s, shown age incl. transport delay) and rtk.bytes_per_s; absent without a base."""
+        view, facts = self.current, {}
+        if view is not None and view.age is not None:
+            facts['rtk.correction_age'] = Fact(view.age)
+        rate = ((status or {}).get('rates') or {}).get('bytes_per_s')
+        if view is not None and view.base == 'streaming' and rate is not None:
+            facts['rtk.bytes_per_s'] = Fact(rate)
+        return facts
 
     def _count(self, now):
         """Start the below-FIXED clock while the link is fresh and the rover is not FIXED; stop it otherwise."""
