@@ -10,8 +10,8 @@ from collections import namedtuple
 # Layer priority, highest first (map.md 4.1). A layer not listed ranks below all of these.
 PRIORITY = (
     'contact', 'boat', 'cursor', 'goal', 'home', 'label',
-    'ref_touched', 'ref_failed', 'ref_next', 'ref_passed', 'ref_pending', 'ref_skipped',
     'object', 'dock_target',
+    'ref_touched', 'ref_failed', 'ref_next', 'ref_passed', 'ref_pending', 'ref_skipped',
     'wall', 'ring', 'truth_dot', 'raw_det', 'truth_line', 'hits', 'trail', 'plan',
     'local_plan', 'costmap',
 )

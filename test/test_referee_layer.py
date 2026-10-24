@@ -34,13 +34,44 @@ def test_state_colours_differ_and_ascii_adds_a_glyph():
 
     assert top('next', False).cells()[1][2].fg == 'ref_next'
     assert top('failed', False).cells()[1][2].fg == 'ref_failed'
-    assert top('pending', True).cells()[1][2].text == '.'
-    assert top('passed', True).cells()[1][2].text == '+'
+    assert top('next', True).cells()[1][2].text == '~'
+    assert top('passed', True).cells()[1][2].text == '='
+    assert top('failed', True).cells()[1][2].text == '#'
+    assert top('pending', True).cells()[1][2].text != '.'
+
+
+def test_glyphs_are_colourless_only_and_a_buoy_wins_the_cell():
+    def cell(state, colourless):
+        c = canvas.Canvas(10, 3)
+        c.glyph(2, 1, 'B', 'object')
+        referee_layer.draw(c, [mark('mark', ((2, 1),), state)], scale, False, colourless)
+        return c.cells()[1][2]
+
+    assert cell('passed', True).text == 'B'
+    c = canvas.Canvas(10, 3)
+    referee_layer.draw(c, [mark('mark', ((2, 1),), 'passed')], scale, False, colourless=True)
+    assert c.cells()[1][2].text == '✓'
+    c = canvas.Canvas(10, 3)
+    referee_layer.draw(c, [mark('mark', ((2, 1),), 'touched')], scale, False, colourless=True)
+    assert c.cells()[1][2].chip
+    c = canvas.Canvas(10, 3)
+    referee_layer.draw(c, [mark('mark', ((2, 1),), 'passed')], scale, False, colourless=False)
+    assert c.cells()[1][2].text != '✓'
+
+
+def test_touched_is_a_fail_chip_over_a_buoy_in_every_tier():
+    for colourless in (True, False):
+        for ascii_only, char in ((False, '✗'), (True, 'X')):
+            c = canvas.Canvas(10, 3)
+            c.glyph(2, 1, 'B', 'object')
+            referee_layer.draw(c, [mark('mark', ((2, 1),), 'touched')], scale, ascii_only, colourless)
+            cell = c.cells()[1][2]
+            assert (cell.text, cell.fg, cell.chip) == (char, 'contact', True)
 
 
 def test_a_bay_is_an_outline_and_empty_marks_are_skipped():
     c = canvas.Canvas(10, 4)
-    referee_layer.draw(c, [mark('bay', ((1, 1), (6, 1), (6, 3), (1, 3)), 'next'), mark('gate', (), 'next')], scale, False)
+    referee_layer.draw(c, [mark('bay', ((1, 1), (6, 1), (6, 3), (1, 3)), 'next'), mark('gate', (), 'next')], scale, False, colourless=True)
     assert c.text()[2][3] != canvas.BLANK and c.text()[2][1] != canvas.BLANK
 
 
