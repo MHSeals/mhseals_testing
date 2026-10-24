@@ -256,6 +256,7 @@ class App:
         self.minimap = minimap_panel.MiniMap(self.map_state)
         self.layerbox = LayerBox(getattr(self.ros, 'map', None), self.map_state, live=True)
         self.map_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('view.minimap'))
+        self.bag_recording_key = None
         self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
         self.focus = 'status'
         self.cursors = dict.fromkeys(CURSORS, 0)
@@ -595,7 +596,7 @@ class App:
         if panel == 'thrusters':
             return 4
         if panel == 'list':
-            return len(self.bag_scan[1])
+            return len(self.bags_view()[0])
         if panel == 'procedures':
             return len(PROCEDURES)
         if panel == 'activity':
@@ -888,15 +889,33 @@ class App:
 
     on_map = on_minimap
 
+    def recording_paths(self):
+        """Authoritative live session and exact writer segment, resolved at action time."""
+        if not self.processes.running('bag'):
+            return None, None
+        segment = self.recorder.segment
+        return self.paths.directory.resolve(), segment.resolve() if segment is not None else None
+
+    def bag_protected(self, bag):
+        session, segment = self.recording_paths()
+        path = bag.path.resolve()
+        return path == session or (segment is not None and (path == segment or path in segment.parents))
+
+    def invalidate_bags(self):
+        self.bag_scan = (float('-inf'), *self.bag_scan[1:])
+
     def bags_view(self):
-        """``(sessions, disk usage)`` for the Bags tab, re-scanned at most every 5 s while it shows."""
+        """One lazy cache; writer transitions invalidate even within the five-second interval."""
         now = self.clock()
-        if now - self.bag_scan[0] >= 5:
-            recording = {self.paths.directory.name} if self.processes.running('bag') else ()
+        recording_key = self.recording_paths()
+        if recording_key != self.bag_recording_key or now - self.bag_scan[0] >= 5:
+            recording = {recording_key[0].name} if recording_key[0] is not None else ()
             try:
                 self.bag_scan = (now, bags_module.scan(recording=recording), bags_module.disk())
             except OSError:
                 self.bag_scan = (now, [], (0, 0, 0))
+            self.bag_recording_key = recording_key
+            self.cursors['list'] = max(0, min(self.cursors['list'], len(self.bag_scan[1]) - 1))
         return self.bag_scan[1], self.bag_scan[2]
 
     def switch_tab(self, step):

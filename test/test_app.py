@@ -1821,6 +1821,7 @@ def test_bags_tab_with_a_session_renders_and_moves_the_cursor(tmp_path):
     app, _ = make_app(tmp_path)
     app.show_tab('Bags')
     app.bag_scan = (app.clock(), [Bag(id='boat_1', path=None)], (0, 0, 0))
+    app.bag_recording_key = app.recording_paths()
     assert app.view()['position'] == '1/1'
     app.view()
     app.dispatch('j')
