@@ -137,12 +137,12 @@ def _tint_for(cost, far):
     return 'cost_bg@%d' % round(45 + (cost - COST_MIN) / (INSCRIBED - 1 - COST_MIN) * 55)
 
 
-def _cells(grid, resolution, origin):
-    """World centres and costs of the costmap cells at or above COST_MIN."""
-    rows, cols = np.nonzero(np.asarray(grid) >= COST_MIN)
-    costs = np.asarray(grid)[rows, cols]
-    return [((origin[0] + (c + 0.5) * resolution, origin[1] + (r + 0.5) * resolution), int(v))
-            for r, c, v in zip(rows, cols, costs)]
+def _cells(grid, resolution, origin, floor=COST_MIN):
+    """World centres (xs, ys) and costs of the costmap cells at or above ``floor``, as arrays."""
+    g = np.asarray(grid)
+    rows, cols = np.nonzero(g >= floor)
+    return (origin[0] + (cols + 0.5) * resolution, origin[1] + (rows + 0.5) * resolution,
+            g[rows, cols].astype(int))
 
 
 def draw_costmap(frame, grid, resolution, origin):
@@ -150,25 +150,35 @@ def draw_costmap(frame, grid, resolution, origin):
 
     A costmap cell covers every canvas cell its footprint touches, so a lethal cell
     survives pooling whichever of the two is coarser. Each canvas cell keeps its highest cost.
+    Pooling is a numpy max into a canvas-sized array; Python only walks the tinted cells.
     """
     far = frame.half > DETAIL_HALF
     reach = resolution / frame.metres_per_dot / 2  # footprint half-size in dots
-    pooled = {}
-    for point, cost in _cells(grid, resolution, origin):
-        x, y = frame.dots(point)
-        for col in range(math.floor((x - reach) / 2), math.floor((x + reach) / 2) + 1):
-            for row in range(math.floor((y - reach) / 4), math.floor((y + reach) / 4) + 1):
-                pooled[col, row] = max(pooled.get((col, row), 0), cost)
-    for (col, row), cost in pooled.items():
-        token = _tint_for(cost, far)
+    xs, ys, costs = _cells(grid, resolution, origin)
+    x, y = frame.dots((xs, ys))
+    c0, c1 = np.floor((x - reach) / 2).astype(int), np.floor((x + reach) / 2).astype(int)
+    r0, r1 = np.floor((y - reach) / 4).astype(int), np.floor((y + reach) / 4).astype(int)
+    canvas = frame.canvas
+    pooled = np.zeros((canvas.cols, canvas.rows), dtype=int)
+    if pooled.size and len(costs):
+        for dc in range(int((c1 - c0).max()) + 1):
+            for dr in range(int((r1 - r0).max()) + 1):
+                c, r = c0 + dc, r0 + dr
+                ok = (c <= c1) & (r <= r1) & (c >= 0) & (c < canvas.cols) & (r >= 0) & (r < canvas.rows)
+                np.maximum.at(pooled, (c[ok], r[ok]), costs[ok])
+    for col, row in zip(*np.nonzero(pooled)):
+        token = _tint_for(int(pooled[col, row]), far)
         if token:
-            frame.canvas.tint(col, row, token)
+            canvas.tint(int(col), int(row), token)
 
 
 def draw_hits(frame, grid, resolution, origin, boat):
     """Lethal costmap cells within 20 m of the boat as single dots; `hits.near` inside 3 m."""
-    for point, cost in _cells(grid, resolution, origin):
-        d = math.hypot(point[0] - boat[0], point[1] - boat[1])
-        if cost >= LETHAL and d <= HITS_RANGE:
-            x, y = frame.dots(point)
-            _plot(frame.canvas, x, y, 'hits.near' if d <= HITS_NEAR else 'hits')
+    xs, ys, _ = _cells(grid, resolution, origin, LETHAL)
+    d = np.hypot(xs - boat[0], ys - boat[1])
+    keep = d <= HITS_RANGE
+    x, y = frame.dots((xs[keep], ys[keep]))
+    # far sorts after near, so a dot shared by both keeps the near warning (first layer wins).
+    dots = np.unique(np.stack([np.floor(x), np.floor(y), d[keep] > HITS_NEAR]).T, axis=0)
+    for px, py, far in dots:
+        frame.canvas.dot(int(px), int(py), 'hits' if far else 'hits.near')

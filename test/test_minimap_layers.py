@@ -167,3 +167,25 @@ def test_gps_trail_from_map_state_maps_fix_type_to_bands():
     assert trail(3) == pytest.approx(fixed / 4, abs=2) and trail(3) > 0
     assert trail(5) < fixed and trail(4) < fixed
     assert trail(1) == 0 and trail(0) == 0
+
+
+def test_near_hit_wins_a_dot_shared_with_a_far_hit():
+    g = np.zeros((100, 100), dtype=np.int8)
+    g[50, 79] = 100    # centre x 2.95 m: near
+    g[50, 80] = 100    # centre x 3.05 m: hit, same 0.4 m dot
+    f = _frame(half=40.0)
+    layers.draw_hits(f, g, 0.1, (-5.0, -5.0), (0.0, 0.0))
+    assert [c.fg for row in f.canvas.cells() for c in row if c.fg] == ['hits.near']
+
+
+def test_dense_local_costmap_and_hits_stay_inside_the_frame_budget():
+    import time
+    g = np.full((240, 240), 60, dtype=np.int8)
+    g[::7, ::5] = 100
+    f = _frame(cols=86, rows=36, half=6.0)
+    t0 = time.perf_counter()
+    layers.draw_costmap(f, g, 0.05, (-6.0, -6.0))
+    layers.draw_hits(f, g, 0.05, (-6.0, -6.0), (0.0, 0.0))
+    assert time.perf_counter() - t0 < 0.05  # was ~0.2 s of per-cell Python
+    tints = {c.bg for row in f.canvas.cells() for c in row if c.bg}
+    assert 'lethal_bg@100' in tints
