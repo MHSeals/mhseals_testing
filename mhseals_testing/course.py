@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import re
+import struct
 import tempfile
 
 import yaml
@@ -54,17 +55,19 @@ def parse(raw):
         if 'bays' in element and not _strings(element['bays']):
             raise ValueError('course bays must be a string list')
         if 'occupied' in element and (not isinstance(element['occupied'], list)
-                or any(type(v) is not int for v in element['occupied'])):
-            raise ValueError('course occupied must be an integer list')
+                or any(type(v) is not int or not -(2 ** 31) <= v < 2 ** 31
+                       for v in element['occupied'])):
+            raise ValueError('course occupied must be a signed int32 list')
     values = [data['jitter']] if 'jitter' in data else []
     values += [e[k] for e in elements for k in numbers & e.keys()]
     for value in values:
         try:
-            finite = type(value) in (int, float) and math.isfinite(value)
-        except OverflowError:
+            finite = (type(value) in (int, float) and math.isfinite(value)
+                      and math.isfinite(struct.unpack('<f', struct.pack('<f', value))[0]))
+        except (OverflowError, struct.error):
             finite = False
         if not finite:
-            raise ValueError('course coordinates and numeric fields must be finite numbers')
+            raise ValueError('course numeric fields must remain finite Unity float32 values')
     return data
 
 

@@ -120,3 +120,44 @@ def test_actual_main_malformed_yaml_has_no_artifact(tmp_path, monkeypatch, capsy
     captured = capsys.readouterr()
     assert not captured.out and 'boat_trial course:' in captured.err
     assert not cache.exists()
+
+
+@pytest.mark.parametrize('field', ['jitter', 'x', 'y', 'yaw', 'scale'])
+@pytest.mark.parametrize('sign', [1, -1])
+def test_unity_float32_boundary_roundtrip(tmp_path, monkeypatch, field, sign):
+    """All C# float fields accept finite representable limits without coercion."""
+    import math
+    import struct
+    import yaml
+    value = sign * float.fromhex('0x1.fffffep+127')
+    document = {'elements': [{'template': 'A', 'occupied': [-(2 ** 31), 2 ** 31 - 1]}]}
+    (document if field == 'jitter' else document['elements'][0])[field] = value
+    source = tmp_path / 'boundary.yaml'
+    source.write_text(yaml.safe_dump(document))
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'cache'))
+    generated = json.loads(compile_course(str(source)).read_text())
+    assert generated == document
+    received = (generated if field == 'jitter' else generated['elements'][0])[field]
+    assert math.isfinite(struct.unpack('<f', struct.pack('<f', received))[0])
+
+
+@pytest.mark.parametrize('field,value', [
+    ('jitter', 1.0e39), ('x', 1.0e39), ('y', -1.0e39),
+    ('yaw', 1.0e39), ('scale', -1.0e39),
+    ('occupied', [2 ** 31]), ('occupied', [-(2 ** 31) - 1]),
+])
+def test_unity_numeric_overflow_cli_failure_before_cache(tmp_path, monkeypatch, capsys, field, value):
+    """Python-finite values outside the pinned consumer types never publish JSON."""
+    import yaml
+    from mhseals_testing.harness.cli import main
+    document = {'elements': [{'template': 'A'}]}
+    (document if field == 'jitter' else document['elements'][0])[field] = value
+    source = tmp_path / 'overflow.yaml'
+    source.write_text(yaml.safe_dump(document))
+    original = source.read_bytes()
+    cache = tmp_path / 'cache'
+    monkeypatch.setenv('XDG_CACHE_HOME', str(cache))
+    assert main(['course', str(source)]) == 2
+    captured = capsys.readouterr()
+    assert not captured.out and 'boat_trial course:' in captured.err
+    assert not cache.exists() and source.read_bytes() == original
