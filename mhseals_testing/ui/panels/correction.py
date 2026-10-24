@@ -43,6 +43,23 @@ def _square(flat):
     return [list(flat[i:i + 3]) for i in (0, 3, 6)] if flat and len(flat) == 9 else None
 
 
+def provenance_fits(current, live=None):
+    """Per-direction ``fits`` records from calibration/current.json and the live ceilings.
+
+    ``fit_label``/``fit`` are the verdict and the percent ceiling the fit was made under (that
+    direction's own ceiling when the stored water has one, else the overall one); ``ceiling`` is
+    the live per-direction ceiling now. Sigma, trust and iterations have no stored source and stay absent.
+    """
+    pct = lambda v: None if v is None else v * 100
+    out = {}
+    for key in DIRECTIONS:
+        water = ((current or {}).get('directions', {}).get(key) or {}).get('conditions') or {}
+        under = (water.get('ceilings') or {}).get(key, water.get('ceiling'))
+        record = {'fit_label': water.get('verdict'), 'fit': pct(under), 'ceiling': pct((live or {}).get(key))}
+        out[key] = {k: v for k, v in record.items() if v is not None}
+    return out
+
+
 def correction_data(hardware, fits=None, running=None, side=None):
     """The ``data`` of ``correction_view`` from the hardware config and the state.json fit records.
 

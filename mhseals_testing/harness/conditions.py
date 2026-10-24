@@ -97,7 +97,7 @@ class Conditions:
     def _rate(self):
         s = self.s
         out = dict(verdict='unknown', reason='', ceiling=None, drift_trust=None, neutral_s=0.0,
-                   drift=None, state='unknown', se=None, floor=None, sea=None)
+                   drift=None, state='unknown', se=None, floor=None, sea=None, ceilings=None)
         self._detail = None
         if len(self.samples) < 2:
             out['reason'] = 'measuring 0 s'
@@ -114,6 +114,7 @@ class Conditions:
         out.update(self._sea(t, e, n, rate, mask, windows))
         sigma_e = readiness.drift_sigma(estimate, t[-1])
         ceiling, limiting = self._ceiling(estimate, windows, sigma_e)
+        out['ceilings'] = self.by_direction
         out.update(drift=[float(x) for x in estimate.drift.vector], se=float(estimate.drift.se),
                    drift_trust=readiness.drift_trust(sigma_e, s.drift_practical), ceiling=ceiling)
         if estimate.material(s):
@@ -127,6 +128,7 @@ class Conditions:
 
     def _ceiling(self, estimate, windows, sigma_e):
         """``(ceiling, limiting direction)``: the injected ceiling, else the min over the planned directions."""
+        self.by_direction = None
         if self.ceiling:
             return self.ceiling(estimate, windows), None
         planned = self.planned() if self.planned else None
@@ -136,6 +138,7 @@ class Conditions:
         self.tol = self.tol or readiness.load_tolerances()
         by_direction = readiness.ceilings(planned, floor, sigma_e, self.tol)
         worst = min(by_direction, key=by_direction.get)
+        self.by_direction = {d: float(c) for d, c in by_direction.items()}   # per-direction ceilings, for the Correction tab
         return by_direction[worst], worst
 
     def detail(self, now=None):

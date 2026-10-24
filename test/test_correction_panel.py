@@ -147,3 +147,17 @@ def test_rendered_scope_tag_spans_are_slate_italic():
     tags = [seg for seg in Console(width=120).render(correction.render(correction_view(scope_data()), 120, 40))
             if seg.text.strip() in ('hw', 'cal')]
     assert tags and all(seg.style.italic and seg.style.color.name == 'bright_black' for seg in tags)
+
+
+def test_provenance_fits_fill_fit_under_and_ceiling_now_from_current_json():
+    current = {'directions': {
+        'surge+': {'conditions': {'verdict': 'good', 'ceiling': 0.91}},
+        'sway-': {'conditions': {'verdict': 'marginal', 'ceiling': 0.9, 'ceilings': {'sway-': 0.62}}}}}
+    fits = correction.provenance_fits(current, {'surge+': 0.97})
+    assert fits['surge+'] == {'fit_label': 'good', 'fit': pytest.approx(91), 'ceiling': pytest.approx(97)}
+    assert fits['sway-']['fit'] == pytest.approx(62)          # the direction's own ceiling wins
+    assert fits['yaw+'] == {}                                   # never fitted, nothing live: dashes
+    model = correction.tab_view({}, dict(fits=fits))
+    cells = {c['key']: c['cells'] for c in model['columns']}
+    assert cells['surge+']['fit'] == 'good 91' and cells['surge+']['ceiling'].startswith('97')
+    assert cells['yaw+']['fit'] == theme.DASH

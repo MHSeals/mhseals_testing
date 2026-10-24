@@ -1203,7 +1203,10 @@ class App:
         """What the Correction tab draws besides the config: the column and the state.json fits."""
         if self.tab != 'Correction':
             return None
-        fits = (data.read_json(data.path('state.json'), {}) or {}).get('fits')
+        saved = (data.read_json(data.path('state.json'), {}) or {}).get('fits') or {}
+        current = data.read_json(data.path('calibration', 'current.json'), {})
+        derived = correction.provenance_fits(current, self.conditions.evaluate().get('ceilings'))
+        fits = {d: {**derived.get(d, {}), **saved.get(d, {})} for d in {*derived, *saved}}
         shown = calibration.marks(self.args.hardware_config, self.history)
         fits = {**(fits or {}), **{d: {**(fits or {}).get(d, {}), 'mark': m} for d, m in shown.items()}} if shown else fits
         return dict(fits=fits, column=self.column, **self.correction_side())
