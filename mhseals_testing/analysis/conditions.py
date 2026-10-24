@@ -7,7 +7,7 @@ in the samples used here, so the mean GPS velocity is the boat's drift.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -380,6 +380,19 @@ def _trend_limit(z, dof):
     return z + (z ** 3 + z) / (4 * dof) + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * dof ** 2)
 
 
+def _heading_free(usable, s: Settings):
+    """The windows with a significant windage term ``Q(2 psi) b`` taken out of their means.
+
+    A boat that weathervanes drifts differently at each heading, which is neither a trend nor a
+    change. Without a heading-dependent fit the windows are returned as they are.
+    """
+    fit = windage(usable, s)
+    if fit.state != 'heading-dependent':
+        return usable
+    return [replace(w, mean=np.concatenate([w.mean[:2] - (fit.drift_at(w.heading) - fit.a), w.mean[2:]]))
+            for w in usable]
+
+
 def estimate(windows, s: Settings):
     """Drift, trend and change over the usable windows, in time order.
 
@@ -392,6 +405,7 @@ def estimate(windows, s: Settings):
     s0 = spectral_level(usable, s)
     if len(usable) < 3 or s0 is None:
         return Estimate('unknown')
+    originals, usable = usable, _heading_free(usable, s)
     start, state, prev, before = 0, 'steady', False, None
     for i in range(3, len(usable)):
         pool = usable[start:i]
@@ -414,7 +428,7 @@ def estimate(windows, s: Settings):
     drift = _pool(pool, s0, s.drift_corr_max)
     span = pool[-1].t0 + pool[-1].duration - pool[0].t0
     size = float(np.hypot(*(drift.vector - before))) if before is not None else float(np.hypot(*slope) * span)
-    return Estimate(state, drift, slope, z, tuple(pool), size)
+    return Estimate(state, drift, slope, z, tuple(originals[len(originals) - len(pool):]), size)
 
 
 def world_drift(windows, s: Settings):

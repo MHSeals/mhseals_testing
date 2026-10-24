@@ -601,3 +601,21 @@ def test_slow_wander_over_eight_headings_is_not_heading_dependent():
         out += windows_of(neutral(48, drift=drift, sigma=0.01, seed=i, heading=np.radians(deg), t0=t0))
         t0 += 53
     assert c.windage(out, S).state == 'constant'
+
+
+def weathervane(seconds=120, turn=np.radians(93), a=(0.1, 0.0), b=(0.1, 0.1), seed=3):
+    """A neutral boat turning slowly while its drift follows ``a + Q(2 psi) b``."""
+    t, vel, heading, rate, mask = neutral(seconds, drift=(0, 0), seed=seed)
+    heading = np.radians(10) + turn * t / seconds
+    c2, s2 = np.cos(2 * heading), np.sin(2 * heading)
+    wind = np.column_stack([-c2 * b[0] + s2 * b[1], s2 * b[0] + c2 * b[1]])
+    return t, vel + np.array(a) + wind, heading, rate, mask
+
+
+def test_windage_that_follows_the_heading_is_not_a_trend():
+    windows = windows_of(weathervane())
+    assert c.windage(windows, S).state == 'heading-dependent'
+    est = c.estimate(windows, S)
+    assert est.state == 'steady' and not est.material(S)
+    assert est.drift.vector == pytest.approx((0.1, 0.0), abs=0.03)
+    assert len(est.pool) == est.drift.n and all(w in windows for w in est.pool)
