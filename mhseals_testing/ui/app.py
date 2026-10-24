@@ -34,7 +34,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITION
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.harness import host, index, journal, runs, session as session_module, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
-from mhseals_testing.harness.apply import Staging
+from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
@@ -338,8 +338,8 @@ class App:
         reasons = motion_blockers(self.snapshot(), self.profile, self.args.bench_override)
         if self.ros.fault:
             reasons.insert(0, 'ROS fault: ' + self.ros.fault)
-        # A running survey staged the backup itself; it restores it when it ends or aborts.
-        return reasons + ([] if self.running else self.staging().blockers())
+        # A file backup is not evidence of the running driver correction, even during a run.
+        return reasons + self.staging().blockers()
 
     def fit_context(self):
         """What a fit records beside its numbers: session, run, battery volts and whether the conditions gate was muted."""
@@ -350,21 +350,14 @@ class App:
                     battery_v=getattr(battery, 'value', None), muted=muted)
 
     def staging(self):
-        """The identity-correction backup for this session's hardware YAML (harness/apply.py)."""
-        return Staging(self.args.config)
+        """Runtime transitions fail closed; the offline backup remains a durable blocker."""
+        return RuntimeStaging(self.args.config)
 
     def offer_restore(self):
-        """At start: an unrestored backup means a survey died with identity C in the file."""
+        """Keep an interrupted correction backup until actual runtime restoration is supported."""
         if self.staging().pending() is None:
             return
-        try:
-            if self.choose('A survey was interrupted: restore the saved correction?',
-                           ('restore', 'keep'), {'r': 0, 'k': 1},
-                           message='Until restored, motion is refused.') == 'restore':
-                self.staging().restore()
-                self.watch_config()
-        except Cancelled:
-            pass
+        self.notice = CORRECTION_ACK_REQUIRED
 
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
@@ -406,7 +399,7 @@ class App:
         reasons = [fault] if fault else []
         if self.ros.fault:
             reasons.append('ROS fault: ' + self.ros.fault)
-        return reasons + self.plant.conflicts()
+        return reasons + self.plant.conflicts() + self.staging().blockers()
 
     def motion_blockers(self):
         """When the suite commands, nothing else may publish the command topic."""
@@ -1514,21 +1507,11 @@ class App:
         return True
 
     def apply_pending(self):
-        """A: after a confirm, restore the staged C, reload the config and record it in the history."""
+        """A: report unsupported runtime restoration without clearing the durable backup."""
         if self.staging().pending() is None:
             self.notice = 'Nothing pending'
             return
-        try:
-            if self.choose('Restore the saved correction?', ('Restore', 'Keep'), {'y': 0},
-                           message='Puts the backed-up C+/C- back in the hardware file.') != 'Restore':
-                return
-        except Cancelled:
-            return
-        self.staging().restore()
-        adapters.record_file(self.history, 'hardware', 'tui:correction', self.config_file, self.warn_history)
-        self.announce(self.watcher.reload('hardware'))
-        self.watch_config()
-        self.notice = 'Restored the saved correction'
+        self.notice = CORRECTION_ACK_REQUIRED
 
     def hardware_changed(self):
         """I: a typed note, then a confirm, then hardware_epoch + 1 (invalidates every fit); never while moving."""
@@ -1553,13 +1536,9 @@ class App:
                 self.history.label(change['id'], note=note)
 
     def characterize(self, direction):
-        """Run Characterize for one direction ('' is all six), leaving the setting as it was."""
+        """Route the temporarily unsupported survey without changing its settings."""
         procedure = next(p for p in PROCEDURES if p.title == 'Characterize')
-        before, self.settings.direction = self.settings.direction, direction
-        try:
-            self.run_procedure(procedure)
-        finally:
-            self.settings.direction = before
+        self.run_procedure(procedure)
 
     def on_motion(self, key):
         pass
@@ -1969,6 +1948,8 @@ class App:
     def availability(self, procedure):
         if self.watching:
             return f'watching pid {self.watching}: no commands'
+        if procedure.key == 'f':
+            return CORRECTION_ACK_REQUIRED
         reason = unavailable(procedure, self.profile, self.armed, self.args.bench_override)
         # Procedures that measure motion can't be picked without odometry and TF, nor
         # while another node commands the same topic.
@@ -2007,6 +1988,9 @@ class App:
             return
         if not self.source.live:
             self.notice = 'Procedures are disabled in review'
+            return
+        if procedure.key == 'f':
+            self.notice = f'{procedure.title}: {CORRECTION_ACK_REQUIRED}'
             return
         reason = self.availability(procedure)
         if reason and 'armed' in procedure.needs and not self.armed:
@@ -2186,17 +2170,15 @@ class App:
                            f'{theme.SEPARATOR}U release · E revoke · Space aborts')
             self.refresh(force=False)
 
-        restaged = []
-        def on_pause():  # the human gets the real C back while driving
-            staging = self.staging()
-            if staging.pending() is not None:
-                staging.restore()
-                restaged.append(True)
+        def require_runtime_c():
+            if self.staging().pending() is not None:
+                raise Cancelled(CORRECTION_ACK_REQUIRED)
+
+        def on_pause():
+            require_runtime_c()
 
         def on_resume():
-            if restaged:
-                restaged.clear()
-                self.staging().raw_correction()
+            require_runtime_c()
 
         runner = Runner(self.plant, blockers, self.keys, show=show,
                         emit=self.emit, clock=self.monitor.clock,

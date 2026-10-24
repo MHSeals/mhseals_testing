@@ -80,3 +80,16 @@ make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 `docs/data.md` describes the data layout; `docs/health.md` the health system; [docs/field-2026-10-18.md](docs/field-2026-10-18.md) holds the field-day findings (thrust coupling, method lessons, next holds) that shaped the speed curves and per-sign decoupling; the raw day notes are not kept in the repo.
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
+
+Characterization is temporarily unavailable while the driver exposes no acknowledged
+runtime transition for correction C+/C- and its coupled model. The public procedure
+and TUI refuse before arming, staging or commands, including with bench override.
+Normal Drive remains available when no correction backup is pending. A backup from
+an interrupted older survey stays durable and blocks arming, automated and manual
+motion; startup/Correction restore and pause/resume cannot clear it by changing YAML.
+
+Enabling characterization requires an owner-controlled transition/restart with actual
+runtime correction/model identity and readback before raw, saved and restored phases,
+including pause/resume after the authority gate settles. A file save or parameter echo
+alone is insufficient. The offline `Staging` file API and private fitting fixtures do
+not claim runtime application and are not operational bypasses.

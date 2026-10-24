@@ -78,17 +78,14 @@ def test_right_moves_the_stripe_from_the_worst_column(tmp_path):
     assert app.column == 2
 
 
-def test_r_and_capital_r_start_characterize_with_the_direction(tmp_path):
+def test_r_and_capital_r_refuse_without_changing_direction(tmp_path):
+    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
     app = tab_app(tmp_path)
-    seen = []
-    app.run_procedure = lambda p: seen.append((p.title, app.settings.direction))
-    app.dispatch('r')
-    app.dispatch('right')
-    app.dispatch('r')
-    app.dispatch('R')
-    assert seen == [('Characterize', 'sway-'), ('Characterize', 'yaw+'), ('Characterize', '')]
-    assert app.settings.direction == ''
-
+    before = app.settings.direction
+    for key in ('r', 'right', 'r', 'R'):
+        app.dispatch(key)
+    assert CORRECTION_ACK_REQUIRED in app.notice
+    assert app.settings.direction == before
 
 
 def test_enter_shows_the_holds_of_the_cursor_column(tmp_path):
@@ -115,21 +112,16 @@ def test_a_without_a_backup_says_nothing_pending(tmp_path):
     assert app.notice == 'Nothing pending'
 
 
-def test_a_restores_and_reloads_the_config(tmp_path):
-    from mhseals_hardware.configuration import load_config
+def test_a_keeps_pending_backup_without_runtime_restoration_proof(tmp_path):
+    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
     app, _ = make_app(tmp_path)
-    config = Path(app.args.config)
-    config.write_text(config.read_text() + 'decoupling: %s\n' % C)
     app.dispatch(']')
     stage(app)
-    assert load_config(app.args.config)['decoupling'] != C
-    press(app, 'y')
-    with app.attached():
-        app.dispatch('A')
-    assert load_config(app.args.config)['decoupling'] == C
-    assert app.args.hardware_config['decoupling'] == C
-    assert app.staging().pending() is None
-    assert any(c['source'] == 'tui:correction' for c in app.history.changes('hardware'))
+    before = Path(app.args.config).read_bytes(), app.staging().state.read_bytes()
+    app.dispatch('A')
+    assert CORRECTION_ACK_REQUIRED in app.notice
+    assert app.staging().pending() is not None
+    assert (Path(app.args.config).read_bytes(), app.staging().state.read_bytes()) == before
 
 
 def test_a_cancelled_confirm_keeps_the_backup(tmp_path):

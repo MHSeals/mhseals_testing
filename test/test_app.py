@@ -4,6 +4,7 @@ import io
 import math
 import os
 import json
+from pathlib import Path
 
 import pytest
 from rich.segment import Segments
@@ -408,31 +409,16 @@ def test_controller_steps_need_velocity_control_and_report_metrics(tmp_path):
     assert results[0]['steady_state_error'] == pytest.approx(-0.04, abs=0.005)
 
 
-def test_characterization_fits_and_saves_only_on_request(tmp_path, nav2_user_file):
-    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
-    nav2 = tmp_path / 'nav2_params.yaml'
-    nav2.write_text(yaml.safe_dump({
-        'controller_server': {'ros__parameters': {'FollowPath': {}}},
-        'velocity_smoother': {'ros__parameters': {}}}))
-    original = app.procedure_context
-
-    def context():
-        ctx = _choose(original(), 'save')
-        ctx.services['nav2_params'] = nav2
-        return ctx
-
-    with app.attached():
-        arm(app)
-        app.procedure_context = context
-        app.dispatch('f')
-    fitted = app.snapshot()['results'][0]['characterization']
-    assert set(fitted['speed_curves']) == {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'}
-    assert fitted['motion_limits']['velocity']['surge'] == pytest.approx(.48, rel=0.02)
-    assert 'characterization' in (tmp_path / 'hardware.yaml').read_text()
-    smoother = yaml.safe_load(app.paths.nav2.read_text())['velocity_smoother']['ros__parameters']
-    assert smoother['max_velocity'][0] == pytest.approx(.48, rel=0.02)  # measured speed at 0.4 effort
-    # Saving also keeps the limits in the lasting file the Navigation component launches with.
-    assert yaml.safe_load(nav2_user_file.read_text()) == yaml.safe_load(app.paths.nav2.read_text())
+def test_characterization_refuses_before_arm_or_configuration_write(tmp_path, nav2_user_file):
+    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
+    app, _ = make_app(tmp_path)
+    before = Path(app.args.config).read_bytes()
+    app.arm_panel = lambda: pytest.fail('characterization offered to arm without runtime C proof')
+    app.procedure_context = lambda: pytest.fail('characterization reached staging/context')
+    app.dispatch('f')
+    assert CORRECTION_ACK_REQUIRED in app.notice
+    assert Path(app.args.config).read_bytes() == before
+    assert not nav2_user_file.exists()
 
 
 def test_thruster_panel_reverses_and_rewires_with_hot_reload(tmp_path):
@@ -1112,25 +1098,15 @@ def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path
     app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
 
 
-def test_characterization_offers_only_save_and_writes_unit_diagonal_columns(tmp_path):
-    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
-    offered = []
-    original = app.procedure_context
-
-    def context():
-        ctx = original()
-        ctx.choose = lambda title, options, shortcuts=None, **kw: offered.append(options) or 'save'
-        ctx.prompt = lambda message, title=None: ''
-        return ctx
-
+def test_characterization_refuses_while_already_armed(tmp_path):
+    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
+    app, _ = make_app(tmp_path)
     with app.attached():
         arm(app)
-        app.procedure_context = context
+        before = len(app.plant.sent)
         app.dispatch('f')
-    assert offered and all('save + decouple' not in options for options in offered)
-    saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
-    for key in ('decoupling', 'decoupling_negative'):  # absent C- equals C+
-        assert [saved.get(key, saved['decoupling'])[i] for i in (0, 4, 8)] == [1.0, 1.0, 1.0]
+        assert CORRECTION_ACK_REQUIRED in app.notice
+        assert len(app.plant.sent) == before
 
 
 def test_mid_write_operator_config_never_reaches_the_armed_snapshot(tmp_path):
@@ -1609,25 +1585,15 @@ def test_nav2_text_is_ascii_safe_in_ascii_mode(tmp_path, monkeypatch):
 
 
 
-def test_events_carry_run_id_by_and_cause_for_the_timeline(tmp_path):
-    app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
-    with app.attached():
-        arm(app)
-        press(app, 'enter', 'n')
-        app.dispatch('f')
-        app.disarm('done', by='fault')
-    lines = dict(reversed(app.ros.lines))
-    start = next(d for p, d in app.ros.lines if p == 'characterization_start')
-    stop = lines['characterization_stop']
-    assert start['run_id'] == stop['run_id'] and start['key'] == 'f'
-    assert start['procedure'] == 'Characterize' and stop['by'] == 'procedure'
-    result = next(d for p, d in app.ros.lines if p == 'result' and d.get('verdict') in ('FITTED', 'PARTIAL'))
-    assert result['run_id'] == start['run_id']
-    t0, t1 = result['window']
-    edges = [result['slices'][0]['window'][0]] + [s['window'][1] for s in result['slices']]
-    assert (t0, t1) == (edges[0], edges[-1])
-    assert all(a['window'][1] == b['window'][0] for a, b in zip(result['slices'], result['slices'][1:]))
-    assert dict(app.ros.lines)['disarmed']['by'] == 'fault'
+def test_refused_characterization_emits_no_fake_start_or_fitted_result(tmp_path):
+    app, _ = make_app(tmp_path)
+    events = []
+    app.ros.emit = lambda kind, **record: events.append((kind, record))
+    app.dispatch('f')
+    assert not any(name in ('characterization_start', 'characterization_stop')
+                   for name, _ in events)
+    assert not any(name == 'result' and record.get('verdict') in ('FITTED', 'SAVED')
+                   for name, record in events)
 
 
 def test_manual_drive_is_bracketed_by_manual_events(tmp_path):
@@ -1948,17 +1914,19 @@ def test_override_is_empty_without_a_mux_state_when_unmuxed_or_disarmed(tmp_path
         assert runner.override() == 'unknown'    # armed and muxed: a missing state is unknown
 
 
-def test_session_pause_restores_c_and_resume_restages_identity(tmp_path):
+def test_session_pause_resume_refuses_pending_c_without_mutating_files(tmp_path):
+    from mhseals_testing.harness.apply import Staging
+    from mhseals_hardware.menu import Cancelled
     app, _ = make_app(tmp_path)
-    staging = app.staging()
-    staging.raw_correction()
+    staging = Staging(app.args.config)
+    staging.raw_correction()  # explicit offline fixture representing an interrupted old survey
+    before = Path(app.args.config).read_bytes(), staging.state.read_bytes()
     with app.observe('x') as runner:
-        runner.on_pause()
-        assert staging.pending() is None
-        runner.on_resume()
-        assert staging.pending() is not None
-        runner.on_pause(); runner.on_pause(); runner.on_resume()
-        assert staging.pending() is not None
+        for callback in (runner.on_pause, runner.on_resume):
+            with pytest.raises(Cancelled, match='restart-only'):
+                callback()
+            assert (Path(app.args.config).read_bytes(), staging.state.read_bytes()) == before
+    assert staging.pending() is not None
 
 
 def test_segment_and_session_close_build_the_index(tmp_path):

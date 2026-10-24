@@ -1,15 +1,9 @@
-"""Hot-apply hardware config changes and stage the survey correction; ROS-free.
+"""Offline hardware file staging and legacy parameter-readback helpers; ROS-free.
 
-``HardwareApply.stage`` writes the changes to the operator's hardware YAML (the
-driver hot-reloads it and moves its outputs), then polls the driver's own
-parameters until they show the new values. Pin changes move real outputs, so
-they are refused while armed (critique safety 1).
-
-``Staging``: a survey must drive raw efforts, so ``raw_correction`` sets C to identity in the
-hardware YAML. The C it replaced is first written to ``state.json`` (atomically). While that
-backup exists the config holds the wrong C for every consumer, so ``blockers`` refuses motion
-until ``restore`` (an abort, the next start's prompt) or ``commit`` (the survey's own result)
-clears it.
+HardwareApply records file/parameter outcomes, not effective output proof.
+Staging backs up C+/C- and changes files for offline workflows; it cannot
+establish the running driver's correction/model. RuntimeStaging refuses these
+transitions until an owner-controlled runtime application can be acknowledged.
 """
 
 from contextlib import contextmanager
@@ -157,3 +151,35 @@ class Staging:
             yield self
         finally:
             self.restore()
+
+
+CORRECTION_ACK_REQUIRED = (
+    'Characterization unavailable: the driver correction C/C- is restart-only; '
+    'runtime correction application/readback is unsupported. No correction transition was applied.')
+
+
+class RuntimeStaging(Staging):
+    """Fail closed until an owner-controlled runtime C transition can be acknowledged.
+
+    Staging remains an offline file API. A file save or parameter echo cannot
+    establish the immutable selected driver's active correction/model.
+    """
+
+    def _refuse(self):
+        from mhseals_hardware.menu import Cancelled
+        raise Cancelled(CORRECTION_ACK_REQUIRED)
+
+    def raw_correction(self):
+        self._refuse()
+
+    def commit(self, decoupling, decoupling_negative=None, **changes):
+        self._refuse()
+
+    def restore(self):
+        if self.pending() is None:
+            return False
+        self._refuse()
+
+    def blockers(self):
+        return (["Pending correction backup: runtime C is unverified; " + CORRECTION_ACK_REQUIRED]
+                if self.pending() is not None else [])

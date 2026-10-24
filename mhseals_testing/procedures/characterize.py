@@ -23,7 +23,7 @@ from mhseals_testing.analysis.characterization import (
 )
 from mhseals_testing.analysis.column import _within, refine, worst
 from mhseals_testing.analysis.thrust import speed_curve
-from mhseals_testing.harness.apply import IDENTITY, Staging
+from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, IDENTITY, Staging
 from mhseals_testing.history import adapters
 from mhseals_testing.runner import NEUTRAL
 
@@ -124,6 +124,12 @@ def slices(wall, windows, end):
 
 
 def run(ctx):
+    """Refuse operational execution until actual runtime C transitions are supported."""
+    return refuse(ctx, CORRECTION_ACK_REQUIRED)
+
+
+def _run_offline(ctx):
+    """Exercise fitting with explicit offline fixtures; never an operational entry."""
     cfg, settings = load_settings(), ctx.settings
     only = parse_direction(settings.direction)
     if settings.direction and only is None:

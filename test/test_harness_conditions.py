@@ -125,7 +125,7 @@ def run_characterize(sigma, tmp_path):
 
 def test_poor_water_ends_characterize_before_any_motion(tmp_path):
     ctx, runner, records = run_characterize(0.3, tmp_path)
-    result = characterize.run(ctx)
+    result = characterize._run_offline(ctx)
     assert result['verdict'] == 'ABORTED' and result['reason'].startswith('conditions poor: ')
     assert runner.stopped and [h[1] for h in runner.holds] == ['conditions']     # only the neutral step ran
     assert records == [result] and result['conditions']['verdict'] == 'poor'
@@ -133,7 +133,7 @@ def test_poor_water_ends_characterize_before_any_motion(tmp_path):
 
 def test_good_water_does_not_stop_the_start_and_is_not_rechecked(tmp_path):
     ctx, runner, records = run_characterize(0.01, tmp_path)
-    result = characterize.run(ctx)      # empty history: it fails later, at the fit, not at the gate
+    result = characterize._run_offline(ctx)      # empty history: it fails later, at the fit, not at the gate
     assert not str(result.get('reason', '')).startswith('conditions poor') and len(runner.holds) > 1 and runner.holds[1][1] == 'settle'
 
 
