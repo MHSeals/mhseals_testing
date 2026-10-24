@@ -2109,3 +2109,59 @@ def test_release_names_the_claimant(tmp_path):
     app.choose = choose
     app.dispatch('U')
     assert calls == []
+
+
+@pytest.mark.parametrize('popup', [False, True])
+def test_watch_space_stays_held_after_rc_returns_guided(tmp_path, popup):
+    from mhseals_hardware.command_arbitration import Arbitration
+    app, boat = make_app(tmp_path)
+    app.watching = 42
+    mux = Arbitration()
+    manual = []
+
+    def hold(cause):
+        now = app.clock()
+        manual.append((0, 0, 0))
+        mux.update_manual(manual[-1], now)
+        mux.request('hold', cause, 'tui', now)
+
+    boat.hold = hold
+    boat.engage = lambda: pytest.fail('watcher acquired automatic motion')
+    with app.attached():
+        if popup:
+            press(app, 'space')
+            app.show('Watch', message='live')
+        else:
+            app.dispatch('space')
+    now = app.clock() + 1
+    for mode in (1550, 1900):
+        mux.update_rc([1500] * 5 + [1900, 1500, mode], now)
+    mux.update_auto((0.8, 0, 0), now)
+    source, command = mux.select(now)[:2]
+    assert source == 'hold' and command == (0, 0, 0)
+    assert 'keys' in mux.holds and manual == [(0, 0, 0)]
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_actual_app_manual_space_ends_at_zero_even_on_hold_error(tmp_path, fails):
+    app, boat = make_app(tmp_path, keys=['m', 'q'])
+    app.arming.armed = True
+    events = Events(app.clock, ['press:w', None, 'space', 'x'])
+    app.open_events = lambda: events
+    stopped = []
+
+    def hold(cause):
+        stopped.append(len(boat.sent))
+        assert cause == 'keys'
+        if fails:
+            raise RuntimeError('hold failed')
+
+    boat.hold = hold
+    press(app, 'y')
+    app.run()
+    assert len(stopped) == 1 and not app.manual
+    assert all(command == 'neutral' or command == (0, 0, 0)
+               for command in boat.sent[stopped[0]:])
+    assert app.command == (0, 0, 0)
+    if fails:
+        assert not app.armed
