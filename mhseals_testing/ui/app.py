@@ -268,7 +268,7 @@ class App:
         self.config_file = config_path(args.config)
         self.history = History()
         self.config_backends = backends.file_backends(
-            self.config_file, {'hardware': lambda: self.watcher.reload('hardware')})
+            self.config_file, {'hardware': lambda: self.announce(self.watcher.reload('hardware'))})
         self.watcher = Watcher()
         self.watcher.add(Watched('hardware', self.config_file, self.load_hardware, self.apply_hardware,
                                  subsystem='hardware'))
@@ -486,6 +486,11 @@ class App:
         self.monitor.advise('Config', *config_popup.summary(self.watcher, self.history))
 
     def announce(self, change):
+        """Show a reload's result and emit its event; returns the Change for callers that check ``ok``."""
+        self._announce(change)
+        return change
+
+    def _announce(self, change):
         if not change.ok:
             self.config_note = 'invalid edit'
             if change.report:

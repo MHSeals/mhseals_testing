@@ -49,7 +49,9 @@ class FileBackend(Backend):
             raw = yaml.safe_dump(value.get('overrides', value), sort_keys=False)
         data.atomic_write(self._path(), raw)
         if self.reload:
-            self.reload()
+            change = self.reload()
+            if change is not None and not getattr(change, 'ok', True):
+                raise OSError(f'{self.sub} reload failed: {change.error}')
 
     def verify(self, version, timeout):
         live = self.read()[0]

@@ -36,3 +36,20 @@ def test_app_wires_a_backend_for_every_file_subsystem(tmp_path):
     app, _ = make_app(tmp_path)
     assert set(app.config_backends) >= {'hardware', 'rtk', 'health', 'keymap'}
     assert all(isinstance(b, revert.Backend) for b in app.config_backends.values())
+
+
+def test_hardware_revert_to_an_invalid_version_rolls_back(tmp_path):
+    from types import SimpleNamespace
+    path = tmp_path / 'hardware.yaml'
+    history = History(tmp_path / 'h')
+    path.write_text('output_backend: nonsense_backend\nchannel_map: 7\n')
+    bad = adapters.record_file(history, 'hardware', 'test', path)
+    path.write_text('{}\n')
+    adapters.record_file(history, 'hardware', 'test', path)
+    reload = lambda: SimpleNamespace(ok='nonsense' not in path.read_text(), error='bad config')
+    back = {'hardware': backends.FileBackend('hardware', path, reload)}
+    plan = revert.plan(history, back, revert.Env(), bad['id'], 'hardware')
+    head = history.head('hardware')
+    out = revert.execute(history, back, revert.Env(), plan)
+    assert out.status == 'rolled_back' and path.read_text() == '{}\n'
+    assert history.head('hardware')['id'] == head['id'] and head.get('revert_of') is None
