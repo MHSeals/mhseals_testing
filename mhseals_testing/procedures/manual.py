@@ -25,7 +25,10 @@ class GuardedPublisher:
 
     def hold(self):
         """Space: ask the mux to hold so auto commands cannot resume behind the stop."""
-        self.plant.hold('keys')
+        try:
+            self.plant.hold('keys')
+        finally:
+            self.publish((0.0, 0.0, 0.0))
 
     def publish(self, command):
         command = tuple(float(value) for value in command)

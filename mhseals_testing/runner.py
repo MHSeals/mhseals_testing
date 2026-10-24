@@ -134,7 +134,9 @@ class Runner:
             if self.clock() - began > self.pause_limit:
                 self.emit('pause_end', outcome='override_timeout')
                 raise Aborted('override_timeout')
-            if fold(self.keys.read(timeout=self.period)) in ABORT_KEYS:
+            key = self.keys.read(timeout=self.period)
+            if fold(key) in ABORT_KEYS:
+                self.operator_stop(key)
                 self.emit('pause_end', outcome='aborted')
                 raise Aborted('aborted')
         resumed = self.clock()
@@ -160,8 +162,7 @@ class Runner:
                 self.show(command, deadline - now, label)
                 key = self.keys.read(timeout=min(self.period, deadline - now))
                 if fold(key) in ABORT_KEYS:
-                    if fold(key) == 'space':
-                        self.plant.hold('keys')
+                    self.operator_stop(key)
                     raise Aborted(f'{label or "motion"} cancelled by operator')
         except BaseException:
             self.stop()
@@ -209,6 +210,7 @@ class Runner:
                     self.show(self.command, deadline - paused_at, 'paused: manual override')
                     key = self.keys.read(timeout=self.period)
                     if fold(key) in ABORT_KEYS:
+                        self.operator_stop(key)
                         self.emit('pause_end', outcome='aborted', paused_s=now - paused_at)
                         raise Aborted('supervision cancelled by operator')
                     continue
@@ -218,12 +220,19 @@ class Runner:
                 self.show(self.command, deadline - now, text)
                 key = self.keys.read(timeout=min(self.period, deadline - now))
                 if fold(key) in ABORT_KEYS:
-                    if fold(key) == 'space':
-                        self.plant.hold('keys')
+                    self.operator_stop(key)
                     raise Aborted(f'{text or "supervision"} cancelled by operator')
         except BaseException:
             self.stop()
             raise
+
+    def operator_stop(self, key):
+        """Space holds automation even while paused; hold errors still end at neutral."""
+        if fold(key) == 'space':
+            try:
+                self.plant.hold('keys')
+            finally:
+                self.stop()
 
     def stop(self):
         self.command = NEUTRAL

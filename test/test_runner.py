@@ -51,7 +51,8 @@ def test_abort_key_stops_at_neutral(key):
     run, plant, _, _ = runner({3: key})
     with pytest.raises(Aborted, match='cancelled'):
         run.hold((0.2, 0, 0), 5.0, 'surge')
-    assert plant.sent[-1] == 'neutral' and len(plant.sent) == 4
+    assert plant.sent[-1] == 'neutral'
+    assert plant.sent[:3] == [(0.2, 0.0, 0.0)] * 3
     assert run.command == NEUTRAL
     assert plant.holds == (['keys'] if key == 'space' else [])  # only Space asks for a hold
 
@@ -112,11 +113,11 @@ def test_supervise_aborts_on_keys_and_blockers_at_neutral():
     run, plant, _, _ = runner({2: 'space'})
     with pytest.raises(Aborted, match='cancelled'):
         run.supervise(5.0, label='waypoints')
-    assert plant.sent == ['neutral']
+    assert plant.sent and all(command == 'neutral' for command in plant.sent)
     blocked, plant, _, _ = runner(blockers=lambda: ['TF odom -> base_link: missing'])
     with pytest.raises(Aborted, match='TF'):
         blocked.supervise(5.0)
-    assert plant.sent == ['neutral']
+    assert plant.sent and all(command == 'neutral' for command in plant.sent)
 
 
 def test_fold_lowers_single_letters_only():
@@ -209,7 +210,7 @@ def test_a_pause_still_honours_the_abort_key():
     run.override = lambda: 'rc' if clock[0] >= 2.0 else ''
     with pytest.raises(Aborted, match='cancelled'):
         run.supervise(10.0)
-    assert plant.sent == ['neutral']
+    assert plant.sent and all(command == 'neutral' for command in plant.sent)
 
 
 
@@ -262,4 +263,53 @@ def test_manual_space_requests_a_hold_as_well_as_neutral():
     reader = SimpleNamespace(read=lambda timeout=None: next(keys))
     drive(reader, ManualState(0.5, 0.5, 0.5, 1.0), GuardedPublisher(plant, lambda: []),
           lambda *a: None)
-    assert events == [('hold', 'keys'), ('pub', (0.0, 0.0, 0.0), True)]
+    assert events[0] == ('hold', 'keys')
+    assert events[1:] == [('pub', (0.0, 0.0, 0.0), True)] * 2
+
+
+@pytest.mark.parametrize('loop', ['hold', 'pause', 'supervise', 'paused_supervise'])
+@pytest.mark.parametrize('fails', [False, True])
+def test_space_holds_and_neutralizes_every_runner_state(loop, fails):
+    run, plant, _, _ = runner({1: 'space'})
+    calls = []
+
+    def hold(cause):
+        calls.append(cause)
+        if fails:
+            raise RuntimeError('hold failed')
+
+    plant.hold = hold
+    if loop in ('pause', 'paused_supervise'):
+        run.override = lambda: 'rc'
+    with pytest.raises(RuntimeError if fails else Aborted):
+        if loop == 'pause':
+            run._pause('rc', (0.2, 0, 0), 'test')
+        elif 'supervise' in loop:
+            run.supervise(10)
+        else:
+            run.hold((0.2, 0, 0), 10)
+    assert calls == ['keys']
+    assert plant.sent[-1] == 'neutral' and run.command == NEUTRAL
+    assert all(command == 'neutral' for command in plant.sent[1:])
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_manual_space_finishes_neutral_when_hold_fails(fails):
+    from mhseals_testing.procedures.manual import GuardedPublisher
+    commands = []
+
+    def hold(cause):
+        assert cause == 'keys'
+        if fails:
+            raise RuntimeError('hold failed')
+
+    plant = SimpleNamespace(hold=hold, publish=lambda command, **kw: commands.append((command, kw)))
+    publisher = GuardedPublisher(plant, lambda: [])
+    publisher.command = (0.2, 0, 0)
+    if fails:
+        with pytest.raises(RuntimeError):
+            publisher.hold()
+    else:
+        publisher.hold()
+    assert publisher.command == NEUTRAL
+    assert commands == [(NEUTRAL, {'manual': True})]
