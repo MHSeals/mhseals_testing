@@ -407,3 +407,38 @@ def test_nonfinite_refinement_candidate_never_reaches_runner(config, tmp_path, m
     assert result['verdict'] == 'REFUSED' and 'nonfinite characterization command' in result['reason']
     assert not choices and load_config(config) == before
     assert all(all(math.isfinite(v) for v in c) for c in runner.commands)
+
+
+@pytest.mark.parametrize('bad', [None, float('nan'), float('inf')])
+def test_unusable_postsave_verification_records_saved_but_unverified(config, tmp_path, bad):
+    from mhseals_testing import calibration
+    runner = Fake(config)
+    original = runner.hold
+
+    def hold(command, seconds, label=''):
+        window = original(command, seconds, label)
+        if label == 'verify':
+            if bad is None:
+                runner.odometry = [(t, v) for t, v in runner.odometry if not window[0] <= t <= window[1]]
+            else:
+                for t, values in runner.odometry:
+                    if window[0] <= t <= window[1]:
+                        values['vy'] = bad
+        return window
+
+    runner.hold = hold
+    ctx, records, _ = context(tmp_path, runner)
+    path = tmp_path / 'calibration.json'
+    ctx.services['calibration_path'] = path
+    result = run(ctx)
+    saved = load_config(config)
+    stored = calibration.load(path)['directions']
+    assert result['speed_curves'] == saved['characterization']['speed_curves']
+    assert saved['decoupling'] != C_OLD
+    assert set(saved['characterization']['fit']) == set(stored)
+    assert all(saved['characterization']['fit'][name] == entry['fit'] for name, entry in stored.items())
+    assert [r['verdict'] for r in records] == ['FITTED', 'SAVED']
+    assert records[-1]['verify']['ok'] is False
+    assert 'no usable velocity samples' in records[-1]['verify']['reason']
+    assert all(all(math.isfinite(v) for v in c) for c in runner.commands)
+    assert Staging(config, tmp_path / 'state.json').pending() is None

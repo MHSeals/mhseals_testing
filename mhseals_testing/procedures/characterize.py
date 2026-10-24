@@ -315,7 +315,10 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     saved = dict(procedure='characterization', verdict='SAVED')
     picked = max((d for d in columns if d not in dead), default=None, key=lambda d: sum(abs(c) for c in columns[d]))
     if picked and any(columns[picked]):
-        saved['verify'] = _verify(ctx, cfg, picked, columns[picked], lo, tolerance)
+        try:
+            saved['verify'] = _verify(ctx, cfg, picked, columns[picked], lo, tolerance)
+        except UnusableResponse as error:
+            saved['verify'] = dict(direction=label(*picked), ok=False, reason=str(error))
     ctx.record(saved)
     if profile and ctx.services.get('nav2_user'):
         # The lasting overlay the Navigation component launches with (config_history.md 2.3).
