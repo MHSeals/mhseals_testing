@@ -5,25 +5,47 @@ small JPEG a few times a second. Opening creates a BEST_EFFORT depth-1
 subscription; closing destroys it, so a closed view costs no traffic.
 """
 
+import io
 import threading
 import time
 
 PREVIEW_TOPIC = '/front_camera/preview/compressed'
 RATES_HZ = (1, 2, 4)  # frame rates the view offers; cycling wraps around
+RAW_MODES = {'rgb8': 'RGB', 'bgr8': 'RGB', 'mono8': 'L'}  # raw encodings the view can show
+
+
+def raw_to_jpeg(message):
+    """JPEG bytes of a raw sensor_msgs/Image (sim publishes only raw; Pillow loads on first frame)."""
+    import numpy as np
+    from PIL import Image
+    if message.encoding not in RAW_MODES:
+        raise ValueError(f'unsupported image encoding {message.encoding!r}')
+    channels = 1 if message.encoding == 'mono8' else 3
+    rows = np.frombuffer(bytes(message.data), np.uint8).reshape(message.height, message.step)
+    array = rows[:, :message.width * channels].reshape(message.height, message.width, channels)
+    if message.encoding == 'bgr8':
+        array = array[:, :, ::-1]
+    out = io.BytesIO()
+    Image.fromarray(array[:, :, 0] if channels == 1 else np.ascontiguousarray(array),
+                    RAW_MODES[message.encoding]).save(out, 'JPEG', quality=85)
+    return out.getvalue()
 
 
 class CameraFeed:
     """Holds the latest preview frame, accepting at most ``hz`` frames per second.
 
     ``subscribe(topic, callback)`` returns a handle and ``unsubscribe(handle)``
-    destroys it; the ROS node supplies both, tests supply fakes.
+    destroys it; the ROS node supplies both, tests supply fakes. ``encode`` turns a
+    message into JPEG bytes (raw topics); None takes ``message.data`` as the JPEG.
     """
 
-    def __init__(self, subscribe, unsubscribe, topic=PREVIEW_TOPIC, hz=1, clock=time.monotonic):
+    def __init__(self, subscribe, unsubscribe, topic=PREVIEW_TOPIC, hz=1, clock=time.monotonic,
+                 encode=None):
         self._subscribe = subscribe
         self._unsubscribe = unsubscribe
         self.topic = topic
         self._clock = clock
+        self._encode = encode
         self._lock = threading.Lock()
         self._handle = None
         self._frame = None
@@ -79,14 +101,28 @@ class CameraFeed:
             if self._last is not None and now - self._last < 1.0 / self.hz:
                 return
             self._last = now
-            self._frame = (bytes(message.data), now)
+            self._frame = (self._encode(message) if self._encode else bytes(message.data), now)
 
 
-def node_feed(node, **kwargs):
-    """A CameraFeed whose subscription is a BEST_EFFORT depth-1 CompressedImage on ``node``."""
+def node_feed(node, raw=False, **kwargs):
+    """A CameraFeed on ``node``: BEST_EFFORT depth-1, raw Image (``raw``) or CompressedImage."""
     from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
-    from sensor_msgs.msg import CompressedImage
+    from sensor_msgs.msg import CompressedImage, Image
     qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                      history=QoSHistoryPolicy.KEEP_LAST, depth=1)
-    return CameraFeed(lambda topic, callback: node.create_subscription(
-        CompressedImage, topic, callback, qos), node.destroy_subscription, **kwargs)
+    kind = Image if raw else CompressedImage
+    return CameraFeed(lambda topic, callback: node.create_subscription(kind, topic, callback, qos),
+                      node.destroy_subscription, encode=raw_to_jpeg if raw else None, **kwargs)
+
+
+def camera_source(sensors):
+    """``(topic, raw)`` for a profile's camera (kind image is raw, compressed is not), else the preview."""
+    cameras = [s for s in sensors if s.kind in ('image', 'compressed')]
+    camera = next((s for s in cameras if s.name == 'camera'), cameras[0] if cameras else None)
+    return (PREVIEW_TOPIC, False) if camera is None else (camera.topic, camera.kind == 'image')
+
+
+def profile_feed(node, sensors, **kwargs):
+    """The feed for a profile's camera on ``node``."""
+    topic, raw = camera_source(sensors)
+    return node_feed(node, raw=raw, topic=topic, **kwargs)

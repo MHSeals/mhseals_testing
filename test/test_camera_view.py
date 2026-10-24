@@ -167,7 +167,7 @@ def test_a_bad_frame_becomes_a_notice_and_a_good_one_clears_it():
         raise OSError('disk')
     v = camera_view.CameraView(feed, (8, 4), lambda text: None, kitty=True, decode=decode, encode=encode)
     bus.publish(b'bad')
-    assert 'waiting' in v.lines()[0].plain and v.notice == 'bad frame'
+    assert 'waiting for a frame on ' + feed.topic in v.lines()[0].plain and v.notice == 'bad frame'
     v.lines()                                                        # not retried every refresh
     assert 'bad frame' in v.status()
     bus.t = 2.0

@@ -73,3 +73,19 @@ def test_rate_cycles_and_rejects_other_values():
         feed.set_rate(3)
     with pytest.raises(ValueError):
         Bus().feed(hz=8)
+
+
+def test_raw_image_becomes_jpeg_and_profile_picks_the_sim_topic():
+    from io import BytesIO
+
+    from PIL import Image
+
+    from mhseals_testing.profiles import SensorSpec
+    from mhseals_testing.ros import camera_feed
+    msg = SimpleNamespace(encoding='bgr8', width=4, height=2, step=12, data=bytes([0, 0, 255] * 8))
+    assert Image.open(BytesIO(camera_feed.raw_to_jpeg(msg))).size == (4, 2)
+
+    spec = SensorSpec('camera', '/front_camera/rgb/image', 'image')
+    assert camera_feed.camera_source([spec]) == ('/front_camera/rgb/image', True)
+    assert camera_feed.camera_source([SensorSpec('c', '/x/compressed', 'compressed')]) == ('/x/compressed', False)
+    assert camera_feed.camera_source([]) == (PREVIEW_TOPIC, False)

@@ -1268,7 +1268,7 @@ class App:
     def camera_feed(self):
         """A CameraFeed on the ROS node, or None without one."""
         node = getattr(self.ros, 'node', None)
-        return None if node is None else camera_feed.node_feed(node)
+        return None if node is None else camera_feed.profile_feed(node, self.profile.sensors)
 
     def camera_detections(self, size, floor):
         """Detection rects in camera pixels for the overlay (needs the tf cache; none wired yet)."""
