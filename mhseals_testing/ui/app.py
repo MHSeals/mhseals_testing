@@ -28,9 +28,9 @@ from rich.text import Text
 
 from mhseals_hardware.configuration import (
     config_path, config_sha, configure_args, load_config, save_config, update_config)
-from mhseals_hardware.startup_config import plain
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
+from mhseals_hardware.startup_config import plain
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
