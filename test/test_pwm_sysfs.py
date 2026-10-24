@@ -45,5 +45,31 @@ def test_missing_unexported_disabled_and_invalid(chips):
 
 @pytest.mark.parametrize('count', [0, 3])
 def test_incomplete_and_duplicate(chips, count):
-    assert sample(chips[:count], [0] * count, verified_local=True).neutral(10, 1) is None
-    assert not sample([chips[0]] * 4, [0] * 4, verified_local=True).known(10, 1)
+    assert sample(chips[:count], [0] * count, verified_local=True, clock=lambda: 10).neutral(10, 1) is None
+    assert not sample([chips[0]] * 4, [0] * 4, verified_local=True, clock=lambda: 10).known(10, 1)
+
+
+@pytest.mark.parametrize('field,value', [('period', '0'), ('period', '-1'),
+                                         ('period', '10000000'), ('duty_cycle', '21000000'),
+                                         ('duty_cycle', '-1'), ('duty_cycle', 'nan'),
+                                         ('enable', 'invalid')])
+def test_invalid_sample_is_not_neutral(chips, field, value):
+    (chips[0] / 'pwm0' / field).write_text(value)
+    observation = sample(chips, [0] * 4, verified_local=True, clock=lambda: 10)
+    assert observation.neutral(10, 1) is None
+    assert observation.health(10, 1)[0] == 'N/A'
+
+
+@pytest.mark.parametrize('frequency', [float('nan'), float('inf'), 0, -1, None])
+def test_invalid_frequency_configuration(chips, frequency):
+    observation = sample(chips, [0] * 4, frequency, verified_local=True, clock=lambda: 10)
+    assert observation.neutral(10, 1) is None
+
+
+def test_aliases_do_not_create_distinct_physical_outputs(chips, tmp_path):
+    aliases = [tmp_path / f'alias{i}' for i in range(4)]
+    for alias in aliases:
+        alias.symlink_to(chips[0], target_is_directory=True)
+    observation = sample(aliases, [0] * 4, verified_local=True, clock=lambda: 10)
+    assert len({output.identity for output in observation.outputs}) == 1
+    assert observation.neutral(10, 1) is None

@@ -16,13 +16,17 @@ def sample(chips, channels, frequency=50., *, verified_local=False, clock=time.m
     """
     outputs = []
     configured = len(chips) == len(channels) == 4
-    expected = period_ns(frequency)
+    try:
+        expected = period_ns(frequency)
+        configured = configured and expected > 0
+    except (TypeError, ValueError, OverflowError):
+        expected, configured = None, False
     for chip, channel in zip(chips, channels):
         identity = f'{chip}/pwm{channel}'
         try:
             if type(channel) is not int or channel < 0:
                 raise ValueError('invalid channel')
-            chip = resolve_pwm_chip(chip)
+            chip = resolve_pwm_chip(chip).resolve()
             identity = str(chip / f'pwm{channel}')
             path = chip / f'pwm{channel}'
             if chip.is_dir() and not path.exists():
@@ -33,14 +37,16 @@ def sample(chips, channels, frequency=50., *, verified_local=False, clock=time.m
                 raise ValueError('invalid enable value')
             period = int((path / 'period').read_text())
             duty = int((path / 'duty_cycle').read_text())
-        except (OSError, ValueError):
+        except (OSError, TypeError, ValueError):
             outputs.append(Output(identity, 'unavailable'))
             continue
         issue = ''
         if period <= 0 or duty < 0 or duty > period:
             issue = 'invalid period/duty'
         elif enable == '1':
-            if abs(period - expected) > 1:
+            if expected is None:
+                issue = 'invalid configured frequency'
+            elif abs(period - expected) > 1:
                 issue = f'expected {frequency:g}Hz'
             elif not MIN_PWM * 1000 <= duty <= MAX_PWM * 1000:
                 issue = f'pulse outside {MIN_PWM}-{MAX_PWM}us'
