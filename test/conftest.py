@@ -1,5 +1,8 @@
 """Shared test fixtures."""
 
+import sys
+from types import ModuleType
+
 import pytest
 
 from nav_paths import find_nav
@@ -55,3 +58,29 @@ def nav2_user_file(tmp_path, monkeypatch):
 
 def pytest_addoption(parser):
     parser.addoption('--update-goldens', action='store_true', help='rewrite the golden text renders')
+
+
+@pytest.fixture(autouse=True)
+def source_nav_share(monkeypatch):
+    """Give the host-only factory harness its exact archived package authority."""
+    nav_root = find_nav()
+    if nav_root is None:
+        return  # Do not skip unrelated tests when no optional nav tree is present.
+    try:
+        import ament_index_python.packages  # noqa: F401
+    except ModuleNotFoundError as error:
+        if error.name not in ('ament_index_python', 'ament_index_python.packages'):
+            raise
+        # Keep the real resolver and strict YAML validation. Only the absent
+        # source-host package index is replaced; installed-wheel runs use ament.
+        package = ModuleType('ament_index_python')
+        packages = ModuleType('ament_index_python.packages')
+
+        def share_directory(name):
+            assert name == 'mhseals_nav'
+            return str(nav_root)
+
+        packages.get_package_share_directory = share_directory
+        package.packages = packages
+        monkeypatch.setitem(sys.modules, 'ament_index_python', package)
+        monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)

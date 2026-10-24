@@ -1,8 +1,7 @@
 """Actual boat/TUI/component propagation into inert navigation launch factories."""
 import ast
 from dataclasses import replace
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -12,35 +11,15 @@ from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import stack_overlay
 
 
-@pytest.fixture(autouse=True)
-def source_nav_share(nav_root, monkeypatch):
-    """Give the host-only factory harness its exact archived package authority."""
-    try:
-        import ament_index_python.packages  # noqa: F401
-    except ModuleNotFoundError as error:
-        if error.name not in ('ament_index_python', 'ament_index_python.packages'):
-            raise
-        # Keep the real resolver and strict YAML validation. Only the absent
-        # source-host package index is replaced; installed-wheel runs use ament.
-        package = ModuleType('ament_index_python')
-        packages = ModuleType('ament_index_python.packages')
-
-        def share_directory(name):
-            assert name == 'mhseals_nav'
-            return str(nav_root)
-
-        packages.get_package_share_directory = share_directory
-        package.packages = packages
-        monkeypatch.setitem(sys.modules, 'ament_index_python', package)
-        monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
-
-
 def launch_factory(nav_root, name):
     """Execute shipped factory bodies with recording constructors, never ROS."""
-    from launch import LaunchContext
+    try:
+        from launch import LaunchContext
+    except ImportError:
+        LaunchContext = None  # ROS-free host uses the pure resolver adapter below.
     from mhseals_nav.endpoint_configuration import (
         boolean as endpoint_boolean, from_launch as endpoint_from_launch,
-        LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
+        LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
     from mhseals_nav.navigation_config import persistent_limits_path
     from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
     from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
@@ -56,6 +35,14 @@ def launch_factory(nav_root, name):
         return SimpleNamespace(args=args, **kwargs)
 
     def endpoints(context):
+        if LaunchContext is None:
+            # Actual factory body and strict YAML resolver, inert host substitution
+            # adapter only. Container/installed runs retain real launch evaluation.
+            return resolve_endpoints(
+                deployment_file=context['endpoint_deployment_file'],
+                operator_file=context['endpoint_startup_file'],
+                context=context['endpoint_context'],
+                aliases={key: context[key] for key in ('fcu_url', 'gcs_url', 'ros_ip', 'ros_port')})
         invocation = LaunchContext()
         invocation.launch_configurations.update(context)
         return endpoint_from_launch(invocation)
