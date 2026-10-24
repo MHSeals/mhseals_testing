@@ -61,6 +61,8 @@ class Processes:
 
     def stop(self, name):
         self.stopped.append(name)
+        if name == 'hardware' and '/thruster_pwm_node' in self.ros.names:
+            self.ros.names.remove('/thruster_pwm_node')   # a stopped driver leaves the graph
 
 
 def arming(profile='boat', die=False, subscribers=(), tmp_path=None, nodes=()):
@@ -86,11 +88,23 @@ def test_arm_snapshots_config_and_waits_for_the_driver(tmp_path):
     assert not armed.armed and armed.fault() == ''
 
 
-def test_restart_driver_touches_only_the_driver_and_uses_the_given_config(tmp_path):
+def test_restart_driver_runs_only_the_driver_for_the_readback_then_stops_it(tmp_path):
     armed, processes = arming('crane_full_stack', tmp_path=tmp_path)
-    armed.restart_driver(dict(load_defaults(), mosfet_line=27))
-    assert processes.stopped == ['hardware'] and processes.started == ['hardware']
+    during = []
+    assert armed.restart_driver(dict(load_defaults(), mosfet_line=27),
+                                lambda: during.append(processes.running('hardware')) or 'seen')
+    assert during == [True] and processes.started == ['hardware'] == processes.stopped
+    assert not processes.running('hardware') and armed.rival() == ''
     assert yaml.safe_load((tmp_path / 'hardware.yaml').read_text())['mosfet_line'] == 27
+    armed.arm()   # the next arm is not blocked by a leftover driver
+    assert armed.armed and processes.started == ['hardware', 'hardware', 'mux']
+
+
+def test_restart_driver_refuses_beside_another_driver(tmp_path):
+    armed, processes = arming(nodes=['/sim/thruster_pwm_node'], tmp_path=tmp_path)
+    with pytest.raises(RuntimeError, match='another thruster_pwm_node'):
+        armed.restart_driver(load_defaults(), lambda: pytest.fail('no readback'))
+    assert processes.started == []
 
 
 def test_arm_refuses_a_second_driver_and_cleans_up_a_dead_one(tmp_path):

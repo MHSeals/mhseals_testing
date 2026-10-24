@@ -30,7 +30,7 @@ def parse_pins(text):
 
 
 def edit_pins(app):
-    """Save new pins; while disarmed, restart just the driver and read the sysfs outputs back."""
+    """Save new pins; while disarmed, run just the driver, read sysfs back, then stop it."""
     if app.armed or (app.arming and app.arming.pending is not None):
         return 'Pins refused: disarm first, pins move real outputs'
     text = app.ask_text('Thruster pins', 'PWM channels 1-4 then MOSFET line',
@@ -46,14 +46,26 @@ def edit_pins(app):
     if app.profile.outputs != 'odroid' or app.arming is None:
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
     config = load_config(app.args.config)   # the file just saved, not the session's snapshot
-    app.arming.restart_driver(config)
+    try:
+        confirmed = app.arming.restart_driver(config, lambda: readback(config))
+    except RuntimeError as error:
+        return f'Pins saved; driver not restarted: {error}'
+    later = ('; this session still arms with its own pins, restart the TUI to use them'
+             if app.differs_from_selection(config) else '')
+    if confirmed:
+        return ('Pins saved; driver restarted, sysfs showed the new channels enabled, driver '
+                f'stopped again (MOSFET line not read back){later}')
+    return ('Pins saved; driver restarted; sysfs readback did not show the new channels '
+            f'enabled: check the driver log{later}')
+
+
+def readback(config):
+    """Return whether sysfs shows all four channels enabled at the configured period in time."""
     deadline = time.monotonic() + READBACK_TIMEOUT
     while True:
         outputs = sample(config['pwm_chips'], config['pwm_channels'], config['frequency']).outputs
-        if all(output.state == 'enabled' for output in outputs):
-            return ('Pins saved; driver restarted; sysfs shows the new channels enabled '
-                    '(MOSFET line not read back)')
+        if all(output.state == 'enabled' and not output.issue for output in outputs):
+            return True
         if time.monotonic() >= deadline:
-            return ('Pins saved; driver restarted; sysfs readback does not show the new channels '
-                    'enabled: check the driver log')
+            return False
         time.sleep(0.2)

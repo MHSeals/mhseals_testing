@@ -208,14 +208,20 @@ class Arming:
         while self.poll(timeout) == 'starting':
             self.sleep(0.1)
 
-    def restart_driver(self, config):
-        """Restart only the driver from ``config`` (the saved operator file), not the captured
-        selection or snapshot. The caller checks that it is disarmed."""
+    def restart_driver(self, config, confirm):
+        """Run only the driver from ``config`` (the saved operator file, not the captured
+        selection) while ``confirm()`` reads its outputs back, then stop it again: disarmed
+        means no driver holds the ESCs powered. The caller checks that it is disarmed."""
+        rival = self.rival()
+        if rival:
+            raise RuntimeError(rival)
         save_config(dict(config, output_backend=self.profile.outputs), self.config_path)
         children = driver_commands(self.profile, self.config_path, None, self.bindings())
-        argv = dict(children)['hardware']
-        self.processes.stop('hardware')
-        self.processes.start('hardware', argv)
+        try:
+            self.processes.start('hardware', dict(children)['hardware'])
+            return confirm()
+        finally:
+            self.processes.stop('hardware')   # outputs disabled, ESC power off
 
     def stop_children(self):
         for name in reversed(self.children()):  # controller first, then the driver

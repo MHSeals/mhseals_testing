@@ -173,8 +173,8 @@ HELP = [
     ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
     ('Thrusters s / u',
      'Save the draft to the config (the next session starts from it) / undo it'),
-    ('Thrusters M', 'Edit the PWM pins and MOSFET line; saved, then the driver restarts and sysfs '
-                    'confirms (disarmed only; refused while armed or arming)'),
+    ('Thrusters M', 'Edit the PWM pins and MOSFET line; saved, then the driver restarts, sysfs '
+                    'confirms and it stops (disarmed only; refused while armed or arming)'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Thrusters c', 'Clear the fitted decoupling (asks first)'),
     ('Activity v', 'Switch between results and the event log'),

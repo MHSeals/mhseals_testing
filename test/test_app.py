@@ -1156,7 +1156,7 @@ def test_parse_args_broken_hardware_yaml_names_the_file(tmp_path, capsys, text, 
 
 
 def pins_app(tmp_path, monkeypatch, states):
-    """A disarmed odroid app whose Arming runs on fakes; ``states`` are the successive sysfs readbacks."""
+    """A disarmed odroid app on fake Arming; ``states`` are successive (state, issue)."""
     from dataclasses import replace
     from types import SimpleNamespace
     from mhseals_testing.profiles import load_profile
@@ -1171,8 +1171,10 @@ def pins_app(tmp_path, monkeypatch, states):
     seen = []
 
     def sample(chips, channels, frequency):
+        assert processes.running('hardware')   # read back while the restarted driver runs
         seen.append(list(channels))
-        return SimpleNamespace(outputs=[SimpleNamespace(state=states[min(len(seen), len(states)) - 1])] * 4)
+        state, issue = states[min(len(seen), len(states)) - 1]
+        return SimpleNamespace(outputs=[SimpleNamespace(state=state, issue=issue)] * 4)
     monkeypatch.setattr(pins, 'sample', sample)
     monkeypatch.setattr(pins.time, 'sleep', lambda s: None)
     app.ask_text = lambda *a: '1 0 0 0 27'
@@ -1180,23 +1182,39 @@ def pins_app(tmp_path, monkeypatch, states):
     return app, processes, seen
 
 
-def test_pins_popup_saves_restarts_only_the_driver_and_confirms_sysfs(tmp_path, monkeypatch):
-    app, processes, seen = pins_app(tmp_path, monkeypatch, ['enabled'])
+@pytest.mark.parametrize('differs', [False, True])
+def test_pins_popup_saves_restarts_only_the_driver_and_confirms_sysfs(
+        tmp_path, monkeypatch, differs):
+    app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    app.differs_from_selection = lambda config: differs
     app.dispatch('M')
-    assert app.notice.startswith('Pins saved; driver restarted; sysfs shows')
+    assert app.notice.startswith('Pins saved; driver restarted, sysfs showed')
+    assert ('restart the TUI' in app.notice) is differs
     assert load_config(app.args.config)['pwm_channels'] == [1, 0, 0, 0]
-    assert processes.stopped == ['hardware'] and processes.started == ['hardware']
+    # Only the driver ran, and only for the readback: disarmed again, nothing holds the ESCs.
+    assert processes.started == ['hardware'] == processes.stopped
+    assert not app.armed and not processes.running('hardware') and app.arming.rival() == ''
     assert seen == [[1, 0, 0, 0]]
     restarted = load_config(app.paths.hardware)   # the driver was given the new pins, not a snapshot
     assert restarted['pwm_channels'] == [1, 0, 0, 0] and restarted['mosfet_line'] == 27
 
 
-def test_pins_popup_does_not_report_success_without_matching_readback(tmp_path, monkeypatch):
-    app, processes, _ = pins_app(tmp_path, monkeypatch, ['unexported'])
+@pytest.mark.parametrize('state', [('unexported', ''), ('enabled', 'expected 50Hz')])
+def test_pins_popup_does_not_report_success_without_matching_readback(
+        tmp_path, monkeypatch, state):
+    app, processes, _ = pins_app(tmp_path, monkeypatch, [state])
     monkeypatch.setattr('mhseals_testing.ui.popups.pins.READBACK_TIMEOUT', 0)
     app.dispatch('M')
-    assert 'does not show' in app.notice and 'sysfs shows' not in app.notice
-    assert processes.started == ['hardware']
+    assert 'did not show' in app.notice and 'sysfs showed' not in app.notice
+    assert processes.started == ['hardware'] == processes.stopped
+
+
+def test_pins_popup_does_not_start_a_driver_beside_another(tmp_path, monkeypatch):
+    app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    app.arming.ros.node_names.append('/sim/thruster_pwm_node')
+    app.dispatch('M')
+    assert app.notice.startswith('Pins saved; driver not restarted: another thruster_pwm_node')
+    assert processes.started == [] and seen == []
 
 
 @pytest.mark.parametrize('state', ['armed', 'pending'])
