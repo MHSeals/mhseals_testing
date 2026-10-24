@@ -122,3 +122,13 @@ def test_report_events_keep_their_phase_when_there_is_no_journal(tmp_path):
     session.mkdir()
     (tmp_path / (session.name + '.report.json')).write_text(json.dumps({'events': events()}))
     assert [m[1] for m in load_session(session).markers] == ['wobble', '']
+
+
+def test_first_rec_start_is_no_window_and_marker_note_edits_fold():
+    def at(t, phase, **details):
+        return dict(t_ns=int(t * 1e9), phase=phase, **details)
+    evs = [at(100, 'session_start'), at(101, 'rec_start'), at(110, 'marker', id=1, note=''),
+           at(120, 'marker_note', id=1, note='wake'), at(200, 'session_stop')]
+    _, _, markers, windows, gaps, _ = timeline(evs)
+    assert windows == [] and gaps == []
+    assert markers == [(110.0, 'wake', 'user')]

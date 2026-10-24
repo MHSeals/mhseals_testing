@@ -33,16 +33,20 @@ def timeline(events):
     where markers are (t, note, kind), windows (a, b, outcome, name), gaps (a, b), fails t.
     """
     markers, windows, gaps, fails, open_ = [], [], [], [], {}
-    times, gap = [], None
+    times, gap, notes = [], None, {}
     for event in sorted((e for e in events if event_time(e) is not None), key=event_time):
         t, phase = event_time(event), event.get('phase', '')
         times.append(t)
         if phase == 'marker':
-            markers.append((t, event.get('note', ''), event.get('kind', 'user')))
+            markers.append((t, event.get('note', ''), event.get('kind', 'user'), event.get('id')))
+        elif phase == 'marker_note':
+            notes[event.get('id')] = event.get('note', '')      # latest edit wins
         elif phase == 'rec_stop':
             gap = t
         elif phase == 'rec_start' and gap is not None:
             gaps, gap = gaps + [(gap, t)], None
+        elif phase in ('rec_start', 'rec_stop'):
+            pass                                      # recording edges, never a procedure window
         elif phase == 'health' and event.get('state') == 'fail':
             fails.append(t)
         elif phase == 'session_start':
@@ -52,6 +56,7 @@ def timeline(events):
         elif phase.endswith('_stop') and phase[:-5] in open_:
             name = phase[:-5]
             windows.append((open_.pop(name), t, str(event.get('outcome', '')).upper(), name))
+    markers = [(t, notes.get(i, note), kind) for t, note, kind, i in markers]
     for name, a in open_.items():                     # still running when the session ended
         windows.append((a, max(times), '', name))
     return (min(times, default=0.0), max(times, default=0.0), markers, windows, gaps, fails)
