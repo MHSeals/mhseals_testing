@@ -137,3 +137,20 @@ def test_held_revert_lock_blocks_execute(tmp_path):
         out = revert.execute(h, b, make_env(), p)
     assert out.status == 'blocked' and 'lock' in out.detail and b['hardware'].applied == []
     assert revert.execute(h, b, make_env(), p).status == 'reverted'     # released after the run
+
+
+def test_revert_records_the_live_state_not_the_stored_target(tmp_path):
+    """An imported version stores only part of the file; the head must match what the backend reads."""
+    h, b, first = seed(tmp_path)
+    fake, plain = b['hardware'], b['hardware'].apply
+
+    def apply(version):                       # after the apply the file also carries moved defaults
+        plain(version)
+        fake.value = {'gain': 1, 'pin': 7, 'default': 5}
+    fake.apply = apply
+    fake.read = lambda: (dict(fake.value), 'raw', {'defaults_sha': 'new'} if 'default' in fake.value else {})
+    out = revert.execute(h, b, make_env(), revert.plan(h, b, make_env(), first['id'], 'hardware'))
+    assert out.status == 'reverted'
+    head = h.version(h.head('hardware'))
+    assert head['value'] == {'gain': 1, 'pin': 7, 'default': 5} and head['meta'] == {'defaults_sha': 'new'}
+    assert h.observe('hardware', *b['hardware'].read()) is None

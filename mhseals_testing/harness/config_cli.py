@@ -210,7 +210,8 @@ class Command:
                 self.history.observe(sub, *fresh)
             self.emit({**plan, 'outcome': 'rollback failed', 'error': str(error)}, [*lines, f'ROLLBACK FAILED: {error}'])
             return ROLLBACK_FAILED
-        change = self.history.record(sub, target['value'], target.get('raw'), source=source, revert_of=revert_of,
+        now = adapter.read() or (target['value'], target.get('raw'), target.get('meta'))   # record what is live
+        change = self.history.record(sub, now[0], now[1], source=source, revert_of=revert_of, meta=now[2],
                                      applied=applied or 'confirmed', summary=[f'{r["path"]} {_show(r["before"])} -> {_show(r["after"])}'
                                                                               for r in rows[:2]])
         self.emit({**plan, 'outcome': 'applied', 'id': change and change['id'], 'applied': applied},

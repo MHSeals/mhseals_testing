@@ -146,8 +146,9 @@ def _execute(history, backends, env, p, settings, source, session):
     timeout = settings['verify_timeout_s'][sub]
     with env.hold(f'revert-{uuid.uuid4().hex[:8]}') if fresh.hold else contextlib.nullcontext():
         if _applied(backend, target, timeout):
-            change = history.record(sub, target['value'], target['raw'], source=source, session=session,
-                                    revert_of=fresh.target['id'], meta=target.get('meta'),
+            live, raw, meta = backend.read()          # the live state, not the stored target (imports, moved defaults)
+            change = history.record(sub, live, raw, source=source, session=session,
+                                    revert_of=fresh.target['id'], meta=meta,
                                     summary=[f"revert to {fresh.target['id']}"])
             return Outcome('reverted', change=change)
         if _applied(backend, previous, timeout):
