@@ -257,6 +257,20 @@ def test_plan_objects_gps_and_tf_reach_map_state():
         assert state.crumbs[-1]['fix'] == 6 and state.crumbs[-1]['speed_mps'] == 1.5
 
 
+def test_gps_raw_fix_changes_are_journalled_once_each():
+    node, _, map_feeds = wired(lambda: 0.0)
+    got = []
+    map_feeds.on_fix = lambda **kw: got.append(kw)
+    raw = dict(node.live)['/mavros/gpsstatus/gps1/raw'] if '/mavros/gpsstatus/gps1/raw' in dict(node.live) else None
+    if raw is None:
+        pytest.skip('mavros_msgs not installed')
+    for fix in (0, 3, 3, 4, 5, 6, 6, 5, 6):
+        raw(ns(fix_type=fix, h_acc=20, vel=65535))
+    assert [g['fix'] for g in got] == ['none', '3D', 'DGPS', 'FLOAT', 'FIXED', 'FLOAT', 'FIXED']
+    assert [g['fix_type'] for g in got] == [0, 3, 4, 5, 6, 5, 6]
+    assert [f for _, f in map_feeds.fix_changes] == [0, 3, 4, 5, 6, 5, 6]
+
+
 def test_owner_writes_trail_with_gps_and_xte(tmp_path):
     node, _, map_feeds = wired(lambda: 0.0)
     live = dict(node.live)

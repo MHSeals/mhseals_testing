@@ -15,6 +15,7 @@ import time
 import numpy as np
 
 from mhseals_testing import data
+from mhseals_testing.analysis.fixlog import state_of
 from mhseals_testing.analysis.geo import MapRotation, enu
 from mhseals_testing.health.model import Fact
 from mhseals_testing.ui.minimap.marks import Obj
@@ -145,9 +146,9 @@ def rotation_fact(rotation, now):
 class MapFeeds:
     """ROS wiring: map rotation samples always, costmaps only on lease, the decimated costmap while recording."""
 
-    def __init__(self, node, state=None, facts=None, clock=time.monotonic, wall=time.time):
+    def __init__(self, node, state=None, facts=None, clock=time.monotonic, wall=time.time, on_fix=None):
         """``clock`` (monotonic) ages the rotation fit and fact; ``wall`` stamps crumbs and trail.jsonl,
-        as the bag and journal do."""
+        as the bag and journal do. ``on_fix`` journals each GPSRAW fix_type change."""
         from nav_msgs.msg import OccupancyGrid, Odometry, Path as PathMsg
         from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
         from sensor_msgs.msg import NavSatFix
@@ -158,6 +159,8 @@ class MapFeeds:
         self.rotation, self.origin = MapRotation(), None
         self.costmaps = {}           # topic -> latest message
         self.fix_xy = self.gps_xy = self.global_xy = None
+        self.on_fix = on_fix         # on_fix(fix=word, fix_type=n): journals a gps_fix transition
+        self.fix_changes = []        # (wall s, fix_type) per change, kept live (gps.md section 7)
         self.trail, self.gps = None, (None, None, None)   # TrailWriter (owner only); fix, h_acc_m, speed_mps
         keep = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.subs = {topic: LazySub(node, OccupancyGrid, topic, lambda m, t=topic: self._costmap(t, m), keep)
@@ -190,6 +193,10 @@ class MapFeeds:
         node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw', self._gps_raw, qos_profile_sensor_data)
 
     def _gps_raw(self, m):
+        if m.fix_type != self.gps[0]:
+            self.fix_changes.append((self.wall(), m.fix_type))
+            if self.on_fix:
+                self.on_fix(fix=state_of({'fix_type': m.fix_type}), fix_type=m.fix_type)
         self.state.ingest('gps_raw', fix_type=m.fix_type, h_acc_m=m.h_acc / 1000, vel_cms=m.vel)
         self.gps = (m.fix_type, m.h_acc / 1000, None if m.vel == UNKNOWN_SPEED else m.vel / 100)
 

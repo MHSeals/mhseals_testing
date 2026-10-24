@@ -104,7 +104,7 @@ class RosIO:
             TFMessage, '/tf_static', partial(self._tf, static=True),
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         subscribe_sources(self)
-        self.map = MapFeeds(self.node, facts=facts)  # rotation always, costmaps on lease
+        self.map = MapFeeds(self.node, facts=facts, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self._spinning = True
