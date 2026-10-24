@@ -148,3 +148,16 @@ def test_auto_tab_stays_on_drive_while_map_has_no_body(tmp_path, monkeypatch):
     app.settings.auto_tab = True
     run(app, 'n')
     assert app.tab == 'Drive'
+
+
+def test_minimap_centre_key_does_not_start_interference(tmp_path, monkeypatch):
+    app, _ = make_app(tmp_path)
+    app.console.size = (160, 45)
+    app.focus = 'minimap'
+    ran = []
+    monkeypatch.setattr(app, 'run_procedure', lambda p: ran.append(p.key))
+    app.dispatch('e')
+    assert ran == []
+    app.focus = 'thrusters'
+    app.dispatch('e')
+    assert ran == ['e']

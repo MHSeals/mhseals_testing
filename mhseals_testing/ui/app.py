@@ -1170,7 +1170,8 @@ class App:
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
               and not (self.focus == 'activity' and key == 'v')
-              and not (self.focus == 'status' and key == 'e')):  # Nav2 popup there; interference elsewhere
+              and not (self.focus == 'status' and key == 'e')  # Nav2 popup there; interference elsewhere
+              and not (self.focus == 'minimap' and key in self.map_keys)):  # view.minimap wins (e centres)
             self.on_procedures(key)
         elif self.focus == 'list':
             self.on_list(raw)

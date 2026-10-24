@@ -49,6 +49,7 @@ tab.drive:                      # procedure letters exist only here
   station: [s]
   mission: [t]
   perception: [p]
+  interference: [e]             # not on the minimap (e centres) or status (Nav2 popup)
 
 tab.correction:
   column_prev: [left, h]
@@ -72,6 +73,7 @@ tab.bags:
 panel.status:
   adjust_down: [left, h]        # setting rows only
   adjust_up: [right, l]
+  override: [interference]
   params: [e]                   # Navigation → Nav2 popup, Odometry → EKF/MAVROS popup
 
 panel.motion: {}
@@ -103,6 +105,7 @@ panel.activity:
   exclude: [X]
 
 view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols
+  override: [interference]
   layer_costmap: [c]
   costmap_source: [C]
   layer_hits: [r]
