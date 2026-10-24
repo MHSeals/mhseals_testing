@@ -13,9 +13,8 @@ today unless the app fills them:
 from rich.text import Text
 
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.theme import ACCENT, BAD, MUTED, SEPARATOR
 
-BANNER_KEYS = 'E revoke' + SEPARATOR + 'Space stop'
+BANNER_KEYS = 'E revoke' + theme.SEPARATOR + 'Space stop'
 PROFILE_AT = 100   # the profile shows from this width
 
 
@@ -29,12 +28,12 @@ def deploy_item(deploy):
     if isinstance(deploy, Text):
         return deploy
     if deploy.get('diverged'):
-        item = Text(theme.pick('↕', '<>'), style=BAD)
+        item = Text(theme.pick('↕', '<>'), style=theme.BAD)
     else:
         marks = [(theme.pick('↑', '^'), 'ahead'), (theme.pick('↓', 'v'), 'behind'),
                  (theme.pick('±', '+-'), 'dirty'), ('?', 'untracked')]
         counts = ' '.join(f'{mark}{deploy[key]}' for mark, key in marks if deploy.get(key))
-        item = Text(counts, style=theme.WARN) if counts else Text(theme.pick('≡', '='), style=MUTED)
+        item = Text(counts, style=theme.WARN) if counts else Text(theme.pick('≡', '='), style=theme.MUTED)
     if deploy.get('code_newer'):
         item.append(' code newer', style=theme.WARN)
     return item
@@ -43,10 +42,10 @@ def deploy_item(deploy):
 def host_item(view, short=False):
     review = view.get('review')
     if review and hasattr(review, 'title'):     # a past session: its title and host, no domain
-        host = f'{review.title}{SEPARATOR}{review.host}'.strip(' ' + SEPARATOR)
-        return Text(review.host if short else host, style=MUTED)
-    host = view['host'] if short else f"{view['host']}{SEPARATOR}ROS {view['domain']}"
-    return Text(host, style=MUTED)
+        host = f'{review.title}{theme.SEPARATOR}{review.host}'.strip(' ' + theme.SEPARATOR)
+        return Text(review.host if short else host, style=theme.MUTED)
+    host = view['host'] if short else f"{view['host']}{theme.SEPARATOR}ROS {view['domain']}"
+    return Text(host, style=theme.MUTED)
 
 
 def chips(view):
@@ -54,8 +53,8 @@ def chips(view):
     if view.get('review'):
         return [theme.chip('REVIEW', 'hold')]
     kind, word = view.get('authority') or (None, None)
-    out = [theme.chip(word, kind)] if word else [Text('idle', style=MUTED)]
-    out.append(theme.chip('ARMED', 'armed') if view['armed'] else Text('disarmed', style=MUTED))
+    out = [theme.chip(word, kind)] if word else [Text('idle', style=theme.MUTED)]
+    out.append(theme.chip('ARMED', 'armed') if view['armed'] else Text('disarmed', style=theme.MUTED))
     return out
 
 
@@ -73,15 +72,15 @@ def tab_strip(current, width=120):
     strip = Text()
     for name in TABS if width >= 80 else (current,):
         strip.append(f' [{name}]' if name == current else f'  {name}',
-                     style=f'bold {ACCENT}' if name == current else MUTED)
+                     style=f'bold {theme.ACCENT}' if name == current else theme.MUTED)
     return strip
 
 
 def top_row(view, width):
     """Title, profile (wide), then right-aligned deploy, host, authority, arm; the first drops what does not fit."""
-    title = Text.assemble((' boat_test ', f'bold {ACCENT}'), tab_strip(view.get('tab'), width))
-    name = f"{view['profile']}{SEPARATOR}{view['units']}" if view.get('units') else view['profile']
-    profile = Text.assemble((f'  {name}', MUTED))
+    title = Text.assemble((' boat_test ', f'bold {theme.ACCENT}'), tab_strip(view.get('tab'), width))
+    name = f"{view['profile']}{theme.SEPARATOR}{view['units']}" if view.get('units') else view['profile']
+    profile = Text.assemble((f'  {name}', theme.MUTED))
     deploy, tail = deploy_item(view.get('deploy')), chips(view)
     lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title]
     rights = [(deploy, host_item(view)), (deploy, host_item(view, True)), (None, host_item(view, True)),

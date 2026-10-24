@@ -8,7 +8,6 @@ from rich.text import Text
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES, window
 from mhseals_testing.ui.panels.scrubber import Loupe, label
-from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 
 def result_label(result):
@@ -37,8 +36,8 @@ def result_detail(result):
 def _subtitle(text, review):
     if not review:
         return text
-    zoom = f'loupe {label(review.loupe)}{SEPARATOR}' if _show_loupe(review) else ''
-    return f'review{SEPARATOR}{zoom}{text}'
+    zoom = f'loupe {label(review.loupe)}{theme.SEPARATOR}' if _show_loupe(review) else ''
+    return f'review{theme.SEPARATOR}{zoom}{text}'
 
 
 LOUPE_ROWS = 5   # strip.rows form 'panel'
@@ -72,8 +71,8 @@ def activity_panel(snapshot, view, height):
         start, visible = window(events, cursor, budget)
         for index, (stamp, message) in enumerate(visible, start):
             table.add_row(theme.row(None, message, focused and index == cursor),
-                          Text(f'{view["now"] - stamp:.0f}s', style=MUTED))
-        body = table if events else Text('No events yet', style=MUTED)
+                          Text(f'{view["now"] - stamp:.0f}s', style=theme.MUTED))
+        body = table if events else Text('No events yet', style=theme.MUTED)
         return theme.block(_with_loupe(body, review), TITLES['activity'], focused,
                            _subtitle('log', review))
     table = theme.grid({'header': '    Procedure', 'ratio': 3},
@@ -84,8 +83,8 @@ def activity_panel(snapshot, view, height):
     for index, result in enumerate(visible, start):
         verdict = str(result.get('verdict', theme.DASH))
         table.add_row(theme.row(verdict, result_label(result), focused and index == cursor),
-                      Text(verdict.lower()), Text(result_detail(result), style=MUTED))
-    body = table if results else Text(f'No results yet{SEPARATOR}Enter on a procedure runs it',
-                                      style=MUTED)
+                      Text(verdict.lower()), Text(result_detail(result), style=theme.MUTED))
+    body = table if results else Text(f'No results yet{theme.SEPARATOR}Enter on a procedure runs it',
+                                      style=theme.MUTED)
     return theme.block(_with_loupe(body, review), TITLES['activity'], focused,
-                       _subtitle(f'results{SEPARATOR}{len(results)}', review))
+                       _subtitle(f'results{theme.SEPARATOR}{len(results)}', review))

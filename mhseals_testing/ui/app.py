@@ -43,7 +43,8 @@ from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
-from mhseals_testing.health import legacy as health
+from mhseals_testing.analysis import classes as classes_module
+from mhseals_testing.health import config as health_config, legacy as health
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.journal import Journal
@@ -57,7 +58,7 @@ from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as feeds_module, layout, perception, popups, theme
+from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as feeds_module, layout, palette, perception, popups, theme
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -301,6 +302,7 @@ class App:
         self.watcher = Watcher()
         self.watcher.add(Watched('hardware', self.config_file, self.load_hardware, self.apply_hardware,
                                  subsystem='hardware'))
+        self.watch_own_files()
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
 
     @property
@@ -558,6 +560,7 @@ class App:
         """Poll every watched file once; announce what changed (harness/watch.py)."""
         for change in self.watcher.poll():
             self.announce(change)
+        self.adopt_health()
         self.monitor.advise('Config', *config_popup.summary(self.watcher, self.history))
 
     def announce(self, change, observe=True):
@@ -578,9 +581,54 @@ class App:
             if change.report:
                 self.notice = f'Config rejected, keeping the last good one: {change.error}'
             return
-        self.config_note = self.config_file.name
-        self.notice = f'Config reloaded from {self.config_file.name}'
-        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok', path=str(self.config_file))
+        self.config_note = watched.path.name
+        self.notice = f'Config reloaded from {watched.path.name}'
+        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok', path=str(watched.path))
+
+    def watch_own_files(self):
+        """The TUI's own YAML, hot-reloaded in the same poll. Nothing here touches ROS."""
+        def load_keymap(_path):
+            keymap, warning = keymap_module.load(user=keymap_module.USER_FILE)
+            if warning:
+                raise ValueError(warning)
+            return keymap
+
+        def load_theme(_path):
+            new, warning = palette.load_theme()
+            if warning:
+                raise ValueError(warning)
+            return new
+
+        def apply_keymap(keymap):
+            self.map_keys = keymap_module.key_map(keymap.doc.get('view.minimap'))
+
+        def apply_theme(new):
+            theme.use_palette(new)
+            self.minimap.redraw.mark()
+
+        def apply_minimap(table):
+            self.minimap.table = table
+            self.minimap.redraw.mark()
+
+        def apply_settings(new):    # the persisted values; a key the file dropped goes back to its default
+            for spec in settings.SPECS:
+                if not spec.reset:
+                    setattr(self.settings, spec.key, getattr(new, spec.key))
+
+        for watched in (
+                Watched('keymap', keymap_module.USER_FILE, load_keymap, apply_keymap, subsystem='keymap'),
+                Watched('theme', palette.OVERLAY, load_theme, apply_theme),
+                Watched('minimap', classes_module._default_path(), classes_module.load_classes, apply_minimap),
+                Watched('settings', settings.settings_path(), lambda path: settings.load(path, strict=True),
+                        apply_settings),
+                Watched('health', health_config.USER_FILE, lambda _path: self.health.reload(),
+                        lambda _none: self.adopt_health(), subsystem='health')):
+            self.watcher.add(watched)
+
+    def adopt_health(self):
+        """Health rules gate arming and procedures: a changed file takes effect when neither is on."""
+        if not (self.armed or self.running):
+            self.health.adopt_pending()
 
     def load_hardware(self, _path):
         return load_config(self.args.config)
@@ -1208,6 +1256,7 @@ class App:
             self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
             settings.save(self.settings)
+            self.watcher.reload('settings')   # our own save is not a hand edit
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
               and not (self.focus == 'activity' and key == 'v')

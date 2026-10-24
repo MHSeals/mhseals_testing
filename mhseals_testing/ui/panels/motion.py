@@ -5,13 +5,12 @@ from rich.text import Text
 from mhseals_testing.profiles import PLOT_SCALE
 from mhseals_testing.ui import braille, theme
 from mhseals_testing.ui.panels import TITLES
-from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 
 AXES = (('Surge', 'm/s', 'vx'), ('Sway', 'm/s', 'vy'), ('Yaw', 'rad/s', 'wz'))
 TALL = 20            # panel height at which each axis gets 4 braille rows (else 1)
 SHORT = 40           # inner width below which the axis header is `Surge  +60% -> +0.37`
-_HUE = {'green': theme.GOOD, 'yellow': theme.WARN, 'red': theme.BAD, None: MUTED}   # track score hues
+_HUE = {'green': 'GOOD', 'yellow': 'WARN', 'red': 'BAD', None: 'MUTED'}   # track score hues
 STALE = 2.0          # s; a measurement older than this reads as a dash
 
 
@@ -54,7 +53,7 @@ def _axis(index, snapshot, view, width, rows):
     percent = theme.DASH if not tracking or tracking['score'][index] is None else f"{tracking['score'][index]:.0%}"
     header = Text(f'{name}', style='bold', no_wrap=True, overflow='crop')
     if width < SHORT:      # U14: shrink in order: drop the score, then the arrow and cmd; meas always shows whole
-        hue = _HUE[tracking['colour'][index]] if tracking else ''
+        hue = getattr(theme, _HUE[tracking['colour'][index]]) if tracking else ''
         tiers = ([[(f' {percent}   ', hue), (f'{cmd} {arrow} {meas}', 'bold')]] if tracking else []) + [
             [('  ', ''), (f'{cmd} {arrow} {meas}', 'bold')], [(' ', ''), (f'{cmd} {arrow} {meas}', 'bold')],
             [(' ', ''), (meas, 'bold')]]
@@ -66,7 +65,7 @@ def _axis(index, snapshot, view, width, rows):
     else:
         parts = [(f'{unit}{"" if tracking or key != "wz" else " gyro"}', 'bold')]    # gyro yields to the score
         if tracking:
-            parts.append((f'track {percent}', _HUE[tracking['colour'][index]]))
+            parts.append((f'track {percent}', getattr(theme, _HUE[tracking['colour'][index]])))
         parts += [(f'cmd {cmd}', 'bold'), (f'meas {meas}', 'bold')]
         gap = '  ' if len(name) + 1 + sum(len(t) for t, _ in parts) + 2 * (len(parts) - 1) <= width else ' '   # tighten before cropping
         for n, (part, style) in enumerate(parts):
@@ -76,7 +75,7 @@ def _axis(index, snapshot, view, width, rows):
     lines = plot.rows()
     if rows > 1:
         labels = {0: top, braille._row(0.0, -scale, scale, rows * 4) // 4: '0', rows - 1: bottom}
-        lines = [Text(f'{labels.get(i, ""):>{gutter - 1}} ', style=MUTED) + line
+        lines = [Text(f'{labels.get(i, ""):>{gutter - 1}} ', style=theme.MUTED) + line
                  for i, line in enumerate(lines)]
     return [header, *lines]
 
@@ -110,7 +109,7 @@ class Plots:
             yield Text(f"{theme.pick('━', '=')} meas  {theme.pick('╌', '-')} {'model' if model else 'pred'}"
                        f"  -{self.snapshot.get('plots', {}).get('window', 10):g}s"
                        + ('  cmd (unscaled)' if not model and self.view['units'] == 'effort' else ''),
-                       style=MUTED, no_wrap=True, overflow='crop')
+                       style=theme.MUTED, no_wrap=True, overflow='crop')
 
 
 def compact_axis(index, snapshot, view, width):
@@ -126,11 +125,11 @@ def compact_axis(index, snapshot, view, width):
 def motion_panel(snapshot, view, height=0, compact=False):
     """Three braille axes; 4 rows an axis once ``height`` reaches TALL, or ``compact``: one row an axis."""
     measured = snapshot['sensors'].get('odometry', {})
-    subtitle = ('effort' if view['units'] == 'effort' else 'm/s') + SEPARATOR + theme.labelled(
+    subtitle = ('effort' if view['units'] == 'effort' else 'm/s') + theme.SEPARATOR + theme.labelled(
         measured.get('status', 'MISSING'), 'odom').plain
-    subtitle = Text(subtitle, style=MUTED)
+    subtitle = Text(subtitle, style=theme.MUTED)
     if view.get('authority'):                       # who drives, in their hue (ui U4)
-        subtitle.append(SEPARATOR, style=MUTED)
+        subtitle.append(theme.SEPARATOR, style=theme.MUTED)
         subtitle.append(view['authority'][1], style=theme.auth_style(view['authority'][0]))
     rows = 4 if height >= TALL else 1
     body = Compact(snapshot, view) if compact else Plots(snapshot, view, rows)

@@ -9,7 +9,7 @@ from rich.text import Text
 
 from mhseals_testing.ui import theme
 
-COLORS = {'PASS': theme.GOOD, 'FAIL': theme.BAD, 'active': theme.ACCENT}
+COLORS = {'PASS': 'GOOD', 'FAIL': 'BAD', 'active': 'ACCENT'}
 
 
 def segments(pack, challenges, contacts=0):
@@ -46,6 +46,6 @@ def fit(parts, width):
     for i, (part, state) in enumerate(parts):
         if i:
             text.append(theme.SEPARATOR, style=theme.MUTED)
-        text.append(part, style=COLORS.get(state))
+        text.append(part, style=getattr(theme, COLORS.get(state, ''), None))
     text.truncate(max(width, 0), overflow='crop')
     return text

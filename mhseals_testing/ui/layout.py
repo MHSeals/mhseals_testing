@@ -35,7 +35,6 @@ from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
 from mhseals_testing.ui.panels.status import reconcile, status_panel, status_rows
 from mhseals_testing.ui.panels.thrusters import thrusters_panel
-from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 
 PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
 WIDE = 106          # footer: four hint columns from here
@@ -59,7 +58,7 @@ STRIP_FULL, STRIP_SHORT = 100, 5   # below 100 columns the strip shows its first
 def strip_item(state, label):
     """A healthy item is plain muted text; anything else gets its status glyph and hue."""
     if theme.kind(state) == 'good':
-        return Text(label, style=MUTED)
+        return Text(label, style=theme.MUTED)
     return theme.labelled(state, label)
 
 
@@ -68,10 +67,10 @@ def rec_chip(view):
     sample = view.get('rec')
     if sample is None:                           # no watcher (tests, headless): running or not
         return strip_item('LIVE' if view['recording'] else 'FAIL', 'rec')
-    state, text = recwatch.strip_text(sample, view['armed'], SEPARATOR, theme.pick('≈', '~'))
+    state, text = recwatch.strip_text(sample, view['armed'], theme.SEPARATOR, theme.pick('≈', '~'))
     if state in ('warn', 'fail'):
         return theme.labelled('WARN' if state == 'warn' else 'FAIL', text)
-    return Text(text, style=MUTED if state == 'ok' else 'dim')
+    return Text(text, style=theme.MUTED if state == 'ok' else 'dim')
 
 
 def health_strip(snapshot, view, width=None):
@@ -91,7 +90,7 @@ def health_strip(snapshot, view, width=None):
     if view['bench_override']:
         parts.append(theme.labelled('WARN', 'bench override'))
     if width is None:
-        return Text(SEPARATOR).join(parts)
+        return Text(theme.SEPARATOR).join(parts)
     cut = 0
     if width < STRIP_FULL:  # only the first five items show below 100 columns; the rest count in +N
         parts, cut = parts[:STRIP_SHORT], max(len(parts) - STRIP_SHORT, 0)
@@ -103,23 +102,23 @@ def health_total(health):
     if not health:
         return Text('')
     if not health.get('bad') and not health.get('warn'):
-        return Text(f"health {health.get('ok', 0)} ok", style=MUTED)
+        return Text(f"health {health.get('ok', 0)} ok", style=theme.MUTED)
     total = Text()
     for state, count in (('bad', health.get('bad')), ('warn', health.get('warn'))):
         if count:
             total.append_text(theme.icon(state)).append(f' {count}  ')
     if health.get('worst'):
         total.rstrip()
-        total.append(SEPARATOR + health['worst'], style=MUTED)
+        total.append(theme.SEPARATOR + health['worst'], style=theme.MUTED)
     return total
 
 
 def fit_strip(chips, width, extra=0):
     """Join the chips, replacing those that do not fit (and ``extra`` already cut) with a ``+N`` chip."""
-    gap = Text(SEPARATOR)
+    gap = Text(theme.SEPARATOR)
     for shown in range(len(chips), 0, -1):
         hidden = len(chips) - shown + extra
-        parts = chips[:shown] + ([Text(f'+{hidden}', style=MUTED)] if hidden else [])
+        parts = chips[:shown] + ([Text(f'+{hidden}', style=theme.MUTED)] if hidden else [])
         line = gap.join(parts)
         if len(line) + 1 <= width:
             return line
@@ -160,10 +159,10 @@ def footer(view, width):
     status.add_column(ratio=6, justify='right', no_wrap=True, overflow=theme.OVERFLOW)
     position = view['position']
     title, position = view.get('focus_title') or (TITLES.get(view['focus'], view['focus'].title()), position)
-    focus = Text(f' Focus {title}', style=f'bold {ACCENT}')
+    focus = Text(f' Focus {title}', style=f'bold {theme.ACCENT}')
     if position:
-        focus.append(f'{SEPARATOR}{position}', style=MUTED)
-    status.add_row(focus, Text(view['notice'], style=MUTED))
+        focus.append(f'{theme.SEPARATOR}{position}', style=theme.MUTED)
+    status.add_row(focus, Text(view['notice'], style=theme.MUTED))
     review = playing(view)
     if review:  # the strip footer takes the status line's place; the notice rides on its status line
         status = Group(*scrubber.review_footer(review, width, view['notice']))
@@ -210,7 +209,7 @@ def popup(modal, width, height=None):
     if modal.get('body') is not None:       # a popup that draws itself (popup.history)
         head.append(modal['body'])
     if modal.get('rows'):
-        rows = theme.grid({'header': '', 'style': f'bold {ACCENT}'},
+        rows = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}'},
                           {'header': '', 'no_wrap': False, 'overflow': 'fold', 'ratio': 1},
                           padding=(0, 2))
         rows.show_header = False
@@ -222,11 +221,11 @@ def popup(modal, width, height=None):
             tail.append(Text(''))
         for index, option in enumerate(modal['options']):
             key = modal.get('keys', [None] * len(modal['options']))[index]
-            line = Text(f'{key} ' if key else '', style=f'bold {ACCENT}')
+            line = Text(f'{key} ' if key else '', style=f'bold {theme.ACCENT}')
             line.append_text(Text.from_markup(option) if '[' in option else Text(option))
             tail.append(theme.selected(line, index == modal['selected']))
     elif modal['kind'] == 'input':
-        tail += [Text(''), Text('> ', style=f'bold {ACCENT}') + Text(modal['text'] + theme.FILL)]
+        tail += [Text(''), Text('> ', style=f'bold {theme.ACCENT}') + Text(modal['text'] + theme.FILL)]
     panel_width = min(width - 4, modal.get('width', 64))
     inner = panel_width - 4
     body = Group(*head)
@@ -236,7 +235,7 @@ def popup(modal, width, height=None):
         total, pinned = _height(body, inner), _height(Group(*tail), inner)
         if total + pinned > height - 2:
             modal['clipped'] = True
-            hint = f"{modal.get('scroll_hint', 'j/k')} scroll{SEPARATOR}{hint or ''}".rstrip(SEPARATOR)  # first: the border may crop
+            hint = f"{modal.get('scroll_hint', 'j/k')} scroll{theme.SEPARATOR}{hint or ''}".rstrip(theme.SEPARATOR)  # first: the border may crop
             room = max(1, height - 2 - pinned)
             modal['scroll'] = max(0, min(modal.get('scroll', 0), total - room))
             body = Window(body, modal['scroll'], room)
@@ -246,7 +245,7 @@ def popup(modal, width, height=None):
     return panel, panel_width
 
 
-TOAST_STYLE = {'warn': theme.WARN, 'fail': theme.BAD, 'ok': theme.GOOD, 'info': ACCENT}
+TOAST_STYLE = {'warn': 'WARN', 'fail': 'BAD', 'ok': 'GOOD', 'info': 'ACCENT'}   # theme names
 
 
 TOAST_MIN, TOAST_MAX, TOAST_LINES = 26, 60, 2   # columns; text rows (plus 2 border rows = 4)
@@ -258,7 +257,7 @@ def toast_box(toast, width, now=None):
 
     Returns the panel and its height. Text beyond two rows is cut with an ellipsis.
     """
-    hue = TOAST_STYLE[toast.kind]
+    hue = getattr(theme, TOAST_STYLE[toast.kind])
     text = Text(toast.text + (f'{theme.pick(" ×", " x")}{toast.count}' if toast.count > 1 else ''))
     lines = text.wrap(Console(width=width - 4), width - 4)
     for line in lines:
@@ -291,7 +290,7 @@ def toast_stack(toasts, more, width, now=None, rows=None):
         more += 1
     items = [box for box, _ in boxes]
     if more and boxes:
-        items.append(Text(f'+{more} more{SEPARATOR}!', style=MUTED, justify='right'))
+        items.append(Text(f'+{more} more{theme.SEPARATOR}!', style=theme.MUTED, justify='right'))
     return Group(*items), panel_width
 
 
@@ -343,8 +342,8 @@ def too_small(view):
     """
     state = 'ARMED' if view.get('armed') else 'disarmed'
     if view.get('running'):
-        state += f"{SEPARATOR}{view['running']}"
-    return Text(f'boat_test{SEPARATOR}{state}\nenlarge terminal{SEPARATOR}Space stop{SEPARATOR}q quit')
+        state += f"{theme.SEPARATOR}{view['running']}"
+    return Text(f'boat_test{theme.SEPARATOR}{state}\nenlarge terminal{theme.SEPARATOR}Space stop{theme.SEPARATOR}q quit')
 
 
 def body_rows(height, review=False):
@@ -373,7 +372,7 @@ def render(snapshot, view, width=120, height=34):
 
 def placeholder_body(snapshot, view, width, height):
     """The body of a tab nobody has built yet."""
-    return theme.block(Text(f"{view['tab']} is not built yet", style=MUTED), view['tab'], True)
+    return theme.block(Text(f"{view['tab']} is not built yet", style=theme.MUTED), view['tab'], True)
 
 
 def _cells(slots, sizes=None):

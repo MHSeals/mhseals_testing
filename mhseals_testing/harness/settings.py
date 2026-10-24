@@ -126,21 +126,33 @@ def settings_path():
     return Path(base) / 'mhseals' / 'boat_test.yaml'
 
 
-def load(path=None):
-    """Settings from the user's file; a broken file or value falls back to the default."""
+def load(path=None, strict=False):
+    """Settings from the user's file; a broken file or value falls back to the default.
+
+    ``strict`` (the hot reload) raises on a broken file or value instead; a missing file is the defaults.
+    """
     settings = Settings()
     try:
         saved = load_strict(Path(path or settings_path()).read_text())
-    except (OSError, ValueError, yaml.YAMLError):
+    except FileNotFoundError:
         return settings
+    except (OSError, ValueError, yaml.YAMLError):
+        if strict:
+            raise
+        return settings
+    if strict and saved is not None and not isinstance(saved, dict):
+        raise ValueError('expected a mapping')
     for key, value in (saved if isinstance(saved, dict) else {}).items():
         spec = BY_KEY.get(key)
+        if spec is None and strict:
+            raise ValueError(f'unknown setting {key}')
         if spec is None or spec.reset:
             continue
         try:
             setattr(settings, key, spec.parse(value))
         except ValueError:
-            pass
+            if strict:
+                raise
     return settings
 
 

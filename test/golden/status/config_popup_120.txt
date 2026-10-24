@@ -1,3 +1,8 @@
 ╭─ ▸ Config ───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ › hardware    ✓ hardware.yaml                                                                                        │
+│   keymap      ✓ keymap.yaml                                                                                          │
+│   theme       ✓ theme.yaml                                                                                           │
+│   minimap     ✓ minimap.yaml                                                                                         │
+│   settings    ✓ boat_test.yaml                                                                                       │
+│   health      ✓ health.yaml                                                                                          │
 ╰─  Enter apply · r restart code (not yet) · Esc close  ───────────────────────────────────────────────────────────────╯

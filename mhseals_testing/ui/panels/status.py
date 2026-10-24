@@ -9,12 +9,11 @@ from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.rtk_row import ROW_STATES, RtkCell, _state
 from mhseals_testing.ui.panels import GROUPS, HEADERLESS, TITLES, fold_groups, window
-from mhseals_testing.ui.theme import MUTED, SEPARATOR
 
 MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',
          '⏱': theme.pick('⏱', 't'), '×': theme.pick('×', 'x')}
 RC_MIN_HZ = 10                      # below this the RC link reads '!' (authority 4.3)
-RATE_STYLE = {'warn': theme.WARN, 'fail': theme.BAD}  # Hz colour; a healthy rate stays muted
+RATE_STYLE = {'warn': 'WARN', 'fail': 'BAD'}  # Hz colour; a healthy rate stays muted
 
 
 def sensor_rows(snapshot, specs):
@@ -38,7 +37,7 @@ def sensor_rows(snapshot, specs):
             value += MARKS.get(mark, '')
         rows.append(dict(group='Components', source='sensor', state=state, name=spec.name,
                          value=value, rate=rate, required=spec.required,
-                         detail=f'{spec.topic}{SEPARATOR}{detail}' if detail != spec.topic
+                         detail=f'{spec.topic}{theme.SEPARATOR}{detail}' if detail != spec.topic
                          else spec.topic))
     return rows
 
@@ -104,7 +103,7 @@ def control_rows(snapshot, specs):
         rows.append(row('RC', 'lost', 'receiver present but not valid', 'WARN'))
     else:
         hz, latency = rc.get('rate_hz') or 0, rc.get('latency_ms')
-        value = f"{rc.get('mode', '')}{SEPARATOR}{hz:.0f} Hz" + (f' ~{latency:.0f}ms' if latency else '')
+        value = f"{rc.get('mode', '')}{theme.SEPARATOR}{hz:.0f} Hz" + (f' ~{latency:.0f}ms' if latency else '')
         slow = hz < RC_MIN_HZ
         rows.append(row('RC', value, f'RC_CHANNELS at {hz:.0f} Hz: N1 not applied or FCU rebooted' if slow
                         else 'rc mode, rate and estimated latency', 'WARN' if slow else 'OK'))
@@ -281,10 +280,10 @@ def status_panel(snapshot, view, height):
     start, visible = window(entries, place, budget)
     for kind, key, count in visible:
         if kind == 'head':
-            table.add_row(Text(key, style=f'{MUTED} bold'), '')
+            table.add_row(Text(key, style=f'{theme.MUTED} bold'), '')
         elif kind == 'fold':
-            table.add_row(Text(f'{key}  {theme.FOCUS}', style=f'{MUTED} bold'),
-                          Text(f'{count} ok', style=MUTED))
+            table.add_row(Text(f'{key}  {theme.FOCUS}', style=f'{theme.MUTED} bold'),
+                          Text(f'{count} ok', style=theme.MUTED))
         else:
             row = rows[key]
             if row.get('cell') is not None:     # a row that draws itself at the column width
@@ -292,9 +291,9 @@ def status_panel(snapshot, view, height):
                 continue
             table.add_row(row_label(row, focused and key == cursor),
                           Text(row['value'], style=row['style'] if row.get('style') is not None
-                               else RATE_STYLE.get(row.get('rate'), MUTED)))
+                               else getattr(theme, RATE_STYLE.get(row.get('rate'), 'MUTED'))))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
-                  style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
+                  style=theme.MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row.get('source') == 'sensor' and row['state'] == 'LIVE')
     sensors = sum(1 for row in rows if row.get('source') == 'sensor')
     return theme.block(Group(table, Text(''), detail), TITLES['status'], focused,

@@ -1,6 +1,6 @@
-│   ✓ Config            ✓ 1 file │
+│   ✓ Config           ✓ 6 files │
 ==
-│   ✓ Config      ✓ 1 file │
+│   ✓ Config     ✓ 6 files │
 --
 │   ! Config            rejected │
 ==

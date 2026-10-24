@@ -138,7 +138,7 @@ def command_glyph(command, amplitude, chords=False, owner='keyboard', tmux=None,
 COMMAND_COLS = 14            # inner width 38 less the rose and the ' │ ' separator
 NOTABLE_STATES = ('trending', 'changed')   # drift states worth a word in the subtitle
 OWNERS = {'human': 'keyboard', 'ours': 'procedure', 'nav': 'nav', 'agent': 'agent', 'hold': 'hold'}
-VERDICT_HUES = {'marginal': theme.WARN, 'poor': theme.BAD}   # good and unknown stay plain
+VERDICT_HUES = {'marginal': 'WARN', 'poor': 'BAD'}   # good and unknown stay plain
 
 
 def _short(value, digits=2):
@@ -157,7 +157,7 @@ def conditions_title(info, full=True):
         return Text(info.get('reason') or 'measuring', style=theme.MUTED)
     trust = info.get('ceiling')
     trust = info.get('drift_trust') if trust is None else trust
-    title = Text.assemble((verdict, VERDICT_HUES.get(verdict, '')))
+    title = Text.assemble((verdict, getattr(theme, VERDICT_HUES.get(verdict, ''), '')))
     title.append(f' {trust:.0%}' if trust is not None else '', style=theme.MUTED)
     if not full:      # the compact Cond line has no room for the minutes
         return title

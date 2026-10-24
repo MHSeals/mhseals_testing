@@ -52,15 +52,12 @@ class Health:
         self.host = host or (lambda: probe_module.host_facts(bag_directory))
         self.hardware = hardware or (lambda: None)      # the hardware config now, for calibration.invalid
         self.error = ''
+        self.directory, self.profile, self.pending = directory, profile, None
         try:
             config = load(directory, profile)
         except ConfigError as error:
             self.error, config = str(error), None
-        self.specs = tuple(s for s in config.specs if s.enabled) if config else ()
-        periods = {n: p['period'] for n, p in (config.probes if config else {}).items()
-                   if isinstance(p, dict) and 'period' in p}
-        self.engine = Engine(self.specs, periods, self.facts.clock)
-        self.periods = periods
+        self.adopt(config)
         self._ran, self._seen = {}, set()
         # The git worker (health.md 5.1: 30 s, fetch off) fills its own `latest`; tick() hands that to the facts.
         self.git = git if git is not None else git_probe.from_specs(
@@ -69,6 +66,24 @@ class Health:
         self._git_published = None      # the last `latest` handed to the facts
         self.running_hash = None        # the testing checkout's commit when the first sample landed
         self.transitions = []           # engine transitions not yet taken by drain()
+
+    def adopt(self, config):
+        """Run the engine on ``config``'s checks (a new engine, keeping the session mutes)."""
+        self.specs = tuple(s for s in config.specs if s.enabled) if config else ()
+        self.periods = {n: p['period'] for n, p in (config.probes if config else {}).items()
+                        if isinstance(p, dict) and 'period' in p}
+        muted = self.engine.muted if hasattr(self, 'engine') else ()
+        self.engine = Engine(self.specs, self.periods, self.facts.clock)
+        self.engine.muted.update(muted)
+
+    def reload(self):
+        """Parse the rules again (raises ConfigError); ``adopt_pending`` takes them when nothing is gated."""
+        self.pending = load(self.directory, self.profile)
+
+    def adopt_pending(self):
+        if self.pending is not None:
+            config, self.pending, self.error = self.pending, None, ''
+            self.adopt(config)
 
     def tick(self, snapshot):
         """Run the due App-tick probes, evaluate, and return the advisory rows."""

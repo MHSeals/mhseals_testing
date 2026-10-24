@@ -146,7 +146,7 @@ def test_title_uses_kind_hue():
     toasts.push('w', 'warn', 'slow', 0)
     panel = layout.toast_box(toasts.visible(0)[0], 30)[0]
     assert str(layout.theme.WARN) in str(panel.title.style)
-    assert str(layout.ACCENT) not in str(panel.title.style)
+    assert str(layout.theme.ACCENT) not in str(panel.title.style)
 
 
 def test_ascii_mode_has_no_unicode_in_toasts(monkeypatch):

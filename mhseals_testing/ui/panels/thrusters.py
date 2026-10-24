@@ -8,7 +8,6 @@ from mhseals_hardware.odroid_pwm import J2_PINS
 from mhseals_hardware.thruster_mixer import POSITIONS, thruster_pulses, validate_decoupling
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES
-from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 
 
 SATURATED = 0.98    # |effort| at or above this is drawn as saturated
@@ -23,7 +22,7 @@ def effort_bar(pulse, testing=False, width=9, saturated=False):
     cells[half] = theme.BAR
     for step in range(1, round(abs(effort) * half) + 1):
         cells[half + step if effort > 0 else half - step] = theme.FILL
-    return Text(''.join(cells), style=theme.WARN if testing or saturated else ACCENT)
+    return Text(''.join(cells), style=theme.WARN if testing or saturated else theme.ACCENT)
 
 
 READBACK_TOLERANCE = 2  # µs between the sysfs duty and the commanded pulse
@@ -96,11 +95,11 @@ def thrusters_panel(view, compact=False, pins=True):
         label = Text(row['position'] + (' ⇅' if grabbed else ''))
         cells = [theme.row(state, label, focused and index == cursor)]
         if pins:
-            cells.append(Text(f"p{row['pin']}", style=MUTED))
+            cells.append(Text(f"p{row['pin']}", style=theme.MUTED))
         cells += [
             Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
-            Text(theme.pick('−', '-') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else MUTED),
-            Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style=theme.WARN if row['saturated'] and active else 'bold' if active else MUTED)]
+            Text(theme.pick('−', '-') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else theme.MUTED),
+            Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style=theme.WARN if row['saturated'] and active else 'bold' if active else theme.MUTED)]
         if not compact:
             cells.append(effort_bar(row['pulse'], testing, saturated=row['saturated'] and active))
         if pins:
@@ -117,5 +116,5 @@ def thrusters_panel(view, compact=False, pins=True):
         parts.append('sat ' + ','.join(saturated))
     parts.append('unsaved' if view['draft'] else
                  'config out of sync' if driver.get('config_sync') is False else view['config_note'])
-    subtitle = SEPARATOR.join(parts)
+    subtitle = theme.SEPARATOR.join(parts)
     return theme.block(table, TITLES['thrusters'], focused, subtitle)

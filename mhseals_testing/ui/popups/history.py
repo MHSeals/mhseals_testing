@@ -24,8 +24,6 @@ LABELS = {'hardware': 'Hardware', 'nav2': 'Nav2', 'fcu': 'FCU', 'rtk': 'RTK', 'h
 WIDE = 100            # terminal columns from which the detail sits beside the list
 LIST_W = 44
 EXTERNAL, PENDING = theme.pick('±', '~'), theme.pick('◌', 'o')
-SLATE = f"italic {theme.PALETTE.style('slate')}"
-ACCENT = f'bold {theme.ACCENT}'
 CADENCES = ('site', 'build')
 
 
@@ -126,9 +124,9 @@ def change_line(state, change, active, width, heads):
     right = Text()
     tag = scope_tag(change['subsystem'], rows_of(state, change), state.fields)
     if tag:
-        right.append(tag, style=SLATE)
+        right.append(tag, style=f"italic {theme.PALETTE.style('slate')}")
     if change['id'] in heads:
-        right.append(' now' if tag else 'now', style=ACCENT)
+        right.append(' now' if tag else 'now', style=f'bold {theme.ACCENT}')
     name, named = name_of(state, change)
     head = Text(f"{mark} {change['id']}  {when:%H:%M}  ")
     room = max(4, width - 2 - head.cell_len - right.cell_len - 1)
@@ -208,7 +206,7 @@ def tab_line(state, width):
     for index, sub in enumerate(state.tabs()):
         label = 'All' if sub is None else LABELS[sub]
         if index == state.tab:
-            line.append(f'[{label}]', style=ACCENT)
+            line.append(f'[{label}]', style=f'bold {theme.ACCENT}')
         else:
             line.append(f' {label} ', style='dim')
         line.append(' ')

@@ -6,7 +6,6 @@ from rich.text import Text
 from mhseals_testing.procedures import tree
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES, window
-from mhseals_testing.ui.theme import ACCENT, MUTED
 
 
 def procedures_panel(view, height):
@@ -20,16 +19,16 @@ def procedures_panel(view, height):
     start, visible = window(rows, at, max(1, height - 4))
     for kind, index in visible:
         if kind == 'heading':
-            table.add_row(Text(index, style=f'{MUTED} bold'))
+            table.add_row(Text(index, style=f'{theme.MUTED} bold'))
             continue
         item = items[index]
         state = ('RUNNING' if item['title'] == view['running'] else
                  'READY' if not item['reason'] else 'OFF')
         table.add_row(theme.row(state, item['title'], focused and index == cursor,
-                                Text(item['key'], style=f'bold {ACCENT}')))
+                                Text(item['key'], style=f'bold {theme.ACCENT}')))
     current = items[cursor] if items else None
     detail = Text((current['reason'] or current['description']) if current else '',
-                  style=MUTED, no_wrap=True, overflow=theme.OVERFLOW)
+                  style=theme.MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     ready = sum(1 for item in items if not item['reason'])
     return theme.block(Group(table, Text(''), detail), TITLES['procedures'], focused,
                        f'{ready} ready')

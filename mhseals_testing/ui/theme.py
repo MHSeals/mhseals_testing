@@ -19,15 +19,31 @@ ASCII = palette.ascii_mode()
 # Status styles are palette tokens (ui.md U2): ok, warn, fail, busy. The user overlay
 # warning, if any, is kept for the UI to toast.
 PALETTE, OVERLAY_WARNING = palette.load_theme()
-ACCENT, MUTED = PALETTE.style('accent'), PALETTE.style('muted')
-GOOD, WARN, BAD, BUSY = (PALETTE.style(token) for token in ('ok', 'warn', 'fail', 'busy'))
+AUTHORITY_HUES, _GLYPHS = {}, {}   # filled by use_palette; modules read them as theme.X at call time
 
-# Who drives, as a hue (ui.md U4); the command arrow wears the same one. Never a status hue
-# except unclaimed. Owners are harness.authority.OWNERS.
-AUTHORITY_HUES = {
-    'rc': 'bold', 'keyboard': 'bold', 'hold': 'bright_black', 'agent': 'bright_magenta',
-    'task': ACCENT, 'procedure': ACCENT, 'nav': 'magenta', 'external': BAD, 'none': MUTED,
-}
+
+def use_palette(new):
+    """Make ``new`` the theme: the style names below follow it (the hot reload calls this too)."""
+    global PALETTE, ACCENT, MUTED, GOOD, WARN, BAD, BUSY, SEL_BG
+    PALETTE = new
+    ACCENT, MUTED = PALETTE.style('accent'), PALETTE.style('muted')
+    GOOD, WARN, BAD, BUSY = (PALETTE.style(token) for token in ('ok', 'warn', 'fail', 'busy'))
+    SEL_BG = f"on {PALETTE.style('sel_bg')}" if TINT else ''
+    # Who drives, as a hue (ui.md U4); the command arrow wears the same one. Never a status hue
+    # except unclaimed. Owners are harness.authority.OWNERS.
+    AUTHORITY_HUES.update({
+        'rc': 'bold', 'keyboard': 'bold', 'hold': 'bright_black', 'agent': 'bright_magenta',
+        'task': ACCENT, 'procedure': ACCENT, 'nav': 'magenta', 'external': BAD, 'none': MUTED,
+    })
+    # Glyph and color per state; every state the suite reports maps to one of these.
+    _GLYPHS.update({
+        'good': ('+' if ASCII else '✓', GOOD),
+        'warn': ('!', WARN),
+        'bad': ('x' if ASCII else '✗', BAD),
+        'busy': ('~' if ASCII else '◌', BUSY),
+        'off': (MIDDOT, MUTED),
+        'unknown': (MIDDOT, MUTED),
+    })
 
 
 def pick(glyph, ascii_glyph):
@@ -52,25 +68,16 @@ FOCUS = '>' if ASCII else '▸'
 CURSOR = '> ' if ASCII else '› '
 # Cursor-row tint (ui.md U10) from the sel_bg token; 16-colour, NO_COLOR and ASCII underline instead.
 TINT = palette.detect_tier() in ('truecolor', '256') and not ASCII
-SEL_BG = f"on {PALETTE.style('sel_bg')}" if TINT else ''
 ARROW = '->' if ASCII else '→'
 SPINNER = '|/-\\' if ASCII else '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 SPINNER_HZ = 10
+use_palette(PALETTE)
 
 
 def spinner(t):
     """The spinner frame for time ``t`` seconds, advancing SPINNER_HZ frames a second."""
     return SPINNER[int(t * SPINNER_HZ) % len(SPINNER)] if math.isfinite(t) else SPINNER[0]
 
-# Glyph and color per state; every state the suite reports maps to one of these.
-_GLYPHS = {
-    'good': ('+' if ASCII else '✓', GOOD),
-    'warn': ('!', WARN),
-    'bad': ('x' if ASCII else '✗', BAD),
-    'busy': ('~' if ASCII else '◌', BUSY),
-    'off': (MIDDOT, MUTED),
-    'unknown': (MIDDOT, MUTED),
-}
 _KINDS = {
     'good': {'LIVE', 'OK', 'PASS', 'SIGN MATCH', 'SETTLED', 'HELD', 'REACHED', 'FITTED',
              'SAVED', 'DONE', 'RECORDED', 'SUCCEEDED', 'ARMED', 'READY'},

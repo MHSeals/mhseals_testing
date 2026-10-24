@@ -45,7 +45,8 @@ def test_enter_on_the_config_row_opens_the_popup_and_golden(tmp_path):
     modal, handle = modals[0]
     assert modal['title'] == 'Config'
     console = Console(file=io.StringIO(), width=120, color_system=None)
-    app.watcher.watches['hardware'].loaded_at = None   # the clock time is not golden
+    for watched in app.watcher.watches.values():
+        watched.loaded_at = None   # the clock time is not golden
     modal['rows'] = config.rows(app.watcher, 0)
     console.print(layout.popup(modal, 120, 30)[0])
     check('status/config_popup_120.txt', console.file.getvalue())

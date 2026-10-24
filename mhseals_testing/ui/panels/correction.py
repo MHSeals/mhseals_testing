@@ -19,7 +19,6 @@ from rich.text import Text
 
 from mhseals_testing import calibration
 from mhseals_testing.ui import fitrows, theme
-from mhseals_testing.ui.theme import MUTED, WARN
 
 AXES = ('surge', 'sway', 'yaw')
 CROSS = ('sw', 'ψ', 'su')   # cross-entry rows: sway, yaw, surge (the axis index of each is below)
@@ -291,7 +290,7 @@ def _cell(row, col, settings):
     style = None
     if row[2] == 'trust' and col['hi'] is not None:
         lowest = min(t for t in (col['hi'], col['lo']) if t is not None)
-        style = f'bold {WARN}' if lowest < settings['trust_warn'] else None
+        style = f'bold {theme.WARN}' if lowest < settings['trust_warn'] else None
     return value, style
 
 
@@ -350,9 +349,9 @@ def _side(view, width, room):
         blocks.append(theme.block(Group(*body), f"Readiness{theme.SEPARATOR}{r.get('verdict', MISSING)}"))
     t = view.get('tracking')
     if t:
-        body = [Text('axis   now   session  trend', style=MUTED)]
+        body = [Text('axis   now   session  trend', style=theme.MUTED)]
         body += [Text(f'{a:<6} {n:<5} {s:<8} {tr}') for a, n, s, tr in t.get('rows', [])]
-        body += [Text(x, style=MUTED) for x in t.get('notes', [])]
+        body += [Text(x, style=theme.MUTED) for x in t.get('notes', [])]
         blocks.append(theme.block(Group(*body), f"Tracking{theme.SEPARATOR}{t.get('version', '')}".rstrip(theme.SEPARATOR)))
     holds = details(view, width, max(6, room - 14 * len(blocks)))
     # Drop Tracking, then Readiness, until the column fits the height (holds always stay).
@@ -372,12 +371,12 @@ def hold_rows(view):
 def details(view, width=34, height=None):
     """The holds popup (and side box) of the cursor column: one line per hold."""
     col = view['columns'][view['cursor']]
-    body = [Text(f"{'#':<3}{'a':<5}{'main':<7}{'cross ψ':<9}J", style=MUTED)]
+    body = [Text(f"{'#':<3}{'a':<5}{'main':<7}{'cross ψ':<9}J", style=theme.MUTED)]
     for n, h in enumerate(col['holds'], 1):
         body.append(Text(f"{n:<3}{_num(h.get('a'), 2, False):<5}{_num(h.get('main'), 2):<7}"
                          f"{_num(h.get('cross'), 3):<9}{_num(h.get('j'), 2, False)}{' L' if h.get('limited') else ''}"))
     if not col['holds']:
-        body.append(Text('no holds yet', style=MUTED))
+        body.append(Text('no holds yet', style=theme.MUTED))
     if height is not None:
         body = body[:max(2, height - 2)]
     name = col['key'].replace('-', theme.pick('−', '-'))
@@ -391,12 +390,12 @@ def render(view, width=120, height=40, focused=True):
     table_width = width - s['side_width'] if side else width
     body = [Text(MISSING if not view['header'].get('activity') else view['header']['activity'])]
     body.append(Text('thrust M ' + theme.ARROW + ' C± (driver adds) ' + theme.ARROW +
-                     ' speed curves (controller inverts)', style=MUTED))
+                     ' speed curves (controller inverts)', style=theme.MUTED))
     lines = _table(view, table_width, height)
     footer = []
     if view.get('plan'):
         footer.append(Text('Plan  ' + view['plan']))
-    footer.append(Text.assemble(('scope ', MUTED), (TAGS['hardware'], SCOPE), ' hardware: refit when rebuilt  ',
+    footer.append(Text.assemble(('scope ', theme.MUTED), (TAGS['hardware'], SCOPE), ' hardware: refit when rebuilt  ',
                                 (TAGS['calibration'], SCOPE), ' calibration: refit each test'))
     pad = max(0, height - 2 - len(body) - len(lines) - len(footer) - 2)   # the box fills the body
     main = theme.block(Group(*body, Text(''), *lines, *[Text('')] * (pad + 1), *footer),

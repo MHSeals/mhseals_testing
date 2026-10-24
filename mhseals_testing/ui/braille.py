@@ -14,7 +14,7 @@ from rich.text import Text
 from mhseals_testing.ui import theme
 
 GAP = 0.5
-LAYERS = {'pred': theme.MUTED, 'meas': theme.ACCENT}
+LAYERS = {'pred': 'MUTED', 'meas': 'ACCENT'}   # theme names, read at use
 
 # Dot bit per (column, row) inside a cell, as in the Unicode braille block.
 _BITS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))
@@ -111,7 +111,7 @@ class Canvas:
                     return char or ('-' if theme.ASCII else '┈'), theme.MUTED
             return ' ', None
         bits = mask['pred'] | mask['meas']
-        style = LAYERS['meas' if 'meas' in layers else 'pred']
+        style = getattr(theme, LAYERS['meas' if 'meas' in layers else 'pred'])
         if theme.ASCII:
             upper, lower = bits & 0x1B, bits & 0xE4
             return _ASCII[bool(upper) + 2 * bool(lower)], style
