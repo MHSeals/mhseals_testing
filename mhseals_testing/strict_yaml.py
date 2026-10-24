@@ -21,5 +21,9 @@ class _Loader(yaml.SafeLoader):
 
 
 def load_strict(text):
-    """Parse ``text``; raise ValueError (yaml.YAMLError included) on anything ambiguous."""
+    """Parse ``text``.
+
+    Raises ValueError on aliases, merge keys, or duplicate or non-string
+    keys; yaml.YAMLError on syntax errors.
+    """
     return yaml.load(text, Loader=_Loader)
