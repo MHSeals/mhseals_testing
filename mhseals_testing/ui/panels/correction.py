@@ -51,13 +51,29 @@ def provenance_fits(current, live=None):
     the live per-direction ceiling now. Sigma, trust and iterations have no stored source and stay absent.
     """
     pct = lambda v: None if v is None else v * 100
+    as_dict = lambda v: v if isinstance(v, dict) else {}
+    directions = as_dict(as_dict(current).get('directions'))
+    live = as_dict(live)
     out = {}
     for key in DIRECTIONS:
-        water = ((current or {}).get('directions', {}).get(key) or {}).get('conditions') or {}
-        under = (water.get('ceilings') or {}).get(key, water.get('ceiling'))
-        record = {'fit_label': water.get('verdict'), 'fit': pct(under), 'ceiling': pct((live or {}).get(key))}
+        water = as_dict(as_dict(as_dict(directions.get(key)).get('conditions')))
+        under = as_dict(water.get('ceilings')).get(key, water.get('ceiling'))
+        record = {'fit_label': _verdict_label(water.get('verdict')), 'fit': pct(_number(under)),
+                  'ceiling': pct(_number(live.get(key)))}
         out[key] = {k: v for k, v in record.items() if v is not None}
     return out
+
+
+def _number(value):
+    """``value`` when it is a real number (not a bool), else None: malformed files show dashes."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _verdict_label(verdict):
+    """The 4-letter spec label of a stored verdict ('marginal' -> 'marg'); None when absent."""
+    if not isinstance(verdict, str) or not verdict:
+        return None
+    return next((v for v in fitrows.VERDICTS if verdict.lower().startswith(v[:3])), verdict[:4])
 
 
 def correction_data(hardware, fits=None, running=None, side=None):

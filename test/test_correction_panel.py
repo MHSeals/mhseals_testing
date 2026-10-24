@@ -161,3 +161,20 @@ def test_provenance_fits_fill_fit_under_and_ceiling_now_from_current_json():
     cells = {c['key']: c['cells'] for c in model['columns']}
     assert cells['surge+']['fit'] == 'good 91' and cells['surge+']['ceiling'].startswith('97')
     assert cells['yaw+']['fit'] == theme.DASH
+
+
+def test_provenance_marginal_verdict_uses_the_spec_label_and_keeps_the_column_aligned():
+    current = {'directions': {'sway+': {'conditions': {'verdict': 'marginal', 'ceiling': 0.66}}}}
+    fits = correction.provenance_fits(current)
+    assert fits['sway+']['fit_label'] == 'marg'
+    lines = text(render(correction_view(dict(data(), fits=fits)), 120, 40), 120).splitlines()
+    row = next(l for l in lines if 'marg 66' in l)
+    assert 'marginal' not in row and 'poor' not in row
+
+
+@pytest.mark.parametrize('current', [
+    [], 'x', {'directions': []}, {'directions': {'surge+': []}}, {'directions': {'surge+': {'conditions': 3}}},
+    {'directions': {'surge+': {'conditions': {'verdict': 5, 'ceiling': 'x', 'ceilings': []}}}}])
+def test_provenance_fits_tolerates_malformed_current_json(current):
+    fits = correction.provenance_fits(current, [])
+    assert set(fits) == set(correction.DIRECTIONS) and not any(fits.values())
