@@ -1589,7 +1589,7 @@ def test_events_carry_run_id_by_and_cause_for_the_timeline(tmp_path):
     stop = lines['characterization_stop']
     assert start['run_id'] == stop['run_id'] and start['key'] == 'f'
     assert start['procedure'] == 'Characterize' and stop['by'] == 'procedure'
-    result = next(d for p, d in app.ros.lines if p == 'result' and d.get('verdict') == 'FITTED')
+    result = next(d for p, d in app.ros.lines if p == 'result' and d.get('verdict') in ('FITTED', 'PARTIAL'))
     assert result['run_id'] == start['run_id']
     t0, t1 = result['window']
     edges = [result['slices'][0]['window'][0]] + [s['window'][1] for s in result['slices']]

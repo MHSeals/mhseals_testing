@@ -231,3 +231,25 @@ def test_response_skips_the_previous_holds_coast():
     fixed = response(history, settle, hold, 1.0, coast=2.0)[0]
     assert abs(biased + 1.0) > 0.07  # the whole settle reads the coast
     assert fixed == pytest.approx(-1.0, abs=0.06)
+
+
+def test_unconverged_direction_makes_the_verdict_partial_and_names_it(config, tmp_path, monkeypatch):
+    from mhseals_testing.procedures import characterize
+    real = characterize.refine
+
+    def refine(measure, begin, *args):
+        found = real(measure, begin, *args)
+        return dict(found, converged=False)  # every refine ends unconverged
+    monkeypatch.setattr(characterize, 'refine', refine)
+    ctx, records, _ = context(tmp_path, Fake(config), answer='no')
+    run(ctx)
+    entry = next(r for r in records if r.get('verdict') in ('FITTED', 'PARTIAL'))
+    assert entry['verdict'] == 'PARTIAL'
+    assert set(entry['directions_unfitted']) == {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'}
+
+
+def test_converged_directions_stay_fitted(config, tmp_path):
+    ctx, records, _ = context(tmp_path, Fake(config), answer='no')
+    run(ctx)
+    entry = next(r for r in records if r.get('verdict') in ('FITTED', 'PARTIAL'))
+    assert entry['verdict'] == 'FITTED' and entry['directions_unfitted'] == []

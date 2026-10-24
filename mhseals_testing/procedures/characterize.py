@@ -244,7 +244,10 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             wave_floor=neutral_noise(history, windows, transient, cfg['coast_s'], t95, driven),
             motion_limits=motion_limits(samples_from_windows(history, windows, transient),
                                         samples_from_windows(history, windows, 0.0), [hi, hi, hi]))
-        summary.update(verdict='PARTIAL' if rejected else 'FITTED', holds_rejected=rejected,
+        # A direction whose refine did not converge or whose low-amplitude check failed is not fitted.
+        weak = [name for name, found in refined.items() if not found['converged'] or not found['low_ok']]
+        summary.update(verdict='PARTIAL' if rejected or weak else 'FITTED', holds_rejected=rejected,
+                       directions_unfitted=weak,
                        velocity_limit=result['motion_limits']['velocity'])
         nav2_params, overlay = ctx.services.get('nav2_params'), ctx.services.get('nav2_overlay')
         if nav2_params and overlay:
