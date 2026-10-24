@@ -6,6 +6,8 @@ reads the red ``? authority stale``; the local guess (KEYS / the running procedu
 watch guest or a review, which have no arbiter.
 """
 
+from mhseals_testing.ui import theme
+
 STALE = ('unclaimed', '? authority stale')
 
 
@@ -58,6 +60,25 @@ def chip(record, now):
     if source.startswith('? goal'):
         return 'unclaimed', '? UNCLAIMED goal'
     return 'unclaimed', source if source.startswith('?') else STALE[1]
+
+
+def banner(record, now):
+    """The agent banner text (authority 4.2), or None while no non-TUI claim is on record.
+
+    Every claim whose owner is ``agent`` (a process other than the TUI owner) counts, active,
+    suspended or busy; revoked ones do not. A suspended claim reads PAUSED, else DRIVING.
+    """
+    claims = [c for c in (record or {}).get('claims', ())
+              if c.get('owner') == 'agent' and c.get('state', 'active') != 'revoked']
+    if not claims:
+        return None
+    claim = next((c for c in claims if c.get('state', 'active') == 'active'), claims[0])
+    paused = claim.get('state') == 'suspended'
+    parts = [f"{theme.pick('◆', '*')} AGENT {'PAUSED' if paused else 'DRIVING'}",
+             'RC override' if paused and record.get('owner') == 'rc' else None, claim.get('who'),
+             f"pid {claim['pid']}" if claim.get('pid') else None, claim.get('reason') or None,
+             since(claim, now) or None]
+    return theme.SEPARATOR.join(str(p) for p in parts if p)
 
 
 def driving(feed, arbiter, manual, running, now):

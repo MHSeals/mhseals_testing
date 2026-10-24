@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -316,3 +317,32 @@ def test_sources_report_when_a_mux_is_expected(tmp_path):
     app.profile = load_profile('crane_direct')
     got = feed.sources()
     assert got['muxed'] is False                                      # unmuxed: derives as auto
+
+
+def test_an_agent_claim_shows_the_banner_in_the_live_header(tmp_path):
+    """rv2-29: App.view carries the banner text, so the 120-column header draws the key row."""
+    app, _ = make_app(tmp_path)
+    clock = [1000.0]
+    feed, _ = start(app, clock)
+    assert app.view()['agent'] is None
+    claim, _ = feed.arbiter.table.claim('agent', 'tune_mppi', time.time(), reason='MPPI sweep', pid=5120)
+    feed.arbiter.tick()
+    assert app.view()['agent'].split(theme.SEPARATOR)[:3] == [
+        theme.pick('◆', '*') + ' AGENT DRIVING', 'tune_mppi', 'pid 5120']
+    page = text(layout.header(app.snapshot(), app.view(), 120), 120, 3)
+    assert 'AGENT DRIVING' in page and 'E revoke' in page and 'Space stop' in page
+    feed.arbiter.on_mux({'input': 'rc', 't_ns': int(clock[0] * 1e9)})   # RC override suspends it
+    feed.arbiter.tick()
+    assert 'AGENT PAUSED' in app.view()['agent']
+    feed.arbiter.table.revoke(claim['id'], 1001.0)
+    feed.arbiter.tick()
+    assert app.view()['agent'] is None
+
+
+@pytest.mark.parametrize('owner, shown', [('keyboard', False), ('hold', False), ('rc', True)])
+def test_banner_names_rc_override_only_when_rc_owns_the_boat(owner, shown):
+    """A valid receiver alone is not an override: keys or a hold taking over in GUIDED is not RC."""
+    claim = {'owner': 'agent', 'who': 'tune_mppi', 'state': 'suspended'}
+    text = authority_chip.banner(record(owner, rc=RC, claims=[claim]), NOW)
+    assert text.startswith(theme.pick('◆', '*') + ' AGENT PAUSED')
+    assert ('RC override' in text) is shown

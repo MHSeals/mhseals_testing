@@ -614,6 +614,7 @@ class App:
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared),
+            agent=authority_chip.banner(shared.get('authority_record'), time.time()),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command, chords=self.chords,
             profile=self.profile.name, units=self.profile.command_units,
