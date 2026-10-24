@@ -23,6 +23,7 @@ REST_AMPS = 0.5              # at or under this the pack is resting
 REST_WINDOW = 10.0           # s from the first sample that count for the baseline
 SWAP_JUMP = 0.5              # V rise at rest that means a fuller pack was fitted
 DEFAULT_CAPACITY = 3300      # ArduPilot BATT_CAPACITY default: not a real capacity
+FULL_MARGIN = 0.05           # V/cell above full still read as a charged pack (charger overshoot)
 MIN_CELL = 3.0               # lowest per-cell voltage accepted by cell detection
 # Fraction of charge at (critical, low, nominal, full) for the voltage estimate.
 PCT_POINTS = (0.0, 15.0, 50.0, 100.0)
@@ -52,10 +53,19 @@ def from_mavros(message, t, source='mavros') -> dict | None:
 
 
 def detect_cells(volt, chemistry='lipo') -> int | None:
-    """The cell count whose per-cell voltage is in [3.0, full], nearest the nominal; or None."""
+    """The cell count whose per-cell voltage is in [3.0, full], nearest the nominal; or None.
+
+    A fully charged pack sits nearer the nominal of one cell more (16.8 V reads 3.36 V/cell
+    as 5S), so the count steps down while one fewer cell still reads at most full + margin.
+    """
     c = CHEMISTRIES[chemistry]
     best = [n for n in range(1, 17) if MIN_CELL <= volt / n <= c['full']]
-    return min(best, key=lambda n: abs(volt / n - c['nominal'])) if best else None
+    if not best:
+        return None
+    n = min(best, key=lambda k: abs(volt / k - c['nominal']))
+    while n > 1 and volt / (n - 1) <= c['full'] + FULL_MARGIN + 1e-9:
+        n -= 1
+    return n
 
 
 def estimate_pct(cell_volt, chemistry='lipo') -> float:

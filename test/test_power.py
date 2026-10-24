@@ -29,6 +29,15 @@ def test_detect_chemistries():
     assert p.detect_cells(0.9) is None
 
 
+def test_detect_full_packs_not_one_cell_high():
+    # rv2-12: a fresh 4S/6S rests at full, where the nominal-nearest count is one too high.
+    for n in (2, 3, 4, 5, 6):
+        for per in (4.2, 4.15, 4.1, 3.9, 3.7):
+            assert p.detect_cells(n * per) == n, (n, per)
+    assert p.detect_cells(4 * 3.5) == 4
+    assert p.detect_cells(4 * 3.65, 'lifepo4') == 4
+
+
 def test_4s_lipo_sag_and_pct():
     pw = p.Power()
     f = feed(pw, 15.8, 0.1, 0, 12)
