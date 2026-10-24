@@ -16,13 +16,6 @@ CLASSES = ('live', 'reset', 'restart')
 ORDER = ('velocity_smoother', 'controller_server', 'local_costmap', 'global_costmap',
          'planner_server', 'waypoint_follower', 'behavior_server', 'bt_navigator')
 COSTMAPS = ('local_costmap', 'global_costmap')
-# velocity_smoother list -> (MPPI limit per axis, sign), as mhseals_nav.navigation_config.derived.
-SMOOTHER = {'max_velocity': (('vx_max', 1), ('vy_max', 1), ('wz_max', 1)),
-            'min_velocity': (('vx_min', 1), ('vy_max', -1), ('wz_max', -1)),
-            'max_accel': (('ax_max', 1), ('ay_max', 1), ('az_max', 1)),
-            'max_decel': (('ax_min', 1), ('ay_max', -1), ('az_max', -1))}
-# rotation shim key -> the MPPI limit it follows.
-SHIM = (('rotate_to_heading_angular_vel', 'wz_max'), ('max_angular_accel', 'az_max'))
 FOLLOW = 'controller_server.FollowPath.'
 
 
@@ -78,33 +71,50 @@ def classify(key, old=None, new=None, declared=None, rules=None):
     return 'reset'
 
 
-def derived(values, floor=None):
-    """The keys that follow from ``values`` (flat): model_dt, prune_distance, std clamps, shim rates, smoother limits.
+def _nested(values):
+    """Adapt flat node parameters to the domain compiler's ROS YAML shape."""
+    result = {}
+    for key, value in values.items():
+        node, param = split(key)
+        section = result.setdefault(node, {}).setdefault('ros__parameters', {})
+        parts = param.split('.')
+        for part in parts[:-1]:
+            section = section.setdefault(part, {})
+        section[parts[-1]] = value
+    return result
 
-    ``floor`` is the current prune_distance, which only ever rises (the same rule as
-    mhseals_nav.navigation_config.derived, which this mirrors until it is shared).
+
+def _flat(config):
+    result = {}
+
+    def visit(section, prefix):
+        for key, value in section.items():
+            name = prefix + '.' + key
+            if isinstance(value, dict):
+                visit(value, name)
+            else:
+                result[name] = value
+
+    for node, section in config.items():
+        visit(section['ros__parameters'], node)
+    return result
+
+
+def derived(values, floor=None):
+    """Compile flat preview values through Nav2's canonical pure derivation.
+
+    Plugin-free FollowPath fixtures retain the domain helper's explicit legacy
+    support. Missing inputs stay missing; the selected base owns all defaults.
     """
-    out = {}
-    freq = values.get('controller_server.controller_frequency')
-    if freq:
-        out[FOLLOW + 'model_dt'] = round(1 / freq, 6)
-    follow = {k[len(FOLLOW):]: v for k, v in values.items() if k.startswith(FOLLOW)}
-    follow['model_dt'] = out.get(FOLLOW + 'model_dt', follow.get('model_dt', .05))
-    for axis in ('vx', 'vy', 'wz'):  # sampling noise above an axis limit would clip most samples
-        if f'{axis}_std' in follow and f'{axis}_max' in follow:
-            out[FOLLOW + f'{axis}_std'] = min(follow[f'{axis}_std'], follow[f'{axis}_max'])
-    # The rotation shim turns no faster than MPPI is held to.
-    for shim, limit in SHIM:
-        if shim in follow and limit in follow:
-            out[FOLLOW + shim] = follow[limit]
-    if 'vx_max' in follow:
-        out[FOLLOW + 'prune_distance'] = max(floor or 0., round(
-            1.2 * follow['vx_max'] * follow.get('time_steps', 56) * follow['model_dt'], 2))
-    for name, axes in SMOOTHER.items():
-        current = values.get('velocity_smoother.' + name)
-        if current is not None and all(limit in follow for limit, _ in axes):
-            out['velocity_smoother.' + name] = [sign * follow[limit] for limit, sign in axes]
-    return out
+    from mhseals_nav import navigation_config
+
+    config = _nested(values)
+    original = _nested(values)
+    controller = original.get('controller_server', {}).get('ros__parameters', {})
+    name = navigation_config.mppi_controller(controller, legacy=True)
+    if name is not None and floor is not None:
+        controller[name]['prune_distance'] = floor
+    return _flat(navigation_config.derived(config, original))
 
 
 def plan(changes, current, declared=None, rules=None):
@@ -117,8 +127,22 @@ def plan(changes, current, declared=None, rules=None):
     """
     rules = rules or load_rules()
     wanted = dict(changes)
-    floor = current.get(FOLLOW + 'prune_distance')
-    before, after = derived(current, floor), derived({**current, **changes}, floor)
+    from mhseals_nav import navigation_config
+
+    # Use the same explicit-derived conflict check as full launch compilation.
+    # This planner is a pure preview helper, not a runtime apply route.
+    base, explicit = _nested(current), _nested(changes)
+    controller = base.get('controller_server', {}).get('ros__parameters', {})
+    # Complete plugin-aware requests use the launch validation contract. Only
+    # historical plugin-free fixtures retain the partial-helper compatibility.
+    plugin_aware = 'controller_plugins' in controller or any(
+        isinstance(value, dict) and 'plugin' in value for value in controller.values())
+    compile_values = navigation_config.lower_navigation
+    if plugin_aware:
+        navigation_config.validate_navigation_base(base)
+        compile_values = navigation_config.validated_merge_limits
+    before = _flat(compile_values(base, {}))
+    after = _flat(compile_values(base, explicit))
     wanted.update({k: v for k, v in after.items() if before.get(k) != v and k not in changes})
     groups = {cls: {} for cls in CLASSES}
     unchanged = []

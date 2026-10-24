@@ -90,3 +90,84 @@ def test_rules_file_rejects_unknown_class(tmp_path):
     path.write_text("rules:\n  - {node: x, param: y, class: hot}\n")
     with pytest.raises(ValueError):
         n2.load_rules(path)
+
+
+def _compiled_plan_values(current, changes, result):
+    """Reconstruct the preview value set from its class/node groups."""
+    values = {**current, **changes}
+    for kind in n2.CLASSES:
+        for node, params in result[kind].items():
+            values.update({node + '.' + key: value for key, value in params.items()})
+    return values
+
+
+@pytest.mark.parametrize('smoother', [True, False])
+@pytest.mark.parametrize('plugin,name', [
+    ('nav2_mppi_controller::MPPIController', 'Cruise'),
+    ('nav2_rotation_shim_controller::RotationShimController', 'Cruise'),
+    ('nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController', 'FollowPath'),
+])
+def test_preview_matches_actual_domain_compiler(plugin, name, smoother):
+    from mhseals_nav import navigation_config as domain
+
+    prefix = 'controller_server.' + name + '.'
+    current = {key.replace(FOLLOW, prefix): value for key, value in CURRENT.items()
+               if smoother or not key.startswith('velocity_smoother.')}
+    current.update({'controller_server.controller_plugins': [name],
+                    prefix + 'plugin': plugin, prefix + 'vx_std': 0.3,
+                    prefix + 'vy_std': 0.1, prefix + 'wz_std': 0.2,
+                    prefix + 'rotate_to_heading_angular_vel': 0.3})
+    if plugin == 'nav2_rotation_shim_controller::RotationShimController':
+        current[prefix + 'primary_controller'] = 'nav2_mppi_controller::MPPIController'
+    changes = {prefix + 'vx_max': 0.1, 'controller_server.controller_frequency': 20.0}
+    # Full launch's validated_merge_limits delegates to this exact domain compiler.
+    expected = n2._flat(domain.validated_merge_limits(n2._nested(current), n2._nested(changes)))
+    result = n2.plan(changes, current)
+    assert _compiled_plan_values(current, changes, result) == expected
+    assert n2.derived({**current, **changes}, 3.0) == n2._flat(
+        domain.derived(n2._nested({**current, **changes}), n2._nested(current)))
+    if name == 'FollowPath':
+        assert expected[prefix + 'model_dt'] == current[prefix + 'model_dt']
+        assert expected[prefix + 'vx_std'] == current[prefix + 'vx_std']
+
+
+@pytest.mark.parametrize('assignment', [
+    {FOLLOW + 'model_dt': 0.9},
+    {'velocity_smoother.max_velocity': [9.0, 9.0, 9.0]},
+])
+def test_preview_rejects_conflicting_explicit_derived_assignments(assignment):
+    with pytest.raises(ValueError, match='conflicts with canonical lowering'):
+        n2.plan({FOLLOW + 'vx_max': 0.2, **assignment}, CURRENT)
+
+
+def test_partial_legacy_fixture_does_not_invent_horizon_defaults():
+    values = {FOLLOW + 'vx_max': 0.4}
+    assert n2.derived(values) == values
+    assert n2.plan({FOLLOW + 'vx_max': 0.5}, values)['live'] == {
+        'controller_server': {'FollowPath.vx_max': 0.5}}
+
+
+def test_preview_calls_domain_lowering(monkeypatch):
+    from mhseals_nav import navigation_config as domain
+
+    calls = []
+    compiler = domain.lower_navigation
+
+    def record(base, explicit):
+        calls.append(explicit)
+        return compiler(base, explicit)
+
+    monkeypatch.setattr(domain, 'lower_navigation', record)
+    n2.plan({FOLLOW + 'vx_max': 0.5}, CURRENT)
+    assert calls == [{}, n2._nested({FOLLOW + 'vx_max': 0.5})]
+
+
+def test_complete_request_rejects_invalid_domain_inputs():
+    current = {**CURRENT, 'controller_server.controller_plugins': ['FollowPath'],
+               FOLLOW + 'plugin': 'nav2_mppi_controller::MPPIController',
+               FOLLOW + 'vx_std': 0.2, FOLLOW + 'vy_std': 0.1, FOLLOW + 'wz_std': 0.2}
+    with pytest.raises(ValueError, match='finite number'):
+        n2.plan({FOLLOW + 'vx_max': float('nan')}, current)
+    del current[FOLLOW + 'time_steps']
+    with pytest.raises(ValueError, match='time_steps'):
+        n2.plan({FOLLOW + 'vx_max': 0.2}, current)
