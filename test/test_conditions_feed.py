@@ -8,7 +8,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 
 
-def setup(name='boat'):
+def make_feed(name='boat'):
     clock = [10.0]
     monitor = BoatMonitor(clock=lambda: clock[0])
     feed = ConditionsFeed(load_profile(name))
@@ -26,7 +26,7 @@ def poll(monitor, feed, now, **kwargs):
 
 
 def test_gps_receipt_dedup_and_unknown_eligibility():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor)
     clock[0] += .2
     sample = poll(monitor, feed, clock[0], eligible=None)
@@ -44,7 +44,7 @@ def test_gps_receipt_dedup_and_unknown_eligibility():
                                       ('vel_acc', 0), ('vel_acc', -1), ('vel_acc', math.nan),
                                       ('vel_acc', math.inf), ('vel_acc', True)])
 def test_bad_gps_consumed_once(key, value):
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     values = dict(ve=.2, vn=.1, fix=3, vel_acc=.15)
     values[key] = value
     monitor.observe('odometry', dict(yaw=0, wz=0))
@@ -56,13 +56,13 @@ def test_bad_gps_consumed_once(key, value):
 
 @pytest.mark.parametrize('stamp_age', [3, -.5, math.inf, math.nan])
 def test_bad_source_stamp(stamp_age):
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor, stamp_age=stamp_age)
     assert poll(monitor, feed, clock[0]) is None
 
 
 def test_missing_and_stale_heading_do_not_replay_gps():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     monitor.observe('GPS raw', dict(ve=0, vn=0, fix=3, vel_acc=.1))
     assert poll(monitor, feed, clock[0]) is None
     monitor.observe('odometry', dict(yaw=0, wz=0))
@@ -73,7 +73,7 @@ def test_missing_and_stale_heading_do_not_replay_gps():
 
 
 def test_sim_uses_selected_messages_own_yaw_and_rate():
-    clock, monitor, feed = setup('crane_full_stack')
+    clock, monitor, feed = make_feed('crane_full_stack')
     monitor.observe('odometry', dict(vx=99, vy=99, yaw=0, wz=99))
     monitor.observe('FCU odometry', dict(vx=1, vy=0, yaw=math.pi / 2, wz=.03))
     sample = poll(monitor, feed, clock[0])
@@ -83,7 +83,7 @@ def test_sim_uses_selected_messages_own_yaw_and_rate():
 
 
 def test_epochs_count_restart_clock_rewind_and_source_switch():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor)
     first = poll(monitor, feed, clock[0])
     clock[0] += .2
@@ -108,7 +108,7 @@ def test_epochs_count_restart_clock_rewind_and_source_switch():
 @pytest.mark.parametrize('key,value', [('yaw', math.nan), ('wz', math.inf), ('vx', math.inf),
                                       ('vy', True)])
 def test_nonfinite_sim_and_stale_receipts(key, value):
-    clock, monitor, feed = setup('crane_direct')
+    clock, monitor, feed = make_feed('crane_direct')
     values = dict(vx=0, vy=0, yaw=0, wz=0)
     values[key] = value
     monitor.observe('odometry', values, stamp_age=0)
@@ -120,7 +120,7 @@ def test_nonfinite_sim_and_stale_receipts(key, value):
 
 
 def test_source_stamp_and_count_and_high_accuracy_remain_for_window_median():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor, stamp_age=.1)
     monitor.sensors['GPS raw']['values']['vel_acc'] = .5
     clock[0] += .2
@@ -130,7 +130,7 @@ def test_source_stamp_and_count_and_high_accuracy_remain_for_window_median():
 
 
 def test_cached_snapshot_preserves_receipt_and_stamp_then_expires():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor, stamp_age=.1)
     snapshot = monitor.snapshot()
     sample = feed.poll(snapshot, 10.2, eligible=True, commanding=False)
@@ -141,7 +141,7 @@ def test_cached_snapshot_preserves_receipt_and_stamp_then_expires():
 
 
 def test_cached_attitude_expires_relative_to_poll():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     monitor.observe('odometry', dict(yaw=0, wz=0), stamp_age=0)
     clock[0] = 11
     monitor.observe('GPS raw', dict(ve=0, vn=0, fix=3, vel_acc=.1), stamp_age=0)
@@ -151,7 +151,7 @@ def test_cached_attitude_expires_relative_to_poll():
 
 @pytest.mark.parametrize('invalid', [False, True])
 def test_equal_count_restart_advances_epoch_once_even_when_invalid(invalid):
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor)
     old = monitor.snapshot()
     first = poll(monitor, feed, clock[0])
@@ -174,7 +174,7 @@ def test_equal_count_restart_advances_epoch_once_even_when_invalid(invalid):
 
 @pytest.mark.parametrize('metadata', ['received', 'capture'])
 def test_missing_receipt_metadata_does_not_fall_back_to_poll_time(metadata):
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor)
     snapshot = monitor.snapshot()
     if metadata == 'received':
@@ -185,7 +185,7 @@ def test_missing_receipt_metadata_does_not_fall_back_to_poll_time(metadata):
 
 
 def test_delayed_snapshot_expires_message_stamp_before_receipt():
-    clock, monitor, feed = setup()
+    clock, monitor, feed = make_feed()
     observe(monitor, stamp_age=1)
     snapshot = monitor.snapshot()
     assert feed.poll(snapshot, 11.5, eligible=True, commanding=False) is None
