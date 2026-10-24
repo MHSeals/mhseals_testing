@@ -86,6 +86,13 @@ def test_arm_snapshots_config_and_waits_for_the_driver(tmp_path):
     assert not armed.armed and armed.fault() == ''
 
 
+def test_restart_driver_touches_only_the_driver_and_uses_the_given_config(tmp_path):
+    armed, processes = arming('crane_full_stack', tmp_path=tmp_path)
+    armed.restart_driver(dict(load_defaults(), mosfet_line=27))
+    assert processes.stopped == ['hardware'] and processes.started == ['hardware']
+    assert yaml.safe_load((tmp_path / 'hardware.yaml').read_text())['mosfet_line'] == 27
+
+
 def test_arm_refuses_a_second_driver_and_cleans_up_a_dead_one(tmp_path):
     busy, processes = arming(subscribers=['/thruster_pwm_node'], tmp_path=tmp_path)
     with pytest.raises(RuntimeError, match='already drives'):

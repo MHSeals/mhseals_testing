@@ -2,7 +2,7 @@
 
 Each output is pulsed alone through the armed driver's raw-pulse input; the
 operator says which thruster moved and whether its thrust pointed the expected
-way. The result is saved to the hardware YAML, which a session snapshots when it starts.
+way. The result is saved to the hardware YAML, which the next session starts from.
 The same flow exists without the suite as mhseals_hardware's thruster_identify.
 """
 

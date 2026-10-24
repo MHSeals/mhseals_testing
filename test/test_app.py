@@ -1155,35 +1155,48 @@ def test_parse_args_broken_hardware_yaml_names_the_file(tmp_path, capsys, text, 
         assert str(path) in err and message in err and 'Traceback' not in err
 
 
-def test_pins_saved_reach_the_next_session_not_the_next_arm(tmp_path, monkeypatch):
+def pins_app(tmp_path, monkeypatch, states):
+    """A disarmed odroid app whose Arming runs on fakes; ``states`` are the successive sysfs readbacks."""
     from dataclasses import replace
     from types import SimpleNamespace
-    from mhseals_hardware.startup_config import plain
-    from mhseals_testing.harness import session
     from mhseals_testing.profiles import load_profile
-    from mhseals_testing.startup_owner import prepare_session
+    from mhseals_testing.ui.popups import pins
     from test_arming import Processes, Ros
-    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'store'))
     app, _ = make_app(tmp_path)
-    profile = replace(load_profile('crane_full_stack'), components={}, velocity_controller=False)
-    args = SimpleNamespace(config=str(app.args.config))
-    first = prepare_session(
-        profile, args, session.create('a', directory=tmp_path / 'one').directory, 'own', {})
+    profile = replace(load_profile('boat'), components={}, velocity_controller=False)
     ros = Ros()
-    app.arming = Arming_(profile, ros, Processes(ros), app.args.hardware_config,
-                         app.paths.hardware, selection=first)
+    processes = Processes(ros)
+    app.profile = profile
+    app.arming = Arming_(profile, ros, processes, app.args.hardware_config, app.paths.hardware)
+    seen = []
+
+    def sample(chips, channels, frequency):
+        seen.append(list(channels))
+        return SimpleNamespace(outputs=[SimpleNamespace(state=states[min(len(seen), len(states)) - 1])] * 4)
+    monkeypatch.setattr(pins, 'sample', sample)
+    monkeypatch.setattr(pins.time, 'sleep', lambda s: None)
     app.ask_text = lambda *a: '1 0 0 0 27'
     app.focus = 'thrusters'
+    return app, processes, seen
+
+
+def test_pins_popup_saves_restarts_only_the_driver_and_confirms_sysfs(tmp_path, monkeypatch):
+    app, processes, seen = pins_app(tmp_path, monkeypatch, ['enabled'])
     app.dispatch('M')
-    assert app.notice.startswith('Pins saved; applied when the next session starts')
+    assert app.notice.startswith('Pins saved; driver restarted; sysfs shows')
     assert load_config(app.args.config)['pwm_channels'] == [1, 0, 0, 0]
-    app.arming.begin()   # same session: the captured selection still drives the arm
-    snapshot = load_config(app.paths.hardware)
-    assert snapshot['pwm_channels'] != [1, 0, 0, 0] and snapshot['mosfet_line'] != 27
-    second = prepare_session(
-        profile, args, session.create('b', directory=tmp_path / 'two').directory, 'own', {})
-    effective = plain(second.validate().documents['hardware-pure']['effective'])
-    assert effective['pwm_channels'] == [1, 0, 0, 0] and effective['mosfet_line'] == 27
+    assert processes.stopped == ['hardware'] and processes.started == ['hardware']
+    assert seen == [[1, 0, 0, 0]]
+    restarted = load_config(app.paths.hardware)   # the driver was given the new pins, not a snapshot
+    assert restarted['pwm_channels'] == [1, 0, 0, 0] and restarted['mosfet_line'] == 27
+
+
+def test_pins_popup_does_not_report_success_without_matching_readback(tmp_path, monkeypatch):
+    app, processes, _ = pins_app(tmp_path, monkeypatch, ['unexported'])
+    monkeypatch.setattr('mhseals_testing.ui.popups.pins.READBACK_TIMEOUT', 0)
+    app.dispatch('M')
+    assert 'does not show' in app.notice and 'sysfs shows' not in app.notice
+    assert processes.started == ['hardware']
 
 
 @pytest.mark.parametrize('state', ['armed', 'pending'])

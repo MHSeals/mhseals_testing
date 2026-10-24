@@ -172,9 +172,9 @@ HELP = [
     ('Thrusters Enter', f'Pick up the thruster; {UPDOWN} moves it, Enter drops it'),
     ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
     ('Thrusters s / u',
-     'Save the draft to the config (applied when the next session starts) / undo it'),
-    ('Thrusters M', 'Edit the PWM pins and MOSFET line; applied when the next session starts, '
-                    'refused while armed or arming'),
+     'Save the draft to the config (the next session starts from it) / undo it'),
+    ('Thrusters M', 'Edit the PWM pins and MOSFET line; saved, then the driver restarts and sysfs '
+                    'confirms (disarmed only; refused while armed or arming)'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Thrusters c', 'Clear the fitted decoupling (asks first)'),
     ('Activity v', 'Switch between results and the event log'),
@@ -561,7 +561,7 @@ class App:
         if 0 <= i < len(REC_MODES):
             self.set_recording(REC_MODES[i])
 
-    # --- hardware config: edits from the panel or any editor, applied at the next session ---
+    # --- hardware config: edits from the panel or any editor, pins restart the driver ---
 
     def watch_config(self):
         """Poll every watched file once; announce what changed (harness/watch.py)."""
