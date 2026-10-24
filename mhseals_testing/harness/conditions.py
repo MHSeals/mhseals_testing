@@ -22,6 +22,7 @@ from mhseals_testing.analysis.verdict import load_thresholds, verdict
 from mhseals_testing.health.model import Fact
 
 REFRESH_S = 1.0         # the estimate is recomputed at most this often
+MAX_HZ = 5.0            # samples are decimated to the GPS rate: a faster feed (sim odometry) only adds cost
 NEEDED_WINDOWS = 3      # the estimator's minimum, for the "measuring" text
 
 
@@ -55,7 +56,14 @@ class Conditions:
         self._detail = None                 # window table and estimator figures behind the last rating
 
     def feed(self, t, vel, heading, rate, ok, vel_acc):
-        """One sample: world velocity (E, N) m/s, compass rad, yaw rate rad/s, ``ok`` = neutral and afloat."""
+        """One sample: world velocity (E, N) m/s, compass rad, yaw rate rad/s, ``ok`` = neutral and afloat.
+
+        Samples closer than 1/MAX_HZ to the last kept one are dropped unless ``ok`` changed, which bounds
+        the ring (and so the cost of a re-rate) whatever the feed rate.
+        """
+        last = self.samples[-1] if self.samples else None
+        if last is not None and 0 <= t - last[0] < 1 / MAX_HZ - 1e-9 and last[5] == bool(ok):
+            return
         self.samples.append((t, vel[0], vel[1], heading, rate, bool(ok), vel_acc))
         while self.samples[0][0] < t - self.s.drift_stale_s:
             self.samples.popleft()

@@ -80,3 +80,12 @@ def test_material_change_without_a_drift_estimate_is_poor():
     est = cond.Estimate('changed', size=0.05)
     grade, reason, ceiling, trust = r.rate(est, [r.Direction('surge+', 'surge', 0.38)], 0)
     assert grade == 'poor' and reason.startswith('changed') and ceiling is None and trust is None
+
+
+def test_feed_decimates_to_the_gps_rate_but_keeps_state_changes():
+    from mhseals_testing.harness.conditions import Conditions, MAX_HZ
+    c = Conditions()
+    for i in range(1000):                                   # 50 Hz for 20 s
+        c.feed(i * 0.02, (0.1, 0.0), 0.0, 0.0, i != 503, 0.0)
+    assert len(c.samples) <= 20 * MAX_HZ + 5
+    assert any(not s[5] for s in c.samples)                 # the not-ok blip survives
