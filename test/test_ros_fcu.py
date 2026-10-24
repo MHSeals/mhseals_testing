@@ -2,6 +2,7 @@
 
 import math
 
+import pytest
 import yaml
 
 from mhseals_testing.ros.fcu import FIXED_MAG_CAL_YAW, META as SHIPPED, FcuParams, MavrosLink, load_meta, same_float32
@@ -323,3 +324,80 @@ def test_compensation_requires_its_own_new_receipt():
     result = fcu(link).apply({'A': 2})
     assert link.remote['A'] == 1
     assert result['status'] == 'unknown' and 'rollback_unverified' in result['detail']
+
+
+INVALID_NUMBERS = [None, True, False, math.nan, math.inf, -math.inf, '', 10 ** 10000]
+
+
+@pytest.mark.parametrize('bad', INVALID_NUMBERS, ids=lambda v: type(v).__name__)
+@pytest.mark.parametrize('phase', ['predecessor', 'forward', 'uncertain'])
+def test_malformed_remote_values_never_become_compensation(bad, phase):
+    link = RemoteLink()
+    observe = link.observe_fresh
+
+    def malformed(names, after, identity, request):
+        receipt = observe(names, after, identity, request)
+        if phase == 'predecessor' or link.sets:
+            receipt['values']['A'] = bad
+        return receipt
+
+    link.observe_fresh = malformed
+    if phase == 'forward':
+        write = link.set
+        link.set = lambda name, value: (write(name, value), True)[1]
+    result = fcu(link, settle=0).apply({'A': 2})
+    assert result['status'] == {'predecessor': 'refused', 'forward': 'recovery_required',
+                                'uncertain': 'unknown'}[phase]
+    assert link.sets == ([] if phase == 'predecessor' else [('A', 2)])
+    assert link.params['A'] == 1
+    assert link.remote['A'] == (1 if phase == 'predecessor' else 2)
+
+
+@pytest.mark.parametrize('bad', INVALID_NUMBERS, ids=lambda v: type(v).__name__)
+@pytest.mark.parametrize('field', ['received', 'target', 'connection', 'boot'])
+@pytest.mark.parametrize('after_effect', [False, True])
+@pytest.mark.parametrize('acked', [False, True])
+def test_malformed_safety_evidence_stops_remote_effects(bad, field, after_effect, acked):
+    link = RemoteLink()
+    if acked:
+        write = link.set
+        link.set = lambda name, value: (write(name, value), True)[1]
+    safety = link.safety_state
+    link.safety_state = lambda: dict(safety(), **(
+        {field: bad} if not after_effect or link.sets else {}))
+    result = fcu(link, settle=0).apply({'A': 2})
+    expected = 'recovery_required' if acked else 'unknown'
+    assert result['status'] == (expected if after_effect else 'refused')
+    assert link.sets == ([('A', 2)] if after_effect else [])
+    assert link.params['A'] == 1
+
+
+@pytest.mark.parametrize('bad', INVALID_NUMBERS, ids=lambda v: type(v).__name__)
+@pytest.mark.parametrize('field', ['observed', 'received', 'identity'])
+@pytest.mark.parametrize('after_effect', [False, True])
+@pytest.mark.parametrize('acked', [False, True])
+def test_malformed_observation_evidence_stops_remote_effects(bad, field, after_effect, acked):
+    link = RemoteLink()
+    if acked:
+        write = link.set
+        link.set = lambda name, value: (write(name, value), True)[1]
+    observe = link.observe_fresh
+
+    def malformed(names, after, identity, request):
+        receipt = observe(names, after, identity, request)
+        if not after_effect or link.sets:
+            receipt[field] = (identity[0], bad, identity[2]) if field == 'identity' else bad
+        return receipt
+
+    link.observe_fresh = malformed
+    result = fcu(link, settle=0).apply({'A': 2})
+    expected = 'recovery_required' if acked else 'unknown'
+    assert result['status'] == (expected if after_effect else 'refused')
+    assert link.sets == ([('A', 2)] if after_effect else [])
+    assert link.params['A'] == 1
+
+
+def test_oversized_requested_integer_refuses_without_raising():
+    link = RemoteLink()
+    assert fcu(link).apply({'B': 10 ** 10000})['status'] == 'refused'
+    assert link.sets == []

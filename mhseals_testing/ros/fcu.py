@@ -37,6 +37,19 @@ def load_meta(path=META):
         return {'count': 0, 'params': {}}
 
 
+def _finite_number(value):
+    """Receipt numbers must be plain, non-boolean and safely representable as finite."""
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _identity_token(value):
+    """Identity tokens are nonempty strings or finite plain numbers (never bool)."""
+    return (type(value) is str and bool(value)) or _finite_number(value)
+
+
 def same_float32(a, b):
     """True when two values are equal after rounding to float32, the FCU's own precision."""
     try:
@@ -99,8 +112,8 @@ class FcuParams:
             info = known.get(name)
             if info is None:
                 problems.append(f'{name}: not a known FCU parameter')
-            elif isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                problems.append(f'{name}: {value!r} is not a finite number')
+            elif not _finite_number(value):
+                problems.append(f'{name}: value is not a finite number')
             elif not info.get('min', -math.inf) <= value <= info.get('max', math.inf):
                 problems.append(f'{name}: {value} outside {info.get("min")}..{info.get("max")}')
         return problems
@@ -110,11 +123,11 @@ class FcuParams:
         state = self.link.safety_state()
         now = self.clock()
         if (not state or state.get('armed') is not False or state.get('connected') is not True
-                or not isinstance(state.get('received'), (int, float))
+                or not _finite_number(state.get('received'))
                 or not 0 <= now - state['received'] <= self.safety_age):
             raise ValueError('missing, stale or unsafe FCU state')
         current = tuple(state.get(k) for k in ('target', 'connection', 'boot'))
-        if any(x is None for x in current) or (identity is not None and current != identity):
+        if not all(_identity_token(x) for x in current) or (identity is not None and current != identity):
             raise ValueError('FCU target/connection/boot changed or unknown')
         return current
 
@@ -125,10 +138,13 @@ class FcuParams:
         receipt = self.link.observe_fresh(list(names), after, identity, request)
         now = self.clock()
         if (not receipt or receipt.get('request') is not request
-                or receipt.get('identity') != identity or receipt.get('source') != 'fcu'
+                or type(receipt.get('identity')) is not tuple
+                or not all(_identity_token(x) for x in receipt['identity'])
+                or receipt['identity'] != identity or receipt.get('source') != 'fcu'
                 or set(receipt.get('values', {})) != set(names)
-                or not isinstance(receipt.get('observed'), (int, float))
-                or not isinstance(receipt.get('received'), (int, float))
+                or not all(_finite_number(v) for v in receipt['values'].values())
+                or not _finite_number(receipt.get('observed'))
+                or not _finite_number(receipt.get('received'))
                 or not after <= receipt['observed'] <= receipt['received'] <= now
                 or now - receipt['received'] > self.observation_age
                 or not receipt.get('observation_id')
