@@ -178,8 +178,16 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                         return refuse(ctx, f'{AXES[axis]} responds backwards: check wiring, run Thrusters')
                     survey[(axis, sign, level)] = (windows[-1], *cross_response(delta, axis, sign))
         columns, refined = {}, {}
+        # Dead-response gate: a direction whose a_hi hold moved the boat less than the floor is
+        # neither refined nor fitted; its response is noise and its cross ratios are meaningless.
+        dead = [] if only else [(axis, sign) for axis, sign in DIRECTIONS
+                                if survey[(axis, sign, hi)][1] < cfg['min_response'][AXES[axis]]]
         for axis, sign in ([only] if only else DIRECTIONS):
             begin = deployed_column(axis, sign)  # the survey drove it too: its response seeds the search
+            if (axis, sign) in dead:
+                columns[(axis, sign)] = begin
+                refined[label(axis, sign)] = dict(column=begin, converged=False, dead=True)
+                continue
             known = () if only else [(begin, survey[(axis, sign, hi)][2])]
 
             driven = []  # the refine holds actually run
@@ -222,8 +230,14 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         windows = [w for w, hold in zip(windows, audit) if hold['ok']]
         rejected = [hold for hold in audit if not hold['ok']]
         bad = {(h['start'], h['end']) for h in rejected}
+        # A dead direction keeps its old curve (if any) instead of a fit of noise.
+        old = (ctx.services.get('hardware_config') or {}).get('characterization') or {}
         curves = {}
         for axis, sign in DIRECTIONS:
+            if (axis, sign) in dead:
+                if label(axis, sign) in (old.get('speed_curves') or {}):
+                    curves[label(axis, sign)] = old['speed_curves'][label(axis, sign)]
+                continue
             points = [(survey[(axis, sign, level)][1], level) for level in (hi, lo)
                       if (survey[(axis, sign, level)][0][1:]) not in bad]
             curve = speed_curve(points)
@@ -244,10 +258,11 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             wave_floor=neutral_noise(history, windows, transient, cfg['coast_s'], t95, driven),
             motion_limits=motion_limits(samples_from_windows(history, windows, transient),
                                         samples_from_windows(history, windows, 0.0), [hi, hi, hi]))
-        # A direction whose refine did not converge or whose low-amplitude check failed is not fitted.
+        # A direction whose refine did not converge (a dead one included) or whose low-amplitude
+        # check failed is not fitted.
         weak = [name for name, found in refined.items() if not found['converged'] or not found['low_ok']]
-        summary.update(verdict='PARTIAL' if rejected or weak else 'FITTED', holds_rejected=rejected,
-                       directions_unfitted=weak,
+        summary.update(verdict='PARTIAL' if rejected or dead or weak else 'FITTED', holds_rejected=rejected,
+                       directions_unfitted=weak, dead_directions=[label(*d) for d in dead],
                        velocity_limit=result['motion_limits']['velocity'])
         nav2_params, overlay = ctx.services.get('nav2_params'), ctx.services.get('nav2_overlay')
         if nav2_params and overlay:
@@ -267,8 +282,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     if history:
         adapters.record_file(history, 'hardware', 'characterize', staging.config, warn)
     saved = dict(procedure='characterization', verdict='SAVED')
-    picked = max(columns, key=lambda d: sum(abs(c) for c in columns[d]))
-    if any(columns[picked]):
+    picked = max((d for d in columns if d not in dead), default=None, key=lambda d: sum(abs(c) for c in columns[d]))
+    if picked and any(columns[picked]):
         saved['verify'] = _verify(ctx, cfg, picked, columns[picked], lo, tolerance)
     ctx.record(saved)
     if profile and ctx.services.get('nav2_user'):

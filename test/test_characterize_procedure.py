@@ -253,3 +253,22 @@ def test_converged_directions_stay_fitted(config, tmp_path):
     run(ctx)
     entry = next(r for r in records if r.get('verdict') in ('FITTED', 'PARTIAL'))
     assert entry['verdict'] == 'FITTED' and entry['directions_unfitted'] == []
+
+
+def test_a_dead_direction_is_marked_and_keeps_its_old_curve(config, tmp_path):
+    update_config(dict(characterization=dict(version=2, speed_curves={'sway-': dict(d1=1.0, d2=0.5)})), config)
+    runner = Fake(config)
+    original = runner.hold
+
+    def hold(command, seconds, label=''):
+        return original((command[0], max(command[1], 0.0), command[2]), seconds, label)  # sway- does nothing
+    runner.hold = hold
+    ctx, records, _ = context(tmp_path, runner)
+    ctx.services['hardware_config'] = load_config(config)
+    run(ctx)
+    saved = load_config(config)
+    result = next(r for r in records if r.get('verdict') == 'PARTIAL')
+    assert result['dead_directions'] == ['sway-'] and result['directions']['sway-']['dead']
+    assert saved['characterization']['speed_curves']['sway-'] == dict(d1=1.0, d2=0.5)
+    assert saved['characterization']['speed_curves']['sway+'] != dict(d1=1.0, d2=0.5)  # live directions are fitted
+    assert saved['decoupling_negative'] is None or columns(saved['decoupling_negative'])[1] == (0.0, 0.0)
