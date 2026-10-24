@@ -32,7 +32,7 @@ The menu groups them: Calibrate (f, g, v), Drive (m, i), Navigate (n, w, s), Mis
 
 | Key | Procedure | Needs |
 | --- | --- | --- |
-| f | Characterize: speed curves per axis and sign, mechanical bias, today's current, limits, Nav2 limits | armed, sensors, effort |
+| f | Characterize (temporarily unavailable; see below) | runtime correction proof required |
 | v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
 | g, e | Compass calibration from a handheld bearing (42006, written only on your yes); compass interference against thruster effort | —; armed, outputs |
 | m, i | Manual control; thruster set | armed |
@@ -41,13 +41,13 @@ The menu groups them: Calibrate (f, g, v), Drive (m, i), Navigate (n, w, s), Mis
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
 | t | Mission rehearsal: run an `mhseals_nav` task (`pair_test`, `circle_test`, a 2025 task or the whole `mission`), score its events (`config/missions/`) and, in crane_ml, have the referee judge the true track against the course | armed, sensors, velocity, Nav2 |
 
-Procedure shortcuts work from every panel; focused-panel wiring keys and Activity’s `v` keep their local meaning (use Procedures/Enter for those tests). `f` opens Characterize (fit); `j`/`k` move down/up, including in popups. Choosing a procedure that needs arming opens the arm panel first. Open-loop procedures refuse to run while another node publishes the command topic, so characterize with Nav2 stopped, then restart with `--set command_mode=velocity` and Nav2 for the navigation procedures. Timing and size are settings (`harness/settings.py`; last used values persist in `~/.config/mhseals/boat_test.yaml`, except command mode and bench override): `--set amplitude=0.4`, `baseline`, `command`, `settle`, `repeats`, `nav_distance`, `station_hold`, `station_tolerance`, `observe`, `turn`, `stale_after`.
+Procedure shortcuts work from every panel; focused-panel wiring keys and Activity’s `v` keep their local meaning (use Procedures/Enter for those tests). `f` reports the Characterize hold; `j`/`k` move down/up, including in popups. Choosing a procedure that needs arming opens the arm panel first. Open-loop procedures refuse to run while another node publishes the command topic, use `--set command_mode=velocity` and Nav2 for the navigation procedures. Timing and size are settings (`harness/settings.py`; last used values persist in `~/.config/mhseals/boat_test.yaml`, except command mode and bench override): `--set amplitude=0.4`, `baseline`, `command`, `settle`, `repeats`, `nav_distance`, `station_hold`, `station_tolerance`, `observe`, `turn`, `stale_after`.
 
 Only sensors and TF block motion (required sensors live and fresh; `map → odom → base_link` fresh, acyclic, single publisher). Power, clock, links and compute are advisories. `--set bench_override=on` skips the blocking checks for bench tests; procedures that score motion still refuse.
 
 Use `i` to verify wiring and reversals before running the trials.
 
-Characterization stages an identity correction, surveys every direction, refines the correction columns C+/C- per direction (`--direction sway+` reruns one) and saves speed curves and C+/C- only on request; an abort restores the saved correction. Motion limits are the speeds and accelerations observed at the tested effort; partial-throttle runs do not grant unmeasured full-throttle limits. Review them before use. The generated `<session>.nav2.yaml` contains only limits; restart Nav2 with `ros2 launch mhseals_nav navigation.launch.py sim:=false limits_file:=<session>.nav2.yaml`. Current planner/costmap settings and the reverse-speed cap remain in the base profile. Regenerate older full-profile overlays.
+Characterization is temporarily unavailable: the public procedure and TUI refuse before arming, staging or commands, including with bench override, because the driver has no acknowledged runtime correction C+/C- and coupled-model transition. Normal Drive remains available without a pending backup; an interrupted older survey's durable backup blocks arming and automated/manual motion, and YAML changes through restore or pause/resume cannot clear it. Enabling characterization requires an owner-controlled transition/restart bound to actual runtime correction/model identity, with readback before raw, saved and restored phases and after authority-gate settling on pause/resume. File saves, parameter echoes, offline `Staging` and private fitting fixtures provide no runtime proof or operational bypass.
 
 ### Profiles
 
@@ -80,16 +80,3 @@ make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 `docs/data.md` describes the data layout; `docs/health.md` the health system; [docs/field-2026-10-18.md](docs/field-2026-10-18.md) holds the field-day findings (thrust coupling, method lessons, next holds) that shaped the speed curves and per-sign decoupling; the raw day notes are not kept in the repo.
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
-
-Characterization is temporarily unavailable while the driver exposes no acknowledged
-runtime transition for correction C+/C- and its coupled model. The public procedure
-and TUI refuse before arming, staging or commands, including with bench override.
-Normal Drive remains available when no correction backup is pending. A backup from
-an interrupted older survey stays durable and blocks arming, automated and manual
-motion; startup/Correction restore and pause/resume cannot clear it by changing YAML.
-
-Enabling characterization requires an owner-controlled transition/restart with actual
-runtime correction/model identity and readback before raw, saved and restored phases,
-including pause/resume after the authority gate settles. A file save or parameter echo
-alone is insufficient. The offline `Staging` file API and private fitting fixtures do
-not claim runtime application and are not operational bypasses.

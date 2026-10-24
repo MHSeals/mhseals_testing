@@ -60,7 +60,7 @@ def test_a_failing_motion_gate_blocks_motion_procedures_only(tmp_path):
     assert 'Link' not in app.availability(procedure('n'))
     assert 'Link' not in app.availability(procedure('p'))
     app.arming = SimpleNamespace(armed=True, fault=lambda: "")
-    assert app.availability(procedure('f')).startswith('Link')
+    assert app.availability(procedure('m')).startswith('Link')
 
 
 def test_end_snapshot_is_taken_when_the_procedure_raises(tmp_path):
