@@ -74,7 +74,7 @@ from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
-from mhseals_testing.ui.source import LiveSource
+from mhseals_testing.ui.source import LiveSource, ReviewSource
 from mhseals_testing.ui.takeover import decide
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
@@ -223,6 +223,7 @@ class App:
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
         self.foreign_seen, self.guests_seen = {}, set()
+        self._review_live = None
         self.review = review     # a ui.review.Review while a past session plays; live work is off
         self.profile = profile
         self.monitor = monitor
@@ -318,6 +319,8 @@ class App:
 
     def snapshot(self):
         snapshot = self.source.snapshot()
+        if not self.source.live:
+            return snapshot
         if self.nav2_file is not None:
             snapshot['components'] = [self.nav2_file.row()]
         if self.source.live:    # a past session shows no live control state
@@ -413,9 +416,21 @@ class App:
         if self.review:
             self.review.tick(self.clock(), self.clock() - self.last_tick)
             self.last_tick = self.clock()
+            self.source.tick(self.clock())
+            if self._review_live is not None and self._review_live['source'].live:
+                replay = self.source
+                try:
+                    self.source = self._review_live['source']
+                    self.tick_live()
+                finally:
+                    self.source = replay
             if self.args.review is None and self.armed and self.arming.fault():
                 self.stop(self.arming.fault())  # review over a live session still stops on a fault
             return
+        self.tick_live()
+
+    def tick_live(self):
+        """Keep the existing live owner work running while review only replaces its view."""
         self.source.tick(self.clock())
         if not self.source.live:
             return  # replay: no host reads, config watching or driving
@@ -621,7 +636,8 @@ class App:
 
     def view(self):
         config = self.args.hardware_config
-        blockers = self.motion_blockers() if self.armed else self.blockers()
+        blockers = ([] if self.review else
+                    self.motion_blockers() if self.armed else self.blockers())
         notice = self.notice if not blockers or self.running else (
             f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
@@ -632,7 +648,7 @@ class App:
             hints = CORRECTION_HINTS
         if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
-        shared = feeds_module.merged(self.feeds)
+        shared = {} if self.review else feeds_module.merged(self.feeds)
         own = dict(
             tab=self.tab, minimap=self.minimap, layerbox=self.layerbox,
             **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
@@ -648,14 +664,23 @@ class App:
             profile=self.profile.name, units=self.profile.command_units,
             plot_scale=self.profile.plot_scale,
             outputs=self.profile.outputs, specs=self.profile.sensors,
-            deploy=self.health.deploy(), host=socket.gethostname(), domain=os.environ.get('ROS_DOMAIN_ID', '0'),
-            recording=self.processes.running('bag'), rec=self.rec, bench_override=self.args.bench_override,
+            deploy={} if self.review else self.health.deploy(), host=socket.gethostname(),
+            domain=os.environ.get('ROS_DOMAIN_ID', '0'),
+            recording=False if self.review else self.processes.running('bag'), rec=self.rec,
+            bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
             draft=self.draft, grabbed=self.grabbed,
             config_note=self.config_note, review=self.review, correction=self.correction_state(),
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
+        if self.review and not self.source.live:
+            own.update(profile=self.source.profile.name, specs=self.source.profile.sensors,
+                       units=self.source.profile.command_units,
+                       outputs=self.source.profile.outputs,
+                       plot_scale=self.source.profile.plot_scale, now=self.source.now,
+                       host=self.review.host, deploy={}, recording=False, rec=None,
+                       pwm_readback=[theme.DASH] * 4, toasts=[], toasts_more=0)
         return {**shared, **own}  # App's own keys win a collision
 
     def driving(self, shared=None):
@@ -880,6 +905,8 @@ class App:
 
     def map_state(self):
         """The ``MapState`` the ROS feeds fill, or None without them."""
+        if not self.source.live:
+            return None
         return getattr(getattr(self.ros, 'map', None), 'state', None)
 
     def show_tab(self, name):
@@ -953,7 +980,8 @@ class App:
             self.invalidate_bags()
 
     def on_list(self, key):
-        handler = {'p': self.pin_bag, 'n': self.title_bag, 'd': self.delete_bag,
+        handler = {'enter': self.open_bag_review, 'p': self.pin_bag,
+                   'n': self.title_bag, 'd': self.delete_bag,
                    'P': self.prune_bags, 'F': self.finalize_bag}.get(key)
         if handler is None:
             return
@@ -1095,6 +1123,10 @@ class App:
 
     def dispatch(self, key):
         """Apply one key on the page."""
+        if self.review:
+            folded = fold(key)
+            if self.dispatch_review(folded) or not self.review_allows(folded):
+                return
         if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
             self.perception_popup(view=True)  # ui.md keymap camera: View already open
             return
@@ -1118,8 +1150,6 @@ class App:
             self.open('odometry')
             return
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
-            return
-        if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
             return
         panels = self.panels()
         if key in ('[', ']'):
@@ -1311,7 +1341,7 @@ class App:
         elif key == 'p':
             review.toggle()
         elif key == 'space':
-            self.stop('stopped by operator')  # Space stops outputs everywhere (bags.md 4.2)
+            self.operator_stop()  # Keep the global sticky hold and neutral/disarm safety.
             review.pause()
         elif key == 'escape':
             self.leave_review()
@@ -1330,16 +1360,56 @@ class App:
 
     def review_allows(self, key):
         """Whitelist for keys that reach the page in review: focus, cursor, help and read-only details."""
-        return (key in ('\t', 'backtab', 'up', 'down', 'j', 'k', '?') or key in DIRECTIONS
-                or (key == 'enter' and self.focus in ('status', 'activity'))
+        return (key in ('\t', 'backtab', 'up', 'down', 'j', 'k', '?', 'o') or key in DIRECTIONS
+                or (key == 'enter' and self.focus == 'activity')
                 or (key == 'v' and self.focus == 'activity'))
+
+    def open_bag_review(self, bag):
+        """Open the selected closed session without replacing live owners or callbacks."""
+        if self.review:
+            return
+        if self.armed or self.manual or self.running or self.test_pulses is not None:
+            self.notice = 'Review: disarm and stop motion or test pulses first'
+            return
+        self.check_bag(bag)
+        try:
+            selected = load_session(bag.path)
+        except (TypeError, KeyError, OverflowError) as error:
+            raise ValueError(f'invalid session timeline: {error}') from error
+        header = data.read_json(bag.meta_path, {})
+        name = header.get('profile')
+        if isinstance(name, dict):
+            name = name.get('name')
+        profile = load_profile(name) if name else self.profile
+        selected.host = header.get('host', selected.host)
+        selected.title = header.get('title') or bag.id
+        try:
+            replay = ReviewSource(bag.path, profile, selected)
+        except (ImportError, RuntimeError) as error:
+            raise ValueError(f'cannot read session: {error}') from error
+        self._review_live = {'source': self.source, 'tabs': self.tabs, 'focus': self.focus,
+                             'cursors': self.cursors, 'activity': self.activity,
+                             'minimap': self.minimap, 'layerbox': self.layerbox}
+        self.source, self.review = replay, selected
+        selected.load = replay.seek
+        self.tabs, self.focus, self.cursors = TabMemory(), 'activity', dict.fromkeys(CURSORS, 0)
+        self.minimap = minimap_panel.MiniMap(self.map_state)
+        self.layerbox = LayerBox(None, self.map_state, live=False)
+        self.activity = 'log'
+        self.last_tick = self.clock()
+        self.notice = f'Review {bag.id}; Esc returns to live'
 
     def leave_review(self):
         """Back to live; a session opened with --review has no live to return to, so it quits."""
         if self.args.review is not None:
             self.quit = True
         else:
+            if self._review_live is not None:
+                for name, value in self._review_live.items():
+                    setattr(self, name, value)
+                self._review_live = None
             self.review = None
+            self.last_tick = self.clock()
             self.notice = 'Left review'
 
     # --- panel keys --------------------------------------------------------------
@@ -1420,6 +1490,13 @@ class App:
     def odometry(self):
         """Fused sources popup. Parameters and rows are read here, once, so nothing is
         computed while it is closed. ``ros.get_parameters(node)`` is optional (None: unreadable)."""
+        if self.review:
+            profile = getattr(self.source, 'profile', self.profile)
+            rows = [(row['name'], row['state'], row['value'])
+                    for row in status_rows(self.snapshot(), profile.sensors)
+                    if row.get('source') == 'sensor']
+            self.show('Odometry (review)', rows=rows, width=76)
+            return
         fetch = getattr(self.ros, 'get_parameters', lambda node: None)
         params = {node: fetch(node) for node in odometry.ESTIMATES}
         sources = [(row['name'], row['state'].lower(), row['value'])

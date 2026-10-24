@@ -47,3 +47,20 @@ root `README.md` (layout and schemas, for agents) from `session.json`, the bag m
 `events.jsonl` and `runs/*.json`. There is no per-session `index.md`. Run
 `python -m mhseals_testing.harness.index [DIR]`; `ensure()` rebuilds only when the index is
 missing or older than a session file. Flags: `open`, `unfinalized`, `empty`, `bare`.
+
+
+## Open a recorded session
+
+In the Bags tab, select a closed session and press Enter. Review uses a separate
+monitor fed by the segmented bag reader; arrows seek, `p` plays/pauses, and Esc
+restores the previous source, tab and selected Bags row. The recorded host and
+profile identify the review. Odometry details are read-only, and panels without
+a replay feed remain empty rather than showing live observations.
+
+Entry requires disarmed outputs, no running procedure/manual motion and no test
+pulses. The selected recording or finalizing session is protected. Live callbacks,
+recorder and process owners remain in place; their background work continues
+against the live source. Review cannot arm, run procedures, release authority or
+edit live controls. Space still requests the sticky hold and neutral/disarm while
+pausing playback. Opening an invalid session leaves the live source intact and
+shows a notice. Review does not initialize ROS or restart recording.
