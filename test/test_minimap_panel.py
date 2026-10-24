@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from rich.console import Console
+from rich.text import Text
 
 from mhseals_testing.ui import layout, theme
 from mhseals_testing.ui.minimap.panel import MiniMap
@@ -113,7 +114,8 @@ def test_minimap_keys_when_focused(tmp_path):
 
 
 @pytest.mark.parametrize('flag,tab', [(True, 'Map'), (False, 'Drive')])
-def test_starting_nav2_bringup_switches_to_map_only_with_auto_tab(tmp_path, flag, tab):
+def test_starting_nav2_bringup_switches_to_map_only_with_auto_tab(tmp_path, monkeypatch, flag, tab):
+    monkeypatch.setitem(layout.BODIES, 'Map', lambda snapshot, view, width, height: Text('MAP'))
     app, _ = nav_app(tmp_path)
     app.settings.auto_tab = flag
     run(app, 'n')
@@ -138,3 +140,11 @@ def test_a_failing_draw_keeps_the_last_frame(monkeypatch):
     good = mm(40, 12)
     monkeypatch.setattr(panel, 'draw', lambda *a: 1 / 0)
     assert mm(40, 12) == good
+
+
+def test_auto_tab_stays_on_drive_while_map_has_no_body(tmp_path, monkeypatch):
+    monkeypatch.delitem(layout.BODIES, 'Map', raising=False)
+    app, _ = nav_app(tmp_path)
+    app.settings.auto_tab = True
+    run(app, 'n')
+    assert app.tab == 'Drive'

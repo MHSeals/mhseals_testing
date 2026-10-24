@@ -1619,7 +1619,9 @@ class App:
             self.notice = f'{procedure.title}: {reason}'
             return
         self.clear_pulses()
-        if self.settings.auto_tab and getattr(procedure, 'group', '') in ('Navigate', 'Mission'):
+        # Only jump to Map once it has a body; otherwise the operator lands on a placeholder.
+        if (self.settings.auto_tab and 'Map' in layout.BODIES
+                and getattr(procedure, 'group', '') in ('Navigate', 'Mission')):
             self.show_tab('Map')
         self.running = procedure.title
         results = len(self.snapshot()['results'])
