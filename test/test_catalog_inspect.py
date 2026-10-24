@@ -17,6 +17,8 @@ def test_inventory_unknown_and_explicit_compiler_evidence():
     assert selected['selection']['values']['hardware.x']['value'] == 7
     assert selected['selection']['status'] == 'compiled'
     assert selected['rows'] == view['rows']
+    assert 'operator.yaml' in inspect.text(selected)
+    assert 'missing-required-bundle' in inspect.text(view)
     assert inspect.inspection(bundles, [], compiled={'wrong': {}})['selection']['status'] == 'unavailable'
 
 

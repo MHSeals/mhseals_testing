@@ -83,7 +83,8 @@ def installed(*, compiled=None):
 
 
 def text(view):
-    lines = [view['mode'], view['selection']['label']]
+    lines = [view['mode'], str(view['selection']),
+             f"complete: {view['complete']} blockers: {view['blockers']}"]
     lines += [f"{p['owner']}: {p['status']} {p['detail']}" for p in view['packages']]
     for row in view['rows']:
         lines.append(f"{row['key']} = {row['default']!r}")
