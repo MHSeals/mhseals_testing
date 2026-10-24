@@ -48,7 +48,7 @@ from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.journal import Journal
 from mhseals_testing.health.network import NetworkRow
-from mhseals_testing.history import History, adapters, revert
+from mhseals_testing.history import History, adapters, backends, revert
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
@@ -267,6 +267,8 @@ class App:
         self.started = clock()
         self.config_file = config_path(args.config)
         self.history = History()
+        self.config_backends = backends.file_backends(
+            self.config_file, {'hardware': lambda: self.watcher.reload('hardware')})
         self.watcher = Watcher()
         self.watcher.add(Watched('hardware', self.config_file, self.load_hardware, self.apply_hardware,
                                  subsystem='hardware'))
