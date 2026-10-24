@@ -14,6 +14,7 @@ def sample(chips, channels, frequency=50., *, verified_local=False, clock=time.m
     cannot establish Conditions neutrality. Remote callers must leave this false.
     Missing/unreadable chips remain unavailable, not disabled.
     """
+    receipt = clock()  # Oldest possible evidence, including delays in later reads.
     outputs = []
     configured = len(chips) == len(channels) == 4
     try:
@@ -30,6 +31,9 @@ def sample(chips, channels, frequency=50., *, verified_local=False, clock=time.m
             identity = str(chip / f'pwm{channel}')
             path = chip / f'pwm{channel}'
             if chip.is_dir() and not path.exists():
+                npwm = int((chip / 'npwm').read_text())
+                if not 0 <= channel < npwm:
+                    raise ValueError('channel outside kernel PWM capability')
                 outputs.append(Output(identity, 'unexported'))
                 continue
             enable = (path / 'enable').read_text().strip()
@@ -52,4 +56,4 @@ def sample(chips, channels, frequency=50., *, verified_local=False, clock=time.m
                 issue = f'pulse outside {MIN_PWM}-{MAX_PWM}us'
         outputs.append(Output(identity, 'enabled' if enable == '1' else 'disabled',
                               period, duty, issue))
-    return Readback('odroid', clock(), tuple(outputs), verified_local, configured)
+    return Readback('odroid', receipt, tuple(outputs), verified_local, configured)

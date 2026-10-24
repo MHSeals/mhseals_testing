@@ -92,6 +92,7 @@ def test_missing_and_unexported_pwm_do_not_claim_to_be_active(tmp_path):
     chip = tmp_path / 'pwmchip9'
     assert health.pwm_readback([chip], [0])[0] == 'N/A'
     chip.mkdir()
+    (chip / 'npwm').write_text('1')
     level, detail, rows = health.pwm_readback([chip], [0])
     assert level == 'OK' and rows == ['OFF (unexported)']
     assert health.pwm_readback([chip], [0], armed=True)[0] == 'FAIL'
