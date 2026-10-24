@@ -23,11 +23,11 @@ components:
   navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'false'}, limits: true,
                nodes: [bt_navigator], needs: [odometry, ekf]}
   objects: {launch: [mhseals_nav, objects.launch.py],
-            args: {sim: 'false', rosbridge_url: 'ws://192.168.0.153:9090',
-                   camera_root_frame: front_camera_link},
+            args: {sim: 'false'},
             nodes: [object_tracker]}
-  # The ZED camera runs on squirtle (Foxy, domain 142); its detections reach us through
-  # the zed_detections_converter on this host (perception.md 0.4).
+  # The ZED node runs on the Orin and shares this graph: zed_detections_converter subscribes
+  # /front/zed_node/obj_det/objects directly. Objects therefore takes no rosbridge_url (it
+  # would switch the converter to legacy websocket mode, for the retiring JP5 host only).
   camera: {remote: squirtle, nodes: [zed_detections_converter], topic: /detections}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}

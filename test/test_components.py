@@ -50,7 +50,8 @@ def test_argv_and_shipped_profiles():
     odometry = components(Profile, {'odometry': {'fcu_url': 'x'}})[0]
     assert odometry.argv == ('ros2', 'launch', 'mhseals_nav', 'odom.launch.py', 'sim:=false', 'fcu_url:=x')
     boat = {item.key: item for item in components(load_profile('boat'))}
-    assert 'rosbridge_url:=ws://192.168.0.153:9090' in boat['objects'].argv
+    # Same graph as the Orin: no rosbridge args, or the converter drops to websocket mode.
+    assert not any('rosbridge' in arg or 'ws://' in arg for arg in boat['objects'].argv)
     assert boat['camera'].remote == 'squirtle' and not boat['camera'].argv
     sim = load_profile('crane_full_stack')
     assert 'sim:=true' in components(sim)[0].argv and 'fcu:=false' in components(sim)[0].argv
@@ -115,3 +116,4 @@ def test_parse_components_rejects_needs_cycle():
     data = {'a': {'remote': 'x', 'needs': ['b']}, 'b': {'remote': 'x', 'needs': ['a']}}
     with pytest.raises(ValueError, match=r'components\.a\.needs: cycle'):
         parse_components(data)
+
