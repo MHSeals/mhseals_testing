@@ -113,3 +113,42 @@ def test_pass_one_sends_no_bag_files(tmp_path):
     assert (tmp_path / 'out' / 'boat_1' / 'session.json').exists()
     assert not (tmp_path / 'out' / 'boat_1' / 'bag').exists()
     assert [size for _, size in job.pending(tr.PASSES['bags'])] == [5000]
+
+
+def make_flat(root):
+    """A live session: <name>/NN/ segments with sibling report, journal, session file and logs."""
+    s = root / 'crane_1'
+    for seg, n in (('00', 5000), ('01', 100)):
+        (s / seg).mkdir(parents=True)
+        (s / seg / f'{seg}_0.mcap').write_bytes(b'x' * n)
+    (root / 'logs' / 'crane_1').mkdir(parents=True)
+    (root / 'logs' / 'crane_1' / 'a.log').write_text('l')
+    for ext in ('report.json', 'events.jsonl', 'session.yaml', 'hardware.yaml'):
+        (root / f'crane_1.{ext}').write_text('ab')
+    (root / 'crane_1.runs').mkdir()
+    (root / 'crane_1.runs' / 'r1.json').write_text('{}')
+    return s
+
+
+def test_flat_totals_split_siblings_reports_bags(tmp_path):
+    job = tr.Transfer(make_flat(tmp_path), {'host': '', 'path': str(tmp_path / 'out')}, ['01'])
+    assert job.legacy
+    assert job.total('siblings') == 10 and job.total('logs') == 1
+    assert job.total('reports') == 0 and job.total('bags') == 5000
+    assert job.total() == 5011
+    assert '--exclude=/01/' in job.command(tr.LEGACY_PASSES['reports'])
+
+
+@pytest.mark.skipif(not shutil.which('rsync'), reason='rsync not installed')
+def test_flat_send_includes_siblings_and_skips_open_segment(tmp_path):
+    s = make_flat(tmp_path)
+    out = tmp_path / 'out'
+    job = tr.Transfer(s, {'host': '', 'path': str(out)}, ['01'])
+    assert job.run() == 'complete'
+    for ext in ('report.json', 'events.jsonl', 'session.yaml', 'hardware.yaml'):
+        assert (out / f'crane_1.{ext}').read_text() == 'ab'
+    assert (out / 'crane_1.runs' / 'r1.json').exists()
+    assert (out / 'crane_1' / '00' / '00_0.mcap').stat().st_size == 5000
+    assert (out / 'logs' / 'crane_1' / 'a.log').read_text() == 'l'
+    assert not (out / 'crane_1' / '01').exists()
+    assert not job.pending()

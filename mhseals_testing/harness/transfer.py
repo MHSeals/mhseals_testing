@@ -14,6 +14,7 @@ import re
 import signal
 import subprocess
 import time
+from glob import escape as glob_escape
 from pathlib import Path
 
 SSH = 'ssh -o BatchMode=yes -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2'
@@ -22,6 +23,14 @@ PROGRESS = re.compile(r'^\s*([\d,]+)B?\s+(\d+)%\s+([\d.]+)([kKMGT]?)B/s\s+(\d+):
 # rsync filters per pass: reports first, then only the bags (data_layout: bag/NN/ segments).
 PASSES = {'reports': ['--exclude=/bag/'],
           'bags': ['--include=/bag/', '--include=/bag/**', '--exclude=*']}
+# Legacy flat sessions (no ``bag/``): segments are ``<session>/NN/`` and the report, journal,
+# session file and runs sit beside the folder as ``<name>.*`` and the logs in ``<root>/logs/<name>/``
+# (SessionPaths.from_output); each gets its own pass. The markers are not rsync flags.
+SIBLINGS, LOGS = '--siblings', '--logs'
+LEGACY_PASSES = {'siblings': [SIBLINGS],
+                 'logs': [LOGS],
+                 'reports': ['--exclude=/[0-9][0-9]/'],
+                 'bags': ['--include=/[0-9][0-9]/', '--include=/[0-9][0-9]/**', '--exclude=*']}
 UNITS = {'': 1, 'k': 1e3, 'K': 1e3, 'M': 1e6, 'G': 1e9, 'T': 1e12}
 
 
@@ -84,8 +93,30 @@ class Transfer:
         self._proc = None
         self._cancelled = False
 
+    @property
+    def legacy(self):
+        """True for a flat session: no ``bag/`` folder, so segments are top-level ``NN/``."""
+        return not (self.session / 'bag').exists()
+
+    @property
+    def passes(self):
+        return LEGACY_PASSES if self.legacy else PASSES
+
+    def siblings(self):
+        """Entries beside a legacy session folder named ``<name>.*`` (report, journal, session, runs, logs)."""
+        return sorted(self.session.parent.glob(glob_escape(self.session.name) + '.*'))
+
+    @property
+    def logs_dir(self):
+        """``<root>/logs/<name>/`` of a flat session (outside the session folder), or None when absent."""
+        path = self.session.parent / 'logs' / self.session.name
+        return path if self.legacy and path.is_dir() else None
+
     def command(self, extra=(), dry=False):
-        """The rsync argv for one pass; ``extra`` holds that pass's filters."""
+        """The rsync argv for one pass; ``extra`` is its filter list or a SIBLINGS / LOGS marker."""
+        extra = list(extra)
+        siblings, logs = SIBLINGS in extra, LOGS in extra
+        extra = [e for e in extra if e not in (SIBLINGS, LOGS)]
         argv = ['rsync', '-a', '--partial-dir=.rsync-partial', '--mkpath', '--exclude=transfer.json*']
         if dry:
             argv += ['-n', '-i', '--out-format=%i %l']
@@ -93,13 +124,23 @@ class Transfer:
             argv += ['--info=progress2', '--no-inc-recursive', '--outbuf=L']
         if self.bwlimit_kbps:
             argv.append(f'--bwlimit={self.bwlimit_kbps}')
-        argv += [f'--exclude=/bag/{s}/' for s in self.open_segments]
+        prefix = '' if self.legacy else 'bag/'
+        argv += [f'--exclude=/{prefix}{s}/' for s in self.open_segments]
         if self.target.get('host'):
             argv += ['-e', SSH]
-        return argv + list(extra) + [f'{self.session}/', self.dest]
+        parent = self.dest.rstrip('/').rpartition('/')[0]
+        if siblings:
+            return argv + [str(p) for p in self.siblings()] + [parent + '/']
+        if logs:
+            return argv + [f'{self.logs_dir}/', f'{parent}/logs/{self.session.name}/']
+        return argv + extra + [f'{self.session}/', self.dest]
 
-    def pending(self, extra=()):
-        """File items still to send for a pass, via dry run; raises on rsync failure."""
+    def pending(self, extra=None):
+        """File items still to send for a pass (every pass when None), via dry run; raises on rsync failure."""
+        if extra is None:
+            return [item for e in self.passes.values() for item in self.pending(e)]
+        if (SIBLINGS in extra and not self.siblings()) or (LOGS in extra and not self.logs_dir):
+            return []
         out = subprocess.run(self.command(extra, dry=True), capture_output=True, text=True)
         if out.returncode:
             raise RuntimeError(out.stderr.strip().splitlines()[-1] if out.stderr.strip() else f'rsync {out.returncode}')
@@ -107,13 +148,22 @@ class Transfer:
 
     def total(self, kind=None):
         """Bytes of the files a pass (``reports``, ``bags`` or all when None) covers, summed from disk."""
-        opened = tuple(f'bag/{s}/' for s in self.open_segments)
+        prefix = '' if self.legacy else 'bag/'
+        opened = tuple(f'{prefix}{s}/' for s in self.open_segments)
         size = 0
+        if kind in (None, 'siblings') and self.legacy:
+            size += sum(f.stat().st_size for p in self.siblings() for f in (p.rglob('*') if p.is_dir() else [p])
+                        if f.is_file())
+        if kind in (None, 'logs') and self.logs_dir:
+            size += sum(f.stat().st_size for f in self.logs_dir.rglob('*') if f.is_file())
+        if kind in ('siblings', 'logs'):
+            return size
         for path in self.session.rglob('*'):
             rel = path.relative_to(self.session).as_posix()
             if not path.is_file() or rel.startswith(opened) or path.name.startswith('transfer.json'):
                 continue
-            if kind and rel.startswith('bag/') != (kind == 'bags'):
+            is_bag = re.match(r'[0-9][0-9]/', rel) is not None if self.legacy else rel.startswith('bag/')
+            if kind and is_bag != (kind == 'bags'):
                 continue
             size += path.stat().st_size
         return size
@@ -132,9 +182,9 @@ class Transfer:
         base = 0
         self._save(status='running', error=None, finished=None, bytes=0)
         try:
-            totals = [self.total(kind) for kind in PASSES]
+            totals = [self.total(kind) for kind in self.passes]
             self._save(total=sum(totals))
-            for extra, total in zip(PASSES.values(), totals):
+            for extra, total in zip(self.passes.values(), totals):
                 if self._cancelled:
                     break
                 left = sum(size for _, size in self.pending(extra))
