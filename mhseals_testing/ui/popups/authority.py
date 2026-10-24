@@ -7,7 +7,12 @@ owner is a word (AGENT, OURS, ...), never a mark. Keys are ``popup.authority`` i
 config/keymap.yaml: up/down, ``E`` revoke the selected claim, ``U`` release_hold (passed to the app), Esc.
 """
 
+import os
 import time
+
+from mhseals_testing.harness import journal
+from mhseals_testing.harness.authority import is_unknown
+from mhseals_testing.runner import fold
 
 from mhseals_testing.ui import theme
 
@@ -39,6 +44,8 @@ def claim_line(claim, now):
 
 
 def physical(record):
+    if record.get('input') in (None, 'unknown'):
+        return 'unknown · hold state unknown'
     holds = record.get('holds') or []
     hold = 'hold ' + ', '.join(h.get('cause', '?') for h in holds) if holds else 'hold off'
     return f"{record.get('input') or '-'}{theme.SEPARATOR}{hold}"
@@ -87,6 +94,8 @@ def rows(record, events, now, cursor=0):
     """([(label, text)], [claim id per Claims row]) for the generic popup renderer."""
     if record is None:
         return [('Driving', 'no authority record yet')], []
+    if record.get('stale'):
+        return [('Driving', 'UNKNOWN · authority stale')], []
     owner = word(record.get('owner', 'unknown'))
     driving = theme.SEPARATOR.join(p for p in (owner, record.get('source'), record.get('reason') and
                                                f'"{record["reason"]}"',
@@ -111,3 +120,54 @@ def modal(record, events, now, state):
     return dict(kind='message', title=theme.SEPARATOR.join(filter(None, ('Authority', seq))),
                 rows=body, width=100, hint=KEYS)
 
+
+def journal_reader(path):
+    """A callable returning the journal events, re-parsed only when the file's size or mtime changes."""
+    cache = dict(key=object(), events=[])
+
+    def read():
+        try:
+            info = os.stat(path)
+            key = (info.st_size, info.st_mtime_ns)
+        except OSError:
+            key = None
+        if key != cache['key']:
+            cache.update(key=key, events=journal.read(path))
+        return cache['events']
+    return read
+
+
+def open(app):
+    """Run the popup. ``app.arbiter`` is the arbiter (``record``, ``table``, ``revoke(id)``)."""
+    arbiter = getattr(app, 'arbiter', None)
+    if arbiter is None:
+        return app.show('Authority', message='The authority arbiter is not running')
+    state = dict(cursor=0, ids=[])
+    events = journal_reader(app.paths.journal)
+    def build():
+        now = arbiter.clock()
+        record = arbiter.record
+        if record is not None and (record.get('t_ns') is None or is_unknown(record, now)):
+            record = dict(stale=True)
+        return modal(record, events(), now, state)
+    box = build()
+
+    def refresh():
+        state['cursor'] = min(state['cursor'], max(0, len(state['ids']) - 1))
+        box.update(build())
+
+    def handle(key):
+        raw, key = key, fold(key)
+        if key == 'escape':
+            return True
+        if key in ('up', 'k'):
+            state['cursor'] = max(0, state['cursor'] - 1)
+        elif key in ('down', 'j'):
+            state['cursor'] = min(len(state['ids']) - 1, state['cursor'] + 1)
+        elif raw == 'E':   # case matters (K1): fold() would also accept lowercase e
+            if state['ids']:
+                claim = state['ids'][min(state['cursor'], len(state['ids']) - 1)]
+                done = arbiter.revoke(claim)
+                app.notice = f'Revoked {claim}' if done else f'{claim} is not active'
+        refresh()
+    return app.popup(box, handle, refresh)

@@ -1362,6 +1362,10 @@ class App:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
                 if row.get('source') == 'sensor' and row['name'] == 'odometry':
                     return self.open('odometry')
+                if row['name'] == 'Driving':
+                    return self.open('authority')
+                if row['name'] == 'Hold':
+                    return self.release_hold()
                 if row['name'] == 'RTK':
                     return self.open('odometry')
                 if row['name'] == 'Config':

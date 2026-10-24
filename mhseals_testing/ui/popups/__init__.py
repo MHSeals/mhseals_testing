@@ -4,7 +4,7 @@
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.popups import conditions, config, history, power
+from mhseals_testing.ui.popups import authority, conditions, config, history, power
 
 STOP_KEYS = ('space', 'press:space')
 UPDOWN = theme.pick('↑↓', 'Up/Down')
@@ -140,6 +140,7 @@ def type_word(app, title, message, word, rows=None, width=64):
 # Keymap action id -> opener(app). App.open routes through it, so a popup is added here rather
 # than by another branch in App.dispatch. Ids not listed (health ...) wait for their popups.
 OPENERS = {
+    'authority': lambda app: authority.open(app),
     'history': lambda app: history.open_history(app),
     'odometry': lambda app: app.odometry(),
     'conditions': lambda app: conditions.open_conditions(app),
