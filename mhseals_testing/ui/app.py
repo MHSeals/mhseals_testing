@@ -36,6 +36,7 @@ from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
+from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions
 from mhseals_testing.harness import nav2_edit
 from mhseals_testing.harness.nav2_edit import Nav2File
@@ -220,7 +221,7 @@ class App:
         self.console = console or Console()
         self.arming = arming
         self.plant = plant
-        self.conditions = Conditions()      # fed by the ingest path (ts054); unfed it reads unknown
+        self.conditions = Conditions(planned=self._planned)   # fed by the ingest path (ts054); unfed it reads unknown
         self.open_keys = open_keys
         self.live_factory = live
         self.clock = clock
@@ -279,6 +280,13 @@ class App:
     def ack_toasts(self, id=None):
         """Dismiss one toast, or every standing one (the Health popup's x)."""
         self.toasts.ack(id)
+
+    def _planned(self):
+        """The directions the characterization has curves for: what the ceiling gates on until a plan narrows it."""
+        config = getattr(self.args, 'hardware_config', None) or {}
+        from mhseals_testing.procedures import characterize
+        effort = characterize.load_settings()['levels'][0] * self.settings.amplitude     # a_hi, as characterize drives it
+        return planned_directions(config.get('characterization', {}).get('speed_curves'), effort)
 
     def snapshot(self):
         snapshot = self.source.snapshot()

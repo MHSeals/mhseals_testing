@@ -134,3 +134,47 @@ def test_feed_does_not_invalidate_the_cached_rating():
     cond.feed(clock.now + 0.2, np.array([0.05, -0.02]), 0.3, 0.0, True, 0.1)
     assert cond.evaluate(clock.now + 0.3) is first                 # inside REFRESH_S: no recompute
     assert cond.evaluate(clock.now + 2.0) is not first
+
+
+def test_ceiling_is_live_over_planned_directions_and_trend_lowers_trust():
+    from mhseals_testing.analysis.readiness import Direction, planned_directions
+    clock = Clock()
+    cond = Conditions(clock=clock, planned=lambda: [Direction('sway-', 'sway', 0.05), Direction('surge+', 'surge', 0.4)])
+    feed(cond, clock, 40, 0.01)
+    r = cond.summary()
+    assert r['ceiling'] is not None and r['ceiling'] < 1.0            # weak sway- limits the min
+    assert cond.facts()['conditions.ceiling'].value == r['ceiling']
+    assert r['verdict'] != 'good' or r['ceiling'] >= 0.8
+    assert 'sway- ceiling' in r['reason'] or r['verdict'] == 'good'
+
+
+def test_planned_directions_read_the_d1_d2_curves_through_app_planned():
+    from types import SimpleNamespace as N
+    from mhseals_testing.analysis import predictor
+    from mhseals_testing.analysis.readiness import planned_directions
+    from mhseals_testing.ui.app import App
+    curves = {'surge+': {'d1': 2.0, 'd2': 1.0}, 'sway-': {'d1': 4.0, 'd2': 8.0}, 'yaw+': None, 'yaw-': {}, 'bogus': {'d1': 1, 'd2': 1}, 'surge-': 'bad'}
+    app = App.__new__(App)
+    app.args = N(hardware_config={'characterization': {'speed_curves': curves}})
+    app.settings = N(amplitude=0.5)
+    got = {d.name: d.speed for d in App._planned(app)}
+    hi = 0.5 * characterize.load_settings()['levels'][0]
+    assert got == {'surge+': abs(predictor.steady_speed(curves['surge+'], hi)),
+                   'sway-': abs(predictor.steady_speed(curves['sway-'], hi))}
+    assert planned_directions(None, hi) == []
+    clock = Clock()
+    cond = Conditions(clock=clock, planned=lambda: App._planned(app))
+    feed(cond, clock, 40, 0.01)
+    r = cond.summary()                                            # live path with a fed drift estimate
+    assert r['ceiling'] is not None and r['drift'] is not None
+
+
+def test_drift_trust_includes_the_trend_term():
+    from mhseals_testing.analysis import readiness
+    from types import SimpleNamespace as N
+    est = N(drift=N(se=0.01), trend=(0.0, 0.001), pool=[N(t0=0.0, duration=10.0)])
+    assert readiness.drift_sigma(est, 105.0) > 0.1                    # beta*dt = 0.1 dominates se
+    clock = Clock()
+    cond = Conditions(clock=clock)
+    feed(cond, clock, 40, 0.01)
+    assert cond.summary()['drift_trust'] <= readiness.drift_trust(cond.summary()['se'], cond.s.drift_practical)

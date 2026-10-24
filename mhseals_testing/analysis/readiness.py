@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from mhseals_testing.analysis import conditions, verdict as grading
+from mhseals_testing.analysis import conditions, predictor, verdict as grading
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,24 @@ def direction_ceiling(d: Direction, floor, sigma_e, tol, gyro_bias_se=0.0) -> fl
     if d.axis in ('surge', 'sway'):
         return entry_trust(tol['psi'], d.speed, hypot(floor[0], gyro_bias_se))
     return float(np.prod([entry_trust(tol['ell'], d.speed, hypot(f, sigma_e or 0.0)) for f in floor[1:]]))
+
+
+def planned_directions(speed_curves, effort) -> list:
+    """A Direction per characterized speed curve (``surge+`` ..) at its response ``|V|`` for ``effort`` (a_hi).
+
+    Curves are the ``{d1, d2}`` dicts of hardware.yaml; missing, empty or invalid ones are skipped.
+    """
+    out = []
+    for name, curve in sorted((speed_curves or {}).items()):
+        if name[:-1] not in ('surge', 'sway', 'yaw'):
+            continue
+        try:
+            speed = abs(predictor.steady_speed(curve, effort))
+        except (TypeError, KeyError, ValueError, ArithmeticError):
+            continue
+        if speed > 0:
+            out.append(Direction(name, name[:-1], speed))
+    return out
 
 
 def ceilings(planned, floor, sigma_e, tol, gyro_bias_se=0.0) -> dict:

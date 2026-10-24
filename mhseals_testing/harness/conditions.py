@@ -6,6 +6,8 @@ the boat, and callers use the verdict only to decide whether to *start* a proced
 
 ``ceiling(estimate, windows)`` is the planned-direction trust ceiling (analysis/readiness). Without
 one the ceiling is not limiting and ``conditions.ceiling`` reads None, so the verdict rests on drift.
+``planned()`` (the Directions about to be run) builds that ceiling live: the minimum over them (spec 2.2). Drift trust
+uses sigma_e^2 = se^2 + (beta*dt)^2 (spec 2.1), so a trending drift lowers it.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ import time
 
 import numpy as np
 
-from mhseals_testing.analysis import conditions as est
+from mhseals_testing.analysis import conditions as est, readiness
 from mhseals_testing.analysis.verdict import load_thresholds, verdict
 from mhseals_testing.health.model import Fact
 
@@ -42,10 +44,11 @@ def _detail(estimate, windows, t_end):
 
 
 class Conditions:
-    def __init__(self, settings=None, thresholds=None, clock=time.monotonic, ceiling=None):
+    def __init__(self, settings=None, thresholds=None, clock=time.monotonic, ceiling=None, planned=None, tol=None):
         self.s = settings or est.load_settings()
         self.thresholds = thresholds or load_thresholds()
         self.clock, self.ceiling = clock, ceiling
+        self.planned, self.tol = planned, tol
         self.samples = deque()              # (t, E, N, heading, rate, ok, vel_acc)
         self.t_coast = -math.inf
         self._cache, self._at = None, -math.inf
@@ -85,16 +88,31 @@ class Conditions:
         if estimate.drift is None:
             out['reason'] = f'measuring {out["neutral_s"]:.0f}/{NEEDED_WINDOWS * s.min_window_s:.0f} s'
             return out
-        se = estimate.drift.se
-        out.update(drift=[float(x) for x in estimate.drift.vector], se=float(se),
-                   drift_trust=1 - math.exp(-s.drift_practical ** 2 / (2 * se ** 2)),
-                   ceiling=self.ceiling(estimate, windows) if self.ceiling else None)
+        sigma_e = readiness.drift_sigma(estimate, t[-1])
+        ceiling, limiting = self._ceiling(estimate, windows, sigma_e)
+        out.update(drift=[float(x) for x in estimate.drift.vector], se=float(estimate.drift.se),
+                   drift_trust=readiness.drift_trust(sigma_e, s.drift_practical), ceiling=ceiling)
         if estimate.material(s):
             out.update(verdict='poor', reason=f'{estimate.state} {estimate.size:.3f} m/s')
         else:
             out['verdict'], out['reason'] = verdict(
-                1.0 if out['ceiling'] is None else out['ceiling'], out['drift_trust'], self.thresholds)
+                1.0 if ceiling is None else ceiling, out['drift_trust'], self.thresholds)
+            if limiting:
+                out['reason'] = out['reason'].replace('ceiling', f'{limiting} ceiling', 1)
         return out
+
+    def _ceiling(self, estimate, windows, sigma_e):
+        """``(ceiling, limiting direction)``: the injected ceiling, else the min over the planned directions."""
+        if self.ceiling:
+            return self.ceiling(estimate, windows), None
+        planned = self.planned() if self.planned else None
+        floor = est.wave_floor(windows, self.s) if planned else None
+        if not planned or floor is None:
+            return None, None
+        self.tol = self.tol or readiness.load_tolerances()
+        by_direction = readiness.ceilings(planned, floor, sigma_e, self.tol)
+        worst = min(by_direction, key=by_direction.get)
+        return by_direction[worst], worst
 
     def detail(self, now=None):
         """Estimator detail for the conditions popup, or None before any window exists.
