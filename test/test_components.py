@@ -14,6 +14,7 @@ class FakeProcesses:
 
     def __init__(self):
         self.live, self.codes, self.stopped, self.started = set(), {}, [], []
+        self.stopped_at = {}
 
     def running(self, name):
         return name in self.live
@@ -28,6 +29,7 @@ class FakeProcesses:
     def stop(self, name):
         self.live.discard(name)
         self.stopped.append(name)
+        self.stopped_at[name] = 100.0
 
 
 class Profile:
@@ -129,3 +131,15 @@ def test_parse_components_rejects_needs_cycle():
     with pytest.raises(ValueError, match=r'components\.a\.needs: cycle'):
         parse_components(data)
 
+
+def test_lingering_names_of_a_stopped_child_are_not_external_nor_duplicates():
+    from mhseals_testing.health.probes.graph import collapse
+    stack, processes, clock = make()
+    stack.start('odometry', set())
+    stack.stop('odometry', {'ekf_local'})
+    clock[0] = 100.0 + 10
+    assert stack.state('odometry', {'/ekf_local'}) == ('off', '')       # not 'external'
+    assert stack.ghosts() == {'ekf_local'}
+    assert collapse(['/ekf_local', '/ekf_local', '/x', '/x'], stack.ghosts()) == ['/ekf_local', '/x', '/x']
+    clock[0] = 100.0 + 30                                               # the lease has long expired
+    assert stack.state('odometry', {'/ekf_local'})[0] == 'external' and not stack.ghosts()

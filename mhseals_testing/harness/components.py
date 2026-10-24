@@ -96,6 +96,15 @@ def components(profile, overlay=None):
     return tuple(result)
 
 
+GHOST_S = 25.0   # robot_localization exits without announcing itself; its names wait for the DDS lease (~20 s)
+
+
+def stopped_recently(component, processes, now):
+    """True while the names of a child we just stopped may still be on the graph."""
+    at = getattr(processes, 'stopped_at', {}).get(component.key)
+    return at is not None and now - at < GHOST_S
+
+
 def state(component, nodes, processes, now, started=None):
     """(state, detail): off, starting, ours, external or exited, as the Status row shows it.
 
@@ -116,6 +125,8 @@ def state(component, nodes, processes, now, started=None):
     code = processes.returncode(component.key)
     if code is not None:
         return 'exited', f'exit {code} {processes.log_directory / (component.key + ".log")}'
+    if up and stopped_recently(component, processes, now):
+        return 'off', ''                       # leftover names of our own stopped child, not a foreign process
     return ('external', 'external') if up else ('off', '')
 
 
@@ -130,6 +141,12 @@ class Stack:
 
     def state(self, key, nodes):
         return state(self.items[key], nodes, self.processes, self.clock(), self.started.get(key))
+
+    def ghosts(self):
+        """Node names of components we stopped within GHOST_S and did not restart: they may linger."""
+        now = self.clock()
+        return {node for item in self.items.values() if stopped_recently(item, self.processes, now)
+                for node in item.nodes}
 
     def start(self, key, nodes):
         """Start an off component; refuses (naming them) while its needs are off."""

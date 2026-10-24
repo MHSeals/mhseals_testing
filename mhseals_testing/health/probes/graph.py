@@ -36,14 +36,27 @@ def topic_fact_name(topic):
     return f'graph.topic:{topic}'
 
 
-def collect(source, topics, now=0.0, full=False):
+def collapse(names, ghosts):
+    """``names`` with each FQN whose last segment is in ``ghosts`` listed once: the old node of a
+    child we just stopped can outlive it for a DDS lease, which is not a duplicate."""
+    seen, out = set(), []
+    for name in names:
+        if name.rsplit('/', 1)[-1] in ghosts:
+            if name in seen:
+                continue
+            seen.add(name)
+        out.append(name)
+    return out
+
+
+def collect(source, topics, now=0.0, full=False, ghosts=()):
     """Facts for ``topics``; ``full`` adds the graph-wide nodes and legacy count."""
     facts = {}
     for topic in topics:
         pubs, subs = source.endpoints(topic)
         facts[topic_fact_name(topic)] = Fact({'pub': tuple(pubs), 'sub': tuple(subs)}, topic, time=now)
     if full:
-        facts['graph.nodes'] = Fact(list(source.node_names()), time=now)
+        facts['graph.nodes'] = Fact(collapse(source.node_names(), ghosts), time=now)
         legacy = [ep for topic in source.topics() for side in source.endpoints(topic)
                   for ep in side if ep.legacy]
         facts['graph.legacy_endpoints'] = Fact(

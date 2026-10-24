@@ -2300,6 +2300,7 @@ def main(argv=None):
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
     stack = Stack(components(profile, stack_overlay(profile, args)), processes, time.monotonic)
+    ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = authority = None
     try:

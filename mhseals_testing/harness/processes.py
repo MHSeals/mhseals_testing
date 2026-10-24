@@ -63,11 +63,13 @@ class Child:
 
 class ProcessManager:
     def __init__(self, log_directory, registry=None, popen=subprocess.Popen, grace=10,
-                 last=('bag',), last_grace=20):
+                 last=('bag',), last_grace=20, clock=time.monotonic):
         self.log_directory = Path(log_directory)
         self.registry, self.popen, self.grace = registry, popen, grace
         self.last, self.last_grace = tuple(last), last_grace  # the recorder gets longer (tui.md §6)
         self.processes = {}
+        self.clock = clock
+        self.stopped_at = {}                     # name -> clock() of the last stop (ghost-name window)
 
     def start(self, name, command):
         if self.running(name):
@@ -135,6 +137,7 @@ class ProcessManager:
         process = self.processes.pop(name, None)
         if process is None:
             return
+        self.stopped_at[name] = self.clock()
         for signum, wait in ((signal.SIGINT, timeout), (signal.SIGTERM, 3), (signal.SIGKILL, 5)):
             if process.poll() is not None:
                 break

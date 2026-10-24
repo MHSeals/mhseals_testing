@@ -77,6 +77,7 @@ class RosIO:
         self.monitor = monitor
         self.stale_after = stale_after
         self.fault = ''
+        self.ghosts = set    # () -> node names to list once (the App sets Stack.ghosts)
         self.power_facts = None   # analysis.power facts of /mavros/battery; None without a voltage source
         self.journal_path = journal_path
         self.recording = True  # stamped on each event as ``rec``
@@ -183,7 +184,7 @@ class RosIO:
 
     def graph_facts(self, topics, full=False):
         """The graph probe's facts for ``topics`` (see health/probes/graph.py)."""
-        return collect(RclpyGraph(self.node), topics, time.monotonic(), full)
+        return collect(RclpyGraph(self.node), topics, time.monotonic(), full, self.ghosts())
 
     def subscribers(self, topic):
         return [e['node'] for e in self.endpoints(topic, True) if not e['self']]
