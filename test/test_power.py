@@ -133,3 +133,18 @@ def test_fcu_unknown_values_are_absent():
     s = p.from_mavros(msg(15.8, 1.0, pct=-0.01), 0)
     assert s['volt'] == 15.8 and s['pct'] is None
     assert p.from_mavros(msg(15.8, 1.0, pct=0.5), 0)['pct'] == 50.0
+
+
+def test_pack_cells_gives_the_check_the_same_count_as_the_popup():
+    from mhseals_testing.health import probes
+    sample = {'t': 0.0, 'volt': 12.4, 'amp': 0.0, 'cells_v': None, 'mah_used': None,
+              'pct': None, 'temp': None, 'source': 'x'}
+    pw = p.Power()
+    facts = pw.update(sample)
+    cells = p.pack_cells(facts, pw.chemistry)
+    assert cells == facts['cells'] == 3
+    assert probes.battery_facts(12.4, math.nan, 0.0, cells)['battery.plausible'].value
+    # loaded sample, no rest window yet: detected from the voltage alone
+    loaded = p.Power().update({**sample, 'amp': 10.0})
+    assert loaded['cells'] is None and p.pack_cells(loaded) == 3
+    assert p.pack_cells(p.Power({'cells': 4}).update(sample)) == 4

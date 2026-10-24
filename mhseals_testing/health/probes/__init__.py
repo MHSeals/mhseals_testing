@@ -26,7 +26,7 @@ import time
 
 from mhseals_testing.health.model import Fact
 
-PACK_CELLS = 4                      # assumed when the profile gives no `battery: {cells: N}`
+PACK_CELLS = 4                      # last resort when the cell count is neither configured nor detectable
 CELL_PLAUSIBLE = (2.5, 5.0)         # volts per cell outside which the reading is wrong, not low
 BRICK_ABSENT = 1.0                  # volts; below this the power brick is not feeding the FCU
 CURRENT_MIN = 0.05                  # amps; below this the coulomb-counted percentage is stale

@@ -2122,7 +2122,7 @@ def main(argv=None):
             processes.stop_all()
         subscribe_detections(ros, facts, profile)
         if profile.uses_fcu:
-            subscribe_fcu(ros, monitor, facts, profile.battery_cells)
+            subscribe_fcu(ros, monitor, facts, profile.battery)
         if watching:   # known to the owner, so it is not flagged as a foreign instance
             registry.add_guest(os.getpid(), me['node'], 'watch')
         else:

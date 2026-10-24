@@ -6,7 +6,7 @@ from mhseals_testing.analysis import power
 from mhseals_testing.health import probes
 
 
-def subscribe_fcu(ros, monitor, facts, cells=None):
+def subscribe_fcu(ros, monitor, facts, battery=None):
     """Publish /mavros/state and /mavros/battery as health facts; no-op without mavros_msgs."""
     try:
         from mavros_msgs.msg import State
@@ -18,12 +18,13 @@ def subscribe_fcu(ros, monitor, facts, cells=None):
     def state(message):
         facts.publish('fcu', probes.fcu_facts(message.connected, message.armed, message.mode))
 
-    tracker = power.Power({'cells': cells})
+    tracker = power.Power(battery)
 
     def battery(message):
         sample = power.from_mavros(message, ros.node.get_clock().now().nanoseconds * 1e-9)
         # None (no pack, 65.535 V) clears the facts so the popup never shows a stale pack
         ros.power_facts = None if sample is None else tracker.update(sample)    # read by the Power popup
+        cells = None if sample is None else power.pack_cells(ros.power_facts, tracker.chemistry)
         facts.publish('battery', probes.battery_facts(
             message.voltage, message.percentage, message.current, cells))
 

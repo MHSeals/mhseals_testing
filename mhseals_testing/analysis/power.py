@@ -68,6 +68,15 @@ def detect_cells(volt, chemistry='lipo') -> int | None:
     return n
 
 
+def pack_cells(facts, chemistry='lipo') -> int | None:
+    """The cell count both the battery check and the popup use: configured, else detected.
+
+    ``facts`` is ``Power.update``'s result; before the rest window gives a detection the
+    count comes from the pack voltage alone.
+    """
+    return facts['cells'] or detect_cells(facts['volt'], chemistry)
+
+
 def estimate_pct(cell_volt, chemistry='lipo') -> float:
     """Percent charge from the per-cell voltage, piecewise linear between the table rows."""
     c = CHEMISTRIES[chemistry]

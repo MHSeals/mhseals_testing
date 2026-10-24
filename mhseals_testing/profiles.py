@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.analysis.power import CHEMISTRIES
 from mhseals_testing.harness.components import parse_components
 
 
@@ -73,7 +74,16 @@ class PlantProfile:
     velocity_controller: bool    # put calibrated_velocity_controller in front of the PWM node
     sensors: tuple
     components: dict | None = None   # stack components (harness.components); None attaches only
-    battery_cells: int | None = None   # pack cell count from `battery: {cells: N}`; None assumes 4S
+    battery_cells: int | None = None   # `battery: {cells: N}`; None auto-detects from the voltage
+    battery_chemistry: str | None = None     # `battery: {chemistry}`: lipo, liion or lifepo4
+    battery_capacity_mah: float | None = None    # `battery: {capacity_mah}`, for the time left
+
+    @property
+    def battery(self):
+        """The configured keys as the dict ``analysis.power.Power`` takes."""
+        given = {'cells': self.battery_cells, 'chemistry': self.battery_chemistry,
+                 'capacity_mah': self.battery_capacity_mah}
+        return {key: value for key, value in given.items() if value is not None}
     plot_scale: tuple = PLOT_SCALE     # Motion plot half-range for surge, sway (m/s) and yaw (rad/s)
 
     conditions_velocity: str = 'gpsraw'  # explicit odom:<topic|name> is simulation-only
@@ -184,6 +194,12 @@ def parse_profile(data, where='profile'):
     cells = battery.get('cells')
     if cells is not None and (not isinstance(cells, int) or isinstance(cells, bool) or cells < 1):
         raise ValueError(f'{where}.battery.cells: positive integer')
+    chemistry, capacity = battery.get('chemistry'), battery.get('capacity_mah')
+    if chemistry is not None and chemistry not in CHEMISTRIES:
+        raise ValueError(f'{where}.battery.chemistry: one of {sorted(CHEMISTRIES)}')
+    if capacity is not None and (isinstance(capacity, bool) or not isinstance(capacity, (int, float))
+                                 or not 0 < capacity < float('inf')):
+        raise ValueError(f'{where}.battery.capacity_mah: positive number')
     return PlantProfile(
         name=_require(data, 'name', str, where),
         description=str(data.get('description', '')),
@@ -198,6 +214,7 @@ def parse_profile(data, where='profile'):
         use_sim_time=bool(data.get('use_sim_time', False)),
         outputs=outputs, velocity_controller=controller,
         sensors=tuple(sensors), components=components or None, battery_cells=cells,
+        battery_chemistry=chemistry, battery_capacity_mah=capacity,
         plot_scale=scale, conditions_velocity=velocity)
 
 

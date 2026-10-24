@@ -107,3 +107,19 @@ def test_profile_sets_the_battery_cell_count():
     assert parse_profile(data).battery_cells == 3
     with pytest.raises(ValueError, match='battery.cells'):
         parse_profile({**data, 'battery': {'cells': 0}})
+
+
+def test_profile_carries_battery_chemistry_and_capacity():
+    from mhseals_testing.profiles import parse_profile
+    data = {'name': 'x', 'command': {'topic': '/c', 'type': 'twist', 'units': 'effort',
+                                     'limit': [1, 1, 1]},
+            'odometry': '/o', 'frames': {'odom': 'odom', 'base': 'base'},
+            'arming': {'outputs': 'none'}, 'sensors': [],
+            'battery': {'chemistry': 'lifepo4', 'capacity_mah': 5000}}
+    profile = parse_profile(data)
+    assert profile.battery == {'chemistry': 'lifepo4', 'capacity_mah': 5000}
+    assert parse_profile({**data, 'battery': None}).battery == {}
+    with pytest.raises(ValueError, match='battery.chemistry'):
+        parse_profile({**data, 'battery': {'chemistry': 'nimh'}})
+    with pytest.raises(ValueError, match='battery.capacity_mah'):
+        parse_profile({**data, 'battery': {'capacity_mah': -1}})
