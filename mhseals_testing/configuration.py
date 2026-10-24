@@ -109,3 +109,10 @@ def bootstrap(root, scope, preparations):
     reference = Selection(str(Path(root).expanduser().absolute()), scope, ticket.candidate, domains)
     reference.validate()
     return reference
+
+
+# Pure records only: no public mutation operation is enabled by these exports.
+from ._configuration_records import (  # noqa: E402,F401
+    EffectiveRevision, ParticipantPlan, ParticipantReceipt, PersistentRevision,
+    Plan, Receipt, RequestedRevision, Status, VerifiedRevision,
+)
