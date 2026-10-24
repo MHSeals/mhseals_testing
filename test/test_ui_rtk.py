@@ -125,3 +125,20 @@ def test_odometry_pane_uses_wall_time_for_journal_events(tmp_path, monkeypatch):
     app.odometry()
     text = [row[1] for row in modal['rows']]
     assert any(line.startswith('FIXED') and '1:00' in line for line in text), text
+
+
+def test_odometry_popup_keeps_restart_ekfs_on_e_beside_base_controls_on_r(tmp_path):
+    """rv2-41: UIW33's r joins integ's choose popup; e still restarts the EKFs."""
+    from test_app import make_app, press
+    app, _ = make_app(tmp_path)
+    app.keys = app.reader
+    app.ekf = SimpleNamespace(restart=lambda: {'restarted': True, 'blocked': []})
+    options = []
+    real = type(app).choose
+    type(app).choose = lambda self, title, opts, *a, **kw: options.extend(opts) or real(self, title, opts, *a, **kw)
+    try:
+        press(app, 'e')
+        app.odometry()
+    finally:
+        type(app).choose = real
+    assert options == ['Restart EKFs', 'Base controls', 'Close'] and app.notice == 'EKFs restarted'

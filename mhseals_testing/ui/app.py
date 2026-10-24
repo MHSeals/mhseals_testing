@@ -1187,13 +1187,11 @@ class App:
                    if row.get('source') == 'sensor']
         rows = odometry.rows(params, sources)
         events = [e for e in journal.read(self.paths.journal) if e.get('phase') == 'gps_fix']
-        options, keys = ['Restart EKFs', 'Close'], {'e': 0}
         if events or self.rtk_link is not None:
             rows += rtk.pane_rows(events, time.time(), 44, theme.ASCII)
-            options.insert(1, 'Base controls')   # r, next to e
-            keys['r'] = 1
-        try:
-            answer = self.choose('Odometry', options, keys, selected=len(options) - 1, rows=rows, width=76)
+        try:   # r opens the RTK base controls next to e (no base says so)
+            answer = self.choose('Odometry', ['Restart EKFs', 'Base controls', 'Close'], {'e': 0, 'r': 1},
+                                 selected=2, rows=rows, width=76)
         except Cancelled:
             return
         if answer == 'Restart EKFs':
