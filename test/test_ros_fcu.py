@@ -11,6 +11,7 @@ class FakeLink:
     def __init__(self, params, armed=False, fail_on=None, drift=None):
         self.params, self.is_armed, self.fail_on, self.drift = dict(params), armed, fail_on, drift or {}
         self.sets, self.commands, self.listings = [], [], []
+        self.clock, self.serial = lambda: 0., 0
 
     def names(self):
         listing = self.listings.pop(0) if self.listings else list(self.params)
@@ -18,6 +19,15 @@ class FakeLink:
 
     def get(self, names):
         return {n: self.params[n] for n in names if n in self.params}
+
+    def safety_state(self):
+        return dict(armed=self.is_armed, connected=True, received=self.clock(),
+                    target='boat', connection=1, boot=1)
+
+    def observe_fresh(self, names, after, identity, request):
+        self.serial += 1
+        return dict(values=self.get(names), request=request, identity=identity, source='fcu',
+                    observed=self.clock(), received=self.clock(), observation_id=self.serial)
 
     def set(self, name, value):
         self.sets.append((name, value))
@@ -52,6 +62,7 @@ PARAMS = {'A': 1, 'B': 2.5, 'C': 3}
 
 def fcu(link, **options):
     clock = Clock()
+    link.clock = clock
     return FcuParams(link, meta=META, clock=clock, sleep=clock.sleep, **options)
 
 
@@ -123,7 +134,7 @@ def test_mid_batch_failure_rolls_back_in_reverse():
     link = FakeLink(PARAMS, fail_on='C')
     result = fcu(link).apply({'A': 2, 'B': 3.5, 'C': 4})
     assert result['status'] == 'rolled_back'
-    assert link.sets == [('A', 2), ('B', 3.5), ('C', 4), ('B', 2.5), ('A', 1)]
+    assert link.sets == [('A', 2), ('B', 3.5), ('C', 4), ('C', 3), ('B', 2.5), ('A', 1)]
     assert link.params == PARAMS
 
 
@@ -165,8 +176,8 @@ def test_raising_readback_rolls_back_and_raising_before_read_refuses():
             raise TimeoutError('get timed out')
         return real(names)
     link.get = get
-    assert fcu(link).apply({'A': 2})['status'] == 'rolled_back'
-    assert link.params == PARAMS
+    assert fcu(link).apply({'A': 2})['status'] == 'recovery_required'
+    assert link.params['A'] == 2
     broken = FakeLink(PARAMS)
     broken.get = lambda names: (_ for _ in ()).throw(TimeoutError('x'))
     assert fcu(broken).apply({'A': 2})['status'] == 'refused' and broken.sets == []
@@ -215,3 +226,100 @@ def test_shipped_meta_lists_the_blastoise_parameters():
 def test_shipped_classes_name_the_calibration_and_ignored_parameters():
     classes = yaml.safe_load((SHIPPED.parent / 'fcu.yaml').read_text())
     assert 'COMPASS_OFS*' in classes['calibration'] and 'STAT_*' in classes['ignore']
+
+
+class RemoteLink(FakeLink):
+    """Trusted test adapter: remote state and the display cache are independent."""
+    def __init__(self, error=False):
+        super().__init__(PARAMS)
+        self.remote, self.error = dict(PARAMS), error
+        self.bad_receipt = None
+
+    def set(self, name, value):
+        self.sets.append((name, value))
+        self.remote[name] = value
+        if len(self.sets) == 1:
+            if self.error:
+                raise TimeoutError('lost ACK after remote effect')
+            return False
+        return True
+
+    def observe_fresh(self, names, after, identity, request):
+        receipt = super().observe_fresh(names, after, identity, request)
+        receipt['values'] = {n: self.remote[n] for n in names}
+        if self.bad_receipt and self.sets:
+            self.bad_receipt(receipt)
+        return receipt
+
+
+def test_false_ack_and_exception_after_effect_restore_remote_not_cache():
+    for error in (False, True):
+        link = RemoteLink(error)
+        result = fcu(link).apply({'A': 2})
+        assert result['status'] == 'rolled_back' and result['written'] == ['A']
+        assert link.remote == PARAMS and link.params == PARAMS
+        assert link.sets == [('A', 2), ('A', 1)]
+
+
+def test_cache_equality_and_stale_or_wrong_epoch_receipts_do_not_certify():
+    for corrupt in (lambda r: r.update(observed=-1),
+                    lambda r: r.update(identity=('boat', 2, 1)),
+                    lambda r: r.update(observation_id=1),
+                    lambda r: r.update(source='cache'),
+                    lambda r: r.update(values={})):
+        link = RemoteLink()
+        link.bad_receipt = corrupt
+        result = fcu(link).apply({'A': 2})
+        assert result['status'] == 'unknown' and 'rollback_unverified' in result['detail']
+        assert link.remote['A'] == 2 and link.params['A'] == 1
+        assert link.sets == [('A', 2)]
+
+
+def test_legacy_link_refuses_before_effects():
+    link = FakeLink(PARAMS)
+    link.observe_fresh = None
+    assert fcu(link).apply({'A': 2})['status'] == 'refused'
+    assert link.sets == []
+
+
+def test_safety_changes_stop_forward_and_compensation():
+    for change in (dict(armed=True), dict(boot=2), dict(connection=2),
+                   dict(target='other'), dict(received=-10), dict(connected=False)):
+        link = RemoteLink()
+        original = link.safety_state
+        link.safety_state = lambda: dict(original(), **(change if link.sets else {}))
+        result = fcu(link).apply({'A': 2, 'B': 4})
+        assert result['status'] == 'unknown' and result['written'] == ['A']
+        assert link.sets == [('A', 2)] and link.remote['A'] == 2
+    link = FakeLink(PARAMS)
+    link.safety_state = lambda: None
+    assert fcu(link).apply({'A': 2})['status'] == 'refused' and link.sets == []
+
+
+def test_successful_first_write_then_safety_loss_stops_remaining_forward_sets():
+    for field, value in (('armed', True), ('boot', 2), ('connection', 2), ('received', -10)):
+        link = FakeLink(PARAMS)
+        original = link.safety_state
+        link.safety_state = lambda: dict(original(), **({field: value} if link.sets else {}))
+        result = fcu(link).apply({'A': 2, 'B': 4})
+        assert result['status'] == 'recovery_required' and result['written'] == ['A']
+        assert link.sets == [('A', 2)]
+
+
+def test_missing_safety_mid_batch_and_arm_flip_during_reverse_restoration():
+    link = FakeLink(PARAMS, fail_on='B')
+    original = link.safety_state
+    link.safety_state = lambda: None if len(link.sets) >= 3 else original()
+    result = fcu(link).apply({'A': 2, 'B': 4})
+    assert result['status'] == 'unknown'
+    assert result['written'] == ['A', 'B']
+    assert link.sets == [('A', 2), ('B', 4), ('B', 2.5)]
+    assert link.params['A'] == 2
+
+
+def test_compensation_requires_its_own_new_receipt():
+    link = RemoteLink()
+    link.bad_receipt = lambda r: r.update(observation_id=2) if len(link.sets) > 1 else None
+    result = fcu(link).apply({'A': 2})
+    assert link.remote['A'] == 1
+    assert result['status'] == 'unknown' and 'rollback_unverified' in result['detail']

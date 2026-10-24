@@ -1,10 +1,8 @@
-"""The one guarded path to FCU parameters: read, apply and the operator-confirmed compass write.
+"""Private guarded FCU helper; production parameter apply remains unsupported/unwired.
 
-``FcuParams`` holds the rules and talks to the FCU only through a link (``MavrosLink`` on the boat,
-a fake in tests). Reading never sets anything. ``apply`` refuses while armed, checks every name
-and value against ``fcu_meta.json`` and the live FCU before the first set, reads the values back
-at float32 precision and puts the old values back, newest first, if anything fails.
-See config_history.md 2.5 and section 4.
+Read methods expose cached values only. Apply requires a qualified fresh-observation and safety
+adapter; the legacy MAVROS link deliberately cannot certify remote writes or compensation.
+See config_history.md 2.5 and section 4. Actual transport qualification belongs to F00.
 """
 
 import json
@@ -50,15 +48,22 @@ def same_float32(a, b):
 class FcuParams:
     """Guarded access to FCU parameters over ``link``.
 
-    The link provides ``names()``, ``get(names) -> {name: value}`` (absent when unknown),
+    Reads use ``names()``, ``get(names) -> {name: value}`` (absent when unknown),
     ``set(name, value) -> bool``, ``armed() -> bool | None`` and ``command(id, params) -> bool``.
+    Apply additionally requires trusted ``safety_state()`` and
+    ``observe_fresh(names, after_attempt, identity, request)`` receipts. Identity is
+    (target, connection generation, boot). Timestamps use the injected monotonic clock.
+    Each observation must have a unique ID and prove remote causality, not echo request fields.
+    MavrosLink deliberately lacks these capabilities pending transport qualification (F00).
     """
 
     def __init__(self, link, meta=None, clock=time.monotonic, sleep=time.sleep,
-                 stable=5.0, timeout=30.0, settle=1.0):
+                 stable=5.0, timeout=30.0, settle=1.0, safety_age=1.0, observation_age=1.0):
         self.link, self.clock, self.sleep = link, clock, sleep
         self.meta = load_meta() if meta is None else meta
         self.stable, self.timeout, self.settle = stable, timeout, settle
+        self.safety_age, self.observation_age = safety_age, observation_age
+        self._seen_observations = set()
 
     def read_all(self, minimum=0):
         """Every parameter, or None while the FCU is still streaming its list.
@@ -100,56 +105,98 @@ class FcuParams:
                 problems.append(f'{name}: {value} outside {info.get("min")}..{info.get("max")}')
         return problems
 
-    def apply(self, changes):
-        """Set ``changes`` ({name: value}); returns dict(status, detail, written).
+    def _safe(self, identity=None):
+        """Trusted adapter receipt; legacy cached MAVROS state cannot supply this."""
+        state = self.link.safety_state()
+        now = self.clock()
+        if (not state or state.get('armed') is not False or state.get('connected') is not True
+                or not isinstance(state.get('received'), (int, float))
+                or not 0 <= now - state['received'] <= self.safety_age):
+            raise ValueError('missing, stale or unsafe FCU state')
+        current = tuple(state.get(k) for k in ('target', 'connection', 'boot'))
+        if any(x is None for x in current) or (identity is not None and current != identity):
+            raise ValueError('FCU target/connection/boot changed or unknown')
+        return current
 
-        status: 'refused' (nothing was set), 'applied', 'pending' (applied, a reboot makes it live),
-        'rolled_back' (a set or the readback failed and the old values are back) or 'unknown'
-        (rollback failed too: the caller must observe the FCU to learn its true state).
+    def _observe(self, names, after, identity):
+        # A qualified adapter must establish FCU-origin causal correlation itself. This envelope
+        # only rejects inconsistent receipts; it cannot qualify a transport (F00 remains required).
+        request = object()
+        receipt = self.link.observe_fresh(list(names), after, identity, request)
+        now = self.clock()
+        if (not receipt or receipt.get('request') is not request
+                or receipt.get('identity') != identity or receipt.get('source') != 'fcu'
+                or set(receipt.get('values', {})) != set(names)
+                or not isinstance(receipt.get('observed'), (int, float))
+                or not isinstance(receipt.get('received'), (int, float))
+                or not after <= receipt['observed'] <= receipt['received'] <= now
+                or now - receipt['received'] > self.observation_age
+                or not receipt.get('observation_id')
+                or receipt['observation_id'] in self._seen_observations):
+            raise ValueError('fresh FCU-origin observation unavailable')
+        self._seen_observations.add(receipt['observation_id'])
+        self._safe(identity)
+        return receipt['values']
+
+    def apply(self, changes):
+        """Private, unwired helper. Incapable links refuse before any effect.
+
+        ``written`` records attempts, including lost/false ACKs. ``rolled_back`` requires fresh
+        post-compensation FCU evidence; unsafe transitions retain recovery_required instead.
         """
-        if self.link.armed() is not False:
-            return self._result('refused', 'the FCU is armed or its state is unknown')
         problems = self.check(changes)
-        try:
-            before = {} if problems else self.link.get(list(changes))
-        except Exception as error:      # nothing has been set yet
-            return self._result('refused', f'could not read the current values: {error}')
-        problems += [f'{name}: not on the FCU' for name in changes if name not in before and name in self.meta.get('params', {})]
         if problems:
             return self._result('refused', '; '.join(problems))
+        if not all(callable(getattr(self.link, n, None))
+                   for n in ('safety_state', 'observe_fresh')):
+            return self._result('refused', 'unsupported fresh FCU safety/observation capability')
+        try:
+            identity = self._safe()
+            before = self._observe(changes, self.clock(), identity)
+        except Exception as error:
+            return self._result('refused', f'could not establish fresh FCU predecessor: {error}')
         written = []
+        after = self.clock()
         for name, value in changes.items():
             try:
+                self._safe(identity)
+            except Exception as error:
+                return self._result('recovery_required' if written else 'refused', str(error), written)
+            written.append(name)  # intent precedes the externally uncertain set
+            after = self.clock()
+            try:
                 acked = self.link.set(name, value)
-            except Exception as error:      # a timed-out set may still have reached the FCU
-                return self._rollback(written + [name], before, f'{name}: {error}')
+            except Exception as error:
+                return self._rollback(written, before, f'{name}: {error}', after, identity)
             if not acked:
-                return self._rollback(written, before, f'{name} was not acknowledged')
-            written.append(name)
+                return self._rollback(written, before, f'{name} was not acknowledged', after, identity)
         self.sleep(self.settle)
         try:
-            now = self.link.get(written)
+            now = self._observe(written, after, identity)
         except Exception as error:
-            return self._rollback(written, before, f'readback failed: {error}')
-        wrong = [n for n in written if n not in now or not same_float32(now[n], changes[n])]
+            return self._result('recovery_required', f'forward observation unknown: {error}', written)
+        wrong = [n for n in written if not same_float32(now[n], changes[n])]
         if wrong:
-            return self._rollback(written, before, f'readback differs for {", ".join(wrong)}')
+            return self._rollback(written, before, f'readback differs for {", ".join(wrong)}', after, identity)
         reboot = [n for n in written if self.meta['params'][n].get('reboot')]
         return self._result('pending' if reboot else 'applied',
                             f'reboot needed for {", ".join(reboot)}' if reboot else '', written)
 
-    def _rollback(self, written, before, why):
-        """Put back what was written, newest first, and check it took."""
+    def _rollback(self, written, before, why, after, identity):
+        """Observe uncertainty first; never compensate through an unsafe identity transition."""
         try:
+            self._observe(written, after, identity)
             for name in reversed(written):
+                self._safe(identity)
+                after = self.clock()
                 self.link.set(name, before[name])
             self.sleep(self.settle)
-            now = self.link.get(written)
+            now = self._observe(written, after, identity)
         except Exception as error:
-            return self._result('unknown', f'{why}; rollback failed: {error}', written)
-        failed = [n for n in written if n not in now or not same_float32(now[n], before[n])]
+            return self._result('unknown', f'{why}; rollback_unverified; recovery_required: {error}', written)
+        failed = [n for n in written if not same_float32(now[n], before[n])]
         if failed:
-            return self._result('unknown', f'{why}; rollback failed for {", ".join(failed)}', written)
+            return self._result('unknown', f'{why}; rollback_unverified for {", ".join(failed)}', written)
         return self._result('rolled_back', why, written)
 
     @staticmethod
