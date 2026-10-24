@@ -1827,6 +1827,18 @@ def test_bags_tab_with_a_session_renders_and_moves_the_cursor(tmp_path):
     assert app.cursors['list'] == 0
 
 
+def test_bags_tab_marks_the_live_session_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'data'))
+    live = tmp_path / 'data' / 'sessions' / 'live_1'
+    (live / 'bag').mkdir(parents=True)
+    app, _ = make_app(tmp_path)
+    app.paths = SessionPaths.from_output(live)
+    app.processes.running = lambda name: name == 'bag'
+    app.bag_scan = (-100.0, [], (0, 0, 0))
+    sessions, _ = app.bags_view()
+    assert [(bag.id, bag.recording) for bag in sessions] == [('live_1', True)]
+
+
 def test_map_tab_floor_and_trail_restart_reach_the_map_state(tmp_path):
     class State:
         calls = []

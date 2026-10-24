@@ -8,7 +8,6 @@
 * a rewind detector for ``/clock``: an episode reset makes sim time jump back.
 """
 import shutil
-import time
 from pathlib import Path
 
 import yaml

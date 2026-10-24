@@ -841,7 +841,7 @@ class App:
         if not self.processes.running('bag'):
             return 'was not running'
         self.set_recording('off', reason='quit')  # SIGINT lets ros2 bag finish the file
-        return f'flushed {self.paths.bag.name}'
+        return f'flushed {self.paths.directory.name}'
 
     def close_index(self):
         session_module.finish(self.paths.directory)
@@ -886,7 +886,7 @@ class App:
         """``(sessions, disk usage)`` for the Bags tab, re-scanned at most every 5 s while it shows."""
         now = self.clock()
         if now - self.bag_scan[0] >= 5:
-            recording = {self.paths.bag.name} if self.processes.running('bag') else ()
+            recording = {self.paths.directory.name} if self.processes.running('bag') else ()
             try:
                 self.bag_scan = (now, bags_module.scan(recording=recording), bags_module.disk())
             except OSError:
