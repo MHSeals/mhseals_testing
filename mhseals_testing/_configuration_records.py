@@ -11,6 +11,12 @@ def _text(*values):
         raise ValueError('nonempty identity required')
 
 
+def _scope(value):
+    return type(value) is SessionSelection and all(
+        type(getattr(value, key)) is str
+        for key in ('session', 'baseline', 'overlay', 'profile', 'role'))
+
+
 def _time(value):
     if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
         raise ValueError('invalid observation time')
@@ -39,7 +45,7 @@ class RequestedRevision:
 
     def __post_init__(self):
         _text(self.candidate)
-        if type(self.scope) is not SessionSelection or type(self.sources) is not tuple or not all(
+        if not _scope(self.scope) or type(self.sources) is not tuple or not all(
                 type(a) is Artifact for a in self.sources):
             raise ValueError('immutable scoped source references required')
 
@@ -85,7 +91,7 @@ class EffectiveRevision:
     def __post_init__(self):
         _text(self.candidate, self.identity)
         _time(self.observed_at)
-        if type(self.scope) is not SessionSelection or type(self.generation) is not int or self.generation < 0:
+        if not _scope(self.scope) or type(self.generation) is not int or self.generation < 0:
             raise ValueError('invalid scoped runtime generation')
 
 
@@ -132,7 +138,7 @@ class PersistentRevision:
 
     def __post_init__(self):
         _text(self.candidate)
-        if (type(self.baseline) is not BaselineRevision or type(self.scope) is not SessionSelection
+        if (type(self.baseline) is not BaselineRevision or not _scope(self.scope)
                 or type(self.manifest) is not Artifact or self.scope.baseline != self.baseline.revision):
             raise ValueError('persistent baseline association required')
 

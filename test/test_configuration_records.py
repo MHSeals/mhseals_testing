@@ -91,3 +91,12 @@ def test_stale_and_numeric_traps_and_mutable_references():
         replace(plan.requested, sources=list(plan.requested.sources))
     with pytest.raises(ValueError):
         replace(row.verified, evidence=[])
+
+
+def test_core_scope_cannot_leak_mutable_optional_fields():
+    plan, row, _ = facts()
+    scope = replace(plan.requested.scope, profile={})
+    with pytest.raises(ValueError):
+        replace(plan.requested, scope=scope)
+    with pytest.raises(ValueError):
+        replace(row.effective, scope=scope)
