@@ -17,7 +17,7 @@ components:
   # start_ekf:=false keeps odom.launch.py from starting a second set (rv1-35).
   odometry: {launch: [mhseals_nav, odom.launch.py], args: {sim: 'true', fcu: 'false', start_ekf: 'false'},
              nodes: [robot_state_publisher], start: true}
-  ekf: {launch: [mhseals_nav, ekf.launch.py], args: {sim: 'true', ekf_delay: '0.0'},
+  ekf: {launch: [mhseals_nav, ekf.launch.py], args: {sim: 'true', ekf_startup_context: 'standalone'},
         title: EKFs, nodes: [ekf_local, ekf_global, navsat_transform], needs: [odometry], start: true}
   sensors: {launch: [mhseals_nav, sensors.launch.py], args: {sim: 'true'}, start: true}
   mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'true'}, nodes: [rtabmap],

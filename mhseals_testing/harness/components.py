@@ -78,14 +78,45 @@ def _cycle(data, start):
     return False
 
 
+ODOMETRY_LAUNCHES = {('mhseals_nav', name)
+                     for name in ('odom.launch.py', 'ekf.launch.py', 'robot.launch.py')}
+ODOMETRY_INPUTS = frozenset({
+    'odometry_startup_file', 'odometry_deployment_file', 'ekf_startup_context',
+    'robot_state_publish_frequency', 'mavros_velocity_source', 'mavros_velocity_stddev',
+    'mavros_velocity_max_age', 'mavros_velocity_min_stddev', 'mavros_velocity_no_fix_stddev',
+    'ekf_delay', 'navsat_transform_config_file', 'ekf_overlay_file',
+})
+
+
+def odometry_arguments(profile, overlay):
+    """One explicit odometry selection for both parent and separately managed EKFs."""
+    arguments = {key: {**spec.get('args', {}), **overlay.get(key, {})}
+                 for key, spec in profile.components.items()}
+    selected = {}
+    for key, spec in profile.components.items():
+        if tuple(spec.get('launch', ())) not in ODOMETRY_LAUNCHES:
+            continue
+        for name, value in arguments[key].items():
+            if name not in ODOMETRY_INPUTS or value == '':
+                continue
+            if name in selected and str(selected[name]) != str(value):
+                raise ValueError(f'conflicting odometry selection: {name}')
+            selected[name] = value
+    for key, spec in profile.components.items():
+        if tuple(spec.get('launch', ())) in ODOMETRY_LAUNCHES:
+            arguments[key].update(selected)
+    return arguments
+
+
 def components(profile, overlay=None, selection=None):
     """The profile's components in file order. ``overlay`` is {key: {arg: value}}."""
     overlay = overlay or {}
     result = []
+    arguments = odometry_arguments(profile, overlay)
     for key, spec in profile.components.items():
         argv = ()
         if 'launch' in spec:
-            args = {**spec.get('args', {}), **overlay.get(key, {})}
+            args = dict(arguments[key])
             if selection is not None:
                 from mhseals_testing.startup_owner import NAV_LAUNCHES, RESERVED
                 if tuple(spec['launch']) in NAV_LAUNCHES:

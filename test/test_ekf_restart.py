@@ -94,3 +94,20 @@ def test_profiles_run_one_ekf_set_under_the_restart_child():
         # odometry keeps a proof node (else an external odom.launch.py reads 'off') that is not an EKF.
         assert items['odometry'].nodes == ('robot_state_publisher',)
         assert all(CHILD in item.needs for key, item in items.items() if key in ('mapping', 'navigation'))
+
+
+def test_inert_restart_seam_preserves_explicit_launch_selection(tmp_path):
+    log = []
+    selected = {'odometry_startup_file': str(tmp_path / 'startup.yaml'),
+                'odometry_deployment_file': str(tmp_path / 'deployment.yaml'),
+                'ekf_startup_context': 'included', 'ekf_delay': '2.75',
+                'navsat_transform_config_file': str(tmp_path / 'navsat.yaml'),
+                'ekf_overlay_file': str(tmp_path / 'chosen-ekf.yaml')}
+    (tmp_path / 'chosen-ekf.yaml').write_text('ekf_local: {ros__parameters: {frequency: 17.0}}')
+    restart, _ = make(tmp_path, log, carry=False, startup_arguments=selected)
+    assert restart.restart()['restarted']
+    argv = next(entry[2] for entry in log if entry[0] == 'start')
+    for name, value in selected.items():
+        assert f'{name}:={value}' in argv
+    assert len([arg for arg in argv if arg.startswith('ekf_overlay_file:=')]) == 1
+    assert restart.history.changes()[0]['subsystem'] == 'ekf'

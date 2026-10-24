@@ -143,3 +143,29 @@ def test_lingering_names_of_a_stopped_child_are_not_external_nor_duplicates():
     assert collapse(['/ekf_local', '/ekf_local', '/x', '/x'], stack.ghosts()) == ['/ekf_local', '/x', '/x']
     clock[0] = 100.0 + 30                                               # the lease has long expired
     assert stack.state('odometry', {'/ekf_local'})[0] == 'external' and not stack.ghosts()
+
+
+@pytest.mark.parametrize('profile_name, context', [('boat', 'included'),
+                                                ('crane_full_stack', 'standalone')])
+def test_odometry_yaml_selectors_reach_both_actual_children(profile_name, context):
+    profile = load_profile(profile_name)
+    chosen = {'odometry_startup_file': '/operator/odometry.yaml',
+              'odometry_deployment_file': '/deployment/odometry.yaml',
+              'navsat_transform_config_file': '/deployment/navsat.yaml',
+              'ekf_overlay_file': '/operator/ekf.yaml'}
+    items = {item.key: item for item in components(profile, {'odometry': chosen})}
+    for key in ('odometry', 'ekf'):
+        argv = items[key].argv
+        assert f'ekf_startup_context:={context}' in argv
+        assert not any(arg.startswith('ekf_delay:=') for arg in argv)
+        for name, value in chosen.items():
+            assert f'{name}:={value}' in argv
+
+
+def test_explicit_odometry_alias_survives_and_mismatches_refuse():
+    profile = load_profile('boat')
+    items = components(profile, {'ekf': {'ekf_delay': '2.5'}})
+    assert all('ekf_delay:=2.5' in item.argv for item in items if item.key in ('ekf', 'odometry'))
+    with pytest.raises(ValueError, match='conflicting odometry selection'):
+        components(profile, {'odometry': {'odometry_startup_file': '/a.yaml'},
+                             'ekf': {'odometry_startup_file': '/b.yaml'}})

@@ -26,11 +26,12 @@ DATUM_POLL_S = 0.2
 OVERLAY = Path('~/.config/mhseals/ekf.yaml')
 
 
-def command(sim, overlay=OVERLAY):
-    """The launch command for the child. ``ekf_delay`` stays 0 (MAVROS is up), but navsat_transform
-    waits ~3 s itself, so a restart takes 4-5 s."""
-    return ['ros2', 'launch', 'mhseals_nav', 'ekf.launch.py', f'sim:={str(sim).lower()}',
-            f'ekf_overlay_file:={Path(overlay).expanduser()}']
+def command(sim, overlay=OVERLAY, startup_arguments=None):
+    """Preserve explicit owner launch selectors; no runtime restart route is enabled here."""
+    args = {'sim': str(sim).lower(), 'ekf_overlay_file': str(Path(overlay).expanduser()),
+            **(startup_arguments or {})}
+    return ['ros2', 'launch', 'mhseals_nav', 'ekf.launch.py',
+            *(f'{key}:={value}' for key, value in args.items())]
 
 
 class EkfRestart:
@@ -38,12 +39,14 @@ class EkfRestart:
 
     def __init__(self, processes, history, *, sim, goal_active, procedure_active, velocity_active,
                  emit, to_ll=None, datum_ready=None, set_datum=None, carry_datum=False,
-                 overlay=OVERLAY, sleep=time.sleep, clock=time.monotonic):
+                 overlay=OVERLAY, sleep=time.sleep, clock=time.monotonic, startup_arguments=None):
         self.processes, self.history, self.sim = processes, history, sim
         self.goal_active, self.procedure_active = goal_active, procedure_active
         self.velocity_active, self.emit = velocity_active, emit
         self.to_ll, self.datum_ready, self.set_datum = to_ll, datum_ready, set_datum
-        self.carry_datum, self.overlay = carry_datum, Path(overlay).expanduser()
+        self.startup_arguments = dict(startup_arguments or {})
+        self.carry_datum = carry_datum
+        self.overlay = Path(self.startup_arguments.get('ekf_overlay_file', overlay)).expanduser()
         self.sleep, self.clock = sleep, clock
 
     def blockers(self):
@@ -89,7 +92,7 @@ class EkfRestart:
         self.history.observe(SUBSYSTEM, value, raw)
         datum = self.to_ll() if self.carry_datum and self.to_ll else None
         self.processes.stop(CHILD)
-        self.processes.start(CHILD, command(self.sim, self.overlay))
+        self.processes.start(CHILD, command(self.sim, self.overlay, self.startup_arguments))
         carried = False
         if datum is not None and self.set_datum and self._wait_ready():
             self.set_datum(*datum)

@@ -42,3 +42,22 @@ configuration: edit YAML and run the same command again. The quoted substitution
 cache paths with spaces. The helper neither launches Unity nor samples the boat.
 `course_truth.json`, session JSON and runtime recordings remain data in their existing
 formats.
+
+
+Odometry startup defaults belong to `mhseals_nav/config/odometry_startup.yaml`.
+The real boat uses the `included` startup context (the packaged six-second FCU
+settling delay); Unity through navigation uses `standalone` (the packaged zero
+delay). These contexts preserve the existing sequencing without overriding YAML
+values. `crane_direct` continues to bypass the EKFs and this selection.
+
+Set `odometry_startup_file` (operator) and `odometry_deployment_file` (deployment)
+in a profile component's launch `args` to select additional owner YAML layers.
+The TUI forwards the same selection, context and explicit compatibility aliases
+to odometry and the separate EKF child; conflicting selections refuse before a
+process starts. Explicit `ekf_delay` remains supported. Fresh sessions consume
+new YAML edits through the navigation owner's resolver.
+
+Runtime EKF restart remains unavailable in the application. Its inert command
+seam retains explicit selectors, but this is not proof of same-session frozen
+odometry inputs, filter-state preservation or safe consumer resumption. Enabling
+that lifecycle requires separate owner validation.
