@@ -163,7 +163,7 @@ def test_direction_reruns_only_that_column(config, tmp_path):
     saved = load_config(config)
     assert columns(saved['decoupling_negative'])[0] == pytest.approx(EXPECTED[(0, -1)], abs=2e-3)
     assert saved['decoupling'] == C_OLD  # the positive columns are untouched
-    assert saved['characterization'] == before and set(result['directions']) == {'surge-'}
+    assert {k: v for k, v in saved['characterization'].items() if k != 'fit'} == before and set(result['directions']) == {'surge-'}
     assert all(c[0] <= 0 for c in runner.commands if any(c))
 
 
@@ -290,3 +290,17 @@ def test_a_dead_single_direction_keeps_its_column_and_skips_verify(config, tmp_p
     assert saved['decoupling'] == before['decoupling']
     assert not any('verify' in r for r in records)
     assert len(runner.commands) == 3  # settle, the one probe hold, final settle: no refine or low holds
+
+
+def test_save_records_fit_provenance(config, tmp_path, monkeypatch):
+    from mhseals_testing import calibration
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    ctx, _, _ = context(tmp_path, Fake(config))
+    ctx.services['fit_context'] = lambda: dict(session='s1', battery_v=15.5, muted=False)
+    run(ctx)
+    saved = load_config(config)['characterization']
+    stored = calibration.load(tmp_path / 'calibration' / 'current.json')['directions']
+    assert set(stored) == {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'}
+    assert set(saved['fit']) == set(stored) and saved['fit']['sway+']['id'] == stored['sway+']['fit']['id']
+    assert stored['sway+']['battery_v'] == 15.5 and stored['sway+']['gate'] == {'muted': False}
+    assert calibration.marks(load_config(config), current={'directions': stored}) == {}

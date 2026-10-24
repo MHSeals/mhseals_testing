@@ -275,7 +275,7 @@ def _table(view, width, height):
 
     heads = []
     for col in view['columns']:
-        mark = {'?': ' ?', '✗': ' ' + theme.pick('✗', 'x')}.get(col['mark']) or (' ' + fitrows.UP if col['up'] else '')
+        mark = {'?': ' ?', '✗': ' ' + theme.pick('✗', 'x'), 'x': ' ' + theme.pick('✗', 'x')}.get(col['mark']) or (' ' + fitrows.UP if col['up'] else '')
         heads.append((col['key'].replace('-', theme.pick('−', '-')) + mark, 'bold'))
     lines = [line('', '', heads)]
     for row in rows:

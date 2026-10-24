@@ -14,8 +14,9 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_hardware.configuration import load_config
 from mhseals_hardware.thruster_mixer import AXES
-from mhseals_testing import nav2_limits
+from mhseals_testing import calibration, nav2_limits
 from mhseals_testing.analysis.characterization import (
     audit_holds, hold_t95, motion_limits, nav2_profile, neutral_noise, samples_from_windows,
 )
@@ -285,10 +286,17 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                         ('no', 'save'), {'n': 0, 's': 1})
     if choice == 'no':
         return result or summary
-    staging.commit(plus, minus, **(dict(characterization=result) if result else {}))
+    fit = calibration.new_fit()     # hardware.yaml keeps {id, time}; the rest goes to calibration/current.json
+    kept = (result or load_config(staging.config).get('characterization') or {})
+    staging.commit(plus, minus, characterization={**kept, 'fit': {**kept.get('fit', {}),
+                                                                  **{name: dict(fit) for name in refined}}})
     history, warn = ctx.services.get('history'), ctx.services.get('warn')
     if history:
         adapters.record_file(history, 'hardware', 'characterize', staging.config, warn)
+    context = dict((ctx.services.get('fit_context') or dict)())
+    head = history.head('hardware') if history else None
+    calibration.record_fit(list(refined), fit, load_config(staging.config),
+                           context=dict(context, config=head['id'] if head else None), conditions=water)
     saved = dict(procedure='characterization', verdict='SAVED')
     picked = max((d for d in columns if d not in dead), default=None, key=lambda d: sum(abs(c) for c in columns[d]))
     if picked and any(columns[picked]):

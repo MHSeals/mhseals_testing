@@ -90,6 +90,28 @@ def record(direction, fit, hardware, *, extra=None, path=None, fields=None):
     return entry
 
 
+def new_fit(now=None):
+    """The ``{id, time}`` stamp of one characterization, also written to hardware.yaml's fit map."""
+    now = now or datetime.datetime.now().astimezone()
+    return {'id': 'f' + now.strftime('%Y%m%dT%H%M%S'), 'time': now.isoformat(timespec='seconds')}
+
+
+def record_fit(names, fit, hardware, *, context=None, conditions=None, path=None, fields=None):
+    """``record`` every direction in ``names`` under one ``fit`` stamp.
+
+    ``context`` is what the app knows ({session, run, config, battery_v, muted}); ``conditions``
+    is the water summary the fit was made under. Missing pieces are simply left out.
+    """
+    context = context or {}
+    fit = {**fit, **{k: context[k] for k in ('session', 'run', 'config') if context.get(k)}}
+    extra = {'gate': {'muted': bool(context.get('muted'))}}
+    if context.get('battery_v') is not None:
+        extra['battery_v'] = context['battery_v']
+    if conditions:
+        extra['conditions'] = conditions
+    return {n: record(n, fit, hardware, extra=extra, path=path, fields=fields) for n in names}
+
+
 def load(path=None):
     """The stored calibration record, or an empty one."""
     return data.read_json(Path(path) if path else data.path('calibration', 'current.json'), {'directions': {}})
@@ -142,3 +164,20 @@ def snapshot(hardware, history=None, *, current=None, now=None):
     now = now or datetime.datetime.now().astimezone().isoformat(timespec='seconds')
     entries = {d: {'state': s, 'reason': r} for d, (s, r) in statuses(hardware, history, current=current).items()}
     return {'computed': now, 'entries': entries}
+
+
+def marks(hardware, history=None, *, current=None, battery_v=None):
+    """``{direction: mark}`` for the Correction column heads, as the tab draws them (``✗`` invalid, ``?`` verify)."""
+    shown = {INVALID: '✗', VERIFY: '?'}
+    return {d: shown[s] for d, (s, _) in statuses(hardware, history, current=current, battery_v=battery_v).items()
+            if s in shown}
+
+
+def write_snapshot(hardware, history=None, *, path=None):
+    """Add the derived ``status`` block to calibration/current.json (session close); False when there is no record."""
+    target = Path(path) if path else data.path('calibration', 'current.json')
+    current = data.read_json(target, None)
+    if not current or not current.get('directions'):
+        return False
+    data.write_json(target, {**current, 'status': snapshot(hardware, history, current=current)}, SCHEMA)
+    return True

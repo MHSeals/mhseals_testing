@@ -46,9 +46,11 @@ def rows(specs, report, seen):
 class Health:
     """The engine, the shared fact store and the App-tick probes."""
 
-    def __init__(self, profile, bag_directory, facts=None, clock=None, directory=None, host=None, git=None):
+    def __init__(self, profile, bag_directory, facts=None, clock=None, directory=None, host=None, git=None,
+                 hardware=None):
         self.facts = facts or probe_module.Facts(clock or time.monotonic)
         self.host = host or (lambda: probe_module.host_facts(bag_directory))
+        self.hardware = hardware or (lambda: None)      # the hardware config now, for calibration.invalid
         self.error = ''
         try:
             config = load(directory, profile)
@@ -72,7 +74,7 @@ class Health:
         """Run the due App-tick probes, evaluate, and return the advisory rows."""
         now = self.facts.clock()
         for name, probe in (('snapshot', lambda: probe_module.snapshot_facts(snapshot)),
-                            ('calibration', lambda: probe_module.staleness_facts(calibration.load())),
+                            ('calibration', self.calibration),
                             ('host', self.host)):
             if now - self._ran.get(name, float('-inf')) >= self.periods.get(name, 1):
                 self._ran[name] = now
@@ -85,6 +87,11 @@ class Health:
         report = self.engine.tick(facts, probes)
         self.transitions.extend(report.transitions)
         return rows(self.specs, report, self._seen)
+
+    def calibration(self):
+        """calibration.stale and calibration.invalid from calibration/current.json."""
+        current = calibration.load()
+        return {**probe_module.staleness_facts(current), **probe_module.invalid_facts(current, self.hardware())}
 
     def sample_git(self):
         """Start the git worker on first use and publish whatever it has sampled."""

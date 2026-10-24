@@ -88,3 +88,34 @@ def test_invalidation_never_deletes_and_status_is_computed_at_display_time(tmp_p
     assert path.read_text() == before                              # nothing written or removed
     assert 'status' not in cal.load(path)                          # the snapshot is derived, not stored
     assert cal.invalid_count(HW, current=current) == 0             # reverting the hardware clears it again
+
+
+def test_record_fit_marks_and_snapshot(tmp_path):
+    path = tmp_path / 'calibration' / 'current.json'
+    fit = cal.new_fit()
+    cal.record_fit(['sway-', 'yaw+'], fit, HW, path=path,
+                   context={'session': 's', 'battery_v': 15.8, 'muted': True, 'config': 'c1'}, conditions={'verdict': 'good'})
+    entry = cal.load(path)['directions']['yaw+']
+    assert entry['fit']['id'] == fit['id'] and entry['fit']['config'] == 'c1' and entry['battery_v'] == 15.8
+    assert entry['gate'] == {'muted': True} and entry['conditions'] == {'verdict': 'good'}
+    assert cal.marks(HW, current=cal.load(path)) == {'sway-': '?', 'yaw+': '?'}      # muted gate: verify
+    changed = {**HW, 'hardware_epoch': 4}
+    assert cal.marks(changed, current=cal.load(path)) == {'sway-': '✗', 'yaw+': '✗'}
+    assert cal.invalid_count(changed, current=cal.load(path)) == 2
+    assert cal.write_snapshot(changed, path=path)
+    assert cal.load(path)['status']['entries']['sway-']['state'] == cal.INVALID
+    assert not cal.write_snapshot(HW, path=tmp_path / 'none.json')
+
+
+def test_invalid_fact_and_check(tmp_path):
+    from mhseals_testing.health.probes import invalid_facts
+    path = tmp_path / 'c.json'
+    cal.record_fit(['sway-'], cal.new_fit(), HW, path=path)
+    current = cal.load(path)
+    assert invalid_facts(current, HW)['calibration.invalid'].value == 0
+    fact = invalid_facts(current, {**HW, 'hardware_epoch': 9})['calibration.invalid']
+    assert (fact.value, fact.label) == (1, 'sway-')
+    assert invalid_facts({}, HW) == {}
+    from mhseals_testing.health.config import load
+    spec = next(s for s in load(None, None).specs if s.id == 'calib.invalid')
+    assert set(spec.gates) == {'w', 's', 't'}

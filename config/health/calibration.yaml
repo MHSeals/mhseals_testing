@@ -15,3 +15,17 @@ checks:
     title: Recharacterize suggested
     message: 'Tracking has fallen on {label}'
     hint: Run Characterize again; one bad run never raises this
+
+  - id: calib.invalid
+    kind: threshold
+    fact: calibration.invalid
+    below: false
+    warn: 0.5
+    fail: 1000
+    severity: warn
+    missing: skip
+    raise_after: 0      # computed from the stored hash against the config now; no debounce
+    gates: [w, s, t]
+    title: Calibration invalid
+    message: 'Fitted under different hardware: {label}'
+    hint: Rerun Characterize (Correction r)

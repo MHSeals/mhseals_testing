@@ -30,7 +30,7 @@ from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
-from mhseals_testing import data, nav2_limits
+from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.data import data_root
 from mhseals_testing.harness import host, journal, runs, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
@@ -253,7 +253,7 @@ class App:
         self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.last_advisory = float('-inf')
-        self.health = Health(profile, paths.bag.parent, facts, clock)
+        self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
         self.recwatch = RecWatch(self.clock)
         self.recorder = recorder or Recorder(processes, paths.bag, profile.name)
@@ -301,6 +301,14 @@ class App:
             reasons.insert(0, 'ROS fault: ' + self.ros.fault)
         # A running survey staged the backup itself; it restores it when it ends or aborts.
         return reasons + ([] if self.running else self.staging().blockers())
+
+    def fit_context(self):
+        """What a fit records beside its numbers: session, run, battery volts and whether the conditions gate was muted."""
+        facts, _ = self.health.facts.read()
+        battery = facts.get('battery.voltage')
+        muted = bool(self.health.engine.muted & {'conditions.poor', 'conditions.marginal'})
+        return dict(session=self.paths.session.parent.name, run=self.run_id,
+                    battery_v=getattr(battery, 'value', None), muted=muted)
 
     def staging(self):
         """The identity-correction backup for this session's hardware YAML (harness/apply.py)."""
@@ -706,6 +714,7 @@ class App:
             return  # nothing of ours to flush; the session's report must not be rewritten
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
                  ('Report', self.close_report), ('Tracking', self.close_tracking),
+                 ('Calibration', self.close_calibration),
                  ('Recording', self.close_recording)]
         if self.detaching:   # the children and the recording go on under the next owner
             steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
@@ -757,6 +766,10 @@ class App:
     def close_tracking(self):
         verdicts = self.tracking.close()
         return ', '.join(f"{a} {'stale' if v['flag'] else 'ok'}" for a, v in verdicts.items()) or 'no scores'
+
+    def close_calibration(self):
+        wrote = calibration.write_snapshot(self.args.hardware_config)
+        return 'status written' if wrote else 'nothing fitted'
 
     def close_recording(self):
         if not self.processes.running('bag'):
@@ -1065,6 +1078,8 @@ class App:
         if self.tab != 'Correction':
             return None
         fits = (data.read_json(data.path('state.json'), {}) or {}).get('fits')
+        shown = calibration.marks(self.args.hardware_config, self.history)
+        fits = {**(fits or {}), **{d: {**(fits or {}).get(d, {}), 'mark': m} for d, m in shown.items()}} if shown else fits
         return dict(fits=fits, column=self.column, **self.correction_side())
 
     def correction_side(self):
@@ -1669,7 +1684,7 @@ class App:
                 hardware_config=self.args.hardware_config, wall_ns=self.wall_ns,
                 user_config=self.args.config,
                 history=self.history, warn=self.warn_history,
-                staging=self.staging(),
+                staging=self.staging(), fit_context=self.fit_context,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,

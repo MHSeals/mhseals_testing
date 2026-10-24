@@ -86,6 +86,16 @@ def staleness_facts(current):
     return {'calibration.stale': Fact(len(flagged), label=', '.join(flagged))}
 
 
+def invalid_facts(current, hardware, history=None):
+    """``calibration.invalid``: directions whose stored fit no longer matches the hardware (label = which)."""
+    from mhseals_testing import calibration
+    if not isinstance(current, dict) or not current.get('directions') or not hardware:
+        return {}
+    bad = sorted(d for d, (state, _) in calibration.statuses(hardware, history, current=current).items()
+                 if state == calibration.INVALID)
+    return {'calibration.invalid': Fact(len(bad), label=', '.join(bad))}
+
+
 def host_facts(bag_directory, load=os.getloadavg, cpus=os.cpu_count, zones=THERMAL_ZONES):
     """Load per CPU, hottest thermal zone and free disk (GB) where the bag is written."""
     count, load1 = cpus() or 1, load()[0]
