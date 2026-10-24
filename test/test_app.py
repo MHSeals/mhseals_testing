@@ -2197,10 +2197,11 @@ def test_release_refuses_changed_resumer_after_confirmation(tmp_path, change):
 def test_ordinary_popups_ignore_release_key(tmp_path, context):
     app, boat, calls = release_app(tmp_path)
     with app.attached():
-        press(app, 'U', 'up', 'enter', 'escape')
         if context == 'config':
+            press(app, 'U', 'escape')
             app.open('config')
         else:
+            press(app, 'U', 'up', 'enter', 'escape')
             assert app.choose('Ordinary choice', ['Continue', 'Cancel'], selected=1) == 'Continue'
     assert calls == [] and boat.sent == []
 
