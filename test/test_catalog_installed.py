@@ -110,3 +110,42 @@ def test_real_optional_astro_present_missing_and_corrupt(installed_root, monkeyp
     (missing / 'share/astro-run-config/run-defaults.yaml').write_text('invalid: [')
     view = catalog_inspect.installed()
     assert view['packages'][-1]['status'] == 'invalid-installed'
+
+
+def test_long_navigation_details_reach_final_fields_at_narrow_width(installed_root):
+    import io
+    from types import SimpleNamespace
+    from mhseals_testing.ui.popups import catalog
+    import json
+    from rich.console import Console
+    from mhseals_testing.ui import layout
+
+    key = 'navigation/controller_server/ros__parameters/FollowPath/rotate_to_heading_angular_vel'
+    row = next(row for row in catalog.installed()['rows'] if row['key'] == key)
+    source_lines = len(json.dumps(row, indent=2).splitlines())
+
+    def popup(modal, handle):
+        # Simulate repeated Down through the real layout: offsets count wrapped lines.
+        for _ in range(source_lines * 5):
+            handle('down')
+        output = io.StringIO()
+        panel, width = layout.popup(modal, 36, 12)
+        Console(file=output, width=width, height=12, color_system=None).print(panel)
+        assert modal['scroll'] > source_lines
+        final = output.getvalue()
+        assert 'writable' in final and 'false' in final
+        assert 'numeric_bounds' in final
+        bottom = modal['scroll']
+        handle('down')
+        layout.popup(modal, 36, 12)
+        assert modal['scroll'] == bottom
+        for _ in range(bottom):
+            handle('up')
+            panel, width = layout.popup(modal, 36, 12)
+            Console(file=output, width=width, color_system=None).print(panel)
+            if 'blockers' in output.getvalue():
+                break
+        assert 'blockers' in output.getvalue()
+        assert handle('escape') is True
+
+    catalog.details(SimpleNamespace(popup=popup), key, row)

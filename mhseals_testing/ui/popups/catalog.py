@@ -13,8 +13,8 @@ def details(app, label, record):
         if key in ('escape', 'q'):
             return True
         if key in ('up', 'k', '[', 'down', 'j', ']'):
-            modal['scroll'] = max(0, min(len(modal['rows']) - 1,
-                modal.get('scroll', 0) + (1 if key in ('down', 'j', ']') else -1)))
+            modal['scroll'] = max(0, modal.get('scroll', 0)
+                                  + (1 if key in ('down', 'j', ']') else -1))
     app.popup(modal, handle)
 
 
