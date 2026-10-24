@@ -94,7 +94,7 @@ def test_rules_file_rejects_unknown_class(tmp_path):
 
 def _compiled_plan_values(current, changes, result):
     """Reconstruct the preview value set from its class/node groups."""
-    values = {**current, **changes}
+    values = dict(current)
     for kind in n2.CLASSES:
         for node, params in result[kind].items():
             values.update({node + '.' + key: value for key, value in params.items()})
@@ -185,3 +185,27 @@ def test_selected_overlay_missing_is_empty_invalid_is_rejected(tmp_path):
     invalid.write_text('controller_server: 1\ncontroller_server: 2\n')
     with pytest.raises(ValueError, match='Duplicate key'):
         domain.load_overlay(invalid, strict=True)
+
+
+@pytest.mark.parametrize('changes', [
+    {FOLLOW + 'vx_min': -0.8},
+    {FOLLOW + 'vx_max': 1},
+])
+def test_complete_preview_emits_canonical_caps_and_numeric_types(changes):
+    from mhseals_nav import navigation_config as domain
+
+    current = {**CURRENT, 'controller_server.controller_plugins': ['FollowPath'],
+               FOLLOW + 'plugin': 'nav2_mppi_controller::MPPIController',
+               FOLLOW + 'vx_std': 0.2, FOLLOW + 'vy_std': 0.1, FOLLOW + 'wz_std': 0.2}
+    expected = n2._flat(domain.validated_merge_limits(n2._nested(current), n2._nested(changes)))
+    result = n2.plan(changes, current)
+    actual = _compiled_plan_values(current, changes, result)
+    assert actual == expected
+    assert {key: type(value) for key, value in actual.items()} == {
+        key: type(value) for key, value in expected.items()}
+    if FOLLOW + 'vx_min' in changes:
+        assert result['unchanged'] == [FOLLOW + 'vx_min']
+        assert all(not result[kind] for kind in n2.CLASSES)
+    else:
+        emitted = result['live']['controller_server']['FollowPath.vx_max']
+        assert emitted == 1.0 and type(emitted) is float

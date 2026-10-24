@@ -126,7 +126,6 @@ def plan(changes, current, declared=None, rules=None):
     dropped so a full param load stays harmless.
     """
     rules = rules or load_rules()
-    wanted = dict(changes)
     from mhseals_nav import navigation_config
 
     # Use the same explicit-derived conflict check as full launch compilation.
@@ -143,7 +142,10 @@ def plan(changes, current, declared=None, rules=None):
         compile_values = navigation_config.validated_merge_limits
     before = _flat(compile_values(base, {}))
     after = _flat(compile_values(base, explicit))
-    wanted.update({k: v for k, v in after.items() if before.get(k) != v and k not in changes})
+    # Requested values may be capped or normalized by the compiler too.
+    wanted = {key: after['.'.join(split(key))] for key in changes}
+    requested = {'.'.join(split(key)) for key in changes}
+    wanted.update({k: v for k, v in after.items() if before.get(k) != v and k not in requested})
     groups = {cls: {} for cls in CLASSES}
     unchanged = []
     for key, value in wanted.items():
