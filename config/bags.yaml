@@ -2,7 +2,9 @@
 # (crane_full_stack: ~50 MB/s), so the recorder takes every topic except these.
 # Python regex matched against the full topic name (ros2 bag --exclude-regex). Anchored on the last
 # path segment so /waypoints, /mavros/mission/waypoints and /perception/image_status stay recorded.
-exclude_regex: '.*(costmap.*|/(points|cloud[^/]*|deskewed[^/]*|image(_raw|_rect[^/]*|_color)?(/compressed)?|camera_info))$'
+# RTAB-Map's growing grids are excluded by full name (/map, /grid_prob_map) so /objects/map (perception
+# tracks) stays; the decimated minimap costmap is kept for replay, Nav2 costmaps are excluded.
+exclude_regex: '^(?!/mhseals_testing/minimap/costmap$)(/(map|grid_prob_map)|.*(costmap.*|/(points|cloud[^/]*|deskewed[^/]*|image(_raw|_rect[^/]*|_color)?(/compressed)?|camera_info)))$'
 
 # Message types never recorded (ros2 bag --exclude-topic-types). Catches heavy topics the name regex misses
 # (/scan_cloud, /livox/lidar, depth_registered, disparity_image, ...theora).
@@ -11,5 +13,4 @@ exclude_types:
   - sensor_msgs/msg/Image
   - sensor_msgs/msg/CompressedImage
   - stereo_msgs/msg/DisparityImage
-  - nav_msgs/msg/OccupancyGrid
   - nav2_msgs/msg/Costmap

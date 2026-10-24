@@ -56,9 +56,20 @@ def test_bag_command_excludes_heavy_message_types_the_name_regex_misses(tmp_path
     start = command.index('--exclude-topic-types') + 1
     types = command[start:command.index('-o')]
     for heavy in ('sensor_msgs/msg/PointCloud2', 'sensor_msgs/msg/Image', 'sensor_msgs/msg/CompressedImage',
-                  'stereo_msgs/msg/DisparityImage', 'nav_msgs/msg/OccupancyGrid'):
+                  'stereo_msgs/msg/DisparityImage'):
         assert heavy in types
     assert not any(t.startswith('--') for t in types)
+
+
+def test_full_bag_keeps_the_minimap_costmap_and_object_tracks_but_not_rtabmap_grids(tmp_path):
+    command = bag_command(tmp_path / 'b')
+    regex = re.compile(command[command.index('--exclude-regex') + 1])
+    types = command[command.index('--exclude-topic-types') + 1:command.index('-o')]
+    assert 'nav_msgs/msg/OccupancyGrid' not in types
+    for kept in ('/mhseals_testing/minimap/costmap', '/objects/map'):
+        assert not regex.fullmatch(kept)
+    for dropped in ('/map', '/grid_prob_map', '/local_costmap/costmap', '/global_costmap/costmap_updates'):
+        assert regex.fullmatch(dropped)
 
 
 def test_child_dies_with_a_killed_parent_that_ignored_sigint(tmp_path):
