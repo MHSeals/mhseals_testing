@@ -1805,9 +1805,15 @@ class App:
                 history=self.history, warn=self.warn_history,
                 staging=self.staging(), fit_context=self.fit_context,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
+                mux_input=self.mux_input,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             clock=self.monitor.clock)))
+
+    def mux_input(self):
+        """The mux's latest input from the arbiter; 'auto' when no mux state has been seen."""
+        mux = getattr(getattr(self, 'arbiter', None), 'mux', None)
+        return str(mux.get('input')) if isinstance(mux, dict) and mux.get('input') else 'auto'
 
     def set_pulses(self, pulses):
         """Raw pulses per output for procedures (identification); None ends them."""

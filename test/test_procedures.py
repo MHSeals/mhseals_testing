@@ -48,6 +48,31 @@ def test_thruster_set_refuses_unless_the_mux_is_auto():
             thrusters.run(ctx)
 
 
+def test_thruster_set_accepts_auto_and_idle_mux():
+    from types import SimpleNamespace
+
+    from mhseals_testing.procedures import thrusters
+    for state in ('auto', 'idle'):
+        ctx = SimpleNamespace(services={'mux_input': lambda s=state: s})
+        try:
+            thrusters.run(ctx)
+        except RuntimeError as error:
+            assert 'needs the mux' not in str(error)
+        except Exception:
+            pass   # got past the guard; the stub context lacks the rest
+
+
+def test_app_supplies_mux_input_from_the_arbiter():
+    from types import SimpleNamespace
+
+    from mhseals_testing.ui.app import App
+    app = SimpleNamespace(arbiter=SimpleNamespace(mux={'input': 'rc'}))
+    assert App.mux_input(app) == 'rc'
+    app.arbiter.mux = None
+    assert App.mux_input(app) == 'auto'
+    assert App.mux_input(SimpleNamespace()) == 'auto'
+
+
 
 
 def test_tree_puts_a_heading_before_each_group_and_keeps_item_indices():
