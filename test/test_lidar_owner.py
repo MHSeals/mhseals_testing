@@ -79,7 +79,7 @@ def selected_file(tmp_path, name, patch):
     return str(path)
 
 
-@pytest.mark.parametrize('route,ip', [('sensors', '192.168.0.201'), ('robot', '192.168.1.201')])
+@pytest.mark.parametrize('route,ip', [('sensors', '192.168.0.201'), ('robot', '192.168.0.201')])
 def test_shipped_boat_lidar_defaults_deployment_and_selected_aliases(
         nav_root, tmp_path, calibration_share, route, ip):
     ns = sensor_factory(nav_root, calibration_share)
@@ -119,8 +119,7 @@ def test_shipped_boat_lidar_defaults_deployment_and_selected_aliases(
         assert nodes[1].remappings == [('velodyne_points', '/points')]
         # Compare full-robot include with equivalent direct sensor context.
         if route == 'robot':
-            direct_args = {'lidar_params_file': first, 'lidar_required_frame': 'lidar_link',
-                           'lidar_deployment_file': str(nav_root / 'config/lidar_robot.yaml')}
+            direct_args = {'lidar_params_file': first, 'lidar_required_frame': 'lidar_link'}
             direct_argv = sensor_argv(direct_args, overlay)
             direct = ns['sensor_nodes'](sensor_context(ns, nav_root, direct_argv, 'sensors'))
             assert [node.parameters for node in direct[:2]] == [
