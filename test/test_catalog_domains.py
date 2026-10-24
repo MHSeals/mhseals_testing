@@ -1,9 +1,9 @@
 """Explicit installed/archived domain resources; no ROS import or runtime claim."""
-from importlib.resources import files
 from pathlib import Path
 import yaml
 
 from mhseals_hardware.catalog import load_catalog
+from mhseals_hardware.resources import config_resource
 from mhseals_nav.catalog import navigation_catalog
 from mhseals_testing.catalog import assemble
 from mhseals_testing.catalog_coverage import reconcile
@@ -22,7 +22,7 @@ def test_actual_domain_bundles_and_changed_default():
     assert len(view.rows) == len(nav.rows) + len(hardware.rows)
     assert all(not row.writable and row.blockers for row in view.rows)
     assert all(row.source for row in view.rows)
-    defaults = files('mhseals_hardware').joinpath('config/default.yaml').read_bytes()
+    defaults = config_resource('default.yaml').read_bytes()
     sid = nav.descriptor['default_sources'][0]['id']
     resources = {('mhseals_hardware', 'hardware-default'): ('4d672165', defaults),
                  ('mhseals_nav', sid): ('82b833ebdf6d10ee4607a9dbeb5b0adc2e85e75f', raw)}
