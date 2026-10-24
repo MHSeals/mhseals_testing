@@ -28,8 +28,8 @@ def tracking_score(measured, predicted, command, sigma_wave, settings, ignore=Fa
     """Fraction in [0, 1] of the predicted motion the boat followed, or None when gated.
 
     ``measured``, ``predicted`` and ``command`` are equal-length window samples of one axis.
-    Only samples with a command above the deadband, or a prediction above ``active_sigma``
-    wave floors, count; ``ignore`` (yaw unreliable, poor conditions) drops the window.
+    Only predictions at least ``active_sigma`` times the per-sample neutral SD count;
+    ``ignore`` (yaw unreliable, poor conditions) drops the window.
     """
     s = settings['score']
     measured, predicted, command = (np.asarray(x, dtype=float) for x in (measured, predicted, command))
@@ -39,7 +39,7 @@ def tracking_score(measured, predicted, command, sigma_wave, settings, ignore=Fa
     measured, predicted, command = measured[finite], predicted[finite], command[finite]
     if not len(measured):
         return None
-    counted = (np.abs(command) > s['deadband']) | (np.abs(predicted) > s['active_sigma'] * sigma_wave)
+    counted = np.abs(predicted) >= s['active_sigma'] * sigma_wave
     if counted.mean() < s['min_active']:
         return None
     error = np.sqrt(np.mean((measured[counted] - predicted[counted]) ** 2))

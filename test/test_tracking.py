@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from mhseals_testing.analysis.tracking import (
     load_settings, score_colour, staleness, theil_sen, tracking_score)
@@ -73,3 +74,21 @@ def test_healthy_and_single_bad_last_sessions_rarely_flag():
         one_bad = sum(staleness(runs([*rng.normal(0.88, 0.04, k - 1), 0.3]), 1, S, seed=i)['flag']
                       for i in range(200))
         assert healthy <= 2 and one_bad <= 2, (k, healthy, one_bad)
+
+
+@pytest.mark.parametrize('count', [20, 200])
+def test_high_command_cannot_bypass_per_sample_noise_gate(count):
+    assert tracking_score([0.0] * count, [0.01] * count, [0.6] * count, 0.1, S) is None
+
+
+@pytest.mark.parametrize('prediction', [0.199, 0.2, -0.2, 0.201])
+def test_prediction_noise_gate_includes_twice_sigma(prediction):
+    score = tracking_score([prediction] * 20, [prediction] * 20, [0.0] * 20, 0.1, S)
+    assert score == (None if abs(prediction) < 0.2 else 1.0)
+
+
+def test_noise_gate_keeps_minimum_active_fraction_and_rms_formula():
+    predicted = [0.2] * 10 + [0.01] * 10
+    measured = [0.1] * 10 + [10.0] * 10
+    assert tracking_score(measured, predicted, [0.6] * 20, 0.1, S) == pytest.approx(0.75)
+    assert tracking_score(measured, [0.2] * 9 + [0.01] * 11, [0.6] * 20, 0.1, S) is None

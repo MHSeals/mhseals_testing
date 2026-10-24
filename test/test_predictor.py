@@ -35,7 +35,11 @@ def test_drift_rotates_into_the_body_frame_and_skips_yaw():
 
 def test_a_boat_that_follows_the_model_scores_high_and_a_wrong_curve_low():
     s = load_settings()
-    run = lambda curve: [Predictor({'surge+': curve}, {'surge': 2.0}).step((0.6, 0, 0), 0.1)[0] for _ in range(100)]
+
+    def run(curve):
+        predictor = Predictor({'surge+': curve}, {'surge': 2.0})
+        return [predictor.step((0.6, 0, 0), 0.1)[0] for _ in range(100)]
+
     truth = run(CURVE)
     assert tracking_score(truth, truth, [0.6] * 100, 0.02, s) > 0.99
     assert tracking_score(truth, run(dict(d1=2.0, d2=6.0)), [0.6] * 100, 0.02, s) < 0.6
