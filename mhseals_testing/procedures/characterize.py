@@ -180,15 +180,21 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         columns, refined = {}, {}
         # Dead-response gate: a direction whose a_hi hold moved the boat less than the floor is
         # neither refined nor fitted; its response is noise and its cross ratios are meaningless.
+        # A single direction has no survey: its first a_hi hold, at the deployed column, is the gate.
         dead = [] if only else [(axis, sign) for axis, sign in DIRECTIONS
                                 if survey[(axis, sign, hi)][1] < cfg['min_response'][AXES[axis]]]
         for axis, sign in ([only] if only else DIRECTIONS):
             begin = deployed_column(axis, sign)  # the survey drove it too: its response seeds the search
+            if only:
+                main, ratios = cross_response(drive(runner, command_for(axis, sign, hi, begin),
+                                                    settings.command, label(axis, sign)), axis, sign)
+                if main < cfg['min_response'][AXES[axis]]:
+                    dead.append(only)
             if (axis, sign) in dead:
                 columns[(axis, sign)] = begin
                 refined[label(axis, sign)] = dict(column=begin, converged=False, dead=True)
                 continue
-            known = () if only else [(begin, survey[(axis, sign, hi)][2])]
+            known = [(begin, ratios if only else survey[(axis, sign, hi)][2])]
 
             driven = []  # the refine holds actually run
 
@@ -200,8 +206,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
 
             found = refine(measure, begin, tolerance[AXES[axis]], cfg['refine']['probe'],
                            room,
-                           cfg['refine']['max_holds'] + (0 if known else 1), known)  # no survey: +1 for the start
-            if known and not driven:  # the survey point passed: its a_lo hold is the homogeneity check
+                           cfg['refine']['max_holds'], known)
+            if not driven and (axis, sign, lo) in survey:  # the survey point passed: its a_lo hold is the check
                 low = survey[(axis, sign, lo)][2]
             else:  # homogeneity check: the final column at the low amplitude
                 low = cross_response(drive(runner, command_for(axis, sign, lo, found['column']),
@@ -272,6 +278,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             summary['nav2_overlay'] = str(overlay)
     else:
         summary['verdict'] = 'FITTED' if refined[label(*only)]['converged'] else 'PARTIAL'
+        if dead:
+            summary['dead_directions'] = [label(*only)]
     ctx.record(dict(summary, characterization=result) if result else summary)
     choice = ctx.choose('Save the characterization to the hardware config?',
                         ('no', 'save'), {'n': 0, 's': 1})

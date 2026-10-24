@@ -272,3 +272,21 @@ def test_a_dead_direction_is_marked_and_keeps_its_old_curve(config, tmp_path):
     assert saved['characterization']['speed_curves']['sway-'] == dict(d1=1.0, d2=0.5)
     assert saved['characterization']['speed_curves']['sway+'] != dict(d1=1.0, d2=0.5)  # live directions are fitted
     assert saved['decoupling_negative'] is None or columns(saved['decoupling_negative'])[1] == (0.0, 0.0)
+
+
+def test_a_dead_single_direction_keeps_its_column_and_skips_verify(config, tmp_path):
+    runner, before = Fake(config), load_config(config)
+    original = runner.hold
+
+    def hold(command, seconds, label=''):
+        return original((command[0], max(command[1], 0.0), command[2]), seconds, label)  # sway- does nothing
+    runner.hold = hold
+    ctx, records, _ = context(tmp_path, runner, direction='sway-')
+    result = run(ctx)
+    saved = load_config(config)
+    assert result['verdict'] == 'PARTIAL' and result['dead_directions'] == ['sway-']
+    assert result['directions']['sway-']['dead'] and not result['directions']['sway-']['converged']
+    assert saved['decoupling_negative'] == before.get('decoupling_negative')  # the deployed column is kept
+    assert saved['decoupling'] == before['decoupling']
+    assert not any('verify' in r for r in records)
+    assert len(runner.commands) == 3  # settle, the one probe hold, final settle: no refine or low holds
