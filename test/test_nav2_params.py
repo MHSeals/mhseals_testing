@@ -171,3 +171,17 @@ def test_complete_request_rejects_invalid_domain_inputs():
     del current[FOLLOW + 'time_steps']
     with pytest.raises(ValueError, match='time_steps'):
         n2.plan({FOLLOW + 'vx_max': 0.2}, current)
+
+
+def test_selected_overlay_missing_is_empty_invalid_is_rejected(tmp_path):
+    from mhseals_nav import navigation_config as domain
+
+    missing = domain.load_overlay(tmp_path / 'missing.yaml', strict=True)
+    assert n2.plan(n2._flat(missing), CURRENT)['live'] == {}
+    invalid = tmp_path / 'invalid.yaml'
+    invalid.write_text('controller_server: [broken\n')
+    with pytest.raises(ValueError, match='Invalid overlay'):
+        domain.load_overlay(invalid, strict=True)
+    invalid.write_text('controller_server: 1\ncontroller_server: 2\n')
+    with pytest.raises(ValueError, match='Duplicate key'):
+        domain.load_overlay(invalid, strict=True)
