@@ -244,7 +244,6 @@ class App:
         self.activity = 'results'
         self.modal = None
         self.toasts = Toasts()          # health transitions feed it; never takes keys
-        self.facts = {}  # health facts by name; the perception probe fills perc.<source>.*
         self.running = None
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
@@ -1013,6 +1012,11 @@ class App:
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
                                              ('Detail', row['detail'])])
+
+    @property
+    def facts(self):
+        """The health facts by name, among them the perc.<source>.* ones of the perception probe."""
+        return self.health.facts.read()[0]
 
     def power_facts(self):
         """The latest ``power.*`` facts (ros.health feeds them), or None without a voltage source."""
@@ -1891,6 +1895,7 @@ def main(argv=None):
     from mhseals_testing.harness.simsession import start_session
     from mhseals_testing.ros.arming import Arming
     from mhseals_testing.ros.health import subscribe_fcu
+    from mhseals_testing.ros.perception import subscribe_detections
     from mhseals_testing.ros.mission import TaskWatcher
     from mhseals_testing.ros.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO, node_name
@@ -1937,6 +1942,7 @@ def main(argv=None):
             processes.adopt(name, child)
         if choice.mode == 'own':               # a stale owner's leftovers: stop, start fresh
             processes.stop_all()
+        subscribe_detections(ros, facts, profile)
         if profile.uses_fcu:
             subscribe_fcu(ros, monitor, facts, profile.battery_cells)
         if watching:   # known to the owner, so it is not flagged as a foreign instance
