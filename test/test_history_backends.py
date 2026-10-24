@@ -29,6 +29,8 @@ def test_driver_disagreeing_on_a_live_key_fails_verify(tmp_path):
     back = backends.FileBackend('hardware', path, live_keys=frozenset({'gain'}), driver=lambda keys: {'gain': 2})
     assert back.verify(version, 1) is False
     back.driver = lambda keys: {'gain': 1}
+    assert back.verify(version, 1) is False  # missing pin evidence
+    back.driver = lambda keys: {'gain': 1, 'pin': 3}
     assert back.verify(version, 1) is True
 
 
@@ -96,4 +98,27 @@ def test_hardware_unverified_rollback_reports_file_evidence(tmp_path):
     out = revert.execute(history, back, revert.Env(), plan)
     assert out.status == 'rollback_unverified'
     assert path.read_text() == 'frequency: 60.0\n'
+    assert history.head('hardware')['id'] == head['id']
+
+
+def test_non_live_pin_revert_cannot_verify_from_unchanged_timeout(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    history = History(tmp_path / 'h')
+    path.write_text('mosfet_line: 29\n')
+    first = adapters.record_file(history, 'hardware', 'test', path)
+    path.write_text('mosfet_line: 30\n')
+    head = adapters.record_file(history, 'hardware', 'test', path)
+    runtime = dict(adapters.read('hardware', path)[0]['effective'])
+    requested = []
+    def driver(keys):
+        requested.append(set(keys))
+        return {key: runtime[key] for key in keys}
+    backend = backends.FileBackend('hardware', path, live_keys={'command_timeout'}, driver=driver)
+    back = {'hardware': backend}
+    env = revert.Env()
+    plan = revert.plan(history, back, env, first['id'], 'hardware')
+    out = revert.execute(history, back, env, plan)
+    assert out.status != 'reverted'
+    assert 'mosfet_line' in requested[0]
+    assert runtime['mosfet_line'] == 30
     assert history.head('hardware')['id'] == head['id']

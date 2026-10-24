@@ -75,11 +75,13 @@ class FileBackend(Backend):
     def _driver_agrees(self, version):
         if self.sub != 'hardware':
             return True
-        keys = sorted(self.live_keys or ())
+        # Armed-safe permissions are not a consumer verification domain. Require
+        # the complete effective snapshot, including pins and dependent settings.
+        effective = version['value'].get('effective', {})
+        keys = sorted(effective)
         seen = self.driver(keys) if self.driver and keys else None
         if not keys or not isinstance(seen, dict):
             return False
-        effective = version['value'].get('effective', {})
         return all(hist.digest(seen[k]) == hist.digest(effective[k]) for k in keys) if set(keys) <= seen.keys() & effective.keys() else False
 
 
