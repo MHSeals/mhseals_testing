@@ -112,11 +112,12 @@ def test_profile_without_the_sensors_has_no_rows():
 
 
 def test_validated_mag_message_renders_the_compass_rows():
-    """The producer's values, not hand-made ones, must carry the vector the Status row reads (FC-5)."""
+    """The producer's values, not hand-made ones, carry the vector the Status row reads (FC-5)."""
     from mhseals_testing.validation import validate
     vec = SimpleNamespace(x=WMM[0], y=WMM[1], z=WMM[2])
     stamp = SimpleNamespace(sec=10, nanosec=0)
-    message = SimpleNamespace(header=SimpleNamespace(frame_id='imu', stamp=stamp), magnetic_field=vec)
+    header = SimpleNamespace(frame_id='imu', stamp=stamp)
+    message = SimpleNamespace(header=header, magnetic_field=vec)
     observation = validate('mag', message, 10.0)
     assert (observation.values['x'], observation.values['z']) == WMM[::2]
     m = BoatMonitor(clock=lambda: 10)
