@@ -17,6 +17,7 @@ import signal
 import socket
 import subprocess
 import textwrap
+import threading
 import time
 
 import yaml
@@ -135,7 +136,7 @@ PANEL_HINTS = {
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'Results/log')],
     'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom')],
-    'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune')],
+    'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune'), ('F', 'Finalize')],
 }
 CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
                     ('R', 'Run all'), ('A', 'Apply pending'), ('I', 'Hardware changed')]
@@ -217,7 +218,7 @@ class App:
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None,
-                 review=None, network=None, recorder=None, ekf=None):
+                 review=None, network=None, recorder=None, ekf=None, quiet_run=None):
         self.args = args
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
@@ -243,6 +244,10 @@ class App:
         self.live_factory = live
         self.clock = clock
         self.foreground = foreground
+        self.quiet_run = quiet_run or (lambda argv: subprocess.call(
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        self.finalizing, self.finalize_thread = None, None
+        self.recording_lock = threading.RLock()
         self.publish_pulses = pulses
         self.journal = Journal()
         # Manual control needs key releases (Kitty protocol) to tell held keys from taps.
@@ -488,6 +493,13 @@ class App:
 
     def set_recording(self, mode, reason='operator'):
         """Recording row: end the running segment (``rec_stop``), start the next unless ``off`` (``rec_start``)."""
+        with self.recording_lock:
+            if mode != 'off' and self.paths.directory.resolve() == self.finalizing:
+                self.notice = 'Recording refused while this session is being finalized'
+                return
+            self._set_recording(mode, reason)
+
+    def _set_recording(self, mode, reason):
         if self.recorder.segment is not None:
             self.ros.emit('rec_stop', segment=self.recorder.segment.name, reason=reason)
         segment = self.recorder.set_mode(mode)
@@ -945,7 +957,7 @@ class App:
 
     def on_list(self, key):
         handler = {'p': self.pin_bag, 'n': self.title_bag, 'd': self.delete_bag,
-                   'P': self.prune_bags}.get(key)
+                   'P': self.prune_bags, 'F': self.finalize_bag}.get(key)
         if handler is None:
             return
         bag = None if key == 'P' else self.selected_bag()
@@ -1012,6 +1024,64 @@ class App:
         finally:
             if attempted:
                 self.refresh_bag_index(doomed[0])
+
+    def finalize_bag(self, bag):
+        """Claim one session before starting the quiet worker; recording cannot enter it."""
+        with self.recording_lock:
+            if self.armed or self.moving():
+                self.notice = 'Finalize refused while armed or moving'
+                return
+            if self.finalizing is not None:
+                self.notice = 'Finalize is still running'
+                return
+            self.check_bag(bag)
+            segments = sorted({f.parent for f in bag.path.rglob('*.mcap')
+                               if not (f.parent / 'metadata.yaml').exists()})
+            if not segments:
+                self.notice = f'{bag.id}: nothing to finalize'
+                return
+            self.finalizing = bag.path.resolve()
+            self.notice = f'Finalize {bag.id}: {len(segments)} segments in the background'
+            self.finalize_thread = threading.Thread(target=self._finalize, args=(bag, segments), daemon=True)
+            try:
+                self.finalize_thread.start()
+            except Exception:
+                self.finalizing = None
+                raise
+
+    @staticmethod
+    def segment_stamp(segment):
+        """Detect cleanup even if reindex fails after removing an empty MCAP."""
+        paths = [*segment.glob('*.mcap'), segment / 'metadata.yaml']
+        return [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in paths if p.exists()]
+
+    def _finalize(self, bag, segments):
+        changed, results = False, []
+        try:
+            for segment in segments:
+                if self.bag_protected(bag):
+                    results.append('refused')
+                    break
+                before = self.segment_stamp(segment)
+                try:
+                    # Read the actual segment at execution time, never paths.bag.
+                    result = bags_module.finalize(segment, self.quiet_run, self.recording_paths()[1])
+                    results.append(result['status'])
+                finally:
+                    changed |= before != self.segment_stamp(segment)
+            self.notice = f'Finalize {bag.id}: ' + ', '.join(
+                f'{results.count(r)} {r}' for r in dict.fromkeys(results))
+        except Exception as error:
+            self.notice = f'Finalize {bag.id}: {error}'
+        finally:
+            try:
+                if changed:
+                    self.refresh_bag_index(bag)
+            except Exception as error:
+                self.notice = f'Finalize {bag.id}: index update failed: {error}'
+            finally:
+                with self.recording_lock:
+                    self.finalizing = None
 
     def switch_tab(self, step):
         """Move to the next or previous tab, restoring the focus and cursors it was left with."""
