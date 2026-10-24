@@ -313,16 +313,17 @@ def test_simulator_arms_with_a_button_and_escape_cancels(tmp_path):
 
 
 def test_escape_at_a_prompt_cancels_and_disarms(tmp_path):
-    app, boat = make_app(tmp_path)
+    app, boat = make_app(tmp_path, ['--set', 'command_mode=velocity'])
     with app.attached():
         arm(app)
         press(app, 'escape')
-        app.run_procedure(procedure('f'))
+        app.run_procedure(procedure('v'))
     assert not app.armed and 'cancelled' in app.notice and app.running is None
 
 
 def test_space_aborts_motion_and_disarms(tmp_path):
-    app, boat = make_app(tmp_path, keys=['f'] + [None] * 15 + ['space', 'q'])
+    app, boat = make_app(tmp_path, ['--set', 'command_mode=velocity'],
+                         keys=['v'] + [None] * 15 + ['space', 'q'])
     press(app, 'enter', 'y')
     app.focus = 'procedures'
     app.arming.armed = True
@@ -348,7 +349,7 @@ def test_space_still_disarms_when_the_hold_request_fails(tmp_path):
 
 
 def test_lost_sensors_mid_trial_stop_the_boat(tmp_path):
-    app, boat = make_app(tmp_path, keys=['f'])
+    app, boat = make_app(tmp_path, ['--set', 'command_mode=velocity'], keys=['v'])
     press(app, 'enter', 'y')
     app.focus = 'procedures'
     app.arming.armed = True
@@ -372,16 +373,20 @@ def test_procedures_that_need_arming_offer_the_arm_panel(tmp_path):
 
 
 def test_procedures_explain_why_they_cannot_run(tmp_path):
-    app, boat = make_app(tmp_path)
+    app, boat = make_app(tmp_path, ['--set', 'command_mode=velocity'])
     with app.attached():
         press(app, 'escape')
-        app.run_procedure(procedure('f'))
+        app.run_procedure(procedure('v'))
     assert 'arm first' in app.notice and boat.sent == []
-    bench, _ = make_app(tmp_path, ['--set', 'bench_override=on'])
+    bench, _ = make_app(tmp_path, ['--set', 'command_mode=velocity',
+                                 '--set', 'bench_override=on'])
     with bench.attached():
         arm(bench)
-        bench.run_procedure(procedure('f'))
+        bench.run_procedure(procedure('v'))
     assert 'bench override' in bench.notice
+    app.run_procedure(procedure('f'))
+    assert 'runtime correction application/readback is unsupported' in app.notice
+    assert boat.sent == []
 
 
 def _choose(context, answer):
