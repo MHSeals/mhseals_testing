@@ -183,6 +183,17 @@ def test_installed_startup_catalog_families_guides_and_narrow_detail(installed_r
     path = package_share(guide['package']) / guide['resource']
     text = path.read_text()
     assert key in text and 'exactly 15 actual booleans' in text
+    assert '| Units | Compiler constraint |' in text
+    assert row['descriptor']['value']['units'] == 'dimensionless'
+    for unit_key, units in (('odometry.mavros_velocity_stddev', 'm/s'),
+                            ('localization.ekf_local.frequency', 'Hz'),
+                            ('localization.ekf_global.sensor_timeout', 's'),
+                            ('localization.navsat_transform.yaw_offset', 'rad')):
+        unit_row = next(item for item in view['rows'] if item['key'] == unit_key)
+        assert unit_row['descriptor']['value']['units'] == units
+        guide_row = next(line for line in text.splitlines()
+                         if line.startswith(f'| `{unit_key}` |'))
+        assert guide_row.split(' | ')[2] == units
     assert row['descriptor']['value']['constraint_ref'] == 'startup.rule.' + key
     seen = []
 
