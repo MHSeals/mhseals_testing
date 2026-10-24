@@ -10,14 +10,18 @@ use_sim_time: false
 arming: {outputs: odroid}
 # --start-stack starts the components marked start; the Status rows start the rest.
 components:
-  odometry: {launch: [mhseals_nav, odom.launch.py], args: {sim: 'false', fcu: 'true'},
-             nodes: [ekf_local, ekf_global, navsat_transform], start: true}
+  # The EKFs run as the separate 'ekf' component so 'Restart EKFs' can restart them alone;
+  # start_ekf:=false keeps odom.launch.py from starting a second set (rv1-35).
+  odometry: {launch: [mhseals_nav, odom.launch.py], args: {sim: 'false', fcu: 'true', start_ekf: 'false'},
+             nodes: [robot_state_publisher], start: true}
+  ekf: {launch: [mhseals_nav, ekf.launch.py], args: {sim: 'false', ekf_delay: '6.0'},
+        title: EKFs, nodes: [ekf_local, ekf_global, navsat_transform], needs: [odometry], start: true}
   sensors: {launch: [mhseals_nav, sensors.launch.py], args: {sim: 'false', sensors_ignore: camera},
             nodes: [velodyne_driver]}
   mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'false'}, nodes: [rtabmap],
-            needs: [odometry]}
+            needs: [odometry, ekf]}
   navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'false'}, limits: true,
-               nodes: [bt_navigator], needs: [odometry]}
+               nodes: [bt_navigator], needs: [odometry, ekf]}
   objects: {launch: [mhseals_nav, objects.launch.py],
             args: {sim: 'false', rosbridge_url: 'ws://192.168.0.153:9090',
                    camera_root_frame: front_camera_link},

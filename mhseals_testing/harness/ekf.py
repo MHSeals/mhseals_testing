@@ -2,7 +2,8 @@
 
 mhseals_nav's ``ekf.launch.py`` runs ekf_local, ekf_global and navsat_transform in a
 single launch, so the EKF row and the navsat row of the Odometry popup both restart
-that one child. MAVROS and Nav2 stay up. Restarting navsat_transform makes it pick a
+that one child: the profiles' ``ekf`` component, with ``start_ekf:=false`` on ``odometry`` so
+only one set runs. MAVROS and Nav2 stay up. Restarting navsat_transform makes it pick a
 new map datum from the next GPS fix, which would jump the ``map`` frame; with
 ``carry_datum`` the old origin is read back (``toLL(0, 0)``) before the stop and sent
 as ``datum`` after the start. Until that is bench-verified the flag is off and the
@@ -26,7 +27,8 @@ OVERLAY = Path('~/.config/mhseals/ekf.yaml')
 
 
 def command(sim, overlay=OVERLAY):
-    """The launch command for the child; ``ekf_delay`` stays 0 so the restart takes 1-2 s."""
+    """The launch command for the child. ``ekf_delay`` stays 0 (MAVROS is up), but navsat_transform
+    waits ~3 s itself, so a restart takes 4-5 s."""
     return ['ros2', 'launch', 'mhseals_nav', 'ekf.launch.py', f'sim:={str(sim).lower()}',
             f'ekf_overlay_file:={Path(overlay).expanduser()}']
 

@@ -80,3 +80,17 @@ def test_broken_overlay_is_refused_without_restart(tmp_path):
     result = restart.restart()
     assert not result['restarted'] and 'not valid YAML' in result['blocked'][0]
     assert log == [] and events == []
+
+
+def test_profiles_run_one_ekf_set_under_the_restart_child():
+    """rv1-35: odometry must not start the EKFs too, or a restart leaves a second set running."""
+    from mhseals_testing.harness.components import components
+    from mhseals_testing.profiles import load_profile
+    for name in ('boat', 'crane_full_stack'):
+        items = {item.key: item for item in components(load_profile(name))}
+        assert 'start_ekf:=false' in items['odometry'].argv
+        assert 'ekf.launch.py' in items[CHILD].argv and items[CHILD].needs == ('odometry',)
+        assert {'ekf_local', 'ekf_global', 'navsat_transform'} <= set(items[CHILD].nodes)
+        # odometry keeps a proof node (else an external odom.launch.py reads 'off') that is not an EKF.
+        assert items['odometry'].nodes == ('robot_state_publisher',)
+        assert all(CHILD in item.needs for key, item in items.items() if key in ('mapping', 'navigation'))
