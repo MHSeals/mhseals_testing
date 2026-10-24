@@ -116,3 +116,16 @@ def test_dead_driver_is_not_confirmed(rig, monkeypatch):
 def test_lean_bag_profile_records_driver_status_and_parameter_events():
     topics = bags.load_profiles()['lean']['topics']
     assert '/thruster_pwm_node/status' in topics and '/parameter_events' in topics
+
+
+@pytest.mark.parametrize('section, key, value', [('controller', 'kp', [0.7, 0.8, 0.6]),
+                                                 ('command_mux', 'ramp', 2.0)])
+def test_armed_restart_or_idle_section_is_never_reported_live(rig, section, key, value):
+    app, operator = rig
+    app.arming.armed = True
+    assert app.watcher.reload('hardware').ok
+    edit(operator, **{section: dict(load_defaults()[section], **{key: value})})
+    assert app.watcher.reload('hardware').ok
+    text = row(app)
+    assert 'live until re-arm' not in text and 'applied' not in text.replace('not applied', '')
+    assert config_popup.GLYPH['ok'] not in text

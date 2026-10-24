@@ -665,6 +665,7 @@ class App:
         if driven:
             # Complete snapshot staging before replacing the last good in-memory state.
             save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
+        previous = self.args.hardware_config or {}
         self.args.hardware_config = config
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
@@ -693,6 +694,11 @@ class App:
         error = status.get('error') or ''
         if error or status.get('pending_restart_keys'):
             return dict(status='refused', error=error or 'restart required')
+        # The driver reports these accepted, but the controller keeps its plant and the mux waits for idle/hold.
+        if config.get('controller') != previous.get('controller'):
+            return dict(status='next_session', detail='controller: restart-only, not applied')
+        if config.get('command_mux') != previous.get('command_mux'):
+            return dict(status='unknown', detail='mux applies at idle/hold; not confirmed')
         if differs:
             return dict(status='live_until_rearm', detail='live until re-arm')
         return dict(status='applied')
