@@ -41,7 +41,8 @@ class Graph:
         self.driver_status = json.loads(message.data)
 
     def nodes(self):
-        return [f"{ns.rstrip('/')}/{name}" for name, ns in self.node.get_node_names_and_namespaces()]
+        found = self.node.get_node_names_and_namespaces()
+        return [f"{ns.rstrip('/')}/{name}" for name, ns in found]
 
     def emit(self, *args, **kwargs):
         pass
@@ -58,7 +59,8 @@ def test_real_driver_confirms_a_live_edit_and_refuses_a_restart_key(rig, tmp_pat
     thread.start()
     driver = subprocess.Popen(
         [sys.executable, '-m', 'mhseals_hardware.thruster_pwm_node', '--ros-args',
-         '-p', f'config_file:={app.paths.hardware}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+         '-p', f'config_file:={app.paths.hardware}'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         app.ros = Graph(node)
         app.arming.armed = True

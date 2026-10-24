@@ -44,11 +44,12 @@ def rig(tmp_path, monkeypatch):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack', '--config', str(operator)])
     profile = replace(load_profile('crane_full_stack'), components={})
     created = session.create('hardware', directory=tmp_path / 'session')
-    selection = prepare_session(profile, SimpleNamespace(config=str(operator)), created.directory, 'own', {})
+    selection = prepare_session(
+        profile, SimpleNamespace(config=str(operator)), created.directory, 'own', {})
     app.ros = Ros(app.paths.hardware)
     app.arming = SimpleNamespace(selection=selection, armed=False, hardware_config=None,
                                  disarm=lambda: setattr(app.arming, 'armed', False))
-    monkeypatch.setattr('time.sleep', lambda s: None)
+    monkeypatch.setattr('mhseals_testing.ui.app.time.sleep', lambda s: None)
     return app, operator
 
 
@@ -70,14 +71,26 @@ def test_disarmed_edit_is_next_session_not_applied(rig):
     assert 'next session, not applied' in row(app) and config_popup.GLYPH['ok'] not in row(app)
 
 
-def test_armed_tier1_edit_is_live_until_rearm_and_disarm_clears_it(rig):
+def test_armed_tier1_edit_is_live_until_rearm_and_disarm_marks_next_session(rig):
     app, operator = rig
     app.arming.armed = True
     edit(operator, command_timeout=0.9)
     assert app.watcher.reload('hardware').ok
     assert 'live until re-arm' in row(app)
     app.disarm()
-    assert row(app).startswith(config_popup.GLYPH['ok'])
+    assert 'next session, not applied' in row(app)
+    assert not row(app).startswith(config_popup.GLYPH['ok'])
+
+
+def test_space_during_the_driver_wait_disarms(rig):
+    app, operator = rig
+    app.arming.armed = True
+    app.ros.up = False
+    app.keys = SimpleNamespace(read=lambda timeout: 'space')
+    app.plant = None
+    edit(operator, command_timeout=0.9)
+    app.watcher.reload('hardware')
+    assert not app.arming.armed and 'next session, not applied' in row(app)
 
 
 def test_driver_refusal_is_a_rejection(rig):

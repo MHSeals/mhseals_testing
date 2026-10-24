@@ -26,7 +26,8 @@ from rich.live import Live
 from rich.segment import Segments
 from rich.text import Text
 
-from mhseals_hardware.configuration import config_path, config_sha, configure_args, load_config, save_config, update_config
+from mhseals_hardware.configuration import (
+    config_path, config_sha, configure_args, load_config, save_config, update_config)
 from mhseals_hardware.startup_config import plain
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
@@ -647,6 +648,15 @@ class App:
     def load_hardware(self, _path):
         return load_config(self.args.config)
 
+    def differs_from_selection(self, config):
+        """True when ``config`` is not what the next arm will build the driver from."""
+        selection = getattr(self.arming, 'selection', None)
+        if selection is None or 'hardware' not in selection.domains:
+            return False
+        session = plain(selection.validate().documents['hardware-pure']['effective'])
+        return {k: v for k, v in config.items() if k != 'output_backend'} != {
+            k: v for k, v in session.items() if k != 'output_backend'}
+
     def apply_hardware(self, config):
         """Take ``config`` and report what the hardware did with it, not just that it was saved."""
         driven = self.armed and self.profile.outputs != 'none'
@@ -656,12 +666,7 @@ class App:
         self.args.hardware_config = config
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
-        selection = getattr(self.arming, 'selection', None)
-        differs = False
-        if selection is not None and 'hardware' in selection.domains:
-            session = plain(selection.validate().documents['hardware-pure']['effective'])
-            differs = {k: v for k, v in config.items() if k != 'output_backend'} != {
-                k: v for k, v in session.items() if k != 'output_backend'}
+        differs = self.differs_from_selection(config)
         if not driven:   # Arming.begin rebuilds the driver from the selection, not from this file
             if differs:
                 return dict(status='next_session', detail='next session, not applied')
@@ -675,7 +680,14 @@ class App:
                 break
             if time.monotonic() >= end:
                 return dict(status='unknown', detail='driver did not confirm the edit')
-            time.sleep(0.1)
+            key = self.keys.read(0.1) if self.keys is not None else None
+            if key is None and self.keys is None:
+                time.sleep(0.1)
+            if key in ('space', 'escape', 'press:space', 'press:escape'):
+                self.stop('stopped by operator')
+                if differs:
+                    return dict(status='next_session', detail='next session, not applied')
+                return dict(status='saved')
         error = status.get('error') or ''
         if error or status.get('pending_restart_keys'):
             return dict(status='refused', error=error or 'restart required')
@@ -2102,7 +2114,10 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         if self.armed:
             self.arming.disarm()
-            self.watcher.watches['hardware'].warning = None   # "live until re-arm" ended with that driver
+            # "live until re-arm" ended with that driver; re-arm builds from the selection
+            differs = self.differs_from_selection(self.args.hardware_config)
+            self.watcher.watches['hardware'].warning = (
+                'next session, not applied' if differs else None)
             self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'
 
