@@ -124,7 +124,7 @@ def test_scope_120_golden():
 
 
 def test_scope_tags_come_from_the_fields_scope():
-    assert [correction.scope_tag(k) for k in ('thruster_matrix', 'decoupling', 'characterization.curves',
+    assert [correction.scope_tag(k) for k in ('thruster_matrix', 'decoupling', 'characterization.speed_curves',
                                               'command_timeout', '')] == ['hw', 'cal', 'cal', '', '']
 
 

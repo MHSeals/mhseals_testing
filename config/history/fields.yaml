@@ -11,8 +11,9 @@ scope:
     patterns: ['mosfet_*', '*_TYPE', 'SERIAL*', 'CAN_*', 'BRD_*', 'GPS1_POS_*', 'COMPASS_ORIENT*', BATT_MONITOR, BATT_VOLT_MULT]
   calibration:
     run:
-      keys: [decoupling, decoupling_negative, velocity_gain, 'characterization.curves']
-      patterns: ['characterization.directions.*']
+      keys: [decoupling, decoupling_negative, velocity_gain]
+      patterns: ['characterization.speed_curves*', 'characterization.velocity_gain*', 'characterization.fit*',
+                 'characterization.t95*', 'characterization.wave_floor']
       depends_on:
         invalid: [thruster_matrix, reversed, hardware_epoch]
         verify: [channel_map, pwm_channels]
@@ -30,7 +31,7 @@ scope:
     patterns: ['COMPASS_USE*']
   ignored:
     patterns: ['INS_GYROFFS*']
-    keys: [mechanical_bias]
+    keys: [mechanical_bias, 'characterization.mechanical_bias']
 # How config diffs read (history/render.py): labels, units, enums and matrix grids.
 # A key not listed here still diffs, under "Other", by its own name.
 # kind: scalar (default) | per (a list with one value per thruster) | matrix. Bools are told by type,

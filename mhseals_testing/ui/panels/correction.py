@@ -213,7 +213,7 @@ _ROWS = (
     ('C cross sw', 'decoupling', ('cross', 0)), ('ψ', '', ('cross', 1)), ('su', '', ('cross', 2)),
     ('± σ / age', '', 'sigma'), ('Trust hi/lo', '', 'trust'), ('residual', '', 'residual'),
     ('iterations', '', 'iterations'), ('fit under', '', 'fit'), ('ceiling now', '', 'ceiling'),
-    ('Drag v lo/hi', 'characterization.curves', 'speed'), ('d1 · d2', '', 'drag'), ('t95 · vmax', '', 't95'),
+    ('Drag v lo/hi', 'characterization.speed_curves', 'speed'), ('d1 · d2', '', 'drag'), ('t95 · vmax', '', 't95'),
     ('tracking', '', 'tracking'))
 TAGS = {'hardware': 'hw', 'calibration': 'cal'}
 

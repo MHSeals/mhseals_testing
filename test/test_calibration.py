@@ -119,3 +119,13 @@ def test_invalid_fact_and_check(tmp_path):
     from mhseals_testing.health.config import load
     spec = next(s for s in load(None, None).specs if s.id == 'calib.invalid')
     assert set(spec.gates) == {'w', 's', 't'}
+
+
+def test_scope_of_real_characterization_keys():
+    """The nested keys mhseals_hardware stores are run calibrations; the derived limits stay derived."""
+    for key in ('characterization.speed_curves', 'characterization.speed_curves.surge+.d1',
+                'characterization.velocity_gain', 'characterization.fit', 'characterization.t95',
+                'characterization.wave_floor'):
+        assert cal.scope_of(key) == ('calibration', 'run'), key
+    assert cal.scope_of('characterization.motion_limits') == ('calibration', 'derived')
+    assert cal.scope_of('characterization.mechanical_bias') == ('ignored', None)
