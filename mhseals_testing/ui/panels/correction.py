@@ -50,7 +50,6 @@ def provenance_fits(current, live=None):
     direction's own ceiling when the stored water has one, else the overall one); ``ceiling`` is
     the live per-direction ceiling now. Sigma, trust and iterations have no stored source and stay absent.
     """
-    pct = lambda v: None if v is None else v * 100
     as_dict = lambda v: v if isinstance(v, dict) else {}
     directions = as_dict(as_dict(current).get('directions'))
     live = as_dict(live)
@@ -58,15 +57,26 @@ def provenance_fits(current, live=None):
     for key in DIRECTIONS:
         water = as_dict(as_dict(as_dict(directions.get(key)).get('conditions')))
         under = as_dict(water.get('ceilings')).get(key, water.get('ceiling'))
-        record = {'fit_label': _verdict_label(water.get('verdict')), 'fit': pct(_number(under)),
-                  'ceiling': pct(_number(live.get(key)))}
+        record = {'fit_label': _verdict_label(water.get('verdict')), 'fit': _percentage(under),
+                  'ceiling': _percentage(live.get(key))}
         out[key] = {k: v for k, v in record.items() if v is not None}
     return out
 
 
 def _number(value):
-    """``value`` when it is a real number (not a bool), else None: malformed files show dashes."""
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    """A finite real number, or None: malformed imported numbers show dashes."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:   # an imported integer may exceed float's range
+        return None
+
+
+def _percentage(value):
+    """Convert a fraction only when both it and its percentage are finite."""
+    value = _number(value)
+    return None if value is None else _number(value * 100)
 
 
 def _verdict_label(verdict):
@@ -155,6 +165,7 @@ def _percent(value):
 
 
 def _round(value):
+    value = _number(value)
     return None if value is None else round(value)
 
 
@@ -166,7 +177,9 @@ def _fit_record(fit):
 def column(key, data, matrix):
     """The string cells of one direction column plus its flags (below_trust handled later)."""
     axis, sign = AXES.index(key[:-1]), 1 if key[-1] == '+' else -1
-    fit = data.get('fits', {}).get(key, {})
+    fit = dict(data.get('fits', {}).get(key, {}))
+    for name in ('fit', 'ceiling', 'trust_lo', 'trust_hi', 'tracking'):
+        fit[name] = _number(fit.get(name))
     c = (data.get('c_positive') if sign > 0 else data.get('c_negative') or data.get('c_positive'))
     limited = set(fit.get('limited', ()))
     cross = []
@@ -193,7 +206,7 @@ def column(key, data, matrix):
                       if fit.get('v_lo') is not None else MISSING),
             'drag': f"{fit['d1']:.1f}·{fit['d2']:.1f}" if fit.get('d1') is not None else MISSING,
             't95': (f"{fit['t95']:.1f} {_num(fit['vmax'], 2, False)}" if fit.get('t95') is not None else MISSING),
-            'tracking': _percent(None if fit.get('tracking') is None else fit['tracking'] * 100),
+            'tracking': _percent(_percentage(fit.get('tracking'))),
         },
         holds=fit.get('holds', []))
 

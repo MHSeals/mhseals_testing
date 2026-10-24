@@ -153,6 +153,8 @@ def test_ceiling_is_live_over_planned_directions_and_trend_lowers_trust():
     cond = Conditions(clock=clock, planned=lambda: [Direction('sway-', 'sway', 0.05), Direction('surge+', 'surge', 0.4)])
     feed(cond, clock, 40, 0.01)
     r = cond.summary()
+    assert set(r['ceilings']) == {'sway-', 'surge+'}
+    assert r['ceiling'] == min(r['ceilings'].values())
     assert r['ceiling'] is not None and r['ceiling'] < 1.0            # weak sway- limits the min
     assert cond.facts()['conditions.ceiling'].value == r['ceiling']
     assert r['verdict'] != 'good' or r['ceiling'] >= 0.8

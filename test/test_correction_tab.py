@@ -1,6 +1,7 @@
 """The Correction tab in the app: body, goldens and keys (ui spec 4.1, 5.7, 6.7)."""
 
 import io
+import json
 import os
 import re
 from pathlib import Path
@@ -249,3 +250,59 @@ def test_readiness_and_tracking_models():
     assert r['gates'] == [('good', 'gates clear')] and r['rows'][0] == ('drift', '.050 m/s')
     t = correction.tracking_data((.91, None, .74), dict(surge=[1.8, 2, 1.6]), PROVENANCE)
     assert t['rows'][0][:3] == ('surge', '91%', '90%') and t['notes'] == ['stale: sway falling trend']
+
+
+@pytest.mark.parametrize('source,bad', [
+    (source, bad) for source in ('overall', 'direction', 'live', 'saved')
+    for bad in (True, False, '0.9', [], {}, float('nan'), float('inf'), -float('inf'), 10 ** 400)
+] + [(source, 1e308) for source in ('overall', 'direction', 'live')])
+def test_app_correction_renders_unknown_for_malformed_percentages(tmp_path, bad, source):
+    app = tab_app(tmp_path)
+    water = dict(verdict='marginal', ceiling=.66)
+    current = dict(directions={'surge+': dict(conditions=water)})
+    live = {'surge+': .97}
+    saved = {}
+    if source == 'overall':
+        water['ceiling'] = bad
+    elif source == 'direction':
+        water['ceilings'] = {'surge+': bad}
+    elif source == 'live':
+        live['surge+'] = bad
+    else:
+        saved['surge+'] = dict(fit=bad, ceiling=bad, trust_hi=bad, trust_lo=bad, tracking=bad)
+    # Imported files can contain values the application's own JSON writer would reject.
+    data.path('state.json').write_text(json.dumps(dict(fits=saved)))
+    target = data.path('calibration', 'current.json')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(current))
+    app.conditions._cache = dict(app.conditions.evaluate(), ceilings=live)
+    app.conditions._at = app.conditions.clock()
+    actual = app.view()
+    model = correction.tab_view(app.args.hardware_config, actual['correction'])
+    cells = model['columns'][0]['cells']
+    assert cells['fit'] == (theme.DASH if source != 'live' else 'marg 66')
+    assert cells['ceiling'] == (theme.DASH if source in ('live', 'saved') else '97')
+    if source == 'saved':
+        assert cells['trust'] == theme.DASH == cells['tracking']
+        assert model['header']['min_trust'] is None
+    assert [c['key'] for c in model['columns']] == list(correction.DIRECTIONS)
+    console = Console(width=120, height=40, file=io.StringIO(), force_terminal=False)
+    console.print(render(app.monitor.snapshot(), actual, 120, 40))
+    assert 'Correction' in console.file.getvalue()
+
+
+def test_app_correction_keeps_distinct_fit_and_live_ceilings(tmp_path):
+    app = tab_app(tmp_path)
+    live = {d: .80 + i / 100 for i, d in enumerate(correction.DIRECTIONS)}
+    current = dict(directions={d: dict(conditions=dict(
+        verdict='marginal', ceiling=.99, ceilings={d: .60 + i / 100}))
+        for i, d in enumerate(correction.DIRECTIONS)})
+    data.write_json(data.path('state.json'), dict(fits={}), 'mhseals.state/1')
+    data.write_json(data.path('calibration', 'current.json'), current, 'mhseals.calibration/1')
+    app.conditions._cache = dict(app.conditions.evaluate(), ceilings=live)
+    app.conditions._at = app.conditions.clock()
+    model = correction.tab_view(app.args.hardware_config, app.view()['correction'])
+    for i, col in enumerate(model['columns']):
+        assert col['cells']['fit'] == f'marg {60 + i}'
+        assert col['cells']['ceiling'] == f'{80 + i}' + correction.fitrows.UP
+        assert col['cells']['trust'] == theme.DASH == col['cells']['sigma']
