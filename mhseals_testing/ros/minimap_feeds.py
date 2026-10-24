@@ -1,9 +1,10 @@
 """Live feeds for the map: lazy costmap subscriptions, the recorded costmap, trail.jsonl and the map rotation fact.
 
 A costmap is 58-250 KB per message, so its subscription exists only while a
-consumer holds a lease on it (``LazySub``). The cheap pose, GPS and plan
-ingest is not here; this module owns what costs something. Everything but the
-ROS wiring in ``MapFeeds`` is pure and tested with fakes.
+consumer holds a lease on it (``LazySub``). The cheap feeds (pose, plan,
+local plan, objects, GPS quality, tf_static) are always on and go straight
+into ``MapState``; the session owner also writes trail.jsonl (``want_trail``).
+Everything but the ROS wiring in ``MapFeeds`` is pure and tested with fakes.
 """
 
 import math
@@ -16,7 +17,8 @@ import numpy as np
 from mhseals_testing import data
 from mhseals_testing.analysis.geo import MapRotation, enu
 from mhseals_testing.health.model import Fact
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.ui.minimap.marks import Obj
+from mhseals_testing.ui.minimap.state import UNKNOWN_SPEED, MapState
 
 LOCAL, GLOBAL = '/local_costmap/costmap', '/global_costmap/costmap'
 RECORDED = '/mhseals_testing/minimap/costmap'
@@ -34,6 +36,33 @@ def costmap_source(half_width, choice='auto'):
     if choice == 'auto':
         choice = 'local' if half_width <= LOCAL_HALF else 'global'
     return LOCAL if choice == 'local' else GLOBAL
+
+
+def path_points(message):
+    """(x, y) of each pose of a nav_msgs/Path."""
+    return [(p.pose.position.x, p.pose.position.y) for p in message.poses]
+
+
+def object_marks(message):
+    """marks.Obj per Detection3D of /objects/map: position, class_id as label, score; no result means no object."""
+    out = []
+    for d in message.detections:
+        if not d.results:
+            continue
+        hypothesis = d.results[0].hypothesis
+        position = d.bbox.center.position
+        out.append(Obj(position.x, position.y, str(hypothesis.class_id), float(hypothesis.score)))
+    return out
+
+
+def static_transforms(message):
+    """{(parent, child): (x, y, z, yaw)} of a /tf_static message."""
+    out = {}
+    for t in message.transforms:
+        q, p = t.transform.rotation, t.transform.translation
+        out[(t.header.frame_id, t.child_frame_id)] = (
+            p.x, p.y, p.z, math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
+    return out
 
 
 def should_record(owner, recording, nav_running):
@@ -117,25 +146,57 @@ class MapFeeds:
     """ROS wiring: map rotation samples always, costmaps only on lease, the decimated costmap while recording."""
 
     def __init__(self, node, state=None, facts=None, clock=time.monotonic):
-        from nav_msgs.msg import OccupancyGrid, Odometry
+        from nav_msgs.msg import OccupancyGrid, Odometry, Path as PathMsg
         from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
         from sensor_msgs.msg import NavSatFix
+        from tf2_msgs.msg import TFMessage
+        from vision_msgs.msg import Detection3DArray
         self.node, self.grid_type, self.clock = node, OccupancyGrid, clock
         self.state, self.facts = state if state is not None else MapState(), facts
         self.rotation, self.origin = MapRotation(), None
         self.costmaps = {}           # topic -> latest message
         self.fix_xy = self.gps_xy = self.global_xy = None
+        self.trail, self.gps = None, (None, None, None)   # TrailWriter (owner only); fix, h_acc_m, speed_mps
         keep = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.subs = {topic: LazySub(node, OccupancyGrid, topic, lambda m, t=topic: self._costmap(t, m), keep)
                      for topic in (LOCAL, GLOBAL)}
         node.create_subscription(NavSatFix, '/gps/fix', self._fix, qos_profile_sensor_data)
         node.create_subscription(Odometry, '/odom/gps', self._odom('gps_xy'), 10)
         node.create_subscription(Odometry, '/odom/global', self._odom('global_xy', sample=True), 10)
+        self._subscribe_state(node, PathMsg, Detection3DArray, TFMessage)
         self.fact_timer = node.create_timer(FACT_PERIOD, self.publish_fact)
         self.publisher = node.create_publisher(OccupancyGrid, RECORDED, keep)
         self.timer = node.create_timer(RECORD_PERIOD, self._publish)
         self.record = False
         self.layer_topic = None      # the one costmap topic the layers read into state
+
+    def _subscribe_state(self, node, path_type, objects_type, tf_type):
+        """The always-on feeds into MapState; GPSRAW only when mavros_msgs is installed."""
+        from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+        ingest = self.state.ingest
+        node.create_subscription(path_type, '/plan', lambda m: ingest('plan', points=path_points(m)), 10)
+        node.create_subscription(path_type, '/local_plan', lambda m: ingest('local_plan', data=path_points(m)), 10)
+        node.create_subscription(objects_type, '/objects/map',
+                                 lambda m: ingest('objects', items=object_marks(m)), 10)
+        node.create_subscription(tf_type, '/tf_static',
+                                 lambda m: ingest('tf_static', transforms=static_transforms(m)),
+                                 QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        try:
+            from mavros_msgs.msg import GPSRAW
+        except ImportError:
+            return
+        node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw', self._gps_raw, qos_profile_sensor_data)
+
+    def _gps_raw(self, m):
+        self.state.ingest('gps_raw', fix_type=m.fix_type, h_acc_m=m.h_acc / 1000, vel_cms=m.vel)
+        self.gps = (m.fix_type, m.h_acc / 1000, None if m.vel == UNKNOWN_SPEED else m.vel / 100)
+
+    def want_trail(self, owner, session_dir):
+        """The session owner writes <session>/minimap/trail.jsonl; anyone else (or no session) drops the writer."""
+        if not (owner and session_dir):
+            self.trail = None
+        elif self.trail is None or self.trail.target.parent.parent != Path(session_dir):
+            self.trail = TrailWriter(session_dir)
 
     def want_layers(self, costmap, hits, half_width, choice='auto'):
         """Lease the costmap the view needs while the c or r layer is on; drop the other source."""
@@ -172,6 +233,10 @@ class MapFeeds:
                 q = m.pose.pose.orientation
                 self.state.ingest('pose_map', t=now, x=self.global_xy[0], y=self.global_xy[1],
                                   yaw=math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
+                if self.trail:
+                    fix, h_acc, speed = self.gps
+                    self.trail.add(now, *self.global_xy, epoch=self.state.epoch, fix=fix, h_acc_m=h_acc,
+                                   speed_mps=speed, xte_m=self.state.xte(self.global_xy))
                 if self.fix_xy and self.gps_xy:
                     self.rotation.add(now, self.gps_xy, self.global_xy, self.fix_xy)
         return callback

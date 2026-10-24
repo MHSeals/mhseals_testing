@@ -9,6 +9,7 @@ import pytest
 from mhseals_testing import data
 from mhseals_testing.analysis.geo import MapRotation
 from mhseals_testing.ros import minimap_feeds as feeds
+from mhseals_testing.ui.minimap.marks import Obj
 
 
 class FakeNode:
@@ -168,7 +169,8 @@ def feed_pairs(node, count, theta):
 def test_no_costmap_subscription_until_a_layer_lease():
     now = [0.0]
     node, _, map_feeds = wired(lambda: now[0])
-    assert sorted(t for t, _ in node.live) == ['/gps/fix', '/odom/global', '/odom/gps']
+    assert {'/gps/fix', '/odom/global', '/odom/gps', '/plan', '/local_plan', '/objects/map',
+            '/tf_static'} <= {t for t, _ in node.live}
     map_feeds.want_layers(True, False, 20)
     assert feeds.GLOBAL in [t for t, _ in node.live]
     map_feeds.want_layers(False, False, 20)
@@ -225,3 +227,48 @@ def test_rotation_fact_reaches_health_and_the_check_goes_live():
     engine.tick(*facts.read())
     now[0] += 100       # past the debounce
     assert engine.tick(*facts.read()).results['nav.map_rotation'].status == 'warn'   # severity: warn
+
+
+def ns(**kw):
+    return types.SimpleNamespace(**kw)
+
+
+def test_plan_objects_gps_and_tf_reach_map_state():
+    node, _, map_feeds = wired(lambda: 0.0)
+    live = dict(node.live)
+    pose = lambda x, y: ns(pose=ns(position=ns(x=x, y=y)))
+    live['/plan'](ns(poses=[pose(0, 0), pose(3, 4)]))
+    live['/local_plan'](ns(poses=[pose(1, 1)]))
+    det = lambda cls, score, x: ns(results=[ns(hypothesis=ns(class_id=cls, score=score))],
+                                   bbox=ns(center=ns(position=ns(x=x, y=2.0))))
+    live['/objects/map'](ns(detections=[det('red_buoy', 0.9, 5.0), ns(results=[], bbox=None)]))
+    live['/tf_static'](ns(transforms=[ns(
+        header=ns(frame_id='base_link'), child_frame_id='lidar',
+        transform=ns(rotation=ns(x=0.0, y=0.0, z=0.0, w=1.0), translation=ns(x=1.0, y=0.0, z=2.0)))]))
+    state = map_feeds.state
+    assert state.plan == [(0, 0), (3, 4)] and state.latest['local_plan'] == [(1, 1)]
+    assert state.objects == [Obj(5.0, 2.0, 'red_buoy', 0.9)]
+    assert state.tf_static[('base_link', 'lidar')] == (1.0, 0.0, 2.0, 0.0)
+    if '/mavros/gpsstatus/gps1/raw' in live:
+        live['/mavros/gpsstatus/gps1/raw'](ns(fix_type=6, h_acc=20, vel=65535))
+        assert map_feeds.gps == (6, 0.02, None)
+        live['/mavros/gpsstatus/gps1/raw'](ns(fix_type=6, h_acc=20, vel=150))
+        live['/odom/global'](odom(1.0, 2.0))
+        assert state.crumbs[-1]['fix'] == 6 and state.crumbs[-1]['speed_mps'] == 1.5
+
+
+def test_owner_writes_trail_with_gps_and_xte(tmp_path):
+    node, _, map_feeds = wired(lambda: 0.0)
+    live = dict(node.live)
+    live['/odom/global'](odom(0.0, 0.0))
+    assert not (tmp_path / 'minimap').exists()          # no writer before the owner asks
+    map_feeds.want_trail(False, tmp_path)
+    assert map_feeds.trail is None
+    map_feeds.want_trail(True, tmp_path)
+    map_feeds.gps = (6, 0.02, 0.5)
+    map_feeds.state.ingest('plan', points=[(0.0, 0.0), (10.0, 0.0)])
+    live['/odom/global'](odom(2.0, 1.0))
+    rows = data.read_jsonl(tmp_path / 'minimap' / 'trail.jsonl')
+    assert len(rows) == 1 and rows[0]['fix'] == 6 and rows[0]['xte_m'] == pytest.approx(1.0)
+    map_feeds.want_trail(True, None)
+    assert map_feeds.trail is None
