@@ -15,6 +15,8 @@ lean:
     - /command_mux/request
     - /mhseals_testing/authority
     - /thrusters/pwm
+    - /thruster_pwm_node/status
+    - /parameter_events
     - /odom/local
     - /odom/global
     - /odom/mavros
