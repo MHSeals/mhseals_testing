@@ -2,7 +2,8 @@
 
 `boat_trial check` evaluates the health checks and prints a table or JSON, so
 an agent or CI can ask "is the boat ready" without the TUI. Exit codes: 0 ok,
-1 warn (only with --fail-on warn), 2 fail, a blocked --gate, or bad input.
+1 warn (only with --fail-on warn), 2 fail, a blocked --gate, or bad input,
+3 every check unknown (nothing was sampled).
 """
 
 import argparse
@@ -48,6 +49,34 @@ def select(specs, only):
 def no_samples():
     """Default collector: no probes exist yet, so every check reads as unknown."""
     return {}, {}, {}
+
+
+def host_collector(bag_directory='.', clock=time.monotonic):
+    """Collector for the probes that need no ROS: host load, temperature and disk.
+
+    The graph, network, FCU/battery and perception probes need a live node and
+    are not sampled here; their checks stay unknown (see ``unchecked``).
+    """
+    from mhseals_testing.health import probes
+    store = probes.Facts(clock)
+
+    def collect():
+        try:
+            store.publish('host', probes.host_facts(bag_directory))
+        except Exception as error:          # an unreadable /proc reads as unknown, not a crash
+            store.publish('host', {}, error=repr(error))
+        return (*store.read(), {})
+    return collect
+
+
+def unchecked(report):
+    """Banner text when checks went unevaluated, else ''."""
+    unknown, total = report['summary']['unknown'], len(report['checks'])
+    if not total or not unknown:
+        return ''
+    if unknown == total:
+        return f'NOTHING CHECKED: all {total} checks are unknown (no samples)'
+    return f'{unknown} of {total} checks unknown (no sample from their probes)'
 
 
 def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5.0,
@@ -100,7 +129,7 @@ def build_parser():
     return parser
 
 
-def main(argv=None, collect=no_samples):
+def main(argv=None, collect=None):
     args = build_parser().parse_args(argv)
     try:
         profile = load_profile(args.profile)
@@ -120,7 +149,12 @@ def main(argv=None, collect=no_samples):
         print(f'boat_trial: --gate {args.gate!r} is not a procedure key', file=sys.stderr)
         return 2
     report, code = run_check(config, profile.name, args.only, args.gate, args.fail_on,
-                             args.window, collect)
+                             args.window, collect or host_collector())
+    banner = unchecked(report)
+    if banner:
+        print(f'boat_trial: {banner}', file=sys.stderr)
+    if code == 0 and report['checks'] and report['summary']['unknown'] == len(report['checks']):
+        code = 3                        # a pass that checked nothing must not look like a pass
     text = json.dumps(report, indent=2, default=str)
     if args.json == '-':
         print(text)

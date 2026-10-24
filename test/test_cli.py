@@ -103,3 +103,21 @@ def test_gate_with_a_non_procedure_key_exits_2(monkeypatch, capsys):
     monkeypatch.setattr(cli.health_config, 'load', lambda profile=None: config())
     assert cli.main(['check', '--gate', 'typo', '--window', '0']) == 2
     assert "'typo'" in capsys.readouterr().err
+
+
+def test_default_collector_samples_host_facts(capsys):
+    assert cli.main(['check', '--window', '0', '--json', '-', '--only', 'compute.load', 'compute.disk']) in (0, 1, 2)
+    checks = json.loads(capsys.readouterr().out)['checks']
+    assert any(c['status'] != 'unknown' for c in checks if c['id'].startswith('compute'))
+
+
+def test_all_unknown_is_not_a_pass(capsys):
+    assert cli.main(['check', '--window', '0', '--only', 'compute.load'],
+                    collect=lambda: ({}, {}, {})) == 3
+    assert 'NOTHING CHECKED' in capsys.readouterr().err
+
+
+def test_banner_counts_partial_unknown():
+    report = {'checks': [{}, {}], 'summary': {'unknown': 1}}
+    assert cli.unchecked(report) == '1 of 2 checks unknown (no sample from their probes)'
+    assert cli.unchecked({'checks': [], 'summary': {'unknown': 0}}) == ''
