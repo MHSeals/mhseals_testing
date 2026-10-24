@@ -1,6 +1,7 @@
 """Actual boat/TUI/component propagation into inert navigation launch factories."""
 import ast
 from dataclasses import replace
+import importlib.util
 from types import SimpleNamespace
 
 import pytest
@@ -11,12 +12,18 @@ from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import stack_overlay
 
 
+def launch_context_type():
+    """Use the host adapter only when no concrete ROS launch package exists."""
+    spec = importlib.util.find_spec('launch')
+    if spec is None or spec.origin is None:
+        return None  # A source-tree launch directory can form an inert namespace.
+    from launch import LaunchContext
+    return LaunchContext
+
+
 def launch_factory(nav_root, name):
     """Execute shipped factory bodies with recording constructors, never ROS."""
-    try:
-        from launch import LaunchContext
-    except ImportError:
-        LaunchContext = None  # ROS-free host uses the pure resolver adapter below.
+    LaunchContext = launch_context_type()
     from mhseals_nav.endpoint_configuration import (
         boolean as endpoint_boolean, from_launch as endpoint_from_launch,
         LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
@@ -166,3 +173,50 @@ def test_tui_invalid_selected_setup_refuses_before_node(nav_root, tmp_path, inva
     ns['Node'] = lambda **kwargs: pytest.fail('Node constructed before selected-file validation')
     with pytest.raises((OSError, ValueError)):
         ns['create_mavros_setup_node'](context)
+
+
+@pytest.mark.parametrize('spec', [None, SimpleNamespace(origin=None)])
+def test_launch_adapter_requires_absent_concrete_package(monkeypatch, spec):
+    import builtins
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == 'launch':
+            pytest.fail('absent ROS launch must not be imported')
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name: spec)
+    monkeypatch.setattr(builtins, '__import__', guarded_import)
+    assert launch_context_type() is None
+
+
+@pytest.mark.parametrize('error', [
+    ModuleNotFoundError('missing installed dependency', name='launch_dependency'),
+    ImportError('installed launch has no LaunchContext'),
+])
+def test_installed_launch_import_failure_is_not_hidden(monkeypatch, error):
+    import builtins
+    original_import = builtins.__import__
+
+    def broken_import(name, *args, **kwargs):
+        if name == 'launch':
+            raise error
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, 'find_spec',
+                        lambda name: SimpleNamespace(origin='/installed/launch/__init__.py'))
+    monkeypatch.setattr(builtins, '__import__', broken_import)
+    with pytest.raises(type(error)) as caught:
+        launch_context_type()
+    assert caught.value is error
+
+
+def test_concrete_launch_retains_real_context_class(monkeypatch):
+    import sys
+    from types import ModuleType
+    installed = ModuleType('launch')
+    installed.LaunchContext = type('InstalledLaunchContext', (), {})
+    monkeypatch.setattr(importlib.util, 'find_spec',
+                        lambda name: SimpleNamespace(origin='/installed/launch/__init__.py'))
+    monkeypatch.setitem(sys.modules, 'launch', installed)
+    assert launch_context_type() is installed.LaunchContext
