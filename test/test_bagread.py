@@ -94,3 +94,13 @@ def test_written_bag_reads_across_segments_and_seeks(tmp_path):
                                window_s=3)
     source.seek(7 * S)
     assert seen == [4, 5, 6, 7]
+
+
+def test_segments_find_recorder_layout_session_bag_nn(tmp_path):
+    bag = tmp_path / 'bag'
+    bag.mkdir()
+    session(bag, {'01': [], '00': []})
+    (bag / 'notes').mkdir()
+    expect = [bag / '00', bag / '01']
+    assert bagread.segments(tmp_path) == expect
+    assert bagread.segments(bag) == expect

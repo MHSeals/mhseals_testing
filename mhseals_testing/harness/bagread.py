@@ -8,21 +8,33 @@ tests inject ``opener`` to avoid it. Times are wall nanoseconds (``t_ns``), the
 receive stamp rosbag2 writes, which is also the journal's axis.
 """
 
+import re
 from pathlib import Path
 
 WINDOW_S = 10.0
+
+
+def _is_bag(path):
+    return (path / 'metadata.yaml').exists() or any(path.glob('*.mcap')) or any(path.glob('*.db3'))
 
 
 def segments(path):
     """Bag directories under ``path`` in recording order.
 
     ``path`` is a single bag (it has ``metadata.yaml`` or storage files), or a
-    session whose ``bag_NN`` children are the segments.
+    session whose ``NN`` children (recorder layout, also under ``bag/``) or
+    legacy ``bag_NN`` children are the segments.
     """
     path = Path(path)
-    if (path / 'metadata.yaml').exists() or any(path.glob('*.mcap')) or any(path.glob('*.db3')):
+    if _is_bag(path):
         return [path]
-    return sorted(child for child in path.glob('bag_*') if child.is_dir())
+    if (path / 'bag').is_dir():
+        path = path / 'bag'
+        if _is_bag(path):
+            return [path]
+    return sorted(child for child in path.iterdir()
+                  if child.is_dir() and (child.name.startswith('bag_') or re.fullmatch(r'\d{2,}', child.name))
+                  ) if path.is_dir() else []
 
 
 def open_segment(path):
