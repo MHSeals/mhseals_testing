@@ -217,3 +217,10 @@ def test_age_and_flow_facts_drive_the_shipped_checks():
     assert run(base='streaming', age=0.5, rates=dict(bytes_per_s=10))['rtk.flow'].status == 'warn'
     feed.tick(app, gps_snapshot(), 2.0)
     assert 'rtk.correction_age' not in facts.read()[0]
+
+
+def test_power_cycled_base_with_an_age_reads_dead_and_never_streamed_reads_no_base():
+    gone = build(dict(base='none', age=11.3), gps_snapshot(fix=6), (SPEC,))
+    assert strip_item(gone) == ('FAIL', 'rtk 11s')
+    never = build(dict(base='none', age=None), gps_snapshot(fix=3), (SPEC,))
+    assert strip_item(never)[0] == 'LIVE' and 'no base' in rtk_row(never, 42).plain

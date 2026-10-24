@@ -59,7 +59,7 @@ def _state(view):
         return 'error', 'bad'
     if view.base != 'streaming':
         link = {'identifying': 'identifying', 'surveying': 'surveying'}.get(view.base, 'off')   # unknown = no base
-        if link != 'off' and view.age is not None and view.age > STALE:
+        if view.age is not None and view.age > STALE:
             link = 'stale' if view.age <= DEAD else 'dead'      # it streamed once: corrections are dying while it reconnects
     elif view.age is None or view.age > DEAD:
         link = 'dead'
