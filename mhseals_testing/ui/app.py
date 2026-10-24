@@ -1357,8 +1357,8 @@ class App:
     def revert_env(self):
         """The revert blocker probes over this session, and the mux hold used while armed.
 
-        ``ros.mux_hold(token)`` (a context manager) is optional; without it an armed revert of
-        live-only keys runs unheld, which only the hardware backend's live keys allow.
+        ``ros.mux_hold(token)`` (a context manager) is optional; without it an armed
+        hardware revert is refused (revert.blockers).
         """
         hold = getattr(self.ros, 'mux_hold', None)
         return revert.Env(

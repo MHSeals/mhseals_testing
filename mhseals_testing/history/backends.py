@@ -17,11 +17,17 @@ from mhseals_testing.history import adapters
 from mhseals_testing.history.revert import Backend
 
 
+# Keys safe to change while armed: scalars and gains that move no pin, channel or direction.
+# The driver's LIVE_KEYS also hot-applies channel_map and reversed, which would remap outputs.
+ARMED_SAFE = frozenset({'command_timeout', 'decoupling', 'decoupling_negative'})
+
+
 def hardware_live_keys():
-    """The driver's hot-reloadable keys; None (nothing is live-safe) when the driver is not importable."""
+    """Keys revertable while armed: the driver's hot-reloadable keys that are also ARMED_SAFE;
+    None (nothing is live-safe) when the driver is not importable."""
     try:
         from mhseals_hardware.thruster_pwm_node import LIVE_KEYS
-        return frozenset(LIVE_KEYS)
+        return frozenset(LIVE_KEYS) & ARMED_SAFE
     except ImportError:
         return None
 

@@ -154,3 +154,36 @@ def test_revert_records_the_live_state_not_the_stored_target(tmp_path):
     head = h.version(h.head('hardware'))
     assert head['value'] == {'gain': 1, 'pin': 7, 'default': 5} and head['meta'] == {'defaults_sha': 'new'}
     assert h.observe('hardware', *b['hardware'].read()) is None
+
+
+def test_armed_revert_without_a_mux_hold_is_refused(tmp_path):
+    h = History(tmp_path)
+    first = h.record('hardware', {'gain': 1}, source='t')
+    h.record('hardware', {'gain': 2}, source='t')
+    b = {'hardware': Fake({'gain': 2})}
+    env = revert.Env(armed=lambda: True)
+    p = revert.plan(h, b, env, first['id'], 'hardware')
+    assert not p.ok and any('no neutral hold' in t for t in p.blockers)
+    assert revert.execute(h, b, env, p).status == 'blocked'
+
+
+def test_armed_safe_keys_exclude_pin_derived_driver_keys(monkeypatch):
+    import sys
+    import types
+    from mhseals_testing.history import backends
+    node = types.ModuleType('mhseals_hardware.thruster_pwm_node')
+    node.LIVE_KEYS = ('channel_map', 'thruster_matrix', 'decoupling', 'decoupling_negative',
+                      'reversed', 'command_timeout')
+    monkeypatch.setitem(sys.modules, 'mhseals_hardware', types.ModuleType('mhseals_hardware'))
+    monkeypatch.setitem(sys.modules, 'mhseals_hardware.thruster_pwm_node', node)
+    assert backends.hardware_live_keys() == {'decoupling', 'decoupling_negative', 'command_timeout'}
+
+
+def test_armed_channel_map_revert_is_blocked(tmp_path):
+    h = History(tmp_path)
+    first = h.record('hardware', {'channel_map': [1, 2]}, source='t')
+    h.record('hardware', {'channel_map': [2, 1]}, source='t')
+    b = {'hardware': Fake({'channel_map': [2, 1]})}
+    b['hardware'].live_keys = frozenset({'command_timeout'})
+    p = revert.plan(h, b, make_env(armed=True), first['id'], 'hardware')
+    assert not p.ok and p.blockers

@@ -43,7 +43,7 @@ class Env:
     """
     probes: dict = field(default_factory=dict)
     armed: object = lambda: False
-    hold: object = lambda token: contextlib.nullcontext()
+    hold: object = None       # None: no mux hold available, so an armed hardware revert is refused
 
 
 class Backend:
@@ -100,6 +100,8 @@ def blockers(sub, env, settings, keys=(), live_keys=None):
         outside = [k for k in keys if k not in (live_keys or ())]
         if outside:
             found.append('armed: pins, chips or backend change (' + ', '.join(outside) + ')')
+        if env.hold is None:
+            found.append('armed: no neutral hold available')
     return found
 
 
