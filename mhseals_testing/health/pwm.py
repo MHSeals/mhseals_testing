@@ -13,7 +13,7 @@ from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 @dataclass(frozen=True)
 class Output:
     identity: str
-    state: str  # enabled, disabled, unexported, unavailable, invalid
+    state: str  # enabled, pulse (topic), disabled, unexported, unavailable, invalid
     period_ns: int | None = None
     duty_ns: int | None = None
     issue: str = ''
@@ -22,6 +22,9 @@ class Output:
     def valid(self):
         if self.state == 'unexported':
             return self.period_ns is None and self.duty_ns is None
+        if self.state == 'pulse':
+            return (not self.issue and self.period_ns is None and type(self.duty_ns) is int
+                    and MIN_PWM * 1000 <= self.duty_ns <= MAX_PWM * 1000)
         if self.state not in ('enabled', 'disabled') or self.issue:
             return False
         period, duty = self.period_ns, self.duty_ns
@@ -33,13 +36,15 @@ class Output:
 
     @property
     def neutral(self):
-        return self.valid and (self.state != 'enabled' or self.duty_ns == NEUTRAL_PWM * 1000)
+        return self.valid and (self.state not in ('enabled', 'pulse') or self.duty_ns == NEUTRAL_PWM * 1000)
 
     def row(self):
         if self.state == 'unexported':
             return 'OFF (unexported)'
         if self.state == 'unavailable':
             return 'unavailable'
+        if self.state == 'pulse' and self.valid:
+            return f'ON {self.duty_ns / 1000:g}us (topic)'
         if self.period_ns is None or self.duty_ns is None:
             return 'invalid period/duty'
         prefix = 'ON' if self.state == 'enabled' else 'OFF'
@@ -68,7 +73,9 @@ class Readback:
                 and self.configuration_valid and self.fresh(now, ttl)
                 and len(identities) == 4 and all(identities)
                 and all(isinstance(identity, str) for identity in identities)
-                and len(set(identities)) == 4 and all(output.valid for output in self.outputs))
+                and len(set(identities)) == 4 and all(output.valid for output in self.outputs)
+                and all((o.state == 'pulse') == (self.backend == 'topic')
+                        for o in self.outputs))
 
     def neutral(self, now, ttl):
         """True/False when all four outputs are known, otherwise None."""
@@ -78,7 +85,7 @@ class Readback:
         """Pure health projection using the same expiry/validation as Conditions."""
         if not self.known(now, ttl):
             return 'N/A', 'actual outputs unknown'
-        enabled = sum(output.state == 'enabled' for output in self.outputs)
+        enabled = sum(output.state in ('enabled', 'pulse') for output in self.outputs)
         level = ('FAIL' if armed and enabled != 4 else
                  'WARN' if not armed and enabled else 'OK')
         return level, f'{enabled}/4 ON; {sum(not o.neutral for o in self.outputs)} non-neutral'
