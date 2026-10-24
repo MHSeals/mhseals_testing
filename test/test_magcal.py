@@ -58,29 +58,54 @@ def test_ack_rule():
     assert not FcuParams(Link(True), meta={}).fixed_mag_cal(123.0)  # never unconfirmed
 
 
-def test_calibrate_writes_only_after_confirmation():
+def typed_word(text, captured=None):
+    """Drive the real typed popup callback without a terminal or live App."""
+    from mhseals_testing.ui.popups import type_word
+
+    def popup(modal, handle):
+        if captured is not None:
+            captured.append(dict(modal))
+        if text is None:
+            return handle('escape')
+        for key in text:
+            handle(key)
+        return handle('enter')
+
+    return lambda *args, **kwargs: type_word(SimpleNamespace(popup=popup), *args, **kwargs)
+
+
+def test_calibrate_writes_only_after_typed_confirmation():
     calls = []
     send = lambda yaw, mask: calls.append((yaw, mask)) or True
-    assert calibrate({'heading': 90, 'declination': 5}, lambda t: False, send)['status'] == 'declined'
-    assert calls == []
-    assert calibrate({'heading': 90, 'declination': 5}, lambda t: True, send) == dict(status='sent', yaw=95.0)
+    for confirm in (None, lambda text: True, typed_word(None), typed_word(''),
+                    typed_word('yes'), typed_word('boat')):
+        result = calibrate({'heading': 90, 'declination': 5}, confirm, send)
+        assert result['status'] == 'declined' and result['reason']
+        assert calls == []
+    assert calibrate({'heading': 90, 'declination': 5}, typed_word('FCU'), send) == dict(
+        status='sent', yaw=95.0)
     assert calls == [(95.0, 1)]
-    assert calibrate({'heading': 90}, lambda t: True, lambda y, m: False)['status'] == 'failed'
-    assert calibrate({}, lambda t: True, send)['status'] == 'invalid'
+    result = calibrate({'heading': 90}, typed_word('FCU'), lambda y, m: False)
+    assert result['status'] == 'failed' and result['reason']
+    assert calibrate({}, typed_word('FCU'), send)['status'] == 'invalid'
 
 
-def test_headless_set_heading_through_the_registry():
-    from mhseals_testing.procedures import PROCEDURES
-    entry = next(p for p in PROCEDURES if p.key == 'g')
-    sent, recorded, asked = [], [], []
+def test_headless_yes_cannot_write_through_registry():
+    from mhseals_testing.procedures.magcal import run
+    sent, recorded = [], []
     ctx = SimpleNamespace(
         services=dict(magcal={'heading': 90, 'declination': 5},
                       fcu_send=lambda yaw, mask: sent.append((yaw, mask)) or True),
-        choose=lambda *a, **k: asked.append(k) or 'yes', record=recorded.append)
-    assert entry.run(ctx)['status'] == 'sent' and sent == [(95.0, 1)]
-    assert recorded[0]['verdict'] == 'SENT' and asked[0]['danger'] is True
-    ctx.choose = lambda *a, **k: 'no'
-    assert entry.run(ctx)['status'] == 'declined' and len(sent) == 1
+        choose=lambda *a, **k: 'yes', record=recorded.append)
+    result = run(ctx)
+    assert result['status'] == 'unavailable' and 'typed FCU' in result['reason']
+    assert sent == [] and recorded[0]['verdict'] == 'UNAVAILABLE'
+    ctx.services['type_word'] = typed_word('FCU')
+    assert run(ctx)['status'] == 'sent' and sent == [(95.0, 1)]
+    assert recorded[-1]['verdict'] == 'SENT'
+    ctx.services['type_word'] = typed_word(None)
+    assert run(ctx)['status'] == 'declined' and len(sent) == 1
+    assert recorded[-1]['reason']
 
 
 def test_registry_entry_without_fcu_or_settings_does_not_raise():
