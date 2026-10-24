@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mhseals_testing import data
+from mhseals_testing.harness.bags import RESERVED
 
 SMALL, BIG = 5.0, 30.0                     # s per arrow / per { }
 RATES = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
@@ -81,20 +82,31 @@ def load_session(path):
     return Review(t0, t1, markers, windows, gaps, fails, title=path.name, host=host)
 
 
+def _session_dirs(root):
+    """Session folders: `sessions/<id>/` plus legacy top-level ones (not the reserved folders)."""
+    folders = sorted((root / 'sessions').glob('*')) if (root / 'sessions').is_dir() else []
+    folders += [p for p in root.glob('*') if p.name not in RESERVED]
+    return [p for p in folders if p.is_dir()]
+
+
+def _session_time(path):
+    """When the session last wrote: its events file, else the folder."""
+    events = path / 'events.jsonl'
+    return (events if events.exists() else path).stat().st_mtime
+
+
 def find_session(name, root=None):
-    """Session folder for --review: a path, a name under the data root, or the newest one."""
+    """Session folder for --review: a path, an id under `sessions/` or the root, or the newest."""
     root = Path(root or data.data_root())
     if name:
-        for candidate in (Path(name), root / name, root / 'sessions' / name):
-            if candidate.is_dir():
+        for candidate in (Path(name), root / 'sessions' / name, root / name):
+            if candidate.is_dir() and (candidate == Path(name) or candidate.name not in RESERVED):
                 return candidate
         raise ValueError(f'no session {name!r} under {root}')
-    found = sorted((p for p in (*root.glob('sessions/*'), *root.glob('*'))
-                    if p.is_dir() and p.name not in ('logs', 'sessions')),
-                   key=lambda p: p.stat().st_mtime)
+    found = _session_dirs(root)
     if not found:
         raise ValueError(f'no sessions under {root}')
-    return found[-1]
+    return max(found, key=_session_time)
 
 
 class Review:

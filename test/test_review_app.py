@@ -174,3 +174,20 @@ def test_loupe_hint_shows_only_with_activity_focused(tmp_path):
     assert ('z', 'Loupe') not in app.view()['hints']
     app.focus = 'activity'
     assert ('z', 'Loupe') in app.view()['hints']
+
+
+def test_find_session_skips_data_folders_and_resolves_ids(tmp_path):
+    import os
+    line = json.dumps(events()[0]) + '\n'
+    for rel, age in (('sessions/20261023_old', 100), ('sessions/20261023_new', 200), ('boat_legacy', 50)):
+        folder = tmp_path / rel
+        folder.mkdir(parents=True)
+        (folder / 'events.jsonl').write_text(line)
+        os.utime(folder / 'events.jsonl', (age, age))
+    for other in ('config-history', 'calibration', 'logs'):
+        (tmp_path / other).mkdir()                      # newest by mtime, but not sessions
+    assert find_session('', tmp_path) == tmp_path / 'sessions' / '20261023_new'
+    assert find_session('20261023_old', tmp_path) == tmp_path / 'sessions' / '20261023_old'
+    assert find_session('boat_legacy', tmp_path) == tmp_path / 'boat_legacy'
+    with pytest.raises(ValueError):
+        find_session('sessions', tmp_path)
