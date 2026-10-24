@@ -6,8 +6,8 @@ Power, flight controller, clock and compute are health checks now: see
 ``health/probes.py`` and ``config/health/``.
 """
 
-from mhseals_hardware.odroid_pwm import period_ns, resolve_pwm_chip
-from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
+from mhseals_hardware.thruster_mixer import NEUTRAL_PWM
+from mhseals_testing.health.pwm_sysfs import sample
 from mhseals_testing.ros.arming import DRIVER
 
 
@@ -39,44 +39,33 @@ def pwm_readback(chips, channels, armed=False, frequency=50.0):
     Enabled PWM also pulses at neutral. Sysfs reports the kernel configuration,
     not measured pin voltage, MOSFET state, ESC power or propeller motion.
     """
+    return pwm_readback_rows(sample(chips, channels, frequency), armed)
+
+
+def pwm_readback_rows(observation, armed=False):
+    """Compatibility presentation of an existing acquisition, without more I/O.
+
+    This legacy summary is not neutrality evidence: use observation.neutral
+    and observation.health with a TTL and verified locality for that purpose.
+    """
     rows, issues = [], []
     enabled_count = unknown = non_neutral = 0
-    expected_period = period_ns(frequency)
-    for output, (chip, channel) in enumerate(zip(chips, channels), 1):
-        try:
-            chip = resolve_pwm_chip(chip)
-            path = chip / f'pwm{channel}'
-            if chip.is_dir() and not path.exists():
-                rows.append('OFF (unexported)')
-                continue
-            enable = (path / 'enable').read_text().strip()
-            if enable not in ('0', '1'):
-                raise ValueError('invalid enable value')
-            enabled = enable == '1'
-            period = int((path / 'period').read_text())
-            duty = int((path / 'duty_cycle').read_text())
-        except (OSError, ValueError):
-            rows.append('unavailable')
-            unknown += 1
-            continue
+    for index, output in enumerate(observation.outputs, 1):
+        rows.append(output.row())
+        unknown += output.state == 'unavailable'
+        enabled = output.state == 'enabled'
         enabled_count += enabled
-        non_neutral += enabled and duty != NEUTRAL_PWM * 1000
-        rows.append(f"{'ON' if enabled else 'OFF'} {duty / 1000:g}us / {1e9 / period:g}Hz"
-                    if period > 0 else f"{'ON' if enabled else 'OFF'} period unset")
-        if duty < 0 or period < 0 or duty > period:
-            issues.append(f'output {output}: invalid period/duty')
-        elif enabled:
-            if abs(period - expected_period) > 1:
-                issues.append(f'output {output}: expected {frequency:g}Hz')
-            if not MIN_PWM * 1000 <= duty <= MAX_PWM * 1000:
-                issues.append(f'output {output}: pulse outside {MIN_PWM}-{MAX_PWM}us')
-    if armed and (enabled_count != len(chips) or unknown or issues):
+        non_neutral += enabled and output.duty_ns != NEUTRAL_PWM * 1000
+        if output.issue:
+            issues.append(f'output {index}: {output.issue}')
+    count = len(observation.outputs)
+    if armed and (enabled_count != count or unknown or issues):
         level = 'FAIL'
     elif (enabled_count and not armed) or issues:
         level = 'WARN'
     else:
         level = 'N/A' if unknown else 'OK'
-    summary = f'{enabled_count}/{len(chips)} ON' + ('?' if unknown else '')
+    summary = f'{enabled_count}/{count} ON' + ('?' if unknown else '')
     detail = (f'{summary}; {non_neutral} non-neutral, {unknown} unavailable; '
               + ' | '.join(f'output {index}: {row}' for index, row in enumerate(rows, 1)))
     if enabled_count and not armed:
