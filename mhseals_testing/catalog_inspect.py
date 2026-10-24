@@ -9,7 +9,7 @@ from mhseals_testing.catalog import assemble
 PROVIDERS = (
     ('mhseals_hardware', 'mhseals_hardware.catalog', 'load_catalog', False),
     ('mhseals_nav', 'mhseals_nav.owner_catalog', 'load_catalog', False),
-    ('astro_dock', 'astro_run_config', 'catalog_bundle', True),
+    ('astro-run-config', 'astro_run_config', 'catalog_bundle', True),
 )
 
 

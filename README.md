@@ -80,3 +80,18 @@ make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 `docs/data.md` describes the data layout; `docs/health.md` the health system; [docs/field-2026-10-18.md](docs/field-2026-10-18.md) holds the field-day findings (thrust coupling, method lessons, next holds) that shaped the speed curves and per-sign decoupling; the raw day notes are not kept in the repo.
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
+
+Configuration inventory is available without collecting boat health:
+`boat_trial config catalog` prints the installed hardware, Nav2, MAVROS and lidar
+catalogs, plus the optional installed Astro run catalog. Use `--json -` for stdout
+or `--json PATH` to save the same view. Missing or broken providers remain visible;
+non-optional provider errors return exit status 2. This command exposes no mutation
+verbs.
+
+In the TUI, select the **Config** status row, press Enter, then select **Catalog**.
+Up/Down reaches each package and leaf; Enter opens scrollable metadata and blocker
+details; Esc returns. Watched file rows still apply their pending file on Enter.
+Catalog defaults are package inventory, with source pointers/hashes, constraints,
+consumers and coverage—not live values or verified device behavior. Without an
+explicit compiler context, selection is unknown. Optional compiled values and their
+origins remain separate and are labeled requested/compiled, never live.

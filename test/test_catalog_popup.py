@@ -1,10 +1,9 @@
 """Real Config handlers keep read-only inspection separate from watcher actions."""
 from types import SimpleNamespace
 
-from mhseals_testing import catalog_inspect
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.panels.status import status_rows
-from mhseals_testing.ui.popups import catalog, config
+from mhseals_testing.ui.popups import catalog
 from test_app import make_app
 
 
@@ -49,3 +48,18 @@ def test_real_config_row_catalog_and_narrow_navigation(tmp_path, monkeypatch):
     app.on_status('enter')
     assert seen[:2] == ['Config', 'Catalog (read only)']
     assert all(row['key'] in seen for row in rows)
+
+
+def test_catalog_uses_existing_popup_emergency_passthrough():
+    from mhseals_testing.ui import popups
+    calls = []
+    keys = iter(['space', 'E', 'b', 'enter', 'space', 'E', 'escape', 'escape'])
+    app = SimpleNamespace(modal=None, refresh=lambda: None, tick=lambda: None,
+                          keys=SimpleNamespace(read=lambda **kw: next(keys)),
+                          operator_stop=lambda: calls.append('stop'),
+                          revoke_agent=lambda: calls.append('revoke'))
+    app.popup = lambda modal, handle: popups.popup(app, modal, handle)
+    catalog.open_catalog(app, dict(rows=[], packages=[], selection={
+        'status': 'unknown', 'label': 'selection unknown; package inventory only'}))
+    assert calls == ['stop', 'revoke', 'stop', 'revoke']
+    assert app.modal is None
