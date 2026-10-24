@@ -87,6 +87,9 @@ def validate_events(events, path):
     for event in events:
         if not isinstance(event, dict) or not isinstance(event.get('phase', ''), str):
             raise ValueError(f'{path}: timeline event and text phase required')
+        if event.get('phase') in ('marker', 'marker_note') and not (
+                event.get('id') is None or type(event['id']) in (str, int)):
+            raise ValueError(f'{path}: marker id must be text or an integer')
         if 't_ns' in event:
             stamp = event['t_ns']
             try:

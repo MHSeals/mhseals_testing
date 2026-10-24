@@ -250,3 +250,46 @@ def test_reader_programming_error_is_not_hidden(tmp_path, monkeypatch):
     with pytest.raises(AssertionError, match='programming failure'):
         app.dispatch('enter')
     assert app.review is None and app.source.live
+
+
+@pytest.mark.parametrize('phase', ['marker', 'marker_note'])
+@pytest.mark.parametrize('ident', [[1], {'a': 1}])
+def test_unhashable_marker_id_is_notice_without_teardown(tmp_path, monkeypatch, phase, ident):
+    app, boat, opens = selected_app(tmp_path, monkeypatch)
+    bag = app.selected_bag()
+    (bag.path / 'events.jsonl').write_text('\n'.join(json.dumps(event) for event in [
+        {'t_ns': 10 * S, 'phase': phase, 'id': ident}, {'t_ns': 40 * S, 'phase': 'marker'}]))
+    owners = (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths)
+    app.dispatch('enter')
+    assert 'marker id' in app.notice and app.review is None and not opens
+    assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
+    assert not app.closed and app.processes.running('bag')
+    assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []
+
+
+def test_playback_reader_error_during_tick_restores_live(tmp_path, monkeypatch):
+    app, boat, _ = selected_app(tmp_path, monkeypatch)
+
+    class BadLater(FakeReader):
+        def read_next(self):
+            row = super().read_next()
+            if row[2] >= 30 * S:
+                raise RuntimeError('corrupt chunk')
+            return row
+
+    def opener(segment):
+        stamps = (10, 15) if segment.name == '00' else (25, 30, 40)
+        return BadLater([('/mhseals_testing/events', {'phase': 'marker'}, t * S)
+                         for t in stamps]), {'/mhseals_testing/events': 'inert'}
+
+    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+        ReviewSource, opener=opener, decode=lambda kind, message: message))
+    live = (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths)
+    app.dispatch('enter')
+    assert app.review is not None
+    app.review.playhead, app.review.due = 35.0, None
+    app.tick()
+    assert app.review is None and 'corrupt chunk' in app.notice
+    assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == live
+    assert not app.closed and app.processes.running('bag') and app.source.live
+    assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []

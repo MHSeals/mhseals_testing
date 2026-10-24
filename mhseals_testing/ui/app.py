@@ -415,9 +415,7 @@ class App:
             self.poll_pause()
             return
         if self.review:
-            self.review.tick(self.clock(), self.clock() - self.last_tick)
-            self.last_tick = self.clock()
-            self.source.tick(self.clock())
+            self.tick_review()
             if self._review_live is not None and self._review_live['source'].live:
                 replay = self.source
                 try:
@@ -429,6 +427,24 @@ class App:
                 self.stop(self.arming.fault())  # review over a live session still stops on a fault
             return
         self.tick_live()
+
+    def tick_review(self):
+        """Advance the replay; reader/decode/ingest data errors end the review, not the live session."""
+        if getattr(self, '_review_fault', False):
+            return
+        try:
+            self.review.tick(self.clock(), self.clock() - self.last_tick)
+            self.last_tick = self.clock()
+            self.source.tick(self.clock())
+        except (RuntimeError, OSError, ValueError, KeyError) as error:
+            self.review.pause()
+            self.review.due = None
+            message = f'Review playback failed: {error}'
+            if self.args.review is None and self._review_live is not None:
+                self.leave_review()          # live owners and recording were never touched
+            else:
+                self._review_fault = True    # standalone replay: stay paused, stop reading
+            self.notice = message
 
     def tick_live(self):
         """Keep the existing live owner work running while review only replaces its view."""
@@ -1390,6 +1406,7 @@ class App:
                              'cursors': self.cursors, 'activity': self.activity,
                              'minimap': self.minimap, 'layerbox': self.layerbox}
         self.source, self.review = replay, selected
+        self._review_fault = False
         selected.load = replay.seek
         self.tabs, self.focus, self.cursors = TabMemory(), 'activity', dict.fromkeys(CURSORS, 0)
         self.minimap = minimap_panel.MiniMap(self.map_state)
