@@ -694,7 +694,8 @@ class App:
         error = status.get('error') or ''
         if error or status.get('pending_restart_keys'):
             return dict(status='refused', error=error or 'restart required')
-        # The driver reports these accepted, but the controller keeps its plant and the mux waits for idle/hold.
+        # The driver reports these accepted, but the controller keeps its plant
+        # and the mux waits for idle/hold.
         if config.get('controller') != previous.get('controller'):
             return dict(status='next_session', detail='controller: restart-only, not applied')
         if config.get('command_mux') != previous.get('command_mux'):
