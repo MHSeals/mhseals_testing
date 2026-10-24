@@ -57,13 +57,15 @@ def arrow(yaw_deg, ascii_=False):
 def draw_boat(proj, pos, yaw, reliable=True, ascii_=False):
     """Accent chip arrow above 10 m, hull outline at 10 m or less, plus a heading ray.
 
-    An unreliable yaw draws the arrow in warn.
+    An unreliable yaw (or a non-finite one, e.g. from a diverged EKF) draws the arrow
+    in warn and no heading ray.
     """
-    canvas, layer = proj.canvas, 'boat:accent' if reliable else 'boat:warn'
-    shown = 90.0 if proj.yaw is not None else yaw  # heading-up points straight up
+    finite = math.isfinite(yaw)
+    canvas, layer = proj.canvas, 'boat:accent' if reliable and finite else 'boat:warn'
+    shown = 90.0 if proj.yaw is not None or not finite else yaw  # heading-up points straight up
     a = math.radians(shown)
     x, y = proj.dot(pos)
-    for i in range(1, RAY_DOTS + 1):
+    for i in range(1, RAY_DOTS + 1 if finite else 1):
         canvas.dot(round(x + i * math.cos(a)), round(y - i * math.sin(a)), layer)
     col, row = proj.cell(pos)
     if proj.half > LABEL_HALF:

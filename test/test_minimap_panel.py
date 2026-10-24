@@ -121,3 +121,20 @@ def test_starting_nav2_bringup_switches_to_map_only_with_auto_tab(tmp_path, flag
     if flag:
         app.show_tab('Drive')
         assert app.focus == 'status'   # TabMemory kept Drive's focus
+
+
+@pytest.mark.parametrize('half', [8, 40])
+def test_nan_yaw_draws_a_warn_arrow_and_no_ray(half):
+    from mhseals_testing.ui.minimap.panel import draw
+    s = MapState()
+    s.ingest('pose_map', t=0.0, x=1.0, y=1.0, yaw=float('nan'))
+    canvas = draw(s, 40, 12, half)
+    assert 'boat:warn' in repr(vars(canvas)) and 'boat:accent' not in repr(vars(canvas))
+
+
+def test_a_failing_draw_keeps_the_last_frame(monkeypatch):
+    from mhseals_testing.ui.minimap import panel
+    mm = MiniMap(state(), clock=iter(range(0, 1000, 10)).__next__)
+    good = mm(40, 12)
+    monkeypatch.setattr(panel, 'draw', lambda *a: 1 / 0)
+    assert mm(40, 12) == good

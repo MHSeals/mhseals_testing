@@ -94,8 +94,12 @@ class MiniMap:
         if self._lines is None or self.redraw.due(now, on_map_tab=False):
             began = time.perf_counter()
             state = self.state() if callable(self.state) else self.state
-            canvas = draw(state, cols, rows, self.half, self.table, theme.ASCII)
-            self._lines = emit(canvas, lambda layer: style(layer, self.tier),
-                               self.tier, ascii=theme.ASCII)
+            try:
+                canvas = draw(state, cols, rows, self.half, self.table, theme.ASCII)
+                self._lines = emit(canvas, lambda layer: style(layer, self.tier),
+                                   self.tier, ascii=theme.ASCII)
+            except Exception:  # one bad frame must not end the session; keep the last lines
+                if self._lines is None:
+                    self._lines = []
             self.redraw.done(now, (time.perf_counter() - began) * 1000)
         return self._lines
