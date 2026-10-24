@@ -82,7 +82,17 @@ def test_material_change_without_a_drift_estimate_is_poor():
     assert grade == 'poor' and reason.startswith('changed') and ceiling is None and trust is None
 
 
-def test_feed_decimates_to_the_gps_rate_but_keeps_state_changes():
+def test_feed_keeps_every_jittered_gps_sample():
+    import random
+    from mhseals_testing.harness.conditions import Conditions
+    rng = random.Random(1)
+    c = Conditions()
+    for i in range(1000):                                   # 5 Hz with up to 20 ms of tick jitter
+        c.feed(i * 0.2 + rng.uniform(-0.02, 0.02), (0.1, 0.0), 0.0, 0.0, True, 0.0)
+    assert len(c.samples) == 1000
+
+
+def test_feed_decimates_a_fast_feed_but_keeps_state_changes():
     from mhseals_testing.harness.conditions import Conditions, MAX_HZ
     c = Conditions()
     for i in range(1000):                                   # 50 Hz for 20 s
