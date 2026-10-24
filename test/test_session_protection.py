@@ -95,27 +95,43 @@ def test_delete_and_prune_respect_finalizer(tmp_path, monkeypatch):
 
 
 def test_prune_mixed_legacy_and_partial_failure_rebuild_once(tmp_path, monkeypatch):
+    import os
+    from mhseals_testing.ui import app as app_module
+
     app, _, path = setup_app(tmp_path)
+    data.write_json(path / 'session.json', {'created': 2}, bags.SCHEMA)
+    header = (path / 'session.json').read_bytes()
     legacy = tmp_path / 'legacy'
     legacy.mkdir()
     (legacy / 'empty.mcap').touch()
-    (tmp_path / 'legacy.report.json').write_text('{}')
+    report = tmp_path / 'legacy.report.json'
+    report.write_text('{}')
     unrelated = tmp_path / 'legacy.extra'
     unrelated.mkdir()
+    os.utime(legacy, (1, 1))
     app.invalidate_bags()
     real_delete = bags.delete
-    calls = []
+    real_rebuild = app_module.index.rebuild
+    attempts, rebuilds = [], []
     def delete(bag):
+        attempts.append(bag.path)
         if not bag.legacy:
             raise OSError('fixture failure')
         real_delete(bag)
+    def rebuild(root):
+        rebuilds.append(root)
+        return real_rebuild(root)
     monkeypatch.setattr(bags, 'delete', delete)
-    monkeypatch.setattr(app, 'refresh_bag_index', lambda bag: calls.append(bag.path.parent))
+    monkeypatch.setattr(app_module.index, 'rebuild', rebuild)
     monkeypatch.setattr(app, 'choose', lambda *a, **kw: 'Delete')
-    app.bag_scan = (app.clock(), sorted(app.bags_view()[0], key=lambda b: not b.legacy), (0, 0, 0))
     app.dispatch('P')
-    assert calls == [tmp_path]
-    assert not legacy.exists() and path.exists() and unrelated.exists()
+    assert attempts == [legacy, path]
+    assert rebuilds == [tmp_path]
+    rows = data.read_json(tmp_path / 'INDEX.json')['sessions']
+    assert [row['id'] for row in rows] == ['live']
+    assert path.is_dir() and (path / 'session.json').read_bytes() == header
+    assert not legacy.exists() and not report.exists() and unrelated.is_dir()
+    assert 'fixture failure' in app.notice
 
 
 def test_legacy_only_prune_rebuilds_actual_root(tmp_path, monkeypatch):
