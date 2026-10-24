@@ -1,4 +1,5 @@
 """Capture or adopt configuration after Registry/session ownership is decided."""
+import os
 import uuid
 from pathlib import Path
 
@@ -54,7 +55,15 @@ def prepare_session(profile, args, directory, mode, overlay):
         reference = Selection.from_record(record)
         if reference.domains != domains:
             raise ValueError('selected domains differ; create a new session')
-        reference.validate()
+        selected = reference.validate()
+        if 'hardware' in domains and (selected.documents['hardware-pure']['effective']['output_backend']
+                                      != profile.outputs):
+            raise ValueError('output backend differs; create a new session')
+        if 'navigation' in domains:
+            invocation = navigation_args(profile, overlay)
+            captured = selected.documents[navigation.PARTICIPANT]['invocation']
+            if any(navigation._boolean(invocation[k]) != captured[k] for k in ('sim', 'use_lidar')):
+                raise ValueError('navigation invocation differs; create a new session')
         return reference
     if record is not None:
         raise ValueError('fresh owner cannot overwrite an existing session selection')
@@ -64,7 +73,7 @@ def prepare_session(profile, args, directory, mode, overlay):
     prepared = {}
     if 'hardware' in domains:
         path = config_path(args.config)
-        explicit = args.config or __import__('os').environ.get('MHSEALS_HARDWARE_CONFIG')
+        explicit = args.config or os.environ.get('MHSEALS_HARDWARE_CONFIG')
         operator = path if explicit or path.exists() else None
         prepared['hardware'] = hardware.prepare_inputs(operator, session=(
             yaml.safe_dump({'output_backend': profile.outputs}), 'testing profile invocation'))

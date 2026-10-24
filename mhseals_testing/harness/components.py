@@ -78,7 +78,7 @@ def _cycle(data, start):
     return False
 
 
-def components(profile, overlay=None):
+def components(profile, overlay=None, selection=None):
     """The profile's components in file order. ``overlay`` is {key: {arg: value}}."""
     overlay = overlay or {}
     result = []
@@ -86,6 +86,12 @@ def components(profile, overlay=None):
         argv = ()
         if 'launch' in spec:
             args = {**spec.get('args', {}), **overlay.get(key, {})}
+            if selection is not None:
+                from mhseals_testing.startup_owner import NAV_LAUNCHES, RESERVED
+                if tuple(spec['launch']) in NAV_LAUNCHES:
+                    if 'navigation' not in selection.domains or RESERVED & args.keys():
+                        raise ValueError('invalid managed navigation selection arguments')
+                    args.update(selection.arguments())
             argv = ('ros2', 'launch', *spec['launch'], *(f'{k}:={v}' for k, v in args.items()))
             if spec.get('limits'):   # the lasting nav2.yaml must survive every (re)start
                 argv += (nav2_limits.launch_argument(),)
@@ -133,11 +139,12 @@ def state(component, nodes, processes, now, started=None):
 class Stack:
     """Starts and stops a profile's components; remembers when each one started."""
 
-    def __init__(self, items, processes, clock):
+    def __init__(self, items, processes, clock, selection=None):
         self.items = {item.key: item for item in items}
         self.processes = processes
         self.clock = clock
         self.started = {}
+        self.selection = selection
 
     def state(self, key, nodes):
         return state(self.items[key], nodes, self.processes, self.clock(), self.started.get(key))
@@ -159,6 +166,8 @@ class Stack:
         off = [need for need in item.needs if self.state(need, nodes)[0] in ('off', 'exited')]
         if off:
             raise ComponentError(f'Start {self.items[off[0]].title} first', off)
+        if self.selection is not None:
+            self.selection.validate()
         self.processes.start(key, item.argv)
         self.started[key] = self.clock()
 

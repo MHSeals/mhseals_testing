@@ -2246,10 +2246,16 @@ def build_parser():
     return parser
 
 
-def parse_args(argv=None):
+def parse_args(argv=None, *, defer_hardware=False):
     parser = build_parser()
     try:
-        args = configure_args(parser, argv)  # adds --config and the merged hardware_config
+        if defer_hardware:
+            parser.add_argument('--config', help='hardware YAML (or MHSEALS_HARDWARE_CONFIG)')
+            parser.add_argument('--save-config', action='store_true')
+            args = parser.parse_args(argv)
+            args.hardware_config = None
+        else:
+            args = configure_args(parser, argv)  # explicit unmanaged/parser callers
     except (OSError, ValueError, TypeError, yaml.YAMLError) as error:
         # Refuse to start on a broken hardware YAML, naming the file instead of a traceback.
         probe = argparse.ArgumentParser(add_help=False)
@@ -2309,8 +2315,9 @@ def review_main(args, profile):
 
 
 def main(argv=None):
-    args, profile = parse_args(argv)
+    args, profile = parse_args(argv, defer_hardware=True)
     if args.review is not None:
+        args.hardware_config = load_config(args.config)
         return review_main(args, profile)
     # ROS imports stay here so the App (and its tests) never need rclpy.
     import rclpy
@@ -2344,6 +2351,18 @@ def main(argv=None):
             profile.name, directory=args.output,
             clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
             kind='sim' if profile.use_sim_time else 'boat').directory)
+    from mhseals_testing.startup_owner import prepare_session
+    overlay = stack_overlay(profile, args)
+    if args.save_config:
+        if choice.mode != 'own':
+            raise ValueError('--save-config requires a fresh owner session')
+        save_config(load_config(args.config), args.config)
+    selection = prepare_session(profile, args, paths.directory, choice.mode, overlay)
+    if selection is not None and 'hardware' in selection.domains:
+        from mhseals_hardware.startup_config import plain
+        args.hardware_config = plain(selection.validate().documents['hardware-pure']['effective'])
+    else:
+        args.hardware_config = load_config(args.config)
     # rclpy's own SIGINT handler would shut ROS down before the graceful close could
     # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
@@ -2362,9 +2381,9 @@ def main(argv=None):
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
-    stack = Stack(components(profile, stack_overlay(profile, args)), processes, time.monotonic)
+    stack = Stack(components(profile, overlay, selection), processes, time.monotonic, selection)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
-    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
+    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, selection=selection)
     app = authority = None
     try:
         for name, child in choice.children.items():

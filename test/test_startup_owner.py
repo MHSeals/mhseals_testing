@@ -30,7 +30,12 @@ def test_watch_and_adopt_reuse_reference_without_preparation(tmp_path, monkeypat
     reference = Selection(str(tmp_path / 'store'), 'scope', 'a' * 64, ('hardware', 'navigation'))
     session.persist_startup_selection(created.directory, reference.record())
     checked = []
-    monkeypatch.setattr(Selection, 'validate', lambda self: checked.append(self))
+    def validate(self):
+        checked.append(self)
+        return SimpleNamespace(documents={
+            'hardware-pure': {'effective': {'output_backend': 'odroid'}},
+            'nav2-compiler': {'invocation': {'sim': False, 'use_lidar': True}}})
+    monkeypatch.setattr(Selection, 'validate', validate)
     monkeypatch.setattr(owner, 'bootstrap', lambda *a: pytest.fail('must not bootstrap'))
     monkeypatch.setattr(owner, 'config_path', lambda *a: pytest.fail('must not read authoring inputs'))
     args = SimpleNamespace(config='/missing/mutable.yaml')
