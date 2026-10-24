@@ -81,6 +81,7 @@ class Health:
         self.pending = load(self.directory, self.profile)
 
     def adopt_pending(self):
+        """Take the reloaded rules, if any."""
         if self.pending is not None:
             config, self.pending, self.error = self.pending, None, ''
             self.adopt(config)

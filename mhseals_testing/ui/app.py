@@ -41,9 +41,9 @@ from mhseals_testing.runner import STALE_MUX_S, override_cause
 from mhseals_testing.harness import nav2_edit
 from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
+from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
-from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.health import config as health_config, legacy as health
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
@@ -58,7 +58,8 @@ from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as feeds_module, layout, palette, perception, popups, theme
+from mhseals_testing.ui import (
+    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -304,6 +305,7 @@ class App:
                                  subsystem='hardware'))
         self.watch_own_files()
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
+        self.pending_settings = None
 
     @property
     def armed(self):
@@ -577,16 +579,18 @@ class App:
             # already, so this finds no difference.
             adapters.observe_file(self.history, watched.subsystem, watched.path, self.warn_history)
         if not change.ok:
-            self.config_note = 'invalid edit'
+            if change.name == 'hardware':
+                self.config_note = 'invalid edit'
             if change.report:
                 self.notice = f'Config rejected, keeping the last good one: {change.error}'
             return
-        self.config_note = watched.path.name
+        if change.name == 'hardware':
+            self.config_note = watched.path.name
         self.notice = f'Config reloaded from {watched.path.name}'
         self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok', path=str(watched.path))
 
     def watch_own_files(self):
-        """The TUI's own YAML, hot-reloaded in the same poll. Nothing here touches ROS."""
+        """Hot-reload the TUI's own YAML in the same poll; nothing here touches ROS."""
         def load_keymap(_path):
             keymap, warning = keymap_module.load(user=keymap_module.USER_FILE)
             if warning:
@@ -610,10 +614,9 @@ class App:
             self.minimap.table = table
             self.minimap.redraw.mark()
 
-        def apply_settings(new):    # the persisted values; a key the file dropped goes back to its default
-            for spec in settings.SPECS:
-                if not spec.reset:
-                    setattr(self.settings, spec.key, getattr(new, spec.key))
+        def apply_settings(new):    # procedures read settings each step: held until none is running
+            self.pending_settings = new
+            self.adopt_health()
 
         for watched in (
                 Watched('keymap', keymap_module.USER_FILE, load_keymap, apply_keymap, subsystem='keymap'),
@@ -626,9 +629,15 @@ class App:
             self.watcher.add(watched)
 
     def adopt_health(self):
-        """Health rules gate arming and procedures: a changed file takes effect when neither is on."""
-        if not (self.armed or self.running):
-            self.health.adopt_pending()
+        """Health rules and settings are read while armed or running: edits wait for neither."""
+        if self.armed or self.running:
+            return
+        self.health.adopt_pending()
+        new, self.pending_settings = self.pending_settings, None
+        if new is not None:     # a key the file dropped goes back to its default
+            for spec in settings.SPECS:
+                if not spec.reset:
+                    setattr(self.settings, spec.key, getattr(new, spec.key))
 
     def load_hardware(self, _path):
         return load_config(self.args.config)

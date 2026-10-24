@@ -29,11 +29,11 @@ def test_keymap_edit_rebinds_the_minimap_keys_and_a_bad_one_keeps_the_last(tmp_p
     assert app.map_keys['c'] == 'layer_costmap'
     (tmp_path / 'keymap.yaml').write_text('view.minimap:\n  layer_costmap: ["1"]\n')
     settle(app)
-    assert app.map_keys["1"] == 'layer_costmap' and 'c' not in app.map_keys
+    assert app.map_keys['1'] == 'layer_costmap' and 'c' not in app.map_keys
     assert seen[-1][0] == 'config_reloaded' and seen[-1][1]['file'] == 'keymap' and seen[-1][1]['sha']
     (tmp_path / 'keymap.yaml').write_text('view.minimap:\n  layer_costmap: ["1", nope\n')
     settle(app)
-    assert app.map_keys["1"] == 'layer_costmap' and app.config_note == 'invalid edit'
+    assert app.map_keys['1'] == 'layer_costmap' and app.watcher.watches['keymap'].error
     assert 'keymap' in app.notice
 
 
@@ -51,7 +51,7 @@ def test_theme_overlay_changes_the_live_styles(tmp_path, monkeypatch):
     (tmp_path / 'theme.yaml').write_text('theme: purple\n')
     kept = theme.PALETTE
     settle(app)
-    assert theme.PALETTE is kept and app.config_note == 'invalid edit'
+    assert theme.PALETTE is kept and app.watcher.watches['theme'].error
     (tmp_path / 'theme.yaml').unlink()
     settle(app)
     assert theme.ACCENT == before
@@ -69,7 +69,7 @@ def test_minimap_classes_reload(tmp_path, monkeypatch):
     assert app.minimap.table is not table
     path.write_text('classes: [\n')
     settle(app)
-    assert app.minimap.table is not None and app.config_note == 'invalid edit'
+    assert app.minimap.table is not None and app.watcher.watches['minimap'].error
 
 
 def test_settings_edit_applies_and_our_own_save_is_not_announced(tmp_path, monkeypatch):
@@ -81,7 +81,7 @@ def test_settings_edit_applies_and_our_own_save_is_not_announced(tmp_path, monke
     assert app.settings.amplitude == 0.5
     path.write_text('amplitude: 7\n')
     settle(app)
-    assert app.settings.amplitude == 0.5 and app.config_note == 'invalid edit'
+    assert app.settings.amplitude == 0.5 and app.watcher.watches['settings'].error
     seen.clear()
     from mhseals_testing.harness import settings
     settings.save(app.settings)
@@ -92,7 +92,9 @@ def test_settings_edit_applies_and_our_own_save_is_not_announced(tmp_path, monke
 
 def test_health_rules_apply_on_the_next_evaluation_but_not_while_armed(tmp_path, monkeypatch):
     app, _ = start(tmp_path, monkeypatch)
-    severity = lambda: next(s for s in app.health.specs if s.id == 'conditions.poor').severity
+    def severity():
+        return next(s for s in app.health.specs if s.id == 'conditions.poor').severity
+
     assert severity() == 'fail'
     old_engine = app.engine
     app.arming.armed = True
@@ -104,7 +106,28 @@ def test_health_rules_apply_on_the_next_evaluation_but_not_while_armed(tmp_path,
     assert severity() == 'warn' and app.engine is not old_engine
     (tmp_path / 'health.yaml').write_text('override: [\n')
     settle(app)
-    assert severity() == 'warn' and app.config_note == 'invalid edit'
+    assert severity() == 'warn' and app.watcher.watches['health'].error
+
+
+def test_settings_and_health_edits_wait_for_a_running_procedure(tmp_path, monkeypatch):
+    app, _ = start(tmp_path, monkeypatch)
+    def severity():
+        return next(s for s in app.health.specs if s.id == 'conditions.poor').severity
+
+    before = app.settings.amplitude
+    note = app.config_note
+    app.running = 'Controller'
+    path = app.watcher.watches['settings'].path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('amplitude: 0.9\n')
+    (tmp_path / 'health.yaml').write_text('override:\n  conditions.poor: {severity: warn}\n')
+    (tmp_path / 'theme.yaml').write_text('not: [valid\n')
+    settle(app)
+    assert app.settings.amplitude == before and severity() == 'fail'
+    assert app.config_note == note      # only the hardware file labels the thrusters panel
+    app.running = None
+    app.watch_config()
+    assert app.settings.amplitude == 0.9 and severity() == 'warn'
 
 
 def test_no_ros_client_is_touched(tmp_path, monkeypatch):
