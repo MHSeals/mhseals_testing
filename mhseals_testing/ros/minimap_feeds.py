@@ -45,13 +45,15 @@ def path_points(message):
 
 
 def object_marks(message):
-    """marks.Obj per Detection3D of /objects/map: position, class_id as label, score; no result means no object."""
+    """marks.Obj per Detection3D of /objects/map: position, class_id as label, score; no result or a non-finite position means no object."""
     out = []
     for d in message.detections:
         if not d.results:
             continue
         hypothesis = d.results[0].hypothesis
         position = d.bbox.center.position
+        if not (math.isfinite(position.x) and math.isfinite(position.y)):
+            continue
         out.append(Obj(position.x, position.y, str(hypothesis.class_id), float(hypothesis.score)))
     return out
 

@@ -83,3 +83,21 @@ def test_confidence_fades_the_colour_token_and_the_floor_is_a_parameter():
         draw_objects(p, [Obj(0, 0, 'red_buoy', 0.9), Obj(5, 0, 'red_buoy', 0.6), Obj(-5, 0, 'red_buoy', 0.4)],
                      TABLE, floor=floor)
         assert sum(x.fg is not None for x in c.cells()[2]) == n
+
+
+def test_non_finite_positions_are_skipped_not_raised():
+    c, p = make()
+    bad = [Obj(float('nan'), 1, 'red_buoy', .9), Obj(1, float('inf'), 'red_buoy', .9)]
+    draw_objects(p, bad + [Obj(0, 0, 'red_buoy', .9)], TABLE)
+    assert c.cells()[2][10].fg == 'object:obj.red'
+
+
+def test_object_marks_drops_non_finite_positions():
+    from types import SimpleNamespace as N
+    from mhseals_testing.ros.minimap_feeds import object_marks
+
+    def det(x, y):
+        return N(results=[N(hypothesis=N(class_id='red_buoy', score=.9))],
+                 bbox=N(center=N(position=N(x=x, y=y))))
+    out = object_marks(N(detections=[det(float('nan'), 1), det(2, float('inf')), det(1, 2)]))
+    assert [(o.x, o.y) for o in out] == [(1, 2)]

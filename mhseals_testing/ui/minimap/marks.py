@@ -55,12 +55,14 @@ def strength(score):
 def draw_objects(proj, objects, table, boat=None, ascii_=False, floor=SCORE_FLOOR):
     """Class glyphs (best score keeps a cell), contact chips, rings and labels.
 
-    A faded glyph's layer ends ``@<percent>`` (like ts115 tints); ``floor`` hides lower scores.
+    A faded glyph's layer ends ``@<percent>`` (like ts115 tints); ``floor`` hides lower scores;
+    objects with a non-finite position are skipped (floor() would raise and freeze the map).
 
     ``boat`` orders label placement nearest first; without it the view centre is used.
     """
     canvas, taken, placed = proj.canvas, set(), []
-    for o in sorted((o for o in objects if o.score >= floor), key=lambda o: -o.score):
+    for o in sorted((o for o in objects
+                     if o.score >= floor and math.isfinite(o.x) and math.isfinite(o.y)), key=lambda o: -o.score):
         sym, pos = table.symbol(o.label), proj.cell((o.x, o.y))
         if pos in taken or not canvas._inside(*pos):
             continue
