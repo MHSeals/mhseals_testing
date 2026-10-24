@@ -61,3 +61,22 @@ def test_a_file_created_later_waits_one_settled_poll(tmp_path):
     path.write_text('a: 1\n')
     assert watcher.poll() == [] and applied == []  # first sight: maybe half-written
     assert [c.ok for c in watcher.poll()] == [True] and applied == [{'a': 1}]
+
+
+def test_callback_failures_are_not_successful_reloads(tmp_path):
+    from types import SimpleNamespace
+    watcher, path, applied = make(tmp_path)
+    watched = watcher.watches['x']
+    stamp = watched.loaded_at
+    for result in (False, SimpleNamespace(ok=False, error='rejected'),
+                   {'ok': False, 'error': 'rejected'}, {'status': 'failed'}):
+        watched.apply = lambda value: result
+        first = watcher.reload('x')
+        assert not first.ok and watched.loaded_at == stamp
+        assert not watcher.reload('x').report
+    def fail(value):
+        raise RuntimeError('transport failed')
+    watched.apply = fail
+    assert watcher.reload('x').error == 'transport failed'
+    watched.apply = applied.append
+    assert watcher.reload('x').ok and applied == [{'a': 1}]

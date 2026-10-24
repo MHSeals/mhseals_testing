@@ -93,8 +93,17 @@ class Watcher:
             value = watched.load(watched.path)
             sha = self.sha(watched.path)
             if watched.apply is not None:
-                watched.apply(value)
-        except PARSE_ERRORS as error:
+                result = watched.apply(value)
+                if isinstance(result, dict):
+                    failed = (result.get('ok') is False or result.get('error')
+                              or result.get('status') in ('failed', 'refused', 'blocked', 'partial'))
+                    reason = result.get('error') or result.get('detail')
+                else:
+                    failed = result is False or getattr(result, 'ok', True) is False
+                    reason = getattr(result, 'error', None) or getattr(result, 'detail', None)
+                if failed:
+                    raise ValueError(reason or 'consumer rejected configuration')
+        except Exception as error:
             text = describe(error)
             fresh = text != watched.error
             watched.error = text

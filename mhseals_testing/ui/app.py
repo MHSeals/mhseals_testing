@@ -559,12 +559,12 @@ class App:
         return load_config(self.args.config)
 
     def apply_hardware(self, config):
+        if self.armed and self.profile.outputs != 'none':
+            # Complete snapshot staging before replacing the last good in-memory state.
+            save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
         self.args.hardware_config = config
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
-        if self.armed and self.profile.outputs != 'none':
-            # The driver hot-reloads its snapshot; keep it the session's config.
-            save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
 
     def warn_history(self, message):
         self.notice = message
@@ -585,8 +585,10 @@ class App:
             self.notice = f'Fix hardware.yaml first: {self.config_file}'
             return False
         adapters.record_file(self.history, 'hardware', 'tui:hardware', self.config_file, self.warn_history)
+        change = self.announce(self.watcher.reload('hardware'))  # skip the settle wait
+        if not change.ok:
+            return False
         self.draft = self.grabbed = None
-        self.announce(self.watcher.reload('hardware'))  # our own save skips the settle wait
         return True
 
     # --- rendering ---------------------------------------------------------------

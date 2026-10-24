@@ -2360,3 +2360,23 @@ def test_actual_authority_untrusted_records_render_safely(tmp_path, state):
     if state == 'unknown':
         assert 'hold state unknown' in text
     assert releases == [] and boat.sent == []
+
+
+def test_failed_hardware_snapshot_retains_memory_and_draft(tmp_path, monkeypatch):
+    import mhseals_testing.ui.app as module
+    app, _ = make_app(tmp_path)
+    app.arming = Arming()
+    app.arming.armed = True
+    app.profile = type('Profile', (), {'outputs': 'memory'})()
+    old = app.args.hardware_config
+    app.arming.hardware_config = old
+    app.draft = draft = {'channel_map': [2, 1, 3, 4]}
+    def fail(*args):
+        raise OSError('snapshot write failed')
+    monkeypatch.setattr(module, 'save_config', fail)
+    assert not app.save_hardware(channel_map=[2, 1, 3, 4])
+    assert app.args.hardware_config is old and app.arming.hardware_config is old
+    assert app.draft is draft
+    assert 'snapshot write failed' in app.notice
+    assert 'reloaded' not in app.notice
+    assert not app.watcher.reload('hardware').report
