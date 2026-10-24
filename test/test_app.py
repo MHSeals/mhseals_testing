@@ -1779,3 +1779,26 @@ def test_map_tab_keys_toggle_layers_and_the_bags_tab_lists_sessions(tmp_path):
     app.show_tab('Bags')
     assert app.focus == 'list'
     assert isinstance(app.view()['bags'], list)
+
+
+def test_bags_tab_with_a_session_renders_and_moves_the_cursor(tmp_path):
+    from mhseals_testing.harness.bags import Bag
+    app, _ = make_app(tmp_path)
+    app.show_tab('Bags')
+    app.bag_scan = (app.clock(), [Bag(id='boat_1', path=None)], (0, 0, 0))
+    assert app.view()['position'] == '1/1'
+    app.view()
+    app.dispatch('j')
+    assert app.cursors['list'] == 0
+
+
+def test_map_tab_floor_and_trail_restart_reach_the_map_state(tmp_path):
+    class State:
+        calls = []
+        set_floor = lambda self, floor: self.calls.append(('floor', floor))
+        restart_trail = lambda self: self.calls.append('restart')
+    app, _ = make_app(tmp_path)
+    app.ros.map = type('Map', (), {'state': State()})()
+    app.show_tab('Map')
+    app.dispatch('D'), app.dispatch('Y')
+    assert State.calls[0][0] == 'floor' and State.calls[1] == 'restart'

@@ -21,11 +21,16 @@ class LayerBox:
     """Layer toggles for one minimap view; ``press`` takes a ``view.minimap`` action name."""
 
     def __init__(self, feeds, state=None, truth=False, live=True):
-        """``feeds`` None in review: the costmap there comes from BagSource, not a lease.
+        """``state``: a MapState or a callable returning one (or None).
+        ``feeds`` None in review: the costmap there comes from BagSource, not a lease.
         ``live`` False refuses ``trail_restart`` (map.md 7: live only)."""
         self.feeds, self.state, self.truth, self.live = feeds, state, truth, live
         self.costmap = self.hits = self.referee = False
         self.source, self.objects, self.trail, self.floor = 'auto', 'off', 'plain', 0
+
+    def _state(self):
+        """The MapState, resolved at press time: ``state`` may be a callable (as MiniMap accepts)."""
+        return self.state() if callable(self.state) else self.state
 
     def press(self, action, half_width):
         """Apply one action; returns whether it belonged to the box. ``half_width`` is the view's (m)."""
@@ -39,13 +44,13 @@ class LayerBox:
             self.objects = OBJECTS[(OBJECTS.index(self.objects) + 1) % len(OBJECTS)]
         elif action == 'detection_floor':
             self.floor = (self.floor + 1) % len(FLOORS)
-            if self.state:
-                self.state.set_floor(FLOORS[self.floor])
+            if state := self._state():
+                state.set_floor(FLOORS[self.floor])
         elif action == 'trail_mode':
             self.trail = TRAILS[(TRAILS.index(self.trail) + 1) % len(TRAILS)]
         elif action == 'trail_restart':
-            if self.state and self.live:
-                self.state.restart_trail()
+            if self.live and (state := self._state()):
+                state.restart_trail()
         elif action == 'referee':
             self.referee = not self.referee
         else:

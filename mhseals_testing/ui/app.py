@@ -193,6 +193,9 @@ class SessionPaths:
 ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
 
 
+CURSORS = (*PANELS, 'list')   # every cursor an App keeps, the Bags tab's 'list' included
+
+
 class App:
     """The page, its key handling and the procedure context.
 
@@ -245,7 +248,7 @@ class App:
         self.map_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('view.minimap'))
         self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
         self.focus = 'status'
-        self.cursors = {panel: 0 for panel in (*PANELS, 'list')}
+        self.cursors = dict.fromkeys(CURSORS, 0)
         self.column = None   # Correction tab column; None follows the worst one
         self.activity = 'results'
         self.modal = None
@@ -858,7 +861,7 @@ class App:
             self.clear_pulses()  # test pulses only while their panel has focus
         self.grabbed = None
         self.focus, saved = self.tabs.switch(step, self.focus, self.cursors)
-        self.cursors = {**{panel: 0 for panel in PANELS}, **saved}
+        self.cursors = {**dict.fromkeys(CURSORS, 0), **saved}
 
     def move(self, step):
         count = self.rows(self.focus)
