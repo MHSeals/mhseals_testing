@@ -187,6 +187,8 @@ class Transfer:
             for extra, total in zip(self.passes.values(), totals):
                 if self._cancelled:
                     break
+                if (SIBLINGS in extra and not self.siblings()) or (LOGS in extra and not self.logs_dir):
+                    continue  # nothing to send for this pass
                 left = sum(size for _, size in self.pending(extra))
                 rc, tail = self._rsync(extra, total, left, base, on_progress)
                 if self._cancelled:

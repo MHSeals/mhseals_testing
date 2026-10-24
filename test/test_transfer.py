@@ -152,3 +152,15 @@ def test_flat_send_includes_siblings_and_skips_open_segment(tmp_path):
     assert (out / 'logs' / 'crane_1' / 'a.log').read_text() == 'l'
     assert not (out / 'crane_1' / '01').exists()
     assert not job.pending()
+
+
+@pytest.mark.skipif(not shutil.which('rsync'), reason='rsync not installed')
+def test_flat_without_logs_or_siblings_completes(tmp_path):
+    s = tmp_path / 'crane_2'
+    (s / '00').mkdir(parents=True)
+    (s / '00' / 'a.mcap').write_bytes(b'x' * 100)
+    out = tmp_path / 'out'
+    job = tr.Transfer(s, {'host': '', 'path': str(out)})
+    assert job.run() == 'complete', job.record['error']
+    assert (out / 'crane_2' / '00' / 'a.mcap').stat().st_size == 100
+    assert not job.pending()
