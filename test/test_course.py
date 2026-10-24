@@ -63,3 +63,60 @@ def test_invalid_source_has_no_artifact(tmp_path, monkeypatch, raw):
         compile_course(str(path))
     assert not cache.exists()
     assert path.read_text() == raw
+
+
+def test_actual_main_prints_only_unity_path_and_consumes_edits(installed_courses, monkeypatch, capsys):
+    """The existing entry-point main exports current coordinates, never sampling."""
+    from mhseals_testing.harness import cli
+    def forbidden(*args, **kwargs):
+        pytest.fail('course entered an operational path')
+    monkeypatch.setattr(cli, 'load_profile', forbidden)
+    monkeypatch.setattr(cli.health_config, 'load', forbidden)
+    monkeypatch.setattr(cli, 'host_collector', forbidden)
+    assert cli.main(['course', 'pair_test'], collect=forbidden) == 0
+    captured = capsys.readouterr()
+    first = Path(captured.out.strip())
+    assert captured.out == str(first) + '\n' and not captured.err
+    original = json.loads(first.read_text())
+    source = installed_courses / 'config/courses/pair_test.yaml'
+    before = source.read_text()
+    source.write_text(before.replace('y: 1.5', 'y: 2.5'))
+    edited = source.read_bytes()
+    assert cli.main(['course', str(source)]) == 0
+    second = Path(capsys.readouterr().out.strip())
+    assert first != second and first.exists()
+    consumed = json.loads(second.read_text())  # same file-read contract as Unity
+    assert original['elements'][0]['y'] == 1.5
+    assert consumed['elements'][0]['y'] == 2.5
+    assert source.read_bytes() == edited
+
+
+@pytest.mark.parametrize('source', ['missing_course', '/missing/course.yaml'])
+def test_actual_main_invalid_input_exits_without_stdout(installed_courses, capsys, source):
+    """A failed substitution cannot be mistaken for a generated input path."""
+    from mhseals_testing.harness.cli import main
+    assert main(['course', source]) == 2
+    captured = capsys.readouterr()
+    assert not captured.out and 'boat_trial course:' in captured.err
+
+
+@pytest.mark.parametrize('verb', ['plan', 'apply', 'set', 'revert', 'observe', 'log'])
+def test_course_route_does_not_enable_dormant_config_verbs(verb):
+    """The separate config parser remains the catalog-only surface."""
+    from mhseals_testing.harness.cli import main
+    with pytest.raises(SystemExit) as error:
+        main(['config', verb])
+    assert error.value.code == 2
+
+
+def test_actual_main_malformed_yaml_has_no_artifact(tmp_path, monkeypatch, capsys):
+    """Parser errors use normal CLI failure, before creating the cache."""
+    from mhseals_testing.harness.cli import main
+    source = tmp_path / 'malformed.yaml'
+    source.write_text('elements: [')
+    cache = tmp_path / 'cache'
+    monkeypatch.setenv('XDG_CACHE_HOME', str(cache))
+    assert main(['course', str(source)]) == 2
+    captured = capsys.readouterr()
+    assert not captured.out and 'boat_trial course:' in captured.err
+    assert not cache.exists()

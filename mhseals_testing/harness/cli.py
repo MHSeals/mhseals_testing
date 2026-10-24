@@ -128,6 +128,8 @@ def build_parser():
     check.add_argument('--fail-on', choices=('warn', 'fail'), default='fail')
     check.add_argument('--json', metavar='PATH', help='write JSON to PATH, or - for stdout')
     check.add_argument('--lint', action='store_true', help='check the YAML only; needs no ROS')
+    course = sub.add_parser('course', help='compile course YAML to cached Unity JSON')
+    course.add_argument('source', metavar='NAME|YAML')
     config = sub.add_parser('config', help='read-only configuration inventory')
     catalog = config.add_subparsers(dest='config_command', required=True).add_parser('catalog')
     catalog.add_argument('--json', metavar='PATH|-', help='write JSON to PATH, or - for stdout')
@@ -136,6 +138,16 @@ def build_parser():
 
 def main(argv=None, collect=None):
     args = build_parser().parse_args(argv)
+    if args.command == 'course':
+        import yaml
+        from mhseals_testing.course import compile_course
+        try:
+            path = compile_course(args.source)
+        except (OSError, ValueError, KeyError, ImportError, yaml.YAMLError) as error:
+            print(f'boat_trial course: {error}', file=sys.stderr)
+            return 2
+        print(path)
+        return 0
     if args.command == 'config':
         from mhseals_testing.catalog_inspect import installed, text
         view = installed()
