@@ -16,6 +16,7 @@ from mhseals_testing.ui.panels.status import status_rows
 
 from test_app import make_app
 from test_dashboard import monitor, view
+from mhseals_testing.ui.minimap.layerbox import LayerBox
 
 
 def test_tiers_follow_the_density_table():
@@ -130,10 +131,14 @@ def test_a_registered_body_shows_on_its_tab(monkeypatch):
     assert 'FAKE MAP BODY' in console.file.getvalue()
 
 
-def test_an_unregistered_tab_keeps_the_placeholder():
+def test_map_and_bags_tabs_have_real_bodies():
+    assert {'Map', 'Bags'} <= set(layout.BODIES)
     console = Console(width=100, height=30, file=io.StringIO(), force_terminal=False)
-    console.print(render(monitor().snapshot(), view(load_profile('boat'), tab='Bags'), 100, 30))
-    assert 'Bags is not built yet' in console.file.getvalue()
+    for tab in ('Map', 'Bags'):
+        console.print(render(monitor().snapshot(), view(load_profile('boat'), tab=tab, layerbox=LayerBox(None), bags=[], bag_usage=(1, 2, 0)),
+                           100, 30))
+    assert 'is not built yet' not in console.file.getvalue()
+    assert 'Layers' in console.file.getvalue() and 'sessions' in console.file.getvalue()
 
 
 def test_filled_conditions_and_minimap_slots_render_with_conditions_above_thrusters(monkeypatch):

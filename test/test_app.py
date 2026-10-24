@@ -1767,3 +1767,15 @@ def test_space_types_in_text_popups_without_stopping(tmp_path):
         press(app, 'space', 'x', 'enter')
         assert app.text_input('Name', 'say') == 'x'
         assert app.armed
+
+
+
+def test_map_tab_keys_toggle_layers_and_the_bags_tab_lists_sessions(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.show_tab('Map')
+    assert app.focus == 'map'
+    app.dispatch('c'), app.dispatch('R')
+    assert app.layerbox.costmap and app.layerbox.referee
+    app.show_tab('Bags')
+    assert app.focus == 'list'
+    assert isinstance(app.view()['bags'], list)

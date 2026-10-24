@@ -65,6 +65,9 @@ from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import MINIMAP, WIDE, TabMemory
 from mhseals_testing.ui.minimap import panel as minimap_panel
+from mhseals_testing.ui.minimap.layerbox import LayerBox
+from mhseals_testing.ui import keymap as keymap_module
+from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
@@ -238,8 +241,11 @@ class App:
         self.settings = args.settings
         self.tabs = TabMemory()
         self.minimap = minimap_panel.MiniMap(self.map_state)
+        self.layerbox = LayerBox(getattr(self.ros, 'map', None), self.map_state, live=True)
+        self.map_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('view.minimap'))
+        self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
         self.focus = 'status'
-        self.cursors = {panel: 0 for panel in PANELS}
+        self.cursors = {panel: 0 for panel in (*PANELS, 'list')}
         self.column = None   # Correction tab column; None follows the worst one
         self.activity = 'results'
         self.modal = None
@@ -558,6 +564,8 @@ class App:
             return len(status_rows(self.snapshot(), self.profile.sensors))
         if panel == 'thrusters':
             return 4
+        if panel == 'list':
+            return len(self.bag_scan[1])
         if panel == 'procedures':
             return len(PROCEDURES)
         if panel == 'activity':
@@ -585,7 +593,8 @@ class App:
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         shared = feeds_module.merged(self.feeds)
         own = dict(
-            tab=self.tab, minimap=self.minimap, focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
+            tab=self.tab, minimap=self.minimap, layerbox=self.layerbox,
+            **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
@@ -822,11 +831,26 @@ class App:
             self.switch_tab(step)
 
     def on_minimap(self, key):
-        """view.minimap keys on the Drive column: z/Z zoom, 0 back to +-20 m."""
+        """view.minimap keys (Drive column and Map tab): zoom, and the Layers box toggles."""
         if key in ('z', 'Z'):
             self.minimap.zoom(1 if key == 'z' else -1)
         elif key == '0':
             self.minimap.reset()
+        else:
+            self.layerbox.press(self.map_keys.get(key), self.minimap.half)
+
+    on_map = on_minimap
+
+    def bags_view(self):
+        """``(sessions, disk usage)`` for the Bags tab, re-scanned at most every 5 s while it shows."""
+        now = self.clock()
+        if now - self.bag_scan[0] >= 5:
+            recording = {self.paths.bag.name} if self.processes.running('bag') else ()
+            try:
+                self.bag_scan = (now, bags_module.scan(recording=recording), bags_module.disk())
+            except OSError:
+                self.bag_scan = (now, [], (0, 0, 0))
+        return self.bag_scan[1], self.bag_scan[2]
 
     def switch_tab(self, step):
         """Move to the next or previous tab, restoring the focus and cursors it was left with."""
@@ -904,8 +928,8 @@ class App:
               and not (self.focus == 'activity' and key == 'v')
               and not (self.focus == 'status' and key == 'e')):  # Nav2 popup there; interference elsewhere
             self.on_procedures(key)
-        elif self.focus == 'minimap':
-            self.on_minimap(raw)
+        elif self.focus in ('minimap', 'map'):
+            getattr(self, f'on_{self.focus}')(raw)
         elif raw == key:  # a Shift letter has no panel binding yet; folding it hit the lowercase ones
             getattr(self, f'on_{self.focus}', lambda key: None)(key)
 

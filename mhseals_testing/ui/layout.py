@@ -28,6 +28,7 @@ from mhseals_testing.ui.panels import scrubber
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels import correction
+from mhseals_testing.ui.panels import bags as bags_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
@@ -416,7 +417,34 @@ def correction_body(snapshot, view, width, height):
     return correction.render(model, width, height)
 
 
-BODIES = {'Drive': drive_body, 'Correction': correction_body}
+LAYERS_ROWS = 6   # the Layers box: four interior rows and its border
+
+
+def map_body(snapshot, view, width, height):
+    """The Map tab: the minimap over the full body, with the Layers box under it when there is room."""
+    box = view.get('layerbox')
+    rows = LAYERS_ROWS if box is not None and height > LAYERS_ROWS + 8 else 0
+    page = Layout()
+    cells = [Layout(minimap_panel(view, height - rows, width))]
+    if rows:
+        cells.append(Layout(box.render(view['focus'] == 'map'), size=rows))
+    page.split_column(*cells)
+    return page
+
+
+def bags_body(snapshot, view, width, height):
+    """The Bags tab: the session list over the selected session's summary."""
+    bags = view.get('bags') or []
+    cursor = min(view['cursors'].get('list', 0), max(0, len(bags) - 1))
+    page = Layout()
+    page.split_column(
+        Layout(bags_panel.render(bags, view.get('bag_usage') or (0, 0, 0), cursor, root=view.get('bag_root', ''),
+                                 focused=view['focus'] == 'list')),
+        Layout(bags_panel.summary(bags[cursor] if bags else None), size=5))
+    return page
+
+
+BODIES = {'Drive': drive_body, 'Correction': correction_body, 'Map': map_body, 'Bags': bags_body}
 
 
 def _with_modal(layout, view, width, height):
