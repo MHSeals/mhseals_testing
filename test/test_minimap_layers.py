@@ -2,7 +2,8 @@
 import numpy as np
 import pytest
 
-from mhseals_testing.ui.minimap import canvas, layers
+from mhseals_testing.ui.minimap import canvas, layers, panel
+from mhseals_testing.ui.minimap.state import MapState
 from mhseals_testing.ui.minimap.layers import Crumb
 
 
@@ -65,6 +66,18 @@ def test_speed_trail_survives_non_finite_speed_or_vmax(speed, vmax):
     frame = _frame()
     layers.draw_trail(frame, pts, 'speed', vmax=vmax)
     assert _dots(frame.canvas) > 0
+
+
+def test_speed_trail_survives_unknown_speed_from_map_state():
+    s = MapState()
+    for i in range(20):  # no gps_raw feed: every crumb has speed None
+        s.ingest('pose_map', t=float(i), x=i * 0.3, y=0.0)
+    crumbs = panel.crumbs(s)
+    assert crumbs and all(c.speed is None for c in crumbs)
+    frame = _frame()
+    layers.draw_trail(frame, crumbs, 'speed', vmax=1.0)
+    assert _dots(frame.canvas) > 0
+    assert 'trail.speed.spd.0' in {c.fg for row in frame.canvas.cells() for c in row}
 
 
 def test_older_epochs_are_dim_and_never_joined_to_the_new_one():
