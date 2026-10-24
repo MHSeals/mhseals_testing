@@ -17,7 +17,7 @@ def session(root, name, start, size=0, runs=0, markers=0, closed=True, **meta):
     (segment / 'bag_0.mcap').write_bytes(b'x' * size)
     if closed:
         (segment / 'metadata.yaml').write_text('x')
-    data.write_json(folder / 'session.json', {'start': start, 'end': start + 60, **meta}, bags.SCHEMA)
+    data.write_json(folder / 'session.json', {'created': start, 'ended': start + 60, **meta}, bags.SCHEMA)
     for index in range(runs):
         data.write_json(folder / 'runs' / f'r{index}.json', {}, 'mhseals.run/1')
     for index in range(markers):
@@ -60,7 +60,7 @@ def test_set_meta_round_trips_and_keeps_other_fields(root):
     bags.set_meta(bag, title='wind test', pinned=True)
     again = bags.scan(root)[0]
     assert (again.title, again.pinned, again.sim) == ('wind test', True, True)
-    assert data.read_json(folder / 'session.json')['start'] == 1000
+    assert data.read_json(folder / 'session.json')['created'] == 1000
     with pytest.raises(ValueError):
         bags.set_meta(bag, size=1)
 
@@ -134,3 +134,17 @@ def test_legacy_scan_skips_folders_without_a_bag(root):
     (root / 'real' / 'sub').mkdir(parents=True)
     (root / 'real' / 'sub' / 'metadata.yaml').write_text('x')
     assert [b.id for b in bags.scan(root)] == ['real']
+
+
+def test_session_create_header_round_trips_through_index_and_scan(root):
+    from mhseals_testing.harness import index, session as sessions
+    from datetime import datetime, timezone
+    made = sessions.create('sim_boat', host='h', clock={'domain': 'sim', 'time_scale': 1.0},
+                           now=datetime(2026, 10, 23, 14, 0, tzinfo=timezone.utc))
+    header = data.read_json(made.file)
+    header['ended'] = '2026-10-23T14:01:00Z'
+    data.write_json(made.file, header, sessions.SCHEMA)
+    data.append_jsonl(made.directory / 'events.jsonl', {'phase': 'health_snapshot', 'counts': {'ok': 3, 'fail': 2}})
+    index.rebuild(root)
+    bag = bags.scan(root)[0]
+    assert (bag.sim, bag.duration, bag.health_fails) == (True, 60.0, 2)

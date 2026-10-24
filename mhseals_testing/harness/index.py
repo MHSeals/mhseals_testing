@@ -81,6 +81,8 @@ def summarize(session):
     statuses = [r.get('status') for r in runs]
     outcome = next((s.lower() for s in ('MEASURED', 'ABORTED', 'EXCLUDED') if s in statuses), '')
     clock = header.get('clock') or {}
+    snapshots = [e.get('counts') or {} for e in events if e.get('phase') == 'health_snapshot']
+    health_fails = max((int(c.get('fail', 0)) for c in snapshots), default=0)
     profile = header.get('profile')
     starts = [s['start_ns'] for s in segments if s['start_ns']]
     return {
@@ -95,7 +97,7 @@ def summarize(session):
         'markers': [e for e in events if e.get('phase') == 'marker'],
         'runs': [{'id': r.get('id') or r.get('run_id'), 'procedure': r.get('procedure'), 'status': r.get('status')}
                  for r in runs],
-        'outcome': outcome, 'flags': flags}
+        'outcome': outcome, 'health_fails': health_fails, 'flags': flags}
 
 
 def row(summary):
@@ -139,7 +141,7 @@ A directory holding only a rosbag2 bag (no `session.json`) is indexed too, with 
 
 `id, title, note, pinned, profile, host, kind, clock, git, config`, `time {start, end, duration_s}`,
 `segments [{dir, finalized, empty, bytes, duration_s}]`, `topics [{name, type, count}]`, `markers [...]`,
-`runs [{id, procedure, status}]`, `outcome`, `flags`.
+`runs [{id, procedure, status}]`, `outcome`, `health_fails` (most failing checks in any health snapshot), `flags`.
 
 ## Flags
 

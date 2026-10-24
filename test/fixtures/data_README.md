@@ -31,7 +31,7 @@ A directory holding only a rosbag2 bag (no `session.json`) is indexed too, with 
 
 `id, title, note, pinned, profile, host, kind, clock, git, config`, `time {start, end, duration_s}`,
 `segments [{dir, finalized, empty, bytes, duration_s}]`, `topics [{name, type, count}]`, `markers [...]`,
-`runs [{id, procedure, status}]`, `outcome`, `flags`.
+`runs [{id, procedure, status}]`, `outcome`, `health_fails` (most failing checks in any health snapshot), `flags`.
 
 ## Flags
 

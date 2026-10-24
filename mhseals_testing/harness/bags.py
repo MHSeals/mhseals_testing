@@ -190,9 +190,11 @@ def _load(folder, legacy, recording):
         bag.health_fails = int(summary.get('health_fails') or 0)
     bag.title, bag.note = str(meta.get('title') or ''), str(meta.get('note') or '')
     bag.pinned, bag.sent = bool(meta.get('pinned')), bool(meta.get('sent'))
-    bag.sim = bool((meta.get('profile') or {}).get('sim')) if not legacy else False
     header = {} if legacy else data.read_json(folder / 'session.json', {})
-    start, end = _epoch(header.get('start')), _epoch(header.get('end'))
+    profile = header.get('profile')      # a name string (session.create); older headers held {'sim': bool}
+    bag.sim = not legacy and (bool(profile.get('sim')) if isinstance(profile, dict)
+                              else (header.get('clock') or {}).get('domain') == 'sim')
+    start, end = _epoch(header.get('created')), _epoch(header.get('ended'))
     bag.start = start or folder.stat().st_mtime
     bag.duration = max(0.0, end - start) if start and end else 0.0
     bag.markers = _markers(folder)
