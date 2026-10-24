@@ -101,7 +101,17 @@ class CameraFeed:
             if self._last is not None and now - self._last < 1.0 / self.hz:
                 return
             self._last = now
-            self._frame = (self._encode(message) if self._encode else bytes(message.data), now)
+            self._frame = (self._jpeg(message), now)
+
+    def _jpeg(self, message):
+        """The frame's JPEG bytes; an undecodable message becomes b'' so the view shows 'bad frame'.
+
+        This runs in the executor thread, where a raise would end the only ROS spin.
+        """
+        try:
+            return self._encode(message) if self._encode else bytes(message.data)
+        except Exception:
+            return b''
 
 
 def node_feed(node, raw=False, **kwargs):

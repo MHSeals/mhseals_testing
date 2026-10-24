@@ -89,3 +89,20 @@ def test_raw_image_becomes_jpeg_and_profile_picks_the_sim_topic():
     assert camera_feed.camera_source([spec]) == ('/front_camera/rgb/image', True)
     assert camera_feed.camera_source([SensorSpec('c', '/x/compressed', 'compressed')]) == ('/x/compressed', False)
     assert camera_feed.camera_source([]) == (PREVIEW_TOPIC, False)
+
+
+@pytest.mark.parametrize('message', [
+    SimpleNamespace(encoding='bgra8', height=2, width=2, step=8, data=bytes(16)),   # unsupported
+    SimpleNamespace(encoding='rgb8', height=4, width=4, step=12, data=bytes(10)),   # short buffer
+])
+def test_an_undecodable_raw_frame_does_not_raise_and_shows_as_a_bad_frame(message):
+    from mhseals_testing.ros.camera_feed import raw_to_jpeg
+    from mhseals_testing.ui import camera_view
+    bus = Bus()
+    feed = CameraFeed(bus.subscribe, bus.unsubscribe, clock=lambda: bus.t, encode=raw_to_jpeg)
+    view = camera_view.CameraView(feed, (8, 4), lambda text: None)
+    feed.open()
+    for _, callback in list(bus.live.values()):
+        callback(message)                                            # must not end the ROS spin
+    view.lines()
+    assert view.notice == camera_view.BAD_FRAME

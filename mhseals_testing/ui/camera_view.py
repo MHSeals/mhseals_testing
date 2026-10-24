@@ -169,8 +169,8 @@ class CameraView:
         """Rich Text lines for the pane (``rows`` of them); uploads the kitty frame when it changed."""
         frame = self._source()
         if frame is None:
-            return [Text(f'{WAITING} on {self.feed.topic}' if row == 0 else '', style=theme.MUTED)
-                    for row in range(self.rows)]
+            waiting = f'{WAITING} on {self.feed.topic}'
+            return [Text(waiting if row == 0 else '', style=theme.MUTED) for row in range(self.rows)]
         if self.text_only():
             return self._detection_list(frame)
         image = self._annotated(frame[1], self.kitty)
