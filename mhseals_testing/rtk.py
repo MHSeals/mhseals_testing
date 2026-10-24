@@ -13,10 +13,12 @@ from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
+import warnings
 
 import yaml
 
 from mhseals_testing import data
+from mhseals_testing.strict_yaml import load_strict
 
 DEFAULTS = dict(device='', radio='', radio_baud=57600, survey_seconds=120,
                 survey_accuracy=2.0, positions={})
@@ -33,8 +35,10 @@ def config_path():
 def load_config(path=None):
     path = Path(path or config_path())
     config = deepcopy(DEFAULTS)
+    if not path.exists() and os.environ.get('MHSEALS_RTK_CONFIG') and path == config_path():
+        warnings.warn(f'MHSEALS_RTK_CONFIG {path} does not exist; using RTK defaults')
     if path.exists():
-        saved = yaml.safe_load(path.read_text()) or {}
+        saved = load_strict(path.read_text()) or {}
         if not isinstance(saved, dict):
             raise ValueError('RTK settings must be a YAML mapping')
         config.update(saved)

@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from mhseals_testing import data
+from mhseals_testing.strict_yaml import load_strict
 
 
 def path():
@@ -27,7 +28,7 @@ def path():
 def load(target=None):
     """The overlay mapping; a missing, empty or non-mapping file is no overlay."""
     try:
-        loaded = yaml.safe_load(Path(target or path()).read_text())
+        loaded = load_strict(Path(target or path()).read_text())
     except FileNotFoundError:
         return {}
     return loaded if isinstance(loaded, dict) else {}

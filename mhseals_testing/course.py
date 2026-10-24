@@ -8,24 +8,7 @@ import re
 import struct
 import tempfile
 
-import yaml
-
-
-class CourseLoader(yaml.SafeLoader):
-    """Reject aliases/merges/duplicate keys before YAML discards information."""
-
-    def compose_node(self, parent, index):
-        if self.check_event(yaml.AliasEvent):
-            raise ValueError('course aliases are unsupported (including cycles)')
-        return super().compose_node(parent, index)
-
-    def construct_mapping(self, node, deep=False):
-        seen = set()
-        for key, _ in node.value:
-            if key.tag != 'tag:yaml.org,2002:str' or key.value in seen:
-                raise ValueError('course keys must be unique strings; no merge keys')
-            seen.add(key.value)
-        return super().construct_mapping(node, deep=deep)
+from mhseals_testing.strict_yaml import load_strict
 
 
 def _strings(value):
@@ -34,7 +17,7 @@ def _strings(value):
 
 def parse(raw):
     """Preserve supplied fields; omitted Unity fields retain Unity's defaults."""
-    data = yaml.load(raw, Loader=CourseLoader)
+    data = load_strict(raw)
     if not isinstance(data, dict) or set(data) - {'name', 'hide', 'jitter', 'elements'}:
         raise ValueError('expected a course mapping')
     if 'name' in data and type(data['name']) is not str:

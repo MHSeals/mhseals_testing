@@ -320,3 +320,12 @@ def test_a_nak_to_the_operators_configure_ends_in_error_after_one_attempt(monkey
     session.close()
     assert state['phase'] == 'error' and 'rejected CFG-VALSET' in state['detail'], state
     assert port.sent.count('CFG-VALSET') == 1
+
+
+def test_configured_missing_rtk_file_warns_and_a_duplicate_key_is_refused(monkeypatch, tmp_path):
+    monkeypatch.setenv('MHSEALS_RTK_CONFIG', str(tmp_path / 'rtk.yaml'))
+    with pytest.warns(UserWarning, match='rtk.yaml does not exist'):
+        assert load_config() == load_config(tmp_path / 'other.yaml')
+    (tmp_path / 'rtk.yaml').write_text('radio_baud: 9600\nradio_baud: 57600\n')
+    with pytest.raises(ValueError, match='duplicate key'):
+        load_config()

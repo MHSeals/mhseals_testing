@@ -10,6 +10,8 @@ from unicodedata import east_asian_width
 
 import yaml
 
+from mhseals_testing.strict_yaml import load_strict
+
 Symbol = namedtuple('Symbol', 'label glyph ascii colour radius name')
 
 
@@ -26,20 +28,6 @@ def _default_path():
 
 
 FIELDS = ('glyph', 'ascii', 'colour', 'radius', 'name')
-
-
-class _UniqueLoader(yaml.SafeLoader):
-    """SafeLoader that rejects a repeated mapping key instead of keeping the last."""
-
-    def construct_mapping(self, node, deep=False):
-        seen = set()
-        for key_node, _ in node.value:
-            key = self.construct_object(key_node, deep=True)
-            if key in seen:
-                raise yaml.constructor.ConstructorError(
-                    None, None, f'duplicate key {key!r}', key_node.start_mark)
-            seen.add(key)
-        return super().construct_mapping(node, deep)
 
 
 def _symbol(label, entry):
@@ -105,7 +93,7 @@ def load_classes(path=None, tokens=None):
     """
     path = Path(path or _default_path())
     try:
-        data = yaml.load(path.read_text(), Loader=_UniqueLoader)
+        data = load_strict(path.read_text())
         if not isinstance(data, dict):
             raise ValueError('expected a mapping with classes and unknown')
         for key in ('classes', 'unknown'):

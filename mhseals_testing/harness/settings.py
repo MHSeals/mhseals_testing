@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.strict_yaml import load_strict
+
 
 @dataclass(frozen=True)
 class Spec:
@@ -128,8 +130,8 @@ def load(path=None):
     """Settings from the user's file; a broken file or value falls back to the default."""
     settings = Settings()
     try:
-        saved = yaml.safe_load(Path(path or settings_path()).read_text())
-    except (OSError, yaml.YAMLError, UnicodeDecodeError):
+        saved = load_strict(Path(path or settings_path()).read_text())
+    except (OSError, ValueError, yaml.YAMLError):
         return settings
     for key, value in (saved if isinstance(saved, dict) else {}).items():
         spec = BY_KEY.get(key)

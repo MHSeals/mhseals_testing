@@ -9,10 +9,9 @@ profile cannot run.
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing.analysis.power import CHEMISTRIES
 from mhseals_testing.harness.components import parse_components
+from mhseals_testing.strict_yaml import load_strict
 
 
 def _profile_dir():
@@ -234,7 +233,7 @@ def load_profile(name_or_path, directory=PROFILE_DIR):
         path = Path(directory) / f'{name_or_path}.yaml'
     if not path.exists():
         raise FileNotFoundError(f'no profile {name_or_path!r}; shipped: {available_profiles(directory)}')
-    return parse_profile(yaml.safe_load(path.read_text()), where=path.name)
+    return parse_profile(load_strict(path.read_text()), where=path.name)
 
 
 def profile_descriptions(directory=PROFILE_DIR):
