@@ -187,3 +187,35 @@ def test_armed_channel_map_revert_is_blocked(tmp_path):
     b['hardware'].live_keys = frozenset({'command_timeout'})
     p = revert.plan(h, b, make_env(armed=True), first['id'], 'hardware')
     assert not p.ok and p.blockers
+
+
+class Broken(Fake):
+    """A subsystem whose live file is unreadable until something is applied."""
+    broken = True
+
+    def read(self):
+        if self.broken:
+            raise OSError('hardware config is unreadable')
+        return super().read()
+
+    def apply(self, version):
+        super().apply(version)
+        self.broken = False
+
+
+@pytest.mark.parametrize('ref', ['first', 'head'])
+def test_revert_with_unreadable_live_config_overwrites_it(tmp_path, ref):
+    h, _, first = seed(tmp_path)
+    b = {'hardware': Broken({'gain': 2, 'pin': 9})}
+    target = first['id'] if ref == 'first' else h.head('hardware')['id']
+    p = revert.plan(h, b, make_env(), target, 'hardware')
+    out = revert.execute(h, b, make_env(), p)      # must return an Outcome, never raise
+    assert out.status == 'reverted'
+    assert b['hardware'].value == h.version(h.resolve(target, 'hardware'))['value']
+
+
+def test_unreadable_live_config_with_failed_apply_does_not_raise(tmp_path):
+    h, _, first = seed(tmp_path)
+    b = {'hardware': Broken({'gain': 2, 'pin': 9}, fail_on=[{'gain': 1, 'pin': 7}])}
+    p = revert.plan(h, b, make_env(), first['id'], 'hardware')
+    assert revert.execute(h, b, make_env(), p).status in ('rolled_back', 'restore_failed')

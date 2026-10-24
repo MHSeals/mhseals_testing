@@ -138,25 +138,34 @@ def _execute(history, backends, env, p, settings, source, session):
     fresh = plan(history, backends, env, p.target['id'], sub, settings)
     if fresh.blockers:
         return Outcome('blocked', '; '.join(fresh.blockers))
-    live, raw, meta = backend.read()
-    if hist.digest(live) != fresh.current['after']:
+    try:
+        live, raw, meta = backend.read()
+    except OSError:
+        live = None       # broken or missing file: the stored target is valid, so overwrite it
+    if live is not None and hist.digest(live) != fresh.current['after']:
         history.observe(sub, live, raw, meta)      # the world moved: record it, preview again
         return Outcome('stale', 'live state differed from the head; review the new diff')
-    if fresh.target['after'] == fresh.current['after']:
+    if live is not None and fresh.target['after'] == fresh.current['after']:
         return Outcome('noop', 'already at that version')
     target, previous = history.version(fresh.target), history.version(fresh.current)
     timeout = settings['verify_timeout_s'][sub]
     with env.hold(f'revert-{uuid.uuid4().hex[:8]}') if fresh.hold else contextlib.nullcontext():
         if _applied(backend, target, timeout):
-            live, raw, meta = backend.read()          # the live state, not the stored target (imports, moved defaults)
+            try:
+                live, raw, meta = backend.read()      # the live state, not the stored target (imports, moved defaults)
+            except OSError as exc:
+                return Outcome('restore_failed', f'applied but unreadable afterwards: {exc}')
             change = history.record(sub, live, raw, source=source, session=session,
                                     revert_of=fresh.target['id'], meta=meta,
                                     summary=[f"revert to {fresh.target['id']}"])
             return Outcome('reverted', change=change)
         if _applied(backend, previous, timeout):
             return Outcome('rolled_back', 'verify failed; previous version restored')
-    live, raw, meta = backend.read()
-    history.observe(sub, live, raw, meta)         # record the true state
+    try:
+        live, raw, meta = backend.read()
+        history.observe(sub, live, raw, meta)     # record the true state
+    except OSError:
+        pass                                      # nothing readable to record
     return Outcome('restore_failed', 'verify failed and the previous version did not restore')
 
 
