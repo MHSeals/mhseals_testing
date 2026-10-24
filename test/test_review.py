@@ -132,3 +132,37 @@ def test_first_rec_start_is_no_window_and_marker_note_edits_fold():
     _, _, markers, windows, gaps, _ = timeline(evs)
     assert windows == [] and gaps == []
     assert markers == [(110.0, 'wake', 'user')]
+
+
+@pytest.mark.parametrize('duration', [0, 100, 720, float('nan'), float('inf')])
+def test_activity_omits_a_loupe_without_a_smaller_known_window(duration):
+    from mhseals_testing.ui.panels.activity import _show_loupe
+    r = review()
+    r.t1 = r.t0 + duration
+    assert not _show_loupe(r)
+
+
+@pytest.mark.parametrize('width', [120, 80, 60, 48])
+@pytest.mark.parametrize('ascii_mode', [False, True])
+def test_activity_loupe_only_repeats_the_overview_when_it_adds_detail(width, ascii_mode, monkeypatch):
+    from rich.console import Console
+    from mhseals_testing.ui import theme
+    from mhseals_testing.ui.panels.activity import activity_panel
+    monkeypatch.setattr(theme, 'ASCII', ascii_mode)
+    r = review()
+    snapshot = {'events': [(100 + i, f'event-{i:02d}') for i in range(20)]}
+    view = dict(focus='activity', cursors={}, activity='log', now=200, review=r)
+
+    def rendered():
+        console = Console(width=width, record=True, color_system=None)
+        console.print(activity_panel(snapshot, view, 16))
+        return console.export_text()
+
+    short = rendered()
+    assert 'loupe' not in short and 'review' in short
+    assert 'event-07' in short  # 13 list rows, rather than eight below a redundant strip
+    r.t1 = r.t0 + 3600
+    long = rendered()
+    assert 'loupe 12m' in long and 'event-07' not in long
+    assert 'event-12' in long
+    assert all(len(line) <= width for line in (short + long).splitlines())

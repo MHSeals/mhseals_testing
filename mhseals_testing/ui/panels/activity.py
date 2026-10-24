@@ -1,5 +1,7 @@
 """Activity panel: the event log or the procedure results."""
 
+from math import isfinite
+
 from rich.console import Group
 from rich.text import Text
 
@@ -33,14 +35,26 @@ def result_detail(result):
 
 
 def _subtitle(text, review):
-    return f'review{SEPARATOR}loupe {label(review.loupe)}{SEPARATOR}{text}' if review else text
+    if not review:
+        return text
+    zoom = f'loupe {label(review.loupe)}{SEPARATOR}' if _show_loupe(review) else ''
+    return f'review{SEPARATOR}{zoom}{text}'
 
 
 LOUPE_ROWS = 5   # strip.rows form 'panel'
 
 
+def _show_loupe(review):
+    """Only spend Activity rows on a window narrower than the session overview."""
+    if not review:
+        return False
+    duration = review.t1 - review.t0
+    return (isfinite(duration) and isfinite(review.loupe)
+            and 0 < review.loupe < duration)
+
+
 def _with_loupe(body, review):
-    return Group(Loupe(review), body) if review else body
+    return Group(Loupe(review), body) if _show_loupe(review) else body
 
 
 def activity_panel(snapshot, view, height):
@@ -49,7 +63,7 @@ def activity_panel(snapshot, view, height):
     budget = max(1, height - 3)
     review = view.get('review')
     review = review if review and not isinstance(review, bool) else None
-    if review:      # the loupe strip and its caption take rows from the list
+    if _show_loupe(review):      # only a distinct local window takes rows from the list
         budget = max(1, budget - LOUPE_ROWS)
     if view['activity'] == 'log':
         table = theme.grid({'header': '  Event', 'ratio': 1}, {'header': 'Age', 'justify': 'right'},

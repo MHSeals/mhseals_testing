@@ -151,6 +151,7 @@ def test_review_footer_golden(width, tmp_path, monkeypatch):
 
 def test_z_cycles_the_activity_loupe_and_changes_its_label(tmp_path):
     app, _ = make_app_review(tmp_path)
+    app.review.t1 = app.review.t0 + 3600
     app.focus = 'activity'
     seen = []
     for _ in range(4):
