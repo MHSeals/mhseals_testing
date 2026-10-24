@@ -1,0 +1,11 @@
+╭─ ▸ Authority · seq 118 ──────────────────────────────────────────────────────────────────────────╮
+│ Driving     AGENT · claim c7 tune_mppi · "MPPI vx_max sweep 3/8" · 4m12s                         │
+│ Physical    auto · hold off                                                                      │
+│ RC          GUIDED · 9.1 Hz · p95 71 ms                                                          │
+│ Claims                                                                                           │
+│ › c7        AGENT  tune_mppi     active    4m12s   tranquility 5120                              │
+│   c6        OURS   characterize  revoked   -       this instance                                 │
+│ Inputs      /cmd_vel ← velocity_smoother · /cmd_vel/manual ← -                                   │
+│ Nav2        9f2c00 executing (claim c7)                                                          │
+│ Recent      00:00:01 idle ↔ AGENT (claim)                                                        │
+╰─  E revoke selected  U release hold  Esc close  ─────────────────────────────────────────────────╯
