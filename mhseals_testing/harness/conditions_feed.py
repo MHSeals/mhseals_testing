@@ -52,17 +52,23 @@ class ConditionsFeed:
         self._last = None
 
     @staticmethod
-    def _fresh(row, spec):
+    def _fresh(row, spec, captured, now):
         if not row or spec is None or row.get('status') != 'LIVE' or row.get('issue'):
             return False
         deadline = spec.deadline if spec.deadline is not None else 2.0
-        age, stamp_age = row.get('age'), row.get('stamp_age')
+        received, stamp_age = row.get('received'), row.get('stamp_age')
+        if not _finite(received):
+            return False
+        age = now - received
+        if stamp_age is not None:
+            stamp_age = stamp_age + now - captured if _finite(stamp_age) else math.nan
         return (_finite(age) and 0 <= age <= deadline and
                 (stamp_age is None or (_finite(stamp_age) and -.25 <= stamp_age <= deadline)))
 
     def poll(self, snapshot, now, *, eligible, commanding):
         """Consume a new source receipt once, even when invalid or ineligible.
 
+        Snapshots require immutable row.received and plots.now capture metadata.
         A count restart with advancing receipt starts an epoch; a swapped old row
         is ignored. A backwards polling clock starts an epoch independently.
         Callers must not replay this snapshot after repairing missing attitude.
@@ -73,27 +79,27 @@ class ConditionsFeed:
             self.epoch += 1
             self._last = None
         self._now = now
+        captured = snapshot.get('plots', {}).get('now')
+        if not _finite(captured) or captured > now:
+            return None  # capture time must share the polling/monitor clock
         rows = snapshot.get('sensors', {})
         row = rows.get(self.source.name) if self.source else None
         if not row:
             return None
-        count, age = row.get('count'), row.get('age')
-        if type(count) is not int or count < 1 or not _finite(age) or age < 0:
-            return None
-        received = now - age
-        if not _finite(received):
+        count, received = row.get('count'), row.get('received')
+        if (type(count) is not int or count < 1 or not _finite(received)
+                or received > captured):
             return None
         if self._last:
             old_count, old_time = self._last
-            if count == old_count or received < old_time - 1e-9:
+            if received < old_time or (count <= old_count and received == old_time):
                 return None
-            if count < old_count:
-                if received <= old_time + 1e-9:
-                    return None
-                self.epoch += 1
+            if count <= old_count:
+                self.epoch += 1  # equal count with a new receipt also denotes restart
         self._last = count, received
         att = rows.get(self.attitude.name) if self.attitude else None
-        if not self._fresh(row, self.source) or not self._fresh(att, self.attitude):
+        if not (self._fresh(row, self.source, captured, now)
+                and self._fresh(att, self.attitude, captured, now)):
             return None
         values, angles = row.get('values', {}), att.get('values', {})
         yaw, rate = angles.get('yaw'), angles.get('wz')
@@ -110,6 +116,6 @@ class ConditionsFeed:
         if not all(_finite(v) for v in (e, n, yaw, rate)):
             return None
         stamp_age = row.get('stamp_age')
-        stamp_time = None if stamp_age is None else now - stamp_age
+        stamp_time = None if stamp_age is None else captured - stamp_age
         return SourceSample(received, count, stamp_time, (e, n), (math.pi / 2 - yaw) % (2 * math.pi),
                             rate, accuracy, eligible is True and commanding is False, self.epoch)

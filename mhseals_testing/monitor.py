@@ -124,7 +124,8 @@ class BoatMonitor:
             status = 'STALE' if age > stale_after else ('WARN' if issue else 'LIVE')
             hz = ((len(times) - 1) / (times[-1] - times[0])
                   if len(times) > 1 and times[-1] > times[0] else 0)
-            sensors[name] = dict(age=age, status=status, issue=issue, stamp_age=stamp_age,
+            sensors[name] = dict(age=age, received=entry['times'][-1], status=status,
+                                 issue=issue, stamp_age=stamp_age,
                                  count=entry['count'], hz=hz, max_gap=max_gap,
                                  values=deepcopy(entry['values']))
         return sensors

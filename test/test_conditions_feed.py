@@ -127,3 +127,65 @@ def test_source_stamp_and_count_and_high_accuracy_remain_for_window_median():
     sample = poll(monitor, feed, clock[0])
     assert sample.time == 10 and sample.count == 1 and sample.stamp_time == pytest.approx(9.9)
     assert sample.accuracy == .5  # threshold belongs to centered window median, not adapter
+
+
+def test_cached_snapshot_preserves_receipt_and_stamp_then_expires():
+    clock, monitor, feed = setup()
+    observe(monitor, stamp_age=.1)
+    snapshot = monitor.snapshot()
+    sample = feed.poll(snapshot, 10.2, eligible=True, commanding=False)
+    assert sample.time == 10 and sample.stamp_time == pytest.approx(9.9)
+    assert feed.poll(snapshot, 10.4, eligible=True, commanding=False) is None
+    delayed = ConditionsFeed(load_profile('boat'))
+    assert delayed.poll(snapshot, 13, eligible=True, commanding=False) is None
+
+
+def test_cached_attitude_expires_relative_to_poll():
+    clock, monitor, feed = setup()
+    monitor.observe('odometry', dict(yaw=0, wz=0), stamp_age=0)
+    clock[0] = 11
+    monitor.observe('GPS raw', dict(ve=0, vn=0, fix=3, vel_acc=.1), stamp_age=0)
+    snapshot = monitor.snapshot()  # both LIVE here; only attitude expires by poll time
+    assert feed.poll(snapshot, 12.5, eligible=True, commanding=False) is None
+
+
+@pytest.mark.parametrize('invalid', [False, True])
+def test_equal_count_restart_advances_epoch_once_even_when_invalid(invalid):
+    clock, monitor, feed = setup()
+    observe(monitor)
+    old = monitor.snapshot()
+    first = poll(monitor, feed, clock[0])
+    clock[0] = 11
+    monitor.sensors.clear()
+    observe(monitor)
+    if invalid:
+        monitor.sensors['GPS raw']['values']['vel_acc'] = 0
+    snapshot = monitor.snapshot()
+    sample = feed.poll(snapshot, 11, eligible=True, commanding=False)
+    assert (sample is None) == invalid
+    assert feed.epoch == first.epoch + 1
+    assert feed.poll(snapshot, 11.1, eligible=True, commanding=False) is None
+    assert feed.poll(old, 11.1, eligible=True, commanding=False) is None
+    assert feed.epoch == first.epoch + 1
+    clock[0] = 11.2
+    observe(monitor)
+    assert poll(monitor, feed, clock[0]).epoch == first.epoch + 1
+
+
+@pytest.mark.parametrize('metadata', ['received', 'capture'])
+def test_missing_receipt_metadata_does_not_fall_back_to_poll_time(metadata):
+    clock, monitor, feed = setup()
+    observe(monitor)
+    snapshot = monitor.snapshot()
+    if metadata == 'received':
+        snapshot['sensors']['GPS raw'].pop('received', None)
+    else:
+        snapshot['plots'].pop('now')
+    assert feed.poll(snapshot, clock[0], eligible=True, commanding=False) is None
+
+
+def test_delayed_snapshot_expires_message_stamp_before_receipt():
+    clock, monitor, feed = setup()
+    observe(monitor, stamp_age=1)
+    snapshot = monitor.snapshot()
+    assert feed.poll(snapshot, 11.5, eligible=True, commanding=False) is None
