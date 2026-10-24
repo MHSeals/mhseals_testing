@@ -109,3 +109,17 @@ def test_profile_without_the_sensors_has_no_rows():
     m = BoatMonitor(clock=lambda: 10)
     m.observe('GPS raw', dict(fix=3, sats=21, h_acc=2.1), stamp_age=0)
     assert localization_rows(m.snapshot(), ()) == []
+
+
+def test_validated_mag_message_renders_the_compass_rows():
+    """The producer's values, not hand-made ones, must carry the vector the Status row reads (FC-5)."""
+    from mhseals_testing.validation import validate
+    vec = SimpleNamespace(x=WMM[0], y=WMM[1], z=WMM[2])
+    stamp = SimpleNamespace(sec=10, nanosec=0)
+    message = SimpleNamespace(header=SimpleNamespace(frame_id='imu', stamp=stamp), magnetic_field=vec)
+    observation = validate('mag', message, 10.0)
+    assert (observation.values['x'], observation.values['z']) == WMM[::2]
+    m = BoatMonitor(clock=lambda: 10)
+    m.observe('mag', observation.values, stamp_age=0)
+    rows = {r['name']: r for r in localization_rows(m.snapshot(), SPECS)}
+    assert rows['Compass']['state'] == 'OK' and rows['Compass']['value'] == '468/470 mG'

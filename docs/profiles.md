@@ -25,7 +25,7 @@ adding `--crane-wind 8,90 --crane-water-current 0.15,0 --crane-disturbance-after
 a moderate breeze and current. The referee reads `course_truth` from the profile.
 
 For `pair_test` or `circle_test`, this package's `config/courses/<task>.yaml` is the
-editable course. Pass `--crane-roboboat-course "$(boat_trial course circle_test)"` (or
+editable course. Pass `--crane-roboboat-course "$(ros2 run mhseals_testing boat_trial course circle_test)"` (or
 `pair_test`) to your existing Unity command and choose the matching task under `t`.
 Negate both buoy `y` coordinates in the pair course to swap the colours. These courses
 tag their objects for the referee; without matching course truth it reports `N/A`, while

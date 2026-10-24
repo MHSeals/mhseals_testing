@@ -115,7 +115,8 @@ def _mag(message):
     values = dict(summary='')
     if not finite(field.x, field.y, field.z):
         return values, 'non-finite magnetic field'
-    # Tesla to milligauss (1 mG = 1e-7 T).
+    # The vector stays in tesla for the Status compass row; field_mg converts (1 mG = 1e-7 T).
+    values.update(x=field.x, y=field.y, z=field.z)
     values['field_mg'] = math.sqrt(field.x ** 2 + field.y ** 2 + field.z ** 2) * 1e7
     values['summary'] = f"|B| {values['field_mg']:.0f} mG | {message.header.frame_id}"
     return values, '' if values['field_mg'] > 0 else 'magnetic field is zero'

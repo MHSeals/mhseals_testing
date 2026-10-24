@@ -12,7 +12,7 @@ ros2 run mhseals_testing boat_test --start-stack                     # also star
 ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
 ```
 
-`boat_test` starts passive and commands nothing until the outputs are armed. It is one page of five panels: Status (sensors, TF, system health), Motion, Thrusters, Procedures and Activity (results or log). The header shows health and `✓ Disarmed` / `! Armed`; the footer shows the keys for the focused panel and always keeps Space Stop, Help and Quit; prompts are popups that scroll when the terminal is short. `?` lists every key. Letter keys ignore Shift and Caps Lock. Below 60 columns the Status column folds away; below 36×10 the page becomes an enlarge-terminal hint that still shows the armed state and Space stop.
+`boat_test` starts passive and commands nothing until the outputs are armed. It is one page of five panels: Status (sensors, TF, system health), Motion, Thrusters, Procedures and Activity (results or log). The header shows health and `✓ Disarmed` / `! Armed`; the footer shows the keys for the focused panel and always keeps Space Stop, Help and Quit; prompts are popups that scroll when the terminal is short. `?` lists every key. Letter keys ignore Shift and Caps Lock. Below 60 columns the Status column folds away; below 36×10 the page becomes an enlarge-terminal hint that still shows the armed state and Space stop. `colcon build --packages-select mhseals_testing` installs `boat_test`, `boat_trial` and `rtk_base` into `install/mhseals_testing/lib/mhseals_testing` (`setup.cfg`, the ament layout), which is not on `PATH`. Start them with `ros2 run mhseals_testing <name>` after sourcing `install/setup.bash`; a bare `boat_test` gives exit 127 by design. Below, `boat_trial` stands for `ros2 run mhseals_testing boat_trial`.
 
 Every state has its own glyph (✓ ok, ! warn, × fail, ◌ busy, ○ off), so the page reads without color (`NO_COLOR`). `TERM=dumb` or `MHS_ASCII=1` draws pure ASCII; `MHS_ASCII=0` leaves it off.
 
@@ -54,7 +54,7 @@ Characterization is temporarily unavailable: the public procedure and TUI refuse
 `boat` uses real PWM and sensors; `crane_direct` bypasses navigation with Unity
 velocity/truth; `crane_full_stack` uses ROS PWM and simulated sensors through nav.
 `boat_trial profiles` explains each profile; TUI `?` shows the active description.
-Use `--crane-roboboat-course "$(boat_trial course circle_test)"` for a YAML course.
+Use `--crane-roboboat-course "$(ros2 run mhseals_testing boat_trial course circle_test)"` for a YAML course.
 See [profile and course setup](docs/profiles.md) for flags, topics and cache details.
 
 ### Data
