@@ -703,9 +703,11 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
 
 @pytest.mark.parametrize('width,path,expected', [
     (120, ['ctrl-l', 'ctrl-j', 'ctrl-l', 'ctrl-k', 'ctrl-h'], 'motion'),
-    (120, ['ctrl-right', 'ctrl-right', 'ctrl-down', 'ctrl-left'], 'procedures'),
+    (120, ['ctrl-right', 'ctrl-right', 'ctrl-down', 'ctrl-down', 'ctrl-left'], 'procedures'),
     (120, ['ctrl-k', 'ctrl-h'], 'status'),               # no panel there: focus stays
-    (80, ['ctrl-l', 'ctrl-j', 'ctrl-j', 'ctrl-k'], 'procedures'),
+    (120, ['ctrl-l', 'ctrl-l', 'ctrl-j', 'ctrl-k'], 'conditions'),
+    (100, ['ctrl-l', 'ctrl-l', 'ctrl-j'], 'thrusters'),
+    (80, ['ctrl-l', 'ctrl-j', 'ctrl-j', 'ctrl-j', 'ctrl-k'], 'thrusters'),   # stack: Motion, Conditions, Thrusters
     (80, ['ctrl-l', 'ctrl-j', 'ctrl-h'], 'status'),
 ])
 def test_ctrl_directions_focus_the_neighbouring_panel(tmp_path, width, path, expected):

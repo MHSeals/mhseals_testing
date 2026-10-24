@@ -4,7 +4,7 @@ Every ``<name>_panel(...)`` returns a Rich renderable from the monitor snapshot 
 app's view state; none reads ROS. ``ui.layout`` places them on the page.
 """
 
-PANELS = ('status', 'motion', 'thrusters', 'procedures', 'activity', 'minimap')
+PANELS = ('status', 'motion', 'conditions', 'thrusters', 'procedures', 'activity', 'minimap')
 TITLES = {'status': 'Status', 'motion': 'Motion', 'conditions': 'Conditions', 'thrusters': 'Thrusters',
           'procedures': 'Procedures', 'activity': 'Activity', 'minimap': 'Minimap'}
 QUIET = {'LIVE', 'OK', 'PASS', 'READY'}      # rows that may hide inside a folded group

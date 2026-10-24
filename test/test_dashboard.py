@@ -243,7 +243,7 @@ def test_odroid_thrusters_and_motion_read_whole_with_unavailable_readback(width,
                        view(profile, pwm_readback=['unavailable'] * 4), width, height), width, height)
     lines = page.splitlines()
     top = ''.join(line[layout.status_width(width):] for line in lines[:next(i for i, line in enumerate(lines) if 'Procedures' in line)])
-    assert '…' not in top and ('Rb' in top) == (width >= 106)  # narrower folds the Pin column away
+    assert '…' not in top and 'Rb' in top   # the right column is 42 wide from 90 columns, so Rb fits
 
 
 @pytest.mark.parametrize('width', [40, 48, 54, 59])

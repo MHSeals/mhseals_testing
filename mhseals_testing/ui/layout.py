@@ -38,7 +38,11 @@ from mhseals_testing.ui.panels.thrusters import thrusters_panel
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 
 PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
-WIDE = 106          # below this the Motion panel folds away
+WIDE = 106          # footer: four hint columns from here
+ROW = 90            # from here Motion sits beside the right column; below it Motion is a compact panel in the stack
+RIGHT = 42          # the right column's width below 110 columns: Conditions needs 38 columns inside its border
+MOTION_COMPACT = 5  # the stacked Motion: three one-row braille axes
+MOTION_MIN_BODY = 24   # the stack drops Motion when the body is shorter than this
 SIDEBAR = 36
 MINIMAP = 150       # from this width Drive gains the minimap column (ui U6)
 FOLD = 60           # below this the Status sidebar folds away so Thrusters keeps its width
@@ -341,11 +345,21 @@ def too_small(view):
     return Text(f'boat_test{SEPARATOR}{state}\nenlarge terminal{SEPARATOR}Space stop{SEPARATOR}q quit')
 
 
+def body_rows(height, review=False):
+    """Rows the body gets in a terminal ``height`` rows tall."""
+    return max(5, height - 5 - (REVIEW_ROWS if review else 0))
+
+
+def motion_shown(width, body):
+    """Whether Drive shows Motion: always in the row tier, in the stack only if the body has the rows."""
+    return width >= ROW or body >= MOTION_MIN_BODY
+
+
 def render(snapshot, view, width=120, height=34):
     if width < MIN_SIZE[0] or height < MIN_SIZE[1]:
         return too_small(view)
     extra = REVIEW_ROWS if playing(view) else 0   # strip footer rows below the focus line
-    body_height = max(5, height - 5 - extra)
+    body_height = body_rows(height, bool(extra))
     layout = Layout()
     layout.split_column(Layout(header(snapshot, view, width), size=2), Layout(name='body'),
                         Layout(footer(view, width), size=3 + extra))
@@ -367,9 +381,9 @@ def _cells(slots, sizes=None):
 
 
 def _drive_dims(width, height):
-    """``(wide, lower, half)``: the wide tier, the rows under the top row, and half of them (min 4)."""
-    lower = height - top_rows(width)
-    return width >= WIDE, lower, max(4, lower // 2)
+    """``(wide, lower, half)``: the row tier, the rows under the top rows, and half of them (min 4)."""
+    lower = height - top_rows(width) - (MOTION_COMPACT if width < ROW and motion_shown(width, height) else 0)
+    return width >= ROW, lower, max(4, lower // 2)
 
 
 def top_rows(width):
@@ -380,16 +394,21 @@ def top_rows(width):
 def drive_slots(snapshot, view, width, height):
     """The Drive panels by named slot for the tier of ``width`` (ui.md 4.5); None leaves a slot empty.
 
-    A later item fills a slot (``minimap``, ``conditions``) by returning a panel here.
+    ``height`` is the body's. Below ROW columns Motion is the compact stacked panel, absent in a short body.
     """
     wide, lower, half = _drive_dims(width, height)
+    motion = None
+    if wide:
+        motion = motion_panel(snapshot, view, TOP_ROW)
+    elif motion_shown(width, height):
+        motion = motion_panel(snapshot, view, compact=True)
     return {
         'status': status_panel(snapshot, view, height) if width >= FOLD else None,
-        'motion': motion_panel(snapshot, view, TOP_ROW) if wide else None,
+        'motion': motion,
         'conditions': conditions_panel(view, width < FULL_CONDITIONS),
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
         'procedures': procedures_panel(view, lower if wide else half),
-        'activity': activity_panel(snapshot, view, lower if wide else height - top_rows(width) - half),
+        'activity': activity_panel(snapshot, view, lower if wide else lower - half),
         'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,
     }
 
@@ -405,16 +424,17 @@ def drive_body(snapshot, view, width, height):
         right.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters'])],
                                    {'conditions': COND_ROWS}))
         top.split_row(*_cells([('motion', slots['motion']), ('right', right), ('minimap', slots['minimap'])],
-                              {'minimap': MINIMAP_WIDTH}))
+                              {'minimap': MINIMAP_WIDTH, 'right': RIGHT if width < 110 else None}))
         bottom = Layout()
         bottom.split_row(*_cells([('procedures', slots['procedures']), ('activity', slots['activity'])],
                                  {'procedures': SIDEBAR}))
         main.split_column(top, bottom)
     else:
-        main.split_column(*_cells([('conditions', slots['conditions']), ('thrusters', slots['thrusters']),
-                                   ('procedures', slots['procedures']), ('activity', slots['activity'])],
-                                  {'conditions': top_rows(width) - THRUSTER_ROWS, 'thrusters': THRUSTER_ROWS,
-                                   'procedures': half}))
+        main.split_column(*_cells([('motion', slots['motion']), ('conditions', slots['conditions']),
+                                   ('thrusters', slots['thrusters']), ('procedures', slots['procedures']),
+                                   ('activity', slots['activity'])],
+                                  {'motion': MOTION_COMPACT, 'conditions': top_rows(width) - THRUSTER_ROWS,
+                                   'thrusters': THRUSTER_ROWS, 'procedures': half}))
     page = Layout()
     page.split_row(*_cells([('status', slots['status'])], {'status': status_width(width) or 30}), main)
     return page

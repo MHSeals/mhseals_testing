@@ -226,8 +226,9 @@ def conditions_panel(view, compact=False):
     ``yaw_note`` (the health ``rose`` anchor); absent means nothing measured yet.
     """
     info = view.get('conditions') or {}
+    focused = view['focus'] == 'conditions'
     if compact:
-        return theme.block(Group(*compact_lines(view, info)), TITLES['conditions'])
+        return theme.block(Group(*compact_lines(view, info)), TITLES['conditions'], focused)
     rose_rows = rose(info.get('drift'), info.get('heading'), info.get('yaw_ok', True), info.get('age', 0.0))
     rows = []
     command = _command(view)
@@ -235,5 +236,5 @@ def conditions_panel(view, compact=False):
     for left, right in zip(rose_rows, command):
         right.truncate(COMMAND_COLS, pad=True)
         rows.append(Text.assemble(left, ' ', (theme.BAR, theme.MUTED), ' ', right))
-    return theme.block(Group(*rows, drift_row(info), sea_row(info)), TITLES['conditions'],
+    return theme.block(Group(*rows, drift_row(info), sea_row(info)), TITLES['conditions'], focused,
                        subtitle=conditions_title(info))

@@ -64,7 +64,7 @@ from mhseals_testing.ui.feeds.conditions import ConditionsFeed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
 from mhseals_testing.ui.toasts import Toasts
-from mhseals_testing.ui.layout import MINIMAP, WIDE, TabMemory
+from mhseals_testing.ui.layout import MINIMAP, ROW, TabMemory, body_rows, motion_shown
 from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
 from mhseals_testing.ui import keymap as keymap_module
@@ -77,20 +77,22 @@ from mhseals_testing.ui.source import LiveSource
 from mhseals_testing.ui.takeover import decide
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
-#   wide:   Status | Motion     | Thrusters        narrow:  Status | Thrusters
-#                  | Procedures | Activity                         | Procedures
-#                                                                  | Activity
+#   row (>= 90 columns): Status | Motion     | Conditions, Thrusters      stack: Status | Motion, Conditions,
+#                                | Procedures | Activity                            | Thrusters, Procedures, Activity
 DIRECTIONS = {'ctrl-h': 'left', 'ctrl-left': 'left', 'ctrl-l': 'right', 'ctrl-right': 'right',
               'ctrl-k': 'up', 'ctrl-up': 'up', 'ctrl-j': 'down', 'ctrl-down': 'down'}
-NEIGHBOURS = {
+NEIGHBOURS = {   # a name or the first of a tuple of names that is on screen
     True: {'status': {'right': 'motion'},
-           'motion': {'left': 'status', 'right': 'thrusters', 'down': 'procedures'},
-           'thrusters': {'left': 'motion', 'right': 'minimap', 'down': 'activity'},
+           'motion': {'left': 'status', 'right': 'conditions', 'down': 'procedures'},
+           'conditions': {'left': 'motion', 'right': 'minimap', 'down': 'thrusters'},
+           'thrusters': {'left': 'motion', 'right': 'minimap', 'up': 'conditions', 'down': 'activity'},
            'minimap': {'left': 'thrusters', 'down': 'activity'},
            'procedures': {'left': 'status', 'right': 'activity', 'up': 'motion'},
            'activity': {'left': 'procedures', 'up': 'thrusters'}},
-    False: {'status': {'right': 'thrusters'},
-            'thrusters': {'left': 'status', 'down': 'procedures'},
+    False: {'status': {'right': ('motion', 'conditions')},
+            'motion': {'left': 'status', 'down': 'conditions'},
+            'conditions': {'left': 'status', 'up': 'motion', 'down': 'thrusters'},
+            'thrusters': {'left': 'status', 'up': 'conditions', 'down': 'procedures'},
             'procedures': {'left': 'status', 'up': 'thrusters', 'down': 'activity'},
             'activity': {'left': 'status', 'up': 'procedures'}},
 }
@@ -125,6 +127,7 @@ GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm panel'), ('Space', 'Stop'), (
 PANEL_HINTS = {
     'status': [(UPDOWN, 'Select'), ('Enter', 'Details')],
     'motion': [('m', 'Manual'), ('+/-', 'Amplitude')],
+    'conditions': [('Enter', 'Details')],
     'thrusters': [(LEFTRIGHT, 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
                   ('c', 'Clear decoupling'), ('p', 'Pins')],
@@ -563,7 +566,9 @@ class App:
         if self.tab != 'Drive':
             return [self.focus]
         width = self.console.size.width
-        return [p for p in PANELS if (p != 'motion' or width >= WIDE) and (p != 'minimap' or width >= MINIMAP)]
+        body = body_rows(self.console.size.height, bool(self.review))
+        return [p for p in PANELS if (p != 'motion' or motion_shown(width, body))
+                and (p != 'minimap' or width >= MINIMAP)]
 
     def rows(self, panel):
         if panel == 'status':
@@ -897,9 +902,9 @@ class App:
             index = panels.index(self.focus) if self.focus in panels else 0
             self.focus_on(panels[(index + (-1 if key == 'backtab' else 1)) % len(panels)])
         elif key in DIRECTIONS:
-            wide = 'motion' in panels
-            neighbour = NEIGHBOURS[wide].get(self.focus, {}).get(DIRECTIONS[key])
-            if neighbour in panels:
+            wanted = NEIGHBOURS[self.console.size.width >= ROW].get(self.focus, {}).get(DIRECTIONS[key], ())
+            neighbour = next((p for p in ((wanted,) if isinstance(wanted, str) else wanted) if p in panels), None)
+            if neighbour:
                 self.focus_on(neighbour)
         elif key in ('up', 'down', 'j', 'k'):
             step = -1 if key in ('up', 'k') else 1

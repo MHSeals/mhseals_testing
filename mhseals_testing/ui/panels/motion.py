@@ -19,15 +19,14 @@ def _latest(series, now):
     return series[-1][1] if series and now - series[-1][0] <= STALE else None
 
 
-def _axis(index, snapshot, view, width, rows):
-    """One axis: a header row, then ``rows`` braille rows (with ±scale labels when 4)."""
+def _traces(index, snapshot, view, width, rows):
+    """The braille canvas of one axis in ``width`` columns, and what it clipped, scale and latest measurement."""
     plots = snapshot.get('plots') or dict(now=0.0, window=10.0, meas={}, cmd=[])
-    name, unit, key = AXES[index]
+    key = AXES[index][2]
     scale = view.get('plot_scale', PLOT_SCALE)[index]
     effort = view['units'] == 'effort'
     now, window = plots['now'], plots['window']
-    top, bottom = f'{scale:+g}', f'{-scale:+g}'
-    gutter = max(len(top), len(bottom)) + 1 if rows > 1 else 0
+    gutter = max(len(f'{scale:+g}'), len(f'{-scale:+g}')) + 1 if rows > 1 else 0
     plot = braille.canvas(max(1, width - gutter), rows)
     if rows > 1:
         plot.hline(0.0, -scale, scale)
@@ -37,9 +36,18 @@ def _axis(index, snapshot, view, width, rows):
         (t, c[index] * (scale if effort else 1.0)) for t, c in plots['cmd']]   # the command until a model runs
     plot.line(pred, now - window, now, -scale, scale, 'pred')
     clipped = plot.line(series, now - window, now, -scale, scale, 'meas')
+    return plot, clipped, scale, gutter, _latest(series, now)
+
+
+def _axis(index, snapshot, view, width, rows):
+    """One axis: a header row, then ``rows`` braille rows (with ±scale labels when 4)."""
+    name, unit, key = AXES[index]
+    plot, clipped, scale, gutter, meas = _traces(index, snapshot, view, width, rows)
+    top, bottom = f'{scale:+g}', f'{-scale:+g}'
+    effort = view['units'] == 'effort'
+    tracking = view.get('tracking')
     command = view['command'][index]
     cmd = f'{command:+.0%}' if effort else f'{command:+.2f}'
-    meas = _latest(series, now)
     meas = f'{meas:+.2f}' if meas is not None else theme.DASH
     marks = ''.join(sorted(clipped))
     arrow = theme.pick('→', '->')
@@ -66,6 +74,20 @@ def _axis(index, snapshot, view, width, rows):
     return [header, *lines]
 
 
+LABEL = 18           # columns of a compact row's label: name, command, measurement
+
+
+class Compact:
+    """The three axes as one row each."""
+
+    def __init__(self, snapshot, view):
+        self.snapshot, self.view = snapshot, view
+
+    def __rich_console__(self, console, options):
+        for index in range(3):
+            yield compact_axis(index, self.snapshot, self.view, options.max_width)
+
+
 class Plots:
     """The three axes at whatever width the panel is given; ``rows`` braille rows each."""
 
@@ -84,8 +106,18 @@ class Plots:
                        style=MUTED, no_wrap=True, overflow='crop')
 
 
-def motion_panel(snapshot, view, height=0):
-    """Three braille axes; 4 rows an axis once ``height`` reaches TALL."""
+def compact_axis(index, snapshot, view, width):
+    """One row: ``Surge +60% +0.37`` and the braille trace in what is left (the 70-89 column form)."""
+    plot, _, _, _, meas = _traces(index, snapshot, view, max(1, width - LABEL), 1)
+    command = view['command'][index]
+    cmd = f'{command:+.0%}' if view['units'] == 'effort' else f'{command:+.2f}'
+    meas = f'{meas:+.2f}' if meas is not None else theme.DASH
+    label = Text(f'{AXES[index][0]:<5} {cmd:>5} {meas:>5} ', style='bold', no_wrap=True, overflow='crop')
+    return label + plot.rows()[0]
+
+
+def motion_panel(snapshot, view, height=0, compact=False):
+    """Three braille axes; 4 rows an axis once ``height`` reaches TALL, or ``compact``: one row an axis."""
     measured = snapshot['sensors'].get('odometry', {})
     subtitle = ('effort' if view['units'] == 'effort' else 'm/s') + SEPARATOR + theme.labelled(
         measured.get('status', 'MISSING'), 'odom').plain
@@ -94,5 +126,6 @@ def motion_panel(snapshot, view, height=0):
         subtitle.append(SEPARATOR, style=MUTED)
         subtitle.append(view['authority'][1], style=theme.auth_style(view['authority'][0]))
     rows = 4 if height >= TALL else 1
-    return theme.block(Plots(snapshot, view, rows),
+    body = Compact(snapshot, view) if compact else Plots(snapshot, view, rows)
+    return theme.block(body,
                        TITLES['motion'], view['focus'] == 'motion', subtitle)
