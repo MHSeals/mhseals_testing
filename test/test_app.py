@@ -1726,6 +1726,7 @@ def test_shifted_keys_never_start_a_procedure(tmp_path, key):
     started = []
     app.on_procedures = started.append
     app.run_procedure = lambda proc, *a, **k: started.append(proc)
+    app.ask_text = app.choose = lambda *a, **k: None   # M (pins) and X (exclude) are page keys that ask
     for focus in ('procedures', 'motion', 'activity', 'thrusters'):
         if focus in app.panels():
             app.focus = focus
