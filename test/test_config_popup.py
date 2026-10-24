@@ -51,6 +51,7 @@ def test_enter_on_the_config_row_opens_the_popup_and_golden(tmp_path):
     check('status/config_popup_120.txt', console.file.getvalue())
     (tmp_path / 'hardware.yaml').write_text('channel_map: [4, 3, 2, 1]\n')
     handle('down')
+    handle('up')  # return from appended Catalog item to the watched file
     assert 'pending' in modal['rows'][0][1]
     handle('enter')   # applies the pending row
     assert app.args.hardware_config['channel_map'] == [4, 3, 2, 1]

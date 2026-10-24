@@ -64,8 +64,12 @@ def rows(watcher, selected):
 def open_config(app):
     """popup.config: up/down move, Enter applies a pending row, Esc closes."""
     state = dict(selected=0)
-    names = lambda: list(app.watcher.watches)
-    modal = dict(kind='message', title='Config', rows=rows(app.watcher, 0), width=76, hint=HINT)
+    names = lambda: [*app.watcher.watches, 'Catalog']
+    def menu_rows():
+        count = len(app.watcher.watches)
+        return rows(app.watcher, state['selected']) + [(
+            ('› ' if state['selected'] == count else '  ') + 'Catalog', 'Read-only package inventory')]
+    modal = dict(kind='message', title='Config', rows=menu_rows(), width=76, hint=HINT)
 
     def handle(key):
         key = key.lower() if len(key) == 1 else key
@@ -75,10 +79,14 @@ def open_config(app):
         elif key in ('down', 'j') and count:
             state['selected'] = (state['selected'] + 1) % count
         elif key == 'enter' and count:
-            watched = app.watcher.watches[names()[state['selected']]]
-            if pending(watched):
-                app.announce(app.watcher.reload(watched.name))
+            if state['selected'] == len(app.watcher.watches):
+                from mhseals_testing.ui.popups.catalog import open_catalog
+                open_catalog(app)
+            else:
+                watched = app.watcher.watches[names()[state['selected']]]
+                if pending(watched):
+                    app.announce(app.watcher.reload(watched.name))
         elif key == 'escape':
             return True
-        modal['rows'] = rows(app.watcher, state['selected'])
-    app.popup(modal, handle, refresh=lambda: modal.update(rows=rows(app.watcher, state['selected'])))
+        modal['rows'] = menu_rows()
+    app.popup(modal, handle, refresh=lambda: modal.update(rows=menu_rows()))
