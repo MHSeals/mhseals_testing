@@ -1929,8 +1929,7 @@ def test_session_runner_sees_the_mux_override_and_a_moving_boat(tmp_path):
         assert runner.override() == 'rc'
         clock[0] += 5.0                      # a stale mux is unknown, not auto
         assert runner.override() == 'unknown'
-        app.conditions.clock = lambda: 0.0
-        app.conditions.feed(0.0, (0.5, 0.0), 0.0, 0.0, True, 0.0)
+        app.monitor.observe('odometry', {'vx': .5, 'vy': 0, 'wz': 0})
         assert runner.gate() and 'moving' in runner.gate()[0]
 
 

@@ -54,7 +54,7 @@ GUARD_S = 0.5  # holds this close before the override edge are invalid too
 
 def override_cause(mux, age_s=0.0):
     """Why the mux is not under automation ('' when it is): rc/manual/hold, or unknown."""
-    if mux is None or age_s > STALE_MUX_S:
+    if mux is None or not 0 <= age_s <= STALE_MUX_S:
         return 'unknown'
     return '' if mux.get('input') in ('auto', 'idle') else str(mux.get('input'))
 
@@ -72,13 +72,16 @@ class Runner:
     none). ``on_pause()`` restores the real correction C for the human and
     ``on_resume()`` re-stages identity; both are optional. A pause longer than
     ``pause_limit`` seconds aborts with ``override_timeout``.
-    ``supervise`` (navigation) pauses instead while ``override()`` names a cause.
+    ``paused_tick(cause, elapsed)`` polls/repaints without commanding; ``key_action``
+    handles the host's configured controls and returns 'abort' for abort keys.
+    ``supervise`` (navigation) uses the same fresh-still neutral settle before resend.
     """
 
     def __init__(self, plant, blockers, keys, show=lambda *args: None,
                  emit=lambda *args, **kwargs: None, clock=time.monotonic, rate=10.0,
                  override=lambda: '', gate=lambda: [], on_pause=lambda: None,
-                 on_resume=lambda: None, settle=5.0, pause_limit=PAUSE_LIMIT_S):
+                 on_resume=lambda: None, settle=5.0, pause_limit=PAUSE_LIMIT_S,
+                 paused_tick=lambda cause, elapsed: None, key_action=None):
         self.plant = plant
         self.blockers = blockers
         self.keys = keys
@@ -90,6 +93,7 @@ class Runner:
         self.override, self.gate = override, gate
         self.on_pause, self.on_resume = on_pause, on_resume
         self.settle, self.pause_limit = settle, pause_limit
+        self.paused_tick, self.key_action = paused_tick, key_action
         self.overrides = []   # {by, start, end, paused_s, window, holds_invalidated}
         self.done = []        # (start, end) of completed holds
         self.paused = 0.0     # s spent overridden inside supervise, summed over the session
@@ -121,28 +125,56 @@ class Runner:
             else:
                 self.done.append(window)
                 return window
-            if self.settle:  # fresh neutral window; outside the handler so it may itself be overridden
-                self.hold(NEUTRAL, self.settle, 'settle')
+
+    def read_key(self, timeout):
+        key = self.keys.read(timeout=timeout)
+        action = self.key_action(key) if self.key_action else (
+            'abort' if fold(key) in ABORT_KEYS else None)
+        if action == 'abort':
+            self.operator_stop(key)
+            raise Aborted('motion cancelled by operator')
+
+    def _wait_resume(self, by, began=None):
+        """Poll without commanding; every loss of authority or stillness restarts settle."""
+        began = self.clock() if began is None else began
+        still_since = None
+        while True:
+            now = self.clock()
+            self.paused_tick(by, now - began)
+            now = self.clock()
+            if now - began > self.pause_limit:
+                self.emit('pause_end', outcome='override_timeout')
+                raise Aborted('override_timeout')
+            cause = self.override()
+            reasons = self.gate()
+            if cause or reasons:
+                still_since = None
+            elif still_since is None:
+                still_since = now
+            if still_since is not None and now - still_since >= self.settle:
+                self.check(overrides=False)
+                return began, now
+            try:
+                self.read_key(self.period)
+            except Aborted:
+                self.emit('pause_end', outcome='aborted')
+                raise
 
     def _pause(self, by, command, label):
-        """Neutral, restore C, wait for release and the gate, settle; log the override."""
+        """Neutral, restore C, wait for fresh stillness and full settle, then log."""
         began = self.clock()
         self.emit('override', by=by, label=label, command=list(command))
         self.emit('pause', by=by)
-        self.on_pause()
-        while self.override() or self.gate():
-            if self.clock() - began > self.pause_limit:
-                self.emit('pause_end', outcome='override_timeout')
-                raise Aborted('override_timeout')
-            key = self.keys.read(timeout=self.period)
-            if fold(key) in ABORT_KEYS:
-                self.operator_stop(key)
-                self.emit('pause_end', outcome='aborted')
-                raise Aborted('aborted')
-        resumed = self.clock()
-        self.on_resume()
+        self.stop()
+        try:
+            self.on_pause()
+            _, resumed = self._wait_resume(by, began)
+            self.on_resume()
+        except BaseException:
+            self.stop()
+            raise
         entry = dict(by=by, start=began, end=resumed, paused_s=resumed - began,
-                     window=(began - GUARD_S, resumed + self.settle), holds_invalidated=[])
+                     window=(began - GUARD_S, resumed), holds_invalidated=[])
         self.overrides.append(entry)
         entry['holds_invalidated'] = [w for w in self.done if self.invalid(*w)]
         self.emit('pause_end', outcome='resume', paused_s=entry['paused_s'])
@@ -160,10 +192,7 @@ class Runner:
                 self.plant.publish(command)
                 self.command = command
                 self.show(command, deadline - now, label)
-                key = self.keys.read(timeout=min(self.period, deadline - now))
-                if fold(key) in ABORT_KEYS:
-                    self.operator_stop(key)
-                    raise Aborted(f'{label or "motion"} cancelled by operator')
+                self.read_key(min(self.period, deadline - now))
         except BaseException:
             self.stop()
             raise
@@ -183,45 +212,31 @@ class Runner:
         """
         start = self.clock()
         deadline = start + seconds
-        paused_at, paused_before = None, self.paused
+        paused_before = self.paused
         try:
             while True:
                 now = self.clock()
                 cause = self.override()
-                if paused_at is None and cause:
-                    paused_at = now
+                if cause:
                     self.emit('pause', cause=cause)
                     on_pause()
-                elif paused_at is not None and not cause:
-                    self.paused += now - paused_at
-                    deadline += now - paused_at
-                    self.emit('pause_end', outcome='resume', paused_s=now - paused_at)
-                    paused_at = None
+                    began, resumed = self._wait_resume(cause, now)
+                    self.paused += resumed - began
+                    deadline += resumed - began
+                    self.emit('pause_end', outcome='resume', paused_s=resumed - began)
                     on_resume()
+                    now = self.clock()
                 lost = self.paused - paused_before
-                if paused_at is not None:
-                    lost += now - paused_at
-                if paused_at is None and done():
+                if done():
                     return start, now - lost, True
-                if paused_at is None and now >= deadline:
+                if now >= deadline:
                     return start, now - lost, False
-                self.check(overrides=False)   # an override pauses here, it does not abort
-                if paused_at is not None:
-                    self.show(self.command, deadline - paused_at, 'paused: manual override')
-                    key = self.keys.read(timeout=self.period)
-                    if fold(key) in ABORT_KEYS:
-                        self.operator_stop(key)
-                        self.emit('pause_end', outcome='aborted', paused_s=now - paused_at)
-                        raise Aborted('supervision cancelled by operator')
-                    continue
+                self.check(overrides=False)
                 if sample is not None:
                     sample(now - lost)
                 text = label() if callable(label) else label
                 self.show(self.command, deadline - now, text)
-                key = self.keys.read(timeout=min(self.period, deadline - now))
-                if fold(key) in ABORT_KEYS:
-                    self.operator_stop(key)
-                    raise Aborted(f'{text or "supervision"} cancelled by operator')
+                self.read_key(min(self.period, deadline - now))
         except BaseException:
             self.stop()
             raise

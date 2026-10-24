@@ -27,6 +27,19 @@ STILL_SPEED, STILL_RATE, STILL_FRESH_S = 0.15, 0.1, 2.0   # m/s, rad/s, s: 'stil
 NEEDED_WINDOWS = 3      # the estimator's minimum, for the "measuring" text
 
 
+def stillness(e, n, rate):
+    """Live measured motion only; missing or nonfinite values never establish stillness."""
+    if not all(isinstance(v, (float, int)) and not isinstance(v, bool) and math.isfinite(v)
+               for v in (e, n, rate)):
+        return ['odometry is missing or nonfinite']
+    reasons = []
+    if math.hypot(e, n) > STILL_SPEED:
+        reasons.append(f'moving {math.hypot(e, n):.2f} m/s')
+    if abs(rate) > STILL_RATE:
+        reasons.append(f'turning {abs(rate):.2f} rad/s')
+    return reasons
+
+
 FLAGS = {'sparse': 'gap', 'spin': 'turn', 'coast': 'coast'}     # estimator flag -> spec 5.1 name
 
 
@@ -71,17 +84,14 @@ class Conditions:
             self.samples.popleft()
 
     def moving(self, now=None):
-        """Reasons the boat is not still (the override resume gate); [] with no fresh sample."""
+        """Reasons fresh measured motion does not establish stillness."""
         now = self.clock() if now is None else now
-        if not self.samples or now - self.samples[-1][0] > STILL_FRESH_S:
-            return []
-        _, e, n, _, rate, _, _ = self.samples[-1]
-        reasons = []
-        if math.hypot(e, n) > STILL_SPEED:
-            reasons.append(f'moving {math.hypot(e, n):.2f} m/s')
-        if abs(rate) > STILL_RATE:
-            reasons.append(f'turning {abs(rate):.2f} rad/s')
-        return reasons
+        if not self.samples:
+            return ['odometry is missing']
+        t, e, n, _, rate, _, _ = self.samples[-1]
+        if not math.isfinite(now - t) or not 0 <= now - t <= STILL_FRESH_S:
+            return ['odometry is stale']
+        return stillness(e, n, rate)
 
     def cut(self, t, t95=0.0):
         """The last non-zero command ended at ``t``; samples count again after the coast."""

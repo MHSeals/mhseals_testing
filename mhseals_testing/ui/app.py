@@ -37,7 +37,7 @@ from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.analysis.readiness import planned_directions
-from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
 from mhseals_testing.runner import STALE_MUX_S, override_cause
 from mhseals_testing.harness import nav2_edit
 from mhseals_testing.harness.nav2_edit import Nav2File
@@ -415,6 +415,9 @@ class App:
     # --- background work, every tick ---------------------------------------------
 
     def tick(self):
+        if getattr(self, '_runner_paused', False):
+            self.poll_pause()
+            return
         if self.review:
             self.review.tick(self.clock(), self.clock() - self.last_tick)
             self.last_tick = self.clock()
@@ -1954,6 +1957,8 @@ class App:
 
         A watcher publishes neutral too: Space always works.
         """
+        if getattr(self, '_runner_paused', False):
+            self._runner_cancelled = True
         try:
             self.disarm(reason, by)
         finally:
@@ -2119,14 +2124,66 @@ class App:
         """A passive measurement window; no arming or readiness needed."""
         return self.session(name, lambda: [], details)
 
+    def resume_gate(self):
+        """Fresh odometry, independent of the neutral-water estimator's selected source."""
+        if self.armed and muxed(self.profile) and getattr(self, 'arbiter', None) is None:
+            return ['authority is unknown']
+        row = self.monitor.snapshot()['sensors'].get('odometry', {})
+        age = row.get('age', float('inf'))
+        if (row.get('status') != 'LIVE' or row.get('issue')
+                or not 0 <= age <= STILL_FRESH_S):
+            return ['odometry is missing, stale or invalid']
+        stamp_age = row.get('stamp_age')
+        if stamp_age is not None and not -.25 <= stamp_age <= STILL_FRESH_S:
+            return ['odometry timestamp is invalid']
+        values = row.get('values', {})
+        return stillness(values.get('vx'), values.get('vy'), values.get('wz'))
+
+    def poll_pause(self):
+        """Refresh read-only sources and views; never replay pulses or watch/apply config."""
+        self.source.tick(self.clock())
+        arbiter = getattr(self, 'arbiter', None)
+        if arbiter is not None:
+            arbiter.tick()
+        snapshot = self.snapshot()
+        for feed in self.feeds:
+            feed.tick(self, snapshot, self.clock())
+
+    def runner_key(self, key, keymap):
+        action = keymap.resolve(['runner'], key)
+        if action is None and keymap.resolve(['runner'], fold(key)) == 'abort':
+            action = 'abort'  # Caps Lock must not defeat abort; E/U remain case-sensitive.
+        if action == 'abort':
+            return 'abort'
+        if action in ('mark', 'revoke_agent', 'release_hold'):
+            {'mark': self.mark, 'revoke_agent': self.revoke_agent,
+             'release_hold': self.release_hold}[action]()
+            if getattr(self, '_runner_cancelled', False):
+                return 'abort'
+
     @contextmanager
     def session(self, name, blockers, details):
         def show(command, remaining, label):
+            self._runner_paused = False
             self.command = command
             self.monitor.command(command)
             self.notice = f'{label or name}{theme.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts'
             if self.test_pulses is not None and self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
+            self.refresh(force=False)
+
+        self._runner_cancelled = False
+        keymap, _ = keymap_module.load()
+
+        def paused_tick(cause, elapsed):
+            self._runner_paused = True
+            if self._runner_cancelled:
+                raise Aborted('motion cancelled by operator')
+            self.poll_pause()
+            self.command = (0.0, 0.0, 0.0)
+            self.monitor.command(self.command)
+            self.notice = (f'PAUSED{theme.SEPARATOR}{cause}{theme.SEPARATOR}{elapsed:.1f}s'
+                           f'{theme.SEPARATOR}U release · E revoke · Space aborts')
             self.refresh(force=False)
 
         restaged = []
@@ -2143,12 +2200,14 @@ class App:
 
         runner = Runner(self.plant, blockers, self.keys, show=show,
                         emit=self.emit, clock=self.monitor.clock,
-                        override=self.override_cause, gate=lambda: self.conditions.moving(),
+                        override=self.override_cause, gate=self.resume_gate,
+                        paused_tick=paused_tick, key_action=lambda key: self.runner_key(key, keymap),
                         on_pause=on_pause, on_resume=on_resume)
         try:
             with runner.session(name, **details):
                 yield runner
         finally:
+            self._runner_paused = False
             self.command = (0.0, 0.0, 0.0)
 
     def override_cause(self):
@@ -2162,7 +2221,7 @@ class App:
             return ''
         with arbiter.lock:
             mux, at = arbiter.mux, arbiter.mux_at
-        age = 0.0 if at is None else arbiter.clock() - at
+        age = float('inf') if at is None else arbiter.clock() - at
         if not self.armed and (mux is None or age > STALE_MUX_S):
             return ''
         return override_cause(mux, age)
