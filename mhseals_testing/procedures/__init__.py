@@ -90,7 +90,7 @@ def _registry():
         Procedure('f', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
                   'survey the boat, refine the thrust correction per direction', 'Calibrate'),
         Procedure('g', 'Compass calibration', magcal.run, frozenset(),
-                  'handheld bearing -> fixed-yaw calibration (42006), written only on your yes',
+                  'handheld bearing -> fixed-yaw calibration (42006), sent once you type FCU',
                   'Calibrate'),
         Procedure('e', 'Compass interference', interference.run, frozenset({'armed', 'outputs'}),
                   'pulse each output; fit the compass field against thruster effort', 'Calibrate'),

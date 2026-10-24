@@ -117,7 +117,8 @@ class Conditions:
             if not self.samples:
                 self._close()
             retained = set(self._members) | {self._active}
-            self._segments = {key: value for key, value in self._segments.items() if key in retained}
+            self._segments = {key: value for key, value in self._segments.items()
+                              if key in retained}
             self._invalidate()
 
     def _close(self):
@@ -136,7 +137,8 @@ class Conditions:
         self._invalidate()
 
     def advance(self, now, *, epoch=_OMITTED, eligibility=_OMITTED, t95=0.0):
-        """Age on monotonic polling time, independently of real sample receipts.
+        """
+        Age on monotonic polling time, independently of real sample receipts.
 
         Unwired caller contract: poll the source even on duplicates, pass its epoch
         even if no sample was returned, and combine source status with affirmative
@@ -242,8 +244,9 @@ class Conditions:
 
     @staticmethod
     def _unknown(reason=''):
-        return dict(verdict='unknown', reason=reason, ceiling=None, drift_trust=None, neutral_s=0.0,
-                    drift=None, state='unknown', se=None, floor=None, sea=None, ceilings=None)
+        return {'verdict': 'unknown', 'reason': reason, 'ceiling': None, 'drift_trust': None,
+                'neutral_s': 0.0, 'drift': None, 'state': 'unknown', 'se': None, 'floor': None,
+                'sea': None, 'ceilings': None}
 
     def _rate(self, now):
         s = self.s

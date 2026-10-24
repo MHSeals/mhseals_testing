@@ -25,11 +25,13 @@ def calibrate(settings, confirm, send):
     if 'declination' not in settings:
         text += ' Warning: no declination given, assuming 0.'
     try:
-        confirmed = confirm is not None and confirm('Compass calibration', text, CONFIRM_WORD) is True
+        confirmed = (confirm is not None
+                     and confirm('Compass calibration', text, CONFIRM_WORD) is True)
     except TypeError:
         confirmed = False
     if not confirmed:
-        return dict(status='declined', yaw=yaw, reason=f'typed {CONFIRM_WORD} confirmation not given')
+        return {'status': 'declined', 'yaw': yaw,
+                'reason': f'typed {CONFIRM_WORD} confirmation not given'}
     if send(yaw, int(settings.get('mask', 1))):
         return dict(status='sent', yaw=yaw)
     return dict(status='failed', yaw=yaw, reason='FCU did not accept the write (no ACK, armed or disconnected)')
@@ -45,8 +47,9 @@ def run(ctx):
     settings, send = ctx.services.get('magcal'), ctx.services.get('fcu_send')
     typed = ctx.services.get('type_word')
     if not settings or send is None or typed is None:
-        result = dict(status='unavailable',
-                      reason=f'needs the Magcal popup, an FCU link and a typed {CONFIRM_WORD} confirmation')
+        result = {'status': 'unavailable',
+                  'reason': ('needs the Magcal popup, an FCU link and a typed '
+                             f'{CONFIRM_WORD} confirmation')}
     else:
         result = calibrate(settings, typed, send)
     ctx.record(dict(procedure='compass calibration', verdict=result['status'].upper(), **result))
