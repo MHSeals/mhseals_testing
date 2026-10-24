@@ -142,3 +142,21 @@ def test_odometry_popup_keeps_restart_ekfs_on_e_beside_base_controls_on_r(tmp_pa
     finally:
         type(app).choose = real
     assert options == ['Restart EKFs', 'Base controls', 'Close'] and app.notice == 'EKFs restarted'
+
+
+def test_enter_on_the_status_rtk_row_opens_the_odometry_popup(tmp_path, monkeypatch):
+    from mhseals_testing.ui import app as app_module
+    from test_app import make_app
+    app, _ = make_app(tmp_path)
+    rows = [dict(group='Localization', state='OK', name='GPS', value='3D', detail=''),
+            dict(group='Localization', state='OK', name='RTK', value='FIXED', detail='')]
+    monkeypatch.setattr(app_module, 'status_rows', lambda snapshot, sensors: rows)
+    opened, shown = [], []
+    monkeypatch.setattr(app, 'odometry', lambda: opened.append(True))
+    monkeypatch.setattr(app, 'show', lambda *a, **k: shown.append(a))
+    app.cursors['status'] = 1
+    app.on_status('enter')
+    assert opened == [True] and not shown
+    app.cursors['status'] = 0
+    app.on_status('enter')
+    assert opened == [True] and len(shown) == 1
