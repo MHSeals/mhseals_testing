@@ -35,13 +35,13 @@ from mhseals_testing.harness import host, index, journal, runs, session as sessi
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
+from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
 from mhseals_testing.runner import STALE_MUX_S, override_cause
 from mhseals_testing.harness import nav2_edit
 from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
-from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health import config as health_config, legacy as health
@@ -59,7 +59,8 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
-    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception, popups, theme)
+    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception, popups,
+    theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -587,7 +588,8 @@ class App:
         if change.name == 'hardware':
             self.config_note = watched.path.name
         self.notice = f'Config reloaded from {watched.path.name}'
-        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok', path=str(watched.path))
+        self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok',
+                      path=str(watched.path))
 
     def watch_own_files(self):
         """Hot-reload the TUI's own YAML in the same poll; nothing here touches ROS."""
@@ -614,16 +616,18 @@ class App:
             self.minimap.table = table
             self.minimap.redraw.mark()
 
-        def apply_settings(new):    # procedures read settings each step: held until none is running
+        def apply_settings(new):    # procedures read settings each step: held while one runs
             self.pending_settings = new
             self.adopt_health()
 
         for watched in (
-                Watched('keymap', keymap_module.USER_FILE, load_keymap, apply_keymap, subsystem='keymap'),
+                Watched('keymap', keymap_module.USER_FILE, load_keymap, apply_keymap,
+                        subsystem='keymap'),
                 Watched('theme', palette.OVERLAY, load_theme, apply_theme),
-                Watched('minimap', classes_module._default_path(), classes_module.load_classes, apply_minimap),
-                Watched('settings', settings.settings_path(), lambda path: settings.load(path, strict=True),
-                        apply_settings),
+                Watched('minimap', classes_module._default_path(), classes_module.load_classes,
+                        apply_minimap),
+                Watched('settings', settings.settings_path(),
+                        lambda path: settings.load(path, strict=True), apply_settings),
                 Watched('health', health_config.USER_FILE, lambda _path: self.health.reload(),
                         lambda _none: self.adopt_health(), subsystem='health')):
             self.watcher.add(watched)

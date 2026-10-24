@@ -225,7 +225,8 @@ def popup(modal, width, height=None):
             line.append_text(Text.from_markup(option) if '[' in option else Text(option))
             tail.append(theme.selected(line, index == modal['selected']))
     elif modal['kind'] == 'input':
-        tail += [Text(''), Text('> ', style=f'bold {theme.ACCENT}') + Text(modal['text'] + theme.FILL)]
+        tail += [Text(''),
+                 Text('> ', style=f'bold {theme.ACCENT}') + Text(modal['text'] + theme.FILL)]
     panel_width = min(width - 4, modal.get('width', 64))
     inner = panel_width - 4
     body = Group(*head)
@@ -343,7 +344,8 @@ def too_small(view):
     state = 'ARMED' if view.get('armed') else 'disarmed'
     if view.get('running'):
         state += f"{theme.SEPARATOR}{view['running']}"
-    return Text(f'boat_test{theme.SEPARATOR}{state}\nenlarge terminal{theme.SEPARATOR}Space stop{theme.SEPARATOR}q quit')
+    sep = theme.SEPARATOR
+    return Text(f'boat_test{sep}{state}\nenlarge terminal{sep}Space stop{sep}q quit')
 
 
 def body_rows(height, review=False):
@@ -372,7 +374,8 @@ def render(snapshot, view, width=120, height=34):
 
 def placeholder_body(snapshot, view, width, height):
     """The body of a tab nobody has built yet."""
-    return theme.block(Text(f"{view['tab']} is not built yet", style=theme.MUTED), view['tab'], True)
+    body = Text(f"{view['tab']} is not built yet", style=theme.MUTED)
+    return theme.block(body, view['tab'], True)
 
 
 def _cells(slots, sizes=None):

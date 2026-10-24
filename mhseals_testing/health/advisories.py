@@ -77,7 +77,7 @@ class Health:
         self.engine.muted.update(muted)
 
     def reload(self):
-        """Parse the rules again (raises ConfigError); ``adopt_pending`` takes them when nothing is gated."""
+        """Parse the rules again (raises ConfigError); ``adopt_pending`` takes them when free."""
         self.pending = load(self.directory, self.profile)
 
     def adopt_pending(self):

@@ -19,7 +19,7 @@ ASCII = palette.ascii_mode()
 # Status styles are palette tokens (ui.md U2): ok, warn, fail, busy. The user overlay
 # warning, if any, is kept for the UI to toast.
 PALETTE, OVERLAY_WARNING = palette.load_theme()
-AUTHORITY_HUES, _GLYPHS = {}, {}   # filled by use_palette; modules read them as theme.X at call time
+AUTHORITY_HUES, _GLYPHS = {}, {}   # filled by use_palette; read as theme.X at call time
 
 
 def use_palette(new):

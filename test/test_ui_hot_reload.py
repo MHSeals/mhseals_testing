@@ -1,6 +1,4 @@
-"""The TUI hot-reloads its own YAML in the existing tick: keymap, theme, minimap, settings, health rules."""
-
-import yaml
+"""The TUI hot-reloads its own YAML in the existing tick: keymap, theme, minimap, settings."""
 
 from mhseals_testing.analysis import classes
 from mhseals_testing.health import config as health_config
@@ -8,9 +6,12 @@ from mhseals_testing.ui import keymap, palette, theme
 
 from test_app import make_app
 
+import yaml
+
 
 def start(tmp_path, monkeypatch):
-    for module, name, file in ((keymap, 'USER_FILE', 'keymap.yaml'), (palette, 'OVERLAY', 'theme.yaml'),
+    for module, name, file in ((keymap, 'USER_FILE', 'keymap.yaml'),
+                               (palette, 'OVERLAY', 'theme.yaml'),
                                (health_config, 'USER_FILE', 'health.yaml')):
         monkeypatch.setattr(module, name, tmp_path / file)
     app, _ = make_app(tmp_path)
@@ -30,7 +31,8 @@ def test_keymap_edit_rebinds_the_minimap_keys_and_a_bad_one_keeps_the_last(tmp_p
     (tmp_path / 'keymap.yaml').write_text('view.minimap:\n  layer_costmap: ["1"]\n')
     settle(app)
     assert app.map_keys['1'] == 'layer_costmap' and 'c' not in app.map_keys
-    assert seen[-1][0] == 'config_reloaded' and seen[-1][1]['file'] == 'keymap' and seen[-1][1]['sha']
+    phase, details = seen[-1]
+    assert phase == 'config_reloaded' and details['file'] == 'keymap' and details['sha']
     (tmp_path / 'keymap.yaml').write_text('view.minimap:\n  layer_costmap: ["1", nope\n')
     settle(app)
     assert app.map_keys['1'] == 'layer_costmap' and app.watcher.watches['keymap'].error
@@ -42,7 +44,8 @@ def test_theme_overlay_changes_the_live_styles(tmp_path, monkeypatch):
     before = theme.ACCENT
     tokens = yaml.safe_load(palette.default_path().read_text())['tokens']
     other = 'bright_red' if before != 'bright_red' else 'bright_blue'
-    (tmp_path / 'theme.yaml').write_text(yaml.safe_dump({'tokens': {'accent': dict(tokens['accent'], ansi=other)}}))
+    accent = dict(tokens['accent'], ansi=other)
+    (tmp_path / 'theme.yaml').write_text(yaml.safe_dump({'tokens': {'accent': accent}}))
     palette_before = theme.PALETTE
     settle(app)
     assert theme.PALETTE is not palette_before
@@ -92,6 +95,7 @@ def test_settings_edit_applies_and_our_own_save_is_not_announced(tmp_path, monke
 
 def test_health_rules_apply_on_the_next_evaluation_but_not_while_armed(tmp_path, monkeypatch):
     app, _ = start(tmp_path, monkeypatch)
+
     def severity():
         return next(s for s in app.health.specs if s.id == 'conditions.poor').severity
 
@@ -111,6 +115,7 @@ def test_health_rules_apply_on_the_next_evaluation_but_not_while_armed(tmp_path,
 
 def test_settings_and_health_edits_wait_for_a_running_procedure(tmp_path, monkeypatch):
     app, _ = start(tmp_path, monkeypatch)
+
     def severity():
         return next(s for s in app.health.specs if s.id == 'conditions.poor').severity
 

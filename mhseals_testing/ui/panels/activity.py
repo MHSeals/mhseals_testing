@@ -84,7 +84,7 @@ def activity_panel(snapshot, view, height):
         verdict = str(result.get('verdict', theme.DASH))
         table.add_row(theme.row(verdict, result_label(result), focused and index == cursor),
                       Text(verdict.lower()), Text(result_detail(result), style=theme.MUTED))
-    body = table if results else Text(f'No results yet{theme.SEPARATOR}Enter on a procedure runs it',
-                                      style=theme.MUTED)
+    body = table if results else Text(
+        f'No results yet{theme.SEPARATOR}Enter on a procedure runs it', style=theme.MUTED)
     return theme.block(_with_loupe(body, review), TITLES['activity'], focused,
                        _subtitle(f'results{theme.SEPARATOR}{len(results)}', review))

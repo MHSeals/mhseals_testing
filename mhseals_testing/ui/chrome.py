@@ -33,7 +33,8 @@ def deploy_item(deploy):
         marks = [(theme.pick('↑', '^'), 'ahead'), (theme.pick('↓', 'v'), 'behind'),
                  (theme.pick('±', '+-'), 'dirty'), ('?', 'untracked')]
         counts = ' '.join(f'{mark}{deploy[key]}' for mark, key in marks if deploy.get(key))
-        item = Text(counts, style=theme.WARN) if counts else Text(theme.pick('≡', '='), style=theme.MUTED)
+        item = (Text(counts, style=theme.WARN) if counts
+                else Text(theme.pick('≡', '='), style=theme.MUTED))
     if deploy.get('code_newer'):
         item.append(' code newer', style=theme.WARN)
     return item
@@ -54,7 +55,8 @@ def chips(view):
         return [theme.chip('REVIEW', 'hold')]
     kind, word = view.get('authority') or (None, None)
     out = [theme.chip(word, kind)] if word else [Text('idle', style=theme.MUTED)]
-    out.append(theme.chip('ARMED', 'armed') if view['armed'] else Text('disarmed', style=theme.MUTED))
+    out.append(theme.chip('ARMED', 'armed') if view['armed']
+               else Text('disarmed', style=theme.MUTED))
     return out
 
 
@@ -78,8 +80,10 @@ def tab_strip(current, width=120):
 
 def top_row(view, width):
     """Title, profile (wide), then right-aligned deploy, host, authority, arm; the first drops what does not fit."""
-    title = Text.assemble((' boat_test ', f'bold {theme.ACCENT}'), tab_strip(view.get('tab'), width))
-    name = f"{view['profile']}{theme.SEPARATOR}{view['units']}" if view.get('units') else view['profile']
+    title = Text.assemble((' boat_test ', f'bold {theme.ACCENT}'),
+                          tab_strip(view.get('tab'), width))
+    name = (f"{view['profile']}{theme.SEPARATOR}{view['units']}" if view.get('units')
+            else view['profile'])
     profile = Text.assemble((f'  {name}', theme.MUTED))
     deploy, tail = deploy_item(view.get('deploy')), chips(view)
     lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title]
