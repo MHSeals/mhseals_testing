@@ -17,6 +17,7 @@ def popup(app, modal, handle, refresh=None):
     flowing and the dashboard behind it stays live. ``refresh``, if given, is
     called after each tick to rebuild the body.
     """
+    previous = app.modal
     app.modal = modal
     try:
         while True:
@@ -29,11 +30,19 @@ def popup(app, modal, handle, refresh=None):
                 continue
             if key in STOP_KEYS and modal.get('kind') != 'input':
                 app.operator_stop()  # Space stops in every modal but popup.text
+            if modal.get('kind') != 'input':
+                # Authority owns E itself so it can revoke the selected claim.
+                if key == 'E' and not str(modal.get('title', '')).startswith('Authority'):
+                    app.revoke_agent()
+                    continue
+                if key == 'U':
+                    app.release_hold()
+                    continue
             result = handle(key)
             if result is not None:
                 return result
     finally:
-        app.modal = None
+        app.modal = previous
         app.refresh()
 
 

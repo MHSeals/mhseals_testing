@@ -1186,11 +1186,51 @@ class App:
             arbiter.revoke(holder['id'])
             self.notice = 'Agent revoked'
 
+    def release_refusal(self):
+        """Only fresh, known mux state can authorize an operator release request."""
+        arbiter = getattr(self, 'arbiter', None)
+        if arbiter is None:
+            return 'Release refused: mux state is unknown'
+        with arbiter.lock:
+            mux, at = arbiter.mux, arbiter.mux_at
+        if (mux is None or at is None or not 0 <= arbiter.clock() - at <= STALE_MUX_S
+                or mux.get('input') not in ('auto', 'idle', 'hold', 'manual', 'rc')):
+            return 'Release refused: mux state is stale or unknown'
+        rc = mux.get('rc') or {}
+        mode = str(rc.get('mode') or '').upper()
+        if rc.get('valid') and mode not in ('GUIDED', 'HOLD', 'MANUAL'):
+            return 'Release refused: RC switch state is unknown'
+        if mode in ('HOLD', 'MANUAL'):
+            return f'Release refused: RC switch is {mode}'
+        return ''
+
     def release_hold(self):
-        """U: ask the mux to release the sticky hold; consumed so it never reaches a panel key."""
+        """Confirm who resumes, then request release once; only mux state proves release."""
+        if getattr(self, '_releasing', False):
+            return
         release = getattr(self.plant, 'release_hold', None)
-        self.notice = ('Hold released' if release is not None and release()
-                       else 'Release hold is not available here')
+        if release is None:
+            self.notice = 'Release hold is not available here'
+            return
+        refusal = self.release_refusal()
+        if refusal:
+            self.notice = refusal
+            return
+        holder = self.arbiter.table.holder()
+        resumer = (holder.get('who') or holder.get('reason') or holder['id']) if holder else (
+            self.running or 'nobody (idle)')
+        self._releasing = True
+        try:
+            answer = self.choose('Release hold?', ['Release', 'Cancel'],
+                                 message=f'{resumer} resumes', selected=1, danger=True)
+            if answer == 'Release':
+                refusal = self.release_refusal()
+                self.notice = refusal or ('Release requested' if release()
+                                          else 'Release hold is not available here')
+        except Cancelled:
+            pass
+        finally:
+            self._releasing = False
 
     # --- markers -----------------------------------------------------------------
 

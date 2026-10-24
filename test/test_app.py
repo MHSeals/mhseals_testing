@@ -1773,8 +1773,11 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     assert app.notice == 'Release hold is not available here'
     released = []
     app.plant = __import__("types").SimpleNamespace(release_hold=lambda: released.append(1) or True)
-    app.dispatch('U')
-    assert app.notice == 'Hold released' and released == [1]
+    app.arbiter.on_mux({'input': 'hold', 'rc': {'mode': 'GUIDED'}})
+    with app.attached():
+        press(app, 'up', 'enter')
+        app.dispatch('U')
+    assert app.notice == 'Release requested' and released == [1]
 
 
 @pytest.mark.parametrize('open_popup, answers', [
@@ -2000,3 +2003,109 @@ def test_operator_space_never_engages_watchers_auto_topic(tmp_path, popup, fails
     assert calls == ['keys']
     assert app.command == (0, 0, 0) and not app.armed
     assert boat.sent and all(command == 'neutral' for command in boat.sent)
+
+
+def release_app(tmp_path, result=True):
+    from mhseals_testing.ros.authority import Arbiter
+    app, boat = make_app(tmp_path)
+    calls = []
+    boat.release_hold = lambda: calls.append('release') or result
+    app.arbiter = Arbiter(lambda record: None, lambda *a, **kw: None,
+                          clock=app.clock, tui_owner=True)
+    app.arbiter.on_mux({'input': 'hold', 'rc': {'mode': 'GUIDED'}})
+    return app, boat, calls
+
+
+@pytest.mark.parametrize('keys', [('enter',), ('escape',), ('q',)])
+def test_release_defaults_to_cancel(tmp_path, keys):
+    app, boat, calls = release_app(tmp_path)
+    with app.attached():
+        press(app, *keys)
+        app.dispatch('U')
+    assert calls == [] and boat.sent == []
+
+
+@pytest.mark.parametrize('mode', ['HOLD', 'MANUAL', 'stale', 'unknown', 'missing'])
+def test_release_refuses_rc_and_untrusted_state(tmp_path, mode):
+    app, boat, calls = release_app(tmp_path)
+    if mode == 'stale':
+        app.arbiter.mux_at = -10
+    elif mode == 'unknown':
+        app.arbiter.mux['input'] = 'unknown'
+    elif mode == 'missing':
+        app.arbiter.mux = None
+    else:
+        app.arbiter.mux['rc']['mode'] = mode
+    app.dispatch('U')
+    assert app.notice.startswith('Release refused:')
+    assert calls == [] and boat.sent == []
+
+
+@pytest.mark.parametrize('result', [False, True])
+def test_release_request_is_single_and_never_claims_acknowledgement(tmp_path, result):
+    app, boat, calls = release_app(tmp_path, result)
+    with app.attached():
+        press(app, 'U', 'up', 'enter')
+        app.dispatch('U')
+    assert calls == ['release'] and boat.sent == []
+    assert app.notice == ('Release requested' if result else 'Release hold is not available here')
+    assert app.arbiter.mux['input'] == 'hold'  # no ack has arrived
+
+
+def test_nested_release_restores_authority_and_e_revokes_inside_confirm(tmp_path):
+    app, boat, calls = release_app(tmp_path)
+    claim = app.arbiter.handle({'op': 'claim', 'request': 'r', 'who': 'tune'})['claim']
+    seen, revoked = [], []
+    app.arbiter.neutral = lambda: None
+    app.arbiter.hold = lambda cause, by: revoked.append(cause)
+    outer = dict(kind='message', title='Authority')
+
+    def handle(key):
+        seen.append((key, app.modal is outer))
+        return True
+
+    with app.attached():
+        press(app, 'U', 'E', 'enter', 'escape')
+        app.popup(outer, handle)
+    assert seen == [('escape', True)] and calls == []
+    assert revoked == ['revoke']
+    assert app.arbiter.table.get(claim['id'])['state'] == 'revoked'
+    assert app.modal is None and boat.sent == []
+
+
+def test_release_confirmation_names_procedure_and_rechecks_rc(tmp_path):
+    app, boat, calls = release_app(tmp_path)
+    app.running = 'characterize'
+
+    def choose(title, options, **kwargs):
+        assert kwargs['message'] == 'characterize resumes' and kwargs['selected'] == 1
+        app.arbiter.on_mux({'input': 'rc', 'rc': {'mode': 'MANUAL'}})
+        return 'Release'
+
+    app.choose = choose
+    app.dispatch('U')
+    assert calls == [] and 'MANUAL' in app.notice and boat.sent == []
+
+
+def test_authority_popup_keeps_its_selected_claim_e_binding(tmp_path):
+    app, _, _ = release_app(tmp_path)
+    app.revoke_agent = lambda: pytest.fail('global revoke stole selected claim')
+    seen = []
+    with app.attached():
+        press(app, 'E')
+        app.popup(dict(kind='message', title='Authority · 12'),
+                  lambda key: seen.append(key) or True)
+    assert seen == ['E']
+
+
+def test_release_names_the_claimant(tmp_path):
+    app, _, calls = release_app(tmp_path)
+    app.arbiter.handle({'op': 'claim', 'request': 'r', 'who': 'tune_mppi'})
+
+    def choose(title, options, **kwargs):
+        assert kwargs['message'] == 'tune_mppi resumes'
+        return 'Cancel'
+
+    app.choose = choose
+    app.dispatch('U')
+    assert calls == []
