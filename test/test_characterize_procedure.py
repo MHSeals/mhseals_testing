@@ -336,3 +336,74 @@ def test_a_failed_provenance_write_warns_and_keeps_the_save(config, tmp_path, mo
     run(ctx)
     assert 'fit' in load_config(config)['characterization']
     assert any('could not be recorded' in w for w in warnings)
+
+
+@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -float('inf')])
+@pytest.mark.parametrize('target', ['hold', 'settle'])
+def test_one_nonfinite_sample_keeps_characterization(config, tmp_path, bad, target):
+    runner = Fake(config)
+    original = runner.hold
+    injected = False
+
+    def hold(command, seconds, label=''):
+        nonlocal injected
+        window = original(command, seconds, label)
+        if not injected and label == ('surge+' if target == 'hold' else 'settle'):
+            row = next(v for t, v in runner.odometry if window[0] + 1 <= t <= window[1])
+            row['vy'] = bad
+            injected = True
+        return window
+
+    runner.hold = hold
+    ctx, records, _ = context(tmp_path, runner)
+    result = run(ctx)
+    assert injected and len(result['speed_curves']) == 6
+    assert any(r.get('verdict') == 'SAVED' for r in records)
+    assert all(all(math.isfinite(v) for v in c) for c in runner.commands)
+    assert Staging(config, tmp_path / 'state.json').pending() is None
+
+
+@pytest.mark.parametrize('bad', [None, float('nan'), float('inf')])
+@pytest.mark.parametrize('target', ['hold', 'settle', 'refine'])
+def test_unusable_window_refuses_before_fit_and_restores(config, tmp_path, monkeypatch, bad, target):
+    from mhseals_testing.procedures import characterize
+    runner, before = Fake(config), load_config(config)
+    original = runner.hold
+
+    def hold(command, seconds, label=''):
+        window = original(command, seconds, label)
+        if label == {'hold': 'surge+', 'settle': 'settle', 'refine': 'surge+ refine'}[target]:
+            if bad is None:
+                runner.odometry = [(t, v) for t, v in runner.odometry if not window[0] <= t <= window[1]]
+            else:
+                for t, values in runner.odometry:
+                    if window[0] <= t <= window[1]:
+                        values['vy'] = bad
+        return window
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('an unusable window must not reach the fit or save')
+
+    runner.hold = hold
+    ctx, _, choices = context(tmp_path, runner)
+    monkeypatch.setattr(characterize, 'speed_curve', forbidden)
+    if target != 'refine':
+        monkeypatch.setattr(characterize, 'refine', forbidden)
+    result = run(ctx)
+    assert result['verdict'] == 'REFUSED' and 'usable velocity' in result['reason']
+    assert 'backwards' not in result['reason'] and not choices
+    assert load_config(config) == before
+    assert all(all(math.isfinite(v) for v in c) for c in runner.commands)
+    assert Staging(config, tmp_path / 'state.json').pending() is None
+
+
+@pytest.mark.parametrize('bad', [float('nan'), float('inf')])
+def test_nonfinite_refinement_candidate_never_reaches_runner(config, tmp_path, monkeypatch, bad):
+    from mhseals_testing.procedures import characterize
+    runner, before = Fake(config), load_config(config)
+    monkeypatch.setattr(characterize, 'refine', lambda measure, *a: measure((bad, 0.0)))
+    ctx, _, choices = context(tmp_path, runner)
+    result = run(ctx)
+    assert result['verdict'] == 'REFUSED' and 'nonfinite characterization command' in result['reason']
+    assert not choices and load_config(config) == before
+    assert all(all(math.isfinite(v) for v in c) for c in runner.commands)

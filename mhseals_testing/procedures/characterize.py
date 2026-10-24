@@ -10,6 +10,7 @@ Any abort restores the saved C+/C-.
 """
 
 from datetime import datetime, timezone
+import math
 from pathlib import Path
 
 import yaml
@@ -25,6 +26,10 @@ from mhseals_testing.analysis.thrust import speed_curve
 from mhseals_testing.harness.apply import IDENTITY, Staging
 from mhseals_testing.history import adapters
 from mhseals_testing.runner import NEUTRAL
+
+class UnusableResponse(ValueError):
+    """A measurement or candidate cannot safely feed the characterization."""
+
 
 DIRECTIONS = tuple((axis, sign) for axis in range(3) for sign in (1, -1))
 
@@ -62,9 +67,10 @@ def command_for(axis, sign, amplitude, column=(0.0, 0.0)):
 
 def means(history, window, skip):
     """Mean of each velocity component over the window, minus the first ``skip`` seconds."""
-    rows = [v for t, v in history if window[0] + skip <= t <= window[1]
-            and all(v.get(key) is not None for key in ('vx', 'vy', 'wz'))]
-    return [sum(v[key] for v in rows) / len(rows) if rows else 0.0 for key in ('vx', 'vy', 'wz')]
+    rows = samples_from_windows(history, [(NEUTRAL, *window)], skip)
+    if not rows:
+        raise UnusableResponse('no usable velocity samples in settle or hold')
+    return [sum(row['velocity'][k] / len(rows) for row in rows) for k in range(3)]
 
 
 def response(history, settle, hold, transient, coast=0.0):
@@ -74,13 +80,19 @@ def response(history, settle, hold, transient, coast=0.0):
     coast-down, whose sign is opposite in the paired order (at most half the settle is skipped).
     """
     skip = min(coast, 0.5 * (settle[1] - settle[0]))
-    return [h - s for h, s in zip(means(history, hold, transient), means(history, settle, skip))]
+    delta = [h - s for h, s in zip(means(history, hold, transient), means(history, settle, skip))]
+    if not all(math.isfinite(value) for value in delta):
+        raise UnusableResponse('nonfinite velocity response')
+    return delta
 
 
 def cross_response(delta, axis, sign):
     """(main response along the command, cross responses per unit of it) of a response vector."""
     main = max(sign * delta[axis], 1e-6)
-    return main, tuple(delta[k] / main for k in cross_axes(axis))
+    ratios = tuple(delta[k] / main for k in cross_axes(axis))
+    if not all(math.isfinite(value) for value in (main, *ratios)):
+        raise UnusableResponse('nonfinite cross response')
+    return main, ratios
 
 
 def matrices(columns, base=None):
@@ -127,7 +139,10 @@ def run(ctx):
     if history:     # a hand edit is logged before staging rewrites the file
         adapters.observe_file(history, 'hardware', staging.config, warn)
     with staging.staged():
-        return _characterize(ctx, cfg, staging, only, hi, lo)
+        try:
+            return _characterize(ctx, cfg, staging, only, hi, lo)
+        except UnusableResponse as error:
+            return refuse(ctx, str(error))
 
 
 def _characterize(ctx, cfg, staging, only, hi, lo):
@@ -140,6 +155,9 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
 
     def drive(runner, command, seconds, name):
         """Neutral then ``command``; returns the velocity change. The applied effort is logged."""
+        if not all(math.isfinite(value) for value in command):
+            runner.stop()
+            raise UnusableResponse('nonfinite characterization command')
         settle = runner.hold(NEUTRAL, settings.settle, 'settle')
         hold = runner.hold(command, seconds, name)
         windows.extend([(NEUTRAL, *settle), (command, *hold)])
