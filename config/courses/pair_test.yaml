@@ -1,0 +1,19 @@
+name: pair_test
+hide:
+- SpeedChallenge
+- NavigationChannel
+- GateTraversal
+- Marina
+- DeliveryBoats
+jitter: 0.0
+elements:
+- task: pair_test
+  template: RedPoleBuoy0
+  label: red_pole_buoy
+  x: 7.0
+  y: 1.5
+- task: pair_test
+  template: GreenPoleBuoy0
+  label: green_pole_buoy
+  x: 7.0
+  y: -1.5
