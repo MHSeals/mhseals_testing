@@ -132,12 +132,46 @@ def odometry_arguments(profile, overlay):
     return arguments
 
 
+ENDPOINT_LAUNCHES = {('mhseals_nav', name)
+                     for name in ('odom.launch.py', 'robot.launch.py', 'sensors.launch.py')}
+ENDPOINT_INPUTS = {'endpoint_deployment_file', 'endpoint_startup_file', 'endpoint_context',
+                   'fcu_url', 'gcs_url', 'ros_ip', 'ros_port'}
+
+
+def endpoint_arguments(profile, arguments):
+    """Share one pure endpoint selection before constructing managed children."""
+    managed = [key for key, spec in (profile.components or {}).items()
+               if tuple(spec.get('launch', ())) in ENDPOINT_LAUNCHES]
+    if not managed:
+        return
+    from mhseals_nav.endpoint_configuration import resolve_endpoints
+    selected = {}
+    for key in managed:
+        for name, value in arguments[key].items():
+            if name not in ENDPOINT_INPUTS:
+                continue
+            if value == ('__inherit__' if name == 'gcs_url' else ''):
+                continue
+            if name in selected and str(selected[name]) != str(value):
+                raise ValueError(f'conflicting endpoint selection: {name}')
+            selected[name] = value
+    selected.setdefault('endpoint_context', 'tui')
+    resolve_endpoints(deployment_file=selected.get('endpoint_deployment_file', ''),
+                      operator_file=selected.get('endpoint_startup_file', ''),
+                      context=selected['endpoint_context'],
+                      aliases={key: value for key, value in selected.items()
+                               if key in {'fcu_url', 'gcs_url', 'ros_ip', 'ros_port'}})
+    for key in managed:
+        arguments[key].update(selected)
+
+
 def components(profile, overlay=None, selection=None):
     """The profile's components in file order. ``overlay`` is {key: {arg: value}}."""
     overlay = overlay or {}
     result = []
     arguments = odometry_arguments(profile, overlay)
     validate_localization_profile(profile, arguments)
+    endpoint_arguments(profile, arguments)
     for key, spec in (profile.components or {}).items():
         argv = ()
         if 'launch' in spec:

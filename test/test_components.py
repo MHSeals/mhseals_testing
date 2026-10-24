@@ -46,13 +46,15 @@ class Profile:
 
 def make():
     processes, clock = FakeProcesses(), [0.0]
-    stack = Stack(components(Profile, {'odometry': {'fcu_url': 'x'}}), processes, lambda: clock[0])
+    stack = Stack(components(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}}),
+                  processes, lambda: clock[0])
     return stack, processes, clock
 
 
 def test_argv_and_shipped_profiles():
-    odometry = components(Profile, {'odometry': {'fcu_url': 'x'}})[0]
-    assert odometry.argv == ('ros2', 'launch', 'mhseals_nav', 'odom.launch.py', 'sim:=false', 'fcu_url:=x')
+    odometry = components(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}})[0]
+    assert odometry.argv == ('ros2', 'launch', 'mhseals_nav', 'odom.launch.py', 'sim:=false',
+                             'fcu_url:=serial:///inert-fcu', 'endpoint_context:=tui')
     boat = {item.key: item for item in components(load_profile('boat'))}
     # Same graph as the Orin: no rosbridge args, or the converter drops to websocket mode.
     assert not any('rosbridge' in arg or 'ws://' in arg for arg in boat['objects'].argv)

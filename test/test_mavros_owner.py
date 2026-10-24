@@ -37,6 +37,10 @@ def source_nav_share(nav_root, monkeypatch):
 
 def launch_factory(nav_root, name):
     """Execute shipped factory bodies with recording constructors, never ROS."""
+    from launch import LaunchContext
+    from mhseals_nav.endpoint_configuration import (
+        boolean as endpoint_boolean, from_launch as endpoint_from_launch,
+        LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
     from mhseals_nav.navigation_config import persistent_limits_path
     from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
     from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
@@ -51,6 +55,11 @@ def launch_factory(nav_root, name):
     def record(*args, **kwargs):
         return SimpleNamespace(args=args, **kwargs)
 
+    def endpoints(context):
+        invocation = LaunchContext()
+        invocation.launch_configurations.update(context)
+        return endpoint_from_launch(invocation)
+
     source = nav_root / 'launch' / f'{name}.launch.py'
     functions = [node for node in ast.parse(source.read_text()).body
                  if isinstance(node, ast.FunctionDef)]
@@ -63,7 +72,9 @@ def launch_factory(nav_root, name):
               FindPackageShare=lambda package: str(nav_root),
               persistent_limits_path=persistent_limits_path,
               snapshot_root=snapshot_root, snapshot_scope=snapshot_scope,
-              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS)
+              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS,
+              endpoint_from_launch=endpoints, endpoint_boolean=endpoint_boolean,
+              ENDPOINT_LAYERS=ENDPOINT_LAYERS, UNSET_GCS=UNSET_GCS)
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), ns)
     return ns
 
@@ -81,7 +92,8 @@ def boat_argv(profile_args, overlay_args, launch='odom.launch.py'):
     specs['odometry']['launch'] = ['mhseals_nav', launch]
     boat = replace(boat, components=specs)
     overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
-    assert overlay == {'odometry': {'fcu_url': 'serial:///inert-fcu'}}
+    assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
+                       for key in ('odometry', 'sensors')}
     overlay['odometry'].update(overlay_args)
     return next(item.argv for item in components(boat, overlay, selection=None)
                 if item.key == 'odometry')

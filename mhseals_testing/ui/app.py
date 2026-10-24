@@ -27,7 +27,6 @@ from rich.segment import Segments
 from rich.text import Text
 
 from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config, update_config
-from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
@@ -2276,7 +2275,7 @@ def build_parser():
                         help="start the profile's components marked start; default attaches to "
                              'running topics (the other components start from the Status rows)')
     parser.add_argument('--fcu-url', default='',
-                        help='MAVROS FCU URL for --start-stack (default: detect the flight controller)')
+                        help='explicit MAVROS FCU URL override (default: inherit endpoint YAML)')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                         help='override a setting for this run (see harness/settings.py), e.g. '
                              'amplitude=0.4, command_mode=velocity, bench_override=on')
@@ -2321,10 +2320,12 @@ def parse_args(argv=None, *, defer_hardware=False):
 
 def stack_overlay(profile, args):
     """Launch arguments the command line adds to the profile's components."""
-    if not profile.uses_fcu:
+    if not profile.uses_fcu or not args.fcu_url:
         return {}
-    # The flight controller's stable /dev/serial/by-id name when one is plugged in.
-    return {'odometry': {'fcu_url': args.fcu_url or default_fcu_url()}}
+    from mhseals_testing.harness.components import ENDPOINT_LAUNCHES
+    return {key: {'fcu_url': args.fcu_url}
+            for key, spec in (profile.components or {}).items()
+            if tuple(spec.get('launch', ())) in ENDPOINT_LAUNCHES}
 
 
 def terminal_gone(error):

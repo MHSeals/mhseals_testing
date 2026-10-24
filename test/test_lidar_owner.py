@@ -42,7 +42,8 @@ def sensor_argv(profile_args=None, overlay_args=None, route='sensors', use_sim_t
     specs['sensors']['launch'] = ['mhseals_nav', f'{route}.launch.py']
     boat = replace(boat, components=specs, use_sim_time=use_sim_time)
     overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
-    assert overlay == {'odometry': {'fcu_url': 'serial:///inert-fcu'}}
+    assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
+                       for key in ('odometry', 'sensors')}
     overlay['sensors'] = overlay_args or {}
     return next(item.argv for item in components(boat, overlay, selection=None)
                 if item.key == 'sensors')

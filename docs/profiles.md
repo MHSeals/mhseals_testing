@@ -61,3 +61,25 @@ Runtime EKF restart remains unavailable in the application. Its inert command
 seam retains explicit selectors, but this is not proof of same-session frozen
 odometry inputs, filter-state preservation or safe consumer resumption. Enabling
 that lifecycle requires separate owner validation.
+
+Endpoint startup defaults belong to `mhseals_nav/config/endpoint_startup.yaml`.
+Managed robot, odometry and sensors children share `endpoint_deployment_file`,
+`endpoint_startup_file` and `endpoint_context` from component launch args. Package
+values are overridden by deployment YAML, operator YAML, then explicit aliases
+(`fcu_url`, `gcs_url`, `ros_ip`, `ros_port`). Conflicting shared choices refuse
+before child specifications or processes are created. Each selected YAML layer
+is validated even when a later layer overrides its values.
+
+The TUI defaults to the `tui` endpoint context: physical discovery retains stable
+hint selection and 57600 baud; standalone odometry retains Cube-only selection
+and 115200 baud. Omitted `--fcu-url` inherits YAML; an actual CLI URL wins over
+profile aliases across all recognized endpoint children. Empty `fcu_url`,
+`ros_ip` and `ros_port` inherit. `gcs_url: __inherit__` inherits while an explicit
+empty `gcs_url` disables GCS forwarding. The full-robot packaged GCS default is
+`udp://@127.0.0.1:14550`, corrected to satisfy the version-matched MAVROS parser.
+Explicit operator URLs are preserved rather than rewritten.
+
+Endpoint preflight is pure input validation. Physical discovery happens in the
+navigation launch resolver, and neither a chosen path nor a compiled URL proves
+connectivity. Direct Unity remains attach-only. Fresh-start selectors do not
+provide runtime restart activation or frozen-session replay.
