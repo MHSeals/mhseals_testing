@@ -49,21 +49,13 @@ Use `i` to verify wiring and reversals before running the trials.
 
 Characterization is temporarily unavailable: the public procedure and TUI refuse before arming, staging or commands, including with bench override, because the driver has no acknowledged runtime correction C+/C- and coupled-model transition. Normal Drive remains available without a pending backup; an interrupted older survey's durable backup blocks arming and automated/manual motion, and YAML changes through restore or pause/resume cannot clear it. Enabling characterization requires an owner-controlled transition/restart bound to actual runtime correction/model identity, with readback before raw, saved and restored phases and after authority-gate settling on pause/resume. File saves, parameter echoes, offline `Staging` and private fitting fixtures provide no runtime proof or operational bypass.
 
-### Profiles
+### Profiles and simulator courses
 
-| Profile | Command | Odometry | Outputs | Bring-up |
-| --- | --- | --- | --- | --- |
-| `boat` (real boat) | `/cmd_vel`, effort | `/odom/local`, physical FCU/sensors | Real ODROID PWM pins | MAVROS + EKFs; navigation available |
-| `crane_full_stack` (Unity through navigation) | `/cmd_vel`, effort | `/odom/local`, simulated sensors; truth `/crane/odom` | ROS `/thrusters/pwm` into Unity | EKFs without an FCU; navigation available, sim time |
-| `crane_direct` (Unity direct) | `/crane/cmd_vel_stamped`, m/s | Unity ground truth `/crane/odom` | No PWM driver | Attach directly; bypasses mhseals_nav |
-
-The profile IDs stay unchanged. `boat_trial profiles` reads their descriptions from the profile YAML; TUI `?` begins with the active profile description. Direct Unity is for testing commands against Unity's own velocity controller/truth; full-stack Unity exercises the boat's ROS PWM and sensor/navigation path. Components without `start: true` still start from Status rows, rather than automatically when selecting a profile.
-
-`--set command_mode=velocity` puts `calibrated_velocity_controller` in front of the outputs (commands in m/s). On profiles that command `/cmd_vel` (`boat`, `crane_full_stack`), arming also starts `mhseals_hardware`'s `command_mux`, which arbitrates RC, TUI keys, holds and autonomy onto `/cmd_vel/applied`; the driver, or the controller in front of it, listens there. `--profile <file.yaml>` loads your own. Start crane_ml for `crane_full_stack` with `--crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-roboboat-course Tools/RoboBoat/courses/roboboat_2025.json --crane-roboboat-course-truth <bags>/course_truth.json --crane-lidar-returns-only --crane-lidar-water-level 0.02`, adding `--crane-wind 8,90 --crane-water-current 0.15,0 --crane-disturbance-after 60` for a moderate breeze and current. The referee reads `course_truth` from the profile.
-
-For `pair_test` or `circle_test`, this package's `config/courses/<task>.yaml` is the editable course. Pass `--crane-roboboat-course "$(boat_trial course circle_test)"` (or `pair_test`) to your existing Unity command and choose the matching task under `t`. Negate both buoy `y` coordinates in the pair course to swap the colours. These courses tag their objects for the referee; without matching course truth it reports `N/A`, while event scoring still runs. Task distances and timeouts live in `mhseals_nav/config/tasks/`.
-
-`boat_trial course <name-or-YAML-path>` validates the YAML and prints only an absolute generated JSON path; invalid input returns nonzero on stderr. Bare names resolve installed package resources outside the working directory; custom `.yaml`/`.yml` paths select your own file. Every invocation compiles the current YAML into deterministic content-addressed JSON under `$XDG_CACHE_HOME/mhseals_testing/course-json` (default `~/.cache`). That disposable artifact is Unity input, not another editable configuration: edit YAML and run the same command again. The quoted substitution handles cache paths with spaces. The helper neither launches Unity nor samples the boat. `course_truth.json`, session JSON and runtime recordings remain data in their existing formats.
+`boat` uses real PWM and sensors; `crane_direct` bypasses navigation with Unity
+velocity/truth; `crane_full_stack` uses ROS PWM and simulated sensors through nav.
+`boat_trial profiles` explains each profile; TUI `?` shows the active description.
+Use `--crane-roboboat-course "$(boat_trial course circle_test)"` for a YAML course.
+See [profile and course setup](docs/profiles.md) for flags, topics and cache details.
 
 ### Data
 
@@ -85,17 +77,6 @@ make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
 
-Configuration inventory is available without collecting boat health:
-`boat_trial config catalog` prints the installed hardware, Nav2, MAVROS and lidar
-catalogs, plus the optional installed Astro run catalog. Use `--json -` for stdout
-or `--json PATH` to save the same view. Missing or broken providers remain visible;
-non-optional provider errors return exit status 2. This command exposes no mutation
-verbs.
-
-In the TUI, select the **Config** status row, press Enter, then select **Catalog**.
-Up/Down reaches each package and leaf; Enter opens scrollable metadata and blocker
-details; Esc returns. Watched file rows still apply their pending file on Enter.
-Catalog defaults are package inventory, with source pointers/hashes, constraints,
-consumers and coverage—not live values or verified device behavior. Without an
-explicit compiler context, selection is unknown. Optional compiled values and their
-origins remain separate and are labeled requested/compiled, never live.
+Read-only configuration inventory: `boat_trial config catalog` (`--json -` for JSON),
+or TUI **Config → Catalog**. Defaults/compiled requests are never live verification.
+See [catalog usage and evidence limits](docs/catalog.md) for navigation and errors.

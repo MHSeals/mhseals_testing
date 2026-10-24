@@ -30,3 +30,20 @@ an explicitly archived navigation revision. Integration approval still requires
 the accepted navigation endpoint. Additional hardware, RTK, health, keymap,
 profile, costmap, planner, perception and launch families need owner trace and
 metadata follow-ups. No runtime adapter or manager is introduced here.
+
+## Public CLI and TUI access
+
+Configuration inventory is available without collecting boat health:
+`boat_trial config catalog` prints the installed hardware, Nav2, MAVROS and lidar
+catalogs, plus the optional installed Astro run catalog. Use `--json -` for stdout
+or `--json PATH` to save the same view. Missing or broken providers remain visible;
+non-optional provider errors return exit status 2. This command exposes no mutation
+verbs.
+
+In the TUI, select the **Config** status row, press Enter, then select **Catalog**.
+Up/Down reaches each package and leaf; Enter opens scrollable metadata and blocker
+details; Esc returns. Watched file rows still apply their pending file on Enter.
+Catalog defaults are package inventory, with source pointers/hashes, constraints,
+consumers and coverage—not live values or verified device behavior. Without an
+explicit compiler context, selection is unknown. Optional compiled values and their
+origins remain separate and are labeled requested/compiled, never live.
