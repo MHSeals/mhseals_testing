@@ -14,6 +14,7 @@ from mhseals_testing.ui.app import stack_overlay
 def launch_factory(nav_root, name):
     """Execute shipped factory bodies with recording constructors, never ROS."""
     from mhseals_nav.navigation_config import persistent_limits_path
+    from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
     from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 
     class Configuration:
@@ -37,7 +38,8 @@ def launch_factory(nav_root, name):
               PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
               FindPackageShare=lambda package: str(nav_root),
               persistent_limits_path=persistent_limits_path,
-              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope)
+              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope,
+              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS)
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), ns)
     return ns
 
