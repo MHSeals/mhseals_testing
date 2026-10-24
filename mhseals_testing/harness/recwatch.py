@@ -78,6 +78,11 @@ class RecWatch:
         return RecSample(mode if recording and mode in ('lean', 'full') else 'lean' if recording else 'off', rate, free, left, stop)
 
 
+def _coarse(hours):
+    """Hours to two significant digits, so a noisy rate estimate does not redraw the header."""
+    return f'{float(f"{hours:.2g}"):.0f}' if hours >= 10 else f'{hours:.0f}'
+
+
 def strip_text(sample, armed=False, sep=' · ', approx='≈'):
     """(state, text) for the header's rec chip. State is ok, warn, fail or off; no dots.
 
@@ -89,6 +94,6 @@ def strip_text(sample, armed=False, sep=' · ', approx='≈'):
     if sample.rate_bps > 0:
         text += f' {approx}{sample.rate_bps / 1e6:.1f} MB/s'
         if sample.minutes_left is not None:
-            text += f'{sep}{sample.minutes_left / 60:.0f} h'
+            text += f'{sep}{_coarse(sample.minutes_left / 60)} h'
     state = 'fail' if sample.free_gb < MIN_FREE_GB else 'warn' if sample.free_gb < 5 * MIN_FREE_GB else 'ok'
     return state, text

@@ -23,6 +23,7 @@ import time
 import yaml
 from rich.console import Console, Group
 from rich.live import Live
+from rich.segment import Segments
 from rich.text import Text
 
 from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config, update_config
@@ -276,6 +277,7 @@ class App:
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
         self.last_frame = 0.0
+        self.last_drawn = None   # segments of the last idle frame, to skip identical ones
         self.last_tick = clock()
         self.quit = False
         self.closed = False
@@ -649,7 +651,18 @@ class App:
         if not force and now - self.last_frame < FRAME:
             return
         self.last_frame = now
-        self.live.update(self.render(), refresh=True)
+        frame = self.render()
+        if not force:
+            # Idle ticks: skip the write when the frame is byte-identical to the last one,
+            # and hand Live the segments already laid out instead of rendering twice.
+            drawn = list(self.console.render(frame))
+            if drawn == self.last_drawn:
+                return
+            self.last_drawn = drawn
+            frame = Segments(drawn)
+        else:
+            self.last_drawn = None
+        self.live.update(frame, refresh=True)
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
@@ -698,7 +711,7 @@ class App:
                             except STOPPING_ERRORS as error:
                                 self.stop(str(error) or type(error).__name__, by='error')
                         self.tick()
-                        self.refresh(force=key is not None)
+                        self.refresh(force=key is not None)  # idle ticks redraw only on change
                     except KeyboardInterrupt as error:
                         self.detaching = isinstance(error, Detach)
                         # Ctrl+C quits like q, minus the question: anything moving has

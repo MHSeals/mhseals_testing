@@ -6,6 +6,7 @@ import os
 import json
 
 import pytest
+from rich.segment import Segments
 import yaml
 from rich.console import Console
 
@@ -125,6 +126,7 @@ class Keys:
 class Live:
     def __init__(self, renderable, **kwargs):
         self.frames = 0
+        self.last = None
 
     def __enter__(self):
         return self
@@ -134,6 +136,7 @@ class Live:
 
     def update(self, renderable, refresh=False):
         self.frames += 1
+        self.last = renderable
 
     def stop(self):
         pass
@@ -1838,3 +1841,28 @@ def test_global_keys_reach_pins_odometry_and_panel_exclude(tmp_path):
         press(app, 'enter')  # first reason
         app.dispatch('X')
     assert app.monitor.snapshot()['results'][0]['excluded']['reason'] == 'operator error'
+
+
+def test_idle_refresh_skips_identical_frames(tmp_path):
+    """rv1-48: an unchanged idle frame is not rewritten; a key-driven refresh always is."""
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    app.live = Live(None)
+    for _ in range(3):
+        app.last_frame = 0.0
+        app.refresh(force=False)
+    assert app.live.frames == 1
+    app.refresh()
+    assert app.live.frames == 2
+    app.notice = 'changed'
+    app.last_frame = 0.0
+    app.refresh(force=False)
+    assert app.live.frames == 3
+    assert isinstance(app.live.last, Segments)  # the rendered segments, not laid out again
+
+
+def test_rec_hours_are_coarse():
+    from mhseals_testing.harness import recwatch as r
+    mk = lambda m: r.RecSample('lean', 2e5, 50.0, m, False)
+    assert r.strip_text(mk(1196 * 60))[1] == r.strip_text(mk(1204 * 60))[1]
+    assert r.strip_text(mk(5 * 60))[1].endswith('5 h')
