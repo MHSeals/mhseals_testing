@@ -89,12 +89,35 @@ ODOMETRY_INPUTS = frozenset({
 })
 
 
+def validate_localization_profile(profile, arguments):
+    """Refuse unsupported managed localization graphs and contradictory clocks."""
+    managed = [key for key, spec in (profile.components or {}).items()
+               if tuple(spec.get('launch', ())) in ODOMETRY_LAUNCHES]
+    if not managed:
+        return
+    expected = {'map_frame': 'map', 'odom_frame': 'odom',
+                'base_frame': 'base_link', 'odometry': '/odom/local'}
+    for name, value in expected.items():
+        if getattr(profile, name, None) != value:
+            raise ValueError(f'managed localization requires {name}={value}')
+    if type(profile.use_sim_time) is not bool:
+        raise ValueError('managed localization use_sim_time must be a boolean')
+    clock = 'true' if profile.use_sim_time else 'false'
+    for key in managed:
+        supplied = arguments[key].get('sim', clock)
+        if type(supplied) is bool:
+            supplied = 'true' if supplied else 'false'
+        if supplied not in ('true', 'false') or supplied != clock:
+            raise ValueError(f'managed localization {key}.sim must match use_sim_time')
+        arguments[key]['sim'] = clock
+
+
 def odometry_arguments(profile, overlay):
     """One explicit odometry selection for both parent and separately managed EKFs."""
     arguments = {key: {**spec.get('args', {}), **overlay.get(key, {})}
-                 for key, spec in profile.components.items()}
+                 for key, spec in (profile.components or {}).items()}
     selected = {}
-    for key, spec in profile.components.items():
+    for key, spec in (profile.components or {}).items():
         if tuple(spec.get('launch', ())) not in ODOMETRY_LAUNCHES:
             continue
         for name, value in arguments[key].items():
@@ -103,7 +126,7 @@ def odometry_arguments(profile, overlay):
             if name in selected and str(selected[name]) != str(value):
                 raise ValueError(f'conflicting odometry selection: {name}')
             selected[name] = value
-    for key, spec in profile.components.items():
+    for key, spec in (profile.components or {}).items():
         if tuple(spec.get('launch', ())) in ODOMETRY_LAUNCHES:
             arguments[key].update(selected)
     return arguments
@@ -114,7 +137,8 @@ def components(profile, overlay=None, selection=None):
     overlay = overlay or {}
     result = []
     arguments = odometry_arguments(profile, overlay)
-    for key, spec in profile.components.items():
+    validate_localization_profile(profile, arguments)
+    for key, spec in (profile.components or {}).items():
         argv = ()
         if 'launch' in spec:
             args = dict(arguments[key])

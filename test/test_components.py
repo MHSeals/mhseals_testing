@@ -33,6 +33,8 @@ class FakeProcesses:
 
 
 class Profile:
+    map_frame, odom_frame, base_frame = 'map', 'odom', 'base_link'
+    odometry, use_sim_time = '/odom/local', False
     components = {
         'odometry': {'launch': ['mhseals_nav', 'odom.launch.py'], 'args': {'sim': 'false'},
                      'nodes': ['ekf_local'], 'start': True},

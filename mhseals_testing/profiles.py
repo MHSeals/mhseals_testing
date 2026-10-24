@@ -187,6 +187,11 @@ def parse_profile(data, where='profile'):
         if not data.get('use_sim_time') or len(matches) != 1:
             raise ValueError(f'{where}.conditions.velocity: gpsraw or unique sim odom:<topic|name>')
     components = parse_components(data.get('components'), where + '.components')
+    from mhseals_testing.harness.components import ODOMETRY_LAUNCHES
+    managed = any(tuple(spec.get('launch', ())) in ODOMETRY_LAUNCHES
+                  for spec in components.values())
+    if managed and type(data.get('use_sim_time')) is not bool:
+        raise ValueError(f'{where}.use_sim_time: managed localization requires a boolean')
     scale = tuple(float(value) for value in data.get('plot_scale', PLOT_SCALE))
     if len(scale) != 3 or not all(0 < value < float('inf') for value in scale):
         raise ValueError(f'{where}.plot_scale: three positive numbers')

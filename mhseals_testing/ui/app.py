@@ -2421,9 +2421,10 @@ def main(argv=None):
     facts = Facts()
     ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
+    stack_items = components(profile, overlay, selection)
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
-    stack = Stack(components(profile, overlay, selection), processes, time.monotonic, selection)
+    stack = Stack(stack_items, processes, time.monotonic, selection)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, selection=selection)
     app = authority = None

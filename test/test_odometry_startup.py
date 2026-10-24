@@ -19,6 +19,7 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
                                                                profile_name, context):
     import mhseals_nav
     from mhseals_nav.odometry_configuration import from_launch
+    from mhseals_nav.localization_configuration import compile_localization, simulation_clock
 
     share = Path(mhseals_nav.__file__).resolve().parent.parent
     source = share / 'launch/ekf.launch.py'
@@ -44,6 +45,18 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
         odometry_startup_file=str(operator), odometry_deployment_file=str(deployment),
         ekf_local_config_file=str(tmp_path / 'selected-local.yaml'),
         ekf_global_config_file=str(tmp_path / 'selected-global.yaml'))
+    base_paths = {}
+    for node in ('ekf_local', 'ekf_global', 'navsat_transform'):
+        filename = {'ekf_local': 'selected-local.yaml',
+                    'ekf_global': 'selected-global.yaml'}.get(node, 'selected-navsat.yaml')
+        path = tmp_path / filename
+        document = yaml.safe_load((share / f'config/{node}.yaml').read_text())
+        document['/**']['ros__parameters']['frequency'] = {
+            'ekf_local': 17., 'ekf_global': 23., 'navsat_transform': 11.}[node]
+        path.write_text(yaml.safe_dump(document))
+        base_paths[node] = path
+    data['components']['odometry']['args']['navsat_transform_config_file'] = str(
+        base_paths['navsat_transform'])
     profile_file = tmp_path / 'profile.yaml'
     profile_file.write_text(yaml.safe_dump(data))
     tree = ast.parse(source.read_text())
@@ -78,15 +91,28 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
             calls.append(kwargs)
             return kwargs
         namespace = dict(from_launch=from_launch, LaunchConfiguration=LaunchConfiguration,
-                         Node=collect, TimerAction=collect, ekf_overlay=lambda *args: {})
+                         Node=collect, TimerAction=collect,
+                         compile_localization=compile_localization,
+                         simulation_clock=simulation_clock)
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         for started in (processes.started, partial.started):
             argv = next(argv for key, argv in started if key == 'ekf')
             invocation = dict(arg.split(':=', 1) for arg in argv[4:])
-            invocation.setdefault('navsat_transform_config_file', '')
+            invocation.setdefault('ekf_overlay_file', '')
             calls.clear()
             namespace['ekf_nodes'](invocation)
             assert next(call['period'] for call in calls if 'period' in call) == delay
             nodes = {call['name']: call for call in calls if 'name' in call}
-            assert nodes['ekf_local']['parameters'][0] == str(tmp_path / 'selected-local.yaml')
-            assert nodes['ekf_global']['parameters'][0] == str(tmp_path / 'selected-global.yaml')
+            assert nodes['ekf_local']['parameters'][0]['frequency'] == 17.
+            assert nodes['ekf_global']['parameters'][0]['frequency'] == 23.
+            assert nodes['navsat_transform']['parameters'][0]['frequency'] == 11.
+            assert all(node['parameters'][0]['use_sim_time'] is profile.use_sim_time
+                       for node in nodes.values())
+            compiled = compile_localization(base_paths, '', profile.use_sim_time)
+            for entry in compiled.inputs:
+                if entry['sha256'] is not None:
+                    assert entry['sha256'] == sha256(Path(entry['path']).read_bytes()).hexdigest()
+            old = base_paths['ekf_global'].read_text()
+            base_paths['ekf_global'].write_text(old.replace('23.0', '29.0'))
+            assert nodes['ekf_global']['parameters'][0]['frequency'] == 23.
+            base_paths['ekf_global'].write_text(old)
