@@ -12,7 +12,7 @@ from typing import Mapping
 import numpy
 
 from mhseals_hardware.thruster_mixer import AXES
-from mhseals_testing.analysis.thrust import ACTIVE
+from mhseals_testing.analysis.thrust import ACTIVE, step_response
 
 
 # Share of the boat's limits Nav2 may plan with: all of it. (A share held back for the
@@ -127,6 +127,49 @@ def samples_from_windows(history, windows, transient=1.0):
                                 "velocity": (values["vx"], values["vy"], values["wz"]),
                                 "yaw": values.get("yaw")})
     return samples
+
+
+def neutral_noise(history, windows, transient=1.0, coast=0.0, t95=None, holds=None):
+    """Per-sample SD of the neutral velocity as (yaw, surge, sway), the tracking score's noise floor.
+
+    Each neutral window is demeaned on its own, so a drift or a bias between windows is not noise.
+    A window that follows a hold starts with the coast, a decay demeaning cannot remove, so it
+    skips max(transient, ``coast``, the ``t95`` of each axis that hold drove); ``t95`` maps
+    surge/sway/yaw to seconds. ``holds`` are the windows to look for that hold in (default
+    ``windows``; pass the unfiltered list when rejected holds were dropped from ``windows``).
+    This is the per-sample level (decisions 2026-10-23), not the SD of a window mean.
+    """
+    residuals = {key: [] for key in ('wz', 'vx', 'vy')}
+    holds = windows if holds is None else holds
+    for command, start, end in windows:
+        if any(command):
+            continue
+        before = [w for w in holds if any(w[0]) and w[2] <= start + 1e-6]
+        skip = transient
+        if before:
+            last = max(before, key=lambda w: w[2])[0]
+            skip = max(transient, coast, *(t95.get(axis, 0.0) for axis, c in zip(AXES, last) if c and t95))
+        rows = samples_from_windows(history, [(command, start, end)], skip)
+        if len(rows) < 2:
+            continue
+        for key, index in (('vx', 0), ('vy', 1), ('wz', 2)):
+            values = numpy.array([row["velocity"][index] for row in rows])
+            residuals[key].extend(values - values.mean())
+    return [float(numpy.sqrt(numpy.sum(numpy.square(residuals[key])) / (len(residuals[key]) - 1)))
+            if len(residuals[key]) > 1 else 0.0 for key in ('wz', 'vx', 'vy')]
+
+
+def hold_t95(history, hold, key):
+    """Seconds for ``key`` to reach 95 % of its steady change in one hold, or None if it never did.
+
+    ``hold`` is (command, start, end); ``history`` must reach back before ``start`` for the baseline.
+    """
+    rows = [(stamp, values[key]) for stamp, values in history
+            if values.get(key) is not None and math.isfinite(values[key])]
+    if len(rows) < 3:
+        return None
+    t, y = zip(*rows)
+    return step_response(t, y, hold[1], hold[2]).t95
 
 
 def motion_limits(samples, motion, efforts):

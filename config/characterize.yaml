@@ -2,7 +2,7 @@
 levels: [1.0, 0.5]     # survey amplitudes as fractions of --amplitude: a_hi then a_lo
 neutral_s: 20          # s of neutral at the start (wave floor and drift)
 transient_s: 1.0       # s skipped at the start of each hold
-coast_s: 2.0          # s skipped at the start of each neutral settle: the previous hold's coast-down
+coast_s: 2.0           # s of neutral skipped after a hold (coast-down); the wave floor skips the axis t95 if longer
 sync_s: 2.0            # s of neutral for the driver to pick up a rewritten C before a hold
 refine: {max_holds: 3, probe: 0.15, headroom: 0.98, min_room: 0.2}
 # headroom: a(1 + sum|c|) stays below it; min_room: smallest sum|c| the amplitude must allow

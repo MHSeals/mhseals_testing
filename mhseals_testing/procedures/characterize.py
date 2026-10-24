@@ -17,7 +17,7 @@ import yaml
 from mhseals_hardware.thruster_mixer import AXES
 from mhseals_testing import nav2_limits
 from mhseals_testing.analysis.characterization import (
-    audit_holds, motion_limits, nav2_profile, samples_from_windows,
+    audit_holds, hold_t95, motion_limits, nav2_profile, neutral_noise, samples_from_windows,
 )
 from mhseals_testing.analysis.column import _within, refine, worst
 from mhseals_testing.analysis.thrust import speed_curve
@@ -216,6 +216,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     if only is None:
         # Holds touched by an override (the interrupted one included) never reach the fit.
         windows = [w for w in windows if not runner.invalid(w[1], w[2])]
+        driven = windows    # every hold that ran, for the coast that follows a rejected one
         history = ctx.history(start[0], end)
         audit = audit_holds(history, windows, transient)
         windows = [w for w, hold in zip(windows, audit) if hold['ok']]
@@ -228,10 +229,19 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             curve = speed_curve(points)
             if curve:
                 curves[label(axis, sign)] = dict(d1=curve['d1'], d2=curve['d2'])
+        t95 = {}    # the first (a_hi, +) hold of each axis: the boat's lag, read by the tracking predictor
+        for axis in range(3):
+            hold = survey[(axis, 1, hi)][0]
+            if hold[1:] not in bad:
+                lag = hold_t95([s for s in history if s[0] >= hold[1] - settings.settle], hold,
+                               ('vx', 'vy', 'wz')[axis])
+                if lag is not None:
+                    t95[AXES[axis]] = lag
         result = dict(
             version=2, source='mhseals_testing session', identified_at=datetime.now(timezone.utc).isoformat(),
             sample_count=len(samples_from_windows(history, windows, transient)),
-            speed_curves=curves,
+            speed_curves=curves, t95=t95,
+            wave_floor=neutral_noise(history, windows, transient, cfg['coast_s'], t95, driven),
             motion_limits=motion_limits(samples_from_windows(history, windows, transient),
                                         samples_from_windows(history, windows, 0.0), [hi, hi, hi]))
         summary.update(verdict='PARTIAL' if rejected else 'FITTED', holds_rejected=rejected,
