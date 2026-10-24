@@ -28,7 +28,7 @@ def popup(app, modal, handle, refresh=None):
             if key is None:
                 continue
             if key in STOP_KEYS and modal.get('kind') != 'input':
-                app.stop('stopped by operator')   # keymap rule 5: Space stops in every modal but popup.text
+                app.operator_stop()  # Space stops in every modal but popup.text
             result = handle(key)
             if result is not None:
                 return result

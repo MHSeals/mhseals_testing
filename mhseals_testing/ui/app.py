@@ -1142,11 +1142,7 @@ class App:
             else:
                 self.move(step)
         elif key == 'space':
-            try:
-                if self.plant is not None:
-                    self.plant.hold('keys')
-            finally:  # Space must always disarm, even if the hold request fails
-                self.stop('stopped by operator')
+            self.operator_stop()
         elif key == 'q':
             self.confirm_quit()
         elif key == 'escape':  # backs out; never quits
@@ -1884,14 +1880,21 @@ class App:
             self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'
 
+    def operator_stop(self):
+        """Space requests a sticky manual hold, then always neutralizes and disarms."""
+        self.command = (0.0, 0.0, 0.0)
+        try:
+            if self.plant is not None:
+                self.plant.hold('keys')
+        finally:
+            self.stop('stopped by operator')
+
     def stop(self, reason, by='operator'):
         """Neutral and disarmed, whatever happened; ``by`` is operator, fault or error.
 
         A watcher publishes neutral too: Space always works.
         """
         try:
-            if self.watching and self.plant is not None:
-                self.plant.engage()  # a second publisher also aborts the owner's motion
             self.disarm(reason, by)
         finally:
             self.monitor.event('STOP: ' + reason)

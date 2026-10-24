@@ -1970,3 +1970,33 @@ def test_segment_and_session_close_build_the_index(tmp_path):
     assert json.loads(made.file.read_text())['ended']
     assert 'open' not in json.loads((root / 'INDEX.json').read_text())['sessions'][0]['flags']
     assert (root / 'README.md').exists()
+
+
+@pytest.mark.parametrize('popup', [False, True])
+@pytest.mark.parametrize('fails', [False, True])
+def test_operator_space_never_engages_watchers_auto_topic(tmp_path, popup, fails):
+    app, boat = make_app(tmp_path)
+    app.watching = 123
+    app.arming.armed = True
+    app.command = (0.3, 0, 0)
+    calls = []
+
+    def hold(cause):
+        calls.append(cause)
+        if fails:
+            raise RuntimeError('hold failed')
+
+    boat.hold = hold
+    boat.engage = lambda: pytest.fail('watcher engaged auto publisher')
+    with app.attached():
+        press(app, 'space')
+        try:
+            if popup:
+                app.show('Watch', message='watching')
+            else:
+                app.dispatch('space')
+        except RuntimeError:
+            assert fails
+    assert calls == ['keys']
+    assert app.command == (0, 0, 0) and not app.armed
+    assert boat.sent and all(command == 'neutral' for command in boat.sent)
