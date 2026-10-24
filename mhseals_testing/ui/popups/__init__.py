@@ -23,13 +23,13 @@ def popup(app, modal, handle, refresh=None):
         while True:
             app.refresh()
             key = app.keys.read(timeout=0.1)
+            if key in STOP_KEYS and modal.get('kind') != 'input':
+                app.operator_stop()  # Space stops in every modal but popup.text
             app.tick()
             if refresh:
                 refresh()
             if key is None:
                 continue
-            if key in STOP_KEYS and modal.get('kind') != 'input':
-                app.operator_stop()  # Space stops in every modal but popup.text
             if modal.get('kind') != 'input':
                 # Authority owns E itself so it can revoke the selected claim.
                 if key == 'E' and not str(modal.get('title', '')).startswith('Authority'):

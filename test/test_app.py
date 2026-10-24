@@ -2165,3 +2165,14 @@ def test_actual_app_manual_space_ends_at_zero_even_on_hold_error(tmp_path, fails
     assert app.command == (0, 0, 0)
     if fails:
         assert not app.armed
+
+
+def test_popup_space_clears_raw_pulses_before_background_tick(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.test_pulses = [1600] * 4
+    app.arming.armed = True
+    with app.attached():
+        press(app, 'space')
+        app.show('Pulses', message='bench')
+    assert app.pulse_log and all(pulses == [1500] * 4 for pulses in app.pulse_log)
+    assert app.test_pulses is None and not app.armed
