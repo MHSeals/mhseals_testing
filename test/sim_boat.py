@@ -10,6 +10,7 @@ actions (RC switch, Space, U, E) on the fake clock.
 """
 
 from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.configuration import load_defaults
 from mhseals_testing.harness.authority import ClaimTable, derive, events
 
 DT = 0.04                                  # one tick: the 25 Hz RC rate
@@ -27,7 +28,8 @@ class Revoked(RuntimeError):
 
 class Sim:
     def __init__(self):
-        self.now, self.arb, self.claims = T0, Arbitration(), ClaimTable()
+        self.now, self.claims = T0, ClaimTable()
+        self.arb = Arbitration.from_config(load_defaults()['command_mux'])
         self.rc = [1500, 1500, 1500, 1500, 1500, 1800, 1500, GUIDED]
         self.record, self.log, self.goals, self.applied = None, [], [], (0.0, 0.0, 0.0)
         self.speed, self._script, self._holds = [0.0] * 3, [], set()

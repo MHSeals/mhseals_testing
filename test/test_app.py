@@ -2088,9 +2088,10 @@ def test_release_names_the_claimant(tmp_path):
 @pytest.mark.parametrize('popup', [False, True])
 def test_watch_space_stays_held_after_rc_returns_guided(tmp_path, popup):
     from mhseals_hardware.command_arbitration import Arbitration
+    from mhseals_hardware.configuration import load_defaults
     app, boat = make_app(tmp_path)
     app.watching = 42
-    mux = Arbitration()
+    mux = Arbitration.from_config(load_defaults()['command_mux'])
     manual = []
 
     def hold(cause):
