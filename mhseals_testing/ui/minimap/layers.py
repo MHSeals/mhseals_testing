@@ -15,6 +15,8 @@ from mhseals_testing.ui.minimap import view
 
 # Every Nth dot is drawn per GPS quality; None is no fix (a gap mark, no dots).
 GPS_PERIOD = {'fix': 1, 'float': 2, 'dgps': 3, '3d': 4, 'none': None}
+# GPSRAW fix_type (what MapState and the trail file keep) to a GPS_PERIOD band; others are 'none'.
+FIX_BANDS = {6: 'fix', 5: 'float', 4: 'dgps', 3: '3d'}
 TRACK_BANDS = ((0.25, 'ok', 1), (0.6, 'mid', 2))  # (cross-track limit m, band, period)
 TRACK_FAR = ('bad', 3)
 SPEED_BANDS = 5  # spd.0 .. spd.4 up to vmax, spd.5 above it
@@ -80,7 +82,8 @@ def draw_plan(frame, points, local=False):
 def _quality(crumb, mode, vmax):
     """(band, period) of a crumb in a trail mode; a None period is a gap."""
     if mode == 'gps':
-        return crumb.fix, GPS_PERIOD.get(crumb.fix, None)
+        band = crumb.fix if isinstance(crumb.fix, str) else FIX_BANDS.get(crumb.fix, 'none')
+        return band, GPS_PERIOD.get(band)
     if mode == 'track' and crumb.xte is not None:
         for limit, band, period in TRACK_BANDS:
             if crumb.xte < limit:

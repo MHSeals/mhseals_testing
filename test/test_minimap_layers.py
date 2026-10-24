@@ -134,3 +134,23 @@ def test_hits_are_lethal_cells_within_range_and_near_ones_use_the_fail_layer():
     layers.draw_hits(f, g, 0.4, (-20.0, -20.0), (0.0, 0.0))
     layers_seen = [c.fg for row in f.canvas.cells() for c in row if c.fg]
     assert sorted(layers_seen) == ['hits', 'hits', 'hits.near']
+
+
+def test_gps_trail_from_map_state_maps_fix_type_to_bands():
+    from mhseals_testing.ui.minimap import panel
+    from mhseals_testing.ui.minimap.state import MapState
+
+    def trail(fix):
+        s = MapState()
+        s.ingest('gps_raw', fix_type=fix, h_acc_m=0.02, vel_cms=65535)
+        for i in range(30):
+            s.ingest('pose_map', t=float(i), x=i * 0.5, y=0.0)
+        f = _frame()
+        layers.draw_trail(f, panel.crumbs(s), 'gps')
+        return _dots(f.canvas)
+
+    fixed = trail(6)
+    assert fixed > 0
+    assert trail(3) == pytest.approx(fixed / 4, abs=2) and trail(3) > 0
+    assert trail(5) < fixed and trail(4) < fixed
+    assert trail(1) == 0 and trail(0) == 0
