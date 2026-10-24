@@ -429,7 +429,7 @@ class App:
         self.tick_live()
 
     def tick_review(self):
-        """Advance the replay; reader/decode/ingest data errors end the review, not the live session."""
+        """Advance the replay; reader, decode and ingest data errors end only the review."""
         if getattr(self, '_review_fault', False):
             return
         try:

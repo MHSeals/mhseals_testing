@@ -55,6 +55,9 @@ class ReviewSource:
         self.now = stamp
         if self.kinds[topic] == 'event' and hasattr(message, 'data'):
             message = json.loads(message.data)
+        if self.kinds[topic] == 'event' and not (
+                isinstance(message, dict) and isinstance(message.get('phase'), str)):
+            raise ValueError('malformed recorded event payload on ' + topic)
         ingest(self.monitor, self.profile, topic, self.kinds[topic], message, stamp)
 
     def seek(self, seconds):
