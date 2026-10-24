@@ -92,7 +92,7 @@ def summarize(session):
                  'duration_s': round(sum(s['duration_s'] for s in segments), 3)},
         'segments': [{k: v for k, v in s.items() if k not in ('topics', 'start_ns')} for s in segments],
         'topics': sorted(topics.values(), key=lambda t: str(t['name'])),
-        'markers': [e for e in events if (e.get('kind') or e.get('type')) == 'marker'],
+        'markers': [e for e in events if e.get('phase') == 'marker'],
         'runs': [{'id': r.get('id') or r.get('run_id'), 'procedure': r.get('procedure'), 'status': r.get('status')}
                  for r in runs],
         'outcome': outcome, 'flags': flags}

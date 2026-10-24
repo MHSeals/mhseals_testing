@@ -167,7 +167,11 @@ def _has_unfinalized(path):
 
 
 def _markers(path):
-    return sum(1 for record in data.read_jsonl(path / 'events.jsonl') if record.get('phase') == 'marker')
+    """Marker count of a session: ``<folder>/events.jsonl``, or for a flat live session the sibling ``<name>.events.jsonl``."""
+    journal = path / 'events.jsonl'
+    if not journal.exists():
+        journal = path.parent / f'{path.name}.events.jsonl'
+    return sum(1 for record in data.read_jsonl(journal) if record.get('phase') == 'marker')
 
 
 def _load(folder, legacy, recording):

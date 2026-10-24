@@ -35,7 +35,7 @@ def test_finalized_session(root):
     (d / 'bag').mkdir()
     (d / 'bag' / 'bag_0.mcap').write_bytes(b'x' * 10)
     (d / 'bag' / 'metadata.yaml').write_text(META)
-    data.append_jsonl(d / 'events.jsonl', {'kind': 'marker', 'note': 'n'})
+    data.append_jsonl(d / 'events.jsonl', {'phase': 'marker', 'kind': 'user', 'id': 1, 'note': 'n'})
     data.append_jsonl(d / 'events.jsonl', {'kind': 'hold'})
     data.write_json(d / 'runs' / 'r1.json', {'id': 'r1', 'procedure': 'square', 'status': 'MEASURED'}, 'mhseals.run/1')
     s = index.summarize(d)
@@ -103,3 +103,12 @@ def test_legacy_flat_bags_are_listed_read_only(root):
     assert {r['id'] for r in rows} == {'new', 'boat_20261001_120000'}
     assert 'legacy' in next(r for r in rows if r['id'] != 'new')['flags']
     assert not (legacy / 'summary.json').exists()
+
+
+def test_system_and_user_markers_counted_in_row(root):
+    d = session(root, 'm')
+    for i, kind in enumerate(('user', 'system'), 1):
+        data.append_jsonl(d / 'events.jsonl', {'phase': 'marker', 'kind': kind, 'id': i})
+    data.append_jsonl(d / 'events.jsonl', {'phase': 'hold'})
+    s = index.summarize(d)
+    assert len(s['markers']) == 2 and index.row(s)['markers'] == 2

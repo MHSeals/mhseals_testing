@@ -53,3 +53,13 @@ def test_indexed_untouched_and_failure_reported(tmp_path):
     assert finalize(done, run)['status'] == 'indexed' and not run.calls
     bad = seg(tmp_path, {'a_0.mcap': b'x'}, 'bag_01')
     assert finalize(bad, Runner(code=1))['status'] == 'failed'
+
+
+def test_flat_live_session_markers_come_from_sibling_journal(tmp_path):
+    """A flat live session keeps its journal beside the folder as <name>.events.jsonl."""
+    from mhseals_testing import data
+    from mhseals_testing.harness import bags
+    (tmp_path / 'live').mkdir()
+    for i in (1, 2):
+        data.append_jsonl(tmp_path / 'live.events.jsonl', {'phase': 'marker', 'kind': 'user', 'id': i})
+    assert bags._markers(tmp_path / 'live') == 2
