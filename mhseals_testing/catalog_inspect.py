@@ -2,6 +2,8 @@
 from collections.abc import Mapping
 from importlib import import_module
 
+import yaml
+
 from mhseals_testing.catalog import assemble
 
 PROVIDERS = (
@@ -68,7 +70,7 @@ def installed(*, compiled=None):
             detail = str(error)
         except FileNotFoundError as error:
             status, detail = 'missing-resource', str(error)
-        except (ValueError, TypeError, UnicodeError, AttributeError) as error:
+        except (ValueError, TypeError, UnicodeError, AttributeError, yaml.YAMLError) as error:
             status, detail = 'invalid-installed', str(error)
         except ImportError as error:
             status, detail = 'missing-dependency', str(error)

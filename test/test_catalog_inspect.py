@@ -50,3 +50,26 @@ def test_installed_collision_visible_and_surviving_owner_retained(monkeypatch):
     assert len(view['rows']) == 1
     assert view['packages'][1]['status'] == 'invalid-installed'
     assert 'collision' in view['packages'][1]['detail']
+
+
+def test_reachable_cli_only_catalog_before_any_collectors(monkeypatch, capsys, tmp_path):
+    from mhseals_testing.harness import cli
+    def forbidden(*args, **kwargs):
+        pytest.fail('catalog entered runtime or authoring path')
+    monkeypatch.setattr(cli, 'host_collector', forbidden)
+    monkeypatch.setattr(cli, 'load_profile', forbidden)
+    monkeypatch.setattr(cli.health_config, 'load', forbidden)
+    view = inspect.inspection({}, [])
+    monkeypatch.setattr(inspect, 'installed', lambda: view)
+    assert cli.main(['config', 'catalog', '--json', '-'], collect=forbidden) == 0
+    import json
+    assert json.loads(capsys.readouterr().out) == view
+    path = tmp_path / 'inventory.json'
+    assert cli.main(['config', 'catalog', '--json', str(path)]) == 0
+    assert json.loads(path.read_text()) == view
+    assert view['selection']['label'] in capsys.readouterr().out
+    for verb in ('set', 'revert', 'apply', 'observe'):
+        with pytest.raises(SystemExit) as error:
+            cli.main(['config', verb])
+        assert error.value.code == 2
+    assert cli.build_parser().parse_args(['check', '--lint']).command == 'check'

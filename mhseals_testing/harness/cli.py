@@ -128,11 +128,27 @@ def build_parser():
     check.add_argument('--fail-on', choices=('warn', 'fail'), default='fail')
     check.add_argument('--json', metavar='PATH', help='write JSON to PATH, or - for stdout')
     check.add_argument('--lint', action='store_true', help='check the YAML only; needs no ROS')
+    config = sub.add_parser('config', help='read-only configuration inventory')
+    catalog = config.add_subparsers(dest='config_command', required=True).add_parser('catalog')
+    catalog.add_argument('--json', metavar='PATH|-', help='write JSON to PATH, or - for stdout')
     return parser
 
 
 def main(argv=None, collect=None):
     args = build_parser().parse_args(argv)
+    if args.command == 'config':
+        from mhseals_testing.catalog_inspect import installed, text
+        view = installed()
+        encoded = json.dumps(view, indent=2)
+        if args.json == '-':
+            print(encoded)
+        else:
+            if args.json:
+                with open(args.json, 'w') as output:
+                    output.write(encoded + '\n')
+            print(text(view))
+        return 2 if any(p['status'] not in ('available', 'missing-optional')
+                        for p in view['packages']) else 0
     try:
         profile = load_profile(args.profile)
         config = health_config.load(profile=profile)
