@@ -103,7 +103,8 @@ def control_rows(snapshot, specs):
         rows.append(row('RC', 'lost', 'receiver present but not valid', 'WARN'))
     else:
         hz, latency = rc.get('rate_hz') or 0, rc.get('latency_ms')
-        value = f"{rc.get('mode', '')}{theme.SEPARATOR}{hz:.0f} Hz" + (f' ~{latency:.0f}ms' if latency else '')
+        value = (f"{rc.get('mode', '')}{theme.SEPARATOR}{hz:.0f} Hz"
+                 + (f' ~{latency:.0f}ms' if latency else ''))
         slow = hz < RC_MIN_HZ
         rows.append(row('RC', value, f'RC_CHANNELS at {hz:.0f} Hz: N1 not applied or FCU rebooted' if slow
                         else 'rc mode, rate and estimated latency', 'WARN' if slow else 'OK'))

@@ -12,9 +12,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing.strict_yaml import load_strict
+
+import yaml
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,8 @@ def settings_path():
 
 
 def load(path=None, strict=False):
-    """Settings from the user's file; a broken file or value falls back to the default.
+    """
+    Settings from the user's file; a broken file or value falls back to the default.
 
     ``strict`` (the hot reload) raises on a broken file or value instead; a missing file is the
     defaults.

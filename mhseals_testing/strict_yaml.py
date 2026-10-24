@@ -1,4 +1,8 @@
-"""The one strict reader for operator-edited YAML: no aliases, merge keys, duplicate or non-string keys."""
+"""
+The one strict reader for operator-edited YAML.
+
+It refuses aliases, merge keys, and duplicate or non-string keys.
+"""
 import yaml
 
 
@@ -21,7 +25,8 @@ class _Loader(yaml.SafeLoader):
 
 
 def load_strict(text):
-    """Parse ``text``.
+    """
+    Parse ``text``.
 
     Raises ValueError on aliases, merge keys, or duplicate or non-string
     keys; yaml.YAMLError on syntax errors.

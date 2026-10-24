@@ -31,11 +31,11 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import calibration, data, nav2_limits
+from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness import host, index, journal, runs, session as session_module, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
-from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
 from mhseals_testing.runner import STALE_MUX_S, override_cause
@@ -59,8 +59,8 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
-    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception, popups,
-    theme)
+    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception,
+    popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed

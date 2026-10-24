@@ -125,7 +125,8 @@ def compact_axis(index, snapshot, view, width):
 def motion_panel(snapshot, view, height=0, compact=False):
     """Three braille axes; 4 rows an axis once ``height`` reaches TALL, or ``compact``: one row an axis."""
     measured = snapshot['sensors'].get('odometry', {})
-    subtitle = ('effort' if view['units'] == 'effort' else 'm/s') + theme.SEPARATOR + theme.labelled(
+    units = 'effort' if view['units'] == 'effort' else 'm/s'
+    subtitle = units + theme.SEPARATOR + theme.labelled(
         measured.get('status', 'MISSING'), 'odom').plain
     subtitle = Text(subtitle, style=theme.MUTED)
     if view.get('authority'):                       # who drives, in their hue (ui U4)

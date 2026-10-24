@@ -1446,7 +1446,8 @@ def test_bad_yaml_keeps_the_old_config_with_one_notice_per_distinct_error(tmp_pa
 def test_config_row_and_popup_list_the_watched_files(tmp_path):
     app, _ = make_app(tmp_path)
     app.watch_config()
-    assert app.monitor.advisories['Config'][1] == 'OK' and '6 files' in app.monitor.advisories['Config'][2]
+    advisory = app.monitor.advisories['Config']
+    assert advisory[1] == 'OK' and '6 files' in advisory[2]
     modals = []
     app.popup = lambda modal, handle, refresh=None: modals.append(modal)
     app.open('config')

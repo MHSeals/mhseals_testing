@@ -8,9 +8,9 @@ from collections import namedtuple
 from pathlib import Path
 from unicodedata import east_asian_width
 
-import yaml
-
 from mhseals_testing.strict_yaml import load_strict
+
+import yaml
 
 Symbol = namedtuple('Symbol', 'label glyph ascii colour radius name')
 

@@ -395,7 +395,8 @@ def render(view, width=120, height=40, focused=True):
     footer = []
     if view.get('plan'):
         footer.append(Text('Plan  ' + view['plan']))
-    footer.append(Text.assemble(('scope ', theme.MUTED), (TAGS['hardware'], SCOPE), ' hardware: refit when rebuilt  ',
+    footer.append(Text.assemble(('scope ', theme.MUTED), (TAGS['hardware'], SCOPE),
+                                ' hardware: refit when rebuilt  ',
                                 (TAGS['calibration'], SCOPE), ' calibration: refit each test'))
     pad = max(0, height - 2 - len(body) - len(lines) - len(footer) - 2)   # the box fills the body
     main = theme.block(Group(*body, Text(''), *lines, *[Text('')] * (pad + 1), *footer),

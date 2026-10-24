@@ -98,8 +98,11 @@ def thrusters_panel(view, compact=False, pins=True):
             cells.append(Text(f"p{row['pin']}", style=theme.MUTED))
         cells += [
             Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
-            Text(theme.pick('−', '-') if row['reversed'] else theme.MIDDOT, style=theme.WARN if row['reversed'] else theme.MUTED),
-            Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')), style=theme.WARN if row['saturated'] and active else 'bold' if active else theme.MUTED)]
+            Text(theme.pick('−', '-') if row['reversed'] else theme.MIDDOT,
+                 style=theme.WARN if row['reversed'] else theme.MUTED),
+            Text(f"{row['pulse']}" + ('' if compact else theme.pick(' µs', ' us')),
+                 style=theme.WARN if row['saturated'] and active
+                 else 'bold' if active else theme.MUTED)]
         if not compact:
             cells.append(effort_bar(row['pulse'], testing, saturated=row['saturated'] and active))
         if pins:

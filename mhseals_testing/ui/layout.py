@@ -236,7 +236,9 @@ def popup(modal, width, height=None):
         total, pinned = _height(body, inner), _height(Group(*tail), inner)
         if total + pinned > height - 2:
             modal['clipped'] = True
-            hint = f"{modal.get('scroll_hint', 'j/k')} scroll{theme.SEPARATOR}{hint or ''}".rstrip(theme.SEPARATOR)  # first: the border may crop
+            # first: the border may crop
+            hint = f"{modal.get('scroll_hint', 'j/k')} scroll{theme.SEPARATOR}{hint or ''}"
+            hint = hint.rstrip(theme.SEPARATOR)
             room = max(1, height - 2 - pinned)
             modal['scroll'] = max(0, min(modal.get('scroll', 0), total - room))
             body = Window(body, modal['scroll'], room)
