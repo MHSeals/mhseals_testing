@@ -66,9 +66,14 @@ def means(history, window, skip):
     return [sum(v[key] for v in rows) / len(rows) if rows else 0.0 for key in ('vx', 'vy', 'wz')]
 
 
-def response(history, settle, hold, transient):
-    """Velocity change of a hold over the neutral before it, per component."""
-    return [h - s for h, s in zip(means(history, hold, transient), means(history, settle, 0.0))]
+def response(history, settle, hold, transient, coast=0.0):
+    """Velocity change of a hold over the neutral before it, per component.
+
+    The first ``coast`` seconds of the settle are skipped: it still holds the previous hold's
+    coast-down, whose sign is opposite in the paired order (at most half the settle is skipped).
+    """
+    skip = min(coast, 0.5 * (settle[1] - settle[0]))
+    return [h - s for h, s in zip(means(history, hold, transient), means(history, settle, skip))]
 
 
 def cross_response(delta, axis, sign):
@@ -127,6 +132,7 @@ def run(ctx):
 def _characterize(ctx, cfg, staging, only, hi, lo):
     settings, windows, holds = ctx.settings, [], []
     transient, tolerance = cfg['transient_s'], cfg['tolerance']
+    coast = cfg['coast_s']
     deployed = staging.pending() or {}  # the C+/C- in force before this run
     base = {1: deployed.get('decoupling') or IDENTITY,
             -1: deployed.get('decoupling_negative') or deployed.get('decoupling') or IDENTITY}
@@ -137,7 +143,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         hold = runner.hold(command, seconds, name)
         windows.extend([(NEUTRAL, *settle), (command, *hold)])
         holds.append(dict(command=list(command), start=hold[0], end=hold[1], label=name))
-        return response(ctx.history(settle[0], hold[1]), settle, hold, transient)
+        return response(ctx.history(settle[0], hold[1]), settle, hold, transient, coast)
 
     room = cfg['refine']['headroom'] / hi - 1.0  # largest sum|c| that keeps a_hi(1 + sum|c|) in range
 
@@ -267,7 +273,7 @@ def _verify(ctx, cfg, direction, column, amplitude, tolerance):
         runner.hold(NEUTRAL, cfg['sync_s'], 'sync')
         settle = runner.hold(NEUTRAL, settings.settle, 'settle')
         hold = runner.hold(command_for(axis, sign, amplitude), settings.command, 'verify')
-    delta = response(ctx.history(settle[0], hold[1]), settle, hold, cfg['transient_s'])
+    delta = response(ctx.history(settle[0], hold[1]), settle, hold, cfg['transient_s'], cfg['coast_s'])
     cross = cross_response(delta, axis, sign)[1]
     return dict(direction=label(*direction), response=list(cross),
                 ok=worst(cross, tolerance[AXES[axis]]) <= 1.0)

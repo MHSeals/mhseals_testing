@@ -78,7 +78,7 @@ SPECS = (
          note="in the profile's command units"),
     _timing('baseline', 5.0, 'neutral s before a trial'),
     _timing('command', 3.0, 's the command is held'),
-    _timing('settle', 5.0, 'neutral s after a trial'),
+    _timing('settle', 6.0, 'neutral s after a trial (the first coast_s of a characterization settle, see characterize.yaml, are coast)'),
     Spec('repeats', 1, int, low=1, high=5, step=1, group='Trials', note='trials per direction'),
     _timing('observe', 10.0, 'passive s for perception checks'),
     Spec('nav_distance', 4.0, low=1, high=50, step=1, group='Navigation', note='waypoint square side, m'),

@@ -195,3 +195,23 @@ def test_a_corrected_boat_runs_only_the_survey_holds(config, tmp_path, monkeypat
     assert len(moving) == 12
     assert all(h['label'] in {a + s for a in ('surge', 'sway', 'yaw') for s in '+-'} or h['label'] == 'neutral'
                for h in records[-1]['holds'])
+
+
+def _coast_history(tau, settle=4.0, hold=3.0, v=1.0):
+    """first-order (tau) velocity response at 20 Hz: surge+ held to steady v, neutral coast, then surge- to -v from the coast."""
+    dt, rows, t, x = 0.05, [], 0.0, 0.0
+    for command, seconds in ((v, 10 * tau), (0.0, settle), (-v, hold)):
+        for _ in range(round(seconds / dt)):
+            x += (command - x) * dt / tau
+            rows.append((t, dict(vx=x, vy=0.0, wz=0.0)))
+            t += dt
+    return rows, (10 * tau, 10 * tau + settle), (10 * tau + settle, 10 * tau + settle + hold)
+
+
+def test_response_skips_the_previous_holds_coast():
+    from mhseals_testing.procedures.characterize import response
+    history, settle, hold = _coast_history(0.6)
+    biased = response(history, settle, hold, 1.0)[0]
+    fixed = response(history, settle, hold, 1.0, coast=2.0)[0]
+    assert abs(biased + 1.0) > 0.07  # the whole settle reads the coast
+    assert fixed == pytest.approx(-1.0, abs=0.06)
