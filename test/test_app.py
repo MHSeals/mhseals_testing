@@ -212,7 +212,9 @@ def make_app(tmp_path, argv=(), keys=(), sensors=True):
     boat = Boat(monitor, profile, sensors=sensors)
     reader = Keys(clock, boat, keys)
     pulses = []
-    app = App(args, profile, monitor, Ros(), Processes(), SessionPaths.from_output(args.output),
+    paths = SessionPaths.from_output(args.output)
+    paths.hardware.parent.mkdir(parents=True, exist_ok=True)   # main() gets these from session.create
+    app = App(args, profile, monitor, Ros(), Processes(), paths,
               Operator(), Arming(), boat, open_keys=lambda: reader, live=Live, clock=clock,
               pulses=pulses.append)
     reader.app, app.reader, app.pulse_log = app, reader, pulses
@@ -228,18 +230,19 @@ def procedure(key):
     return next(p for p in PROCEDURES if p.key == key)
 
 
-def test_session_paths_sit_next_to_the_bag(tmp_path):
-    paths = SessionPaths.from_output(tmp_path / 'bags' / 's1')
-    assert paths.report == tmp_path / 'bags' / 's1.report.json'
-    assert paths.logs == tmp_path / 'bags' / 'logs' / 's1'
-    assert paths.hardware == tmp_path / 'bags' / 's1.hardware.yaml'
-    assert paths.nav2 == tmp_path / 'bags' / 's1.nav2.yaml'
-    assert paths.journal == tmp_path / 'bags' / 's1.events.jsonl'
+def test_session_paths_all_sit_inside_the_session_directory(tmp_path):
+    d = tmp_path / 'sessions' / 's1'
+    paths = SessionPaths.from_output(d)
+    assert paths.bag == d / 'bag' and paths.logs == d / 'logs'
+    assert paths.journal == d / 'events.jsonl' and paths.runs == d / 'runs'
+    assert paths.session == d / 'session.json' and paths.truth == d / 'course_truth.json'
+    assert paths.hardware.parent == d / 'snapshots' and paths.report.parent == d / 'analysis'
+    assert all(d in p.parents for p in (paths.report, paths.hardware, paths.nav2))
 
 
 def test_parse_args_profile_components_and_limits(tmp_path):
     args, profile = parse_args(['--profile', 'crane_full_stack', '--start-stack'])
-    assert profile.use_sim_time and args.output.name.startswith('crane_full_stack_')
+    assert profile.use_sim_time and args.output is None
     assert not profile.uses_fcu and stack_overlay(profile, args) == {}  # simulation: no FCU
     boat_args, boat = parse_args(['--start-stack'])
     assert boat.uses_fcu
@@ -265,7 +268,7 @@ def test_focus_moves_and_keys_act_on_the_focused_panel(tmp_path):
     app.console.size = (120, 40)
     app.run()
     assert app.focus == 'motion' and app.settings.amplitude == 0.3
-    assert json.loads((tmp_path / 'session.report.json').read_text())['profile']['name'] == 'boat'
+    assert json.loads((tmp_path / 'session' / 'analysis' / 'report.json').read_text())['profile']['name'] == 'boat'
     assert app.quit and app.live is None
 
 
@@ -809,7 +812,7 @@ def test_close_runs_every_step_once_and_summarizes(tmp_path):
         app.close()
     assert not app.armed and boat.sent[-1] == 'neutral'
     assert app.processes.stopped == ['bag'] and app.ros.events.count('session_stop') == 1
-    assert (tmp_path / 'session.report.json').exists()
+    assert (tmp_path / 'session' / 'analysis' / 'report.json').exists()
     assert dict(app.summary())['Results'] == '0/0 good'
 
 
@@ -979,7 +982,7 @@ def test_ctrl_c_closes_gracefully_like_quit(tmp_path):
     app.run()
     assert app.quit and app.closed and not app.armed and boat.sent[-1] == 'neutral'
     assert app.ros.events.count('session_stop') == 1
-    assert (tmp_path / 'session.report.json').exists()
+    assert (tmp_path / 'session' / 'analysis' / 'report.json').exists()
 
 
 @pytest.mark.parametrize('error', [EOFError('terminal input disconnected'),
@@ -1251,7 +1254,7 @@ def test_a_watcher_closing_leaves_the_owners_motion_events_and_report_alone(tmp_
     with app.attached():
         app.close()
     assert len(boat.sent) == sent and 'session_stop' not in app.ros.events
-    assert not (tmp_path / 'session.report.json').exists()
+    assert not (tmp_path / 'session' / 'analysis' / 'report.json').exists()
 
 
 def test_a_stale_dds_node_is_an_advisory_for_30_s_then_blocks_arming(tmp_path):
@@ -1323,7 +1326,7 @@ def test_one_run_file_per_procedure_run_with_settings(tmp_path):
 
     app, _ = make_app(tmp_path)
     app.run_procedure(Procedure('z', 'nav2 bring-up', several))
-    files = sorted((tmp_path / 'session.runs').glob('*.json'))
+    files = sorted((tmp_path / 'session' / 'runs').glob('*.json'))
     assert [f.name for f in files] == ['001-nav2-bring-up.json']
     saved = json.loads(files[0].read_text())
     assert len(saved['result']['results']) == 3 and saved['status'] == 'MEASURED'
@@ -1342,7 +1345,7 @@ def test_error_out_of_a_procedure_leaves_one_aborted_run(tmp_path):
     app, _ = make_app(tmp_path)
     with pytest.raises(Aborted):
         app.run_procedure(Procedure('z', 'step', stopped))
-    files = list((tmp_path / 'session.runs').glob('*.json'))
+    files = list((tmp_path / 'session' / 'runs').glob('*.json'))
     assert len(files) == 1
     saved = json.loads(files[0].read_text())
     assert saved['status'] == 'ABORTED' and saved['result']['reason'] == 'interlock'
@@ -1939,3 +1942,18 @@ def test_session_pause_restores_c_and_resume_restages_identity(tmp_path):
         assert staging.pending() is not None
         runner.on_pause(); runner.on_pause(); runner.on_resume()
         assert staging.pending() is not None
+
+
+def test_segment_and_session_close_build_the_index(tmp_path):
+    from mhseals_testing.harness import session
+    root = tmp_path / 'root'
+    made = session.create('boat', host='h', directory=root / 'sessions' / 's1', kind='boat')
+    app, _ = make_app(tmp_path, ['--output', str(made.directory)])
+    assert app.paths.session == made.file and not (root / 'INDEX.json').exists()
+    app.set_recording('off')
+    rows = json.loads((root / 'INDEX.json').read_text())['sessions']
+    assert [r['id'] for r in rows] == ['s1'] and 'open' in rows[0]['flags']
+    app.close_index()
+    assert json.loads(made.file.read_text())['ended']
+    assert 'open' not in json.loads((root / 'INDEX.json').read_text())['sessions'][0]['flags']
+    assert (root / 'README.md').exists()

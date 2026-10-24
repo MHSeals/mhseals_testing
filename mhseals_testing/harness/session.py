@@ -42,37 +42,53 @@ class Session:
         return self.directory / 'snapshots'
 
 
-def create(profile, host=None, clock=None, git=None, config=None, now=None):
+def create(profile, host=None, clock=None, git=None, config=None, now=None, directory=None, kind=None):
     """Claim a fresh session directory and write its header.
 
     ``profile`` is a name; ``clock`` ({domain, time_scale}), ``git`` (provenance)
     and ``config`` (config-history version ids) are stored as given. The
     directory is claimed with mkdir, so concurrent starts in the same second get
-    ``_02``, ``_03``... suffixes instead of sharing a name.
+    ``_02``, ``_03``... suffixes instead of sharing a name. An explicit ``directory``
+    (``boat_test --output``) is used as given, and ``kind`` (boat, sim, headless) is stored when set.
     """
     now = now or datetime.now().astimezone()    # the id is local time, created is UTC
     host = host or socket.gethostname()
-    base = f'{now.strftime("%Y%m%d_%H%M%S")}_{_slug(host)}_{_slug(profile)}'
-    sessions = data.path('sessions')
-    sessions.mkdir(parents=True, exist_ok=True)
-    index = 1
-    while True:
-        session_id = base if index == 1 else f'{base}_{index:02d}'
-        try:
-            (sessions / session_id).mkdir()
-            break
-        except FileExistsError:
-            index += 1
-    session = Session(session_id, sessions / session_id)
-    session.logs.mkdir()
-    session.snapshots.mkdir()
+    if directory is not None:
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        session = Session(directory.name, directory)
+    else:
+        base = f'{now.strftime("%Y%m%d_%H%M%S")}_{_slug(host)}_{_slug(profile)}'
+        sessions = data.path('sessions')
+        sessions.mkdir(parents=True, exist_ok=True)
+        index = 1
+        while True:
+            session_id = base if index == 1 else f'{base}_{index:02d}'
+            try:
+                (sessions / session_id).mkdir()
+                break
+            except FileExistsError:
+                index += 1
+        session = Session(session_id, sessions / session_id)
+    session_id = session.id
+    session.logs.mkdir(exist_ok=True)
+    session.snapshots.mkdir(exist_ok=True)
     data.write_json(session.file, {
         'id': session_id, 'title': '', 'note': '', 'pinned': False,
         'host': host, 'profile': profile,
         'clock': clock or {'domain': 'wall', 'time_scale': 1.0},
         'created': now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'git': git or {}, 'config': config or {}}, SCHEMA)
+        'git': git or {}, 'config': config or {}, **({'kind': kind} if kind else {})}, SCHEMA)
     return session
+
+
+def finish(directory, now=None):
+    """Stamp ``ended`` (UTC) in a session header, so the index stops flagging it ``open``."""
+    file = Path(directory) / 'session.json'
+    header = data.read_json(file)
+    if isinstance(header, dict):
+        header['ended'] = (now or datetime.now(timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        data.write_json(file, header, SCHEMA)
 
 
 def update(session, **fields):
@@ -102,14 +118,14 @@ def _legacy_time(entry):
     return entry.stat().st_mtime
 
 
-def scan_legacy():
+def scan_legacy(root=None):
     """Flat pre-``sessions/`` entries under the root, newest first; never writes.
 
     A legacy session is a top-level directory holding rosbag2 data (a
     ``metadata.yaml`` or ``bag_NN`` directory), or one that has a sibling
     ``<name>.report.json``.
     """
-    root = data.root()
+    root = Path(root) if root else data.root()
     found = []
     entries = sorted(root.iterdir(), key=_legacy_time, reverse=True) if root.is_dir() else []
     for entry in entries:

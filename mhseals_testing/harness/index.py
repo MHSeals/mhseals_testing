@@ -18,6 +18,7 @@ import sys
 import yaml
 
 from mhseals_testing import data
+from mhseals_testing.harness import session as session_module
 
 SUMMARY_SCHEMA = 'mhseals.summary/1'
 INDEX_SCHEMA = 'mhseals.index/1'
@@ -166,6 +167,10 @@ def rebuild(root=None):
         summary = summarize(session)
         data.write_json(session / 'summary.json', summary, SUMMARY_SCHEMA)
         summaries.append(summary)
+    for entry in session_module.scan_legacy(root):   # flat pre-sessions/ bags: listed, never written to
+        legacy = summarize(entry['path'])
+        legacy['flags'].append('legacy')
+        summaries.append(legacy)
     return _write_all(root, summaries)
 
 

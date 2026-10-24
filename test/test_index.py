@@ -91,3 +91,15 @@ def test_ensure_rebuilds_missing_or_stale_only(root):
 def test_readme_golden(root):
     index.rebuild()
     assert (root / 'README.md').read_text() == (Path(__file__).parent / 'fixtures' / 'data_README.md').read_text()
+
+
+def test_legacy_flat_bags_are_listed_read_only(root):
+    legacy = root / 'boat_20261001_120000'
+    legacy.mkdir(parents=True)
+    (legacy / 'metadata.yaml').write_text(META)
+    (legacy / 'a.mcap').write_bytes(b'x')
+    session(root, 'new', ended='x')
+    rows = index.rebuild()
+    assert {r['id'] for r in rows} == {'new', 'boat_20261001_120000'}
+    assert 'legacy' in next(r for r in rows if r['id'] != 'new')['flags']
+    assert not (legacy / 'summary.json').exists()

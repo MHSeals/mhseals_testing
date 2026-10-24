@@ -129,16 +129,19 @@ def test_data_root_is_root_and_ignores_install_path(monkeypatch, tmp_path):
     assert data.data_root() == tmp_path / 'ws' / 'bags'
 
 
-def test_default_session_bag_lands_under_root(monkeypatch, tmp_path):
+def test_default_session_is_created_under_the_data_root(monkeypatch, tmp_path):
+    from mhseals_testing.harness import session
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'd'))
     monkeypatch.chdir(tmp_path)
-    args, _ = parse_args([])
-    assert Path(args.output).parent == tmp_path / 'd'
+    args, profile = parse_args([])
+    assert args.output is None
+    made = session.create(profile.name)
+    assert made.directory.parent == tmp_path / 'd' / 'sessions'
 
 
 def test_relative_data_env_does_not_land_in_cwd(monkeypatch, tmp_path):
+    from mhseals_testing.harness import session
     monkeypatch.setenv('MHSEALS_DATA', 'rel_bags')
     monkeypatch.chdir(tmp_path)
-    args, _ = parse_args([])
-    assert Path(args.output).is_absolute()
-    assert not str(args.output).startswith(str(tmp_path))
+    made = session.create('boat')
+    assert made.directory.is_absolute() and not str(made.directory).startswith(str(tmp_path))

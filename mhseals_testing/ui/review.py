@@ -77,11 +77,12 @@ def find_session(name, root=None):
     """Session folder for --review: a path, a name under the data root, or the newest one."""
     root = Path(root or data.data_root())
     if name:
-        for candidate in (Path(name), root / name):
+        for candidate in (Path(name), root / name, root / 'sessions' / name):
             if candidate.is_dir():
                 return candidate
         raise ValueError(f'no session {name!r} under {root}')
-    found = sorted((p for p in root.glob('*') if p.is_dir() and p.name != 'logs'),
+    found = sorted((p for p in (*root.glob('sessions/*'), *root.glob('*'))
+                    if p.is_dir() and p.name not in ('logs', 'sessions')),
                    key=lambda p: p.stat().st_mtime)
     if not found:
         raise ValueError(f'no sessions under {root}')

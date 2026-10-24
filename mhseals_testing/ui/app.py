@@ -10,7 +10,6 @@ stops at neutral and disarms. Prompts are popups on the same screen.
 import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 import errno
 import os
 from pathlib import Path
@@ -32,8 +31,7 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import calibration, data, nav2_limits
-from mhseals_testing.data import data_root
-from mhseals_testing.harness import host, journal, runs, settings
+from mhseals_testing.harness import host, index, journal, runs, session as session_module, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
@@ -176,24 +174,25 @@ HELP = [
 
 @dataclass(frozen=True)
 class SessionPaths:
-    bag: Path
+    """Where one session keeps its files: all inside ``sessions/<id>/`` (data_layout)."""
+    directory: Path
+    bag: Path       # bag/NN/ segments
     report: Path
     logs: Path
     hardware: Path  # snapshot of the hardware config the driver runs with
     nav2: Path      # Nav2 params with measured limits, written by characterization
     journal: Path   # append-only events: markers, phases, results
     runs: Path      # one runs/<run_id>.json per procedure run
-    session: Path   # session.yaml: identity and clock domain
+    session: Path   # session.json: identity and clock domain
     truth: Path     # simulator course truth, copied at start
 
     @classmethod
-    def from_output(cls, output):
-        output = Path(output)
-        return cls(output, output.with_suffix('.report.json'),
-                   output.parent / 'logs' / output.name,
-                   output.with_suffix('.hardware.yaml'), output.with_suffix('.nav2.yaml'),
-                   output.with_suffix('.events.jsonl'), output.with_suffix('.runs'),
-                   output.with_suffix('.session.yaml'), output.with_suffix('.course_truth.json'))
+    def from_output(cls, directory):
+        """The paths of the session directory ``directory``."""
+        d = Path(directory)
+        return cls(d, d / 'bag', d / 'analysis' / 'report.json', d / 'logs',
+                   d / 'snapshots' / 'hardware.yaml', d / 'snapshots' / 'nav2.yaml',
+                   d / 'events.jsonl', d / 'runs', d / 'session.json', d / 'course_truth.json')
 
 
 ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
@@ -485,9 +484,20 @@ class App:
             self.ros.emit('rec_stop', segment=self.recorder.segment.name, reason=reason)
         segment = self.recorder.set_mode(mode)
         self.ros.recording = segment is not None  # events stamp ``rec`` from this (bags.md 1)
+        self.rebuild_index()                      # INDEX.json at each segment close
         if segment is not None:
             self.ros.emit('rec_start', segment=segment.name, mode=mode)
         self.notice = f'Recording {mode}' + (f' {segment.name}' if segment else '')
+
+    def rebuild_index(self):
+        """Rewrite INDEX.json and README.md; a failure is logged to the notice, never fatal."""
+        sessions = self.paths.directory.parent
+        if self.watching or self.args.review is not None or sessions.name != 'sessions':
+            return    # an explicit --output outside a data root has no index to keep
+        try:
+            index.rebuild(sessions.parent)
+        except OSError as error:
+            self.notice = f'Index not rebuilt: {error}'
 
     def step_recording(self, key):
         """left/right on the Recording row moves along lean, full, off without wrapping."""
@@ -771,7 +781,7 @@ class App:
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
                  ('Report', self.close_report), ('Tracking', self.close_tracking),
                  ('Calibration', self.close_calibration),
-                 ('Recording', self.close_recording)]
+                 ('Recording', self.close_recording), ('Index', self.close_index)]
         if self.detaching:   # the children and the recording go on under the next owner
             steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
         if self.watching:    # not ours to stop: neutral, events and the report belong to the owner
@@ -832,6 +842,11 @@ class App:
             return 'was not running'
         self.set_recording('off', reason='quit')  # SIGINT lets ros2 bag finish the file
         return f'flushed {self.paths.bag.name}'
+
+    def close_index(self):
+        session_module.finish(self.paths.directory)
+        self.rebuild_index()
+        return 'INDEX.json rebuilt'
 
     def summary(self):
         """What the session left behind, printed once the page is gone."""
@@ -1340,7 +1355,7 @@ class App:
                 feed, (1, CAMERA_ROWS), self.write_terminal,
                 kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
                                              getattr(reader, 'xtversion', None)),
-                save_dir=self.paths.runs.with_suffix('.snapshots'), detections=self.camera_detections)
+                save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections)
 
         def handle(key):
             current = state['view']
@@ -1960,7 +1975,7 @@ def build_parser():
                         help='play back a past session (path or name under the data root; '
                              'default the newest) with no ROS node and no outputs')
     parser.add_argument('--output', type=Path, default=None,
-                        help='session bag path (default $MHSEALS_DATA or <workspace>/bags, <profile>_<time>)')
+                        help='session directory (default a new sessions/<time>_<host>_<profile> under the data root)')
     return parser
 
 
@@ -1986,8 +2001,6 @@ def parse_args(argv=None):
         profile = profile.with_velocity_control()
     if args.start_stack and not profile.components:
         parser.error(f'profile {profile.name} has no components; start its stack separately')
-    args.output = args.output or data_root() / (
-        f"{profile.name.replace('+', '_')}_{datetime.now():%Y%m%d_%H%M%S}")
     return args, profile
 
 
@@ -2017,13 +2030,14 @@ def detach(*_):
 def review_main(args, profile):
     """--review: the dashboard over a past session, with no ROS, bag recorder or outputs."""
     try:
-        review = load_session(find_session(args.review))
+        found = find_session(args.review)
+        review = load_session(found)
     except ValueError as error:
         raise SystemExit(f'boat_test --review: {error}')
     console = Console()
     offline = Offline()
     app = App(args, profile, BoatMonitor(args.stale_after), offline, offline,
-              SessionPaths.from_output(args.output), console, review=review)
+              SessionPaths.from_output(found), console, review=review)
     app.run()
 
 
@@ -2042,7 +2056,7 @@ def main(argv=None):
     from mhseals_testing.ros.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO, node_name
     from mhseals_testing.ros.plant import Plant
-    from mhseals_testing.harness.processes import ProcessManager, unique_path
+    from mhseals_testing.harness.processes import ProcessManager
 
     from rclpy.signals import SignalHandlerOptions
 
@@ -2056,8 +2070,13 @@ def main(argv=None):
         return
     watching = choice.watching if choice.mode == 'watch' else 0
     # Adopted sessions keep the recording's directory, so the report and bag stay together.
-    paths = SessionPaths.from_output(
-        Path(choice.session) if choice.session and choice.mode != 'own' else unique_path(args.output))
+    if choice.session and choice.mode != 'own':
+        paths = SessionPaths.from_output(choice.session)
+    else:
+        paths = SessionPaths.from_output(session_module.create(
+            profile.name, directory=args.output,
+            clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
+            kind='sim' if profile.use_sim_time else 'boat').directory)
     # rclpy's own SIGINT handler would shut ROS down before the graceful close could
     # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
@@ -2090,8 +2109,7 @@ def main(argv=None):
         if watching:   # known to the owner, so it is not flagged as a foreign instance
             registry.add_guest(os.getpid(), me['node'], 'watch')
         else:
-            registry.update(lambda state: state.update(session=str(paths.bag)))
-            paths.bag.parent.mkdir(parents=True, exist_ok=True)
+            registry.update(lambda state: state.update(session=str(paths.directory)))
             start_session(profile, paths.session, paths.truth)
             if args.start_stack and not any(processes.running(key) for key in stack.start_order()):
                 time.sleep(2.0)  # let discovery find an already-running stack

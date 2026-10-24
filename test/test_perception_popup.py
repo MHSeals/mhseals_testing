@@ -166,7 +166,7 @@ def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
         seen.append(handle_result)
     host = SimpleNamespace(
         facts={}, scroll=app.App.scroll, popup=popup, write_terminal=written.append,
-        keys=SimpleNamespace(graphics=True, xtversion='kitty(0.35)'), paths=SimpleNamespace(runs=tmp_path / 'x.runs'),
+        keys=SimpleNamespace(graphics=True, xtversion='kitty(0.35)'), paths=SimpleNamespace(directory=tmp_path),
         camera_detections=lambda size, floor: [],
         camera_feed=lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe))
     app.App.perception_popup(host)
@@ -177,7 +177,7 @@ def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
 def view_host(bus, tmp_path, popup, feed=True):
     return SimpleNamespace(
         facts={}, scroll=app.App.scroll, popup=popup, write_terminal=lambda text: None, notice='',
-        keys=SimpleNamespace(graphics=False), paths=SimpleNamespace(runs=tmp_path / 'x.runs'),
+        keys=SimpleNamespace(graphics=False), paths=SimpleNamespace(directory=tmp_path),
         console=SimpleNamespace(size=SimpleNamespace(width=60)), camera_detections=lambda size, floor: [],
         camera_feed=(lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe)) if feed else (lambda: None))
 
