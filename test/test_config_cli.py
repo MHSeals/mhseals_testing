@@ -15,9 +15,13 @@ class Fake:
     def __init__(self, value, **kw):
         self.value, self.fail, self.blocked, self.confirm_word = dict(value), None, [], kw.get('word')
         self.applied = []
+        self.after = 'same'          # what read() reports once an apply has happened: same | moved | none
+        self.meta, self.moved = {}, False
 
     def read(self):
-        return dict(self.value), None, {}
+        if self.moved and self.after == 'none':
+            return None
+        return dict(self.value), None, dict(self.meta)
 
     def blockers(self):
         return list(self.blocked)
@@ -44,6 +48,10 @@ class Fake:
             raise ApplyFailed('verify timed out')
         self.value = dict(version['value'])
         self.applied.append(reboot)
+        if self.after == 'moved':       # the device normalises on write: extra default keys, new defaults hash
+            self.value['z'] = 0
+            self.meta = {'defaults_sha': 'new'}
+        self.moved = True
         return 'pending' if reboot else 'confirmed'
 
 
@@ -184,6 +192,32 @@ def test_set_plain_subsystem_and_flatten(env, tmp_path):
     assert run('set', 'hardware', str(f), '--yes')[0] == 1                    # same as live
     assert run('set', 'nope', str(f))[0] == 2
     assert flatten({'x': {'y': [1, 2]}}) == {'x.y': [1, 2]}
+
+
+@pytest.mark.parametrize('verb', ['revert', 'set'])
+def test_commit_records_the_live_read_not_the_target(env, tmp_path, verb):
+    run, hist, adapters = env
+    adapters['hardware'].after = 'moved'
+    f = tmp_path / 'c.txt'
+    f.write_text('a,5\n')
+    argv = ('revert', 'c0001', '--yes') if verb == 'revert' else ('set', 'hardware', str(f), '--yes')
+    assert run(*argv)[0] == 0
+    head = hist.version(hist.head('hardware'))
+    assert head['value'] == adapters['hardware'].value and head['value']['z'] == 0
+    assert head['meta'] == {'defaults_sha': 'new'}
+    assert run('observe', 'hardware')[0] == 1 and 'nothing changed' in run('observe', 'hardware')[1]
+
+
+@pytest.mark.parametrize('verb', ['revert', 'set'])
+def test_commit_records_the_target_when_read_is_gone_after_apply(env, tmp_path, verb):
+    run, hist, adapters = env
+    adapters['hardware'].after = 'none'
+    f = tmp_path / 'c.txt'
+    f.write_text('a,5\n')
+    argv = ('revert', 'c0001', '--yes') if verb == 'revert' else ('set', 'hardware', str(f), '--yes')
+    assert run(*argv)[0] == 0
+    want = 1 if verb == 'revert' else 5
+    assert hist.version(hist.head('hardware'))['value'] == {'a': want, 'b': 2}
 
 
 def test_main_never_reads_stdin_but_entry_may(env, monkeypatch):
