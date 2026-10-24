@@ -268,7 +268,7 @@ class App:
         self.config_file = config_path(args.config)
         self.history = History()
         self.config_backends = backends.file_backends(
-            self.config_file, {'hardware': lambda: self.announce(self.watcher.reload('hardware'))})
+            self.config_file, {'hardware': lambda: self.announce(self.watcher.reload('hardware'), observe=False)})
         self.watcher = Watcher()
         self.watcher.add(Watched('hardware', self.config_file, self.load_hardware, self.apply_hardware,
                                  subsystem='hardware'))
@@ -485,12 +485,19 @@ class App:
             self.announce(change)
         self.monitor.advise('Config', *config_popup.summary(self.watcher, self.history))
 
-    def announce(self, change):
-        """Show a reload's result and emit its event; returns the Change for callers that check ``ok``."""
-        self._announce(change)
+    def announce(self, change, observe=True):
+        """Show a reload's result and emit its event; returns the Change for callers that check ``ok``.
+
+        ``observe`` logs a hand edit to the history; a revert passes False, it records itself."""
+        self._announce(change, observe)
         return change
 
-    def _announce(self, change):
+    def _announce(self, change, observe=True):
+        watched = self.watcher.watches.get(change.name)
+        if observe and change.ok and watched is not None and watched.subsystem:
+            # A hand edit reaches the history now (config_history 2.3); our own save was recorded
+            # already, so this finds no difference.
+            adapters.observe_file(self.history, watched.subsystem, watched.path, self.warn_history)
         if not change.ok:
             self.config_note = 'invalid edit'
             if change.report:

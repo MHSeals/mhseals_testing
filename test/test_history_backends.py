@@ -53,3 +53,18 @@ def test_hardware_revert_to_an_invalid_version_rolls_back(tmp_path):
     out = revert.execute(history, back, revert.Env(), plan)
     assert out.status == 'rolled_back' and path.read_text() == '{}\n'
     assert history.head('hardware')['id'] == head['id'] and head.get('revert_of') is None
+
+
+def test_an_app_hardware_revert_is_recorded_once_not_also_as_an_external_edit(tmp_path):
+    app, _ = make_app(tmp_path)
+    config = tmp_path / 'hardware.yaml'
+    config.write_text('frequency: 50.0\n')
+    first = adapters.record_file(app.history, 'hardware', 'test', config)
+    config.write_text('frequency: 60.0\n')
+    adapters.record_file(app.history, 'hardware', 'test', config)
+    plan = revert.plan(app.history, app.config_backends, revert.Env(), first['id'], 'hardware')
+    count = len(app.history.changes('hardware'))
+    out = revert.execute(app.history, app.config_backends, revert.Env(), plan)
+    assert out.status == 'reverted'
+    assert len(app.history.changes('hardware')) == count + 1   # the revert only
+    assert app.history.head('hardware')['revert_of'] == first['id']

@@ -1698,3 +1698,15 @@ def test_unbound_action_is_a_noop_and_odometry_opens_through_the_table(tmp_path)
     app.choose = lambda title, *args, **kw: shown.append(title) or 'Close'
     assert app.open('odometry') is True
     assert shown == ['Odometry']
+
+
+def test_a_hand_edit_reaches_the_history_when_the_watcher_reloads_it(tmp_path):
+    app, _ = make_app(tmp_path)
+    config = tmp_path / 'hardware.yaml'
+    config.write_text('frequency: 50.0\n')
+    app.watch_config()
+    app.watch_config()
+    assert app.history.head('hardware')['source'] == 'external'
+    count = len(app.history.changes('hardware'))
+    app.watch_config()
+    assert len(app.history.changes('hardware')) == count   # nothing new, nothing recorded twice
