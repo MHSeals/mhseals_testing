@@ -36,7 +36,8 @@ def popup(app, modal, handle, refresh=None):
                     app.revoke_agent()
                     continue
                 if key == 'U':
-                    app.release_hold()
+                    if str(modal.get('title', '')).startswith('Authority'):
+                        app.release_hold()
                     continue
             result = handle(key)
             if result is not None:

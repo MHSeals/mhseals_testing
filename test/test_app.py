@@ -2216,3 +2216,32 @@ def test_release_refuses_changed_resumer_after_confirmation(tmp_path, change):
     app.dispatch('U')
     assert app.notice == 'Release refused: resumer changed; confirm again'
     assert calls == [] and boat.sent == []
+
+
+
+@pytest.mark.parametrize('context', ['config', 'choose'])
+def test_ordinary_popups_ignore_release_key(tmp_path, context):
+    app, boat, calls = release_app(tmp_path)
+    with app.attached():
+        press(app, 'U', 'up', 'enter', 'escape')
+        if context == 'config':
+            app.open('config')
+        else:
+            assert app.choose('Ordinary choice', ['Continue', 'Cancel'], selected=1) == 'Continue'
+    assert calls == [] and boat.sent == []
+
+
+def test_authority_popup_release_confirms_and_restores_parent(tmp_path):
+    app, boat, calls = release_app(tmp_path)
+    outer = dict(kind='message', title='Authority · 7')
+    restored = []
+
+    def handle(key):
+        restored.append((key, app.modal is outer))
+        return True
+
+    with app.attached():
+        press(app, 'U', 'up', 'enter', 'escape')
+        app.popup(outer, handle)
+    assert calls == ['release'] and boat.sent == []
+    assert restored == [('escape', True)] and app.modal is None
