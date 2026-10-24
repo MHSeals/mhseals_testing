@@ -1204,6 +1204,20 @@ class App:
             return f'Release refused: RC switch is {mode}'
         return ''
 
+    def release_resumer(self):
+        """Describe the prospective driver and retain its identity across confirmation."""
+        holder = self.arbiter.table.holder()
+        if holder:
+            identity = tuple(holder.get(key) for key in ('id', 'owner', 'who', 'reason'))
+            return ('claim', *identity), holder.get('who') or holder.get('reason') or holder['id']
+        if self.running:
+            return ('procedure', self.running, self.run_id), self.running
+        with self.arbiter.lock:
+            auto = (self.arbiter.mux or {}).get('auto') or {}
+        # No claim does not establish idle: an unclaimed publisher can drive after release.
+        label = 'unclaimed automation' if auto.get('active') else 'unknown automation (if present)'
+        return ('unclaimed', auto.get('active'), auto.get('node')), label
+
     def release_hold(self):
         """Confirm who resumes, then request release once; only mux state proves release."""
         if getattr(self, '_releasing', False):
@@ -1216,15 +1230,15 @@ class App:
         if refusal:
             self.notice = refusal
             return
-        holder = self.arbiter.table.holder()
-        resumer = (holder.get('who') or holder.get('reason') or holder['id']) if holder else (
-            self.running or 'nobody (idle)')
+        identity, resumer = self.release_resumer()
         self._releasing = True
         try:
             answer = self.choose('Release hold?', ['Release', 'Cancel'],
                                  message=f'{resumer} resumes', selected=1, danger=True)
             if answer == 'Release':
                 refusal = self.release_refusal()
+                if not refusal and self.release_resumer()[0] != identity:
+                    refusal = 'Release refused: resumer changed; confirm again'
                 self.notice = refusal or ('Release requested' if release()
                                           else 'Release hold is not available here')
         except Cancelled:

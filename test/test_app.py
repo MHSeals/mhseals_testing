@@ -2176,3 +2176,43 @@ def test_popup_space_clears_raw_pulses_before_background_tick(tmp_path):
         app.show('Pulses', message='bench')
     assert app.pulse_log and all(pulses == [1500] * 4 for pulses in app.pulse_log)
     assert app.test_pulses is None and not app.armed
+
+
+
+def test_held_unclaimed_auto_is_named_truthfully(tmp_path):
+    app, boat, calls = release_app(tmp_path)
+    app.arbiter.mux['auto'] = {'active': True, 'node': 'external_publisher'}
+
+    def choose(title, options, **kwargs):
+        assert kwargs['message'] == 'unclaimed automation resumes'
+        assert 'idle' not in kwargs['message']
+        return 'Cancel'
+
+    app.choose = choose
+    app.dispatch('U')
+    assert calls == [] and boat.sent == []
+
+
+@pytest.mark.parametrize('change', ['replace', 'revoke', 'new', 'procedure'])
+def test_release_refuses_changed_resumer_after_confirmation(tmp_path, change):
+    app, boat, calls = release_app(tmp_path)
+    if change in ('replace', 'revoke'):
+        claim = app.arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'agent_one'})['claim']
+    elif change == 'procedure':
+        app.running, app.run_id = 'characterize', 'run1'
+    app.arbiter.hold = lambda *a: None
+
+    def choose(title, options, **kwargs):
+        if change in ('replace', 'revoke'):
+            assert kwargs['message'] == 'agent_one resumes'
+            app.arbiter.revoke(claim['id'])
+        if change in ('replace', 'new'):
+            app.arbiter.handle({'op': 'claim', 'request': 'r2', 'who': 'agent_two'})
+        if change == 'procedure':
+            app.run_id = 'run2'
+        return 'Release'
+
+    app.choose = choose
+    app.dispatch('U')
+    assert app.notice == 'Release refused: resumer changed; confirm again'
+    assert calls == [] and boat.sent == []
