@@ -150,3 +150,16 @@ def test_short_header_always_shows_the_whole_measurement(inner):
         header = _axis(index, driven().snapshot(), v, inner, 1)[0].plain
         assert ('+0.20', '+0.00', '+0.10')[index] in header
         assert len(header) <= inner
+
+
+def test_ticks_feed_the_session_summary_and_close_records_it(tmp_path):
+    from mhseals_testing import data
+    path = tmp_path / 'current.json'
+    data.write_json(path, {'directions': {'forward': {'fit': {'id': 'C3'}}}}, 'mhseals.calibration/1')
+    feed = TrackingFeed(path=path)
+    plots = session((0.6, 0.0, 0.0))
+    feed.tick(app(), dict(plots=plots, sensors={}), plots['now'])
+    assert feed.axes['surge'][1] == 1 and 'sway' not in feed.axes and feed.version == 'forward:C3'
+    verdicts = feed.close()
+    sessions = data.read_json(path)['provenance']['tracking']['surge']['sessions']
+    assert sessions[0]['version'] == 'forward:C3' and sessions[0]['n'] == 1 and set(verdicts) == {'surge'}

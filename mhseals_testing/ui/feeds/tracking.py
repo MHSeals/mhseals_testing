@@ -6,14 +6,15 @@ body frame. The predicted series is the Motion ghost; ``analysis.tracking.tracki
 last ``live.window_s`` seconds is the header's ``track NN%`` (None while gated, drawn as a dash).
 Only effort commands are modelled; with velocity units the feed contributes nothing.
 
-``add`` takes each gated window score for the session summary; ``close`` appends one summary per
+``tick`` passes each ungated window score to ``add`` (with the conditions trust and the calibration
+version) for the session summary; ``close`` appends one summary per
 axis to ``provenance.tracking`` in calibration/current.json via ``tracking.record_session``, which
 also re-judges staleness for the health info check.
 """
 
 import numpy as np
 
-from mhseals_testing import data
+from mhseals_testing import calibration, data
 from mhseals_testing.analysis import tracking
 from mhseals_testing.analysis.predictor import AXES, Predictor
 from mhseals_testing.analysis.tracking import load_settings, score_colour, tracking_score
@@ -67,6 +68,21 @@ class TrackingFeed:
         floor = characterization.get('wave_floor') or (0.0, 0.0, 0.0)
         self.scores = self.score(plots['meas'], plots['now'], [floor[i] for i in FLOOR_INDEX],
                                  ignore=conditions.get('verdict') == POOR)
+        if any(s is not None for s in self.scores):
+            trust, version = self.trust(conditions), self.calibration_version()
+            for axis, score in zip(AXES, self.scores):
+                self.add(axis, score, trust, version)
+
+    @staticmethod
+    def trust(conditions):
+        """Conditions trust of a window: thrust ceiling times drift trust (1 where not yet measured)."""
+        return (conditions.get('ceiling') if conditions.get('ceiling') is not None else 1.0) * (
+            conditions.get('drift_trust') if conditions.get('drift_trust') is not None else 1.0)
+
+    def calibration_version(self):
+        """Identity of the calibration in force (fit ids per direction), so a recalibration starts a new pool."""
+        directions = calibration.load(self.path).get('directions') or {}
+        return '+'.join(f"{d}:{(e.get('fit') or {}).get('id')}" for d, e in sorted(directions.items())) or None
 
     def clear(self):
         """Drop the ghost, the commands behind it and the scores (and re-seed the next advance)."""
