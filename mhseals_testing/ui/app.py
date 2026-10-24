@@ -849,6 +849,12 @@ class App:
         if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
             self.open('history')
             return
+        if key in ('E', 'U'):  # Shift bindings of the global scope; never the lowercase procedure letters
+            if key == 'E':
+                self.revoke_agent()
+            else:
+                self.release_hold()
+            return
         raw, key = key, fold(key)
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
             return
@@ -883,7 +889,7 @@ class App:
             self.show('Help', rows=HELP, width=76)
         elif key == 'a':
             self.arm_panel()
-        elif key == 'x':
+        elif key == 'x' and raw == 'x':
             if not self.toasts.ack_newest(self.monitor.clock()):   # x dismisses a toast first
                 self.export()
         elif key == 'b':
@@ -893,13 +899,29 @@ class App:
             self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
             settings.save(self.settings)
-        elif (key in {p.key for p in PROCEDURES} and self.tab == 'Drive'
+        elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
               and not (self.focus == 'activity' and key == 'v')
               and not (self.focus == 'status' and key == 'e')):  # Nav2 popup there; interference elsewhere
             self.on_procedures(key)
+        elif self.focus == 'minimap':
+            self.on_minimap(raw)
+        elif raw == key:  # a Shift letter has no panel binding yet; folding it hit the lowercase ones
+            getattr(self, f'on_{self.focus}', lambda key: None)(key)
+
+    def revoke_agent(self):
+        """E: revoke the agent's active claim (stops the boat first); no confirm."""
+        arbiter = getattr(self, 'arbiter', None)
+        holder = arbiter.table.holder() if arbiter is not None else None
+        if holder is None or holder.get('owner') != 'agent':
+            self.notice = 'No agent claim to revoke'
         else:
-            getattr(self, f'on_{self.focus}', lambda key: None)(raw if self.focus == 'minimap' else key)
+            arbiter.revoke(holder['id'])
+            self.notice = 'Agent revoked'
+
+    def release_hold(self):
+        """U: not wired yet; consumed so it cannot reach a panel's lowercase key."""
+        self.notice = 'Release hold is not available here'
 
     # --- markers -----------------------------------------------------------------
 

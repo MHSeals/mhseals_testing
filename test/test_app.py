@@ -1710,3 +1710,33 @@ def test_a_hand_edit_reaches_the_history_when_the_watcher_reloads_it(tmp_path):
     count = len(app.history.changes('hardware'))
     app.watch_config()
     assert len(app.history.changes('hardware')) == count   # nothing new, nothing recorded twice
+
+
+@pytest.mark.parametrize('key', ['E', 'M', 'G', 'N', 'W', 'S', 'T', 'I', 'F', 'X', 'U'])
+def test_shifted_keys_never_start_a_procedure(tmp_path, key):
+    app, _ = make_app(tmp_path)
+    started = []
+    app.on_procedures = started.append
+    app.run_procedure = lambda proc, *a, **k: started.append(proc)
+    for focus in ('procedures', 'motion', 'activity', 'thrusters'):
+        if focus in app.panels():
+            app.focus = focus
+            app.dispatch(key)
+    assert started == []
+    assert not app.moving()
+
+
+def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
+    from mhseals_testing.ros.authority import Arbiter
+    app, _ = make_app(tmp_path)
+    holds = []
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True,
+                          neutral=lambda: None, hold=lambda cause, by: holds.append((cause, by)))
+    app.dispatch('E')
+    assert app.notice == 'No agent claim to revoke' and holds == []
+    claim = app.arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'tune'})['claim']
+    app.dispatch('E')
+    assert app.notice == 'Agent revoked' and holds == [('revoke', 'tui')]
+    assert app.arbiter.table.get(claim['id'])['state'] == 'revoked'
+    app.dispatch('U')
+    assert app.notice == 'Release hold is not available here'
