@@ -162,6 +162,8 @@ def _execute(history, backends, env, p, settings, source, session):
         if _applied(backend, previous, timeout):
             return Outcome('rolled_back', 'verify failed; previous version restored')
     try:
+        if getattr(backend, 'persisted', lambda v: False)(previous):
+            return Outcome('rollback_unverified', 'previous file restored; consumer verification unavailable or failed')
         live, raw, meta = backend.read()
         history.observe(sub, live, raw, meta)     # record the true state
     except OSError:

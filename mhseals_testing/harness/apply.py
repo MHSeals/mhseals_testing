@@ -56,12 +56,14 @@ class HardwareApply:
         timeout: the driver gave no answer in time. Both restore the file.
         saved: no driver is running, so there is nothing to read back.
         """
-        if self.armed():
+        if self.armed() is not False:
             return Result('refused', 'disarm first: pins move real outputs')
         config = self.current()
         old = {key: config[key] for key in changes}
         if old == changes:
-            return Result('applied', 'unchanged')
+            if self.serving() and self.read(list(changes)) == changes:
+                return Result('applied', 'unchanged parameter readback; effective outputs unverified')
+            return Result('saved', 'file unchanged; consumer unverified')
         try:
             self.save(changes)
         except (OSError, ValueError, TypeError) as error:
@@ -82,8 +84,11 @@ class HardwareApply:
         except (OSError, ValueError, TypeError) as error:
             return Result('invalid', f'could not restore the old pins ({error}); fix hardware.yaml')
         if seen is None:
-            return Result('timeout', f'no readback in {self.timeout:g} s; old pins restored')
-        return Result('rolled_back', 'the driver kept the old pins; see its log')
+            return Result('timeout', f'no readback in {self.timeout:g} s; previous file restored; consumer state unverified')
+        restored = self.read(list(old))
+        if restored == old:
+            return Result('rolled_back', 'previous file and parameter readback restored; effective outputs unverified')
+        return Result('rollback_unverified', 'previous file restored; consumer readback does not match')
 
 
 SCHEMA = 'mhseals.state/1'

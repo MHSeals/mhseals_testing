@@ -160,3 +160,11 @@ def test_other_state_survives_stage_restore_and_commit(staging):
     staging.commit(C)
     assert data.read_json(staging.state)['characterize'] == history
     assert staging.pending() is None
+
+
+def test_restored_file_does_not_prove_consumer_rollback():
+    stale = dict(NEW, mosfet_line=30)
+    plant = Plant(lambda p, keys: stale)
+    result = plant.apply()
+    assert result.status == 'rollback_unverified'
+    assert not result.ok and plant.file == OLD

@@ -3,7 +3,7 @@
 A revert writes the stored ``raw`` text over the operator's file with ``data.atomic_write``,
 runs the host's reload hook, then verifies by reading the file back through ``adapters.read``.
 Hardware may also check the driver: ``driver(keys)`` returns the driver's live values (or None
-when it cannot be read) and every live key it reports must equal the version's effective value.
+when it cannot be read) and every requested key must be present and equal the version's effective value.
 FCU and Nav2 need ROS clients and are not here.
 """
 
@@ -60,19 +60,27 @@ class FileBackend(Backend):
                 raise OSError(f'{self.sub} reload failed: {change.error}')
 
     def verify(self, version, timeout):
+        if not self.persisted(version):
+            return False
+        return self._driver_agrees(version)
+
+    def persisted(self, version):
+        """File evidence only; hardware consumer verification is separate."""
         live = self.read()[0]
         key = (lambda v: v.get('overrides', v))
         if hist.digest(key(live)) != hist.digest(key(version['value'])):
             return False
-        return self._driver_agrees(version)
+        return True
 
     def _driver_agrees(self, version):
+        if self.sub != 'hardware':
+            return True
         keys = sorted(self.live_keys or ())
         seen = self.driver(keys) if self.driver and keys else None
-        if not seen:
-            return True               # no driver to ask: the file is the evidence
+        if not keys or not isinstance(seen, dict):
+            return False
         effective = version['value'].get('effective', {})
-        return all(hist.digest(seen[k]) == hist.digest(effective[k]) for k in keys if k in seen and k in effective)
+        return all(hist.digest(seen[k]) == hist.digest(effective[k]) for k in keys) if set(keys) <= seen.keys() & effective.keys() else False
 
 
 def file_backends(hardware_path=None, reload=None, driver=None):

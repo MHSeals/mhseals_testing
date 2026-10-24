@@ -51,7 +51,7 @@ def test_hardware_revert_to_an_invalid_version_rolls_back(tmp_path):
     plan = revert.plan(history, back, revert.Env(), bad['id'], 'hardware')
     head = history.head('hardware')
     out = revert.execute(history, back, revert.Env(), plan)
-    assert out.status == 'rolled_back' and path.read_text() == '{}\n'
+    assert out.status == 'rollback_unverified' and path.read_text() == '{}\n'
     assert history.head('hardware')['id'] == head['id'] and head.get('revert_of') is None
 
 
@@ -65,6 +65,35 @@ def test_an_app_hardware_revert_is_recorded_once_not_also_as_an_external_edit(tm
     plan = revert.plan(app.history, app.config_backends, revert.Env(), first['id'], 'hardware')
     count = len(app.history.changes('hardware'))
     out = revert.execute(app.history, app.config_backends, revert.Env(), plan)
-    assert out.status == 'reverted'
-    assert len(app.history.changes('hardware')) == count + 1   # the revert only
-    assert app.history.head('hardware')['revert_of'] == first['id']
+    assert out.status == 'rollback_unverified'
+    assert len(app.history.changes('hardware')) == count
+    assert app.history.head('hardware').get('revert_of') is None
+
+
+def test_hardware_requires_complete_driver_evidence(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('{}\n')
+    back = backends.FileBackend('hardware', path, live_keys={'frequency', 'command_timeout'})
+    value, raw, meta = back.read()
+    version = dict(value=value, raw=raw, meta=meta)
+    assert back.persisted(version)
+    for seen in (None, {}, {'frequency': value['effective']['frequency']}):
+        back.driver = lambda keys: seen
+        assert not back.verify(version, 1)
+    back.driver = lambda keys: {k: value['effective'][k] for k in keys}
+    assert back.verify(version, 1)
+
+
+def test_hardware_unverified_rollback_reports_file_evidence(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    history = History(tmp_path / 'h')
+    path.write_text('frequency: 50.0\n')
+    first = adapters.record_file(history, 'hardware', 'test', path)
+    path.write_text('frequency: 60.0\n')
+    head = adapters.record_file(history, 'hardware', 'test', path)
+    back = {'hardware': backends.FileBackend('hardware', path, live_keys={'frequency'})}
+    plan = revert.plan(history, back, revert.Env(), first['id'], 'hardware')
+    out = revert.execute(history, back, revert.Env(), plan)
+    assert out.status == 'rollback_unverified'
+    assert path.read_text() == 'frequency: 60.0\n'
+    assert history.head('hardware')['id'] == head['id']
