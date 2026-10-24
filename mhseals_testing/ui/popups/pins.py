@@ -1,10 +1,8 @@
-"""The thruster pin popup: PWM channels and the MOSFET line, applied live.
+"""The thruster pin popup: PWM channels and the MOSFET line, applied when the next session starts.
 
 The text is ``channels line`` such as ``0 0 0 0 29``: four PWM channel numbers
 (outputs 1-4) then the MOSFET enable line. The chip paths stay as configured.
 """
-
-from mhseals_testing.harness.apply import HardwareApply
 
 
 def pin_text(config):
@@ -25,7 +23,9 @@ def parse_pins(text):
 
 
 def edit_pins(app):
-    """Ask for new pins and hot-apply them; returns the notice to show."""
+    """Save new pins to the operator YAML; a session snapshots it at start, so restart the TUI."""
+    if app.armed or (app.arming and app.arming.pending is not None):
+        return 'Pins refused: disarm first, pins move real outputs'
     text = app.ask_text('Thruster pins', 'PWM channels 1-4 then MOSFET line',
                         pin_text(app.args.hardware_config))
     if text is None:
@@ -34,13 +34,6 @@ def edit_pins(app):
         changes = parse_pins(text)
     except ValueError as error:
         return f'Pins rejected: {error}'
-
-    def save(changes):
-        if not app.save_hardware(**changes):
-            raise ValueError(app.notice)
-    result = HardwareApply(save, app.driver_values, lambda: app.armed,
-                           lambda: app.args.hardware_config,
-                           serving=lambda: app.ros.parameter_service('thruster_pwm_node')).stage(changes)
-    if result.status == 'saved':
-        return 'Pins saved; applied at next arm'
-    return 'Pins applied' if result.ok else f'Pins {result.status.replace("_", " ")}: {result.detail}'
+    if not app.save_hardware(**changes):
+        return f'Pins not saved: {app.notice}'
+    return 'Pins saved; applied when the next session starts (restart the TUI)'

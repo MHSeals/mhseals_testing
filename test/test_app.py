@@ -11,10 +11,12 @@ from rich.segment import Segments
 import yaml
 from rich.console import Console
 
+from mhseals_hardware.configuration import load_config
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing import events
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
+from mhseals_testing.ros.arming import Arming as Arming_
 from mhseals_testing.ui import theme
 from mhseals_testing.harness.registry import Registry as RegistryBase
 from mhseals_testing.ui.app import (
@@ -71,7 +73,7 @@ class Boat:
 
 class Arming:
     def __init__(self):
-        self.armed, self.calls = False, []
+        self.armed, self.pending, self.calls = False, None, []
 
     def arm(self):
         self.armed = True
@@ -1153,32 +1155,45 @@ def test_parse_args_broken_hardware_yaml_names_the_file(tmp_path, capsys, text, 
         assert str(path) in err and message in err and 'Traceback' not in err
 
 
-def test_pins_popup_applies_through_the_driver_readback(tmp_path):
+def test_pins_saved_reach_the_next_session_not_the_next_arm(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from mhseals_hardware.startup_config import plain
+    from mhseals_testing.harness import session
+    from mhseals_testing.profiles import load_profile
+    from mhseals_testing.startup_owner import prepare_session
+    from test_arming import Processes, Ros
+    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'store'))
     app, _ = make_app(tmp_path)
-    app.ros.parameter_service = lambda name: True
-    app.ros.driver_parameters = lambda name, keys: {k: app.args.hardware_config[k] for k in keys}
-    app.ask_text = lambda *a: '1 0 0 0 29'
+    profile = replace(load_profile('crane_full_stack'), components={}, velocity_controller=False)
+    args = SimpleNamespace(config=str(app.args.config))
+    first = prepare_session(
+        profile, args, session.create('a', directory=tmp_path / 'one').directory, 'own', {})
+    ros = Ros()
+    app.arming = Arming_(profile, ros, Processes(ros), app.args.hardware_config,
+                         app.paths.hardware, selection=first)
+    app.ask_text = lambda *a: '1 0 0 0 27'
     app.focus = 'thrusters'
     app.dispatch('M')
-    assert app.notice == 'Pins applied'
-    assert app.args.hardware_config['pwm_channels'] == [1, 0, 0, 0]
+    assert app.notice.startswith('Pins saved; applied when the next session starts')
+    assert load_config(app.args.config)['pwm_channels'] == [1, 0, 0, 0]
+    app.arming.begin()   # same session: the captured selection still drives the arm
+    snapshot = load_config(app.paths.hardware)
+    assert snapshot['pwm_channels'] != [1, 0, 0, 0] and snapshot['mosfet_line'] != 27
+    second = prepare_session(
+        profile, args, session.create('b', directory=tmp_path / 'two').directory, 'own', {})
+    effective = plain(second.validate().documents['hardware-pure']['effective'])
+    assert effective['pwm_channels'] == [1, 0, 0, 0] and effective['mosfet_line'] == 27
 
 
-def test_pins_popup_saves_for_the_next_arm_without_a_driver(tmp_path):
+@pytest.mark.parametrize('state', ['armed', 'pending'])
+def test_pins_popup_refuses_while_armed_or_arming(tmp_path, state):
     app, _ = make_app(tmp_path)
-    app.ros.parameter_service = lambda name: False
-    app.ros.driver_parameters = lambda name, keys: pytest.fail('no driver to read back')
-    app.ask_text = lambda *a: '1 0 0 0 29'
-    app.focus = 'thrusters'
-    app.dispatch('M')
-    assert app.notice == 'Pins saved; applied at next arm'
-    assert app.args.hardware_config['pwm_channels'] == [1, 0, 0, 0]
-
-
-def test_pins_popup_refuses_while_armed(tmp_path):
-    app, _ = make_app(tmp_path)
-    app.arming.armed = True
-    app.ask_text = lambda *a: '1 0 0 0 29'
+    if state == 'armed':
+        app.arming.armed = True
+    else:
+        app.arming.pending = 1.0
+    app.ask_text = lambda *a: pytest.fail('no prompt')
     app.focus = 'thrusters'
     app.dispatch('M')
     assert app.notice.startswith('Pins refused')

@@ -171,8 +171,10 @@ HELP = [
     ('Thrusters 0', 'All test pulses back to neutral'),
     ('Thrusters Enter', f'Pick up the thruster; {UPDOWN} moves it, Enter drops it'),
     ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
-    ('Thrusters s / u', 'Save the draft to the config (hot-reloaded) / undo it'),
-    ('Thrusters M', 'Edit the PWM pins and MOSFET line; applied live, refused while armed'),
+    ('Thrusters s / u',
+     'Save the draft to the config (applied when the next session starts) / undo it'),
+    ('Thrusters M', 'Edit the PWM pins and MOSFET line; applied when the next session starts, '
+                    'refused while armed or arming'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Thrusters c', 'Clear the fitted decoupling (asks first)'),
     ('Activity v', 'Switch between results and the event log'),
@@ -559,7 +561,7 @@ class App:
         if 0 <= i < len(REC_MODES):
             self.set_recording(REC_MODES[i])
 
-    # --- hardware config: edits from the panel or any editor, hot-reloaded -------
+    # --- hardware config: edits from the panel or any editor, applied at the next session ---
 
     def watch_config(self):
         """Poll every watched file once; announce what changed (harness/watch.py)."""
@@ -2009,10 +2011,6 @@ class App:
 
     def ask_text(self, title, message, text=''):
         return popups.ask_text(self, title, message, text)
-
-    def driver_values(self, keys):
-        """The thruster driver's live parameters for ``keys``, or None without an answer."""
-        return self.ros.driver_parameters('thruster_pwm_node', keys)
 
     def type_word(self, title, message, word, rows=None, width=64):
         return popups.type_word(self, title, message, word, rows, width)

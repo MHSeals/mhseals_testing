@@ -22,7 +22,7 @@ Every state has its own glyph (✓ ok, ! warn, × fail, ◌ busy, ○ off), so t
 - **m** manual control (hold W/S, A/D and ←/→ together; +/- speed; x leaves);
 - Thrusters: ←→ and 0 test-pulse ±10 µs / back to neutral, Enter, 1-4, r edit a draft mapping, s/u save or undo it, i thruster set, c clear the decoupling.
 
-Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); others fall back to tap-repeat. Saved mappings hot-reload into the running driver. The Conditions panel on Drive shows the north-up rose with the estimated water drift, the verdict, floor and sea, and the command glyph in the commanding authority's hue.
+Held-key chords need a terminal with the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); others fall back to tap-repeat. Pins, matrix, C+/C- and reversals are restart-only (saved now, applied when the next session starts (restart the TUI); refused while armed or arming). The Conditions panel on Drive shows the north-up rose with the estimated water drift, the verdict, floor and sea, and the command glyph in the commanding authority's hue.
 
 Status checks **PWM driver** (managed process and ROS subscription) and **PWM readback** (enabled outputs, pulse widths and frequency, once per second); Enter shows details. Run on the ODROID for pin readback. Disabled pins are normal before arming; missing/disabled pins while armed and unexpected drivers/outputs are flagged. An enabled 1500 µs output still pulses at neutral. Readback is the kernel configuration, not measured voltage, MOSFET/ESC power or proof of thruster movement.
 

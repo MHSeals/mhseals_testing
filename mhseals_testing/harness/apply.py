@@ -1,89 +1,15 @@
-"""Offline hardware file staging and legacy parameter-readback helpers; ROS-free.
+"""Offline hardware file staging; ROS-free.
 
-HardwareApply records file/parameter outcomes, not effective output proof.
 Staging backs up C+/C- and changes files for offline workflows; it cannot
 establish the running driver's correction/model. RuntimeStaging refuses these
 transitions until an owner-controlled runtime application can be acknowledged.
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass
-import time
 
 from mhseals_hardware.configuration import load_config, update_config
 
 from mhseals_testing import data
-
-READBACK_TIMEOUT = 2.0  # seconds the driver gets to show the new values
-POLL = 0.1
-
-
-@dataclass
-class Result:
-    """``status`` is applied, saved, refused, invalid, rolled_back or timeout."""
-    status: str
-    detail: str = ''
-
-    @property
-    def ok(self):
-        return self.status == 'applied'
-
-
-class HardwareApply:
-    """``save(changes)`` writes the YAML, ``read(keys)`` returns the driver's values or None.
-
-    ``serving()`` says whether a driver answers parameter requests; without one
-    (the TUI starts it only when arming) the file is just saved for the next arm.
-    """
-
-    def __init__(self, save, read, armed, current, serving=lambda: True, clock=time.monotonic,
-                 sleep=time.sleep, timeout=READBACK_TIMEOUT):
-        self.save, self.read, self.armed, self.current = save, read, armed, current
-        self.serving = serving
-        self.clock, self.sleep, self.timeout = clock, sleep, timeout
-
-    def stage(self, changes):
-        """Write ``changes``; applied when the readback matches, else the old values are restored.
-
-        rolled_back: the driver answered but still shows the old values (its own
-        switch failed and it kept the old pins; the reason is in its log).
-        timeout: the driver gave no answer in time. Both restore the file.
-        saved: no driver is running, so there is nothing to read back.
-        """
-        if self.armed() is not False:
-            return Result('refused', 'disarm first: pins move real outputs')
-        config = self.current()
-        old = {key: config[key] for key in changes}
-        if old == changes:
-            if self.serving() and self.read(list(changes)) == changes:
-                return Result('applied', 'unchanged parameter readback; effective outputs unverified')
-            return Result('saved', 'file unchanged; consumer unverified')
-        try:
-            self.save(changes)
-        except (OSError, ValueError, TypeError) as error:
-            return Result('invalid', str(error))
-        if not self.serving():
-            return Result('saved', 'applied at next arm')
-        seen = None
-        deadline = self.clock() + self.timeout
-        while True:
-            seen = self.read(list(changes))
-            if seen == changes:
-                return Result('applied')
-            if self.clock() >= deadline:
-                break
-            self.sleep(POLL)
-        try:
-            self.save(old)
-        except (OSError, ValueError, TypeError) as error:
-            return Result('invalid', f'could not restore the old pins ({error}); fix hardware.yaml')
-        if seen is None:
-            return Result('timeout', f'no readback in {self.timeout:g} s; previous file restored; consumer state unverified')
-        restored = self.read(list(old))
-        if restored == old:
-            return Result('rolled_back', 'previous file and parameter readback restored; effective outputs unverified')
-        return Result('rollback_unverified', 'previous file restored; consumer readback does not match')
-
 
 SCHEMA = 'mhseals.state/1'
 KEYS = ('decoupling', 'decoupling_negative')
