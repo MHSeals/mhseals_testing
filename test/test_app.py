@@ -1496,7 +1496,7 @@ def edit_nav2(app, path, text):
 
 def test_nav2_file_change_toasts_and_marks_navigation_pending(tmp_path):
     app, path = nav2_app(tmp_path)
-    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'pending'
     edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.8\n')
     assert app.notice.startswith('nav2.yaml changed')
     assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'pending'
@@ -1509,7 +1509,7 @@ def dashboard_rows(app):
 
 def test_e_on_navigation_previews_and_y_applies_once(tmp_path):
     seen = []
-    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or {})
+    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or dict(status='verified', verified=changes))
     edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.8\n')
     app.focus = 'status'
     app.cursors['status'] = next(i for i, r in enumerate(dashboard_rows(app)) if r['name'] == 'Navigation')
@@ -1575,20 +1575,22 @@ def test_nav2_file_diff_and_apply_refusal(tmp_path):
 
 def test_deleted_nav2_file_keeps_the_last_good_and_sends_no_none(tmp_path):
     seen = []
-    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or {})
+    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or dict(status='verified', verified=changes))
+    app.nav2_file.apply()
+    seen.clear()
     path.unlink()
     app.tick()
     app.tick()
     assert 'changed' not in app.notice
-    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
+    assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'error'
     edit_nav2(app, path, 'a: 1\n')  # the old FollowPath key is now removed from the file
     assert app.nav2_file.removed() == ['controller_server.ros__parameters.FollowPath.vx_max']
     app.nav2_file.apply()
-    assert seen == [{'a': 1}]
+    assert seen == []
 
 
 def test_edit_between_preview_and_apply_stays_pending(tmp_path):
-    app, path = nav2_app(tmp_path, applier=lambda changes: {})
+    app, path = nav2_app(tmp_path, applier=lambda changes: dict(status='verified', verified=changes))
     edit_nav2(app, path, 'a: 1\n')
     previewed = app.nav2_file.current
     edit_nav2(app, path, 'a: 2\n')
