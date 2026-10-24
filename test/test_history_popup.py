@@ -154,7 +154,7 @@ def test_n_names_and_capital_n_notes(state):
 def test_capital_h_opens_the_popup(monkeypatch):
     from mhseals_testing.ui import app as app_module
     opened = []
-    fake = type('A', (), {'open': lambda self, name: opened.append(name)})()
+    fake = type('A', (), {'review': None, 'open': lambda self, name: opened.append(name)})()
     app_module.App.dispatch(fake, 'H')
     assert opened == ['history']
 
