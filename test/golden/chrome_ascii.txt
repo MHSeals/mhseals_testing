@@ -1,6 +1,6 @@
 == idle 120
  boat_test  [Drive]  Correction  Map  Bags  boat | effort                      blastoise-odroid | ROS 42  idle  disarmed
- rec | x sensors 1/3 | x tf | ! compute                                                                     health 41 ok
+ rec | x sensors 1/3 | x tf | ! compute                                                               x 2  ! 1 | sensors
  Focus Status | 1/9                                                                                                Ready
  Tab Focus                     a Arm                         Space Stop                    ? Help                       
  q Quit                                                                                                                 
@@ -30,7 +30,7 @@
  q Quit                                                                                                                 
 == idle 100
  boat_test  [Drive]  Correction  Map  Bags  boat | effort  blastoise-odroid | ROS 42  idle  disarmed
- rec | x sensors 1/3 | x tf | ! compute                                                 health 41 ok
+ rec | x sensors 1/3 | x tf | ! compute                                           x 2  ! 1 | sensors
  Focus Status | 1/9                                                                            Ready
  Tab Focus                         a Arm                            Space Stop                      
  ? Help                            q Quit                                                           
@@ -60,7 +60,7 @@
  ? Help                            q Quit                                                           
 == idle 80
  boat_test  [Drive]  Correction  Map  Bags      blastoise-odroid  idle  disarmed
- rec | x sensors 1/3 | x tf | ! compute                             health 41 ok
+ rec | x sensors 1/3 | x tf | ! compute                       x 2  ! 1 | sensors
  Focus Status | 1/9                                                        Ready
  Tab Focus                  a Arm                      Space Stop               
  ? Help                     q Quit                                              
@@ -90,7 +90,7 @@
  ? Help                     q Quit                                              
 == idle 60
  boat_test  [Drive]         blastoise-odroid  idle  disarmed
- rec | x sensors 1/3 | x tf | ! compute         health 41 ok
+ rec | x sensors 1/3 | x tf | ! compute   x 2  ! 1 | sensors
  Focus Status | 1/9                                    Ready
  Tab Focus           a Arm               Space Stop         
  ? Help              q Quit                                 

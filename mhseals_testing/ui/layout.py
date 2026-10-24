@@ -33,7 +33,7 @@ from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
-from mhseals_testing.ui.panels.status import status_panel, status_rows
+from mhseals_testing.ui.panels.status import reconcile, status_panel, status_rows
 from mhseals_testing.ui.panels.thrusters import thrusters_panel
 from mhseals_testing.ui.theme import ACCENT, MUTED, SEPARATOR
 
@@ -129,7 +129,7 @@ def header(snapshot, view, width=120):
     top = chrome.top_row(view, width)
     if view.get('agent'):
         return Group(top, chrome.banner(view['agent'], width))
-    total = health_total(view.get('health'))
+    total = health_total(reconcile(view.get('health'), status_rows(snapshot, view['specs'])))
     row = Table.grid(expand=True)
     row.add_column(no_wrap=True, overflow=theme.OVERFLOW)
     row.add_column(justify='right', no_wrap=True)

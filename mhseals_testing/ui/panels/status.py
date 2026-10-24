@@ -192,9 +192,40 @@ PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame
 SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System
 
 
+def reconcile(health, rows):
+    """The engine counts raised to cover what the health strip shows from ``rows``.
+
+    The strip's sensors, tf and System items come from the status rows, not the engine, so a failing
+    one could sit beside ``health 40 ok``. The strip counts sensors and tf as one item each; the
+    counts never drop below the items shown (max, not sum, so an engine check behind the same
+    item is not counted twice). Returns ``health`` itself when nothing changes.
+    """
+    if not health:
+        return health
+    items = [('sensors', [r for r in rows if r.get('source') == 'sensor' and r['required']]),
+             ('tf', [r for r in rows if r.get('source') == 'tf'])]
+    states = [('FAIL' if any(r['state'] != 'LIVE' for r in group) else 'OK', name) for name, group in items]
+    states += [(r['state'], r['name']) for r in rows if r['group'] == 'System']
+    kinds = {'bad': [n for s, n in states if theme.kind(s) == 'bad'],
+             'warn': [n for s, n in states if theme.kind(s) == 'warn']}
+    out = dict(health)
+    for key, names in kinds.items():
+        out[key] = max(health.get(key, 0), len(names))
+    if out == health:
+        return health
+    if kinds['bad'] and not health.get('bad', 0):      # the engine had only warnings: worst is a failure now
+        out['worst'] = kinds['bad'][0]
+    elif not out.get('worst') and kinds['warn']:
+        out['worst'] = kinds['warn'][0]
+    return out
+
+
 def status_rows(snapshot, specs):
     """The ui 6.1 groups in order (``GROUPS``), each row a dict with a ``group`` key."""
     rows = [row for provider in PROVIDERS for row in provider(snapshot, specs)]
+    counts = reconcile(snapshot.get('health'), rows)
+    if counts is not snapshot.get('health'):
+        rows = [r for r in rows if r['group'] != 'Health'] + health_rows({**snapshot, 'health': counts}, specs)
     return sorted(rows, key=lambda row: GROUPS.index(row['group']) if row['group'] in GROUPS
                   else len(GROUPS))
 
