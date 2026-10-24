@@ -73,6 +73,9 @@ def test_nondefault_compiled_origins_are_separate_from_inventory(installed_root,
 def test_corrupt_installed_family_visible_without_hardware_loss(installed_root, monkeypatch, tmp_path):
     import shutil
     from mhseals_nav import owner_catalog
+    before = catalog_inspect.installed()
+    unaffected = [row for row in before['rows'] if row['owner'] != 'mhseals_nav']
+    assert any(row['owner'] == 'mhseals_hardware' for row in unaffected)
     share = tmp_path / 'share'
     shutil.copytree(installed_root / 'share/mhseals_nav', share)
     (share / 'config/mavros_setup.yaml').write_text('malformed: [')
@@ -81,7 +84,9 @@ def test_corrupt_installed_family_visible_without_hardware_loss(installed_root, 
     nav = next(item for item in view['packages'] if item['owner'] == 'mhseals_nav')
     assert nav['status'] == 'invalid-installed'
     assert {item['name'] for item in nav['families']} == {'nav2', 'mavros', 'lidar'}
-    assert all(row['owner'] == 'mhseals_hardware' for row in view['rows'])
+    assert view['rows'] == unaffected  # hardware and any valid optional Astro remain intact
+    assert [p for p in view['packages'] if p['owner'] != 'mhseals_nav'] == [
+        p for p in before['packages'] if p['owner'] != 'mhseals_nav']
     assert not view['complete']
     (share / 'config/lidar.yaml').unlink()
     (share / 'config/mavros_setup.yaml').write_bytes(

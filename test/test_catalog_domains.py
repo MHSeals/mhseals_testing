@@ -12,7 +12,12 @@ import pytest
 
 
 def test_actual_domain_bundles_and_changed_default():
-    config = Path(mhseals_nav.__file__).parents[1] / 'config'
+    package_root = Path(mhseals_nav.__file__).resolve().parents[1]
+    if (package_root / 'package.xml').is_file():
+        config = package_root / 'config'  # explicit source checkout
+    else:
+        from mhseals_nav.lidar_configuration import package_share
+        config = package_share('mhseals_nav') / 'config'  # installed wheel resources
     raw = (config / 'nav2_params.yaml').read_bytes()
     policy = (config / 'catalog.yaml').read_bytes()
     nav = navigation_catalog(raw, resource='config/nav2_params.yaml', policy_raw=policy)
