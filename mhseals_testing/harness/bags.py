@@ -44,6 +44,13 @@ def load_profiles(path=None):
     return yaml.safe_load(path.read_text())
 
 
+def budget_bytes(path=None):
+    """Decimal GB, matching the Bags gauge; configured in bags.yaml."""
+    path = Path(path or CONFIG / 'bags.yaml')
+    config = yaml.safe_load(path.read_text()) if path.exists() else None
+    return float((config or {}).get('budget_gb', 20)) * 1e9
+
+
 def record_command(segment, mode, profile=None, profiles=None, filters=None):
     """The ``ros2 bag record`` argv for one segment in ``lean`` or ``full`` mode.
 
@@ -228,7 +235,8 @@ def _holds_bag(path):
 
 
 def _size_of_siblings(folder):
-    return sum(f.stat().st_size for f in folder.parent.glob(f'{folder.name}.*') if f.is_file())
+    return sum(f.stat().st_size for f in folder.parent.iterdir()
+               if f.name.startswith(folder.name + '.') and f.is_file())
 
 
 def scan(root=None, recording=()):
@@ -292,15 +300,15 @@ def set_meta(bag, **fields):
 def delete(bag):
     """Remove a session and its legacy sidecars; refused for pinned or recording ones.
 
-    The session index is not rebuilt here: no ``harness/index`` module exists yet (ts023 follow-up),
-    so the Bags tab rescans after a delete. Hook ``index.rebuild`` in here when that module lands.
+    The caller rebuilds the index once for the entire operation.
     """
     if bag.pinned or bag.recording:
         raise PermissionError(f'{bag.id} is {"recording" if bag.recording else "pinned"}')
     shutil.rmtree(bag.path)
     if bag.legacy:
-        for sidecar in bag.path.parent.glob(f'{bag.id}.*'):
-            sidecar.unlink()
+        for sidecar in bag.path.parent.iterdir():
+            if sidecar.name.startswith(bag.id + '.') and (sidecar.is_file() or sidecar.is_symlink()):
+                sidecar.unlink()
 
 
 # --- finalize ------------------------------------------------------------------------

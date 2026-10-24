@@ -135,6 +135,7 @@ PANEL_HINTS = {
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'Results/log')],
     'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom')],
+    'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune')],
 }
 CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
                     ('R', 'Run all'), ('A', 'Apply pending'), ('I', 'Hardware changed')]
@@ -918,6 +919,100 @@ class App:
             self.cursors['list'] = max(0, min(self.cursors['list'], len(self.bag_scan[1]) - 1))
         return self.bag_scan[1], self.bag_scan[2]
 
+    def selected_bag(self):
+        found = self.bags_view()[0]
+        if not found:
+            self.notice = 'No sessions'
+            return None
+        return found[self.cursors['list']]
+
+    def check_bag(self, bag, destructive=False):
+        """Revalidate live paths and metadata; cached row flags never authorize a mutation."""
+        if self.bag_protected(bag):
+            raise PermissionError(f'{bag.id} is recording')
+        if bag.path.resolve() == getattr(self, 'finalizing', None):
+            raise PermissionError(f'{bag.id} is being finalized')
+        bag.pinned = bool(data.read_json(bag.meta_path, {}).get('pinned'))
+        if destructive and bag.pinned:
+            raise PermissionError(f'{bag.id} is pinned')
+
+    def refresh_bag_index(self, bag):
+        root = bag.path.parent if bag.legacy else bag.path.parent.parent
+        try:
+            index.rebuild(root)
+        finally:
+            self.invalidate_bags()
+
+    def on_list(self, key):
+        handler = {'p': self.pin_bag, 'n': self.title_bag, 'd': self.delete_bag,
+                   'P': self.prune_bags}.get(key)
+        if handler is None:
+            return
+        bag = None if key == 'P' else self.selected_bag()
+        if key != 'P' and bag is None:
+            return
+        try:
+            handler(bag)
+        except Cancelled:
+            pass
+        except (OSError, ValueError) as error:
+            self.notice = f'{key}: {error}'
+
+    def pin_bag(self, bag):
+        self.check_bag(bag)
+        bags_module.set_meta(bag, pinned=not bag.pinned)
+        self.refresh_bag_index(bag)
+        self.notice = f'{"Pinned" if bag.pinned else "Unpinned"} {bag.id}'
+
+    def title_bag(self, bag):
+        self.check_bag(bag)
+        title = self.ask_text('Title', f'Title for {bag.id}', bag.title)
+        if title is not None:
+            self.check_bag(bag)
+            bags_module.set_meta(bag, title=title.strip())
+            self.refresh_bag_index(bag)
+            self.notice = f'Titled {bag.id}'
+
+    def delete_bag(self, bag):
+        self.check_bag(bag, destructive=True)
+        if self.choose(f'Delete {bag.id}?', ('Delete', 'Cancel'), {'y': 0}, selected=1,
+                       danger=True, message='Session files are removed for good.') == 'Delete':
+            self.check_bag(bag, destructive=True)
+            try:
+                bags_module.delete(bag)
+            finally:
+                self.refresh_bag_index(bag)
+            self.notice = f'Deleted {bag.id}'
+
+    def prune_bags(self, _bag):
+        eligible = []
+        for bag in self.bags_view()[0]:
+            try:
+                self.check_bag(bag, destructive=True)
+            except PermissionError:
+                continue
+            eligible.append(bag)
+        # Keep protected sessions in the total budget, but never among candidates.
+        protected = [b for b in self.bags_view()[0] if b not in eligible]
+        budget = bags_module.budget_bytes() - sum(b.size for b in protected)
+        doomed = bags_module.prune_candidates(eligible, budget)
+        if not doomed:
+            self.notice = 'Nothing to prune'
+            return
+        if self.choose(f'Prune {len(doomed)} sessions?', ('Delete', 'Cancel'), {'y': 0},
+                       selected=1, danger=True, rows=[(b.id, '') for b in doomed]) != 'Delete':
+            return
+        attempted = False
+        try:
+            for bag in doomed:
+                self.check_bag(bag, destructive=True)
+                attempted = True
+                bags_module.delete(bag)
+            self.notice = f'Pruned {len(doomed)} sessions'
+        finally:
+            if attempted:
+                self.refresh_bag_index(doomed[0])
+
     def switch_tab(self, step):
         """Move to the next or previous tab, restoring the focus and cursors it was left with."""
         if self.focus == 'thrusters':
@@ -1007,6 +1102,8 @@ class App:
               and not (self.focus == 'activity' and key == 'v')
               and not (self.focus == 'status' and key == 'e')):  # Nav2 popup there; interference elsewhere
             self.on_procedures(key)
+        elif self.focus == 'list':
+            self.on_list(raw)
         elif self.focus in ('minimap', 'map'):
             getattr(self, f'on_{self.focus}')(raw)
         elif raw == key:  # a Shift letter has no panel binding yet; folding it hit the lowercase ones
