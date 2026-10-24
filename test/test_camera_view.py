@@ -202,3 +202,63 @@ def test_ascii_or_no_colour_lists_detections_instead_of_half_blocks(monkeypatch)
         v.boxes = True
         assert '1,2-5,6' in '\n'.join(line.plain for line in v.lines())
         v.boxes = False
+
+
+def test_png_uses_explicit_fast_octree_and_preserves_colours_and_thin_box(monkeypatch):
+    from PIL import Image
+    colours = np.array([(255, 0, 0), (0, 255, 0), (0, 0, 255),
+                        (255, 255, 0), (0, 0, 0), (255, 255, 255)], dtype=np.uint8)
+    image = np.repeat(np.repeat(colours[None], 12, axis=1), 32, axis=0)
+    camera_view.draw_box(image, (3, 3, 10, 29))
+    calls = []
+    quantize = Image.Image.quantize
+
+    def spy(self, colors=256, method=None, **kwargs):
+        calls.append((colors, method))
+        return quantize(self, colors, method=method, **kwargs)
+
+    monkeypatch.setattr(Image.Image, 'quantize', spy)
+    encoded = camera_view.encode_png(image)
+    assert calls == [(64, Image.Quantize.FASTOCTREE)]
+    decoded = Image.open(io.BytesIO(encoded))
+    assert decoded.mode == 'P' and decoded.size == (72, 32)
+    rgb = np.asarray(decoded.convert('RGB'))
+    assert np.array_equal(rgb[16, np.arange(6) * 12 + 6], colours)
+    assert np.array_equal(rgb, image)  # includes every one-pixel box edge
+
+
+def test_real_camera_serializer_runs_once_per_fresh_frame_and_save_retains_source(monkeypatch, tmp_path):
+    from PIL import Image
+    bus, out, uploads, methods = Bus(), [], [], []
+    source = io.BytesIO()
+    Image.fromarray(np.tile(frame8(), (9, 16, 1))).save(source, 'JPEG')
+    jpeg = source.getvalue()
+    feed = CameraFeed(bus.subscribe, bus.unsubscribe, clock=lambda: bus.t)
+    quantize = Image.Image.quantize
+
+    def spy(self, colors=256, method=None, **kwargs):
+        methods.append((colors, method))
+        return quantize(self, colors, method=method, **kwargs)
+
+    monkeypatch.setattr(Image.Image, 'quantize', spy)
+    monkeypatch.setattr(graphics, 'upload', lambda data, cols, rows: uploads.append(data) or 'upload')
+    monkeypatch.setattr(camera_view.CameraView, 'text_only', lambda self: False)
+    v = camera_view.CameraView(feed, (8, 2), out.append, kitty=True, save_dir=tmp_path,
+                              detections=lambda size, floor: [((16, 18, 32, 36), camera_view.BOX_RGB)])
+    v.key('d')
+    bus.publish(jpeg)
+    v.lines()
+    v.lines()
+    assert methods == [(64, Image.Quantize.FASTOCTREE)] and len(uploads) == 1
+    rgb = np.asarray(Image.open(io.BytesIO(uploads[0])).convert('RGB'))
+    assert rgb.shape == (32, 56, 3)
+    assert (rgb[8, 7:14] == camera_view.BOX_RGB).all()  # scaled source rect
+    v.save()
+    saved = next(tmp_path.glob('*.jpg'))
+    assert saved.read_bytes() == jpeg and Image.open(saved).size == (128, 72)
+    assert json.loads(saved.with_suffix('.json').read_text())['size'] == [128, 72]
+    bus.t = 2
+    bus.publish(jpeg)
+    v.lines()
+    assert methods == [(64, Image.Quantize.FASTOCTREE)] * 2 and len(uploads) == 2
+    v.close()

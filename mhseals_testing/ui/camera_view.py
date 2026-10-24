@@ -47,7 +47,7 @@ def decode_jpeg(data):
 def encode_png(array):
     from PIL import Image
     out = io.BytesIO()
-    Image.fromarray(array).save(out, 'PNG')
+    Image.fromarray(array).quantize(64, method=Image.Quantize.FASTOCTREE).save(out, 'PNG')
     return out.getvalue()
 
 
