@@ -152,6 +152,8 @@ def test_odometry_yaml_selectors_reach_both_actual_children(profile_name, contex
     chosen = {'odometry_startup_file': '/operator/odometry.yaml',
               'odometry_deployment_file': '/deployment/odometry.yaml',
               'navsat_transform_config_file': '/deployment/navsat.yaml',
+              'ekf_local_config_file': '/deployment/local.yaml',
+              'ekf_global_config_file': '/deployment/global.yaml',
               'ekf_overlay_file': '/operator/ekf.yaml'}
     items = {item.key: item for item in components(profile, {'odometry': chosen})}
     for key in ('odometry', 'ekf'):
@@ -169,3 +171,10 @@ def test_explicit_odometry_alias_survives_and_mismatches_refuse():
     with pytest.raises(ValueError, match='conflicting odometry selection'):
         components(profile, {'odometry': {'odometry_startup_file': '/a.yaml'},
                              'ekf': {'odometry_startup_file': '/b.yaml'}})
+
+
+@pytest.mark.parametrize('selector', ['ekf_local_config_file', 'ekf_global_config_file'])
+def test_conflicting_localization_files_refuse_during_planning(selector):
+    with pytest.raises(ValueError, match=f'conflicting odometry selection: {selector}'):
+        components(load_profile('boat'), {'odometry': {selector: '/selected/a.yaml'},
+                                          'ekf': {selector: '/selected/b.yaml'}})

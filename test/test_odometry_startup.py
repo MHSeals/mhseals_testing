@@ -41,7 +41,9 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
     data = yaml.safe_load((Path(__file__).resolve().parents[1] /
                            f'config/profiles/{profile_name}.yaml').read_text())
     data['components']['odometry']['args'].update(
-        odometry_startup_file=str(operator), odometry_deployment_file=str(deployment))
+        odometry_startup_file=str(operator), odometry_deployment_file=str(deployment),
+        ekf_local_config_file=str(tmp_path / 'selected-local.yaml'),
+        ekf_global_config_file=str(tmp_path / 'selected-global.yaml'))
     profile_file = tmp_path / 'profile.yaml'
     profile_file.write_text(yaml.safe_dump(data))
     tree = ast.parse(source.read_text())
@@ -78,7 +80,13 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
         namespace = dict(from_launch=from_launch, LaunchConfiguration=LaunchConfiguration,
                          Node=collect, TimerAction=collect, ekf_overlay=lambda *args: {})
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
-        invocation = {**invocations[1], 'ekf_local_config_file': '',
-                      'ekf_global_config_file': '', 'navsat_transform_config_file': ''}
-        namespace['ekf_nodes'](invocation)
-        assert next(call['period'] for call in calls if 'period' in call) == delay
+        for started in (processes.started, partial.started):
+            argv = next(argv for key, argv in started if key == 'ekf')
+            invocation = dict(arg.split(':=', 1) for arg in argv[4:])
+            invocation.setdefault('navsat_transform_config_file', '')
+            calls.clear()
+            namespace['ekf_nodes'](invocation)
+            assert next(call['period'] for call in calls if 'period' in call) == delay
+            nodes = {call['name']: call for call in calls if 'name' in call}
+            assert nodes['ekf_local']['parameters'][0] == str(tmp_path / 'selected-local.yaml')
+            assert nodes['ekf_global']['parameters'][0] == str(tmp_path / 'selected-global.yaml')

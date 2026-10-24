@@ -85,6 +85,7 @@ ODOMETRY_INPUTS = frozenset({
     'robot_state_publish_frequency', 'mavros_velocity_source', 'mavros_velocity_stddev',
     'mavros_velocity_max_age', 'mavros_velocity_min_stddev', 'mavros_velocity_no_fix_stddev',
     'ekf_delay', 'navsat_transform_config_file', 'ekf_overlay_file',
+    'ekf_local_config_file', 'ekf_global_config_file',
 })
 
 
