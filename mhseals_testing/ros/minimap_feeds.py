@@ -145,13 +145,15 @@ def rotation_fact(rotation, now):
 class MapFeeds:
     """ROS wiring: map rotation samples always, costmaps only on lease, the decimated costmap while recording."""
 
-    def __init__(self, node, state=None, facts=None, clock=time.monotonic):
+    def __init__(self, node, state=None, facts=None, clock=time.monotonic, wall=time.time):
+        """``clock`` (monotonic) ages the rotation fit and fact; ``wall`` stamps crumbs and trail.jsonl,
+        as the bag and journal do."""
         from nav_msgs.msg import OccupancyGrid, Odometry, Path as PathMsg
         from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
         from sensor_msgs.msg import NavSatFix
         from tf2_msgs.msg import TFMessage
         from vision_msgs.msg import Detection3DArray
-        self.node, self.grid_type, self.clock = node, OccupancyGrid, clock
+        self.node, self.grid_type, self.clock, self.wall = node, OccupancyGrid, clock, wall
         self.state, self.facts = state if state is not None else MapState(), facts
         self.rotation, self.origin = MapRotation(), None
         self.costmaps = {}           # topic -> latest message
@@ -230,12 +232,12 @@ class MapFeeds:
             now = self.clock()
             setattr(self, name, (m.pose.pose.position.x, m.pose.pose.position.y))
             if sample:
-                q = m.pose.pose.orientation
-                self.state.ingest('pose_map', t=now, x=self.global_xy[0], y=self.global_xy[1],
+                q, wall = m.pose.pose.orientation, self.wall()
+                self.state.ingest('pose_map', t=wall, x=self.global_xy[0], y=self.global_xy[1],
                                   yaw=math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
                 if self.trail:
                     fix, h_acc, speed = self.gps
-                    self.trail.add(now, *self.global_xy, epoch=self.state.epoch, fix=fix, h_acc_m=h_acc,
+                    self.trail.add(wall, *self.global_xy, epoch=self.state.epoch, fix=fix, h_acc_m=h_acc,
                                    speed_mps=speed, xte_m=self.state.xte(self.global_xy))
                 if self.fix_xy and self.gps_xy:
                     self.rotation.add(now, self.gps_xy, self.global_xy, self.fix_xy)

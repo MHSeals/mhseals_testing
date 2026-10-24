@@ -272,3 +272,14 @@ def test_owner_writes_trail_with_gps_and_xte(tmp_path):
     assert len(rows) == 1 and rows[0]['fix'] == 6 and rows[0]['xte_m'] == pytest.approx(1.0)
     map_feeds.want_trail(True, None)
     assert map_feeds.trail is None
+
+
+def test_crumbs_are_stamped_in_wall_time_not_monotonic(tmp_path):
+    """trail.jsonl t_ns must share the bag's wall-ns axis so replay can cut it at the playhead."""
+    node, _, map_feeds = wired(lambda: 5.0)
+    map_feeds.wall = lambda: 1.7e9
+    map_feeds.want_trail(True, tmp_path)
+    dict(node.live)['/odom/gps'](odom(0.0, 0.0))
+    dict(node.live)['/odom/global'](odom(1.0, 2.0))
+    assert map_feeds.state.crumbs[0]['t'] == 1.7e9
+    assert data.read_jsonl(tmp_path / 'minimap' / 'trail.jsonl')[0]['t_ns'] == int(1.7e18)
