@@ -76,6 +76,8 @@ class PlantProfile:
     battery_cells: int | None = None   # pack cell count from `battery: {cells: N}`; None assumes 4S
     plot_scale: tuple = PLOT_SCALE     # Motion plot half-range for surge, sway (m/s) and yaw (rad/s)
 
+    conditions_velocity: str = 'gpsraw'  # explicit odom:<topic|name> is simulation-only
+
     @property
     def uses_fcu(self):
         """True when the odometry component brings up MAVROS (a real flight controller)."""
@@ -164,6 +166,16 @@ def parse_profile(data, where='profile'):
         sensors.append(sensor)
     if len({sensor.name for sensor in sensors}) != len(sensors):
         raise ValueError(f'{where}.sensors: names must be unique')
+    conditions = data.get('conditions', {})
+    if not isinstance(conditions, dict):
+        raise ValueError(f'{where}.conditions: mapping required')
+    velocity = conditions.get('velocity', 'gpsraw')
+    if velocity != 'gpsraw':
+        matches = [s for s in sensors if isinstance(velocity, str)
+                   and velocity.startswith('odom:') and velocity[5:] in (s.name, s.topic)
+                   and s.kind == 'odometry']
+        if not data.get('use_sim_time') or len(matches) != 1:
+            raise ValueError(f'{where}.conditions.velocity: gpsraw or unique sim odom:<topic|name>')
     components = parse_components(data.get('components'), where + '.components')
     scale = tuple(float(value) for value in data.get('plot_scale', PLOT_SCALE))
     if len(scale) != 3 or not all(0 < value < float('inf') for value in scale):
@@ -186,7 +198,7 @@ def parse_profile(data, where='profile'):
         use_sim_time=bool(data.get('use_sim_time', False)),
         outputs=outputs, velocity_controller=controller,
         sensors=tuple(sensors), components=components or None, battery_cells=cells,
-        plot_scale=scale)
+        plot_scale=scale, conditions_velocity=velocity)
 
 
 def available_profiles(directory=PROFILE_DIR):

@@ -36,3 +36,5 @@ sensors:
   - {name: detections, topic: /detections, kind: detections}
   - {name: tracks, topic: /objects/map, kind: detections}
   - {name: camera, topic: /front_camera/rgb/image, kind: image}
+
+conditions: {velocity: odom:/odom/mavros}

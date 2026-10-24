@@ -68,3 +68,21 @@ def test_boat_proof_nodes_are_node_names():
     driver's executable is velodyne_driver_node but its node is velodyne_driver."""
     components = load_profile('boat').components
     assert tuple(components['sensors']['nodes']) == ('velodyne_driver',)
+
+
+@pytest.mark.parametrize('choice', [None, True, 4, 'odom:', 'odom:/missing', 'unknown', []])
+def test_invalid_profile_selector(choice):
+    data = yaml.safe_load((PROFILE_DIR / 'crane_full_stack.yaml').read_text())
+    data['conditions'] = {'velocity': choice}
+    with pytest.raises(ValueError, match='conditions.velocity'):
+        parse_profile(data)
+
+
+def test_profile_defaults_and_sim_only():
+    assert load_profile('boat').conditions_velocity == 'gpsraw'
+    sim = load_profile('crane_full_stack')
+    assert sim.conditions_velocity == 'odom:/odom/mavros'
+    data = yaml.safe_load((PROFILE_DIR / 'boat.yaml').read_text())
+    data['conditions'] = {'velocity': 'odom:odometry'}
+    with pytest.raises(ValueError, match='conditions.velocity'):
+        parse_profile(data)
