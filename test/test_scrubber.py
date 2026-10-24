@@ -51,7 +51,7 @@ def test_footer_golden(width, ascii_mode, monkeypatch):
 def test_bracket_matches_the_loupe_and_playhead_sits_inside():
     axis_row = render(118, False)[2]
     left, right = axis_row.index('├'), axis_row.index('┤')
-    assert left < axis_row.index('●') < right
+    assert left < axis_row.index('┃') < right
     a, b = scrubber.loupe_window(PLAY, 720.0, T0, END)
     assert (b - a, (a + b) / 2) == (720.0, PLAY)
     # 12 m at about 70 s per column (folds shrink the scale)

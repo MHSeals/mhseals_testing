@@ -63,7 +63,7 @@ def lines(width, **kw):
 def test_strip_footer_marks_the_loupe_playhead_and_status(width):
     events_row, skyline, axis, status = lines(width, notice='hello')
     assert {len(row) for row in (events_row, skyline, axis, status)} == {width}
-    assert axis.count('\u251c') == axis.count('\u2524') == 1 and axis.count('\u25cf') == 1
+    assert axis.count('\u251c') == axis.count('\u2524') == 1 and axis.count('\u2503') == 1
     assert '0:40 / 1:40' in status and '\u25be1/2 wobble' in status
     assert status.endswith('loupe 12m') or status.rstrip().endswith('loupe 12m')
     assert width < 80 or 'hello' in status
@@ -76,7 +76,7 @@ def test_loupe_draws_the_playhead_and_the_window_end():
     console = Console(width=60, record=True, color_system=None)
     console.print(scrubber.Loupe(r))
     out = console.export_text().splitlines()
-    assert sum(row.count('\u25cf') for row in out) == 1 and '\u25cf' in out[3]
+    assert sum(row.count('\u2503') for row in out) == 1 and '\u2503' in out[3]
     assert 'now' not in out[-1] and out[-1].strip().endswith(('1:40', '1:30'))
 
 

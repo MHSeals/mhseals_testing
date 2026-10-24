@@ -220,7 +220,7 @@ def _labels(axis, g, end_text, sel, fmt):
 
 
 def _loupe_row(axis, bands, g, window, play):
-    """Axis row of the review scrubber: `├ ┤` bracket the loupe window, `●` is the playhead."""
+    """Axis row of the review scrubber: `├ ┤` bracket the loupe window, `┃` is the playhead."""
     line = _axis_row(axis, bands, g)
     ext = axis.extent(*window) if window else None
     if ext:

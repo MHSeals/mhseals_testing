@@ -85,3 +85,14 @@ def test_one_row_form_and_cluster_count():
     pts = [Point(T0 + 20 * M + i * 5, 'config') for i in range(6)]
     events = rows(axis, points=pts, ascii_mode=False)[0].plain
     assert 'Δ6' in events
+
+
+@pytest.mark.parametrize('ascii_mode', [False, True])
+def test_review_chrome_has_no_object_glyphs(ascii_mode):
+    """Playhead and one-column selection use chrome glyphs, never the map's ●/○/▲ (ui U3)."""
+    axis = Axis(T0, T0 + 30 * M, 60, [(T0, T0 + 30 * M)])
+    lines = rows(axis, form='footer', window=(T0 + 5 * M, T0 + 20 * M), play=T0 + 10 * M,
+                 sel=(T0 + 12 * M, T0 + 12 * M), fmt=fmt, ascii_mode=ascii_mode, color=False)
+    text = '\n'.join(str(x) for x in lines)
+    assert not set(text) & set('●○▲')
+    assert ('|' if ascii_mode else '┃') in text
