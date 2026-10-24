@@ -1129,7 +1129,7 @@ class App:
                     return self.open('odometry')
                 if row['name'] == 'Config':
                     return self.open('config')
-                if row['name'] == 'Battery':
+                if row['name'].lower() == 'battery':   # the health advisory is named 'battery'
                     return self.open('power')
                 self.show(row['name'], rows=[('Group', row['group']),
                                              ('State', row['state'].lower()),
