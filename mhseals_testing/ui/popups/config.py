@@ -54,6 +54,8 @@ def rows(watcher, selected):
             text = f"{GLYPH['bad']} {watched.error}"
         elif pending(watched):
             text = f"{GLYPH['pending']} pending (file changed)"
+        elif watched.warning:
+            text = f"{GLYPH['bad']} {watched.warning}"
         else:
             at = f' {datetime.fromtimestamp(watched.loaded_at):%H:%M}' if watched.loaded_at else ''
             text = f"{GLYPH['ok']} {watched.path.name}{at}"

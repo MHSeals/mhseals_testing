@@ -5,6 +5,7 @@ spins on its own thread so the TUI loop can block on keys.
 """
 
 from functools import partial
+import json
 import os
 import re
 import socket
@@ -108,6 +109,10 @@ class RosIO:
         self.node.create_subscription(
             String, RTK_TOPIC, partial(self._ingest, RTK_TOPIC, 'rtk'), EVENTS_QOS)
         subscribe_sources(self)
+        self.driver_status = None   # latest thruster driver ~/status (latched JSON)
+        self.node.create_subscription(
+            String, '/thruster_pwm_node/status', self._driver_status,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.map = MapFeeds(self.node, facts=facts, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
@@ -140,6 +145,12 @@ class RosIO:
         gid = getattr(info, 'publisher_gid', None) or (info or {}).get('publisher_gid', b'')
         self._ingest('/tf_static' if static else '/tf', 'tf_static' if static else 'tf',
                      message, bytes(getattr(gid, 'data', gid)).hex())
+
+    def _driver_status(self, message):
+        try:
+            self.driver_status = json.loads(message.data)
+        except ValueError:
+            pass
 
     def emit(self, phase, **details):
         """Journal an event, publish it into the bag and show it on the dashboard."""

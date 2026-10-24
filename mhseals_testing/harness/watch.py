@@ -28,6 +28,7 @@ class Watched:
     load: object
     apply: object = None
     subsystem: str = None   # config-history subsystem observed on success
+    warning: str = None     # loaded, but the consumer says it is not (yet) applied
     key: object = field(default=None, repr=False)      # stat key last applied or rejected
     seen: object = field(default=None, repr=False)     # stat key at the previous poll
     error: str = None
@@ -89,12 +90,15 @@ class Watcher:
         """Parse now (our own save, or a settled edit); keeps the old value on error."""
         watched = self.watches[name]
         watched.key = watched.seen = stat_key(watched.path)
+        warning = None
         try:
             value = watched.load(watched.path)
             sha = self.sha(watched.path)
             if watched.apply is not None:
                 result = watched.apply(value)
                 if isinstance(result, dict):
+                    if result.get('status') in ('next_session', 'live_until_rearm', 'unknown'):
+                        warning = result['detail']
                     failed = (result.get('ok') is False or result.get('error')
                               or result.get('status') in ('failed', 'refused', 'blocked', 'partial'))
                     reason = result.get('error') or result.get('detail')
@@ -107,8 +111,9 @@ class Watcher:
             text = describe(error)
             fresh = text != watched.error
             watched.error = text
+            watched.warning = None
             return Change(name, False, text, report=fresh)
-        watched.error, watched.loaded_at = None, self.clock()
+        watched.error, watched.loaded_at, watched.warning = None, self.clock(), warning
         return Change(name, True, sha=sha)
 
     @staticmethod

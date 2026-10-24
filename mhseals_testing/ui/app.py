@@ -26,7 +26,8 @@ from rich.live import Live
 from rich.segment import Segments
 from rich.text import Text
 
-from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config, update_config
+from mhseals_hardware.configuration import config_path, config_sha, configure_args, load_config, save_config, update_config
+from mhseals_hardware.startup_config import plain
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
@@ -647,12 +648,40 @@ class App:
         return load_config(self.args.config)
 
     def apply_hardware(self, config):
-        if self.armed and self.profile.outputs != 'none':
+        """Take ``config`` and report what the hardware did with it, not just that it was saved."""
+        driven = self.armed and self.profile.outputs != 'none'
+        if driven:
             # Complete snapshot staging before replacing the last good in-memory state.
             save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
         self.args.hardware_config = config
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
+        selection = getattr(self.arming, 'selection', None)
+        differs = False
+        if selection is not None and 'hardware' in selection.domains:
+            session = plain(selection.validate().documents['hardware-pure']['effective'])
+            differs = {k: v for k, v in config.items() if k != 'output_backend'} != {
+                k: v for k, v in session.items() if k != 'output_backend'}
+        if not driven:   # Arming.begin rebuilds the driver from the selection, not from this file
+            if differs:
+                return dict(status='next_session', detail='next session, not applied')
+            return dict(status='saved')
+        sha = config_sha(load_config(self.paths.hardware))
+        end = time.monotonic() + 4.0   # the driver polls the file at 1 Hz
+        while True:
+            status = getattr(self.ros, 'driver_status', None) or {}
+            if status.get('requested_config_sha') == sha and any(
+                    name.endswith('/thruster_pwm_node') for name in self.ros.nodes()):
+                break
+            if time.monotonic() >= end:
+                return dict(status='unknown', detail='driver did not confirm the edit')
+            time.sleep(0.1)
+        error = status.get('error') or ''
+        if error or status.get('pending_restart_keys'):
+            return dict(status='refused', error=error or 'restart required')
+        if differs:
+            return dict(status='live_until_rearm', detail='live until re-arm')
+        return dict(status='applied')
 
     def warn_history(self, message):
         self.notice = message
@@ -2073,6 +2102,7 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         if self.armed:
             self.arming.disarm()
+            self.watcher.watches['hardware'].warning = None   # "live until re-arm" ended with that driver
             self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'
 
