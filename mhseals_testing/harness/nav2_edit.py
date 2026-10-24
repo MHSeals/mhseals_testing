@@ -7,6 +7,7 @@ Applying goes through an injected ``applier(changes) -> dict`` (the Nav2Apply
 seam); without one the preview is read-only. No ROS and no Rich here.
 """
 
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 
@@ -25,11 +26,24 @@ def flatten(node, prefix=''):
     return flat
 
 
+def same_value(left, right):
+    """Compare YAML values without Python's bool/numeric equality aliasing."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return (len(left) == len(right) and all(
+            any(same_value(key, other) and same_value(value, right[other])
+                for other in right) for key, value in left.items()))
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(map(same_value, left, right))
+    return type(left) is type(right) and left == right
+
+
 def diff(before, after):
     """Sorted ``(key, old, new)`` for every flattened key that differs (None = absent)."""
     old, new = flatten(before), flatten(after)
     return [(key, old.get(key), new.get(key)) for key in sorted(old.keys() | new.keys())
-            if old.get(key) != new.get(key)]
+            if not same_value(old.get(key), new.get(key))]
 
 
 def separator():
@@ -134,16 +148,22 @@ class Nav2File:
             return 'Nav2 removals pending: restart verification required'
         if not changes and self.verified:
             return 'Nav2 parameters already applied'
+        # Once an adapter is invoked, previous evidence cannot certify current
+        # runtime state if the attempt fails or only partially takes effect.
+        expected = ({key: new for key, _, new in changes} if self.verified
+                    else flatten(content))
+        self.verified = False
         try:
-            outcome = self.applier({key: new for key, _, new in changes}) or {}
+            outcome = self.applier(expected) or {}
         except Exception as error:  # the applier reports its own refusals; never crash the page
             return f'Nav2 apply failed: {error}'
         if not isinstance(outcome, dict):
             return 'Nav2 apply unverified: invalid receipt'
         if outcome.get('refused') or outcome.get('blocked'):
             return f"Nav2 apply refused: {outcome.get('refused') or outcome.get('blocked')}"
-        expected = {key: new for key, _, new in changes}
-        if (outcome.get('status') != 'verified' or outcome.get('verified') != expected
+        evidence = outcome.get('verified')
+        if (outcome.get('status') != 'verified' or not isinstance(evidence, Mapping)
+                or not same_value(evidence, expected)
                 or outcome.get('error') or outcome.get('partial')):
             return 'Nav2 apply unverified: complete consumer evidence required'
         self.applied = deepcopy(content)

@@ -54,3 +54,58 @@ def test_unreadable_and_transport_error_keep_pending(tmp_path):
     nav.poll()
     assert nav.row()['value'] == 'error'
     assert 'unavailable' in nav.apply() and nav.pending
+
+
+@pytest.mark.parametrize('desired,evidence', [
+    (1, True), ([1, {'flag': 2}], [True, {'flag': 2}]),
+    ([{'flag': 1}], [{'flag': True}]), ([{1: 'a'}], [{True: 'a'}]), (1, [('node.value', 1)]),
+])
+def test_receipt_requires_typed_values_and_mapping(tmp_path, desired, evidence):
+    nav = surface(tmp_path, lambda changes: dict(status='verified', verified=(
+        evidence if isinstance(evidence, list) and desired == 1 else {'node.value': evidence})))
+    nav.current = {'node': {'value': desired}}
+    assert 'unverified' in nav.apply()
+    assert nav.pending
+
+
+def test_bool_edit_cannot_reuse_numeric_receipt(tmp_path):
+    nav = surface(tmp_path, lambda changes: dict(status='verified', verified=changes))
+    nav.apply()
+    nav.path.write_text('node:\n  value: true\n')
+    nav.poll()
+    nav.poll()
+    assert nav.pending and nav.changes() == [('node.value', 1, True)]
+
+
+@pytest.mark.parametrize('failure', ['partial', 'error', 'unverified', 'raise', 'invalid', 'refused'])
+def test_failed_attempt_requires_full_recertification_on_return(tmp_path, failure):
+    runtime, calls = {}, []
+    def apply(changes):
+        calls.append(dict(changes))
+        runtime.update(changes)
+        if len(calls) == 2:
+            if failure == 'raise':
+                raise RuntimeError('after mutation')
+            if failure == 'invalid':
+                return True
+            if failure == 'refused':
+                return {'refused': 'after mutation'}
+            return {'status': failure}
+        return dict(status='verified', verified=dict(runtime))
+    nav = surface(tmp_path, apply)
+    nav.apply()
+    assert nav.row()['value'] == 'applied'
+    nav.path.write_text('node:\n  value: 2\n')
+    nav.poll()
+    nav.poll()
+    nav.apply()
+    assert nav.pending and nav.row()['value'] == 'pending'
+    assert runtime == {'node.value': 2}
+    nav.path.write_text('node:\n  value: 1\n')
+    nav.poll()
+    nav.poll()
+    assert nav.pending and nav.row()['value'] == 'pending'
+    nav.apply()
+    assert calls[-1] == {'node.value': 1}
+    assert runtime == {'node.value': 1}
+    assert not nav.pending and nav.row()['value'] == 'applied'
