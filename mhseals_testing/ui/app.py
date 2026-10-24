@@ -223,7 +223,7 @@ class App:
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
-                 facts=None, source=None, nav2_file=None,
+                 facts=None, source=None, nav2_file=None, nav2_live=None,
                  review=None, network=None, recorder=None, ekf=None, quiet_run=None):
         self.args = args
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
@@ -262,6 +262,9 @@ class App:
         self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
         self.nav2_file = nav2_file  # harness.nav2_edit.Nav2File, or None
+        self.nav2_live_factory, self._nav2_live = nav2_live, None   # -> harness.nav2_live.Nav2Live
+        if nav2_file is not None and nav2_file.applier is None and nav2_live is not None:
+            nav2_file.applier = self.apply_nav2_live
         self.watcher_factory, self._watcher = task_watcher, None
         self.run_id = None  # the procedure run in progress; its results carry this id
         self.settings = args.settings
@@ -1975,21 +1978,51 @@ class App:
     def show(self, title, message=None, rows=None, width=60):
         return popups.show(self, title, message, rows, width)
 
+    def live_nav2(self):
+        """Return the live Nav2 applier, built when first needed (it subscribes to ROS state)."""
+        if self._nav2_live is None and self.nav2_live_factory is not None:
+            self._nav2_live = self.nav2_live_factory()
+        return self._nav2_live
+
+    def apply_nav2_live(self, requested):
+        if self.watching or self.review:
+            return {'refused': 'this instance only watches; the session owner applies'}
+        return self.live_nav2().applier(requested)
+
     def nav2_popup(self):
-        """Preview the Nav2 file against what was applied; y applies, Esc leaves it pending."""
+        """Preview the Nav2 file against the running nodes; y applies it live, Esc leaves it."""
         source = self.nav2_file
         previewed = source.current  # apply exactly what is shown, even if the file changes meanwhile
-        rows = [(key, f'{old if old is not None else theme.DASH} {theme.ARROW} '
-                      f'{new if new is not None else theme.DASH}')
-                for key, old, new in source.changes()]
+        live = None if self.watching or self.review else self.live_nav2()
+        if live is None:
+            rows = [(key, f'{old if old is not None else theme.DASH} {theme.ARROW} '
+                          f'{new if new is not None else theme.DASH}')
+                    for key, old, new in source.changes()]
+            refused = False
+        else:
+            try:
+                found = live.preview(source.requested(previewed))
+            except Exception as error:  # the page must survive a ROS failure
+                self.notice = f'Nav2 preview failed: {error}'
+                return
+            rows = [(row['key'], f'{theme.DASH if row["old"] is None else row["old"]} '
+                                 f'{theme.ARROW} {row["new"]}'
+                                 + (' (derived)' if row['derived'] else '')) for row in found.rows]
+            rows += [('refused', reason) for reason in found.refusals]
+            refused = bool(found.refusals)
+            if not rows:
+                rows = [('', 'The running nodes already hold these values')]
         rows += [(key, f'removed from file {theme.ARROW} restart to reset') for key in source.removed()]
         rows = rows or [('', 'No changes pending')]
+        label = 'Apply live' if live else 'Apply'
+        options = ['Close'] if refused else [label, 'Close']
         try:
-            answer = self.choose('Nav2 parameters', ['Apply', 'Close'], {'y': 0}, rows=rows,
-                                 selected=0 if source.pending else 1, width=76)
+            first = source.pending and options[0] == label
+            answer = self.choose('Nav2 parameters', options, {'y': 0}, rows=rows,
+                                 selected=0 if first else len(options) - 1, width=76)
         except Cancelled:
             return
-        if answer == 'Apply':
+        if answer == label:
             self.notice = source.apply(previewed)
 
     def prompt(self, message, title='Ready'):
@@ -2532,6 +2565,17 @@ def detach(*_):
     raise Detach
 
 
+def build_nav2_live(ros, registry, profile, app):
+    """Build the live Nav2 applier for this session owner (``app``: a callable, built later)."""
+    from mhseals_testing.harness.nav2_live import Nav2Live
+    from mhseals_testing.ros.nav2_live import RosPorts
+    ports = RosPorts(ros.node, registry, lambda phase, **fields: ros.emit(phase, **fields),
+                     lambda: bool(app().armed) and muxed(profile))
+    return Nav2Live(ports, me=os.getpid(), record=lambda: adapters.record_file(
+        app().history, 'nav2', 'tui:nav2-live', nav2_limits.path(), app().warn_history,
+        applied='live-session'))
+
+
 def review_main(args, profile):
     """--review: the dashboard over a past session, with no ROS, bag recorder or outputs."""
     try:
@@ -2638,7 +2682,8 @@ def main(argv=None):
                                     profile.base_frame),
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
                   registry=registry, watching=watching, facts=facts,
-                  nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow())
+                  nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
+                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app))
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))

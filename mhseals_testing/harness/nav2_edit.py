@@ -66,6 +66,7 @@ class Nav2File:
         self.read()
         self.applied = {}
         self.verified = False
+        self.live = False   # the last apply reached the running nodes only (until a restart)
         self.seen = self.settled = self.key()
 
     def key(self):
@@ -126,8 +127,21 @@ class Nav2File:
             return dict(group='Components', state='WARN', name=NAME, value='pending',
                         detail=f'{len(changes)} key(s) in {self.path.name} not applied'
                                f'{separator()}e preview', required=False)
+        if self.live:
+            return {'group': 'Components', 'state': 'OK', 'name': NAME, 'value': 'live',
+                    'detail': f'live until Navigation restarts{separator()}e Nav2 parameters',
+                    'required': False}
         return dict(group='Components', state='OK', name=NAME, value='applied',
                     detail=f'{self.path.name}{separator()}e Nav2 parameters', required=False)
+
+    def requested(self, content=None):
+        """Return what applying ``content`` (default: current) asks for.
+
+        That is the changed keys, or every key until a first apply has been verified.
+        """
+        content = self.current if content is None else content
+        changes = [c for c in diff(self.applied, content) if c[2] is not None]
+        return {key: new for key, _, new in changes} if self.verified else flatten(content)
 
     def apply(self, content=None):
         """Hand ``content`` (default: current; pass the previewed parse) to the applier.
@@ -150,8 +164,7 @@ class Nav2File:
             return 'Nav2 parameters already applied'
         # Once an adapter is invoked, previous evidence cannot certify current
         # runtime state if the attempt fails or only partially takes effect.
-        expected = ({key: new for key, _, new in changes} if self.verified
-                    else flatten(content))
+        expected = self.requested(content)
         self.verified = False
         try:
             outcome = self.applier(expected) or {}
@@ -161,6 +174,9 @@ class Nav2File:
             return 'Nav2 apply unverified: invalid receipt'
         if outcome.get('refused') or outcome.get('blocked'):
             return f"Nav2 apply refused: {outcome.get('refused') or outcome.get('blocked')}"
+        failed = ('rolled_back', 'rollback_failed', 'unknown')
+        if outcome.get('error') and outcome.get('status') in failed:
+            return f"Nav2 apply {outcome['status'].replace('_', ' ')}: {outcome['error']}"
         evidence = outcome.get('verified')
         if (outcome.get('status') != 'verified' or not isinstance(evidence, Mapping)
                 or not same_value(evidence, expected)
@@ -168,4 +184,5 @@ class Nav2File:
             return 'Nav2 apply unverified: complete consumer evidence required'
         self.applied = deepcopy(content)
         self.verified = True
-        return f'Nav2 applied {len(changes)} key(s)'
+        self.live = bool(outcome.get('live'))
+        return f'Nav2 applied {len(changes)} key(s)' + (' live' if self.live else '')

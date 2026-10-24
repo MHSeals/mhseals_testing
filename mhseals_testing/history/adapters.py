@@ -22,6 +22,7 @@ class Adapter:
     path: Callable[[], Path]                          # where the operator's file lives
     effective: Optional[Callable[[Path], dict]] = None   # merged config, for subsystems with defaults
     meta: Optional[Callable[[], dict]] = None            # version meta, e.g. the defaults hash
+    watched: bool = True                         # observed at start; False: its writer records it
 
 
 def _hardware_path():
@@ -54,11 +55,18 @@ def _health_path():
     return USER_FILE
 
 
+def _nav2_path():
+    from mhseals_testing import nav2_limits
+    return nav2_limits.path()
+
+
 SUBSYSTEMS = {
     'hardware': Adapter(_hardware_path, _hardware_effective, _hardware_meta),
     'rtk': Adapter(_rtk_path),
     'health': Adapter(_health_path),
     'keymap': Adapter(lambda: _USER / 'keymap.yaml'),
+    # The limits overlay is recorded by the live apply; an edit before it is part of that change.
+    'nav2': Adapter(_nav2_path, watched=False),
 }
 
 
@@ -109,12 +117,14 @@ def observe_file(history, sub, path=None, warn=None):
     return _capture(history, sub, path, warn)
 
 
-def record_file(history, sub, source, path=None, warn=None):
+def record_file(history, sub, source, path=None, warn=None, applied=None):
     """Log the file as written by ``source`` (e.g. ``tui:pins``); None when nothing changed."""
-    return _capture(history, sub, path, warn, source=source)
+    extra = {'applied': applied} if applied else {}
+    return _capture(history, sub, path, warn, source=source, **extra)
 
 
 def observe_all(history, paths=None, warn=None):
     """Observe every file subsystem; ``paths`` overrides locations by name."""
     paths = paths or {}
-    return [c for sub in SUBSYSTEMS if (c := observe_file(history, sub, paths.get(sub), warn))]
+    return [c for sub, adapter in SUBSYSTEMS.items()
+            if adapter.watched and (c := observe_file(history, sub, paths.get(sub), warn))]

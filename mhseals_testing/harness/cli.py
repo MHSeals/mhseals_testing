@@ -132,10 +132,48 @@ def build_parser():
     sub.add_parser('profiles', help='explain shipped profile command/sensor/output paths')
     course = sub.add_parser('course', help='compile course YAML to cached Unity JSON')
     course.add_argument('source', metavar='NAME|YAML')
-    config = sub.add_parser('config', help='read-only parameter inventory')
-    catalog = config.add_subparsers(dest='config_command', required=True).add_parser('catalog')
+    config = sub.add_parser(
+        'config', help='parameter inventory; apply nav2 sets the running Nav2')
+    verbs = config.add_subparsers(dest='config_command', required=True)
+    catalog = verbs.add_parser('catalog')
     catalog.add_argument('--json', metavar='PATH|-', help='write JSON to PATH, or - for stdout')
+    apply = verbs.add_parser(
+        'apply', help='apply the operator nav2.yaml to the running Nav2 (live, tier 1)')
+    apply.add_argument('target', choices=('nav2',))
+    apply.add_argument('--yes', action='store_true',
+                       help='apply; without it only the preview is printed')
+    apply.add_argument('--now', action='store_true',
+                       help='allow a limits-only change while a goal runs '
+                            '(smoother and controller limits)')
+    apply.add_argument('--json', action='store_true', help='print one JSON document')
     return parser
+
+
+def apply_nav2(args, ports=None, **timing):
+    """Preview ``config apply nav2``; with --yes set the running Nav2 from nav2.yaml."""
+    from mhseals_testing import nav2_limits
+    from mhseals_testing.harness import nav2_edit, nav2_live
+    from mhseals_testing.harness.registry import Registry
+    from mhseals_testing.history import History, adapters
+    path = nav2_limits.path()
+    try:
+        requested = nav2_edit.flatten(nav2_limits.load(path))
+    except (OSError, ValueError) as error:
+        print(f'boat_trial config apply: {path}: {error}', file=sys.stderr)
+        return nav2_live.REFUSED
+    shutdown = lambda: None  # noqa: E731
+    if ports is None:
+        from mhseals_testing.ros.nav2_live import RosPorts, cli_node, session_journal
+        registry = Registry()
+        node, shutdown = cli_node()
+        ports = RosPorts(node, registry, session_journal(registry))
+    live = nav2_live.Nav2Live(ports, record=lambda: adapters.record_file(
+        History(), 'nav2', 'cli:apply-nav2', path, applied='live-session'), **timing)
+    try:
+        return nav2_live.cli_apply(requested, live, yes=args.yes, now=args.now,
+                                   as_json=args.json)
+    finally:
+        shutdown()
 
 
 def main(argv=None, collect=None):
@@ -155,6 +193,8 @@ def main(argv=None, collect=None):
             return 2
         print(path)
         return 0
+    if args.command == 'config' and args.config_command == 'apply':
+        return apply_nav2(args)
     if args.command == 'config':
         from mhseals_testing import schema
         found, missing = schema.rows()

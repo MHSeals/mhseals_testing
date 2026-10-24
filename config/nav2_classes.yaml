@@ -9,6 +9,12 @@ rules:
   - {node: '*', param: use_sim_time, class: restart}
   - {node: '*', param: use_lidar, class: restart}
   - {node: '*', param: '*remap*', class: restart}
+  - {node: '*', param: 'bond_*', class: restart}
+  - {node: '*', param: enable_stamped_cmd_vel, class: restart}
+  - {node: '*', param: use_realtime_priority, class: restart}
+  - {node: '*', param: autostart_node, class: restart}
+  - {node: '*', param: 'qos_overrides.*', class: restart}
+  - {node: '*', param: start_type_description_service, class: restart}
 
   # MPPI. motion_model and PathAngleCritic.mode are never sent while active: setting them live
   # writes into freed memory. controller_frequency and model_dt move together.
@@ -16,6 +22,12 @@ rules:
   - {node: controller_server, param: 'FollowPath.*.mode', class: reset}
   - {node: controller_server, param: FollowPath.critics, class: reset}
   - {node: controller_server, param: FollowPath.model_dt, class: reset}
+  # Read once at configure: an accepted live set would change nothing.
+  - {node: controller_server, param: FollowPath.time_steps, class: reset}
+  - {node: controller_server, param: FollowPath.batch_size, class: reset}
+  - {node: controller_server, param: FollowPath.iteration_count, class: reset}
+  - {node: controller_server, param: FollowPath.regenerate_noises, class: reset}
+  - {node: controller_server, param: FollowPath.retry_attempt_limit, class: reset}
   - {node: controller_server, param: 'FollowPath.CostCritic.consider_footprint', class: reset}
   - {node: controller_server, param: 'FollowPath.CostCritic.inflation_layer_name', class: reset}
   - {node: controller_server, param: FollowPath.plugin, class: reset}
