@@ -18,9 +18,29 @@ def reference(tmp_path):
     return bootstrap(root, 'session', preparations(root, 'session', tmp_path))
 
 
-def test_same_reference_in_both_argv_routes_mux_excluded(tmp_path):
-    selected = reference(tmp_path)
+def test_same_reference_in_both_argv_routes_mux_excluded(tmp_path, monkeypatch):
+    import shutil
+    import sys
+    from pathlib import Path
+    from types import ModuleType, SimpleNamespace
+    from mhseals_testing.configuration import navigation
+    from mhseals_testing.harness import session
+    from mhseals_testing.startup_owner import prepare_session
+
+    source = Path(navigation.__file__).parents[1]
+    share = tmp_path / 'nav-share'
+    for name in ('config', 'launch'):
+        shutil.copytree(source / name, share / name)
+    shutil.copytree(source / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    packages = ModuleType('ament_index_python.packages')
+    packages.get_package_share_directory = lambda name: str(share)
+    monkeypatch.setitem(sys.modules, 'ament_index_python', ModuleType('ament_index_python'))
+    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
+    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'store'))
     profile = load_profile('crane_full_stack').with_velocity_control()
+    created = session.create('crane_full_stack', directory=tmp_path / 'session')
+    selected = prepare_session(profile, SimpleNamespace(config=None),
+                               created.directory, 'own', {})
     nav = next(c for c in components(profile, selection=selected) if c.key == 'navigation')
     commands = dict(driver_commands(profile, tmp_path / 'snapshot.yaml', selected))
     for key, value in selected.arguments().items():
@@ -30,6 +50,12 @@ def test_same_reference_in_both_argv_routes_mux_excluded(tmp_path):
         assert not any(key in arg for arg in commands['mux'])
     assert 'use_sim_time:=true' in commands['velocity']
     assert 'output_backend:=topic' in commands['hardware']
+    mismatched = replace(profile, odometry='/different/odom')
+    with pytest.raises(ValueError, match='topology differs'):
+        driver_commands(mismatched, tmp_path / 'snapshot.yaml', selected)
+    with pytest.raises(ValueError, match='topology differs'):
+        prepare_session(mismatched, SimpleNamespace(config=None),
+                        created.directory, 'adopt', {})
 
 
 def test_stack_validates_actual_start_and_restart(tmp_path):
