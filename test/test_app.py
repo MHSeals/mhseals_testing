@@ -2245,3 +2245,116 @@ def test_authority_popup_release_confirms_and_restores_parent(tmp_path):
         app.popup(outer, handle)
     assert calls == ['release'] and boat.sent == []
     assert restored == [('escape', True)] and app.modal is None
+
+
+def authority_popup_app(tmp_path):
+    app, boat, releases = release_app(tmp_path)
+    app.arbiter.neutral = boat.neutral
+    app.arbiter.hold = lambda cause, by: boat.hold(cause)
+    app.arbiter.on_mux({'input': 'hold', 'rc': {'mode': 'GUIDED', 'valid': True,
+                                               'rate_hz': 25, 'interval_p95_s': 0.04},
+                        'holds': [{'cause': 'keys', 'by': 'tui', 'since_ns': 0}]})
+    app.arbiter.tick(force=True)
+    app.focus = 'status'
+    from mhseals_testing.ui.panels.status import status_rows
+    rows = status_rows(app.snapshot(), app.profile.sensors)
+    app.cursors['status'] = next(i for i, row in enumerate(rows) if row['name'] == 'Driving')
+    return app, boat, releases
+
+
+def test_actual_driving_enter_opens_live_authority_popup(tmp_path):
+    app, boat, releases = authority_popup_app(tmp_path)
+    frames = []
+    refresh = app.refresh
+
+    def capture(*args, **kwargs):
+        if app.modal:
+            frames.append(dict(app.modal))
+        return refresh(*args, **kwargs)
+
+    app.refresh = capture
+    with app.attached():
+        press(app, 'escape')
+        app.dispatch('enter')
+    box = next(frame for frame in frames if frame['title'].startswith('Authority'))
+    rows = dict(box['rows'])
+    assert rows['Physical'] == 'hold · hold keys'
+    assert rows['RC'] == 'GUIDED · 25 Hz · p95 40 ms'
+    assert releases == [] and boat.sent == [] and app.modal is None
+
+
+def test_actual_authority_e_uses_selected_history_then_active_claim(tmp_path):
+    app, boat, releases = authority_popup_app(tmp_path)
+    old = app.arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'old'})['claim']
+    app.arbiter.table.revoke(old['id'], app.clock())
+    active = app.arbiter.handle({'op': 'claim', 'request': 'r2', 'who': 'current'})['claim']
+    revoked = []
+    revoke = app.arbiter.revoke
+    app.arbiter.revoke = lambda id: revoked.append(id) or revoke(id)
+    with app.attached():
+        press(app, 'E', 'down', 'E', 'escape')
+        app.dispatch('enter')
+    assert revoked == [old['id'], active['id']]
+    assert app.arbiter.table.get(active['id'])['state'] == 'revoked'
+    assert releases == [] and all(command == 'neutral' for command in boat.sent)
+
+
+@pytest.mark.parametrize('confirm', [False, True])
+def test_actual_authority_u_uses_confirmed_release(tmp_path, confirm):
+    app, boat, releases = authority_popup_app(tmp_path)
+    with app.attached():
+        press(app, 'U', *(['up', 'enter'] if confirm else ['enter']), 'escape')
+        app.dispatch('enter')
+    assert releases == (['release'] if confirm else []) and boat.sent == []
+    assert app.modal is None
+    if confirm:
+        assert app.notice == 'Release requested'
+
+
+def test_actual_authority_space_is_sticky_and_disarms(tmp_path):
+    app, boat, releases = authority_popup_app(tmp_path)
+    app.arming.armed = True
+    app.command = (0.2, 0, 0)
+    with app.attached():
+        press(app, 'space', 'escape')
+        app.dispatch('enter')
+    assert boat.holds == ['keys'] and not app.armed and app.command == (0, 0, 0)
+    assert releases == [] and boat.sent and all(command == 'neutral' for command in boat.sent)
+
+
+def test_actual_authority_lowercase_e_u_do_nothing(tmp_path):
+    app, boat, releases = authority_popup_app(tmp_path)
+    claim = app.arbiter.handle({'op': 'claim', 'request': 'r', 'who': 'agent'})['claim']
+    with app.attached():
+        press(app, 'e', 'u', 'escape')
+        app.dispatch('enter')
+    assert app.arbiter.table.get(claim['id'])['state'] == 'active'
+    assert releases == [] and boat.sent == []
+
+
+@pytest.mark.parametrize('state', ['stale', 'unknown', 'missing'])
+def test_actual_authority_untrusted_records_render_safely(tmp_path, state):
+    app, boat, releases = authority_popup_app(tmp_path)
+    if state == 'stale':
+        app.arbiter.record['t_ns'] = -10_000_000_000
+    elif state == 'unknown':
+        app.arbiter.record = dict(t_ns=0, owner='unknown', input=None)
+    else:
+        app.arbiter.record = None
+    seen = []
+    refresh = app.refresh
+
+    def capture(*args, **kwargs):
+        if app.modal:
+            seen.extend(app.modal['rows'])
+        return refresh(*args, **kwargs)
+
+    app.refresh = capture
+    with app.attached():
+        press(app, 'escape')
+        app.dispatch('enter')
+    text = ' '.join(str(value) for _, value in seen)
+    assert ('UNKNOWN' in text if state != 'missing' else 'no authority record yet' in text)
+    if state == 'unknown':
+        assert 'hold state unknown' in text
+    assert releases == [] and boat.sent == []
