@@ -6,6 +6,7 @@ from mhseals_testing.runner import fold
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.popups import conditions, config, history, power
 
+STOP_KEYS = ('space', 'press:space')
 UPDOWN = theme.pick('↑↓', 'Up/Down')
 
 
@@ -26,6 +27,8 @@ def popup(app, modal, handle, refresh=None):
                 refresh()
             if key is None:
                 continue
+            if key in STOP_KEYS and modal.get('kind') != 'input':
+                app.stop('stopped by operator')   # keymap rule 5: Space stops in every modal but popup.text
             result = handle(key)
             if result is not None:
                 return result

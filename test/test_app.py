@@ -1740,3 +1740,30 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     assert app.arbiter.table.get(claim['id'])['state'] == 'revoked'
     app.dispatch('U')
     assert app.notice == 'Release hold is not available here'
+
+
+@pytest.mark.parametrize('open_popup, answers', [
+    (lambda app: app.show('Odometry', message='x'), ('space', 'escape')),
+    (lambda app: app.choose('Pick', ['a', 'b']), ('space', 'escape')),
+    (lambda app: app.prompt('Ready?'), ('space', 'escape')),
+])
+def test_space_stops_inside_popups(tmp_path, open_popup, answers):
+    """Keymap rule 5: Space disarms inside message, choice and prompt popups."""
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        arm(app)
+        press(app, *answers)
+        try:
+            open_popup(app)
+        except Cancelled:
+            pass
+        assert not app.armed
+
+
+def test_space_types_in_text_popups_without_stopping(tmp_path):
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        arm(app)
+        press(app, 'space', 'x', 'enter')
+        assert app.text_input('Name', 'say') == 'x'
+        assert app.armed
