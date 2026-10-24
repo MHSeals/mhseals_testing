@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -68,3 +69,54 @@ def test_reference_is_write_once_and_preserves_user_metadata(tmp_path):
     header = data.read_json(created.file)
     assert header['title'] == 'Keep me' and header['note'] == 'recording' and header['pinned']
     assert header['startup_selection'] == record
+
+
+def test_real_owner_empty_root_persists_then_adopts_captured_inputs(tmp_path, monkeypatch):
+    import shutil
+    import sys
+    from types import ModuleType
+    from mhseals_testing import startup_owner as owner
+    from mhseals_testing.configuration import navigation
+    source = Path(navigation.__file__).parents[1]
+    share = tmp_path / 'share'
+    for name in ('launch', 'config'):
+        shutil.copytree(source / name, share / name)
+    shutil.copytree(source / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    packages = ModuleType('ament_index_python.packages')
+    packages.get_package_share_directory = lambda name: str(share)
+    monkeypatch.setitem(sys.modules, 'ament_index_python', ModuleType('ament_index_python'))
+    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
+    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'store'))
+    operator = tmp_path / 'operator.yaml'
+    operator.write_text('manual_yaw_scale: 0.5\n')
+    args = SimpleNamespace(config=str(operator))
+    created = session.create('boat', directory=tmp_path / 'session')
+    selected_profile = profile()
+    selected_profile.outputs = 'topic'
+    reference = prepare_session(selected_profile, args, created.directory, 'own', {})
+    header = data.read_json(created.file)
+    assert header['startup_selection'] == reference.record()
+    assert len(reference.validate().documents) == 4
+    captured = reference.validate().documents['hardware-pure']
+    assert captured['baseline']['output_backend'] == 'odroid'
+    assert captured['effective']['output_backend'] == 'topic'
+    operator.write_text('invalid yaml: [')
+    (share / 'config/nav2_params.yaml').write_text('invalid yaml: [')
+    assert prepare_session(selected_profile, args, created.directory, 'adopt', {}) == reference
+    for changed in ({'sim': 'true'}, {'use_lidar': 'false'}):
+        with pytest.raises(ValueError, match='invocation differs'):
+            prepare_session(selected_profile, args, created.directory, 'adopt', {'navigation': changed})
+    selected_profile.outputs = 'odroid'
+    with pytest.raises(ValueError, match='backend differs'):
+        prepare_session(selected_profile, args, created.directory, 'watch', {})
+
+
+def test_robot_nav2_source_argument_is_forwarded_into_preparation():
+    robot = SimpleNamespace(outputs='none', components={'robot': {
+        'launch': ['mhseals_nav', 'robot.launch.py'],
+        'args': {'nav2_params_file': '/selected/nav.yaml', 'sim': 'false', 'fcu': 'false'}}})
+    invocation = navigation_args(robot, {})
+    assert invocation['params_file'] == '/selected/nav.yaml'
+    assert 'limits_file' in invocation
+    with pytest.raises(ValueError, match='nav2_params_file'):
+        navigation_args(robot, {'robot': {'params_file': '/ignored.yaml'}})

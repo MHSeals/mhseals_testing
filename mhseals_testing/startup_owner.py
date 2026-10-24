@@ -28,6 +28,12 @@ def navigation_args(profile, overlay):
         allowed = {'sim', 'use_lidar', 'params_file', 'limits_file'}
         if tuple(spec['launch']) == ('mhseals_nav', 'navigation.launch.py') and args.keys() - allowed:
             raise ValueError('unsupported managed navigation arguments')
+        if tuple(spec['launch']) == ('mhseals_nav', 'robot.launch.py'):
+            if 'params_file' in args:
+                raise ValueError('robot launch uses nav2_params_file')
+            if 'nav2_params_file' in args:
+                args['params_file'] = args['nav2_params_file']
+            args.setdefault('limits_file', str(nav2_limits.path()))
         if spec.get('limits'):
             args['limits_file'] = str(nav2_limits.path())
         invocation = {k: args[k] for k in allowed if k in args}

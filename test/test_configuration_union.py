@@ -68,3 +68,40 @@ def test_preparation_failure_does_not_reserve(tmp_path):
     with pytest.raises(ValueError, match='incomplete'):
         bootstrap(root, 'session', prepared)
     assert not root.exists()
+
+
+def test_partial_union_evidence_blocks_complete_selection(tmp_path, monkeypatch):
+    root = tmp_path / 'store'
+    prepared = preparations(root, 'partial', tmp_path)
+    observe = navigation.observe_inputs
+
+    def incomplete(*args):
+        result = observe(*args)
+        result.pop('nav2-baseline')
+        return result
+
+    monkeypatch.setattr(navigation, 'observe_inputs', incomplete)
+    with pytest.raises(ValueError):
+        bootstrap(root, 'partial', prepared)
+    assert not (root / 'partial/active.json').exists()
+    with pytest.raises(Exception):
+        hardware.startup_inputs(root=root, scope='partial', config_candidate='a' * 64)
+    assert list(root.glob('partial'))  # reservation retained for owner recovery
+
+
+def test_session_overlay_does_not_publish_effective_as_baseline(tmp_path):
+    root = tmp_path / 'store'
+    first = preparations(root, 'first', tmp_path)
+    one = bootstrap(root, 'first', first).validate()
+    second = preparations(root, 'second', tmp_path)
+    alternate = tmp_path / 'alternate.yaml'
+    alternate.write_text('manual_yaw_scale: 0.2\n')
+    second['hardware'] = hardware.prepare_inputs(alternate, session=(
+        yaml.safe_dump({'manual_yaw_scale': 0.8, 'output_backend': 'topic'}), 'session'))
+    two = bootstrap(root, 'second', second).validate()
+    assert one.documents['hardware-pure']['effective']['manual_yaw_scale'] == 0.8
+    assert two.documents['hardware-pure']['effective']['manual_yaw_scale'] == 0.8
+    assert one.documents['hardware-baseline']['effective']['manual_yaw_scale'] == 0.5
+    assert two.documents['hardware-baseline']['effective']['manual_yaw_scale'] == 0.2
+    # A separate persistent baseline can share E without becoming the same B.
+    assert one.candidate['baseline'] != two.candidate['baseline']
