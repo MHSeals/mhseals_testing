@@ -1890,3 +1890,52 @@ def test_rec_hours_are_coarse():
     mk = lambda m: r.RecSample('lean', 2e5, 50.0, m, False)
     assert r.strip_text(mk(1196 * 60))[1] == r.strip_text(mk(1204 * 60))[1]
     assert r.strip_text(mk(5 * 60))[1].endswith('5 h')
+
+
+def test_session_runner_sees_the_mux_override_and_a_moving_boat(tmp_path):
+    """rv2-30: the TUI Runner has an override source (mux) and a still gate (conditions)."""
+    from mhseals_testing.ros.authority import Arbiter
+    app, _ = make_app(tmp_path)
+    clock = [100.0]
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True,
+                          clock=lambda: clock[0])
+    app.arbiter.on_mux({'input': 'auto'})
+    app.arming = Arming()
+    app.arming.armed = True
+    with app.observe('x') as runner:
+        assert runner.override() == '' and runner.gate() == []
+        app.arbiter.on_mux({'input': 'rc'})
+        assert runner.override() == 'rc'
+        clock[0] += 5.0                      # a stale mux is unknown, not auto
+        assert runner.override() == 'unknown'
+        app.conditions.clock = lambda: 0.0
+        app.conditions.feed(0.0, (0.5, 0.0), 0.0, 0.0, True, 0.0)
+        assert runner.gate() and 'moving' in runner.gate()[0]
+
+
+def test_override_is_empty_without_a_mux_state_when_unmuxed_or_disarmed(tmp_path, monkeypatch):
+    """rv2-30 round 2: an arbiter with no mux state is not an override unless armed and muxed."""
+    from mhseals_testing.ros.authority import Arbiter
+    app, _ = make_app(tmp_path)
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True)
+    app.arming = Arming()
+    with app.observe('x') as runner:
+        assert runner.override() == ''           # disarmed: the mux is not running yet
+        app.arming.armed = True
+        monkeypatch.setattr('mhseals_testing.ui.app.muxed', lambda profile: False)
+        assert runner.override() == ''           # unmuxed profile: no mux at all
+        monkeypatch.undo()
+        assert runner.override() == 'unknown'    # armed and muxed: a missing state is unknown
+
+
+def test_session_pause_restores_c_and_resume_restages_identity(tmp_path):
+    app, _ = make_app(tmp_path)
+    staging = app.staging()
+    staging.raw_correction()
+    with app.observe('x') as runner:
+        runner.on_pause()
+        assert staging.pending() is None
+        runner.on_resume()
+        assert staging.pending() is not None
+        runner.on_pause(); runner.on_pause(); runner.on_resume()
+        assert staging.pending() is not None

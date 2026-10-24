@@ -39,6 +39,7 @@ from mhseals_testing.harness.apply import Staging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.runner import STALE_MUX_S, override_cause
 from mhseals_testing.harness import nav2_edit
 from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
@@ -55,7 +56,7 @@ from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
-from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
+from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import authority_chip, camera_view, graphics, feeds as feeds_module, layout, perception, popups, theme
@@ -1846,13 +1847,43 @@ class App:
                 self.publish_pulses(self.test_pulses)
             self.refresh(force=False)
 
+        restaged = []
+        def on_pause():  # the human gets the real C back while driving
+            staging = self.staging()
+            if staging.pending() is not None:
+                staging.restore()
+                restaged.append(True)
+
+        def on_resume():
+            if restaged:
+                restaged.clear()
+                self.staging().raw_correction()
+
         runner = Runner(self.plant, blockers, self.keys, show=show,
-                        emit=self.emit, clock=self.monitor.clock)
+                        emit=self.emit, clock=self.monitor.clock,
+                        override=self.override_cause, gate=lambda: self.conditions.moving(),
+                        on_pause=on_pause, on_resume=on_resume)
         try:
             with runner.session(name, **details):
                 yield runner
         finally:
             self.command = (0.0, 0.0, 0.0)
+
+    def override_cause(self):
+        """Why the command mux is not under automation (derive's rules in harness/authority.py).
+
+        '' when no arbiter is bound or the profile has no mux; when disarmed
+        (the mux only runs as an arming child) a missing or stale state is '' too.
+        """
+        arbiter = getattr(self, 'arbiter', None)
+        if arbiter is None or not muxed(self.profile):
+            return ''
+        with arbiter.lock:
+            mux, at = arbiter.mux, arbiter.mux_at
+        age = 0.0 if at is None else arbiter.clock() - at
+        if not self.armed and (mux is None or age > STALE_MUX_S):
+            return ''
+        return override_cause(mux, age)
 
     def task_watcher(self):
         if self._watcher is None:

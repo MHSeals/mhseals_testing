@@ -23,6 +23,7 @@ from mhseals_testing.health.model import Fact
 
 REFRESH_S = 1.0         # the estimate is recomputed at most this often
 MAX_HZ = 8.0            # cap above the 5 Hz GPS rate (jittered real samples are never dropped); only a faster feed (sim odometry) is thinned
+STILL_SPEED, STILL_RATE, STILL_FRESH_S = 0.15, 0.1, 2.0   # m/s, rad/s, s: 'still' for the resume gate
 NEEDED_WINDOWS = 3      # the estimator's minimum, for the "measuring" text
 
 
@@ -68,6 +69,19 @@ class Conditions:
         self.samples.append((t, vel[0], vel[1], heading, rate, bool(ok), vel_acc))
         while self.samples[0][0] < t - self.s.drift_stale_s:
             self.samples.popleft()
+
+    def moving(self, now=None):
+        """Reasons the boat is not still (the override resume gate); [] with no fresh sample."""
+        now = self.clock() if now is None else now
+        if not self.samples or now - self.samples[-1][0] > STILL_FRESH_S:
+            return []
+        _, e, n, _, rate, _, _ = self.samples[-1]
+        reasons = []
+        if math.hypot(e, n) > STILL_SPEED:
+            reasons.append(f'moving {math.hypot(e, n):.2f} m/s')
+        if abs(rate) > STILL_RATE:
+            reasons.append(f'turning {abs(rate):.2f} rad/s')
+        return reasons
 
     def cut(self, t, t95=0.0):
         """The last non-zero command ended at ``t``; samples count again after the coast."""
