@@ -25,9 +25,11 @@ def test_actual_domain_bundles_and_changed_default():
     defaults = files('mhseals_hardware').joinpath('config/default.yaml').read_bytes()
     sid = nav.descriptor['default_sources'][0]['id']
     resources = {('mhseals_hardware', 'hardware-default'): ('4d672165', defaults),
-                 ('mhseals_nav', sid): ('d09b854', raw)}
+                 ('mhseals_nav', sid): ('82b833ebdf6d10ee4607a9dbeb5b0adc2e85e75f', raw)}
     coverage = reconcile(view, resources, {})
     assert any(row.disposition == 'untraced' for row in coverage)
+    assert all(row.blockers for row in coverage)
+    assert any('missing-consumers' in row.blockers for row in coverage)
     assert sum(row.disposition == 'descriptor-backed' for row in coverage) == len(view.rows)
     changed = yaml.safe_load(raw)
     changed['controller_server']['ros__parameters']['controller_frequency'] = 20.0

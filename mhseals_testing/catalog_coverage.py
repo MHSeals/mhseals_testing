@@ -16,6 +16,7 @@ class CoverageRow:
     disposition: str
     descriptors: tuple
     explanation: str
+    blockers: tuple
 
 
 def _leaves(value, parts=()):
@@ -58,7 +59,9 @@ def reconcile(catalog, resources, families, *, traces=None, dispositions=None):
             rows.append(CoverageRow(sid + ':' + pointer, owner, revision,
                 'descriptor-backed' if keys else 'untraced', keys,
                 'default reference only; runtime authority absent' if keys else
-                'package owner trace/descriptor follow-up required'))
+                'package owner trace/descriptor follow-up required',
+                tuple(sorted({blocker for key in keys for blocker in catalog.field(key).blockers}))
+                if keys else ('untraced-resource-pointer',)))
     for identity, revision in sorted(families.items()):
         owner, family = identity
         if not revision:
@@ -75,7 +78,9 @@ def reconcile(catalog, resources, families, *, traces=None, dispositions=None):
             status, reason = dispositions[identity]
             if status not in ('fixed', 'unsupported') or not reason:
                 raise ValueError('invalid explicit disposition')
-        rows.append(CoverageRow(family, owner, revision, status, keys, reason))
+        rows.append(CoverageRow(family, owner, revision, status, keys, reason,
+            tuple(sorted({blocker for key in keys for blocker in catalog.field(key).blockers}))
+            if keys else (status + '-family',)))
     return tuple(rows)
 
 
@@ -83,9 +88,9 @@ def markdown(rows):
     """Concise read-only documentation from the exact reconciliation rows."""
     lines = ['# Bounded catalog coverage', '',
              'Defaults and descriptor declarations confer no runtime authority.', '',
-             '| Owner | Resource pointer / family | Current revision | Disposition | Explanation |',
-             '| --- | --- | --- | --- | --- |']
+             '| Owner | Resource pointer / family | Current revision | Disposition | Explanation | Blockers |',
+             '| --- | --- | --- | --- | --- | --- |']
     for row in rows:
-        fields = (row.owner, row.identity, row.revision, row.disposition, row.explanation)
+        fields = (row.owner, row.identity, row.revision, row.disposition, row.explanation, '; '.join(row.blockers))
         lines.append('| ' + ' | '.join(str(v).replace('|', '\\|').replace('\n', ' ') for v in fields) + ' |')
     return '\n'.join(lines) + '\n'
