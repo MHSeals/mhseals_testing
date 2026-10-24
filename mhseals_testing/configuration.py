@@ -34,7 +34,8 @@ class Selection:
     domains: tuple
 
     def __post_init__(self):
-        if (not self.root or not self.scope or not self.candidate or not self.domains
+        object.__setattr__(self, 'domains', tuple(self.domains))
+        if (not self.root or not Path(self.root).is_absolute() or not self.scope or not self.candidate or not self.domains
                 or len(set(self.domains)) != len(self.domains)
                 or not set(self.domains) <= DOMAINS.keys()):
             raise ValueError('invalid session configuration reference')
@@ -76,6 +77,7 @@ class Selection:
 
 def bootstrap(root, scope, preparations):
     """Publish one complete union; preparation is pure and precedes reservation."""
+    root = str(Path(root).expanduser().absolute())
     domains = tuple(sorted(preparations))
     evaluators = _evaluators(domains)
     documents, recipes, identities, artifacts = {}, {}, {}, []

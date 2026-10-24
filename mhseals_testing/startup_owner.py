@@ -75,7 +75,8 @@ def prepare_session(profile, args, directory, mode, overlay):
         raise ValueError('fresh owner cannot overwrite an existing session selection')
     if not domains:
         return None
-    root, scope = navigation.snapshot_root(), uuid.uuid4().hex
+    root = str(Path(navigation.snapshot_root()).expanduser().absolute())
+    scope = uuid.uuid4().hex
     prepared = {}
     if 'hardware' in domains:
         path = config_path(args.config)
