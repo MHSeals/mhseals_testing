@@ -38,7 +38,7 @@ class AuthorityFeed:
     def hold(self, cause, by):
         hold = getattr(self.app.plant, 'hold', None)   # the mux hold request lands with the mux publisher
         if hold is not None:
-            hold(cause)
+            hold(cause, by)
 
     def on_cmd(self, nonzero):
         """Note one /cmd_vel sample from the subscription."""

@@ -85,7 +85,7 @@ class Plant:
                 for _ in range(NEUTRAL_REPEATS):
                     publisher.publish(self.message((0.0, 0.0, 0.0)))
 
-    def hold(self, cause='keys'):
+    def hold(self, cause='keys', by='tui'):
         """Space: neutral on the manual input, then ask the mux to hold (zeros, sticky) so no
         auto command resumes behind the stop."""
         if self.request_publisher is None:
@@ -94,7 +94,7 @@ class Plant:
         for _ in range(NEUTRAL_REPEATS):
             manual.publish(self.message((0.0, 0.0, 0.0)))
         self.request_publisher.publish(String(data=json.dumps(
-            {'op': 'hold', 'cause': cause, 'by': 'tui'})))
+            {'op': 'hold', 'cause': cause, 'by': by})))
 
     def release_hold(self):
         """U: ask the mux to drop its sticky hold. False when this profile has no mux."""

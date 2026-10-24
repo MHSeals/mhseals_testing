@@ -346,3 +346,57 @@ def test_banner_names_rc_override_only_when_rc_owns_the_boat(owner, shown):
     text = authority_chip.banner(record(owner, rc=RC, claims=[claim]), NOW)
     assert text.startswith(theme.pick('◆', '*') + ' AGENT PAUSED')
     assert ('RC override' in text) is shown
+
+
+@pytest.mark.parametrize('action, cause, by', [
+    ('revoke', 'revoke', 'tui'), ('hold', 'keys', 'operator')])
+def test_authority_hold_reaches_the_real_plant_with_attribution(tmp_path, action, cause, by):
+    """Revoke and direct feed holds reach the mux and retain manual neutral."""
+    import json
+    pytest.importorskip('geometry_msgs')
+    from mhseals_testing.ros.plant import Plant, NEUTRAL_REPEATS
+    app, _ = make_app(tmp_path)
+    made, sent = [], []
+
+    def publisher(kind, topic, depth):
+        made.append(topic)
+        return SimpleNamespace(publish=lambda message: sent.append((topic, message)))
+
+    app.plant = Plant(SimpleNamespace(node=SimpleNamespace(create_publisher=publisher)), app.profile)
+    assert made == ['/command_mux/request']
+    feed, _ = start(app, [1000.0])
+    if action == 'revoke':
+        claim = feed.arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'tune'})['claim']
+        feed.arbiter.revoke(claim['id'])
+    else:
+        feed.hold(cause, by)
+    requests = [json.loads(message.data) for topic, message in sent if topic == '/command_mux/request']
+    assert requests == [{'op': 'hold', 'cause': cause, 'by': by}]
+    manual = [message for topic, message in sent if topic == app.profile.manual_topic]
+    assert len(manual) >= NEUTRAL_REPEATS
+    assert all((m.linear.x, m.linear.y, m.angular.z) == (0.0, 0.0, 0.0) for m in manual)
+    assert made == ['/command_mux/request', app.profile.manual_topic]
+
+
+def test_plant_reuses_upfront_mux_publisher_and_unmuxed_hold_is_silent(tmp_path):
+    pytest.importorskip('geometry_msgs')
+    from mhseals_testing.ros.plant import Plant
+    app, _ = make_app(tmp_path)
+    made, sent = [], []
+
+    def publisher(kind, topic, depth):
+        made.append(topic)
+        return SimpleNamespace(publish=sent.append)
+
+    ros = SimpleNamespace(node=SimpleNamespace(create_publisher=publisher))
+    plant = Plant(ros, app.profile)
+    assert made == ['/command_mux/request']
+    plant.hold('keys')
+    plant.hold('revoke', 'operator')
+    assert made.count('/command_mux/request') == 1
+    assert made.count(app.profile.manual_topic) == 1
+    made.clear()
+    sent.clear()
+    plant = Plant(ros, load_profile('crane_direct'))
+    plant.hold('revoke', 'operator')
+    assert made == [] and sent == []
