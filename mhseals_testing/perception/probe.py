@@ -64,6 +64,7 @@ class Probe:
         with a bad stamp still count for rates but give no latency sample.
         """
         now = self.clock()
+        self._reset_if_rewound(now)
         if self.first is None:
             self.first = now
         bad = stamp <= 0 or (frame_id is not None and not frame_id) or (
@@ -76,6 +77,14 @@ class Probe:
         for d in dets:
             self.last_seen[d.label] = now
         self._trim(now)
+
+    def _reset_if_rewound(self, now):
+        """Forget everything when the clock went back (a sim episode reset rewinds ROS time)."""
+        if self.frames and now < self.frames[-1].recv:
+            self.frames.clear()
+            self.errors.clear()
+            self.last_seen.clear()
+            self.first = self.last_stamp = None
 
     def _trim(self, now):
         keep = max(self.window, self.history)
@@ -102,9 +111,10 @@ class Probe:
 
     def facts(self):
         """``perc.<source>.*`` facts; empty until the first frame."""
+        now = self.clock()
+        self._reset_if_rewound(now)
         if not self.frames:
             return {}
-        now = self.clock()
         self._trim(now)
         s = f'perc.{self.source}.'
         recent = self._within(now, self.rate_window)

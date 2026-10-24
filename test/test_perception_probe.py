@@ -123,3 +123,15 @@ def test_gap_reports_silence_longer_than_the_rate_window(clock):
     f = p.facts()
     assert f['perc.z.max_gap'].value == pytest.approx(10.0)
     assert f['perc.z.hz'].value == 0.0
+
+
+def test_clock_rewind_forgets_earlier_frames(clock):
+    p = Probe('z', clock)
+    run(p, clock, [[D('a', 0.9)]] * 50)
+    clock.t = 10.0                       # sim episode reset rewinds the ROS clock
+    assert p.facts() == {}
+    run(p, clock, [[]] * 5)              # stamps restart too, so none is an error
+    f = p.facts()
+    assert f['perc.z.hz'].value <= 5.0
+    assert f['perc.z.stamp_errors'].value == 0
+    assert f['perc.z.classes'].value == 0
