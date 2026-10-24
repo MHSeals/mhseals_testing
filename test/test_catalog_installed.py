@@ -70,7 +70,10 @@ def test_nondefault_compiled_origins_are_separate_from_inventory(installed_root,
     assert next(row['default'] for row in view['rows'] if row['key'] == key) == package_default
 
 
-def test_corrupt_installed_family_visible_without_hardware_loss(installed_root, monkeypatch, tmp_path):
+@pytest.mark.parametrize('filename', ['mavros_setup.yaml', 'odometry_startup.yaml',
+                                      'ekf_local.yaml', 'ekf_global.yaml', 'navsat_transform.yaml'])
+def test_corrupt_installed_family_visible_without_hardware_loss(
+        installed_root, monkeypatch, tmp_path, filename):
     import shutil
     from mhseals_nav import owner_catalog
     before = catalog_inspect.installed()
@@ -78,19 +81,19 @@ def test_corrupt_installed_family_visible_without_hardware_loss(installed_root, 
     assert any(row['owner'] == 'mhseals_hardware' for row in unaffected)
     share = tmp_path / 'share'
     shutil.copytree(installed_root / 'share/mhseals_nav', share)
-    (share / 'config/mavros_setup.yaml').write_text('malformed: [')
+    (share / 'config' / filename).write_text('malformed: [')
     monkeypatch.setattr(owner_catalog, 'package_share', lambda name: share)
     view = catalog_inspect.installed()
     nav = next(item for item in view['packages'] if item['owner'] == 'mhseals_nav')
     assert nav['status'] == 'invalid-installed'
-    assert {item['name'] for item in nav['families']} == {'nav2', 'mavros', 'lidar'}
+    assert {item['name'] for item in nav['families']} == {'nav2', 'mavros', 'lidar', 'odometry', 'localization'}
     assert view['rows'] == unaffected  # hardware and any valid optional Astro remain intact
     assert [p for p in view['packages'] if p['owner'] != 'mhseals_nav'] == [
         p for p in before['packages'] if p['owner'] != 'mhseals_nav']
     assert not view['complete']
     (share / 'config/lidar.yaml').unlink()
-    (share / 'config/mavros_setup.yaml').write_bytes(
-        (installed_root / 'share/mhseals_nav/config/mavros_setup.yaml').read_bytes())
+    (share / 'config' / filename).write_bytes(
+        (installed_root / 'share/mhseals_nav/config' / filename).read_bytes())
     view = catalog_inspect.installed()
     assert next(item for item in view['packages'] if item['owner'] == 'mhseals_nav')[
         'status'] == 'missing-resource'
@@ -154,3 +157,49 @@ def test_long_navigation_details_reach_final_fields_at_narrow_width(installed_ro
         assert handle('escape') is True
 
     catalog.details(SimpleNamespace(popup=popup), key, row)
+
+
+def test_installed_startup_catalog_families_guides_and_narrow_detail(installed_root):
+    import io
+    from types import SimpleNamespace
+    from rich.console import Console
+    from mhseals_testing.ui import layout
+    from mhseals_testing.ui.popups import catalog
+    from mhseals_nav.owner_catalog import load_catalog
+    from mhseals_hardware.catalog import load_catalog as hardware_catalog
+    from mhseals_nav.lidar_configuration import package_share
+
+    view = catalog_inspect.installed()
+    nav = next(item for item in view['packages'] if item['owner'] == 'mhseals_nav')
+    assert {family['name'] for family in nav['families']} == {
+        'nav2', 'mavros', 'lidar', 'odometry', 'localization'}
+    expected = load_catalog()
+    assert len([row for row in view['rows'] if row['owner'] == 'mhseals_nav']) == len(expected.rows)
+    assert len([row for row in view['rows'] if row['owner'] == 'mhseals_hardware']) == len(hardware_catalog().rows)
+    key = 'localization.ekf_local.odom0_config'
+    row = next(row for row in view['rows'] if row['key'] == key)
+    assert row['numeric_bounds'] == 'unknown; see constraint_ref' and not row['writable']
+    guide = row['constraint_guide']
+    path = package_share(guide['package']) / guide['resource']
+    text = path.read_text()
+    assert key in text and 'exactly 15 actual booleans' in text
+    assert row['descriptor']['value']['constraint_ref'] == 'startup.rule.' + key
+    seen = []
+
+    def popup(modal, handle):
+        import json
+        assert modal['title'] == key
+        seen.append(modal['title'])
+        for _ in range(len(json.dumps(row).splitlines()) + 2000):
+            handle('down')
+        output = io.StringIO()
+        panel, width = layout.popup(modal, 36, 12)
+        Console(file=output, width=width, color_system=None).print(panel)
+        # The final guide link remains reachable after wrapped descriptor content.
+        rendered = ''.join(output.getvalue().replace('│', '').split())
+        assert 'startup-catalog-constraints.md' in rendered
+        assert modal['scroll'] > len(modal['rows'])
+        assert handle('escape') is True
+
+    catalog.details(SimpleNamespace(popup=popup), key, row)
+    assert seen == [key]

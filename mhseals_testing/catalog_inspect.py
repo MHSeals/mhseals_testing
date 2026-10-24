@@ -35,6 +35,11 @@ def inspection(bundles, availability, *, compiled=None):
                          source=sources.get(reference.get('source_id')),
                          blockers=list(row.blockers), writable=False,
                          numeric_bounds='unknown; see constraint_ref'))
+        if row.owner == 'mhseals_nav' and row.key.startswith(('odometry.', 'localization.')):
+            rows[-1]['constraint_guide'] = dict(
+                package='mhseals_nav', resource='docs/startup-catalog-constraints.md',
+                source=('https://github.com/mhseals/mhseals_nav/blob/main/docs/'
+                        'startup-catalog-constraints.md'))
     selection = dict(status='unknown', label='selection unknown; package inventory only', values={})
     if compiled is not None:
         try:
@@ -76,7 +81,12 @@ def installed(*, compiled=None):
             status, detail = 'missing-dependency', str(error)
         except OSError as error:
             status, detail = 'unreadable-resource', str(error)
-        families = ('nav2', 'mavros', 'lidar') if owner == 'mhseals_nav' else ('hardware',) if owner == 'mhseals_hardware' else ('run-config',)
+        if owner == 'mhseals_nav':
+            families = ('nav2', 'mavros', 'lidar', 'odometry', 'localization')
+        elif owner == 'mhseals_hardware':
+            families = ('hardware',)
+        else:
+            families = ('run-config',)
         availability.append(dict(owner=owner, status=status, detail=detail,
                                  families=[dict(name=name, status=status) for name in families]))
     return inspection(bundles, availability, compiled=compiled)

@@ -34,7 +34,7 @@ metadata follow-ups. No runtime adapter or manager is introduced here.
 ## Public CLI and TUI access
 
 Configuration inventory is available without collecting boat health:
-`boat_trial config catalog` prints the installed hardware, Nav2, MAVROS and lidar
+`boat_trial config catalog` prints the installed hardware, Nav2, MAVROS, lidar, odometry and localization
 catalogs, plus the optional installed Astro run catalog. Use `--json -` for stdout
 or `--json PATH` to save the same view. Missing or broken providers remain visible;
 non-optional provider errors return exit status 2. This command exposes no mutation
@@ -47,3 +47,13 @@ Catalog defaults are package inventory, with source pointers/hashes, constraints
 consumers and coverage—not live values or verified device behavior. Without an
 explicit compiler context, selection is unknown. Optional compiled values and their
 origins remain separate and are labeled requested/compiled, never live.
+
+Odometry/localization defaults remain raw installed package values. Their resolvable
+`constraint_ref` IDs use the same Rule objects as validation; concrete schema rules
+are in the generated [startup constraint guide](https://github.com/mhseals/mhseals_nav/blob/main/docs/startup-catalog-constraints.md),
+also installed at `share/mhseals_nav/docs/startup-catalog-constraints.md`. Details
+include this resource link; generic `numeric_bounds` stays unknown, and `units`
+is not used for constraint prose. The guide includes enums, exact vector shape,
+known bounds and unverified consumer distinctions. All rows remain read-only.
+Fresh-start/restart-required describes startup consumption, not a runtime restart
+capability; selected compiled values/origins remain separate from defaults and live state.
