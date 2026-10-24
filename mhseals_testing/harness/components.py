@@ -9,6 +9,8 @@ them. A process we did not start is ``external`` and is never stopped.
 
 from dataclasses import dataclass
 
+from mhseals_testing import nav2_limits
+
 STARTING_LIMIT = 20.0   # s before a started component without its proof nodes warns
 KEYS = {'title', 'launch', 'args', 'nodes', 'needs', 'limits', 'remote', 'topic', 'start'}
 
@@ -85,6 +87,8 @@ def components(profile, overlay=None):
         if 'launch' in spec:
             args = {**spec.get('args', {}), **overlay.get(key, {})}
             argv = ('ros2', 'launch', *spec['launch'], *(f'{k}:={v}' for k, v in args.items()))
+            if spec.get('limits'):   # the lasting nav2.yaml must survive every (re)start
+                argv += (nav2_limits.launch_argument(),)
         result.append(Component(
             key, spec.get('title', key.capitalize()), argv, tuple(spec.get('nodes', ())),
             tuple(spec.get('needs', ())), spec.get('remote'), spec.get('topic'),

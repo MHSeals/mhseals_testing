@@ -58,6 +58,18 @@ def test_argv_and_shipped_profiles():
     assert load_profile('crane_direct').components is None
 
 
+def test_navigation_gets_limits_file(monkeypatch, tmp_path):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    from mhseals_testing import nav2_limits
+    for name in ('boat', 'crane_full_stack'):
+        items = {item.key: item for item in components(load_profile(name))}
+        flagged = [item for item in items.values() if item.limits]
+        assert flagged
+        for item in flagged:
+            assert item.argv.count(nav2_limits.launch_argument()) == 1
+        assert not any(a.startswith('limits_file:=') for i in items.values() if not i.limits for a in i.argv)
+
+
 def test_state_ours_starting_exited_external():
     stack, processes, clock = make()
     assert stack.state('odometry', set()) == ('off', '')
