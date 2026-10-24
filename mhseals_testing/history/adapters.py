@@ -39,8 +39,8 @@ def _hardware_effective(path):
 
 def _hardware_meta():
     """``defaults_sha``: the shipped defaults text, so a later warning can say they moved."""
-    from mhseals_hardware import configuration
-    text = Path(configuration.__file__).with_name('config').joinpath('default.yaml').read_text()
+    from mhseals_hardware.resources import config_resource
+    text = config_resource('default.yaml').read_text()
     return {'defaults_sha': hashlib.sha256(text.encode()).hexdigest()[:12]}
 
 

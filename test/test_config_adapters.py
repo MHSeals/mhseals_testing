@@ -53,5 +53,8 @@ def test_hardware_version_carries_the_defaults_hash_and_never_the_arming_copy(tm
     path, history = tmp_path / 'hardware.yaml', History(tmp_path / 'h')
     path.write_text('channel_map: [3, 1, 2, 0]\n')
     change = adapters.observe_file(history, 'hardware', path)
-    assert len(history.version(change)['meta']['defaults_sha']) == 12
+    from hashlib import sha256
+    from mhseals_hardware.resources import config_resource
+    expected = sha256(config_resource('default.yaml').read_text().encode()).hexdigest()[:12]
+    assert history.version(change)['meta']['defaults_sha'] == expected
     assert 'hardware' in adapters.SUBSYSTEMS and 'session' not in adapters.SUBSYSTEMS   # arming copy has no subsystem

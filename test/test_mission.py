@@ -45,10 +45,12 @@ def test_every_shipped_rubric_is_scorable():
     ('pair_test', {'red_pole_buoy', 'green_pole_buoy'}),
     ('circle_test', {'yellow_buoy'}),
 ])
-def test_commissioning_courses_match_detector_labels_and_truth(task, labels):
+def test_commissioning_courses_match_detector_labels_and_truth(task, labels, tmp_path, monkeypatch):
     import json
-    path = MISSION_DIR.parent / 'courses' / f'{task}.json'
-    course = json.loads(path.read_text())
+    from mhseals_testing.course import compile_course
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'cache'))
+    path = MISSION_DIR.parent / 'courses' / f'{task}.yaml'
+    course = json.loads(compile_course(path).read_text())
     assert {item['label'] for item in course['elements']} == labels
     assert all(item['task'] == task for item in course['elements'])
 
