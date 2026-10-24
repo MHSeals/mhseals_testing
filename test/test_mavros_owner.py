@@ -1,7 +1,8 @@
 """Actual boat/TUI/component propagation into inert navigation launch factories."""
 import ast
 from dataclasses import replace
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import yaml
@@ -9,6 +10,29 @@ import yaml
 from mhseals_testing.harness.components import components
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import stack_overlay
+
+
+@pytest.fixture(autouse=True)
+def source_nav_share(nav_root, monkeypatch):
+    """Give the host-only factory harness its exact archived package authority."""
+    try:
+        import ament_index_python.packages  # noqa: F401
+    except ModuleNotFoundError as error:
+        if error.name not in ('ament_index_python', 'ament_index_python.packages'):
+            raise
+        # Keep the real resolver and strict YAML validation. Only the absent
+        # source-host package index is replaced; installed-wheel runs use ament.
+        package = ModuleType('ament_index_python')
+        packages = ModuleType('ament_index_python.packages')
+
+        def share_directory(name):
+            assert name == 'mhseals_nav'
+            return str(nav_root)
+
+        packages.get_package_share_directory = share_directory
+        package.packages = packages
+        monkeypatch.setitem(sys.modules, 'ament_index_python', package)
+        monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
 
 
 def launch_factory(nav_root, name):
@@ -78,7 +102,9 @@ def context_for(ns, argv):
 
 @pytest.mark.parametrize('explicit', [None, '20.0', '13'])
 def test_shipped_boat_tui_selected_rates_match_direct_and_robot(nav_root, tmp_path, explicit):
-    from mhseals_nav.mavros_configuration import ALIASES
+    from mhseals_nav.mavros_configuration import ALIASES, parameters_from_yaml, validate_setup
+    packaged = validate_setup(parameters_from_yaml(
+        (nav_root / 'config/mavros_setup.yaml').read_text()))
     first = selected_file(tmp_path, 'profile.yaml', ['33:6', '30:7', '31:8',
                           '24:9', '27:11', '1:12', '193:14', '65:15'])
     second = selected_file(tmp_path, 'overlay.yaml', ['33:16', '30:17', '31:18',
@@ -109,6 +135,9 @@ def test_shipped_boat_tui_selected_rates_match_direct_and_robot(nav_root, tmp_pa
             dict(defaults(odom['generate_launch_description']()), **forwarded))[0]
         assert direct.parameters == included.parameters
         assert direct.parameters[0] == path
+        assert {key: value for key, value in direct.parameters[1].items()
+                if key != 'message_rates'} == {
+                    key: value for key, value in packaged.items() if key != 'message_rates'}
         rates = dict(entry.split(':') for entry in direct.parameters[1]['message_rates'])
         assert tuple(rates[key] for key in ('27', '1', '193')) == expected
         imu = (explicit if overlays else '9') if explicit is not None else None
