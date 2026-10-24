@@ -189,3 +189,58 @@ def test_delayed_snapshot_expires_message_stamp_before_receipt():
     observe(monitor, stamp_age=1)
     snapshot = monitor.snapshot()
     assert feed.poll(snapshot, 11.5, eligible=True, commanding=False) is None
+
+
+def test_status_fresh_duplicate_and_stale_cached_snapshot():
+    clock, monitor, feed = make_feed()
+    observe(monitor, stamp_age=1)
+    snapshot = monitor.snapshot()
+    assert feed.poll(snapshot, 10, eligible=True, commanding=False)
+    assert feed.status.valid
+    assert feed.poll(snapshot, 10.2, eligible=True, commanding=False) is None
+    assert feed.status.valid
+    assert feed.poll(snapshot, 11.5, eligible=True, commanding=False) is None
+    assert not feed.status.valid
+    assert feed.status.epoch == feed.epoch
+
+
+def test_invalid_restart_status_and_explicit_epoch_without_sample():
+    clock, monitor, feed = make_feed()
+    observe(monitor)
+    poll(monitor, feed, 10)
+    epoch = feed.epoch
+    clock[0] = 11
+    monitor.sensors.clear()
+    observe(monitor)
+    monitor.sensors['GPS raw']['values']['fix'] = 2
+    assert poll(monitor, feed, 11) is None
+    assert not feed.status.valid and feed.status.epoch == epoch + 1
+    assert feed.poll({}, 11, eligible=True, commanding=False, clock_epoch='reset') is None
+    assert not feed.status.valid and feed.status.epoch == epoch + 2
+    assert feed.poll({}, 11.1, eligible=True, commanding=False, clock_epoch='reset') is None
+    assert feed.epoch == epoch + 2
+
+
+def test_reordered_header_jitter_does_not_reset_but_poll_clock_does():
+    clock, monitor, feed = make_feed()
+    observe(monitor)
+    old = monitor.snapshot()
+    poll(monitor, feed, 10)
+    clock[0] = 11
+    observe(monitor)
+    poll(monitor, feed, 11)
+    epoch = feed.epoch
+    assert feed.poll(old, 11.1, eligible=True, commanding=False) is None
+    assert feed.epoch == epoch
+    assert feed.poll({}, 1, eligible=True, commanding=False) is None
+    assert feed.status.epoch == epoch + 1 and not feed.status.valid
+
+
+def test_invalid_duplicate_cannot_be_repaired_into_valid_status():
+    clock, monitor, feed = make_feed()
+    observe(monitor)
+    monitor.sensors['GPS raw']['values']['fix'] = 2
+    assert poll(monitor, feed, 10) is None
+    monitor.sensors['GPS raw']['values']['fix'] = 3
+    assert poll(monitor, feed, 10.1) is None
+    assert not feed.status.valid
