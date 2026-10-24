@@ -1,7 +1,7 @@
 # The physical boat: thruster_pwm_node drives the ODROID's PWM pins, and the
 # mhseals_nav measurement stack fuses the flight controller and sensors.
 name: boat
-description: Physical boat; normalized thruster effort on /cmd_vel
+description: 'Real boat: ODROID PWM outputs; physical FCU and sensors feed mhseals_nav.'
 command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}
 odometry: /odom/local
 ground_truth: null

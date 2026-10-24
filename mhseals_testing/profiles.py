@@ -230,3 +230,9 @@ def load_profile(name_or_path, directory=PROFILE_DIR):
     if not path.exists():
         raise FileNotFoundError(f'no profile {name_or_path!r}; shipped: {available_profiles(directory)}')
     return parse_profile(yaml.safe_load(path.read_text()), where=path.name)
+
+
+def profile_descriptions(directory=PROFILE_DIR):
+    """Read explanatory names from the same YAML as the executable profiles."""
+    return [(name, load_profile(name, directory).description)
+            for name in available_profiles(directory)]

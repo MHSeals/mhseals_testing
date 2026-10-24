@@ -1148,7 +1148,7 @@ class App:
                 self.grabbed = None
                 self.notice = 'Dropped'
         elif key == '?':
-            self.show('Help', rows=HELP, width=76)
+            self.show('Help', rows=[(self.profile.name, self.profile.description), *HELP], width=76)
         elif key == 'a':
             self.arm_panel()
         elif key == 'x' and raw == 'x':
@@ -2270,7 +2270,8 @@ def nav2_params():
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     parser.add_argument('--profile', default='boat',
-                        help=f'plant profile name ({", ".join(available_profiles())}) or YAML path')
+                        help=f'plant profile name ({", ".join(available_profiles())}) or YAML path; '
+                             'boat_trial profiles explains each path; ? shows the active profile')
     parser.add_argument('--start-stack', action='store_true',
                         help="start the profile's components marked start; default attaches to "
                              'running topics (the other components start from the Status rows)')

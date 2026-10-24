@@ -2,7 +2,7 @@
 # publishes PWM to the simulator, which publishes the boat's sensor topics.
 # Start crane_ml with --crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract.
 name: crane_full_stack
-description: crane_ml with the full mhseals_nav stack; PWM over ROS, simulated sensors
+description: 'Unity full stack: ROS PWM outputs and simulated sensors through mhseals_nav.'
 command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}
 odometry: /odom/local
 ground_truth: /crane/odom

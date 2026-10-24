@@ -120,7 +120,8 @@ def build_parser():
     parser = argparse.ArgumentParser(prog='boat_trial', description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest='command', required=True)
     check = sub.add_parser('check', help='evaluate the health checks')
-    check.add_argument('--profile', default='boat')
+    check.add_argument('--profile', default='boat',
+                       help='profile name or YAML path; see boat_trial profiles for descriptions')
     check.add_argument('--only', nargs='+', default=[], metavar='GROUP|ID',
                        help='group names or id globs to evaluate')
     check.add_argument('--window', type=float, default=5.0, help='seconds to sample')
@@ -128,6 +129,7 @@ def build_parser():
     check.add_argument('--fail-on', choices=('warn', 'fail'), default='fail')
     check.add_argument('--json', metavar='PATH', help='write JSON to PATH, or - for stdout')
     check.add_argument('--lint', action='store_true', help='check the YAML only; needs no ROS')
+    sub.add_parser('profiles', help='explain shipped profile command/sensor/output paths')
     course = sub.add_parser('course', help='compile course YAML to cached Unity JSON')
     course.add_argument('source', metavar='NAME|YAML')
     config = sub.add_parser('config', help='read-only configuration inventory')
@@ -138,6 +140,11 @@ def build_parser():
 
 def main(argv=None, collect=None):
     args = build_parser().parse_args(argv)
+    if args.command == 'profiles':
+        from mhseals_testing.profiles import profile_descriptions
+        for name, description in profile_descriptions():
+            print(f'{name}: {description}')
+        return 0
     if args.command == 'course':
         import yaml
         from mhseals_testing.course import compile_course

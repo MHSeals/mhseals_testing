@@ -2,7 +2,7 @@
 # stack: quickest way to work on the suite itself. Start crane_ml with
 # --crane-ros-nav-state --crane-ros-cmd-vel.
 name: crane_direct
-description: crane_ml velocity commands and ground-truth odometry; no nav stack
+description: 'Unity direct: velocity commands and ground-truth odometry; bypasses mhseals_nav.'
 command: {topic: /crane/cmd_vel_stamped, type: twist_stamped, units: velocity, limit: [1.0, 1.0, 1.0]}
 odometry: /crane/odom
 ground_truth: /crane/odom
