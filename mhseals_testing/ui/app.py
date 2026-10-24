@@ -130,7 +130,7 @@ PANEL_HINTS = {
     'conditions': [('Enter', 'Details')],
     'thrusters': [(LEFTRIGHT, 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
-                  ('c', 'Clear decoupling'), ('p', 'Pins')],
+                  ('c', 'Clear decoupling'), ('M', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'Results/log')],
     'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom')],
@@ -150,7 +150,7 @@ HELP = [
     (f'{UPDOWN} / j k', 'Move within the focused panel'),
     ('Procedure keys', 'Run from any panel; focused-panel edit keys take precedence'),
     ('Enter', 'Run, open or show details'),
-    ('o (Status)', 'Odometry: what the EKFs fuse, and the sources'),
+    ('o', 'Odometry: what the EKFs fuse, and the sources'),
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('Space', 'Stop: neutral and disarm'),
     ('m', 'Manual control'),
@@ -164,7 +164,7 @@ HELP = [
     ('Thrusters Enter', f'Pick up the thruster; {UPDOWN} moves it, Enter drops it'),
     ('Thrusters 1-4 / r', 'Wire it to an output / reverse it (a draft until saved)'),
     ('Thrusters s / u', 'Save the draft to the config (hot-reloaded) / undo it'),
-    ('Thrusters p', 'Edit the PWM pins and MOSFET line; applied live, refused while armed'),
+    ('Thrusters M', 'Edit the PWM pins and MOSFET line; applied live, refused while armed'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Thrusters c', 'Clear the fitted decoupling (asks first)'),
     ('Activity v', 'Switch between results and the event log'),
@@ -891,6 +891,15 @@ class App:
                 self.release_hold()
             return
         raw, key = key, fold(key)
+        if raw == 'M' and self.focus == 'thrusters' and not self.review:  # keymap pins: M; folded 'm' stays Manual
+            self.notice = pins.edit_pins(self)
+            return
+        if raw == 'X' and self.focus == 'activity' and not self.review and self.activity == 'results':
+            self.exclude_result()  # panel-level Exclude run; folded 'x' still writes the report
+            return
+        if key == 'o':  # odometry popup is global
+            self.open('odometry')
+            return
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
             return
         if self.review and (self.dispatch_review(key) or not self.review_allows(key)):
@@ -1065,8 +1074,6 @@ class App:
             self.toggle_agents()
         elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
             self.step_recording(key)
-        elif key == 'o':
-            self.open('odometry')
         elif key == 'e':
             row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
             if row and row['name'] == nav2_edit.NAME and self.nav2_file is not None:
@@ -1360,6 +1367,20 @@ class App:
     # Reasons offered by the run popup's X; an exclusion always carries one (critique K4).
     EXCLUDE_REASONS = ('operator error', 'wrong conditions', 'sensor fault', 'test run')
 
+    def exclude_result(self, index=None):
+        """Ask for a reason and exclude the result at oldest-first ``index`` (default: the cursor's)."""
+        total = len(self.snapshot()['results'])
+        if not total:
+            return
+        if index is None:
+            index = total - 1 - min(self.cursors['activity'], total - 1)
+        try:
+            reason = self.choose('Exclude run', self.EXCLUDE_REASONS)
+        except Cancelled:
+            return
+        if reason:
+            self.monitor.exclude_result(index, run_popup.exclusion(reason))
+
     def open_run(self):
         """popup.run for the cursor's result: up/down step, X excludes, Esc closes; Space stops."""
         total = len(self.snapshot()['results'])
@@ -1375,13 +1396,8 @@ class App:
 
         def handle(key):
             if key == 'X':  # case matters here: lowercase x writes the report
-                try:
-                    reason = self.choose('Exclude run', self.EXCLUDE_REASONS)
-                except Cancelled:
-                    reason = None
+                self.exclude_result(state['index'])
                 self.modal = modal  # the nested popup cleared it
-                if reason:
-                    self.monitor.exclude_result(state['index'], run_popup.exclusion(reason))
             else:
                 key = fold(key)
                 if key == 'space':
@@ -1438,8 +1454,6 @@ class App:
         elif key == 'u':
             self.draft = self.grabbed = None
             self.notice = 'Mapping changes undone'
-        elif key == 'p':
-            self.notice = pins.edit_pins(self)
         elif key == 'i':
             self.run_procedure(next(p for p in PROCEDURES if p.key == 'i'))
         elif key == 'c':

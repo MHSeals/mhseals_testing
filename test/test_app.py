@@ -1152,7 +1152,8 @@ def test_pins_popup_applies_through_the_driver_readback(tmp_path):
     app.ros.parameter_service = lambda name: True
     app.ros.driver_parameters = lambda name, keys: {k: app.args.hardware_config[k] for k in keys}
     app.ask_text = lambda *a: '1 0 0 0 29'
-    app.on_thrusters('p')
+    app.focus = 'thrusters'
+    app.dispatch('M')
     assert app.notice == 'Pins applied'
     assert app.args.hardware_config['pwm_channels'] == [1, 0, 0, 0]
 
@@ -1162,7 +1163,8 @@ def test_pins_popup_saves_for_the_next_arm_without_a_driver(tmp_path):
     app.ros.parameter_service = lambda name: False
     app.ros.driver_parameters = lambda name, keys: pytest.fail('no driver to read back')
     app.ask_text = lambda *a: '1 0 0 0 29'
-    app.on_thrusters('p')
+    app.focus = 'thrusters'
+    app.dispatch('M')
     assert app.notice == 'Pins saved; applied at next arm'
     assert app.args.hardware_config['pwm_channels'] == [1, 0, 0, 0]
 
@@ -1171,7 +1173,8 @@ def test_pins_popup_refuses_while_armed(tmp_path):
     app, _ = make_app(tmp_path)
     app.arming.armed = True
     app.ask_text = lambda *a: '1 0 0 0 29'
-    app.on_thrusters('p')
+    app.focus = 'thrusters'
+    app.dispatch('M')
     assert app.notice.startswith('Pins refused')
     assert app.args.hardware_config['pwm_channels'] != [1, 0, 0, 0]
 
@@ -1804,3 +1807,34 @@ def test_map_tab_floor_and_trail_restart_reach_the_map_state(tmp_path):
     app.show_tab('Map')
     app.dispatch('D'), app.dispatch('Y')
     assert State.calls[0][0] == 'floor' and State.calls[1] == 'restart'
+
+
+def test_global_keys_reach_pins_odometry_and_panel_exclude(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.ask_text = lambda *a: None
+    app.ran = []
+    app.run_procedure = app.ran.append
+    app.focus = 'thrusters'
+    app.dispatch('p')                       # Perception stays on p
+    assert [x.key for x in app.ran] == ['p'] and app.notice != 'Pins unchanged'
+    app.ran.clear()
+    app.dispatch('M')                       # keymap pins: M
+    assert app.notice == 'Pins unchanged' and not app.ran
+    opened = []
+    app.open = opened.append
+    app.focus = 'motion'
+    app.dispatch('o')
+    assert opened == ['odometry']
+    app.focus = 'status'
+    app.dispatch('o')
+    assert opened == ['odometry'] * 2
+    app.review = True                       # review: Status no longer blocks o
+    app.dispatch('o')
+    assert opened == ['odometry'] * 3
+    app.review = False
+    app.monitor.record_result(dict(procedure='axis', verdict='OK'))
+    app.focus = 'activity'
+    with app.attached():
+        press(app, 'enter')  # first reason
+        app.dispatch('X')
+    assert app.monitor.snapshot()['results'][0]['excluded']['reason'] == 'operator error'
