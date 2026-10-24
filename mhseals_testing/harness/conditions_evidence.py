@@ -6,7 +6,10 @@ from mhseals_testing.health.pwm import Readback
 
 
 def finite(value):
-    return type(value) in (int, float) and math.isfinite(value)
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 @dataclass(frozen=True)

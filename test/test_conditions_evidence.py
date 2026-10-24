@@ -57,3 +57,26 @@ def test_expiry_and_unknown_interval_restart_coast():
 def test_positive_policy(ttl):
     with pytest.raises(ValueError):
         EvidenceGate(output_ttl=ttl, command_ttl=1)
+
+
+@pytest.mark.parametrize('change', [dict(applied=(10**400, 0, 0)),
+    dict(effort=(0, 10**400, 0)), dict(receipt=10**400),
+    dict(effort_receipt=10**400), dict(raw_receipt=10**400)])
+def test_oversized_command_numbers_are_unknown(change):
+    args = inputs()
+    args['command'] = replace(args['command'], **change)
+    assert args['command'].zero(10., 2., 1) is None
+    state = EvidenceGate(output_ttl=2, command_ttl=2).update(**args)
+    assert state.zero is None and not state.eligible
+
+
+@pytest.mark.parametrize('change', [dict(now=10**400), dict(local=(0, 0, 10**400))])
+def test_oversized_local_numbers_do_not_admit(change):
+    assert not EvidenceGate(output_ttl=2, command_ttl=2).update(**(inputs() | change)).eligible
+
+
+@pytest.mark.parametrize('name', ['output_ttl', 'command_ttl'])
+def test_oversized_ttl_is_invalid_policy(name):
+    policy = dict(output_ttl=2, command_ttl=2) | {name: 10**400}
+    with pytest.raises(ValueError, match='positive finite evidence TTLs required'):
+        EvidenceGate(**policy)
