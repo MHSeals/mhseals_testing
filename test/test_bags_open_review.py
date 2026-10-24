@@ -128,7 +128,7 @@ def test_invalid_selected_session_is_notice_with_no_output(tmp_path, monkeypatch
     (selected.path / 'events.jsonl').write_text(invalid)
     app.dispatch('enter')
     assert app.review is None and app.source.live and not opens
-    assert ('no timed events' in app.notice or 'invalid session timeline' in app.notice)
+    assert ('no timed events' in app.notice or 'invalid timeline timestamp' in app.notice)
     assert boat.sent == [] and app.pulse_log == []
 
 
@@ -182,3 +182,71 @@ def test_review_odometry_popup_is_read_only(tmp_path, monkeypatch):
     app.ros.get_parameters = lambda *a: pytest.fail('read live ROS parameters')
     app.odometry()
     assert shown[0][0] == ('Odometry (review)',)
+
+
+@pytest.mark.parametrize('phase', [123, None])
+def test_malformed_timed_phase_refuses_without_teardown(tmp_path, monkeypatch, phase):
+    app, boat, opens = selected_app(tmp_path, monkeypatch)
+    bag = app.selected_bag()
+    (bag.path / 'events.jsonl').write_text('\n'.join(json.dumps(event) for event in [
+        {'t_ns': 10 * S, 'phase': phase}, {'t_ns': 40 * S, 'phase': 'marker'}]))
+    owners = (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths)
+    app.dispatch('enter')
+    assert 'text phase required' in app.notice and app.review is None and not opens
+    assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
+    assert not app.closed and app.processes.running('bag')
+    assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []
+
+
+@pytest.mark.parametrize('header', [[], {'host': []}, {'title': None}, {'profile': 123}])
+def test_malformed_selected_metadata_is_notice(tmp_path, monkeypatch, header):
+    app, boat, opens = selected_app(tmp_path, monkeypatch)
+    bag = app.selected_bag()
+    bag.meta_path.write_text(json.dumps(header))
+    owners = (app.source, app.processes, app.recorder, app.paths)
+    app.dispatch('enter')
+    assert app.review is None and not opens and 'enter:' in app.notice
+    assert (app.source, app.processes, app.recorder, app.paths) == owners
+    assert not app.closed and app.processes.running('bag') and boat.sent == []
+
+
+@pytest.mark.parametrize('mode', ['all-bad', 'one-bad', 'empty-window'])
+def test_initial_reader_evidence_distinguishes_failure_from_empty_window(
+        tmp_path, monkeypatch, mode):
+    app, boat, _ = selected_app(tmp_path, monkeypatch)
+    owners = (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths)
+
+    def opener(segment):
+        if mode == 'all-bad' or mode == 'one-bad' and segment.name == '00':
+            raise RuntimeError('reader unavailable')
+        # Readable later segment, no message at the initial playhead10.
+        return FakeReader([('/mhseals_testing/events', {'phase': 'marker'}, 25 * S)]), {
+            '/mhseals_testing/events': 'inert'}
+
+    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+        ReviewSource, opener=opener, decode=lambda kind, message: message))
+    app.dispatch('enter')
+    if mode == 'all-bad':
+        assert app.review is None and 'no readable session segments' in app.notice
+        assert 'reader unavailable' in app.notice
+        assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
+        assert not app.closed and app.processes.running('bag')
+    else:
+        assert app.review is not None and not app.source.snapshot()['events']
+        assert any(error is None for error in app.source.reader.segment_status.values())
+        app.dispatch('escape')
+        assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
+    assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []
+
+
+def test_reader_programming_error_is_not_hidden(tmp_path, monkeypatch):
+    app, _, _ = selected_app(tmp_path, monkeypatch)
+
+    def broken_opener(segment):
+        raise AssertionError('reader programming failure')
+
+    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+        ReviewSource, opener=broken_opener, decode=lambda kind, message: message))
+    with pytest.raises(AssertionError, match='programming failure'):
+        app.dispatch('enter')
+    assert app.review is None and app.source.live

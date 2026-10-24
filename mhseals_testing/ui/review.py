@@ -6,6 +6,7 @@ key moves only the scrubber and the window loads when the key rests (bags.md 4.1
 """
 
 from datetime import datetime
+import math
 from pathlib import Path
 
 from mhseals_testing import data
@@ -63,6 +64,39 @@ def timeline(events):
     return (min(times, default=0.0), max(times, default=0.0), markers, windows, gaps, fails)
 
 
+def review_metadata(path):
+    """Validate recorded display metadata before any live view can be replaced."""
+    header = data.read_json(path, {})
+    if not isinstance(header, dict):
+        raise ValueError(f'{path}: session metadata must be a mapping')
+    for name in ('host', 'title'):
+        if name in header and not isinstance(header[name], str):
+            raise ValueError(f'{path}: metadata {name} must be text')
+    profile = header.get('profile')
+    if profile is not None and not isinstance(profile, (str, dict)):
+        raise ValueError(f'{path}: invalid profile metadata')
+    if isinstance(profile, dict) and not isinstance(profile.get('name', ''), str):
+        raise ValueError(f'{path}: invalid profile name')
+    return header
+
+
+def validate_events(events, path):
+    """Reject malformed timeline records at the selected-session input boundary."""
+    if not isinstance(events, list):
+        raise ValueError(f'{path}: timeline events must be a list')
+    for event in events:
+        if not isinstance(event, dict) or not isinstance(event.get('phase', ''), str):
+            raise ValueError(f'{path}: timeline event and text phase required')
+        if 't_ns' in event:
+            stamp = event['t_ns']
+            try:
+                valid = type(stamp) in (int, float) and math.isfinite(stamp)
+            except OverflowError:
+                valid = False
+            if not valid:
+                raise ValueError(f'{path}: invalid timeline timestamp')
+
+
 def load_session(path):
     """A Review for a session: its journal (`<name>.events.jsonl` beside the folder, or inside it),
     else the events of `<name>.report.json`."""
@@ -73,11 +107,16 @@ def load_session(path):
         if events:
             break
     if not events:      # report events are the journal's own records (phase, id, kind intact)
-        events = data.read_json(path.with_suffix('.report.json'), {}).get('events', [])
+        report = data.read_json(path.with_suffix('.report.json'), {})
+        if not isinstance(report, dict):
+            raise ValueError(f'{path}: report must be a mapping')
+        events = report.get('events', [])
+    validate_events(events, path)
+    header = review_metadata(path / 'session.json')
     t0, t1, markers, windows, gaps, fails = timeline(events)
     if t1 <= t0:
         raise ValueError(f'{path}: no timed events to review')
-    host = data.read_json(path / 'session.json', {}).get('host') or next(
+    host = header.get('host') or next(
         (e['host'] for e in events if e.get('host')), '')
     return Review(t0, t1, markers, windows, gaps, fails, title=path.name, host=host)
 

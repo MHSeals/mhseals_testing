@@ -73,7 +73,8 @@ from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
-from mhseals_testing.ui.review import BIG, SMALL, Offline, find_session, load_session
+from mhseals_testing.ui.review import (
+    BIG, find_session, load_session, Offline, review_metadata, SMALL)
 from mhseals_testing.ui.source import LiveSource, ReviewSource
 from mhseals_testing.ui.takeover import decide
 
@@ -962,13 +963,14 @@ class App:
             return None
         return found[self.cursors['list']]
 
-    def check_bag(self, bag, destructive=False):
+    def check_bag(self, bag, destructive=False, metadata=None):
         """Revalidate live paths and metadata; cached row flags never authorize a mutation."""
         if self.bag_protected(bag):
             raise PermissionError(f'{bag.id} is recording')
         if bag.path.resolve() == getattr(self, 'finalizing', None):
             raise PermissionError(f'{bag.id} is being finalized')
-        bag.pinned = bool(data.read_json(bag.meta_path, {}).get('pinned'))
+        header = metadata if metadata is not None else data.read_json(bag.meta_path, {})
+        bag.pinned = bool(header.get('pinned'))
         if destructive and bag.pinned:
             raise PermissionError(f'{bag.id} is pinned')
 
@@ -1371,12 +1373,9 @@ class App:
         if self.armed or self.manual or self.running or self.test_pulses is not None:
             self.notice = 'Review: disarm and stop motion or test pulses first'
             return
-        self.check_bag(bag)
-        try:
-            selected = load_session(bag.path)
-        except (TypeError, KeyError, OverflowError) as error:
-            raise ValueError(f'invalid session timeline: {error}') from error
-        header = data.read_json(bag.meta_path, {})
+        header = review_metadata(bag.meta_path)
+        self.check_bag(bag, metadata=header)
+        selected = load_session(bag.path)
         name = header.get('profile')
         if isinstance(name, dict):
             name = name.get('name')

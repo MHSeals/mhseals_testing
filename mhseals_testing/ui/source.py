@@ -40,6 +40,10 @@ class ReviewSource:
         self.reader = BagSource(path, self.kinds, self.ingest, self.reset,
                                 span=(int(review.t0 * 1e9), int(review.t1 * 1e9)), **reader_args)
         self.seek(review.t0)
+        if not any(error is None for error in self.reader.segment_status.values()):
+            failures = '; '.join(f'{path.name}: {error}'
+                                 for path, error in self.reader.segment_status.items())
+            raise ValueError('no readable session segments: ' + (failures or 'none found'))
 
     def reset(self):
         from mhseals_testing.monitor import BoatMonitor

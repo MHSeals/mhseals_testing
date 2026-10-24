@@ -50,18 +50,23 @@ def open_segment(path):
     return reader, {topic.name: topic.type for topic in reader.get_all_topics_and_types()}
 
 
-def read_raw(path, topics=None, start_ns=None, end_ns=None, opener=open_segment):
+def read_raw(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, on_segment=None):
     """Yield ``(topic, type, data, t_ns)`` over all segments, ``start_ns <= t < end_ns``.
 
     ``topics`` filters by name (None keeps all). A segment that cannot be
     opened (a crashed one with no metadata) is skipped, not fatal.
+    ``on_segment(path, error)`` reports each open: None means success, text means failure.
     """
     wanted = None if topics is None else set(topics)
     for segment in segments(path):
         try:
             reader, types = opener(segment)
-        except Exception:  # noqa: BLE001 - rosbag2 raises RuntimeError for a broken segment
+        except (OSError, RuntimeError) as error:
+            if on_segment is not None:
+                on_segment(segment, str(error))
             continue
+        if on_segment is not None:
+            on_segment(segment, None)
         if start_ns is not None and hasattr(reader, 'seek'):
             reader.seek(int(start_ns))
         while reader.has_next():
@@ -75,7 +80,8 @@ def read_raw(path, topics=None, start_ns=None, end_ns=None, opener=open_segment)
             yield topic, types.get(topic, ''), data, t_ns
 
 
-def read(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, decode=None):
+def read(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, decode=None,
+         on_segment=None):
     """Like ``read_raw`` but yields ``(topic, message, t_ns)`` with decoded messages."""
     if decode is None:
         from rclpy.serialization import deserialize_message
@@ -83,7 +89,7 @@ def read(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, dec
 
         def decode(kind, data):
             return deserialize_message(data, get_message(kind))
-    for topic, kind, data, t_ns in read_raw(path, topics, start_ns, end_ns, opener):
+    for topic, kind, data, t_ns in read_raw(path, topics, start_ns, end_ns, opener, on_segment):
         yield topic, decode(kind, data), t_ns
 
 
@@ -115,12 +121,15 @@ class BagSource:
         self.path, self.topics = Path(path), tuple(topics)
         self.ingest, self.reset, self.window_s, self.rate = ingest, reset, window_s, rate
         self.reader_args = reader_args
+        self.segment_status = {}  # path -> None on successful open, else reader error
         self.span = span or bounds(self.path)
         self.t_ns = self.span[0] if self.span else 0
         self.playing = False
 
     def _feed(self, start_ns, end_ns):
-        for topic, message, t_ns in read(self.path, self.topics, start_ns, end_ns, **self.reader_args):
+        stream = read(self.path, self.topics, start_ns, end_ns,
+                      on_segment=self.segment_status.__setitem__, **self.reader_args)
+        for topic, message, t_ns in stream:
             self.ingest(topic, message, t_ns / 1e9)
 
     def seek(self, t_ns):
