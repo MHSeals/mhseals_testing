@@ -1,7 +1,8 @@
 """Battery facts from the flight controller's /mavros/battery (health.md section D, W1).
 
 ROS-free and made of plain dicts. ``from_mavros`` turns a BatteryState-like object into a
-sample (NaN becomes None, a source under 1 V is absent); ``Power`` folds samples into the
+sample (NaN becomes None; under 1 V or at 65.5 V and over the source is absent, a negative
+percentage is unknown; the same rules as health.probes.battery_facts); ``Power`` folds samples into the
 ``power.*`` facts: cell count, per-cell minimum, sag against the resting baseline, mAh used
 (reset on a pack swap), percentage and time left. Thresholds for the checks live in YAML (W2).
 """
@@ -17,6 +18,7 @@ CHEMISTRIES = {
     'lifepo4': {'full': 3.65, 'nominal': 3.20, 'low': 3.00, 'critical': 2.80},
 }
 MIN_VOLT = 1.0               # below this the source reports no pack
+MAX_VOLT = 65.5              # at or above this it is MAVLink UINT16_MAX (65.535 V), 'no voltage'
 REST_AMPS = 0.5              # at or under this the pack is resting
 REST_WINDOW = 10.0           # s from the first sample that count for the baseline
 SWAP_JUMP = 0.5              # V rise at rest that means a fuller pack was fitted
@@ -38,14 +40,14 @@ def _num(value):
 def from_mavros(message, t, source='mavros') -> dict | None:
     """Sample ``{t, volt, amp, cells_v, mah_used, pct, temp, source}`` or None when absent."""
     volt = _num(getattr(message, 'voltage', None))
-    if volt is None or volt < MIN_VOLT:
+    if volt is None or not MIN_VOLT <= volt < MAX_VOLT:
         return None
     cells = [_num(c) for c in (getattr(message, 'cell_voltage', None) or ())]
     cells = cells if cells and all(c is not None and c > 0 for c in cells) else None
     pct = _num(getattr(message, 'percentage', None))
     return {'t': t, 'volt': volt, 'amp': _num(getattr(message, 'current', None)),
             'cells_v': cells, 'mah_used': None,
-            'pct': None if pct is None else min(max(pct, 0.0), 1.0) * 100.0,
+            'pct': None if pct is None or pct < 0 else min(max(pct, 0.0), 1.0) * 100.0,
             'temp': _num(getattr(message, 'temperature', None)), 'source': source}
 
 

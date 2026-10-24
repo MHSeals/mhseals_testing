@@ -22,8 +22,8 @@ def subscribe_fcu(ros, monitor, facts, cells=None):
 
     def battery(message):
         sample = power.from_mavros(message, ros.node.get_clock().now().nanoseconds * 1e-9)
-        if sample is not None:
-            ros.power_facts = tracker.update(sample)    # read by the Power popup
+        # None (no pack, 65.535 V) clears the facts so the popup never shows a stale pack
+        ros.power_facts = None if sample is None else tracker.update(sample)    # read by the Power popup
         facts.publish('battery', probes.battery_facts(
             message.voltage, message.percentage, message.current, cells))
 

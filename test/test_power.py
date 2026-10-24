@@ -115,3 +115,12 @@ def test_swaps_are_counted_and_survive_the_reset():
     s = lambda t, v, a: p.from_mavros(SimpleNamespace(voltage=v, current=a, percentage=float('nan')), t)
     assert pw.update(s(0, 15.0, 0.1))['swaps'] == 0
     assert pw.update(s(5, 15.9, 0.1))['swaps'] == 1
+
+
+def test_fcu_unknown_values_are_absent():
+    """65.535 V (UINT16_MAX) is no voltage and a negative percentage is unknown, as in the row."""
+    assert p.from_mavros(msg(65.535, 1.0, pct=-0.01), 0) is None
+    assert p.from_mavros(msg(65.5), 0) is None
+    s = p.from_mavros(msg(15.8, 1.0, pct=-0.01), 0)
+    assert s['volt'] == 15.8 and s['pct'] is None
+    assert p.from_mavros(msg(15.8, 1.0, pct=0.5), 0)['pct'] == 50.0
