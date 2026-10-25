@@ -47,6 +47,7 @@ FAMILIES = {'buoy': ('obj.red', 'obj.green', 'obj.yellow', 'obj.blue'),
             'armed': ('armed',)}     # and the hot armed state is neither
 ALIKE = {frozenset(('severity', 'gps'))}   # fix quality reads as health on purpose: fix is ok, none is fail
 MIN_DELTA_E = 7.5   # CIEDE2000; the reviewed dark theme's closest pair (yellow buoy, warn) is 7.9
+FAMILIES['agent vendor'] = ('agent.claude', 'agent.codex')   # which coding agent ran a command
 
 
 def _apart():

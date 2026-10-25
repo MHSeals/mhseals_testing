@@ -133,6 +133,13 @@ def auth_style(kind):
     return PALETTE.style(CHIPS.get(kind, 'auth.human'))
 
 
+def agent_style(agent):
+    """The hue of a coding agent by vendor (``claude``, ``codex`` or a ``claude-3f2a`` name);
+    any other agent wears the agent authority hue."""
+    token = f"agent.{str(agent or '').split('-')[0]}"
+    return PALETTE.style(token if token in PALETTE.tokens else 'auth.agent')
+
+
 def block(renderable, title, focused=False, subtitle=None, keys=None, **kwargs):
     """A rounded panel; the focused one gets a bold border and a ▸ before its title.
 

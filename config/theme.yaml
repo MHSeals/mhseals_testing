@@ -34,6 +34,10 @@ tokens:
   auth.agent_dim: {dark: '#B58BAE', light: '#8A5A84', x256: [139, 96],  ansi: magenta}   # working, not driving
   auth.hold:      {alias: slate}
   auth.unclaimed: {alias: fail}
+  # which coding agent (Activity agent rows, the working item): apart from every family, stop and
+  # armed included, so no warm hue is left; the vendor word carries it where colour is absent
+  agent.claude:   {dark: '#AFDBF4', light: '#1888B8', x256: [153, 31],  ansi: bright_white}
+  agent.codex:    {dark: '#9C5EE8', light: '#4A2DB0', x256: [134, 55],  ansi: white}
   # buoys: saturated signal hues, apart from the pastel severity set; on 16 colours bright_* vs plain
   obj.red:     {dark: '#FF5F57', light: '#D11A12', x256: [203, 160], ansi: bright_red,    fixed: true}
   obj.green:   {dark: '#36D399', light: '#009874', x256: [42, 35],   ansi: bright_green,  fixed: true}
