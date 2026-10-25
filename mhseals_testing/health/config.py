@@ -70,6 +70,7 @@ class HealthConfig:
     specs: tuple
     probes: dict
     unmatched: tuple = ()    # override ids and disable patterns that named no check
+    joins: dict = dataclasses.field(default_factory=dict)   # {lowercase group: ids of other groups' checks that count as its members}
 
 
 def render(template, **fields):
@@ -224,10 +225,16 @@ def load(directory=None, profile=None, user=None):
         user = USER_FILE
     registry.discover()
     context = {'workspace': str(workspace()), **profile_context(profile), 'share': Share()}
-    raws, probes = [], {}
+    raws, probes, joins = [], {}, {}
     for path in sorted(directory.glob('*.yaml')):
         data = _read(path)
         _merge(probes, _section(data, 'probes', dict, path))
+        for join in _section(data, 'joins', list, path):    # existing checks this file's group also counts
+            if not isinstance(join, dict) or not isinstance(join.get('id'), str):
+                raise ConfigError(f'{path}: every join must be a mapping with an id, got {join!r}')
+            names = join.get('profiles') or ()
+            if profile is None or not names or profile.name in ((names,) if isinstance(names, str) else names):
+                joins.setdefault(str(data.get('group', path.stem)).lower(), []).append(join['id'])
         defaults = _section(data, 'defaults', dict, path)
         for entry in _section(data, 'checks', list, path):
             if not isinstance(entry, dict):
@@ -258,7 +265,11 @@ def load(directory=None, profile=None, user=None):
         if any(fnmatchcase(str(raw.get('id')), pattern) for pattern in disabled):
             raw['enabled'] = False
         specs.append(_spec(raw))
-    return HealthConfig(tuple(specs), probes, unmatched)
+    for group, members in joins.items():
+        missing = [i for i in members if i not in ids]
+        if missing:
+            raise ConfigError(f'{group}: joins name no check: {", ".join(missing)}')
+    return HealthConfig(tuple(specs), probes, unmatched, joins)
 
 
 def _regex_fields(params):

@@ -135,14 +135,17 @@ def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5
             'summary': summary, 'gates': gates, 'checks': checks}, code
 
 
-def required(report, groups):
+def required(report, groups, joins=None):
     """{group: {evaluated, total, not_ok}} for each ``--require`` group (any case).
+
+    ``joins`` ({lowercase group: ids}) adds other groups' checks the group's YAML names.
 
     ``not_ok`` lists the ids that are not OK (info counts as OK); unknown is never a pass.
     """
     out = {}
     for group in groups:
-        rows = [c for c in report['checks'] if c['group'].lower() == group.lower()]
+        members = (joins or {}).get(group.lower(), ())
+        rows = [c for c in report['checks'] if c['group'].lower() == group.lower() or c['id'] in members]
         out[group] = {'evaluated': sum(c['status'] != 'unknown' for c in rows), 'total': len(rows),
                       'not_ok': [c['id'] for c in rows if c['status'] not in ('ok', 'info')]}
     return out
@@ -342,7 +345,7 @@ def main(argv=None, collect=None):
     if code == 0 and report['checks'] and report['summary']['unknown'] == len(report['checks']):
         code = 3                        # a pass that checked nothing must not look like a pass
     if args.require:
-        report['required'] = required(report, args.require)
+        report['required'] = required(report, args.require, config.joins)
         unmet = [g for g, n in report['required'].items() if not n['evaluated']]
         if unmet:
             print(f'boat_trial: required group(s) not evaluated: {", ".join(unmet)}', file=sys.stderr)

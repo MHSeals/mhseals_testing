@@ -29,7 +29,6 @@ CASES = {
     'pre.mosfet': ({'driver.mosfet': Fact('on')}, {'driver.mosfet': Fact('off')}),
     'pre.estop': ({'driver.estop': Fact('armed')}, {'driver.estop': Fact('latched')}),
     'pre.calib_dead': ({'calibration.dead': Fact(0)}, {'calibration.dead': Fact(1)}),
-    'pre.fcu': ({'fcu.connected': Fact(True)}, {'fcu.connected': Fact(False)}),
     'pre.rc': ({'rc.link': Fact('valid')}, {'rc.link': Fact('invalid')}),
     'pre.mavros_extras': ({RTCM: Fact({'pub': (), 'sub': (Endpoint('/mavros/gps_rtk'),)})},
                           {RTCM: Fact({'pub': (), 'sub': ()})}),
@@ -64,6 +63,17 @@ def judge(boat, check, facts):
     engine = Engine([spec], periods, clock=lambda: 100.0)
     fresh = {name: (100.0, None) for name in periods}
     return engine.tick(facts, fresh).results[check].status
+
+
+def test_fcu_link_is_the_existing_check_joined_to_the_group_on_the_boat_only(boat):
+    registry.discover()
+    assert 'pre.fcu' not in boat[0]
+    assert load(user=False, profile=load_profile('boat')).joins == {'preflight': ['fcu.link']}
+    assert load(user=False, profile=load_profile('crane_full_stack')).joins == {}
+    found = {'checks': [{'id': 'fcu.link', 'group': 'FCU', 'status': 'unknown'},
+                        {'id': 'pre.a', 'group': 'Preflight', 'status': 'ok'}]}
+    assert cli.required(found, ['preflight'], {'preflight': ['fcu.link']})['preflight']['not_ok'] == ['fcu.link']
+    assert cli.required(found, ['preflight'])['preflight']['not_ok'] == []
 
 
 def test_every_boat_preflight_check_is_covered(boat):

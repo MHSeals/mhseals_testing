@@ -5,6 +5,8 @@
 group: Preflight
 probes:
   preflight: {period: 1}
+joins:                  # other groups' checks that `--require preflight` also needs OK
+  - {id: fcu.link, profiles: [boat]}
 checks:
   # Thrusters. The driver runs only while armed: arm on the dock with the thrusters
   # disconnected to read its status; disarmed these read unknown.
@@ -49,8 +51,7 @@ checks:
     hint: Characterize got no response from a direction; unknown until a fit is stored
 
   # Links
-  - {id: pre.fcu, kind: threshold, fact: fcu.connected, expect: true, probe: fcu, severity: fail,
-     profiles: [boat], title: FCU link}
+  # The FCU link is fcu.link (sensors_fcu.yaml), counted in this group by `joins`.
   - id: pre.rc
     kind: state
     fact: rc.link
