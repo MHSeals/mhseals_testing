@@ -30,9 +30,13 @@ def test_torn_last_line_is_skipped(tmp_path):
 
 
 def test_two_processes_get_distinct_ids(tmp_path):
-    procs = [multiprocessing.Process(target=_append, args=(tmp_path, n)) for n in range(6)]
+    # spawn, not fork: forking the suite's multi-threaded process can deadlock a child on a
+    # lock another thread held, and an unbounded join then hangs the whole run.
+    spawn = multiprocessing.get_context('spawn')
+    procs = [spawn.Process(target=_append, args=(tmp_path, n)) for n in range(6)]
     [p.start() for p in procs]
-    [p.join() for p in procs]
+    [p.join(timeout=60) for p in procs]
+    assert all(p.exitcode == 0 for p in procs)
     ids = [c['id'] for c in History(tmp_path).changes()]
     assert sorted(ids) == [f'c{i:04d}' for i in range(1, 7)]
 
