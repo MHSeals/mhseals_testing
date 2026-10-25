@@ -179,6 +179,24 @@ def test_preflight_probe_reads_the_driver_only_while_its_node_runs():
     assert 'orin.temp_max' not in probe.facts(probe.host[0] + 10, [])     # silent camera host
 
 
+def test_rc_rule_follows_a_live_hardware_edit_and_status_can_come_from_the_tui():
+    pytest.importorskip('rclpy')
+    from mhseals_testing.ros.preflight import Preflight
+    hardware = {'command_mux': dict(MUX)}
+    shared = [status()]
+    probe = Preflight(SimpleNamespace(uses_fcu=True, outputs='topic'), lambda: hardware,
+                      local='blastoise', status=lambda: shared[0])
+    first = probe.rc
+    assert probe.rc is first                                   # unchanged config: same link
+    first.frame([1500] * 8, 1.0)
+    hardware['command_mux']['rc_max_age'] = 99.0               # edited in place, as the TUI does
+    assert probe.rc is not first and probe.rc.rule.rc_max_age == 99.0
+    assert probe.facts(0.0, ['/thruster_pwm_node'])['driver.outputs'].value == 'match'
+    shared[0] = None                                           # RosIO could not parse the status
+    assert 'driver.outputs' not in probe.facts(0.0, ['/thruster_pwm_node'])
+    assert Preflight(SimpleNamespace(uses_fcu=False, outputs='topic'), {}).rc is None
+
+
 def report(*rows):
     checks = [{'id': i, 'group': g, 'status': s, 'value': '', 'detail': ''} for i, g, s in rows]
     summary = {st: sum(c['status'] == st for c in checks) for st in ('ok', 'info', 'unknown', 'warn', 'fail')}

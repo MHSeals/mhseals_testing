@@ -6,6 +6,7 @@ queries and a sysfs PWM read. The TUI and ``boat_trial check`` share it, so both
 same facts. See health/probes/preflight.py for the fact names.
 """
 
+import copy
 import json
 import socket
 import time
@@ -34,11 +35,13 @@ def watched_topics(specs):
 class Preflight:
     """Callbacks store the latest values; ``facts(now)`` turns them into facts."""
 
-    def __init__(self, profile, hardware, registry=None, clock=time.monotonic, local=None):
+    def __init__(self, profile, hardware, registry=None, clock=time.monotonic, local=None, status=None):
         self.profile, self.registry, self.clock = profile, registry, clock
         self._hardware = hardware if callable(hardware) else (lambda: hardware)   # the TUI edits it live
+        self._status = status                    # the TUI's RosIO.driver_status; None: on_status fills it
         self.status = None
-        self.rc = preflight.RcLink(self.hardware.get('command_mux')) if profile.uses_fcu else None
+        self._mux = None
+        self._rc = None
         self.gps = FcuProbe()
         self.host = None                         # (receipt, hostname, values)
         self.local = local or socket.gethostname()
@@ -46,6 +49,20 @@ class Preflight:
     @property
     def hardware(self):
         return self._hardware() or {}
+
+    @property
+    def rc(self):
+        """The RC link judged by the live ``command_mux``; rebuilt (frames dropped) when it changes."""
+        if not self.profile.uses_fcu:
+            return None
+        mux = self.hardware.get('command_mux')
+        if self._rc is None or mux != self._mux:
+            self._mux, self._rc = copy.deepcopy(mux), preflight.RcLink(mux)
+        return self._rc
+
+    @property
+    def driver_status(self):
+        return self._status() if self._status else self.status
 
     def on_status(self, message):
         try:
@@ -70,9 +87,10 @@ class Preflight:
         """Every fact; the driver's only while its node is on the graph (its status is latched)."""
         out = {}
         if any(n.rsplit('/', 1)[-1] == DRIVER for n in nodes):
-            out.update(preflight.driver_facts(self.status, self.hardware))
-        if self.rc is not None:
-            out.update(self.rc.facts(now))
+            out.update(preflight.driver_facts(self.driver_status, self.hardware))
+        rc = self.rc
+        if rc is not None:
+            out.update(rc.facts(now))
         out.update({k: v for k, v in self.gps.facts(now).items() if k.startswith('gps.')})
         if self.host and now - self.host[0] <= HOST_SILENCE_S:
             out.update(preflight.orin_facts(self.host[2], self.host[1]))
@@ -89,17 +107,20 @@ class Preflight:
 
 
 def subscribe_preflight(node, facts, profile, hardware, specs, periods, registry=None,
-                        ghosts=lambda: ()):
+                        ghosts=lambda: (), status=None):
     """Subscribe on ``node`` and publish ``preflight`` and ``graph`` facts on timers.
 
     ``specs`` set the topics the graph probe samples; ``ghosts()`` names stopped children whose
-    nodes may linger for a DDS lease (see probes/graph.collapse).
+    nodes may linger for a DDS lease (see probes/graph.collapse). ``status()`` returns the
+    driver's latest ~/status dict when the caller already subscribes it (the TUI's RosIO);
+    without it this subscribes.
     """
     from diagnostic_msgs.msg import DiagnosticArray
     from std_msgs.msg import String
-    probe = Preflight(profile, hardware, registry)
-    node.create_subscription(String, STATUS_TOPIC, probe.on_status,
-                             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+    probe = Preflight(profile, hardware, registry, status=status)
+    if status is None:
+        node.create_subscription(String, STATUS_TOPIC, probe.on_status,
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
     node.create_subscription(DiagnosticArray, DIAGNOSTICS, probe.on_diagnostics, 10)
     if profile.uses_fcu:
         try:
@@ -135,7 +156,7 @@ def subscribe_tui(ros, facts, profile, hardware, registry):
     periods = {n: s['period'] for n, s in loaded.probes.items() if isinstance(s, dict) and 'period' in s}
     specs = [s for s in loaded.specs if s.group == 'Preflight']
     return subscribe_preflight(ros.node, facts, profile, hardware, specs, periods, registry,
-                               lambda: ros.ghosts())
+                               lambda: ros.ghosts(), lambda: ros.driver_status)
 
 
 def cli_collector(profile, config, specs, host_collect):
