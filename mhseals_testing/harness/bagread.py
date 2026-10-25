@@ -85,7 +85,9 @@ SKIP = object()   # what a decoder returns for a type this host cannot import
 
 
 def ros_decoder(lookup=None, deserialize=None):
-    """``decode(kind, data)``: the message, or SKIP when this host lacks its package (zed_msgs on a laptop)."""
+    """``decode(kind, data)``: the message, or SKIP when this host lacks its package.
+
+    zed_msgs on a laptop is the usual case."""
     if lookup is None:
         from rosidl_runtime_py.utilities import get_message as lookup
     classes = {}
@@ -109,7 +111,8 @@ def read(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, dec
          on_segment=None):
     """Like ``read_raw`` but yields ``(topic, message, t_ns)`` with decoded messages.
 
-    A type ``decode`` returns SKIP for is left out with one warning, not fatal for the read.
+    A type ``decode`` returns SKIP for is left out with one warning, not fatal for the read,
+    unless ``topics`` asked for it by name: then LookupError, not a read that looks empty.
     """
     decode = decode or ros_decoder()
     skipped = set()
@@ -117,9 +120,13 @@ def read(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, dec
         message = decode(kind, data)
         if message is not SKIP:
             yield topic, message, t_ns
-        elif kind not in skipped:
+            continue
+        why = f'{kind}: its message package is not installed'
+        if topics is not None:
+            raise LookupError(f'bag: cannot decode {topic} ({why})')
+        if kind not in skipped:
             skipped.add(kind)
-            warnings.warn(f'bag: skipping {kind} (first on {topic}): its message package is not installed')
+            warnings.warn(f'bag: skipping {topic} and any other {why}')
 
 
 def bounds(path, opener=open_segment):

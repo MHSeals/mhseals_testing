@@ -106,17 +106,35 @@ def test_segments_find_recorder_layout_session_bag_nn(tmp_path):
     assert bagread.segments(bag) == expect
 
 
-def test_a_type_this_host_cannot_import_is_skipped_with_one_warning(tmp_path):
-    rows = [('/zed', b'z1', S), ('/a', b'a1', 2 * S), ('/zed', b'z2', 3 * S)]
-    session(tmp_path, {'bag_00': rows})
-    opener = lambda segment: (FakeReader(list(rows)), {'/a': 'std_msgs/msg/String', '/zed': 'zed_msgs/msg/ObjectsStamped'})
+TYPES = {'/a': 'std_msgs/msg/String', '/zed': 'zed_msgs/msg/ObjectsStamped'}
+ROWS = [('/zed', b'z1', S), ('/a', b'a1', 2 * S), ('/zed', b'z2', 3 * S)]
+
+
+def zed_less_read(tmp_path, topics=None):
+    """read() on a host without zed_msgs."""
+    session(tmp_path, {'bag_00': ROWS})
+
+    def opener(segment):
+        return FakeReader(list(ROWS)), TYPES
 
     def lookup(kind):
         if kind.startswith('zed_msgs/'):
             raise ModuleNotFoundError("No module named 'zed_msgs'")
         return kind
-    decode = bagread.ros_decoder(lookup, deserialize=lambda data, cls: (cls, data))
+
+    def deserialize(data, cls):
+        return cls, data
+    decode = bagread.ros_decoder(lookup, deserialize)
+    return list(bagread.read(tmp_path, topics, opener=opener, decode=decode))
+
+
+def test_a_type_this_host_cannot_import_is_skipped_with_one_warning(tmp_path):
     with pytest.warns(UserWarning, match='zed_msgs/msg/ObjectsStamped') as caught:
-        got = list(bagread.read(tmp_path, opener=opener, decode=decode))
+        got = zed_less_read(tmp_path)
     assert got == [('/a', ('std_msgs/msg/String', b'a1'), 2 * S)]
     assert len(caught) == 1
+
+
+def test_a_named_topic_that_cannot_be_decoded_raises(tmp_path):
+    with pytest.raises(LookupError, match='/zed'):
+        zed_less_read(tmp_path, ['/a', '/zed'])
