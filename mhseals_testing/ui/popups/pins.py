@@ -33,10 +33,13 @@ def busy(app):
 
 
 def pin_hash(config):
-    """A digest of what the pins are: chips, channels and the MOSFET line."""
-    keys = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line')
-    return hashlib.sha256(json.dumps([list(config[k]) if k.startswith('pwm') else config[k]
-                                      for k in keys]).encode()).hexdigest()[:16]
+    """A digest of the PWM chips and channels, which the readback checks.
+
+    The MOSFET chip and line are left out: sysfs cannot show them, so a readback
+    proves nothing about them and they must not count as verified.
+    """
+    return hashlib.sha256(json.dumps([list(config['pwm_chips']), list(config['pwm_channels'])])
+                          .encode()).hexdigest()[:16]
 
 
 def marker_path(app):

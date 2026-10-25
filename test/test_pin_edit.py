@@ -151,3 +151,12 @@ def test_a_first_unread_pin_change_survives_a_restart(tmp_path, monkeypatch):
     fresh, _ = make_app(tmp_path)
     fresh.profile = app.profile
     assert not fresh.pins_unverified and 'differ from the last readback' in fresh.pin_refusal()
+
+
+def test_the_mosfet_line_is_not_counted_as_verified(tmp_path, monkeypatch):
+    free_pin_7(tmp_path)
+    app, _, _ = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    config = dict(app.args.hardware_config)
+    assert pins.pin_hash(config) == pins.pin_hash(dict(config, mosfet_line=1, mosfet_chip='gpio9'))
+    assert pins.pin_hash(config) != pins.pin_hash(dict(config, pwm_channels=[1, 0, 0, 0]))
+    assert pins.pin_hash(config) != pins.pin_hash(dict(config, pwm_chips=CHIPS))
