@@ -8,7 +8,7 @@ import pytest
 
 from mhseals_testing.devices import Host, Part
 from mhseals_testing.harness.components import (
-    ComponentError, Stack, components, parse_components, state)
+    ComponentError, Stack, components, parse_components)
 from mhseals_testing.profiles import load_profile
 
 ME = Host('local', address='127.0.0.1')
@@ -257,7 +257,7 @@ def test_external_is_never_stopped():
         stack.stop('odometry', {'ekf_local'})
     with pytest.raises(ComponentError, match='blastoise-jetson; start it there'):
         stack.start('camera', set())                        # no remote control in this stack
-    with pytest.raises(ComponentError, match='outside'):
+    with pytest.raises(ComponentError, match='blastoise-jetson; stop it there'):
         stack.stop('camera', {'/front/zed_node'})
     assert processes.stopped == []
 
@@ -273,6 +273,8 @@ def test_stop_ours_stops_dependants_first():
 def test_remote_parts_start_and_stop_as_units_on_their_host():
     units = FakeUnits()
     stack, processes, _ = make(units)
+    assert stack.state('camera', set()) == ('unknown', 'unit status on blastoise-jetson not read yet')
+    units.records['camera'] = {'state': 'off'}
     assert stack.state('camera', set()) == ('off', '')
     stack.start('camera', set())
     assert units.calls == [('start', 'camera', False)] and not processes.started
@@ -293,6 +295,28 @@ def test_unreachable_is_not_off_and_refuses_start_but_stop_still_tries():
         stack.start('camera', set())
     assert stack.stop('camera', set()) == ['camera']      # the state is unknown: stop is sent anyway
     assert units.calls == [('stop', 'camera')]
+
+
+def test_remote_nodes_up_while_ssh_fails_or_before_the_first_read_stay_stoppable():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    up = {'/front/zed_node'}
+    # Before the first status call: maybe ours, so not external; Start waits, Stop goes out.
+    assert stack.state('camera', up)[0] == 'unknown'
+    with pytest.raises(ComponentError, match='not read yet'):
+        stack.start('camera', up)
+    assert stack.stop('camera', up) == ['camera']
+    # ssh down with the nodes still in the graph: unreachable, never external, and Stop is sent.
+    units.records.pop('camera')
+    units.errors['camera'] = 'ssh: timeout'
+    assert stack.state('camera', up) == ('unreachable', 'ssh: timeout')
+    assert stack.stop('camera', up) == ['camera']
+    # Read as off with the nodes up: someone else's; a Stop still goes out (harmless) and starts none.
+    units.errors.clear()
+    units.records['camera'] = {'state': 'off'}
+    assert stack.state('camera', up)[0] == 'external'
+    assert stack.stop('camera', up) == ['camera']
+    assert units.calls == [('stop', 'camera')] * 3
 
 
 def test_a_remote_commander_needs_the_operators_confirmed_go_ahead():

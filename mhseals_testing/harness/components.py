@@ -244,12 +244,19 @@ def stopped_recently(component, processes, now):
     return at is not None and now - at < GHOST_S
 
 
+def _up(component, nodes):
+    """Every proof node of ``component`` is in ``nodes`` (bare names)."""
+    return bool(component.nodes) and all(node in nodes for node in component.nodes)
+
+
 def remote_state(component, nodes, units, now, started):
     """(state, detail) of a part another computer runs, from the graph and its unit's status.
 
-    The graph proves up; the unit says why not. Unreachable (ssh failed) is not off.
+    The graph proves up; the unit says why not. Unreachable (ssh failed) is not off. Nodes in the
+    graph read as external only once the unit is known not to run them: while ssh is down or
+    before the first status call it may be ours, so the row stays stoppable.
     """
-    up = bool(component.nodes) and all(node in nodes for node in component.nodes)
+    up = _up(component, nodes)
     record, error = units.status(component) if units is not None else (None, None)
     where = component.remote
     if record is not None and record.get('state') == 'running':
@@ -259,17 +266,19 @@ def remote_state(component, nodes, units, now, started):
             missing = next(node for node in component.nodes if node not in nodes)
             return 'starting', f'WARN: no {missing} (unit on {where})'
         return 'starting', f'unit on {where}'
-    if up:
-        return 'external', where
     if error:
         return 'unreachable', error
+    if units is not None and record is None:
+        return 'unknown', f'unit status on {where} not read yet'
+    if up:
+        return 'external', where
     if record is not None and record.get('state') == 'exited':
         return 'exited', f'unit exited {record.get("code")} on {where}: {record.get("log")}'
     return 'off', ''
 
 
 def state(component, nodes, processes, now, started=None, units=None):
-    """(state, detail): off, starting, ours, external, exited, unreachable or disabled.
+    """(state, detail): off, starting, ours, external, exited, unreachable, unknown or disabled.
 
     ``processes`` is the ProcessManager, ``nodes`` the node names in the graph (namespaces are ignored),
     ``started`` the time we started the component (same clock as ``now``), ``units`` the remote
@@ -332,6 +341,9 @@ class Stack:
             raise ComponentError(f'{item.title} is {detail}', [key])
         if status == 'unreachable':
             raise ComponentError(f'{item.title}: {item.remote} is unreachable ({detail})', [key])
+        # Not read yet: a start adopts a running unit, but nodes already up may be someone else's.
+        if status == 'unknown' and _up(item, {node.rsplit('/', 1)[-1] for node in nodes}):
+            raise ComponentError(f'{item.title} is up and its {detail}; try again shortly', [key])
         if status in ('ours', 'starting', 'external'):
             raise ComponentError(f'{item.title} is already running', [key])
         off = [need for need in item.needs
@@ -360,12 +372,19 @@ class Stack:
         return record is None or record.get('state') == 'running'
 
     def stop(self, key, nodes):
-        """Stop ours, dependants first. Never stops an external process; returns the keys stopped."""
+        """Stop ours, dependants first; returns the keys stopped.
+
+        Never stops an external local process. A remote part's stop always goes out: ``unit
+        stop`` of a unit that is not running is harmless, and ssh may be down or not yet read.
+        """
+        item = self.items[key]
         status, _ = self.state(key, nodes)
-        if status == 'external':
+        if status == 'external' and item.host is None:
             raise ComponentError('running outside this session; stop it where it was started', [key])
+        if item.host is not None and self.units is None:
+            raise ComponentError(f'{item.title} runs on {item.remote}; stop it there', [key])
         order = [other for other in self._dependants(key) if self.running(other)]
-        if self.running(key):
+        if self.running(key) or item.host is not None:
             order.append(key)
         for name in order:
             if self.items[name].host is None:
