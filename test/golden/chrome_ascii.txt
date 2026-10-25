@@ -122,6 +122,5 @@
 +- > Authority ------------------------------------------------+
 | Driving AGENT                                                |
 |                                                              |
-| > E Revoke                                                   |
-|   Esc Close                                                  |
+| [>E Revoke <]   [ Esc Close ]                                |
 +-  E revoke selected  U release hold  Esc close  -------------+
