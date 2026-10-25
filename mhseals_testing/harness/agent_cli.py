@@ -1,7 +1,8 @@
-"""boat_trial agent verbs: claim, release, status, follow, run, goal, stop, mark, note, ask (spec agent-control section 3).
+"""boat_trial agent verbs: claim, release, status, follow, run, goal, stop, mark, note, ask.
 
-ROS-free except ``stop``'s backup path. A verb appends a ``req`` line to the agent channel and
-waits for the owner TUI's ``reply`` lines; the TUI runs the act. Output is one JSON document, or
+Spec agent-control section 3. ROS-free except ``stop``'s backup path. A verb appends a ``req``
+line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI runs the act
+(an owner with no agent desk, a review, is exit 4 once the request goes unanswered). Output is one JSON document, or
 JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/busy/blocked (the
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
 owner, 5 agents blocked, 6 timeout. No verb arms the boat or releases a hold.
@@ -86,6 +87,11 @@ class Agent:
         found = self.registry.owner()
         return found if found and self.registry.alive(found['pid']) else None
 
+    def has_desk(self):
+        """Whether the owner runs an agent desk: only a desk writes status.json, with its pid."""
+        doc, owner = data.read_json(runtime_dir() / 'status.json'), self.owner()
+        return bool(owner) and isinstance(doc, dict) and doc.get('pid') == owner['pid']
+
     def local(self, req, error, hint='', **result):
         """Answer ``req`` here (no desk), journal the reply on the channel and print it."""
         reply = channel.reply(req['id'], self.who, ok=not error, error=error, hint=hint,
@@ -126,6 +132,9 @@ class Agent:
             except FileNotFoundError:
                 moved = True
             late = not heard and time.time_ns() > req['deadline_ns'] + SLACK_S * 1e9
+            if late and not moved and not self.has_desk():
+                return self.local(req, 'no_owner', 'the owner TUI runs no agent desk (review or guest); '
+                                  'start a live boat_test')
             if moved or late or (limit is not None and now - start > limit):
                 hint = 'channel file rotated or removed' if moved else 'no reply from the TUI'
                 self.emit({'re': req['id'], 'ok': False, 'error': 'timeout', 'hint': hint})

@@ -128,12 +128,26 @@ def test_the_tui_dying_mid_act_exits_4():
     assert code == 4 and out[-1]['error'] == 'no_owner'
 
 
-def test_no_reply_past_the_deadline_times_out():
+def test_no_reply_past_the_deadline_times_out(monkeypatch, tmp_path):
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    data.write_json(runtime_dir() / 'status.json', {'pid': 77}, 'mhseals.status/1')   # the desk is up
     args = cli.build_parser().parse_args(['claim'])
     stream, desk = io.StringIO(), Desk()
     code = agent_cli.main(args, registry=Reg(), out=stream, clock=desk.clock, sleep=desk.sleep,
                           settings=dict(SETTINGS, request_s=-3.0))
     assert code == 6 and json.loads(stream.getvalue())['error'] == 'timeout'
+
+
+@pytest.mark.parametrize('argv', [['run', 'square', '--claim', 'c4'], ['goal', '1', '2', '--claim', 'c4']])
+def test_an_owner_without_a_desk_exits_4_not_6(argv, monkeypatch, tmp_path):
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    data.write_json(runtime_dir() / 'status.json', {'pid': 12}, 'mhseals.status/1')   # an earlier TUI's
+    args = cli.build_parser().parse_args(argv)
+    stream, desk = io.StringIO(), Desk()
+    code = agent_cli.main(args, registry=Reg(), out=stream, clock=desk.clock, sleep=desk.sleep,
+                          settings=dict(SETTINGS, request_s=-3.0))
+    reply = json.loads(stream.getvalue().splitlines()[-1])
+    assert code == 4 and reply['error'] == 'no_owner' and 'desk' in reply['hint']
 
 
 def test_a_rotated_channel_times_out():
