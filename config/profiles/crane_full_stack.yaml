@@ -2,7 +2,8 @@
 # publishes PWM to the simulator, which publishes the boat's sensor topics.
 # Start crane_ml with --crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract
 # --crane-ros-nav-state, --crane-ros-port <endpoint unity.port> and
-# --crane-roboboat-course-truth <host path of course_truth below>, then boat_test --start-stack.
+# --crane-roboboat-course-truth <host path of course_truth below>; boat_test then starts the
+# components marked start (or attaches when the stack already runs).
 name: crane_full_stack
 description: 'Unity full stack: ROS PWM outputs and simulated sensors through mhseals_nav.'
 command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}

@@ -244,15 +244,17 @@ def test_session_paths_all_sit_inside_the_session_directory(tmp_path):
 
 
 def test_parse_args_profile_components_and_limits(tmp_path):
-    args, profile = parse_args(['--profile', 'crane_full_stack', '--start-stack'])
+    args, profile = parse_args(['--profile', 'crane_full_stack'])
     assert profile.use_sim_time and args.output is None
     assert not profile.uses_fcu and stack_overlay(profile, args) == {}  # simulation: no FCU
-    boat_args, boat = parse_args(['--start-stack'])
+    boat_args, boat = parse_args([])
     assert boat.uses_fcu
     assert stack_overlay(boat, boat_args) == {}  # owner YAML selects TUI discovery
     assert parse_args(['--set', 'command_mode=velocity'])[1].command_units == 'velocity'
     with pytest.raises(SystemExit):
         parse_args(['--set', 'repeats=9'])
+    with pytest.raises(SystemExit):              # settings live in the profile and the TUI
+        parse_args(['--start-stack'])
 
 
 def arm(app):

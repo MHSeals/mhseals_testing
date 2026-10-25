@@ -2525,9 +2525,6 @@ def build_parser():
     parser.add_argument('--profile', default='boat',
                         help=f'plant profile name ({", ".join(available_profiles())}) or YAML path; '
                              'boat_trial profiles explains each path; ? shows the active profile')
-    parser.add_argument('--start-stack', action='store_true',
-                        help="start the profile's components marked start; default attaches to "
-                             'running topics (the other components start from the Status rows)')
     parser.add_argument('--fcu-url', default='',
                         help='explicit MAVROS FCU URL override (default: inherit endpoint YAML)')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
@@ -2567,8 +2564,6 @@ def parse_args(argv=None, *, defer_hardware=False):
     profile = load_profile(args.profile)
     if args.settings.command_mode == 'velocity':
         profile = profile.with_velocity_control()
-    if args.start_stack and not profile.components:
-        parser.error(f'profile {profile.name} has no components; start its stack separately')
     return args, profile
 
 
@@ -2713,13 +2708,13 @@ def main(argv=None):
         else:
             registry.update(lambda state: state.update(session=str(paths.directory)))
             start_session(profile, paths.session, paths.truth)
-            if args.start_stack and not any(processes.running(key) for key in stack.start_order()):
+            # The profile's components marked start come up with the session, unless a stack
+            # already publishes odometry: then attach to it (the Status rows start the rest).
+            if stack.start_order() and not any(processes.running(key) for key in stack.start_order()):
                 time.sleep(2.0)  # let discovery find an already-running stack
-                if ros.publishers(profile.odometry):
-                    raise RuntimeError(f'{profile.odometry} already has publishers; '
-                                       'attach without --start-stack')
-                for key in stack.start_order():
-                    stack.start(key, ros.nodes())
+                if not ros.publishers(profile.odometry):
+                    for key in stack.start_order():
+                        stack.start(key, ros.nodes())
             registry.set_children(processes.records())
         app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,

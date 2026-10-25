@@ -25,7 +25,7 @@ class Component:
     remote: str | None = None
     topic: str | None = None
     limits: bool = False      # takes the session's Nav2 limits file (set by the caller)
-    start: bool = False       # started by --start-stack
+    start: bool = False       # started with the session unless a stack is already up
 
 
 class ComponentError(RuntimeError):

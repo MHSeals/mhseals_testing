@@ -7,9 +7,8 @@ The ASV test suite: sensor and TF checks, thruster trials, characterization, con
 ### Usage
 
 ```bash
-ros2 run mhseals_testing boat_test                                   # attach to a running stack
-ros2 run mhseals_testing boat_test --start-stack                     # also start the profile's odometry
-ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
+ros2 run mhseals_testing boat_test                                   # start the profile's components marked start
+ros2 run mhseals_testing boat_test --profile crane_full_stack        # (or attach when the stack already runs)
 ```
 
 `boat_test`, `boat_trial` and `rtk_base` install under `lib/mhseals_testing`, not on `PATH`: source `install/setup.bash` and use `ros2 run mhseals_testing <name>`.

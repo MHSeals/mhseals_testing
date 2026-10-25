@@ -66,7 +66,7 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
         operator.write_text(f'ekf_delay_{context}: {delay}\n')
         args, profile = parse_args(['--profile', str(profile_file)])
         children = {item.key: item for item in components(profile, stack_overlay(profile, args))}
-        # Exercise full --start-stack ordering and a partial EKF start with odometry external.
+        # Exercise the session-start ordering and a partial EKF start with odometry external.
         processes = FakeProcesses()
         stack = Stack(tuple(children.values()), processes, lambda: 0.0)
         for key in stack.start_order():
