@@ -109,7 +109,7 @@ def graph(names, observations=(), tracks=()):
     from mhseals_testing.health.probes.graph import topic_fact_name
     return {'graph.nodes': Fact(list(names)),
             topic_fact_name('/perception/observations'): Fact({'pub': list(observations),
-                                                                'sub': []}),
+                                                               'sub': []}),
             topic_fact_name('/perception/tracks'): Fact({'pub': list(tracks), 'sub': []})}
 
 

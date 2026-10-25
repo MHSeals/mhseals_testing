@@ -420,7 +420,7 @@ def compass_part(snapshot, specs, inner, compact=False, site=magnetic.SITE):
               mark(styles[0]) + Text(f' Compass  {bearing(compass)}'),
               mark(styles[1]) + Text(f' Yaw      {bearing(yaw)}' if yaw is not None else ' Yaw      ' + theme.DASH),
               mark(styles[2], True) + Text(f' Course   {bearing(course)}  {g["speed"]:.1f} m/s' if course is not None
-                                     else ' Course   stationary' if g else ' Course   no GPS'),
+                                           else ' Course   stationary' if g else ' Course   no GPS'),
               Text(theme.ascii_safe(f"  Spread   {theme.pick('Δ', 'd')} {spread:.0f}°") if len(known) > 1 else '',
                    style=theme.WARN if spread > magnetic.DISAGREE_MAX else None)]
     if mag['status'] != 'LIVE':
