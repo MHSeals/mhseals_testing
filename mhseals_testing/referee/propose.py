@@ -1,4 +1,4 @@
-"""Propose a course from tracked objects for the confirm popup (docs/referee.md section 5).
+"""Propose a course from tracked objects for the confirm popup .
 
 Pure. The proposal only labels and assigns tracked objects; it never invents one.
 ``pack`` maps challenge name to its params, in pack order::

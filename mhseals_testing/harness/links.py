@@ -1,4 +1,4 @@
-"""Link config versions to sessions and runs (config_history.md section 4). No ROS here.
+"""Link config versions to sessions and runs. No ROS here.
 
 Pure helpers over a ``History``: the ``config`` block of ``session.json``, the objects copied into
 ``snapshots/``, the ``config`` and ``staged`` fields of a run record, the ``config_changed`` event,

@@ -4,6 +4,16 @@ A profile names the command topic and its meaning, the odometry and sensors to
 watch, the frames, and how thrusters are armed. Procedures read the profile
 instead of branching on "boat or sim", and the menu disables any procedure a
 profile cannot run.
+
+Profiles: ``boat`` (real PWM and sensors, MAVROS + EKFs), ``crane_full_stack`` (simulator through
+navigation: EKFs without an FCU, sim time, ROS ``/thrusters/pwm``) and ``crane_direct`` (attach
+only; Unity's own velocity controller and truth). Components without ``start: true`` start from
+Status rows. Profiles that command ``/cmd_vel`` start ``mhseals_hardware``'s ``command_mux`` on
+arming; the driver, or the velocity controller in front of it, listens on ``/cmd_vel/applied``.
+Odometry and endpoint startup defaults come from ``mhseals_nav/config/{odometry,endpoint}_startup.yaml``
+(real boat: ``included`` context; simulator: ``standalone``); a component's launch ``args`` may name
+``*_startup_file`` / ``*_deployment_file`` layers, and conflicting selections refuse before any
+process starts.
 """
 
 from dataclasses import dataclass, replace

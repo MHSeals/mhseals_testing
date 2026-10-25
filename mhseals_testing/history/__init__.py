@@ -1,7 +1,15 @@
 """Versioned config history: every config change is a line in one append-only log.
 
 Objects (snapshots of a subsystem's value) are content-addressed and written once;
-``changes.jsonl`` says which object replaced which. See config_history.md. No ROS here.
+``changes.jsonl`` says which object replaced which. No ROS here.
+
+The log lives under ``$MHSEALS_DATA/config-history/``: ``changes.jsonl`` (one change or label per
+line), ``versions/<subsystem>/<sha12>.json`` (snapshots, written once) and ``lock`` (flock for
+appends and the id counter). A change has an id (``c0001``...), ``before``/``after`` shas, a
+``source`` (a writer such as ``tui:pins``, ``external`` found by observe, ``seed``, ``import``)
+and ``applied``. Names and notes are label lines appended later; the newest label wins. Dedupe is
+by content, so recording the head again does nothing. ``seed`` imports hardware snapshots,
+the FCU ``.param`` baseline and the current observed state, and is idempotent.
 """
 
 import datetime

@@ -1,4 +1,4 @@
-# Revert settings (config_history.md section 5). Seconds each subsystem gets to show the reverted value.
+# Revert settings. Seconds each subsystem gets to show the reverted value.
 verify_timeout_s:
   hardware: 3.0
   nav2: 3.0

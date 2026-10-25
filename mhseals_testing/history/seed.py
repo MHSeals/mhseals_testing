@@ -15,7 +15,7 @@ import yaml
 
 FCU_NAME = 'audit 10-22 (GSF yaw, no compass)'
 FCU_NOTE = '10-19 ad-hoc script: EK3_SRC1_YAW 1->8 (GSF), COMPASS_USE 1->0. As found 2026-10-22.'
-# Counters and offsets that change on their own; never stored (config_history.md fcu.yaml `ignore`).
+# Counters and offsets that change on their own; never stored.
 FCU_IGNORE = ('STAT_*', 'INS_GYROFFS_*', 'INS_GYR2OFFS_*', 'INS_GYR3OFFS_*', 'BARO*_GND_PRESS', 'MIS_TOTAL',
               'FORMAT_VERSION')
 

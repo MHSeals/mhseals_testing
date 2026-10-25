@@ -5,7 +5,7 @@ hand and lost on restart. The overlay now lives in one user file that the Naviga
 component passes to navigation.launch.py as ``limits_file:=`` (which merges it with the
 package defaults via ``merge_limits``). Whoever changes limits writes the file first
 (``save``) and only then sets live parameters, so a restart comes back with the same values.
-See config_history.md section 2.3. No ROS here.
+No ROS here.
 """
 
 import os

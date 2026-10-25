@@ -579,7 +579,7 @@ class App:
     def _announce(self, change, observe=True):
         watched = self.watcher.watches.get(change.name)
         if observe and change.ok and watched is not None and watched.subsystem:
-            # A hand edit reaches the history now (config_history 2.3); our own save was recorded
+            # A hand edit reaches the history now; our own save was recorded
             # already, so this finds no difference.
             adapters.observe_file(self.history, watched.subsystem, watched.path, self.warn_history)
         if not change.ok:

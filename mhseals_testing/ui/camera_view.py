@@ -150,7 +150,7 @@ class CameraView:
         return image
 
     def text_only(self):
-        """True under ASCII or NO_COLOR: half-blocks would be wrong there (health.md fallback)."""
+        """True under ASCII or NO_COLOR: half-blocks would be wrong there."""
         return bool(theme.ASCII or palette.detect_tier() == 'mono')
 
     def _detection_list(self, frame):

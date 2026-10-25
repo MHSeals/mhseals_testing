@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-README_LINES_TODAY = 82
+README_LINES_TODAY = 70
 
 
 def test_readme_not_longer_than_before():

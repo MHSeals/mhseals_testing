@@ -1,4 +1,4 @@
-"""popup.history: browse the config history and revert a subsystem (ui.md 4.3, config_history.md 5-6).
+"""popup.history: browse the config history and revert a subsystem.
 
 ``State`` is the whole popup (tab, cursor, plan); ``body`` draws it at a terminal width and
 ``handle`` applies one key, so both run without a terminal. ``open_history`` is the modal loop.

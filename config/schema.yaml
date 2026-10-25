@@ -1,4 +1,4 @@
-# Keys the TUI displays. One entry per key: type, units (docs/config-conventions.md R2), tier,
+# Keys the TUI displays. One entry per key: type, units, tier,
 # doc, and range [lo, hi] only where a validator enforces exactly that range.
 # characterize.yaml and tracking.yaml are read when a session starts.
 characterize.levels: {type: list, units: "1", tier: new-session, doc: "Survey amplitudes as fractions of the run amplitude, high then low."}

@@ -328,7 +328,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             saved['verify'] = dict(direction=label(*picked), ok=False, reason=str(error))
     ctx.record(saved)
     if profile and ctx.services.get('nav2_user'):
-        # The lasting overlay the Navigation component launches with (config_history.md 2.3).
+        # The lasting overlay the Navigation component launches with.
         ctx.record(dict(procedure='characterization', verdict='SAVED',
                         path=str(nav2_limits.save(profile, ctx.services['nav2_user']))))
     return result or summary

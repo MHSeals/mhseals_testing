@@ -2,7 +2,21 @@
 
 Everything the harness produces (sessions, runs, health, config history) is
 JSON or JSONL under a single root, so people, ``jq`` and agents find it the
-same way. Nothing else builds these paths. See docs/data.md for the layout.
+same way. Nothing else builds these paths.
+
+Root: ``$MHSEALS_DATA``, else ``$ROS_WS/bags``, else ``~/astro_dock/bags``; never the
+working directory. ``path(*parts)`` joins under the root and rejects absolute parts and ``..``.
+Every JSON file carries a first ``schema`` field such as ``mhseals.run/1``.
+
+* ``write_json(path, record, schema)``: whole-file records, atomic temp-file rename.
+* ``atomic_write(path, text)``: other text files (YAML, param snapshots).
+* ``append_jsonl(path, record, schema=None)``: streams; one O_APPEND write plus fsync, lines under 4 KB.
+* ``read_json``, ``read_jsonl``: readers; ``read_jsonl`` skips a torn last line.
+
+``boat_test`` writes the flat session layout under the root: ``<profile>_<time>/`` (the MCAP bag),
+``<session>.report.json``, ``.hardware.yaml`` (the config the driver ran with), ``.nav2.yaml``
+(limits from a characterization), ``.session.yaml`` (profile, clock domain ``wall`` or ``sim``),
+``.course_truth.json`` (simulator truth, copied at start) and ``logs/<session>/``.
 """
 
 import json

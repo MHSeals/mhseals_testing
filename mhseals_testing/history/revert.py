@@ -1,4 +1,4 @@
-"""Revert a subsystem to an earlier config version: plan, then execute (config_history.md section 5).
+"""Revert a subsystem to an earlier config version: plan, then execute.
 
 ROS-free. The host supplies an ``Env`` (blocker probes and the mux hold) and one backend per
 subsystem (read live state, apply a version, verify it). A revert is always a new change with

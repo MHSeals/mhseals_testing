@@ -1,8 +1,8 @@
 """Config diffs that read like a change note: units, enum names, pins and matrix grids.
 
 ``diff`` projects two versions of a subsystem into rows; ``render`` lays the rows out
-for a width. Labels and units come from ``config/history/fields.yaml`` (see
-config_history.md section 3). ASCII mode swaps the glyphs, and ``•``, ``+`` and ``-``
+for a width. Labels and units come from ``config/history/fields.yaml``.
+ASCII mode swaps the glyphs, and ``•``, ``+`` and ``-``
 keep the meaning when colour is off. No ROS here.
 """
 

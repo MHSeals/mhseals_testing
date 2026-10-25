@@ -1,4 +1,12 @@
-"""YAML course authoring -> disposable JSON input for Unity's existing loader."""
+"""YAML course authoring -> disposable JSON input for Unity's existing loader.
+
+``boat_trial course <name-or-YAML-path>`` validates the YAML and prints an absolute JSON path
+(nonzero on stderr if invalid). Bare names resolve installed ``config/courses/`` resources;
+``.yaml``/``.yml`` paths select your own file. The JSON is content-addressed under
+``$XDG_CACHE_HOME/mhseals_testing/course-json`` and is Unity input only; edit the YAML and run
+again. Courses tag their objects for the referee; without matching course truth it reports N/A
+while event scoring still runs.
+"""
 from hashlib import sha256
 import json
 import math

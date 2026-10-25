@@ -2,7 +2,7 @@
 
 Read methods expose cached values only. Apply requires a qualified fresh-observation and safety
 adapter; the legacy MAVROS link deliberately cannot certify remote writes or compensation.
-See config_history.md 2.5 and section 4. Actual transport qualification belongs to F00.
+Actual transport qualification belongs to F00.
 """
 
 import json

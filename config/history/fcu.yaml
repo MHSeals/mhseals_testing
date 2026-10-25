@@ -1,4 +1,4 @@
-# Classes of FCU parameters for config history (config_history.md 2.5).
+# Classes of FCU parameters for config history.
 # Reboot-required comes from fcu_meta.json, not this file.
 ignore:      [STAT_*, INS_GYROFFS_*, INS_GYR2OFFS_*, INS_GYR3OFFS_*, BARO*_GND_PRESS, MIS_TOTAL, FORMAT_VERSION]
 calibration: [COMPASS_OFS*, COMPASS_DIA*, COMPASS_ODI*, COMPASS_MOT*, INS_ACC*OFFS*, INS_ACC*SCAL*, AHRS_TRIM_*]
