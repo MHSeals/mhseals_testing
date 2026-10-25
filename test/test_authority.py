@@ -158,6 +158,15 @@ def test_procedure_beside_an_agent_claim_is_a_conflict():
     assert record['conflict'] and record['owner'] == 'external'
 
 
+def test_the_agents_own_requested_run_nests_under_its_claim():
+    claims = table()
+    claim, _ = claims.claim('agent', 'tune', NOW)
+    record = run(claims=claims.claims, procedure={'name': 'Station keeping', 'claim': claim['id']})
+    assert not record['conflict'] and record['owner'] == 'agent'
+    other = run(claims=claims.claims, procedure={'name': 'Station keeping', 'claim': 'c999'})
+    assert other['conflict']
+
+
 def test_second_claim_is_busy_and_names_the_holder():
     claims = table()
     first, _ = claims.claim('agent', 'tune', NOW)

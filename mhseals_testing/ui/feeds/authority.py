@@ -50,6 +50,9 @@ class AuthorityFeed:
         """The arbiter's inputs from the app's state (see harness.authority.derive)."""
         app = self.app
         procedure = {'name': app.running, 'run': app.run_id} if app.running else None
+        act = getattr(getattr(app, 'desk', None), 'act', None)
+        if procedure and act and act.get('op') == 'run':
+            procedure['claim'] = act['claim']  # the agent's own requested run nests under its claim
         task = getattr(getattr(app, '_watcher', None), 'status', None) or None
         # run_task's status names it 'task'.
         name = task and (task.get('task') or task.get('name'))

@@ -242,11 +242,13 @@ def _sources(claims, task, procedure):
     procedure claim and runs beside any other claim as a second source. A
     task the procedure started itself (``procedure['task']``, Mission) is
     an implicit claim of that procedure: it nests, it is no second source.
+    A procedure run for an agent claim (``procedure['claim']``) nests under it too.
     """
     active = [c for c in claims if c['state'] == 'active']
     sources = [(c['owner'], _claim_text(c), c['reason']) for c in active]
     if active:
-        if procedure and not any(c['owner'] == 'procedure' for c in active):
+        nests = any(c['owner'] == 'procedure' or c['id'] == (procedure or {}).get('claim') for c in active)
+        if procedure and not nests:
             sources.append(('procedure', procedure['name'], ''))
         return sources
     if procedure:
