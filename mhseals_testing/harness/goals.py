@@ -8,14 +8,15 @@ them (``claim`` is on both journal lines), so the authority record shows
 whose goal is executing.
 """
 
-import math
 from dataclasses import dataclass, field
+from functools import cache
+import math
 
 import numpy as np
+import yaml
 
 REQUIRED = ('bt_navigator', 'controller_server', 'planner_server', 'velocity_smoother')
 MAX_POSE_AGE_S = 0.5
-MAX_COSTMAP_AGE_S = 3.0
 MIN_FIX = 3  # 3D
 MIN_DIST_M = 0.5  # goal checker xy 0.4 plus margin
 LETHAL = 99  # 3x3 maximum at or above this is lethal or inscribed
@@ -78,9 +79,23 @@ def gate(facts, auto=False):
         return f'GPS fix {facts.fix} is below 3D'
     if facts.yaw_quality == 'fail':
         return 'yaw quality is failing'
-    if facts.costmap_age_s > MAX_COSTMAP_AGE_S:
+    limit = costmap_limit_s()
+    if limit is None:
+        return "costmap freshness limit unreadable (mhseals_nav costmap_watchdog.yaml max_age_s)"
+    if facts.costmap_age_s > limit:
         return 'global costmap is stale'
     return None
+
+
+@cache
+def costmap_limit_s():
+    """mhseals_nav's costmap_watchdog ``max_age_s``, the one costmap freshness limit; None when unreadable."""
+    from mhseals_testing.health.config import share_dir
+    try:
+        params = yaml.safe_load((share_dir('mhseals_nav') / 'config' / 'costmap_watchdog.yaml').read_text())
+        return float(params['/**']['ros__parameters']['max_age_s'])
+    except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError):
+        return None
 
 
 def check_goal(goal, boat, grid):

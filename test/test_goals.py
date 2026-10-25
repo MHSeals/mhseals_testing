@@ -31,6 +31,15 @@ def test_each_gate_refuses_with_its_reason(over, reason):
     assert reason in gate(ready(**over))
 
 
+def test_the_costmap_limit_is_the_nav_watchdogs_and_unreadable_fails_closed(monkeypatch):
+    from mhseals_testing.harness import goals
+    limit = goals.costmap_limit_s()
+    if limit is not None:                          # mhseals_nav is installed or in the source tree
+        assert gate(ready(costmap_age_s=limit)) is None and 'stale' in gate(ready(costmap_age_s=limit + 0.1))
+    monkeypatch.setattr(goals, 'costmap_limit_s', lambda: None)
+    assert 'unreadable' in gate(ready(costmap_age_s=0.0))
+
+
 def test_unit_unset_fails_closed():
     assert 'velocity controller' in gate(ready(unit=''))
 
