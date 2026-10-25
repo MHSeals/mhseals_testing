@@ -83,6 +83,9 @@ def test_nav2_profile_takes_the_smaller_of_measured_and_rule(tmp_path):
     assert follow['ax_max'] == approx(cap_a['surge'])
     assert follow['ax_min'] == approx(-cap_a['surge'])
     assert follow['ay_max'] == approx(0.05)
+    smoother = nav2_profile(fast, source, rules=RULES)['velocity_smoother']['ros__parameters']
+    # deceleration: surge and sway above the rule take the rule, yaw below it keeps the measured 0.1
+    assert smoother['max_decel'] == approx([-cap_a['surge'], -cap_a['sway'], -0.1])
     unruled = nav2_profile(fast, source)['controller_server']['ros__parameters']['FollowPath']
     assert unruled['vx_max'] == approx(2.0)
 
