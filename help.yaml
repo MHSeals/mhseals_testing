@@ -1,0 +1,66 @@
+# Commands this package provides, for astro_dock's help browser (astro-help).
+package: mhseals_testing
+summary: Boat test console, headless health checks and trials, RTK base station.
+commands:
+  - name: boat_test
+    run: ros2 run mhseals_testing boat_test
+    summary: Interactive test console - sensors, motion, thrusters, procedures; records the session bag.
+    notes: Starts passive. Motion needs an explicit arm; Space stops at neutral and disarms.
+    params:
+      - {name: --profile, default: boat, choices: [boat, crane_direct, crane_full_stack],
+         description: Plant profile name or YAML path; boat_trial profiles explains each.}
+      - {name: --start-stack, type: bool, description: "Start the profile's components marked start (default attaches to running topics)."}
+      - {name: --fcu-url, description: MAVROS FCU URL override; empty inherits the endpoint YAML.}
+      - {name: --set, description: 'One KEY=VALUE setting for this run, e.g. command_mode=velocity.'}
+      - {name: --review, description: Play back a past session (path or name; empty for the newest) with no ROS.}
+      - {name: --output, type: path, description: Session directory (default a new one under the data root).}
+    examples:
+      - ros2 run mhseals_testing boat_test --profile crane_full_stack --start-stack
+      - ros2 run mhseals_testing boat_test --review
+
+  - name: boat_trial check
+    run: ros2 run mhseals_testing boat_trial check
+    summary: Evaluate the health checks once and exit; 0 ok, 1 warn, 2 fail, 3 nothing sampled.
+    params:
+      - {name: --profile, default: boat, choices: [boat, crane_direct, crane_full_stack], description: Profile name or YAML path.}
+      - {name: --only, type: list, description: Group names or id globs to evaluate.}
+      - {name: --window, type: float, default: 5.0, description: Seconds to sample.}
+      - {name: --gate, description: Fail when this process cannot start.}
+      - {name: --fail-on, default: fail, choices: [fail, warn], description: Lowest severity that fails.}
+      - {name: --json, description: 'Write JSON to this path, or - for stdout.'}
+      - {name: --lint, type: bool, description: Check the YAML only; needs no ROS.}
+    examples:
+      - ros2 run mhseals_testing boat_trial check --only sensors --window 10
+
+  - name: boat_trial profiles
+    run: ros2 run mhseals_testing boat_trial profiles
+    summary: Explain each shipped profile's command, sensor and output paths.
+
+  - name: boat_trial course
+    run: ros2 run mhseals_testing boat_trial course
+    summary: Compile a course YAML to the cached Unity JSON.
+    params:
+      - {name: source, description: Course name or YAML path.}
+
+  - name: boat_trial config catalog
+    run: ros2 run mhseals_testing boat_trial config catalog
+    summary: Print the parameter inventory.
+    params:
+      - {name: --json, description: 'Write JSON to this path, or - for stdout.'}
+
+  - name: boat_trial config apply
+    run: ros2 run mhseals_testing boat_trial config apply nav2
+    summary: Apply the operator nav2.yaml to the running Nav2; previews unless --yes.
+    params:
+      - {name: --yes, type: bool, description: Apply; without it only the preview is printed.}
+      - {name: --now, type: bool, description: Allow a live-only change while a goal runs.}
+      - {name: --json, type: bool, description: Print one JSON document.}
+
+  - name: rtk_base
+    run: ros2 run mhseals_testing rtk_base
+    summary: USB RTK base station - RTCM3 corrections to MAVROS (and radio).
+    params:
+      - {name: port, required: false, type: path, description: Serial device of the base receiver (default from the config).}
+      - {name: --survey, type: bool, description: Start a new survey-in.}
+      - {name: --known, description: Fix the base at a named position from the config.}
+      - {name: --config, type: path, description: Settings YAML (default ~/.config/mhseals_testing/rtk.yaml).}
