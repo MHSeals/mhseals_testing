@@ -9,9 +9,10 @@
 
 Nothing here is kept as the source of truth, so a missing or stale index is simply rebuilt
 (``ensure``). A plain rosbag2 directory (no ``session.json``) indexes as ``bare``.
-Run ``python -m mhseals_testing.harness.index [DIR]`` (DIR is a session or bag; default: the root).
+Run ``boat_trial index [DIR] [--json]`` (DIR is a session or bag; default: the root).
 """
 
+import json
 from pathlib import Path
 import sys
 
@@ -189,13 +190,22 @@ def ensure(root=None):
 
 
 def main(argv=None):
-    args = sys.argv[1:] if argv is None else argv
+    """``[DIR] [--json]``: summarize DIR, else rebuild the index; --json prints the summary or the rows."""
+    args = sys.argv[1:] if argv is None else list(argv)
+    as_json = '--json' in args
+    args = [a for a in args if a != '--json']
     if args:
+        if not Path(args[0]).is_dir():
+            print(f'boat_trial index: {args[0]}: no such directory', file=sys.stderr)
+            return 2
         summary = summarize(args[0])
         data.write_json(Path(args[0]) / 'summary.json', summary, SUMMARY_SCHEMA)
-        print(f'{summary["id"]}: {", ".join(summary["flags"]) or "ok"}')
+        print(json.dumps(data.stamp(summary, SUMMARY_SCHEMA), indent=2) if as_json
+              else f'{summary["id"]}: {", ".join(summary["flags"]) or "ok"}')
         return 0
-    print(f'{len(rebuild())} sessions indexed under {data.root()}')
+    rows = rebuild()
+    print(json.dumps({'schema': INDEX_SCHEMA, 'root': str(data.root()), 'sessions': rows}, indent=2)
+          if as_json else f'{len(rows)} sessions indexed under {data.root()}')
     return 0
 
 

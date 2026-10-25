@@ -1,10 +1,10 @@
-"""Re-judge a finished session with the referee, headless: ``boat_trial analyze --referee``.
+"""Re-judge a finished session with the referee, headless: ``boat_trial analyze referee``.
 
 Reads files only (no ROS). A session directory holds ``course_truth.json`` (the crane
 course), ``track.jsonl`` (ground-truth rows ``{t, x, y, yaw}``), ``events.jsonl`` (the
 task's events) and optionally ``session.json`` naming the ``task``. The verdict is
 written to ``<session>/analysis/referee.<ts>.json``; ``--json`` prints that same record.
-The cli wires :func:`main` behind ``analyze --referee``.
+``boat_trial analyze referee SESSION [--task T] [--json]`` calls :func:`main` (``cli.ANALYSES``).
 """
 
 import argparse
@@ -74,9 +74,9 @@ def analyze(session, task=None, now=None):
     return target, record
 
 
-def main(argv=None, out=sys.stdout):
+def main(argv=None, out=None):
     """CLI body: exit 0 on PASS/SKIPPED/N/A, 1 on FAIL, 2 when the session cannot be judged."""
-    parser = argparse.ArgumentParser(prog='boat_trial analyze --referee')
+    parser = argparse.ArgumentParser(prog='boat_trial analyze referee')
     parser.add_argument('session')
     parser.add_argument('--task', help='task to judge (default: session.json task, else mission)')
     parser.add_argument('--json', action='store_true', help='print the record that was written')
@@ -87,5 +87,5 @@ def main(argv=None, out=sys.stdout):
         print(f'refused: {error}', file=sys.stderr)
         return 2
     record = json.loads(target.read_text())
-    print(json.dumps(record, indent=2) if args.json else record['summary'], file=out)
+    print(json.dumps(record, indent=2) if args.json else record['summary'], file=out or sys.stdout)
     return 1 if record['verdict'] == 'FAIL' else 0

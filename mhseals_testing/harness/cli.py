@@ -3,7 +3,10 @@
 `boat_trial check` evaluates the health checks and prints a table or JSON, so
 an agent or CI can ask "is the boat ready" without the TUI. Exit codes: 0 ok,
 1 warn (only with --fail-on warn), 2 fail, a blocked --gate, or bad input,
-3 every check unknown (nothing was sampled).
+3 every check unknown (nothing was sampled), or a --require group was not evaluated.
+
+``analyze NAME`` re-runs an offline analysis on a finished session and ``index`` rebuilds
+INDEX.json, both ROS-free.
 """
 
 import argparse
@@ -19,6 +22,8 @@ from mhseals_testing.health.engine import Engine
 from mhseals_testing.profiles import load_profile
 
 TICK = 0.5          # seconds between evaluations while sampling
+# boat_trial analyze NAME: the module whose main(argv) re-runs it on a finished session
+ANALYSES = {'referee': 'mhseals_testing.harness.referee_analyze'}
 
 
 def procedure_keys():
@@ -111,6 +116,15 @@ def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5
             'summary': summary, 'gates': gates, 'checks': checks}, code
 
 
+def required(report, groups):
+    """{group: {evaluated, total}} for each ``--require`` group (any case)."""
+    out = {}
+    for group in groups:
+        rows = [c for c in report['checks'] if c['group'].lower() == group.lower()]
+        out[group] = {'evaluated': sum(c['status'] != 'unknown' for c in rows), 'total': len(rows)}
+    return out
+
+
 def table(report):
     rows = [f"{c['status']:<8}{c['id']:<28}{c['value']:<10} {c['detail']}" for c in report['checks']]
     counts = ' '.join(f'{n} {k}' for k, n in report['summary'].items() if n)
@@ -130,6 +144,8 @@ def build_parser():
     check.add_argument('--fail-on', choices=('warn', 'fail'), default='fail')
     check.add_argument('--json', metavar='PATH', help='write JSON to PATH, or - for stdout')
     check.add_argument('--lint', action='store_true', help='check the YAML only; needs no ROS')
+    check.add_argument('--require', action='append', default=[], metavar='GROUP',
+                       help='exit 3 unless GROUP has checks and at least one was evaluated')
     sub.add_parser('profiles', help='explain shipped profile command/sensor/output paths')
     course = sub.add_parser('course', help='compile course YAML to cached Unity JSON')
     course.add_argument('source', metavar='NAME|YAML')
@@ -148,6 +164,13 @@ def build_parser():
                        help='allow a live-only change while a goal runs '
                             '(the keys in config/nav2_classes.yaml)')
     apply.add_argument('--json', action='store_true', help='print one JSON document')
+    analyze = sub.add_parser('analyze', help='re-run an offline analysis on a finished session')
+    analyze.add_argument('analysis', choices=sorted(ANALYSES))
+    analyze.add_argument('rest', nargs=argparse.REMAINDER, metavar='SESSION ...',
+                         help='the analysis arguments (boat_trial analyze NAME -h)')
+    index = sub.add_parser('index', help='rebuild INDEX.json, or summarize one session')
+    index.add_argument('directory', nargs='?', metavar='DIR', help='a session or bag directory')
+    index.add_argument('--json', action='store_true', help='print one JSON document')
     return parser
 
 
@@ -209,6 +232,12 @@ def apply_nav2(args, ports=None, **timing):
 
 def main(argv=None, collect=None):
     args = build_parser().parse_args(argv)
+    if args.command == 'analyze':
+        import importlib
+        return importlib.import_module(ANALYSES[args.analysis]).main(args.rest)
+    if args.command == 'index':
+        from mhseals_testing.harness import index
+        return index.main([*filter(None, [args.directory]), *(['--json'] if args.json else [])])
     if args.command == 'profiles':
         from mhseals_testing.profiles import profile_descriptions
         for name, description in profile_descriptions():
@@ -263,6 +292,12 @@ def main(argv=None, collect=None):
         print(f'boat_trial: {banner}', file=sys.stderr)
     if code == 0 and report['checks'] and report['summary']['unknown'] == len(report['checks']):
         code = 3                        # a pass that checked nothing must not look like a pass
+    if args.require:
+        report['required'] = required(report, args.require)
+        unmet = [g for g, n in report['required'].items() if not n['evaluated']]
+        if unmet:
+            print(f'boat_trial: required group(s) not evaluated: {", ".join(unmet)}', file=sys.stderr)
+            code = 2 if code == 2 else 3
     text = json.dumps(report, indent=2, default=str)
     if args.json == '-':
         print(text)
