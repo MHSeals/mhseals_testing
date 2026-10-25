@@ -96,6 +96,7 @@ class Ports(RosPorts):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.rewrite, self.log_after, self.freeze = {}, {}, None
+        self.no_mux, self.rosout = False, None
         self.sets, self.held_during = [], []
 
     def put(self, node, values):
@@ -105,8 +106,24 @@ class Ports(RosPorts):
             os.kill(self.freeze, signal.SIGSTOP)    # silent between the preview and the write
         result = super().put(node, self.rewrite.get(node, values))
         if node in self.log_after:
-            self.node.get_logger().error(self.log_after[node])
+            line = self.log_after[node]
+            if isinstance(line, tuple):
+                self.say(*line)
+            else:
+                self.node.get_logger().error(line)
         return result
+
+    def say(self, name, text):
+        """Publish a /rosout line as if node ``name`` had logged it."""
+        from rcl_interfaces.msg import Log
+        if self.rosout is None:
+            self.rosout = self.node.create_publisher(Log, '/rosout', 10)
+            time.sleep(0.5)
+        self.rosout.publish(Log(name=name, msg=text, level=30))
+        time.sleep(0.3)
+
+    def mux(self):
+        return None if self.no_mux else super().mux()
 
 
 def start_nav2(run, params):
@@ -209,7 +226,7 @@ def live(stack):
     ports = stack.ports
     for scratch in (ports.rewrite, ports.log_after, ports.sets, ports.held_during):
         scratch.clear()
-    ports.freeze = None
+    ports.freeze, ports.no_mux = None, False
     stack.journal.clear()
     stack.state['procedure'] = None
     keys = ['FollowPath.vx_max', 'FollowPath.wz_max', 'failure_tolerance']
@@ -268,6 +285,21 @@ def test_a_bad_rosout_line_rolls_back_the_real_nodes(stack, live):
     assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
 
 
+def test_a_static_mppi_key_the_handler_does_not_own_rolls_back(stack, live):
+    stack.ports.log_after[CONTROLLER] = ('controller_server', 'Parameter FollowPath.vx_max not found')
+    receipt = live.apply(ask(vx_max=0.35))
+    assert receipt['status'] == 'rolled_back' and '/rosout' in receipt['error'], receipt
+    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
+    assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
+
+
+def test_the_shim_and_non_followpath_not_found_lines_stay_exempt(stack, live):
+    stack.ports.log_after[CONTROLLER] = (
+        'controller_server', 'Parameter FollowPath.closed_loop not found')
+    receipt = live.apply({FOLLOW + 'closed_loop': False, 'controller_server.failure_tolerance': 0.25})
+    assert receipt['status'] == 'verified', receipt
+
+
 def test_a_frozen_node_is_unknown_with_one_try_and_no_retry(stack, live):
     pid = stack.ports.freeze = stack.child('smoother')
     try:
@@ -324,6 +356,30 @@ def test_an_active_goal_refuses_and_now_allows_a_limits_change(stack, live):
         assert live.apply(ask(vx_max=0.35), now=True)['status'] == 'verified'
         assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.35
     finally:
+        entry.status = GoalStatus.STATUS_SUCCEEDED
+        status.publish(GoalStatusArray(status_list=[entry]))
+        time.sleep(0.5)
+        stack.node.destroy_publisher(status)
+
+
+def test_now_with_a_goal_and_no_mux_refuses_with_no_sets(stack, live):
+    from action_msgs.msg import GoalStatus, GoalStatusArray
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+    latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    status = stack.node.create_publisher(GoalStatusArray, '/navigate_to_pose/_action/status',
+                                         latched)
+    entry = GoalStatus(status=GoalStatus.STATUS_EXECUTING)
+    entry.goal_info.goal_id.uuid = list(range(16))
+    status.publish(GoalStatusArray(status_list=[entry]))
+    time.sleep(1.0)
+    stack.ports.no_mux, stack.ports.expected = True, lambda: False
+    try:
+        receipt = live.apply(ask(vx_max=0.35), now=True)
+        assert receipt['status'] == 'refused' and 'no mux to hold' in receipt['refused'], receipt
+        assert stack.ports.sets == [] and stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
+    finally:
+        stack.ports.expected = lambda: True
         entry.status = GoalStatus.STATUS_SUCCEEDED
         status.publish(GoalStatusArray(status_list=[entry]))
         time.sleep(0.5)

@@ -7,11 +7,11 @@ latched authority, mux and goal-status samples and the /rosout buffer are in
 place by the time a write is asked for (build it when the preview opens).
 """
 
-from collections import deque
 import json
 import re
 import threading
 import time
+from collections import deque
 from types import SimpleNamespace
 
 from mhseals_testing.harness import journal as journal_file
@@ -27,8 +27,15 @@ BAD_LOG = ('not found', 'invalid')
 FIRST_SAMPLE_S = 4.0
 # The MPPI parameter handler is called for every parameter of
 # controller_server and warns "Parameter <name> not found" for each one it
-# does not own (goal checker, failure_tolerance, the rotation shim's keys,
-# ...), whatever the other consumer did with it. Measured on Nav2 1.3.13.
+# does not own. Measured on Nav2 1.3.13 (parameters_handler.hpp registers no
+# callback for static parameters, so for MPPI's own keys the line is the only
+# sign a key took no effect). Only keys MPPI cannot own are exempt: the
+# non-FollowPath controller keys and the rotation shim's names.
+SHIM_NAMES = frozenset((
+    'angular_dist_threshold', 'angular_disengage_threshold', 'closed_loop',
+    'forward_sampling_distance', 'max_angular_accel',
+    'rotate_to_goal_heading', 'rotate_to_heading_angular_vel',
+    'rotate_to_heading_once', 'simulate_ahead_time'))
 MPPI_NOISE = re.compile(r'Parameter (\S+) not found')
 
 
@@ -37,6 +44,17 @@ class Rosout:
 
     def __init__(self, buffer, start):
         self.buffer, self.start = buffer, start
+
+    @staticmethod
+    def exempt(name, text, params):
+        """Say whether ``text`` is MPPI's not-found noise for a key it cannot own."""
+        noise = MPPI_NOISE.fullmatch(text)
+        if name != 'controller_server' or not noise or noise[1] not in params:
+            return False
+        key = noise[1]
+        if not key.startswith('FollowPath.'):
+            return True
+        return key[len('FollowPath.'):] in SHIM_NAMES
 
     def errors(self, nodes, params):
         """Return the ``not found``/``Invalid`` lines about what was set."""
@@ -47,9 +65,7 @@ class Rosout:
                 continue
             about = (any(name.startswith(node) for node in nodes)
                      or any(param in text for param in params))
-            noise = MPPI_NOISE.fullmatch(text)
-            if not about or (name == 'controller_server' and noise
-                             and noise[1] in params):
+            if not about or self.exempt(name, text, params):
                 continue
             found.append(f'{name}: {text}')
         return found

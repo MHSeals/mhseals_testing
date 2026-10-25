@@ -35,6 +35,14 @@ def test_classes(key, cls):
     assert n2.classify(key) == cls
 
 
+@pytest.mark.parametrize('key', [
+    'velocity_smoother.scale_velocities',
+    'controller_server.general_goal_checker.plugin', 'controller_server.progress_checker.plugin',
+    'global_costmap.global_costmap.inflation_layer.plugin'])
+def test_configure_time_keys_are_not_live(key):
+    assert n2.classify(key) != 'live'
+
+
 @pytest.mark.parametrize('key', [FOLLOW + 'motion_model', FOLLOW + 'PathAngleCritic.mode'])
 def test_motion_model_and_mode_are_never_live(key):
     assert n2.classify(key, 'Omni', 'DiffDrive') == 'reset'

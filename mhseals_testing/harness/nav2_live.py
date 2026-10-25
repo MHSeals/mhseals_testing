@@ -25,12 +25,12 @@ retried and nothing more is written. Scope: parameters the class table calls
 ``live``; a request that needs a reset or restart is refused as a whole.
 """
 
-from dataclasses import dataclass, field
 import json
 import math
 import sys
 import time
 import uuid
+from dataclasses import dataclass, field
 
 from mhseals_testing.harness import nav2_params as n2
 
@@ -366,6 +366,11 @@ class Nav2Live:
         hold = {'needed': False, 'held': False, 'released': None}
         try:
             receipt = self._held(found, token, hold)
+        except Exception as error:
+            receipt = self._receipt(
+                found, 'unknown',
+                error=f'unexpected {type(error).__name__}: {error}; nothing '
+                      'was retried; restart Navigation if the values look wrong')
         finally:
             if hold['held']:
                 hold['released'] = self._release(token)
@@ -386,10 +391,14 @@ class Nav2Live:
 
     def _held(self, found, token, hold):
         """Hold the mux, recheck the fences, then write."""
-        why = self._hold(token, hold)
+        why = self._hold(token, hold, found.allow_goal)
         if why:
             return self._refused(found, [why])
-        again = self.fences(self.ports.owner(), found.allow_goal)
+        owner = self.ports.owner()
+        if (owner or {}).get('pid') != (found.owner or {}).get('pid'):
+            return self._refused(
+                found, ['the session owner changed since the preview'])
+        again = self.fences(owner, found.allow_goal)
         if again:
             return self._refused(found, again)
         return self._write(found)
@@ -413,13 +422,21 @@ class Nav2Live:
 
     # ---- mux hold
 
-    def _hold(self, token, hold):
-        """Place and confirm the tokened hold; return a refusal or ''."""
+    def _hold(self, token, hold, goal_ok=False):
+        """Place and confirm the tokened hold; return a refusal or ''.
+
+        With no mux the write needs no hold, unless it is a --now write that
+        meant to run under a goal: that one has nothing holding the boat.
+        """
         state = self.ports.mux()
         hold['needed'] = state is not None
         if state is None:
             if self.ports.mux_expected():
                 return 'the mux state is unknown while armed'
+            if goal_ok and self.ports.goals():
+                hold['needed'] = True
+                return ('a goal is active and there is no mux to hold; '
+                        'wait for it to end')
             return ''
         if any(h.get('cause') == HOLD_CAUSE
                for h in state.get('holds') or []):

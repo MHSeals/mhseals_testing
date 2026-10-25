@@ -16,6 +16,9 @@ rules:
   - {node: '*', param: 'qos_overrides.*', class: restart}
   - {node: '*', param: start_type_description_service, class: restart}
 
+  # A plugin name is read at configure: an accepted live set changes nothing. Precedes every live rule.
+  - {node: '*', param: '*.plugin', class: reset}
+
   # MPPI. motion_model and PathAngleCritic.mode are never sent while active: setting them live
   # writes into freed memory. controller_frequency and model_dt move together.
   - {node: controller_server, param: FollowPath.motion_model, class: reset}
@@ -39,7 +42,17 @@ rules:
   - {node: controller_server, param: 'min_*_velocity_threshold', class: live}
   - {node: controller_server, param: failure_tolerance, class: live}
 
-  - {node: velocity_smoother, param: '*', class: live}
+  # Only the keys the smoother's dynamic callback handles; the rest (scale_velocities) is read at configure.
+  - {node: velocity_smoother, param: smoothing_frequency, class: live}
+  - {node: velocity_smoother, param: velocity_timeout, class: live}
+  - {node: velocity_smoother, param: odom_duration, class: live}
+  - {node: velocity_smoother, param: max_velocity, class: live}
+  - {node: velocity_smoother, param: min_velocity, class: live}
+  - {node: velocity_smoother, param: max_accel, class: live}
+  - {node: velocity_smoother, param: max_decel, class: live}
+  - {node: velocity_smoother, param: deadband_velocity, class: live}
+  - {node: velocity_smoother, param: feedback, class: live}
+  - {node: velocity_smoother, param: odom_topic, class: live}
 
   # The local inflation feeds the CostCritic precompute, so it is reset; this must precede the STVL rules.
   - {node: local_costmap, param: 'inflation_layer.*', class: reset}

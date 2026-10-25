@@ -3,6 +3,7 @@
 import copy
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -327,12 +328,23 @@ def test_an_active_goal_refuses_and_now_allows_only_limits(world):
     world.goal_list = ['navigate_to_pose:ab12']
     assert 'a goal is active' in make(world).apply(ask(vx_max=0.5))['refused']
     assert world.calls == []
+    world.mux_state = {'holds': []}
     live = make(world)
     assert live.apply(ask(vx_max=0.5), now=True)['status'] == 'verified'
     world.calls.clear()
     other = {FOLLOW + 'CostCritic.cost_weight': 5.0}
     assert 'a goal is active' in make(world).apply(other, now=True)['refused']
     assert world.calls == []
+
+
+def test_now_with_a_goal_and_no_mux_to_hold_refuses_and_sets_nothing(world):
+    world.goal_list = ['navigate_to_pose:abcd']
+    world.mux_state, world.expected = None, False
+    receipt = make(world).apply(ask(vx_max=0.35), now=True)
+    assert receipt['status'] == 'refused' and 'no mux to hold' in receipt['refused']
+    assert not any(c[0] in ('set', 'mux') for c in world.calls)
+    world.goal_list = []
+    assert make(world).apply(ask(vx_max=0.35), now=True)['status'] == 'verified'
 
 
 def test_unknown_goal_state_refuses(world):
@@ -387,6 +399,41 @@ def test_the_ownership_check_is_repeated_right_before_the_first_write(world):
     assert world.sets() == []
     assert [c[1]['op'] for c in world.calls if c[0] == 'mux'] == ['hold', 'release']   # let go
     assert world.mux_state['holds'] == []
+
+
+def test_a_guest_refuses_when_the_owner_changes_during_the_hold(world):
+    world.mux_state = {'holds': []}
+    original = world.mux_request
+
+    def swapping(request):
+        original(request)
+        if request['op'] == 'hold':
+            world.owner_record = {'pid': 7}
+    world.mux_request = swapping
+    receipt = make(world, me=None).apply(ask(vx_max=0.5))
+    assert receipt['status'] == 'refused' and 'owner changed' in receipt['refused']
+    assert world.sets() == []
+    assert [c[1]['op'] for c in world.calls if c[0] == 'mux'] == ['hold', 'release']
+    assert world.mux_state['holds'] == []
+
+
+def test_an_unexpected_exception_mid_apply_is_unknown_journaled_and_released(world, tmp_path):
+    world.mux_state = {'holds': []}
+    original = world.put
+
+    def breaking(node, values):
+        if node == SMOOTHER:
+            raise RuntimeError('invalid handle')
+        return original(node, values)
+    world.put = breaking
+    receipt = make(world).apply(ask(vx_max=0.5))
+    assert receipt['status'] == 'unknown' and 'RuntimeError' in receipt['error']
+    assert [n for n, _ in world.sets()] == [CONTROLLER]
+    assert world.events[-1][0] == 'nav2_live_outcome' and world.events[-1][1]['status'] == 'unknown'
+    assert world.mux_state['holds'] == [] and receipt['hold']['released']
+    world.nodes = copy.deepcopy(LIVE)        # the CLI applies FILE from a fresh start
+    code, _ = run_cli(world, tmp_path, '--yes', '--json')
+    assert code == 4
 
 
 # ---- the mux hold
@@ -530,8 +577,28 @@ def test_cli_exit_codes_for_refusal_rollback_unknown_and_nothing(world, tmp_path
     assert run_cli(world, tmp_path, '--yes', '--json')[0] == 1
 
 
+def test_cli_expects_the_mux_from_the_record_and_the_profile(tmp_path, monkeypatch):
+    from mhseals_testing.harness import cli
+    quiet = {'input': 'auto', 'rc': None, 'holds': []}
+    registry = SimpleNamespace(state=lambda: {})
+    assert cli.cli_mux_expected(registry, None)                      # no record: assume muxed
+    assert cli.cli_mux_expected(registry, {**quiet, 'rc': {'a': 1}})
+    assert cli.cli_mux_expected(registry, {**quiet, 'holds': [{'cause': 'keys'}]})
+    assert not cli.cli_mux_expected(registry, {'input': None, 'rc': None, 'holds': []})
+    for profile, muxed in (('muxed', True), ('plain', False)):
+        header = tmp_path / profile
+        header.mkdir()
+        (header / 'session.json').write_text(json.dumps({'profile': profile}))
+        registry = SimpleNamespace(state=lambda h=header: {'session': str(h)})
+        loaded = SimpleNamespace(muxed=muxed)
+        monkeypatch.setattr(cli, 'load_profile', lambda name, loaded=loaded: loaded)
+        assert cli.cli_mux_expected(registry, quiet) is muxed
+    assert cli.cli_mux_expected(SimpleNamespace(state=lambda: {}), quiet)   # profile unknown
+
+
 def test_cli_now_flag_lets_a_limits_change_run_during_a_goal(world, tmp_path):
     world.goal_list = ['navigate_to_pose:ab12']
+    world.mux_state = {'holds': []}
     assert run_cli(world, tmp_path, '--yes', '--json')[0] == 2
     assert run_cli(world, tmp_path, '--yes', '--now', '--json')[0] == 0
 
@@ -633,3 +700,11 @@ def test_a_missing_domain_package_refuses_instead_of_crashing(world, monkeypatch
     receipt = make(world).apply(ask(vx_max=0.5))
     assert receipt['status'] == 'refused' and 'cannot derive the request' in receipt['refused']
     assert world.calls == []
+
+
+def test_a_malformed_profile_yaml_reads_as_unknown_mux(tmp_path, monkeypatch):
+    from mhseals_testing.harness import cli
+    (tmp_path / 'session.json').write_text('{"profile": "x"}')
+    registry = SimpleNamespace(state=lambda: {'session': str(tmp_path)})
+    monkeypatch.setattr(cli, 'load_profile', lambda name: (_ for _ in ()).throw(__import__('yaml').YAMLError('bad')))
+    assert cli.session_muxed(registry) is None

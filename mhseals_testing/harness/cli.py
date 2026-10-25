@@ -12,6 +12,7 @@ import json
 import socket
 import sys
 import time
+from pathlib import Path
 
 from mhseals_testing.health import config as health_config
 from mhseals_testing.health.engine import Engine
@@ -149,6 +150,30 @@ def build_parser():
     return parser
 
 
+def session_muxed(registry):
+    """Return whether the owner's session profile is muxed; None when unknown."""
+    import yaml
+    try:
+        session = (registry.state() or {}).get('session')
+        header = json.loads(Path(session, 'session.json').read_text())
+        return load_profile(header['profile']).muxed
+    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError):
+        return None
+
+
+def cli_mux_expected(registry, record):
+    """Say whether the mux must be up, from the fresh authority record and the profile.
+
+    A guest cannot see the arm state: a mux-backed input, an rc or a hold in
+    the record means the mux is in use. Without a record, assume it is.
+    """
+    if not isinstance(record, dict):
+        return True
+    if record.get('rc') or record.get('holds'):
+        return True
+    return record.get('input') is not None and session_muxed(registry) is not False
+
+
 def apply_nav2(args, ports=None, **timing):
     """Preview ``config apply nav2``; with --yes set the running Nav2 from nav2.yaml."""
     from mhseals_testing import nav2_limits
@@ -166,7 +191,10 @@ def apply_nav2(args, ports=None, **timing):
         from mhseals_testing.ros.nav2_live import RosPorts, cli_node, session_journal
         registry = Registry()
         node, shutdown = cli_node()
-        ports = RosPorts(node, registry, session_journal(registry))
+        box = []
+        ports = RosPorts(node, registry, session_journal(registry),
+                         lambda: cli_mux_expected(registry, box[0].authority()))
+        box.append(ports)
     live = nav2_live.Nav2Live(ports, record=lambda: adapters.record_file(
         History(), 'nav2', 'cli:apply-nav2', path, applied='live-session'), **timing)
     try:
