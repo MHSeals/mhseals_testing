@@ -1392,7 +1392,7 @@ def pins_app(tmp_path, monkeypatch, states):
     monkeypatch.setattr(pins.time, 'sleep', lambda s: None)
     app.ask_text = lambda *a: '1 0 0 0 27'
     app.typed = []
-    app.type_word = (lambda title, message, word, rows=None, width=64:
+    app.type_word = (lambda title, message, word, rows=None, width=64, quiet=False:
                      app.typed.append(word) or True)
     app.focus = 'thrusters'
     return app, processes, seen

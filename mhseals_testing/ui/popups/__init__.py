@@ -96,7 +96,7 @@ def choose_keys():
 
 
 def choice_modal(title, options, shortcuts=None, message=None, danger=False, rows=None, default=0,
-                 width=64, risky=None):
+                 width=64, risky=None, quiet=False):
     """The ``choice`` modal dict; ``default`` is the focused option, the one Enter picks.
 
     ``risky`` (default: with ``danger``, every option that is not Cancel/Close/Keep/No/Disarm)
@@ -113,12 +113,12 @@ def choice_modal(title, options, shortcuts=None, message=None, danger=False, row
     return dict(kind='choice', title=title, message=message, options=options, selected=default,
                 danger=danger, risky=set(risky), rows=rows, width=width, keys=keys,
                 hint=theme.SEPARATOR.join((f'{UPDOWN} select', 'Enter choose', 'Esc cancel')),
-                scroll_hint='[ ]')
+                scroll_hint='[ ]', quiet=quiet)
 
 
 def choose(app, title, options, shortcuts=None, message=None, danger=False, rows=None,
-           default=0, width=64, risky=None):
-    modal = choice_modal(title, options, shortcuts, message, danger, rows, default, width, risky)
+           default=0, width=64, risky=None, quiet=False):
+    modal = choice_modal(title, options, shortcuts, message, danger, rows, default, width, risky, quiet)
     options, keys = modal['options'], choose_keys()
     decline = next((i for i, o in enumerate(options) if safe(o) and o.lower() in ('cancel', 'close')), None)
 
@@ -181,15 +181,17 @@ def ask_text(app, title, message, text='', check=None):
     return app.popup(modal, handle) or None
 
 
-def type_word(app, title, message, word, rows=None, width=64):
+def type_word(app, title, message, word, rows=None, width=64, quiet=False):
     """A typed confirmation for real outputs: only the exact word proceeds.
 
     Enter does nothing until the word matches, so a typo is corrected in place; only Esc
-    declines. Typing stops at the word's length (one slot per letter).
+    declines. Typing stops at the word's length (one slot per letter). ``quiet`` is the arm panel's
+    look: muted labels, a caution line and the field in the ``arm.word`` crimson.
     """
     word = word.upper()
     modal = dict(kind='input', title=title, message=message, text='', danger=True, word=word,
-                 rows=rows, width=width, hint=f'Type {word} and Enter{theme.SEPARATOR}Esc cancel')
+                 rows=rows, width=width, hint=f'Type {word} and Enter{theme.SEPARATOR}Esc cancel',
+                 quiet=quiet, word_hue=theme.PALETTE.style('arm.word') if quiet else None)
 
     def handle(key):
         if key == 'enter':

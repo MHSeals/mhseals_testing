@@ -209,24 +209,50 @@ class Window:
             yield Segment.line()
 
 
-def popup_rows(rows, width):
-    """Label/value grids; a ``(widgets.SECTION, title)`` row starts a new group under a rule."""
+def popup_rows(rows, width, quiet=False):
+    """Label/value grids; a ``(widgets.SECTION, title)`` row starts a new group under a rule.
+
+    ``quiet`` (the arm panel): labels muted and right-aligned, values in fg, rules in bold slate, a
+    leading ✓/✗ in its state colour and the Checks rule counting what blocks."""
     out, grid = [], None
     labels = [str(label) for label, _ in rows if label != widgets.SECTION]
     # groups under rules share one label width so their values line up
     column = max(map(len, labels), default=0) if len(labels) < len(rows) else None
-    for label, value in rows:
+    good, bad = theme.icon('good').plain, theme.icon('bad').plain
+    for index, (label, value) in enumerate(rows):
         if label == widgets.SECTION:
-            out.append(widgets.rule(str(value), width))
+            note = hue = None
+            if quiet and value == 'Checks':
+                after = []
+                for later, item in rows[index + 1:]:
+                    if later == widgets.SECTION:
+                        break
+                    after.append(str(item))
+                blocking = sum(item.startswith(bad + ' ') for item in after)
+                note, hue = (f'{blocking} blocking', theme.BAD) if blocking else ('all clear', theme.GOOD)
+            out.append(widgets.rule(str(value), width, note, hue, strong=quiet))
             grid = None
             continue
         if grid is None:
-            grid = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}', 'min_width': column},
+            label_style = theme.MUTED if quiet else f'bold {theme.ACCENT}'
+            grid = theme.grid({'header': '', 'style': label_style, 'min_width': column,
+                               'justify': 'right' if quiet else 'left'},
                               {'header': '', 'no_wrap': False, 'overflow': 'fold', 'ratio': 1},
                               padding=(0, 2))
             grid.show_header = False
             out.append(grid)
-        grid.add_row(str(label), str(value))
+        text = str(value)
+        if quiet:
+            cell = Text(style=theme.PALETTE.style('fg'))
+            for glyph, state in ((good, 'good'), (bad, 'bad')):
+                if text.startswith(glyph + ' '):
+                    cell.append_text(theme.icon(state))
+                    text = text[len(glyph):]
+                    break
+            cell.append(text)
+            grid.add_row(str(label), cell)
+        else:
+            grid.add_row(str(label), text)
     return out
 
 
@@ -237,17 +263,24 @@ def popup(modal, width, height=None):
     pinned and the message and rows scroll (``modal['scroll']``, clamped here).
     """
     head, tail = [], []
-    if modal.get('message'):
+    quiet = modal.get('quiet', False)
+    if modal.get('message') and quiet:          # the arm panel's caution line
+        caution = Text(theme.pick('▲ ', '! '), style=f'bold {theme.WARN}')
+        caution.append(modal['message'], style=theme.WARN)
+        head += [caution, Text('')]
+    elif modal.get('message'):
         head.append(Text(modal['message']))
     if modal.get('body') is not None:       # a popup that draws itself (popup.history)
         head.append(modal['body'])
     panel_width = min(width - 4, modal.get('width', 64))
     inner = panel_width - 4
     if modal.get('rows'):
-        head += popup_rows(modal['rows'], inner)
+        head += popup_rows(modal['rows'], inner, quiet)
+    if quiet:
+        tail.append(Text(''))
     hint = modal.get('hint')
     if modal['kind'] == 'choice':
-        if head:
+        if head and not quiet:
             tail.append(Text(''))
         options = modal['options']
         lines = widgets.choice_list(options, modal.get('keys', [None] * len(options)), modal['selected'],
@@ -260,7 +293,7 @@ def popup(modal, width, height=None):
     elif modal['kind'] == 'input':
         word = modal.get('word')
         if word:
-            tail.append(widgets.word_field(modal['text'], word))
+            tail.append(widgets.word_field(modal['text'], word, modal.get('word_hue')))
             if modal['text'] == word:
                 hint = f'Enter {word.lower()}{theme.SEPARATOR}Esc cancel'
         else:
@@ -281,6 +314,10 @@ def popup(modal, width, height=None):
             modal['scroll'] = max(0, min(modal.get('scroll', 0), total - room))
             body = Window(body, modal['scroll'], room)
     panel = theme.block(Group(body, *tail), modal['title'], True, keys=hint)  # keys sit on the bottom border
+    if quiet:                                   # the title in the danger hue, the profile muted
+        words = str(modal['title']).split(theme.SEPARATOR, 1)
+        panel.title = Text.assemble((f'{theme.FOCUS} {words[0]}', f'bold {theme.BAD}'.strip()),
+                                    *([(theme.SEPARATOR + words[1], theme.MUTED)] if len(words) > 1 else []))
     if modal.get('danger'):
         panel.border_style = theme.BAD
     elif modal.get('border'):
