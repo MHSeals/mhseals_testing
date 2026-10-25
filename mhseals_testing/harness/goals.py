@@ -115,13 +115,13 @@ class Goals:
         self.nav2, self.emit, self.clock = nav2, emit, clock
         self.active = None  # {'goal': Nav2 Goal, 'claim', 'x', 'y', 'yaw'}
 
-    def preview(self, goal, boat, grid, facts):
+    def preview(self, goal, boat, grid, facts, timeout=2.0):
         """(path, None) for the confirm popup, or (None, reason)."""
         reason = gate(facts) or check_goal(goal, boat, grid)
         if reason:
             return None, reason
         try:
-            path = self.nav2.plan(goal, timeout=2.0)
+            path = self.nav2.plan(goal, timeout=timeout)
         except Exception as error:  # noqa: BLE001 - any planner failure is a refusal
             return None, f'planner failed: {error}'
         if not path:

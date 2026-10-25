@@ -28,6 +28,10 @@ from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts
 
 MOTION = ('run', 'goal')
+URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
+LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
+LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
+DRY_TIMEOUT_S = 0.5            # costmap and plan waits of a dry run, answered on the tick
 NOTES = 200
 PROGRESS_S = 5.0
 STATUS_S = 1.0
@@ -50,7 +54,9 @@ class AgentDesk:
             self.tail.seek_end()          # first start: nothing older is ours to answer
             self.answered = set()
         self.path = self.tail.path
-        self.queue, self.act, self.busy = [], None, False
+        self.started_ns = time.time_ns()    # motion requests stamped before this are a replay
+        self.queue, self.act, self.busy, self.deferred = [], None, False, []
+        self.lifecycle_states, self.lifecycle_at = {}, None
         self.notes = deque(maxlen=NOTES)
         self.notices = deque(maxlen=5)
         self.recent = deque(maxlen=20)      # finished or refused acts, newest last
@@ -87,22 +93,31 @@ class AgentDesk:
                 'recent': list(self.recent), 'notes': list(self.notes)[-20:], 'config_error': self.config.error}
 
     def blockers(self):
-        """Extra runner blockers while an agent run is in flight: polls the channel, enforces the lease."""
+        """Extra runner blockers while an agent run is in flight: polls the channel, enforces the lease.
+
+        Called on every runner step, so it answers only renew, stop and release; anything else
+        waits in ``deferred`` for the next tick and never stalls the key loop.
+        """
         if self.act is None or self.act['op'] != 'run':
             return []
-        self.poll()
+        self.poll(urgent=True)
         cause = self.watch()
         return [f'agent: {cause}'] if cause else []
 
     # --- the channel -----------------------------------------------------------------------
 
-    def poll(self):
+    def poll(self, urgent=False):
         records, errors = self.tail.read()
         for error in errors:
             if error not in self.errors:     # one notice per distinct error
                 self.errors.add(error)
                 self.app.notice = f'agent channel: {error}'
+        records, self.deferred = self.deferred + records, []
         for record in records:
+            if urgent and not (record['kind'] in ('renew', 'reply')
+                               or (record['kind'] == 'req' and record.get('op') in URGENT)):
+                self.deferred.append(record)
+                continue
             try:
                 getattr(self, 'on_' + record['kind'])(record)
             except (KeyError, TypeError, ValueError, AttributeError) as error:   # a well-formed line, bad values
@@ -149,9 +164,15 @@ class AgentDesk:
             return
         self.answered.add(req['id'])
         args = req.get('args') if isinstance(req.get('args'), dict) else {}
-        req = dict(req, args=args)
+        args = {k: agent_channel.redact(v, agent_channel.TEXT_MAX)       # any writer: the journal stays clean
+                if k in agent_channel.TEXT_ARGS and isinstance(v, str) else v for k, v in args.items()}
+        # never later than its own stamp allows: a replay keeps no deadline it was not sent with
+        deadline = min(req['deadline_ns'], req['t_ns'] + int(self.config.get()['request_s'] * 1e9))
+        req = dict(req, args=args, deadline_ns=deadline)
         self.app.emit('agent_req', id=req['id'], who=req['who'], op=req['op'], args=args, dry=bool(req.get('dry')))
         self.touch(req['who'], req.get('claim'))
+        if req['op'] in MOTION and req['t_ns'] < self.started_ns:
+            return self.reply(req, False, 'expired', hint='sent before this TUI started; nothing was done')
         if time.time_ns() > req['deadline_ns']:
             return self.reply(req, False, 'expired', hint='request deadline passed; nothing was done')
         handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop,
@@ -177,6 +198,14 @@ class AgentDesk:
 
     def lease(self):
         return self.config.get()['lease']
+
+    def lifecycle(self):
+        """Nav2's lifecycle states, asked at most every LIFECYCLE_S with short waits; {} without Nav2."""
+        if self.lifecycle_at is None or self.clock() - self.lifecycle_at >= LIFECYCLE_S:
+            nav2 = agent_acts.nav2_of(self.app)
+            self.lifecycle_states = nav2.lifecycle(timeout=LIFECYCLE_TIMEOUT_S) if nav2 is not None else {}
+            self.lifecycle_at = self.clock()
+        return self.lifecycle_states
 
     # --- immediate ops ---------------------------------------------------------------------
 
@@ -223,7 +252,10 @@ class AgentDesk:
             if refusal:
                 return self.reply(req, False, refusal[0], hint=refusal[1])
             if req.get('dry'):
-                result = agent_acts.dry_run(self.app, req['op'], req['args'], self.app.settings.agent_motion)
+                if self.act is not None or self.busy or self.app.running:
+                    return self.reply(req, False, 'busy', hint='an act or procedure is running; dry-run after it')
+                result = agent_acts.dry_run(self.app, req['op'], req['args'], self.app.settings.agent_motion,
+                                            self.lifecycle() if req['op'] == 'goal' else None, DRY_TIMEOUT_S)
                 return self.reply(req, True, result=result, hint=result.get('hint', ''))
         self.queue.append(req)
         self.reply(req, True, state='queued')
@@ -302,6 +334,11 @@ class AgentDesk:
         except agent_acts.STOPPING as error:     # a gate, Nav2 or popup error refuses this act only
             if not self.act['replied']:
                 self.finish(self.act, False, 'refused', hint=str(error) or type(error).__name__)
+        except KeyboardInterrupt:                # Ctrl+C: the TUI goes away under the act
+            self.cancel('handover')
+            if not self.act['replied']:
+                self.finish(self.act, False, 'handover', hint='TUI interrupted')
+            raise
         finally:
             self.busy = False
             act, self.act = self.act, (self.act if keep else None)
@@ -353,17 +390,33 @@ class AgentDesk:
         goal = agent_acts.goal_args(act['req']['args'])
         if not self.confirm(act, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f} · Enter allow"):
             return False
-        nav2 = agent_acts.nav2_of(app)
-        lifecycle = nav2.lifecycle(timeout=0.5) if nav2 is not None else {}
-        facts = agent_acts.goal_facts(app, lifecycle)
         if self.watch():
             return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
-        path_m, reason = agent_acts.goal_send(app, goal, facts, act['claim'])
+
+        def send():                              # off the key loop: Nav2 may take seconds to answer
+            lifecycle = self.lifecycle()
+            facts = agent_acts.goal_facts(app, lifecycle)
+            return lifecycle, agent_acts.goal_send(app, goal, facts, act['claim'], lambda: act['cause'])
+        try:
+            lifecycle, (path_m, reason) = agent_acts.in_background(
+                app, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f}", send,
+                message='Checking Nav2 and sending the goal', on_abort=lambda: self.cancel('handover'))
+        except KeyboardInterrupt:
+            self.drop_goal(act, 'handover')     # Ctrl+C: a goal that landed meanwhile is cancelled
+            raise
+        if self.watch():                         # Space, E or a lapse while Nav2 answered
+            self.drop_goal(act, act['cause'])
+            return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
         if reason:
             return self.finish(act, False, 'refused', hint=reason)
         act['lifecycle'] = lifecycle
         self.begin(act, {'path_m': path_m})
         return True                              # the goal goes on; watch() polls it each tick
+
+    def drop_goal(self, act, cause):
+        goals = self.app.goals
+        if goals.active is not None and goals.active['claim'] == act['claim']:
+            goals.cancel(f'agent: {cause}')
 
     def act_ask(self, act):
         args = act['req']['args']
@@ -428,7 +481,7 @@ class AgentDesk:
         human = self.override()
         if human:
             return f'overridden: {human}'
-        if act['started'] and self.clock() - act['renewed'] > self.lease()['motion_s']:
+        if self.clock() - act['renewed'] > self.lease()['motion_s']:   # in the confirm popup too
             self.arbiter.expire(act['claim'])       # stops exactly as E does
             return 'expired'
         return None

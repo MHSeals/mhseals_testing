@@ -51,7 +51,7 @@ class Nav2:
     def pose(self):
         return (0.0, 0.0, 0.0)
 
-    def fetch_costmap(self):
+    def fetch_costmap(self, timeout=2.0):
         info = SimpleNamespace(width=100, height=100, resolution=0.5,
                                origin=SimpleNamespace(position=SimpleNamespace(x=-25.0, y=-25.0)))
         return SimpleNamespace(info=info, data=[0] * 10000)
@@ -299,9 +299,19 @@ def test_the_confirm_popup_refuses_on_esc_and_on_timeout(rig):
     rig.app.answers = [['escape']]
     reply = final(ask(rig, 'run', c, key='square')['id'])
     assert reply['error'] == 'refused'
+    lease = rig.desk.lease()
+    rig.desk.lease = lambda: dict(lease, motion_s=100)        # a CLI that keeps renewing
     rig.app.answers = [[]]
     reply = final(ask(rig, 'run', c, key='square')['id'])
     assert reply['error'] == 'refused' and 'timeout' in reply['hint']
+
+
+def test_a_lapsed_motion_lease_in_the_confirm_popup_expires_the_claim(rig):
+    c = claim(rig)
+    rig.app.answers = [[]]                                    # nobody answers; the CLI died: no renewals
+    reply = final(ask(rig, 'run', c, key='square')['id'])
+    assert reply['error'] == 'expired' and rig.app.arbiter.ended[c] == 'expired'
+    assert ('hold', 'lease') in rig.app.calls and rig.app.running is None
 
 
 def test_a_dry_run_moves_nothing(rig):
@@ -311,6 +321,89 @@ def test_a_dry_run_moves_nothing(rig):
     reply = final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])
     assert reply['ok'] and reply['result']['gate'] is None and reply['result']['path_m'] == 5.0
     assert rig.app.nav.goal is None and not rig.app.running and rig.app.goals.active is None
+
+
+def test_a_dry_run_while_an_act_runs_is_busy_and_asks_nav2_nothing(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    ask(rig, 'goal', c, x=5, y=0)
+    asked = []
+    rig.app.nav.lifecycle = lambda timeout=2.0: asked.append(timeout) or {}
+    reply = final(ask(rig, 'goal', c, dry=True, x=3, y=0)['id'])
+    assert reply['error'] == 'busy' and ch.exit_code(reply) == 2 and asked == []
+
+
+def test_dry_runs_ask_nav2_with_short_waits_and_reuse_its_lifecycle(rig):
+    c = claim(rig)
+    asked, lifecycle = [], rig.app.nav.lifecycle
+    rig.app.nav.lifecycle = lambda timeout=2.0: asked.append(timeout) or lifecycle()
+    for _ in range(2):
+        assert final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])['result']['gate'] is None
+    assert asked == [agent_feed.LIFECYCLE_TIMEOUT_S]
+
+
+def test_run_blockers_answer_only_renew_stop_and_release(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    sent, asked, lifecycle = {}, [], rig.app.nav.lifecycle
+    rig.app.nav.lifecycle = lambda timeout=2.0: asked.append(rig.app.running) or lifecycle()
+
+    def write():
+        sent['mark'] = ch.request('mark', 'claude-3f2a', {'note': 'gust'})
+        sent['dry'] = ch.request('goal', 'claude-3f2a', {'x': 5, 'y': 0}, claim=c, dry=True)
+        sent['renew'] = ch.renew('claude-3f2a', c, rig.desk.act['id'])
+
+    def look():
+        sent['during'] = replies(sent['mark']['id']) + replies(sent['dry']['id']) + asked
+    rig.app.on_step = {0: write, 2: look}
+    assert final(ask(rig, 'run', c, key='square')['id'])['ok']
+    assert sent['during'] == []                              # deferred, not answered inside the runner
+    rig.desk.tick()
+    assert final(sent['mark']['id'])['ok'] and final(sent['dry']['id'])['ok'] and asked == [None]
+
+
+def test_a_slow_nav2_never_stalls_the_keys(rig):
+    """The goal's Nav2 steps run beside a popup that keeps reading keys: Space lands mid-send."""
+    from mhseals_testing.ui import popups
+    import threading
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    nav, sending, release = rig.app.nav, threading.Event(), threading.Event()
+    fast, log = nav.navigate, []
+
+    def slow(goals, timeout=10.0):
+        sending.set()
+        release.wait(5)
+        return fast(goals, timeout)
+
+    class Keys:
+        def read(self, timeout=0.1):
+            time.sleep(0.01)
+            if sending.is_set() and not log:
+                log.append('space')
+                return 'space'
+            if log == ['space'] and ('stop', 'stopped by operator') in rig.app.calls:
+                log.append('stopped while Nav2 was sending' if not release.is_set() else 'late')
+                release.set()
+            return None
+    nav.navigate, rig.app.keys, rig.app.refresh = slow, Keys(), lambda force=False: None
+    rig.app.popup = lambda modal, handle, refresh=None: popups.popup(rig.app, modal, handle, refresh)
+    reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
+    assert log == ['space', 'stopped while Nav2 was sending']
+    assert reply['error'] == 'overridden: keys' and nav.goal.cancelled and rig.app.goals.active is None
+
+
+def test_ctrl_c_during_an_agent_run_replies_handover(rig):
+    def interrupt():
+        raise KeyboardInterrupt
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.on_step = {1: interrupt}
+    req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c)
+    with pytest.raises(KeyboardInterrupt):
+        rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['error'] == 'handover' and ch.exit_code(reply) == 3 and rig.desk.act is None
 
 
 # --- the takeover table (spec 4.2) ------------------------------------------------------------
@@ -494,6 +587,25 @@ def test_a_stale_request_is_never_executed(rig):
     req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c, request_s=-1)
     rig.desk.tick()
     assert final(req['id'])['error'] == 'expired' and rig.app.running is None
+
+
+def test_a_deadline_is_clamped_to_its_stamp_plus_request_s(rig):
+    late = dict(ch.line('req', 'claude-3f2a', id='f' * 32, op='mark', args={}, claim=None, dry=False,
+                        deadline_ns=time.time_ns() + int(3600e9)), t_ns=time.time_ns() - int(10e9))
+    ch.append(late)
+    rig.desk.tick()
+    assert final(late['id'])['error'] == 'expired'
+
+
+def test_a_motion_request_from_before_a_takeover_is_never_replayed(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    old = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c)
+    time.sleep(0.001)
+    again = agent_feed.AgentDesk(rig.app, rig.app.ros, registry=rig.registry, clock=lambda: rig.clock[0])
+    again.tick()
+    reply = final(old['id'])
+    assert reply['error'] == 'expired' and 'before' in reply['hint'] and rig.app.running is None
 
 
 def test_a_restart_resumes_the_position_and_skips_answered_requests(rig):

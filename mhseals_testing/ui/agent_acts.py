@@ -8,6 +8,7 @@ and returns them without moving anything.
 """
 
 import math
+import threading
 import time
 
 from mhseals_hardware.menu import Cancelled
@@ -27,6 +28,7 @@ NAMES = {'square': 'w', 'station': 's', 'nav2_bringup': 'n', 'controller_check':
          'mission': 't', 'characterize': 'f', 'compass_calibration': 'g', 'interference': 'e',
          'manual': 'm', 'thruster_set': 'i'}
 NAV_NODES = ('bt_navigator', 'planner_server')
+ABORT_JOIN_S = 1.0     # Ctrl+C during a background Nav2 step: how long to let a send land (then cancelled)
 
 
 def procedure(name_or_key):
@@ -164,41 +166,90 @@ def grid(costmap):
     return goals_module.Grid(data, info.resolution, (info.origin.position.x, info.origin.position.y))
 
 
-def _plan(app, goal, facts):
+def _plan(app, goal, facts, timeout=2.0):
     """(boat, grid, path_m, None) or (.., reason): the gates, the goal cell and a planned path.
 
-    The costmap is fetched fresh (<= 2 s) and the planner asked (<= 2 s), like the cursor goal.
+    The costmap is fetched fresh (<= ``timeout``) and the planner asked (<= ``timeout`` per step), like
+    the cursor goal; neither when a gate that needs no costmap already fails.
     """
+    reason = goals_module.gate(facts, auto=True)
+    if reason:
+        return None, None, None, reason
     try:
         nav2 = app.nav2()
-        pose, cells = nav2.pose(), grid(nav2.fetch_costmap())
+        pose, cells = nav2.pose(), grid(nav2.fetch_costmap(timeout=timeout))
     except RuntimeError as error:
         return None, None, None, str(error)
     if pose is None or cells is None:
         return None, None, None, 'no map pose' if pose is None else 'no costmap'
-    path, reason = app.goals.preview(goal, pose[:2], cells, facts)
+    path, reason = app.goals.preview(goal, pose[:2], cells, facts, timeout=timeout)
     if reason:
         return pose[:2], cells, None, reason
     return pose[:2], cells, float(sum(math.dist(a, b) for a, b in zip(path, path[1:]))), None
 
 
-def goal_preview(app, goal, facts):
+def goal_preview(app, goal, facts, timeout=2.0):
     """(path_m, None) or (None, reason)."""
-    return _plan(app, goal, facts)[2:]
+    return _plan(app, goal, facts, timeout)[2:]
 
 
-def goal_send(app, goal, facts, claim):
-    """Send ``goal`` for ``claim`` through ``app.goals``; (path_m, None) or (None, reason)."""
+def goal_send(app, goal, facts, claim, cancelled=lambda: None):
+    """Send ``goal`` for ``claim`` through ``app.goals``; (path_m, None) or (None, reason).
+
+    ``cancelled()`` is asked once more just before the send: a reason there sends nothing.
+    """
     boat, cells, path_m, reason = _plan(app, goal, facts)
+    reason = reason or cancelled()
     if reason is None:
         reason = app.goals.send(goal, boat, cells, facts, claim, path_m)
     return (None, reason) if reason else (path_m, None)
 
 
+def in_background(app, title, work, message=None, wait_s=0.2, on_abort=lambda: None):
+    """``work()`` on a thread, so a slow Nav2 never stalls the keys; returns its value or raises its error.
+
+    Past ``wait_s`` a popup shows and keeps reading keys (Space and E act as in every popup) until
+    ``work`` ends. It always waits for the end, so nothing ``work`` starts is left unseen; on Ctrl+C
+    it calls ``on_abort()``, waits at most ABORT_JOIN_S more, then re-raises.
+    """
+    box = {}
+
+    def target():
+        try:
+            box['value'] = work()
+        except Exception as error:      # noqa: BLE001 - handed to the caller's thread
+            box['error'] = error
+    thread = threading.Thread(target=target, name='agent-act', daemon=True)
+    thread.start()
+    thread.join(wait_s)
+    if thread.is_alive():
+        modal = dict(kind='message', title=title, message=message, rows=None, width=64,
+                     hint=theme.SEPARATOR.join(('Space stops', 'E revokes')))
+
+        def check():
+            thread.join(0.02)
+            if not thread.is_alive():
+                raise Closed('done')
+        try:
+            app.popup(modal, lambda key: None, check)
+        except Closed:
+            pass
+        except BaseException:
+            on_abort()
+            thread.join(ABORT_JOIN_S)
+            raise
+    if 'error' in box:
+        raise box['error']
+    return box.get('value')
+
+
 # --- dry run ---------------------------------------------------------------------------------
 
-def dry_run(app, op, args, motion_setting):
-    """Everything a run or goal would check, without executing (spec section 3 --dry-run)."""
+def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0):
+    """Everything a run or goal would check, without executing (spec section 3 --dry-run).
+
+    The desk passes its cached ``lifecycle`` and a short Nav2 ``timeout``: it answers on the tick.
+    """
     confirm = motion_setting == 'confirm'
     if op == 'run':
         found, name = procedure(run_key(args))
@@ -211,8 +262,8 @@ def dry_run(app, op, args, motion_setting):
                 'motion_blockers': app.motion_blockers() if app.armed else [],
                 'settings': vars(app.settings), 'asks': {'arm': needs_arm, 'confirm': confirm},
                 'hint': 'ask the operator to arm (a)' if needs_arm else ''}
-    facts = goal_facts(app)
-    path_m, reason = goal_preview(app, goal_args(args), facts)
+    facts = goal_facts(app, lifecycle)
+    path_m, reason = goal_preview(app, goal_args(args), facts, timeout)
     return {'goal': goal_args(args), 'gate': reason, 'path_m': path_m, 'asks': {'confirm': confirm},
             'hint': 'ask the operator to arm (a)' if reason == 'outputs are not armed' else ''}
 
