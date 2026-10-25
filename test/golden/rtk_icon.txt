@@ -1,0 +1,212 @@
+== unicode
+-- no base, rover 3D
+┌┄┄┄┐  no base
+┆ Ψ ┆  rover 3D
+└┄┄┄┘  link 0%
+row    ○ Source no base
+-- identifying
+┌┄┄┄┐  Here4 identifying
+┆ Ψ ┆  rover none
+└┄━━┛  identifying the base
+row    ◜ Source Here4 identifying
+-- survey 0%
+┌┄┄┄┐  Here4 svin
+┆ Ψ ┆  rover none
+└┄┄┄┘  survey 0%
+row    ○ Source Here4 svin
+-- survey 42%
+┌┄━━┓  Here4 svin
+┆ Ψ ┃  rover 3D
+└┄┄┄┛  survey 42%
+row    ◔ Source Here4 svin
+-- survey 99%
+┏┄━━┓  Here+ svin
+┃ Ψ ┃  rover DGPS
+┗━━━┛  survey 99%
+row    ◕ Source Here+ svin
+-- site, rover none
+┏━━━┓  Here4 site dock
+┃ Ψ ┃  rover none
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source Here4 site dock
+-- site, rover 2D
+┏━━━┓  Here4 site dock
+┃ Ψ ┃  rover 2D
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source Here4 site dock
+-- site, rover 3D
+┏━━━┓  Here4 site dock
+┃ Ψ ┃  rover 3D
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source Here4 site dock
+-- site, rover DGPS
+┏━━━┓  Here4 site dock
+┃ Ψ ┃  rover DGPS
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source Here4 site dock
+-- site, rover FLOAT
+┏━━━┓  Here4 site dock
+┃ Ψ ┃  rover FLOAT
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source Here4 site dock
+-- site, rover FIXED
+┏━━━┓  Here4 site dock
+┃ Ψ ┃  rover FIXED
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source Here4 site dock
+-- stale 3.0 s FLOAT
+┌┄━━┓  Here4
+┆ Ψ ┃  rover FLOAT
+└┄┄━┛  link 50% (age 3.0s)
+row    ◑ Source Here4
+-- dead 14 s FIXED
+┌┄┄┄┐  Here4
+┆ Ψ ┆  rover FIXED
+└┄┄┄┘  link 0% (age 14.0s)
+row    ○ Source Here4
+-- NTRIP 4 km FIXED
+┏━━━┓  NTRIP SRSA 4km
+┃ Ψ ┃  rover FIXED
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source NTRIP SRSA 4km
+-- NTRIP VRS 6 km FLOAT
+┏━━━┓  NTRIP NAD_MSM4_VRS VRS 6km
+┃ Ψ ┃  rover FLOAT
+┗━━━┛  link 100% (age 0.4s)
+row    ● Source NTRIP NAD_MSM4_VRS V…
+-- NTRIP 25 km DGPS
+┌┄━━┓  NTRIP SRSA 25km
+┆ Ψ ┃  rover DGPS
+└┄━━┛  link 62% (age 0.4s)
+row    ◑ Source NTRIP SRSA 25km
+-- NTRIP 60 km FLOAT
+┌┄━━┓  NTRIP SRSA 60km
+┆ Ψ ┆  rover FLOAT
+└┄┄┄┘  link 25% (age 0.4s)
+row    ◔ Source NTRIP SRSA 60km
+-- NTRIP picking
+┌┄┄━┓  NTRIP picking
+┆ Ψ ┃  rover none
+└┄┄┄┘  identifying the base
+row    ◝ Source NTRIP picking
+-- external FIXED
+┏━━━┓  external
+┃ Ψ ┃  rover FIXED
+┗━━━┛  link 100%
+row    ● Source external
+-- source none
+┌┄┄┄┐  no corrections
+┆ Ψ ┆  rover 3D
+└┄┄┄┘  link 0%
+row    ○ Source no corrections
+-- base error
+┌┄┄┄┐  Here4 error
+┆ Ψ ┆  rover none
+└┄┄┄┘  link 0%
+row    ○ Source Here4 error
+== ascii
+-- no base, rover 3D
+.....  no base
+. Y .  rover 3D
+.....  link 0%
+row    . Source no base
+-- identifying
+.....  Here4 identifying
+. Y .  rover none
+..###  identifying the base
+row    | Source Here4 identifying
+-- survey 0%
+.....  Here4 svin
+. Y .  rover none
+.....  survey 0%
+row    . Source Here4 svin
+-- survey 42%
+..###  Here4 svin
+. Y #  rover 3D
+....#  survey 42%
+row    : Source Here4 svin
+-- survey 99%
+#.###  Here+ svin
+# Y #  rover DGPS
+#####  survey 99%
+row    O Source Here+ svin
+-- site, rover none
+#####  Here4 site dock
+# Y #  rover none
+#####  link 100% (age 0.4s)
+row    @ Source Here4 site dock
+-- site, rover 2D
+#####  Here4 site dock
+# Y #  rover 2D
+#####  link 100% (age 0.4s)
+row    @ Source Here4 site dock
+-- site, rover 3D
+#####  Here4 site dock
+# Y #  rover 3D
+#####  link 100% (age 0.4s)
+row    @ Source Here4 site dock
+-- site, rover DGPS
+#####  Here4 site dock
+# Y #  rover DGPS
+#####  link 100% (age 0.4s)
+row    @ Source Here4 site dock
+-- site, rover FLOAT
+#####  Here4 site dock
+# Y #  rover FLOAT
+#####  link 100% (age 0.4s)
+row    @ Source Here4 site dock
+-- site, rover FIXED
+#####  Here4 site dock
+# Y #  rover FIXED
+#####  link 100% (age 0.4s)
+row    @ Source Here4 site dock
+-- stale 3.0 s FLOAT
+..###  Here4
+. Y #  rover FLOAT
+...##  link 50% (age 3.0s)
+row    o Source Here4
+-- dead 14 s FIXED
+.....  Here4
+. Y .  rover FIXED
+.....  link 0% (age 14.0s)
+row    . Source Here4
+-- NTRIP 4 km FIXED
+#####  NTRIP SRSA 4km
+# Y #  rover FIXED
+#####  link 100% (age 0.4s)
+row    @ Source NTRIP SRSA 4km
+-- NTRIP VRS 6 km FLOAT
+#####  NTRIP NAD_MSM4_VRS VRS 6km
+# Y #  rover FLOAT
+#####  link 100% (age 0.4s)
+row    @ Source NTRIP NAD_MSM4_VRS VR
+-- NTRIP 25 km DGPS
+..###  NTRIP SRSA 25km
+. Y #  rover DGPS
+..###  link 62% (age 0.4s)
+row    o Source NTRIP SRSA 25km
+-- NTRIP 60 km FLOAT
+..###  NTRIP SRSA 60km
+. Y .  rover FLOAT
+.....  link 25% (age 0.4s)
+row    : Source NTRIP SRSA 60km
+-- NTRIP picking
+...##  NTRIP picking
+. Y #  rover none
+.....  identifying the base
+row    / Source NTRIP picking
+-- external FIXED
+#####  external
+# Y #  rover FIXED
+#####  link 100%
+row    @ Source external
+-- source none
+.....  no corrections
+. Y .  rover 3D
+.....  link 0%
+row    . Source no corrections
+-- base error
+.....  Here4 error
+. Y .  rover none
+.....  link 0%
+row    . Source Here4 error

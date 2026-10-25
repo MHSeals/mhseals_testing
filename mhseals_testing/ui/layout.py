@@ -234,7 +234,7 @@ def popup_rows(rows, width):
                               padding=(0, 2))
             grid.show_header = False
             out.append(grid)
-        grid.add_row(str(label), str(value))
+        grid.add_row(str(label), value if isinstance(value, Text) else str(value))
     return out
 
 

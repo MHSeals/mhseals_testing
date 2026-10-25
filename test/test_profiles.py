@@ -73,7 +73,7 @@ def test_invalid_profiles_name_the_field(edit, message):
 
 def test_boat_gps_declares_its_rate():
     gps = next(s for s in load_profile('boat').sensors if s.name == 'GPS')
-    assert gps.hz == 5 and gps.deadline >= 1.13  # real gaps reach 1.13 s
+    assert gps.hz == 10 and gps.deadline >= 1.13  # Here4 10 Hz; real gaps reached 1.13 s at 5 Hz
 
 
 def test_boat_proof_nodes_are_node_names():

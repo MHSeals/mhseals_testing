@@ -76,7 +76,7 @@ from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import MINIMAP, ROW, TabMemory, body_rows, motion_shown
 from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
-from mhseals_testing.ui import keymap as keymap_module, rtk, widgets
+from mhseals_testing.ui import keymap as keymap_module, rtk, rtk_icon, widgets
 from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
@@ -1758,7 +1758,7 @@ class App:
                     return self.open('authority')
                 if row['name'] == 'Hold':
                     return stop_popup.open_stop(self) if row.get('stop') else self.release_hold()
-                if row['name'] == 'RTK':
+                if row['name'] in ('RTK', 'Source'):
                     return self.open('odometry')
                 if row['name'] == 'Config':
                     return self.open('config')
@@ -1827,6 +1827,9 @@ class App:
                    if row.get('source') == 'sensor']
         rows = odometry.rows(params, sources)
         events = [e for e in journal.read(self.paths.journal) if e.get('phase') == 'gps_fix']
+        if self.rtk.current is not None:     # the correction source: its icon, ring and label
+            rows += [('Source' if i == 0 else '', line)
+                     for i, line in enumerate(rtk_icon.pane_lines(self.rtk.current, theme.ASCII))]
         if events or self.rtk_link is not None:
             rows += rtk.pane_rows(events, time.time(), 44, theme.ASCII)
         try:   # r opens the RTK base controls next to e (no base says so)

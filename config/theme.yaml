@@ -50,6 +50,12 @@ tokens:
   gps.dgps:    {dark: '#BDB57E', light: '#857C34', x256: [144, 100], ansi: yellow}
   gps.3d:      {dark: '#C49C76', light: '#9A6A3A', x256: [180, 137], ansi: yellow}
   gps.none:    {dark: '#C08585', light: '#9C5454', x256: [174, 131], ansi: red}
+  # RTK source ring (ui/rtk_icon.py): the rover's fix state; DGPS and 3D share a tone
+  rtk.fixed:   {alias: gps.fix}
+  rtk.float:   {alias: gps.float}
+  rtk.dgps:    {alias: gps.dgps}
+  rtk.none:    {alias: gps.none}
+  rtk.unlit:   {alias: muted}     # unlit ring segments are dashed as well
   xte.ok:      {alias: gps.fix}
   xte.mid:     {alias: gps.3d}
   xte.bad:     {alias: gps.none}
@@ -136,6 +142,8 @@ mono:
   task.failed: bold
   task.goal: bold
   decision.skip: dim
+  rtk.fixed: bold
+  rtk.unlit: dim
 
 # id: [unicode, ascii]. `off` is a YAML 1.1 boolean, so that key stays quoted.
 glyphs:
@@ -161,3 +169,5 @@ glyphs:
   stop:      ['⊘', '(/)']      # e-stop: the chip, the STOPPED line and the Hold row
   issue:     ['⚑', '(!)']      # a device, part or transport problem past its grace: header and part row
   spinner:   ['⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', '|/-\']
+  rtk_ring:  ['○◔◑◕●', '.:oO@']  # correction-source ring, empty to full (ui/rtk_icon.py)
+  rtk_base:  ['Ψ', 'Y']          # the base-station antenna inside the ring

@@ -8,7 +8,7 @@ also publishes rtk.correction_age and rtk.bytes_per_s for rtk.age / rtk.flow.
 
 import math
 
-from mhseals_testing import rtk
+from mhseals_testing import ntrip, rtk
 from mhseals_testing.analysis import geo
 from mhseals_testing.health.model import Fact
 from mhseals_testing.ui.panels.status import sensor
@@ -46,12 +46,35 @@ def build(status, snapshot, specs, converge_warn=False, tick=0, source='ours'):
         view.pubs = max(view.pubs, 2)     # our base runs while another source is configured: two bases mix
     if status.get('age') is not None:
         view.age = status['age'] + status.get('received_age', 0.0)
+    _source(view, status)
     pos = status.get('base_position') or {}
     base = [pos.get(k) for k in ('latitude', 'longitude', 'height')]
     here = [lat, lon, alt]
     if all(isinstance(x, (int, float)) and math.isfinite(x) for x in base + here):
         view.baseline = geo.baseline(geo.ecef(*base), *here)
+    station = ((status.get('source') or {}).get('ntrip') or {}).get('station') or {}
+    if view.kind == 'ntrip' and finite(station.get('latitude'), station.get('longitude'), lat, lon):
+        # the NTRIP station's height is not in the sourcetable: the baseline is the ground distance
+        view.station_km = ntrip.distance_km((lat, lon), (station['latitude'], station['longitude']))
+        view.baseline = view.station_km * 1000
     return view
+
+
+def finite(*values):
+    return all(isinstance(x, (int, float)) and math.isfinite(x) for x in values)
+
+
+def _source(view, status):
+    """Which source feeds the rover (status ``source``) and what it is: Here4/Here+ or a mountpoint."""
+    source = status.get('source') or {}
+    view.kind = source.get('kind') or 'base'
+    view.base_model = status.get('base_model') or rtk.MODELS.get(status.get('model'), '')
+    view.site = status.get('site')
+    net = source.get('ntrip') or {}
+    if view.kind == 'ntrip':
+        view.mount, view.vrs = net.get('mount') or '', bool(net.get('vrs'))
+        view.station_km = net.get('km')
+        view.base_model, view.site = '', None
 
 
 class RtkFeed:

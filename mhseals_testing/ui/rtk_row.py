@@ -42,6 +42,12 @@ class RtkView:
     baseline: float = None          # m, ECEF base to rover
     converge_warn: bool = False     # rtk.converge warns
     tick: int = 0                   # spinner frame
+    kind: str = 'base'              # the active source: base (local receiver) | ntrip
+    base_model: str = ''            # Here4 | Here+ (local base), '' unknown
+    site: str = None                # named site the local base is fixed at
+    mount: str = ''                 # NTRIP mountpoint in use
+    station_km: float = None        # NTRIP station distance (VRS: the network's nearest, halved)
+    vrs: bool = False               # NTRIP network mountpoint
 
 
 def survey_fraction(t, t_min, acc, acc0, target, valid):
