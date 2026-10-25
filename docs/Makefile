@@ -13,7 +13,21 @@ docker-pdf:
 screens:
 	cd .. && PYTHONPATH=.:../mhseals_hardware:$$PYTHONPATH python3 docs/screens/render.py
 
+# tuning.pdf uses pgfplots, which the medium scheme lacks: the fallback image adds it (Dockerfile).
+TUNING_IMAGE ?= mhseals-docs-texlive
+
+tuning:
+	@if command -v latexmk >/dev/null; then latexmk -pdf -interaction=nonstopmode -halt-on-error tuning.tex; \
+	else docker build -q -t $(TUNING_IMAGE) . >/dev/null && \
+	docker run --rm -u "$$(id -u):$$(id -g)" -v "$(CURDIR):/docs" -w /docs $(TUNING_IMAGE) \
+		latexmk -pdf -interaction=nonstopmode -halt-on-error tuning.tex; fi
+
+# Regenerate the committed figure data from the frozen study rows (stdlib only, deterministic).
+tuning-figures:
+	python3 -I figures/tuning/make_all.py
+
 clean:
 	latexmk -C math.tex
+	latexmk -C tuning.tex
 
-.PHONY: pdf docker-pdf screens clean
+.PHONY: pdf docker-pdf screens tuning tuning-figures clean
