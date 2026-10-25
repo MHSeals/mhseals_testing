@@ -62,11 +62,31 @@ def check(symbols):
                 raise ValueError(f'{field} {getattr(symbol, field)!r} used by {other} and {symbol.label}')
 
 
-class ClassTable:
-    """The class table with an `unknown` fallback."""
+TRACKS = {'arrow_s': 1.0, 'predict_s': 3.0, 'unknown_strength': 50, 'prior_strength': 50}
+FOV = {'show': True}
 
-    def __init__(self, classes, unknown, tokens=None):
+
+def _section(name, given, defaults):
+    """A minimap.yaml settings section over its defaults; unknown keys and wrong types raise."""
+    given = given or {}
+    if not isinstance(given, dict):
+        raise ValueError(f'{name} must be a mapping')
+    out = dict(defaults)
+    for key, value in given.items():
+        if key not in defaults:
+            raise ValueError(f'{name}.{key} is not a setting')
+        if type(value) is not type(defaults[key]) and not (isinstance(defaults[key], float) and type(value) is int):
+            raise ValueError(f'{name}.{key} must be a {type(defaults[key]).__name__}')
+        out[key] = value
+    return out
+
+
+class ClassTable:
+    """The class table with an `unknown` fallback, plus the track and fov drawing settings."""
+
+    def __init__(self, classes, unknown, tokens=None, tracks=None, fov=None):
         """`tokens`, when given, is the set of theme.yaml token names every `colour` must be in."""
+        self.tracks, self.fov = _section('tracks', tracks, TRACKS), _section('fov', fov, FOV)
         self.classes = {label: _symbol(label, entry) for label, entry in classes.items()}
         self.unknown = _symbol('unknown', unknown)
         check([*self.classes.values(), self.unknown])
@@ -102,6 +122,6 @@ def load_classes(path=None, tokens=None):
         if tokens is None:
             from mhseals_testing.ui.palette import load_theme
             tokens = load_theme(overlay=False)[0].tokens
-        return ClassTable(data['classes'], data['unknown'], tokens)
+        return ClassTable(data['classes'], data['unknown'], tokens, data.get('tracks'), data.get('fov'))
     except (ValueError, yaml.YAMLError, AttributeError) as error:
         raise ValueError(f'{path}: {error}') from error

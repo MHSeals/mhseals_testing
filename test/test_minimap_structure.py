@@ -56,26 +56,43 @@ def test_arrows_cover_eight_headings_in_both_sets():
     assert [arrow(a, True) for a in (0, 90, 180, 270)] == ['>', '^', '<', 'v']
 
 
-def test_far_boat_is_an_accent_chip_near_boat_is_a_hull_outline():
-    c, p = make(half=20)
-    draw_boat(p, (0, 0), 0)
-    cell = c.cells()[2][20]
-    assert (cell.text, cell.fg, cell.chip) == ('→', 'boat:accent', True)
-    c, p = make(half=4)
-    draw_boat(p, (0, 0), 0)
-    cell = c.cells()[2][20]
-    assert not cell.chip and cell.text == '→'
-    assert sum(x.fg == 'boat:accent' for row in c.cells() for x in row) > 3
+def _layers(c):
+    return {x.fg for row in c.cells() for x in row if x.fg}
+
+
+def test_boat_is_a_filled_hull_with_a_bow_and_never_a_chip():
+    for half in (20, 4):
+        c, p = make(half=half, rows=8)
+        draw_boat(p, (0, 0), 0)
+        cells = [x for row in c.cells() for x in row]
+        assert {'boat', 'bow'} <= _layers(c) and not any(x.chip for x in cells)
+    big, small = make(half=2, rows=8), make(half=20, rows=8)
+    draw_boat(big[1], (0, 0), 0)
+    draw_boat(small[1], (0, 0), 0)
+    assert sum(x.fg == 'boat' for row in big[0].cells() for x in row) > \
+        sum(x.fg == 'boat' for row in small[0].cells() for x in row)
 
 
 def test_unreliable_yaw_is_warn_and_heading_up_points_up():
-    c, p = make(half=20)
+    c, p = make(half=20, rows=8)
     draw_boat(p, (0, 0), 0, reliable=False)
-    assert c.cells()[2][20].fg == 'boat:warn'
-    c = canvas.Canvas(40, 5)
+    assert _layers(c) == {'boat:warn'}
+    c = canvas.Canvas(40, 8)
     p = Projection(c, (0.0, 0.0), 20, yaw=30)
-    draw_boat(p, (0, 0), 30)
-    assert c.cells()[2][20].text == '↑'
+    draw_boat(p, (0, 0), 30, ascii_=True)
+    assert '^' in ''.join(c.text()) and '#' in ''.join(c.text())
+
+
+def test_wake_and_crab_leader_need_speed():
+    c, p = make(half=20, rows=8)
+    draw_boat(p, (0, 0), 0, speed=0.05, cog=60)
+    assert 'wake' not in _layers(c)
+    c, p = make(half=20, rows=8)
+    draw_boat(p, (0, 0), 0, speed=1.0, cog=0)
+    assert 'wake' in _layers(c) and 'wake:muted' not in _layers(c)
+    c, p = make(half=20, rows=8)
+    draw_boat(p, (0, 0), 0, speed=1.0, cog=40, wake=False)
+    assert 'wake:muted' in _layers(c) and 'wake' not in _layers(c)
 
 
 def test_a_north_south_bay_mouth_has_a_width_in_cells():

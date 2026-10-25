@@ -125,8 +125,8 @@ def test_labels_carry_the_pinned_source_and_the_detection_floor():
     box.press('layer_detections', 5.0)
     box.press('detection_floor', 5.0)
     text = paint(box.render(up='H', zoom='10m', centre='goal'))
-    assert 'local' in text and 'tracks .3' in text and 'u H' in text and 'z 10m' in text and 'e goal' in text
-    assert len(text.splitlines()) == 6               # border + 4 interior rows + border
+    assert 'local' in text and 'raw .3' in text and 'u H' in text and 'z 10m' in text and 'e goal' in text
+    assert len(text.splitlines()) == 7               # border + 5 interior rows + border
 
 
 def test_trail_restart_is_live_only():
@@ -142,3 +142,13 @@ def test_review_has_no_feeds_so_nothing_is_leased():
     box = LayerBox(None, live=False)
     assert box.press('layer_costmap', 5.0) and box.costmap
     box.sync(20.0)                                   # no AttributeError on None
+
+
+def test_fov_wake_rings_and_up_toggle_and_fov_starts_from_the_yaml():
+    box = LayerBox(type('F', (), {'want_layers': lambda *a: None})())
+    assert box.fov is None and box.objects == 'tracks' and box.up == 'N'
+    for action in ('layer_fov', 'layer_wake', 'layer_rings', 'up_mode'):
+        assert box.press(action, 5.0)
+    assert (box.fov, box.wake, box.rings, box.up) == (False, False, False, 'H')
+    box.press('layer_fov', 5.0)
+    assert box.fov is True and 'u H' in paint(box.render())

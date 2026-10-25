@@ -12,6 +12,7 @@ from collections import namedtuple
 import numpy as np
 
 from mhseals_testing.ui.minimap import view
+from mhseals_testing.ui.minimap.canvas import BITS
 
 # Every Nth dot is drawn per GPS quality; None is no fix (a gap mark, no dots).
 GPS_PERIOD = {'fix': 1, 'float': 2, 'dgps': 3, '3d': 4, 'none': None}
@@ -26,7 +27,9 @@ COST_MIN, INSCRIBED, LETHAL = 50, 99, 100
 HITS_RANGE, HITS_NEAR = 20.0, 3.0  # m from the boat
 
 # xte is the cross-track error against the goal's first plan, None when unknown.
-Crumb = namedtuple('Crumb', 'x y fix xte speed epoch', defaults=(0, None, 0.0, 0))
+# ``t`` (s, the pose clock) ages the crumb into the mid and old bands.
+Crumb = namedtuple('Crumb', 'x y fix xte speed epoch t', defaults=(0, None, 0.0, 0, None))
+AGE_BANDS = ((30.0, None), (120.0, 'mid'))   # fresh up to 30 s keeps its mode band, then mid, then old
 
 
 class Frame:
@@ -45,30 +48,28 @@ class Frame:
 
 
 def _steps(points):
-    """One (segment, x, y) per dot step along the polyline, one dot apart, counted globally.
+    """``(segment, xs, ys)`` arrays: one step per dot along the polyline, one dot apart.
 
-    ``segment`` is the index of the later point of the segment holding the step.
+    ``segment`` is the index of the later point of the segment holding the step; a step that
+    lands on a vertex belongs to the segment ending there. Numpy, so a long trail costs one pass.
     """
-    nxt, done = 0.0, 0.0
-    for i in range(1, len(points)):
-        (x0, y0), (x1, y1) = points[i - 1], points[i]
-        length = math.hypot(x1 - x0, y1 - y0)
-        while nxt <= done + length and length > 0:
-            f = (nxt - done) / length
-            yield i, x0 + f * (x1 - x0), y0 + f * (y1 - y0)
-            nxt += 1.0
-        done += length
-
-
-def _plot(canvas, x, y, layer):
-    canvas.dot(math.floor(x), math.floor(y), layer)
+    p = np.asarray(points, dtype=float).reshape(-1, 2)
+    if len(p) < 2:
+        return np.zeros(0, dtype=int), np.zeros(0), np.zeros(0)
+    seg = np.hypot(*np.diff(p, axis=0).T)
+    d = np.concatenate(([0.0], np.cumsum(seg)))
+    s = np.arange(0.0, math.floor(d[-1]) + 1) if d[-1] > 0 else np.zeros(0)
+    i = np.clip(np.searchsorted(d, s, side='left'), 1, len(p) - 1)
+    f = (s - d[i - 1]) / np.where(seg[i - 1] > 0, seg[i - 1], 1.0)
+    xy = p[i - 1] + f[:, None] * (p[i] - p[i - 1])
+    return i, xy[:, 0], xy[:, 1]
 
 
 def _draw_line(frame, points, layer, period):
     pts = [frame.dots(p) for p in points if math.isfinite(p[0]) and math.isfinite(p[1])]
-    for n, (_, x, y) in enumerate(_steps(pts)):
-        if n % period == 0:
-            _plot(frame.canvas, x, y, layer)
+    _, xs, ys = _steps(pts)
+    for x, y in zip(np.floor(xs[::period]).astype(int).tolist(), np.floor(ys[::period]).astype(int).tolist()):
+        frame.canvas.dot(x, y, layer)
 
 
 def draw_plan(frame, points, local=False):
@@ -97,44 +98,65 @@ def _quality(crumb, mode, vmax):
     return 'plain', 1
 
 
-def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=False):
+def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=False, now=None):
     """Draw the trail; ``mode`` is plain, gps, speed or track.
 
-    Crumbs of an epoch other than ``epoch`` (the current map datum) are ``trail.old``.
+    Crumbs of an epoch other than ``epoch`` (the current map datum) are ``trail.old``, and with
+    ``now`` crumbs fade by age: ``trail.mid`` after 30 s, ``trail.old`` after 120 s.
     Segments never join two epochs. Colourless tiers dash the over-vmax speed parts.
+    Projection, ages and stepping are numpy; Python touches only the painted dots.
     """
-    crumbs = [c for c in crumbs if math.isfinite(c.x) and math.isfinite(c.y)]
-    runs, cur = [], []
-    for c in crumbs:
-        if cur and c.epoch != cur[-1].epoch:
-            runs.append(cur)
-            cur = []
-        cur.append(c)
-    runs.append(cur)
-    n = 0  # one global step counter keeps patterns continuous across runs
-    for run in runs:
-        pts = [frame.dots((c.x, c.y)) for c in run]
-        for i, x, y in _steps(pts):
-            band, period = _quality(run[i], mode, vmax)
-            if mode == 'speed' and colourless and band == 'spd.5':
-                period = 2
-            if period is None:
-                frame.canvas.gap(math.floor(x) // 2, math.floor(y) // 4)
-            elif n % period == 0:
-                tail = 'old' if epoch is not None and run[i].epoch != epoch else mode + '.' + band
-                _plot(frame.canvas, x, y, 'trail.' + tail)
-            n += 1
+    if not crumbs:
+        return
+    columns = list(zip(*crumbs))   # x y fix xte speed epoch t; a None t becomes nan
+    a = np.array((columns[0], columns[1], columns[5], columns[6]), dtype=float).T
+    ok = np.isfinite(a[:, 0]) & np.isfinite(a[:, 1])
+    if not ok.all():
+        a, crumbs = a[ok], [c for c, keep in zip(crumbs, ok.tolist()) if keep]
+        if not crumbs:
+            return
+    x, y = frame.dots((a[:, 0], a[:, 1]))
+    age = now - a[:, 3] if now is not None else np.zeros(len(a))
+    with np.errstate(invalid='ignore'):     # an unstamped crumb (nan) stays fresh
+        fade = np.where(age > AGE_BANDS[1][0], 2, np.where(age > AGE_BANDS[0][0], 1, 0))
+    if epoch is not None:
+        fade[a[:, 2] != epoch] = 2
+    if mode == 'plain':
+        period, fresh = np.ones(len(crumbs), dtype=int), 'trail.plain.plain'
+    else:
+        looks = [_quality(c, mode, vmax) for c in crumbs]
+        period = np.array([2 if mode == 'speed' and colourless and band == 'spd.5' else p or 0 for band, p in looks])
+        fresh = np.array(['trail.%s.%s' % (mode, band) for band, _ in looks])
+    layer = np.where(fade == 2, 'trail.old', np.where(fade == 1, 'trail.mid', fresh))
+    breaks = (np.flatnonzero(np.diff(a[:, 2])) + 1).tolist()
+    n, canvas = 0, frame.canvas  # one global step counter keeps patterns continuous across runs
+    for lo, hi in zip([0, *breaks], [*breaks, len(a)]):
+        seg, sx, sy = _steps(np.stack([x[lo:hi], y[lo:hi]], axis=1))
+        k = seg + lo
+        step = period[k]
+        gap = step == 0
+        keep = ~gap & ((n + np.arange(len(k))) % np.maximum(step, 1) == 0)
+        n += len(k)
+        cx, cy = np.floor(sx).astype(int), np.floor(sy).astype(int)
+        for col, row in zip((cx[gap] // 2).tolist(), (cy[gap] // 4).tolist()):
+            canvas.gap(col, row)
+        canvas.dots(cx[keep].tolist(), cy[keep].tolist(), layer[k[keep]].tolist())
+
+
+TINTS = ((66, 'cost.1'), (83, 'cost.2'), (INSCRIBED, 'cost.3'))  # cost below the bound -> ramp step
+DENSITY = {'lethal': 0xFF, 'inscribed': 0x55, 'cost.3': 0x02}  # colourless tiers: braille bits per band
 
 
 def _tint_for(cost, far):
-    """Costmap tint token for a cost, or None when it is not drawn (map.md 4.2)."""
+    """Costmap tint token for a cost, or None when it is not drawn: the 5-stop ramp binned at
+    50/66/83/99/100 (tui-visual 2.3); the far zoom keeps only inscribed and lethal."""
     if cost >= LETHAL:
-        return 'lethal_bg@%d' % (75 if far else 100)
+        return 'lethal'
     if cost == INSCRIBED:
-        return 'lethal_bg@%d' % (45 if far else 70)
+        return 'inscribed'
     if cost < COST_MIN or far:
         return None
-    return 'cost_bg@%d' % round(45 + (cost - COST_MIN) / (INSCRIBED - 1 - COST_MIN) * 55)
+    return next(token for bound, token in TINTS if cost < bound)
 
 
 def _cells(grid, resolution, origin, floor=COST_MIN):
@@ -145,12 +167,13 @@ def _cells(grid, resolution, origin, floor=COST_MIN):
             g[rows, cols].astype(int))
 
 
-def draw_costmap(frame, grid, resolution, origin):
+def draw_costmap(frame, grid, resolution, origin, density=False):
     """Tint canvas cells from a costmap (rows grow north from ``origin``), max over the cells.
 
     A costmap cell covers every canvas cell its footprint touches, so a lethal cell
     survives pooling whichever of the two is coarser. Each canvas cell keeps its highest cost.
     Pooling is a numpy max into a canvas-sized array; Python only walks the tinted cells.
+    ``density`` (16-colour and NO_COLOR tiers, which have no tint) draws bands as braille dots.
     """
     far = frame.half > DETAIL_HALF
     reach = resolution / frame.metres_per_dot / 2  # footprint half-size in dots
@@ -168,8 +191,12 @@ def draw_costmap(frame, grid, resolution, origin):
                 np.maximum.at(pooled, (c[ok], r[ok]), costs[ok])
     for col, row in zip(*np.nonzero(pooled)):
         token = _tint_for(int(pooled[col, row]), far)
-        if token:
+        if token and not density:
             canvas.tint(int(col), int(row), token)
+        elif token in DENSITY:
+            for (dx, dy), bit in BITS.items():
+                if DENSITY[token] & bit:
+                    canvas.dot(int(col) * 2 + dx, int(row) * 4 + dy, 'costmap')
 
 
 def draw_hits(frame, grid, resolution, origin, boat):

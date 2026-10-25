@@ -105,7 +105,7 @@ panel.activity:
   exclude: [X]
 
 view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols
-  override: [interference]
+  override: [interference, magcal, square, goto]   # e centres, g rings, w wake while the map has focus
   layer_costmap: [c]
   costmap_source: [C]
   layer_hits: [r]
@@ -114,6 +114,9 @@ view.minimap:                   # Map tab, and the Drive minimap column at ≥15
   trail_mode: [y]
   trail_restart: [Y]
   referee: [R]
+  layer_fov: [F]
+  layer_wake: [w]
+  layer_rings: [g]
   course: [K]
   up_mode: [u]
   zoom_in: [z]

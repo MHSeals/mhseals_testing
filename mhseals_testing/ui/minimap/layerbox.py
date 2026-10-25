@@ -26,7 +26,10 @@ class LayerBox:
         ``live`` False refuses ``trail_restart`` (map.md 7: live only)."""
         self.feeds, self.state, self.truth, self.live = feeds, state, truth, live
         self.costmap = self.hits = self.referee = False
-        self.source, self.objects, self.trail, self.floor = 'auto', 'off', 'plain', 0
+        self.wake = self.rings = True
+        self.fov = None   # None until the map first draws: minimap.yaml fov.show seeds it
+        self.up = 'N'     # N (north-up) or H (heading-up)
+        self.source, self.objects, self.trail, self.floor = 'auto', 'tracks', 'plain', 0
 
     def _state(self):
         """The MapState, resolved at press time: ``state`` may be a callable (as MiniMap accepts)."""
@@ -53,6 +56,14 @@ class LayerBox:
                 state.restart_trail()
         elif action == 'referee':
             self.referee = not self.referee
+        elif action == 'layer_fov':
+            self.fov = self.fov is False
+        elif action == 'layer_wake':
+            self.wake = not self.wake
+        elif action == 'layer_rings':
+            self.rings = not self.rings
+        elif action == 'up_mode':
+            self.up = 'H' if self.up == 'N' else 'N'
         else:
             return False
         self.sync(half_width)
@@ -65,18 +76,21 @@ class LayerBox:
 
     def rows(self):
         """Layer cells ``(key, label, on)`` in reading order; the pinned costmap source and the
-        detection floor ride in the labels (ui.md 5.6), so the box stays four interior rows."""
+        detection floor ride in the labels (ui.md 5.6), so the box stays five interior rows."""
         floor = f'{FLOORS[self.floor]:g}'.lstrip('0')
         objects = 'objects' if self.objects == 'off' else self.objects
         return [('c', 'costmap' if self.source == 'auto' else self.source, self.costmap),
                 ('r', 'hits', self.hits),
                 ('d', f'{objects} {floor}' if floor else objects, self.objects != 'off'),
                 ('y', 'trail' if self.trail == 'off' else self.trail, self.trail != 'off'),
-                ('R', 'referee', self.referee)]
+                ('R', 'referee', self.referee),
+                ('F', 'fov', self.fov is not False),
+                ('w', 'wake', self.wake),
+                ('g', 'rings', self.rings)]
 
-    def render(self, focused=False, up='N', zoom='fit', centre='boat'):
+    def render(self, focused=False, up=None, zoom='fit', centre='boat'):
         """The Layers panel. On layers are fg, off ones muted, so the state reads without colour
-        or glyphs. ``up``, ``zoom`` and ``centre`` are the view's facts, which the box does not own."""
+        or glyphs. ``zoom`` and ``centre`` are the view's facts, which the box does not own."""
         def cell(key, label, on=True):
             out = Text(no_wrap=True)
             out.append(key, style=f'bold {theme.ACCENT}')
@@ -84,13 +98,14 @@ class LayerBox:
             return out
 
         cells = [cell(*row) for row in self.rows()]
-        cells.append(Text('[truth]', style=theme.MUTED, no_wrap=True) if self.truth else Text())
         body = Text(no_wrap=True)
         for left, right in zip(cells[::2], cells[1::2]):
             body.append_text(left)
             body.append_text(right)
             body.append('\n')
-        for i, (key, label) in enumerate((('u', f'{up}{theme.pick("↑", "^")}'), ('z', zoom), ('e', centre))):
+        for i, (key, label) in enumerate((('u', f'{up or self.up}{theme.pick("↑", "^")}'), ('z', zoom), ('e', centre))):
             body.append(key, style=f'bold {theme.ACCENT}')
             body.append(f' {label}' + ('  ' if i < 2 else ''))
+        if self.truth:
+            body.append('  [truth]', style=theme.MUTED)
         return theme.block(body, 'Layers', focused=focused)

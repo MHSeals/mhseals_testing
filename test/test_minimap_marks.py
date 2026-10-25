@@ -55,13 +55,13 @@ def test_label_goes_right_else_left_else_is_skipped_only_inside_ten_m():
     assert 'r89' not in c.text()[2]
 
 
-def test_rings_only_at_five_m_or_less():
+def test_quiet_class_rings_only_at_ten_m_or_less():
     c, p = make(half=4, cols=40, rows=10)
     draw_objects(p, [Obj(0, 0, 'blue_buoy', 0.9)], TABLE)
-    assert any(cell.fg == 'ring' for row in c.cells() for cell in row)
-    c, p = make(half=8, cols=40, rows=10)
+    assert any(cell.fg == 'grid' for row in c.cells() for cell in row)
+    c, p = make(half=12, cols=40, rows=10)
     draw_objects(p, [Obj(0, 0, 'blue_buoy', 0.9)], TABLE)
-    assert not any(cell.fg == 'ring' for row in c.cells() for cell in row)
+    assert not any(cell.fg == 'grid' for row in c.cells() for cell in row)
 
 
 def test_truth_is_a_dot_plus_a_line_to_the_match_and_nothing_glyph_sized():

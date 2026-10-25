@@ -1,6 +1,7 @@
 ╭─ ▸ Layers ───────────────────╮
 │ c local       r hits         │
-│ d raw .5      y gps          │
-│ R referee     [truth]        │
-│ u N↑  z fit  e boat          │
+│ d objects .5  y gps          │
+│ R referee     F fov          │
+│ w wake        g rings        │
+│ u N↑  z fit  e boat  [truth] │
 ╰──────────────────────────────╯

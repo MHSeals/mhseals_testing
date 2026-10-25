@@ -110,7 +110,7 @@ def test_a_lethal_cell_survives_pooling_into_coarser_canvas_cells():
     f = _frame(cols=10, rows=5, half=40.0)  # 8 m per cell column: far coarser than 0.4 m
     layers.draw_costmap(f, _grid(100), 0.4, (-20.0, -20.0))
     tints = {c.bg for row in f.canvas.cells() for c in row if c.bg}
-    assert tints == {'lethal_bg@75'}
+    assert tints == {'lethal'}
 
 
 def test_cell_keeps_the_highest_cost_when_several_pool_together():
@@ -118,7 +118,7 @@ def test_cell_keeps_the_highest_cost_when_several_pool_together():
     g[50, 51] = 100
     f = _frame(cols=4, rows=2, half=10.0)
     layers.draw_costmap(f, g, 0.4, (-20.0, -20.0))
-    assert {c.bg for row in f.canvas.cells() for c in row if c.bg} == {'lethal_bg@100'}
+    assert {c.bg for row in f.canvas.cells() for c in row if c.bg} == {'lethal'}
 
 
 def test_far_zoom_drops_costs_below_inscribed_and_near_zoom_ramps():
@@ -127,10 +127,14 @@ def test_far_zoom_drops_costs_below_inscribed_and_near_zoom_ramps():
     assert not any(c.bg for row in far.canvas.cells() for c in row)
     inscribed = _frame(half=20.0)
     layers.draw_costmap(inscribed, _grid(99), 0.4, (-20.0, -20.0))
-    assert {c.bg for row in inscribed.canvas.cells() for c in row if c.bg} == {'lethal_bg@45'}
+    assert {c.bg for row in inscribed.canvas.cells() for c in row if c.bg} == {'inscribed'}
     near = _frame(half=5.0)
     layers.draw_costmap(near, _grid(98), 0.4, (-20.0, -20.0))
-    assert {c.bg for row in near.canvas.cells() for c in row if c.bg} == {'cost_bg@100'}
+    assert {c.bg for row in near.canvas.cells() for c in row if c.bg} == {'cost.3'}
+    for cost, token in ((50, 'cost.1'), (66, 'cost.2'), (83, 'cost.3')):
+        ramp = _frame(half=5.0)
+        layers.draw_costmap(ramp, _grid(cost), 0.4, (-20.0, -20.0))
+        assert {c.bg for row in ramp.canvas.cells() for c in row if c.bg} == {token}
     low = _frame(half=5.0)
     layers.draw_costmap(low, _grid(49), 0.4, (-20.0, -20.0))
     assert not any(c.bg for row in low.canvas.cells() for c in row)
@@ -190,4 +194,20 @@ def test_dense_local_costmap_and_hits_stay_inside_the_frame_budget():
     scale = float(os.environ.get('MHS_BENCH_SCALE', '1'))  # slow CI host budget multiplier
     assert time.perf_counter() - t0 < 0.05 * scale  # was ~0.2 s of per-cell Python
     tints = {c.bg for row in f.canvas.cells() for c in row if c.bg}
-    assert 'lethal_bg@100' in tints
+    assert 'lethal' in tints
+
+
+def test_colourless_tiers_draw_costmap_bands_as_dot_density():
+    f = _frame(cols=4, rows=2, half=10.0)
+    g = _grid(100)
+    layers.draw_costmap(f, g, 0.4, (-20.0, -20.0), density=True)
+    cells = [c for row in f.canvas.cells() for c in row]
+    assert not any(c.bg for c in cells) and '⣿' in {c.text for c in cells}
+
+
+def test_trail_fades_by_age_and_keeps_old_epochs_old():
+    f = _frame()
+    crumbs = [layers.Crumb(x, 0.0, t=t) for x, t in ((-4, 0.0), (-2, 0.0), (0, 100.0), (1, 100.0), (2, 200.0), (3, 200.0))]
+    layers.draw_trail(f, crumbs, now=200.0)
+    used = {c.fg for row in f.canvas.cells() for c in row if c.fg}
+    assert used == {'trail.old', 'trail.mid', 'trail.plain.plain'}

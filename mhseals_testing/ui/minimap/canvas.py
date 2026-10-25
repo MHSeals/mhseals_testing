@@ -6,15 +6,17 @@ palette (and the colourless tiers) are applied later by the emitter.
 """
 
 from collections import namedtuple
+from functools import lru_cache
 
-# Layer priority, highest first (map.md 4.1). A layer not listed ranks below all of these.
+# Layer priority, highest first (map.md 4.1, tui-visual 2.3). A layer not listed ranks below all of these.
 PRIORITY = (
-    'contact', 'boat', 'cursor', 'goal', 'home', 'label',
+    'chrome', 'contact', 'cursor', 'goal', 'home', 'label', 'bow', 'boat', 'track.vel',
     'object', 'dock_target',
     'ref_touched', 'ref_failed', 'ref_next', 'ref_passed', 'ref_pending', 'ref_skipped',
-    'wall', 'ring', 'truth_dot', 'raw_det', 'truth_line', 'hits', 'trail', 'plan',
-    'local_plan', 'costmap',
+    'wake', 'fov', 'track.pred', 'wall', 'ring', 'grid', 'truth_dot', 'raw_det', 'truth_line', 'hits',
+    'trail', 'acc', 'plan', 'local_plan', 'costmap',
 )
+_RANK = {name: i for i, name in enumerate(PRIORITY)}
 GAP = '┄'
 BLANK = '⠀'  # empty braille cell
 # Braille dot bit for (dx, dy) inside a cell: 2 dots wide, 4 high.
@@ -25,11 +27,14 @@ BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
 Cell = namedtuple('Cell', 'text fg chip bg')
 
 
+@lru_cache(maxsize=1024)
 def rank(layer):
-    """Sort key where a smaller number wins; a ``layer:token`` suffix names the colour only and
-    ``trail.gps.fix`` ranks as ``trail``."""
-    layer = layer.split(':')[0].split('.')[0]
-    return PRIORITY.index(layer) if layer in PRIORITY else len(PRIORITY)
+    """Sort key where a smaller number wins. A ``layer:token`` suffix names the colour only;
+    a dotted name ranks as itself when listed (``track.vel``), else by its head (``trail.gps.fix``)."""
+    layer = layer.split(':')[0].split('@')[0]
+    if layer in _RANK:
+        return _RANK[layer]
+    return _RANK.get(layer.split('.')[0], len(PRIORITY))
 
 
 class Canvas:
@@ -89,6 +94,17 @@ class Canvas:
         bit = BITS[(x % 2, y % 4)]
         if bit not in bits or rank(layer) < rank(bits[bit]):
             bits[bit] = layer
+
+    def dots(self, xs, ys, layers):
+        """``dot`` for many points at once (the trail): same rules, one Python loop."""
+        cols, rows, store = self.cols, self.rows, self._dots
+        for x, y, layer in zip(xs, ys, layers):
+            col, row = x // 2, y // 4
+            if 0 <= col < cols and 0 <= row < rows:
+                bits = store.setdefault((col, row), {})
+                bit = BITS[(x % 2, y % 4)]
+                if bit not in bits or rank(layer) < rank(bits[bit]):
+                    bits[bit] = layer
 
     def glyph(self, col, row, char, layer, chip=False):
         """Replace a cell with ``char``; the higher-priority glyph keeps a contested cell."""

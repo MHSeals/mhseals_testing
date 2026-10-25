@@ -454,7 +454,7 @@ def correction_body(snapshot, view, width, height):
     return correction.render(model, width, height)
 
 
-LAYERS_ROWS = 6   # the Layers box: four interior rows and its border
+LAYERS_ROWS = 7   # the Layers box: five interior rows and its border
 
 
 def map_body(snapshot, view, width, height):
@@ -462,7 +462,7 @@ def map_body(snapshot, view, width, height):
     box = view.get('layerbox')
     rows = LAYERS_ROWS if box is not None and height > LAYERS_ROWS + 8 else 0
     page = Layout()
-    cells = [Layout(minimap_panel(view, height - rows, width))]
+    cells = [Layout(minimap_panel(view, height - rows, width, full=True))]
     if rows:
         cells.append(Layout(box.render(view['focus'] == 'map'), size=rows))
     page.split_column(*cells)
