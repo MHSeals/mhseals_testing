@@ -49,8 +49,7 @@ def test_unreadable_and_transport_error_keep_pending(tmp_path):
         raise RuntimeError('transport failed')
     nav = surface(tmp_path, fail)
     assert 'failed' in nav.apply() and nav.pending
-    nav.path.unlink()
-    nav.path.mkdir()                       # unreadable: a directory where the file was
+    nav.path.unlink()                      # deleted after a read: the last good content stays
     nav.poll()
     nav.poll()
     assert nav.row()['value'] == 'error'

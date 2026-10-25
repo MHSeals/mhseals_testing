@@ -79,8 +79,9 @@ class Nav2File:
             text = self.path.read_text()
             data = yaml.safe_load(text)
         except FileNotFoundError:
-            self.current, self.raw = {}, None   # missing: nothing is requested
-            return
+            if self.raw is not None:            # deleted after a read: keep the last good content
+                self.error = 'missing'
+            return                              # never there: nothing is requested
         except OSError:
             self.error = 'unreadable'
             return  # keep the last good content
