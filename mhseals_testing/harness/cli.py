@@ -144,8 +144,8 @@ def build_parser():
     apply.add_argument('--yes', action='store_true',
                        help='apply; without it only the preview is printed')
     apply.add_argument('--now', action='store_true',
-                       help='allow a live limits-only change while a goal runs '
-                            '(smoother and controller limits)')
+                       help='allow a live-only change while a goal runs '
+                            '(the keys in config/nav2_classes.yaml)')
     apply.add_argument('--json', action='store_true', help='print one JSON document')
     return parser
 

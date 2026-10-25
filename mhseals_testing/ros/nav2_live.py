@@ -30,8 +30,9 @@ FIRST_SAMPLE_S = 4.0
 # controller_server and warns "Parameter <name> not found" for each one it
 # does not own. Measured on Nav2 1.3.13 (parameters_handler.hpp registers no
 # callback for static parameters, so for MPPI's own keys the line is the only
-# sign a key took no effect). The window runs only for live keys, all
-# FollowPath.*; only the two rotation-shim names among them are MPPI's noise.
+# sign a key took no effect). The window runs only for live keys; on
+# controller_server those are FollowPath.* and only the two rotation-shim names
+# among them are MPPI's noise (the costmaps are other nodes).
 SHIM_NAMES = frozenset(('max_angular_accel', 'rotate_to_heading_angular_vel'))
 MPPI_NOISE = re.compile(r'Parameter (\S+) not found')
 

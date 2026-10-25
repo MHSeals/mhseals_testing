@@ -13,15 +13,24 @@ CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0
 
 @pytest.mark.parametrize('key,live', [
     (FOLLOW + 'wz_max', True),
-    (FOLLOW + 'CostCritic.cost_weight', False),
+    (FOLLOW + 'CostCritic.cost_weight', True),
+    (FOLLOW + 'PathAngleCritic.cost_weight', True),
+    (FOLLOW + 'TwirlingCritic.cost_weight', True),
     (FOLLOW + 'prune_distance', True),
     ('velocity_smoother.max_accel', True),
-    ('global_costmap.global_costmap.footprint', False),
-    ('global_costmap.inflation_layer.inflation_radius', False),
-    ('global_costmap.global_costmap.inflation_layer.cost_scaling_factor', False),
-    # The local costmap feeds the MPPI CostCritic precompute, read at configure.
-    ('local_costmap.local_costmap.footprint', False),
+    ('global_costmap.global_costmap.footprint', True),
+    ('global_costmap.footprint_padding', True),
+    ('global_costmap.robot_radius', True),
+    ('global_costmap.inflation_layer.inflation_radius', True),
+    ('global_costmap.global_costmap.inflation_layer.cost_scaling_factor', True),
+    ('local_costmap.local_costmap.footprint', True),
+    ('local_costmap.footprint_padding', True),
+    # CostCritic keeps the inflation-derived cost from configure while the footprint holds.
     ('local_costmap.inflation_layer.inflation_radius', False),
+    ('local_costmap.local_costmap.inflation_layer.cost_scaling_factor', False),
+    ('global_costmap.inflation_layer.enabled', False),
+    ('global_costmap.width', False),
+    (FOLLOW + 'CostCritic.critical_cost', False),
     # Copied once at configure by ConstraintCritic and PathAngleCritic (vx_min's sign).
     (FOLLOW + 'vx_max', False),
     (FOLLOW + 'vx_min', False),

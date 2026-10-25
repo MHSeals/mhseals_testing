@@ -30,7 +30,7 @@ A rejected set, a readback mismatch, a bad /rosout line or a failed reset or
 startup rolls back in reverse order (with a reset: reset, previous values,
 startup), each step read back. A timeout is ``unknown``: nothing is
 retried and nothing more is written. A reset needs no active goal (``--now``
-is for live limits only) and runs under the same hold.
+is for live keys only) and runs under the same hold.
 """
 
 import json
@@ -267,8 +267,8 @@ class Nav2Live:
         found.rows = [{'key': key, 'old': found.live.get(key),
                        'new': sent[key], 'derived': key not in changes}
                       for key in sorted(sent)]
-        # config/nav2_classes.yaml lists only motion limits, so with no reset
-        # everything sent is a live limit change that --now may make mid-goal.
+        # With no reset everything sent is a live key, which --now may change
+        # mid-goal under the tokened hold.
         found.allow_goal = bool(now) and not found.reset
         found.refusals += self.fences(found.owner, found.allow_goal)
         if not found.refusals:
@@ -354,7 +354,7 @@ class Nav2Live:
             reasons.append('cannot tell whether a goal is active')
         elif running and not allow_goal:
             reasons.append(f'a goal is active ({", ".join(running)}); '
-                           'a limits-only change can use --now')
+                           'a live-only change can use --now')
         elif who in ('nav', 'external') and not running:
             reasons.append(f'something else is driving ({who})')
         return reasons

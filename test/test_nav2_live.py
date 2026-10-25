@@ -348,15 +348,17 @@ def test_a_guest_needs_only_a_live_owner(world):
     assert make(world, me=None).apply(ask(wz_max=0.4))['status'] == 'verified'
 
 
-def test_an_active_goal_refuses_and_now_allows_only_limits(world):
+def test_an_active_goal_refuses_and_now_allows_only_live_keys(world):
     world.goal_list = ['navigate_to_pose:ab12']
     assert 'a goal is active' in make(world).apply(ask(wz_max=0.4))['refused']
     assert world.calls == []
     world.mux_state = {'holds': []}
     live = make(world)
     assert live.apply(ask(wz_max=0.4), now=True)['status'] == 'verified'
+    weight = {FOLLOW + 'CostCritic.cost_weight': 5.0}
+    assert make(world).apply(weight, now=True)['status'] == 'verified'
     world.calls.clear()
-    other = {FOLLOW + 'CostCritic.cost_weight': 5.0}
+    other = {FOLLOW + 'batch_size': 500}
     assert 'a goal is active' in make(world).apply(other, now=True)['refused']
     assert world.calls == []
 
@@ -461,10 +463,50 @@ def test_a_malformed_footprint_refuses_before_any_write(world, value):
     assert world.calls == []
 
 
-def test_a_good_footprint_is_applied_with_a_reset(world):
+def test_a_good_footprint_is_applied_live_with_no_reset(world):
     world.nodes['/global_costmap/global_costmap'] = {'footprint': '[[1, 1], [1, -1], [-1, 0]]'}
     receipt = make(world).apply({'global_costmap.footprint': '[[0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]]'})
+    assert receipt['status'] == 'verified' and not receipt['reset'], receipt
+    assert 'lifecycle' not in {c[0] for c in world.calls}
+
+
+SHAPE = '[[1, 1], [1, -1], [-1, 0]]'
+COSTMAP = {'footprint': SHAPE, 'footprint_padding': 0.1, 'inflation_layer.inflation_radius': 1.5,
+           'inflation_layer.cost_scaling_factor': 3.0}
+COSTMAPS = {'/global_costmap/global_costmap': dict(COSTMAP),
+            '/local_costmap/local_costmap': dict(COSTMAP)}
+
+
+def test_cost_weights_footprints_and_global_inflation_apply_live_with_readback(world):
+    world.nodes.update(copy.deepcopy(COSTMAPS))
+    receipt = make(world).apply({
+        FOLLOW + 'CostCritic.cost_weight': 4.5,
+        'global_costmap.global_costmap.inflation_layer.inflation_radius': 1.2,
+        'global_costmap.inflation_layer.cost_scaling_factor': 4.0,
+        'local_costmap.local_costmap.footprint_padding': 0.05})
+    assert receipt['status'] == 'verified' and not receipt['reset'], receipt
+    assert 'lifecycle' not in {c[0] for c in world.calls}
+    assert [n for n, _ in world.sets()] == [
+        CONTROLLER, '/local_costmap/local_costmap', '/global_costmap/global_costmap']
+    gets = {c[1] for c in world.calls if c[0] == 'get'}
+    assert gets == {CONTROLLER, '/local_costmap/local_costmap', '/global_costmap/global_costmap'}
+    assert world.nodes['/global_costmap/global_costmap']['inflation_layer.inflation_radius'] == 1.2
+
+
+def test_local_inflation_goes_through_the_reset(world):
+    """The CostCritic keeps its configure-time circumscribed cost while the footprint holds."""
+    world.nodes.update(copy.deepcopy(COSTMAPS))
+    receipt = make(world).apply({'local_costmap.inflation_layer.inflation_radius': 1.2})
     assert receipt['status'] == 'verified' and receipt['reset'], receipt
+
+
+def test_an_error_line_after_a_live_footprint_rolls_it_back(world):
+    world.nodes.update(copy.deepcopy(COSTMAPS))
+    world.logs.append('global_costmap.global_costmap: Error parsing footprint parameter')
+    shape = '[[0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]]'
+    receipt = make(world).apply({'global_costmap.footprint': shape})
+    assert receipt['status'] == 'rolled_back' and 'Error parsing footprint' in receipt['error']
+    assert world.nodes['/global_costmap/global_costmap']['footprint'] == SHAPE
 
 
 def test_unreachable_node_refuses(world):

@@ -277,6 +277,36 @@ def test_a_live_set_reaches_the_real_nodes_under_a_tokened_hold(stack, live):
     assert mux['last_release']['tokenless'] is False and mux['last_release']['cause'] == 'config'
 
 
+def test_a_cost_weight_and_inflation_apply_live_with_readback_and_no_reset(stack, live):
+    node = '/global_costmap/global_costmap'
+    weight, radius = 'FollowPath.CostCritic.cost_weight', 'inflation_layer.inflation_radius'
+    before = {weight: stack.get(CONTROLLER, weight), radius: stack.get(node, radius)}
+    starts = activations(stack)
+    try:
+        receipt = live.apply({FOLLOW + 'CostCritic.cost_weight': 4.5,
+                              'global_costmap.global_costmap.' + radius: 1.2})
+        assert receipt['status'] == 'verified' and not receipt['reset'], receipt
+        assert stack.ports.commands == [] and activations(stack) == starts
+        assert stack.ports.sets == [CONTROLLER, node]
+        assert stack.get(CONTROLLER, weight) == 4.5 and stack.get(node, radius) == 1.2
+        assert stack.mux_holds() == [] and receipt['hold']['released']
+    finally:
+        stack.ports.params.set_atomically(CONTROLLER, {weight: before[weight]})
+        stack.ports.params.set_atomically(node, {radius: before[radius]})
+
+
+def test_a_live_footprint_reaches_the_costmap_with_no_reset(stack, live):
+    node, key = '/global_costmap/global_costmap', 'footprint'
+    before = stack.get(node, key)
+    shape = '[[0.6, 0.45], [0.6, -0.45], [-0.6, -0.45], [-0.6, 0.45]]'
+    try:
+        receipt = live.apply({'global_costmap.footprint': shape})
+        assert receipt['status'] == 'verified' and not receipt['reset'], receipt
+        assert stack.ports.commands == [] and stack.get(node, key) == shape
+    finally:
+        stack.ports.params.set_atomically(node, {key: before})
+
+
 def test_a_reset_path_key_survives_the_mppi_parameter_warning(stack, live):
     receipt = live.apply({'controller_server.failure_tolerance': 0.25})
     assert receipt['status'] == 'verified', receipt
