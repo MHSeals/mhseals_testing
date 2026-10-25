@@ -50,10 +50,16 @@ def test_unreadable_and_transport_error_keep_pending(tmp_path):
     nav = surface(tmp_path, fail)
     assert 'failed' in nav.apply() and nav.pending
     nav.path.unlink()
+    nav.path.mkdir()                       # unreadable: a directory where the file was
     nav.poll()
     nav.poll()
     assert nav.row()['value'] == 'error'
     assert 'unavailable' in nav.apply() and nav.pending
+
+
+def test_a_missing_file_requests_nothing_and_is_no_error(tmp_path):
+    nav = Nav2File(tmp_path / 'nav2.yaml')
+    assert nav.error == '' and nav.current == {} and nav.row()['value'] != 'error'
 
 
 @pytest.mark.parametrize('desired,evidence', [
