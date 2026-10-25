@@ -21,6 +21,7 @@ CENTRE = (ROSE_COLS, ROSE_ROWS * 2)
 HULL_DOTS = (9, 6)          # length, beam of the rose's hull
 REACH = (HULL_DOTS[0] / 2 + 1, HULL_DOTS[1] / 2 + 1)   # the command line starts this far out
 COMMAND_END = RADIUS - 5    # dots; the arrowhead cell sits past it, inside the ring
+HEAD_LEN, HEAD_SPREAD = 3, 35   # dots and degrees of the command arrowhead's barbs
 YAW_RADIUS = 8              # dots, about RADIUS / 2
 FULL_SPEED = 0.3            # m/s at the full radius; faster is clipped to the ring
 STALE_S = 60.0              # an older drift estimate is drawn dim
@@ -108,9 +109,18 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
         start = _reach(rel)
         stop = start + round(min(math.hypot(surge, sway) / scale, 1.0) * (COMMAND_END - start))
         bearing = up + math.degrees(rel)
-        ray(bearing, start, stop, COMMAND)
-        dx, dy = _polar(bearing, stop + 2)
-        glyphs[((cx + round(dx)) // 2, (cy + round(dy)) // 4)] = (_arrow(bearing), hue)
+        if theme.ASCII:                              # no dots to draw a direction with: the glyph, as before
+            ray(bearing, start, stop, COMMAND)
+            dx, dy = _polar(bearing, stop + 2)
+            glyphs[((cx + round(dx)) // 2, (cy + round(dy)) // 4)] = (_arrow(bearing), hue)
+        else:                                        # the head is dots too: any bearing, on the line's end
+            tip = stop + HEAD_LEN
+            ray(bearing, start, tip, COMMAND)
+            tx, ty = _polar(bearing, tip)
+            for barb in (bearing + 180 - HEAD_SPREAD, bearing + 180 + HEAD_SPREAD):
+                for length in range(1, HEAD_LEN + 1):
+                    dx, dy = _polar(barb, length)
+                    put(cx + round(tx + dx), cy + round(ty + dy), COMMAND)
     if yaw:
         sweep = math.copysign(min(abs(yaw) / scale, 1.0) * 180.0, yaw)
         count = max(2, round(abs(math.radians(sweep)) * YAW_RADIUS))

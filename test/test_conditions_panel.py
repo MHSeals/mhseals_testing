@@ -62,19 +62,57 @@ def test_unreliable_yaw_turns_the_hull_warn():
 @pytest.mark.parametrize('command', ((0.1, 0, 0), (0.25, 0, 0), (0.5, 0, 0), (0.6, 0.0, 0.2), (0.5, 0.29, 0),
                                      (0, -0.5, 0), (-0.4, 0.4, -0.5), (2.0, 0, 0)))
 def test_exactly_one_arrowhead_at_any_size(command, heading):
-    """The old glyph copied the arrow above 40 % of amplitude; now there is one, in the driver's hue."""
+    """One head, in the driver's hue: dots on the line's end (any bearing), the arrow glyph only in ASCII."""
     rows = conditions.rose(heading=heading, command=command, amplitude=0.5, hue='magenta')[1:]   # row 0: ↑bow
     heads = [ch for row in plain(rows) for ch in row if ch in ARROWS]
-    assert len(heads) == 1 and styles(rows, heads) == {'magenta'}
+    if theme.ASCII:
+        assert len(heads) == 1 and styles(rows, heads) == {'magenta'}
+    else:
+        assert not heads and 'magenta' in styles(rows)
 
 
-@pytest.mark.skipif(theme.ASCII, reason='the Unicode arrows')
-@pytest.mark.parametrize('command,heading,arrow', (((0.5, 0, 0), 0, '↑'), ((0.5, 0, 0), 90, '→'),
-                                                   ((0, 0.5, 0), 0, '←'), ((0, 0.5, 0), None, '←'),
-                                                   ((-0.5, 0, 0), 180, '↑'), ((0.5, -0.5, 0), 0, '↗')))
-def test_the_arrow_is_the_command_turned_into_the_world_by_the_heading(command, heading, arrow):
-    rows = plain(conditions.rose(heading=heading, command=command, amplitude=0.5))
-    assert arrow in ''.join(rows)
+# The rose at a few headings under a full-ahead command: row text is the snapshot (the head is braille).
+SNAPSHOTS = {
+    0: [
+        '⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀N⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀',
+        '⠀⠀⠀⠀⠠⡀⠀⠀⠀⠐⢻⠓⠀⠀⠀⠀⡠⠀⠀⠀⠀',
+        '⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣨⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
+        '⠀⠀W⠀⠀⠀⠀⠀⠀⢸⣿⣿⠀⠀⠀⠀⠀⠀⠀E⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⠿⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀',
+        '⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠀',
+        '⠀⠀⠀⠀⠠⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠢⠀⠀⠀⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀S⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀',
+    ],
+    45: [
+        '⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀N⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀',
+        '⠀⠀⠀⠀⠠⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠀⠀⠀⠀',
+        '⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡨⠻⠀⠀⢀⠀⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⡠⠊⠀⠀⠀⠀⠀⠀⠀',
+        '⠀⠀W⠀⠀⠀⠀⠀⢠⣾⣿⣿⡇⠀⠀⠀⠀⠀⠀E⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⠿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀',
+        '⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠀',
+        '⠀⠀⠀⠀⠠⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠢⠀⠀⠀⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀S⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀',
+    ],
+    135: [
+        '⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀N⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀',
+        '⠀⠀⠀⠀⠠⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠀⠀⠀⠀',
+        '⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
+        '⠀⠀W⠀⠀⠀⠀⠀⠸⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀E⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠛⠛⠣⡀⠀⠀⠀⠀⠀⠀⠀',
+        '⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠢⣠⠀⠀⠐⠀⠀',
+        '⠀⠀⠀⠀⠠⠂⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠢⠀⠀⠀⠀',
+        '⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀S⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀',
+    ],
+}
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the braille rose')
+@pytest.mark.parametrize('heading', sorted(SNAPSHOTS))
+def test_rose_snapshot_with_a_braille_arrowhead(heading):
+    assert plain(conditions.rose(heading=heading, command=(0.5, 0, 0), amplitude=0.5, hue='magenta')) == SNAPSHOTS[heading]
 
 
 def test_a_bigger_command_draws_a_longer_line():
