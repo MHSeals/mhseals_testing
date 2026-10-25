@@ -162,6 +162,18 @@ def test_autostart_survives_a_failed_start_and_attaches_to_what_runs():
     assert processes.started == []
 
 
+def test_autostart_leaves_a_nodeless_component_off_beside_a_running_stack():
+    class Endpoint(Profile):
+        components = dict(Profile.components, sensors={
+            'launch': ['mhseals_nav', 'sensors.launch.py'], 'start': True})
+    processes = FakeProcesses()
+    stack = Stack(components(Endpoint), processes, lambda: 0.0)
+    lines = stack.autostart({'/ekf_local'}, ['/ekf_local'], sim=True)
+    assert lines[1].startswith('left Sensors off') and processes.started == []
+    stack.autostart(set(), [], sim=True)                    # nothing up yet: start it
+    assert [name for name, _ in processes.started] == ['odometry', 'sensors']
+
+
 def test_autostart_reports_a_foreign_odometry_publisher_and_starts_nothing():
     processes = FakeProcesses()
     stack = Stack(components(Tracked), processes, lambda: 0.0)

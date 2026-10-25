@@ -294,6 +294,9 @@ class Stack:
             return [f'odometry already published by {", ".join(foreign)}: attaching, '
                     'starting nothing (the Status rows start components)']
         lines, failed = [], set()
+        # Without proof nodes a component's state is unknowable: beside a stack that is
+        # already up it may be running too, so it is left to its Status row.
+        up = any(self.state(key, nodes)[0] == 'external' for key in order)
         for key in order:
             item = self.items[key]
             if not sim and moves(item):
@@ -309,6 +312,10 @@ class Stack:
             status = self.state(key, nodes)[0]
             if status in ('ours', 'starting', 'external'):
                 lines.append(f'attached to {item.title} ({status})')
+                continue
+            if up and not item.nodes:
+                lines.append(f'left {item.title} off: it names no nodes to tell whether it '
+                             'already runs beside this stack (start it from its Status row)')
                 continue
             try:
                 self.start(key, nodes)
