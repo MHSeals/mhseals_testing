@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install pytest rich PyYAML numpy pyserial pyubx2 pymavlink
+      - run: python -m pip install pytest rich PyYAML numpy pyserial pyubx2 pymavlink pillow
       - run: python -m pytest -q test
         env:
           PYTHONPATH: .:deps/mhseals_hardware:deps/mhseals_nav
