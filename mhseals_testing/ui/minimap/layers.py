@@ -29,6 +29,7 @@ HITS_RANGE, HITS_NEAR = 20.0, 3.0  # m from the boat
 # xte is the cross-track error against the goal's first plan, None when unknown.
 # ``t`` (s, the pose clock) ages the crumb into the mid and old bands.
 Crumb = namedtuple('Crumb', 'x y fix xte speed epoch t', defaults=(0, None, 0.0, 0, None))
+OLD_SHARE = 16   # the faded tail is dropped when it would fill more than 1/16 of the canvas cells
 AGE_BANDS = ((30.0, None), (120.0, 'mid'))   # fresh up to 30 s keeps its mode band, then mid, then old
 
 
@@ -104,7 +105,8 @@ def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=Fal
     Crumbs of an epoch other than ``epoch`` (the current map datum) are ``trail.old``, and with
     ``now`` crumbs fade by age: ``trail.mid`` after 30 s, ``trail.old`` after 120 s.
     Segments never join two epochs. Colourless tiers dash the over-vmax speed parts.
-    Projection, ages and stepping are numpy; Python touches only the painted dots.
+    Projection, ages and stepping are numpy; Python touches only the painted dots. A faded tail
+    covering more than 1/16 of the canvas cells is left out, so a long session stays in the byte budget.
     """
     if not crumbs:
         return
@@ -130,6 +132,7 @@ def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=Fal
     layer = np.where(fade == 2, 'trail.old', np.where(fade == 1, 'trail.mid', fresh))
     breaks = (np.flatnonzero(np.diff(a[:, 2])) + 1).tolist()
     n, canvas = 0, frame.canvas  # one global step counter keeps patterns continuous across runs
+    px, py, names = [], [], []
     for lo, hi in zip([0, *breaks], [*breaks, len(a)]):
         seg, sx, sy = _steps(np.stack([x[lo:hi], y[lo:hi]], axis=1))
         k = seg + lo
@@ -140,7 +143,18 @@ def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=Fal
         cx, cy = np.floor(sx).astype(int), np.floor(sy).astype(int)
         for col, row in zip((cx[gap] // 2).tolist(), (cy[gap] // 4).tolist()):
             canvas.gap(col, row)
-        canvas.dots(cx[keep].tolist(), cy[keep].tolist(), layer[k[keep]].tolist())
+        px.append(cx[keep])
+        py.append(cy[keep])
+        names.append(layer[k[keep]])
+    if not px:
+        return
+    px, py, names = np.concatenate(px), np.concatenate(py), np.concatenate(names)
+    old = names == 'trail.old'
+    inside = (px >= 0) & (px < canvas.dots_wide) & (py >= 0) & (py < canvas.dots_high)
+    cells = np.unique((px[old & inside] // 2) * canvas.rows + py[old & inside] // 4)
+    if len(cells) > canvas.cols * canvas.rows // OLD_SHARE:   # a dense faded tail goes first (SSH bytes)
+        px, py, names = px[~old], py[~old], names[~old]
+    canvas.dots(px.tolist(), py.tolist(), names.tolist())
 
 
 TINTS = ((66, 'cost.1'), (83, 'cost.2'), (INSCRIBED, 'cost.3'))  # cost below the bound -> ramp step

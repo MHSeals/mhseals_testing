@@ -156,13 +156,13 @@ def test_motion_arrowhead_needs_three_cells_and_unknowns_fade():
 
 
 def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget():
-    """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB, and even with the whole 4000-crumb
-    trail ring inside the view a frame (cached costmap and rings) draws in <= 3 ms x scale."""
-    s = scene()
-    b = box(s, costmap=True, hits=True)
-    canvas = panel.draw(s, 116, 27, 20.0, TABLE, False, b, full=True, tier='truecolor')
-    size = len('\n'.join(emit(canvas, lambda layer: panel.style(layer, 'truecolor'), 'truecolor')).encode())
-    assert size <= 10 * 1024, size
+    """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB and draws (cached costmap and rings)
+    in <= 3 ms x scale, also with the whole 4000-crumb trail ring inside the view."""
+    for s in (scene(), scene(trail=4000, spiral=True)):   # the stress frame too: the TUI runs over SSH
+        b = box(s, costmap=True, hits=True)
+        canvas = panel.draw(s, 116, 27, 20.0, TABLE, False, b, full=True, tier='truecolor')
+        size = len('\n'.join(emit(canvas, lambda layer: panel.style(layer, 'truecolor'), 'truecolor')).encode())
+        assert size <= 10 * 1024, size
     s, lc = scene(trail=4000, spiral=True), LayerCache()
     assert len(s.crumbs) == 4000    # the whole ring, all inside the view
     b = box(s, costmap=True, hits=True)

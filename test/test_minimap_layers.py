@@ -211,3 +211,11 @@ def test_trail_fades_by_age_and_keeps_old_epochs_old():
     layers.draw_trail(f, crumbs, now=200.0)
     used = {c.fg for row in f.canvas.cells() for c in row if c.fg}
     assert used == {'trail.old', 'trail.mid', 'trail.plain.plain'}
+
+
+def test_a_dense_faded_tail_is_dropped_but_fresh_trail_stays():
+    f = _frame(cols=20, rows=4, half=10.0)
+    old = [layers.Crumb(-10 + i * 0.2, (i % 40) * 0.2 - 4, t=0.0) for i in range(100)]
+    fresh = [layers.Crumb(0.0, -1.0, t=500.0), layers.Crumb(0.0, 1.0, t=500.0)]
+    layers.draw_trail(f, old + fresh, now=500.0)
+    assert {c.fg for row in f.canvas.cells() for c in row if c.fg} == {'trail.plain.plain'}
