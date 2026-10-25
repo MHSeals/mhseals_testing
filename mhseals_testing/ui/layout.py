@@ -503,7 +503,7 @@ def correction_body(snapshot, view, width, height):
     return correction.render(model, width, height)
 
 
-LAYERS_ROWS = 8   # the Layers box: six interior rows and its border
+LAYERS_ROWS = 7   # the Layers box: five interior rows and its border
 LAYERS_WIDTH = 32
 DECISIONS = 100   # from this width the Decisions log joins Layers and Mission
 

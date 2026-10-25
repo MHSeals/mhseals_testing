@@ -117,7 +117,6 @@ view.minimap:                   # Map tab, and the Drive minimap column at ≥15
   detection_floor: [D]
   trail_mode: [y]
   trail_restart: [Y]
-  referee: [R]
   layer_fov: [F]
   course: [K]
   up_mode: [u]
@@ -216,5 +215,3 @@ popup.magcal:     {passthrough: [stop, mark, revoke_agent], enter_heading: [ente
                    interference: [i], close: [escape]}
 popup.pins:       {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], change_down: [left, h],
                    change_up: [right, l], edit: [enter], save: [s], close: [escape]}
-popup.referee:    {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], jump: [enter],
-                   close: [escape]}

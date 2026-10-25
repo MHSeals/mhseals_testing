@@ -25,7 +25,7 @@ class LayerBox:
         ``feeds`` None in review: the costmap there comes from BagSource, not a lease.
         ``live`` False refuses ``trail_restart`` (map.md 7: live only)."""
         self.feeds, self.state, self.truth, self.live = feeds, state, truth, live
-        self.costmap = self.hits = self.referee = False
+        self.costmap = self.hits = False
         self.wake = self.rings = self.tasks = True
         self.fov = None   # None until the map first draws: minimap.yaml fov.show seeds it
         self.up = 'N'     # N (north-up) or H (heading-up)
@@ -54,8 +54,6 @@ class LayerBox:
         elif action == 'trail_restart':
             if self.live and (state := self._state()):
                 state.restart_trail()
-        elif action == 'referee':
-            self.referee = not self.referee
         elif action == 'layer_fov':
             self.fov = self.fov is False
         elif action == 'layer_wake':
@@ -78,14 +76,13 @@ class LayerBox:
 
     def rows(self):
         """Layer cells ``(key, label, on)`` in reading order; the pinned costmap source and the
-        detection floor ride in the labels (ui.md 5.6), so the box stays six interior rows."""
+        detection floor ride in the labels (ui.md 5.6), so the box stays five interior rows."""
         floor = f'{FLOORS[self.floor]:g}'.lstrip('0')
         objects = 'objects' if self.objects == 'off' else self.objects
         return [('c', 'costmap' if self.source == 'auto' else self.source, self.costmap),
                 ('r', 'hits', self.hits),
                 ('d', f'{objects} {floor}' if floor else objects, self.objects != 'off'),
                 ('y', 'trail' if self.trail == 'off' else self.trail, self.trail != 'off'),
-                ('R', 'referee', self.referee),
                 ('F', 'fov', self.fov is not False),
                 ('w', 'wake', self.wake),
                 ('g', 'rings', self.rings),
