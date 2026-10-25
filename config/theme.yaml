@@ -78,8 +78,8 @@ tokens:
   decision.start:     {alias: task.confirmed}
   decision.recognise: {alias: task.goal}
   decision.switch:    {alias: task.goal}
-  decision.search:    {dark: '#B9AFC8', light: '#66597A', x256: [146, 60],  ansi: default}
-  decision.retry:     {dark: '#D8B08C', light: '#8A5A2E', x256: [180, 94],  ansi: default}
+  decision.search:    {alias: slate}            # log words only; the trail's gps tones fill the rest
+  decision.retry:     {alias: task.confirmed}
   decision.give_up:   {alias: task.failed}
   decision.skip:      {alias: task.done}
 
@@ -92,9 +92,8 @@ cvd_swap:
   gps.dgps:  {dark: '#C2B8A4', light: '#7C7A6E', x256: [181, 101], ansi: yellow}
   gps.3d:    {dark: '#D9A872', light: '#A8683A', x256: [179, 137], ansi: yellow}
   gps.none:  {dark: '#E08F5A', light: '#B4501A', x256: [173, 130], ansi: yellow}
-  # fail turns orange here, so the apricot mission tones step back to a sandy beige
-  task.confirmed: {dark: '#D9C2A6', light: '#7A5C3A', x256: [181, 95],  ansi: bright_cyan}
-  decision.retry: {dark: '#C8B49C', light: '#8A5A2E', x256: [144, 94],  ansi: default}
+  # fail turns orange here, so confirmed apricot pales toward the goal's cream, clear of the gps tones
+  task.confirmed: {dark: '#E9C2A6', light: '#7A5C3A', x256: [223, 95],  ansi: bright_cyan}
 
 # 16-colour tier: the one attribute added to a token's ansi name (ui.md section 3).
 attr16:
