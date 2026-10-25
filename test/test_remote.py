@@ -127,6 +127,19 @@ def test_a_running_unit_is_adopted_then_renewed_and_unreachable_is_not_off():
     assert units.held_by_host() == {'blastoise-jetson': ['Camera']}   # still renewed once it answers
 
 
+def test_a_stale_unit_of_a_carried_part_is_never_adopted_or_renewed():
+    """The boat's watchdogs run inside odometry's launch: an old mhseals-watchdogs unit must expire."""
+    ssh = FakeSsh()
+    ssh.reply = {'mhseals-camera': {'state': 'running'}, 'mhseals-watchdogs': {'state': 'running'}}
+    dogs = Component('watchdogs', 'Safety watchdogs', CAMERA_ARGV, host=JETSON, part='watchdogs',
+                     profile='odroid', carried_by='Odometry')
+    units = Units([item(), dogs], hosts={'tranquility': GATEWAY}, run=ssh)
+    units.refresh()
+    units.refresh()
+    assert units.held_by_host() == {'blastoise-jetson': ['Camera']}
+    assert not any('mhseals-watchdogs' in call[1] for call in ssh.calls)
+
+
 def test_a_watching_tui_reads_status_but_keeps_nothing_alive():
     ssh = FakeSsh()
     ssh.reply = {'mhseals-camera': {'state': 'running'}}

@@ -115,7 +115,9 @@ class Units:
     """
 
     def __init__(self, items, hosts=None, by=None, renew=True, run=call, period=PERIOD):
-        self.items = [item for item in items if item.host is not None]
+        # A carried part (the boat's watchdogs, inside odometry's launch) has no unit of its own:
+        # adopting a stale one would renew it forever beside odometry's copy.
+        self.items = [item for item in items if item.host is not None and not item.carried_by]
         if hosts is None and any(item.host.via for item in self.items):
             from mhseals_testing import devices
             hosts = devices.load().hosts
