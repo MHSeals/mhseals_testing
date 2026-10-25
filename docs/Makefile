@@ -1,8 +1,9 @@
-# Build math.pdf. `make docker-pdf` needs only Docker.
+# Build math.pdf. Without a local latexmk, `make pdf` falls back to `make docker-pdf`.
 TEXLIVE ?= texlive/texlive:latest-medium
 
 pdf:
-	latexmk -pdf -interaction=nonstopmode -halt-on-error math.tex
+	@if command -v latexmk >/dev/null; then latexmk -pdf -interaction=nonstopmode -halt-on-error math.tex; \
+	else $(MAKE) docker-pdf; fi
 
 docker-pdf:
 	docker run --rm -u "$$(id -u):$$(id -g)" -v "$(CURDIR):/docs" -w /docs $(TEXLIVE) \
