@@ -144,6 +144,13 @@ def test_two_automated_sources_are_a_conflict_shown_as_external():
     assert run(claims=both)['conflict']
 
 
+def test_a_task_the_procedure_started_is_its_implicit_claim_and_no_conflict():
+    own = run(procedure={'name': 'Mission rehearsal', 'task': 'gate'}, task={'status': 'RUNNING', 'name': 'gate'})
+    assert own['owner'] == 'procedure' and not own['conflict'] and own['source'] == 'Mission rehearsal'
+    outside = run(procedure={'name': 'Mission rehearsal'}, task={'status': 'RUNNING', 'name': 'gate'})
+    assert outside['conflict'] and outside['owner'] == 'external'
+
+
 def test_procedure_beside_an_agent_claim_is_a_conflict():
     claims = table()
     claims.claim('agent', 'tune', NOW)

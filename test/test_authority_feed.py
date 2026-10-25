@@ -78,6 +78,22 @@ def test_guests_and_review_create_no_arbiter(tmp_path):
     assert bus.bound == []
 
 
+def test_the_mission_procedures_own_task_reads_as_the_procedure(tmp_path):
+    app, _ = make_app(tmp_path)
+    clock = [1000.0]
+    feed, _ = start(app, clock)
+    app.running, app.run_id = 'Mission rehearsal', 'r1'
+    app._watcher = SimpleNamespace(status={'status': 'RUNNING', 'name': 'gate'})
+    feed.arbiter.tick()
+    assert feed.record['owner'] == 'external' and feed.record['conflict']   # not ours: an outside task
+    running = {'task_gate'}
+    app.processes = SimpleNamespace(processes={'task_gate': None}, running=lambda n: n in running)
+    clock[0] += 1
+    feed.arbiter.tick()
+    assert feed.record['owner'] == 'procedure' and not feed.record['conflict']
+    assert feed.record['procedure']['task'] == 'gate'
+
+
 def test_an_unclaimed_publisher_with_a_nonzero_cmd_vel_is_external(tmp_path):
     app, _ = make_app(tmp_path)
     clock = [1000.0]

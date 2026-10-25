@@ -48,6 +48,10 @@ class AuthorityFeed:
         """The arbiter's inputs from the app's state (see harness.authority.derive)."""
         app = self.app
         procedure = {'name': app.running, 'run': app.run_id} if app.running else None
+        children = getattr(app, 'processes', None)
+        own = [n for n in getattr(children, 'processes', ()) if n.startswith('task_') and children.running(n)]
+        if procedure and own:
+            procedure['task'] = own[0][len('task_'):]     # Mission started it: the procedure's implicit claim
         task = getattr(getattr(app, '_watcher', None), 'status', None) or None
         topic = MUX_INPUT if muxed(app.profile) else app.profile.command_topic
         age = None if self.cmd_at is None else self.clock() - self.cmd_at

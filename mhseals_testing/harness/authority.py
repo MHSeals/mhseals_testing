@@ -239,7 +239,9 @@ def _sources(claims, task, procedure):
 
     Goals and tasks started while a claim is active belong to that claim. A
     TUI procedure is the arbiter's own claim, so it only nests under a
-    procedure claim and runs beside any other claim as a second source.
+    procedure claim and runs beside any other claim as a second source. A
+    task the procedure started itself (``procedure['task']``, Mission) is
+    an implicit claim of that procedure: it nests, it is no second source.
     """
     active = [c for c in claims if c['state'] == 'active']
     sources = [(c['owner'], _claim_text(c), c['reason']) for c in active]
@@ -249,7 +251,7 @@ def _sources(claims, task, procedure):
         return sources
     if procedure:
         sources.append(('procedure', procedure['name'], ''))
-    if task and task.get('status') == 'RUNNING':
+    if task and task.get('status') == 'RUNNING' and not (procedure and procedure.get('task')):
         sources.append(('task', task.get('name', 'task'), ''))
     return sources
 
