@@ -192,9 +192,11 @@ def direct(argv):
     try:
         from ament_index_python.packages import get_package_prefix
         executable = Path(get_package_prefix(argv[2])) / 'lib' / argv[2] / argv[3]
-    except Exception:          # not installed here: ros2 run will say so
-        return list(argv)
-    return [str(executable), *argv[4:]] if os.access(executable, os.X_OK) else list(argv)
+    except Exception as error:
+        raise ValueError(f'{argv[2]} {argv[3]} is not installed here ({error})') from None
+    if not os.access(executable, os.X_OK):     # never fall back to the wrapper that swallows SIGINT
+        raise ValueError(f'{executable} is not an installed executable')
+    return [str(executable), *argv[4:]]
 
 
 class Child:
@@ -345,7 +347,11 @@ def run(token, encoded, children, lease=None, link_s=LINK_S, first_beat_s=FIRST_
         print(json.dumps(checked), flush=True)
         return 2
     config = write_config(encoded, 'arm')
-    children = [(name, with_config(argv, config)) for name, argv in children]
+    try:
+        children = [(name, direct(with_config(argv, config))) for name, argv in children]
+    except ValueError as error:
+        print(json.dumps({'error': str(error)}), flush=True)
+        return 2
     from std_msgs.msg import String
     node, close = _ros('arm_link')
     watch = Watch(token, link_s, first_beat_s)
@@ -411,7 +417,11 @@ def readback(encoded, argv, timeout=None):
     if found:
         return {'error': f'a thruster driver or mux already runs here (pids {found})'}
     # The node is our direct child (direct()), so even a SIGKILL here reaches it as SIGINT.
-    child = Child('hardware', with_config(argv, config))
+    try:
+        argv = direct(with_config(argv, config))
+    except ValueError as error:
+        return {'error': str(error)}
+    child = Child('hardware', argv)
     try:
         return {'confirmed': pins.readback(load_config(config))}
     finally:

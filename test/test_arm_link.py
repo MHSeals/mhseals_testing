@@ -187,9 +187,18 @@ def test_ros2_run_children_are_started_as_the_node_itself(tmp_path, monkeypatch)
     executable.parent.mkdir(parents=True)
     executable.write_text('#!/bin/sh\n')
     executable.chmod(0o755)
-    monkeypatch.setattr(index, 'get_package_prefix', lambda package: str(tmp_path))
+    monkeypatch.setattr(index, 'get_package_prefix', lambda package: str(tmp_path), raising=False)
     assert arm_link.direct([*DRIVER_ARGV, '--ros-args']) == [str(executable), '--ros-args']
     assert arm_link.direct(['sleep', '1']) == ['sleep', '1']
+    executable.unlink()          # never back to ros2 run, whose wrapper swallows SIGINT
+    with pytest.raises(ValueError, match='not an installed executable'):
+        arm_link.direct(DRIVER_ARGV)
+
+    def missing(package):
+        raise LookupError(package)
+    monkeypatch.setattr(index, 'get_package_prefix', missing, raising=False)
+    with pytest.raises(ValueError, match='not installed here'):
+        arm_link.direct(DRIVER_ARGV)
 
 
 def test_a_killed_parent_takes_its_child_node_down():
