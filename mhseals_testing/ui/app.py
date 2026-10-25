@@ -63,7 +63,7 @@ from mhseals_testing.ui import (
     authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception,
     popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
-from mhseals_testing.ui.feeds import authority as authority_feed, health as health_feed
+from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
 from mhseals_testing.ui.feeds.rtk import RtkFeed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
@@ -1532,6 +1532,8 @@ class App:
         rows = status_rows(self.snapshot(), self.profile.sensors)
         if key in ('left', 'right') and self.agents_row(rows):
             self.toggle_agents()
+        elif key in ('left', 'right') and self.row_setting(rows) in ('agent_motion', 'agent_view'):
+            agent_feed.step_setting(self, self.row_setting(rows), key)
         elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
             self.step_recording(key)
         elif key == 'e':
@@ -2399,7 +2401,7 @@ class App:
         def on_resume():
             require_runtime_c()
 
-        runner = Runner(self.plant, blockers, self.keys, show=show,
+        runner = Runner(self.plant, lambda: blockers() + agent_feed.blockers(self), self.keys, show=show,
                         emit=self.emit, clock=self.monitor.clock,
                         override=self.override_cause, gate=self.resume_gate,
                         paused_tick=paused_tick, key_action=lambda key: self.runner_key(key, keymap),
@@ -2664,7 +2666,7 @@ def main(argv=None):
     stack = Stack(stack_items, processes, time.monotonic)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
-    app = authority = None
+    app = authority = desk = None
     try:
         for name, child in choice.children.items():
             processes.adopt(name, child)
@@ -2704,6 +2706,7 @@ def main(argv=None):
             registry.set_children(processes.records())
         authority = None if watching else authority_feed.start(
             app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
+        desk = None if watching else agent_feed.start(app, ros, registry=registry)
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
@@ -2715,6 +2718,8 @@ def main(argv=None):
                 plant.neutral()
                 arming.disarm()
         finally:
+            if desk is not None:        # an act never outlives its TUI, nor passes to a successor
+                desk.close()
             if authority is not None:   # claims end with the session unless a successor adopts them
                 authority.arbiter.close(keep_claims=app.detaching)
             plant.close()
