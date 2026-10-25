@@ -15,8 +15,20 @@ import subprocess
 import sys
 
 HEADINGS = (0, 22.5, 45, 67.5, 90, 135, 180, 270)
+ALL16 = tuple(k * 22.5 for k in range(16))
+TODAY = ('0', 'T', 'U', 'S')
 BOATS = ('0', 'A', 'B', 'C', 'D', 'E')
 ARROWS = ('0', 'A', 'B', 'C', 'D', 'E')
+TODAY_NOTES = (
+    ('0', 'Today', 'Barbs at ±35° rounded per dot: clean at 0/45/90, ragged at 22.5° and 67.5°.'),
+    ('T', 'Hand-drawn wedge, 6 dots', 'A filled right-angle wedge (edges at 180° and 225° for 22.5°, '
+     'both clean dot lines) drawn once and mapped to the other seven by the square’s flips and transpose, '
+     'which are exact on square dots. The shaft stops 3 dots short and joins the wedge’s base. A table of '
+     '6 offsets; no per-frame cost beyond today’s.'),
+    ('U', 'Hand-drawn wedge, 10 dots', 'As T with a fourth row: a bigger head than today’s 0°.'),
+    ('S', 'Snapped head', 'Today’s head drawn at the nearer cardinal while the shaft stays exact: '
+     'tidy dots, but the head visibly points 22.5° off the shaft.'),
+)
 COMBOS = (('CE', 'C hull + E glow arrow'), ('EE', 'E chevron + E glow arrow'), ('DA', 'D hybrid + A bold arrow'), ('CC', 'C hull + C half-block arrow'))
 ARMS = ('0', '1', '2', '3')
 TIERS = {
@@ -104,6 +116,10 @@ def dump(tier):
         for h in HEADINGS:
             out[f'arrow/{opt}/{h}'] = to_html(Group(*gi.rose(boat='0', arrow_opt=opt, heading=0,
                                                              command_bearing=h)), 21)
+    for opt in TODAY:
+        for h in ALL16:
+            out[f'today/{opt}/{h}'] = to_html(Group(*gi.rose(boat='0', arrow_opt=opt, heading=0,
+                                                             command_bearing=h, drift=None)), 21)
     for boat, arrow in ((k[0], k[1]) for k, _ in COMBOS):
         for h in HEADINGS:
             out[f'combo/{boat}{arrow}/{h}'] = to_html(Group(*gi.rose(boat=boat, arrow_opt=arrow, heading=h,
@@ -183,9 +199,9 @@ def page(frags):
     def pre(key, tier='truecolor'):
         return f'<pre class="t">{frags[tier].get(key, "")}</pre>'
 
-    def strip(label, keyfmt, tier='truecolor', labels=True):
+    def strip(label, keyfmt, tier='truecolor', labels=True, headings=HEADINGS):
         cells = ''.join(f'<div>{f"<span>{h:g}°</span>" if labels else ""}{pre(keyfmt.format(h=h), tier)}</div>'
-                        for h in HEADINGS)
+                        for h in headings)
         return f'<div class="row"><span class="k">{label}</span><div class="strip">{cells}</div></div>'
 
     parts = [HEAD]
@@ -196,14 +212,22 @@ def page(frags):
                  'cells, block elements drawn as exact rectangles the way kitty, WezTerm, foot and Ghostty draw '
                  'them (a font-drawn terminal may show hairline seams). Braille and shapes are font glyphs.</p>')
 
+    parts.append('<h2>0 · Owner’s arrow pick: today’s arrow, in-between bearings fixed</h2>'
+                 '<p class="lede">All 16 bearings, heading 0, command at 80 %. 0°, 45°, 90° … are drawn exactly '
+                 'as today in every row; only 22.5° + 45° k change. The shaft is always exact.</p>')
+    for opt, title, note in TODAY_NOTES:
+        parts.append(f'<section><h3><b>{opt}</b> {title}</h3>'
+                     + strip('truecolor', f'today/{opt}/{{h}}', headings=ALL16)
+                     + (strip('NO_COLOR', f'today/{opt}/{{h}}', 'mono', labels=False, headings=ALL16) if opt == 'T' else '')
+                     + f'<p class="note">{note}</p></section>')
     parts.append('<section class="rec"><h3>Recommendation</h3><p class="note">'
                  '<b>Boat: C</b>, the antialiased half-block hull: solid rather than stippled, any heading '
                  '(cached per 5°), ▀▄█ only, thresholded below truecolor. On the map its edge pixels should blend '
                  'into the cell’s own costmap tint rather than the panel bg. Runner-up: D, if the owner wants '
                  'the exact heading as a bowsprit.<br>'
-                 '<b>Arrow: E</b>, the glow arrow: braille shaft fading toward a filled wedge head in bold hue on a '
-                 'faint tint of that hue, so the tip reads first; any bearing, cached per degree; NO_COLOR and 16 '
-                 'colours keep the shape flat. Runner-up: D (comet with fletching).<br>'
+                 '<b>Arrow (owner picked today’s): T</b>, a hand-drawn 6-dot wedge for 22.5° mirrored to all eight '
+                 'in-between bearings, the same 3-row size and filled look as today’s 0° head. U is the larger '
+                 '10-dot wedge if T reads small; S (snapped head) visibly kinks against the shaft.<br>'
                  '<b>Arm panel: 1</b>, quiet labels with a state gutter: muted right-aligned labels, values in fg, '
                  'checks with ✓/✗ in state colour under a rule that counts what blocks, the caution line in warn; '
                  'the danger border and title stay fail. Variant 2 is the bolder pick (armed-hue frame).</p></section>')
