@@ -4,6 +4,7 @@ Calls run on the RosIO executor thread; these methods wait on futures, so the
 TUI thread can call them directly.
 """
 
+from array import array
 from contextlib import contextmanager
 import math
 import time
@@ -12,7 +13,9 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import ComputePathToPose, NavigateThroughPoses, NavigateToPose
+from nav2_msgs.srv import GetCostmap
 from nav_msgs.msg import OccupancyGrid
+import numpy as np
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.time import Time
@@ -35,6 +38,26 @@ def wait(future, timeout, what):
             raise TimeoutError(f'{what} timed out after {timeout:g}s')
         time.sleep(0.02)
     return future.result()
+
+
+def occupancy(costs):
+    """Nav2 costs 0-255 as OccupancyGrid values, by costmap_2d_publisher's translation table:
+    0 free, 1-252 to 1-98, 253 inscribed 99, 254 lethal 100, 255 unknown -1."""
+    c = np.frombuffer(bytes(costs), dtype=np.uint8).astype(np.int32)
+    out = np.where(c == 0, 0, 1 + (97 * (c - 1)) // 251)
+    out = np.where(c == 253, 99, np.where(c == 254, 100, np.where(c == 255, -1, out)))
+    return out.astype(np.int8)
+
+
+def grid_of(costmap):
+    """A nav_msgs/OccupancyGrid from a GetCostmap reply's nav2_msgs/Costmap."""
+    meta, grid = costmap.metadata, OccupancyGrid()
+    grid.header = costmap.header
+    grid.info.resolution = meta.resolution
+    grid.info.width, grid.info.height = meta.size_x, meta.size_y
+    grid.info.origin = meta.origin
+    grid.data = array('b', occupancy(costmap.data).tobytes())
+    return grid
 
 
 def pose_stamped(frame, x, y, yaw, stamp):
@@ -87,9 +110,35 @@ class Nav2:
         # is 0.58 MB/s, so it is subscribed only inside costmap_lease().
         self.costmap_topic = costmap
         self._costmap_sub = LazySub(node, OccupancyGrid, costmap, self._costmap, COSTMAP_QOS)
+        # The costmap topic sends a full grid only when a subscriber is there as the window moves, so a
+        # late subscriber can get a grid latched minutes ago, far behind the boat. The costmap node's
+        # GetCostmap service answers with the grid it holds now.
+        self.costmap_client = node.create_client(GetCostmap, costmap.rsplit('/', 1)[0] + '/get_costmap')
+
+    def stamp_age(self, stamp):
+        """Seconds from ``stamp`` to the node's clock (sim time in the sim); 0 when it is ahead or unset."""
+        if not (stamp.sec or stamp.nanosec):
+            return 0.0
+        age = (self.node.get_clock().now().nanoseconds - (stamp.sec * 10**9 + stamp.nanosec)) / 1e9
+        return max(0.0, age)
 
     def _costmap(self, message):
-        self.costmap, self.costmap_time = message, time.monotonic()
+        # judged by its stamp, not by its arrival: a latched grid arrives at once however old it is
+        self.costmap, self.costmap_time = message, time.monotonic() - self.stamp_age(message.header.stamp)
+
+    def served_costmap(self, timeout=2.0):
+        """The grid the costmap node holds now (GetCostmap), with ``costmap_time`` from its stamp; None
+        when the service is not there or does not answer in ``timeout``."""
+        client = getattr(self, 'costmap_client', None)
+        if client is None or not client.wait_for_service(timeout_sec=min(timeout, 0.5)):
+            return None
+        try:
+            reply = wait(client.call_async(GetCostmap.Request()), timeout, 'get_costmap')
+        except TimeoutError:
+            return None
+        grid = grid_of(reply.map)
+        self.costmap, self.costmap_time = grid, time.monotonic() - self.stamp_age(reply.map.header.stamp)
+        return grid
 
     @contextmanager
     def costmap_lease(self, who):
@@ -119,6 +168,9 @@ class Nav2:
             finally:
                 self.node.destroy_subscription(sub)
             return got[-1] if got else None
+        served = self.served_costmap(timeout) if hasattr(self, 'served_costmap') else None
+        if served is not None:
+            return served
         with self.costmap_lease('fetch'):
             deadline = time.monotonic() + timeout
             while self.costmap is None and time.monotonic() < deadline:

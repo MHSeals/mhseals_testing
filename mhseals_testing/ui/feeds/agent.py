@@ -375,7 +375,7 @@ class AgentDesk:
     def act_run(self, act):
         app = self.app
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
-        if not self.confirm(act, f"Agent {act['who']}: run {name} · Enter allow · Esc refuse"):
+        if not self.confirm(act, f"Agent {act['who']}: run {name} · select Allow to let it drive"):
             return False
         if 'armed' in found.needs and not app.armed:
             self.set_state(act, 'waiting_arm')
@@ -408,7 +408,7 @@ class AgentDesk:
         reason = gate(replace(facts, costmap_age_s=0.0))   # the send fetches the costmap fresh
         if reason:                               # never ask Allow for a goal the gates already refuse
             return self.finish(act, False, 'refused', hint=reason)
-        if not self.confirm(act, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f} · Enter allow"):
+        if not self.confirm(act, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f} · select Allow to let it drive"):
             return False
         if self.watch():
             return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
