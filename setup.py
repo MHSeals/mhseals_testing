@@ -36,7 +36,8 @@ setup(
             'boat_test = mhseals_testing.ui.app:main',
             'boat_trial = mhseals_testing.harness.cli:main',
             'rtk_base = mhseals_testing.rtk:main',
-            'host_diagnostic = mhseals_testing.ros.host_diagnostic:main',
+            'operator_heartbeat = mhseals_testing.ros.operator_heartbeat:main',
+            'host_diagnostic =mhseals_testing.ros.host_diagnostic:main',
         ],
     },
 )

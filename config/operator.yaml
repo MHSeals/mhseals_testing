@@ -1,0 +1,7 @@
+# Operator laptop settings (ros/operator_heartbeat.py).
+# link_watchdog on the boat holds the thrusters when /operator/heartbeat stops, so the
+# publisher must never run on a boat computer: that would keep the link looking alive.
+# boat_hosts are fnmatch patterns on the host name. A container may report its own name
+# instead of the machine's, so list every name a boat computer can report.
+boat_hosts: ['blastoise*']
+heartbeat_period_s: 0.5
