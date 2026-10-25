@@ -14,6 +14,7 @@ from mhseals_testing.ros import authority as arbiter_module
 from mhseals_testing.ros.arming import MUX_INPUT, muxed
 
 CMD_WINDOW_S = 1.0
+MISSION = 'Mission rehearsal'  # app.running holds the procedure's title (procedures 't')
 
 
 class AuthorityFeed:
@@ -56,7 +57,8 @@ class AuthorityFeed:
         # The task our Mission procedure started is the procedure's own; any other conflicts.
         # run_task's status names it 'task'.
         name = task and (task.get('task') or task.get('name'))
-        if name and app.running == 'mission' and app.processes.running(f'task_{name}'):
+        if (name and app.running == MISSION
+                and app.processes.running(f'task_{name}')):
             task = None
         topic = MUX_INPUT if muxed(app.profile) else app.profile.command_topic
         age = None if self.cmd_at is None else self.clock() - self.cmd_at

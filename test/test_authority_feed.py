@@ -422,7 +422,8 @@ def test_a_task_the_mission_procedure_started_is_not_a_second_source(tmp_path):
     app, _ = make_app(tmp_path)
     feed, _ = start(app, [1000.0])
     app._watcher = SimpleNamespace(status={'task': 'pair_test', 'status': 'RUNNING'})
-    app.running = 'mission'
+    from mhseals_testing.procedures import PROCEDURES
+    app.running = next(p.title for p in PROCEDURES if p.key == 't')  # as run_procedure sets it
     app.processes.running = lambda name: name == 'task_pair_test'
     assert feed.sources()['task'] is None
     app._watcher.status = {'task': 'docking', 'status': 'RUNNING'}   # someone else's task
