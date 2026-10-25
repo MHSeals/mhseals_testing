@@ -103,7 +103,7 @@ def test_app_preflights_components_before_process_manager():
     source = (ROOT / 'mhseals_testing/ui/app.py').read_text()
     tree = ast.parse(source)
     function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
-                    and node.name == 'main')
+                    and node.name == 'session_main')
     calls = [node for node in ast.walk(function) if isinstance(node, ast.Call)
              and isinstance(node.func, ast.Name)]
     first_components = min(node.lineno for node in calls if node.func.id == 'components')

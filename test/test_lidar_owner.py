@@ -50,6 +50,8 @@ def sensor_factory(nav_root, share):
     from mhseals_nav.lidar_configuration import resolve_lidar
     ns = launch_factory(nav_root, 'sensors')
     ns['resolve_lidar'] = lambda *args, **kw: resolve_lidar(*args, share=share, **kw)
+    # The shipped boat LAN's lidar address (astro_dock's boat-network.env), not this machine's.
+    ns['boat_network'] = SimpleNamespace(value={'LIDAR_IP': '192.168.0.201'}.get)
     # Bind actual transport constants as well as factory bodies from shipped source.
     source = nav_root / 'launch/sensors.launch.py'
     assignments = [node for node in ast.parse(source.read_text()).body
