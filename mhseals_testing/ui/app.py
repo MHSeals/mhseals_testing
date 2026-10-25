@@ -400,7 +400,7 @@ class App:
 
     def pin_refusal(self):
         """Arming waits for the sysfs readback after a pin change (s or M runs it)."""
-        return 'pins changed, not read back yet: s runs the readback' if self.pins_unverified else ''
+        return pins.refusal(self)
 
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
@@ -2028,6 +2028,8 @@ class App:
             if moved and pins.busy(self):
                 self.notice = pins.REFUSED
                 return
+            if moved:
+                pins.mark_pending(self)   # before the write: a failed reload cannot arm
             chips = dict(pwm_chips=self.draft['pwm_chips']) if moved else {}
             if self.save_hardware(channel_map=channel_map, reversed=reversed_, **chips):
                 self.notice = pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}'
@@ -2060,7 +2062,7 @@ class App:
         if not self.armed or self.profile.outputs == 'none':
             self.notice = 'Arm first (a); test pulses go through the thruster driver'
             return
-        conflicts = self.plant.conflicts()
+        conflicts = ([self.pin_refusal()] if self.pin_refusal() else []) + self.plant.conflicts()
         if conflicts:
             self.notice = f'Test pulses refused: {conflicts[0]}'
             return

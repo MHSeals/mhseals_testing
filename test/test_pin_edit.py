@@ -99,3 +99,55 @@ def test_keymap_binds_pin_to_P_on_the_thrusters_panel():
     from mhseals_testing.ui import keymap
     loaded, _ = keymap.load()
     assert loaded.doc['panel.thrusters']['pin'] == ['P']
+
+
+def test_a_pin_draft_refuses_arming_and_test_pulses(tmp_path):
+    free_pin_7(tmp_path)
+    app, _ = make_app(tmp_path)
+    app.edit_mapping([1, 2, 3, 4], [False] * 4, CHIPS)
+    assert app.pins_moved() and 'unsaved pin change' in app.pin_refusal()
+    assert 'unsaved pin change' in ' '.join(app.arm_blockers())
+    app.arm_panel()
+    assert app.notice.startswith('Arming refused: unsaved pin change') and not app.armed
+    app.arming.armed = True                                    # even if armed, no test pulse
+    app.nudge(0, 10)
+    assert app.notice.startswith('Test pulses refused: unsaved pin change')
+
+
+def test_a_failed_save_after_the_write_leaves_arming_refused(tmp_path, monkeypatch):
+    free_pin_7(tmp_path)
+    app, processes, _ = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    monkeypatch.setattr(app, 'announce', lambda change: type('C', (), {'ok': False})())
+    app.ask_text = lambda *a: '7'
+    app.dispatch('P'), app.dispatch('s')                       # written, then the reload fails
+    assert app.pins_unverified and processes.started == []
+    assert load_config(app.args.config)['pwm_chips'] == CHIPS
+    assert 'not read back' in app.pin_refusal()
+
+
+def test_a_new_app_refuses_arming_on_pins_not_verified(tmp_path, monkeypatch):
+    free_pin_7(tmp_path)
+    app, _, _ = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    app.ask_text = lambda *a: '7'
+    app.dispatch('P'), app.dispatch('s')                       # confirmed: the marker follows
+    assert pins.verified_hash(app) == pins.pin_hash(app.args.hardware_config)
+    assert make_app(tmp_path)[0].pin_refusal() == ''           # restart on verified pins: armable
+    config = tmp_path / 'hardware.yaml'                        # a hand edit, or M saved unread
+    config.write_text(config.read_text().replace('channel_map', 'pwm_channels: [1, 0, 0, 0]\nchannel_map'))
+    fresh, _ = make_app(tmp_path)
+    fresh.profile = app.profile
+    assert 'differ from the last readback' in fresh.pin_refusal()
+    fresh.arm_panel()
+    assert fresh.notice.startswith('Arming refused: pins differ') and not fresh.armed
+
+
+def test_a_first_unread_pin_change_survives_a_restart(tmp_path, monkeypatch):
+    free_pin_7(tmp_path)
+    app, _, _ = pins_app(tmp_path, monkeypatch, [('unexported', '')])
+    monkeypatch.setattr(pins, 'READBACK_TIMEOUT', 0)
+    app.ask_text = lambda *a: '7'
+    app.dispatch('P'), app.dispatch('s')
+    assert 'did not show' in app.notice
+    fresh, _ = make_app(tmp_path)
+    fresh.profile = app.profile
+    assert not fresh.pins_unverified and 'differ from the last readback' in fresh.pin_refusal()

@@ -7,7 +7,10 @@ other output uses; it is a draft that ``s`` saves. A saved pin change must pass
 the sysfs readback before arming.
 """
 
+import hashlib
+import json
 import time
+from pathlib import Path
 
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.menu import Cancelled
@@ -27,6 +30,55 @@ PWM_NOTE = f"PWM pins {' '.join(map(str, sorted(PWM_PINS)))}; one pin per PWM (2
 def busy(app):
     """True while armed or arming: pins never move under a running driver."""
     return app.armed or (app.arming is not None and app.arming.pending is not None)
+
+
+def pin_hash(config):
+    """A digest of what the pins are: chips, channels and the MOSFET line."""
+    keys = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line')
+    return hashlib.sha256(json.dumps([list(config[k]) if k.startswith('pwm') else config[k]
+                                      for k in keys]).encode()).hexdigest()[:16]
+
+
+def marker_path(app):
+    """The verified-pins marker, beside the operator hardware.yaml so it outlives the TUI."""
+    return Path(app.args.config).with_name('pins-verified.json')
+
+
+def verified_hash(app):
+    try:
+        return json.loads(marker_path(app).read_text()).get('verified')
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def write_marker(app, digest):
+    try:
+        marker_path(app).write_text(json.dumps(dict(verified=digest)))
+    except OSError:
+        pass   # the in-process flag still refuses; the file only carries it across a restart
+
+
+def mark_pending(app):
+    """Before a pin write: arming is refused until a readback, here and after a TUI restart.
+
+    A first change records the pins in force as the last verified, so the new ones differ.
+    """
+    app.pins_unverified = True
+    if verified_hash(app) is None:
+        write_marker(app, pin_hash(app.args.hardware_config))
+
+
+def refusal(app):
+    """Why arming must wait on the pins, or ''."""
+    if app.pins_unverified:
+        return 'pins changed, not read back yet: s runs the readback'
+    if app.pins_moved():
+        return 'unsaved pin change: s saves and reads it back, u undoes'
+    if app.profile.outputs == 'odroid':
+        digest = verified_hash(app)
+        if digest is not None and digest != pin_hash(app.args.hardware_config):
+            return 'pins differ from the last readback: s runs the readback'
+    return ''
 
 
 def output_pin(chips, output):
@@ -100,6 +152,7 @@ def edit_pins(app):
         changes = parse_pins(text)
     except ValueError as error:
         return f'Pins rejected: {error}'
+    mark_pending(app)
     if not app.save_hardware(**changes):
         return f'Pins not saved: {app.notice}'
     return verify(app)
@@ -113,12 +166,12 @@ def verify(app):
     if busy(app):
         return REFUSED
     if app.profile.outputs != 'odroid' or app.arming is None:
-        app.pins_unverified = False
+        app.pins_unverified = False   # nothing to read back; the marker keeps the real driver waiting
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
     app.pins_unverified = True
-    refusal = app.thruster_refusal()
-    if refusal:
-        return f'Pins saved; driver not started: {refusal}'
+    blocked = app.thruster_refusal()
+    if blocked:
+        return f'Pins saved; driver not started: {blocked}'
     try:   # the readback starts the real driver: the same typed word as arming
         ok = app.confirm_drive(f'Pin readback{theme.SEPARATOR}{app.profile.name}')
     except Cancelled:
@@ -132,6 +185,7 @@ def verify(app):
         return f'Pins saved; driver not restarted: {error}'
     if confirmed:
         app.pins_unverified = False
+        write_marker(app, pin_hash(config))
         return ('Pins saved; driver restarted, sysfs showed the new channels enabled, driver '
                 'stopped again (MOSFET line not read back)')
     return ('Pins saved; driver restarted; sysfs readback did not show the new channels '
