@@ -589,13 +589,15 @@ class NavGoal:
 
 
 class FakeNav:
-    """Nav2 whose boat follows the route at 1 m/s once a goal is sent."""
+    """Nav2 whose boat follows the route at 1 m/s once a goal is sent.
+
+    A single goal only moves the boat with ``follow`` (each leg starts where the last ended)."""
     map_frame, base_frame = 'map', 'base_link'
 
-    def __init__(self, clock, drift=0.0):
-        self.clock, self.drift = clock, drift
+    def __init__(self, clock, drift=0.0, follow=False):
+        self.clock, self.drift, self.follow = clock, drift, follow
         self.costmap = Grid([0, 0, 100, 99, 50])
-        self.goals, self.route, self.sent_at = [], None, None
+        self.goals, self.route, self.sent_at, self.origin = [], None, None, (0.0, 0.0)
 
     @contextlib.contextmanager
     def costmap_lease(self, who):
@@ -614,7 +616,7 @@ class FakeNav:
         if self.route is None:
             return (self.drift * self.clock.now, 0.0, 0.0)
         travelled = self.clock.now - self.sent_at
-        previous = (0.0, 0.0)
+        previous = self.origin
         for corner in self.route:
             length = math.dist(previous, corner[:2])
             if travelled <= length:
@@ -626,9 +628,10 @@ class FakeNav:
         return (*previous, 0.0)
 
     def navigate(self, goals):
-        if len(goals) > 1:
+        if len(goals) > 1 or self.follow:
+            self.origin = self.pose()[:2]
             self.route, self.sent_at = goals, self.clock.now
-            length = sum(math.dist(a[:2], b[:2]) for a, b in zip([(0, 0)] + goals, goals))
+            length = sum(math.dist(a[:2], b[:2]) for a, b in zip([self.origin] + goals, goals))
             goal = NavGoal(self.clock, self.clock.now + length)
         else:
             goal = NavGoal(self.clock, self.clock.now + 1.0)
@@ -654,7 +657,7 @@ def test_nav2_bringup_checks_without_arming(tmp_path):
 def test_waypoint_square_scores_the_route_and_cancels_on_exit(tmp_path):
     nav = None
     app, _ = nav_app(tmp_path, ['--set', 'nav_distance=3'])
-    nav = FakeNav(app.clock)
+    nav = FakeNav(app.clock, follow=True)
     app.nav2_factory = lambda: nav
     app.arming.armed = True
     run(app, 'w')
@@ -663,7 +666,7 @@ def test_waypoint_square_scores_the_route_and_cancels_on_exit(tmp_path):
     assert result['cross_track_max'] == pytest.approx(0, abs=1e-6)
     assert result['route_length'] == pytest.approx(12)
     assert result['final_error'] == pytest.approx(0, abs=0.15)
-    assert nav.goals[0].cancelled
+    assert len(nav.goals) == 4 and nav.goals[-1].cancelled   # one goal per leg; the last one cancelled on exit
 
 
 def test_station_keeping_resends_goals_and_reports_drift(tmp_path):

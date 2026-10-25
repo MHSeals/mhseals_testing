@@ -103,19 +103,32 @@ def waypoints(ctx):
             times.append(now)
             points.append(pose[:2])
 
+    # One NavigateToPose per leg: a single NavigateThroughPoses ending at its own start is a
+    # zero-length loop that Nav2 calls SUCCEEDED at once (the start is within goal tolerance).
+    def drive(legs):
+        state['legs'] = list(legs[1:])
+        state['goal'] = nav.navigate(legs[:1])
+
+    def done():
+        goal = state['goal']
+        if goal.done and goal.status == 'SUCCEEDED' and state['legs']:
+            drive(state['legs'])
+            return False
+        return goal.done
+
     def resume():
         # Back from an override: carry on from wherever the boat is now.
-        state['goal'] = nav.navigate(remaining_route(route, points) or route[-1:])
+        drive(remaining_route(route, points) or route[-1:])
 
     # Scaled by the distance: a slow sim boat (~0.12 m/s) needs ~130 s for 16 m; slower is a fault.
     timeout = 60.0 + path_length([start[:2], *(corner[:2] for corner in route)]) / SLOWEST_SPEED
     state = {}
     with ctx.supervise('waypoints', route=route) as runner:
         paused_before = runner.paused
-        state['goal'] = nav.navigate(route)
+        drive(route)
         try:
             began, ended, _ = runner.supervise(
-                timeout, done=lambda: state['goal'].done, label='following waypoints',
+                timeout, done=done, label='following waypoints',
                 sample=sample, on_pause=lambda: state['goal'].cancel(), on_resume=resume)
         finally:
             state['goal'].cancel()

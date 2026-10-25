@@ -123,3 +123,52 @@ def test_tree_headings_are_not_items_so_the_cursor_skips_them():
     items = [i for kind, i in rows if kind == 'item']
     assert items == list(range(len(PROCEDURES)))
     assert sum(kind == 'heading' for kind, _ in rows) == 5
+
+
+def run_square(statuses, side=4.0, pause_after=None):
+    """waypoints() on a fake Nav2 whose goals end with ``statuses`` in turn; the goals it was sent."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from mhseals_testing.procedures import nav
+    sent, ends = [], iter(statuses)
+
+    def navigate(goals):
+        sent.append(list(goals))
+        return SimpleNamespace(done=True, status=next(ends), cancel=lambda: None)
+
+    def supervise(timeout, done, on_pause, on_resume, sample, **kwargs):
+        for tick in range(20):
+            sample(tick)
+            if tick == pause_after:
+                on_pause()
+                on_resume()
+            if done():
+                return 0.0, 1.0, True
+        return 0.0, 1.0, False
+    fake = SimpleNamespace(pose=lambda: (0.0, 0.0, 0.0), navigate=navigate)
+
+    @contextmanager
+    def runner_of(*args, **kwargs):
+        yield SimpleNamespace(paused=0.0, supervise=supervise)
+    ctx = SimpleNamespace(services={'nav2': lambda: fake}, settings=SimpleNamespace(nav_distance=side),
+                          prompt=lambda *a: None, supervise=runner_of, record=lambda r: None)
+    return nav.waypoints(ctx), sent
+
+
+def test_the_square_drives_each_leg_as_its_own_goal_and_never_a_zero_length_loop():
+    """H5: one NavigateThroughPoses ending at its start is a 0 m loop Nav2 ends at once."""
+    import math
+    result, sent = run_square(['SUCCEEDED'] * 4)
+    assert result['status'] == 'SUCCEEDED' and len(sent) == 4
+    position = (0.0, 0.0)
+    for goals in sent:
+        assert len(goals) == 1                         # NavigateToPose, never a through-poses loop
+        assert math.dist(position, goals[0][:2]) >= 1.0
+        position = goals[0][:2]
+    assert sent[-1][0][:2] == pytest.approx((0.0, 0.0))  # it still returns home
+
+
+def test_a_leg_that_fails_ends_the_square_without_sending_the_rest():
+    result, sent = run_square(['SUCCEEDED', 'ABORTED', 'SUCCEEDED', 'SUCCEEDED'])
+    assert result['status'] == 'ABORTED' and len(sent) == 2
