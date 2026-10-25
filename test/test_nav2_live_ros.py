@@ -5,8 +5,9 @@ mhseals_nav's own nav2_params.yaml, with the real command_mux and the real autho
 Skipped without ROS, Nav2 and mhseals_hardware. It starts its own processes on a private ROS
 domain (``MHSEALS_TEST_DOMAIN``, else the caller's ``ROS_DOMAIN_ID``, else a pid-derived one in
 120-219) restricted to localhost, and refuses to start on a domain where other nodes already run
-(their mux or arbiter would answer on the same topics). It stops only the process groups it started. The independent evidence is ``ros2 param get`` in a
-separate process.
+(their mux or arbiter would answer on the same topics), and locks the domain against a
+concurrent run. It stops only the process groups it started. The independent evidence is
+``ros2 param get`` in a separate process.
 """
 
 import json
@@ -160,18 +161,35 @@ def start_nav2(run, params):
     run.start('mux', sys.executable, '-m', 'mhseals_hardware.command_mux')
 
 
+def claim_domain(first):
+    """Lock a ROS domain for this module; a concurrent run in the container never shares it.
+
+    The caller's domain is tried first; a locked one is skipped for the next free one in 120-219.
+    """
+    import fcntl
+    for domain in (first, *range(120, 220)):
+        handle = open(f'/tmp/mhseals-nav2-live-domain-{domain}.lock', 'w')
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return domain, handle
+        except OSError:
+            handle.close()
+    pytest.skip('every ROS test domain is locked by another run')
+
+
 @pytest.fixture(scope='module')
 def stack(tmp_path_factory):
     nav = find_nav()
     params = nav / 'config' / 'nav2_params.yaml' if nav else None
     if not (shutil.which('ros2') and params and params.is_file()):
         pytest.skip('needs ros2 and mhseals_nav')
-    domain = int(os.environ.get('MHSEALS_TEST_DOMAIN') or os.environ.get('ROS_DOMAIN_ID')
-                 or 120 + os.getpid() % 100)
+    domain, lock = claim_domain(int(os.environ.get('MHSEALS_TEST_DOMAIN')
+                                    or os.environ.get('ROS_DOMAIN_ID') or 120 + os.getpid() % 100))
     run = Stack(tmp_path_factory.mktemp('nav2live'), domain, nav)
     probe = subprocess.run(['ros2', 'pkg', 'prefix', 'nav2_controller'], env=run.env,
                            capture_output=True)
     if probe.returncode:
+        lock.close()
         pytest.skip('nav2_controller is not installed')
     saved = {key: os.environ.get(key) for key in run.env}
     os.environ.update({key: run.env[key] for key in OWN_ENV})
@@ -234,6 +252,7 @@ def stack(tmp_path_factory):
         spin.join(3)
         node.destroy_node()
         rclpy.shutdown(context=context)
+        lock.close()
         for key, value in saved.items():
             if key in OWN_ENV:
                 if value is None:
@@ -498,11 +517,11 @@ def test_boat_trial_config_apply_nav2_end_to_end(stack, live):
                '--json']
     options = {'env': stack.env, 'capture_output': True, 'text': True, 'timeout': 120}
     preview = subprocess.run(command, **options)
-    assert preview.returncode == 2, preview.stdout
+    assert preview.returncode == 2, preview.stdout + preview.stderr
     assert json.loads(preview.stdout)['outcome'] == 'preview'
     assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
     done = subprocess.run([*command, '--yes'], **options)
-    assert done.returncode == 0, done.stdout
+    assert done.returncode == 0, done.stdout + done.stderr
     doc = json.loads(done.stdout)
     assert doc['outcome'] == 'applied' and doc['live'] == 'until Navigation restarts'
     assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
