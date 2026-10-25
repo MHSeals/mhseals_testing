@@ -17,6 +17,8 @@ SID = '3f2a9c1e-0000-4000-8000-000000000000'
 def sent(tmp_path, monkeypatch):
     """``sent(event, command, ...)``: one neutral event from astro_dock's .agents/hook.py."""
     monkeypatch.delenv('BOAT_AGENT', raising=False)
+    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise')     # a boat session (the default is local)
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     lines = []
 
     def run(phase, command, now=100.0, tool='t1', agent='claude', **extra):
@@ -181,9 +183,53 @@ def test_imports_isolated_with_the_stdlib_only(tmp_path):
 
 def test_delivery_appends_locally_on_the_target_and_logs_failures(tmp_path, monkeypatch):
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
+    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise')
     channel = tmp_path / 'channel.jsonl'
     monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise')
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(channel)))
     assert json.loads(channel.read_text()) == {'kind': 'note'}
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(tmp_path / 'no' / 'dir.jsonl')))
     assert 'deliver to blastoise' in (tmp_path / 'boat_agent_hook.log').read_text()
+
+
+@pytest.fixture
+def no_ssh(monkeypatch):
+    """Any ssh the hook would start is recorded instead."""
+    import subprocess as sp
+    started = []
+    monkeypatch.setattr(sp, 'Popen', lambda args, **kw: started.append(args) or (_ for _ in ()).throw(OSError('no')))
+    return started
+
+
+def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, monkeypatch, no_ssh):
+    """D6: without a boat session every note lands in this machine's channel, whatever the command."""
+    monkeypatch.delenv('BOAT_AGENT_TARGET', raising=False)
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'data'))
+    monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    from mhseals_testing.harness import agent_channel as ch
+    ch.channel_path().parent.mkdir(parents=True)
+    assert hook.local_channel() == ch.channel_path()
+    config = hook.hook_config()
+    assert config['target'] == 'local' and hook.remote(config) is None
+    for command in ('ros2 topic hz /odom', 'docker exec roboboat_dev ros2 node list', 'ssh blastoise uptime'):
+        event = {'agent': 'claude', 'event': 'pre', 'session_id': SID, 'tool_id': 't', 'command': command}
+        hook.agent_event(event, state_dir=tmp_path)
+    lines = [json.loads(line) for line in ch.channel_path().read_text().splitlines()]
+    assert len(lines) == 3 and {line['target'] for line in lines} == {'local'} and not no_ssh
+    context = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID})['context']
+    assert f'`{hook.BOAT_AGENT} <verb>' in context and 'ssh blastoise' not in context
+    deny = hook.agent_event({'agent': 'claude', 'event': 'pre', 'session_id': SID, 'tool_id': 'd',
+                             'command': 'ros2 topic pub /cmd_vel x y'}, state_dir=tmp_path)['deny']
+    assert 'ssh' not in deny and not no_ssh
+
+
+def test_a_boat_session_names_its_host_and_only_then_the_hook_sshes(tmp_path, monkeypatch, no_ssh):
+    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise')
+    monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    config = hook.hook_config()
+    assert hook.remote(config) == 'blastoise' and hook.cli_of(config) == f'ssh blastoise {hook.BOAT_AGENT}'
+    hook.deliver({'kind': 'note'}, config)
+    assert no_ssh and no_ssh[0][-2:] == ['blastoise', f"cat >> '{config['path']}'"]
+    assert f'ssh blastoise {hook.BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)

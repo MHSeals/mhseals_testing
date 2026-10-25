@@ -10,7 +10,9 @@ ask_s: 120
 run: [square, station, nav2_bringup, controller_check, perception, mission]   # procedure keys agents may request
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
 hook:
-  target: blastoise
+  # local: notes go to this machine's channel (the sim/dev TUI), never over ssh. A boat session names its host
+  # (BOAT_AGENT_TARGET=blastoise in the agent's environment, or here); only then do they go to path there.
+  target: local
   path: /var/home/roboboat/astro_dock/bags/agent/channel.jsonl
   match: ['\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', '\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']

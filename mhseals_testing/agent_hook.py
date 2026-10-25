@@ -13,9 +13,12 @@ config/agent.yaml (about 15 ms per call); without it the built-in defaults apply
   ``hook.skip``) becomes a channel ``note`` line ``{phase: pre, tool_id, cmd, agent}``.
 * ``post`` sends the same tool_id with ``exit`` and ``dur_s`` (the CLI's duration, else since pre).
 
-Lines go to ``hook.path`` on ``hook.target`` over a detached ``ssh ... cat >>`` (appended directly
-when this is the target), at most ``hook.max_per_10s`` per session; the excess folds into the next
-line as ``folded``. Delivery failures go to ``$XDG_STATE_HOME/boat_agent_hook.log`` and never reach
+Lines go to this machine's channel (``agent/channel.jsonl`` under the data root, where a sim or
+dev TUI reads) unless a boat session names its host: ``$BOAT_AGENT_TARGET`` (set for the agent
+session that works on the boat), else ``hook.target`` (``local`` as shipped). Only then do they go
+to ``hook.path`` on that host over a detached ``ssh ... cat >>`` (appended directly when this is
+it), so sim and dev work never reaches the boat. At most ``hook.max_per_10s`` per session; the
+excess folds into the next line as ``folded``. Delivery failures go to ``$XDG_STATE_HOME/boat_agent_hook.log`` and never reach
 the agent. Advisory, not a boundary: the mux, the claim and the red external chip are the safety.
 """
 
@@ -37,7 +40,7 @@ SECRETS = (   # agent_channel._SECRETS, kept equal by test_agent_hook
     re.compile(r'(?i)(\bbearer\s+)' + _VALUE))
 CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'agent.yaml'
 DEFAULTS = {
-    'target': 'blastoise', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
+    'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', r'\bros2\b', r'\bdocker\s+exec\b'],
     'skip': [r'\bboat_(trial|agent)\b'], 'max_per_10s': 6,
     'deny': [r'ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
@@ -83,6 +86,35 @@ def hook_config(path=CONFIG):
     return {**DEFAULTS, **{k: v for k, v in found.items() if k in DEFAULTS}}
 
 
+def target_of(config):
+    """The host whose TUI gets the notes: ``$BOAT_AGENT_TARGET``, else ``hook.target``; 'local' (or
+    empty) is this machine."""
+    return (os.environ.get('BOAT_AGENT_TARGET') or config.get('target') or 'local').strip() or 'local'
+
+
+def remote(config):
+    """The target host when it is another machine, else None."""
+    target = target_of(config)
+    return None if target == 'local' or hostname().split('.')[0] == target else target
+
+
+def local_channel():
+    """This machine's channel: data.path('agent', 'channel.jsonl') (``$MHSEALS_DATA``, else
+    ``$ROS_WS/bags``, else ``~/astro_dock/bags``), without importing the package."""
+    data = os.environ.get('MHSEALS_DATA')
+    if data and os.path.isabs(data):
+        return Path(data).resolve() / 'agent' / 'channel.jsonl'
+    ws = os.environ.get('ROS_WS')
+    ws = Path(ws).resolve() if ws and os.path.isabs(ws) else Path.home() / 'astro_dock'
+    return ws / 'bags' / 'agent' / 'channel.jsonl'
+
+
+def cli_of(config):
+    """How the agent calls boat_agent: over ssh to a remote target, else this machine's checkout."""
+    host = remote(config)
+    return f'ssh {host} {BOAT_AGENT}' if host else BOAT_AGENT
+
+
 def who_of(event):
     """``$BOAT_AGENT``, else the agent CLI (claude, codex) and the first 4 hex digits of the session."""
     explicit = os.environ.get('BOAT_AGENT')
@@ -92,16 +124,16 @@ def who_of(event):
     return f'{event.get("agent") or "agent"}-{digits[:4] or "0000"}'
 
 
-def start_text(who, agent='claude'):
+def start_text(who, agent='claude', config=None):
     """The playbook the agent gets at session start (and after a compaction or /clear)."""
-    cli = f'ssh blastoise {BOAT_AGENT} <verb> --who {who}'
+    cli = f'{cli_of(config or hook_config())} <verb> --who {who}'
     background = 'Bash run_in_background' if agent == 'claude' else 'a background shell'
     return '\n'.join((
         f'RoboBoat playbook: you are boat agent {who}.',
         f'Act on the boat only through `{cli}` (JSON out):',
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
-        '  3. `run KEY` or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
+        '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
         '  `stop` any time. `ask "..."` instead of guessing. `note "..."` writes a line in the TUI log.',
         'Exit codes: 0 ok, 2 refused (read hint), 3 revoked or overridden (stop: a human took over; '
@@ -111,13 +143,14 @@ def start_text(who, agent='claude'):
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands.'))
 
 
-def deny_reason(command, who):
+def deny_reason(command, who, config=None):
     """One line: what was blocked, why, and the boat_agent verb that does it instead."""
     what, verb = next((w, v) for p, w, v in USE if re.search(p, plain(command), re.S))
     head = f'Blocked: {what} from a shell bypasses the boat claim and the operator.'
+    cli = cli_of(config or hook_config())
     if verb is None:
-        return f'{head} Those stay with the operator; ask them: ssh blastoise {BOAT_AGENT} ask "..." --who {who}'
-    return (f'{head} Use: ssh blastoise {BOAT_AGENT} {verb} --who {who}'
+        return f'{head} Those stay with the operator; ask them: {cli} ask "..." --who {who}'
+    return (f'{head} Use: {cli} {verb} --who {who}'
             + ('' if verb == 'stop' else f' (claim first: claim --reason "..." --who {who})'))
 
 
@@ -214,47 +247,50 @@ def hostname():
 
 
 def deliver(line, config):
-    """Append one line on the target: locally when this is it, else a detached ssh; never waits."""
+    """Append one line to the target's channel: here unless a boat session names another host (then a
+    detached ssh); never waits."""
     data = (json.dumps(line, separators=(',', ':')) + '\n').encode()
+    target, host = target_of(config), remote(config)
     try:
-        if hostname().split('.')[0] == config['target']:
-            fd = os.open(config['path'], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
+        if host is None:
+            path = local_channel() if target == 'local' else config['path']   # or this is the target host
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
             try:
                 os.write(fd, data)
             finally:
                 os.close(fd)
             return
-        import subprocess      # only off the target: keeps the hook's import cost low
+        import subprocess      # only for a remote target: keeps the hook's import cost low
         child = subprocess.Popen(
-            ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=2', config['target'],
+            ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=2', host,
              f"cat >> '{config['path']}'"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True)
         child.stdin.write(data)
         child.stdin.close()
     except OSError as error:
-        log(f'deliver to {config["target"]}: {error!r}')
+        log(f'deliver to {target}: {error!r}')
 
 
 def agent_event(event, config=None, send=None, now=None, state_dir=None):
     """The answer to one neutral event (None, ``{'context'}`` or ``{'deny'}``); sends at most one note."""
     phase, agent = event.get('event'), event.get('agent') or 'agent'
     who = who_of(event)
-    if phase == 'start':
-        return {'context': start_text(who, agent)}
-    if phase not in ('pre', 'post'):
+    if phase not in ('start', 'pre', 'post'):
         return None
     config = config or hook_config()
+    if phase == 'start':
+        return {'context': start_text(who, agent, config)}
     send = send or (lambda line: deliver(line, config))
     now = time.time() if now is None else now
     command = str(event.get('command') or '')
     answer = None
     if phase == 'pre' and matches(config['deny'], command):
-        answer, phase = {'deny': deny_reason(command, who)}, 'deny'
+        answer, phase = {'deny': deny_reason(command, who, config)}, 'deny'
     elif not matches(config['match'], command) or matches(config['skip'], command):
         return None
     tool_id = event.get('tool_id')
     note = {'phase': phase, 'tool_id': tool_id, 'cmd': redact(command), 'exit': None, 'dur_s': None,
-            'target': config['target'], 'agent': agent}
+            'target': target_of(config), 'agent': agent}
     if phase == 'deny':
         note['use'] = use_of(command)
     with State(str(event.get('session_id') or 'none'), state_dir) as state:
