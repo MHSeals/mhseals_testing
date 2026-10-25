@@ -747,6 +747,23 @@ def test_a_boat_goal_needs_the_mavros_fix_even_without_an_fcu_and_with_a_navsat_
         assert 'below 3D' in agent_acts.goals_module.gate(agent_acts.goal_facts(rig.app))
 
 
+@pytest.mark.parametrize('dry', [True, False])
+def test_a_huge_goal_is_bad_args_and_never_crashes_the_tui(rig, dry):
+    c = claim(rig)
+    reply = final(ask(rig, 'goal', c, dry=dry, x=1e308, y=0)['id'])
+    assert not reply['ok'] and reply['error'] == 'bad_args' and 'within' in reply['hint']
+    assert rig.app.goals.active is None and rig.desk.act is None
+    reply = final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])   # the desk still answers
+    assert reply['ok']
+
+
+def test_a_math_error_in_an_act_refuses_only_that_act(rig, monkeypatch):
+    c = claim(rig)
+    monkeypatch.setattr(agent_acts, 'goal_facts', lambda *a, **k: 1 / 0)
+    reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
+    assert reply['error'] == 'refused' and rig.desk.act is None and not rig.desk.busy
+
+
 def test_a_goal_the_gates_refuse_never_asks_allow(rig):
     c = claim(rig)
     rig.app.facts = {'gps.fix_type': SimpleNamespace(value=0)}

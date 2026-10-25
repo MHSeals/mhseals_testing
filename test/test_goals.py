@@ -58,6 +58,8 @@ def grid(fill=0):
     ((19.5, 0), 'limit'),
     ((0.2, 0), 'under'),
     ((float('nan'), 0), 'finite'),
+    ((1e308, 0), 'outside the costmap'),      # would overflow the cell index
+    ((0, -1e308), 'outside the costmap'),
 ])
 def test_goal_checks(goal, reason):
     assert reason in check_goal(goal, (0, 0), grid())

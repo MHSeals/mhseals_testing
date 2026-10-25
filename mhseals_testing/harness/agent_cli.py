@@ -9,6 +9,7 @@ owner, 5 agents blocked, 6 timeout. No verb arms the boat or releases a hold.
 """
 
 import json
+import math
 import os
 import sys
 import time
@@ -154,6 +155,9 @@ class Agent:
 
     def goal(self):
         args = {'x': self.args.x, 'y': self.args.y, 'yaw': self.args.yaw}
+        if not all(math.isfinite(v) for v in args.values() if v is not None):   # JSON has no nan/inf
+            self.emit({'ok': False, 'error': 'bad_args', 'hint': 'goal needs finite x, y (and yaw)'})
+            return channel.EXIT_CODES['bad_args']
         return self.send('goal', args, self.args.claim, self.args.dry_run)
 
     def ask(self):

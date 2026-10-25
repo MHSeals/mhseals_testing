@@ -113,6 +113,13 @@ def test_dry_run_sends_dry_and_does_not_renew():
     assert not lines('renew')
 
 
+@pytest.mark.parametrize('xy', [['nan', '0'], ['0', 'inf'], ['1', '2', 'nan']])
+def test_a_non_finite_goal_is_bad_args_and_sends_nothing(xy):
+    code, out = call(['goal', *xy, '--claim', 'c4'], Desk(lambda req: []))
+    assert code == 2 and out == [{'ok': False, 'error': 'bad_args', 'hint': 'goal needs finite x, y (and yaw)'}]
+    assert not lines('req')
+
+
 def test_an_override_mid_run_exits_3_with_the_hint():
     desk = Desk(lambda req: [dict(state='started'),
                              dict(state='done', ok=False, error='overridden: keys',

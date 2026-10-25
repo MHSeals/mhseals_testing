@@ -123,7 +123,7 @@ class AgentDesk:
                 continue
             try:
                 getattr(self, 'on_' + record['kind'])(record)
-            except (KeyError, TypeError, ValueError, AttributeError) as error:   # a well-formed line, bad values
+            except (KeyError, TypeError, ValueError, AttributeError, ArithmeticError) as error:   # bad values
                 if record['kind'] == 'req':
                     self.reply(record, False, 'bad_args', hint=str(error))
                 else:
@@ -343,7 +343,7 @@ class AgentDesk:
         keep = False
         try:
             keep = getattr(self, 'act_' + req['op'])(self.act)
-        except agent_acts.STOPPING as error:     # a gate, Nav2 or popup error refuses this act only
+        except (*agent_acts.STOPPING, ArithmeticError) as error:   # gate, Nav2, popup or math: this act only
             if not self.act['replied']:
                 self.finish(self.act, False, 'refused', hint=str(error) or type(error).__name__)
         except KeyboardInterrupt:                # Ctrl+C: the TUI goes away under the act

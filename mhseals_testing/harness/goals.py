@@ -110,8 +110,11 @@ def check_goal(goal, boat, grid):
     x, y = goal[0], goal[1]
     if not (math.isfinite(x) and math.isfinite(y)):
         return 'goal is not finite'
-    row, col = grid.cell(x, y)
     height, width = grid.data.shape
+    # bounds in metres first: a huge x would overflow the cell index (int(inf))
+    if not (0 <= x - grid.origin[0] < width * grid.resolution and 0 <= y - grid.origin[1] < height * grid.resolution):
+        return 'goal is outside the costmap'
+    row, col = grid.cell(x, y)
     if not (0 <= row < height and 0 <= col < width):
         return 'goal is outside the costmap'
     dist = math.hypot(x - boat[0], y - boat[1])

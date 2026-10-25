@@ -299,10 +299,15 @@ def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0):
             'hint': 'ask the operator to arm (a)' if reason == 'outputs are not armed' else ''}
 
 
+GOAL_MAX_M = 1e5      # beyond any course; larger values overflow the costmap cell math
+
+
 def goal_args(args):
-    """(x, y, yaw radians) from ``{'x', 'y', 'yaw'}``; ValueError when not finite numbers."""
+    """(x, y, yaw radians) from ``{'x', 'y', 'yaw'}``; ValueError unless finite and within GOAL_MAX_M."""
     yaw = args.get('yaw')
     goal = (float(args.get('x', math.nan)), float(args.get('y', math.nan)), 0.0 if yaw is None else float(yaw))
     if not all(math.isfinite(v) for v in goal):
         raise ValueError('goal needs finite x, y (and yaw)')
+    if max(abs(goal[0]), abs(goal[1])) > GOAL_MAX_M or abs(goal[2]) > 2 * math.pi * 1000:
+        raise ValueError(f'goal x, y must be within {GOAL_MAX_M:.0f} m (map frame)')
     return goal
