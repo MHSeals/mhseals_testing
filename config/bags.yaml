@@ -6,7 +6,8 @@
 # tracks) stays; the decimated minimap costmap is kept for replay, Nav2 costmaps are excluded.
 # Recording a topic subscribes to it, which pulls the camera host's local and lazy topics across the
 # LAN: the ZED wrapper (only its status is kept), observations, the track grid and the RViz markers.
-# Raw detections are recorded on the camera host.
+# Raw detections are recorded on the camera host. Full mode drops the 2 Hz preview on purpose (the
+# CompressedImage type is excluded); lean lists it, since it is the only image evidence.
 exclude_regex: '^(?!/mhseals_testing/minimap/costmap$|/[^/]+/zed_node/status/.*$)(/(map|grid_prob_map|tracked_objects)|/[^/]+/zed_node/.*|/perception/(observations|track_grid|detection_markers)|.*(costmap.*|/(points|cloud[^/]*|deskewed[^/]*|image(_raw|_rect[^/]*|_color)?(/compressed(Depth)?)?|camera_info)))$'
 
 # Message types never recorded (ros2 bag --exclude-topic-types). Catches heavy topics the name regex misses
