@@ -259,6 +259,9 @@ def ask(rig, op, claim_id, who='claude-3f2a', dry=False, **args):
     rig.desk.tick()                       # read: queued (or answered)
     if not dry and any(r['state'] == 'queued' for r in replies(req['id'])):
         rig.desk.tick()                   # start it
+    if dry and rig.desk.dry is not None:  # a goal dry run ends on its own thread; the next tick answers
+        rig.desk.dry[1].join(5.0)
+        rig.desk.tick()
     return req
 
 
@@ -754,11 +757,35 @@ def test_a_dry_run_flood_answers_one_per_tick_and_never_holds_the_loop(rig):
     rig.app.nav.plan = lambda *a, **k: planned.append(1) or plan(*a, **k)
     mark = ch.request('mark', 'claude-3f2a', {'note': 'behind the flood'})
     rig.desk.tick()
-    assert len(planned) == 1 and replies(mark['id'])        # a request behind the flood is answered at once
-    assert [bool(replies(r['id'])) for r in reqs] == [True, False, False, False, False]
-    for _ in range(4):
+    assert replies(mark['id'])                              # a request behind the flood is answered at once
+    rig.desk.dry[1].join(5.0)
+    assert len(planned) == 1 and not any(replies(r['id']) for r in reqs)   # answered on a later tick
+    for _ in range(5):
         rig.desk.tick()
+        if rig.desk.dry is not None:
+            rig.desk.dry[1].join(5.0)
+    rig.desk.tick()
     assert len(planned) == 5 and all(final(r['id'])['ok'] for r in reqs)
+
+
+def test_a_slow_getcostmap_never_holds_the_tick(rig):
+    """GetCostmap can take seconds: the goal dry run waits on its own thread, Space never waits."""
+    c = claim(rig)
+    gate = __import__('threading').Event()
+    fetch = rig.app.nav.fetch_costmap
+    rig.app.nav.fetch_costmap = lambda timeout=2.0: gate.wait(5.0) and fetch(timeout)
+    req = ch.request('goal', 'claude-3f2a', {'x': 5, 'y': 0}, claim=c, dry=True)
+    began = time.monotonic()
+    rig.desk.tick()
+    rig.desk.tick()
+    assert time.monotonic() - began < 0.5 and not replies(req['id'])
+    stop = ch.request('stop', 'claude-3f2a', {})
+    rig.desk.tick()
+    assert final(stop['id'])['ok'] and time.monotonic() - began < 0.5   # stop answered while Nav2 waits
+    gate.set()
+    rig.desk.dry[1].join(5.0)
+    rig.desk.tick()
+    assert final(req['id'])['ok']
 
 
 def test_procedure_names_and_keys_resolve():

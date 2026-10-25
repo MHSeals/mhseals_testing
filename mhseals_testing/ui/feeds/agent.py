@@ -20,6 +20,7 @@ Safety, in one place:
 
 from collections import deque
 from dataclasses import replace
+import threading
 import time
 
 from mhseals_hardware import hold_store
@@ -34,7 +35,9 @@ MOTION = ('run', 'goal')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
-DRY_TIMEOUT_S = 0.5            # costmap and plan waits of a dry run, answered on the tick
+DRY_TIMEOUT_S = 0.5            # costmap and plan waits of a goal dry run (on its own thread, never the tick)
+FENCE_WAIT_S = 1.0             # off the tick only: the first wait for fence_watchdog's latched fence
+DRY_CLOSE_S = 0.2              # closing the desk waits this long for a dry run before answering it cancelled
 NOTES = 200
 PROGRESS_S = 5.0
 STATUS_S = 1.0
@@ -75,10 +78,12 @@ class AgentDesk:
         self.errors, self.saved = set(), None
         self.status, self.status_at = status, None
         self.active_claim = None
+        self.dry = None                     # (req, thread, box) of the goal dry run in flight
 
     # --- the feed --------------------------------------------------------------------------
 
     def tick(self, app=None, snapshot=None, now=None):
+        self.answer_dry()
         self.poll()
         if self.act is not None:
             self.watch()
@@ -133,7 +138,7 @@ class AgentDesk:
                 continue
             if record['kind'] == 'req' and record.get('dry') and record.get('op') in MOTION \
                     and record.get('id') not in self.answered:
-                if dry:                      # a dry run asks Nav2 (up to ~1 s): one per tick keeps Space prompt
+                if dry or self.dry is not None:   # one at a time: a goal's waits on Nav2 run off the tick
                     self.deferred.append(record)
                     continue
                 dry = True
@@ -274,11 +279,42 @@ class AgentDesk:
             if req.get('dry'):
                 if self.act is not None or self.busy or self.app.running:
                     return self.reply(req, False, 'busy', hint='an act or procedure is running; dry-run after it')
-                result = agent_acts.dry_run(self.app, req['op'], req['args'], self.app.settings.agent_motion,
-                                            self.lifecycle() if req['op'] == 'goal' else None, DRY_TIMEOUT_S)
+                if req['op'] == 'goal':
+                    return self.start_dry(req)
+                result = agent_acts.dry_run(self.app, req['op'], req['args'], self.app.settings.agent_motion)
                 return self.reply(req, True, result=result, hint=result.get('hint', ''))
         self.queue.append(req)
         self.reply(req, True, state='queued')
+
+    def start_dry(self, req):
+        """A goal dry run on its own thread: Nav2's lifecycle, GetCostmap and the planner can take seconds,
+        and the tick (Space) must never wait on them. ``answer_dry`` replies once it ends."""
+        box, setting = {}, self.app.settings.agent_motion
+
+        def work():
+            try:
+                box['result'] = agent_acts.dry_run(self.app, 'goal', req['args'], setting, self.lifecycle(),
+                                                   DRY_TIMEOUT_S, fence_wait=FENCE_WAIT_S)
+            except Exception as error:      # noqa: BLE001 - answered as the tick would
+                box['error'] = error
+        thread = threading.Thread(target=work, name='agent-dry', daemon=True)
+        self.dry = (req, thread, box)
+        thread.start()
+
+    def answer_dry(self, wait_s=0.0):
+        """Reply to the goal dry run once its thread ended (waiting at most ``wait_s``)."""
+        if self.dry is None:
+            return
+        req, thread, box = self.dry
+        thread.join(wait_s)
+        if thread.is_alive():
+            return
+        self.dry = None
+        error = box.get('error')
+        if error is None:
+            return self.reply(req, True, result=box['result'], hint=box['result'].get('hint', ''))
+        bad = isinstance(error, (KeyError, TypeError, ValueError, AttributeError, ArithmeticError))
+        self.reply(req, False, 'bad_args' if bad else 'refused', hint=str(error) or type(error).__name__)
 
     def refusal(self, req):
         """(error, hint) when a motion request cannot run now, else None."""
@@ -440,7 +476,7 @@ class AgentDesk:
 
         def send():                              # off the key loop: Nav2 may take seconds to answer
             lifecycle = self.lifecycle()
-            facts = agent_acts.goal_facts(app, lifecycle)
+            facts = agent_acts.goal_facts(app, lifecycle, fence_wait=FENCE_WAIT_S)
             return lifecycle, agent_acts.goal_send(app, goal, facts, act['claim'], lambda: act['cause'])
         try:
             lifecycle, (path_m, reason) = agent_acts.in_background(
@@ -584,6 +620,10 @@ class AgentDesk:
             self.cancel('handover' if self.app.detaching else 'cancelled: TUI closed')
             if self.act['op'] == 'goal' and self.act['started']:
                 self.watch_goal(self.act, self.act['cause'])
+        self.answer_dry(DRY_CLOSE_S)               # a dry run moves nothing: answer it if it ends now
+        if self.dry is not None:
+            self.reply(self.dry[0], False, 'handover' if self.app.detaching else 'cancelled', hint='TUI closed')
+            self.dry = None
         for req in self.queue:
             self.reply(req, False, 'handover' if self.app.detaching else 'cancelled', hint='TUI closed')
         self.queue = []

@@ -155,8 +155,9 @@ class _Quick:
         self.goal.cancel(timeout=0.0)
 
 
-def goal_facts(app, lifecycle=None):
-    """``goals.Facts`` from the app. ``lifecycle`` None asks Nav2 (blocking, up to 0.5 s per server)."""
+def goal_facts(app, lifecycle=None, fence_wait=0.0):
+    """``goals.Facts`` from the app. ``lifecycle`` None asks Nav2 (blocking, up to 0.5 s per server);
+    ``fence_wait`` (only off the key loop) waits that long for the first fence message."""
     nodes = {name.rsplit('/', 1)[-1] for name in app.ros.nodes()}
     nav2 = nav2_of(app)
     if lifecycle is None:
@@ -169,7 +170,7 @@ def goal_facts(app, lifecycle=None):
     else:
         fix = navsat_fix(app.profile, sensors)
     driving = app.running or ('manual control' if app.manual else '')
-    fence, fence_age = nav2.fence_state() if hasattr(nav2, 'fence_state') else (None, math.inf)
+    fence, fence_age = nav2.fence_state(fence_wait) if hasattr(nav2, 'fence_state') else (None, math.inf)
     return goals_module.Facts(
         fence=fence, fence_age_s=fence_age,
         live=bool(app.source.live), owner=not app.watching, nav_running=set(NAV_NODES) <= nodes,
@@ -303,10 +304,10 @@ def in_background(app, title, work, message=None, wait_s=0.2, on_abort=lambda: N
 
 # --- dry run ---------------------------------------------------------------------------------
 
-def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0):
+def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0, fence_wait=0.0):
     """Everything a run or goal would check, without executing (spec section 3 --dry-run).
 
-    The desk passes its cached ``lifecycle`` and a short Nav2 ``timeout``: it answers on the tick.
+    The desk runs a goal's on its own thread with its cached ``lifecycle`` and a short Nav2 ``timeout``.
     """
     confirm = motion_setting == 'confirm'
     if op == 'run':
@@ -321,7 +322,7 @@ def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0):
                 'motion_blockers': app.motion_blockers() if app.armed else [],
                 'settings': vars(app.settings), 'asks': {'arm': needs_arm, 'confirm': confirm},
                 'hint': 'ask the operator to arm (a)' if needs_arm else ''}
-    facts = goal_facts(app, lifecycle)
+    facts = goal_facts(app, lifecycle, fence_wait)
     path_m, reason = goal_preview(app, goal_args(args), facts, timeout)
     return {'goal': goal_args(args), 'gate': reason, 'path_m': path_m, 'asks': {'confirm': confirm},
             'hint': 'ask the operator to arm (a)' if reason == 'outputs are not armed' else ''}
