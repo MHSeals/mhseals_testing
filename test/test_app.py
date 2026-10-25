@@ -1455,6 +1455,38 @@ def test_no_driver_starts_on_a_host_without_the_thrusters_capability(tmp_path, m
     assert not app.armed and app.typed == [] and processes.started == [] and seen == []
 
 
+def test_a_host_without_thrusters_arms_the_thrusters_host_with_every_gate(tmp_path, monkeypatch):
+    """Remote arming lifts only the capability refusal: the typed word stays, and the pin
+    readback runs on the boat, never on this computer's sysfs or processes."""
+    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing import devices
+    from test_arm_link import BOAT, Link, Ssh
+    from mhseals_testing.ros.arm_link import RemoteDriver
+    app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    root = tmp_path / 'registry'
+    root.mkdir()
+    (root / 'devices.yaml').write_text('hosts: {local: {capabilities: [mavros, gpu, zed, lidar]}}\n')
+    package = devices.layer_paths()[0]
+    monkeypatch.setattr(devices, 'layer_paths', lambda: (package, root / 'devices.yaml',
+                                                         root / 'none.yaml', root / 'none.env'))
+    ssh = Ssh({'confirmed': True})
+    app.arming.remote = RemoteDriver(BOAT, Link(), call=ssh)
+    assert app.thruster_refusal() == ''
+    assert 'on blastoise-odroid (stops 1 s after the link drops)' in dict(app.arm_rows())['Outputs']
+    app.dispatch('M')
+    assert app.typed == ['arm'] and app.notice.startswith('Pins saved; driver restarted')
+    assert processes.started == [] and seen == [] and 'readback' in ssh.commands[0]
+
+    def decline(*a, **kw):
+        raise Cancelled('escape')
+    app.type_word = decline
+    app.arm_panel()
+    assert app.notice == 'Arming cancelled' and not app.armed and len(ssh.commands) == 1
+    app.arming.remote = None
+    app.arm_panel()
+    assert app.notice.startswith('Arming refused: local has no thrusters')
+
+
 def test_pins_popup_does_not_start_a_driver_beside_another(tmp_path, monkeypatch):
     app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
     app.arming.ros.node_names.append('/sim/thruster_pwm_node')

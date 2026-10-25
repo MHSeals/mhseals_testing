@@ -96,12 +96,14 @@ def call(host, command, jump=None, timeout=CONNECT_S + 10):
     return results, None
 
 
-def unit_command(verb, unit=None, argv=(), by=None, commander=False):
-    """The unit CLI line for ``verb``; the internal ``--commander`` is only ever set here."""
+def unit_command(verb, unit=None, argv=(), by=None, commander=False, lease_s=LEASE_S, driver=False):
+    """The unit CLI line for ``verb``; the internal ``--commander`` and ``--driver`` (arming's,
+    ros/arm_link.py) are only ever set here."""
     words = [*UNIT, verb, *([unit] if unit else [])]
     if verb == 'start':
-        words += ['--lease-s', str(LEASE_S), '--by', json.dumps(by or {}, sort_keys=True)]
+        words += ['--lease-s', str(lease_s), '--by', json.dumps(by or {}, sort_keys=True)]
         words += ['--commander'] if commander else []
+        words += ['--driver'] if driver else []
         words += ['--', *argv]
     return shlex.join(words)
 

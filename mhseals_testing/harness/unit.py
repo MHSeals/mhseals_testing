@@ -12,7 +12,10 @@ SIGTERM (``docker stop`` reaches it through stop-children.sh) or when nobody ren
 a dropped ssh session or a crashed TUI never leaves it running for long. Records live in
 ``$XDG_RUNTIME_DIR/mhseals/units/``; logs under the data root's ``units/<unit>/``.
 
-Motion boundary: the thruster driver and command_mux are refused here, always. A commander part
+Motion boundary: the thruster driver and command_mux are refused here, except as the one unit the
+TUI's arming starts on the computer with the ``thrusters`` capability: the internal ``--driver``
+argument, and only under ``mhseals_testing.ros.arm_link``, which stops them as soon as the
+operator's DDS heartbeat stops (ros/arm_link.py), never on a lease renewed over ssh. A commander part
 (Nav2, the mission runner) starts only when the TUI passes the internal ``--commander`` argument,
 which it does after an operator's keypress and confirm; it is not an operator-facing option.
 Stop is never refused. ROS-free.
@@ -38,6 +41,7 @@ START_WAIT = 5.0           # s for the keeper to report its child's pid
 STOP_WAIT = 30.0           # s for the keeper to stop the group and write the exit code
 NAME = re.compile(r'^mhseals-[a-z0-9][a-z0-9_-]*$')
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
+ARM_LINK = ('python3', '-m', 'mhseals_testing.ros.arm_link', 'run')
 COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py', 'robot.launch.py'}
 DEVICE_LAUNCH = 'device.launch.py'
 
@@ -104,12 +108,15 @@ def commander(argv, parts_of=device_parts):
                for part in chosen or parts)
 
 
-def refuse(argv, allow_commander, parts_of=device_parts):
-    """Raise UnitError for a driver, and for a commander without the TUI's explicit go-ahead."""
+def refuse(argv, allow_commander, parts_of=device_parts, allow_driver=False):
+    """Raise UnitError for a driver (unless arming's, under arm_link) and for a commander
+    without the TUI's explicit go-ahead."""
     driver = DRIVERS & {Path(token).name for token in argv}
-    if driver:
+    if driver and not (allow_driver and tuple(argv[:len(ARM_LINK)]) == ARM_LINK):
         raise UnitError(f'{", ".join(sorted(driver))} never runs as a unit; '
-                        'start it from the TUI on that computer, through arming')
+                        'start it from the TUI through arming')
+    if driver:
+        return
     if not allow_commander and commander(argv, parts_of):
         raise UnitError('this part can command motion; start it from the TUI with a confirm')
 
@@ -159,14 +166,15 @@ def statuses():
     return [status(path.stem) for path in sorted(units_dir().glob('mhseals-*.json'))]
 
 
-def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, parts_of=device_parts):
+def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, parts_of=device_parts,
+          allow_driver=False):
     """Start ``argv`` as ``unit``, or return the running one with ``adopted`` set."""
     _check_name(unit)
     if not argv:
         raise UnitError('start needs a command after --')
     if not 0 < lease_s <= MAX_LEASE_S:      # NaN fails too: a unit nobody renews must stop
         raise UnitError(f'the lease must be over 0 s and at most {MAX_LEASE_S:.0f} s')
-    refuse(argv, allow_commander, parts_of)
+    refuse(argv, allow_commander, parts_of, allow_driver)
     files = _files(unit)
     with _Lock(files['lock']):
         current = status(unit)
@@ -195,7 +203,7 @@ def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, parts_of=
             raise UnitError(f'the keeper for {unit} did not start its command') from None
         record = {'unit': unit, 'argv': list(argv), 'pid': pid,
                   'keeper': keeper.pid, 'started': time.time(), 'by': by or {}, 'log': str(log),
-                  'lease_s': lease_s, 'commander': bool(allow_commander)}
+                  'lease_s': lease_s, 'commander': bool(allow_commander), 'driver': bool(allow_driver)}
         data.write_json(files['json'], record, 'mhseals.unit/1')
         keeper.returncode = 0      # the keeper outlives this process by design; do not warn about it
     return dict(status(unit), adopted=False)
@@ -240,6 +248,7 @@ def main(argv=None):
     begin.add_argument('--lease-s', type=float, default=LEASE_S)
     begin.add_argument('--by', default='{}')
     begin.add_argument('--commander', action='store_true', help=argparse.SUPPRESS)  # TUI-internal
+    begin.add_argument('--driver', action='store_true', help=argparse.SUPPRESS)     # arming-internal
     verbs.add_parser('status').add_argument('unit', nargs='?')
     verbs.add_parser('renew').add_argument('unit')
     verbs.add_parser('stop').add_argument('unit')
@@ -251,7 +260,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.verb == 'start':
-            results = [start(args.unit, command, args.lease_s, json.loads(args.by), args.commander)]
+            results = [start(args.unit, command, args.lease_s, json.loads(args.by), args.commander,
+                             allow_driver=args.driver)]
         elif args.verb == 'status':
             results = [status(args.unit)] if args.unit else statuses()
         else:

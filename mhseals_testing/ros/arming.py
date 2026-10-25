@@ -4,7 +4,13 @@ The driver is mhseals_hardware's thruster_pwm_node, configured from a snapshot
 of the session's hardware config, so the report records exactly what drove the
 thrusters. Disarming stops the children; the driver neutralizes its outputs
 (and cuts ESC power on the boat) as it exits.
+
+With ``remote`` (ros/arm_link.RemoteDriver) the children run on the computer with the
+``thrusters`` capability instead, from the same snapshot shipped there, alive only while this
+TUI's DDS heartbeat arrives; their state comes back over DDS, not as local processes.
 """
+
+from pathlib import Path
 
 import time
 
@@ -17,6 +23,8 @@ CONTROLLER = 'calibrated_velocity_controller'
 EFFORT_TOPIC = '/cmd_vel_effort'
 MUX = 'command_mux'
 APPLIED_TOPIC = '/cmd_vel/applied'  # what the mux lets through to the driver
+DRIVER_STATUS = f'/{DRIVER}/status'
+CONFIG_PLACEHOLDER = '@CONFIG@'      # ros/arm_link.CONFIG: the boat side's copy of the snapshot
 
 
 def muxed(profile):
@@ -58,8 +66,10 @@ def driver_commands(profile, config_path, topics=None):
 
 
 class Arming:
+    timeout = 10.0      # s for the children to start and listen
+
     def __init__(self, profile, ros, processes, hardware_config, config_path,
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, remote=None):
         self.profile = profile
         self.ros = ros
         self.processes = processes
@@ -70,6 +80,9 @@ class Arming:
         self.armed = False
         self.pending = None
         self.topics = None
+        self.remote = remote
+        if remote is not None:
+            self.timeout = remote.timeout
 
     @property
     def driver_topic(self):
@@ -85,12 +98,27 @@ class Arming:
         return [name for name, _ in driver_commands(
             self.profile, self.config_path, self.bindings())]
 
+    def commands(self):
+        """The children's argv; a remote one reads the config the boat side writes."""
+        config = CONFIG_PLACEHOLDER if self.remote is not None else self.config_path
+        return driver_commands(self.profile, config, self.bindings())
+
+    def running(self, name):
+        return (self.remote or self.processes).running(name)
+
     def fault(self):
         """Why the armed outputs can't be trusted, or ''."""
         if not self.armed or self.profile.outputs == 'none':
             return ''
-        exited = [name for name in self.children() if not self.processes.running(name)]
-        return f"{', '.join(exited)} exited; disarm and check its log" if exited else ''
+        exited = [name for name in self.children() if not self.running(name)]
+        if exited and self.remote is not None:
+            why = self.remote.last_line(exited[0])
+            return f"{', '.join(exited)} on {self.remote.host.name} stopped" + (f': {why}' if why else '')
+        if exited:
+            return f"{', '.join(exited)} exited; disarm and check its log"
+        if self.remote is not None and not self.ros.publishers(DRIVER_STATUS):
+            return f'{DRIVER} on {self.remote.host.name} left the ROS graph'
+        return ''
 
     def rival(self):
         """Why arming would be refused because another driver owns the topic, or ''."""
@@ -121,9 +149,11 @@ class Arming:
                 raise RuntimeError(f'velocity model invalid: {error}') from error
         save_config(dict(self.hardware_config, output_backend=self.profile.outputs),
                     self.config_path)
-        for name, argv in driver_commands(
-                self.profile, self.config_path, self.bindings()):
-            self.processes.start(name, argv)
+        if self.remote is not None:        # the same snapshot, shipped
+            self.remote.start(self.commands(), Path(self.config_path).read_text())
+        else:
+            for name, argv in self.commands():
+                self.processes.start(name, argv)
         self.pending = self.clock()
 
     def expected(self):
@@ -145,7 +175,7 @@ class Arming:
     def startup_failure(self, missing, exited):
         """Say which of three things went wrong while the children were starting."""
         if exited:
-            last = self.processes.last_line(exited[0])
+            last = (self.remote or self.processes).last_line(exited[0])
             return f"{', '.join(exited)} exited during startup" + (f': {last}' if last else '')
         nodes = self.ros.nodes()
         if not any(node.endswith(f'/{missing[0]}') for node in nodes):
@@ -155,19 +185,21 @@ class Arming:
             return f'{missing[0]} is discovered but its parameter service is down'
         return f'{missing[0]} did not subscribe to {self.expected()[missing[0]]}'
 
-    def poll(self, timeout=10.0):
+    def poll(self, timeout=None):
         """'armed' once everything listens, 'starting' until then; raises on failure."""
+        timeout = self.timeout if timeout is None else timeout
         if self.armed:
             return 'armed'
         if self.pending is None:
             raise RuntimeError('arming was not started')
         missing = self.listening()
-        if not missing:
+        if not missing and (self.remote is None or self.remote.confirmed()):
             self.armed, self.pending = True, None
             return 'armed'
-        exited = [name for name in self.children() if not self.processes.running(name)]
+        exited = [name for name in self.children() if not self.running(name)]
         if exited or self.clock() - self.pending > timeout:
-            reason = self.startup_failure(missing, exited)
+            reason = (self.startup_failure(missing, exited) if missing or exited else
+                      f'{self.remote.host.name} did not report the children running')
             self.cancel()
             raise RuntimeError(reason)
         return 'starting'
@@ -177,7 +209,7 @@ class Arming:
         self.pending = None
         self.stop_children()
 
-    def arm(self, timeout=10.0):
+    def arm(self, timeout=None):
         """Blocking arm, for callers without a view to keep drawing."""
         self.begin()
         while self.poll(timeout) == 'starting':
@@ -191,7 +223,9 @@ class Arming:
         if rival:
             raise RuntimeError(rival)
         save_config(dict(config, output_backend=self.profile.outputs), self.config_path)
-        children = driver_commands(self.profile, self.config_path, self.bindings())
+        children = self.commands()
+        if self.remote is not None:   # the boat runs, reads back and stops it (its sysfs)
+            return self.remote.readback(Path(self.config_path).read_text(), dict(children)['hardware'])
         try:
             self.processes.start('hardware', dict(children)['hardware'])
             return confirm()
@@ -199,6 +233,9 @@ class Arming:
             self.processes.stop('hardware')   # outputs disabled, ESC power off
 
     def stop_children(self):
+        if self.remote is not None:    # DDS stop and e-stop first, then the unit over ssh
+            self.remote.stop()
+            return
         for name in reversed(self.children()):  # controller first, then the driver
             self.processes.stop(name)
 

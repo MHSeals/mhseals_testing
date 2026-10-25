@@ -435,7 +435,8 @@ class App:
         """Why the real thruster driver may not start on this computer, or ''.
 
         Only a device-registry host with the ``thrusters`` capability drives real pins; a laptop
-        or the camera host running a boat profile must not. An unreadable registry refuses too.
+        or the camera host running a boat profile must not, except by arming that host remotely
+        (ros/arm_link.py, set up at session start). An unreadable registry refuses too.
         """
         if self.profile.outputs != 'odroid':
             return ''
@@ -443,7 +444,7 @@ class App:
             me = self.profile.placed[0]
         except DeviceError as error:
             return f'device registry: {error}'
-        if 'thrusters' not in me.capabilities:
+        if 'thrusters' not in me.capabilities and getattr(self.arming, 'remote', None) is None:
             return f'{me.name} has no thrusters capability in devices.yaml; the driver runs on the boat computer'
         return ''
 
@@ -2237,7 +2238,8 @@ class App:
 
     def arm_rows(self):
         """What arming means right now: outputs, driver, config and every interlock."""
-        outputs = {'odroid': 'ODROID PWM pins (real thrusters)',
+        remote = getattr(self.arming, 'remote', None)
+        outputs = {'odroid': 'ODROID PWM pins (real thrusters)' + (f' on {remote.describe()}' if remote else ''),
                    'topic': f'simulator over ROS ({self.args.hardware_config["pwm_topic"]})',
                    'none': 'commands straight to the plant'}[self.profile.outputs]
         driver = ('running' if self.armed else 'starts on arm') if self.profile.outputs != 'none' \
@@ -2871,6 +2873,7 @@ def session_main(argv=None):
     import rclpy
 
     from mhseals_testing.harness.simsession import start_session
+    from mhseals_testing.ros import arm_link
     from mhseals_testing.ros.arming import Arming
     from mhseals_testing.ros.health import subscribe_fcu
     from mhseals_testing.ros.perception import subscribe_detections
@@ -2933,7 +2936,12 @@ def session_main(argv=None):
                   renew=not watching).begin()
     stack = Stack(stack_items, processes, time.monotonic, units)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
-    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
+    # Off the thrusters host, arming targets it over DDS + ssh (ros/arm_link.py); a watcher never arms.
+    driver_host = None if watching else arm_link.target(profile)
+    remote_driver = None if driver_host is None else arm_link.RemoteDriver(
+        driver_host[0], arm_link.RosLink(ros.node), driver_host[1],
+        by=dict(host=profile.placed[0].name, pid=os.getpid(), session=str(paths.directory)))
+    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, remote=remote_driver)
     app = authority = desk = None
     try:
         for name, child in choice.children.items():
