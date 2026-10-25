@@ -35,6 +35,7 @@ CASES = {
     'pre.gps_fix': ({'gps.fix_type': Fact(6)}, {'gps.fix_type': Fact(1)}),
     'pre.orin_clock': ({'perc.zed_native.clock_offset': Fact(-0.01)},
                                   {'perc.zed_native.clock_offset': Fact(-0.06)}),
+    'pre.clock_sync': ({'clock.spread': Fact(0.007)}, {'clock.spread': Fact(0.06)}),
     'pre.orin_temp': ({'orin.temp_max': Fact(55.0)}, {'orin.temp_max': Fact(90.0)}),
     'pre.orin_power': ({'orin.power_mode': Fact('MAXN_SUPER')}, {'orin.power_mode': Fact('15W')}),
     'pre.orin_disk': ({'orin.disk_free_gb': Fact(80.0)}, {'orin.disk_free_gb': Fact(2.0)}),

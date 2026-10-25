@@ -618,6 +618,8 @@ class App:
         network = self.network.poll() if self.network else None
         if network:
             self.monitor.advise('network', *network)
+        if getattr(self.network, 'clocks', None):       # pre.clock_sync judges clock.spread
+            self.health.facts.publish('clock_sync', self.network.clock_facts)
         self.monitor.advise('recording', 'OK' if self.processes.running('bag') else 'FAIL',
                             str(self.paths.bag))
         self.watch_recording()

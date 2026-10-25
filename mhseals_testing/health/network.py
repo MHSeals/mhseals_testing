@@ -9,7 +9,7 @@ round trip are judged, and the row names that host.
 from mhseals_nav import boat_network
 
 from mhseals_testing import devices
-from mhseals_testing.health import config
+from mhseals_testing.health import clock_sync, config
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.netstat import Link
 from mhseals_testing.health.pinger import Pinger
@@ -47,7 +47,7 @@ class NetworkRow:
     """
 
     def __init__(self, directory=None, user=None, root='/', clock=None, env_file=None,
-                 targets=None, pinger=Pinger, **link):
+                 targets=None, pinger=Pinger, clock_targets=None, clocks=clock_sync.ClockPeers, **link):
         loaded = config.load(directory, user=user if user is not None else False)
         self.specs = [s for s in loaded.specs if s.group == GROUP]
         settings = loaded.probes.get('network', {})
@@ -58,6 +58,12 @@ class NetworkRow:
         self.period = settings.get('period', PERIOD)
         targets = ping_targets(env_file) if targets is None else targets
         self.pinger = pinger(targets) if targets and self.link else None
+        sync = loaded.probes.get('clock_sync', {})     # config/health/preflight.yaml: pre.clock_sync
+        if clock_targets is None and self.link:
+            clock_targets = clock_sync.targets(tuple(sync.get('roles', clock_sync.ROLES)), env_file)
+        self.clocks = (clocks(clock_targets, sync.get('period', clock_sync.PERIOD))
+                       if clock_targets and self.link else None)
+        self.clock_facts = {}        # clock.spread for the App's health facts
         self.pinging = False         # started with the first boat-link sample, never off the boat
         self.next = None
         self.facts = {}
@@ -72,11 +78,14 @@ class NetworkRow:
             return self.shown
         self.next = now + self.period
         self.facts = self.link.sample()
+        if self.facts and not self.pinging:
+            for sampler in (self.pinger, self.clocks):
+                if sampler:
+                    sampler.start()
+            self.pinging = True
         if self.facts and self.pinger:
-            if not self.pinging:
-                self.pinger.start()
-                self.pinging = True
             self.facts.update(worst(self.pinger.facts()))
+        self.clock_facts = self.clocks.facts() if self.facts and self.clocks else {}
         if self.facts:
             self.seen, self.shown = True, self.render()
         elif self.seen and self.link.known == set():

@@ -5,6 +5,8 @@
 group: Preflight
 probes:
   preflight: {period: 1}
+  # SNTP to the hosts of these registry roles from the TUI's computer (health/clock_sync.py)
+  clock_sync: {period: 5, roles: [boat_computer, camera_host]}
 joins:                  # other groups' checks that `--require preflight` also needs OK
   - {id: fcu.link, profiles: [boat]}
 checks:
@@ -95,6 +97,20 @@ checks:
     hint: DDS source stamp of /perception/status against blastoise; fix chrony on the Orin
     each:
       - {source: zed_native, profiles: [boat]}
+  # The boat computers' clocks against each other and this computer (an operator's included), by
+  # chrony's NTP answer. A delay equal to a clock offset cancels in every stamp check: this is the guard.
+  - id: pre.clock_sync
+    kind: threshold
+    fact: clock.spread
+    below: false
+    warn: 0.03
+    fail: 0.05
+    unit: ' s'
+    probe: clock_sync
+    severity: fail
+    profiles: [boat]
+    title: Boat clocks agree
+    hint: 'Unknown: a host gave no NTP answer; run setup.linux.sh --components clock there (chrony), then astro-clock.py'
   - {id: pre.orin_temp, kind: threshold, fact: orin.temp_max, below: false, warn: 70, fail: 85,
      digits: 0, unit: ' C', probe: preflight, severity: fail, profiles: [boat], title: Orin temperature,
      hint: 'host_diagnostic on the Orin publishes this; unknown means it is not running there'}
