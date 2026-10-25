@@ -56,6 +56,12 @@ class FakeUnits:
         self.calls.append(('stop', item.part))
         self.records[item.part] = {'state': 'off'}
 
+    def take_notices(self):
+        return []
+
+    def held_by_host(self):
+        return {}
+
 
 def part(name, launch, host=ME, profile='odroid', nodes=(), **spec):
     return Part(name, profile, None, host, {'launch': launch, 'nodes': list(nodes), **spec},
