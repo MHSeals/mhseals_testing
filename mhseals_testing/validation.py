@@ -115,6 +115,25 @@ def _gpsraw(message):
     return values, ''
 
 
+# GPS_RAW_INT (MAVLink msg 24) in wire order, extensions included; MAVLink 2 drops trailing zeros.
+GPS_RAW_INT = 24
+GPS_RAW_INT_LAYOUT = struct.Struct('<QiiiHHHHBBiIIIIH')
+GPS_RAW_INT_FIELDS = ('time_usec', 'lat', 'lon', 'alt', 'eph', 'epv', 'vel', 'cog', 'fix_type',
+                      'satellites_visible', 'alt_ellipsoid', 'h_acc', 'v_acc', 'vel_acc', 'hdg_acc', 'yaw')
+
+
+class GpsRawInt:
+    """A mavros_msgs/GPSRAW look-alike decoded from a mavros_msgs/Mavlink GPS_RAW_INT frame, for a
+    MAVROS without mavros_extras' gpsstatus plugin (stock raw/fix never reports RTK)."""
+
+    def __init__(self, mavlink):
+        payload = b''.join(word.to_bytes(8, 'little') for word in mavlink.payload64)[:mavlink.len]
+        size = GPS_RAW_INT_LAYOUT.size
+        values = GPS_RAW_INT_LAYOUT.unpack(payload[:size].ljust(size, b'\0'))
+        self.__dict__.update(zip(GPS_RAW_INT_FIELDS, values))
+        self.header = mavlink.header
+
+
 def _mag(message):
     field = message.magnetic_field
     values = dict(summary='')

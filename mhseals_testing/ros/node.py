@@ -37,7 +37,7 @@ from mhseals_testing.ros.minimap_feeds import MapFeeds
 from mhseals_testing.ros.mission import MissionFeed
 from mhseals_testing.ui.feeds.mission import MissionState
 from mhseals_testing.ros.sources import subscribe_sources
-from mhseals_testing.validation import RAW_KINDS
+from mhseals_testing.validation import GPS_RAW_INT, RAW_KINDS, GpsRawInt
 
 MESSAGE_TYPES = {
     'odometry': Odometry, 'imu': Imu, 'gps': NavSatFix,
@@ -59,6 +59,7 @@ def message_type(kind):
 
 EVENTS_TOPIC = '/mhseals_testing/events'
 FAULT_LOG = os.path.join(tempfile.gettempdir(), 'boat_test_faults.log')  # callback tracebacks
+MAVLINK_TOPIC = '/uas1/mavlink_source'   # MAVROS's every received frame (mavros_msgs/Mavlink)
 GUID_PREFIX = 12             # bytes of an endpoint gid that name its DDS participant
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
 EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
@@ -101,6 +102,10 @@ class RosIO:
             self.node.create_subscription(
                 message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind),
                 qos_profile_sensor_data, raw=raw)
+            if sensor.kind == 'gpsraw':
+                from mavros_msgs.msg import Mavlink
+                self.node.create_subscription(Mavlink, MAVLINK_TOPIC, partial(self._gps_raw_int, sensor.topic),
+                                              qos_profile_sensor_data)
         self.node.create_subscription(
             Vector3Stamped, DRIFT_TOPIC, partial(self._ingest, DRIFT_TOPIC, 'drift'), 10)
         if profile.use_sim_time:
@@ -165,6 +170,16 @@ class RosIO:
     def _ingest(self, topic, kind, message, authority=''):
         ingest(self.monitor, self.profile, topic, kind, message, self.now(),
                self.stale_after, authority)
+
+    def _gps_raw_int(self, topic, message):
+        """GPS_RAW_INT from MAVROS's raw MAVLink stream as the gpsraw sensor, only while nothing
+        publishes ``topic`` (no mavros_extras gpsstatus plugin), so RTK FLOAT/FIXED still shows."""
+        if message.msgid != GPS_RAW_INT or self.node.count_publishers(topic):
+            return
+        raw = GpsRawInt(message)
+        if not (raw.header.stamp.sec or raw.header.stamp.nanosec):
+            raw.header.stamp = self.node.get_clock().now().to_msg()
+        self._ingest(topic, 'gpsraw', raw)
 
     def _tf(self, message, info=None, static=False):
         # The publisher GID tells two publishers of the same edge apart.

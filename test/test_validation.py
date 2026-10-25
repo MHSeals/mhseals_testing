@@ -1,8 +1,9 @@
+import struct
 from types import SimpleNamespace as NS
 
 import pytest
 
-from mhseals_testing.validation import validate
+from mhseals_testing.validation import GpsRawInt, validate
 
 NOW = 100.0
 
@@ -99,6 +100,43 @@ def test_gpsraw_flags_no_fix_and_skips_unknown_velocity():
     assert 'no 3D fix' in validate('gpsraw', gpsraw(fix=2), NOW).issue
     unknown = validate('gpsraw', gpsraw(vel=65535), NOW)
     assert unknown.values['speed'] is None and 've' not in unknown.values
+
+
+def mavlink(payload, msgid=24):
+    """A mavros_msgs/Mavlink frame: the payload as little-endian uint64 words, ``len`` its bytes."""
+    words = [int.from_bytes(payload[i:i + 8].ljust(8, b'\0'), 'little') for i in range(0, len(payload), 8)]
+    return NS(header=header(''), msgid=msgid, len=len(payload), payload64=words)
+
+
+def gps_raw_int(fix, h_acc=0):
+    """GPS_RAW_INT at the MAVLink spec's wire offsets; MAVLink 2 truncates trailing zero bytes."""
+    payload = bytearray(52)
+    struct.pack_into('<Qiii', payload, 0, 123456, 430001234, -760000000, 100500)
+    struct.pack_into('<HHHH', payload, 20, 90, 150, 150, 9000)     # eph epv vel cog
+    payload[28], payload[29] = fix, 14                             # fix_type, satellites_visible
+    struct.pack_into('<I', payload, 34, h_acc)
+    return bytes(payload).rstrip(b'\0')
+
+
+@pytest.mark.parametrize('fix, h_acc, word', [(5, 0, 'FLOAT'), (6, 14, 'FIXED')])
+def test_gps_raw_int_decodes_from_raw_mavlink_as_gpsraw(fix, h_acc, word):
+    from mhseals_testing.ui.feeds.rtk import FIX_WORDS
+    raw = GpsRawInt(mavlink(gps_raw_int(fix, h_acc)))
+    assert (raw.fix_type, raw.satellites_visible, raw.eph, raw.h_acc) == (fix, 14, 90, h_acc)
+    result = validate('gpsraw', raw, NOW)
+    assert result.issue == '' and FIX_WORDS[result.values['fix']] == word
+    assert (result.values['lat'], result.values['lon'], result.values['speed']) == (43.0001234, -76.0, 1.5)
+
+
+def test_gps_raw_int_matches_pymavlink():
+    mavutil = pytest.importorskip('pymavlink.dialects.v20.common')
+    message = mavutil.MAVLink_gps_raw_int_message(1, 6, 430001234, -760000000, 100500, 90, 150, 150, 9000, 14,
+                                                  h_acc=14)
+    encoder = mavutil.MAVLink(None)
+    frame = message.pack(encoder)
+    payload = frame[10:10 + frame[1]]                  # v2 header is 10 bytes, byte 1 the payload length
+    raw = GpsRawInt(mavlink(payload))
+    assert (raw.fix_type, raw.satellites_visible, raw.h_acc, raw.lat) == (6, 14, 14, 430001234)
 
 
 def mag(x=2e-5, y=0., z=0.):
