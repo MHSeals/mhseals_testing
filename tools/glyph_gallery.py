@@ -19,6 +19,21 @@ ALL16 = tuple(k * 22.5 for k in range(16))
 TODAY = ('0', 'T', 'U', 'S')
 BOATS = ('0', 'A', 'B', 'C', 'D', 'E')
 ARROWS = ('0', 'A', 'B', 'C', 'D', 'E')
+ICON_STYLES = ('braille', 'light', 'heavy', 'mixed')
+SPINS = (('none', 0.0), ('cw', -1.0), ('ccw', 0.4))
+ICON_NOTES = {
+    'braille': ('Hand-drawn braille icon, 16 bearings', 'Three masters (0°, 22.5°, 45°), each a filled '
+                '1-3-5 style head on a 4-dot stem, mapped to the other 13 bearings by exact flips and '
+                'transposes, so every bearing has the same weight and centre. A table of 16 × ~12 offsets; '
+                'a frame ORs them into 2–4 cells. Braille only: low font risk. ASCII: <code>^ / &gt; \\</code> '
+                'snapped to 8.'),
+    'light': ('↑↗→↘ glyphs, snapped to 8', 'The pre-compass-hires look: one cell, crisp, but 22.5° '
+              'shows as ↑ or ↗. Arrows block: in every mono font.'),
+    'heavy': ('⬆⬈➡⬊ glyphs, snapped to 8', 'Heavier, but only 8 directions; ➡ is often drawn as a colour '
+              'emoji or double width, and ⬈⬊⬋⬉ are missing from Consolas and Menlo. High font risk.'),
+    'mixed': ('↑↗→ on the main 8, braille icons between', 'Exact at all 16, but the weight jumps '
+              'between a font glyph and a dot drawing every 22.5°.'),
+}
 TODAY_NOTES = (
     ('0', 'Today', 'Barbs at ±35° rounded per dot: clean at 0/45/90, ragged at 22.5° and 67.5°.'),
     ('T', 'Hand-drawn wedge, 6 dots', 'A filled right-angle wedge (edges at 180° and 225° for 22.5°, '
@@ -120,6 +135,10 @@ def dump(tier):
         for h in ALL16:
             out[f'today/{opt}/{h}'] = to_html(Group(*gi.rose(boat='0', arrow_opt=opt, heading=0,
                                                              command_bearing=h, drift=None)), 21)
+    for style in ICON_STYLES:
+        for h in ALL16:
+            for spin, yaw in SPINS:
+                out[f'icon/{style}/{spin}/{h}'] = to_html(Group(*gi.rose_icon(style, 0.0, h, yaw)), 21)
     for boat, arrow in ((k[0], k[1]) for k, _ in COMBOS):
         for h in HEADINGS:
             out[f'combo/{boat}{arrow}/{h}'] = to_html(Group(*gi.rose(boat=boat, arrow_opt=arrow, heading=h,
@@ -212,7 +231,22 @@ def page(frags):
                  'cells, block elements drawn as exact rectangles the way kitty, WezTerm, foot and Ghostty draw '
                  'them (a font-drawn terminal may show hairline seams). Braille and shapes are font glyphs.</p>')
 
-    parts.append('<h2>0 · Owner’s arrow pick: today’s arrow, in-between bearings fixed</h2>'
+    parts.append('<h2>Arrow, revised: one icon, no shaft, ↻/↺ for yaw</h2><p class="lede">North-up rose, '
+                 'heading 0. The command is a single icon at a fixed radius (11 dots) in the driver’s colour; '
+                 'surge and sway sizes stay in the bars beside the rose. Yaw shows ↻ (clockwise, −yaw) or ↺ '
+                 '(counter-clockwise, +yaw) in the top-right corner, brighter with the yaw command (CW row at '
+                 '100 %, CCW row at 40 %), hidden at zero. ASCII spells <code>cw</code>/<code>ccw</code>.</p>')
+    for style in ICON_STYLES:
+        title, note = ICON_NOTES[style]
+        parts.append(f'<section><h3><b>{style[0].upper()}</b> {title}</h3>'
+                     + strip('no yaw', f'icon/{style}/none/{{h}}', headings=ALL16))
+        if style == 'braille':
+            parts.append(strip('yaw CW 100 %', 'icon/braille/cw/{h}', labels=False, headings=ALL16)
+                         + strip('yaw CCW 40 %', 'icon/braille/ccw/{h}', labels=False, headings=ALL16)
+                         + strip('NO_COLOR, CW', 'icon/braille/cw/{h}', 'mono', labels=False, headings=ALL16)
+                         + strip('ASCII, CCW', 'icon/braille/ccw/{h}', 'ascii', labels=False, headings=ALL16))
+        parts.append(f'<p class="note">{note}</p></section>')
+    parts.append('<h2>Arrow, earlier round: today’s arrow, in-between bearings fixed (superseded)</h2>'
                  '<p class="lede">All 16 bearings, heading 0, command at 80 %. 0°, 45°, 90° … are drawn exactly '
                  'as today in every row; only 22.5° + 45° k change. The shaft is always exact.</p>')
     for opt, title, note in TODAY_NOTES:
@@ -225,9 +259,9 @@ def page(frags):
                  '(cached per 5°), ▀▄█ only, thresholded below truecolor. On the map its edge pixels should blend '
                  'into the cell’s own costmap tint rather than the panel bg. Runner-up: D, if the owner wants '
                  'the exact heading as a bowsprit.<br>'
-                 '<b>Arrow (owner picked today’s): T</b>, a hand-drawn 6-dot wedge for 22.5° mirrored to all eight '
-                 'in-between bearings, the same 3-row size and filled look as today’s 0° head. U is the larger '
-                 '10-dot wedge if T reads small; S (snapped head) visibly kinks against the shaft.<br>'
+                 '<b>Arrow (revised direction): B</b>, the hand-drawn braille icon: the only option that is exact '
+                 'at all 16 bearings with one weight, and font-safe; ↻/↺ in the top-right corner, brightness '
+                 'scaling with yaw.<br>'
                  '<b>Arm panel: 1</b>, quiet labels with a state gutter: muted right-aligned labels, values in fg, '
                  'checks with ✓/✗ in state colour under a rule that counts what blocks, the caution line in warn; '
                  'the danger border and title stay fail. Variant 2 is the bolder pick (armed-hue frame).</p></section>')

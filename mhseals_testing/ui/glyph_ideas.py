@@ -534,3 +534,92 @@ def _command(heading, bearing, magnitude):
         return (0.0, 0.0, 0.0)
     rel = math.radians(bearing - heading)
     return (magnitude * math.cos(rel), -magnitude * math.sin(rel), 0.0)
+
+
+# --- owner's direction: an arrow icon only, no shaft, and a rotation icon in a corner ---------
+
+# Braille arrow icons, dots about the icon centre (x right, y down), hand-drawn for 0, 22.5 and
+# 45 deg; the other 13 bearings are exact flips/transposes (dots are square). Each is a 1-3-5 style
+# filled head on a short shaft, about 7 dots long, so all 16 carry the same weight.
+ICON_MASTERS = {
+    0: ((0, -3), (-1, -2), (0, -2), (1, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1),
+        (0, 0), (0, 1), (0, 2), (0, 3)),
+    22.5: ((1, -3), (-1, -2), (0, -2), (1, -2), (0, -1), (1, -1), (2, -1),   # base slants with the axis
+           (0, 0), (0, 1), (-1, 2), (-1, 3)),
+    45: ((3, -3), (1, -3), (2, -3), (3, -2), (3, -1), (2, -2),
+         (1, -1), (0, 0), (-1, 1), (-2, 2)),
+}
+ICON_RADIUS = 11            # dots from the rose centre to the icon centre
+LIGHT = '↑↗→↘↓↙←↖'
+HEAVY = '⬆⬈➡⬊⬇⬋⬅⬉'
+SPIN_CCW, SPIN_CW = '↺', '↻'     # +yaw is counter-clockwise (REP 103)
+
+
+@lru_cache(maxsize=16)
+def icon_dots(k):
+    """The icon for bearing ``k`` * 22.5 deg as dot offsets about its centre."""
+    base = 0 if k % 4 == 0 else 45 if k % 4 == 2 else 22.5
+    want, have = cond._polar(k * 22.5, 1.0), cond._polar(base, 1.0)
+    for f in _SYM:
+        fx, fy = f(*have)
+        if abs(fx - want[0]) < 1e-6 and abs(fy - want[1]) < 1e-6:
+            return tuple(f(x, y) for x, y in ICON_MASTERS[base])
+    raise AssertionError(k)
+
+
+def rose_icon(style='braille', heading=0.0, bearing=None, yaw=0.0, magnitude=0.8, amplitude=1.0):
+    """The rose with the command as one icon at a fixed radius and yaw as ↻/↺ in the top-right corner.
+
+    ``style``: 'braille' (16 hand-drawn icons), 'light' (↑↗ snapped to 8), 'heavy' (⬆⬈ snapped to 8),
+    'mixed' (light glyphs on the eight main bearings, braille icons between)."""
+    hue = _hue_hex()
+    tc = truecolor()
+    rows = cond.rose(None, heading, command=(0.0, 0.0, 0.0), hue=hue)   # ticks, letters, hull
+    grid = [[(row.plain[c], row.get_style_at_offset(None, c) if False else _span_style(row, c))
+             for c in range(cond.ROSE_COLS)] for row in rows]
+    cx, cy = cond.CENTRE
+    if bearing is not None and magnitude:
+        k = round(bearing / 22.5) % 16
+        dx, dy = cond._polar(bearing, ICON_RADIUS)
+        use_glyph = theme.ASCII or style in ('light', 'heavy') or (style == 'mixed' and k % 2 == 0)
+        if use_glyph:
+            table = cond.ARROWS_ASCII if theme.ASCII else HEAVY if style == 'heavy' else LIGHT
+            pos = ((cx + round(dx)) // 2, (cy + round(dy)) // 4)
+            grid[pos[1]][pos[0]] = (table[round(bearing / 45) % 8], f'bold {hue}')
+        else:
+            cells = {}
+            for ix, iy in icon_dots(k):
+                x, y = cx + round(dx) + ix, cy + round(dy) + iy
+                pos = (x // 2, y // 4)
+                cells[pos] = cells.get(pos, 0) | BITS[(x % 2, y % 4)]
+            for (col, row), bits in cells.items():
+                if 0 <= col < cond.ROSE_COLS and 0 <= row < cond.ROSE_ROWS:
+                    old = grid[row][col][0]
+                    if 0x2800 <= ord(old) <= 0x28FF:
+                        bits |= ord(old) - 0x2800
+                    grid[row][col] = (chr(0x2800 + bits), f'bold {hue}' if tc else f'bold {theme.ACCENT}')
+    if yaw:
+        share = min(abs(yaw) / (amplitude or 1.0), 1.0)
+        if theme.ASCII:
+            word = 'ccw' if yaw > 0 else ' cw'
+            for i, ch in enumerate(word):
+                grid[0][cond.ROSE_COLS - 3 + i] = (ch, 'bold')
+        else:
+            style_ = (f'bold {mix(hexof("bg"), hue, 0.35 + 0.65 * share)}' if tc
+                      else 'bold' if share >= 0.5 else '')
+            grid[0][cond.ROSE_COLS - 2] = (SPIN_CCW if yaw > 0 else SPIN_CW, style_)
+    out = []
+    for cells in grid:
+        line = Text()
+        for ch, st in cells:
+            line.append(ch, st)
+        out.append(line)
+    return out
+
+
+def _span_style(row, col):
+    style = ''
+    for span in row.spans:
+        if span.start <= col < span.end:
+            style = span.style
+    return style
