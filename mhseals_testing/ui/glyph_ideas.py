@@ -304,8 +304,8 @@ def today_head(option, bearing):
     if option == 'S':                              # snap: today's head at the nearer cardinal
         snapped = (k - 1) * 22.5 if k in (1, 7, 9, 15) else (k + 1) * 22.5
         out = set()
-        for barb in (snapped + 180 - cond.HEAD_SPREAD, snapped + 180 + cond.HEAD_SPREAD):
-            for length in range(1, cond.HEAD_LEN + 1):
+        for barb in (snapped + 180 - HEAD_SPREAD, snapped + 180 + HEAD_SPREAD):
+            for length in range(1, HEAD_LEN + 1):
                 dx, dy = cond._polar(barb, length)
                 out.add((round(dx), round(dy)))
         return tuple(out | {(0, 0)})
@@ -335,18 +335,18 @@ def arrow(option, bearing_q, start, stop):
             dots[(x, y)] = (role, t)
 
     if option == '0':                              # compass-hires: a 1-dot line and two barbs
-        tip = stop + cond.HEAD_LEN
+        tip = stop + HEAD_LEN
         for r in range(start, tip + 1):
             dx, dy = cond._polar(bearing, r)
             add(round(dx), round(dy), 'shaft', (r - start) / max(1, tip - start))
         tx, ty = cond._polar(bearing, tip)
-        for barb in (bearing + 180 - cond.HEAD_SPREAD, bearing + 180 + cond.HEAD_SPREAD):
-            for length in range(1, cond.HEAD_LEN + 1):
+        for barb in (bearing + 180 - HEAD_SPREAD, bearing + 180 + HEAD_SPREAD):
+            for length in range(1, HEAD_LEN + 1):
                 dx, dy = cond._polar(barb, length)
                 add(round(tx + dx), round(ty + dy), 'head', 1.0)
     elif option in ('T', 'U', 'S'):                # today's arrow; only the in-between heads change
         head = today_head(option, bearing)
-        tip = stop + cond.HEAD_LEN
+        tip = stop + HEAD_LEN
         tx, ty = cond._polar(bearing, tip)
         if head is None:                           # 0, 45, 90 ...: exactly today's drawing
             return arrow('0', bearing_q, start, stop)
@@ -396,7 +396,7 @@ def _halfblock_arrow(bearing, start, stop):
     coverage blended into the bg; the shaft fades from 45 % at the tail to full at the head."""
     (fx, fy), (sx, sy) = _axes(bearing)
     head, hw, sw = 2.4, 1.5, 0.5
-    u0, u1 = start / 2 - 0.3, (stop + cond.HEAD_LEN) / 2 - head   # units; the tip where 0's is
+    u0, u1 = start / 2 - 0.3, (stop + HEAD_LEN) / 2 - head   # units; the tip where 0's is
     pts = [(u0, sw), (u1, sw), (u1, hw), (u1 + head, 0), (u1, -hw), (u1, -sw), (u0, -sw)]
     poly = [(u * fx + v * sx, u * fy + v * sy) for u, v in pts]
     half = (cond.ROSE_COLS // 2, cond.ROSE_ROWS // 2)
@@ -478,7 +478,7 @@ def rose(boat='0', arrow_opt='0', heading=0.0, command_bearing=None, magnitude=0
     if command_bearing is not None:
         rel = math.radians(command_bearing - heading)
         start = cond._reach(rel) + (1 if boat in 'AC' else 0)
-        stop = start + round(magnitude * (cond.COMMAND_END - start))
+        stop = start + round(magnitude * (COMMAND_END - start))
         adots, acells = arrow(arrow_opt, round(command_bearing) % 360, start, stop)
         for (x, y), (role, t) in adots.items():
             put(cx + x, cy + y, role, t)
@@ -549,6 +549,8 @@ ICON_MASTERS = {
     45: ((3, -3), (1, -3), (2, -3), (3, -2), (3, -1), (2, -2),
          (1, -1), (0, 0), (-1, 1), (-2, 2)),
 }
+COMMAND_END = cond.RADIUS - 5          # the superseded shaft variants (these left conditions.py with the icon)
+HEAD_LEN, HEAD_SPREAD = 3, 35
 ICON_RADIUS = 11            # dots from the rose centre to the icon centre
 LIGHT = '↑↗→↘↓↙←↖'
 HEAVY = '⬆⬈➡⬊⬇⬋⬅⬉'
