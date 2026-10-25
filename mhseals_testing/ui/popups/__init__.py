@@ -76,7 +76,7 @@ def prompt(app, message, title='Ready'):
                            hint=f'Enter continue{theme.SEPARATOR}Esc cancel'), handle)
 
 
-SAFE_WORDS = ('cancel', 'close', 'keep', 'no', 'disarm')   # never a danger button
+SAFE_WORDS = ('cancel', 'close', 'keep', 'no', 'disarm', 'refuse')   # never a danger button
 CHOOSE_KEYS = dict(up=['up', 'k'], down=['down', 'j'], left=['left', 'h'], right=['right', 'l', 'tab'],
                    select=['enter'], decline=['n'], cancel=['escape', 'q'])   # when the keymap is unreadable
 

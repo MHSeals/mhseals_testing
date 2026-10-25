@@ -52,24 +52,30 @@ def choose(app, title, options, timeout_s, cause, message=None, danger=True, clo
     """A ``popup.choose`` that closes itself after ``timeout_s`` or once ``cause()`` names a reason.
 
     Returns (choice, None), or (None, why): 'refused' (Esc), 'timeout' or the cause. Space and E pass
-    through as in every popup.
+    through as in every popup. The focus starts on the safe option (Refuse, or an agent's ``no``),
+    so Enter alone never allows motion; the time left is a bar in the body.
     """
+    from mhseals_testing.ui import popups
     deadline = clock() + timeout_s
-    sep = theme.SEPARATOR
-    modal = dict(kind='choice', title=title, message=message, options=list(options), selected=0,
-                 danger=danger, rows=None, width=64, keys=[None] * len(options), scroll_hint='[ ]',
-                 hint=sep.join(('Enter choose', 'Esc refuse', f'closes in {timeout_s:.0f} s')))
+    options = list(options)
+    default = next((i for i, o in enumerate(options) if popups.safe(o)), 0)
+    modal = popups.choice_modal(title, options, message=message, danger=danger, default=default)
+    modal['hint'] = theme.SEPARATOR.join((f'{popups.UPDOWN} select', 'Enter choose', 'Esc refuse'))
+    modal['countdown'] = (timeout_s, timeout_s)
+    keys = popups.choose_keys()
 
     def handle(key):
-        key = fold(key)
-        if key in ('up', 'k', 'down', 'j'):
-            modal['selected'] = (modal['selected'] + (-1 if key in ('up', 'k') else 1)) % len(options)
-        elif key == 'enter':
+        action = keys.get(fold(key))
+        if action in ('up', 'left', 'down', 'right'):
+            step = -1 if action in ('up', 'left') else 1
+            modal['selected'] = (modal['selected'] + step) % len(options)
+        elif action == 'select':
             return options[modal['selected']]
-        elif key in ('escape', 'q'):
+        elif action == 'cancel':
             raise Cancelled('refused by operator')
 
     def check():
+        modal['countdown'] = (max(0.0, deadline - clock()), timeout_s)
         why = cause() or ('timeout' if clock() > deadline else None)
         if why:
             raise Closed(why)

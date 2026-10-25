@@ -346,7 +346,7 @@ class AgentDesk:
                 self.finish(act, False, 'handover' if app.detaching else 'cancelled', hint='TUI closed')
 
     def confirm(self, act, title):
-        """Under agent_motion confirm, one Enter from the human; returns True to go on."""
+        """Under agent_motion confirm, Allow from the human (Refuse is focused); returns True to go on."""
         if self.app.settings.agent_motion != 'confirm':
             return True
         self.set_state(act, 'asking')
@@ -355,7 +355,7 @@ class AgentDesk:
                                         message=f"Agent {act['who']} · claim {act['claim']}")
         if choice == 'Allow':
             return True
-        cause = act['cause'] or why
+        cause = act['cause'] or why or 'refused'      # the Refuse button names no cause
         self.finish(act, False, self.error_of(cause) if act['cause'] else 'refused',
                     hint=HINTS.get(cause.split(': ')[-1], f'operator: {cause}'))
         return False

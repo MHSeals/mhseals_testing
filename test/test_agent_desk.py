@@ -250,6 +250,9 @@ def test_a_claim_gets_the_idle_lease_and_a_run_goes_through_with_confirm(rig):
     c = claim(rig)
     assert rig.app.arbiter.table.get(c)['lease_s'] == 120
     assert rig.app.activity == 'agent'                     # agent_view follow
+    rig.app.answers = [['enter']]                          # Refuse is focused: Enter alone never allows
+    assert final(ask(rig, 'run', c, key='square')['id'])['error'] == 'refused'
+    rig.app.answers = [['left', 'enter']]
     req = ask(rig, 'run', c, key='square')
     reply = final(req['id'])
     assert reply['ok'] and reply['result']['status'] == runs.MEASURED
@@ -569,10 +572,28 @@ def test_stop_needs_no_claim_and_cancels_the_act(rig):
     assert final(goal['id'])['result']['cause'] == 'stop'
 
 
+def test_the_desk_popup_focuses_refuse_and_counts_down_in_its_body():
+    from types import SimpleNamespace
+    from mhseals_testing.ui import agent_acts
+    now, seen = [0.0], []
+
+    def popup(modal, handle, check):
+        now[0] = 4.0
+        check()
+        seen.append((modal['options'][modal['selected']], modal['countdown']))
+        return handle('enter')
+    app = SimpleNamespace(popup=popup)
+    assert agent_acts.choose(app, 'Run square?', ('Allow', 'Refuse'), 10, lambda: None,
+                             clock=lambda: now[0]) == ('Refuse', None)
+    assert seen == [('Refuse', (6.0, 10))]
+
+
 def test_ask_returns_the_humans_choice_and_mark_journals(rig):
-    rig.app.answers = [['down', 'enter']]
+    rig.app.answers = [['enter'], ['up', 'enter']]         # focus starts on the agent's safe 'no'
     req = ask(rig, 'ask', None, question='Dock lines off?', options=['yes', 'no'])
     assert final(req['id'])['result'] == {'choice': 'no'}
+    req = ask(rig, 'ask', None, question='Dock lines off?', options=['yes', 'no'])
+    assert final(req['id'])['result'] == {'choice': 'yes'}
     req = ch.request('mark', 'claude-3f2a', {'note': 'gust'})
     rig.desk.tick()
     assert final(req['id'])['ok']
