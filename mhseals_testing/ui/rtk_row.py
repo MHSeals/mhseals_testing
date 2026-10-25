@@ -29,6 +29,7 @@ GLYPHS = {'good': ('✓', '+', 'green'), 'warn': ('!', '!', 'yellow'), 'bad': ('
 class RtkView:
     """Everything the row shows; ``None`` means unknown or not applicable."""
     base: str = 'none'              # none | identifying | surveying | streaming | error
+    source: str = 'ours'            # who injects corrections (rtk.yaml source): ours | external | none
     fix: str = 'none'               # rover fix word, a key of FIXES
     age: float = None               # s since the last RTCM frame; None with base streaming = no frame yet
     drops: int = 0                  # stale drops in the last 60 s
@@ -53,10 +54,24 @@ def survey_fraction(t, t_min, acc, acc0, target, valid):
     return fraction if valid else min(fraction, 0.99)
 
 
+OWN = ('identifying', 'surveying', 'streaming')
+
+
 def _state(view):
-    """(link, glyph state): link is one of off/error/identifying/surveying/fresh/stale/dead."""
+    """(link, glyph state): link is one of off/error/identifying/surveying/fresh/stale/dead,
+    or external/unused when another station (or nobody) injects and our base is not running."""
     if view.base == 'error':
         return 'error', 'bad'
+    if view.source != 'ours' and view.base not in OWN:
+        # No sender-side age: the FCU's fix alone says whether the corrections work
+        link = 'external' if view.source == 'external' else 'unused'
+        if view.pubs > 1:
+            return link, 'bad'
+        if view.converge_warn:
+            return link, 'warn'
+        if link == 'unused':
+            return link, 'off'
+        return link, 'good' if view.fix == 'FIXED' else 'busy'
     if view.base != 'streaming':
         link = {'identifying': 'identifying', 'surveying': 'surveying'}.get(view.base, 'off')   # unknown = no base
         if view.age is not None and view.age > STALE:
@@ -92,6 +107,10 @@ def _link(view, link, cells, ascii):
     short = cells < 7           # 'no base' is 7 cells
     if link == 'off':
         return Text(('off' if short else 'no base').ljust(cells), style='dim')
+    if link == 'external':          # cyan: external, as elsewhere in Status
+        return Text(('external' if cells >= 8 else 'ext').ljust(cells), style='cyan')
+    if link == 'unused':
+        return Text(('off' if short else 'no corr').ljust(cells), style='dim')
     if link == 'error':
         return Text(('err' if short else 'error').ljust(cells), style='red')
     if link == 'identifying':
@@ -181,7 +200,7 @@ def rtk_row(view, width, ascii=False, cursor=None):
 # Status row state and strip state per glyph state (Status vocabulary: OK, WARN, ERROR)
 ROW_STATES = {'good': 'OK', 'busy': 'CHECKING', 'off': 'OK', 'warn': 'WARN', 'bad': 'ERROR'}
 ROW_STATES_STRIP = {'good': 'LIVE', 'busy': 'CHECKING', 'off': 'LIVE', 'warn': 'WARN', 'bad': 'FAIL'}
-BASE_WORDS = {'off': 'off', 'error': 'error', 'identifying': 'base', 'surveying': 'svin'}
+BASE_WORDS = {'off': 'off', 'unused': 'off', 'error': 'error', 'identifying': 'base', 'surveying': 'svin'}
 
 
 def strip_item(view):
@@ -197,6 +216,8 @@ def strip_item(view):
         return 'FAIL', f'rtk {view.fix}'
     if link == 'stale':
         return 'WARN', 'rtk stale'
+    if link == 'external':
+        return ROW_STATES_STRIP[state], f'rtk ext {view.fix}'
     word = BASE_WORDS.get(link, view.fix)
     return ROW_STATES_STRIP[state], f'rtk {word}'
 

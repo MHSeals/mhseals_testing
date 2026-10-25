@@ -180,7 +180,8 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
     view = snapshot.get('rtk_view')     # the RTK feed gates it: a base in the profile, or the topic exists
     if view is not None:
         rows.append(dict(group='Localization', state=ROW_STATES[_state(view)[1]], name='RTK', value=view.fix,
-                         cell=view, required=False, detail='RTK base link, rover fix rung and the most urgent number'))
+                         cell=view, required=False,
+                         detail=f'corrections {view.source} (rtk.yaml source); link, rover fix rung, most urgent number'))
     mag = sensor(snapshot, specs, 'mag')
     if mag:
         v = mag['values']
