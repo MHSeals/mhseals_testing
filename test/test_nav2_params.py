@@ -12,8 +12,7 @@ CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0
 
 
 @pytest.mark.parametrize('key,live', [
-    (FOLLOW + 'vx_max', True),
-    (FOLLOW + 'vx_min', True),
+    (FOLLOW + 'wz_max', True),
     (FOLLOW + 'CostCritic.cost_weight', True),
     (FOLLOW + 'prune_distance', True),
     ('velocity_smoother.max_accel', True),
@@ -23,6 +22,10 @@ CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0
     # The local costmap feeds the MPPI CostCritic precompute, read at configure.
     ('local_costmap.local_costmap.footprint', False),
     ('local_costmap.inflation_layer.inflation_radius', False),
+    # Copied once at configure by ConstraintCritic and PathAngleCritic (vx_min's sign).
+    (FOLLOW + 'vx_max', False),
+    (FOLLOW + 'vx_min', False),
+    (FOLLOW + 'vy_max', False),
     # Read at configure, or by nothing that listens.
     (FOLLOW + 'motion_model', False),
     (FOLLOW + 'PathAngleCritic.mode', False),
@@ -46,10 +49,10 @@ def test_every_pattern_matches_a_real_nav2_key_shape():
 
 
 def test_undeclared_key_is_missing_not_live_or_reset():
-    declared = {'controller_server': {'FollowPath.vx_max'}}
-    out = n2.plan({FOLLOW + 'vx_max': 0.5, FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT, declared)
+    declared = {'controller_server': {'FollowPath.wz_max'}}
+    out = n2.plan({FOLLOW + 'wz_max': 0.2, FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT, declared)
     assert out['missing'] == [FOLLOW + 'NewCritic.cost_weight']
-    assert out['live']['controller_server']['FollowPath.vx_max'] == 0.5
+    assert out['live']['controller_server']['FollowPath.wz_max'] == 0.2
     assert n2.plan({FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT)['missing'] == []   # declared unknown
 
 
@@ -62,10 +65,10 @@ def test_target_names_the_ros_node():
 def test_plan_adds_derived_keys_and_orders_nodes():
     out = n2.plan({FOLLOW + 'vx_max': 0.5, 'controller_server.controller_frequency': 20.0}, CURRENT)
     assert out['reset']['controller_server'][FOLLOW[len('controller_server.'):] + 'model_dt'] == 0.05
-    live = out['live']
-    assert list(live) == ['velocity_smoother', 'controller_server']
-    assert live['velocity_smoother']['max_velocity'][0] == 0.5
-    assert 'FollowPath.prune_distance' not in live['controller_server']  # floor holds
+    assert out['reset']['controller_server']['FollowPath.vx_max'] == 0.5
+    assert list(out['live']) == ['velocity_smoother']
+    assert out['live']['velocity_smoother']['max_velocity'][0] == 0.5
+    assert 'FollowPath.prune_distance' not in out['reset']['controller_server']  # floor holds
 
 
 def test_plan_moves_shim_and_stds_with_limits():
@@ -133,7 +136,7 @@ def test_preview_rejects_conflicting_explicit_derived_assignments(assignment):
 def test_partial_legacy_fixture_does_not_invent_horizon_defaults():
     values = {FOLLOW + 'vx_max': 0.4}
     assert n2.derived(values) == values
-    assert n2.plan({FOLLOW + 'vx_max': 0.5}, values)['live'] == {
+    assert n2.plan({FOLLOW + 'vx_max': 0.5}, values)['reset'] == {
         'controller_server': {'FollowPath.vx_max': 0.5}}
 
 
@@ -197,5 +200,5 @@ def test_complete_preview_emits_canonical_caps_and_numeric_types(changes):
         assert result['unchanged'] == [FOLLOW + 'vx_min']
         assert all(not result[kind] for kind in ('live', 'reset'))
     else:
-        emitted = result['live']['controller_server']['FollowPath.vx_max']
+        emitted = result['reset']['controller_server']['FollowPath.vx_max']
         assert emitted == 1.0 and type(emitted) is float

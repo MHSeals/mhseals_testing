@@ -1,14 +1,12 @@
 # The Nav2 parameters a running stack applies by itself (Nav2 Jazzy 1.3.13, checked against its
 # dynamic-parameter callbacks). Flat `node.param` fnmatch patterns; the costmaps are written
-# `<costmap>.<param>`. Every other key is set and then Navigation is reset and started again.
+# `<costmap>.<param>`. Any other key: Navigation is reset, the keys are set, then it is started again.
 # The controller's std, prune and rotation-shim entries move with the limits, so they are live too.
-# Not here on purpose: the local costmap footprint and inflation (the MPPI CostCritic reads them
+# Not here on purpose: vx_max, vx_min and vy_max (ConstraintCritic and PathAngleCritic keep
+# copies from configure), and the local costmap footprint and inflation (the MPPI CostCritic reads them
 # once at configure).
 live:
   - controller_server.FollowPath.*.cost_weight
-  - controller_server.FollowPath.vx_max
-  - controller_server.FollowPath.vx_min
-  - controller_server.FollowPath.vy_max
   - controller_server.FollowPath.wz_max
   - controller_server.FollowPath.ax_max
   - controller_server.FollowPath.ax_min

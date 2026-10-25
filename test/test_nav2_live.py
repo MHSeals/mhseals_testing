@@ -164,25 +164,28 @@ def ask(**keys):
 
 def test_raising_a_limit_sets_the_controller_then_the_smoother_and_reads_both_back(world):
     recorded = []
-    receipt = make(world, recorded).apply(ask(vx_max=0.5))
+    receipt = make(world, recorded).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'verified' and receipt['live']
     assert [(n, sorted(v)) for n, v in world.sets()] == [
-        ('/controller_server', ['FollowPath.vx_max']), ('/velocity_smoother', ['max_velocity'])]
-    assert world.nodes['/velocity_smoother']['max_velocity'] == [0.5, 0.15, 0.3]
+        ('/controller_server', ['FollowPath.rotate_to_heading_angular_vel', 'FollowPath.wz_max']),
+        ('/velocity_smoother', ['max_velocity', 'min_velocity'])]
+    assert world.nodes['/velocity_smoother']['max_velocity'] == [0.4, 0.15, 0.4]
     assert [c[0] for c in world.calls] == ['set', 'get', 'set', 'get']
-    assert receipt['verified'] == ask(vx_max=0.5) and recorded == [1]
+    assert receipt['verified'] == ask(wz_max=0.4) and recorded == [1]
     derived = [r['key'] for r in receipt['rows'] if r['derived']]
-    assert derived == ['velocity_smoother.max_velocity']
+    assert derived == [FOLLOW + 'rotate_to_heading_angular_vel', 'velocity_smoother.max_velocity',
+                       'velocity_smoother.min_velocity']
 
 
 def test_lowering_a_limit_sends_the_smoother_first_at_the_restrictive_value(world):
-    make(world).apply(ask(vx_max=0.15))
+    make(world).apply(ask(wz_max=0.1))
     assert [n for n, _ in world.sets()] == ['/velocity_smoother', '/controller_server']
-    assert world.sets()[0][1] == {'max_velocity': [0.15, 0.15, 0.3]}
-    assert world.sets()[1][1]['FollowPath.vx_std'] == 0.15          # derived with the limit
+    assert world.sets()[0][1] == {'max_velocity': [0.4, 0.15, 0.1], 'min_velocity': [-0.1, -0.15, -0.1]}
+    assert world.sets()[1][1]['FollowPath.rotate_to_heading_angular_vel'] == 0.1   # derived with the limit
 
 
 def test_mixed_change_sends_the_restrictive_smoother_value_then_the_rest_last(world):
+    # vx_max resets Navigation, so the sets are between the reset and the startup.
     world.nodes['/velocity_smoother']['max_velocity'] = [0.4, 0.15, 0.3]
     make(world).apply(ask(vx_max=0.5, wz_max=0.2))
     nodes = [n for n, _ in world.sets()]
@@ -190,6 +193,7 @@ def test_mixed_change_sends_the_restrictive_smoother_value_then_the_rest_last(wo
     assert world.sets()[0][1] == {'max_velocity': [0.4, 0.15, 0.2],
                                   'min_velocity': [-0.1, -0.15, -0.2]}
     assert world.sets()[2][1] == {'max_velocity': [0.5, 0.15, 0.2]}
+    assert world.nodes['/velocity_smoother']['max_velocity'] == [0.5, 0.15, 0.2]
 
 
 def test_one_atomic_set_per_node(world):
@@ -207,7 +211,7 @@ def test_the_ros_parameters_level_of_the_file_is_not_part_of_the_name(world):
 
 def test_values_already_live_need_no_write_and_no_hold(world):
     world.mux_state = {'holds': []}
-    receipt = make(world).apply(ask(vx_max=0.4))
+    receipt = make(world).apply(ask(wz_max=0.3))
     assert receipt['status'] == 'verified' and world.calls == [] and not world.events
 
 
@@ -224,35 +228,34 @@ def test_integer_for_a_double_is_accepted_after_coercion():
 # ---- readback, rejection, rosout, timeout
 
 def test_a_rejected_key_rolls_back_the_earlier_nodes_in_reverse_with_readback(world):
-    world.reject['/controller_server'] = 'FollowPath.vx_max: out of range'
-    receipt = make(world).apply(ask(vx_max=0.15))
+    world.reject['/controller_server'] = 'FollowPath.wz_max: out of range'
+    receipt = make(world).apply(ask(wz_max=0.1))
     assert receipt['status'] == 'rolled_back' and 'rejected the set' in receipt['error']
     assert world.nodes == LIVE
     sent = world.sets()
     assert [n for n, _ in sent] == [SMOOTHER, CONTROLLER, SMOOTHER]
-    assert sent[2][1] == {'max_velocity': [0.4, 0.15, 0.3]}            # the captured prior value
+    assert sent[2][1] == {'max_velocity': [0.4, 0.15, 0.3], 'min_velocity': [-0.1, -0.15, -0.3]}   # the prior values
     assert world.calls[-1][0] == 'get'                                # the rollback was read back
 
 
 def test_rollback_runs_in_reverse_order_over_every_step_that_went_through(world):
     world.logs.append('controller_server: Invalid value')
-    receipt = make(world).apply(ask(vx_max=0.5, wz_max=0.2))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'rolled_back'
-    assert [n for n, _ in world.sets()] == [SMOOTHER, CONTROLLER, SMOOTHER,
-                                            SMOOTHER, CONTROLLER, SMOOTHER]
+    assert [n for n, _ in world.sets()] == [CONTROLLER, SMOOTHER, SMOOTHER, CONTROLLER]
     assert world.nodes == LIVE
 
 
 def test_readback_mismatch_rolls_back(world):
-    world.drift[('/controller_server', 'FollowPath.vx_max')] = 0.4
-    receipt = make(world).apply(ask(vx_max=0.5))
+    world.drift[('/controller_server', 'FollowPath.wz_max')] = 0.3
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'rolled_back' and 'readback differs' in receipt['error']
     assert world.nodes == LIVE
 
 
 def test_a_bad_rosout_line_rolls_back(world):
-    world.logs.append('controller_server: Parameter FollowPath.vx_max not found')
-    receipt = make(world).apply(ask(vx_max=0.5))
+    world.logs.append('controller_server: Parameter FollowPath.wz_max not found')
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'rolled_back' and '/rosout' in receipt['error']
     assert world.nodes == LIVE and all(r.closed for r in world.rosouts)
 
@@ -267,23 +270,23 @@ def test_failed_rollback_is_reported(world):
         restores.append(node) if node == '/velocity_smoother' else None
         return original(node, values)
     world.put = deny_the_last_restore
-    receipt = make(world).apply(ask(vx_max=0.15))
+    receipt = make(world).apply(ask(wz_max=0.1))
     assert receipt['status'] == 'rollback_failed'
     assert 'could not restore velocity_smoother' in receipt['error']
 
 
 def test_timeout_is_unknown_with_no_retry_and_no_rollback(world):
     world.timeout = ('set', '/velocity_smoother')
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error']
     assert [n for n, _ in world.sets()] == [CONTROLLER, SMOOTHER]          # one try each
-    receipt = make(world).apply(ask(vx_max=0.45))
+    receipt = make(world).apply(ask(wz_max=0.45))
     assert receipt['status'] == 'unknown'
 
 
 def test_readback_timeout_is_unknown(world):
     world.timeout = ('get', '/controller_server')
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'unknown'
     assert [n for n, _ in world.sets()] == ['/controller_server']
 
@@ -296,7 +299,7 @@ def test_a_value_that_cannot_be_coerced_rolls_back_what_went_through(world):
             raise ValueError('bad type')
         return original(node, values)
     world.put = typed
-    receipt = make(world).apply(ask(vx_max=0.15))
+    receipt = make(world).apply(ask(wz_max=0.1))
     assert receipt['status'] == 'rolled_back' and world.nodes == LIVE
 
 
@@ -314,33 +317,33 @@ def test_a_value_that_cannot_be_coerced_rolls_back_what_went_through(world):
 ])
 def test_refuses_while_someone_else_has_the_boat(world, change, text):
     world.record.update(change)
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'refused' and text in receipt['refused']
     assert world.calls == [] and not world.events
 
 
 def test_refuses_without_an_owner_or_for_another_owner_or_stale_authority(world):
     world.owner_record = None
-    assert 'no live session owner' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'no live session owner' in make(world).apply(ask(wz_max=0.4))['refused']
     world.owner_record = {'pid': 1}
-    assert 'does not own the session' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'does not own the session' in make(world).apply(ask(wz_max=0.4))['refused']
     world.owner_record = {'pid': 4242}
     world.record = None
-    assert 'authority state unknown' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'authority state unknown' in make(world).apply(ask(wz_max=0.4))['refused']
     assert world.calls == []
 
 
 def test_a_guest_needs_only_a_live_owner(world):
-    assert make(world, me=None).apply(ask(vx_max=0.5))['status'] == 'verified'
+    assert make(world, me=None).apply(ask(wz_max=0.4))['status'] == 'verified'
 
 
 def test_an_active_goal_refuses_and_now_allows_only_limits(world):
     world.goal_list = ['navigate_to_pose:ab12']
-    assert 'a goal is active' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'a goal is active' in make(world).apply(ask(wz_max=0.4))['refused']
     assert world.calls == []
     world.mux_state = {'holds': []}
     live = make(world)
-    assert live.apply(ask(vx_max=0.5), now=True)['status'] == 'verified'
+    assert live.apply(ask(wz_max=0.4), now=True)['status'] == 'verified'
     world.calls.clear()
     other = {FOLLOW + 'CostCritic.cost_weight': 5.0}
     assert 'a goal is active' in make(world).apply(other, now=True)['refused']
@@ -350,16 +353,16 @@ def test_an_active_goal_refuses_and_now_allows_only_limits(world):
 def test_now_with_a_goal_and_no_mux_to_hold_refuses_and_sets_nothing(world):
     world.goal_list = ['navigate_to_pose:abcd']
     world.mux_state, world.expected = None, False
-    receipt = make(world).apply(ask(vx_max=0.35), now=True)
+    receipt = make(world).apply(ask(wz_max=0.35), now=True)
     assert receipt['status'] == 'refused' and 'no mux to hold' in receipt['refused']
     assert not any(c[0] in ('set', 'mux') for c in world.calls)
     world.goal_list = []
-    assert make(world).apply(ask(vx_max=0.35), now=True)['status'] == 'verified'
+    assert make(world).apply(ask(wz_max=0.35), now=True)['status'] == 'verified'
 
 
 def test_unknown_goal_state_refuses(world):
     world.goal_list = None
-    assert 'cannot tell' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'cannot tell' in make(world).apply(ask(wz_max=0.4))['refused']
 
 
 def test_a_key_the_node_does_not_declare_refuses_the_whole_request(world):
@@ -379,15 +382,26 @@ def test_a_non_live_key_is_set_then_navigation_resets_starts_and_reads_back(worl
     assert receipt['status'] == 'verified' and receipt['reset'], receipt
     assert world.nodes[CONTROLLER]['FollowPath.batch_size'] == 500
     kinds = [c[1] if c[0] == 'lifecycle' else c[0] for c in world.calls]
-    # hold, set, readback, reset, startup, readback again, release: the hold covers the whole reset
-    assert kinds == ['mux', 'set', 'get', 'reset', 'startup', 'get', 'mux']
+    # hold, reset, set, readback, startup, readback again, release: the hold covers the whole reset
+    assert kinds == ['mux', 'reset', 'set', 'get', 'startup', 'get', 'mux']
     assert receipt['hold']['released'] and not world.mux_state['holds']
 
 
 def test_a_live_only_request_never_resets(world):
-    receipt = make(world).apply(ask(vx_max=0.35))
+    receipt = make(world).apply(ask(wz_max=0.35))
     assert receipt['status'] == 'verified' and not receipt['reset']
     assert 'lifecycle' not in {c[0] for c in world.calls}
+
+
+@pytest.mark.parametrize('key,value', [('vx_max', 0.5), ('vx_min', -0.05), ('vy_max', 0.2),
+                                       ('motion_model', 'DiffDrive'), ('PathAngleCritic.mode', 1)])
+def test_keys_a_critic_or_callback_holds_are_set_only_between_reset_and_startup(world, key, value):
+    world.nodes[CONTROLLER]['FollowPath.PathAngleCritic.mode'] = 0
+    receipt = make(world).apply({FOLLOW + key: value})
+    assert receipt['status'] == 'verified' and receipt['reset'], receipt
+    kinds = reset_calls(world)
+    assert kinds[0] == 'reset' and kinds[-1] == 'startup'
+    assert kinds.index('reset') < kinds.index('set') < kinds.index('startup')
 
 
 def test_a_reset_needs_no_goal_even_with_now(world):
@@ -402,7 +416,8 @@ def test_a_reset_that_fails_restores_the_values_and_resets_again(world):
     before = copy.deepcopy(world.nodes)
     receipt = make(world).apply({FOLLOW + 'batch_size': 500})
     assert receipt['status'] == 'rolled_back' and 'startup failed' in receipt['error'], receipt
-    assert reset_calls(world) == ['set', 'reset', 'startup', 'set', 'reset', 'startup']
+    # Nothing is set on a running Navigation, going or coming back.
+    assert reset_calls(world) == ['reset', 'set', 'startup', 'reset', 'set', 'startup']
     assert world.nodes == before
 
 
@@ -422,7 +437,7 @@ def test_a_reset_timeout_is_unknown_with_no_retry(world):
     world.timeout = ('lifecycle', 'reset')
     receipt = make(world).apply({FOLLOW + 'batch_size': 500})
     assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error'], receipt
-    assert reset_calls(world) == ['set', 'reset']
+    assert reset_calls(world) == ['reset']
 
 
 @pytest.mark.parametrize('value', [
@@ -454,25 +469,25 @@ def test_a_conflicting_derived_value_refuses(world):
 
 def test_changed_live_values_since_the_preview_refuse(world):
     live = make(world)
-    previewed = live.preview(ask(vx_max=0.5))
-    world.nodes['/controller_server']['FollowPath.vx_max'] = 0.45
-    receipt = live.apply(ask(vx_max=0.5), previewed)
+    previewed = live.preview(ask(wz_max=0.4))
+    world.nodes['/controller_server']['FollowPath.wz_max'] = 0.45
+    receipt = live.apply(ask(wz_max=0.4), previewed)
     assert receipt['status'] == 'refused' and 'changed since the preview' in receipt['refused']
     assert world.calls == []
 
 
 def test_a_new_owner_since_the_preview_refuses(world):
     live = make(world, me=None)
-    previewed = live.preview(ask(vx_max=0.5))
+    previewed = live.preview(ask(wz_max=0.4))
     world.owner_record = {'pid': 7}
-    assert 'owner changed' in live.apply(ask(vx_max=0.5), previewed)['refused']
+    assert 'owner changed' in live.apply(ask(wz_max=0.4), previewed)['refused']
 
 
 def test_the_ownership_check_is_repeated_right_before_the_first_write(world):
     world.mux_state = {'holds': []}
     # The preview's read is clear; the recheck after the hold is not.
     world.flip = (1, {'procedure': {'name': 'drive_to'}})
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'refused' and 'procedure running' in receipt['refused']
     assert world.sets() == []
     assert [c[1]['op'] for c in world.calls if c[0] == 'mux'] == ['hold', 'release']   # let go
@@ -488,7 +503,7 @@ def test_a_guest_refuses_when_the_owner_changes_during_the_hold(world):
         if request['op'] == 'hold':
             world.owner_record = {'pid': 7}
     world.mux_request = swapping
-    receipt = make(world, me=None).apply(ask(vx_max=0.5))
+    receipt = make(world, me=None).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'refused' and 'owner changed' in receipt['refused']
     assert world.sets() == []
     assert [c[1]['op'] for c in world.calls if c[0] == 'mux'] == ['hold', 'release']
@@ -504,7 +519,7 @@ def test_an_unexpected_exception_mid_apply_is_unknown_journaled_and_released(wor
             raise RuntimeError('invalid handle')
         return original(node, values)
     world.put = breaking
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'unknown' and 'RuntimeError' in receipt['error']
     assert [n for n, _ in world.sets()] == [CONTROLLER]
     assert world.events[-1][0] == 'nav2_live_outcome' and world.events[-1][1]['status'] == 'unknown'
@@ -525,7 +540,7 @@ def test_a_tokened_config_hold_is_confirmed_and_released_with_the_same_token(wor
         seen.append([h['cause'] for h in world.mux_state['holds']])
         return original(node, values)
     world.put = watching
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     hold, release = [c[1] for c in world.calls if c[0] == 'mux']
     assert hold['op'] == 'hold' and hold['cause'] == 'config' and hold['token']
     assert release['op'] == 'release'
@@ -538,29 +553,29 @@ def test_a_tokened_config_hold_is_confirmed_and_released_with_the_same_token(wor
 def test_the_hold_is_released_after_a_failure_too(world):
     world.mux_state = {'holds': []}
     world.reject['/controller_server'] = 'no'
-    assert make(world).apply(ask(vx_max=0.5))['status'] == 'rolled_back'
+    assert make(world).apply(ask(wz_max=0.4))['status'] == 'rolled_back'
     assert world.mux_state['holds'] == []
 
 
 def test_an_unconfirmed_hold_refuses_and_writes_nothing(world):
     world.mux_state = {'holds': []}
     world.silent_mux = True
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'refused' and 'did not confirm' in receipt['refused']
     assert world.sets() == []
 
 
 def test_an_existing_config_hold_refuses(world):
     world.mux_state = {'holds': [{'cause': 'config', 'by': 'x', 'has_token': True}]}
-    assert 'already in place' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'already in place' in make(world).apply(ask(wz_max=0.4))['refused']
     assert world.calls == []
 
 
 def test_armed_with_no_mux_state_refuses_and_unmuxed_needs_no_hold(world):
     world.expected = True
-    assert 'mux state is unknown' in make(world).apply(ask(vx_max=0.5))['refused']
+    assert 'mux state is unknown' in make(world).apply(ask(wz_max=0.4))['refused']
     world.expected = False
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'verified' and not any(c[0] == 'mux' for c in world.calls)
 
 
@@ -574,24 +589,24 @@ def test_an_unconfirmed_release_is_reported(world):
             return
         original(request)
     world.mux_request = stuck
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'verified' and 'press U' in receipt['warning']
 
 
 # ---- journal
 
 def test_intent_is_journaled_before_the_first_write_and_the_outcome_after(world):
-    make(world).apply(ask(vx_max=0.5))
+    make(world).apply(ask(wz_max=0.4))
     (intent, fields, at), (outcome, result, after) = world.events
-    assert intent == 'nav2_live_intent' and at == 0 and fields['before'][FOLLOW + 'vx_max'] == 0.4
-    assert fields['keys'][FOLLOW + 'vx_max'] == 0.5 and 'token' not in json.dumps(fields)
+    assert intent == 'nav2_live_intent' and at == 0 and fields['before'][FOLLOW + 'wz_max'] == 0.3
+    assert fields['keys'][FOLLOW + 'wz_max'] == 0.4 and 'token' not in json.dumps(fields)
     assert outcome == 'nav2_live_outcome' and result['status'] == 'verified'
     assert after == len(world.calls)
 
 
 def test_an_intent_that_cannot_be_journaled_refuses_before_any_write(world):
     world.journal_error = 'disk full'
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'refused' and 'journaled' in receipt['refused']
     assert world.calls == []
 
@@ -599,13 +614,13 @@ def test_an_intent_that_cannot_be_journaled_refuses_before_any_write(world):
 def test_a_failed_apply_records_no_history(world):
     recorded = []
     world.reject['/controller_server'] = 'no'
-    make(world, recorded).apply(ask(vx_max=0.5))
+    make(world, recorded).apply(ask(wz_max=0.4))
     assert recorded == []
 
 
 # ---- the CLI verb
 
-FILE = 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.5\n'
+FILE = 'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.4\n'
 
 
 def run_cli(world, tmp_path, *flags, text=FILE):
@@ -627,7 +642,7 @@ def test_cli_without_yes_prints_the_preview_and_sends_nothing(world, tmp_path):
     code, out = run_cli(world, tmp_path, '--json')
     doc = json.loads(out)
     assert code == 2 and doc['outcome'] == 'preview'
-    assert doc['changes'][0]['key'] == FOLLOW + 'vx_max'
+    assert FOLLOW + 'wz_max' in [row['key'] for row in doc['changes']]
     assert world.calls == []
 
 
@@ -650,7 +665,7 @@ def test_cli_exit_codes_for_refusal_rollback_unknown_and_nothing(world, tmp_path
     world.timeout = ('set', '/controller_server')
     assert run_cli(world, tmp_path, '--yes', '--json')[0] == 4
     world.timeout = None
-    world.nodes['/controller_server']['FollowPath.vx_max'] = 0.5
+    world.nodes['/controller_server']['FollowPath.wz_max'] = 0.4
     world.nodes['/velocity_smoother']['max_velocity'][0] = 0.5
     assert run_cli(world, tmp_path, '--yes', '--json')[0] == 1
 
@@ -686,7 +701,7 @@ def test_cli_now_flag_lets_a_limits_change_run_during_a_goal(world, tmp_path):
 def test_nav2_file_applies_through_the_live_path_and_reads_live_until_restart(world, tmp_path):
     from mhseals_testing.harness.nav2_edit import Nav2File
     path = tmp_path / 'nav2.yaml'
-    path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.5\n')
+    path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.4\n')
     live = make(world)
     nav = Nav2File(path, live.applier)
     live.preview(nav.requested())
@@ -699,7 +714,7 @@ def test_nav2_file_applies_through_the_live_path_and_reads_live_until_restart(wo
 def test_nav2_file_shows_refusals_and_failures(world, tmp_path):
     from mhseals_testing.harness.nav2_edit import Nav2File
     path = tmp_path / 'nav2.yaml'
-    path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.5\n')
+    path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.4\n')
     nav = Nav2File(path, make(world).applier)
     world.goal_list = ['navigate_to_pose:ab12']
     assert nav.apply().startswith('Nav2 apply refused: a goal is active') and nav.pending
@@ -723,9 +738,10 @@ def test_the_popup_previews_from_the_live_nodes_and_applies_live(tmp_path):
     app.nav2_popup()
     options, rows = asked[0]
     assert options == ['Apply live', 'Close']
-    assert (FOLLOW + 'vx_max', '0.4 → 0.5') in rows or any(k == FOLLOW + 'vx_max' for k, _ in rows)
+    assert any(k == FOLLOW + 'vx_max' for k, _ in rows)     # test_app's file sets vx_max: a reset
     assert app.notice == 'Nav2 applied 1 key(s) live'
     assert world.nodes['/controller_server']['FollowPath.vx_max'] == 0.5
+    assert reset_calls(world)[:2] == ['reset', 'set']
 
 
 def test_the_popup_offers_only_close_when_refused_and_a_watcher_never_applies(tmp_path):
@@ -745,7 +761,9 @@ def test_the_popup_offers_only_close_when_refused_and_a_watcher_never_applies(tm
 
 
 def test_live_module_exports_the_documented_limit_keys():
-    assert FOLLOW + 'vx_max' in live_module.LIMIT_KEYS
+    assert FOLLOW + 'wz_max' in live_module.LIMIT_KEYS
+    for key in ('vx_max', 'vx_min', 'vy_max'):
+        assert FOLLOW + key not in live_module.LIMIT_KEYS     # critics copy them at configure
     assert 'velocity_smoother.max_velocity' in live_module.LIMIT_KEYS
     assert FOLLOW + 'CostCritic.cost_weight' not in live_module.LIMIT_KEYS
 
@@ -777,7 +795,7 @@ def test_a_missing_domain_package_refuses_instead_of_crashing(world, monkeypatch
     def missing(*args, **kwargs):
         raise ImportError('No module named mhseals_nav')
     monkeypatch.setattr(nav2_params, 'plan', missing)
-    receipt = make(world).apply(ask(vx_max=0.5))
+    receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'refused' and 'cannot derive the request' in receipt['refused']
     assert world.calls == []
 

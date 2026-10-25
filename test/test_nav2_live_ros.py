@@ -100,9 +100,11 @@ class Ports(RosPorts):
         self.no_mux, self.rosout = False, None
         self.sets, self.held_during = [], []
         self.commands, self.startup_fails = [], 0
+        self.order = []                      # every set and lifecycle command, in the order sent
 
     def put(self, node, values):
         self.sets.append(node)
+        self.order.append(('set', node))
         self.held_during.append([h['cause'] for h in (self.mux() or {}).get('holds', [])])
         if self.freeze and node == SMOOTHER:
             os.kill(self.freeze, signal.SIGSTOP)    # silent between the preview and the write
@@ -117,6 +119,7 @@ class Ports(RosPorts):
 
     def lifecycle(self, command):
         self.commands.append(command)
+        self.order.append((command, None))
         done = super().lifecycle(command)
         if command == 'startup' and self.startup_fails:
             self.startup_fails -= 1
@@ -243,7 +246,8 @@ def stack(tmp_path_factory):
 def live(stack):
     """Yield a Nav2Live on the real ports; the original values are put back afterwards."""
     ports = stack.ports
-    for scratch in (ports.rewrite, ports.log_after, ports.sets, ports.held_during, ports.commands):
+    for scratch in (ports.rewrite, ports.log_after, ports.sets, ports.held_during, ports.commands,
+                    ports.order):
         scratch.clear()
     ports.freeze, ports.no_mux, ports.startup_fails = None, False, 0
     stack.journal.clear()
@@ -261,10 +265,10 @@ def ask(**keys):
 
 
 def test_a_live_set_reaches_the_real_nodes_under_a_tokened_hold(stack, live):
-    receipt = live.apply(ask(vx_max=0.35))
+    receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'verified', receipt
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.35
-    assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.35           # the derived limit moved too
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
+    assert stack.get(SMOOTHER, 'max_velocity')[2] == 0.25           # the derived limit moved too
     assert stack.ports.sets == [SMOOTHER, CONTROLLER]               # smoother first, restrictive
     assert stack.ports.held_during == [['config'], ['config']]      # held before each write
     assert stack.mux_holds() == [] and receipt['hold']['released'] and receipt['hold']['needed']
@@ -286,22 +290,33 @@ def test_an_integer_reaches_a_double_parameter_after_coercion(stack, live):
         stack.ports.params.set_atomically(CONTROLLER, {'failure_tolerance': 'fast'})
 
 
-def test_a_key_the_real_node_rejects_rolls_the_earlier_nodes_back(stack, live):
+def test_a_costmap_key_the_real_node_rejects_stops_before_the_reset(stack, live):
     stack.ports.rewrite['/global_costmap/global_costmap'] = {'width': -5}   # Nav2 says no
-    receipt = live.apply({**ask(vx_max=0.35), 'global_costmap.global_costmap.width': 50})
+    receipt = live.apply({**ask(wz_max=0.25), 'global_costmap.global_costmap.width': 50})
     assert receipt['status'] == 'rolled_back' and 'rejected the set' in receipt['error'], receipt
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
-    assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
     assert stack.get('/global_costmap/global_costmap', 'width') == 100.0
-    assert stack.ports.sets[-2:] == [CONTROLLER, SMOOTHER] and stack.mux_holds() == []
+    assert stack.ports.commands == [] and stack.mux_holds() == []
+
+
+def test_a_costmap_key_is_set_before_the_reset_that_stops_serving_it(stack, live):
+    node = '/global_costmap/global_costmap'
+    receipt = live.apply({**ask(wz_max=0.25), 'global_costmap.global_costmap.width': 50})
+    try:
+        assert receipt['status'] == 'verified' and receipt['reset'], receipt
+        assert stack.ports.order[0] == ('set', node) and stack.ports.order[1] == ('reset', None)
+        assert stack.get(node, 'width') == 50.0 and stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
+    finally:
+        stack.ports.params.set_atomically(node, {'width': 100})
+        live.apply({'global_costmap.global_costmap.width': 100, **ask(wz_max=0.3)})
 
 
 def test_a_bad_rosout_line_rolls_back_the_real_nodes(stack, live):
-    stack.ports.log_after[CONTROLLER] = 'Invalid FollowPath.vx_max'
-    receipt = live.apply(ask(vx_max=0.35))
+    stack.ports.log_after[CONTROLLER] = 'Invalid FollowPath.wz_max'
+    receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'rolled_back' and '/rosout' in receipt['error'], receipt
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
-    assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
+    assert stack.get(SMOOTHER, 'max_velocity')[2] == 0.3
 
 
 def test_a_malformed_footprint_never_reaches_the_costmap(stack, live):
@@ -321,17 +336,17 @@ def test_a_malformed_footprint_never_reaches_the_costmap(stack, live):
 
 def test_any_error_line_in_the_window_rolls_back_whatever_it_says(stack, live):
     stack.ports.log_after[CONTROLLER] = 'something broke'          # logged at ERROR, no keyword
-    receipt = live.apply(ask(vx_max=0.35))
+    receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'rolled_back' and 'something broke' in receipt['error'], receipt
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
 
 
 def test_a_static_mppi_key_the_handler_does_not_own_rolls_back(stack, live):
-    stack.ports.log_after[CONTROLLER] = ('controller_server', 'Parameter FollowPath.vx_max not found')
-    receipt = live.apply(ask(vx_max=0.35))
+    stack.ports.log_after[CONTROLLER] = ('controller_server', 'Parameter FollowPath.wz_max not found')
+    receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'rolled_back' and '/rosout' in receipt['error'], receipt
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
-    assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
+    assert stack.get(SMOOTHER, 'max_velocity')[2] == 0.3
 
 
 def test_the_shim_and_non_followpath_not_found_lines_stay_exempt(stack, live):
@@ -344,20 +359,20 @@ def test_the_shim_and_non_followpath_not_found_lines_stay_exempt(stack, live):
 def test_a_frozen_node_is_unknown_with_one_try_and_no_retry(stack, live):
     pid = stack.ports.freeze = stack.child('smoother')
     try:
-        receipt = live.apply(ask(vx_max=0.35))
+        receipt = live.apply(ask(wz_max=0.25))
     finally:
         os.kill(pid, signal.SIGCONT)
     assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error'], receipt
     assert stack.ports.sets == [SMOOTHER]            # one try, then nothing more was written
     assert stack.mux_holds() == [] and receipt['hold']['released']
     time.sleep(1.0)
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
 
 
 def test_refusals_with_the_real_authority_state(stack, live):
     stack.state['procedure'] = {'name': 'drive_to', 'run': 'r1'}
     stack.arbiter.tick(force=True)
-    receipt = live.apply(ask(vx_max=0.35))
+    receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'refused' and 'procedure running' in receipt['refused']
     assert stack.ports.sets == [] and stack.mux_holds() == []
     stack.state['procedure'] = None
@@ -365,15 +380,15 @@ def test_refusals_with_the_real_authority_state(stack, live):
     ack = stack.arbiter.handle({'op': 'claim', 'who': 'agent-x', 'reason': 'test'})
     assert ack['ok']
     time.sleep(1.3)
-    assert 'claim held' in live.apply(ask(vx_max=0.35))['refused']
+    assert 'claim held' in live.apply(ask(wz_max=0.25))['refused']
     stack.arbiter.handle({'op': 'release', 'id': ack['id']})
     time.sleep(1.3)
-    assert live.preview(ask(vx_max=0.35)).refusals == []
+    assert live.preview(ask(wz_max=0.25)).refusals == []
     dead = subprocess.Popen([sys.executable, '-c', 'pass'])
     dead.wait()
     stack.registry.update(owner={'pid': dead.pid, 'node': 'gone'})
     try:
-        assert 'no live session owner' in live.apply(ask(vx_max=0.35))['refused']
+        assert 'no live session owner' in live.apply(ask(wz_max=0.25))['refused']
     finally:
         stack.registry.update(owner={'pid': os.getpid(), 'node': 'nav2_live_test', 'host': 'test'})
 
@@ -390,12 +405,12 @@ def test_an_active_goal_refuses_and_now_allows_a_limits_change(stack, live):
     status.publish(GoalStatusArray(status_list=[entry]))
     time.sleep(1.0)
     try:
-        assert 'a goal is active' in live.apply(ask(vx_max=0.35))['refused']
+        assert 'a goal is active' in live.apply(ask(wz_max=0.25))['refused']
         other = live.apply({'controller_server.failure_tolerance': 0.2}, now=True)
         assert 'a goal is active' in other['refused']
         assert stack.ports.sets == []
-        assert live.apply(ask(vx_max=0.35), now=True)['status'] == 'verified'
-        assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.35
+        assert live.apply(ask(wz_max=0.25), now=True)['status'] == 'verified'
+        assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
     finally:
         entry.status = GoalStatus.STATUS_SUCCEEDED
         status.publish(GoalStatusArray(status_list=[entry]))
@@ -416,9 +431,9 @@ def test_now_with_a_goal_and_no_mux_refuses_with_no_sets(stack, live):
     time.sleep(1.0)
     stack.ports.no_mux, stack.ports.expected = True, lambda: False
     try:
-        receipt = live.apply(ask(vx_max=0.35), now=True)
+        receipt = live.apply(ask(wz_max=0.25), now=True)
         assert receipt['status'] == 'refused' and 'no mux to hold' in receipt['refused'], receipt
-        assert stack.ports.sets == [] and stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
+        assert stack.ports.sets == [] and stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
     finally:
         stack.ports.expected = lambda: True
         entry.status = GoalStatus.STATUS_SUCCEEDED
@@ -435,7 +450,7 @@ def test_applying_under_a_human_hold_keeps_the_human_hold(stack, live):
     time.sleep(1.5)
     try:
         assert stack.mux_holds() == ['keys']
-        receipt = live.apply(ask(vx_max=0.35))
+        receipt = live.apply(ask(wz_max=0.25))
         assert receipt['status'] == 'verified', receipt
         assert stack.mux_holds() == ['keys']
     finally:
@@ -446,7 +461,7 @@ def test_applying_under_a_human_hold_keeps_the_human_hold(stack, live):
 
 def test_boat_trial_config_apply_nav2_end_to_end(stack, live):
     (stack.dir / 'nav2.yaml').write_text(
-        'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.3\n'
+        'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.25\n'
         '    failure_tolerance: 0.2\n')
     (stack.dir / 'events.jsonl').write_text('')
     command = [sys.executable, '-m', 'mhseals_testing.harness.cli', 'config', 'apply', 'nav2',
@@ -455,14 +470,14 @@ def test_boat_trial_config_apply_nav2_end_to_end(stack, live):
     preview = subprocess.run(command, **options)
     assert preview.returncode == 2, preview.stdout
     assert json.loads(preview.stdout)['outcome'] == 'preview'
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
     done = subprocess.run([*command, '--yes'], **options)
     assert done.returncode == 0, done.stdout
     doc = json.loads(done.stdout)
     assert doc['outcome'] == 'applied' and doc['live'] == 'until Navigation restarts'
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.3
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
     assert stack.get(CONTROLLER, 'failure_tolerance') == 0.2
-    assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.3
+    assert stack.get(SMOOTHER, 'max_velocity')[2] == 0.25
     lines = (stack.dir / 'events.jsonl').read_text().splitlines()
     events = [json.loads(line)['phase'] for line in lines]
     assert events == ['nav2_live_intent', 'nav2_live_outcome']
@@ -489,6 +504,36 @@ def test_a_non_live_key_is_set_and_navigation_resets_and_starts_again(stack, liv
     again = live.apply({FOLLOW + 'batch_size': original})
     assert again['status'] == 'verified', again
     assert stack.get(CONTROLLER, 'FollowPath.batch_size') == original
+
+
+def test_nothing_is_set_on_the_active_controller_before_the_reset(stack, live):
+    """MPPI keeps dynamic callbacks on dead locals (PathAngleCritic.mode, motion_model, ...)."""
+    mode = FOLLOW + 'PathAngleCritic.mode'
+    try:
+        receipt = live.apply({mode: 1, FOLLOW + 'vx_max': 0.35})
+        assert receipt['status'] == 'verified' and receipt['reset'], receipt
+        kinds = [kind for kind, _ in stack.ports.order]
+        assert kinds[0] == 'reset' and kinds[-1] == 'startup', stack.ports.order
+        assert kinds.count('reset') == kinds.count('startup') == 1
+        assert {n for k, n in stack.ports.order if k == 'set'} >= {CONTROLLER}
+        assert stack.get(CONTROLLER, 'FollowPath.PathAngleCritic.mode') == 1
+        assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.35
+    finally:    # the overlay cannot say mode 0, so put it back the safe way
+        assert stack.ports.lifecycle('reset')
+        stack.ports.params.set_atomically(CONTROLLER, {'FollowPath.PathAngleCritic.mode': 0,
+                                                       'FollowPath.vx_max': 0.4})
+        assert stack.ports.lifecycle('startup')
+    assert stack.get(CONTROLLER, 'FollowPath.PathAngleCritic.mode') == 0
+
+
+def test_a_rollback_after_a_reset_resets_before_it_restores(stack, live):
+    stack.ports.startup_fails = 1
+    receipt = live.apply({FOLLOW + 'PathAngleCritic.mode': 1})
+    assert receipt['status'] == 'rolled_back', receipt
+    kinds = [kind for kind, _ in stack.ports.order]
+    assert kinds[0] == 'reset' and kinds.index('set') == 1
+    assert kinds[-4:] == ['startup', 'reset', 'set', 'startup'], stack.ports.order
+    assert stack.get(CONTROLLER, 'FollowPath.PathAngleCritic.mode') == 0
 
 
 def test_a_failed_startup_restores_the_value_and_resets_again(stack, live):
@@ -535,18 +580,18 @@ def test_the_tui_wiring_applies_only_as_the_session_owner(stack, live, tmp_path)
     app = SimpleNamespace(armed=False, history=History(tmp_path / 'history'), warn_history=print)
     nav2_limits.path().parent.mkdir(parents=True, exist_ok=True)
     nav2_limits.path().write_text(
-        'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.3\n')
+        'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.25\n')
     tui = build_nav2_live(ros, stack.registry, load_profile('boat'), lambda: app)
     assert tui.me == os.getpid()
-    receipt = tui.apply(ask(vx_max=0.3))
+    receipt = tui.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'verified', receipt
-    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.3
+    assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
     assert events == ['nav2_live_intent', 'nav2_live_outcome']
     change = app.history.head('nav2')
     assert (change['applied'], change['source']) == ('live-session', 'tui:nav2-live')
     stack.registry.update(owner={'pid': os.getppid(), 'node': 'someone-else'})
     try:
-        other = tui.apply(ask(vx_max=0.35))
+        other = tui.apply(ask(wz_max=0.25))
     finally:
         stack.registry.update(owner={'pid': os.getpid(), 'node': 'nav2_live_test', 'host': 'test'})
     assert other['status'] == 'refused' and 'does not own the session' in other['refused']
