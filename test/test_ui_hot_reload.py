@@ -105,9 +105,11 @@ def test_health_rules_apply_on_the_next_evaluation_but_not_while_armed(tmp_path,
     (tmp_path / 'health.yaml').write_text('override:\n  conditions.poor: {severity: warn}\n')
     settle(app)
     assert severity() == 'fail' and app.engine is old_engine      # held while armed
+    assert 'applies once disarmed' in app.notice and 'reloaded' not in app.notice   # M8: says it waits
     app.arming.armed = False
     app.watch_config()
     assert severity() == 'warn' and app.engine is not old_engine
+    assert app.watcher.watches['health'].warning is None
     (tmp_path / 'health.yaml').write_text('override: [\n')
     settle(app)
     assert severity() == 'warn' and app.watcher.watches['health'].error

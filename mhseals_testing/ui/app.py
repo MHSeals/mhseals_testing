@@ -107,6 +107,7 @@ NEIGHBOURS = {   # a name or the first of a tuple of names that is on screen
 }
 ADVISORY_PERIOD = 1.0
 MUX_SETTLE_S = 5.0       # s after arming for the mux's first state (it starts last, then 1 Hz)
+HELD = 'applies once disarmed and idle'   # a health or settings edit read while armed or running
 FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease expires; later it counts as live
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
@@ -632,7 +633,8 @@ class App:
             return
         if change.name == 'hardware':
             self.config_note = watched.path.name
-        self.notice = f'Config reloaded from {watched.path.name}'
+        self.notice = (f'Config read from {watched.path.name}{theme.SEPARATOR}{watched.warning}' if watched.warning
+                       else f'Config reloaded from {watched.path.name}')
         self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok',
                       path=str(watched.path))
 
@@ -661,9 +663,13 @@ class App:
             self.minimap.table = table
             self.minimap.redraw.mark()
 
+        def apply_held(_value):     # read while armed or running: say it waits, not that it reloaded
+            self.adopt_health()
+            return dict(status='unknown', detail=HELD) if self.armed or self.running else None
+
         def apply_settings(new):    # procedures read settings each step: held while one runs
             self.pending_settings = new
-            self.adopt_health()
+            return apply_held(new)
 
         for watched in (
                 Watched('keymap', keymap_module.USER_FILE, load_keymap, apply_keymap,
@@ -674,13 +680,16 @@ class App:
                 Watched('settings', settings.settings_path(),
                         lambda path: settings.load(path, strict=True), apply_settings),
                 Watched('health', health_config.USER_FILE, lambda _path: self.health.reload(),
-                        lambda _none: self.adopt_health(), subsystem='health')):
+                        apply_held, subsystem='health')):
             self.watcher.add(watched)
 
     def adopt_health(self):
         """Health rules and settings are read while armed or running: edits wait for neither."""
         if self.armed or self.running:
             return
+        for watched in self.watcher.watches.values():
+            if watched.warning == HELD:
+                watched.warning = None
         self.health.adopt_pending()
         new, self.pending_settings = self.pending_settings, None
         if new is not None:     # a key the file dropped goes back to its default
