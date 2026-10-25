@@ -228,6 +228,9 @@ def popup(modal, width, height=None):
     elif modal['kind'] == 'input':
         tail += [Text(''),
                  Text('> ', style=f'bold {theme.ACCENT}') + Text(modal['text'] + theme.FILL)]
+        if modal.get('note'):
+            bad = modal.get('state') == 'bad'
+            tail.append(Text(('! ' if bad else '') + modal['note'], style=theme.WARN if bad else theme.MUTED))
     panel_width = min(width - 4, modal.get('width', 64))
     inner = panel_width - 4
     body = Group(*head)

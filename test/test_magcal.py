@@ -116,3 +116,42 @@ def test_registry_entry_without_fcu_or_settings_does_not_raise():
     result = entry.run(ctx)
     assert result['status'] == 'unavailable' and 'Magcal popup' in result['reason']
     assert recorded[0]['verdict'] == 'UNAVAILABLE'
+
+
+class Keyed:
+    """An app whose popups take keys from a list; records each modal's note after every key."""
+
+    def __init__(self, *keys):
+        self.keys, self.notes = list(keys), []
+
+    def popup(self, modal, handle):
+        while True:
+            result = handle(self.keys.pop(0))
+            self.notes.append((modal.get('state'), modal.get('note')))
+            if result is not None:
+                return result
+
+
+def test_heading_popup_validates_and_enter_waits_for_a_valid_bearing():
+    import pytest
+    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing.ui.popups.magcal import ask_heading
+    app = Keyed('enter', '4', '0', '0', 'enter', 'backspace', 'backspace', 'backspace',
+                '1', '2', '7', '.', '5', 'enter')
+    assert ask_heading(app, declination=-2.6) == dict(heading=127.5, declination=-2.6)
+    assert app.notes[3] == ('bad', '0 to 360 only') and app.notes[4] == app.notes[3]   # Enter ignored
+    assert app.notes[-2][0] == 'ok' and '124.9° true' in app.notes[-2][1]
+    with pytest.raises(Cancelled):
+        ask_heading(Keyed('9', 'escape'))
+    with pytest.raises(Cancelled):
+        ask_heading(Keyed('x', 'enter', 'escape'))
+
+
+def test_the_heading_popup_is_asked_only_with_a_link_and_a_typed_confirm():
+    from mhseals_testing.procedures.magcal import run
+    asked, recorded = [], []
+    ctx = SimpleNamespace(services=dict(magcal=lambda: asked.append(1) or {'heading': 90},
+                                        type_word=typed_word('FCU')), record=recorded.append)
+    assert run(ctx)['status'] == 'unavailable' and asked == []
+    ctx.services['fcu_send'] = lambda yaw, mask: True
+    assert run(ctx)['status'] == 'sent' and asked == [1]

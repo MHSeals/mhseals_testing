@@ -77,6 +77,7 @@ from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
+from mhseals_testing.ui.popups import magcal as magcal_popup
 from mhseals_testing.ui.review import (
     BIG, find_session, load_session, Offline, review_metadata, SMALL)
 from mhseals_testing.ui.source import LiveSource, ReviewSource
@@ -2326,6 +2327,7 @@ class App:
                 staging=self.staging(), fit_context=self.fit_context,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 mux_input=self.mux_input,
+                magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             speed=lambda: self.manual_speed, clock=self.monitor.clock)))

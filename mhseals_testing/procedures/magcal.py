@@ -42,10 +42,13 @@ def run(ctx):
 
     ``ctx.services['fcu_send'](yaw, mask)`` is FcuParams.fixed_mag_cal over a spun MavrosLink and
     ``ctx.services['type_word']`` the typed confirmation. Without the settings, the FCU link or the
-    typed callback (a headless yes/no choice is not enough) it records 'unavailable'.
+    typed callback (a headless yes/no choice is not enough) it records 'unavailable'. A callable
+    ``magcal`` (the TUI's heading popup) is asked only once the link and the confirm exist.
     """
     settings, send = ctx.services.get('magcal'), ctx.services.get('fcu_send')
     typed = ctx.services.get('type_word')
+    if callable(settings):
+        settings = settings() if send is not None and typed is not None else None
     if not settings or send is None or typed is None:
         result = {'status': 'unavailable',
                   'reason': ('needs the Magcal popup, an FCU link and a typed '
