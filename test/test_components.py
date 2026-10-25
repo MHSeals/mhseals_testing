@@ -270,6 +270,34 @@ def test_autostart_leaves_a_nodeless_component_off_beside_a_running_stack():
     assert [name for name, _ in processes.started] == ['odometry', 'sensors']
 
 
+def test_a_boat_tui_never_auto_starts_a_part_the_boat_runs_while_discovery_is_slow():
+    """10-25: a laptop TUI missed the boat's running stack and started a second MAVROS on the FCU link."""
+    boat = Host('blastoise', roles=('odroid',), address='192.168.0.10')
+    laptop = Host('tranquility', roles=('operator',), address='192.168.0.2')
+
+    class Started(Profile):   # even with odometry and the EKFs marked start again
+        components = dict(load_profile('boat').components, odometry={'start': True},
+                          ekf={'title': 'EKFs', 'needs': ['odometry'], 'start': True})
+    for profile in (load_profile('boat'), Started):
+        _, parts = load_profile('boat').placed
+        placed = (laptop, {name: replace(found, host=laptop if name == 'operator_heartbeat' else boat)
+                           for name, found in parts.items()})
+        units, processes = FakeUnits(), FakeProcesses()
+        stack = Stack(components(profile, None, placed), processes, lambda: 0.0, units)
+        assert stack.start_order()
+        for record in (None, {'state': 'off'}):     # unit status not read yet, or no unit: detached
+            units.records = {item.part: record for item in stack.items.values()}
+            lines = stack.autostart(set(), [], sim=False)          # nothing discovered yet
+            assert units.calls == []                               # nothing started on the boat
+            assert [name for name, _ in processes.started] == ['operator_heartbeat']
+            processes.started.clear()
+            processes.live.clear()
+            assert 'left Safety watchdogs to blastoise' in ' | '.join(lines)
+            if profile is Started:
+                assert 'left Odometry to blastoise' in ' | '.join(lines)
+                assert 'skipped EKFs: Odometry did not start' in lines
+
+
 def test_autostart_reports_a_foreign_odometry_publisher_and_starts_nothing():
     processes = FakeProcesses()
     stack = Stack(items(Tracked), processes, lambda: 0.0)

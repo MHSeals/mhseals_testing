@@ -15,6 +15,8 @@ arming: {outputs: odroid}
 # start: here starts it with the session only when this computer runs it (an operator's TUI).
 # odometry and ekf never start with the session: over the radio link discovery can miss the boat's
 # running stack for longer than the autostart waits, and a second MAVROS on the FCU link kills both.
+# Off the simulator no start: comes up on another computer either (Stack.autostart): from an
+# operator's TUI the boat's watchdogs stay a Status row.
 components:
   odometry: {}
   ekf: {title: EKFs, needs: [odometry]}

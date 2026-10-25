@@ -413,8 +413,9 @@ class Stack:
 
         A component already running (ours, a unit's or another process's) is attached to. Off the
         simulator nothing that commands motion auto-starts, needs pulled in included. A failed
-        start skips the components that need it. ``publishers`` are the odometry topic's nodes:
-        one no component claims (a bag play, another stack) starts nothing.
+        start skips the components that need it. Off the simulator a part another computer runs
+        is never auto-started: slow discovery is not proof it is off. ``publishers`` are the
+        odometry topic's nodes: one no component claims (a bag play, another stack) starts nothing.
         """
         order = self.start_order()
         known = {node for item in self.items.values() for node in item.nodes}
@@ -441,6 +442,13 @@ class Stack:
             status = self.state(key, nodes)[0]
             if status in ('ours', 'starting', 'external'):
                 lines.append(f'attached to {item.title} ({status})')
+                continue
+            # A part another computer runs may be up there and just not discovered yet (over the
+            # radio this outlasts any wait): a second copy (MAVROS on the FCU link) kills both.
+            if not sim and item.host is not None:
+                failed.add(key)
+                lines.append(f'left {item.title} to {item.remote}: discovery cannot prove it is off '
+                             'there (start it from its Status row)')
                 continue
             if up and not item.nodes:
                 lines.append(f'left {item.title} off: it names no nodes to tell whether it '
