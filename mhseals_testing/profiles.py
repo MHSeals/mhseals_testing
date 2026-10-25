@@ -97,7 +97,8 @@ class PlantProfile:
         return {key: value for key, value in given.items() if value is not None}
     plot_scale: tuple = PLOT_SCALE     # Motion plot half-range for surge, sway (m/s) and yaw (rad/s)
 
-    stamp_future: float = FUTURE_TOLERANCE  # s a sensor stamp may run ahead of the clock (a simulator's link jitters)
+    # s a sensor stamp may run ahead of the clock (a simulator's link jitters)
+    stamp_future: float = FUTURE_TOLERANCE
     conditions_velocity: str = 'gpsraw'  # explicit odom:<topic|name> is simulation-only
 
     @property
