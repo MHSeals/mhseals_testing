@@ -103,6 +103,17 @@ def choose(app, title, options, shortcuts=None, message=None, danger=False, rows
     return app.popup(modal, handle)
 
 
+def edit(text, key, upper=False):
+    """``text`` after one key in a one-line field: backspace deletes, Space and printables type."""
+    if key in ('backspace', 'ctrl-h', '\x7f'):
+        return text[:-1]
+    if key == 'space':
+        key = ' '
+    if len(key) == 1 and key.isprintable():
+        return text + (key.upper() if upper else key)
+    return text
+
+
 def ask_text(app, title, message, text=''):
     """Edit one line of text in a popup; None when cancelled."""
     modal = dict(kind='input', title=title, message=message, text=text, danger=False,
@@ -113,10 +124,7 @@ def ask_text(app, title, message, text=''):
             return modal['text']
         if key == 'escape':
             return False
-        if key in ('backspace', 'ctrl-h', '\x7f'):
-            modal['text'] = modal['text'][:-1]
-        elif len(key) == 1 and key.isprintable():
-            modal['text'] += key
+        modal['text'] = edit(modal['text'], key)
     return app.popup(modal, handle) or None
 
 
@@ -130,10 +138,7 @@ def type_word(app, title, message, word, rows=None, width=64):
             return modal['text'].strip().lower() == word.lower()
         if key == 'escape':
             return False
-        if key in ('backspace', 'ctrl-h', '\x7f'):
-            modal['text'] = modal['text'][:-1]
-        elif len(key) == 1 and key.isprintable():
-            modal['text'] += key.upper()
+        modal['text'] = edit(modal['text'], key, upper=True)
     return app.popup(modal, handle)
 
 

@@ -1450,12 +1450,7 @@ class App:
                 return modal['text'].strip()
             if key == 'escape':
                 return ''
-            if key in ('backspace', 'ctrl-h', '\x7f'):
-                modal['text'] = modal['text'][:-1]
-            elif key == 'space':
-                modal['text'] += ' '
-            elif len(key) == 1 and key.isprintable():
-                modal['text'] += key
+            modal['text'] = popups.edit(modal['text'], key)
         return self.popup(modal, handle) or None
 
     # --- review ---------------------------------------------------------------------

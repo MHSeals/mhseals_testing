@@ -1887,6 +1887,18 @@ def test_space_types_in_text_popups_without_stopping(tmp_path):
         assert app.armed
 
 
+def test_ask_text_and_type_word_take_space_and_backspace(tmp_path):
+    from mhseals_testing.ui import popups
+    assert popups.edit('ab', 'ctrl-h') == 'a' and popups.edit('ab', 'backspace') == 'a'
+    assert popups.edit('a', 'space') == 'a ' and popups.edit('a', 'up') == 'a'
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        press(app, 'backspace', 'backspace', 'space', '6', 'enter')
+        assert app.ask_text('Thruster pins', 'pins', '1 2 3 4 5') == '1 2 3 4 6'
+        press(app, 'a', 'space', 'b', 'enter')
+        assert app.ask_text('Hardware changed', 'what') == 'a b'
+
+
 
 def test_map_tab_keys_toggle_layers_and_the_bags_tab_lists_sessions(tmp_path):
     app, _ = make_app(tmp_path)
