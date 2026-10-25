@@ -51,16 +51,6 @@ ROSOUT_WINDOW_S = 2.0
 # Nodes whose parameters the lowering (n2.plan) reads: a limits change always
 # needs both.
 LOWERING_NODES = ('controller_server', 'velocity_smoother')
-# What --now may change while a goal runs: the motion limits and the values
-# derived from them.
-LIMIT_KEYS = frozenset(
-    [f'velocity_smoother.{k}'
-     for k in ('max_velocity', 'min_velocity', 'max_accel', 'max_decel')]
-    + [n2.FOLLOW + k for k in (
-        'wz_max', 'ax_max', 'ax_min', 'ay_max',
-        'ay_min', 'az_max', 'vx_std', 'vy_std', 'wz_std',
-        'prune_distance', 'rotate_to_heading_angular_vel',
-        'max_angular_accel')])
 # The smoother value that is the more restrictive of two (closer to zero).
 RESTRICT = {'max_velocity': min, 'max_accel': min,
             'min_velocity': max, 'max_decel': max}
@@ -277,8 +267,9 @@ class Nav2Live:
         found.rows = [{'key': key, 'old': found.live.get(key),
                        'new': sent[key], 'derived': key not in changes}
                       for key in sorted(sent)]
-        found.allow_goal = (bool(now) and not found.reset
-                            and all(k in LIMIT_KEYS for k in sent))
+        # config/nav2_classes.yaml lists only motion limits, so with no reset
+        # everything sent is a live limit change that --now may make mid-goal.
+        found.allow_goal = bool(now) and not found.reset
         found.refusals += self.fences(found.owner, found.allow_goal)
         if not found.refusals:
             found.steps = self._steps(groups, found.live)
@@ -545,6 +536,9 @@ class Nav2Live:
                 return self._back(found, done,
                                   f'{step.node} set refused: {error}', phase)
             if not ok:
+                # A callback may have changed members before it rejected;
+                # re-sending the old values in _back puts them back.
+                done.append(step)
                 return self._back(found, done,
                                   f'{step.node} rejected the set: {reason}', phase)
             done.append(step)

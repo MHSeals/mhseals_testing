@@ -13,12 +13,12 @@ CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0
 
 @pytest.mark.parametrize('key,live', [
     (FOLLOW + 'wz_max', True),
-    (FOLLOW + 'CostCritic.cost_weight', True),
+    (FOLLOW + 'CostCritic.cost_weight', False),
     (FOLLOW + 'prune_distance', True),
     ('velocity_smoother.max_accel', True),
-    ('global_costmap.global_costmap.footprint', True),
-    ('global_costmap.inflation_layer.inflation_radius', True),
-    ('global_costmap.global_costmap.inflation_layer.cost_scaling_factor', True),
+    ('global_costmap.global_costmap.footprint', False),
+    ('global_costmap.inflation_layer.inflation_radius', False),
+    ('global_costmap.global_costmap.inflation_layer.cost_scaling_factor', False),
     # The local costmap feeds the MPPI CostCritic precompute, read at configure.
     ('local_costmap.local_costmap.footprint', False),
     ('local_costmap.inflation_layer.inflation_radius', False),

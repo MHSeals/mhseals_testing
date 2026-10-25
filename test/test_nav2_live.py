@@ -54,6 +54,7 @@ class World(Ports):
         self.expected = False
         self.calls, self.events = [], []
         self.reject, self.timeout, self.drift, self.logs = {}, None, {}, []
+        self.leaky, self.members = set(), {}
         self.silent_mux = False
         self.refuse_lifecycle, self.settle = set(), {}   # refuse: 1-based call numbers; settle: command -> {(node, name): value}
         self.flip = None            # (reads, change): the authority record changes after them
@@ -106,8 +107,11 @@ class World(Ports):
         self.calls.append(('set', node, copy.deepcopy(values)))
         if self.timeout == ('set', node):
             raise TimeoutError('set timed out')
-        if node in self.reject:
-            return False, self.reject[node]
+        if node in self.reject:                    # rejects once; the restore goes through
+            if node in self.leaky:                 # the callback changed members first
+                self.members.setdefault(node, {}).update(copy.deepcopy(values))
+            return False, self.reject.pop(node)
+        self.members.setdefault(node, {}).update(copy.deepcopy(values))
         self.nodes[node].update(copy.deepcopy(values))
         return True, ''
 
@@ -227,14 +231,21 @@ def test_integer_for_a_double_is_accepted_after_coercion():
 
 # ---- readback, rejection, rosout, timeout
 
+def test_a_rejected_set_is_sent_the_old_values_again_in_case_the_callback_changed_members(world):
+    world.reject['/controller_server'] = 'FollowPath.wz_max: out of range'
+    world.leaky.add('/controller_server')
+    assert make(world).apply(ask(wz_max=0.1))['status'] == 'rolled_back'
+    assert world.members['/controller_server']['FollowPath.wz_max'] == LIVE['/controller_server']['FollowPath.wz_max']
+
+
 def test_a_rejected_key_rolls_back_the_earlier_nodes_in_reverse_with_readback(world):
     world.reject['/controller_server'] = 'FollowPath.wz_max: out of range'
     receipt = make(world).apply(ask(wz_max=0.1))
     assert receipt['status'] == 'rolled_back' and 'rejected the set' in receipt['error']
     assert world.nodes == LIVE
     sent = world.sets()
-    assert [n for n, _ in sent] == [SMOOTHER, CONTROLLER, SMOOTHER]
-    assert sent[2][1] == {'max_velocity': [0.4, 0.15, 0.3], 'min_velocity': [-0.1, -0.15, -0.3]}   # the prior values
+    assert [n for n, _ in sent] == [SMOOTHER, CONTROLLER, CONTROLLER, SMOOTHER]   # the rejected node is restored too
+    assert sent[3][1] == {'max_velocity': [0.4, 0.15, 0.3], 'min_velocity': [-0.1, -0.15, -0.3]}   # the prior values
     assert world.calls[-1][0] == 'get'                                # the rollback was read back
 
 
@@ -450,10 +461,10 @@ def test_a_malformed_footprint_refuses_before_any_write(world, value):
     assert world.calls == []
 
 
-def test_a_good_footprint_is_set_live(world):
+def test_a_good_footprint_is_applied_with_a_reset(world):
     world.nodes['/global_costmap/global_costmap'] = {'footprint': '[[1, 1], [1, -1], [-1, 0]]'}
     receipt = make(world).apply({'global_costmap.footprint': '[[0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]]'})
-    assert receipt['status'] == 'verified' and not receipt['reset'], receipt
+    assert receipt['status'] == 'verified' and receipt['reset'], receipt
 
 
 def test_unreachable_node_refuses(world):
@@ -758,14 +769,6 @@ def test_the_popup_offers_only_close_when_refused_and_a_watcher_never_applies(tm
     app.watching = 123
     assert 'only watches' in app.nav2_file.apply()
     assert world.calls == []
-
-
-def test_live_module_exports_the_documented_limit_keys():
-    assert FOLLOW + 'wz_max' in live_module.LIMIT_KEYS
-    for key in ('vx_max', 'vx_min', 'vy_max'):
-        assert FOLLOW + key not in live_module.LIMIT_KEYS     # critics copy them at configure
-    assert 'velocity_smoother.max_velocity' in live_module.LIMIT_KEYS
-    assert FOLLOW + 'CostCritic.cost_weight' not in live_module.LIMIT_KEYS
 
 
 # ---- /rosout filter
