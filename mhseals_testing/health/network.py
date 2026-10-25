@@ -26,7 +26,10 @@ def lease_addresses(path):
     for line in text.splitlines():
         name, _, value = line.partition('=')
         if name.strip() == 'STATIC_LEASES':
-            words = shlex.split(value, comments=True)
+            try:
+                words = shlex.split(value, comments=True)
+            except ValueError:       # an unclosed quote: no reservations, never a crashed TUI
+                return {}
             leases = [word.split('=') for word in (words[0].split() if words else ())]
             return {lease[1]: lease[2] for lease in leases if len(lease) == 3}
     return {}
@@ -45,7 +48,8 @@ class NetworkRow:
     losing it reads FAIL so the row cannot keep its last OK.
     """
 
-    def __init__(self, directory=None, user=None, root='/', clock=None, lan_file=None, pinger=Pinger, **link):
+    def __init__(self, directory=None, user=None, root='/', clock=None, lan_file=None,
+                 pinger=Pinger, **link):
         loaded = config.load(directory, user=user if user is not None else False)
         self.specs = [s for s in loaded.specs if s.group == GROUP]
         settings = loaded.probes.get('network', {})

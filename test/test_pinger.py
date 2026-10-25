@@ -104,11 +104,13 @@ def test_peer_addresses_come_from_the_lan_reservations_else_the_resolver(tmp_pat
     from mhseals_testing.health.network import lease_addresses, peer_addresses
     lan = tmp_path / 'boat-network.env'
     lan.write_text('ROUTER_IP=10.0.0.1\n'
-                   'STATIC_LEASES="aa:bb=boat-pc=10.0.0.5 cc:dd=cam-host=10.0.0.6"  # reservations\n')
+                   'STATIC_LEASES="aa:bb=boat-pc=10.0.0.5 cc:dd=cam-host=10.0.0.6"  # leases\n')
     assert lease_addresses(lan) == {'boat-pc': '10.0.0.5', 'cam-host': '10.0.0.6'}
-    assert peer_addresses({'camera': 'cam-host', 'other': 'elsewhere.local'}, lan) == {
-        'camera': '10.0.0.6', 'other': 'elsewhere.local'}
+    peers = {'camera': 'cam-host', 'other': 'elsewhere.local'}
+    assert peer_addresses(peers, lan) == {'camera': '10.0.0.6', 'other': 'elsewhere.local'}
     assert lease_addresses(tmp_path / 'missing.env') == {}
+    lan.write_text('STATIC_LEASES="aa:bb=cam-host=10.0.0.6\n')      # unclosed quote
+    assert lease_addresses(lan) == {} and peer_addresses(peers, lan) == peers
 
 
 class FakePinger:
@@ -134,8 +136,9 @@ def test_network_row_pings_the_camera_host_only_on_the_boat_link(tmp_path):
     def pinger(peers):
         made.append(FakePinger(peers))
         return made[-1]
-    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path, clock=clock,
-                     environ={}, addresses=lambda names: dict(held), lan_file=lan, pinger=pinger)
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path,
+                     clock=clock, environ={}, addresses=lambda names: dict(held), lan_file=lan,
+                     pinger=pinger)
     assert made[0].peers == {'camera': '10.1.2.3'}
     proc(tmp_path)
     assert net.poll() is None and made[0].started == 0          # off the boat: never ping
