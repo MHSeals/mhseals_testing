@@ -58,7 +58,7 @@ def _odometry(message, base_frame):
 
 
 def _gps(message):
-    values = dict(summary=f'fix {message.status.status} | '
+    values = dict(status=message.status.status, summary=f'fix {message.status.status} | '
                           f'{message.latitude:.6f}, {message.longitude:.6f}')
     covariance = message.position_covariance
     if message.status.status < 0:

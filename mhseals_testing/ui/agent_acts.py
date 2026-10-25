@@ -144,16 +144,30 @@ def goal_facts(app, lifecycle=None):
     nav2 = nav2_of(app)
     if lifecycle is None:
         lifecycle = nav2.lifecycle(timeout=0.5) if nav2 is not None else {}
-    odometry = app.monitor.snapshot()['sensors'].get('odometry', {})
+    sensors = app.monitor.snapshot()['sensors']
+    odometry = sensors.get('odometry', {})
     fix = app.facts.get('gps.fix_type')
+    fix = (int(fix.value) if fix is not None else 0) if app.profile.uses_fcu else navsat_fix(app.profile, sensors)
     costmap_at = getattr(nav2, 'costmap_time', None)
     driving = app.running or ('manual control' if app.manual else '')
     return goals_module.Facts(
         live=bool(app.source.live), owner=not app.watching, nav_running=set(NAV_NODES) <= nodes,
         lifecycle=lifecycle, unit=app.profile.command_units, armed=bool(app.armed), driving=driving or '',
         pose_age_s=odometry.get('age', math.inf) if odometry.get('status') == 'LIVE' else math.inf,
-        fix=int(fix.value) if fix is not None else 0,
-        costmap_age_s=time.monotonic() - costmap_at if costmap_at is not None else math.inf)
+        fix=fix, costmap_age_s=time.monotonic() - costmap_at if costmap_at is not None else math.inf)
+
+
+def navsat_fix(profile, sensors):
+    """GPSRAW-style fix type from the profile's NavSatFix sensor, for a plant without an FCU (the sim).
+
+    NavSatStatus -1 none, 0 fix, 1 SBAS, 2 GBAS reads as 0, 3 (3D), 4, 5; a stale or missing row is 0.
+    """
+    for spec in profile.sensors:
+        row = sensors.get(spec.name) or {}
+        status = (row.get('values') or {}).get('status')
+        if spec.kind == 'gps' and row.get('status') != 'STALE' and status is not None:
+            return 3 + int(status) if status >= 0 else 0
+    return 0
 
 
 def nav2_of(app):
@@ -276,7 +290,8 @@ def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0):
 
 def goal_args(args):
     """(x, y, yaw radians) from ``{'x', 'y', 'yaw'}``; ValueError when not finite numbers."""
-    goal = tuple(float(args.get(k, 0.0 if k == 'yaw' else math.nan)) for k in ('x', 'y', 'yaw'))
+    yaw = args.get('yaw')
+    goal = (float(args.get('x', math.nan)), float(args.get('y', math.nan)), 0.0 if yaw is None else float(yaw))
     if not all(math.isfinite(v) for v in goal):
         raise ValueError('goal needs finite x, y (and yaw)')
     return goal

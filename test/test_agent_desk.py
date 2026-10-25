@@ -89,7 +89,8 @@ class App:
         self._runner_cancelled = self._runner_paused = False
         self.settings = Settings()
         self.profile = SimpleNamespace(name='sim', muxed=True, use_sim_time=False, command_units='velocity',
-                                       command_topic='/cmd_vel', command_type='twist')
+                                       command_topic='/cmd_vel', command_type='twist', uses_fcu=True,
+                                       sensors=(SimpleNamespace(name='GPS', kind='gps'),))
         self.paths = SimpleNamespace(runs=tmp_path / 'runs', journal=tmp_path / 'events.jsonl', directory=tmp_path)
         self.paths.runs.mkdir()
         self.is_armed, self.fault, self.mux = True, '', {'input': 'auto'}
@@ -686,6 +687,25 @@ def test_procedure_names_and_keys_resolve():
     assert agent_acts.procedure('nope') == (None, None)
     with pytest.raises(ValueError):
         agent_acts.goal_args({'x': 'nan', 'y': 0})
+    assert agent_acts.goal_args({'x': 1, 'y': 2, 'yaw': None}) == (1.0, 2.0, 0.0)
+
+
+@pytest.mark.parametrize('fcu, status, row, fix', [
+    (False, 0, 'LIVE', 3), (False, 0, 'WARN', 3), (False, 2, 'LIVE', 5), (False, -1, 'LIVE', 0),
+    (False, 0, 'STALE', 0), (True, 0, 'LIVE', 6)])
+def test_the_goal_fix_comes_from_gpsraw_with_an_fcu_else_from_the_navsat_status(rig, fcu, status, row, fix):
+    snapshot = {'sensors': {'odometry': {'status': 'LIVE', 'age': 0.1},
+                            'GPS': {'status': row, 'values': {'status': status}}}}
+    rig.app.monitor.snapshot, rig.app.profile.uses_fcu = lambda: snapshot, fcu
+    assert agent_acts.goal_facts(rig.app).fix == fix
+
+
+def test_a_goal_the_gates_refuse_never_asks_allow(rig):
+    c = claim(rig)
+    rig.app.facts = {'gps.fix_type': SimpleNamespace(value=0)}
+    reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
+    assert reply['error'] == 'refused' and 'below 3D' in reply['hint']
+    assert 'asking' not in [r['state'] for r in replies(reply['re'])]
 
 
 def test_a_request_queued_behind_a_goal_expires_at_its_deadline(rig):

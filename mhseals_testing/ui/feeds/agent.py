@@ -19,11 +19,12 @@ Safety, in one place:
 """
 
 from collections import deque
+from dataclasses import replace
 import time
 
 from mhseals_testing.harness import agent_channel, agent_config, journal
 from mhseals_testing.harness.authority import HUMAN
-from mhseals_testing.harness.goals import Goals
+from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts
 
@@ -389,6 +390,10 @@ class AgentDesk:
     def act_goal(self, act):
         app = self.app
         goal = agent_acts.goal_args(act['req']['args'])
+        facts = agent_acts.goal_facts(app, self.lifecycle())
+        reason = gate(replace(facts, costmap_age_s=0.0))   # the send fetches the costmap fresh
+        if reason:                               # never ask Allow for a goal the gates already refuse
+            return self.finish(act, False, 'refused', hint=reason)
         if not self.confirm(act, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f} · Enter allow"):
             return False
         if self.watch():
