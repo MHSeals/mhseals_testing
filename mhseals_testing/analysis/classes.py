@@ -63,7 +63,7 @@ def check(symbols):
 
 
 TRACKS = {'arrow_s': 1.0, 'predict_s': 3.0, 'unknown_strength': 50, 'prior_strength': 50}
-FOV = {'show': True}
+FOV = {'show': True, 'colour': 'fov'}   # colour: the theme.yaml token of the camera cone
 
 
 def _section(name, given, defaults):
@@ -94,6 +94,8 @@ class ClassTable:
             for symbol in (*self.classes.values(), self.unknown):
                 if symbol.colour not in tokens:
                     raise ValueError(f'{symbol.label}: colour {symbol.colour!r} is not a theme.yaml token')
+            if self.fov['colour'] not in tokens:
+                raise ValueError(f"fov: colour {self.fov['colour']!r} is not a theme.yaml token")
 
     def symbol(self, label):
         return self.classes.get(label, self.unknown)

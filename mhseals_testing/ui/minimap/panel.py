@@ -123,13 +123,14 @@ def draw(state, cols, rows, half, table=None, ascii_=False, box=None, full=False
     trail = 'plain' if box is None else box.trail
     if trail != 'off':
         draw_trail(frame, crumbs(state), mode=trail, epoch=state.epoch, vmax=VMAX,
-                   colourless=tier in ('16', 'mono'), now=t)
+                   colourless=tier in ('16', 'mono'), now=t, **({'columns': cache.trail} if cache else {}))
     draw_plan(frame, state.plan)
     draw_plan(frame, state.latest.get('local_plan') or [], local=True)
     accuracy = state.accuracy() if hasattr(state, 'accuracy') else None
     draw_accuracy(proj, (x, y), accuracy)
     if full and state.fov and (box is None or box.fov is not False) and (camera := state.camera()):
-        draw_fov(proj, camera[:2], camera[2], state.fov['hfov_deg'], state.fov['range_m'])
+        draw_fov(proj, camera[:2], camera[2], state.fov['hfov_deg'], state.fov['range_m'],
+                 table.fov['colour'] if table is not None else 'fov')
     if table is not None and (box is None or box.objects != 'off'):
         draw_objects(proj, state.objects, table, boat=(x, y), ascii_=ascii_)
     draw_boat(proj, (x, y), math.degrees(yaw), ascii_=ascii_, speed=getattr(state, 'speed', None),

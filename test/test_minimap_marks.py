@@ -101,3 +101,18 @@ def test_object_marks_drops_non_finite_positions():
                  bbox=N(center=N(position=N(x=x, y=y))))
     out = object_marks(N(detections=[det(float('nan'), 1), det(2, float('inf')), det(1, 2)]))
     assert [(o.x, o.y) for o in out] == [(1, 2)]
+
+
+def test_a_long_fov_range_draws_to_the_view_edge_only_and_stays_cheap():
+    import time
+    from mhseals_testing.ui.minimap.marks import draw_fov
+    near, p = make(half=5.0, cols=116, rows=27)
+    draw_fov(p, (0.0, 0.0), 0.0, 90.0, 4.0)
+    assert any('⠀' < ch for line in near.text() for ch in line)        # inside the view: rays and arc
+    far, p = make(half=5.0, cols=116, rows=27)
+    t = time.perf_counter()
+    draw_fov(p, (0.0, 0.0), 0.0, 20.0, 1e5, colour='accent')           # narrow: the rays leave at the right
+    assert time.perf_counter() - t < 0.01                                # was 53-416 ms unclamped
+    layers = {layer for bits in far._dots.values() for layer in bits.values()}
+    edge = {col for (col, _), bits in far._dots.items()}
+    assert layers == {'fov:accent'} and max(edge) == 115                 # the rays reach the edge

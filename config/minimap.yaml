@@ -21,5 +21,6 @@ unknown: {glyph: "?", ascii: "?", colour: obj.unknown, radius: 0.20, name: unkno
 # Tracker tracks (perception-v2 7.1): a moving track's velocity line reaches p + v*arrow_s and its
 # dotted predicted path p + v*predict_s; unknown motion and course-map priors draw at these strengths.
 tracks: {arrow_s: 1.0, predict_s: 3.0, unknown_strength: 50, prior_strength: 50}
-# The camera cone from /perception/status; `F` toggles it in the Layers box, this is its start state.
-fov: {show: true}
+# The camera cone from /perception/status; `F` toggles it in the Layers box, `show` is its start
+# state and `colour` its theme.yaml token.
+fov: {show: true, colour: fov}

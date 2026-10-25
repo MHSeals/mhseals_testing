@@ -127,7 +127,8 @@ def draw_objects(proj, objects, table, boat=None, ascii_=False, floor=SCORE_FLOO
     if proj.half <= LABEL_HALF:
         here = boat or proj.centre
         for o, sym, (col, row) in sorted(placed, key=lambda p: math.dist((p[0].x, p[0].y), here)):
-            text = f'{sym.ascii}{min(int(o.score * 100), 99)}' + (('.' if ascii_ else '·') if o.source == 'prior' else '')
+            prior = ('.' if ascii_ else '·') if o.source == 'prior' else ''
+            text = f'{sym.ascii}{min(int(o.score * 100), 99)}{prior}'
             for start in (col + 1, col - len(text)):
                 span = [(c, row) for c in range(start, start + len(text))]
                 if all(canvas._inside(*p) and p not in taken for p in span):
@@ -137,19 +138,28 @@ def draw_objects(proj, objects, table, boat=None, ascii_=False, floor=SCORE_FLOO
                     break
 
 
-def draw_fov(proj, apex, yaw, hfov_deg, range_m):
+def draw_fov(proj, apex, yaw, hfov_deg, range_m, colour='fov'):
     """The camera cone: two dotted edge rays from ``apex`` (world x, y) along ``yaw`` (rad, map)
-    +- hfov/2 and a dotted arc at ``range_m``; never a tint (the costmap owns cell backgrounds)."""
-    if not all(map(math.isfinite, (*apex, yaw, hfov_deg, range_m))) or range_m <= 0 or hfov_deg <= 0:
+    +- hfov/2 and a dotted arc at ``range_m``; never a tint (the costmap owns cell backgrounds).
+    The rays stop where they leave the view and an arc beyond it is not walked, so a long range
+    costs what the view shows."""
+    if not all(map(math.isfinite, (*apex, yaw, hfov_deg, range_m))) or range_m <= 0 or hfov_deg <= 0 \
+            or proj.scale <= 0:
         return
     canvas, half = proj.canvas, math.radians(min(hfov_deg, 359.0)) / 2
+    reach = (math.hypot(canvas.dots_wide, canvas.dots_high) / 2 / proj.scale
+             + math.dist(apex, proj.centre))   # the farthest view corner from the apex
+    length = min(range_m, reach)
     start = proj.dot(apex)
-    edge = lambda a: (apex[0] + range_m * math.cos(a), apex[1] + range_m * math.sin(a))
+    edge = lambda a, r=length: (apex[0] + r * math.cos(a), apex[1] + r * math.sin(a))
+    layer = f'fov:{colour}'   # ``colour`` is minimap.yaml fov.colour, a theme token
     for side in (-1, 1):
-        line(canvas, start, proj.dot(edge(yaw + side * half)), 'fov', FOV_PERIOD)
+        line(canvas, start, proj.dot(edge(yaw + side * half)), layer, FOV_PERIOD)
+    if range_m > reach:
+        return
     steps = max(2, int(range_m * proj.scale * 2 * half / FOV_PERIOD))
     for i in range(steps + 1):
-        canvas.dot(*proj.dot(edge(yaw - half + 2 * half * i / steps)), 'fov')
+        canvas.dot(*proj.dot(edge(yaw - half + 2 * half * i / steps)), layer)
 
 
 def _ring(proj, o, radius, steps=16):

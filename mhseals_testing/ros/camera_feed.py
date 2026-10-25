@@ -187,8 +187,8 @@ def node_observations(node, colour, **kwargs):
     if msgs is None:
         return None
     qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, history=QoSHistoryPolicy.KEEP_LAST, depth=1)
-    return ObservationBoxes(lambda topic, callback: node.create_subscription(msgs.ObservationArray, topic, callback, qos),
-                            node.destroy_subscription, colour, **kwargs)
+    subscribe = lambda topic, callback: node.create_subscription(msgs.ObservationArray, topic, callback, qos)
+    return ObservationBoxes(subscribe, node.destroy_subscription, colour, **kwargs)
 
 
 def node_feed(node, raw=False, **kwargs):
