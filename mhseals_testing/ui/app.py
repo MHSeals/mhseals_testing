@@ -141,7 +141,7 @@ PANEL_HINTS = {
     'activity': [('Enter', 'Run'), ('v', 'View')],
     'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom'), ('u', 'Heading-up'), ('F', 'Fov')],
     'map': [('c', 'Costmap'), ('d', 'Tracks'), ('y', 'Trail'), ('z/Z', 'Zoom'), ('u', 'Heading-up'),
-            ('F', 'Fov'), ('w', 'Wake'), ('g', 'Rings')],
+            ('F', 'Fov'), ('w', 'Wake'), ('g', 'Rings'), ('T', 'Tasks')],
     'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune'), ('F', 'Finalize')],
 }
 CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
@@ -302,6 +302,8 @@ class App:
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
+        if getattr(ros, 'mission', None) is not None:   # ui.feeds.mission.MissionState, fed by ROS
+            self.feeds.append(ros.mission)
         self.recwatch = RecWatch(self.clock)
         self.recorder = recorder or Recorder(processes, paths.bag, profile.name)
         self.rec = None                 # latest RecSample, drawn in the header strip

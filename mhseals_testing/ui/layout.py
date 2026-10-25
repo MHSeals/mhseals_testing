@@ -31,6 +31,7 @@ from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels import bags as bags_panel
 from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
+from mhseals_testing.ui.panels import mission as mission_panel
 from mhseals_testing.ui.panels.motion import motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
 from mhseals_testing.ui.panels.status import reconcile, status_panel, status_rows
@@ -403,6 +404,8 @@ def drive_slots(snapshot, view, width, height):
     ``height`` is the body's. Below ROW columns Motion is the compact stacked panel, absent in a short body.
     """
     wide, lower, half = _drive_dims(width, height)
+    mission = mission_panel.strip(view)   # over Activity while the mission status is fresh
+    strip = mission_panel.STRIP_ROWS if mission is not None else 0
     motion = None
     if wide:
         motion = motion_panel(snapshot, view, TOP_ROW)
@@ -414,7 +417,8 @@ def drive_slots(snapshot, view, width, height):
         'conditions': conditions_panel(view, width < FULL_CONDITIONS),
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
         'procedures': procedures_panel(view, lower if wide else half),
-        'activity': activity_panel(snapshot, view, lower if wide else lower - half),
+        'mission': mission,
+        'activity': activity_panel(snapshot, view, (lower if wide else lower - half) - strip),
         'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,
     }
 
@@ -431,16 +435,20 @@ def drive_body(snapshot, view, width, height):
                                    {'conditions': COND_ROWS}))
         top.split_row(*_cells([('motion', slots['motion']), ('right', right), ('minimap', slots['minimap'])],
                               {'minimap': MINIMAP_WIDTH, 'right': RIGHT if width < 110 else None}))
+        activity = Layout()   # the mission strip, when shown, over Activity
+        activity.split_column(*_cells([('mission', slots['mission']), ('activity', slots['activity'])],
+                                      {'mission': mission_panel.STRIP_ROWS}))
         bottom = Layout()
-        bottom.split_row(*_cells([('procedures', slots['procedures']), ('activity', slots['activity'])],
+        bottom.split_row(*_cells([('procedures', slots['procedures']), ('activity', activity)],
                                  {'procedures': SIDEBAR}))
         main.split_column(top, bottom)
     else:
         main.split_column(*_cells([('motion', slots['motion']), ('conditions', slots['conditions']),
                                    ('thrusters', slots['thrusters']), ('procedures', slots['procedures']),
-                                   ('activity', slots['activity'])],
+                                   ('mission', slots['mission']), ('activity', slots['activity'])],
                                   {'motion': MOTION_COMPACT, 'conditions': top_rows(width) - THRUSTER_ROWS,
-                                   'thrusters': THRUSTER_ROWS, 'procedures': half}))
+                                   'thrusters': THRUSTER_ROWS, 'procedures': half,
+                                   'mission': mission_panel.STRIP_ROWS}))
     page = Layout()
     page.split_row(*_cells([('status', slots['status'])], {'status': status_width(width) or 30}), main)
     return page
@@ -454,16 +462,25 @@ def correction_body(snapshot, view, width, height):
     return correction.render(model, width, height)
 
 
-LAYERS_ROWS = 7   # the Layers box: five interior rows and its border
+LAYERS_ROWS = 8   # the Layers box: six interior rows and its border
+LAYERS_WIDTH = 32
+DECISIONS = 100   # from this width the Decisions log joins Layers and Mission
 
 
 def map_body(snapshot, view, width, height):
-    """The Map tab: the minimap over the full body, with the Layers box under it when there is room."""
+    """The Map tab: the minimap over the full body, with the Layers box under it when there is room,
+    and beside Layers the Mission box and (from 100 columns) the Decisions log when a mission feed exists."""
     box = view.get('layerbox')
     rows = LAYERS_ROWS if box is not None and height > LAYERS_ROWS + 8 else 0
     page = Layout()
     cells = [Layout(minimap_panel(view, height - rows, width, full=True))]
-    if rows:
+    if rows and 'mission' in view:
+        under = Layout(size=rows)
+        under.split_row(Layout(box.render(view['focus'] == 'map'), size=LAYERS_WIDTH),
+                        Layout(mission_panel.pane(view)),
+                        *([Layout(mission_panel.decisions(view, rows))] if width >= DECISIONS else []))
+        cells.append(under)
+    elif rows:
         cells.append(Layout(box.render(view['focus'] == 'map'), size=rows))
     page.split_column(*cells)
     return page
