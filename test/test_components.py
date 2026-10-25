@@ -66,6 +66,13 @@ def test_argv_and_shipped_profiles():
     assert load_profile('crane_direct').components is None
 
 
+def test_boat_session_start_brings_up_only_sensing():
+    started = [item for item in components(load_profile('boat')) if item.start]
+    assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors'}
+    for item in started:   # no thruster driver or mux (mhseals_hardware), no Nav2 (limits)
+        assert not item.limits and 'mhseals_hardware' not in item.argv and not item.remote
+
+
 def test_navigation_gets_limits_file(monkeypatch, tmp_path):
     monkeypatch.setenv('HOME', str(tmp_path))
     from mhseals_testing import nav2_limits

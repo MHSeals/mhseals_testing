@@ -8,7 +8,8 @@ ground_truth: null
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: false
 arming: {outputs: odroid}
-# --start-stack starts the components marked start; the Status rows start the rest.
+# The components marked start come up with the session (attaches if already running); the
+# Status rows start the rest. Only sensing carries start: never the thrusters, mux or navigation.
 components:
   # The EKFs run as a separate keeper child; runtime restart is not enabled.
   # start_ekf:=false keeps odom.launch.py from starting a second set (rv1-35).
@@ -26,8 +27,8 @@ components:
             args: {sim: 'false'},
             nodes: [object_tracker]}
   # The ZED wrapper runs on the camera host and shares this graph. Up means its own node is
-  # present; the converter runs here under objects, so it cannot say the camera host is alive.
-  camera: {remote: blastoise-jetson, nodes: [zed_node], topic: /detections}
+  # present, not that anything running here receives from it.
+  camera: {remote: blastoise-jetson, nodes: [zed_node]}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
