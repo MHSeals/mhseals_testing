@@ -165,10 +165,25 @@ def test_ping_targets_skip_this_machine(files):
     ('hosts: {a: {via: ghost}}', "via: unknown host 'ghost'"),
     ('frobs: 1', 'keys from'),
     ('hosts: {a: {}, a: {}}', 'duplicate key'),
+    # Everything that reaches ssh's argv or the remote shell is a plain name.
+    ('hosts: {"a;reboot": {}}', 'not a plain name'),
+    ('hosts: {a: {container: "x; rm -rf ~"}}', 'container: .* not a plain name'),
+    ('hosts: {a: {container: "$(reboot)"}}', 'not a plain name'),
+    ('hosts: {a: {user: "-oProxyCommand=sh"}}', 'user: .* not a plain name'),
+    ('hosts: {a: {address: "-oProxyCommand=touch x"}}', 'address: .* not a plain name'),
+    ('hosts: {a: {address: "10.0.0.1 x"}}', 'not a plain name'),
+    ('hosts: {a: {via: "b`id`"}}', 'via: .* not a plain name'),
+    ('defaults: {container: "a|b"}', 'defaults.container: .* not a plain name'),
 ])
 def test_bad_layers_are_refused_with_their_place(files, text, message):
     with pytest.raises(DeviceError, match=message):
         load(files, operator=text)
+
+
+def test_an_env_address_that_is_not_a_plain_name_is_refused(files):
+    (files / 'boat-network.env').write_text(ENV + 'GATEWAY_IP="192.168.0.2;reboot"\n')
+    with pytest.raises(DeviceError, match=r'tranquility.address \(env\).*not a plain name'):
+        load(files)
 
 
 def test_env_parser_tolerates_comments_and_bad_quotes(tmp_path):

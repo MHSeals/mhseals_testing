@@ -16,6 +16,7 @@ twice, a part nobody claims, a role without one host, and a host lacking a profi
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import shlex
 import sys
 
@@ -26,6 +27,7 @@ TOP = {'self', 'defaults', 'roles', 'hosts', 'ping'}
 DEFAULT_KEYS = {'user', 'container', 'workspace', 'ssh'}
 HOST_KEYS = {'roles', 'capabilities', 'address', 'via'} | DEFAULT_KEYS
 CAPABILITIES = {'thrusters', 'mavros', 'gpu', 'zed', 'lidar'}
+WORD = re.compile(r'[A-Za-z0-9._-]+')   # host names, users, addresses, containers
 FALLBACK = 'local'           # the package host: a role lands here only while no other host claims it
 
 
@@ -149,6 +151,13 @@ def _strings(value, where):
     return value
 
 
+def _word(value, where):
+    """Refuse anything but a plain name: these reach ssh's argv and the remote shell."""
+    if not isinstance(value, str) or not WORD.fullmatch(value) or value.startswith('-'):
+        raise DeviceError(f'{where}: {value!r} is not a plain name ([A-Za-z0-9._-], no leading -)')
+    return value
+
+
 def validate_layer(layer, where):
     """Refuse unknown keys and wrong types in one devices.yaml layer."""
     if layer is None:
@@ -160,12 +169,16 @@ def validate_layer(layer, where):
     defaults = layer.get('defaults', {})
     if not isinstance(defaults, dict) or not set(defaults) <= DEFAULT_KEYS:
         raise DeviceError(f'{where}.defaults: keys from {sorted(DEFAULT_KEYS)}')
+    for key in ('user', 'container'):
+        if defaults.get(key):
+            _word(defaults[key], f'{where}.defaults.{key}')
     for role, spec in (layer.get('roles') or {}).items():
         if spec is not None and (not isinstance(spec, dict) or set(spec) != {'profile'}
                                  or not isinstance(spec['profile'], str)):
             raise DeviceError(f'{where}.roles.{role}: {{profile: <device profile>}} or null')
     for name, spec in (layer.get('hosts') or {}).items():
         here = f'{where}.hosts.{name}'
+        _word(name, here)
         if spec is None:
             continue
         if not isinstance(spec, dict) or not set(spec) <= HOST_KEYS:
@@ -177,6 +190,11 @@ def validate_layer(layer, where):
         for key in ('address', 'user', 'via', 'container', 'workspace'):
             if spec.get(key) is not None and not isinstance(spec[key], str):
                 raise DeviceError(f'{here}.{key}: string')
+        for key in ('user', 'via', 'container'):
+            if spec.get(key):
+                _word(spec[key], f'{here}.{key}')
+        if spec.get('address'):
+            _word(spec['address'].removeprefix('$'), f'{here}.address')
         if 'ssh' in spec and not isinstance(spec['ssh'], bool):
             raise DeviceError(f'{here}.ssh: true or false')
     _strings(layer.get('ping', []), f'{where}.ping')
@@ -220,6 +238,7 @@ def build(merged, env):
     hosts = {}
     for name, spec in merged['hosts'].items():
         address, source = _address(name, spec, env, reserved, f'hosts.{name}')
+        _word(address, f'hosts.{name}.address ({source})')    # env and lease values too
         settings = {**defaults, **{k: v for k, v in spec.items() if k in DEFAULT_KEYS}}
         hosts[name] = Host(name, tuple(spec.get('roles', ())), frozenset(spec.get('capabilities', ())),
                            address, source, settings['user'], spec.get('via'), settings['container'],
