@@ -41,16 +41,19 @@ class GuardedPublisher:
         self.plant.publish(command, manual=True)
 
 
+DRAIN_S = 0.1   # s; the whole queued batch is read before publishing, bounded by time, not count
+
+
 def drive(keys, state, publisher, show, clock=time.monotonic):
     """Read keys until an exit key; publish one coherent command per batch of events."""
     while True:
         key = keys.read(timeout=0.05)
         command = state.update(None, clock()) if key is None else None
-        # Consume already queued events before publishing, so no intermediate
-        # neutral goes out between the press and release of a chord.
-        for _ in range(64):
-            if key is None:
-                break
+        # Consume every queued event before publishing, so no intermediate command goes out
+        # between a press and its release: a burst of stale repeats after a link stall must
+        # meet its release before anything is published.
+        deadline = clock() + DRAIN_S
+        while key is not None:
             if fold(key) in EXIT_KEYS:
                 return
             command = state.update(key, clock())
@@ -58,6 +61,8 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
                 publisher.hold()
             if key in STOP_KEYS:
                 break  # Stop must not be hidden by queued input.
+            if clock() >= deadline:
+                break      # the rest stays queued for the next batch
             key = keys.read(timeout=0)
         publisher.publish(command)
         show(command, state.amplitude, state.chords)
