@@ -42,6 +42,9 @@ def _odometry(message, base_frame):
                   x=position.x, y=position.y,
                   yaw=math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
                   frame=message.header.frame_id, child=message.child_frame_id)
+    covariance = getattr(message.pose, 'covariance', ())
+    if len(covariance) == 36:     # row-major 6x6 (x y z roll pitch yaw): the yaw variance, rad^2
+        values['yaw_var'] = covariance[35]
     values['summary'] = f"vx {values['vx']:+.2f} vy {values['vy']:+.2f} wz {values['wz']:+.2f}"
     if not finite(values['vx'], values['vy'], values['wz'], values['x'], values['y']):
         return values, 'non-finite pose/velocity'

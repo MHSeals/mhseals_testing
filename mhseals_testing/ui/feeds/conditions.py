@@ -13,6 +13,14 @@ def compass(snapshot):
     return None if yaw is None else (90.0 - math.degrees(yaw)) % 360
 
 
+def heading_sd(snapshot):
+    """The odometry yaw sigma in degrees, or None while the covariance is missing, zero or not finite."""
+    variance = snapshot.get('sensors', {}).get('odometry', {}).get('values', {}).get('yaw_var')
+    if variance is None or not 0 < variance < math.pi ** 2:    # also False for NaN
+        return None
+    return math.degrees(math.sqrt(variance))
+
+
 def yaw_state(engine):
     """``(yaw_ok, note)``: whether the ``rose`` anchor is clear, and the worst such check's short value."""
     if engine is None or engine.last is None:
@@ -31,7 +39,8 @@ class ConditionsFeed:
 
     def tick(self, app, snapshot, now):
         yaw_ok, note = yaw_state(app.engine)
-        self.info = {**app.conditions.summary(), 'heading': compass(snapshot), 'yaw_ok': yaw_ok, 'yaw_note': note}
+        self.info = {**app.conditions.summary(), 'heading': compass(snapshot), 'heading_sd': heading_sd(snapshot),
+                     'yaw_ok': yaw_ok, 'yaw_note': note}
 
     def view(self):
         return {'conditions': self.info} if self.info else {}

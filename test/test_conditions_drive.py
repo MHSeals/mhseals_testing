@@ -5,15 +5,17 @@ import io
 import math
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from rich.console import Console
 
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.feeds.conditions import compass
+from mhseals_testing.ui.feeds.conditions import compass, heading_sd
 from mhseals_testing.ui.layout import render
 from mhseals_testing.ui.panels import conditions
+from mhseals_testing.validation import validate
 
 from test_dashboard import monitor, view
 
@@ -83,6 +85,21 @@ def test_compass_bearing_from_odometry_yaw():
     snapshot = lambda yaw: {'sensors': {'odometry': {'values': {'yaw': yaw}}}}
     assert compass(snapshot(math.pi / 2)) == 0 and round(compass(snapshot(0.0))) == 90
     assert compass({'sensors': {}}) is None
+
+
+def test_heading_sigma_from_the_odometry_yaw_variance():
+    message = SimpleNamespace(
+        header=SimpleNamespace(frame_id='odom', stamp=SimpleNamespace(sec=9, nanosec=0)), child_frame_id='base_link',
+        twist=SimpleNamespace(twist=SimpleNamespace(linear=SimpleNamespace(x=0., y=0., z=0.),
+                                                    angular=SimpleNamespace(x=0., y=0., z=0.))),
+        pose=SimpleNamespace(pose=SimpleNamespace(position=SimpleNamespace(x=0., y=0., z=0.),
+                                                  orientation=SimpleNamespace(x=0., y=0., z=0., w=1.)),
+                             covariance=[0.0] * 35 + [math.radians(4) ** 2]))
+    values = validate('odometry', message, 10.0).values
+    snapshot = lambda var: {'sensors': {'odometry': {'values': {'yaw_var': var}}}}
+    assert heading_sd(snapshot(values['yaw_var'])) == pytest.approx(4)
+    assert [heading_sd(snapshot(v)) for v in (None, 0.0, -1.0, math.nan, math.inf, 10.0)] == [None] * 6
+    assert heading_sd({'sensors': {}}) is None
 
 
 def test_motion_no_longer_draws_a_drift_line():
