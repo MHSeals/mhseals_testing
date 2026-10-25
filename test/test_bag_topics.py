@@ -17,6 +17,13 @@ def test_lean_profile_records_map_rotation_inputs():
         assert needed in topics
 
 
+def test_lean_profile_records_what_approach_guard_needs_to_replay():
+    # mhseals_nav's approach_guard stays log-only on the boat until water bags replay clean.
+    for needed in ('/perception/costmap', '/perception/costmap_updates',
+                   '/approach_guard/approach', '/tf', '/cmd_vel'):
+        assert needed in lean_topics()
+
+
 def test_lean_profile_is_unique_absolute_names():
     topics = lean_topics()
     assert len(topics) == len(set(topics))
