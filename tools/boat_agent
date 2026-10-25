@@ -1,0 +1,7 @@
+#!/bin/sh
+# boat_agent VERB ...: boat_trial's agent verbs inside the dev container, one SSH hop from the
+# dev machine (ssh blastoise boat_agent status). Install: cp to ~/.local/bin on the boat hosts.
+# File verbs load no rclpy; stop's backup path does.
+exec docker exec -i roboboat_dev bash -c \
+  '. /opt/ros/jazzy/setup.bash && . install/setup.bash && exec python3 -m mhseals_testing.harness.cli "$@"' \
+  _ "$@"

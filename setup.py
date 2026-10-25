@@ -19,6 +19,7 @@ data_files = [
     ('share/' + package_name, ['package.xml']),
 ]
 data_files += package_files('config')
+data_files.append(('share/' + package_name + '/tools', ['tools/boat_agent']))
 
 setup(
     name=package_name,

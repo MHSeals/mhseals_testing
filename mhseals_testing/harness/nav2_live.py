@@ -212,12 +212,16 @@ class Nav2Live:
 
     ``me`` is the pid that must own the session (the TUI), or None for a
     guest such as the CLI, which only needs a live owner. ``record()`` writes
-    the config-history entry once the apply held.
+    the config-history entry once the apply held. ``claim`` is the agent
+    claim id the caller holds: that claim alone does not fence the apply
+    while the record says owner agent and mux auto (an act running still
+    fences it as a procedure or a goal).
     """
 
     def __init__(self, ports, *, me=None, record=None, sleep=time.sleep,
-                 clock=time.monotonic):
+                 clock=time.monotonic, claim=None):
         self.ports, self.me, self.record = ports, me, record
+        self.claim = claim
         self.sleep, self.clock = sleep, clock
         self.last = None
 
@@ -350,7 +354,11 @@ class Nav2Live:
             reasons.append('a task is running')
         claims = [c for c in record.get('claims') or []
                   if c.get('state') != 'revoked']
-        if claims:
+        own = (self.claim is not None and who == 'agent'
+               and record.get('input') == 'auto'
+               and [c.get('id') for c in claims] == [self.claim]
+               and claims[0].get('state') == 'active')
+        if claims and not own:
             reasons.append(f'claim held: {claims[0].get("who", "?")} '
                            f'({claims[0].get("id", "?")})')
         if who == 'unknown':

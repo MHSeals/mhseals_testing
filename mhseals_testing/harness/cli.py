@@ -5,8 +5,9 @@ an agent or CI can ask "is the boat ready" without the TUI. Exit codes: 0 ok,
 1 warn (only with --fail-on warn), 2 fail, a blocked --gate, or bad input,
 3 every check unknown (nothing was sampled), or a --require group was not evaluated.
 
-``analyze NAME`` re-runs an offline analysis on a finished session and ``index`` rebuilds
-INDEX.json, both ROS-free.
+The agent verbs (claim, release, status, follow, run, goal, stop, mark, note, ask) live in
+``agent_cli``; ``analyze NAME`` re-runs an offline analysis on a finished session and ``index``
+rebuilds INDEX.json, both ROS-free.
 """
 
 import argparse
@@ -17,6 +18,7 @@ import time
 from fnmatch import fnmatchcase
 from pathlib import Path
 
+from mhseals_testing.harness import agent_cli
 from mhseals_testing.health import config as health_config
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.profiles import load_profile
@@ -164,6 +166,8 @@ def build_parser():
                        help='allow a live-only change while a goal runs '
                             '(the keys in config/nav2_classes.yaml)')
     apply.add_argument('--json', action='store_true', help='print one JSON document')
+    apply.add_argument('--claim', metavar='ID',
+                       help='the agent claim held for this apply (owner agent, mux auto, no act)')
     analyze = sub.add_parser('analyze', help='re-run an offline analysis on a finished session')
     analyze.add_argument('analysis', choices=sorted(ANALYSES))
     analyze.add_argument('rest', nargs=argparse.REMAINDER, metavar='SESSION ...',
@@ -171,6 +175,7 @@ def build_parser():
     index = sub.add_parser('index', help='rebuild INDEX.json, or summarize one session')
     index.add_argument('directory', nargs='?', metavar='DIR', help='a session or bag directory')
     index.add_argument('--json', action='store_true', help='print one JSON document')
+    agent_cli.add_parsers(sub)
     return parser
 
 
@@ -221,8 +226,10 @@ def apply_nav2(args, ports=None, **timing):
         ports = RosPorts(node, registry, session_journal(registry),
                          lambda: cli_mux_expected(registry, box[0].authority()))
         box.append(ports)
-    live = nav2_live.Nav2Live(ports, record=lambda: adapters.record_value(
-        History(), 'nav2', 'cli:apply-nav2', content, raw, applied='live-session'), **timing)
+    live = nav2_live.Nav2Live(ports, claim=getattr(args, 'claim', None),
+                              record=lambda: adapters.record_value(
+                                  History(), 'nav2', 'cli:apply-nav2', content, raw,
+                                  applied='live-session'), **timing)
     try:
         return nav2_live.cli_apply(requested, live, yes=args.yes, now=args.now,
                                    as_json=args.json)
@@ -232,6 +239,8 @@ def apply_nav2(args, ports=None, **timing):
 
 def main(argv=None, collect=None):
     args = build_parser().parse_args(argv)
+    if args.command in agent_cli.VERBS:
+        return agent_cli.main(args)
     if args.command == 'analyze':
         import importlib
         return importlib.import_module(ANALYSES[args.analysis]).main(args.rest)
