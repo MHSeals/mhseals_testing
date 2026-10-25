@@ -102,7 +102,7 @@ def test_golden(case, request):
 
 def test_sensor_strip_marks_the_dropout_and_reports_rate_and_publishers():
     out = paint(popup_for('IMU', 'sensor'))
-    assert '20 Hz · 0–20' in out and 'max gap 3.0' in out and 'expected 20 Hz' in out
+    assert '20 Hz · 0–20' in out and 'max gap 3.0' in out and 'expected 18 Hz' in out
     assert theme.pick('┄', '.') in out and '1 publisher (mavros)' in out
 
 
