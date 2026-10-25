@@ -11,7 +11,8 @@ import time
 
 from mhseals_testing.harness.authority import is_unknown
 from mhseals_testing.ros import authority as arbiter_module
-from mhseals_testing.ros.arming import MUX_INPUT, muxed
+from mhseals_testing.profiles import MUX_INPUT
+from mhseals_testing.ros.arming import muxed
 
 CMD_WINDOW_S = 1.0
 MISSION = 'Mission rehearsal'  # app.running holds the procedure's title (procedures 't')

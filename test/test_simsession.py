@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import json
 
 from mhseals_testing.harness import simsession
-from mhseals_testing.ros.processes import bag_command
+from mhseals_testing.harness.processes import bag_command
 
 
 def sim_profile(**changes):

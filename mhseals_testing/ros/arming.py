@@ -11,7 +11,6 @@ import time
 from mhseals_hardware.configuration import save_config
 from mhseals_hardware.velocity_law import Plant
 
-from mhseals_testing.profiles import MUX_INPUT  # noqa: F401  (re-exported for the authority feed)
 
 DRIVER = 'thruster_pwm_node'
 CONTROLLER = 'calibrated_velocity_controller'

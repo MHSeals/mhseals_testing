@@ -1,19 +1,6 @@
-"""The adapter between a procedure and whatever runs it (the TUI today, headless later)."""
-
-from typing import Protocol
+"""The adapter between a procedure and whatever runs it."""
 
 from mhseals_testing.procedures import Context
-
-
-class Host(Protocol):
-    """What a procedure needs from its host; ``App`` implements it."""
-
-    def prompt(self, message, title='Ready'): ...
-    def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None): ...
-    def motion(self, name, **details): ...
-    def supervise(self, name, **details): ...
-    def observe(self, name, **details): ...
-    def record(self, result): ...
 
 
 def context(host, profile, monitor, settings, stale_after, services):
