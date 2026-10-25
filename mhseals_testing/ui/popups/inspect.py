@@ -41,14 +41,15 @@ POINTS = ('N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'W
 # --- formatting ------------------------------------------------------------------------------
 
 def length(metres):
-    """``2 cm``, ``0.4 m``, ``12 m``: the unit a person would say."""
+    """``2 cm``, ``0.15 m``, ``12 m``: whole cm (at least 1, as the minimap's ``accuracy_text``) below
+    10 cm, else 2 significant figures; the unit is picked from the rounded value."""
     if metres is None or not math.isfinite(metres):
         return theme.DASH
-    if metres < 0.01:
-        return f'{metres * 1000:.0f} mm'
-    if metres < 0.1:
-        return f'{metres * 100:.0f} cm'
-    return f'{metres:.1f} m' if metres < 10 else f'{metres:.0f} m'
+    cm = round(metres * 100)
+    if cm < 10:
+        return f'{max(1, cm)} cm'
+    rounded = float(f'{max(metres, 0.1):.2g}')
+    return f'{rounded:g} m' if rounded < 10 else f'{metres:.0f} m'
 
 
 def duration(seconds):
@@ -56,8 +57,8 @@ def duration(seconds):
     if seconds < 60:
         return f'{seconds} s'
     if seconds < 3600:
-        return f'{seconds // 60} m {seconds % 60:02d} s'
-    return f'{seconds // 3600} h {seconds // 60 % 60:02d} m'
+        return f'{seconds // 60} min {seconds % 60:02d} s'
+    return f'{seconds // 3600} h {seconds // 60 % 60:02d} min'
 
 
 def cardinal(deg):
@@ -97,8 +98,13 @@ def kv(label, *parts):
     return table
 
 
-def mark(style):
-    return Text(theme.pick('━', '='), style=style)
+def mark(style, dotted=False):
+    return Text(theme.pick('┅', ':') if dotted else theme.pick('━', '='), style=style)
+
+
+def hue(token, fallback):
+    """The style of ``token`` when the theme defines it, else of ``fallback`` (a plain Rich style)."""
+    return theme.PALETTE.style(token) if token in theme.PALETTE.tokens else fallback
 
 
 # --- sampling ---------------------------------------------------------------------------------
@@ -162,7 +168,8 @@ class Inspect:
             self.push('rate', now, rc.get('rate_hz'))
             self.push('latency', now, rc.get('latency_ms'))
         elif self.row.get('group') == 'System':
-            self.push('value', now, lead(short(self.row.get('detail', ''))))
+            row = find(status_rows(snapshot, self.specs), self.row)   # the detail now, not at open
+            self.push('value', now, lead(short(row.get('detail', ''))))
 
 
 def lead(token):
@@ -291,47 +298,54 @@ def sensor_part(state, spec, row, inner):
 # --- 2. TF chain ------------------------------------------------------------------------------
 
 def chain(edges, source, target):
-    """The hops source -> target over every edge ever seen: [(parent, child, [edge dicts])], found."""
+    """The hops source -> target over every edge ever seen: ([(parent, child, [edge dicts])], found).
+
+    Without a full chain the hops reach the deepest frame source does reach (the partial chain)."""
     by_parent = {}
     for edge in edges:
         by_parent.setdefault(edge['parent'], {}).setdefault(edge['child'], []).append(edge)
-    pending, seen = [(source, [])], {source}
+    pending, seen, deepest = [(source, [])], {source}, []
     while pending:
         frame, path = pending.pop(0)
         if frame == target:
             return path, True
+        deepest = path if len(path) > len(deepest) else deepest
         for child, group in sorted(by_parent.get(frame, {}).items()):
             if child not in seen:
                 seen.add(child)
                 pending.append((child, path + [(frame, child, group)]))
-    return [], False
+    return deepest, False
 
 
 def tf_part(edges, source, target, inner):
-    """``map ━━▶ odom ━━▶ base_link`` with each hop's publisher and age; every edge into the chain below."""
+    """``map ━━▶ odom ━━▶ base_link`` with each hop's publisher and age; a missing hop is ``╌✗╌`` with the
+    publisher once seen sending the target, if any; every edge into the chain below."""
     hops, found = chain(edges, source, target)
     line, pubs, ages = Text(source), Text(' ' * len(source)), Text(' ' * len(source))
+
+    def hop(arrow, child, who, age, style, who_style, age_style, child_style=None):
+        width = max(len(arrow) + len(child), len(who) + 2, len(age) + 2)
+        line.append(arrow, style=style)
+        line.append(child.ljust(width - len(arrow)), style=child_style)
+        pubs.append(('  ' + who).ljust(width), style=who_style)
+        ages.append(('  ' + age).ljust(width), style=age_style)
+
+    for parent, child, group in hops:
+        fresh = [e for e in group if e['fresh']]
+        names = sorted({e['authority'] or '?' for e in fresh or group})
+        style = theme.BAD if not fresh else theme.WARN if len(names) > 1 else theme.GOOD
+        best = min(group, key=lambda e: e['seen'])
+        age = ('static' if best['static'] else f"{best['stamp_age']:.2f} s dyn") if fresh \
+            else f"last seen {best['seen']:.0f} s ago"
+        hop(f" {theme.pick('━━▶', '-->')} ", child, f'! {len(names)} publishers' if len(names) > 1 else names[0],
+            age, style, style if len(names) > 1 else theme.MUTED, theme.MUTED if fresh else theme.BAD)
     if not found:
-        line.append(f" {theme.pick('╌✗╌', '-x-')} ", style=theme.BAD)
-        line.append(target, style=theme.BAD)
-        pubs.append(f'   no edge chain from {source} ever seen', style=theme.MUTED)
-        out = [line, pubs]
-    else:
-        for parent, child, group in hops:
-            fresh = [e for e in group if e['fresh']]
-            names = sorted({e['authority'] or '?' for e in fresh or group})
-            style = theme.BAD if not fresh else theme.WARN if len(names) > 1 else theme.GOOD
-            arrow = f" {theme.pick('━━▶', '-->')} "
-            best = min(group, key=lambda e: e['seen'])
-            who = f'! {len(names)} publishers' if len(names) > 1 else names[0]
-            age = ('static' if best['static'] else f"{best['stamp_age']:.2f} s dyn") if fresh \
-                else f"last seen {best['seen']:.0f} s ago"
-            width = max(len(arrow) + len(child), len(who) + 2, len(age) + 2)
-            line.append(arrow, style=style)
-            line.append(child.ljust(width - len(arrow)))
-            pubs.append(('  ' + who).ljust(width), style=style if len(names) > 1 else theme.MUTED)
-            ages.append(('  ' + age).ljust(width), style=theme.MUTED if fresh else theme.BAD)
-        out = [line, pubs, ages]
+        into = [e for e in edges if e['child'] == target]
+        known = sorted({e['authority'] or '?' for e in into})
+        who = f"expected: {', '.join(known)}" if known else f'no publisher of {target} seen'
+        last = f"last seen {min(e['seen'] for e in into):.0f} s ago" if into else 'never seen'
+        hop(f" {theme.pick('╌✗╌', '-x-')} ", target, who, last, theme.BAD, theme.MUTED, theme.BAD, theme.BAD)
+    out = [line, pubs, ages]
     frames = {source, target} | {child for _, child, _ in hops}
     table = theme.grid({'header': 'edge'}, {'header': 'publisher'}, {'header': 'age', 'justify': 'right'},
                        {'header': ''})
@@ -352,12 +366,12 @@ def compass_heading(v, site=magnetic.SITE):
 
 def dial(marks, cols, rows):
     """A braille rose ``cols`` x ``rows`` cells: cardinal letters and ticks, a needle for the first
-    mark and radial ticks for the rest. ``marks`` is [(bearing deg or None, style)]."""
+    mark and radial ticks for the rest. ``marks`` is [(bearing deg or None, style, dotted)]."""
     grid = sparks.Dots(cols, rows)
     w, h = cols * 2, rows * 4
     cx, cy = (w - 1) / 2, (h - 1) / 2
     r = min(w / 2 - 3, h / 2 - 5)
-    ring, ticks = grid.layer(theme.PALETTE.style('faint')), grid.layer(theme.MUTED)
+    ring = ticks = grid.layer(theme.PALETTE.style('faint'))
     grid.ring(ring, cx, cy, r)
 
     def at(deg, f):
@@ -366,12 +380,14 @@ def dial(marks, cols, rows):
 
     for deg in range(0, 360, 45):
         grid.segment(ticks, *at(deg, 0.75 if deg % 90 == 0 else 0.85), *at(deg, 1.0))
-    for i, (deg, style) in enumerate(reversed(marks)):
+    for i, (deg, style, dotted) in enumerate(reversed(marks)):
         if deg is None:
             continue
         layer = grid.layer(style)
         needle = i == len(marks) - 1
-        grid.segment(layer, *at(deg, 0.0 if needle else 0.5), *at(deg, 0.95 if needle else 1.0))
+        grid.segment(layer, *at(deg, 0.0 if needle else 0.45), *at(deg, 0.95 if needle else 1.0))
+        if dotted:      # shape-coded, so the mark reads without colour
+            layer.difference_update(sorted(layer)[1::2])
     ccol, crow = int(cx // 2), int(cy // 4)
     half_cols, half_rows = int(r / 2) + 1, int(r / 4) + 1
     grid.label(ccol, max(0, crow - half_rows), 'N', f'bold {theme.ACCENT}')
@@ -393,16 +409,17 @@ def compass_part(snapshot, specs, inner, compact=False, site=magnetic.SITE):
         if odom and odom['values'].get('yaw') is not None and odom['status'] == 'LIVE' else None
     g = (gps or {}).get('values', {})
     course = g.get('cog') if g.get('speed') is not None and g['speed'] >= MOVING else None
-    styles = (theme.ACCENT, theme.PALETTE.style('violet'), theme.PALETTE.style('sand'))
+    # Neutral marks, never an authority or scope hue: bold yaw, dotted muted course (dial.* when themed).
+    styles = (theme.ACCENT, hue('dial.yaw', 'bold'), hue('dial.course', theme.MUTED))
     cols, rows = (15, 7) if compact else (21, 9)
-    rose = dial([(compass, styles[0]), (yaw, styles[1]), (course, styles[2])], cols, rows)
+    rose = dial([(compass, styles[0], False), (yaw, styles[1], False), (course, styles[2], True)], cols, rows)
     known = [d for d in (compass, yaw, course) if d is not None]
     spread = max(abs(magnetic.wrap(a - b)) for a in known for b in known)
     legend = [Text(bearing(compass), style=f'bold {theme.ACCENT}') + Text('  compass', style=theme.MUTED),
               Text(''),
               mark(styles[0]) + Text(f' Compass  {bearing(compass)}'),
               mark(styles[1]) + Text(f' Yaw      {bearing(yaw)}' if yaw is not None else ' Yaw      ' + theme.DASH),
-              mark(styles[2]) + Text(f' Course   {bearing(course)}  {g["speed"]:.1f} m/s' if course is not None
+              mark(styles[2], True) + Text(f' Course   {bearing(course)}  {g["speed"]:.1f} m/s' if course is not None
                                      else ' Course   stationary' if g else ' Course   no GPS'),
               Text(theme.ascii_safe(f"  Spread   {theme.pick('Δ', 'd')} {spread:.0f}°") if len(known) > 1 else '',
                    style=theme.WARN if spread > magnetic.DISAGREE_MAX else None)]
@@ -474,8 +491,9 @@ def gps_part(state, snapshot, inner):
     changes = state.fix_changes or []
     if changes:
         since = f' for {duration(state.wall() - changes[-1][0])}'
-    out = [kv('Accuracy', Text(length(v.get('h_acc')), style=f'bold {style}'),
-              f' horizontal{SEP}', Text(step + since, style=style), f'{SEP}{v.get("sats", 0)} sats'
+    pm = theme.pick('±', '+/-')
+    out = [kv('Accuracy', Text(pm + length(v.get('h_acc')), style=f'bold {style}'),
+              SEP, Text(step + since, style=style), f'{SEP}{v.get("sats", 0)} sats'
               + (f'{SEP}vel {length(v["vel_acc"])}/s' if v.get('vel_acc') else '')),
            kv('Fix', sparks.ladder(FIX_STEPS, step, {s: theme.PALETTE.style(t) for s, t in FIX_TOKENS.items()}))]
     now = state.now
@@ -584,7 +602,7 @@ def open_inspect(app, row=None):
     feeds = getattr(app.ros, 'map', None) if live else None
     probe.fix_changes = getattr(feeds, 'fix_changes', None)
     probe.accuracy = getattr(getattr(feeds, 'state', None), 'accuracy', None)   # the minimap's shared reading
-    modal = dict(kind='message', title=title(row, spec), width=WIDTH, hint=f'Esc close{SEP}Enter close')
+    modal = dict(kind='message', title=title(row, spec), width=WIDTH, hint='Any key closes')   # j/k added when clipped
     last = [None]
 
     def refresh():

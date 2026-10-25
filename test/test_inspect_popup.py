@@ -74,7 +74,7 @@ def popup_for(name, source=None, publishers=('mavros',), compact=False):
     row = next(r for r in status_rows(snapshot, SPECS) if r['name'] == name and r.get('source') == source)
     edges = monitor.tf_edges() if source == 'tf' else ()
     modal = dict(kind='message', title=inspect.title(row, state.watched() if source == 'sensor' else None),
-                 width=inspect.WIDTH, hint='Esc close', body=inspect.body(state, snapshot, inspect.WIDTH - 4, edges))
+                 width=inspect.WIDTH, hint='Any key closes', body=inspect.body(state, snapshot, inspect.WIDTH - 4, edges))
     return modal
 
 
@@ -116,6 +116,26 @@ def test_tf_missing_chain_is_crossed():
     assert 'odom' in lines[0].plain and theme.pick('✗', 'x') in lines[0].plain
 
 
+def test_tf_missing_hop_keeps_the_partial_chain_and_names_the_expected_publisher():
+    edge = dict(authority='', seen=0.1, stamp_age=0.02, static=False, fresh=True)
+    edges = [dict(edge, parent='map', child='odom', authority='ekf_global'),
+             dict(edge, parent='imu_link', child='lidar_link', authority='robot_state_publisher',
+                  seen=41.0, fresh=False)]
+    line, who, age = (t.plain for t in inspect.tf_part(edges, 'map', 'lidar_link', 72)[:3])
+    assert line.split() == ['map', theme.pick('━━▶', '-->'), 'odom', theme.pick('╌✗╌', '-x-'), 'lidar_link']
+    assert 'ekf_global' in who and 'expected: robot_state_publisher' in who and 'last seen 41 s ago' in age
+
+
+def test_advisory_strip_follows_the_detail_while_open():
+    monitor = BoatMonitor(clock=Clock())
+    state = inspect.Inspect(dict(name='compute', source=None, group='System'), SPECS, monitor)
+    for t, temp in ((0, 60), (1, 70), (2, 80)):
+        monitor.clock.t = 1000.0 + t
+        monitor.advise('compute', 'OK', f'load 1.0/8, {temp}°C')
+        state.update(monitor.snapshot(), monitor.clock())
+    assert [v for _, v in state.series['value']] == [60, 70, 80]
+
+
 def test_compass_reads_heading_cardinal_and_yaw():
     out = paint(popup_for('Yaw'))
     assert '247° WSW' in out and '249° WSW' in out and 'stationary' in out and '470 mG' in out
@@ -123,11 +143,13 @@ def test_compass_reads_heading_cardinal_and_yaw():
 
 def test_gps_shows_accuracy_in_cm_ladder_and_time_at_level():
     out = paint(popup_for('GPS'))
-    assert '7 cm' in out and 'RTK float' in out and 'RTK float for 4 m 12 s' in out and 'CEP50' in out
+    assert '7 cm' in out and 'RTK float' in out and 'RTK float for 4 min 12 s' in out and 'CEP50' in out
 
 
 def test_lengths_and_bearings_read_naturally():
-    assert [inspect.length(m) for m in (0.004, 0.02, 0.4, 12.3)] == ['4 mm', '2 cm', '0.4 m', '12 m']
+    assert [inspect.length(m) for m in (0.001, 0.004, 0.02, 0.0996, 0.15, 0.4, 9.96, 12.3)] == \
+        ['1 cm', '1 cm', '2 cm', '0.1 m', '0.15 m', '0.4 m', '10 m', '12 m']
+    assert inspect.duration(252) == '4 min 12 s' and inspect.duration(3720) == '1 h 02 min'
     assert inspect.cardinal(247) == 'WSW' and inspect.cardinal(359) == 'N'
     assert inspect.nice(0.07) == 0.1 and inspect.nice(3) == 5
 

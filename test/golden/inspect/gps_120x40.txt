@@ -1,5 +1,5 @@
 ╭─ ▸ GPS ──────────────────────────────────────────────────────────────────╮
-│ Accuracy 7 cm horizontal · RTK float for 4 m 12 s · 17 sats · vel 3 cm/s │
+│ Accuracy ±7 cm · RTK float for 4 min 12 s · 17 sats · vel 3 cm/s         │
 │ Fix      ▁ none  ▃ 3D  ▅ DGPS  ▆ RTK float  █ RTK fixed                  │
 │                                                                          │
 │                                  ━ h_acc 7 cm                            │
@@ -25,4 +25,4 @@
 │ Values   fix 5 · sats 17 · h_acc 0.0694 · vel_acc 0.03 · speed 0.02 ·    │
 │          cog — · lat 42 · lon -71 · alt 12                               │
 │ Detail   gpsraw fix, satellites, horizontal accuracy                     │
-╰─  Esc close  ────────────────────────────────────────────────────────────╯
+╰─  Any key closes  ───────────────────────────────────────────────────────╯

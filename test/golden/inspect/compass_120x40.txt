@@ -3,7 +3,7 @@
 │       ⣀⠤⠒⠒⡗⠒⠒⢤⡀                                                          │
 │     ⢀⠜⠡   ⠁   ⠌⠣⡀      ━ Compass  247° WSW                               │
 │     ⡎           ⢱      ━ Yaw      249° WSW                               │
-│   W ⡧⠤  ⣀⠤⠄    ⠤⢌⠄E    ━ Course   stationary                             │
+│   W ⡧⠤  ⣀⠤⠄    ⠤⢌⠄E    ┅ Course   stationary                             │
 │     ⢧⠖⠚⠉        ⡸        Spread   Δ 2°                                   │
 │     ⠈⢢⡐   ⡀   ⢂⡔⠁                                                        │
 │       ⠉⠒⠤⠤⠧⠤⠤⠚⠁                                                          │
@@ -21,4 +21,4 @@
 │ Values   x -1.02e-05 · y -2.12e-05 · z -4.04e-05 · compass_gyro 1.5 ·    │
 │          magcal_residual 3 · yaw_sigma 0.05                              │
 │ Detail   yaw_quality: compass, gyro, magcal, sigma                       │
-╰─  Esc close  ────────────────────────────────────────────────────────────╯
+╰─  Any key closes  ───────────────────────────────────────────────────────╯
