@@ -16,7 +16,7 @@ tokens:
   sel_bg:    {dark: '#232A36', light: '#ECEFF3', x256: [235, 255], ansi: null}
   accent:    {dark: '#7DD3DC', light: '#0F7A85', x256: [116, 30],  ansi: cyan}
   slate:     {dark: '#A6B0C2', light: '#4A5466', x256: [146, 59],  ansi: default}
-  violet:    {dark: '#BCA9F2', light: '#6A4FC6', x256: [147, 62],  ansi: magenta}
+  violet:    {dark: '#BCA9F2', light: '#6A4FC6', x256: [147, 61],  ansi: magenta}
   sand:      {dark: '#E8CDA0', light: '#8B6A2F', x256: [187, 94],  ansi: bold}
   ok:        {dark: '#8FD19E', light: '#2C8A4C', x256: [114, 29],  ansi: green}
   warn:      {dark: '#EDCB78', light: '#9A7400', x256: [222, 136], ansi: yellow}
@@ -32,9 +32,9 @@ tokens:
   auth.unclaimed: {alias: fail}
   # buoys: saturated signal hues, apart from the pastel severity set; on 16 colours bright_* vs plain
   obj.red:     {dark: '#FF5F57', light: '#D11A12', x256: [203, 160], ansi: bright_red,    fixed: true}
-  obj.green:   {dark: '#36D399', light: '#0E8A5A', x256: [42, 29],   ansi: bright_green,  fixed: true}
-  obj.yellow:  {dark: '#FFD23F', light: '#B08600', x256: [220, 136], ansi: bright_yellow, fixed: true}
-  obj.blue:    {dark: '#5AA9FF', light: '#1F5FCC', x256: [75, 26],   ansi: bright_blue,   fixed: true}
+  obj.green:   {dark: '#36D399', light: '#009874', x256: [42, 35],   ansi: bright_green,  fixed: true}
+  obj.yellow:  {dark: '#FFD23F', light: '#A28C00', x256: [220, 178], ansi: bright_yellow, fixed: true}
+  obj.blue:    {dark: '#5AA9FF', light: '#1F5FCC', x256: [75, 27],   ansi: bright_blue,   fixed: true}
   obj.black:   {alias: slate, fixed: true}
   obj.unknown: {alias: muted, fixed: true}
   gps.fix:     {dark: '#80B098', light: '#3A7A5C', x256: [108, 29],  ansi: green}
@@ -71,7 +71,7 @@ tokens:
 
 # ui.cvd: status and trail tokens swap to a blue-to-orange sequence; aliases follow their target.
 cvd_swap:
-  ok:       {dark: '#86B8F7', light: '#2D63C4', x256: [111, 26],  ansi: blue}
+  ok:       {dark: '#8C9EEB', light: '#2F78B8', x256: [68, 25],   ansi: blue}   # clear of obj.blue
   fail:     {dark: '#F2AE78', light: '#B4601A', x256: [216, 130], ansi: yellow}
   gps.fix:   {dark: '#7BB0EE', light: '#2F66C0', x256: [111, 26],  ansi: blue}
   gps.float: {dark: '#9FB4D0', light: '#4F76A8', x256: [146, 67],  ansi: blue}
