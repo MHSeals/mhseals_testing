@@ -93,7 +93,7 @@ def test_16_colour_attributes_are_only_on_unknown_and_sel_bg(theme):
 
 def test_chip_tiers(theme):
     assert theme.chip('AGENT', 'auth.agent', 'dark', 'truecolor', False).style.__str__() == '#171B22 on #EFA6E2'
-    assert theme.chip('AGENT', 'auth.agent', 'light', '256', False).style.__str__() == 'color(231) on color(133)'
+    assert theme.chip('AGENT', 'auth.agent', 'light', '256', False).style.__str__() == 'color(231) on color(162)'
     assert 'reverse' in str(theme.chip('HOLD', 'auth.hold', tier='16', ascii=False).style)
     assert 'reverse' in str(theme.chip('HOLD', 'auth.hold', tier='mono', ascii=False).style)
     assert theme.chip('AGENT', 'auth.agent', ascii=True).plain == '[AGENT]'

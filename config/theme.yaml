@@ -26,7 +26,8 @@ tokens:
   auth.human:     {alias: fg}
   auth.ours:      {alias: accent}
   auth.nav:       {alias: violet}
-  auth.agent:     {dark: '#EFA6E2', light: '#A3369A', x256: [219, 133], ansi: magenta}
+  auth.agent:     {dark: '#EFA6E2', light: '#C0209E', x256: [219, 162], ansi: magenta}   # apart from spd.5
+  auth.agent_dim: {dark: '#B58BAE', light: '#8A5A84', x256: [139, 96],  ansi: magenta}   # working, not driving
   auth.hold:      {alias: slate}
   auth.unclaimed: {alias: fail}
   obj.red:     {alias: fail,  fixed: true}
@@ -65,6 +66,7 @@ cvd_swap:
 # 16-colour tier: the one attribute added to a token's ansi name (ui.md section 3).
 attr16:
   unknown: dim
+  auth.agent_dim: dim
   sel_bg: underline
 
 # NO_COLOR tier: attributes only (bold, dim, reverse, underline, italic).
@@ -73,6 +75,7 @@ mono:
   faint: dim
   border: dim
   unknown: dim
+  auth.agent_dim: dim
   fail: bold
   sel_bg: underline
 
@@ -91,6 +94,8 @@ glyphs:
   mark:      ['▾', 'v']
   config:    ['Δ', '*']
   authority: ['↔', '@']
+  agent:     ['◆', '*']        # an agent holds authority (banner, chip)
+  agent_work: ['◇', 'o']       # an agent is working on the boat without a claim
   reversed:  ['−', '-']
   yaw_ccw:   ['↩', '<']
   yaw_cw:    ['↪', '>']

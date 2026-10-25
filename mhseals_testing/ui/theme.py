@@ -24,7 +24,7 @@ AUTHORITY_HUES, _GLYPHS = {}, {}   # filled by use_palette; read as theme.X at c
 
 def use_palette(new):
     """Make ``new`` the theme: the style names below follow it (the hot reload calls this too)."""
-    global PALETTE, ACCENT, MUTED, GOOD, WARN, BAD, BUSY, SEL_BG
+    global PALETTE, ACCENT, MUTED, GOOD, WARN, BAD, BUSY, SEL_BG, AGENT_BANNER, AGENT_LOW, AGENT_DIM
     PALETTE = new
     ACCENT, MUTED = PALETTE.style('accent'), PALETTE.style('muted')
     GOOD, WARN, BAD, BUSY = (PALETTE.style(token) for token in ('ok', 'warn', 'fail', 'busy'))
@@ -35,6 +35,10 @@ def use_palette(new):
         'rc': 'bold', 'keyboard': 'bold', 'hold': 'bright_black', 'agent': 'bright_magenta',
         'task': ACCENT, 'procedure': ACCENT, 'nav': 'magenta', 'external': BAD, 'none': MUTED,
     })
+    # The agent banner is the auth.agent chip cell stretched over the row; a low lease is a warn cell.
+    AGENT_BANNER = f"{PALETTE.chip('', 'auth.agent', ascii=False).style} bold".strip()
+    AGENT_LOW = f"{PALETTE.chip('', 'warn', ascii=False).style} bold".strip()
+    AGENT_DIM = PALETTE.style('auth.agent_dim')
     # Glyph and color per state; every state the suite reports maps to one of these.
     _GLYPHS.update({
         'good': ('+' if ASCII else '✓', GOOD),
@@ -71,6 +75,7 @@ TINT = palette.detect_tier() in ('truecolor', '256') and not ASCII
 ARROW = '->' if ASCII else '→'
 SPINNER = '|/-\\' if ASCII else '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 SPINNER_HZ = 10
+AGENT_GLYPH, WORKING_GLYPH = PALETTE.glyph('agent'), PALETTE.glyph('agent_work')   # driving, working
 use_palette(PALETTE)
 
 
@@ -111,7 +116,6 @@ def labelled(state, label=None, style=None):
 # Solid chips (ui spec 1, 2): the word in reverse video on the authority hue; ASCII brackets the word.
 CHIPS = {'human': 'auth.human', 'ours': 'auth.ours', 'nav': 'auth.nav', 'agent': 'auth.agent',
          'hold': 'auth.hold', 'unclaimed': 'auth.unclaimed', 'armed': 'fail'}   # chip kind -> palette token
-AGENT_BANNER = 'reverse bold magenta'
 
 
 def chip(word, kind):
@@ -194,7 +198,7 @@ _TIMELINE = {
     'body': ('█', '#'), 'bad': ('▓', '%'), 'cap': ('×', 'x'), 'tip': ('◌', '~'),
     'notch': ('▌', '|'), 'clip': ('┄', '.'), 'idle': ('▁', '_'), 'manual1': ('▄', '='),
     'mark': ('▾', 'v'), 'config': ('Δ', '*'), 'health_warn': ('!', '^'),
-    'health_fail': ('✗', 'x'), 'auth': ('↔', '@'), 'off_left': ('◂', '<'),
+    'health_fail': ('✗', 'x'), 'auth': ('↔', '@'), 'agent': ('◆', 'A'), 'off_left': ('◂', '<'),
     'ok': ('─', '-'), 'recoff': ('╌', '.'), 'armrecoff': ('╍', ','),
     'warn': ('━', '='), 'fail': ('═', '!'), 'fold': ('┊', ':'),
     'bracket': ('╰─╯', '\\_/'), 'single': ('┴', '+'),
