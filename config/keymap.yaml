@@ -49,7 +49,7 @@ tab.drive:                      # procedure letters exist only here
   station: [s]
   mission: [t]
   perception: [p]
-  interference: [e]             # not on the minimap (e centres) or status (Nav2 popup)
+  interference: [e]             # not on a focused minimap, Drive or Map (e centres), or status (Nav2 popup)
 
 tab.correction:
   column_prev: [left, h]
@@ -59,11 +59,10 @@ tab.correction:
   apply_pending: [A]
   hardware_changed: [I]
 
-tab.map:                        # view.minimap is the focused child; these keys are Drive procedures
+tab.map:                        # view.minimap is the focused child; w g are Drive procedures elsewhere
   override: [goto]              # g rings over review's goto on the Map tab
   layer_wake: [w]
   layer_rings: [g]
-  centre: [e]
 
 tab.bags:
   pin: [p]
@@ -108,7 +107,8 @@ panel.activity:
   zoom: [z]                     # fit · 30m · 10m · 2m
   exclude: [X]
 
-view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols; no Drive procedure key
+view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols
+  override: [interference]      # e centres: a focused minimap never starts Interference
   layer_costmap: [c]
   costmap_source: [C]
   layer_hits: [r]
@@ -123,6 +123,7 @@ view.minimap:                   # Map tab, and the Drive minimap column at ≥15
   zoom_in: [z]
   zoom_out: [Z]
   zoom_fit: ['0']
+  centre: [e]
   goal_mode: [G]
   cancel_goal: [X]
 

@@ -1859,18 +1859,18 @@ def test_map_tab_keys_toggle_layers_and_the_bags_tab_lists_sessions(tmp_path):
 
 
 def test_map_toggles_on_procedure_keys_bind_only_on_the_map_tab(tmp_path):
-    """w g e are Drive procedures (square, magcal, interference): the Drive minimap leaves them to
-    the procedures, the Map tab (no procedure keys) toggles wake and rings with them."""
+    """w g are Drive procedures (square, magcal): the Drive minimap leaves them to the procedures,
+    the Map tab (no procedure keys) toggles wake and rings with them. e centres on both."""
     app, _ = make_app(tmp_path)
     app.ran = []
     app.run_procedure = app.ran.append
     app.focus = 'minimap'
     app.dispatch('w'), app.dispatch('g'), app.dispatch('e'), app.dispatch('F')
-    assert [p.key for p in app.ran] == ['w', 'g', 'e'] and app.layerbox.wake and app.layerbox.rings
+    assert [p.key for p in app.ran] == ['w', 'g'] and app.layerbox.wake and app.layerbox.rings
     assert app.layerbox.fov is False                     # a shared view key still toggles on Drive
     app.show_tab('Map')
     app.dispatch('w'), app.dispatch('g'), app.dispatch('e')
-    assert len(app.ran) == 3 and not app.layerbox.wake and not app.layerbox.rings
+    assert len(app.ran) == 2 and not app.layerbox.wake and not app.layerbox.rings
     hints = dict(PANEL_HINTS['minimap'])
     assert 'w' not in hints and 'g' not in hints and PANEL_HINTS['map'][-2:] == [('w', 'Wake'), ('g', 'Rings')]
 

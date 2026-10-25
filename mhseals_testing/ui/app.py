@@ -214,7 +214,8 @@ CURSORS = (*PANELS, 'list')   # every cursor an App keeps, the Bags tab's 'list'
 
 def map_key_maps(doc):
     """``(drive, map)`` key -> action of the map views: view.minimap on the Drive column, and on
-    the Map tab with tab.map's toggles (w g e) over it, which are Drive procedure keys elsewhere."""
+    the Map tab with tab.map's toggles (w g) over it, which are Drive procedure keys elsewhere.
+    view.minimap's own e (centre) shadows Interference on both, so a focused map never starts it."""
     view = keymap_module.key_map(doc.get('view.minimap'))
     return view, {**keymap_module.key_map(doc.get('tab.map')), **view}
 
