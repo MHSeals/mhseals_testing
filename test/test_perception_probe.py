@@ -11,6 +11,8 @@ from mhseals_testing.health.model import Fact
 from mhseals_testing.perception.probe import Probe
 from mhseals_testing.ros import perception as feed
 
+SETTINGS = feed.settings(user=False)
+
 FIXTURE = Path(__file__).parent / 'fixtures' / 'perception_status.json'
 
 
@@ -47,7 +49,7 @@ def clock():
 
 @pytest.fixture
 def facts(clock):
-    probe = Probe('zed_native', clock)
+    probe = Probe('zed_native', clock, SETTINGS)
     replay(probe, clock)
     return probe.facts()
 
@@ -96,7 +98,7 @@ def check(source, fact_name, facts, profile='boat'):
 
 
 def test_silent_source_reads_zero_hz_after_the_rate_window(clock):
-    probe = Probe('zed_native', clock)
+    probe = Probe('zed_native', clock, SETTINGS)
     assert probe.facts() == {}
     clock.t = 4.0
     assert probe.facts() == {}                              # still inside the window
@@ -107,7 +109,7 @@ def test_silent_source_reads_zero_hz_after_the_rate_window(clock):
 
 
 def test_a_source_that_goes_quiet_drops_to_zero_and_its_costmap_ages(clock, facts):
-    probe = Probe('zed_native', clock)
+    probe = Probe('zed_native', clock, SETTINGS)
     replay(probe, clock)
     clock.t += 7.0
     facts = probe.facts()
@@ -121,7 +123,7 @@ def test_a_source_that_goes_quiet_drops_to_zero_and_its_costmap_ages(clock, fact
 
 
 def test_costmap_age_holds_through_the_status_period_then_grows(clock):
-    probe = Probe('sim', clock)
+    probe = Probe('sim', clock, SETTINGS)
     probe.status(status('perception/sim/tracker', [('grid_age_s', '0.2'), ('hz', '10')]))
     clock.t = 1.2
     assert probe.facts()['perc.sim.costmap_age'].value == pytest.approx(0.2)
@@ -130,7 +132,7 @@ def test_costmap_age_holds_through_the_status_period_then_grows(clock):
 
 
 def test_missing_keys_leave_their_facts_out(clock):
-    probe = Probe('sim', clock)
+    probe = Probe('sim', clock, SETTINGS)
     probe.status(status('perception/sim/backend', [('hz', '9.5')]))
     probe.status(status('perception/sim/tracker', [('hz', 'nan')]))
     probe.status(status('perception/sim/inject', [('case', 'none')]))
@@ -140,7 +142,7 @@ def test_missing_keys_leave_their_facts_out(clock):
 
 def test_heading_levels_map_to_pass_warn_fail(clock):
     def level(n, message='lag'):
-        probe = Probe('zed_native', clock)
+        probe = Probe('zed_native', clock, SETTINGS)
         probe.status(status('perception/zed_native/heading', [('lag_s', '0.2'), ('rho', '0.8')], n, message))
         return probe.facts()
     assert check('zed_native', 'heading', level(0)) == 'ok'
@@ -160,7 +162,7 @@ def test_badly_clocked_or_lossy_camera_fails(clock):
                     s['values'] = [[k, str(int(m['t']) * 40) if k == 'drop_stale' else v] for k, v in s['values']]
         else:
             m['status'][0]['values'][3] = ['Object detection', 'Processing Time: 0.2 sec']
-    probe = Probe('zed_native', clock)
+    probe = Probe('zed_native', clock, SETTINGS)
     replay(probe, clock, messages)
     facts = probe.facts()
     assert check('zed_native', 'clock', facts) == 'fail'
@@ -169,7 +171,7 @@ def test_badly_clocked_or_lossy_camera_fails(clock):
 
 
 def test_backend_restart_resets_the_funnel(clock):
-    probe = Probe('sim', clock)
+    probe = Probe('sim', clock, SETTINGS)
     for t, drops in ((0, 50), (1, 60), (2, 0), (3, 1)):
         clock.t = t
         probe.status(status('perception/sim/backend', [('hz', '10'), ('drop_stale', str(drops))]))
@@ -177,8 +179,22 @@ def test_backend_restart_resets_the_funnel(clock):
 
 
 def test_weak_class_warns(clock):
-    probe = Probe('sim', clock)
+    probe = Probe('sim', clock, SETTINGS)
     probe.status(status('perception/sim/tracker', [('conf_red_buoy', '0.3'), ('n_red_buoy', '2')]))
     facts = probe.facts()
     assert check('sim', 'class_conf', facts, 'crane_full_stack') == 'warn'
     assert facts['perc.sim.class_conf'] == Fact(0.3, 'red_buoy', {}, 0.0)
+
+
+def test_the_yaml_timings_take_effect(tmp_path, clock):
+    from mhseals_testing.health.config import HEALTH_DIR
+    text = (HEALTH_DIR / 'perception.yaml').read_text()
+    assert 'silence_s: 5.0, status_grace_s: 1.5' in text
+    (tmp_path / 'perception.yaml').write_text(text.replace('silence_s: 5.0, status_grace_s: 1.5',
+                                                           'silence_s: 2.0, status_grace_s: 0.5'))
+    probe = Probe('sim', clock, feed.settings(directory=tmp_path, user=False))
+    probe.status(status('perception/sim/tracker', [('grid_age_s', '0.2'), ('hz', '10')]))
+    clock.t = 1.0
+    assert probe.facts()['perc.sim.costmap_age'].value == pytest.approx(0.7)   # grace 0.5, not 1.5
+    clock.t = 2.5
+    assert probe.facts()['perc.sim.hz'].value == 0                              # silent after 2 s, not 5

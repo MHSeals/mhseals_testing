@@ -3,8 +3,9 @@
 ``Probe.status`` takes one DiagnosticStatus of /perception/status (``name`` is
 ``perception/<source>/<stage>``, stage ``backend``, ``tracker`` or ``heading``;
 perception-v2.md section 7.2), ``Probe.diagnostic`` one of /diagnostics. Missing keys
-leave their fact out. A source that stays silent longer than ``rate_window`` reads 0 Hz
-instead of vanishing, so a dead or unreachable camera host turns the rate row red. Time
+leave their fact out. A source that stays silent longer than ``silence_s`` reads 0 Hz
+instead of vanishing, so a dead or unreachable camera host turns the rate row red. The
+timings are the ``probes: perception`` settings of config/health/perception.yaml. Time
 comes from an injected monotonic clock so tests need no sleeping.
 """
 
@@ -14,8 +15,6 @@ from collections import deque
 from mhseals_testing.health.model import Fact
 from mhseals_testing.perception import zed_diag
 
-RATE_WINDOW = 5.0           # s of silence before a stage reads 0 Hz and its facts drop
-STATUS_GRACE = 1.5          # s a 1 Hz stage may be quiet before the costmap age grows with it
 HISTORY = 30                # samples kept for sparks and the clock offset
 DROPS = ('drop_stale', 'drop_reorder', 'drop_malformed')
 HEADING = {0: 'ok', 1: 'warn', 2: 'error', 3: 'stale'}
@@ -37,7 +36,7 @@ class Source:
     def __init__(self):
         self.stages = {}                       # stage -> (receive time, level, message, values)
         self.latency = deque(maxlen=HISTORY)   # backend p50 in s, one per sample
-        self.funnel = deque()                  # (time, hz, total drops) inside rate_window
+        self.funnel = deque()                  # (time, hz, total drops) inside silence_s
         self.offsets = deque(maxlen=HISTORY)   # clock offsets in s
         self.classes = {}                      # class -> deque of mean confidence
 
@@ -45,8 +44,10 @@ class Source:
 class Probe:
     """Maps the stage keys of every source to facts; ``source`` is the one the profile expects."""
 
-    def __init__(self, source, clock, rate_window=RATE_WINDOW):
-        self.source, self.clock, self.rate_window = source, clock, rate_window
+    def __init__(self, source, clock, settings):
+        self.source, self.clock = source, clock
+        self.rate_window = float(settings['silence_s'])     # silence before 0 Hz; facts drop
+        self.grace = float(settings['status_grace_s'])      # quiet tracker before the grid ages
         self.started = clock()
         self.sources = {source: Source()}
         self.zed = None                        # (receive time, zed_diag.parse result)
@@ -132,7 +133,7 @@ class Probe:
             seen, _, _, v = src.stages['tracker']
             age = number(v, 'grid_age_s')
             if age is not None:
-                put('costmap_age', age + max(0.0, now - seen - STATUS_GRACE))
+                put('costmap_age', age + max(0.0, now - seen - self.grace))
         if backend and 'ids' in backend[3]:
             share = number(tracker[3], 'id_assoc_share') if tracker else None
             put('ids', backend[3]['ids'], **({} if share is None else {'id_assoc_share': share}))

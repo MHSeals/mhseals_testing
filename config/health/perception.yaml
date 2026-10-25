@@ -6,6 +6,10 @@
 # 0 Hz, so a dead or unreachable camera host fails the rate row instead of skipping.
 # A source is added by one row under each; its profiles list says where it runs.
 group: Perception
+probes:
+  # silence_s: seconds without a stage before it reads 0 Hz and its other facts drop;
+  # status_grace_s: seconds a 1 Hz tracker stage may be quiet before the costmap age grows
+  perception: {period: 1, silence_s: 5.0, status_grace_s: 1.5}
 defaults: {severity: warn, missing: skip}
 checks:
   - id: perc.{source}.rate

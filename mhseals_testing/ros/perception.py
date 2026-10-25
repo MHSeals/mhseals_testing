@@ -12,12 +12,17 @@ from mhseals_testing.perception.probe import Probe
 
 STATUS = '/perception/status'
 DIAGNOSTICS = '/diagnostics'
-PERIOD = 1.0      # s between fact publishes
 
 
 def source_name(profile):
     """The perception.yaml source a profile's backend is."""
     return 'sim' if profile.use_sim_time else 'zed_native'
+
+
+def settings(profile=None, directory=None, user=None):
+    """The ``probes: perception`` mapping of the health YAML (period, silence_s, status_grace_s)."""
+    from mhseals_testing.health import config
+    return config.load(directory, profile=profile, user=user).probes['perception']
 
 
 def observe_status(probe, message, info=None):
@@ -42,10 +47,11 @@ def observe_diagnostics(probe, message):
 def subscribe_detections(ros, facts, profile):
     """Subscribe the two status topics on ``ros.node`` and publish the facts once a second."""
     from diagnostic_msgs.msg import DiagnosticArray
-    probe = Probe(source_name(profile), time.monotonic)
+    probe_settings = settings(profile)
+    probe = Probe(source_name(profile), time.monotonic, probe_settings)
     ros.node.create_subscription(
         DiagnosticArray, STATUS, lambda message, info: observe_status(probe, message, info), 10)
     ros.node.create_subscription(
         DiagnosticArray, DIAGNOSTICS, lambda message: observe_diagnostics(probe, message), 10)
-    ros.node.create_timer(PERIOD, lambda: facts.publish('perception', probe.facts()))
+    ros.node.create_timer(float(probe_settings['period']), lambda: facts.publish('perception', probe.facts()))
     return probe
