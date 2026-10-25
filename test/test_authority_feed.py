@@ -421,9 +421,12 @@ def test_plant_reuses_upfront_mux_publisher_and_unmuxed_hold_is_silent(tmp_path)
 def test_a_task_the_mission_procedure_started_is_not_a_second_source(tmp_path):
     app, _ = make_app(tmp_path)
     feed, _ = start(app, [1000.0])
-    app._watcher = SimpleNamespace(status={'name': 'pair_test', 'status': 'RUNNING'})
-    app.processes.processes = {'task_pair_test': object()}
-    app.processes.running = lambda name: True
+    app._watcher = SimpleNamespace(status={'task': 'pair_test', 'status': 'RUNNING'})
+    app.running = 'mission'
+    app.processes.running = lambda name: name == 'task_pair_test'
     assert feed.sources()['task'] is None
-    app.processes.running = lambda name: False                        # someone else's task still counts
-    assert feed.sources()['task']['name'] == 'pair_test'
+    app._watcher.status = {'task': 'docking', 'status': 'RUNNING'}   # someone else's task
+    assert feed.sources()['task']['task'] == 'docking'
+    app._watcher.status = {'task': 'pair_test', 'status': 'RUNNING'}
+    app.running = None                                                # no mission: not ours
+    assert feed.sources()['task']['task'] == 'pair_test'

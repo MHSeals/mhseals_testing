@@ -53,9 +53,11 @@ class AuthorityFeed:
         if procedure and own:
             procedure['task'] = own[0][len('task_'):]     # Mission started it: the procedure's implicit claim
         task = getattr(getattr(app, '_watcher', None), 'status', None) or None
-        if task and any(name.startswith('task_') and app.processes.running(name)
-                        for name in app.processes.processes):
-            task = None                        # a task the mission procedure started is the procedure's own
+        # The task our Mission procedure started is the procedure's own; any other conflicts.
+        # run_task's status names it 'task'.
+        name = task and (task.get('task') or task.get('name'))
+        if name and app.running == 'mission' and app.processes.running(f'task_{name}'):
+            task = None
         topic = MUX_INPUT if muxed(app.profile) else app.profile.command_topic
         age = None if self.cmd_at is None else self.clock() - self.cmd_at
         publishers = self.ros.endpoints(topic) if hasattr(self.ros, 'endpoints') else []
