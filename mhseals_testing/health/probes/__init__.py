@@ -86,6 +86,18 @@ def staleness_facts(current):
     return {'calibration.stale': Fact(len(flagged), label=', '.join(flagged))}
 
 
+def dead_facts(current):
+    """``calibration.dead``: stored directions whose latest fit got no response (label = which).
+
+    Absent until a fit has been recorded, so no characterization reads as unknown, not as clean.
+    """
+    directions = current.get('directions') if isinstance(current, dict) else None
+    if not isinstance(directions, dict) or not directions:
+        return {}
+    dead = sorted(d for d, entry in directions.items() if isinstance(entry, dict) and entry.get('dead'))
+    return {'calibration.dead': Fact(len(dead), label=', '.join(dead))}
+
+
 def invalid_facts(current, hardware, history=None):
     """``calibration.invalid``: directions whose stored fit no longer matches the hardware (label = which)."""
     from mhseals_testing import calibration

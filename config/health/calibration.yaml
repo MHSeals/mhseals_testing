@@ -29,3 +29,18 @@ checks:
     title: Calibration invalid
     message: 'Fitted under different hardware: {label}'
     hint: Rerun Characterize (Correction r)
+
+  # A dead thruster still finishes routes in the plant study, but overshoots goals by 0.77 m:
+  # no autonomous runs until Characterize sees every direction respond.
+  - id: calib.dead
+    kind: threshold
+    fact: calibration.dead
+    below: false
+    warn: 0.5
+    fail: 0.5
+    severity: fail
+    raise_after: 0      # the stored fit says it; no debounce
+    gates: [w, s, t]
+    title: Dead thruster direction
+    message: 'No response in Characterize: {label}'
+    hint: A thruster direction gave no response in Characterize; check the thruster before autonomous runs

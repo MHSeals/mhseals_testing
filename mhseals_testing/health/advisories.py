@@ -105,9 +105,10 @@ class Health:
         return rows(self.specs, report, self._seen)
 
     def calibration(self):
-        """calibration.stale and calibration.invalid from calibration/current.json."""
+        """calibration.stale, .invalid and .dead from calibration/current.json."""
         current = calibration.load()
-        return {**probe_module.staleness_facts(current), **probe_module.invalid_facts(current, self.hardware())}
+        return {**probe_module.staleness_facts(current), **probe_module.invalid_facts(current, self.hardware()),
+                **probe_module.dead_facts(current)}
 
     def sample_git(self):
         """Start the git worker on first use and publish whatever it has sampled."""

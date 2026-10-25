@@ -96,11 +96,12 @@ def new_fit(now=None):
     return {'id': 'f' + now.strftime('%Y%m%dT%H%M%S'), 'time': now.isoformat(timespec='seconds')}
 
 
-def record_fit(names, fit, hardware, *, context=None, conditions=None, path=None, fields=None):
+def record_fit(names, fit, hardware, *, context=None, conditions=None, path=None, fields=None, dead=()):
     """``record`` every direction in ``names`` under one ``fit`` stamp.
 
     ``context`` is what the app knows ({session, run, config, battery_v, muted}); ``conditions``
-    is the water summary the fit was made under. Missing pieces are simply left out.
+    is the water summary the fit was made under. Missing pieces are simply left out. Each entry
+    says whether its direction was ``dead`` (no response) in this fit; a later fit replaces it.
     """
     context = context or {}
     fit = {**fit, **{k: context[k] for k in ('session', 'run', 'config') if context.get(k)}}
@@ -109,7 +110,8 @@ def record_fit(names, fit, hardware, *, context=None, conditions=None, path=None
         extra['battery_v'] = context['battery_v']
     if conditions:
         extra['conditions'] = conditions
-    return {n: record(n, fit, hardware, extra=extra, path=path, fields=fields) for n in names}
+    return {n: record(n, fit, hardware, extra={**extra, 'dead': n in dead}, path=path, fields=fields)
+            for n in names}
 
 
 def load(path=None):

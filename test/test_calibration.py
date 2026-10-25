@@ -121,6 +121,30 @@ def test_invalid_fact_and_check(tmp_path):
     assert set(spec.gates) == {'w', 's', 't'}
 
 
+def test_dead_direction_fails_the_motion_gate_until_a_clean_fit(tmp_path):
+    import dataclasses
+    from mhseals_testing.health.config import load
+    from mhseals_testing.health.engine import Engine
+    from mhseals_testing.health.probes import dead_facts
+    spec = next(s for s in load(None, None).specs if s.id == 'calib.dead')
+    assert set(spec.gates) == {'w', 's', 't'}
+
+    def gate(current):
+        facts = {k: dataclasses.replace(v, time=10.0) for k, v in dead_facts(current).items()}
+        engine = Engine([spec], {'calibration': 1.0}, clock=lambda: 10.0)
+        engine.tick(facts, {'calibration': (10.0, None)})
+        return engine.last[spec.id].status, engine.gate('t')
+
+    path = tmp_path / 'c.json'
+    cal.record_fit(['sway-', 'yaw+'], cal.new_fit(), HW, path=path, dead=['yaw+'])
+    status, (blocking, _) = gate(cal.load(path))
+    assert status == 'fail' and blocking and 'yaw+' in blocking[0]
+    cal.record_fit(['yaw+'], cal.new_fit(), HW, path=path)              # a clean refit of that direction
+    assert gate(cal.load(path))[0] == 'ok'
+    status, (blocking, warnings) = gate({})                              # never characterized: unknown
+    assert status == 'unknown' and not blocking and warnings
+
+
 def test_scope_of_real_characterization_keys():
     """The nested keys mhseals_hardware stores are run calibrations; the derived limits stay derived."""
     for key in ('characterization.speed_curves', 'characterization.speed_curves.surge+.d1',

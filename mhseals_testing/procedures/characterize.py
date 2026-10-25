@@ -341,7 +341,8 @@ def _record_calibration(ctx, refined, fit, water, config, history):
         context = dict((services.get('fit_context') or dict)())
         head = history.head('hardware') if history else None
         calibration.record_fit(list(refined), fit, load_config(config), path=services.get('calibration_path'),
-                               context=dict(context, config=head['id'] if head else None), conditions=water)
+                               context=dict(context, config=head['id'] if head else None), conditions=water,
+                               dead=[name for name, found in refined.items() if found.get('dead')])
     except Exception as error:
         if services.get('warn'):
             services['warn'](f'Calibration provenance could not be recorded: {error}')
