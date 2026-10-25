@@ -37,6 +37,7 @@ from mhseals_testing.harness import host, index, journal, runs, session as sessi
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
+from mhseals_testing.harness.remote import Units
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
 from mhseals_testing.runner import STALE_MUX_S, override_cause
@@ -60,8 +61,8 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
-    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, perception,
-    popups, theme)
+    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, parts,
+    perception, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -235,8 +236,10 @@ class App:
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None, nav2_live=None,
-                 review=None, network=None, recorder=None, ekf=None, quiet_run=None):
+                 review=None, network=None, recorder=None, ekf=None, quiet_run=None, stack=None):
         self.args = args
+        self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
+        self.keep_units = False   # Quit's 'keep remote parts': their leases run out instead
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -349,6 +352,8 @@ class App:
             return snapshot
         if self.nav2_file is not None:
             snapshot['components'] = [self.nav2_file.row()]
+        if self.stack is not None:
+            snapshot['components'] = snapshot.get('components', []) + parts.feed(self)
         if self.source.live:    # a past session shows no live control state
             snapshot['control'] = self.control()
             if not self.watching:
@@ -931,6 +936,10 @@ class App:
         if self.draft is not None:
             rows.append(('Mapping', 'unsaved changes'))
             options = ['Save mapping and quit', 'Quit without saving', 'Cancel']
+        remote = [] if self.watching else parts.quit_rows(self)
+        if remote:            # asked once; Quit (the default) stops them
+            rows += remote
+            options.insert(-1, 'Quit, keep remote parts running')
         try:
             choice = self.choose('Quit', options, {'y': 0, 'n': len(options) - 1}, rows=rows,
                                  default=len(options) - 1, width=72)
@@ -938,6 +947,7 @@ class App:
             return
         if choice == 'Cancel':
             return
+        self.keep_units = choice == 'Quit, keep remote parts running'
         if choice == 'Save mapping and quit':
             channel_map, reversed_ = self.mapping()
             if not self.save_hardware(channel_map=channel_map, reversed=reversed_):
@@ -956,7 +966,7 @@ class App:
         if self.args.review is not None:
             return  # nothing of ours to flush; the session's report must not be rewritten
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
-                 ('Report', self.close_report), ('Tracking', self.close_tracking),
+                 ('Remote parts', self.close_units), ('Report', self.close_report), ('Tracking', self.close_tracking),
                  ('Calibration', self.close_calibration),
                  ('Recording', self.close_recording), ('Index', self.close_index)]
         if self.detaching:   # the children and the recording go on under the next owner
@@ -1001,6 +1011,11 @@ class App:
         for name in names:
             self.processes.stop(name)
         return f"stopped {', '.join(names)}" if names else 'none running'
+
+    def close_units(self):
+        """Stop the units we hold on other computers (Quit's default), or leave them to their lease."""
+        units = getattr(self.stack, 'units', None)
+        return units.close(stop=not self.keep_units) if units is not None else 'none'
 
     def close_report(self):
         self.ros.emit('session_stop')
@@ -1563,6 +1578,8 @@ class App:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
                 if row.get('source') == 'sensor' and row['name'] == 'odometry':
                     return self.open('odometry')
+                if row.get('source') == 'part' and not self.watching:
+                    return parts.toggle(self, row['key'])
                 if row['name'] == 'Driving':
                     return self.open('authority')
                 if row['name'] == 'Hold':
@@ -2692,7 +2709,11 @@ def main(argv=None):
     stack_items = components(profile, overlay)
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
-    stack = Stack(stack_items, processes, time.monotonic)
+    # Parts on other computers run as units there; a watcher reads them but keeps none alive.
+    units = Units(stack_items, by=dict(host=profile.placed[0].name if stack_items else '',
+                                       pid=os.getpid(), session=str(paths.directory)),
+                  renew=not watching).begin()
+    stack = Stack(stack_items, processes, time.monotonic, units)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = authority = desk = None
@@ -2726,7 +2747,7 @@ def main(argv=None):
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
                   registry=registry, watching=watching, facts=facts,
                   nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
-                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app))
+                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack)
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))

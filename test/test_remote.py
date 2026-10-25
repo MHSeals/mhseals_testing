@@ -1,0 +1,144 @@
+"""Remote parts: the ssh argv, the unit commands, and Units over a fake ssh and the real unit CLI."""
+
+import json
+import shlex
+import subprocess
+import sys
+
+import pytest
+
+from mhseals_testing.devices import Host
+from mhseals_testing.harness import remote
+from mhseals_testing.harness.components import Component
+from mhseals_testing.harness.remote import Units, reason, ssh_argv, unit_command
+
+JETSON = Host('blastoise-jetson', address='192.168.0.153', user='roboboat', container='roboboat_dev',
+              via='tranquility')
+GATEWAY = Host('tranquility', address='192.168.0.2', user='peace', container='roboboat_dev')
+
+
+def item(part='camera', host=JETSON, argv=('ros2', 'launch', 'mhseals_nav', 'device.launch.py',
+                                            'device:=jetson', 'only:=camera'), kind='sensing'):
+    return Component(part, part.capitalize(), tuple(argv), host=host, part=part, profile='jetson',
+                     kind=kind)
+
+
+@pytest.fixture(autouse=True)
+def runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path / 'run'))
+    (tmp_path / 'run').mkdir()
+
+
+def test_ssh_argv_reaches_the_container_with_the_operator_key_through_the_jump(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'cfg'))
+    argv = ssh_argv(JETSON, 'echo hi', GATEWAY)
+    assert argv[0] == 'ssh' and 'BatchMode=yes' in argv and f'ConnectTimeout={remote.CONNECT_S}' in argv
+    assert f'ControlPath={tmp_path}/run/mhseals/ssh-%C' in argv
+    assert str(tmp_path / 'cfg/mhseals/ssh/id_ed25519') in argv
+    jump = next(arg for arg in argv if arg.startswith('ProxyCommand='))
+    assert '-W %h:%p peace@192.168.0.2' in jump and 'id_ed25519' in jump
+    assert argv[-8:-1] == ['roboboat@192.168.0.153', 'docker', 'exec', '-i', 'roboboat_dev', 'bash', '-c']
+    assert shlex.split(argv[-1]) == ['echo hi']     # one word for the remote shell
+
+
+def test_the_commander_argument_is_only_set_when_asked():
+    plain = shlex.split(unit_command('start', 'mhseals-camera', ('ros2', 'launch', 'x'), {'host': 'a'}))
+    assert '--commander' not in plain and plain[plain.index('--') + 1:] == ['ros2', 'launch', 'x']
+    assert '--commander' in shlex.split(unit_command('start', 'mhseals-nav', ('x',), commander=True))
+    assert shlex.split(unit_command('stop', 'mhseals-camera'))[-2:] == ['stop', 'mhseals-camera']
+
+
+@pytest.mark.parametrize('stderr, short', [
+    ('ssh: connect to host 192.168.0.153 port 22: Connection timed out', 'ssh: timeout'),
+    ('roboboat@192.168.0.153: Permission denied (publickey).', 'ssh: key refused'),
+    ('Error response from daemon: container abc is not running', 'ssh: container stopped'),
+    ('', 'ssh: exit 255')])
+def test_failures_read_as_a_short_reason(stderr, short):
+    assert reason(stderr, 255) == short
+
+
+class FakeSsh:
+    def __init__(self):
+        self.calls, self.reply, self.error = [], {}, None
+
+    def __call__(self, host, command, jump, timeout):
+        self.calls.append((host.name, command, jump.name if jump else None))
+        if self.error:
+            return [], self.error
+        return [dict(self.reply.get(word, {}), unit=word) for word in self.reply
+                if 'status' in command], None
+
+
+def test_a_running_unit_is_adopted_then_renewed_and_unreachable_is_not_off():
+    ssh = FakeSsh()
+    units = Units([item()], hosts={'tranquility': GATEWAY}, run=ssh)
+    ssh.reply = {'mhseals-camera': {'state': 'running'}}
+    units.refresh()
+    assert units.status(item()) == ({'unit': 'mhseals-camera', 'state': 'running'}, None)
+    assert units.held_by_host() == {'blastoise-jetson': ['Camera']}
+    assert ssh.calls[0][2] == 'tranquility' and 'renew' not in ssh.calls[0][1]
+    units.refresh()
+    assert 'renew mhseals-camera' in ssh.calls[1][1] and ssh.calls[1][1].endswith('status')
+    ssh.error = 'ssh: timeout'
+    units.refresh()
+    assert units.status(item()) == (None, 'ssh: timeout')
+    assert units.held_by_host() == {'blastoise-jetson': ['Camera']}   # still renewed once it answers
+
+
+def test_a_watching_tui_reads_status_but_keeps_nothing_alive():
+    ssh = FakeSsh()
+    ssh.reply = {'mhseals-camera': {'state': 'running'}}
+    units = Units([item()], hosts={'tranquility': GATEWAY}, run=ssh, renew=False)
+    units.refresh()
+    units.refresh()
+    assert units.held_by_host() == {} and not any('renew' in call[1] for call in ssh.calls)
+
+
+def test_a_host_without_ssh_is_unreachable_without_a_call():
+    vlp = Host('vlp16', address='192.168.0.201', ssh=False)
+    ssh = FakeSsh()
+    units = Units([item(host=vlp)], run=ssh)
+    units.refresh()
+    assert units.status(item(host=vlp)) == (None, 'no ssh to vlp16') and ssh.calls == []
+
+
+def local(host, command, jump, timeout):
+    """ssh + docker exec stood in for by this machine: the real unit CLI runs here."""
+    command = command.replace('python3 -m', f'{shlex.quote(sys.executable)} -m')
+    done = subprocess.run(['bash', '-c', command], capture_output=True, text=True, timeout=timeout)
+    results = [json.loads(line) for line in done.stdout.splitlines() if line.startswith('{')]
+    return (results, None) if results or done.returncode == 0 else ([], reason(done.stderr, done.returncode))
+
+
+def test_start_adopt_renew_and_stop_through_the_real_unit_cli():
+    sleeper = item('sleeper', argv=('sleep', '60'))
+    first = Units([sleeper], hosts={'tranquility': GATEWAY}, run=local, by={'host': 'operator'})
+    first.do_start(sleeper, False)
+    assert first.take_notices() == ['Sleeper started on blastoise-jetson (mhseals-sleeper)']
+    record, error = first.status(sleeper)
+    assert error is None and record['state'] == 'running' and record['by'] == {'host': 'operator'}
+    second = Units([sleeper], hosts={'tranquility': GATEWAY}, run=local)      # another TUI
+    second.refresh()
+    assert second.held_by_host() == {'blastoise-jetson': ['Sleeper']}       # adopted
+    second.refresh()                                                         # renews it
+    assert first.close(stop=True) == 'stopped Sleeper'
+    second.refresh()
+    assert second.status(sleeper)[0]['state'] == 'exited' and second.held_by_host() == {}
+
+
+def test_a_commander_unit_is_refused_without_the_go_ahead():
+    nav = item('navigation', argv=('bash', '-c', 'sleep 60', 'navigation.launch.py'), kind='commander')
+    units = Units([nav], hosts={'tranquility': GATEWAY}, run=local)
+    units.do_start(nav, False)
+    assert units.status(nav) == (None, None)
+    assert 'can command motion' in units.take_notices()[0]
+    units.do_start(nav, True)
+    assert units.status(nav)[0]['commander'] is True
+    assert units.close(stop=True) == 'stopped Navigation'
+
+
+def test_a_driver_is_refused_even_with_the_go_ahead():
+    driver = item('pwm', argv=('ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node'), kind='commander')
+    units = Units([driver], hosts={'tranquility': GATEWAY}, run=local)
+    units.do_start(driver, True)
+    assert units.status(driver) == (None, None) and 'never runs as a unit' in units.take_notices()[0]
