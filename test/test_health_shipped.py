@@ -105,6 +105,32 @@ def test_boat_profile_has_no_camera_or_detections_row():
     assert 'camera' not in names and 'detections' not in names and 'tracks' in names
 
 
+def graph(names, observations=(), tracks=()):
+    from mhseals_testing.health.probes.graph import topic_fact_name
+    return {'graph.nodes': Fact(list(names)),
+            topic_fact_name('/perception/observations'): Fact({'pub': list(observations), 'sub': []}),
+            topic_fact_name('/perception/tracks'): Fact({'pub': list(tracks), 'sub': []})}
+
+
+def test_camera_liveness_needs_the_camera_hosts_wrapper_backend_and_tracker(nav_share):
+    from types import SimpleNamespace
+    from mhseals_testing.profiles import load_profile
+    ids = ('node.camera', 'pub.observations', 'pub.tracks')
+    specs = [replace(s, raise_after=0.0) for s in load(profile=load_profile('boat'), user=False).specs if s.id in ids]
+    assert {s.id for s in specs} == set(ids)
+    backend = SimpleNamespace(node='/zed_backend', qos={}, type='')
+    tracker = SimpleNamespace(node='/object_tracker', qos={}, type='')
+
+    def status(*args):
+        results = Engine(specs).tick(graph(*args), {'graph': (0, None)}).results
+        return tuple(results[i].status for i in ids)
+    assert status(['/front/zed_node', '/zed_backend', '/object_tracker'], [backend], [tracker]) == ('ok',) * 3
+    assert status(['/zed_backend', '/object_tracker'], [backend], [tracker]) == ('warn', 'ok', 'ok')
+    assert status(['/front/zed_node'], [backend, backend], []) == ('ok', 'warn', 'warn')
+    sim = {s.id for s in load(profile=load_profile('crane_full_stack'), user=False).specs}
+    assert not set(ids) & sim
+
+
 def test_negative_zed_native_clock_offset_is_judged_by_magnitude():
     from mhseals_testing.profiles import load_profile
     config = load(profile=load_profile('boat'), user=False)

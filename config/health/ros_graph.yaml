@@ -24,6 +24,9 @@ checks:
       - {name: mavros_state, topic: /mavros/state, gates: [motion]}
       - {name: gps, topic: /gps/fix}
       - {name: imu, topic: /imu/raw}
+      # the camera host's backend and tracker (perception v2); endpoints only, nothing is subscribed
+      - {name: observations, topic: /perception/observations, profiles: [boat]}
+      - {name: tracks, topic: /perception/tracks, profiles: [boat]}
   - id: qos.{name}
     kind: endpoints
     qos: true
@@ -33,6 +36,11 @@ checks:
       - {name: rtcm, topic: /mavros/gps_rtk/send_rtcm, forbid_qos: [lifespan]}   # lifespan + skew drops RTCM
       - {name: detections, topic: /detections}
   - {id: type.detections, kind: endpoints, topic: /detections, type: true}
+  - id: node.camera                       # the camera host's ZED wrapper, not anything running here
+    kind: nodes
+    require: [/front/zed_node]
+    profiles: [boat]
+    hint: The camera host or its ZED container is down, or off domain 42; the Network row pings it.
   - id: graph.legacy                      # a Foxy container on our domain
     kind: nodes
     legacy: true

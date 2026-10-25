@@ -40,7 +40,7 @@ class Profile:
                      'nodes': ['ekf_local'], 'start': True},
         'navigation': {'launch': ['mhseals_nav', 'navigation.launch.py'], 'nodes': ['bt_navigator'],
                        'needs': ['odometry']},
-        'camera': {'remote': 'squirtle', 'nodes': ['zed_detections_converter']},
+        'camera': {'remote': 'camera-host', 'nodes': ['zed_node']},
     }
 
 
@@ -58,7 +58,9 @@ def test_argv_and_shipped_profiles():
     boat = {item.key: item for item in components(load_profile('boat'))}
     # Same graph as the Orin: no rosbridge args, or the converter drops to websocket mode.
     assert not any('rosbridge' in arg or 'ws://' in arg for arg in boat['objects'].argv)
-    assert boat['camera'].remote == 'squirtle' and not boat['camera'].argv
+    assert boat['camera'].remote and not boat['camera'].argv
+    # Up follows the camera host's own wrapper; the converter runs here under objects.
+    assert boat['camera'].nodes == ('zed_node',)
     sim = load_profile('crane_full_stack')
     assert 'sim:=true' in components(sim)[0].argv and 'fcu:=false' in components(sim)[0].argv
     assert load_profile('crane_direct').components is None
@@ -107,11 +109,17 @@ def test_external_is_never_stopped():
     stack, processes, _ = make()
     with pytest.raises(ComponentError, match='running outside this session'):
         stack.stop('odometry', {'ekf_local'})
-    with pytest.raises(ComponentError, match='squirtle'):
+    with pytest.raises(ComponentError, match='camera-host'):
         stack.start('camera', set())
     with pytest.raises(ComponentError, match='outside'):
-        stack.stop('camera', {'zed_detections_converter'})
+        stack.stop('camera', {'/front/zed_node'})
     assert processes.stopped == []
+
+
+def test_camera_is_up_only_with_the_camera_hosts_wrapper():
+    stack, _, _ = make()
+    assert stack.state('camera', {'/zed_detections_converter'}) == ('off', '')
+    assert stack.state('camera', {'/front/zed_node'}) == ('external', 'camera-host')
 
 
 def test_stop_ours_stops_dependants_first():

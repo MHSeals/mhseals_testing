@@ -25,10 +25,9 @@ components:
   objects: {launch: [mhseals_nav, objects.launch.py],
             args: {sim: 'false'},
             nodes: [object_tracker]}
-  # The ZED node runs on the Orin and shares this graph: zed_detections_converter subscribes
-  # /front/zed_node/obj_det/objects directly. Objects therefore takes no rosbridge_url (it
-  # would switch the converter to legacy websocket mode, for the retiring JP5 host only).
-  camera: {remote: squirtle, nodes: [zed_detections_converter], topic: /detections}
+  # The ZED wrapper runs on the camera host and shares this graph. Up means its own node is
+  # present; the converter runs here under objects, so it cannot say the camera host is alive.
+  camera: {remote: blastoise-jetson, nodes: [zed_node], topic: /detections}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
