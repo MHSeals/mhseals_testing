@@ -11,7 +11,7 @@ MISSING = ('unknown', 'skip', 'fail')                   # policy when a needed f
 class Fact:
     """One named measurement published by a probe."""
     value: object                # scalar, bool, str or small dict
-    label: str = ''              # who or what the value is about ("squirtle", "/gps/fix")
+    label: str = ''              # who or what the value is about ("blastoise-jetson", "/gps/fix")
     data: dict = field(default_factory=dict)
     time: float = 0.0            # monotonic time of collection
 

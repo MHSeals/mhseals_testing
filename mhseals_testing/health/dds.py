@@ -2,8 +2,8 @@
 
 An endpoint gid is a 16-byte RTPS GUID: a 12-byte participant prefix plus a
 4-byte entity id. Fast DDS puts vendor and host id in prefix bytes 0-3, so
-participants of one host share those bytes (verify once on the boat that
-squirtle and blastoise differ). A participant with no endpoint is invisible.
+participants of one host share those bytes (verify once on the boat that the
+boat computer and the camera host differ). A participant with no endpoint is invisible.
 """
 
 from fnmatch import fnmatchcase
