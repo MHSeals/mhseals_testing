@@ -232,14 +232,17 @@ def main(argv=None):
     begin.add_argument('--lease-s', type=float, default=LEASE_S)
     begin.add_argument('--by', default='{}')
     begin.add_argument('--commander', action='store_true', help=argparse.SUPPRESS)  # TUI-internal
-    begin.add_argument('command', nargs=argparse.REMAINDER)
     verbs.add_parser('status').add_argument('unit', nargs='?')
     verbs.add_parser('renew').add_argument('unit')
     verbs.add_parser('stop').add_argument('unit')
+    argv = sys.argv[1:] if argv is None else list(argv)
+    command = []
+    if '--' in argv:         # the part's argv is never parsed here, options before it always are
+        at = argv.index('--')
+        argv, command = argv[:at], argv[at + 1:]
     args = parser.parse_args(argv)
     try:
         if args.verb == 'start':
-            command = args.command[1:] if args.command[:1] == ['--'] else args.command
             results = [start(args.unit, command, args.lease_s, json.loads(args.by), args.commander)]
         elif args.verb == 'status':
             results = [status(args.unit)] if args.unit else statuses()

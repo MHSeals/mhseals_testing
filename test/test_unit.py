@@ -133,6 +133,14 @@ def test_the_commander_argument_is_not_in_the_help(capsys):
     assert '--commander' not in capsys.readouterr().out
 
 
+def test_the_cli_keeps_options_before_the_part_argv(capsys):
+    assert unit.main(['start', 'mhseals-sleeper', '--lease-s', '30', '--by', '{"host": "a"}',
+                      '--', *SLEEP]) == 0
+    started = json.loads(capsys.readouterr().out)
+    assert started['argv'] == SLEEP and started['lease_s'] == 30.0 and started['by'] == {'host': 'a'}
+    assert unit.main(['stop', 'mhseals-sleeper']) == 0
+
+
 def test_lease_expired(tmp_path):
     lease = tmp_path / 'l'
     assert lease_expired(lease, 10, 0)
