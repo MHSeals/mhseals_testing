@@ -58,6 +58,7 @@ checks:
     config = specs(tmp_path, text, profile=boat)
     assert [s.id for s in config.specs] == ['cmd']
     assert config.specs[0].params.topic == boat.command_topic
+    assert [s.id for s in specs(tmp_path, text, profile=boat.with_velocity_control()).specs] == ['cmd']
 
 
 def test_regex_braces_and_message_fields_survive(tmp_path):

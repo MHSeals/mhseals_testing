@@ -214,6 +214,11 @@ def _merge(base, extra):
     return base
 
 
+def _profile_in(profile, names):
+    """Whether ``profile`` is listed; ``boat+velocity`` (with_velocity_control) counts as ``boat``."""
+    return profile.name in names or profile.name.split('+', 1)[0] in names
+
+
 def load(directory=None, profile=None, user=None):
     """Specs and probe settings from every ``*.yaml`` in ``directory`` plus the user file.
 
@@ -233,7 +238,7 @@ def load(directory=None, profile=None, user=None):
             if not isinstance(join, dict) or not isinstance(join.get('id'), str):
                 raise ConfigError(f'{path}: every join must be a mapping with an id, got {join!r}')
             names = join.get('profiles') or ()
-            if profile is None or not names or profile.name in ((names,) if isinstance(names, str) else names):
+            if profile is None or not names or _profile_in(profile, (names,) if isinstance(names, str) else names):
                 joins.setdefault(str(data.get('group', path.stem)).lower(), []).append(join['id'])
         defaults = _section(data, 'defaults', dict, path)
         for entry in _section(data, 'checks', list, path):
@@ -260,7 +265,7 @@ def load(directory=None, profile=None, user=None):
         raw = {**raw, **changes.get(raw.get('id'), {})}
         names = raw.get('profiles') or ()
         names = (names,) if isinstance(names, str) else tuple(names)
-        if profile is not None and names and profile.name not in names:
+        if profile is not None and names and not _profile_in(profile, names):
             continue
         if any(fnmatchcase(str(raw.get('id')), pattern) for pattern in disabled):
             raw['enabled'] = False
