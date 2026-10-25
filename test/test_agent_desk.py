@@ -41,8 +41,10 @@ class Goal:
 
 
 class Nav2:
+    """No costmap until a fetch, like ros.nav2.Nav2 (whose first lease drops the old grid)."""
+
     def __init__(self):
-        self.goal, self.costmap_time = None, time.monotonic()
+        self.goal, self.costmap_time, self.costmap_delay = None, None, 0.0
 
     def lifecycle(self, timeout=2.0):
         return dict.fromkeys(('bt_navigator', 'controller_server', 'planner_server', 'velocity_smoother'),
@@ -52,6 +54,7 @@ class Nav2:
         return (0.0, 0.0, 0.0)
 
     def fetch_costmap(self, timeout=2.0):
+        self.costmap_time = time.monotonic() - self.costmap_delay
         info = SimpleNamespace(width=100, height=100, resolution=0.5,
                                origin=SimpleNamespace(position=SimpleNamespace(x=-25.0, y=-25.0)))
         return SimpleNamespace(info=info, data=[0] * 10000)
@@ -723,11 +726,25 @@ def test_procedure_names_and_keys_resolve():
 @pytest.mark.parametrize('fcu, status, row, fix', [
     (False, 0, 'LIVE', 3), (False, 0, 'WARN', 3), (False, 2, 'LIVE', 5), (False, -1, 'LIVE', 0),
     (False, 0, 'STALE', 0), (True, 0, 'LIVE', 6)])
-def test_the_goal_fix_comes_from_gpsraw_with_an_fcu_else_from_the_navsat_status(rig, fcu, status, row, fix):
+def test_the_sim_goal_fix_comes_from_gpsraw_with_an_fcu_else_from_the_navsat_status(rig, fcu, status, row, fix):
     snapshot = {'sensors': {'odometry': {'status': 'LIVE', 'age': 0.1},
                             'GPS': {'status': row, 'values': {'status': status}}}}
     rig.app.monitor.snapshot, rig.app.profile.uses_fcu = lambda: snapshot, fcu
+    rig.app.profile.use_sim_time = True
     assert agent_acts.goal_facts(rig.app).fix == fix
+
+
+@pytest.mark.parametrize('fcu', [False, True])
+@pytest.mark.parametrize('gpsraw, fix', [(None, 0), (0, 0), (2, 2), (3, 3)])
+def test_a_boat_goal_needs_the_mavros_fix_even_without_an_fcu_and_with_a_navsat_fix(rig, fcu, gpsraw, fix):
+    snapshot = {'sensors': {'odometry': {'status': 'LIVE', 'age': 0.1},
+                            'GPS': {'status': 'LIVE', 'values': {'status': 2}}}}
+    rig.app.monitor.snapshot, rig.app.profile.uses_fcu = lambda: snapshot, fcu
+    rig.app.profile.use_sim_time = False
+    rig.app.facts = {} if gpsraw is None else {'gps.fix_type': SimpleNamespace(value=gpsraw)}
+    assert agent_acts.goal_facts(rig.app).fix == fix
+    if fix < 3:
+        assert 'below 3D' in agent_acts.goals_module.gate(agent_acts.goal_facts(rig.app))
 
 
 def test_a_goal_the_gates_refuse_never_asks_allow(rig):
@@ -762,3 +779,14 @@ def test_recent_keeps_finished_and_refused_acts_after_act_clears(rig):
     rig.app.settings.agent_motion = 'allow'
     ask(rig, 'goal', c, x=5, y=0)
     assert rig.desk.summary()['act']['motion_s'] == 10
+
+
+def test_goal_freshness_is_judged_on_the_grid_fetched_for_it(rig):
+    c = claim(rig)
+    rig.app.nav.costmap_delay = 60.0     # the fetch returns a grid received a minute ago
+    reply = final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])
+    assert reply['result']['gate'] == 'global costmap is stale'
+    rig.app.settings.agent_motion = 'allow'
+    reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
+    assert reply['error'] == 'refused' and reply['hint'] == 'global costmap is stale'
+    assert rig.app.nav.goal is None and rig.app.goals.active is None

@@ -7,6 +7,7 @@ timed ``popup.choose`` for the confirm and ``ask`` popups. ``dry_run`` evaluates
 and returns them without moving anything.
 """
 
+from dataclasses import replace
 import math
 import threading
 import time
@@ -146,15 +147,23 @@ def goal_facts(app, lifecycle=None):
         lifecycle = nav2.lifecycle(timeout=0.5) if nav2 is not None else {}
     sensors = app.monitor.snapshot()['sensors']
     odometry = sensors.get('odometry', {})
-    fix = app.facts.get('gps.fix_type')
-    fix = (int(fix.value) if fix is not None else 0) if app.profile.uses_fcu else navsat_fix(app.profile, sensors)
-    costmap_at = getattr(nav2, 'costmap_time', None)
+    if app.profile.uses_fcu or app.profile.use_sim_time is not True:  # a real boat needs MAVROS's 3D fix
+        fix = app.facts.get('gps.fix_type')
+        fix = int(fix.value) if fix is not None else 0
+    else:
+        fix = navsat_fix(app.profile, sensors)
     driving = app.running or ('manual control' if app.manual else '')
     return goals_module.Facts(
         live=bool(app.source.live), owner=not app.watching, nav_running=set(NAV_NODES) <= nodes,
         lifecycle=lifecycle, unit=app.profile.command_units, armed=bool(app.armed), driving=driving or '',
         pose_age_s=odometry.get('age', math.inf) if odometry.get('status') == 'LIVE' else math.inf,
-        fix=fix, costmap_age_s=time.monotonic() - costmap_at if costmap_at is not None else math.inf)
+        fix=fix, costmap_age_s=costmap_age(nav2))
+
+
+def costmap_age(nav2):
+    """Receipt age of ``nav2``'s last costmap in seconds; inf when it has none."""
+    at = getattr(nav2, 'costmap_time', None)
+    return time.monotonic() - at if at is not None else math.inf
 
 
 def navsat_fix(profile, sensors):
@@ -202,6 +211,7 @@ def _plan(app, goal, facts, timeout=2.0):
         return None, None, None, str(error)
     if pose is None or cells is None:
         return None, None, None, 'no map pose' if pose is None else 'no costmap'
+    facts = replace(facts, costmap_age_s=costmap_age(nav2))  # judged on the grid just fetched
     path, reason = app.goals.preview(goal, pose[:2], cells, facts, timeout=timeout)
     if reason:
         return pose[:2], cells, None, reason
@@ -220,7 +230,8 @@ def goal_send(app, goal, facts, claim, cancelled=lambda: None):
     """
     boat, cells, path_m, reason = _plan(app, goal, facts)
     reason = reason or cancelled()
-    if reason is None:
+    if reason is None:  # the same grid, now aged by the planner call
+        facts = replace(facts, costmap_age_s=costmap_age(nav2_of(app)))
         reason = app.goals.send(goal, boat, cells, facts, claim, path_m)
     return (None, reason) if reason else (path_m, None)
 
