@@ -48,15 +48,15 @@ DEFAULTS = {
              r'|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
              r'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
              r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*'
-             r'\b(mavros|command_mux|\w*watchdog|thruster_pwm\w*|\w*velocity_controller)\b',
-             r'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|thruster_pwm\w*|\w*velocity_controller)'
+             r'\b(mavros|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)\b',
+             r'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)'
              r'/(set_parameters\w*|load_parameters|change_state)\b',
              r'ros2\s+bag\s+play\b(?!.*--topics\b)',
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
              r'\b(pkill|killall)\b',
-             r'\bkill\b.*\b(command_mux|\w*watchdog|thruster_pwm\w*|velocity_controller)\b']}
+             r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|velocity_controller)\b']}
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
 # Why a denied command is denied and the verb that does it through the claim, first match wins.

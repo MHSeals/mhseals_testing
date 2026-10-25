@@ -73,6 +73,9 @@ def test_the_private_dir_is_user_only_and_not_shared_tmp(tmp_path, monkeypatch):
      'ask'),
     ('ros2 service call /fence_watchdog/change_state lifecycle_msgs/srv/ChangeState "{transition: {id: 4}}"', 'ask'),
     ('ros2 service call /mavros/set_parameters rcl_interfaces/srv/SetParameters "{}"', 'ask'),
+    ('ros2 param set /approach_guard enforce false', 'ask'),     # it holds the mux like a watchdog
+    ('ros2 service call /approach_guard/set_parameters rcl_interfaces/srv/SetParameters "{}"', 'ask'),
+    ('ssh blastoise kill $(pgrep -f approach_guard)', 'stop'),
     # a bag replays motion unless --topics leaves the motion topics out
     ('ros2 bag play bags/run1', 'run KEY'),
     ('ros2 bag play bags/run1 --topics /odom /cmd_vel_nav', 'run KEY'),

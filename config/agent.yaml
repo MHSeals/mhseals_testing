@@ -23,10 +23,10 @@ hook:
   deny: ['ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
          'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
          'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
-         'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(mavros|command_mux|\w*watchdog|thruster_pwm\w*|\w*velocity_controller)\b',
-         'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|thruster_pwm\w*|\w*velocity_controller)/(set_parameters\w*|load_parameters|change_state)\b',
+         'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(mavros|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)\b',
+         'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)/(set_parameters\w*|load_parameters|change_state)\b',
          'ros2\s+bag\s+play\b(?!.*--topics\b)',
          'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
          'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
          '\b(pkill|killall)\b',
-         '\bkill\b.*\b(command_mux|\w*watchdog|thruster_pwm\w*|velocity_controller)\b']
+         '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|velocity_controller)\b']
