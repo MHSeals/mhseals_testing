@@ -147,16 +147,3 @@ def _header_lock(directory):
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield
 
-
-def persist_startup_selection(directory, reference):
-    """Owner-only write-once metadata, preserving unrelated session fields."""
-    file = Path(directory) / 'session.json'
-    with _header_lock(directory):
-        header = data.read_json(file)
-        if not isinstance(header, dict):
-            raise ValueError('session header missing')
-        previous = header.get('startup_selection')
-        if previous is not None and previous != reference:
-            raise ValueError('session configuration reference is immutable')
-        header['startup_selection'] = reference
-        data.write_json(file, header, SCHEMA)

@@ -97,7 +97,7 @@ class Watcher:
             if watched.apply is not None:
                 result = watched.apply(value)
                 if isinstance(result, dict):
-                    if result.get('status') in ('next_session', 'live_until_rearm', 'unknown'):
+                    if result.get('status') in ('next_session', 'unknown'):
                         warning = result['detail']
                     failed = (result.get('ok') is False or result.get('error')
                               or result.get('status') in ('failed', 'refused', 'blocked', 'partial'))

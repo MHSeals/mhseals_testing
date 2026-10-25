@@ -25,7 +25,7 @@ setup(
     version='0.0.0',
     packages=find_packages(exclude=['test']),
     data_files=data_files,
-    install_requires=['mhseals_config>=0.1.0', 'setuptools', 'rich', 'PyYAML', 'numpy', 'Pillow', 'pyserial>=3.5', 'pyubx2>=1.3.9', 'pyrtcm', 'pymavlink>=2.4.41'],
+    install_requires=['setuptools', 'rich', 'PyYAML', 'numpy', 'Pillow', 'pyserial>=3.5', 'pyubx2>=1.3.9', 'pyrtcm', 'pymavlink>=2.4.41'],
     zip_safe=True,
     author='MHS Seals',
     description='Boat test suite for sensors, actuation, navigation and perception',

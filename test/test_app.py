@@ -1182,14 +1182,10 @@ def pins_app(tmp_path, monkeypatch, states):
     return app, processes, seen
 
 
-@pytest.mark.parametrize('differs', [False, True])
-def test_pins_popup_saves_restarts_only_the_driver_and_confirms_sysfs(
-        tmp_path, monkeypatch, differs):
+def test_pins_popup_saves_restarts_only_the_driver_and_confirms_sysfs(tmp_path, monkeypatch):
     app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
-    app.differs_from_selection = lambda config: differs
     app.dispatch('M')
     assert app.notice.startswith('Pins saved; driver restarted, sysfs showed')
-    assert ('restart the TUI' in app.notice) is differs
     assert load_config(app.args.config)['pwm_channels'] == [1, 0, 0, 0]
     # Only the driver ran, and only for the readback: disarmed again, nothing holds the ESCs.
     assert processes.started == ['hardware'] == processes.stopped

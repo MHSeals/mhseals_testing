@@ -45,7 +45,7 @@ def sensor_argv(profile_args=None, overlay_args=None, route='sensors', use_sim_t
     assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
                        for key in ('odometry', 'sensors')}
     overlay['sensors'] = overlay_args or {}
-    return next(item.argv for item in components(boat, overlay, selection=None)
+    return next(item.argv for item in components(boat, overlay)
                 if item.key == 'sensors')
 
 

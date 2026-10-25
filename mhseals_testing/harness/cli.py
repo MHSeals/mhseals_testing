@@ -132,7 +132,7 @@ def build_parser():
     sub.add_parser('profiles', help='explain shipped profile command/sensor/output paths')
     course = sub.add_parser('course', help='compile course YAML to cached Unity JSON')
     course.add_argument('source', metavar='NAME|YAML')
-    config = sub.add_parser('config', help='read-only configuration inventory')
+    config = sub.add_parser('config', help='read-only parameter inventory')
     catalog = config.add_subparsers(dest='config_command', required=True).add_parser('catalog')
     catalog.add_argument('--json', metavar='PATH|-', help='write JSON to PATH, or - for stdout')
     return parser
@@ -156,18 +156,18 @@ def main(argv=None, collect=None):
         print(path)
         return 0
     if args.command == 'config':
-        from mhseals_testing.catalog_inspect import installed, text
-        view = installed()
-        encoded = json.dumps(view, indent=2)
+        from mhseals_testing import schema
+        found, missing = schema.rows()
+        encoded = json.dumps(dict(missing=missing, keys=[dict(package=p, key=k, **e) for p, k, e in found]),
+                             indent=2)
         if args.json == '-':
             print(encoded)
         else:
             if args.json:
                 with open(args.json, 'w') as output:
                     output.write(encoded + '\n')
-            print(text(view))
-        return 2 if any(p['status'] not in ('available', 'missing-optional')
-                        for p in view['packages']) else 0
+            print(schema.text(found, missing))
+        return 2 if missing else 0
     try:
         profile = load_profile(args.profile)
         config = health_config.load(profile=profile)

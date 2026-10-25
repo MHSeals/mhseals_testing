@@ -8,32 +8,27 @@ from launch.conditions import UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 import yaml
 
 
 def navigation_nodes(context):
-    from mhseals_nav.startup_snapshot import select_snapshot
-    from mhseals_nav.startup_projection import resource_paths, SERVERS
+    from mhseals_nav.startup_projection import compile_navigation, SERVERS
     from launch.actions import RegisterEventHandler
     from launch.event_handlers import OnShutdown
-    selection = select_snapshot(
-        LaunchConfiguration('config_root').perform(context),
-        LaunchConfiguration('config_scope').perform(context),
+    parameters = compile_navigation(
         LaunchConfiguration('params_file').perform(context),
         LaunchConfiguration('limits_file').perform(context),
         sim=LaunchConfiguration('sim').perform(context),
         use_lidar=LaunchConfiguration('use_lidar').perform(context),
-        config_candidate=LaunchConfiguration('config_candidate').perform(context) or None,
-        resources=resource_paths(FindPackageShare('mhseals_nav').perform(context)))
+        share=FindPackageShare('mhseals_nav').perform(context))
     handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
     with handle:
-        yaml.safe_dump(selection['parameters'], handle)
+        yaml.safe_dump(parameters, handle)
     source = handle.name
     cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(
         function=lambda _: os.unlink(source) if os.path.exists(source) else None)]))
     servers = [(package, name) for package, name in SERVERS
-               if name in selection['parameters']]
+               if name in parameters]
     nodes = []
     for package, executable in servers:
         remaps = []
@@ -62,10 +57,6 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
-        DeclareLaunchArgument('config_candidate', default_value=''),
-        DeclareLaunchArgument('config_root', default_value=snapshot_root()),
-        DeclareLaunchArgument('config_scope', default_value=snapshot_scope(),
-                             description='Reuse for an exact partial restart'),
         DeclareLaunchArgument('sim', default_value='true'),
         DeclareLaunchArgument('limits_file', default_value='',
                              description='Overlay (measured limits, ~/.config/mhseals/nav2.yaml) merged with params_file'),

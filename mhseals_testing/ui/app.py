@@ -30,7 +30,6 @@ from mhseals_hardware.configuration import (
     config_path, config_sha, configure_args, load_config, save_config, update_config)
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
-from mhseals_hardware.startup_config import plain
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
@@ -650,15 +649,6 @@ class App:
     def load_hardware(self, _path):
         return load_config(self.args.config)
 
-    def differs_from_selection(self, config):
-        """True when ``config`` is not what the next arm will build the driver from."""
-        selection = getattr(self.arming, 'selection', None)
-        if selection is None or 'hardware' not in selection.domains:
-            return False
-        session = plain(selection.validate().documents['hardware-pure']['effective'])
-        return {k: v for k, v in config.items() if k != 'output_backend'} != {
-            k: v for k, v in session.items() if k != 'output_backend'}
-
     def apply_hardware(self, config):
         """Take ``config`` and report what the hardware did with it, not just that it was saved."""
         driven = self.armed and self.profile.outputs != 'none'
@@ -669,10 +659,7 @@ class App:
         self.args.hardware_config = config
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
-        differs = self.differs_from_selection(config)
-        if not driven:   # Arming.begin rebuilds the driver from the selection, not from this file
-            if differs:
-                return dict(status='next_session', detail='next session, not applied')
+        if not driven:
             return dict(status='saved')
         sha = config_sha(load_config(self.paths.hardware))
         end = time.monotonic() + 4.0   # the driver polls the file at 1 Hz
@@ -688,8 +675,6 @@ class App:
                 time.sleep(0.1)
             if key in ('space', 'escape', 'press:space', 'press:escape'):
                 self.stop('stopped by operator')
-                if differs:
-                    return dict(status='next_session', detail='next session, not applied')
                 return dict(status='saved')
         error = status.get('error') or ''
         if error or status.get('pending_restart_keys'):
@@ -700,8 +685,6 @@ class App:
             return dict(status='next_session', detail='controller: restart-only, not applied')
         if config.get('command_mux') != previous.get('command_mux'):
             return dict(status='unknown', detail='mux applies at idle/hold; not confirmed')
-        if differs:
-            return dict(status='live_until_rearm', detail='live until re-arm')
         return dict(status='applied')
 
     def warn_history(self, message):
@@ -2119,10 +2102,7 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         if self.armed:
             self.arming.disarm()
-            # "live until re-arm" ended with that driver; re-arm builds from the selection
-            differs = self.differs_from_selection(self.args.hardware_config)
-            self.watcher.watches['hardware'].warning = (
-                'next session, not applied' if differs else None)
+            self.watcher.watches['hardware'].warning = None
             self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'
 
@@ -2599,18 +2579,12 @@ def main(argv=None):
             profile.name, directory=args.output,
             clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
             kind='sim' if profile.use_sim_time else 'boat').directory)
-    from mhseals_testing.startup_owner import prepare_session
     overlay = stack_overlay(profile, args)
     if args.save_config:
         if choice.mode != 'own':
             raise ValueError('--save-config requires a fresh owner session')
         save_config(load_config(args.config), args.config)
-    selection = prepare_session(profile, args, paths.directory, choice.mode, overlay)
-    if selection is not None and 'hardware' in selection.domains:
-        from mhseals_hardware.startup_config import plain
-        args.hardware_config = plain(selection.validate().documents['hardware-pure']['effective'])
-    else:
-        args.hardware_config = load_config(args.config)
+    args.hardware_config = load_config(args.config)
     # rclpy's own SIGINT handler would shut ROS down before the graceful close could
     # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
@@ -2627,12 +2601,12 @@ def main(argv=None):
     facts = Facts()
     ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
-    stack_items = components(profile, overlay, selection)
+    stack_items = components(profile, overlay)
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
-    stack = Stack(stack_items, processes, time.monotonic, selection)
+    stack = Stack(stack_items, processes, time.monotonic)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
-    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, selection=selection)
+    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware)
     app = authority = None
     try:
         for name, child in choice.children.items():

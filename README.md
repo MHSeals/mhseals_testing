@@ -77,6 +77,4 @@ make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`.
 
-Read-only configuration inventory: `boat_trial config catalog` (`--json -` for JSON),
-or TUI **Config → Catalog**. Defaults/compiled requests are never live verification.
-See [catalog usage and evidence limits](docs/catalog.md) for navigation and errors.
+Parameter inventory from each installed `config/schema.yaml`: `boat_trial config catalog` (`--json -`) or TUI **Config → Catalog**.

@@ -45,18 +45,16 @@ def edit_pins(app):
         return f'Pins not saved: {app.notice}'
     if app.profile.outputs != 'odroid' or app.arming is None:
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
-    config = load_config(app.args.config)   # the file just saved, not the session's snapshot
+    config = load_config(app.args.config)
     try:
         confirmed = app.arming.restart_driver(config, lambda: readback(config))
     except RuntimeError as error:
         return f'Pins saved; driver not restarted: {error}'
-    later = ('; this session still arms with its own pins, restart the TUI to use them'
-             if app.differs_from_selection(config) else '')
     if confirmed:
         return ('Pins saved; driver restarted, sysfs showed the new channels enabled, driver '
-                f'stopped again (MOSFET line not read back){later}')
+                f'stopped again (MOSFET line not read back)')
     return ('Pins saved; driver restarted; sysfs readback did not show the new channels '
-            f'enabled: check the driver log{later}')
+            f'enabled: check the driver log')
 
 
 def readback(config):

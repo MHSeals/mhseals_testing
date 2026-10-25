@@ -64,8 +64,7 @@ def test_selected_servers_and_overlay_handling(nav_root, tmp_path, monkeypatch, 
         limits.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.3\n')
     nodes = factory(nav_root, tmp_path / 'share')({
         'params_file': str(nav_root / 'config/nav2_params.yaml'),
-        'limits_file': '~/limits.yaml', 'config_root': str(tmp_path / 'snapshots'),
-        'config_scope': 'servers', 'config_candidate': '', 'sim': 'true', 'use_lidar': 'true'})
+        'limits_file': '~/limits.yaml', 'sim': 'true', 'use_lidar': 'true'})
     launched = [node['executable'] for node in nodes if 'package' in node
                 and node['package'] != 'nav2_lifecycle_manager']
     assert list(assigned_list(PACKAGE / 'ros/nav2.py', 'SERVERS')) == launched

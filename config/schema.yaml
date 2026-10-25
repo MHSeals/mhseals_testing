@@ -1,0 +1,17 @@
+# Keys the TUI displays. One entry per key: type, units (docs/config-conventions.md R2), tier,
+# doc, and range [lo, hi] only where a validator enforces exactly that range.
+# characterize.yaml and tracking.yaml are read when a session starts.
+characterize.levels: {type: list, units: "1", tier: new-session, doc: "Survey amplitudes as fractions of the run amplitude, high then low."}
+characterize.neutral_s: {type: float, units: s, tier: new-session, doc: "Neutral time at the start for the wave floor and drift."}
+characterize.transient_s: {type: float, units: s, tier: new-session, doc: "Time skipped at the start of each hold."}
+characterize.coast_s: {type: float, units: s, tier: new-session, doc: "Neutral time skipped after a hold for the coast-down."}
+characterize.sync_s: {type: float, units: s, tier: new-session, doc: "Neutral time for the driver to pick up a rewritten matrix before a hold."}
+characterize.min_response.surge: {type: float, units: m/s, tier: new-session, doc: "Smallest surge response that counts as the boat moving."}
+characterize.min_response.sway: {type: float, units: m/s, tier: new-session, doc: "Smallest sway response that counts as the boat moving."}
+characterize.min_response.yaw: {type: float, units: rad/s, tier: new-session, doc: "Smallest yaw response that counts as the boat moving."}
+tracking.score.k: {type: float, units: "1", tier: new-session, doc: "Noise-floor weight in the live tracking score."}
+tracking.score.green: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is green."}
+tracking.score.yellow: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is yellow."}
+tracking.stale.min_sessions: {type: int, units: count, tier: new-session, doc: "Sessions on one calibration before staleness is judged."}
+tracking.stale.low_score: {type: float, units: "1", tier: new-session, doc: "Weighted mean score below this flags the calibration as stale."}
+tracking.live.window_s: {type: float, units: s, tier: new-session, doc: "Sliding window the Motion header scores over."}

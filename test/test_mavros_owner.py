@@ -29,7 +29,6 @@ def launch_factory(nav_root, name):
         LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
     from mhseals_nav.navigation_config import persistent_limits_path
     from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
-    from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 
     class Configuration:
         def __init__(self, name):
@@ -65,7 +64,7 @@ def launch_factory(nav_root, name):
               PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
               FindPackageShare=lambda package: str(nav_root),
               persistent_limits_path=persistent_limits_path,
-              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope,
+             
               ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS,
               endpoint_from_launch=endpoints, endpoint_boolean=endpoint_boolean,
               ENDPOINT_LAYERS=ENDPOINT_LAYERS, UNSET_GCS=UNSET_GCS)
@@ -89,7 +88,7 @@ def boat_argv(profile_args, overlay_args, launch='odom.launch.py'):
     assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
                        for key in ('odometry', 'sensors')}
     overlay['odometry'].update(overlay_args)
-    return next(item.argv for item in components(boat, overlay, selection=None)
+    return next(item.argv for item in components(boat, overlay)
                 if item.key == 'odometry')
 
 

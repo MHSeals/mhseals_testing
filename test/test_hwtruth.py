@@ -1,6 +1,5 @@
 """The Config row reports what the thruster driver did with a hardware edit."""
 
-from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -8,7 +7,6 @@ import yaml
 
 from mhseals_hardware.configuration import config_sha, load_config, load_defaults
 from mhseals_testing.harness import bags
-from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.popups import config as config_popup
 
 from test_app import make_app
@@ -35,19 +33,11 @@ class Ros:
 
 @pytest.fixture
 def rig(tmp_path, monkeypatch):
-    from mhseals_testing.harness import session
-    from mhseals_testing.startup_owner import prepare_session
-
-    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'store'))
     operator = tmp_path / 'operator.yaml'
     operator.write_text(yaml.safe_dump(load_defaults()))
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack', '--config', str(operator)])
-    profile = replace(load_profile('crane_full_stack'), components={})
-    created = session.create('hardware', directory=tmp_path / 'session')
-    selection = prepare_session(
-        profile, SimpleNamespace(config=str(operator)), created.directory, 'own', {})
     app.ros = Ros(app.paths.hardware)
-    app.arming = SimpleNamespace(selection=selection, armed=False, hardware_config=None,
+    app.arming = SimpleNamespace(armed=False, hardware_config=None,
                                  disarm=lambda: setattr(app.arming, 'armed', False))
     monkeypatch.setattr('mhseals_testing.ui.app.time.sleep', lambda s: None)
     return app, operator
@@ -63,23 +53,21 @@ def row(app):
     return config_popup.rows(app.watcher, 0)[0][1]
 
 
-def test_disarmed_edit_is_next_session_not_applied(rig):
+def test_disarmed_edit_is_saved_for_the_next_arm(rig):
     app, operator = rig
-    assert app.watcher.reload('hardware').ok and row(app).startswith(config_popup.GLYPH['ok'])
     edit(operator, command_timeout=0.9)
     assert app.watcher.reload('hardware').ok
-    assert 'next session, not applied' in row(app) and config_popup.GLYPH['ok'] not in row(app)
+    assert app.args.hardware_config['command_timeout'] == 0.9
+    assert app.arming.hardware_config['command_timeout'] == 0.9
+    assert row(app).startswith(config_popup.GLYPH['ok'])
 
 
-def test_armed_tier1_edit_is_live_until_rearm_and_disarm_marks_next_session(rig):
+def test_armed_edit_is_confirmed_by_the_driver_readback(rig):
     app, operator = rig
     app.arming.armed = True
     edit(operator, command_timeout=0.9)
     assert app.watcher.reload('hardware').ok
-    assert 'live until re-arm' in row(app)
-    app.disarm()
-    assert 'next session, not applied' in row(app)
-    assert not row(app).startswith(config_popup.GLYPH['ok'])
+    assert row(app).startswith(config_popup.GLYPH['ok'])
 
 
 def test_space_during_the_driver_wait_disarms(rig):
@@ -90,7 +78,7 @@ def test_space_during_the_driver_wait_disarms(rig):
     app.plant = None
     edit(operator, command_timeout=0.9)
     app.watcher.reload('hardware')
-    assert not app.arming.armed and 'next session, not applied' in row(app)
+    assert not app.arming.armed
 
 
 def test_driver_refusal_is_a_rejection(rig):

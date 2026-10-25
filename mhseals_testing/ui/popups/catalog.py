@@ -1,7 +1,7 @@
-"""Scrollable read-only inventory using the same view as boat_trial config catalog."""
+"""Scrollable read-only parameter inventory from each package's installed config/schema.yaml."""
 import json
 
-from mhseals_testing.catalog_inspect import installed
+from mhseals_testing import schema
 
 
 def details(app, label, record):
@@ -18,20 +18,25 @@ def details(app, label, record):
     app.popup(modal, handle)
 
 
+def summary(entry):
+    span = f" [{entry['range'][0]}, {entry['range'][1]}]" if 'range' in entry else ''
+    return f"{entry['type']} {entry.get('units', '')}{span} · {entry['tier']}"
+
+
 def open_catalog(app, view=None):
-    """All packages, families and leaves remain reachable in narrow terminals."""
-    view = installed() if view is None else view
-    items = [(f"Coverage: {item['owner']}", item) for item in view['packages']]
-    items += [(row['key'], row) for row in view['rows']]
-    items.insert(0, ('Selection', view['selection']))
+    """Every package and key remains reachable in narrow terminals; ``view`` is schema.rows()."""
+    found, missing = schema.rows() if view is None else view
+    items = [(f'{package}', dict(status='not available', reason=why)) for package, why in missing.items()]
+    items += [(f'{package}: {key}', entry) for package, key, entry in found]
+    items = items or [('No schemas', dict(status='no package installs a config/schema.yaml'))]
     state = dict(selected=0)
     modal = dict(kind='message', title='Catalog (read only)', width=76,
-                 message=view['selection']['label'], hint='Up/Down select · Enter details · Esc back')
+                 hint='Up/Down select · Enter details · Esc back')
 
     def refresh():
         label, record = items[state['selected']]
-        modal['rows'] = [(label, record.get('status', repr(record.get('default', ''))))]
-        modal['message'] = f"{state['selected'] + 1}/{len(items)} · {view['selection']['label']}"
+        modal['rows'] = [(label, record['status'] if 'status' in record else summary(record))]
+        modal['message'] = f"{state['selected'] + 1}/{len(items)} · {record.get('doc', '')}"
         modal['scroll'] = 0
 
     def handle(key):
