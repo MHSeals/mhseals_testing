@@ -1437,14 +1437,14 @@ class App:
         elif self.moving():
             self.notice = 'Not while moving'
         else:
-            note = self.text_input(f'Marker {number}', 'Note, Enter saves, Esc keeps it bare')
+            note = self.text_input(f'Marker {number}', 'Note for the marker (optional)')
             if note:
                 self.ros.emit('marker_note', id=number, note=note)
 
     def text_input(self, title, message):
         """A one-line text popup; the typed text on Enter, None on Esc."""
         modal = dict(kind='input', title=title, message=message, text='', width=64,
-                     hint=f'Enter save{theme.SEPARATOR}Esc cancel')
+                     placeholder='add a note', hint=f'Enter save{theme.SEPARATOR}Esc keeps it bare')
 
         def handle(key):
             if key == 'enter':
@@ -2057,8 +2057,8 @@ class App:
                default=0, width=64, risky=None):
         return popups.choose(self, title, options, shortcuts, message, danger, rows, default, width, risky)
 
-    def ask_text(self, title, message, text=''):
-        return popups.ask_text(self, title, message, text)
+    def ask_text(self, title, message, text='', check=None):
+        return popups.ask_text(self, title, message, text, check)
 
     def type_word(self, title, message, word, rows=None, width=64):
         return popups.type_word(self, title, message, word, rows, width)

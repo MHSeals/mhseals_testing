@@ -25,7 +25,7 @@ def parse_pins(text):
     except ValueError:
         raise ValueError('numbers only') from None
     if len(numbers) != 5:
-        raise ValueError('need 4 channels and the MOSFET line')
+        raise ValueError(f'need 5 numbers (4 channels, the MOSFET line), got {len(numbers)}')
     if min(numbers) < 0:
         raise ValueError('numbers must not be negative')
     return dict(pwm_channels=numbers[:4], mosfet_line=numbers[4])
@@ -36,7 +36,7 @@ def edit_pins(app):
     if app.armed or (app.arming and app.arming.pending is not None):
         return 'Pins refused: disarm first, pins move real outputs'
     text = app.ask_text('Thruster pins', 'PWM channels 1-4 then MOSFET line',
-                        pin_text(app.args.hardware_config))
+                        pin_text(app.args.hardware_config), parse_pins)
     if text is None:
         return 'Pins unchanged'
     try:

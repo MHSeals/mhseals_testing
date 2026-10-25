@@ -83,7 +83,7 @@ def test_popup_overlays_the_page():
     modal = dict(kind='choice', title='Arm', message='Real outputs.', options=['Cancel', 'Arm'],
                  keys=['n', 'y'], selected=1, hint='Enter choose')
     page = text(render(monitor().snapshot(), view(profile, modal=modal), 100, 30), 100, 30)
-    assert '› y Arm' in page and 'n Cancel' in page and 'Status' in page
+    assert '[ n Cancel ]   [▸y Arm ↵]' in page and 'Status' in page
 
 
 @pytest.mark.parametrize('width,height', [(80, 24), (120, 40)])

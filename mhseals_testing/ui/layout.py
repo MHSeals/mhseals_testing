@@ -23,7 +23,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing.harness import recwatch
-from mhseals_testing.ui import chrome, rtk_row, theme
+from mhseals_testing.ui import chrome, rtk_row, theme, widgets
 from mhseals_testing.ui.panels import scrubber
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
@@ -217,25 +217,33 @@ def popup(modal, width, height=None):
         for label, value in modal['rows']:
             rows.add_row(str(label), str(value))
         head.append(rows)
+    panel_width = min(width - 4, modal.get('width', 64))
+    inner = panel_width - 4
+    hint = modal.get('hint')
     if modal['kind'] == 'choice':
         if head:
             tail.append(Text(''))
-        for index, option in enumerate(modal['options']):
-            key = modal.get('keys', [None] * len(modal['options']))[index]
-            line = Text(f'{key} ' if key else '', style=f'bold {theme.ACCENT}')
-            line.append_text(Text.from_markup(option) if '[' in option else Text(option))
-            tail.append(theme.selected(line, index == modal['selected']))
+        options = modal['options']
+        lines = widgets.choice_list(options, modal.get('keys', [None] * len(options)), modal['selected'],
+                                    modal.get('risky', ()), inner)
+        if len(lines) == 1 and len(options) > 1 and hint:   # one row of buttons: arrows go sideways
+            hint = hint.replace(theme.pick('↑↓', 'Up/Down'), theme.pick('←→', 'Left/Right'))
+        tail += lines
+        if modal.get('countdown'):
+            tail.append(widgets.countdown(*modal['countdown']))
     elif modal['kind'] == 'input':
-        tail += [Text(''),
-                 Text('> ', style=f'bold {theme.ACCENT}') + Text(modal['text'] + theme.FILL)]
-        if modal.get('note'):
-            bad = modal.get('state') == 'bad'
-            tail.append(Text(('! ' if bad else '') + modal['note'], style=theme.WARN if bad else theme.MUTED))
-    panel_width = min(width - 4, modal.get('width', 64))
-    inner = panel_width - 4
+        word = modal.get('word')
+        if word:
+            tail.append(widgets.word_field(modal['text'], word))
+            if modal['text'] == word:
+                hint = f'Enter {word.lower()}{theme.SEPARATOR}Esc cancel'
+        else:
+            tail.append(widgets.field(modal['text'], width=modal.get('field_width', inner),
+                                      placeholder=modal.get('placeholder', ''),
+                                      state=modal.get('state', 'idle'), note=modal.get('note', ''),
+                                      suffix=modal.get('suffix', '')))
     body = Group(*head)
     modal['clipped'] = False
-    hint = modal.get('hint')
     if height is not None:
         total, pinned = _height(body, inner), _height(Group(*tail), inner)
         if total + pinned > height - 2:

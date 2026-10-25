@@ -153,17 +153,31 @@ def edit(text, key, upper=False):
     return text
 
 
-def ask_text(app, title, message, text=''):
-    """Edit one line of text in a popup; None when cancelled."""
+def ask_text(app, title, message, text='', check=None):
+    """Edit one line of text in a popup; None when cancelled.
+
+    ``check(text)`` runs per key; its ValueError is shown under the field and Enter is ignored
+    while it fails, so the popup stays open on an invalid value.
+    """
     modal = dict(kind='input', title=title, message=message, text=text, danger=False,
                  rows=None, width=64, hint=f'Enter apply{theme.SEPARATOR}Esc cancel')
 
+    def validate():
+        if check is not None:
+            try:
+                check(modal['text'])
+                modal['state'], modal['note'] = 'ok', ''
+            except ValueError as error:
+                modal['state'], modal['note'] = 'bad', str(error)
+
     def handle(key):
         if key == 'enter':
-            return modal['text']
+            return None if modal.get('state') == 'bad' else modal['text']
         if key == 'escape':
             return False
         modal['text'] = edit(modal['text'], key)
+        validate()
+    validate()
     return app.popup(modal, handle) or None
 
 

@@ -1944,6 +1944,9 @@ def test_ask_text_and_type_word_take_space_and_backspace(tmp_path):
         assert app.ask_text('Thruster pins', 'pins', '1 2 3 4 5') == '1 2 3 4 6'
         press(app, 'a', 'space', 'b', 'enter')
         assert app.ask_text('Hardware changed', 'what') == 'a b'
+        from mhseals_testing.ui.popups.pins import parse_pins
+        press(app, 'backspace', 'backspace', 'enter', 'space', '9', 'enter')   # Enter on 4 numbers stays open
+        assert app.ask_text('Thruster pins', 'pins', '1 2 3 4 5', parse_pins) == '1 2 3 4 9'
 
 
 
