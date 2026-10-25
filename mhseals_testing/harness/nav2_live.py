@@ -15,7 +15,7 @@ The sequence, every step able to stop it:
     -> one atomic SetParameters per node, smoother first and at the more
        restrictive limits
     -> per-key GetParameters readback
-    -> no ``not found``/``Invalid`` on /rosout for 2 s
+    -> no ERROR/FATAL (any logger) or ``not found``/``Invalid`` on /rosout for 2 s
     -> hold released with the same token
     -> outcome journaled, history ``applied: live-session``
 

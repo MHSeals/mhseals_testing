@@ -285,6 +285,14 @@ def test_a_bad_rosout_line_rolls_back_the_real_nodes(stack, live):
     assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
 
 
+def test_a_malformed_footprint_logged_by_the_costmap_rolls_back(stack, live):
+    key = 'global_costmap.global_costmap.footprint'
+    before = stack.get('/global_costmap/global_costmap', 'footprint')
+    receipt = live.apply({key: '[[0.1, 0.1], [0.1'})
+    assert receipt['status'] == 'rolled_back' and 'footprint' in receipt['error'], receipt
+    assert stack.get('/global_costmap/global_costmap', 'footprint') == before
+
+
 def test_a_static_mppi_key_the_handler_does_not_own_rolls_back(stack, live):
     stack.ports.log_after[CONTROLLER] = ('controller_server', 'Parameter FollowPath.vx_max not found')
     receipt = live.apply(ask(vx_max=0.35))

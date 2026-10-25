@@ -24,6 +24,7 @@ MUX_REQUEST_TOPIC = '/command_mux/request'
 GOAL_ACTIONS = ('navigate_to_pose', 'navigate_through_poses')
 LIVE_GOAL = (1, 2, 3)           # GoalStatus ACCEPTED, EXECUTING, CANCELING
 BAD_LOG = ('not found', 'invalid')
+ERROR_LEVEL = 40                # rcl_interfaces/Log ERROR; FATAL is 50
 FIRST_SAMPLE_S = 4.0
 # The MPPI parameter handler is called for every parameter of
 # controller_server and warns "Parameter <name> not found" for each one it
@@ -57,11 +58,18 @@ class Rosout:
         return key[len('FollowPath.'):] in SHIM_NAMES
 
     def errors(self, nodes, params):
-        """Return the ``not found``/``Invalid`` lines about what was set."""
+        """Return the ERROR/FATAL lines of any logger (a costmap logs its own
+        parse failures under its own name) and the ``not found``/``Invalid``
+        lines about what was set."""
         found = []
-        for stamp, name, text in list(self.buffer):
+        for stamp, name, text, level in list(self.buffer):
             low = text.lower()
-            if stamp < self.start or not any(b in low for b in BAD_LOG):
+            if stamp < self.start:
+                continue
+            if level >= ERROR_LEVEL:
+                found.append(f'{name}: {text}')
+                continue
+            if not any(b in low for b in BAD_LOG):
                 continue
             about = (any(name.startswith(node) for node in nodes)
                      or any(param in text for param in params))
@@ -101,7 +109,8 @@ class RosPorts(Ports):
                 lambda m, a=action: self.status.__setitem__(a, m), latched)
         node.create_subscription(
             Log, '/rosout',
-            lambda m: self.log.append((self.clock(), m.name, m.msg)),
+            lambda m: self.log.append(
+                (self.clock(), m.name, m.msg, m.level)),
             QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.VOLATILE))
         self.publisher = node.create_publisher(String, MUX_REQUEST_TOPIC, 10)
