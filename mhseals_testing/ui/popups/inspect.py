@@ -367,10 +367,10 @@ def compass_heading(v, site=magnetic.SITE):
 def dial(marks, cols, rows):
     """A braille rose ``cols`` x ``rows`` cells: cardinal letters and ticks, a needle for the first
     mark and radial ticks for the rest. ``marks`` is [(bearing deg or None, style, dotted)]."""
-    grid = sparks.Dots(cols, rows)
-    w, h = cols * 2, rows * 4
+    grid = sparks.Dots(cols, rows, name='inspect.dial')
+    k, w, h = grid.k, cols * grid.sx, rows * grid.sy     # 2 x 4 dots a cell, or 2K x 4K as an image
     cx, cy = (w - 1) / 2, (h - 1) / 2
-    r = min(w / 2 - 3, h / 2 - 5)
+    r = min(w / 2 - 3 * k, h / 2 - 5 * k)
     ring = ticks = grid.layer(theme.PALETTE.style('faint'))
     grid.ring(ring, cx, cy, r)
 
@@ -387,9 +387,9 @@ def dial(marks, cols, rows):
         needle = i == len(marks) - 1
         grid.segment(layer, *at(deg, 0.0 if needle else 0.45), *at(deg, 0.95 if needle else 1.0))
         if dotted:      # shape-coded, so the mark reads without colour
-            layer.difference_update(sorted(layer)[1::2])
-    ccol, crow = int(cx // 2), int(cy // 4)
-    half_cols, half_rows = int(r / 2) + 1, int(r / 4) + 1
+            layer.difference_update(d for i, d in enumerate(sorted(layer)) if (i // k) % 2)
+    ccol, crow = int(cx // grid.sx), int(cy // grid.sy)
+    half_cols, half_rows = int(r / grid.sx) + 1, int(r / grid.sy) + 1
     grid.label(ccol, max(0, crow - half_rows), 'N', f'bold {theme.ACCENT}')
     grid.label(ccol, min(rows - 1, crow + half_rows), 'S', theme.MUTED)
     grid.label(max(0, ccol - half_cols - 1), crow, 'W', theme.MUTED)
@@ -453,23 +453,23 @@ def uncertainty(h_acc, points, cols, rows, style):
     """A to-scale box: the h_acc circle around the centre, positions as dots, and the metres per box.
 
     ``points`` are (east, north) metres from the centre. Returns (rows of Text, half-height m)."""
-    grid = sparks.Dots(cols, rows)
-    w, h = cols * 2, rows * 4
+    grid = sparks.Dots(cols, rows, name='inspect.fix')
+    k, w, h = grid.k, cols * grid.sx, rows * grid.sy
     cx, cy = (w - 1) / 2, (h - 1) / 2
     reach = max([h_acc or 0] + [math.hypot(e, n) for e, n in points])
     half = nice(1.25 * reach) if reach else 1.0
-    ppm = (h / 2 - 1) / half
+    ppm = (h / 2 - k) / half
     cross, dots = grid.layer(theme.MUTED), grid.layer(theme.PALETTE.style('slate'))
     circle = grid.layer(style)
-    grid.segment(cross, cx - 2, cy, cx + 2, cy)
-    grid.segment(cross, cx, cy - 2, cx, cy + 2)
+    grid.segment(cross, cx - 2 * k, cy, cx + 2 * k, cy)
+    grid.segment(cross, cx, cy - 2 * k, cx, cy + 2 * k)
     for e, n in points:
         x, y = round(cx + e * ppm), round(cy - n * ppm)
         if 0 <= x < w and 0 <= y < h:
             dots.add((x, y))
     if h_acc:
         grid.ring(circle, cx, cy, h_acc * ppm)
-    return grid.rows_text(), half, ppm
+    return grid.rows_text(), half, ppm / k     # per braille dot (2 a cell), as the scale bar counts
 
 
 BANDS = {'fix': 'RTK fixed', 'float': 'RTK float', 'dgps': 'DGPS', '3d': '3D', 'none': 'none'}

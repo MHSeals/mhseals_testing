@@ -35,8 +35,7 @@ class Projection:
                 math.floor(self.canvas.dots_high / 2 - dy * self.scale))
 
     def cell(self, point):
-        x, y = self.dot(point)
-        return x // 2, y // 4
+        return self.canvas.cell(*self.dot(point))
 
 
 def arrow(yaw_deg, ascii_=False):
@@ -87,9 +86,9 @@ def draw_motion(proj, o, colour, tracks, ascii_=False):
     line(canvas, p, tip, f'track.vel:{colour}')
     canvas.dot(*tip, f'track.vel:{colour}')
     line(canvas, tip, end, 'track.pred', PRED_PERIOD)
-    if math.hypot((tip[0] - p[0]) / 2, (tip[1] - p[1]) / 4) < HEAD_CELLS:
+    if math.hypot((tip[0] - p[0]) / canvas.sx, (tip[1] - p[1]) / canvas.sy) < HEAD_CELLS:
         return None
-    cell = (tip[0] // 2, tip[1] // 4)
+    cell = canvas.cell(*tip)
     canvas.glyph(*cell, arrow(math.degrees(math.atan2(p[1] - tip[1], tip[0] - p[0])), ascii_),
                  f'track.vel:{colour}')
     return cell

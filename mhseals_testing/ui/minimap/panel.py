@@ -12,11 +12,11 @@ import time
 import numpy as np
 
 from mhseals_testing.analysis.classes import load_classes
-from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import palette, pixels, theme
 from mhseals_testing.ui.minimap import tasks, view
 from mhseals_testing.ui.minimap.cache import LayerCache, Redraw
 from mhseals_testing.ui.minimap.canvas import Canvas
-from mhseals_testing.ui.minimap.emit import emit
+from mhseals_testing.ui.minimap.emit import emit, emit_image
 from mhseals_testing.ui.minimap.frame import draw_accuracy, draw_chrome, draw_rings, ring_step
 from mhseals_testing.ui.minimap.layers import Crumb, Frame, draw_costmap, draw_hits, draw_plan, draw_trail
 from mhseals_testing.ui.minimap.marks import Projection, draw_fov, draw_objects
@@ -103,17 +103,18 @@ def draw(state, cols, rows, half, table=None, ascii_=False, box=None, full=False
     layers = []
     message = state.latest.get('costmap')
     if box is not None and (box.costmap or box.hits) and message is not None:
-        cell = 4 * frame.metres_per_dot   # snap the cached layer's centre to a cell
+        cell = canvas.sy * frame.metres_per_dot   # snap the cached layer's centre to a cell
         centre = (round(x / cell) * cell, round(y / cell) * cell)
         up_q = None if up is None else round(up / YAW_Q) * YAW_Q
-        density = tier in ('16', 'mono') or ascii_
-        layers.append(('costmap', (id(message), cols, rows, half, centre, up_q, box.costmap, box.hits, density),
+        density = (tier in ('16', 'mono') or ascii_) and not pixels.active()   # an image has the tints
+        layers.append(('costmap', (id(message), cols, rows, half, centre, up_q, box.costmap, box.hits, density,
+                                   canvas.k),
                        _costmap_layer(cols, rows, half, centre, up_q, message, box, density)))
     scale = canvas.dots_wide / (2 * half) if half > 0 else 0.0
     rings = full and (box is None or box.rings) and scale > 0
     count = 3 if rows >= 30 else 2
     if rings:
-        layers.append(('rings', (cols, rows, half, count, not slow),
+        layers.append(('rings', (cols, rows, half, count, not slow, canvas.k),
                        lambda: _rings(cols, rows, scale, count, not slow)))
     if layers:
         cache = cache or LayerCache()
@@ -193,8 +194,10 @@ class MiniMap:
 
     def __call__(self, cols, rows, box=None, full=False):
         """The emitted lines of a ``cols`` x ``rows`` view; ``box`` is the Layers box, ``full`` the Map tab."""
-        key = (cols, rows, self.half, full)
+        key = (cols, rows, self.half, full, pixels.GENERATION)
         if key != self._key:
+            if self._key is not None and self._key[-1] != key[-1]:
+                self._lines = None    # a new terminal (pixels.start): the image tier may differ
             self._key = key
             self.redraw.mark()
         self.redraw.mark()   # the state changes under us; the scheduler caps the rate
@@ -210,8 +213,11 @@ class MiniMap:
                 rings = full and self.half > 0 and (box is None or box.rings)
                 self._step = ring_step(rows * 4, cols / self.half) if rings else None
                 self._facts = self._title_facts(state, full)
-                self._lines = emit(canvas, lambda layer: style(layer, self.tier),
-                                   self.tier, ascii=theme.ASCII)
+                if pixels.active():
+                    self._lines = emit_image(canvas, lambda layer: style(layer, 'truecolor'), self.tier)
+                else:
+                    self._lines = emit(canvas, lambda layer: style(layer, self.tier),
+                                       self.tier, ascii=theme.ASCII)
             except Exception:  # one bad frame must not end the session; keep the last lines
                 if self._lines is None:
                     self._lines = []

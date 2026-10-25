@@ -12,7 +12,10 @@ turns chips into reverse video; ``mono`` (NO_COLOR) uses only the token's bold/d
 attributes; ASCII emits no SGR at all and maps braille, blanks and gap marks to ASCII.
 """
 
-from mhseals_testing.ui.minimap.canvas import BLANK, GAP
+from mhseals_testing.ui import pixels
+from mhseals_testing.ui.minimap.canvas import BITS, BLANK, GAP, rank
+
+_SPOT = {bit: xy for xy, bit in BITS.items()}
 
 RESET = '\x1b[0m'
 _NAMES = ('black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white')
@@ -132,3 +135,40 @@ def emit(canvas, style, tier='truecolor', ascii=False):
             out.append(RESET)
         rows.append(''.join(out))
     return rows
+
+
+def emit_image(canvas, style, tier='truecolor'):
+    """The canvas as image lines (ui/pixels.py): tints fill their cells and every dot is drawn at
+    the canvas's k x braille resolution in its own layer colour, highest priority on top; glyphs
+    and gap marks stay terminal text. ``style`` is the same callable as for ``emit``."""
+    cells = canvas.cells()
+    holes = set(canvas._glyphs) | {pos for pos in canvas._gaps if cells[pos[1]][pos[0]].text == GAP}
+    bg = pixels.token('bg')
+
+    def colour(name):
+        look = style(name)
+        rgb = pixels.rgb(look, pixels.token('fg'))
+        return tuple((c + b) // 2 for c, b in zip(rgb, bg)) if 'dim' in look.split() else rgb
+
+    def paint(r):
+        for (col, row), name in canvas._tint.items():
+            if (col, row) not in holes:
+                r.rect(col * r.cw, row * r.ch, (col + 1) * r.cw, (row + 1) * r.ch, r.ink(colour(name)))
+        layers = {}
+        for (col, row), bits in canvas._dots.items():
+            if (col, row) in holes:
+                continue
+            for bit, layer in bits.items():
+                dx, dy = _SPOT[bit] if canvas.k == 1 else bit
+                xs, ys = layers.setdefault(layer, ([], []))
+                xs.append(col * canvas.sx + dx)
+                ys.append(row * canvas.sy + dy)
+        pixels.dots_to_px(r, [(r.ink(colour(layer)), *layers[layer])
+                              for layer in sorted(layers, key=rank, reverse=True)], canvas.sx, canvas.sy)
+
+    def hole(col, row):
+        cell = cells[row][col]
+        return _cell_sgr(cell.fg, cell.bg, cell.chip, style, tier)[0] + cell.text + RESET
+
+    grid = pixels.surface('minimap', paint, canvas.cols, canvas.rows, holes=holes)
+    return pixels.ansi_rows(grid, hole)
