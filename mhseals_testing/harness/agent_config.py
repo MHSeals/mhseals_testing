@@ -5,10 +5,10 @@ filled. ``Watch`` is the hot reload: ``get()`` re-reads when the file changes an
 good config (``error`` names what is wrong with the new one).
 """
 
-import os
 import re
 from pathlib import Path
 
+from mhseals_testing.harness.watch import stat_key
 from mhseals_testing.strict_yaml import load_strict
 
 import yaml
@@ -85,11 +85,9 @@ class Watch:
             raise ValueError(self.error)   # no last good config to fall back on at start
 
     def get(self):
-        try:
-            st = os.stat(self.path)
-            key = (st.st_mtime_ns, st.st_size, st.st_ino)
-        except OSError as error:
-            self.error = f'agent.yaml: {error.strerror}'
+        key = stat_key(self.path)
+        if key is None:
+            self.error = 'agent.yaml: unreadable'
             return self.config
         if key != self.key:
             self.key = key

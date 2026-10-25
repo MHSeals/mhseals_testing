@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.harness.watch import stat_key
+
 NAME = 'Navigation'
 
 
@@ -68,14 +70,7 @@ class Nav2File:
         self.applied = {}
         self.verified = False
         self.live = False   # the last apply reached the running nodes only (until a restart)
-        self.seen = self.settled = self.key()
-
-    def key(self):
-        try:
-            stat = self.path.stat()
-        except OSError:
-            return None
-        return stat.st_mtime_ns, stat.st_size, stat.st_ino
+        self.seen = self.settled = stat_key(self.path)
 
     def read(self):
         """Parse the file into ``current``; set ``error`` ('' when usable or missing)."""
@@ -97,7 +92,7 @@ class Nav2File:
 
     def poll(self):
         """One tick; the toast text once a changed file has settled, else ''."""
-        key, previous = self.key(), self.seen
+        key, previous = stat_key(self.path), self.seen
         self.seen = key
         if key == self.settled or key != previous:
             return ''  # unchanged, or still being written

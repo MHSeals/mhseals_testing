@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import functools
 from pathlib import Path
 
+from mhseals_testing.harness.watch import stat_key
 from mhseals_testing.health.model import Result
 from mhseals_testing.health.probes.params import fact_name
 from mhseals_testing.health.registry import kind
@@ -26,7 +27,7 @@ class Params:
 
 
 @functools.lru_cache(maxsize=8)
-def _parse(path, mtime):
+def _parse(path, key):
     values = {}
     for line in Path(path).read_text().splitlines():
         line = line.split('#')[0].strip()
@@ -42,7 +43,7 @@ def _parse(path, mtime):
 def reference_values(path):
     """``{name: value}`` from a .param file, re-read when it changes."""
     path = Path(path).expanduser()
-    return _parse(str(path), path.stat().st_mtime_ns)
+    return _parse(str(path), stat_key(path))
 
 
 def _watch(params):

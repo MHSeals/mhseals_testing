@@ -9,11 +9,11 @@ no status glyphs: the owner is a word (AGENT, OURS, ...), never a mark. Keys are
 agent config, ``U`` release_hold (passed to the app), Esc.
 """
 
-import os
 import time
 
 from mhseals_testing.harness import journal
 from mhseals_testing.harness.authority import is_unknown
+from mhseals_testing.harness.watch import stat_key
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import feeds
 
@@ -137,15 +137,11 @@ def modal(record, events, now, state, desk=None):
 
 
 def journal_reader(path):
-    """A callable returning the journal events, re-parsed only when the file's size or mtime changes."""
+    """A callable returning the journal events, re-parsed only when the file's stat key changes."""
     cache = dict(key=object(), events=[])
 
     def read():
-        try:
-            info = os.stat(path)
-            key = (info.st_size, info.st_mtime_ns)
-        except OSError:
-            key = None
+        key = stat_key(path)
         if key != cache['key']:
             cache.update(key=key, events=journal.read(path))
         return cache['events']
