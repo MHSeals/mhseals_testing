@@ -42,6 +42,9 @@ lean:
     - /objects/map
     - /perception/tracks
     - /perception/status
+    - /perception/costmap          # with its updates: approach_guard replays from water bags
+    - /perception/costmap_updates
+    - /approach_guard/approach     # what the guard holds, or log-only would hold, on
     - /front_camera/preview/compressed    # 2 Hz throttle from the camera host: image evidence for a miss
     - /mhseals_testing/minimap/costmap
   regex: '^/(mhseals_testing|thrusters)/.*'  # the -e include regex, not an exclude
