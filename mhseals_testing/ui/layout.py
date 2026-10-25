@@ -131,6 +131,8 @@ def header(snapshot, view, width=120):
     top = chrome.top_row(view, width)
     if view.get('agent'):
         return Group(top, chrome.banner(view['agent'], width))
+    if (view.get('authority') or (None,))[0] == 'stop' and not view.get('review'):
+        return Group(top, chrome.stop_banner(view.get('armed'), width))
     total = health_total(reconcile(view.get('health'), status_rows(snapshot, view['specs'])))
     row = Table.grid(expand=True)
     row.add_column(no_wrap=True, overflow=theme.OVERFLOW)
@@ -154,6 +156,14 @@ def playing(view):
     return review if review and not isinstance(review, bool) else None
 
 
+KEY_TOKENS = {'Space': 'stop', 'E': 'auth.agent'}   # footer keys with a hue of their own, always
+
+
+def key_style(key):
+    token = KEY_TOKENS.get(key)
+    return theme.PALETTE.style(token) if token else None
+
+
 def footer(view, width):
     status = Table.grid(expand=True, padding=(0, 1))
     status.add_column(ratio=4, no_wrap=True, overflow=theme.OVERFLOW)
@@ -174,7 +184,7 @@ def footer(view, width):
         grid.add_column(ratio=1, no_wrap=True, overflow=theme.OVERFLOW)
     hints = fit_hints(hints, columns * 2)
     for row in range(2):
-        cells = [theme.hint(*hint) for hint in hints[row * columns:(row + 1) * columns]]
+        cells = [theme.hint(*hint, style=key_style(hint[0])) for hint in hints[row * columns:(row + 1) * columns]]
         grid.add_row(*(cells + [''] * (columns - len(cells))))
     return Group(status, grid)
 
@@ -257,6 +267,8 @@ def popup(modal, width, height=None):
     panel = theme.block(Group(body, *tail), modal['title'], True, keys=hint)  # keys sit on the bottom border
     if modal.get('danger'):
         panel.border_style = theme.BAD
+    elif modal.get('border'):
+        panel.border_style = modal['border']
     return panel, panel_width
 
 

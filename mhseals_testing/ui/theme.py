@@ -123,7 +123,7 @@ CHIPS = {'human': 'auth.human', 'ours': 'auth.ours', 'nav': 'auth.nav', 'agent':
 def chip(word, kind):
     """``word`` as a solid chip in the ``kind`` hue (reverse video on 16 colours, so NO_COLOR keeps it)."""
     chip_ = PALETTE.chip(word, CHIPS[kind], ascii=ASCII)
-    if ASCII or kind == 'agent':        # the agent chip stays bold where colour is absent
+    if ASCII or kind in ('agent', 'stop'):   # these stay bold where colour is absent
         chip_.stylize('bold')
     return chip_
 
@@ -159,8 +159,9 @@ def grid(*columns, padding=(0, 2)):
     return table
 
 
-def hint(key, label):
-    text = Text(f' {key} ', style=f'bold {ACCENT}')
+def hint(key, label, style=None):
+    """`` key label``; ``style`` replaces the accent on the key (Space wears ``stop``)."""
+    text = Text(f' {key} ', style=f'bold {style or ACCENT}')
     text.append(label)
     return text
 

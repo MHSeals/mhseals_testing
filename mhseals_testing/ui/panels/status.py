@@ -6,7 +6,7 @@ from rich.text import Text
 from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import authority_chip, theme
 from mhseals_testing.ui.rtk_row import ROW_STATES, RtkCell, _state
 from mhseals_testing.ui.panels import GROUPS, HEADERLESS, TITLES, fold_groups, window
 
@@ -109,7 +109,13 @@ def control_rows(snapshot, specs):
         rows.append(row('RC', value, f'RC_CHANNELS at {hz:.0f} Hz: N1 not applied or FCU rebooted' if slow
                         else 'rc mode, rate and estimated latency', 'WARN' if slow else 'OK'))
     holds = data.get('holds') or []
-    if holds:
+    if holds and authority_chip.stop_cause(holds[0]):
+        hold = holds[0]
+        glyph = theme.pick(theme.PALETTE.glyph('stop', ascii=False), '(/)')
+        rows.append(row('Hold', f"{glyph} STOPPED {authority_chip.stop_cause(hold)} {hold.get('age', '')}".strip(),
+                        'U releases; refused while the RC switch is HOLD · Enter details',
+                        style=f"bold {theme.PALETTE.style('stop')}", stop=True))
+    elif holds:
         hold = holds[0]
         rows.append(row('Hold', f"HOLD {hold.get('cause') or hold.get('by', '')} {hold.get('age', '')}".strip(),
                         'Enter releases the hold', style=theme.auth_style('hold')))

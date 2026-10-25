@@ -77,7 +77,7 @@ from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
-from mhseals_testing.ui.popups import magcal as magcal_popup
+from mhseals_testing.ui.popups import magcal as magcal_popup, stop as stop_popup
 from mhseals_testing.ui.review import (
     BIG, find_session, load_session, Offline, review_metadata, SMALL)
 from mhseals_testing.ui.source import LiveSource, ReviewSource
@@ -1566,7 +1566,7 @@ class App:
                 if row['name'] == 'Driving':
                     return self.open('authority')
                 if row['name'] == 'Hold':
-                    return self.release_hold()
+                    return stop_popup.open_stop(self) if row.get('stop') else self.release_hold()
                 if row['name'] == 'RTK':
                     return self.open('odometry')
                 if row['name'] == 'Config':

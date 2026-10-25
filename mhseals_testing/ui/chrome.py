@@ -130,6 +130,26 @@ def _fit(text, room):
     return middle_cut(f" {theme.SEPARATOR.join(t for t, _ in parts) if parts else text}", room)
 
 
+STOP_KEYS = 'U release' + theme.SEPARATOR + 'Space stop'
+
+
+def stop_banner(armed, width):
+    """`` ⊘ STOPPED · neutral sent · disarmed`` with the release and stop keys at the right.
+
+    Only the glyph and STOPPED wear ``stop``; the rest is muted and nothing is reversed, so it
+    does not shout over the page. The keys are never cut.
+    """
+    glyph = theme.pick(theme.PALETTE.glyph('stop', ascii=False), '(/)')
+    head = f' {glyph} STOPPED'
+    rest = middle_cut(f"{theme.SEPARATOR}neutral sent{theme.SEPARATOR}{'armed' if armed else 'disarmed'}",
+                      max(width - len(head) - len(STOP_KEYS) - 2, 0))
+    gap = max(width - len(head) - len(rest) - len(STOP_KEYS) - 1, 1)
+    out = Text.assemble((head, f'bold {theme.PALETTE.style("stop")}'), (rest, theme.MUTED),
+                        ' ' * gap, (STOP_KEYS, theme.MUTED), ' ', no_wrap=True)
+    out.truncate(width)
+    return out
+
+
 def banner(text, width):
     """The whole row in the agent hue; the revoke and stop keys at the right are never cut.
 

@@ -9,6 +9,20 @@ watch guest or a review, which have no arbiter.
 from mhseals_testing.ui import theme
 
 STALE = ('unclaimed', '? authority stale')
+# Mux hold causes that are a stop (the RC stop-channel edge, Space, a fault) -> the chip's short word.
+# They draw as the vermilion ⊘ STOP chip; every other hold stays the slate HOLD chip.
+STOP_CAUSES = {'rc_stop': 'rc', 'keys': 'keys', 'fault': 'fault'}
+
+
+def stop_cause(hold):
+    """The short stop word for a hold dict, or None when the hold is not a stop."""
+    return STOP_CAUSES.get((hold or {}).get('cause'))
+
+
+def stop_word(hold, ago=''):
+    """``⊘ STOP rc 12 s`` (``STOP rc 12 s`` in ASCII, where the chip brackets it)."""
+    glyph = '' if theme.ASCII else theme.PALETTE.glyph('stop', ascii=False)
+    return _words(glyph, 'STOP', stop_cause(hold), ago)
 
 
 def age(seconds):
@@ -44,6 +58,8 @@ def chip(record, now):
         return 'human', _words('RC', f"{rc['latency_ms']:.0f} ms" if rc.get('latency_ms') else '')
     if owner == 'hold':
         hold = (record.get('holds') or [{}])[0]
+        if stop_cause(hold):
+            return 'stop', stop_word(hold, ago)
         return 'hold', _words('HOLD', hold.get('by') or hold.get('cause'), ago)
     if owner == 'agent':
         return 'agent', _words('AGENT', _claim(record, 'agent').get('who'), ago)
