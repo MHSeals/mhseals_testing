@@ -62,6 +62,56 @@ def test_hypotheses_become_map_tasks_and_bad_input_is_ignored():
         mission.ingest('nope', {})
 
 
+def test_a_decision_keeps_its_own_finite_time():
+    mission, _ = feed()
+    for stamp in (1761300000.5, float('nan'), float('inf'), 'noon', -5, None):
+        mission.ingest('event', {'event': 'decision', 'kind': 'start', 'reason': 'r', 'time': stamp})
+    assert [t for t, _ in mission.decisions] == [1761300000.5] + [1761400100.0] * 5
+
+
+def test_another_status_schema_is_ignored_with_a_notice():
+    mission, _ = feed()
+    mission.ingest('status', dict(load('mission_status.json'), schema='mhseals.mission_status/2'))
+    assert not mission.status and 'mission_status/2' in mission.notice
+    mission.ingest('status', {k: v for k, v in load('mission_status.json').items() if k != 'schema'})
+    assert mission.fresh()
+
+
+FUZZ = [{'stages': [1, 2]}, {'stages': 'x'}, {'stages': {'a': {'state': 'done', 'attempts': 'x'}}},
+        {'stages': {'a': {'attempts': float('nan'), 'failures': float('inf')}}}, {'stages': {'a': {'state': ['run']}}},
+        {'stages': {'a': {'state': {'x': 1}}, 'b': 5}}, {'stage': ['search']}, {'stage': {'a': 1}},
+        {'recent': {'a': 1}}, {'recent': 7}, {'recent': [1, 'x', {'kind': ['k'], 'reason': None, 'stage': {}}]},
+        {'goal': [1, 2]}, {'goal': {'x': float('nan'), 'y': 1e308, 'why': 3}}, {'phase': 3, 'behaviour': ['b']},
+        {'elapsed': float('nan')}, {'stages': {'search': {'elapsed': 'long'}}, 'stage': 'search'}]
+
+
+@pytest.mark.parametrize('bad', FUZZ)
+def test_a_malformed_status_still_renders(bad):
+    from rich.console import Console
+    from mhseals_testing.ui.panels import mission as panels
+    mission, _ = feed()
+    mission.ingest('status', dict(load('mission_status.json'), **bad))
+    mission.ingest('event', {'event': 'decision', 'kind': ['k'], 'stage': {'s': 1}, 'reason': 5})
+    console = Console(width=80, color_system=None, file=open('/dev/null', 'w'))
+    for renderable in (panels.strip({'mission': mission}), panels.pane({'mission': mission}),
+                       panels.decisions({'mission': mission}, 8)):
+        console.print(renderable)
+    assert all(isinstance(name, str) and isinstance(state, str) for name, state, *_ in mission.ladder())
+
+
+def test_the_ros_feed_drops_any_bad_message_and_logs_once():
+    pytest.importorskip('rclpy')
+    from mhseals_testing.ros.mission import MissionFeed
+    logged = []
+    node = type('N', (), {'create_subscription': lambda *a: None,
+                          'get_logger': lambda self: type('L', (), {'warning': lambda s, m: logged.append(m)})()})()
+    mission, _ = feed()
+    ros = MissionFeed(node, mission)
+    for data in ('{"hypotheses": 5}', '{"schema": "mhseals.task_hypotheses/1", "hypotheses": [[1]]}', 'not json'):
+        ros._take('hypotheses', data)
+    assert ros.drops.get('hypotheses', 0) <= 3 and len(logged) <= 1
+
+
 def test_the_feed_view_is_itself():
     mission, _ = feed()
     assert mission.view() == {'mission': mission}

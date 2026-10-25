@@ -17,7 +17,8 @@ class MissionFeed:
     """Subscribes the mission topics (RELIABLE, TRANSIENT_LOCAL) and hands each parsed message on."""
 
     def __init__(self, node, state):
-        self.state = state
+        self.state, self.log = state, node.get_logger()
+        self.drops = {}     # kind -> messages dropped; the first of each kind is logged
         for topic, kind, depth in MISSION_TOPICS:
             node.create_subscription(
                 String, topic, lambda m, k=kind: self._take(k, m.data),
@@ -27,8 +28,11 @@ class MissionFeed:
     def _take(self, kind, data):
         try:
             self.state.ingest(kind, json.loads(data))
-        except ValueError:      # a malformed message is dropped, the feed keeps going
-            pass
+        except Exception as error:   # any bad message is dropped: raising here would end RosIO's spin
+            self.drops[kind] = self.drops.get(kind, 0) + 1
+            if self.drops[kind] == 1:
+                self.log.warning(f'mission {kind} dropped ({type(error).__name__}: {error}); '
+                                 'later drops are only counted')
 
 
 class TaskWatcher:

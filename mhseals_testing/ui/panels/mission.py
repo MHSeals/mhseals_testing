@@ -120,8 +120,9 @@ def pane(view):
     """The Map tab's Mission box: headline, behaviour, why and the wrapping stage ladder."""
     mission = view.get('mission')
     status = mission.status if mission is not None else {}
+    notice = getattr(mission, 'notice', None)
     if not status:
-        return theme.block(Text('no mission status', style=theme.MUTED), 'Mission')
+        return theme.block(Text(_safe(notice or 'no mission status'), style=theme.MUTED), 'Mission')
     age = mission.age()
     subtitle = None if mission.fresh() else Text(f'{age:.0f} s old', style=_style('warn'))
     rows = [headline(status, behaviour=False)]
