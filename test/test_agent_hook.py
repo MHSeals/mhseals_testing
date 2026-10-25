@@ -62,13 +62,35 @@ def test_the_private_dir_is_user_only_and_not_shared_tmp(tmp_path, monkeypatch):
     ('ros2 topic pub "/cmd"_vel geometry_msgs/msg/Twist {}', 'run KEY'),
     ("ros2 'topic' pub /cmd_vel geometry_msgs/msg/Twist {}", 'run KEY'),
     ("ros2 service call /mavros/cmd/'arming' mavros_msgs/srv/CommandBool {}", 'ask'),
-    ('ros2 topic pub /cmd_\\\nvel geometry_msgs/msg/Twist {}', 'run KEY')])
+    ('ros2 topic pub /cmd_\\\nvel geometry_msgs/msg/Twist {}', 'run KEY'),
+    # the forms an honest mistake takes (agent-driving cases H7-H38)
+    ('ros2 topic pub cmd_vel geometry_msgs/msg/Twist {}', 'run KEY'),
+    ('ros2 topic pub /cmd\\_vel geometry_msgs/msg/Twist {}', 'run KEY'),
+    ('ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{}"', 'goal X Y'),
+    ('ros2 action send_goal dock_robot nav2_msgs/action/DockRobot "{}"', 'goal X Y'),
+    ('ros2 service call mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"', 'ask'),
+    ('ros2 run mavros mav safety arm', 'ask'),
+    ('ros2 param set --no-daemon /mavros/param COMPASS_USE 0', 'ask'),
+    ('ros2 param load /mavros/param fcu.yaml', 'ask'),
+    ('ros2 param set /command_mux cmd_timeout 30.0', 'ask'),
+    ('ros2 lifecycle set /fence_watchdog deactivate', 'ask'),
+    ('kill -9 $(pgrep -f fence_watchdog)', 'stop'),
+    ('ros2 run teleop_twist_keyboard teleop_twist_keyboard', 'run KEY')])
 def test_raw_motion_is_denied_with_the_verb_to_use_and_noted(sent, command, verb):
     reason = sent('pre', command)['deny']
     assert reason.startswith('Blocked: ') and f'tools/boat_agent {verb}' in reason and '--who claude-3f2a' in reason
     (note,) = sent.lines
     assert note['phase'] == 'deny' and note['use'].startswith(('boat_agent ', 'operator'))
     assert agent_channel.invalid(note) is None
+
+
+@pytest.mark.parametrize('command', [
+    'ros2 service call /mavros/param/get rcl_interfaces/srv/GetParameters "{}"',
+    'ros2 param get /command_mux cmd_timeout', 'ros2 param list /fence_watchdog',
+    'ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose "{}"',
+    'ros2 topic echo /cmd_vel --once', 'ros2 lifecycle get /fence_watchdog'])
+def test_reads_stay_allowed(sent, command):
+    assert sent('pre', command) is None
 
 
 def test_boat_commands_become_redacted_notes_and_others_are_ignored(sent):

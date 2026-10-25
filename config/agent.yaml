@@ -15,8 +15,11 @@ hook:
   match: ['\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', '\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
-  deny: ['ros2\s+topic\s+pub\b.*(/cmd_vel|/command_mux|/goal_pose|/mavros/(rc/override|setpoint))',
-         'ros2\s+action\s+send_goal\b.*(navigate|/(spin|backup|drive_on_heading|follow_waypoints)\b)',
-         'ros2\s+service\s+call\b.*/mavros/(cmd/(arming|command)|set_mode|param)',
-         'ros2\s+param\s+set\s+\S*mavros',
-         '\b(pkill|killall)\b']
+  # Names match with or without the leading slash. Advisory: variables, python or decoded scripts still get through.
+  deny: ['ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
+         'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
+         'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
+         'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(mavros|command_mux|\w*watchdog)\b',
+         'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+         '\b(pkill|killall)\b',
+         '\bkill\b.*\b(command_mux|\w*watchdog|thruster_pwm\w*|velocity_controller)\b']

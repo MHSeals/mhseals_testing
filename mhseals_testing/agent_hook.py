@@ -40,18 +40,25 @@ DEFAULTS = {
     'target': 'blastoise', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', r'\bros2\b', r'\bdocker\s+exec\b'],
     'skip': [r'\bboat_(trial|agent)\b'], 'max_per_10s': 6,
-    'deny': [r'ros2\s+topic\s+pub\b.*(/cmd_vel|/command_mux|/goal_pose|/mavros/(rc/override|setpoint))',
-             r'ros2\s+action\s+send_goal\b.*(navigate|/(spin|backup|drive_on_heading|follow_waypoints)\b)',
-             r'ros2\s+service\s+call\b.*/mavros/(cmd/(arming|command)|set_mode|param)',
-             r'ros2\s+param\s+set\s+\S*mavros', r'\b(pkill|killall)\b']}
+    'deny': [r'ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
+             r'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints'
+             r'|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
+             r'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
+             r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(mavros|command_mux|\w*watchdog)\b',
+             r'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+             r'\b(pkill|killall)\b',
+             r'\bkill\b.*\b(command_mux|\w*watchdog|thruster_pwm\w*|velocity_controller)\b']}
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
 # Why a denied command is denied and the verb that does it through the claim, first match wins.
-USE = ((r'/cmd_vel|/mavros/(rc/override|setpoint)', 'raw motion', 'run KEY --claim ID'),
+USE = ((r'cmd_vel|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control', 'raw motion',
+        'run KEY --claim ID'),
        (r'mavros', 'an FCU arming, mode or parameter change', None),
+       (r'ros2\s+(param|lifecycle)\b', 'changing the mux or a safety watchdog', None),
+       (r'\b(pkill|killall|kill)\b', 'killing processes', 'stop'),
        (r'command_mux', 'commanding the mux', 'stop'),
-       (r'\b(pkill|killall)\b', 'killing processes', 'stop'),
-       (r'goal_pose|navigate|follow_waypoints', 'a raw Nav2 goal', 'goal X Y [YAW] --claim ID'),
+       (r'goal_pose|navigate|follow_\w*waypoints|follow_path|dock_robot|assisted_teleop', 'a raw Nav2 goal',
+        'goal X Y [YAW] --claim ID'),
        (r'.', 'raw motion', 'run KEY --claim ID'))
 
 
@@ -121,9 +128,9 @@ def use_of(command):
 
 
 def plain(text):
-    """The command as the shell reads its words: continuations joined, quotes dropped, so
-    ``/cmd''_vel`` or ``ros2 'topic' pub`` cannot hide a match."""
-    return text.replace('\\\n', '').replace("'", '').replace('"', '')
+    """The command as the shell reads its words: continuations joined, quotes and escapes dropped,
+    so ``/cmd''_vel``, ``/cmd\\_vel`` or ``ros2 'topic' pub`` cannot hide a match."""
+    return text.replace('\\\n', '').replace("'", '').replace('"', '').replace('\\', '')
 
 
 def matches(patterns, text):
