@@ -47,17 +47,26 @@ DEFAULTS = {
              r'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints'
              r'|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
              r'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
-             r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(mavros|command_mux|\w*watchdog)\b',
+             r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*'
+             r'\b(mavros|command_mux|\w*watchdog|thruster_pwm\w*|\w*velocity_controller)\b',
+             r'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|thruster_pwm\w*|\w*velocity_controller)'
+             r'/(set_parameters\w*|load_parameters|change_state)\b',
+             r'ros2\s+bag\s+play\b(?!.*--topics\b)',
+             r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
+             r'|mavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
              r'\b(pkill|killall)\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|thruster_pwm\w*|velocity_controller)\b']}
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
 # Why a denied command is denied and the verb that does it through the claim, first match wins.
-USE = ((r'cmd_vel|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control', 'raw motion',
+USE = ((r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
+        'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
+       (r'cmd_vel|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control', 'raw motion',
         'run KEY --claim ID'),
        (r'mavros', 'an FCU arming, mode or parameter change', None),
-       (r'ros2\s+(param|lifecycle)\b', 'changing the mux or a safety watchdog', None),
+       (r'ros2\s+(param|lifecycle)\b|/(set_parameters\w*|load_parameters|change_state)\b',
+        'changing the thruster driver, the mux or a safety watchdog', None),
        (r'\b(pkill|killall|kill)\b', 'killing processes', 'stop'),
        (r'command_mux', 'commanding the mux', 'stop'),
        (r'goal_pose|navigate|follow_\w*waypoints|follow_path|dock_robot|assisted_teleop', 'a raw Nav2 goal',
