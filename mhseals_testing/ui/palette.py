@@ -14,6 +14,8 @@ from pathlib import Path
 import yaml
 from rich.text import Text
 
+from mhseals_testing.strict_yaml import load_strict
+
 CONFIG = Path(__file__).resolve().parent.parent.parent / 'config' / 'theme.yaml'
 OVERLAY = Path.home() / '.config' / 'mhseals' / 'theme.yaml'
 TIERS = ('truecolor', '256', '16', 'mono')
@@ -220,7 +222,7 @@ def load_theme(path=None, overlay=None):
     """
     path = Path(path or default_path())
     try:
-        base = yaml.safe_load(path.read_text())
+        base = load_strict(path.read_text(), path)
         if not isinstance(base, dict) or base.get('schema') != 'mhseals.theme/1':
             raise ValueError('expected schema mhseals.theme/1')
         theme = Theme(base)
@@ -230,7 +232,7 @@ def load_theme(path=None, overlay=None):
     if overlay_path is None or not overlay_path.is_file():
         return theme, None
     try:
-        user = yaml.safe_load(overlay_path.read_text()) or {}
+        user = load_strict(overlay_path.read_text(), overlay_path) or {}
         if not isinstance(user, dict):
             raise ValueError('expected a mapping')
         return Theme(_merge(base, user)), None

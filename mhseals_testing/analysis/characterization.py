@@ -13,6 +13,7 @@ import numpy
 
 from mhseals_hardware.thruster_mixer import AXES
 from mhseals_testing.analysis.thrust import ACTIVE, step_response
+from mhseals_testing.strict_yaml import load_strict
 
 
 # Share of the boat's limits Nav2 may plan with: all of it. (A share held back for the
@@ -22,8 +23,7 @@ HEADROOM = 1.0
 
 def nav2_profile(result, source, headroom=HEADROOM):
     """Return only measured Nav2 limits, preserving the configured reverse cap."""
-    import yaml
-    base = yaml.safe_load(Path(source).read_text())
+    base = load_strict(Path(source).read_text(), source)
     profile = {key: {"ros__parameters": {}} for key in
                ("controller_server", "velocity_smoother", "behavior_server")}
     limits = result["motion_limits"]

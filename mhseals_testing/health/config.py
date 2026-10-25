@@ -16,6 +16,7 @@ import yaml
 from mhseals_testing.data import workspace
 from mhseals_testing.health import registry
 from mhseals_testing.health.model import MISSING, SEVERITIES, CheckSpec
+from mhseals_testing.strict_yaml import load_strict
 
 USER_FILE = Path.home() / '.config' / 'mhseals' / 'health.yaml'
 ANCHORS = ('rose', 'thrusters', 'header.deploy', 'odometry')    # plus sensor:<name>
@@ -184,8 +185,8 @@ def _spec(raw):
 
 def _read(path):
     try:
-        data = yaml.safe_load(Path(path).read_text()) or {}
-    except (OSError, yaml.YAMLError) as error:
+        data = load_strict(Path(path).read_text(), path) or {}
+    except (OSError, ValueError, yaml.YAMLError) as error:
         raise ConfigError(f'{path}: {error}') from None
     if not isinstance(data, dict):
         raise ConfigError(f'{path}: expected a mapping')

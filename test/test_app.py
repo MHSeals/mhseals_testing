@@ -1179,7 +1179,8 @@ def pins_app(tmp_path, monkeypatch, states):
     monkeypatch.setattr(pins.time, 'sleep', lambda s: None)
     app.ask_text = lambda *a: '1 0 0 0 27'
     app.typed = []
-    app.type_word = lambda title, message, word, rows=None, width=64: app.typed.append(word) or True
+    app.type_word = (lambda title, message, word, rows=None, width=64:
+                     app.typed.append(word) or True)
     app.focus = 'thrusters'
     return app, processes, seen
 
@@ -1212,6 +1213,7 @@ def test_pins_popup_does_not_report_success_without_matching_readback(
 def test_pins_readback_needs_the_arming_word_or_no_driver_starts(tmp_path, monkeypatch, answer):
     from mhseals_hardware.menu import Cancelled
     app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+
     def refuse(*a, **kw):
         if answer == 'cancelled':
             raise Cancelled('cancelled')

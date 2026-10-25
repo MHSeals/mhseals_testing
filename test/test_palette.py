@@ -18,7 +18,7 @@ def test_unquoted_off_key_is_rejected(tmp_path):
     text = palette.default_path().read_text().replace("'off':", 'off:')
     path = tmp_path / 'theme.yaml'
     path.write_text(text)
-    with pytest.raises(ValueError, match='missing glyph ids: off'):
+    with pytest.raises(ValueError, match='keys must be strings'):
         palette.load_theme(path, overlay=False)
 
 

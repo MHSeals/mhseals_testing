@@ -16,15 +16,15 @@ TIERS = ('live', 'reconfigure', 'restart', 'new-session')
 def _check(key, entry, where):
     def bad(why):
         return ValueError(f'{where}: {key}: {why}')
-    if not isinstance(entry, dict) or not {'type', 'tier', 'doc'} <= entry.keys():
-        raise bad('needs type, tier and doc')
+    if not isinstance(entry, dict) or not {'type', 'units', 'tier', 'doc'} <= entry.keys():
+        raise bad('needs type, units, tier and doc')
     if set(entry) - {'type', 'units', 'range', 'tier', 'doc'}:
         raise bad('unknown field')
     if entry['type'] not in TYPES:
         raise bad(f"type must be one of {', '.join(TYPES)}")
     if entry['tier'] not in TIERS:
         raise bad(f"tier must be one of {', '.join(TIERS)}")
-    if not isinstance(entry['doc'], str) or not isinstance(entry.get('units', ''), str):
+    if not isinstance(entry['doc'], str) or not isinstance(entry['units'], str):
         raise bad('doc and units are strings')
     bounds = entry.get('range')
     if bounds is not None and not (
@@ -61,6 +61,6 @@ def text(found, missing):
     lines = [f'{package}: not available ({why})' for package, why in missing.items()]
     for package, key, entry in found:
         span = f" [{entry['range'][0]}, {entry['range'][1]}]" if 'range' in entry else ''
-        lines.append(f"{package}  {key}  {entry['type']} {entry.get('units', '')}{span}  "
+        lines.append(f"{package}  {key}  {entry['type']} {entry['units']}{span}  "
                      f"{entry['tier']}  {entry['doc']}")
     return '\n'.join(lines)

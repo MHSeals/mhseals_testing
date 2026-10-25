@@ -10,9 +10,9 @@ import json
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 from mhseals_testing.data import atomic_write, read_json
+from mhseals_testing.strict_yaml import load_strict
 
 
 def load_settings(path=None) -> dict:
@@ -21,7 +21,7 @@ def load_settings(path=None) -> dict:
     if path is None and not source.exists():
         from ament_index_python.packages import get_package_share_directory
         source = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'tracking.yaml'
-    return yaml.safe_load(Path(path or source).read_text())
+    return load_strict(Path(path or source).read_text(), path or source)
 
 
 def tracking_score(measured, predicted, command, sigma_wave, settings, ignore=False):

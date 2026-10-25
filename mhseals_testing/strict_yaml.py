@@ -42,7 +42,12 @@ def load_strict(text, path=None):
     Parse ``text``; ``path`` only labels errors.
 
     Raises ValueError on aliases, merge keys, duplicate or non-string keys and
-    non-finite numbers; yaml.YAMLError on syntax errors.
+    non-finite numbers; yaml.YAMLError (naming ``path``) on syntax errors.
     """
-    loader = type('Loader', (_Loader,), {'where': f'{path}, ' if path else ''})
-    return yaml.load(text, Loader=loader)
+    loader = type('Loader', (_Loader,), {'where': f'{path}, ' if path else ''})(text)
+    if path:
+        loader.name = str(path)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()

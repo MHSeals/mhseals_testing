@@ -20,7 +20,7 @@ def details(app, label, record):
 
 def summary(entry):
     span = f" [{entry['range'][0]}, {entry['range'][1]}]" if 'range' in entry else ''
-    return f"{entry['type']} {entry.get('units', '')}{span} · {entry['tier']}"
+    return f"{entry['type']} {entry['units']}{span} · {entry['tier']}"
 
 
 def open_catalog(app, view=None):

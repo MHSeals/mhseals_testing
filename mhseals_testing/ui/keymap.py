@@ -21,6 +21,7 @@ from pathlib import Path
 import yaml
 
 from mhseals_testing.ui.actions import ACTIONS
+from mhseals_testing.strict_yaml import load_strict
 
 USER_FILE = Path.home() / '.config' / 'mhseals' / 'keymap.yaml'
 SHIPPED_FILE = Path(__file__).resolve().parents[2] / 'config' / 'keymap.yaml'   # source tree
@@ -225,12 +226,12 @@ def load(path=None, user=USER_FILE):
     A bad overlay (syntax, shape or rule violation) is ignored: the shipped keymap comes back
     with a warning string for the toast.
     """
-    doc = yaml.safe_load(Path(path or shipped_file()).read_text()) or {}
+    doc = load_strict(Path(path or shipped_file()).read_text(), path or shipped_file()) or {}
     shipped = Keymap(doc)
     if not (user and Path(user).is_file()):
         return shipped, None
     try:
-        return Keymap(overlay(doc, yaml.safe_load(Path(user).read_text()))), None
-    except (KeymapError, yaml.YAMLError, OSError) as exc:
+        return Keymap(overlay(doc, load_strict(Path(user).read_text(), user))), None
+    except (ValueError, yaml.YAMLError, OSError) as exc:
         first = exc.errors[0] if isinstance(exc, KeymapError) else str(exc).splitlines()[0]
         return shipped, 'keymap overlay ignored: %s' % first

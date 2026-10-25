@@ -19,6 +19,8 @@ import time
 
 import yaml
 
+from mhseals_testing.strict_yaml import load_strict
+
 CHILD = 'ekf'
 SUBSYSTEM = 'ekf'
 DATUM_WAIT_S = 10.0
@@ -66,7 +68,7 @@ class EkfRestart:
             raw = self.overlay.read_text()
         except OSError:
             return {}, None
-        return yaml.safe_load(raw) or {}, raw           # YAMLError is handled by restart()
+        return load_strict(raw, self.overlay) or {}, raw    # YAMLError, ValueError: restart()
 
     def _wait_ready(self):
         """Poll until navsat_transform answers again; False after ``DATUM_WAIT_S``."""
@@ -84,7 +86,7 @@ class EkfRestart:
             return {'restarted': False, 'blocked': blocked, 'datum': None}
         try:
             value, raw = self._overlay()
-        except yaml.YAMLError as error:
+        except (ValueError, yaml.YAMLError) as error:
             reason = f'{self.overlay} is not valid YAML ({str(error).splitlines()[0]})'
             return {'restarted': False, 'blocked': [reason], 'datum': None}
         # observe records an outside edit so it is not merged into ours; the restart itself

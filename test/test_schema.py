@@ -1,26 +1,35 @@
 """Every package's schema.yaml loads strictly, and the Config catalog and CLI read them."""
+import io
 import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from rich.console import Console
 import yaml
 
 from mhseals_testing import schema
 from mhseals_testing.harness import cli
+from mhseals_testing.health.config import share_dir
+from mhseals_testing.profiles import load_profile
+from mhseals_testing.ui import layout, popups
+from mhseals_testing.ui.panels.status import status_rows
+from mhseals_testing.ui.popups import catalog
+from test_app import make_app
 
 OWN = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
 def shares(tmp_path, monkeypatch):
-    """This package's real share plus the hardware and nav ones named by MHSEALS_HARDWARE/MHSEALS_NAV."""
+    """This package's source tree plus the hardware and nav ones named by MHSEALS_HARDWARE/NAV."""
     roots = {'mhseals_testing': OWN}
     for package, env in (('mhseals_hardware', 'MHSEALS_HARDWARE'), ('mhseals_nav', 'MHSEALS_NAV')):
         if os.environ.get(env):
             roots[package] = Path(os.environ[env])
-    monkeypatch.setattr(schema, 'share_dir', lambda package: roots.get(package, tmp_path / 'absent' / package))
+    monkeypatch.setattr(schema, 'share_dir',
+                        lambda package: roots.get(package, tmp_path / 'absent' / package))
     return roots
 
 
@@ -33,7 +42,8 @@ def test_own_schema_keys_exist_in_the_shipped_yaml(shares):
         for part in path:
             node = node[part]
         entry = keys[key]
-        kind = {'float': (int, float), 'int': int, 'bool': bool, 'str': str, 'list': list}[entry['type']]
+        kind = {'float': (int, float), 'int': int, 'bool': bool, 'str': str,
+                'list': list}[entry['type']]
         assert isinstance(node, kind), key
 
 
@@ -45,13 +55,14 @@ def test_sibling_schemas_load_through_the_same_reader(shares, package):
 
 
 @pytest.mark.parametrize('entry', [
-    {'type': 'double', 'tier': 'live', 'doc': 'x'},
-    {'type': 'float', 'tier': 'sometimes', 'doc': 'x'},
-    {'type': 'float', 'tier': 'live'},
-    {'type': 'str', 'tier': 'live', 'doc': 'x', 'range': [0, 1]},
-    {'type': 'list', 'tier': 'live', 'doc': 'x', 'range': [0]},
-    {'type': 'float', 'tier': 'live', 'doc': 'x', 'range': [2, 1]},
-    {'type': 'float', 'tier': 'live', 'doc': 'x', 'extra': 1},
+    {'type': 'double', 'units': '', 'tier': 'live', 'doc': 'x'},
+    {'type': 'float', 'units': '', 'tier': 'sometimes', 'doc': 'x'},
+    {'type': 'float', 'units': 'm', 'tier': 'live'},
+    {'type': 'float', 'tier': 'live', 'doc': 'x'},
+    {'type': 'str', 'units': '', 'tier': 'live', 'doc': 'x', 'range': [0, 1]},
+    {'type': 'list', 'units': '', 'tier': 'live', 'doc': 'x', 'range': [0]},
+    {'type': 'float', 'units': '', 'tier': 'live', 'doc': 'x', 'range': [2, 1]},
+    {'type': 'float', 'units': '', 'tier': 'live', 'doc': 'x', 'extra': 1},
 ])
 def test_bad_entries_are_refused_with_the_key(tmp_path, monkeypatch, entry):
     (tmp_path / 'p' / 'config').mkdir(parents=True)
@@ -63,8 +74,9 @@ def test_bad_entries_are_refused_with_the_key(tmp_path, monkeypatch, entry):
 
 def test_duplicate_keys_are_refused_with_the_line(tmp_path, monkeypatch):
     (tmp_path / 'p' / 'config').mkdir(parents=True)
-    (tmp_path / 'p' / 'config' / 'schema.yaml').write_text('a: {type: int, tier: live, doc: x}\n'
-                                                          'a: {type: int, tier: live, doc: y}\n')
+    (tmp_path / 'p' / 'config' / 'schema.yaml').write_text(
+        'a: {type: int, units: "", tier: live, doc: x}\n'
+        'a: {type: int, units: "", tier: live, doc: y}\n')
     monkeypatch.setattr(schema, 'share_dir', lambda package: tmp_path / package)
     with pytest.raises(ValueError, match=r'schema\.yaml, line 2'):
         schema.load('p')
@@ -79,23 +91,84 @@ def test_cli_lists_keys_and_reports_a_missing_package(shares, capsys, tmp_path):
     assert ('mhseals_hardware' in view['missing']) == ('mhseals_hardware' not in shares)
 
 
-def test_popup_walks_every_key_and_opens_details(shares):
-    from mhseals_testing.ui.popups import catalog
+def test_syntax_errors_name_the_file(tmp_path, monkeypatch):
+    (tmp_path / 'p' / 'config').mkdir(parents=True)
+    (tmp_path / 'p' / 'config' / 'schema.yaml').write_text('a: [1,\n')
+    monkeypatch.setattr(schema, 'share_dir', lambda package: tmp_path / package)
+    with pytest.raises(yaml.YAMLError, match=r'schema\.yaml'):
+        schema.load('p')
+
+
+def test_installed_schemas_load_from_the_install_share():
+    """Container gate: the real share_dir resolves all three installed schema files."""
+    try:
+        from ament_index_python.packages import get_package_share_directory as installed
+        shares = {package: Path(installed(package)) for package in schema.PACKAGES}
+    except (ImportError, LookupError, AssertionError):   # AssertionError: test stubs
+        pytest.skip('ament cannot resolve every package: not an installed workspace')
+    assert OWN not in shares['mhseals_testing'].parents
     found, missing = schema.rows()
-    seen, opened = [], []
+    assert not missing
+    assert {package for package, _, _ in found} == set(schema.PACKAGES)
+    for package, share in shares.items():
+        assert share_dir(package) == share
+        assert (share / 'config' / 'schema.yaml').is_file()
+    own = {key for package, key, _ in found if package == 'mhseals_testing'}
+    own_file = shares['mhseals_testing'] / 'config' / 'schema.yaml'
+    assert own == set(yaml.safe_load(own_file.read_text()))
+
+
+def test_real_config_row_catalog_and_narrow_navigation(tmp_path, monkeypatch):
+    app, _ = make_app(tmp_path)
+    app.watch_config()
+    names = [row['name'] for row in status_rows(app.snapshot(), load_profile('boat').sensors)]
+    app.cursors['status'] = names.index('Config')
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('read-only catalog called writer/adapter')
+    monkeypatch.setattr(app.watcher, 'reload', forbidden)
+    monkeypatch.setattr(app.history, 'changes', forbidden)
+    entry = dict(type='float', units='m', tier='live', doc='d')
+    found = [(package, 'leaf', entry) for package in schema.PACKAGES]
+    monkeypatch.setattr(schema, 'rows', lambda: (found, {'mhseals_nav': 'no schema'}))
+    seen = []
 
     def popup(modal, handle, refresh=None):
-        if not modal['title'].startswith('Catalog'):
-            opened.append(modal['title'])
+        seen.append(modal['title'])
+        if modal['title'] == 'Config':
+            assert any(label.strip() == 'Catalog' for label, _ in modal['rows'])
+            for _ in range(len(app.watcher.watches)):
+                handle('down')
+            handle('enter')
+        elif modal['title'] == 'Catalog (read only)':
+            for _ in range(2 + len(found)):
+                output = io.StringIO()
+                Console(file=output, width=36, height=12).print(layout.popup(modal, 36, 12)[0])
+                assert output.getvalue()
+                seen.append(modal['rows'][0][0])
+                handle('enter')
+                handle('down')
+        else:
             handle('down')
             assert modal['scroll'] == 1
             assert handle('escape') is True
-            return
-        for _ in range(len(found) + len(missing)):
-            seen.append(modal['rows'][0][0])
-            handle('enter')
-            handle('down')
         assert handle('escape') is True
-    catalog.open_catalog(SimpleNamespace(popup=popup))
-    assert {f'{package}: {key}' for package, key, _ in found} <= set(seen)
-    assert len(opened) == len(seen)
+    app.popup = popup
+    app.on_status('enter')
+    assert seen[:2] == ['Config', 'Catalog (read only)']
+    assert {f'{package}: leaf' for package, _, _ in found} <= set(seen)
+    assert 'mhseals_nav' in seen
+
+
+def test_catalog_uses_existing_popup_emergency_passthrough(monkeypatch):
+    monkeypatch.setattr(schema, 'rows', lambda: ([], {}))
+    calls = []
+    keys = iter(['space', 'E', 'b', 'enter', 'space', 'E', 'escape', 'escape'])
+    app = SimpleNamespace(modal=None, refresh=lambda: None, tick=lambda: None,
+                          keys=SimpleNamespace(read=lambda **kw: next(keys)),
+                          operator_stop=lambda: calls.append('stop'),
+                          revoke_agent=lambda: calls.append('revoke'))
+    app.popup = lambda modal, handle: popups.popup(app, modal, handle)
+    catalog.open_catalog(app)
+    assert calls == ['stop', 'revoke', 'stop', 'revoke']
+    assert app.modal is None

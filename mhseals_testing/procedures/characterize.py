@@ -26,6 +26,7 @@ from mhseals_testing.analysis.thrust import speed_curve
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, IDENTITY, Staging
 from mhseals_testing.history import adapters
 from mhseals_testing.runner import NEUTRAL
+from mhseals_testing.strict_yaml import load_strict
 
 class UnusableResponse(ValueError):
     """A measurement or candidate cannot safely feed the characterization."""
@@ -40,7 +41,7 @@ def load_settings(path=None):
     if not path.exists():
         from ament_index_python.packages import get_package_share_directory
         path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'characterize.yaml'
-    return yaml.safe_load(path.read_text())
+    return load_strict(path.read_text(), path)
 
 
 def label(axis, sign):

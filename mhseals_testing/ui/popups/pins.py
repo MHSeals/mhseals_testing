@@ -7,7 +7,6 @@ The text is ``channels line`` such as ``0 0 0 0 29``: four PWM channel numbers
 import time
 
 from mhseals_hardware.configuration import load_config
-
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.health.pwm_sysfs import sample
 from mhseals_testing.ui import theme
