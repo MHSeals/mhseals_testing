@@ -14,6 +14,7 @@ PERIOD_S = 2.0
 
 def main(argv=None):
     import rclpy
+    from rclpy.executors import ExternalShutdownException
     from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 
     from mhseals_testing.health.probes.preflight import HOST_PREFIX, host_values
@@ -29,7 +30,7 @@ def main(argv=None):
         message = DiagnosticArray()
         message.header.stamp = node.get_clock().now().to_msg()
         message.status = [DiagnosticStatus(
-            level=DiagnosticStatus.OK, name='host_diagnostic',hardware_id=HOST_PREFIX + host,
+            level=DiagnosticStatus.OK, name='host_diagnostic', hardware_id=HOST_PREFIX + host,
             message=', '.join(f'{k} {v}' for k, v in values.items()),
             values=[KeyValue(key=k, value=v) for k, v in values.items()])]
         publisher.publish(message)
@@ -37,7 +38,7 @@ def main(argv=None):
     node.create_timer(PERIOD_S, publish)
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):   # launch's SIGINT/SIGTERM shuts the context down
         pass
     finally:
         node.destroy_node()

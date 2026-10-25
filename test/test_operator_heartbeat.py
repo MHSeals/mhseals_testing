@@ -15,7 +15,10 @@ def test_main_publishes_the_host_name(monkeypatch):
     rclpy.create_node = lambda name: seen.append(name) or 'node'
     rclpy.spin = lambda node: (_ for _ in ()).throw(KeyboardInterrupt)
     rclpy.try_shutdown = lambda: seen.append('shutdown')
+    executors = ModuleType('rclpy.executors')
+    executors.ExternalShutdownException = type('ExternalShutdownException', (Exception,), {})
     monkeypatch.setitem(sys.modules, 'rclpy', rclpy)
+    monkeypatch.setitem(sys.modules, 'rclpy.executors', executors)
     monkeypatch.setattr(heartbeat, 'bind', lambda node: seen.append(node))
     assert heartbeat.main() == 0
     assert seen == ['operator_heartbeat', 'node', 'shutdown']

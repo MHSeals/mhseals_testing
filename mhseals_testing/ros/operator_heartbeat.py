@@ -22,12 +22,13 @@ def bind(node, period=PERIOD_S):
 
 def main(argv=None):
     import rclpy
+    from rclpy.executors import ExternalShutdownException
     rclpy.init(args=argv)
     node = rclpy.create_node('operator_heartbeat')
     bind(node)
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):   # launch's SIGINT/SIGTERM shuts the context down
         pass
     finally:
         rclpy.try_shutdown()
