@@ -7,11 +7,16 @@ import pathlib
 import time
 
 import pytest
-# Optional GNSS libraries: skip this module instead of aborting collection when the host lacks them
-pyubx2 = pytest.importorskip('pyubx2')
-pyrtcm = pytest.importorskip('pyrtcm')
-GET, UBXMessage, UBXReader = pyubx2.GET, pyubx2.UBXMessage, pyubx2.UBXReader
-calc_crc24q = pyrtcm.calc_crc24q
+# Optional GNSS libraries: mark the tests skipped rather than raising Skipped at import, since ROS
+# launch_testing imports every test file outside pytest's handling and would skip the whole dir
+try:
+    import pyrtcm
+    import pyubx2
+except ImportError:
+    pyubx2 = pyrtcm = None
+pytestmark = pytest.mark.skipif(pyubx2 is None or pyrtcm is None, reason='needs pyubx2 and pyrtcm')
+GET, UBXMessage, UBXReader = (getattr(pyubx2, n, None) for n in ('GET', 'UBXMessage', 'UBXReader'))
+calc_crc24q = pyrtcm.calc_crc24q if pyrtcm else None
 
 from mhseals_testing.rtk import (BaseSession, DEFAULTS, Radio, base_commands, coordinates, fragments,
                                  load_config, rtcm_reader, save_config, split_position)
