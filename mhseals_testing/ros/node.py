@@ -60,6 +60,7 @@ def message_type(kind):
 EVENTS_TOPIC = '/mhseals_testing/events'
 FAULT_LOG = os.path.join(tempfile.gettempdir(), 'boat_test_faults.log')  # callback tracebacks
 MAVLINK_TOPIC = '/uas1/mavlink_source'   # MAVROS's every received frame (mavros_msgs/Mavlink)
+AUTOPILOT = 1                            # MAV_COMP_ID_AUTOPILOT1, the FCU's component id
 GUID_PREFIX = 12             # bytes of an endpoint gid that name its DDS participant
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
 EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
@@ -174,7 +175,8 @@ class RosIO:
     def _gps_raw_int(self, topic, message):
         """GPS_RAW_INT from MAVROS's raw MAVLink stream as the gpsraw sensor, only while nothing
         publishes ``topic`` (no mavros_extras gpsstatus plugin), so RTK FLOAT/FIXED still shows."""
-        if message.msgid != GPS_RAW_INT or self.node.count_publishers(topic):
+        # Only the autopilot's (MAV_COMP_ID_AUTOPILOT1): a GCS or another component must not supply the fix.
+        if message.msgid != GPS_RAW_INT or message.compid != AUTOPILOT or self.node.count_publishers(topic):
             return
         raw = GpsRawInt(message)
         if not (raw.header.stamp.sec or raw.header.stamp.nanosec):
