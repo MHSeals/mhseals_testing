@@ -4,8 +4,9 @@ Stdlib only (PyYAML when importable), so it runs as ``python3 -I agent_hook.py s
 from the checkout on the dev machine; the hook JSON arrives on stdin (spec agent-control section 6).
 
 * ``start`` prints the agent's boat name and how to drive (``boat_agent`` verbs only).
-* ``pre`` denies a command matching ``hook.deny`` (raw /cmd_vel, mux, MAVROS arming/mode/params,
-  Nav2 goals, pkill) and names the verb to use instead. A boat-bound command (``hook.match``, not
+* ``pre`` denies a command matching ``hook.deny`` (raw /cmd_vel, /goal_pose, mux, MAVROS
+  arming/command/mode/params, Nav2 goals and behaviors, pkill; ``.`` spans lines) and names the
+  verb to use instead. A boat-bound command (``hook.match``, not
   ``hook.skip``) becomes a channel ``note`` line ``{phase: pre, tool_id, cmd}``.
 * ``post`` (PostToolUse and PostToolUseFailure) sends the same tool_id with ``exit`` and ``dur_s``:
   a success is exit 0; a failure's exit is the ``Exit code N`` first line of ``error``.
@@ -17,6 +18,7 @@ the agent. It exits 0 always: a deny is a JSON decision, not an error. Advisory,
 the mux, the claim and the red external chip are the safety.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -29,15 +31,21 @@ import time
 
 SCHEMA = 'mhseals.agent/1'
 CMD_MAX = 300
-SECRET = re.compile(r'(?i)(token|pass(?:word)?|secret|key)=\S+')   # agent_channel.redact
+_VALUE = r'''("[^"]*"|'[^']*'|[^\s'"]+)'''
+SECRETS = (   # agent_channel._SECRETS, kept equal by test_agent_hook
+    re.compile(r'(?i)(\b(?:token|pass(?:wd|word)?|secret|key)\s*=\s*)' + _VALUE),
+    re.compile(r'(?i)(--(?:token|pass(?:wd|word)?|secret|api-?key|key)(?:\s+|=))' + _VALUE),
+    re.compile(r'(\bsshpass\b(?:\s+-[^p\s]\S*)*\s+-p\s*)' + _VALUE),
+    re.compile(r'(?i)(\bauthorization\s*:\s*(?:(?:bearer|basic|token)\s+)?)' + _VALUE),
+    re.compile(r'(?i)(\bbearer\s+)' + _VALUE))
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'agent.yaml'
 DEFAULTS = {
     'target': 'blastoise', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', r'\bros2\b', r'\bdocker\s+exec\b'],
     'skip': [r'\bboat_(trial|agent)\b'], 'max_per_10s': 6,
-    'deny': [r'ros2\s+topic\s+pub\b.*(/cmd_vel|/command_mux|/mavros/(rc/override|setpoint))',
-             r'ros2\s+action\s+send_goal\b.*navigate',
-             r'ros2\s+service\s+call\b.*/mavros/(cmd/arming|set_mode|param)',
+    'deny': [r'ros2\s+topic\s+pub\b.*(/cmd_vel|/command_mux|/goal_pose|/mavros/(rc/override|setpoint))',
+             r'ros2\s+action\s+send_goal\b.*(navigate|/(spin|backup|drive_on_heading|follow_waypoints)\b)',
+             r'ros2\s+service\s+call\b.*/mavros/(cmd/(arming|command)|set_mode|param)',
              r'ros2\s+param\s+set\s+\S*mavros', r'\b(pkill|killall)\b']}
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
@@ -78,40 +86,64 @@ def start_text(who):
 
 
 def matches(patterns, text):
-    return any(re.search(p, text) for p in patterns)
+    """Any pattern found; ``.`` spans newlines, so a multi-line command cannot hide a match."""
+    return any(re.search(p, text, re.S) for p in patterns)
+
+
+def redact(cmd):
+    """``agent_channel.redact``: secret values hidden, cut to CMD_MAX chars."""
+    for pattern in SECRETS:
+        cmd = pattern.sub(r'\1…', cmd)
+    return cmd[:CMD_MAX]
 
 
 class State:
-    """Per-session rate window and pre-call start times, in a small temp file."""
+    """Per-session send times (a sliding window) and pre-call start times, in a small temp file.
+
+    A context manager: the file stays locked (flock) from read to write, so parallel tool calls
+    of one session never lose a send or a start time.
+    """
 
     def __init__(self, session, directory=None):
         directory = Path(directory or tempfile.gettempdir())
         self.path = directory / f'boat_agent_hook-{re.sub(r"[^A-Za-z0-9-]", "", session)[:64]}.json'
+        self.handle, self.data = None, {}
+
+    def __enter__(self):
         try:
-            self.data = json.loads(self.path.read_text())
+            self.handle = open(self.path, 'a+')
+            fcntl.flock(self.handle, fcntl.LOCK_EX)
+            self.handle.seek(0)
+            self.data = json.loads(self.handle.read() or '{}')
         except (OSError, ValueError):
             self.data = {}
-        self.data.setdefault('window', 0.0)
-        self.data.setdefault('sent', 0)
+        if not isinstance(self.data.get('sent'), list):
+            self.data['sent'] = []
         self.data.setdefault('folded', 0)
         self.data.setdefault('started', {})
+        return self
 
-    def admit(self, now, limit):
-        """(send?, folded count to report)."""
-        if now - self.data['window'] >= WINDOW_S:
-            self.data.update(window=now, sent=0)
-        if self.data['sent'] >= limit:
-            self.data['folded'] += 1
-            return False, 0
-        self.data['sent'] += 1
-        folded, self.data['folded'] = self.data['folded'], 0
-        return True, folded
-
-    def save(self):
+    def __exit__(self, *_):
+        if self.handle is None:
+            return
         try:
-            self.path.write_text(json.dumps(self.data))
+            self.handle.seek(0)
+            self.handle.truncate()
+            self.handle.write(json.dumps(self.data))
         except OSError:
             pass
+        finally:
+            self.handle.close()     # releases the lock
+
+    def admit(self, now, limit):
+        """(send?, folded count to report): at most ``limit`` sends in any WINDOW_S."""
+        self.data['sent'] = [t for t in self.data['sent'] if now - t < WINDOW_S]
+        if len(self.data['sent']) >= limit:
+            self.data['folded'] += 1
+            return False, 0
+        self.data['sent'].append(now)
+        folded, self.data['folded'] = self.data['folded'], 0
+        return True, folded
 
 
 def log(text):
@@ -161,24 +193,23 @@ def handle(phase, event, config=None, send=None, now=None, state_dir=None):
             'permissionDecisionReason': DENY_REASON.format(who=who)}})
     if not matches(config['match'], command) or matches(config['skip'], command):
         return ''
-    state = State(str(event.get('session_id', 'none')), state_dir)
     tool_id = event.get('tool_use_id')
-    note = {'phase': phase, 'tool_id': tool_id, 'cmd': SECRET.sub(r'\1=…', command)[:CMD_MAX],
+    note = {'phase': phase, 'tool_id': tool_id, 'cmd': redact(command),
             'exit': None, 'dur_s': None, 'target': config['target']}
-    if phase == 'pre':
-        state.data['started'] = {**dict(list(state.data['started'].items())[-31:]), str(tool_id): now}
-    else:
-        failed = EXIT_LINE.match(str(event.get('error') or ''))
-        if event.get('hook_event_name') == 'PostToolUseFailure' or 'error' in event:
-            note['exit'] = int(failed[1]) if failed else None    # None: interrupted or never started
+    with State(str(event.get('session_id', 'none')), state_dir) as state:
+        if phase == 'pre':
+            state.data['started'] = {**dict(list(state.data['started'].items())[-31:]), str(tool_id): now}
         else:
-            note['exit'] = 0       # PostToolUse fires only for a call that succeeded
-        began = state.data['started'].pop(str(tool_id), None)
-        took = event.get('duration_ms')
-        note['dur_s'] = (round(took / 1000, 2) if isinstance(took, (int, float))
-                         else None if began is None else round(now - began, 2))
-    admitted, folded = state.admit(now, config['max_per_10s'])
-    state.save()
+            failed = EXIT_LINE.match(str(event.get('error') or ''))
+            if event.get('hook_event_name') == 'PostToolUseFailure' or 'error' in event:
+                note['exit'] = int(failed[1]) if failed else None    # None: interrupted or never started
+            else:
+                note['exit'] = 0       # PostToolUse fires only for a call that succeeded
+            began = state.data['started'].pop(str(tool_id), None)
+            took = event.get('duration_ms')
+            note['dur_s'] = (round(took / 1000, 2) if isinstance(took, (int, float))
+                             else None if began is None else round(now - began, 2))
+        admitted, folded = state.admit(now, config['max_per_10s'])
     if admitted:
         line = {'schema': SCHEMA, 't_ns': int(now * 1e9), 'host': socket.gethostname(), 'pid': os.getpid(),
                 'who': who, 'kind': 'note', **note, **({'folded': folded} if folded else {})}

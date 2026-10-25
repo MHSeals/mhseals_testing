@@ -37,7 +37,14 @@ def test_defaults_are_the_shipped_hook_config():
     'ros2 topic pub --once /command_mux/request std_msgs/msg/String "{data: release}"',
     'ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"',
     'ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{}"',
-    'ssh blastoise pkill -f boat_test'])
+    'ssh blastoise pkill -f boat_test',
+    'ssh blastoise "source x &&\nros2 topic pub --once \\\n  /cmd_vel geometry_msgs/msg/Twist {}"',
+    'ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 400, param1: 1}"',
+    'ros2 action send_goal /spin nav2_msgs/action/Spin "{target_yaw: 1.57}"',
+    'ros2 action send_goal /backup nav2_msgs/action/BackUp "{}"',
+    'ros2 action send_goal /drive_on_heading nav2_msgs/action/DriveOnHeading "{}"',
+    'ros2 action send_goal /follow_waypoints nav2_msgs/action/FollowWaypoints "{}"',
+    'ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{}"'])
 def test_raw_motion_is_denied_with_the_verb_to_use(sent, command):
     decision = json.loads(sent('pre', command))['hookSpecificOutput']
     assert decision['permissionDecision'] == 'deny' and decision['hookEventName'] == 'PreToolUse'
@@ -74,6 +81,35 @@ def test_rate_cap_folds_the_excess_into_the_next_line(sent):
     assert len(sent.lines) == 6 and 'folded' not in sent.lines[-1]
     sent('pre', 'ros2 node list', now=111.0, tool='late')
     assert sent.lines[-1]['folded'] == 3 and sent.lines[-1]['tool_id'] == 'late'
+
+
+def test_rate_cap_is_a_sliding_window(sent):
+    sent('pre', 'ros2 node list', now=100.0, tool='a')
+    for i in range(5):
+        sent('pre', 'ros2 node list', now=105.0, tool=f'b{i}')
+    for i in range(3):                     # 10.5 s after the first, 5.5 s after the other five
+        sent('pre', 'ros2 node list', now=110.5, tool=f'c{i}')
+    assert [n['tool_id'] for n in sent.lines] == ['a', 'b0', 'b1', 'b2', 'b3', 'b4', 'c0']
+
+
+def test_parallel_calls_share_one_locked_window(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    lines = []
+
+    def call(i):
+        event = {'session_id': SID, 'tool_use_id': f'p{i}', 'tool_input': {'command': 'ros2 node list'}}
+        hook.handle('pre', event, send=lines.append, now=100.0, state_dir=tmp_path)
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(call, range(24)))
+    assert len(lines) == 6
+    with hook.State(SID, tmp_path) as state:
+        assert len(state.data['sent']) == 6 and state.data['folded'] == 18 and len(state.data['started']) == 24
+
+
+@pytest.mark.parametrize('command', ['curl --password hunter2 x', 'sshpass -p hunter2 ssh blastoise',
+                                     'curl -H "Authorization: Bearer abc" x', 'ros2 run x TOKEN="a b"'])
+def test_hook_redaction_matches_the_channel(command):
+    assert hook.redact(command) == agent_channel.redact(command) != command
 
 
 def test_start_names_the_agent_and_boat_agent_env_wins(sent, monkeypatch):

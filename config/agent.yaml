@@ -15,8 +15,8 @@ hook:
   match: ['\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', '\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
-  deny: ['ros2\s+topic\s+pub\b.*(/cmd_vel|/command_mux|/mavros/(rc/override|setpoint))',
-         'ros2\s+action\s+send_goal\b.*navigate',
-         'ros2\s+service\s+call\b.*/mavros/(cmd/arming|set_mode|param)',
+  deny: ['ros2\s+topic\s+pub\b.*(/cmd_vel|/command_mux|/goal_pose|/mavros/(rc/override|setpoint))',
+         'ros2\s+action\s+send_goal\b.*(navigate|/(spin|backup|drive_on_heading|follow_waypoints)\b)',
+         'ros2\s+service\s+call\b.*/mavros/(cmd/(arming|command)|set_mode|param)',
          'ros2\s+param\s+set\s+\S*mavros',
          '\b(pkill|killall)\b']
