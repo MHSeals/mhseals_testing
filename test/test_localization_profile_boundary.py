@@ -28,7 +28,7 @@ def test_shipped_full_and_partial_starts_keep_clock_and_selectors(name):
         assert item.arguments['ekf_local_config_file'] == '/selected/local.yaml'
     processes = FakeProcesses()
     stack = Stack(children, processes, lambda: 0.)
-    for key in stack.start_order():
+    for key in ('odometry', 'ekf'):     # the boat starts them from Status rows, not the session
         stack.start(key, ())
     assert any(key == 'ekf' for key, _ in processes.started)
     partial = FakeProcesses()

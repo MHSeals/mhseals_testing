@@ -63,10 +63,11 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
         overlay = stack_overlay(profile, args)       # the session layer carries the selection
         overlay.setdefault('odometry', {}).update(selection)
         children = {item.key: item for item in components(profile, overlay)}
-        # Exercise the session-start ordering and a partial EKF start with odometry external.
+        # Exercise a full start (odometry, then the EKFs; the boat starts them from Status rows,
+        # not the session) and a partial EKF start with odometry external.
         processes = FakeProcesses()
         stack = Stack(tuple(children.values()), processes, lambda: 0.0)
-        for key in stack.start_order():
+        for key in ('odometry', 'ekf'):
             stack.start(key, ())
         assert ('ekf', children['ekf'].argv) in processes.started
         partial = FakeProcesses()
