@@ -1,8 +1,10 @@
 """Re-judge a finished session with the referee, headless: ``boat_trial analyze referee``.
 
 Reads files only (no ROS). A session directory holds ``course_truth.json`` (the crane
-course), ``track.jsonl`` (ground-truth rows ``{t, x, y, yaw}``), ``events.jsonl`` (the
-task's events) and optionally ``session.json`` naming the ``task``. The verdict is
+course), ``track.jsonl`` (ground-truth rows ``{t, x, y, yaw}``), the task's events
+(``task_events.jsonl``, else ``events.jsonl``) and optionally ``session.json`` naming the
+``task``, else the events do. A TUI mission rehearsal writes track.jsonl and task_events.jsonl
+for its latest run. The verdict is
 written to ``<session>/analysis/referee.<ts>.json``; ``--json`` prints that same record.
 ``boat_trial analyze referee SESSION [--task T] [--json]`` calls :func:`main` (``cli.ANALYSES``).
 """
@@ -40,9 +42,11 @@ def load(session):
              if 't' in r and 'x' in r and 'y' in r]
     if not track:
         raise Refused(f'{session.name}: no track.jsonl samples')
+    kept = session / 'task_events.jsonl'           # the TUI's last mission run (procedures/mission.py)
     events = [dict(e, time=e.get('received', e.get('time', 0.0)))
-              for e in data.read_jsonl(session / 'events.jsonl') if 'event' in e]
-    task = (data.read_json(session / 'session.json', {}) or {}).get('task')
+              for e in data.read_jsonl(kept if kept.exists() else session / 'events.jsonl') if 'event' in e]
+    task = ((data.read_json(session / 'session.json', {}) or {}).get('task')
+            or next((e['task'] for e in events if e.get('task')), None))
     return truth, track, events, task
 
 

@@ -48,3 +48,14 @@ def test_unjudgeable_session_is_refused(tmp_path, capsys):
     root = session(tmp_path, line((0, 0), (1, 0)), task='nope')
     assert ra.main([str(root)]) == 2
     assert 'unknown task' in capsys.readouterr().err
+
+
+def test_a_tui_mission_run_leaves_what_analyze_referee_judges(tmp_path):
+    from mhseals_testing.procedures import mission
+    root = tmp_path / 'sessions' / 's2'
+    root.mkdir(parents=True)
+    (root / 'course_truth.json').write_text(json.dumps(TRUTH))
+    (root / 'events.jsonl').write_text(json.dumps({'phase': 'session_start'}) + '\n')   # the journal
+    mission.keep(root, 'nav_channel', line((0, 0), (16, 0)), [dict(event='task_started', time=0.0)])
+    _, record = ra.analyze(root)
+    assert record['verdict'] == 'PASS' and record['result']['task'] == 'nav_channel'

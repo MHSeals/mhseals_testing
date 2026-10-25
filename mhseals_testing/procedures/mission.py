@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing import data
 from mhseals_testing.analysis import referee
 from mhseals_testing.analysis.mission import score
 from mhseals_testing.profiles import PROFILE_DIR
@@ -74,4 +75,19 @@ def judge(ctx, task, rubric, events, start, end):
     track = [(t, v['x'], v['y'], v.get('yaw') or 0.0) for t, v in samples
              if v.get('x') is not None]
     events = [dict(e, time=e.get('received', e.get('time', 0.0))) for e in events]
+    keep(ctx.services.get('session_dir'), task, track, events)
     return referee.judge_task(task, truth, track, events, rubric)
+
+
+def keep(session, task, track, events):
+    """Write what the referee judged into the session, for ``boat_trial analyze referee``.
+
+    ``track.jsonl`` (rows ``{t, x, y, yaw}``) and ``task_events.jsonl`` (each naming ``task``)
+    hold the latest mission run; nothing is written without a session directory.
+    """
+    if session is None:
+        return
+    lines = lambda rows: ''.join(json.dumps(row) + '\n' for row in rows)
+    data.atomic_write(Path(session) / 'track.jsonl',
+                      lines(dict(t=t, x=x, y=y, yaw=yaw) for t, x, y, yaw in track))
+    data.atomic_write(Path(session) / 'task_events.jsonl', lines(dict(e, task=task) for e in events))

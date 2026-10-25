@@ -2405,7 +2405,7 @@ class App:
             self, self.profile, self.monitor, self.settings, self.args.stale_after,
             dict(
                 conditions=self.conditions, nav2=self.nav2, task_watcher=self.task_watcher,
-                start=self.processes.start,
+                session_dir=self.paths.directory, start=self.processes.start,
                 running=self.processes.running, stop=self.processes.stop,
                 returncode=self.processes.returncode,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
