@@ -377,6 +377,38 @@ def test_a_watchdog_gone_while_the_operator_types_still_refuses(tmp_path):
     assert not app.armed and app.arming.calls == []
 
 
+def test_a_watchdog_lost_while_armed_holds_the_mux_after_a_grace(tmp_path):
+    from mhseals_testing.ui.app import WATCHDOG_GRACE
+    app, boat = make_app(tmp_path)
+    nodes = list(WATCHDOGS)
+    app.ros.nodes = lambda: list(nodes)
+    with app.attached():
+        arm(app)
+    nodes.remove('/fence_watchdog')                    # a blip shorter than the grace: no hold
+    app.tick()
+    app.clock.now += WATCHDOG_GRACE / 2
+    nodes.append('/fence_watchdog')
+    app.tick()
+    app.clock.now += WATCHDOG_GRACE
+    app.tick()
+    assert getattr(boat, 'holds', []) == [] and app.watchdog_missing is None
+
+    nodes.remove('/fence_watchdog')
+    app.tick()
+    app.clock.now += WATCHDOG_GRACE + 0.1
+    app.tick()
+    app.clock.now += 1.0
+    app.tick()
+    assert boat.holds == ['watchdog'] and app.armed    # once, sticky, at neutral
+    assert app.notice.startswith('Holding: safety watchdog not running: /fence_watchdog')
+    assert 'watchdog_hold' in app.ros.events
+    assert app.release_refusal().startswith('Release refused: safety watchdog not running')
+    nodes.append('/fence_watchdog')
+    app.tick()
+    assert app.watchdog_missing is None
+    assert 'watchdog' not in app.release_refusal()
+
+
 def test_the_simulator_arms_without_the_boat_watchdogs(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
     app.ros.nodes = lambda: []

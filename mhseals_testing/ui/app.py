@@ -109,6 +109,7 @@ ADVISORY_PERIOD = 1.0
 MUX_SETTLE_S = 5.0       # s after arming for the mux's first state (it starts last, then 1 Hz)
 HELD = 'applies once disarmed and idle'   # a health or settings edit read while armed or running
 FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease expires; later it counts as live
+WATCHDOG_GRACE = 2.0     # s a required safety watchdog may be missing from the graph while armed (graph lag)
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
@@ -311,6 +312,7 @@ class App:
         self.chords = False             # the manual mode, for the Command glyph's label
         self.manual_speed = None        # the last manual speed this session; None until manual ran
         self.last_advisory = float('-inf')
+        self.watchdog_missing = None    # (since, held) while armed with a safety watchdog off the graph
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
         if getattr(ros, 'mission', None) is not None:   # ui.feeds.mission.MissionState, fed by ROS
@@ -539,6 +541,31 @@ class App:
             self.publish_pulses(self.test_pulses)
         if self.armed and self.arming.fault():
             self.stop(self.arming.fault(), by='fault')
+        self.watch_watchdogs()
+
+    def watch_watchdogs(self):
+        """While armed, hold the mux once a required safety watchdog is off the graph WATCHDOG_GRACE.
+
+        The arming gate's own check (watchdog_refusal), read every tick. The hold is sticky: the
+        operator releases it (U) only once the watchdogs are back. Without a mux, it disarms.
+        """
+        reason = self.watchdog_refusal() if self.armed else ''
+        if not reason:
+            self.watchdog_missing = None
+            return
+        now = self.clock()
+        since, held = self.watchdog_missing or (now, False)
+        self.watchdog_missing = (since, held)
+        if held or now - since < WATCHDOG_GRACE:
+            return
+        self.watchdog_missing = (since, True)
+        if self.plant is None or not muxed(self.profile):
+            self.stop(reason, by='fault')
+            return
+        self.plant.hold('watchdog')
+        self.ros.emit('watchdog_hold', reason=reason)
+        self.monitor.event('HOLD: ' + reason)
+        self.notice = f'Holding: {reason}'
 
     def refresh_advisories(self):
         """Sample the non-blocking checks at most once per ADVISORY_PERIOD."""
@@ -1436,6 +1463,9 @@ class App:
 
     def release_refusal(self):
         """Only fresh, known mux state can authorize an operator release request."""
+        watchdogs = self.watchdog_refusal() if self.armed else ''
+        if watchdogs:
+            return f'Release refused: {watchdogs}'
         arbiter = getattr(self, 'arbiter', None)
         if arbiter is None:
             return 'Release refused: mux state is unknown'
