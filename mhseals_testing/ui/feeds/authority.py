@@ -57,6 +57,8 @@ class AuthorityFeed:
                if n.startswith('task_') and children.running(n)] if app.running == MISSION else []
         if name in own:
             task = None                        # the Mission's own task: not a second source
+        elif task:
+            task = dict(task, name=name)       # derive reads 'name'
         if procedure and own and not (task and task.get('status') == 'RUNNING'):
             # Mission started it: the procedure's implicit claim. A different task that
             # runs meanwhile stays a source of its own, so it still shows as a conflict.
@@ -96,6 +98,10 @@ def start(app, ros, bind=arbiter_module.bind, subscribe=None, registry=None):
         subscribe(ros, feed)
     app.arbiter = feed.arbiter                 # the one name the popups, banner and Agents setting read
     app.feeds.append(feed)
+    # Watch /task/status from the start: a task started outside the TUI (another terminal,
+    # an agent) must show as TASK, not only once a Mission has created the watcher.
+    if getattr(app, 'watcher_factory', None) is not None:
+        app.task_watcher()
     return feed
 
 

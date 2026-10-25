@@ -418,6 +418,21 @@ def test_plant_reuses_upfront_mux_publisher_and_unmuxed_hold_is_silent(tmp_path)
     assert made == [] and sent == []
 
 
+def test_a_task_started_outside_the_tui_shows_as_task_from_the_session_start(tmp_path):
+    # Sim (rig seed 1): an external run_task read '? /velocity_smoother' because the watcher
+    # only existed once a Mission had run, and then read 'TASK task' (status names it 'task').
+    app, _ = make_app(tmp_path)
+    watcher = SimpleNamespace(status={})
+    app.watcher_factory = lambda: watcher
+    feed, _ = start(app, [1000.0])
+    assert app._watcher is watcher                    # watching before any Mission
+    watcher.status = {'task': 'docking', 'status': 'RUNNING'}
+    feed.arbiter.tick()
+    record = feed.view()['authority_record']
+    assert (record['owner'], record['source']) == ('task', 'docking')
+    assert authority_chip.chip(record, 1000.0) == ('ours', 'TASK docking')
+
+
 def test_a_task_the_mission_procedure_started_is_not_a_second_source(tmp_path):
     app, _ = make_app(tmp_path)
     feed, _ = start(app, [1000.0])
