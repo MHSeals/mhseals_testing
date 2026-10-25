@@ -90,10 +90,15 @@ def source_nav_share(monkeypatch):
         package = ModuleType('ament_index_python')
         packages = ModuleType('ament_index_python.packages')
 
+        class PackageNotFoundError(KeyError):
+            """As ament's: any other package is simply not installed here."""
+
         def share_directory(name):
-            assert name == 'mhseals_nav'
+            if name != 'mhseals_nav':
+                raise PackageNotFoundError(f"package '{name}' not found")
             return str(nav_root)
 
+        packages.PackageNotFoundError = PackageNotFoundError
         packages.get_package_share_directory = share_directory
         package.packages = packages
         monkeypatch.setitem(sys.modules, 'ament_index_python', package)
