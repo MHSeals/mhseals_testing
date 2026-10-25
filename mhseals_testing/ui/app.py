@@ -64,7 +64,7 @@ from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
     authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, parts,
-    perception, popups, theme)
+    perception, pixels, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -372,6 +372,8 @@ class App:
             snapshot['control'] = self.control()
             if not self.watching:
                 snapshot['rec_mode'] = self.recorder.mode   # the Recording row (owner only)
+        if self.live is not None:   # the Graphics row: this terminal's setting and drawing tier
+            snapshot['graphics'] = (theme.PALETTE.graphics, pixels.TIER)
         counts = health_feed.summary(self.engine)
         if counts:
             snapshot['health'] = counts
@@ -714,6 +716,21 @@ class App:
         if 0 <= i < len(REC_MODES):
             self.set_recording(REC_MODES[i])
 
+    def step_graphics(self, key):
+        """left/right on the Graphics row moves along off, auto, kitty, sixel without wrapping; the
+        choice goes to the theme overlay, whose reload (apply_theme) switches the tier."""
+        i = palette.GRAPHICS.index(theme.PALETTE.graphics) + (1 if key == 'right' else -1)
+        if not 0 <= i < len(palette.GRAPHICS):
+            return
+        if not palette.save_graphics(palette.GRAPHICS[i]):
+            self.notice = f'Graphics not saved: {palette.OVERLAY} is not writable'
+            return
+        change = self.watcher.reload('theme')   # our own save is not a hand edit
+        if change is not None and not change.ok:
+            self.announce(change)
+            return
+        self.notice = f'Graphics {theme.PALETTE.graphics}{theme.SEPARATOR}{pixels.TIER}'
+
     # --- hardware config: edits from the panel or any editor, pins restart the driver ---
 
     def watch_config(self):
@@ -768,6 +785,9 @@ class App:
 
         def apply_theme(new):
             theme.use_palette(new)
+            if self.keys is not None and new.graphics != pixels.SETTING:   # Graphics row or a hand edit
+                pixels.restart(self.keys, self.console, self.write_terminal, new.graphics)
+                self.last_drawn = None
             self.minimap.redraw.mark()
 
         def apply_minimap(table):
@@ -999,17 +1019,22 @@ class App:
             return
         self.last_frame = now
         frame = self.render()
-        if not force:
+        images = pixels.active()
+        if not force or images:
             # Idle ticks: skip the write when the frame is byte-identical to the last one,
             # and hand Live the segments already laid out instead of rendering twice.
+            # Image tiers always lay out first: pixels finds its tiles in the segments.
             drawn = list(self.console.render(frame))
-            if drawn == self.last_drawn:
+            drawn = pixels.frame(drawn, tuple(self.console.size))
+            if not force and drawn == self.last_drawn:
                 return
-            self.last_drawn = drawn
+            self.last_drawn = drawn if not force else None
             frame = Segments(drawn)
         else:
             self.last_drawn = None
+        pixels.before(self.write_terminal)
         self.live.update(frame, refresh=True)
+        pixels.after(self.write_terminal)
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
@@ -1037,13 +1062,21 @@ class App:
         """One key reader and one full-screen live view for the whole session."""
         # No refresh thread: the loop draws right after each key, and nothing else writes
         # to the terminal between frames, so mode switches such as Kitty's reach it intact.
-        with self.open_keys() as keys, self.live_factory(
-                self.render(), console=self.console, screen=True, auto_refresh=False) as live:
-            self.keys, self.live = keys, live
+        # The image tier is probed on the key reader's fd before the screen switches (ui/pixels.py);
+        # graphics: off (the default) probes nothing and draws the text as before.
+        with self.open_keys() as keys:
+            pixels.forget()
+            pixels.start(keys, self.console, self.write_terminal, theme.PALETTE.graphics)
             try:
-                yield self
+                with self.live_factory(self.render(), console=self.console, screen=True,
+                                       auto_refresh=False) as live:
+                    self.keys, self.live = keys, live
+                    try:
+                        yield self
+                    finally:
+                        self.keys = self.live = None
             finally:
-                self.keys = self.live = None
+                pixels.stop(self.console, self.write_terminal)
 
     def run(self):
         with self.attached():
@@ -1743,6 +1776,8 @@ class App:
             agent_feed.step_setting(self, self.row_setting(rows), key)
         elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
             self.step_recording(key)
+        elif key in ('left', 'right') and self.row_setting(rows) == 'graphics':
+            self.step_graphics(key)
         elif key == 'e':
             row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
             if row and row['name'] == nav2_edit.NAME and self.nav2_file is not None:

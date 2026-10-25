@@ -143,6 +143,21 @@ def recording_rows(snapshot, specs):
                  detail='left/right: lean, full or off; each change ends the segment and starts the next')]
 
 
+def graphics_rows(snapshot, specs):
+    """``Graphics ‹ auto › · sixel`` (Session group): theme.yaml ``graphics`` and, when it differs,
+    the tier drawing now (ui/pixels.py); left/right steps off, auto, kitty, sixel. Only the live
+    App feeds ``graphics``."""
+    graphics = snapshot.get('graphics')
+    if graphics is None:
+        return []
+    setting, tier = graphics
+    left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
+    value = f'{left}{setting}{right}' + (f'{theme.SEPARATOR}{tier}' if tier != setting and setting != 'off' else '')
+    return [dict(group='Session', state='OK', name='Graphics', required=False, value=value, plain=True,
+                 setting='graphics',
+                 detail='left/right: off, auto, kitty or sixel; drawings as terminal images, saved to the theme overlay')]
+
+
 def session_rows(snapshot, specs):
     """Rows the app feeds into ``snapshot['session']`` (Command effort, Bench)."""
     return list(snapshot.get('session', ()))
@@ -206,7 +221,8 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
 
 # A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
 # providers (Control, Recording, Config, RTK) without touching the grouping below.
-PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame_rows, system_rows, recording_rows, session_rows]
+PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame_rows, system_rows, recording_rows,
+             session_rows, graphics_rows]
 # Placeholder until the Command-effort and Bench items publish these advisories (ui.md 6.1, Session group);
 # no producer exists yet, so only the test advises them.
 SESSION = ('Command', 'Bench')   # advisory names that belong to Session, not System

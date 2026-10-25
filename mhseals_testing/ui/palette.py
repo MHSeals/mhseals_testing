@@ -4,11 +4,13 @@ Rendering code names tokens and glyph ids and asks this module for a Rich style,
 no hex value or glyph character lives in a panel. Tiers: ``truecolor``, ``256``
 (hand-picked indices), ``16`` (names, no backgrounds) and ``mono`` (NO_COLOR:
 attributes only). ASCII is a separate switch for glyphs and chips (``[WORD]``).
-An overlay at ~/.config/mhseals/theme.yaml may set ``theme``, ``cvd`` and single
-tokens or glyphs; a bad overlay is ignored and reported so the UI can toast it.
+An overlay at ~/.config/mhseals/theme.yaml may set ``theme``, ``cvd``, ``graphics`` and single
+tokens or glyphs; a bad overlay is ignored and reported so the UI can toast it. The TUI's
+Graphics row writes ``graphics`` there (`save_graphics`), keeping the rest of the file.
 """
 
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -19,6 +21,7 @@ from mhseals_testing.strict_yaml import load_strict
 CONFIG = Path(__file__).resolve().parent.parent.parent / 'config' / 'theme.yaml'
 OVERLAY = Path.home() / '.config' / 'mhseals' / 'theme.yaml'
 TIERS = ('truecolor', '256', '16', 'mono')
+GRAPHICS = ('off', 'auto', 'kitty', 'sixel')   # drawings as terminal images (ui/pixels.py); off = text
 FIELDS = ('dark', 'light', 'x256', 'ansi')
 # Contrast against bg: 3:1 for foregrounds, 2:1 for trail ramps (drawn at .72 weight);
 # chrome lines and background tints are decoration with a shape cue and are exempt.
@@ -103,11 +106,15 @@ class Theme:
         self.glyphs = data['glyphs']
         self.mode = data.get('theme', 'auto')
         self.cvd = bool(data.get('cvd', False))
+        graphics = data.get('graphics', 'off')       # ui/pixels.py: off | auto | kitty | sixel
+        self.graphics = 'off' if graphics is False else graphics   # YAML 1.1 reads a bare off as false
         self.validate()
 
     def validate(self):
         if self.mode not in ('auto', 'dark', 'light'):
             raise ValueError(f'theme {self.mode!r} must be auto, dark or light')
+        if self.graphics not in GRAPHICS:
+            raise ValueError(f'graphics {self.graphics!r} must be off, auto, kitty or sixel')
         for name, entry in self.tokens.items():
             _check_entry(name, entry)
             self._leaf(name)
@@ -209,7 +216,7 @@ def _merge(base, overlay):
             if not isinstance(value, dict):
                 raise ValueError(f'{key}: expected a mapping')
             merged.setdefault(key, {}).update(value)
-        elif key in ('theme', 'cvd'):
+        elif key in ('theme', 'cvd', 'graphics'):
             merged[key] = value
         elif key != 'schema':
             raise ValueError(f'unknown key {key!r}')
@@ -239,3 +246,24 @@ def load_theme(path=None, overlay=None):
         return Theme(_merge(base, user)), None
     except (ValueError, yaml.YAMLError, KeyError, AttributeError, OSError) as error:
         return theme, f'theme overlay {overlay_path} ignored: {error}'
+
+
+def save_graphics(value, overlay=None):
+    """Set ``graphics: value`` in the user overlay, keeping its other lines and comments; a new
+    file holds only that line. Returns False when the file can't be written."""
+    if value not in GRAPHICS:
+        raise ValueError(f'graphics {value!r} must be one of {", ".join(GRAPHICS)}')
+    path = Path(OVERLAY if overlay is None else overlay)
+    line = f'graphics: {value}'
+    try:
+        text = path.read_text() if path.is_file() else ''
+        text, found = re.subn(r'(?m)^graphics:[ \t]*[^\s#]*', line, text, count=1)
+        if not found:
+            text = text + ('' if not text or text.endswith('\n') else '\n') + line + '\n'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(text)
+        temporary.replace(path)
+    except OSError:
+        return False
+    return True

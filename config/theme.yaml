@@ -8,6 +8,8 @@
 schema: mhseals.theme/1
 theme: auto            # auto | dark | light   (auto: COLORFGBG, else dark)
 cvd: false             # swaps status and trail tokens only; obj.* never change
+graphics: off          # off | auto | kitty | sixel: drawings as terminal images (ui/pixels.py); the Status
+                       # Graphics row sets it in the overlay. auto: kitty, else sixel, else text (text under tmux)
 
 # {dark, light, x256: [dark, light], ansi} | {alias: token}; `fixed: true` = never CVD-swapped.
 # ansi is a Rich colour name, `bold` for sand, or null (no 16-colour form: sel_bg underlines).

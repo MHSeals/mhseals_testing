@@ -10,9 +10,10 @@ import math
 import os
 from functools import lru_cache
 
+import numpy as np
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import pixels, theme
 from mhseals_testing.ui.minimap import hull
 from mhseals_testing.ui.panels import TITLES
 
@@ -156,6 +157,8 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
     and ``command`` the body (surge, sway, yaw) against ``amplitude``. Without a heading the command
     is drawn in the body frame and the world drift is hidden, never mixed in.
     """
+    if pixels.active():
+        return _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue)
     dots, glyphs = {}, {}
     cx, cy = CENTRE
     up = heading if heading is not None else 0.0     # the bow's screen bearing
@@ -253,6 +256,82 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
                 line.append(' ' if theme.ASCII else '⠀')
         rows.append(line)
     return rows
+
+
+ROSE_Q = 2.0                # deg: the image rose's hull, command and drift turn in 2 deg steps
+ROSE_TILE = (7, 3)          # the hull's tile is the centre one; a turn resends only it
+ICON_SPAN = (7.0, 13.0)     # dots from the centre: the image command icon's tail and tip (the braille icon's span)
+ICON_HEAD = (3.5, 2.5)      # dots: the image icon's head length and half width
+
+
+def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
+    """The rose as image cells (ui/pixels.py), the braille rose's look in pixels: muted ticks, the
+    hull's pentagon in slate with its foremost quarter in the bow token at the exact heading (no
+    bowsprit needed), the command icon (a stem and head) in the driver's hue, the dashed drift.
+    Letters, ``↑bow`` and the corner yaw arrows stay text. Inputs are quantized to ROSE_Q, so the
+    image (and its tiles) repeat as the boat turns."""
+    q = lambda deg: round(deg / ROSE_Q) * ROSE_Q % 360
+    up = q(heading) if heading is not None else 0.0
+    glyphs = {}
+    cx, cy = CENTRE
+    if heading is None:
+        for col, char in enumerate(theme.pick('↑bow', '^bow')):
+            glyphs[(ROSE_COLS // 2 - 1 + col, 0)] = (char, 'bold')
+    else:
+        for bearing, letter in ((0, 'N'), (90, 'E'), (180, 'S'), (270, 'W')):
+            dx, dy = _polar(bearing, RADIUS)
+            glyphs[((cx + round(dx)) // 2, (cy + round(dy)) // 4)] = (letter, 'bold')
+    surge, sway, yaw = command
+    scale = amplitude or 1.0
+    icon = q(up + math.degrees(-math.atan2(sway, surge))) if surge or sway else None
+    if yaw:                                        # the turn stays text: curved arrows round the corners
+        look = f'{"bold" if abs(yaw) / scale >= 0.5 else "dim"} {hue}'.strip()
+        for (right, bottom), char in SPIN_CORNERS[yaw < 0].items():
+            glyphs[(right * (ROSE_COLS - 1), bottom * (ROSE_ROWS - 1))] = (char + TEXT, look)
+    shown = None
+    if heading is not None and drift is not None and any(drift):
+        bearing = math.degrees(math.atan2(drift[0], drift[1]))
+        start = _reach(math.radians(bearing - up))
+        shown = (q(bearing), start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)))
+    stale = age > STALE_S
+    tokens = (_token('slate', ''), _token('bow', theme.ACCENT), theme.MUTED, theme.WARN, hue)
+    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode)
+
+    def paint(r):
+        sx, sy = r.cw / 2, r.ch / 4                   # px per dot
+        at = lambda x, y: ((x + 0.5) * sx, (y + 0.5) * sy)
+        pen = max(1, round(min(sx, sy) / 2.5))
+        muted = r.ink(pixels.rgb(theme.MUTED, pixels.token('muted')))
+        for step in range(16):                        # as the braille ticks: longer on the intercardinals
+            a, b = _polar(step * 22.5, RADIUS - 0.25 - (step % 4 == 2)), _polar(step * 22.5, RADIUS + 0.25)
+            r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), muted, pen)
+        if shown:
+            ink = r.ink(tuple((m + b) // 2 for m, b in zip(pixels.rgb(theme.MUTED), pixels.token('bg'))) if stale
+                        else pixels.rgb(theme.MUTED))
+            a, b = _polar(shown[0], shown[1]), _polar(shown[0], shown[2])
+            r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), ink, pen, dash=max(2, round(sx)))
+        warn = pixels.rgb(theme.WARN, pixels.token('warn'))
+        body = r.ink(pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn)
+        poly = hull.outline(90.0 - up, *HULL_DOTS)
+        r.polygon([at(cx + x, cy + y) for x, y in poly], body)
+        # the bow: the hull's foremost quarter, as hull_cells splits it, at the exact heading
+        fx, fy = _polar(up, 1.0)
+        ys, xs = np.nonzero(r.px == body)
+        ahead = (xs + 0.5 - (cx + 0.5) * sx) / sx * fx + (ys + 0.5 - (cy + 0.5) * sy) / sy * fy
+        front = ahead > HULL_DOTS[0] * (0.5 - BOW_SHARE)
+        r.px[ys[front], xs[front]] = r.ink(pixels.rgb(tokens[1], pixels.token('bow')) if yaw_ok else warn)
+        if icon is not None:
+            drive = r.ink(pixels.rgb(hue, pixels.token('fg')))
+            (tail, tip), (head, half) = ICON_SPAN, ICON_HEAD
+            a, b = _polar(icon, tail), _polar(icon, tip - head)
+            r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), drive, pen + 1)
+            base, side = _polar(icon, tip - head), _polar(icon + 90, half)
+            r.polygon([at(cx + x, cy + y) for x, y in (
+                _polar(icon, tip), (base[0] + side[0], base[1] + side[1]), (base[0] - side[0], base[1] - side[1]))],
+                drive)
+
+    grid = pixels.surface('conditions.rose', paint, ROSE_COLS, ROSE_ROWS, key=key, holes=glyphs, tile=ROSE_TILE)
+    return pixels.text_rows(grid, lambda col, row: glyphs.get((col, row), (' ', None)))
 
 
 # --- the command column -----------------------------------------------------------------------
