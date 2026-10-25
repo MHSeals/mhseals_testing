@@ -1943,6 +1943,30 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     assert app.notice == 'Release requested' and released == [1]
 
 
+@pytest.mark.parametrize('release', [True, False])
+def test_arming_waits_for_the_mux_and_offers_its_restored_hold_for_release(tmp_path, release):
+    """H2: the mux starts with the saved keys hold; arming then running needs the human's U, not a cancel."""
+    from mhseals_testing.ros.arming import muxed
+    from mhseals_testing.ros.authority import Arbiter
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack', '--set', 'command_mode=velocity'])
+    assert muxed(app.profile)
+    now, released = [100.0], []
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True,
+                          clock=lambda: now[0])
+    app.arbiter.on_mux({'input': 'auto'})          # the last state before the disarm: stale, not proof
+    app.plant.release_hold = lambda: released.append(1) or True
+
+    def refresh():                                 # the mux reports once it runs, and holds until U
+        now[0] += 0.1
+        app.arbiter.on_mux({'input': 'auto' if released else 'hold', 'cause': 'keys', 'rc': {'mode': 'GUIDED'}})
+    app.refresh = refresh
+    with app.attached():                           # Arm, then the Release hold? confirm (Cancel focused)
+        press(app, 'y', *(('left', 'enter') if release else ('escape',)))
+        app.dispatch('a')
+    assert app.armed and released == ([1] if release else [])
+    assert app.override_cause() == ('' if release else 'hold')
+
+
 @pytest.mark.parametrize('open_popup, answers', [
     (lambda app: app.show('Odometry', message='x'), ('space', 'escape')),
     (lambda app: app.choose('Pick', ['a', 'b']), ('space', 'escape')),

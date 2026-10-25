@@ -369,7 +369,11 @@ class AgentDesk:
             return False
         if 'armed' in found.needs and not app.armed:
             self.set_state(act, 'waiting_arm')
-            app.arm_panel()                      # the human's typed confirmation; no verb arms
+            act['arming'] = True                 # the mux starts with arming: judged once it reported
+            try:
+                app.arm_panel()                  # the human's typed confirmation; no verb arms
+            finally:
+                act['arming'] = False
             if not app.armed:
                 return self.finish(act, False, 'not_armed', hint='operator did not arm')
             act['armed'] = True
@@ -484,7 +488,7 @@ class AgentDesk:
         state = self.claim_state(act['claim'], act['who'])
         if state:
             return state
-        human = self.override()
+        human = '' if act.get('arming') else self.override()
         if human:
             return f'overridden: {human}'
         if self.clock() - act['renewed'] > self.lease()['motion_s']:   # in the confirm popup too

@@ -106,6 +106,7 @@ NEIGHBOURS = {   # a name or the first of a tuple of names that is on screen
             'activity': {'left': 'status', 'up': 'procedures'}},
 }
 ADVISORY_PERIOD = 1.0
+MUX_SETTLE_S = 5.0       # s after arming for the mux's first state (it starts last, then 1 Hz)
 FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease expires; later it counts as live
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
@@ -1424,19 +1425,22 @@ class App:
         return ('unclaimed', auto.get('active'), auto.get('node')), label
 
     def release_hold(self):
-        """Confirm who resumes, then request release once; only mux state proves release."""
+        """Confirm who resumes, then request release once; only mux state proves release.
+
+        True when the release was requested."""
         if getattr(self, '_releasing', False):
-            return
+            return False
         release = getattr(self.plant, 'release_hold', None)
         if release is None:
             self.notice = 'Release hold is not available here'
-            return
+            return False
         refusal = self.release_refusal()
         if refusal:
             self.notice = refusal
-            return
+            return False
         identity, resumer = self.release_resumer()
         self._releasing = True
+        requested = False
         try:
             answer = self.choose('Release hold?', ['Release', 'Cancel'],
                                  message=f'{resumer} resumes', default=1, danger=True)
@@ -1444,12 +1448,14 @@ class App:
                 refusal = self.release_refusal()
                 if not refusal and self.release_resumer()[0] != identity:
                     refusal = 'Release refused: resumer changed; confirm again'
-                self.notice = refusal or ('Release requested' if release()
+                requested = not refusal and release()
+                self.notice = refusal or ('Release requested' if requested
                                           else 'Release hold is not available here')
         except Cancelled:
             pass
         finally:
             self._releasing = False
+        return requested
 
     # --- markers -----------------------------------------------------------------
 
@@ -2173,12 +2179,49 @@ class App:
             return
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
+        arbiter = getattr(self, 'arbiter', None) if muxed(self.profile) else None
+        since = arbiter.clock() if arbiter is not None else None
         self.wait_for_driver()
         if self.plant is not None:
             self.plant.engage()
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
         self.notice = 'Armed at neutral'
+        if arbiter is not None:
+            self.settle_mux(arbiter, since)
+
+    def settle_mux(self, arbiter, since):
+        """After arming, wait for the mux's first state; a hold it restored is offered for release.
+
+        The mux starts with the holds it saved (a Space before the disarm), so whatever drives
+        next would meet a stale or held mux. Only the human releases, through U's own confirm.
+        """
+        if not self.await_mux(arbiter, since, lambda mux: True):
+            self.notice = 'Armed; the mux has not reported yet'
+        elif self.override_cause() == 'hold':
+            since = arbiter.clock()
+            if self.release_hold():
+                self.await_mux(arbiter, since, lambda mux: mux.get('input') != 'hold')
+
+    def await_mux(self, arbiter, since, done, timeout=MUX_SETTLE_S):
+        """Repaint until the mux publishes a state after ``since`` that ``done(mux)`` accepts.
+
+        False on timeout or Esc; Space stops the boat as everywhere. Each pass waits 0.1 s."""
+        for _ in range(round(timeout / 0.1)):
+            with arbiter.lock:
+                mux, at = arbiter.mux, arbiter.mux_at
+            if mux is not None and at is not None and at > since and done(mux):
+                return True
+            self.refresh()
+            key = self.keys.read(0.1) if self.keys is not None else None
+            if key is None and self.keys is None:
+                self.arming.sleep(0.1)
+            if key in ('space', 'press:space'):
+                self.operator_stop()
+                return False
+            if key in ('escape', 'press:escape'):
+                return False
+        return False
 
     def arm(self):
         self.arm_panel()

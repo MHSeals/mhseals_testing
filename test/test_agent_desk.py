@@ -302,6 +302,23 @@ def test_no_verb_arms_a_run_waits_for_the_human_arm_panel(rig):
     assert final(ask(rig, 'run', c, key='square')['id'])['ok']
 
 
+@pytest.mark.parametrize('released', [True, False])
+def test_a_hold_the_mux_restores_on_arming_waits_for_the_human_release(rig, released):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.is_armed = False
+
+    def arm_panel():                         # the mux comes up with the saved keys hold
+        rig.app.is_armed = True
+        rig.app.set_mux('hold', 'keys')
+        rig.app.tick()
+        if released:                         # U's confirm inside the arm panel
+            rig.app.set_mux('auto')
+    rig.app.arm_panel = arm_panel
+    reply = final(ask(rig, 'run', c, key='square')['id'])
+    assert reply['ok'] if released else reply['error'] == 'overridden: keys'
+
+
 def test_the_confirm_popup_refuses_on_esc_and_on_timeout(rig):
     c = claim(rig)
     rig.app.answers = [['escape']]
