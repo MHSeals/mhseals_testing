@@ -171,6 +171,11 @@ class Tail:
             chunk = handle.read(min(st.st_size - self.offset, max_lines * data.MAX_LINE))
         records, errors, start = [], [], clock()
         lines = chunk.split(b'\n')         # never splitlines: a stray \r must not end a line
+        if len(lines) == 1 and len(chunk) >= max_lines * data.MAX_LINE:
+            # no newline in a full chunk: no writer makes such a line (append_jsonl caps 4 KB); skip it,
+            # or the reader would wait on it forever and never see another request
+            self.offset += len(chunk)
+            return [], [f'line over {len(chunk)} bytes skipped']
         for raw in [part + b'\n' for part in lines[:-1]][:max_lines]:
             self.offset += len(raw)
             if not raw.strip():

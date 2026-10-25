@@ -55,6 +55,21 @@ def test_bounded_reads_skip_malformed_lines_and_wait_for_torn_ones():
     assert [r['cmd'] for r in records] == ['after'] and errors == ['malformed JSON line']
 
 
+@pytest.mark.parametrize('end', ['', '\n'])
+def test_a_line_longer_than_a_whole_read_is_skipped_not_waited_on(end):
+    path = ch.channel_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('A' * 300_000 + end)          # a binary cat into the channel, with or without a newline
+    ch.note('a', 'text', 'after')
+    tail, records, errors = ch.Tail(), [], []
+    for _ in range(10):
+        got, bad = tail.read()
+        records += got
+        errors += bad
+    assert [r['cmd'] for r in records] == ['after'] and tail.offset == path.stat().st_size
+    assert any('skipped' in e for e in errors)
+
+
 def test_a_raw_carriage_return_never_stops_the_tail():
     ch.channel_path().parent.mkdir(parents=True)
     with open(ch.channel_path(), 'ab') as handle:
