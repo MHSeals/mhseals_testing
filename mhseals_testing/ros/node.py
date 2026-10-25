@@ -32,6 +32,8 @@ from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.ros.ingest import RTK_TOPIC, ingest
 from mhseals_testing.ros.minimap_feeds import MapFeeds
+from mhseals_testing.ros.mission import MissionFeed
+from mhseals_testing.ui.feeds.mission import MissionState
 from mhseals_testing.ros.sources import subscribe_sources
 from mhseals_testing.validation import RAW_KINDS
 
@@ -113,6 +115,8 @@ class RosIO:
             String, '/thruster_pwm_node/status', self._driver_status,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.map = MapFeeds(self.node, facts=facts, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
+        self.mission = MissionState(self.map.state)   # a ui feed; tasks and the goal go on into the map
+        MissionFeed(self.node, self.mission)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self._spinning = True

@@ -1,0 +1,27 @@
+{
+  "schema": "mhseals.mission_status/1",
+  "task": "mission",
+  "status": "RUNNING",
+  "elapsed": 184.2,
+  "tip": "docking failed 3x, searching for another task",
+  "stage": "search",
+  "phase": "search",
+  "behaviour": "sweep_lawnmower",
+  "goal": {"x": 18.5, "y": -6.0, "yaw": 1.57, "why": "search the east field for the speed gate"},
+  "stages": {
+    "nav_channel": {"state": "done", "attempts": 1, "failures": 0, "elapsed": 41.0},
+    "follow_path": {"state": "done", "attempts": 1, "failures": 0, "elapsed": 62.5},
+    "docking": {"state": "failed", "attempts": 3, "failures": 3, "elapsed": 58.1},
+    "search": {"state": "running", "attempts": 1, "failures": 0, "elapsed": 22.6},
+    "speed_challenge": {"state": "pending", "attempts": 0, "failures": 0, "elapsed": 0.0},
+    "return_home": {"state": "pending", "attempts": 0, "failures": 0, "elapsed": 0.0}
+  },
+  "remaining": ["speed_challenge", "return_home"],
+  "recent": [
+    {"event": "decision", "kind": "recognise", "stage": "nav_channel", "reason": "buoy pair detected, gate between them"},
+    {"event": "decision", "kind": "start", "stage": "nav_channel", "reason": "waypoint between the gate buoys"},
+    {"event": "decision", "kind": "retry", "stage": "docking", "reason": "bay blocked, approach again"},
+    {"event": "decision", "kind": "give_up", "stage": "docking", "reason": "docking failed 3x"},
+    {"event": "decision", "kind": "search", "stage": "search", "reason": "nothing left, searching for the speed challenge"}
+  ]
+}
