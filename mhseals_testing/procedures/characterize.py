@@ -299,7 +299,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         nav2_params, overlay = ctx.services.get('nav2_params'), ctx.services.get('nav2_overlay')
         if nav2_params and overlay:
             # Only measured keys; navigation.launch.py merges these with current defaults.
-            profile = nav2_profile(result, nav2_params)
+            profile = nav2_profile(result, nav2_params, rules=cfg['nav2_rules'])
             overlay.write_text(yaml.safe_dump(profile, sort_keys=False))
             summary['nav2_overlay'] = str(overlay)
     else:

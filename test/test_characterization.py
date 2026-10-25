@@ -7,7 +7,7 @@ import pytest
 from pytest import approx
 
 from mhseals_testing.analysis.characterization import (
-    audit_holds, motion_limits, nav2_profile)
+    audit_holds, motion_limits, nav2_profile, rule_limits)
 
 
 def samples():
@@ -52,6 +52,39 @@ behavior_server:
     assert (follow['vy_max'], follow['wz_max']) == approx((.4, .3))
     assert behavior['max_rotational_vel'] == approx(.3)
     assert behavior['rotational_acc_lim'] == approx(.3)
+
+
+RULES = {'delay_s': 0.15, 'tau_s': {'surge': 0.35, 'sway': 0.45, 'yaw': 0.15},
+         'stop_distance_m': 1.0, 'ramp_lags': 3.0, 'yaw_tolerance': 0.25}
+
+
+def test_rule_limits_stop_within_the_distance_and_overshoot_half_the_tolerance():
+    velocity, acceleration = rule_limits(RULES)
+    for axis in ('surge', 'sway'):
+        lag = RULES['tau_s'][axis] + RULES['delay_s']
+        v, a = velocity[axis], acceleration[axis]
+        assert v * v / (2 * a) + v * lag == approx(RULES['stop_distance_m'])
+        assert v / a == approx(RULES['ramp_lags'] * lag)
+    assert velocity['yaw'] * (RULES['tau_s']['yaw'] + RULES['delay_s']) == approx(0.125)
+
+
+def test_nav2_profile_takes_the_smaller_of_measured_and_rule(tmp_path):
+    source = tmp_path / 'nav2.yaml'
+    source.write_text('controller_server:\n  ros__parameters:\n    FollowPath: {vx_min: -0.1}\n'
+                      'velocity_smoother:\n  ros__parameters:\n    min_velocity: [-0.1, -1.0, -1.0]\n')
+    cap_v, cap_a = rule_limits(RULES)
+    fast = {'motion_limits': {'velocity': {'surge': 2.0, 'sway': 0.1, 'yaw': 1.6},
+                              'acceleration': {'surge': 3.0, 'sway': 0.05, 'yaw': 4.0},
+                              'deceleration': {'surge': 3.0, 'sway': 2.0, 'yaw': 0.1}}}
+    follow = nav2_profile(fast, source, rules=RULES)['controller_server']['ros__parameters']['FollowPath']
+    assert follow['vx_max'] == approx(cap_v['surge'])       # top speed above the rule: the rule
+    assert follow['vy_max'] == approx(0.1)                   # measured below the rule: measured
+    assert follow['wz_max'] == approx(cap_v['yaw'])
+    assert follow['ax_max'] == approx(cap_a['surge'])
+    assert follow['ax_min'] == approx(-cap_a['surge'])
+    assert follow['ay_max'] == approx(0.05)
+    unruled = nav2_profile(fast, source)['controller_server']['ros__parameters']['FollowPath']
+    assert unruled['vx_max'] == approx(2.0)
 
 
 def test_samples_from_windows_skips_transients_and_pairs_commands():

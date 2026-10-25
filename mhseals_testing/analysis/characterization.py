@@ -21,8 +21,25 @@ from mhseals_testing.strict_yaml import load_strict
 HEADROOM = 1.0
 
 
-def nav2_profile(result, source, headroom=HEADROOM):
-    """Return only measured Nav2 limits, preserving the configured reverse cap."""
+def rule_limits(rules):
+    """The limits the boat's lag allows, per axis: (velocity, acceleration) from ``rules``
+    (characterize.yaml ``nav2_rules``). With lag T = tau + delay and ramps of k lags
+    (a = v / (k T)), stopping takes v^2 / 2a + v T = v T (k / 2 + 1), which must fit in the
+    stop distance D: v = D / (T (k / 2 + 1)). A turn overshoots by about wz T, kept to half the
+    yaw tolerance: wz = tol / (2 T)."""
+    k, delay = float(rules["ramp_lags"]), float(rules["delay_s"])
+    lag = {axis: float(rules["tau_s"][axis]) + delay for axis in AXES}
+    velocity = {axis: float(rules["stop_distance_m"]) / (lag[axis] * (k / 2 + 1)) for axis in ("surge", "sway")}
+    velocity["yaw"] = float(rules["yaw_tolerance"]) / (2 * lag["yaw"])
+    return velocity, {axis: velocity[axis] / (k * lag[axis]) for axis in AXES}
+
+
+def nav2_profile(result, source, headroom=HEADROOM, rules=None):
+    """Return only measured Nav2 limits, preserving the configured reverse cap.
+
+    With ``rules`` each limit is the smaller of what the boat showed and what its lag allows
+    (``rule_limits``): the top speed of a characterization is no speed to plan gates at.
+    """
     base = load_strict(Path(source).read_text(), source)
     profile = {key: {"ros__parameters": {}} for key in
                ("controller_server", "velocity_smoother", "behavior_server")}
@@ -30,6 +47,11 @@ def nav2_profile(result, source, headroom=HEADROOM):
     velocity = {axis: headroom * value for axis, value in limits["velocity"].items()}
     acceleration = {axis: headroom * value for axis, value in limits["acceleration"].items()}
     deceleration = {axis: headroom * value for axis, value in limits["deceleration"].items()}
+    if rules:
+        cap_v, cap_a = rule_limits(rules)
+        velocity = {axis: min(value, cap_v[axis]) for axis, value in velocity.items()}
+        acceleration = {axis: min(value, cap_a[axis]) for axis, value in acceleration.items()}
+        deceleration = {axis: min(value, cap_a[axis]) for axis, value in deceleration.items()}
     controller = profile["controller_server"]["ros__parameters"]
     # MPPI samples inside these bounds, so it never plans what the boat can't do.
     follow_base = base["controller_server"]["ros__parameters"].get("FollowPath", {})

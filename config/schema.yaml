@@ -9,6 +9,13 @@ characterize.sync_s: {type: float, units: s, tier: new-session, doc: "Neutral ti
 characterize.min_response.surge: {type: float, units: m/s, tier: new-session, doc: "Smallest surge response that counts as the boat moving."}
 characterize.min_response.sway: {type: float, units: m/s, tier: new-session, doc: "Smallest sway response that counts as the boat moving."}
 characterize.min_response.yaw: {type: float, units: rad/s, tier: new-session, doc: "Smallest yaw response that counts as the boat moving."}
+characterize.nav2_rules.delay_s: {type: float, units: s, tier: new-session, doc: "Command-to-odometry dead time the Nav2 limit caps assume."}
+characterize.nav2_rules.tau_s.surge: {type: float, units: s, tier: new-session, doc: "Closed-loop surge velocity lag the Nav2 limit caps assume."}
+characterize.nav2_rules.tau_s.sway: {type: float, units: s, tier: new-session, doc: "Closed-loop sway velocity lag the Nav2 limit caps assume."}
+characterize.nav2_rules.tau_s.yaw: {type: float, units: s, tier: new-session, doc: "Closed-loop yaw-rate lag the Nav2 limit caps assume."}
+characterize.nav2_rules.stop_distance_m: {type: float, units: m, tier: new-session, doc: "Distance within which the boat must stop, lag included; caps vx and vy."}
+characterize.nav2_rules.ramp_lags: {type: float, units: "1", tier: new-session, doc: "Lags a full-speed ramp must take at least; caps the accelerations."}
+characterize.nav2_rules.yaw_tolerance: {type: float, units: rad, tier: new-session, doc: "Yaw tolerance a turn may overshoot by half of; caps wz."}
 tracking.score.k: {type: float, units: "1", tier: new-session, doc: "Noise-floor weight in the live tracking score."}
 tracking.score.green: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is green."}
 tracking.score.yellow: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is yellow."}

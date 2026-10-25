@@ -14,3 +14,15 @@ tolerance:
   surge: [0.05, 0.015]   # sway (crab), yaw (rad/s per m/s)
   sway: [0.05, 0.015]    # surge (crab), yaw
   yaw: [0.10, 0.10]      # surge, sway: rotation-centre offset in m
+# Caps on the Nav2 limits the characterization writes: each limit is min(measured, rule).
+# delay_s is the command-to-odometry dead time and tau_s the velocity loop's closed-loop lag per
+# axis (the tuning procedure measures both; these are the crane_ml values until it has). The
+# boat must stop within stop_distance_m of planning to (v^2 / 2a + v (tau + delay)), ramps take
+# at least ramp_lags lags (a = v / (ramp_lags (tau + delay))), and a turn may overshoot by at most
+# half the precise yaw tolerance (wz = yaw_tolerance / (2 (tau_yaw + delay))).
+nav2_rules:
+  delay_s: 0.15
+  tau_s: {surge: 0.35, sway: 0.45, yaw: 0.15}
+  stop_distance_m: 1.0
+  ramp_lags: 3.0
+  yaw_tolerance: 0.25
