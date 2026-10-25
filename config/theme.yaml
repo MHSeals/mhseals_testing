@@ -30,10 +30,11 @@ tokens:
   auth.agent_dim: {dark: '#B58BAE', light: '#8A5A84', x256: [139, 96],  ansi: magenta}   # working, not driving
   auth.hold:      {alias: slate}
   auth.unclaimed: {alias: fail}
-  obj.red:     {alias: fail,  fixed: true}
-  obj.green:   {alias: ok,    fixed: true}
-  obj.yellow:  {alias: warn,  fixed: true}
-  obj.blue:    {dark: '#8AB2F5', light: '#2F62C8', x256: [111, 26], ansi: blue}
+  # buoys: saturated signal hues, apart from the pastel severity set; on 16 colours bright_* vs plain
+  obj.red:     {dark: '#FF5F57', light: '#D11A12', x256: [203, 160], ansi: bright_red,    fixed: true}
+  obj.green:   {dark: '#36D399', light: '#0E8A5A', x256: [42, 29],   ansi: bright_green,  fixed: true}
+  obj.yellow:  {dark: '#FFD23F', light: '#B08600', x256: [220, 136], ansi: bright_yellow, fixed: true}
+  obj.blue:    {dark: '#5AA9FF', light: '#1F5FCC', x256: [75, 26],   ansi: bright_blue,   fixed: true}
   obj.black:   {alias: slate, fixed: true}
   obj.unknown: {alias: muted, fixed: true}
   gps.fix:     {dark: '#80B098', light: '#3A7A5C', x256: [108, 29],  ansi: green}
@@ -52,6 +53,21 @@ tokens:
   spd.5:       {dark: '#DE86D0', light: '#A8409A', x256: [176, 133], ansi: magenta}
   cost_bg:     {dark: '#2A3442', light: '#E2E7EE', x256: [236, 254], ansi: null}
   lethal_bg:   {dark: '#4B3A3A', light: '#ECDAD3', x256: [239, 224], ansi: null}
+  # map structure: quiet and cool, never mistaken for data (tui-visual 1)
+  grid:        {dark: '#2C3440', light: '#D3D8E0', x256: [236, 253], ansi: bright_black}
+  boat:        {dark: '#E9F3F6', light: '#17212B', x256: [255, 235], ansi: bold}
+  bow:         {alias: accent}
+  wake:        {dark: '#56707A', light: '#9DB0B7', x256: [66, 248],  ansi: bright_black}
+  fov:         {dark: '#4A566A', light: '#A3ACB9', x256: [60, 250],  ansi: bright_black}
+  track.pred:  {alias: muted}
+  trail.mid:   {alias: muted}
+  trail.old:   {alias: faint}
+  # costmap: a 5-stop background ramp
+  cost.1:      {dark: '#1D232D', light: '#F1F3F6', x256: [234, 255], ansi: null}
+  cost.2:      {dark: '#232B37', light: '#E7EBF0', x256: [235, 254], ansi: null}
+  cost.3:      {dark: '#2B3442', light: '#DCE2E9', x256: [236, 253], ansi: null}
+  inscribed:   {dark: '#3C3340', light: '#EADDE0', x256: [237, 224], ansi: null}
+  lethal:      {dark: '#5A3A42', light: '#E6C9CD', x256: [52, 217],  ansi: null}
 
 # ui.cvd: status and trail tokens swap to a blue-to-orange sequence; aliases follow their target.
 cvd_swap:
@@ -78,6 +94,12 @@ mono:
   auth.agent_dim: dim
   fail: bold
   sel_bg: underline
+  grid: dim
+  wake: dim
+  fov: dim
+  trail.mid: dim
+  trail.old: dim
+  boat: bold
 
 # id: [unicode, ascii]. `off` is a YAML 1.1 boolean, so that key stays quoted.
 glyphs:

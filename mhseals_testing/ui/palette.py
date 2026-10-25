@@ -22,8 +22,9 @@ TIERS = ('truecolor', '256', '16', 'mono')
 FIELDS = ('dark', 'light', 'x256', 'ansi')
 # Contrast against bg: 3:1 for foregrounds, 2:1 for trail ramps (drawn at .72 weight);
 # chrome lines and background tints are decoration with a shape cue and are exempt.
-EXEMPT = {'bg', 'faint', 'border', 'sel_bg', 'cost_bg', 'lethal_bg'}
-TRAIL = ('gps.', 'xte.', 'spd.')
+EXEMPT = {'bg', 'faint', 'border', 'sel_bg', 'cost_bg', 'lethal_bg', 'grid',
+          'cost.1', 'cost.2', 'cost.3', 'inscribed', 'lethal', 'trail.old'}   # backgrounds, quiet map structure
+TRAIL = ('gps.', 'xte.', 'spd.', 'trail.', 'wake', 'fov')   # 2:1 floor: quiet map dots
 GLYPH_IDS = ('ok', 'warn', 'fail', 'busy', 'off', 'focus', 'cursor', 'sep', 'spinner')   # the code uses these
 
 
