@@ -285,6 +285,38 @@ def _line(a, b, offset=0.0):
 
 GLYPH_HEADS = '▲◥▶◢▼◣◀◤'
 
+# Today's head at 0 deg is a filled 1-3-5 dot wedge; these are hand-drawn wedges for 22.5 deg
+# (tip at (0, 0), x right, y down), mapped to the other seven in-between bearings by the square's
+# symmetries (dots are square, so a flip or transpose is exact).
+HEAD_22 = {
+    'T': ((0, 0), (-1, 1), (0, 1), (-2, 2), (-1, 2), (0, 2)),                       # 6 dots, 3 rows
+    'U': ((0, 0), (-1, 1), (0, 1), (-2, 2), (-1, 2), (0, 2), (-3, 3), (-2, 3), (-1, 3), (0, 3)),
+}
+_SYM = [lambda x, y: (x, y), lambda x, y: (-x, y), lambda x, y: (x, -y), lambda x, y: (-x, -y),
+        lambda x, y: (-y, -x), lambda x, y: (y, -x), lambda x, y: (-y, x), lambda x, y: (y, x)]
+
+
+def today_head(option, bearing):
+    """Head dots for an in-between bearing (22.5 + 45 k), or None to draw today's head."""
+    k = round(bearing / 22.5) % 16
+    if k % 2 == 0 or abs(bearing - k * 22.5) % 360 > 5.625:
+        return None
+    if option == 'S':                              # snap: today's head at the nearer cardinal
+        snapped = (k - 1) * 22.5 if k in (1, 7, 9, 15) else (k + 1) * 22.5
+        out = set()
+        for barb in (snapped + 180 - cond.HEAD_SPREAD, snapped + 180 + cond.HEAD_SPREAD):
+            for length in range(1, cond.HEAD_LEN + 1):
+                dx, dy = cond._polar(barb, length)
+                out.add((round(dx), round(dy)))
+        return tuple(out | {(0, 0)})
+    want = cond._polar(k * 22.5, 1.0)
+    base = cond._polar(22.5, 1.0)
+    for f in _SYM:
+        fx, fy = f(*base)
+        if abs(fx - want[0]) < 1e-6 and abs(fy - want[1]) < 1e-6:
+            return tuple(f(x, y) for x, y in HEAD_22[option])
+    raise AssertionError(k)
+
 
 @lru_cache(maxsize=2048)
 def arrow(option, bearing_q, start, stop):
@@ -312,6 +344,17 @@ def arrow(option, bearing_q, start, stop):
             for length in range(1, cond.HEAD_LEN + 1):
                 dx, dy = cond._polar(barb, length)
                 add(round(tx + dx), round(ty + dy), 'head', 1.0)
+    elif option in ('T', 'U', 'S'):                # today's arrow; only the in-between heads change
+        head = today_head(option, bearing)
+        tip = stop + cond.HEAD_LEN
+        tx, ty = cond._polar(bearing, tip)
+        if head is None:                           # 0, 45, 90 ...: exactly today's drawing
+            return arrow('0', bearing_q, start, stop)
+        for r in range(start, tip - 2):
+            dx, dy = cond._polar(bearing, r)
+            add(round(dx), round(dy), 'shaft', (r - start) / max(1, tip - start))
+        for hx, hy in head:
+            add(round(tx) + hx, round(ty) + hy, 'head', 1.0)
     elif option == 'A':                            # a 2-dot shaft and a filled wedge
         tip = (b[0] + fx * HEAD_LEN, b[1] + fy * HEAD_LEN)
         for off in (-0.5, 0.5):
