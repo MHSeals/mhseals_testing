@@ -104,11 +104,16 @@ def render(entry):
     return console.export_svg(title='boat_test', theme=MONOKAI, unique_id=entry['name'])
 
 
+RICH_VERSION = 'rich-version.txt'   # the rich that drew the SVGs; another rich draws other bytes
+
+
 def render_all(out):
+    from importlib.metadata import version
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     for entry in yaml.safe_load((HERE / 'screens.yaml').read_text()):
         (out / f"{entry['name']}.svg").write_text(render(entry))
+    (out / RICH_VERSION).write_text(version('rich') + '\n')
 
 
 if __name__ == '__main__':
