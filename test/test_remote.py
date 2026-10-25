@@ -101,14 +101,14 @@ def test_failures_read_as_a_short_reason(stderr, short):
 
 class FakeSsh:
     def __init__(self):
-        self.calls, self.reply, self.error = [], {}, None
+        self.calls, self.reply, self.error, self.extra = [], {}, None, []
 
     def __call__(self, host, command, jump, timeout):
         self.calls.append((host.name, command, jump.name if jump else None))
         if self.error:
             return [], self.error
-        return [dict(self.reply.get(word, {}), unit=word) for word in self.reply
-                if 'status' in command], None
+        return [*self.extra, *(dict(self.reply.get(word, {}), unit=word) for word in self.reply
+                               if 'status' in command)], None
 
 
 def test_a_running_unit_is_adopted_then_renewed_and_a_failed_read_keeps_the_report():
@@ -121,7 +121,7 @@ def test_a_running_unit_is_adopted_then_renewed_and_a_failed_read_keeps_the_repo
     assert units.held_by_host() == {'blastoise-jetson': ['Camera']}
     assert ssh.calls[0][2] == 'tranquility' and 'renew' not in ssh.calls[0][1]
     units.refresh()
-    assert 'renew mhseals-camera' in ssh.calls[1][1] and ssh.calls[1][1].endswith('status')
+    assert 'renew mhseals-camera' in ssh.calls[1][1] and ssh.calls[1][1].endswith('status; }')
     assert units.trouble() == {}
     ssh.error = 'ssh: timeout'
     now[0] = 103.0
@@ -139,11 +139,42 @@ def test_a_running_unit_is_adopted_then_renewed_and_a_failed_read_keeps_the_repo
 def test_the_status_read_probes_each_part_and_falls_back_on_an_older_device():
     command = remote.status_command([item()])
     probe, fallback = command.split(' || ')
-    words = shlex.split(probe.removesuffix(' 2>/dev/null'))
+    words = shlex.split(probe.removeprefix('{ err=$(').removesuffix(' 2>&1 >&3); } 3>&1'))
     assert words[:5] == ['python3', '-m', 'mhseals_testing.harness.unit', 'status', '--probe']
     assert json.loads(words[5]) == [{'unit': 'mhseals-camera', 'part': 'camera', 'profile': 'jetson',
                                      'launch': None, 'nodes': []}]
-    assert fallback == unit_command('status')
+    assert fallback.endswith(f'; {unit_command("status")}; }}')
+
+
+def test_a_failed_probe_is_reported_never_read_as_off():
+    """The real shell line on a device whose probe fails: its error comes back, not a quiet off."""
+    bad = Component('camera', 'Camera', CAMERA_ARGV, host=JETSON, part='bad name', profile='jetson')
+    results, error = local(JETSON, remote.status_command([bad]), None, 30)
+    assert error is None
+    assert any('unit' not in found and (found.get('error') or found.get('probe_error'))
+               for found in results)
+
+
+def test_a_probe_error_keeps_the_unit_facts_reads_the_rest_unknown_and_raises_trouble():
+    ssh = FakeSsh()
+    dogs = Component('watchdogs', 'Watchdogs', CAMERA_ARGV, host=JETSON, part='watchdogs',
+                     profile='odroid', carried_by='Odometry')
+    now = [50.0]
+    units = Units([item(), dogs], hosts={'tranquility': GATEWAY}, run=ssh, clock=lambda: now[0])
+    ssh.reply = {'mhseals-camera': {'state': 'running'}}
+    ssh.extra = [{'probe_error': 'error: unrecognized arguments: --probe'}]
+    units.refresh()
+    assert units.status(item())[0]['state'] == 'running'                  # a unit is a fact
+    assert units.status(dogs)[0] == {'unit': 'mhseals-watchdogs', 'state': 'unknown',
+                                     'probe_error': 'error: unrecognized arguments: --probe'}
+    assert units.probe_trouble() == {'blastoise-jetson': ('error: unrecognized arguments: --probe', 50.0)}
+    now[0] = 60.0
+    units.refresh()
+    assert units.probe_trouble()['blastoise-jetson'][1] == 50.0          # since the first failure
+    ssh.extra = []
+    units.refresh()
+    assert units.probe_trouble() == {}
+    assert units.status(dogs)[0]['state'] == 'off'
 
 
 def test_options_share_one_connection_with_keepalives():
@@ -174,7 +205,8 @@ def test_a_stale_unit_of_a_carried_part_is_never_adopted_or_renewed():
     units.refresh()
     units.refresh()
     assert units.held_by_host() == {'blastoise-jetson': ['Camera']}
-    assert not any('mhseals-watchdogs' in call[1] for call in ssh.calls)
+    assert not any('renew mhseals-watchdogs' in call[1] for call in ssh.calls)
+    assert units.status(dogs)[0]['state'] == 'running'      # still read: the device's report
 
 
 def test_a_watching_tui_reads_status_but_keeps_nothing_alive():

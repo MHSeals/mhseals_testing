@@ -84,3 +84,27 @@ def test_an_exited_part_is_an_issue_and_ascii_has_its_own_glyph():
     assert collect(app.stack, ZED)['part:camera'][1] == 'part'
     assert theme.PALETTE.glyph('issue', ascii=True) == '(!)'
     assert theme.PALETTE.glyph('issue', ascii=False) != theme.PALETTE.glyph('warn', ascii=False)
+
+
+def test_a_part_reported_off_with_its_nodes_in_the_graph_is_a_stray_issue_past_its_grace():
+    app, feed = App(), IssuesFeed(grace_s=15, discovery_grace_s=20)
+    app.stack.units.records['camera'] = {'state': 'off', 'running': False}
+    assert tick(feed, app, 0.0) == []
+    assert app.stack.state('camera', ZED) == ('off', '')            # the row keeps the report
+    assert tick(feed, app, 15.0) == [('warn', 'Camera reads off on blastoise-jetson, but zed_node '
+                                              'in the graph: another copy runs somewhere (its start '
+                                              'is refused)')]
+    assert feed.on_row(app.stack.items['camera'])
+    app.nodes = []
+    assert ('ok', 'resolved: Camera reads off on blastoise-jetson, but zed_node in the graph: '
+                  'another copy runs somewhere (its start is refused)') in tick(feed, app, 16.0)
+
+
+def test_a_failing_process_probe_is_an_issue_on_its_host():
+    app, feed = App(), IssuesFeed(grace_s=15, discovery_grace_s=20)
+    app.stack.units.probe_trouble = lambda: {'blastoise-jetson': ('PermissionError: /proc', 0.0)}
+    tick(feed, app, 0.0)
+    assert tick(feed, app, 15.0) == [('warn', 'blastoise-jetson cannot probe its processes '
+                                              '(PermissionError: /proc); its parts not run as units '
+                                              'read unknown')]
+    assert feed.on_row(app.stack.items['camera'])

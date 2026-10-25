@@ -271,11 +271,79 @@ def test_the_watchdogs_odometry_brings_are_a_read_only_row():
     with pytest.raises(ComponentError, match='start with Odometry'):
         stack.start('watchdogs', set())
     stack.start('odometry', set())                     # they come up inside its launch
-    assert stack.state('watchdogs', DOGS) == ('external', 'with Odometry')
+    assert stack.state('watchdogs', DOGS) == ('running', 'with Odometry')
     with pytest.raises(ComponentError, match='run with Odometry'):
         stack.stop('watchdogs', DOGS)
     assert stack.stop('odometry', DOGS) == ['odometry']   # which takes them along
     assert [name for name, _ in processes.started] == ['odometry']
+
+
+def test_a_running_carried_part_is_a_running_row_never_external():
+    """The rebase trap: main's carried_by state was 'external', which ui/parts.py has no level for."""
+    from mhseals_testing.ui import parts
+    stack = Stack(components(Watched, None, (ME, WATCHED_PARTS)), FakeProcesses(), lambda: 0.0)
+    rows = {row['key']: row for row in parts.rows(stack, DOGS)}
+    assert rows['watchdogs']['state'] == 'OK' and rows['watchdogs']['value'] == 'running'
+    assert all(stack.state(key, DOGS)[0] in parts.LEVELS for key in stack.items)
+
+
+def test_the_carried_watchdogs_read_their_computers_report_before_the_graph():
+    table = {'mhseals-watchdogs': {'running': False, 'pid': None, 'how': None}}
+    stack = Stack(components(Watched, None, (ME, WATCHED_PARTS)), FakeProcesses(), lambda: 0.0,
+                  scan=lambda specs: dict(table))
+    assert stack.state('watchdogs', DOGS) == ('off', 'starts with Odometry')   # crashed, names linger
+    assert stack.reported('watchdogs') is False
+    table['mhseals-watchdogs'] = {'running': True, 'pid': 7, 'how': 'nodes'}
+    stack.scanned = (float('-inf'), None)
+    assert stack.state('watchdogs', set()) == ('running', 'with Odometry')
+
+
+def test_a_remote_part_reported_off_with_its_nodes_in_the_graph_is_never_started_twice():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    units.records['camera'] = {'state': 'off', 'running': False}
+    nodes = {'/front/zed_node'}
+    assert stack.state('camera', nodes) == ('off', '')        # the row keeps the report
+    assert stack.stray('camera', nodes)
+    with pytest.raises(ComponentError, match='another copy runs'):
+        stack.start('camera', nodes)
+    assert units.calls == []
+    stack.start('camera', set())                              # gone from the graph: a start goes out
+    assert units.calls == [('start', 'camera', False)]
+
+
+def test_names_of_a_part_this_tui_just_stopped_are_no_stray_copy():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    units.records['camera'] = {'state': 'running', 'how': 'unit'}
+    nodes = {'/front/zed_node'}
+    stack.stop('camera', nodes)
+    units.records['camera'] = {'state': 'off', 'running': False}
+    assert not stack.stray('camera', nodes)                   # its DDS names linger the lease
+    stack.start('camera', nodes)
+    assert units.calls[-1] == ('start', 'camera', False)
+
+
+def test_a_pending_or_unread_remote_part_is_no_stray():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    nodes = {'/front/zed_node'}
+    units.records['camera'] = {'state': 'off', 'pending': True}
+    assert not stack.stray('camera', nodes)
+    units.records['camera'] = {'state': 'unknown', 'probe_error': 'boom'}
+    assert stack.state('camera', set())[0] == 'unknown' and not stack.stray('camera', nodes)
+
+
+def test_a_local_part_off_in_the_process_table_but_in_the_graph_is_refused_and_not_autostarted():
+    processes = FakeProcesses()
+    stack = Stack(items(Profile), processes, lambda: 0.0, scan=lambda specs: {})
+    nodes = {'/ekf_local'}
+    assert stack.state('odometry', nodes)[0] == 'off' and stack.stray('odometry', nodes)
+    with pytest.raises(ComponentError, match='this computer reports it off'):
+        stack.start('odometry', nodes)
+    lines = stack.autostart(nodes, [], sim=False)
+    assert any(line.startswith('could not start Odometry') for line in lines)
+    assert processes.started == []
 
 
 def test_a_watchdogs_row_carried_by_odometry_may_not_start_with_the_session():

@@ -26,6 +26,28 @@ def arm_refusal(required, nodes):
             ' (they start with odometry on the boat)')
 
 
+BEAT_STALE_S = 2.0    # s without a watchdog's ~/status beat (0.5 s apart) before it counts as dead
+
+
+def liveness_refusal(required, beats, now, off=(), stale_s=BEAT_STALE_S):
+    """Why arming is refused by the watchdogs' own word, or '': faster than the graph, which keeps
+    a crashed node until its DDS lease ends.
+
+    ``beats`` maps a watchdog FQN to when its ``~/status`` was last received (``now``'s clock);
+    one never heard (a build without the beat) is left to the graph and ``off``, the parts holding
+    the watchdogs that their computer reports off.
+    """
+    silent = [f'{node} {now - beats[node]:.1f} s' for node in required
+              if node in beats and now - beats[node] > stale_s]
+    reasons = []
+    if silent:
+        reasons.append(f"safety watchdog{'s' if len(silent) > 1 else ''} silent: {', '.join(silent)} "
+                       '(crashed, or the link to the boat is down)')
+    if off:
+        reasons.append(f"safety watchdogs reported off: {', '.join(off)}")
+    return '; '.join(reasons)
+
+
 def motion_blockers(snapshot, profile, bench_override=False):
     """Reasons motion is refused, empty when ready.
 

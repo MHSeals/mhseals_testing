@@ -283,6 +283,19 @@ def owner(record, where):
     return f'on {where}'
 
 
+def reported(component, units, here):
+    """Whether ``component``'s computer reports it running: True, False, or None without a report.
+
+    A pending start or stop and a failed probe are not reports. The graph is never consulted.
+    """
+    if component.host is None:
+        return None if here is None else bool((here.get(component.unit) or {}).get('running'))
+    record = units.status(component)[0] if units is not None else None
+    if not record or record.get('pending') or record.get('state') == 'unknown':
+        return None
+    return bool(record.get('running', record.get('state') == 'running'))
+
+
 def remote_state(component, nodes, units, now, started):
     """(state, detail) of a part another computer runs, as that computer reports it.
 
@@ -300,6 +313,10 @@ def remote_state(component, nodes, units, now, started):
     if record.get('pending'):
         return ('starting', f'starting on {where}') if record.get('state') == 'running' \
             else ('off', f'stopping on {where}')
+    if record.get('state') == 'unknown':     # the probe failed there: an issue says why
+        if up:
+            return 'running', f'on {where} (in the graph; {where} cannot probe its processes)'
+        return 'unknown', f'{where} cannot probe its processes: {record.get("probe_error")}'
     if record.get('running', record.get('state') == 'running'):
         if started is not None and now - started < STARTING_LIMIT and component.nodes and not up:
             return 'starting', owner(record, where)
@@ -320,9 +337,10 @@ def state(component, nodes, processes, now, started=None, units=None, here=None)
     if not component.enabled:
         return 'disabled', f'disabled on {component.profile}'
     nodes = {node.rsplit('/', 1)[-1] for node in nodes}
-    if component.carried_by:     # inside another component's launch: the graph is all there is
-        if _up(component, nodes):
-            return 'external', f'with {component.carried_by}'
+    if component.carried_by:     # inside another component's launch: its computer's report, else the graph
+        report = reported(component, units, here)
+        if report or (report is None and _up(component, nodes)):
+            return 'running', f'with {component.carried_by}'
         return 'off', f'starts with {component.carried_by}'
     if component.host is not None:
         return remote_state(component, nodes, units, now, started)
@@ -359,6 +377,7 @@ class Stack:
         self.clock = clock
         self.units = units
         self.started = {}
+        self.stopped = {}        # key -> when this TUI stopped it (its names may linger GHOST_S)
         self.scan, self.scanned = scan, (float('-inf'), None)
         self.local = probe_specs([item for item in items if item.host is None])
 
@@ -377,6 +396,26 @@ class Stack:
     def state(self, key, nodes):
         return state(self.items[key], nodes, self.processes, self.clock(), self.started.get(key),
                      self.units, self.here())
+
+    def reported(self, key):
+        """True/False as ``key``'s computer reports it (our own child counts), None without a report."""
+        item = self.items[key]
+        if item.host is None and self.processes.running(key):
+            return True
+        return reported(item, self.units, self.here() if item.host is None else None)
+
+    def stray(self, key, nodes):
+        """True when ``key``'s computer reports it off while all its proof nodes are in the graph:
+        another copy may run somewhere, so a start could make a second one. Names this TUI just
+        stopped, and an exited unit's (both a lingering DDS lease), are not a copy."""
+        item = self.items[key]
+        if not _up(item, {node.rsplit('/', 1)[-1] for node in nodes}):
+            return False
+        if self.state(key, nodes)[0] != 'off' or self.reported(key) is not False:
+            return False
+        now = self.clock()
+        return not (stopped_recently(item, self.processes, now)
+                    or now - self.stopped.get(key, float('-inf')) < GHOST_S)
 
     def ghosts(self):
         """Node names of components we stopped within GHOST_S and did not restart: they may linger."""
@@ -403,6 +442,11 @@ class Stack:
             raise ComponentError(f'{item.title}: {detail}; try again shortly', [key])
         if status in ('running', 'starting'):
             raise ComponentError(f'{item.title} is already running ({detail})', [key])
+        if self.stray(key, nodes):
+            where = item.remote or 'this computer'
+            raise ComponentError(f'{item.title}: {where} reports it {status}, but '
+                                 f'{", ".join(item.nodes)} in the graph: another copy runs; not '
+                                 'starting a second (stop that copy first)', [key])
         off = [need for need in item.needs
                if self.state(need, nodes)[0] in ('off', 'exited', 'disabled')]
         if off:
@@ -460,6 +504,7 @@ class Stack:
             else:
                 self.units.stop(self.items[name])
             self.started.pop(name, None)
+            self.stopped[name] = self.clock()
         return order
 
     def _dependants(self, key):

@@ -117,11 +117,20 @@ def probe_specs(items):
              'nodes': list(item.nodes)} for item in items]
 
 
+PROBE_ERROR = ('python3 -c \'import json, sys; lines = sys.argv[2].strip().splitlines(); '
+               'print(json.dumps({"probe_error": (lines[-1] if lines else "exit " + sys.argv[1])[:200]}))\'')
+
+
 def status_command(items):
-    """Status of ``items`` as their computer runs them; a device without ``--probe`` (older
-    mhseals_testing) answers with its plain unit status instead."""
+    """Status of ``items`` as their computer runs them.
+
+    When the probe fails (a device without ``--probe``, an unreadable process table) its last
+    stderr line comes back as a ``{"probe_error"}`` line, then the plain unit status: the units
+    it names are facts, but a part it calls off may run by hand, so it is no report of off.
+    """
     probe = json.dumps(probe_specs(items), separators=(',', ':'), sort_keys=True)
-    return f'{shlex.join([*UNIT, "status", "--probe", probe])} 2>/dev/null || {unit_command("status")}'
+    return (f'{{ err=$({shlex.join([*UNIT, "status", "--probe", probe])} 2>&1 >&3); }} 3>&1 || '
+            f'{{ {PROBE_ERROR} "$?" "$err"; {unit_command("status")}; }}')
 
 
 def unit_command(verb, unit=None, argv=(), by=None, commander=False, lease_s=LEASE_S, driver=False):
@@ -149,7 +158,9 @@ class Units:
         # A carried part (the boat's watchdogs, inside odometry's launch) has no unit of its own:
         # adopting a stale one would renew it forever beside odometry's copy.
         self.items = [item for item in items if item.host is not None and not item.carried_by]
-        if hosts is None and any(item.host.via for item in self.items):
+        # Its status is still read (from that computer's process table): the device report.
+        self.watched = [item for item in items if item.host is not None]
+        if hosts is None and any(item.host.via for item in self.watched):
             from mhseals_testing import devices
             hosts = devices.load().hosts
         self.hosts = dict(hosts or {})
@@ -159,10 +170,11 @@ class Units:
         self.records, self.errors, self.held, self.notices = {}, {}, set(), []
         self.since = {}          # host -> when its calls began to fail
         self.read = {}           # host -> when its status was last read
+        self.probe_errors = {}   # host -> (why its process probe fails, since when)
         self.started = set()     # the held units this TUI started; the rest of held are adopted
         self.jobs = queue.Queue()
         self.thread = None
-        for item in self.items:
+        for item in self.watched:
             if not item.host.ssh:
                 self.errors[item.host.name] = f'no ssh to {item.host.name}'
                 self.since[item.host.name] = clock()
@@ -180,6 +192,11 @@ class Units:
         with self.lock:
             return {name: (error, self.since.get(name), self.read.get(name))
                     for name, error in self.errors.items()}
+
+    def probe_trouble(self):
+        """``{host: (why, since)}`` for the answering hosts whose process probe fails."""
+        with self.lock:
+            return dict(self.probe_errors)
 
     def start(self, item, commander=False):
         with self.lock:
@@ -264,8 +281,8 @@ class Units:
 
     def refresh(self):
         """One call per host: renew what we hold, then read every unit's status (and adopt)."""
-        for name in sorted({item.host.name for item in self.items}):
-            mine = [item for item in self.items if item.host.name == name]
+        for name in sorted({item.host.name for item in self.watched}):
+            mine = [item for item in self.watched if item.host.name == name]
             host = mine[0].host
             with self.lock:
                 renew = [item.unit for item in mine if item.unit in self.held] if self.renewing else []
@@ -274,15 +291,27 @@ class Units:
             results, error = self._call(host, command, CONNECT_S + 10)
             if error:
                 continue
-            found = {record.get('unit'): record for record in results}
+            found = {record.get('unit'): record for record in results if 'unit' in record}
+            # The probe's own failure: a {"probe_error"} line, or the unit CLI's {"error"}.
+            failed = next((record.get('probe_error') or record.get('error') for record in results
+                           if 'unit' not in record), None)
             with self.lock:
                 self.read[name] = self.clock()
+                if failed:
+                    self.probe_errors[name] = (failed, self.probe_errors.get(name, (None, self.clock()))[1])
+                else:
+                    self.probe_errors.pop(name, None)
                 for item in mine:
                     record = found.get(item.unit, {'unit': item.unit, 'state': 'off'})
+                    if failed and record['state'] not in ('running', 'exited'):
+                        # Plain unit status: not running as a unit, but it may run by hand.
+                        record = {'unit': item.unit, 'state': 'unknown', 'probe_error': failed}
                     current = self.records.get(item.unit, {})
                     if current.get('pending') and record['state'] != current['state']:
                         continue                   # our start or stop is still on its way
                     self.records[item.unit] = record
+                    if item.carried_by:
+                        continue                   # read only: never adopted or renewed
                     if record['state'] == 'running' and self.renewing:
                         self.held.add(item.unit)   # adopt: from now on this TUI renews it too
                     elif record['state'] != 'running':
@@ -306,7 +335,7 @@ class Units:
 
     def begin(self):
         """Start the worker (does nothing without remote parts)."""
-        if self.items and self.thread is None:
+        if self.watched and self.thread is None:
             self.thread = threading.Thread(target=self.work, name='units', daemon=True)
             self.thread.start()
         return self

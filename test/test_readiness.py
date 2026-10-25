@@ -1,6 +1,17 @@
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.readiness import advisories, motion_blockers
+from mhseals_testing.readiness import BEAT_STALE_S, advisories, liveness_refusal, motion_blockers
+
+
+def test_a_watchdog_beat_silent_past_its_staleness_refuses_and_one_never_heard_is_left_to_the_graph():
+    required = ('/link_watchdog', '/fcu_watchdog', '/fence_watchdog')
+    beats = {'/link_watchdog': 10.0, '/fcu_watchdog': 10.0 - BEAT_STALE_S}
+    assert liveness_refusal(required, beats, 10.0) == ''                       # exactly at the limit
+    assert liveness_refusal(required, beats, 10.1) == (
+        'safety watchdog silent: /fcu_watchdog 2.1 s (crashed, or the link to the boat is down)')
+    assert liveness_refusal(required, {}, 99.0) == ''                         # an older build: no beat
+    assert liveness_refusal(required, {}, 99.0, ['Safety watchdogs on blastoise-odroid']) == (
+        'safety watchdogs reported off: Safety watchdogs on blastoise-odroid')
 
 
 def ready_monitor(profile):

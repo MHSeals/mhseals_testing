@@ -90,6 +90,7 @@ class RosIO:
         self.journal_path = journal_path
         self.recording = True  # stamped on each event as ``rec``
         self._prefix = None
+        self.beat_at, self._beat_subs = {}, {}    # watchdog ~/status receipts (watch_beats)
         self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
@@ -242,6 +243,20 @@ class RosIO:
 
     def subscribers(self, topic):
         return [e['node'] for e in self.endpoints(topic, True) if not e['self']]
+
+    def watch_beats(self, nodes):
+        """Subscribe once to each node's ``~/status`` (best effort, over the radio): its liveness beat."""
+        for node in nodes:
+            if node not in self._beat_subs:
+                self._beat_subs[node] = self.node.create_subscription(
+                    String, f'{node}/status', partial(self._beat, node), qos_profile_sensor_data)
+
+    def _beat(self, node, message):
+        self.beat_at[node] = time.monotonic()      # the App's clock
+
+    def beats(self):
+        """``{node: when its ~/status was last received}`` (monotonic), for the beats ever heard."""
+        return dict(self.beat_at)
 
     def nodes(self):
         return [f'{namespace.rstrip("/")}/{name}'

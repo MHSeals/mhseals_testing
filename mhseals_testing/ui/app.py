@@ -57,7 +57,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import available_profiles, load_profile
-from mhseals_testing.readiness import arm_nodes, arm_refusal, motion_blockers
+from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
@@ -419,22 +419,37 @@ class App:
                 + self.plant.conflicts() + self.foreign_blockers())
 
     def watchdog_refusal(self):
-        """Why arming is refused for a safety watchdog off the graph, or ''.
+        """Why arming is refused for a safety watchdog that is not alive, or ''.
 
         The nodes come from the enabled health checks gating ``arm`` (the boat profile's
         pre.*_watchdog), read live; a mute does not lift them. Off the simulator an unreadable
         health config refuses too, since it may be what names them.
         """
+        return '; '.join(filter(None, self.watchdog_reasons()))
+
+    def watchdog_reasons(self):
+        """(graph, liveness): a required watchdog off the graph, and one whose own ``~/status``
+        beat stopped or whose computer reports it off (liveness_refusal: within about 2 s, where
+        the graph keeps a crashed node until its DDS lease ends)."""
         if self.health.error and self.profile.use_sim_time is not True:
-            return f'health config unreadable, so the safety watchdogs are unchecked: {self.health.error}'
+            return f'health config unreadable, so the safety watchdogs are unchecked: {self.health.error}', ''
         required = arm_nodes(self.health.specs)
         if not required:
-            return ''
+            return '', ''
         try:
             nodes = self.ros.nodes()
         except Exception as error:  # noqa: BLE001 - an unreadable graph refuses, never passes
-            return f'node graph unreadable, so the safety watchdogs are unchecked: {error}'
-        return arm_refusal(required, nodes)
+            return f'node graph unreadable, so the safety watchdogs are unchecked: {error}', ''
+        watch = getattr(self.ros, 'watch_beats', None)
+        if watch is not None:
+            watch(required)
+        names = {node.rsplit('/', 1)[-1] for node in required}
+        off = []
+        if self.stack is not None:
+            off = [f'{item.title} on {item.remote or "this computer"}' for key, item in self.stack.items.items()
+                   if names & set(item.nodes) and self.stack.reported(key) is False]
+        beats = getattr(self.ros, 'beats', dict)()
+        return arm_refusal(required, nodes), liveness_refusal(required, beats, self.clock(), off)
 
     def thruster_refusal(self):
         """Why the real thruster driver may not start on this computer, or ''.
@@ -557,9 +572,11 @@ class App:
         operator releases it (U) only once the watchdogs are back. plant.hold is a fire-and-forget
         publish, so the mux state must show input 'hold' within HOLD_CONFIRM_S of a request: a
         silent one is requested once more, then the session disarms (the driver stops, the MOSFET
-        cuts). Without a mux it disarms at once.
+        cuts). Without a mux it disarms at once. A stopped ``~/status`` beat or a report of off
+        holds without the grace: the beat's 2 s staleness already is one.
         """
-        reason = self.watchdog_refusal() if self.armed else ''
+        graph, live = self.watchdog_reasons() if self.armed else ('', '')
+        reason = '; '.join(filter(None, (graph, live)))
         if not reason:
             self.watchdog_missing = None
             return
@@ -568,6 +585,8 @@ class App:
         if state is None:
             state = self.watchdog_missing = dict(since=now, asked=None, asked_mux=None,
                                                         retried=False, held=False)
+        if live:
+            state['since'] = min(state['since'], now - WATCHDOG_GRACE)
         if state['held'] or now - state['since'] < WATCHDOG_GRACE:
             return
         if self.plant is None or not muxed(self.profile):

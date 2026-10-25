@@ -6,6 +6,10 @@ the part is missing here is an issue. Issues come from the Stack each tick:
 ``device:<host>``      the host's status reads fail (ssh); its parts keep their last report
 ``discovery:<key>``    the part runs, but its proof nodes are not in this computer's DDS graph
 ``part:<key>``         the part exited
+``stray:<key>``        its computer reports it off, but its proof nodes are in the graph: another
+                       copy runs somewhere (its start is refused meanwhile)
+``probe:<host>``       the host answers, but its process probe fails: parts not run as units there
+                       read unknown, never off
 
 Each one shows only once it has lasted its grace (``probes: devices`` in config/health/network.yaml:
 ``grace_s``, and ``discovery_grace_s`` for discovery), so a blip under it shows nothing. A shown
@@ -37,6 +41,9 @@ def collect(stack, nodes):
             age = f'from {units.clock() - read:.0f} s ago' if read is not None else 'not read yet'
             found[f'device:{host}'] = (f'{host} does not answer ({why}); its parts show its last '
                                        f'report ({age})', 'device')
+        for host, (why, _) in getattr(units, 'probe_trouble', dict)().items():
+            found[f'probe:{host}'] = (f'{host} cannot probe its processes ({why}); its parts not '
+                                      'run as units read unknown', 'device')
     names = {node.rsplit('/', 1)[-1] for node in nodes}
     for key, item in stack.items.items():
         status, detail = stack.state(key, nodes)
@@ -45,6 +52,10 @@ def collect(stack, nodes):
             missing = ', '.join(node for node in item.nodes if node not in names)
             found[f'discovery:{key}'] = (f'{item.title} runs on {where}, but {missing} is not '
                                          'discovered here (DDS)', 'discovery')
+        elif stack.stray(key, nodes):
+            found[f'stray:{key}'] = (f'{item.title} reads {status} on {where}, but '
+                                     f'{", ".join(item.nodes)} in the graph: another copy runs '
+                                     'somewhere (its start is refused)', 'stray')
         elif status == 'exited':
             found[f'part:{key}'] = (f'{item.title} exited on {where}: {detail}', 'part')
     return found
@@ -54,7 +65,7 @@ class Issues:
     """The grace and clear rules, apart from where problems come from (pure; the clock is passed in)."""
 
     def __init__(self, grace_s=GRACE_S, discovery_grace_s=DISCOVERY_GRACE_S):
-        self.grace = {'device': float(grace_s), 'part': float(grace_s),
+        self.grace = {'device': float(grace_s), 'part': float(grace_s), 'stray': float(grace_s),
                       'discovery': float(discovery_grace_s)}
         self.first = {}       # id -> when the problem was first seen (shown or not)
         self.shown = {}       # id -> its current text, once past its grace
@@ -77,7 +88,8 @@ class Issues:
 
     def on_row(self, item):
         """The shown issues about one Stack component (its own, and its host's)."""
-        ids = (f'discovery:{item.key}', f'part:{item.key}', f'device:{item.remote}')
+        ids = (f'discovery:{item.key}', f'part:{item.key}', f'stray:{item.key}',
+               f'device:{item.remote}', f'probe:{item.remote}')
         return [self.shown[id] for id in ids if id in self.shown]
 
 

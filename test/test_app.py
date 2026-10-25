@@ -474,6 +474,43 @@ def test_a_stale_hold_state_from_before_the_request_does_not_confirm_it(tmp_path
     assert boat.holds == ['watchdog', 'watchdog']      # not confirmed: asked again
 
 
+def test_a_crashed_watchdog_is_held_on_its_silent_beat_while_the_graph_still_lists_it(tmp_path):
+    """A hard crash leaves the node on the graph until its DDS lease ends; its ~/status beat stops."""
+    from mhseals_testing.readiness import BEAT_STALE_S
+    app, boat = make_app(tmp_path)
+    beats = {node: app.clock.now for node in WATCHDOGS}
+    app.ros.beats = lambda: dict(beats)
+    watched = []
+    app.ros.watch_beats = watched.extend
+    mux_stub(app)
+    with app.attached():
+        arm(app)
+    assert set(watched) == set(WATCHDOGS)          # it subscribes to each required watchdog's beat
+    beats.update({node: app.clock.now for node in WATCHDOGS})
+    app.tick()
+    assert getattr(boat, 'holds', []) == []
+    app.clock.now += BEAT_STALE_S + 0.1           # /fcu_watchdog crashed: every other one beats on
+    beats.update({node: app.clock.now for node in WATCHDOGS if node != '/fcu_watchdog'})
+    app.tick()
+    assert boat.holds == ['watchdog']              # at once: the staleness was the grace
+    assert app.notice.startswith('Holding: safety watchdog silent: /fcu_watchdog 2.1 s')
+    assert app.release_refusal().startswith('Release refused: safety watchdog silent')
+    assert app.arm_blockers() and 'silent: /fcu_watchdog' in app.watchdog_refusal()
+
+
+def test_a_watchdog_part_its_computer_reports_off_refuses_arming(tmp_path):
+    from types import SimpleNamespace
+    app, _ = make_app(tmp_path)
+    dogs = SimpleNamespace(title='Safety watchdogs', remote='blastoise-odroid',
+                           nodes=('link_watchdog', 'fcu_watchdog', 'fence_watchdog', 'ekf_input_watchdog'))
+    report = [True]
+    app.stack = SimpleNamespace(items={'watchdogs': dogs}, reported=lambda key: report[0])
+    assert app.watchdog_refusal() == ''
+    report[0] = False                                       # the graph still lists them
+    assert app.watchdog_refusal() == ('safety watchdogs reported off: Safety watchdogs on '
+                                      'blastoise-odroid')
+
+
 def test_the_simulator_arms_without_the_boat_watchdogs(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
     app.ros.nodes = lambda: []
