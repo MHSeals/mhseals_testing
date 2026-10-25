@@ -28,13 +28,11 @@ live:
   - velocity_smoother.max_accel
   - velocity_smoother.max_decel
   # Footprint: Costmap2DROS::dynamicParametersCallback; CostCritic::score and the shim read it
-  # each cycle. robot_radius only takes effect with no footprint, as after a reset.
+  # each cycle. Not robot_radius: a costmap with a footprint ignores it (refused in the preview).
   - local_costmap.footprint
   - local_costmap.footprint_padding
-  - local_costmap.robot_radius
   - global_costmap.footprint
   - global_costmap.footprint_padding
-  - global_costmap.robot_radius
   # Global inflation: InflationLayer::dynamicParametersCallback; SmacPlanner2D caches no cost.
   - global_costmap.inflation_layer.inflation_radius
   - global_costmap.inflation_layer.cost_scaling_factor

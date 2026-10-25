@@ -386,14 +386,14 @@ def test_the_shim_not_found_line_stays_exempt_on_the_live_path(stack, live):
     assert receipt['status'] == 'verified', receipt
 
 
-def test_a_frozen_node_is_unknown_with_one_try_and_no_retry(stack, live):
+def test_a_frozen_node_gets_one_try_and_what_went_before_is_restored(stack, live):
     pid = stack.ports.freeze = stack.child('smoother')
     try:
         receipt = live.apply(ask(wz_max=0.25))
     finally:
         os.kill(pid, signal.SIGCONT)
-    assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error'], receipt
-    assert stack.ports.sets == [SMOOTHER]            # one try, then nothing more was written
+    assert receipt['status'] == 'rolled_back' and 'not retried' in receipt['error'], receipt
+    assert stack.ports.sets == [SMOOTHER]            # one try; nothing went before it to restore
     assert stack.mux_holds() == [] and receipt['hold']['released']
     time.sleep(1.0)
     assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3

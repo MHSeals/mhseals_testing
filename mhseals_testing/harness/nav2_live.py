@@ -28,9 +28,12 @@ The sequence, every step able to stop it:
 
 A rejected set, a readback mismatch, a bad /rosout line or a failed reset or
 startup rolls back in reverse order (with a reset: reset, previous values,
-startup), each step read back. A timeout is ``unknown``: nothing is
-retried and nothing more is written. A reset needs no active goal (``--now``
-is for live keys only) and runs under the same hold.
+startup), each step read back. A timeout rolls back the same way: the node
+that did not answer is not sent anything again, every step confirmed before it
+is restored, and Navigation is started again whenever it may be down. A
+rollback restores every node it can and lists the ones it could not. A reset
+needs no active goal (``--now`` is for live keys only) and runs under the same
+hold.
 """
 
 import json
@@ -242,6 +245,11 @@ class Nav2Live:
         if found.refusals:
             return found
         declared = self._read(found, changes)
+        for key in changes:     # a costmap with a footprint never reads robot_radius
+            node, param = n2.split(key)
+            if param == 'robot_radius' and not footprint_problem(
+                    changes.get(f'{node}.footprint', found.live.get(f'{node}.footprint'))):
+                found.refusals.append(f'{key}: {node} uses its footprint, not robot_radius')
         if found.refusals:
             return found
         try:
@@ -529,9 +537,9 @@ class Nav2Live:
             try:
                 ok, reason = self.ports.put(target(step.node), step.values)
             except TimeoutError as error:
-                return self._unknown(
-                    found, done, f'{step.node} set: {error}; nothing was '
-                    'retried; restart Navigation if the values look wrong')
+                return self._back(
+                    found, done, f'{step.node} set: {error}; not retried, '
+                    f'and {step.node} was not restored', phase)
             except ValueError as error:
                 return self._back(found, done,
                                   f'{step.node} set refused: {error}', phase)
@@ -545,9 +553,9 @@ class Nav2Live:
             try:
                 bad = self._mismatch(step.node, step.values)
             except TimeoutError as error:
-                return self._unknown(
-                    found, done, f'{step.node} readback: {error}; '
-                    'nothing was retried')
+                return self._back(
+                    found, done[:-1], f'{step.node} readback: {error}; not '
+                    f'retried, and {step.node} was not restored', phase)
             if bad:
                 return self._back(
                     found, done,
@@ -574,18 +582,16 @@ class Nav2Live:
                 return self._back(found, done, 'Navigation reset failed',
                                   'down')
         except TimeoutError as error:
-            return self._unknown(
-                found, done, f'Navigation reset: {error}; nothing was '
-                'retried; restart Navigation')
+            # Navigation may be down: the rollback starts it again.
+            return self._back(found, done, f'Navigation reset: {error}',
+                              'down')
         stop = self._sets(found, late, done, 'down')
         if stop:
             return stop
         try:
             bad = self._startup(found.steps)
         except TimeoutError as error:
-            return self._unknown(
-                found, done, f'Navigation startup: {error}; nothing was '
-                'retried; restart Navigation')
+            bad = f'{error}'
         if bad:
             return self._back(found, done, f'Navigation startup: {bad}', 'up')
         return self._receipt(found, 'verified', steps=len(done))
@@ -613,10 +619,6 @@ class Nav2Live:
                 return f'{node} readback differs: {", ".join(bad)}'
         return ''
 
-    def _unknown(self, found, done, error):
-        return self._receipt(found, 'unknown', error=error,
-                             done=[s.node for s in done])
-
     def _mismatch(self, node, values):
         got = self.ports.get(target(node), list(values))
         return [p for p, v in values.items()
@@ -629,32 +631,32 @@ class Nav2Live:
         (restore in reverse), ``down`` reset, ``up`` started again. After a
         reset the order is the forward one backwards: reset if running,
         restore, start it, read back; the costmaps are restored while it runs
-        and take one more reset and start.
+        and take one more reset and start. A step that fails or times out is
+        listed and the rest still go through; Navigation is always started
+        again.
         """
         steps = list(reversed(done))
         late = [s for s in steps if s.node not in COSTMAPS]
         early = [s for s in steps if s.node in COSTMAPS]
         failed = []
-        try:
-            if phase == 'pre':
-                failed += self._restore(steps)
-            else:
-                if phase == 'up' and not self.ports.lifecycle('reset'):
-                    return self._receipt(
-                        found, 'rollback_failed', done=[s.node for s in done],
-                        error=f'{error}; could not reset Navigation to '
-                              'restore; restart Navigation')
-                failed += self._restore(late)
-                bad = self._startup([Step(s.node, s.before) for s in late])
-                if early:
-                    failed += self._restore(early)
-                    bad = bad or self._cycle(
-                        [Step(s.node, s.before) for s in early])
-                if bad:
-                    failed.append(f'Navigation ({bad})')
-        except (TimeoutError, ValueError) as problem:
-            return self._unknown(found, done,
-                                 f'{error}; rollback: {problem}')
+        if phase == 'pre':
+            failed += self._restore(steps)
+        else:
+            bad = ''
+            if phase == 'up':
+                bad = self._guard(lambda: '' if self.ports.lifecycle('reset')
+                                  else 'reset failed')
+            if bad:
+                failed.append(f'Navigation ({bad}; values not restored)')
+                late = early = []
+            failed += self._restore(late)
+            bad = self._guard(self._startup, [Step(s.node, s.before) for s in late])
+            if early:
+                failed += self._restore(early)
+                bad = bad or self._guard(self._cycle,
+                                         [Step(s.node, s.before) for s in early])
+            if bad:
+                failed.append(f'Navigation ({bad})')
         if failed:
             return self._receipt(
                 found, 'rollback_failed', done=[s.node for s in done],
@@ -663,12 +665,23 @@ class Nav2Live:
         return self._receipt(found, 'rolled_back',
                              done=[s.node for s in done], error=error)
 
+    @staticmethod
+    def _guard(call, *args):
+        """Run ``call``; return what went wrong as text ('' when it went through)."""
+        try:
+            return call(*args)
+        except (TimeoutError, ValueError) as problem:
+            return str(problem) or type(problem).__name__
+
     def _restore(self, steps):
         """Put each step's earlier values back and read them; return failures."""
         failed = []
         for step in steps:
-            ok, reason = self.ports.put(target(step.node), step.before)
-            bad = self._mismatch(step.node, step.before) if ok else [reason]
+            try:
+                ok, reason = self.ports.put(target(step.node), step.before)
+                bad = self._mismatch(step.node, step.before) if ok else [reason]
+            except (TimeoutError, ValueError) as problem:
+                bad = [str(problem) or type(problem).__name__]
             if bad:
                 failed.append(f'{step.node} ({", ".join(map(str, bad))})')
         return failed

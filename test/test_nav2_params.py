@@ -20,7 +20,7 @@ CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0
     ('velocity_smoother.max_accel', True),
     ('global_costmap.global_costmap.footprint', True),
     ('global_costmap.footprint_padding', True),
-    ('global_costmap.robot_radius', True),
+    ('global_costmap.robot_radius', False),
     ('global_costmap.inflation_layer.inflation_radius', True),
     ('global_costmap.global_costmap.inflation_layer.cost_scaling_factor', True),
     ('local_costmap.local_costmap.footprint', True),

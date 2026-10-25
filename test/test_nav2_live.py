@@ -286,20 +286,37 @@ def test_failed_rollback_is_reported(world):
     assert 'could not restore velocity_smoother' in receipt['error']
 
 
-def test_timeout_is_unknown_with_no_retry_and_no_rollback(world):
+def test_a_set_timeout_restores_what_went_before_and_never_retries_the_silent_node(world):
     world.timeout = ('set', '/velocity_smoother')
     receipt = make(world).apply(ask(wz_max=0.4))
-    assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error']
-    assert [n for n, _ in world.sets()] == [CONTROLLER, SMOOTHER]          # one try each
-    receipt = make(world).apply(ask(wz_max=0.45))
-    assert receipt['status'] == 'unknown'
+    assert receipt['status'] == 'rolled_back' and 'not retried' in receipt['error'], receipt
+    assert [n for n, _ in world.sets()] == [CONTROLLER, SMOOTHER, CONTROLLER]   # one try each
+    assert world.nodes[CONTROLLER]['FollowPath.wz_max'] == 0.3
 
 
-def test_readback_timeout_is_unknown(world):
-    world.timeout = ('get', '/controller_server')
+def test_a_readback_timeout_restores_the_steps_confirmed_before_it(world):
+    world.timeout = ('get', '/velocity_smoother')
     receipt = make(world).apply(ask(wz_max=0.4))
-    assert receipt['status'] == 'unknown'
-    assert [n for n, _ in world.sets()] == ['/controller_server']
+    assert receipt['status'] == 'rolled_back' and 'velocity_smoother readback' in receipt['error']
+    assert [n for n, _ in world.sets()] == [CONTROLLER, SMOOTHER, CONTROLLER]
+    assert world.nodes[CONTROLLER]['FollowPath.wz_max'] == 0.3
+
+
+def test_a_restore_that_fails_on_one_node_still_restores_the_rest(world):
+    world.reject[CONTROLLER] = 'no'                  # lowering: smoother first, then this
+    original = world.put
+
+    def silent_controller(node, values):
+        if node == CONTROLLER and not world.reject:  # the restore after the reject
+            world.calls.append(('set', node, values))
+            raise ValueError('cannot coerce None')
+        return original(node, values)
+    world.put = silent_controller
+    receipt = make(world).apply(ask(wz_max=0.1))
+    assert receipt['status'] == 'rollback_failed', receipt
+    assert 'controller_server (cannot coerce None)' in receipt['error']
+    assert [n for n, _ in world.sets()] == [SMOOTHER, CONTROLLER, CONTROLLER, SMOOTHER]
+    assert world.nodes[SMOOTHER]['max_velocity'] == [0.4, 0.15, 0.3]
 
 
 def test_a_value_that_cannot_be_coerced_rolls_back_what_went_through(world):
@@ -446,11 +463,27 @@ def test_a_rollback_whose_reset_fails_is_reported(world):
     assert receipt['status'] == 'rollback_failed' and 'Navigation' in receipt['error'], receipt
 
 
-def test_a_reset_timeout_is_unknown_with_no_retry(world):
+def test_a_reset_timeout_starts_navigation_again(world):
     world.timeout = ('lifecycle', 'reset')
     receipt = make(world).apply({FOLLOW + 'batch_size': 500})
-    assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error'], receipt
-    assert reset_calls(world) == ['reset']
+    assert receipt['status'] == 'rolled_back' and 'reset' in receipt['error'], receipt
+    assert reset_calls(world) == ['reset', 'startup']
+
+
+def test_a_startup_timeout_restores_and_reports_the_startup_it_could_not_make(world):
+    world.timeout = ('lifecycle', 'startup')
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'rollback_failed' and 'startup' in receipt['error'], receipt
+    assert reset_calls(world) == ['reset', 'set', 'startup', 'reset', 'set', 'startup']
+    assert world.nodes[CONTROLLER]['FollowPath.batch_size'] == 1000
+
+
+def test_robot_radius_is_refused_while_the_costmap_has_a_footprint(world):
+    world.nodes.update(copy.deepcopy(COSTMAPS))
+    world.nodes['/global_costmap/global_costmap']['robot_radius'] = 0.5
+    receipt = make(world).apply({'global_costmap.robot_radius': 0.7})
+    assert receipt['status'] == 'refused' and 'uses its footprint' in receipt['refused']
+    assert world.calls == []
 
 
 @pytest.mark.parametrize('value', [
@@ -716,7 +749,10 @@ def test_cli_exit_codes_for_refusal_rollback_unknown_and_nothing(world, tmp_path
     assert run_cli(world, tmp_path, '--yes', '--json')[0] == 3
     world.reject.clear()
     world.timeout = ('set', '/controller_server')
-    assert run_cli(world, tmp_path, '--yes', '--json')[0] == 4
+    assert run_cli(world, tmp_path, '--yes', '--json')[0] == 3
+    world.timeout = ('lifecycle', 'startup')
+    reset = FILE + '      batch_size: 500\n'
+    assert run_cli(world, tmp_path, '--yes', '--json', text=reset)[0] == 4
     world.timeout = None
     world.nodes['/controller_server']['FollowPath.wz_max'] = 0.4
     world.nodes['/velocity_smoother']['max_velocity'][0] = 0.5
@@ -776,7 +812,7 @@ def test_nav2_file_shows_refusals_and_failures(world, tmp_path):
     assert nav.apply().startswith('Nav2 apply rolled back:') and nav.pending
     world.reject.clear()
     world.timeout = ('set', '/velocity_smoother')
-    assert nav.apply().startswith('Nav2 apply unknown:')
+    assert nav.apply().startswith('Nav2 apply rolled back:') and nav.pending
 
 
 def test_the_popup_previews_from_the_live_nodes_and_applies_live(tmp_path):
