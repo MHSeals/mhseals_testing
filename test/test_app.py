@@ -660,6 +660,66 @@ def test_a_local_reload_never_replaces_the_remote_boats_config(tmp_path):
     assert (tmp_path / 'hardware.yaml').read_text() == before and 'blastoise-odroid' in app.notice
 
 
+class SlowBoat:
+    """A remote driver whose ssh read of the boat's config takes until ``gate`` opens."""
+
+    def __init__(self):
+        import threading
+        from types import SimpleNamespace
+        self.host, self.gate, self.reads = SimpleNamespace(name='blastoise-odroid'), threading.Event(), 0
+
+    def fetch_config(self):
+        self.reads += 1
+        self.gate.wait(10.0)
+        return {'manual_amplitude': 0.42}
+
+
+class TimedKeys:
+    """Keys that each arrive after a 0.1 s read; records the notices shown while waiting."""
+
+    def __init__(self, app, keys, opened=None):
+        self.app, self.keys, self.opened, self.shown = app, list(keys), opened, []
+
+    def read(self, timeout):
+        import time
+        time.sleep(min(timeout, 0.05))
+        self.shown.append(self.app.notice)
+        if self.opened is not None and not self.keys:
+            self.opened.gate.set()
+        return self.keys.pop(0) if self.keys else None
+
+
+@pytest.mark.parametrize('key, stops', [('escape', False), ('space', True)])
+def test_the_arm_time_boat_config_read_never_blocks_the_keys(tmp_path, key, stops):
+    """The ssh read runs off the key loop: the view says so, Esc cancels and Space also stops."""
+    import time
+    from mhseals_hardware.menu import Cancelled
+    app, _ = make_app(tmp_path)
+    boat = SlowBoat()
+    app.arming.remote = boat
+    stopped = []
+    app.operator_stop = lambda: stopped.append(True)
+    app.keys = TimedKeys(app, [None, key])
+    began = time.monotonic()
+    with pytest.raises(Cancelled):
+        app.read_boat_config()
+    assert time.monotonic() - began < 2.0 and bool(stopped) is stops     # never waited on the 10 s read
+    assert any('reading the boat config on blastoise-odroid' in s for s in app.keys.shown)
+    boat.gate.set()
+
+
+def test_the_arm_time_read_returns_the_boats_config_and_e_revokes_meanwhile(tmp_path):
+    app, _ = make_app(tmp_path)
+    boat = SlowBoat()
+    app.arming.remote = boat
+    revoked = []
+    app.revoke_agent = lambda: revoked.append(True)
+    app.keys = TimedKeys(app, ['E'], opened=boat)
+    assert app.read_boat_config() == {'manual_amplitude': 0.42} and revoked and boat.reads == 1
+    app.arming.remote = None
+    assert app.read_boat_config() is None                                  # a local arm reads nothing
+
+
 def test_manual_yaw_uses_the_configured_scale(tmp_path):
     app, boat = make_app(tmp_path)
     app.console.size = (120, 40)

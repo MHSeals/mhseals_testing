@@ -22,7 +22,6 @@ stop message, ``/thruster_pwm_node/estop``), then over ssh (``unit stop``).
 
 ``python3 -m mhseals_testing.ros.arm_link run --token T --config-b64 B [--unit U] -- name argv...
 [--next name argv...]`` (``@CONFIG@`` in an argv is the shipped hardware config's path);
-``readback --config-b64 B -- argv...`` runs the driver alone for the pin readback, then stops it;
 ``config`` prints this computer's hardware config as JSON: the operator TUI reads the boat's at
 session start and again at each arm (``RemoteDriver.fetch_config``) and arms from that, so there is
 one hardware.yaml. A failed read refuses the arm; a local edit or reload never replaces it.
@@ -55,7 +54,6 @@ FIRST_BEAT_S = 15.0     # the boat waits this long for the first beat (discovery
 STOP_REPEAT_S = 2.0     # the TUI repeats armed: false this long after a disarm
 LEASE_S = 3.0           # keeper backstop for a wedged boat side
 START_TIMEOUT_S = 30.0  # TUI: ssh, discovery and the driver's start
-READBACK_HARD_S = 20     # s the boat side's readback may run the driver at most
 UNIT = 'mhseals-arming'
 CONFIG = '@CONFIG@'
 NEXT = '--next'
@@ -412,34 +410,6 @@ def run(token, encoded, children, lease=None, link_s=LINK_S, first_beat_s=FIRST_
     return 0 if watch.stopped and not stopping else 3
 
 
-def readback(encoded, argv, timeout=None):
-    """Run only the driver from the shipped config, read its PWM outputs back from sysfs, stop it."""
-    from mhseals_hardware.configuration import load_config
-    from mhseals_testing.ui.popups import pins
-    def end(number, _):
-        raise SystemExit(f'signal {number}')     # the finally below still stops the driver
-    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGALRM):
-        signal.signal(signum, end)
-    signal.alarm(READBACK_HARD_S)      # however sysfs or the driver behave, it ends
-    refused = allowed([('hardware', argv)])
-    if refused:
-        return {'error': refused}
-    config = write_config(encoded, 'readback')
-    found = rivals()
-    if found:
-        return {'error': f'a thruster driver or mux already runs here (pids {found})'}
-    # The node is our direct child (direct()), so even a SIGKILL here reaches it as SIGINT.
-    try:
-        argv = direct(with_config(argv, config))
-    except ValueError as error:
-        return {'error': str(error)}
-    child = Child('hardware', argv)
-    try:
-        return {'confirmed': pins.readback(load_config(config))}
-    finally:
-        stop_children([child])      # outputs disabled, ESC power off
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='python3 -m mhseals_testing.ros.arm_link')
     verbs = parser.add_subparsers(dest='verb', required=True)
@@ -448,7 +418,7 @@ def main(argv=None):
     hold.add_argument('--unit')
     hold.add_argument('--link-s', type=float, default=LINK_S)
     hold.add_argument('--first-beat-s', type=float, default=FIRST_BEAT_S)
-    for verb in (hold, verbs.add_parser('readback'), verbs.add_parser('check')):
+    for verb in (hold, verbs.add_parser('check')):
         verb.add_argument('--config-b64', required=True)
     verbs.add_parser('config')
     argv = sys.argv[1:] if argv is None else list(argv)
@@ -464,10 +434,6 @@ def main(argv=None):
         return 0 if 'error' not in result else 2
     if not words:
         parser.error('the children follow --')
-    if args.verb == 'readback':
-        result = readback(args.config_b64, words)
-        print(json.dumps(result), flush=True)
-        return 0 if 'error' not in result else 2
     if not 0 < args.link_s <= 5.0:
         parser.error('--link-s must be over 0 and at most 5 s')
     lease = None

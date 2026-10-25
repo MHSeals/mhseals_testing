@@ -2374,7 +2374,10 @@ class App:
         The view keeps redrawing while the driver comes up, so arming reads as
         loading, never as a frozen screen.
         """
-        self.arming.begin()
+        if getattr(self.arming, 'remote', None) is None:
+            self.arming.begin()
+        else:                                    # the ssh read ran off the key loop; None refuses
+            self.arming.begin(self.read_boat_config())
         started = self.clock()
         while self.arming.poll() == 'starting':  # raises when the driver fails
             self.notice = (f'Arming: starting the thruster driver '
@@ -2386,6 +2389,34 @@ class App:
             if key in ('space', 'escape', 'press:space', 'press:escape'):
                 self.arming.cancel()
                 raise Cancelled('arming cancelled')
+
+    def read_boat_config(self):
+        """A remote arm's ssh read of the boat's hardware.yaml, off the key loop (up to ~16 s on a bad
+        link): the view redraws, Space stops, E revokes and Esc cancels meanwhile. None without a remote
+        boat; a failed read leaves None and ``begin`` refuses with the reason."""
+        remote = getattr(self.arming, 'remote', None)
+        if remote is None:
+            return None
+        box = {}
+        thread = threading.Thread(target=lambda: box.update(config=remote.fetch_config()),
+                                  name='boat-config', daemon=True)
+        thread.start()
+        started = self.clock()
+        while thread.is_alive():
+            self.notice = (f'Arming: reading the boat config on {remote.host.name} '
+                           f'{self.clock() - started:.0f} s{theme.SEPARATOR}Esc cancels')
+            self.refresh()
+            key = self.keys.read(0.1) if self.keys is not None else None
+            if key is None and self.keys is None:
+                thread.join(0.1)
+            if key in ('space', 'press:space'):
+                self.operator_stop()
+                raise Cancelled('arming cancelled')
+            if key in ('escape', 'press:escape'):
+                raise Cancelled('arming cancelled')
+            if key == 'E':
+                self.revoke_agent()
+        return box.get('config')
 
     def disarm(self, reason='disarmed', by='operator'):
         self.clear_pulses()

@@ -19,6 +19,7 @@ from mhseals_hardware.velocity_law import Plant
 
 
 DRIVER = 'thruster_pwm_node'
+READ = object()          # begin(): read the remote boat's config here (no read was passed in)
 CONTROLLER = 'calibrated_velocity_controller'
 EFFORT_TOPIC = '/cmd_vel_effort'
 MUX = 'command_mux'
@@ -131,8 +132,11 @@ class Arming:
             return f'{APPLIED_TOPIC} already has a publisher (another {MUX}?); stop it first'
         return ''
 
-    def begin(self):
-        """Start the driver without waiting; ``poll`` reports when it listens."""
+    def begin(self, boat_config=READ):
+        """Start the driver without waiting; ``poll`` reports when it listens.
+
+        ``boat_config`` is the remote boat's hardware.yaml as the TUI just read it off its key loop
+        (None: that read failed, refused); not given, a remote arm reads it here."""
         if self.armed or self.pending is not None:
             return
         self.topics = controller_topics(self.profile)
@@ -143,7 +147,7 @@ class Arming:
         if rival:
             raise RuntimeError(rival)
         if self.remote is not None:        # the boat's own hardware.yaml, read again at each arm
-            config = self.remote.fetch_config()
+            config = self.remote.fetch_config() if boat_config is READ else boat_config
             if config is None:
                 raise RuntimeError(self.remote.config_error)
             self.hardware_config = config

@@ -241,26 +241,3 @@ def test_a_config_whose_pins_differ_from_the_boats_never_starts_a_unit(boat, tui
     assert wait_for(lambda: driver.error, 20)
     assert 'channel_map' in driver.error and not driver.running('hardware')
     assert status()['state'] == 'off'
-
-
-@pytest.mark.parametrize('signum', ['SIGKILL', 'SIGTERM'])
-def test_a_killed_readback_never_leaves_the_real_driver_running(boat, tui, tmp_path, signum):
-    import signal
-    _, _, _, environment = boat
-    node, *_ = tui
-    topic = f'/arm_link_test_{os.getpid()}/pwm'
-    config = tmp_path / 'hardware.yaml'
-    save_config(dict(load_defaults(), output_backend='topic', pwm_topic=topic), config)
-    argv = ['ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node', '--ros-args',
-            '-p', f'config_file:={arm_link.CONFIG}', '-p', 'output_backend:=topic']
-    readback = subprocess.Popen(
-        [*arm_link.MODULE, 'readback', '--config-b64', base64.b64encode(config.read_bytes()).decode(),
-         '--', *argv], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        assert wait_for(lambda: arm_link.descendants(readback.pid), 15)
-        [driver] = arm_link.descendants(readback.pid)       # the node itself, no ros2 run between
-        time.sleep(3)                                       # well into its start: ROS up, outputs open
-        readback.send_signal(getattr(signal, signum))
-        assert wait_for(lambda: not arm_link._alive(driver), 5)
-    finally:
-        readback.kill()

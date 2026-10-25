@@ -434,6 +434,19 @@ def test_remote_arm_ships_the_snapshot_and_arms_only_when_the_boat_confirms(tmp_
     assert arming.poll() == 'armed' and arming.fault() == ''
 
 
+def test_an_arm_takes_the_config_the_tui_just_read_and_reads_nothing_more(tmp_path):
+    arming, driver, link, ros, now = remote_arming(tmp_path)
+    arming.begin(dict(load_defaults(), manual_amplitude=0.33))
+    driver.worker.shutdown(wait=True)
+    assert [shlex.split(c)[3] for c in driver.call.commands] == ['check']   # the start's check only
+    assert arming.hardware_config['manual_amplitude'] == 0.33
+    arming, driver, link, ros, now = remote_arming(tmp_path, Ssh(down=True))
+    driver.fetch_config()                              # the TUI's read failed
+    with pytest.raises(RuntimeError, match='could not be read'):
+        arming.begin(None)
+    assert len(driver.call.commands) == 1 and not arming.armed       # refused, not read again
+
+
 @pytest.mark.parametrize('ssh', [Ssh(down=True), Ssh({'error': 'hardware config unreadable: x'})])
 def test_an_arm_refuses_when_the_boats_config_cannot_be_read(tmp_path, ssh):
     arming, driver, link, ros, now = remote_arming(tmp_path, ssh)
@@ -511,7 +524,7 @@ def test_the_cli_refuses_a_link_bound_that_is_not_short(capsys):
     assert 'link-s' in capsys.readouterr().err
 
 
-@pytest.mark.parametrize('verb', ['run', 'readback'])
+@pytest.mark.parametrize('verb', ['run', 'check'])
 def test_the_module_runs_as_a_cli(verb):
     done = subprocess.run([sys.executable, '-m', 'mhseals_testing.ros.arm_link', verb, '--help'],
                           capture_output=True, text=True, env=dict(os.environ))
