@@ -6,8 +6,8 @@
 │   · FCU odometry           ││ Yaw    +20%     —                              │
 │   ✗ GPS                    │╰────────────────────────────────────────────────╯
 │   ! IMU              once× │╭─ Conditions ───────────────────────────────────╮
-│   · GPS raw                ││ Cond good 94% · drift .12→045° ±.02            │
-│   · compass                ││ Cmd ↑ +60% 0 +20% · chords                     │
+│   · GPS raw                ││ good 94% · hdg 030° NNE · drift .12→045° ±.02  │
+│   · compass                ││ Cmd ↑ surge   │█▎+60% · yaw ↺  ▋│  +20%        │
 │   · LiDAR                  │╰────────────────────────────────────────────────╯
 │   · tracks                 │╭─ Thrusters · odroid · defaults ────────────────╮
 │ Localization               ││    Thr          Out        Rev              µs │

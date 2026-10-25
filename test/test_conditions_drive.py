@@ -52,11 +52,11 @@ def plain(renderable, width=40):
 
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode text')
 def test_title_and_bottom_rows_come_from_the_summary():
-    out = plain(conditions.conditions_panel(drive_view()))
+    out = plain(conditions.conditions_panel(drive_view()), 43)   # the 120 column panel
     assert 'Conditions · good 94% · 4 min' in out
     assert 'drift .12 m/s →045° ±.02 · trust 88%' in out
     assert 'floor .14°/s · sea .9°/s' in out and '↕' not in out
-    assert ' │ Command' in out
+    assert ' │ keyboard·chords' in out and 'surge      +60%' in out and 'hdg 030° NNE' in out
     assert len(out.splitlines()) == 13
 
 
@@ -72,13 +72,11 @@ def test_marginal_is_a_warn_word_poor_a_fail_word_and_good_is_plain():
     assert conditions.conditions_title({'verdict': 'unknown', 'reason': 'measuring 12/24 s'}).plain == 'measuring 12/24 s'
 
 
-def test_unreliable_yaw_takes_the_sea_slot_and_turns_the_heading_tick_warn():
+def test_unreliable_yaw_takes_the_sea_slot_and_flags_the_heading():
     ok, bad = conditions.sea_row(INFO), conditions.sea_row({**INFO, 'yaw_ok': False, 'yaw_note': '4°'})
     assert 'sea' in ok.plain and bad.plain == '! yaw 4°' and str(bad.style) == theme.WARN
-    rows = conditions.conditions_panel(drive_view(yaw_ok=False))
-    assert '! yaw' in plain(rows) and 'sea' not in plain(rows)
-    ticks = {str(s.style) for row in conditions.rose(None, 30, yaw_ok=False) for s in row.spans}
-    assert theme.WARN in ticks
+    rows = plain(conditions.conditions_panel(drive_view(yaw_ok=False)), 43)
+    assert '! yaw' in rows and 'sea ' not in rows and theme.pick('! hdg 030° NNE', '! hdg 030 NNE') in rows
 
 
 def test_compass_bearing_from_odometry_yaw():
@@ -92,11 +90,13 @@ def test_motion_no_longer_draws_a_drift_line():
 
 
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode text')
-def test_compact_form_flags_yaw_and_subtitle_names_a_moving_drift():
-    ok = plain(conditions.conditions_panel(drive_view(), True))
-    assert '! yaw' not in ok
-    assert 'Cond good 94% · drift .12→045° ±.02 · ! yaw' in plain(
-        conditions.conditions_panel(drive_view(yaw_ok=False), True), 60)
+def test_compact_form_names_heading_drift_and_command_and_drops_what_does_not_fit():
+    ok = plain(conditions.conditions_panel(drive_view(), True), 70)
+    assert 'good 94% · hdg 030° NNE · drift .12→045° ±.02' in ok
+    assert 'Cmd ↑ surge   │█▎+60% · yaw ↺  ▋│  +20% · keyboard·chords' in ok
+    assert '! hdg 030° NNE' in plain(conditions.conditions_panel(drive_view(yaw_ok=False), True), 60)
+    narrow = plain(conditions.conditions_panel(drive_view(), True), 30).splitlines()
+    assert narrow[1] == '│ good 94% · hdg 030° NNE    │' and narrow[2] == '│ Cmd ↑ surge   │█▎+60%      │'
     assert conditions.conditions_title({**INFO, 'state': 'trending'}).plain == 'good 94% · 4 min · trending'
     assert conditions.conditions_title({**INFO, 'state': 'changed'}).plain.endswith('· changed')
     assert conditions.conditions_title({**INFO, 'state': 'steady'}).plain == 'good 94% · 4 min'

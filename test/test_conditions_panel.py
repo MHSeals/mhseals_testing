@@ -1,81 +1,135 @@
-from types import SimpleNamespace
+import pytest
 
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import conditions
+
+ARROWS = set(conditions.ARROWS + conditions.ARROWS_ASCII)
 
 
 def plain(rows):
     return [row.plain for row in rows]
 
 
-def test_rose_is_9_by_21_with_north_up_and_a_centre_mark():
-    rows = plain(conditions.rose())
+def changed(base, rows):
+    """Cells of ``rows`` that differ from ``base``."""
+    base, rows = plain(base), plain(rows)
+    return [(r, c) for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != base[r][c]]
+
+
+def styles(rows, chars=None):
+    return {str(span.style) for row in rows for span in row.spans
+            if chars is None or set(row.plain[span.start:span.end]) & set(chars)}
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode rose')
+def test_rose_is_9_by_21_north_up_with_the_hull_at_the_centre():
+    rows = plain(conditions.rose(heading=0))
     assert len(rows) == 9 and all(len(row) == 21 for row in rows)
     assert rows[0][10] == 'N' and rows[8][10] == 'S' and rows[4][2] == 'W' and rows[4][19] == 'E'
-    assert rows[4][10] == '┼'
+    assert rows[4][9:12] == '⢸⣿⣿'         # the filled hull, not a cross
+    assert plain(conditions.rose(heading=0)) != plain(conditions.rose(heading=90))   # it turns
 
 
-def arrow_cells(*args, **kw):
-    """Cells that differ from the bare rose: where the drift arrow is drawn."""
-    bare, rows = plain(conditions.rose()), plain(conditions.rose(*args, **kw))
-    return [(r, c) for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != bare[r][c]]
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode rose')
+def test_unknown_heading_is_bow_up_and_hides_the_world_drift():
+    rows = plain(conditions.rose((0.15, 0.0), None))
+    assert rows[0][9:13] == '↑bow' and not {'E', 'S', 'W'} & set(''.join(rows))
+    assert rows == plain(conditions.rose(None, None))
 
 
-def test_drift_arrow_stays_fixed_while_the_heading_rotates():
-    drift = (0.15, 0.0)  # east
-    def arrow(heading):
-        rows = plain(conditions.rose(drift, heading))
-        return [(r, c) for r, row in enumerate(rows) for c, ch in enumerate(row)
-                if ch != plain(conditions.rose(None, heading))[r][c]]
-
-    assert arrow(None) == arrow(0) == arrow(90) == arrow(200)
-    cells = arrow(None)
-    assert {r for r, _ in cells} == {4} and min(c for _, c in cells) > 10   # due east of the centre
-    assert not any(g in ''.join(plain(conditions.rose(drift))) for g in '●○◆')
-    assert plain(conditions.rose(drift, 0)) != plain(conditions.rose(drift, 90))  # the tick moves
-
-
-def test_tick_alone_changes_with_heading_and_follows_yaw_reliability():
-    ok, bad = conditions.rose(None, 45), conditions.rose(None, 45, yaw_ok=False)
-    assert plain(ok) == plain(bad)
-    assert {str(span.style) for row in ok for span in row.spans} >= {theme.ACCENT}
-    assert {str(span.style) for row in bad for span in row.spans} >= {theme.WARN}
+def test_drift_stays_east_while_the_heading_rotates():
+    for heading in (0, 90, 200):
+        cells = changed(conditions.rose(None, heading), conditions.rose((0.15, 0.0), heading))
+        assert cells and {r for r, _ in cells} == {4} and min(c for _, c in cells) > 11
 
 
 def test_long_drift_is_clipped_to_the_ring_and_stale_drift_is_dim():
-    assert plain(conditions.rose((0.0, 2.0), None)) == plain(conditions.rose((0.0, 0.3), None))
-    assert arrow_cells((0.0, 2.0))[0][0] == 0           # the line reaches the ring at the top
-    assert not any(g in ''.join(plain(conditions.rose((0.0, 2.0)))) for g in '●○◆')
-    assert arrow_cells((0.0, 0.1))[0][0] > 0            # a short one does not
-    fresh, old = conditions.rose((0.1, 0.0), None), conditions.rose((0.1, 0.0), None, age=61)
-    assert [r.spans for r in fresh] != [r.spans for r in old]
+    assert plain(conditions.rose((0.0, 2.0), 90)) == plain(conditions.rose((0.0, 0.3), 90))
+    assert min(r for r, _ in changed(conditions.rose(None, 90), conditions.rose((0.0, 2.0), 90))) <= 1
+    assert min(r for r, _ in changed(conditions.rose(None, 90), conditions.rose((0.0, 0.1), 90))) >= 2
+    fresh, old = conditions.rose((0.1, 0.0), 0), conditions.rose((0.1, 0.0), 0, age=61)
+    assert f'dim {theme.MUTED}' in styles(old) and f'dim {theme.MUTED}' not in styles(fresh)
 
 
-def test_arrow_sector_and_doubling_wear_the_authority_hue():
-    forward = conditions.command_glyph((0.25, 0, 0), 0.5, owner='nav')
-    assert forward[3].plain[6] == '↑' and forward[2].plain[6] == '↑'
-    left = conditions.command_glyph((0, 0.5, 0), 0.5)
-    assert left[3].plain[5:7] == '←←'
-    hue = theme.AUTHORITY_HUES['nav']
-    assert any(str(s.style) == hue for s in forward[3].spans)
-    assert theme.AUTHORITY_HUES['agent'] != theme.AUTHORITY_HUES['nav']
+def test_unreliable_yaw_turns_the_hull_warn():
+    ok, bad = conditions.rose(None, 45), conditions.rose(None, 45, yaw_ok=False)
+    assert plain(ok) == plain(bad)
+    assert [row.spans for row in ok] != [row.spans for row in bad]
+    assert not theme.WARN or (theme.WARN not in styles(ok) and theme.WARN in styles(bad))   # mono: plain
 
 
-def test_doubled_arrow_follows_the_sector_for_an_off_axis_command():
-    rows = conditions.command_glyph((0.5, 0.29, 0), 0.5)   # about 30 degrees: the sector is up-left
-    assert rows[3].plain[6] == '↖' and rows[2].plain[5] == '↖' and rows[2].plain[6] == ' '
+@pytest.mark.parametrize('heading', (None, 0, 30, 135, 247))
+@pytest.mark.parametrize('command', ((0.1, 0, 0), (0.25, 0, 0), (0.5, 0, 0), (0.6, 0.0, 0.2), (0.5, 0.29, 0),
+                                     (0, -0.5, 0), (-0.4, 0.4, -0.5), (2.0, 0, 0)))
+def test_exactly_one_arrowhead_at_any_size(command, heading):
+    """The old glyph copied the arrow above 40 % of amplitude; now there is one, in the driver's hue."""
+    rows = conditions.rose(heading=heading, command=command, amplitude=0.5, hue='magenta')[1:]   # row 0: ↑bow
+    heads = [ch for row in plain(rows) for ch in row if ch in ARROWS]
+    assert len(heads) == 1 and styles(rows, heads) == {'magenta'}
 
 
-def test_hull_has_no_bow_marker():
-    assert '▲' not in ''.join(row.plain for row in conditions.command_glyph((0, 0, 0), 0.5))
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode arrows')
+@pytest.mark.parametrize('command,heading,arrow', (((0.5, 0, 0), 0, '↑'), ((0.5, 0, 0), 90, '→'),
+                                                   ((0, 0.5, 0), 0, '←'), ((0, 0.5, 0), None, '←'),
+                                                   ((-0.5, 0, 0), 180, '↑'), ((0.5, -0.5, 0), 0, '↗')))
+def test_the_arrow_is_the_command_turned_into_the_world_by_the_heading(command, heading, arrow):
+    rows = plain(conditions.rose(heading=heading, command=command, amplitude=0.5))
+    assert arrow in ''.join(rows)
 
 
-def test_yaw_marker_sits_beside_the_hull_and_is_bold_above_half_amplitude():
-    ccw = conditions.command_glyph((0, 0, 0.4), 0.5)
-    assert ccw[3].plain[0] == '↩'
-    assert 'bold' in str(ccw[3].spans[0].style)
-    cw = conditions.command_glyph((0, 0, -0.1), 0.5)
-    assert cw[3].plain[12] == '↪' and 'bold' not in str(cw[3].spans[-2].style)
+def test_a_bigger_command_draws_a_longer_line():
+    def reach(surge):
+        return min(r for r, _ in changed(conditions.rose(heading=0), conditions.rose(heading=0, command=(surge, 0, 0))))
+    assert reach(0.1) > reach(0.5) >= 1
+
+
+def test_yaw_is_an_arc_on_the_turning_side_without_an_arrowhead():
+    base = conditions.rose(heading=0)
+    ccw = changed(base, conditions.rose(heading=0, command=(0, 0, 0.3), amplitude=0.5))
+    cw = changed(base, conditions.rose(heading=0, command=(0, 0, -0.3), amplitude=0.5))
+    assert max(c for _, c in ccw) <= 10 < max(c for _, c in cw) and min(c for _, c in ccw) < 10
+    assert not ARROWS & set(''.join(plain(conditions.rose(heading=0, command=(0, 0, 0.3)))))
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode bars')
+def test_bars_fill_in_eighths_grow_port_left_and_mark_a_clip():
+    assert conditions.bar(0.6, 1.0, 6, '').plain == '      │███▋  '
+    assert conditions.bar(0.0, 1.0, 6, '').plain == '      │      '
+    left = conditions.bar(0.2, 1.0, 6, 'cyan', grows_left=True)
+    assert left.plain == '    ▊█│      '       # 1.2 cells; the partial is a reversed left fill
+    assert any('reverse' in str(s.style) for s in left.spans)
+    assert conditions.bar(-0.5, 1.0, 6, '', grows_left=True).plain == '      │███   '
+    assert conditions.bar(1.4, 1.0, 6, '').plain == '      │█████▶'
+    assert conditions.bar(-1.4, 1.0, 2, '').plain == '◀█│  '
+
+
+def test_driver_names_who_and_how_in_the_authority_hue():
+    view = dict(authority=('human', 'KEYS'), chords=True)
+    assert conditions.driver(view) == ('keyboard' + theme.MIDDOT + 'chords', theme.auth_style('human'))
+    assert conditions.driver({'authority': ('nav', 'NAV')}) == ('nav', theme.auth_style('nav'))
+    assert conditions.driver({'authority': ('ours', 'C=I'), 'command_mode': 'proc · C=I'})[0] == 'proc · C=I'
+    assert conditions.driver({'chords': False})[1] == theme.MUTED
+
+
+def test_command_column_labels_each_axis_and_mutes_zero():
+    view = dict(authority=('human', 'KEYS'), chords=True, command=(0.6, 0.0, 0.2), amplitude=1.0)
+    rows = conditions.command_column(view, {'heading': 30.0}, 15)
+    assert len(rows) == 9 and all(len(row) <= 15 for row in rows)
+    assert rows[2].plain == 'surge      +60%' and rows[4].plain.rstrip().endswith('0')
+    assert rows[6].plain.startswith('yaw') and rows[6].plain.endswith('+20%')
+    assert str(rows[4].spans[-1].style) == theme.MUTED
+    assert rows[8].plain == theme.pick('hdg 030° NNE', 'hdg 030 NNE')
+    narrow = conditions.command_column(view, {}, 14)
+    assert all(len(row) <= 14 for row in narrow) and narrow[0].plain.startswith('keys')
+
+
+def test_heading_row_has_its_cardinal_sigma_and_yaw_trust():
+    assert conditions.heading_row({'heading': 247.0}).plain == theme.pick('hdg 247° WSW', 'hdg 247 WSW')
+    sigma = conditions.heading_row({'heading': 247.0, 'heading_sd': 4})
+    assert sigma.plain == theme.pick('247° WSW ±4°', '247 WSW +-4')
+    bad = conditions.heading_row({'heading': 5.0, 'yaw_ok': False})
+    assert bad.plain.startswith('! hdg 005') and str(bad.style) == theme.WARN
+    assert conditions.heading_row({}).plain == f'hdg {theme.DASH}'
 
 
 def test_label_names_the_mode_with_the_tmux_caveat():
@@ -83,12 +137,3 @@ def test_label_names_the_mode_with_the_tmux_caveat():
     assert conditions.mode_label(False, tmux=True) == 'single key (tmux)'
     assert conditions.mode_label(False, tmux=False) == 'single key'
     assert conditions.mode_label(False, mode='rc · mux') == 'rc · mux'
-    rows = conditions.command_glyph((0.25, 0, 0), 0.5, tmux=True)
-    assert rows[-2].plain == '+50% 0 0' and rows[-1].plain == 'single key (tmux)'
-
-
-def test_command_view_reads_chords_and_falls_back_to_event_mode():
-    new = SimpleNamespace(chords=True, command=(0.1, 0, 0))
-    assert conditions.command_view(new) == ((0.1, 0, 0), True)
-    old = SimpleNamespace(event_mode=True)
-    assert conditions.command_view(old) == ((0.0, 0.0, 0.0), True)

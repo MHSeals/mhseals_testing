@@ -6,8 +6,8 @@
 │   · FCU odometry           ││ Yaw     +0%     —                              │
 │   ✗ GPS                    │╰────────────────────────────────────────────────╯
 │   ! IMU              once× │╭─ Conditions ───────────────────────────────────╮
-│   · GPS raw                ││ Cond measuring                                 │
-│   · compass                ││ Cmd · 0 0 0 · single key                       │
+│   · GPS raw                ││ measuring · hdg —                              │
+│   · compass                ││ Cmd · 0 · single key                           │
 │   · LiDAR                  │╰────────────────────────────────────────────────╯
 │   · tracks                 │╭─ Thrusters · odroid · defaults ────────────────╮
 │ Localization               ││    Thr          Out        Rev              µs │

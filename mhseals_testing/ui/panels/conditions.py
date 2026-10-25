@@ -1,90 +1,146 @@
-"""Conditions · Command panel (tui.md 10-11, ui.md 6.3): the north-up rose and the command glyph.
+"""Conditions · Command panel (tui-visual 3): one north-up rose, one command arrow, labelled bars.
 
-Pure and ROS-free: both return Rich ``Text`` rows. The rose is a world-frame picture, so the
-drift arrow never turns with the boat; only the heading tick moves. The command glyph is the
-body frame (bow up), its arrow in the hue of whoever is commanding.
+Pure and ROS-free. The rose is a world-frame picture: the hull (the map's pentagon) turns to the
+heading, the command is a single solid line from the hull in the hue of whoever drives, ending in
+the only arrowhead; yaw is an arc around the hull and the world drift a dashed muted line. The
+right column names the driver, then surge, sway and yaw as bipolar bars, then the heading.
 """
 
 import math
 import os
 
-from rich.console import Group
 from rich.text import Text
 
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.minimap.canvas import Canvas
+from mhseals_testing.ui.minimap import hull
 from mhseals_testing.ui.panels import TITLES
 
 ROSE_COLS, ROSE_ROWS = 21, 9
 RADIUS = 17                 # dots; the canvas is 42 x 36 dots and dots are square
+CENTRE = (ROSE_COLS, ROSE_ROWS * 2)
+HULL_DOTS = (9, 6)          # length, beam of the rose's hull
+REACH = (HULL_DOTS[0] / 2 + 1, HULL_DOTS[1] / 2 + 1)   # the command line starts this far out
+COMMAND_END = RADIUS - 5    # dots; the arrowhead cell sits past it, inside the ring
+YAW_RADIUS = 8              # dots, about RADIUS / 2
 FULL_SPEED = 0.3            # m/s at the full radius; faster is clipped to the ring
 STALE_S = 60.0              # an older drift estimate is drawn dim
-HEADING_TICK = (0.5, 0.7)   # radial span of the heading tick, as a fraction of RADIUS
-SECTORS = '↑↖←↙↓↘→↗'         # 45 degree steps counter-clockwise from ahead (ROS: +sway is left)
-SECTORS_ASCII = '^<<vvv>>'
-
-
-def _plain(char):
-    """A braille cell as ``' '``, ``'``, ``.`` or ``:`` (upper, lower, both dots) in ASCII mode."""
-    if not theme.ASCII or not '⠀' <= char <= '⣿':
-        return char
-    bits = ord(char) - 0x2800
-    return " '.:"[bool(bits & 0x1B) + 2 * bool(bits & 0xE4)]
-
-
-def _sector(surge, sway):
-    """The 45 degree sector index of a (surge, sway) pair, or None when both are zero."""
-    if not (surge or sway):
-        return None
-    return round(math.atan2(sway, surge) / (math.pi / 4)) % 8
+ARROWS = '↑↗→↘↓↙←↖'         # screen directions, clockwise from up
+ARROWS_ASCII = '^/>\\v/<\\'
+POINTS = ('N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW')
+EIGHTHS = ' ▏▎▍▌▋▊▉█'       # left-aligned fills; a bar growing left shows them in reverse video
+BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
+        (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
+# Rose layers, highest first: a cell takes the hue of its strongest dot.
+BOW, BOAT, COMMAND, YAW, DRIFT, TICK = range(6)
+ASCII_DOTS = '##.(:.'       # the ASCII cell per layer; yaw is ( or ) by sense
 
 
 def _polar(bearing_deg, radius):
-    """Dot offset (right, down) of a compass bearing (0 = north, clockwise) at ``radius``."""
+    """Dot offset (right, down) of a screen bearing (0 = up, clockwise) at ``radius``."""
     rad = math.radians(bearing_deg)
     return radius * math.sin(rad), -radius * math.cos(rad)
 
 
-def rose(drift=None, heading=None, yaw_ok=True, age=0.0):
-    """The 9 x 21 rose as a list of Text rows, north up.
+def _arrow(bearing):
+    return theme.pick(ARROWS, ARROWS_ASCII)[round(bearing / 45) % 8]
 
-    ``drift`` is the world velocity (east, north) in m/s or None, ``heading`` the boat's
-    compass bearing in degrees or None. The arrow is plain fg, dim when the estimate is
-    older than STALE_S; the heading tick is accent, or warn while yaw is unreliable.
+
+def cardinal(heading):
+    return POINTS[round(heading / 22.5) % 16]
+
+
+def _reach(rel):
+    """Dots from the centre to just outside the hull, ``rel`` radians off the bow."""
+    return math.ceil(1 / math.hypot(math.cos(rel) / REACH[0], math.sin(rel) / REACH[1]))
+
+
+def _token(name, fallback):
+    """A palette token's style, or ``fallback`` under a theme overlay that lacks it."""
+    try:
+        return theme.PALETTE.style(name)
+    except KeyError:
+        return fallback
+
+
+def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0), amplitude=1.0, hue=''):
+    """The 9 x 21 rose as Text rows: north up, or bow up (``↑bow``) while ``heading`` is None.
+
+    ``drift`` is the world velocity (east, north) in m/s, ``heading`` the compass bearing in degrees
+    and ``command`` the body (surge, sway, yaw) against ``amplitude``. Without a heading the command
+    is drawn in the body frame and the world drift is hidden, never mixed in.
     """
-    canvas = Canvas(ROSE_COLS, ROSE_ROWS)
-    cx, cy = ROSE_COLS, ROSE_ROWS * 2  # dot centre: 21, 18
+    dots, glyphs = {}, {}
+    cx, cy = CENTRE
+    up = heading if heading is not None else 0.0     # the bow's screen bearing
 
-    def put(bearing, radius, layer):
-        dx, dy = _polar(bearing, radius)
-        canvas.dot(cx + round(dx), cy + round(dy), layer)
+    def put(x, y, layer):
+        pos = (x // 2, y // 4)
+        if 0 <= pos[0] < ROSE_COLS and 0 <= pos[1] < ROSE_ROWS:
+            bits, best = dots.get(pos, (0, layer))
+            dots[pos] = (bits | BITS[(x % 2, y % 4)], min(best, layer))
+
+    def ray(bearing, start, stop, layer, step=1):
+        for radius in range(start, stop + 1, step):
+            dx, dy = _polar(bearing, radius)
+            put(cx + round(dx), cy + round(dy), layer)
 
     for step in range(16):
-        put(step * 22.5, RADIUS, 'ring')
-    if heading is not None:
-        for step in range(5):
-            put(heading, RADIUS * (HEADING_TICK[0] + (HEADING_TICK[1] - HEADING_TICK[0]) * step / 4), 'cursor')
-    if drift is not None:
-        # A two dot wide line; a drift past FULL_SPEED is clipped, shown by the line meeting the ring.
-        length = RADIUS * min(math.hypot(*drift) / FULL_SPEED, 1.0)
-        bearing = math.degrees(math.atan2(drift[0], drift[1]))
-        for step in range(int(length) + 1):
-            dx, dy = _polar(bearing, step)
-            x, y = cx + round(dx), cy + round(dy)
-            canvas.dot(x, y, 'boat')
-            canvas.dot(x + (abs(dy) >= abs(dx)), y + (abs(dy) < abs(dx)), 'boat')
-    for bearing, letter in ((0, 'N'), (90, 'E'), (180, 'S'), (270, 'W')):
-        dx, dy = _polar(bearing, RADIUS)
-        canvas.glyph((cx + round(dx)) // 2, (cy + round(dy)) // 4, letter, 'label')
-    canvas.glyph(cx // 2, cy // 4, theme.pick('┼', '+'), 'ring')
-    styles = {'ring': theme.MUTED, 'label': 'bold', 'boat': theme.MUTED if age > STALE_S else '',
-              'cursor': theme.ACCENT if yaw_ok else theme.WARN}
-    return [Text.assemble(*[(_plain(cell.text), styles.get(cell.fg, ''))
-                            for cell in row]) for row in canvas.cells()]
+        ray(step * 22.5, RADIUS - (step % 4 == 2), RADIUS, TICK)   # a longer tick on the intercardinals
+    if heading is None:
+        for col, char in enumerate(theme.pick('↑bow', '^bow')):
+            glyphs[(ROSE_COLS // 2 - 1 + col, 0)] = (char, 'bold')
+    else:
+        for bearing, letter in ((0, 'N'), (90, 'E'), (180, 'S'), (270, 'W')):
+            dx, dy = _polar(bearing, RADIUS)
+            glyphs[((cx + round(dx)) // 2, (cy + round(dy)) // 4)] = (letter, 'bold')
+        if drift is not None and any(drift):
+            bearing = math.degrees(math.atan2(drift[0], drift[1]))
+            start = _reach(math.radians(bearing - up))
+            ray(bearing, start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)),
+                DRIFT, 2)
+    for dx, dy, part in hull.mask(90.0 - up, minimum=HULL_DOTS):
+        put(cx + dx, cy + dy, BOW if part == 'bow' else BOAT)
 
+    surge, sway, yaw = command
+    scale = amplitude or 1.0
+    if surge or sway:
+        rel = -math.atan2(sway, surge)               # +sway is to port: counter-clockwise on screen
+        start = _reach(rel)
+        stop = start + round(min(math.hypot(surge, sway) / scale, 1.0) * (COMMAND_END - start))
+        bearing = up + math.degrees(rel)
+        ray(bearing, start, stop, COMMAND)
+        dx, dy = _polar(bearing, stop + 2)
+        glyphs[((cx + round(dx)) // 2, (cy + round(dy)) // 4)] = (_arrow(bearing), hue)
+    if yaw:
+        sweep = math.copysign(min(abs(yaw) / scale, 1.0) * 180.0, yaw)
+        count = max(2, round(abs(math.radians(sweep)) * YAW_RADIUS))
+        for i in range(1, count + 1):
+            dx, dy = _polar(up - sweep * i / count, YAW_RADIUS)
+            put(cx + round(dx), cy + round(dy), YAW)
+
+    boat = _token('boat', 'bold') if yaw_ok else theme.WARN
+    styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
+              f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, theme.MUTED)
+    ascii_dots = ASCII_DOTS.replace('(', '(' if yaw > 0 else ')')
+    rows = []
+    for row in range(ROSE_ROWS):
+        line = Text()
+        for col in range(ROSE_COLS):
+            if (col, row) in glyphs:
+                line.append(*glyphs[(col, row)])
+            elif (col, row) in dots:
+                bits, layer = dots[(col, row)]
+                line.append(ascii_dots[layer] if theme.ASCII else chr(0x2800 + bits), styles[layer])
+            else:
+                line.append(' ' if theme.ASCII else '⠀')
+        rows.append(line)
+    return rows
+
+
+# --- the command column -----------------------------------------------------------------------
 
 def mode_label(chords, tmux=None, mode=None):
-    """The line under the glyph: ``mode`` (``proc · C=I``, ``rc · mux``) wins outside manual."""
+    """How the keyboard drives: ``mode`` (``proc · C=I``, ``rc · mux``) wins outside manual."""
     if mode:
         return mode
     if chords:
@@ -93,52 +149,80 @@ def mode_label(chords, tmux=None, mode=None):
     return 'single key (tmux)' if tmux else 'single key'
 
 
-def command_view(state):
-    """``(command, chords)`` from a ManualState; older ones only have ``event_mode``."""
-    return (tuple(getattr(state, 'command', (0.0, 0.0, 0.0))),
-            bool(getattr(state, 'chords', getattr(state, 'event_mode', False))))
+def _figure(value, amplitude):
+    """``+60%``, or a muted ``0``."""
+    if not value or not amplitude:
+        return Text('0', style=theme.MUTED)
+    return Text(f'{value / amplitude:+.0%}')
 
 
-def command_glyph(command, amplitude, chords=False, owner='keyboard', tmux=None, mode=None):
-    """The body-frame hull with the command arrow and the figures below, as Text rows.
+def bar(value, amplitude, cells, hue, grows_left=False):
+    """A bipolar bar of ``cells`` per side about a centre ``│``, at 1/8-cell resolution.
 
-    The arrow is doubled above 40 % of ``amplitude`` and wears the hue of ``owner``; a
-    yaw turn adds ``↩``/``↪`` beside the hull, bold above 50 %.
+    A positive value grows right, or left when ``grows_left`` (sway and yaw: port is left, as on
+    the water). Past ``amplitude`` the end cell shows ``▶``/``◀``. ASCII: ``#`` per whole cell.
     """
-    surge, sway, yaw = command
-    hue = theme.AUTHORITY_HUES.get(owner, '')
-    edge = theme.pick('─', '-')
-    grid = [[(' ', '')] * 13 for _ in range(7)]   # col 0 and 12 are the yaw margins
-    for row in range(7):
-        for col in range(1, 12):
-            top = row in (0, 6)
-            char = (theme.pick('╭╮╰╯', '++++')[(row == 6) * 2 + (col == 11)] if top and col in (1, 11)
-                    else edge if top else theme.BAR if col in (1, 11) else ' ')
-            grid[row][col] = (char, theme.MUTED)
-    index = _sector(surge, sway)
-    if index is not None:
-        arrow = theme.pick(SECTORS, SECTORS_ASCII)[index]
-        grid[3][6] = (arrow, hue)
-        if math.hypot(surge, sway) > 0.4 * amplitude:
-            angle = index * math.pi / 4   # the quantised sector, so the copy sits behind the glyph
-            grid[3 - round(math.cos(angle))][6 - round(math.sin(angle))] = (arrow, hue)
-    if yaw:
-        turn = theme.pick('↩' if yaw > 0 else '↪', '<' if yaw > 0 else '>')
-        bold = abs(yaw) > 0.5 * amplitude
-        grid[3][0 if yaw > 0 else 12] = (turn, f'{hue} bold' if bold else hue)
-    lines = [Text.assemble(*cells) for cells in grid]
-    figures = ' '.join(f'{value / amplitude:+.0%}' if value else '0' for value in command) if amplitude else '0 0 0'
-    lines.append(Text(figures, style=theme.MUTED))
-    lines.append(Text(mode_label(chords, tmux, mode), style=theme.MUTED))
-    return lines
+    frac = value / amplitude if amplitude else 0.0
+    left = (frac > 0) == grows_left
+    eighths = round(min(abs(frac), 1.0) * cells * 8)
+    if theme.ASCII:
+        side = Text.assemble(('#' * round(eighths / 8), hue))
+    else:
+        side = Text.assemble(('█' * (eighths // 8), hue))
+        if eighths % 8:
+            part = eighths % 8
+            # Unicode has right-aligned blocks only for 1/8 and 1/2; the rest is a left fill reversed.
+            side.append(*(('▕', hue) if part == 1 and left else ('▐', hue) if part == 4 and left
+                          else (EIGHTHS[8 - part], f'reverse {hue}') if left else (EIGHTHS[part], hue)))
+    if abs(frac) > 1:
+        side = Text.assemble((side.plain[:-1], hue))
+        side.append(theme.pick('◀' if left else '▶', '<' if left else '>'), style=hue)
+    pad = Text(' ' * (cells - len(side)))
+    empty = Text(' ' * cells)
+    lhs, rhs = (Text.assemble(pad, _flip(side)), empty) if left else (empty, side + pad)
+    if not frac:
+        lhs, rhs = empty, empty
+    return Text.assemble(lhs, (theme.BAR, theme.MUTED), rhs)
 
 
-# --- the panel (ui.md 6.3) -------------------------------------------------------------
+def _flip(side):
+    """The cells of ``side`` in reverse order, styles kept: a left bar runs outward from the centre."""
+    out = Text()
+    for i in range(len(side) - 1, -1, -1):
+        out.append_text(side[i])
+    return out
 
-COMMAND_COLS = 14            # inner width 38 less the rose and the ' │ ' separator
+
+def _labelled(label, value, amplitude, width):
+    figure = _figure(value, amplitude)
+    return Text.assemble(label, ' ' * max(width - len(label) - len(figure), 1), figure)
+
+
+def _yaw_label(yaw):
+    if not yaw:
+        return 'yaw'
+    return 'yaw ' + theme.pick('↺' if yaw > 0 else '↻', 'ccw' if yaw > 0 else 'cw')
+
+
+def heading_row(info):
+    """``hdg 247° WSW`` (``247° WSW ±4°`` with a sigma), warn with ``!`` while yaw is unreliable."""
+    heading = info.get('heading')
+    if heading is None:
+        return Text(f'hdg {theme.DASH}', style=theme.MUTED)
+    deg = theme.pick('°', '')      # ascii_safe's `deg` would not fit the column
+    text = f'hdg {heading % 360:03.0f}{deg} {cardinal(heading)}'
+    if info.get('heading_sd') is not None:
+        text = f"{text[4:]} {theme.pick('±', '+-')}{info['heading_sd']:.0f}{deg}"
+    return Text(f'! {text}', style=theme.WARN) if not info.get('yaw_ok', True) else Text(text)
+
+
+# --- the panel (ui.md 6.3) --------------------------------------------------------------------
+
 NOTABLE_STATES = ('trending', 'changed')   # drift states worth a word in the subtitle
 OWNERS = {'human': 'keyboard', 'ours': 'procedure', 'nav': 'nav', 'agent': 'agent', 'hold': 'hold'}
 VERDICT_HUES = {'marginal': 'WARN', 'poor': 'BAD'}   # good and unknown stay plain
+BAR_CELLS = 6               # per side in the full panel; the 100 column panel fits 5
+MICRO_CELLS = 2             # per side in the compact line
 
 
 def _short(value, digits=2):
@@ -159,7 +243,7 @@ def conditions_title(info, full=True):
     trust = info.get('drift_trust') if trust is None else trust
     title = Text.assemble((verdict, getattr(theme, VERDICT_HUES.get(verdict, ''), '')))
     title.append(f' {trust:.0%}' if trust is not None else '', style=theme.MUTED)
-    if not full:      # the compact Cond line has no room for the minutes
+    if not full:      # the compact line has no room for the minutes
         return title
     title.append(f"{theme.SEPARATOR}{info.get('neutral_s', 0) / 60:.0f} min", style=theme.MUTED)
     if info.get('state') in NOTABLE_STATES:
@@ -192,49 +276,96 @@ def sea_row(info):
     return Text(theme.ascii_safe(text))
 
 
-def _command(view):
-    owner = OWNERS.get((view.get('authority') or ('', ''))[0], 'none')
-    lines = command_glyph(view['command'], view.get('amplitude', 1.0), view.get('chords', False), owner,
-                          mode=view.get('command_mode'))
-    if len(lines[-1]) > COMMAND_COLS:    # `single key (tmux)` is too wide: lose the parenthesis
-        lines[-1] = Text(lines[-1].plain.split(' (')[0], style=theme.MUTED)
-    # Make room for the `Command` label: interior rows 1 and 5 of the hull are never drawn on.
-    return [Text('Command')] + [line for i, line in enumerate(lines) if i not in (1, 5)]
+def driver(view):
+    """``(label, hue)`` of who drives: ``keyboard·chords``, ``nav``, ``proc · C=I``, ``rc · mux``."""
+    kind = (view.get('authority') or ('', ''))[0]
+    owner = OWNERS.get(kind)
+    hue = theme.auth_style(kind) if owner else theme.MUTED
+    mode = view.get('command_mode')
+    label = mode_label(view.get('chords', False), mode=mode).split(' (')[0]
+    if owner == 'keyboard' and not mode:
+        label = f'keyboard{theme.MIDDOT}{label}'
+    elif owner and not mode:
+        label = owner
+    return label, hue
 
 
-def compact_lines(view, info):
-    """The 70-89 column form: ``Cond good 94% · drift .12→045° ±.02`` over ``Cmd ↑ +60% 0 0 · chords``."""
-    cond = Text('Cond ', style=theme.MUTED)
-    cond.append_text(conditions_title(info, full=False))
+def command_column(view, info, width):
+    """The 9 right-hand rows: driver, blank, surge/sway/yaw figures over their bars, heading."""
+    label, hue = driver(view)
+    surge, sway, yaw = view['command']
+    amplitude = view.get('amplitude', 1.0)
+    cells = min(BAR_CELLS, (width - 3) // 2)
+    rows = [Text(label if len(label) <= width else label.replace('keyboard', 'keys'), style=hue), Text()]
+    for name, value, left in (('surge', surge, False), ('sway', sway, True), (_yaw_label(yaw), yaw, True)):
+        rows.append(_labelled(name, value, amplitude, 3 + 2 * cells))
+        rows.append(Text.assemble((theme.pick('▕', '['), theme.MUTED), bar(value, amplitude, cells, hue, left),
+                                  (theme.pick('▏', ']'), theme.MUTED)))
+    rows.append(heading_row(info))
+    return rows
+
+
+def _fit(segments, width, sep=None):
+    """Join ``segments`` (most important first) with separators while they fit in ``width``."""
+    out = Text()
+    for i, segment in enumerate(segments):
+        piece = Text.assemble((theme.SEPARATOR, theme.MUTED), segment) if i and sep is None else segment
+        if i and len(out) + len(piece) > width:
+            break
+        out.append_text(piece)
+    out.truncate(width, overflow='ellipsis')
+    return out
+
+
+def compact_lines(view, info, width=46):
+    """The 60-89 column form: ``good 94% · hdg 030° NNE · drift .12→045° ±.02`` over
+    ``Cmd ↑ surge  │█▊+60 · yaw ▐│  +20 · keyboard·chords``; segments that do not fit are dropped."""
+    cond = [conditions_title(info, full=False), heading_row(info)]
     figures = _drift_figures(info)
     if figures:
-        cond.append(theme.ascii_safe(f"{theme.SEPARATOR}drift {_short(figures[0])}{theme.ARROW}"
-                                     f"{figures[1]:03.0f}° ±{_short(info['se'])}"))
-    if not info.get('yaw_ok', True):
-        cond.append(f'{theme.SEPARATOR}! yaw', style=theme.WARN)
-    glyph = command_glyph(view['command'], view.get('amplitude', 1.0), view.get('chords', False),
-                          mode=view.get('command_mode'))
-    index = _sector(*view['command'][:2])
-    arrow = theme.pick(SECTORS, SECTORS_ASCII)[index] if index is not None else theme.MIDDOT
-    return [cond, Text.assemble(('Cmd ', theme.MUTED), arrow, ' ', glyph[7], (theme.SEPARATOR, theme.MUTED), glyph[8])]
+        cond.append(Text(theme.ascii_safe(f"drift {_short(figures[0])}{theme.ARROW}{figures[1]:03.0f}° "
+                                          f"±{_short(info['se'])}")))
+    label, hue = driver(view)
+    surge, sway, yaw = view['command']
+    amplitude = view.get('amplitude', 1.0)
+    rel = math.degrees(-math.atan2(sway, surge))
+    head = Text.assemble(('Cmd ', theme.MUTED), (_arrow(rel) if surge or sway else theme.MIDDOT, hue))
+    axes = [Text.assemble(name, ' ', bar(value, amplitude, MICRO_CELLS, hue, left), _figure(value, amplitude))
+            for name, value, left in (('surge', surge, False), ('sway', sway, True), (_yaw_label(yaw), yaw, True))
+            if value] or [Text('0', style=theme.MUTED)]
+    return [_fit(cond, width), _fit([Text.assemble(head, ' ', axes[0]), *axes[1:], Text(label, style=hue)], width)]
+
+
+class _Body:
+    """The panel body, laid out for the width Rich gives it (38 at 100 columns, 39 at 120)."""
+
+    def __init__(self, view, info, compact):
+        self.view, self.info, self.compact = view, info, compact
+
+    def __rich_console__(self, console, options):
+        width = options.max_width
+        if self.compact:
+            lines = compact_lines(self.view, self.info, width)
+        else:
+            info, command = self.info, self.view['command']
+            _, hue = driver(self.view)
+            left = rose(info.get('drift'), info.get('heading'), info.get('yaw_ok', True), info.get('age', 0.0),
+                        command, self.view.get('amplitude', 1.0), hue)
+            right = command_column(self.view, info, width - ROSE_COLS - 3)
+            lines = [Text.assemble(a, ' ', (theme.BAR, theme.MUTED), ' ', b) for a, b in zip(left, right)]
+            lines += [drift_row(info), sea_row(info)]
+        for line in lines:
+            line.truncate(width, overflow='ellipsis')
+            yield line
 
 
 def conditions_panel(view, compact=False):
-    """The rose beside the command glyph over the drift and sea rows (13 rows), or two lines when ``compact``.
+    """The rose beside the command column over the drift and sea rows (13 rows), or two lines when ``compact``.
 
     ``view['conditions']`` is ``Conditions.summary()`` plus ``heading`` (compass degrees), ``yaw_ok`` and
     ``yaw_note`` (the health ``rose`` anchor); absent means nothing measured yet.
     """
     info = view.get('conditions') or {}
-    focused = view['focus'] == 'conditions'
-    if compact:
-        return theme.block(Group(*compact_lines(view, info)), TITLES['conditions'], focused)
-    rose_rows = rose(info.get('drift'), info.get('heading'), info.get('yaw_ok', True), info.get('age', 0.0))
-    rows = []
-    command = _command(view)
-    command += [Text()] * (len(rose_rows) - len(command))
-    for left, right in zip(rose_rows, command):
-        right.truncate(COMMAND_COLS, pad=True)
-        rows.append(Text.assemble(left, ' ', (theme.BAR, theme.MUTED), ' ', right))
-    return theme.block(Group(*rows, drift_row(info), sea_row(info)), TITLES['conditions'], focused,
-                       subtitle=conditions_title(info))
+    subtitle = None if compact else conditions_title(info)
+    return theme.block(_Body(view, info, compact), TITLES['conditions'], view['focus'] == 'conditions',
+                       subtitle=subtitle)
