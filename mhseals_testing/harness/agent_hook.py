@@ -7,7 +7,8 @@ from the checkout on the dev machine; the hook JSON arrives on stdin (spec agent
 * ``pre`` denies a command matching ``hook.deny`` (raw /cmd_vel, mux, MAVROS arming/mode/params,
   Nav2 goals, pkill) and names the verb to use instead. A boat-bound command (``hook.match``, not
   ``hook.skip``) becomes a channel ``note`` line ``{phase: pre, tool_id, cmd}``.
-* ``post`` sends the same tool_id with ``exit`` and ``dur_s``.
+* ``post`` (PostToolUse and PostToolUseFailure) sends the same tool_id with ``exit`` and ``dur_s``:
+  a success is exit 0; a failure's exit is the ``Exit code N`` first line of ``error``.
 
 Lines go to ``hook.path`` on ``hook.target`` over a detached ``ssh ... cat >>`` (appended directly
 when this is the target), at most ``hook.max_per_10s`` per session; the excess folds into the next
@@ -39,8 +40,11 @@ DEFAULTS = {
              r'ros2\s+service\s+call\b.*/mavros/(cmd/arming|set_mode|param)',
              r'ros2\s+param\s+set\s+\S*mavros', r'\b(pkill|killall)\b']}
 WINDOW_S = 10.0
+BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
+EXIT_LINE = re.compile(r'Exit code (-?\d+)')
 DENY_REASON = ('raw motion/FCU command bypasses the claim; use boat_agent run|goal|stop '
-               '(claim first: boat_agent claim --who {who}); arming and hold release stay with the operator')
+               '(ssh blastoise ' + BOAT_AGENT + ' claim --who {who} first); '
+               'arming and hold release stay with the operator')
 
 
 def hook_config(path=CONFIG):
@@ -64,7 +68,7 @@ def who_of(event):
 
 def start_text(who):
     return (f'Your boat agent name is {who}. Act on the boat only through '
-            f'`ssh blastoise boat_agent <verb> --who {who}` (JSON out): `status` first, then '
+            f'`ssh blastoise {BOAT_AGENT} <verb> --who {who}` (JSON out): `status` first, then '
             f'`claim --reason ...`, `run KEY|goal X Y --claim ID --dry-run`, the real run, `follow --until ...`, '
             f'`release --claim ID`; `stop` any time; `ask "..."` instead of guessing. Exit codes: 0 ok, '
             f'2 refused (read hint), 3 revoked/overridden (stop; a human took over; claim again only if '
@@ -164,12 +168,15 @@ def handle(phase, event, config=None, send=None, now=None, state_dir=None):
     if phase == 'pre':
         state.data['started'] = {**dict(list(state.data['started'].items())[-31:]), str(tool_id): now}
     else:
-        response = event.get('tool_response')
-        response = response if isinstance(response, dict) else {}
-        code = next((response[k] for k in ('exit_code', 'exitCode', 'returncode') if k in response), None)
-        note['exit'] = 1 if code is None and response.get('interrupted') else code
+        failed = EXIT_LINE.match(str(event.get('error') or ''))
+        if event.get('hook_event_name') == 'PostToolUseFailure' or 'error' in event:
+            note['exit'] = int(failed[1]) if failed else None    # None: interrupted or never started
+        else:
+            note['exit'] = 0       # PostToolUse fires only for a call that succeeded
         began = state.data['started'].pop(str(tool_id), None)
-        note['dur_s'] = None if began is None else round(now - began, 2)
+        took = event.get('duration_ms')
+        note['dur_s'] = (round(took / 1000, 2) if isinstance(took, (int, float))
+                         else None if began is None else round(now - began, 2))
     admitted, folded = state.admit(now, config['max_per_10s'])
     state.save()
     if admitted:

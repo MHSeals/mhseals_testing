@@ -48,7 +48,7 @@ def test_raw_motion_is_denied_with_the_verb_to_use(sent, command):
 def test_boat_commands_become_redacted_notes_and_others_are_ignored(sent):
     assert sent('pre', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=100.0) == ''
     assert sent('post', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=102.5,
-                tool_response={'exit_code': 0}) == ''
+                hook_event_name='PostToolUse', tool_response={'stdout': '', 'interrupted': False}) == ''
     for ignored in ('git status', 'ssh blastoise boat_agent status --who claude-3f2a', 'ls ~/ros2_ws'):
         sent('pre', ignored)
     pre, post = sent.lines
@@ -57,6 +57,15 @@ def test_boat_commands_become_redacted_notes_and_others_are_ignored(sent):
         assert line['cmd'] == agent_channel.redact('ssh blastoise ros2 topic hz /odom TOKEN=abc')
     assert pre['phase'] == 'pre' and pre['tool_id'] == 't1' and pre['target'] == 'blastoise'
     assert post['exit'] == 0 and post['dur_s'] == 2.5
+
+
+def test_a_failed_call_reports_its_exit_code_and_duration(sent):
+    sent('pre', 'ros2 node list', tool='f1')
+    sent('post', 'ros2 node list', tool='f1', hook_event_name='PostToolUseFailure',
+         error='Exit code 3\nboom', duration_ms=4187)
+    sent('post', 'ros2 node list', tool='f2', hook_event_name='PostToolUseFailure',
+         error='spawn failed', is_interrupt=True)
+    assert [(n['exit'], n['dur_s']) for n in sent.lines[1:]] == [(3, 4.19), (None, None)]
 
 
 def test_rate_cap_folds_the_excess_into_the_next_line(sent):
@@ -70,7 +79,8 @@ def test_rate_cap_folds_the_excess_into_the_next_line(sent):
 def test_start_names_the_agent_and_boat_agent_env_wins(sent, monkeypatch):
     context = json.loads(sent('start', ''))['hookSpecificOutput']
     assert context['hookEventName'] == 'SessionStart'
-    assert 'claude-3f2a' in context['additionalContext'] and 'boat_agent' in context['additionalContext']
+    assert 'claude-3f2a' in context['additionalContext']
+    assert 'ssh blastoise ~/astro_dock/src/mhseals_testing/tools/boat_agent' in context['additionalContext']
     monkeypatch.setenv('BOAT_AGENT', 'mapper')
     assert 'mapper' in json.loads(sent('start', ''))['hookSpecificOutput']['additionalContext']
 
