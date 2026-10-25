@@ -447,10 +447,23 @@ def test_space_cancels_an_agent_run_and_it_never_resumes(rig):
         raise Aborted('motion cancelled by operator')
     c, reply = run_with(rig, 1, space)
     assert reply['error'] == 'overridden: keys' and ch.exit_code(reply) == 3
-    assert reply['hint'] == 'operator must U and re-arm'
+    assert reply['hint'] == 'operator must re-arm and release the hold (U)'
     assert rig.app.arbiter.table.get(c)['state'] == 'active'          # suspended, not dropped
     rig.desk.tick()
     assert rig.app.running is None and rig.desk.act is None          # nothing restarts it
+
+
+def test_a_hold_the_stopped_mux_saved_suspends_the_claim_while_disarmed(rig):
+    """M2: after Space the mux is down but its keys hold is saved; the next run waits for the human."""
+    from mhseals_hardware import hold_store
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.is_armed = False
+    hold_store.save(hold_store.default_path(), {'keys': {'cause': 'keys', 'by': 'tui', 'since': 1.0, 'token': None}})
+    reply = final(ask(rig, 'run', c, key='square')['id'])
+    assert reply['error'] == 'overridden' and 'U' in reply['hint'] and 'arm_panel' not in rig.app.calls
+    hold_store.default_path().unlink()                                # the human released it
+    assert final(ask(rig, 'run', c, key='square')['id'])['ok']
 
 
 def test_manual_mode_cancels_the_agent_run(rig):

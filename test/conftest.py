@@ -32,8 +32,9 @@ def no_tmux(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def isolated_user_config(tmp_path_factory, monkeypatch):
-    """Keep the persisted settings file of the real user out of every test."""
+    """Keep the persisted settings file and the mux's saved holds of the real user out of every test."""
     monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path_factory.mktemp('xdg')))
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path_factory.mktemp('run')))
 
 
 @pytest.fixture(autouse=True)

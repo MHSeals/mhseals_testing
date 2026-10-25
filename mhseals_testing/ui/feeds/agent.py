@@ -22,6 +22,8 @@ from collections import deque
 from dataclasses import replace
 import time
 
+from mhseals_hardware import hold_store
+
 from mhseals_testing.harness import agent_channel, agent_config, journal
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.goals import Goals, gate
@@ -36,7 +38,7 @@ DRY_TIMEOUT_S = 0.5            # costmap and plan waits of a dry run, answered o
 NOTES = 200
 PROGRESS_S = 5.0
 STATUS_S = 1.0
-HINTS = {'keys': 'operator must U and re-arm', 'hold': 'operator must U', 'keyboard': 'operator left manual',
+HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U', 'keyboard': 'operator left manual',
          'rc': 'RC must return to auto', 'fault': 'operator must clear the fault and re-arm',
          'unknown': 'mux state is unknown'}
 
@@ -310,7 +312,15 @@ class AgentDesk:
             return 'keyboard'
         if self.act and self.act.get('armed') and not app.armed:
             return 'keys'                       # Space disarmed it (an unmuxed sim has no hold to see)
+        if not app.armed and muxed(app.profile):
+            return self.saved_hold()            # Space suspends claims until the human releases its hold
         return ''
+
+    def saved_hold(self):
+        """The oldest hold the stopped mux saved and restores on arming, as its cause; '' when none."""
+        section = (getattr(self.app.args, 'hardware_config', None) or {}).get('command_mux') or {}
+        holds = hold_store.load(section.get('state_file') or hold_store.default_path())
+        return str(min(holds.values(), key=lambda h: h['since'])['cause']) if holds else ''
 
     def start_next(self):
         now_ns, app = time.time_ns(), self.app
