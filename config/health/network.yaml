@@ -5,6 +5,10 @@ probes:
   network:
     subnet: 192.168.0.0/24       # the interface holding an address here is the boat link
     period: 5
+    # Hosts pinged once a second while the boat link is up: name -> hostname. The address is the
+    # hostname's reservation in the workspace's config/boat-network.env, else what the resolver gives.
+    peers:
+      camera: blastoise-jetson
 defaults:
   missing: skip                  # rates need two samples; no boat interface hides the group
 checks:
@@ -57,3 +61,25 @@ checks:
     fail: 2.5
     below: false
     title: Address changes in 5 min
+  - id: net.peer.{name}.loss               # the host itself, apart from its ROS processes
+    kind: threshold
+    fact: net.loss_pct.{name}
+    severity: fail
+    warn: 10
+    fail: 50
+    below: false
+    unit: ' %'
+    title: '{name} host ping loss'
+    hint: Lost pings mean the host is off or off the LAN, not just its container; at 100 % also check its boat-network.env reservation.
+    each:
+      - {name: camera}
+  - id: net.peer.{name}.rtt
+    kind: threshold
+    fact: net.rtt_ms.{name}
+    warn: 20
+    fail: 100
+    below: false
+    unit: ' ms'
+    title: '{name} host ping time'
+    each:
+      - {name: camera}

@@ -98,3 +98,52 @@ def test_forbidden_socket_yields_no_facts():
     p = pg.Pinger({'a': '10.0.0.1'}, open_socket=deny)
     p.run()
     assert p.available is False and p.facts() == {}
+
+
+def test_peer_addresses_come_from_the_lan_reservations_else_the_resolver(tmp_path):
+    from mhseals_testing.health.network import lease_addresses, peer_addresses
+    lan = tmp_path / 'boat-network.env'
+    lan.write_text('ROUTER_IP=10.0.0.1\n'
+                   'STATIC_LEASES="aa:bb=boat-pc=10.0.0.5 cc:dd=cam-host=10.0.0.6"  # reservations\n')
+    assert lease_addresses(lan) == {'boat-pc': '10.0.0.5', 'cam-host': '10.0.0.6'}
+    assert peer_addresses({'camera': 'cam-host', 'other': 'elsewhere.local'}, lan) == {
+        'camera': '10.0.0.6', 'other': 'elsewhere.local'}
+    assert lease_addresses(tmp_path / 'missing.env') == {}
+
+
+class FakePinger:
+    def __init__(self, peers):
+        self.peers, self.started, self.values = peers, 0, {}
+
+    def start(self):
+        self.started += 1
+
+    def facts(self):
+        return dict(self.values)
+
+
+def test_network_row_pings_the_camera_host_only_on_the_boat_link(tmp_path):
+    from pathlib import Path
+    from mhseals_testing.health.model import Fact
+    from mhseals_testing.health.network import NetworkRow
+    from test_network import Clock, proc
+    lan = tmp_path / 'lan.env'
+    lan.write_text('STATIC_LEASES="aa=blastoise-jetson=10.1.2.3"\n')
+    made, held, clock = [], {}, Clock()
+
+    def pinger(peers):
+        made.append(FakePinger(peers))
+        return made[-1]
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path, clock=clock,
+                     environ={}, addresses=lambda names: dict(held), lan_file=lan, pinger=pinger)
+    assert made[0].peers == {'camera': '10.1.2.3'}
+    proc(tmp_path)
+    assert net.poll() is None and made[0].started == 0          # off the boat: never ping
+    held['end0'] = '192.168.0.152'
+    made[0].values = {'net.loss_pct.camera': Fact(100.0, label='camera')}
+    for _ in range(4):                                          # past the check's raise time
+        clock.now += 5
+        proc(tmp_path)
+        level, detail = net.poll()
+    assert made[0].started == 1
+    assert (level, detail) == ('FAIL', '100.00 %; camera host ping loss')
