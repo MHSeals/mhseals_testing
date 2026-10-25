@@ -50,9 +50,10 @@ def run(ctx):
     if callable(settings):
         settings = settings() if send is not None and typed is not None else None
     if not settings or send is None or typed is None:
+        missing = ('no FCU link' if send is None else f'no typed {CONFIRM_WORD} confirmation' if typed is None
+                   else 'no heading was given')
         result = {'status': 'unavailable',
-                  'reason': ('needs the Magcal popup, an FCU link and a typed '
-                             f'{CONFIRM_WORD} confirmation')}
+                  'reason': f'{missing}: needs the heading popup, an FCU link and a typed {CONFIRM_WORD} confirmation'}
     else:
         result = calibrate(settings, typed, send)
     ctx.record(dict(procedure='compass calibration', verdict=result['status'].upper(), **result))

@@ -1686,12 +1686,14 @@ class App:
         if events or self.rtk_link is not None:
             rows += rtk.pane_rows(events, time.time(), 44, theme.ASCII)
         try:   # r opens the RTK base controls next to e (no base says so)
-            answer = self.choose('Odometry', ['Restart EKFs', 'Base controls', 'Close'], {'e': 0, 'r': 1},
-                                 default=2, rows=rows, width=76)
+            answer = self.choose('Odometry', ['Restart EKFs', 'Base controls', 'Magcal', 'Close'],
+                                 {'e': 0, 'r': 1, 'c': 2}, default=3, rows=rows, width=76)
         except Cancelled:
             return
         if answer == 'Restart EKFs':
             self.restart_ekf()
+        elif answer == 'Magcal':          # keymap popup.odometry c: the compass calibration (g)
+            self.run_procedure(next(p for p in PROCEDURES if p.key == 'g'))
         elif answer == 'Base controls':
             rtk.open_controls(self)
 

@@ -217,6 +217,15 @@ class RosIO:
         return any(service.endswith(f'/{name}/get_parameters')
                    for service, _ in self.node.get_service_names_and_types())
 
+    def get_parameters(self, name, timeout=1.0):
+        """Every parameter of node ``name`` as {name: value} (the Odometry popup), or None when it does not answer."""
+        from mhseals_testing.ros.params import Params
+        self._params = getattr(self, '_params', None) or Params(self)
+        try:
+            return self._params.get(name, sorted(self._params.list_parameters(name, timeout)), timeout)
+        except (TimeoutError, RuntimeError, ValueError):
+            return None
+
     def close(self):
         self._spinning = False
         self.thread.join(timeout=1)

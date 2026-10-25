@@ -114,7 +114,7 @@ def test_registry_entry_without_fcu_or_settings_does_not_raise():
     recorded = []
     ctx = SimpleNamespace(services={}, choose=lambda *a, **k: 1 / 0, record=recorded.append)
     result = entry.run(ctx)
-    assert result['status'] == 'unavailable' and 'Magcal popup' in result['reason']
+    assert result['status'] == 'unavailable' and result['reason'].startswith('no FCU link')   # M6: the sim's case
     assert recorded[0]['verdict'] == 'UNAVAILABLE'
 
 

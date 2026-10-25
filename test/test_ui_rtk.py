@@ -141,7 +141,19 @@ def test_odometry_popup_keeps_restart_ekfs_on_e_beside_base_controls_on_r(tmp_pa
         app.odometry()
     finally:
         type(app).choose = real
-    assert options == ['Restart EKFs', 'Base controls', 'Close'] and app.notice == 'EKFs restarted'
+    assert options == ['Restart EKFs', 'Base controls', 'Magcal', 'Close'] and app.notice == 'EKFs restarted'
+
+
+def test_c_in_the_odometry_popup_runs_the_compass_calibration(tmp_path):
+    """M6: popup.odometry c=magcal reaches the procedure g."""
+    from test_app import make_app, press
+    app, _ = make_app(tmp_path)
+    app.keys = app.reader
+    ran = []
+    app.run_procedure = lambda procedure: ran.append(procedure.key)
+    press(app, 'c')
+    app.odometry()
+    assert ran == ['g']
 
 
 def test_enter_on_the_status_rtk_row_opens_the_odometry_popup(tmp_path, monkeypatch):
