@@ -36,6 +36,47 @@ from mhseals_testing.ros.arming import driver_commands
 BOAT = Host('boat', capabilities=frozenset({'thrusters'}), address='127.0.0.1')
 pytestmark = pytest.mark.skipif(bool(arm_link.rivals()),
                                 reason='a thruster driver or mux runs here; use a pid namespace')
+TEST_S = 150              # hard bound per test: a hang in DDS (C code, no signal reaches Python) ends the run
+# Both "hosts" are this computer, so UDP on loopback is enough. Fast DDS shared memory is shared by
+# every container on the machine and a wedged segment hangs participant creation forever. The dev
+# container's BASH_ENV would put shared memory back for the boat side's ``bash -c``.
+UDP_ONLY = {'FASTDDS_BUILTIN_TRANSPORTS': 'UDPv4', 'BASH_ENV': None,
+            'FASTDDS_DEFAULT_PROFILES_FILE': None, 'FASTRTPS_DEFAULT_PROFILES_FILE': None}
+
+
+@pytest.fixture(scope='module', autouse=True)
+def udp_only_dds():
+    """This module's DDS (and the boat side it starts) on UDP only, skipped if even that hangs."""
+    saved = {key: os.environ.get(key) for key in UDP_ONLY}
+    for key, value in UDP_ONLY.items():
+        os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+    probe = subprocess.Popen([sys.executable, '-c', 'import rclpy; rclpy.init(); '
+                              'rclpy.create_node("arm_link_probe"); print("ok")'],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        ready = probe.communicate(timeout=20)[0].strip() == 'ok'
+    except subprocess.TimeoutExpired:
+        probe.kill()             # rcl ignores SIGTERM while it waits in participant creation
+        probe.communicate()
+        ready = False
+    try:
+        if not ready:
+            pytest.skip('no DDS participant within 20 s on this computer')
+        yield
+    finally:
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+
+
+@pytest.fixture(autouse=True)
+def bounded():
+    """Never hang a suite; a driver or mux that started since collection skips instead of clashing."""
+    if arm_link.rivals():
+        pytest.skip('a thruster driver or mux started here; use a pid namespace')
+    import faulthandler
+    faulthandler.dump_traceback_later(TEST_S, exit=True)
+    yield
+    faulthandler.cancel_dump_traceback_later()
 
 
 def wait_for(condition, timeout):
