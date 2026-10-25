@@ -148,5 +148,5 @@ def test_watch_hot_reloads_and_keeps_the_last_good_config(tmp_path):
 def test_reply_errors_map_to_the_cli_exit_codes():
     assert ch.exit_code({'ok': True}) == 0
     assert [ch.exit_code({'ok': False, 'error': e}) for e in
-            ('busy', 'motion_observe', 'overridden', 'expired', 'no_owner', 'blocked', 'timeout', 'odd')] == \
+            ('busy', 'motion_observe', 'overridden: rc', 'expired', 'no_owner', 'blocked', 'timeout', 'odd')] == \
         [2, 2, 3, 3, 4, 5, 6, 1]
