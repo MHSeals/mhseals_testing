@@ -36,6 +36,8 @@ class Facts:
     fix: int = 0
     yaw_quality: str = 'ok'  # ok | warn | fail
     costmap_age_s: float = math.inf
+    fence: dict = None  # fence_watchdog's last fence message (see check_fence), None when none came
+    fence_age_s: float = math.inf  # its receipt age
 
 
 @dataclass
@@ -128,6 +130,82 @@ def check_goal(goal, boat, grid):
     return None
 
 
+_FENCE = []  # (topic, stale_s), the first good read
+
+
+def fence_config():
+    """(topic, stale_s) of mhseals_nav's fence_watchdog.yaml: where it publishes the fence it
+    enforces, and three of its periods as the age past which the fence counts as missing; None
+    when unreadable."""
+    if _FENCE:
+        return _FENCE[0]
+    from mhseals_testing.health.config import share_dir
+    try:
+        params = yaml.safe_load((share_dir('mhseals_nav') / 'config' / 'fence_watchdog.yaml').read_text())
+        params = params['/**']['ros__parameters']
+        found = str(params['fence_topic']), 3.0 / float(params['fence_rate_hz'])
+    except (OSError, KeyError, TypeError, ValueError, ZeroDivisionError, yaml.YAMLError):
+        return None
+    if not found[0] or not math.isfinite(found[1]) or found[1] <= 0:
+        return None
+    _FENCE.append(found)
+    return found
+
+
+def edges(p, poly):
+    """[(distance, unit normal toward the edge)] from ``p`` to each edge of ``poly``."""
+    from mhseals_nav.fence_watchdog import closest      # the watchdog's own geometry
+    out = []
+    for c in closest(p, poly):
+        dx, dy = c[0] - p[0], c[1] - p[1]
+        d = math.hypot(dx, dy)
+        out.append((d, (dx / d, dy / d) if d > 1e-9 else (0.0, 0.0)))
+    return out
+
+
+def check_fence(goal, boat, fence, age_s):
+    """Refusal reason for a goal against fence_watchdog's fence, by its own rules; None when allowed.
+
+    ``fence`` is the watchdog's message (``valid``, ``points`` flat [x, y, ...] in map,
+    ``margin_m``, ``outward_angle_deg``); ``boat`` is (x, y, yaw) in map. A missing, stale or
+    invalid fence refuses. A goal must lie inside the fence and outside its margin. Within the
+    margin the watchdog holds while the boat faces outward, so there a goal is refused when the
+    boat faces outward, and allowed only when it lies farther from every edge than the boat (inward).
+    """
+    from mhseals_nav.fence_watchdog import inside
+    found = fence_config()
+    if found is None:
+        return 'fence unknown: mhseals_nav fence_watchdog.yaml has no fence_topic/fence_rate_hz'
+    if not isinstance(fence, dict) or age_s > found[1]:
+        return f'no fence from fence_watchdog ({found[0]}): goals are refused without one'
+    points = fence.get('points')
+    if not fence.get('valid') or not isinstance(points, list) or len(points) < 6 or len(points) % 2:
+        return f"fence_watchdog has no valid fence: {fence.get('error') or 'no points'}"
+    poly = list(zip(points[::2], points[1::2]))
+    margin = float(fence['margin_m'])
+    x, y = goal[0], goal[1]
+    if not inside((x, y), poly):
+        return 'goal is outside the fence'
+    goal_m = min(d for d, _ in edges((x, y), poly))
+    if not inside(boat[:2], poly):
+        return 'the boat is outside the fence: the operator drives it back in, then releases the hold (U)'
+    near = [(d, n) for d, n in edges(boat[:2], poly) if d < margin]
+    if not near:
+        if goal_m < margin:
+            return f'goal is within the {margin:g} m fence margin ({goal_m:.1f} m from the edge)'
+        return None
+    boat_m = min(d for d, _ in near)
+    cos_limit = math.cos(math.radians(float(fence['outward_angle_deg'])))
+    heading = (math.cos(boat[2]), math.sin(boat[2]))
+    if any(heading[0] * n[0] + heading[1] * n[1] > cos_limit for _, n in near):
+        return (f'the boat is in the fence margin ({boat_m:.1f} m from the edge) facing outward: the fence '
+                'watchdog holds as soon as Nav2 drives; the operator turns it inward (manual), then U')
+    if goal_m <= boat_m:
+        return (f'the boat is in the fence margin ({boat_m:.1f} m from the edge): only goals farther '
+                f'inward are allowed (this one is {goal_m:.1f} m from the edge)')
+    return None
+
+
 def bearing(boat, goal):
     """Degrees counter-clockwise from east, boat to goal."""
     return math.degrees(math.atan2(goal[1] - boat[1], goal[0] - boat[0])) % 360
@@ -141,8 +219,9 @@ class Goals:
         self.active = None  # {'goal': Nav2 Goal, 'claim', 'x', 'y', 'yaw'}
 
     def preview(self, goal, boat, grid, facts, timeout=2.0):
-        """(path, None) for the confirm popup, or (None, reason)."""
-        reason = gate(facts) or check_goal(goal, boat, grid)
+        """(path, None) for the confirm popup, or (None, reason). ``boat`` is (x, y, yaw) in map."""
+        reason = gate(facts) or check_goal(goal, boat, grid) or check_fence(goal, boat, facts.fence,
+                                                                            facts.fence_age_s)
         if reason:
             return None, reason
         try:
@@ -155,7 +234,8 @@ class Goals:
 
     def send(self, goal, boat, grid, facts, claim, path_m):
         """Re-check every gate, then navigate. Returns None or the refusal reason."""
-        reason = gate(facts) or check_goal(goal, boat, grid)
+        reason = gate(facts) or check_goal(goal, boat, grid) or check_fence(goal, boat, facts.fence,
+                                                                            facts.fence_age_s)
         if reason is None and self.active:
             reason = 'a goal is already active'
         if reason:

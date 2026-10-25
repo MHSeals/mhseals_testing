@@ -6,6 +6,7 @@ TUI thread can call them directly.
 
 from array import array
 from contextlib import contextmanager
+import json
 import math
 import time
 
@@ -17,10 +18,12 @@ from nav2_msgs.srv import GetCostmap
 from nav_msgs.msg import OccupancyGrid
 import numpy as np
 from rclpy.action import ActionClient
-from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from mhseals_testing.harness.goals import fence_config
 from mhseals_testing.ros.minimap_feeds import LazySub
 
 # The servers mhseals_nav's navigation.launch.py brings up.
@@ -29,6 +32,7 @@ SERVERS = ('controller_server', 'planner_server', 'behavior_server', 'bt_navigat
 
 
 COSTMAP_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+FENCE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
 
 
 def wait(future, timeout, what):
@@ -114,6 +118,31 @@ class Nav2:
         # late subscriber can get a grid latched minutes ago, far behind the boat. The costmap node's
         # GetCostmap service answers with the grid it holds now.
         self.costmap_client = node.create_client(GetCostmap, costmap.rsplit('/', 1)[0] + '/get_costmap')
+        # fence_watchdog's fence, for the goal gates: small and 1 Hz, so always subscribed
+        self.fence, self.fence_time = None, None
+        found = fence_config()
+        if found is not None:
+            node.create_subscription(String, found[0], self._fence, FENCE_QOS)
+
+    def _fence(self, message):
+        try:
+            state = json.loads(message.data)
+        except ValueError:
+            state = None
+        self.fence = state if isinstance(state, dict) else {'valid': False, 'error': 'unreadable fence message'}
+        self.fence_time = time.monotonic()
+
+    def fence_state(self, timeout=1.0):
+        """(fence_watchdog's last fence message or None, its receipt age in s). The first call waits up
+        to ``timeout`` for one (the latched one arrives once the publisher is discovered); later calls
+        never wait, so a missing watchdog stalls nothing."""
+        if not getattr(self, 'fence_waited', False):
+            self.fence_waited = True
+            deadline = time.monotonic() + timeout
+            while getattr(self, 'fence_time', None) is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+        at = getattr(self, 'fence_time', None)
+        return getattr(self, 'fence', None), (math.inf if at is None else time.monotonic() - at)
 
     def stamp_age(self, stamp):
         """Seconds from ``stamp`` to the node's clock (sim time in the sim); 0 when it is ahead or unset."""

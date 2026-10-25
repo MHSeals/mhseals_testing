@@ -124,3 +124,16 @@ def test_the_served_grid_keeps_origin_resolution_and_shape():
     cells = agent_acts.grid(grid)
     assert cells.data.shape == (240, 240) and cells.resolution == pytest.approx(0.05)
     assert cells.origin == pytest.approx((8.05, -8.95)) and math.isclose(cells.half_width(), 6.0, rel_tol=1e-6)
+
+
+def test_the_fence_message_is_kept_with_its_receipt_age_and_a_bad_one_is_invalid():
+    from std_msgs.msg import String
+    found = nav()
+    found.fence, found.fence_time = None, None
+    fence, age = found.fence_state(timeout=0.05)          # none came: waits once, then never again
+    assert fence is None and age == math.inf and found.fence_waited
+    found._fence(String(data='{"valid": true, "points": [0, 0, 1, 0, 1, 1]}'))
+    fence, age = found.fence_state()
+    assert fence['valid'] and age < 1.0
+    found._fence(String(data='not json'))
+    assert found.fence_state()[0] == {'valid': False, 'error': 'unreadable fence message'}

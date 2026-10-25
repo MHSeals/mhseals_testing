@@ -3,13 +3,24 @@
 import numpy as np
 import pytest
 
-from mhseals_testing.harness.goals import REQUIRED, Facts, Goals, Grid, check_goal, gate
+from mhseals_testing.harness import goals as goals_module
+from mhseals_testing.harness.goals import REQUIRED, Facts, Goals, Grid, check_fence, check_goal, gate
+
+BOX = [-40.0, -40.0, 40.0, -40.0, 40.0, 40.0, -40.0, 40.0]   # map metres, as fence_watchdog publishes it
+FENCE = {'valid': True, 'frame': 'map', 'points': BOX, 'source_frame': 'map', 'margin_m': 5.0,
+         'outward_angle_deg': 60.0, 'outward_speed_mps': 0.1, 'reason': '', 'error': '', 'stamp_ns': 1}
+
+
+@pytest.fixture(autouse=True)
+def fence_topic(monkeypatch):
+    """The nav side's fence_topic and 3 periods of fence_rate_hz, whatever mhseals_nav is at hand."""
+    monkeypatch.setattr(goals_module, 'fence_config', lambda: ('/fence_watchdog/fence', 3.0))
 
 
 def ready(**over):
     base = dict(live=True, owner=True, nav_running=True, lifecycle={s: 'active' for s in REQUIRED},
                 unit='velocity', armed=True, driving='', pose_age_s=0.1, fix=4, yaw_quality='ok',
-                costmap_age_s=1.0)
+                costmap_age_s=1.0, fence=FENCE, fence_age_s=0.5)
     return Facts(**{**base, **over})
 
 
@@ -101,16 +112,16 @@ def make():
 
 def test_send_is_attributed_and_rechecks_gates():
     goals, nav2, log = make()
-    assert 'not armed' in goals.send((5, 0, 0), (0, 0), grid(), ready(armed=False), 'c3', 5.0)
+    assert 'not armed' in goals.send((5, 0, 0), (0, 0, 0), grid(), ready(armed=False), 'c3', 5.0)
     assert not nav2.sent
-    assert goals.send((5, 0, 0), (0, 0), grid(), ready(), 'c3', 5.0) is None
+    assert goals.send((5, 0, 0), (0, 0, 0), grid(), ready(), 'c3', 5.0) is None
     assert log[0][0] == 'cursor_goal_start' and log[0][1]['claim'] == 'c3' and log[0][1]['frame'] == 'map'
-    assert 'already active' in goals.send((6, 0, 0), (0, 0), grid(), ready(), 'c3', 6.0)
+    assert 'already active' in goals.send((6, 0, 0), (0, 0, 0), grid(), ready(), 'c3', 6.0)
 
 
 def test_cancel_and_gate_loss_journal_stop():
     goals, nav2, log = make()
-    goals.send((5, 0, 0), (0, 0), grid(), ready(), 'c3', 5.0)
+    goals.send((5, 0, 0), (0, 0, 0), grid(), ready(), 'c3', 5.0)
     goals.poll(ready(armed=False))  # disarm cancels
     assert nav2.handle.canceled
     stop = log[-1]
@@ -120,7 +131,7 @@ def test_cancel_and_gate_loss_journal_stop():
 
 def test_finished_goal_journals_outcome():
     goals, nav2, log = make()
-    goals.send((5, 0, 0), (0, 0), grid(), ready(), 'c3', 5.0)
+    goals.send((5, 0, 0), (0, 0, 0), grid(), ready(), 'c3', 5.0)
     nav2.handle.done, nav2.handle.status = True, 'SUCCEEDED'
     goals.poll(ready())
     assert log[-1][1]['outcome'] == 'succeeded' and goals.active is None
@@ -128,10 +139,10 @@ def test_finished_goal_journals_outcome():
 
 def test_preview_refuses_on_gate_and_planner_failure():
     goals, nav2, _ = make()
-    assert goals.preview((5, 0), (0, 0), grid(), ready(live=False))[1]
-    assert goals.preview((5, 0), (0, 0), grid(), ready())[0] == [(0, 0), (5, 0)]
+    assert goals.preview((5, 0), (0, 0, 0), grid(), ready(live=False))[1]
+    assert goals.preview((5, 0), (0, 0, 0), grid(), ready())[0] == [(0, 0), (5, 0)]
     nav2.plan = lambda goal, timeout: (_ for _ in ()).throw(RuntimeError('no route'))
-    assert 'no route' in goals.preview((5, 0), (0, 0), grid(), ready())[1]
+    assert 'no route' in goals.preview((5, 0), (0, 0, 0), grid(), ready())[1]
 
 
 def test_an_unreadable_costmap_limit_is_read_again_on_the_next_goal(monkeypatch, tmp_path):
@@ -147,3 +158,75 @@ def test_an_unreadable_costmap_limit_is_read_again_on_the_next_goal(monkeypatch,
     path.write_text("/**:\n  ros__parameters:\n    max_age_s: 1.0\n")
     assert goals.costmap_limit_s() == 1.0 and gate(ready(costmap_age_s=1.0)) is None
     assert 'stale' in gate(ready(costmap_age_s=1.1))
+
+
+# --- the fence: fence_watchdog's own fence and margin rules (C9, C11) --------------------------
+
+@pytest.mark.parametrize('goal, reason', [
+    ((45.0, 0.0), 'outside the fence'),                 # past the fence
+    ((37.0, 0.0), 'within the 5 m fence margin'),       # inside it, but in the margin
+    ((-38.0, 39.0), 'within the 5 m fence margin'),     # a corner: both edges count
+])
+def test_a_goal_past_the_fence_or_in_its_margin_is_refused(goal, reason):
+    assert reason in check_fence(goal, (30.0, 0.0, 0.0), FENCE, 0.5)
+
+
+def test_preview_and_send_check_the_fence():
+    small = dict(FENCE, points=[-8.0, -8.0, 8.0, -8.0, 8.0, 8.0, -8.0, 8.0])
+    goals, nav2, _ = make()
+    for goal in ((6.0, 0.0, 0.0), (9.0, 0.0, 0.0)):
+        assert 'fence' in goals.preview(goal, (0, 0, 0), grid(), ready(fence=small))[1]
+        assert 'fence' in goals.send(goal, (0, 0, 0), grid(), ready(fence=small), 'c3', 5.0)
+    assert 'no fence' in goals.send((2.0, 0.0, 0.0), (0, 0, 0), grid(), ready(fence=None), 'c3', 2.0)
+    assert not nav2.sent
+    assert goals.send((2.0, 0.0, 0.0), (0, 0, 0), grid(), ready(fence=small), 'c3', 2.0) is None
+
+
+def test_a_goal_well_inside_passes():
+    assert check_fence((34.9, 0.0), (30.0, 0.0, 0.0), FENCE, 0.5) is None
+
+
+@pytest.mark.parametrize('fence, age, reason', [
+    (None, 0.5, 'no fence from fence_watchdog'),
+    (FENCE, 3.1, 'no fence from fence_watchdog'),             # older than three periods
+    (dict(FENCE, valid=False, points=None, error='no valid fence configured'), 0.5, 'no valid fence configured'),
+    (dict(FENCE, points=BOX[:4]), 0.5, 'no valid fence'),
+])
+def test_a_missing_stale_or_invalid_fence_refuses(fence, age, reason):
+    assert reason in check_fence((5.0, 0.0), (0.0, 0.0, 0.0), fence, age)
+
+
+def test_the_fence_topic_is_the_nav_watchdogs_and_unreadable_refuses(monkeypatch, tmp_path):
+    from mhseals_testing.health import config
+    monkeypatch.undo()                                    # the real fence_config
+    monkeypatch.setattr(goals_module, '_FENCE', [])
+    monkeypatch.setattr(config, 'share_dir', lambda package: tmp_path / package)
+    assert goals_module.fence_config() is None
+    assert 'fence unknown' in check_fence((5.0, 0.0), (0.0, 0.0, 0.0), FENCE, 0.5)
+    path = tmp_path / 'mhseals_nav' / 'config' / 'fence_watchdog.yaml'
+    path.parent.mkdir(parents=True)
+    path.write_text("/**:\n  ros__parameters:\n    fence_topic: /f\n    fence_rate_hz: 0.0\n")
+    assert goals_module.fence_config() is None
+    path.write_text("/**:\n  ros__parameters:\n    fence_topic: /f\n    fence_rate_hz: 2.0\n")
+    assert goals_module.fence_config() == ('/f', 1.5)
+
+
+def test_in_the_margin_facing_outward_any_goal_is_refused_with_the_way_out():
+    boat = (37.0, 0.0, 0.0)                              # 3 m from the east edge, facing east
+    reason = check_fence((33.0, 0.0), boat, FENCE, 0.5)
+    assert 'facing outward' in reason and 'U' in reason and 'manual' in reason
+    tilted = (37.0, 0.0, 1.10)                           # 63 deg from the outward normal: not outward
+    assert check_fence((33.0, 2.0), tilted, FENCE, 0.5) is None
+
+
+def test_in_the_margin_facing_inward_only_inward_goals_pass():
+    boat = (37.0, 0.0, 3.14)                             # facing west, into the fence
+    assert check_fence((33.5, 0.0), boat, FENCE, 0.5) is None          # inward, still in the margin
+    assert check_fence((34.0, 3.0), boat, FENCE, 0.5) is None
+    reason = check_fence((37.0, 3.0), boat, FENCE, 0.5)                # along the edge
+    assert 'only goals farther inward' in reason
+    assert 'only goals farther inward' in check_fence((38.0, 0.0), boat, FENCE, 0.5)
+
+
+def test_the_boat_outside_the_fence_refuses_every_goal():
+    assert 'boat is outside the fence' in check_fence((30.0, 0.0), (41.0, 0.0, 3.14), FENCE, 0.5)
