@@ -53,15 +53,6 @@ Only sensors and TF block motion (required sensors live and fresh; `map → odom
 
 Records go under `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory. Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed. The layout is described in `mhseals_testing/data.py`.
 
-### RTK corrections
-
-`rtk_base` (on the operator laptop) feeds RTCM3 to the FCU as GPS_RTCM_DATA: through MAVROS `gps_rtk` and, with `radio:` set (e.g. `udpout:<boat>:14555`), straight to MAVROS's GCS port, which needs no `mavros_extras`. It has two sources:
-
-- **Local base**: a Here4 (F9P, dual-band MSM7, 4 GNSS) or Here+ (M8P) on USB. A just-powered receiver is fixed at the `positions:` site its rough fix is within `site_radius` (5 m) of, and surveyed otherwise; `--survey`, `--known NAME` and `--resume` override that.
-- **NTRIP**: the casters in `config/ntrip.yaml`. Mountpoints are ranked by distance, message set and bands. A stale, refused or dropped stream fails over, and the choice is re-ranked as the boat moves. Logins come from `~/.config/mhseals_testing/secrets.env`, which is never in a repo.
-
-`priority: auto` (in `rtk.yaml`) uses NTRIP when its best station is under 15 km and the local base is not at a fixed site, and the local base otherwise. Only the chosen source reaches the FCU. Status shows the source (`Here4 site dock`, `NTRIP SRSA 12km`) behind a ring: its colour is the rover's fix, and its fill is the correction age, the survey progress and the NTRIP distance.
-
 ### Health
 
 Checks are YAML (`config/health/*.yaml`) over facts that probes publish. A `fail` blocks a procedure from starting, a `warn` shows its reason, and nothing interrupts a run. `~/.config/mhseals/health.yaml` can `disable` or `override` checks. Adding a fact, kind or check is described in `mhseals_testing/health/__init__.py`.

@@ -262,11 +262,14 @@ def test_status_hz_is_coloured_only_when_the_rate_is_off():
     clock = [0.0]
     mon = BoatMonitor(clock=lambda: clock[0],
                       deadlines={s.name: s.deadline for s in profile.sensors if s.deadline})
-    for tick in range(25):
-        clock[0] += .1
-        mon.observe('GPS' if tick % 2 else 'IMU', stamp_age=0)  # GPS 5 Hz, IMU 5 Hz of 20
+    for tick in range(50):
+        clock[0] += .05
+        if tick % 2:
+            mon.observe('GPS', stamp_age=0)      # GPS 10 Hz of 10
+        elif tick % 4 == 0:
+            mon.observe('IMU', stamp_age=0)      # IMU 5 Hz of 18
     rows = {r['name']: r for r in status_rows(mon.snapshot(profile.required_tf), profile.sensors)}
-    assert rows['GPS']['rate'] == '' and rows['GPS']['value'] == '5 Hz'
+    assert rows['GPS']['rate'] == '' and rows['GPS']['value'] == '10 Hz'
     assert rows['IMU']['rate'] == 'fail' and rows['IMU']['value'].endswith(MARKS['↓'])
 
 
@@ -276,8 +279,8 @@ def test_real_gps_gap_pattern_keeps_the_hz_cell_muted():
     mon = BoatMonitor(clock=lambda: clock[0],
                       deadlines={s.name: s.deadline for s in profile.sensors if s.deadline})
     mon.observe('GPS', stamp_age=0)
-    # The 0.65 s and 1.13 s gaps sit in the 10 s max_gap window, the last 5 s run at 5 Hz.
-    for gap in [.2] * 4 + [.65] + [.2] * 4 + [1.13] + [.2] * 28:
+    # The field's 0.65 s and 1.13 s gaps sit in the 10 s max_gap window, the last 5.6 s run at 10 Hz.
+    for gap in [.1] * 8 + [.65] + [.1] * 8 + [1.13] + [.1] * 56:
         clock[0] += gap
         mon.observe('GPS', stamp_age=0)
     row = next(r for r in status_rows(mon.snapshot(profile.required_tf), profile.sensors)
@@ -289,8 +292,8 @@ def test_stale_header_stamp_is_marked_with_the_clock():
     profile = load_profile('boat')
     clock = [0.0]
     mon = BoatMonitor(clock=lambda: clock[0])
-    for _ in range(10):
-        clock[0] += .2
+    for _ in range(20):
+        clock[0] += .1
         mon.observe('GPS', stamp_age=1.6)
     row = next(r for r in status_rows(mon.snapshot(profile.required_tf), profile.sensors)
                if r['name'] == 'GPS')
