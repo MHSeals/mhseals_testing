@@ -8,4 +8,5 @@
 │ Inputs      /cmd_vel ← velocity_smoother · /cmd_vel/manual ← -                                   │
 │ Nav2        9f2c00 executing (claim c7)                                                          │
 │ Recent      00:00:01 idle ↔ AGENT (claim)                                                        │
-╰─  E revoke selected  U release hold  Esc close  ─────────────────────────────────────────────────╯
+│ Agent       config ▸ Enter shows agent.yaml: leases, run list, unclaimed_driver                  │
+╰─  E revoke selected  Enter agent config  U release hold  Esc close  ─────────────────────────────╯

@@ -57,7 +57,7 @@ def test_popup_golden(monkeypatch):
 
 
 def test_hint_sits_on_the_bottom_border():
-    assert render().splitlines()[-1].count('E revoke selected  U release hold  Esc close') == 1
+    assert render().splitlines()[-1].count(authority.KEYS) == 1
 
 
 def test_the_cursor_marks_one_claim_and_moves():
