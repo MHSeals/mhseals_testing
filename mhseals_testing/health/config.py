@@ -313,8 +313,11 @@ def lint(specs, procedures=None, unmatched=(), probes=None):
             if anchor not in ANCHORS and not re.fullmatch(r'sensor:\S+', anchor):
                 add(f'unknown anchor {anchor!r}')
         for key in spec.gates:
-            if key != 'motion' and procedures is not None and key not in procedures:
+            if key not in ('motion', 'arm') and procedures is not None and key not in procedures:
                 add(f'gate {key!r} is not a procedure key')
+        # Arming reads the graph itself (readiness.arm_refusal): only a node list can gate it.
+        if 'arm' in spec.gates and not (spec.kind == 'nodes' and spec.params.require):
+            add('gate arm needs a nodes check with require')
         for pattern in _regex_fields(spec.params):
             try:
                 re.compile(pattern)

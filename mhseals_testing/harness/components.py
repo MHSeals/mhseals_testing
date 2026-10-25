@@ -13,7 +13,7 @@ component from the node graph, our own children and the units; a process neither
 started is ``external`` and is never stopped.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 
 from mhseals_testing import nav2_limits
@@ -39,6 +39,7 @@ class Component:
     enabled: bool = True
     launch: str | None = None   # the part's launch file in mhseals_nav (None for a run part)
     arguments: dict = field(default_factory=dict, compare=False, hash=False)  # the include's, final
+    brings: tuple = ()        # the part's ``with``: parts device.launch.py starts beside it
 
     @property
     def remote(self):
@@ -232,8 +233,18 @@ def components(profile, overlay=None, placed=None):
             tuple(part.spec.get('nodes', ())), tuple(spec.get('needs', ())),
             None if here else part.host, spec.get('topic'),
             bool(spec.get('limits', False)), start, part.name,
-            part.profile, kind, part.enabled, launches[key], final))
+            part.profile, kind, part.enabled, launches[key], final,
+            tuple(part.spec.get('with', ()))))
     return tuple(result)
+
+
+def without_brought(argv, part, keep):
+    """``argv`` with the session layer's ``parts.<part>.with`` set to ``keep``."""
+    prefix = 'overrides:='
+    layer = next((json.loads(word[len(prefix):]) for word in argv if word.startswith(prefix)), {})
+    layer.setdefault('parts', {}).setdefault(part, {})['with'] = list(keep)
+    words = tuple(word for word in argv if not word.startswith(prefix))
+    return words + (f'{prefix}{json.dumps(layer, separators=(",", ":"), sort_keys=True)}',)
 
 
 def moves(component):
@@ -356,6 +367,7 @@ class Stack:
                if self.state(need, nodes)[0] in ('off', 'exited', 'unreachable', 'disabled')]
         if off:
             raise ComponentError(f'Start {self.items[off[0]].title} first', off)
+        item = self._without_running(item, nodes)
         if item.host is None:
             self.processes.start(key, item.argv)
         elif self.units is None:
@@ -366,6 +378,21 @@ class Stack:
         else:
             self.units.start(item, commander=item.kind == 'commander')
         self.started[key] = self.clock()
+
+    def _without_running(self, item, nodes):
+        """``item`` minus the parts it brings that already run: a second copy duplicates nodes.
+
+        A brought part reads as running when any of its proof nodes is on the graph or its own
+        start is ours or still starting (the boat's watchdogs started by their own row first).
+        """
+        bare = {node.rsplit('/', 1)[-1] for node in nodes}
+        up = {other.part for other in self.items.values() if other.part in item.brings
+              and (any(node in bare for node in other.nodes)
+                   or self.state(other.key, nodes)[0] in ('ours', 'starting'))}
+        if not up:
+            return item
+        keep = [part for part in item.brings if part not in up]
+        return replace(item, argv=without_brought(item.argv, item.part, keep))
 
     def running(self, key):
         """Ours to stop: a keeper child here, or a unit not known to be stopped (stop always tries)."""

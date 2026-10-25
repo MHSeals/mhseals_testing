@@ -224,6 +224,36 @@ def test_start_needs_prompt_and_order():
         stack.start('navigation', set())
 
 
+class Watched(Profile):
+    components = {'odometry': {}, 'watchdogs': {'title': 'Safety watchdogs', 'start': True}}
+
+
+def watched_stack():
+    parts = dict(PARTS, odometry=replace(PARTS['odometry'], spec=dict(
+        PARTS['odometry'].spec, **{'with': ['watchdogs']})),
+        watchdogs=part('watchdogs', 'watchdogs.launch.py',
+                       nodes=['link_watchdog', 'fence_watchdog', 'fcu_watchdog']))
+    processes = FakeProcesses()
+    return Stack(components(Watched, None, (ME, parts)), processes, lambda: 0.0), processes
+
+
+def test_odometry_brings_the_boat_watchdogs_but_never_a_second_copy():
+    stack, processes = watched_stack()
+    assert stack.items['odometry'].brings == ('watchdogs',)
+    stack.start('odometry', set())                     # nothing up: they come with odometry
+    assert 'with' not in overrides(processes.started[-1][1]).get('parts', {}).get('odometry', {})
+    with pytest.raises(ComponentError, match='Safety watchdogs is already running'):
+        stack.start('watchdogs', {'/link_watchdog', '/fence_watchdog', '/fcu_watchdog'})
+
+    stack, processes = watched_stack()
+    stack.start('watchdogs', set())                    # their own row first (a boat TUI's start)
+    stack.start('odometry', set())
+    assert overrides(processes.started[-1][1])['parts']['odometry']['with'] == []
+    stack, processes = watched_stack()                 # one of them already up elsewhere
+    stack.start('odometry', {'/fcu_watchdog'})
+    assert overrides(processes.started[-1][1])['parts']['odometry']['with'] == []
+
+
 class Tracked(Profile):
     components = dict(Profile.components, objects={'needs': ['navigation'], 'start': True})
     use_sim_time = True

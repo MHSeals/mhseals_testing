@@ -16,7 +16,9 @@ arming: {outputs: odroid}
 # odometry and ekf never start with the session: over the radio link discovery can miss the boat's
 # running stack for longer than the autostart waits, and a second MAVROS on the FCU link kills both.
 # Off the simulator no start: comes up on another computer either (Stack.autostart): from an
-# operator's TUI the boat's watchdogs stay a Status row.
+# operator's TUI the boat's watchdogs stay a Status row. They need no TUI: the odroid device
+# profile starts them beside odometry on the boat (with: [watchdogs]; a start skips a copy already
+# up), and arming refuses while one is off the graph (pre.*_watchdog, gates: [arm]).
 components:
   odometry: {}
   ekf: {title: EKFs, needs: [odometry]}
@@ -25,7 +27,7 @@ components:
   navigation: {limits: true, needs: [odometry, ekf]}
   camera: {}
   objects: {topic: /perception/tracks}
-  watchdogs: {title: Safety watchdogs, start: true}    # hold-only: operator link, fence, FCU
+  watchdogs: {title: Safety watchdogs, start: true}    # hold-only: operator link, fence, FCU, EKF inputs
   operator_heartbeat: {title: Operator heartbeat, start: here}   # on the operator laptop; link_watchdog holds without it
   host_diagnostic: {title: Camera host diagnostic}
 sensors:

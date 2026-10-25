@@ -111,21 +111,23 @@ checks:
     profiles: [boat, crane_full_stack]
     title: costmap_watchdog
     hint: Starts with navigation on muxed profiles; without it a stale costmap never holds the boat
-  # Safety watchdogs (nav branch safety-watchdogs). Off until they are launched on the boat:
-  # set `enabled: true` here (or `override: {pre.link_watchdog: {enabled: true}}` in ~/.config/mhseals/health.yaml),
-  # after which a missing node fails --require preflight.
+  # Safety watchdogs (mhseals_nav watchdogs.launch.py): they start with odometry on the boat
+  # itself (the odroid device profile's `with: [watchdogs]`). gates: [arm] refuses arming while
+  # one is off the graph, read live at the keypress (not debounced, not mutable); only
+  # `override: {pre.link_watchdog: {enabled: false}}` in ~/.config/mhseals/health.yaml lifts one.
   - id: pre.{name}_watchdog
     kind: nodes
     require: ['/{name}_watchdog']
-    enabled: false
     severity: fail
     profiles: [boat]
+    gates: [arm]
     title: '{name}_watchdog'
-    hint: 'Not on the graph: the {name} watchdog was not launched with the boat profile'
+    hint: 'Not on the graph: start odometry on the boat (it brings the watchdogs) or the Safety watchdogs row'
     each:
       - {name: link}
       - {name: fcu}
       - {name: fence}
+      - {name: ekf_input}
   - id: pre.costmap.{source}
     kind: threshold
     fact: perc.{source}.costmap_age

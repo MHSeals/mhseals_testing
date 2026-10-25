@@ -160,6 +160,9 @@ class Operator(Console):
         return self.answers.pop(0) if self.answers else ''
 
 
+WATCHDOGS = ['/link_watchdog', '/fcu_watchdog', '/fence_watchdog', '/ekf_input_watchdog']
+
+
 class Ros:
     fault = ''
 
@@ -173,7 +176,7 @@ class Ros:
         return []
 
     def nodes(self):
-        return []
+        return list(WATCHDOGS)   # the boat's safety watchdogs, which arming requires
 
     def emit(self, phase, **details):
         self.events.append(phase)
@@ -345,6 +348,41 @@ def test_simulator_arms_with_a_button_and_escape_cancels(tmp_path):
         press(app, 'down', 'enter')
         app.dispatch('a')
         assert app.armed
+
+
+def test_the_boat_refuses_to_arm_while_a_safety_watchdog_is_off_the_graph(tmp_path):
+    app, _ = make_app(tmp_path)
+    up = [node for node in WATCHDOGS if node != '/ekf_input_watchdog']
+    app.ros.nodes = lambda: list(up)
+    app.engine.mute('pre.ekf_input_watchdog')          # a mute never lifts the gate
+    app.dispatch('a')
+    assert app.notice == ('Arming refused: safety watchdog not running: /ekf_input_watchdog '
+                          '(they start with odometry on the boat)')
+    assert not app.armed and app.arming.calls == []
+    app.ros.nodes = lambda: []
+    assert any('/link_watchdog, /fcu_watchdog, /fence_watchdog, /ekf_input_watchdog' in reason
+               for reason in app.arm_blockers())
+    app.ros.nodes = lambda: list(WATCHDOGS)
+    with app.attached():
+        arm(app)
+
+
+def test_a_watchdog_gone_while_the_operator_types_still_refuses(tmp_path):
+    app, _ = make_app(tmp_path)
+    nodes = list(WATCHDOGS)
+    app.ros.nodes = lambda: list(nodes)
+    app.type_word = lambda *a, **kw: nodes.remove('/fcu_watchdog') or True
+    app.arm_panel()
+    assert app.notice.startswith('Arming refused: safety watchdog not running: /fcu_watchdog')
+    assert not app.armed and app.arming.calls == []
+
+
+def test_the_simulator_arms_without_the_boat_watchdogs(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    app.ros.nodes = lambda: []
+    assert app.watchdog_refusal() == ''
+    with app.attached():
+        arm(app)
 
 
 def test_escape_at_a_prompt_cancels_and_disarms(tmp_path):

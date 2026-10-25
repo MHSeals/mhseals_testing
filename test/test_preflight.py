@@ -39,6 +39,9 @@ CASES = {
     'pre.orin_power': ({'orin.power_mode': Fact('MAXN_SUPER')}, {'orin.power_mode': Fact('15W')}),
     'pre.orin_disk': ({'orin.disk_free_gb': Fact(80.0)}, {'orin.disk_free_gb': Fact(2.0)}),
     'pre.watchdog': ({'graph.nodes': Fact(['/costmap_watchdog'])}, {'graph.nodes': Fact(['/x'])}),
+    **{f'pre.{name}_watchdog': ({'graph.nodes': Fact([f'/{name}_watchdog'])},
+                                {'graph.nodes': Fact(['/x'])})
+       for name in ('link', 'fcu', 'fence', 'ekf_input')},
     'pre.costmap.zed_native': ({'perc.zed_native.costmap_age': Fact(0.2)},
                                {'perc.zed_native.costmap_age': Fact(3.0)}),
     'pre.tracks.zed_native': ({'perc.zed_native.tracker_hz': Fact(10.0)},
@@ -76,16 +79,24 @@ def test_fcu_link_is_the_existing_check_joined_to_the_group_on_the_boat_only(boa
     assert cli.required(found, ['preflight'])['preflight']['not_ok'] == []
 
 
-@pytest.mark.parametrize('name', ['link', 'fcu', 'fence'])
-def test_watchdog_checks_ship_off_and_once_enabled_need_the_node(boat, name):
+def test_the_boat_watchdog_checks_ship_on_and_gate_arming(boat):
+    from mhseals_testing.health.config import lint
+    from mhseals_testing.readiness import arm_nodes
     registry.discover()
-    specs = {s.id: s for s in load(user=False, profile=load_profile('boat')).specs}
-    spec = specs[f'pre.{name}_watchdog']
-    assert not spec.enabled and spec.id not in boat[0]
-    on = ({'pre.on': replace(spec, id='pre.on', enabled=True)}, boat[1])
-    assert judge(on, 'pre.on', {'graph.nodes': Fact([f'/{name}_watchdog'])}) == 'ok'
-    assert judge(on, 'pre.on', {'graph.nodes': Fact(['/x'])}) == 'fail'
-    assert judge(on, 'pre.on', {}) == 'unknown'
+    config = load(user=False, profile=load_profile('boat'))
+    assert arm_nodes(config.specs) == ('/link_watchdog', '/fcu_watchdog', '/fence_watchdog',
+                                       '/ekf_input_watchdog')
+    assert all(boat[0][f'pre.{name}_watchdog'].gates == ('arm',)
+               for name in ('link', 'fcu', 'fence', 'ekf_input'))
+    assert not [problem for problem in lint(config.specs) if 'gate' in problem]
+    crane = load(user=False, profile=load_profile('crane_full_stack'))
+    assert arm_nodes(crane.specs) == ()              # the simulator arms as before
+
+
+def test_only_a_nodes_check_may_gate_arming(boat):
+    from mhseals_testing.health.config import lint
+    spec = replace(boat[0]['pre.disk'], gates=('arm',))
+    assert 'pre.disk: gate arm needs a nodes check with require' in lint([spec])
 
 
 def test_every_boat_preflight_check_is_covered(boat):

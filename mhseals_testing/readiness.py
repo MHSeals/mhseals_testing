@@ -4,7 +4,26 @@ Only sensor and TF health block motion: without trustworthy odometry and
 frames, a trial cannot be scored and Nav2 cannot drive safely. Power, links
 and compute are advisories: always shown, never blocking, because the
 operator (not the suite) owns the e-stop and the boat.
+
+Arming itself is refused only while a node the health checks gating ``arm`` require is off the
+graph: the boat's safety watchdogs (config/health/preflight.yaml), so a boat never arms without
+them silently.
 """
+
+
+def arm_nodes(specs):
+    """FQNs the enabled checks gating ``arm`` require, in file order."""
+    return tuple(dict.fromkeys(node for spec in specs if spec.enabled and 'arm' in spec.gates
+                               for node in getattr(spec.params, 'require', None) or ()))
+
+
+def arm_refusal(required, nodes):
+    """Why arming is refused with ``nodes`` (FQNs) on the graph, or ''."""
+    missing = [node for node in required if node not in set(nodes)]
+    if not missing:
+        return ''
+    return (f"safety watchdog{'s' if len(missing) > 1 else ''} not running: {', '.join(missing)}"
+            ' (they start with odometry on the boat)')
 
 
 def motion_blockers(snapshot, profile, bench_override=False):

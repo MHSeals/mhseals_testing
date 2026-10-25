@@ -56,7 +56,7 @@ from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import available_profiles, load_profile
-from mhseals_testing.readiness import motion_blockers
+from mhseals_testing.readiness import arm_nodes, arm_refusal, motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
 from mhseals_testing.runner import Aborted, Runner, fold
@@ -405,9 +405,28 @@ class App:
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
         rival = self.arming.rival() if self.arming and self.profile.outputs != 'none' else ''
-        refusal = self.thruster_refusal() or self.pin_refusal()
-        return (self.blockers() + ([rival] if rival else []) + ([refusal] if refusal else [])
+        refusals = [reason for reason in (self.thruster_refusal(), self.pin_refusal(), self.watchdog_refusal())
+                    if reason]
+        return (self.blockers() + ([rival] if rival else []) + refusals
                 + self.plant.conflicts() + self.foreign_blockers())
+
+    def watchdog_refusal(self):
+        """Why arming is refused for a safety watchdog off the graph, or ''.
+
+        The nodes come from the enabled health checks gating ``arm`` (the boat profile's
+        pre.*_watchdog), read live; a mute does not lift them. Off the simulator an unreadable
+        health config refuses too, since it may be what names them.
+        """
+        if self.health.error and self.profile.use_sim_time is not True:
+            return f'health config unreadable, so the safety watchdogs are unchecked: {self.health.error}'
+        required = arm_nodes(self.health.specs)
+        if not required:
+            return ''
+        try:
+            nodes = self.ros.nodes()
+        except Exception as error:  # noqa: BLE001 - an unreadable graph refuses, never passes
+            return f'node graph unreadable, so the safety watchdogs are unchecked: {error}'
+        return arm_refusal(required, nodes)
 
     def thruster_refusal(self):
         """Why the real thruster driver may not start on this computer, or ''.
@@ -2205,7 +2224,7 @@ class App:
                 return
             if self.arming is None:
                 raise RuntimeError('this session cannot arm (no ROS)')
-            refusal = self.thruster_refusal() or self.pin_refusal()
+            refusal = self.thruster_refusal() or self.pin_refusal() or self.watchdog_refusal()
             if refusal:
                 self.notice = f'Arming refused: {refusal}'
                 return
@@ -2218,6 +2237,10 @@ class App:
             ok = False
         if not ok:
             self.notice = 'Arming cancelled'
+            return
+        refusal = self.watchdog_refusal()      # one may have gone while the operator typed
+        if refusal:
+            self.notice = f'Arming refused: {refusal}'
             return
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
