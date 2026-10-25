@@ -16,6 +16,9 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'test')]   # mhseals_hardware comes from P
 os.environ['COLORTERM'] = 'truecolor'
 os.environ.pop('NO_COLOR', None)
 os.environ.pop('TMUX', None)
+os.environ['TZ'] = 'UTC'   # the agent scene prints clock times; CI renders in UTC
+import time  # noqa: E402
+time.tzset()
 
 import yaml  # noqa: E402
 from rich.console import Console  # noqa: E402
