@@ -8,8 +8,9 @@ description: 'Unity full stack: ROS PWM outputs and simulated sensors through mh
 command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}
 odometry: /odom/local
 ground_truth: /crane/odom
-# Written by crane_ml's --crane-roboboat-course-truth (data root $MHSEALS_DATA); the referee judges missions with it.
-course_truth: /home/roboboat/roboboat_ws/bags/course_truth.json
+# Written by crane_ml's --crane-roboboat-course-truth; the referee judges missions with it. Relative
+# to the data root ($MHSEALS_DATA, else $ROS_WS/bags).
+course_truth: course_truth.json
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: true
 # The simulator's sensor stamps run up to ~0.6 s ahead of /clock under load; the default 0.25 s trips the interlock.

@@ -19,6 +19,7 @@ process starts.
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from mhseals_testing import data as records
 from mhseals_testing.analysis.power import CHEMISTRIES
 from mhseals_testing.harness.components import parse_components
 from mhseals_testing.strict_yaml import load_strict
@@ -223,7 +224,7 @@ def parse_profile(data, where='profile'):
         command_type=command_type, command_units=units, command_limit=limit,
         odometry=_require(data, 'odometry', str, where),
         ground_truth=data.get('ground_truth'),
-        course_truth=data.get('course_truth'),
+        course_truth=_under_data_root(data.get('course_truth')),
         map_frame=frames.get('map'),
         odom_frame=_require(frames, 'odom', str, where + '.frames'),
         base_frame=_require(frames, 'base', str, where + '.frames'),
@@ -237,6 +238,13 @@ def parse_profile(data, where='profile'):
 
 def available_profiles(directory=PROFILE_DIR):
     return sorted(path.stem for path in Path(directory).glob('*.yaml'))
+
+
+def _under_data_root(path):
+    """A relative profile path resolves under the data root ($MHSEALS_DATA, else $ROS_WS/bags)."""
+    if not path or Path(path).is_absolute():
+        return path
+    return str(records.path(path))
 
 
 def load_profile(name_or_path, directory=PROFILE_DIR):

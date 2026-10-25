@@ -314,6 +314,17 @@ def test_split_pulses_equal_thruster_pulses_with_decoupling_negative():
                                        hardware.get('reversed', [False] * 4))
 
 
+def test_thruster_preview_mixes_with_the_configured_reverse_ratio():
+    from mhseals_hardware.thruster_mixer import thruster_pulses
+    profile = load_profile('boat')
+    hardware = dict(load_defaults(), reverse_thrust_ratio=0.78)
+    command = (0.4, 0.4, 0.0)
+    rows = thruster_rows(view(profile, hardware=hardware, armed=True, units='effort', command=command))
+    expected = thruster_pulses(command, THRUSTER_MIXER, hardware['channel_map'], hardware['reversed'],
+                               reverse_ratio=0.78)
+    assert [r['pulse'] for r in rows] == [expected[r['output'] - 1] for r in rows]
+
+
 def test_thrusters_show_pin_readback_saturation_and_driver_status():
     profile = load_profile('boat')
     hardware = dict(load_defaults(), decoupling_negative=[1, 0, 0, 0, 1, 0.3, 0, 0, 1])

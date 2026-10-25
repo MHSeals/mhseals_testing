@@ -21,6 +21,11 @@ def test_frames_drive_required_tf():
     assert load_profile('crane_direct').required_tf == (('odom', 'base_link'),)
 
 
+def test_relative_course_truth_resolves_under_the_data_root(monkeypatch, tmp_path):
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    assert load_profile('crane_full_stack').course_truth == str(tmp_path / 'course_truth.json')
+
+
 def test_stamp_future_defaults_to_the_boats_tolerance_and_is_wider_for_the_sim():
     assert load_profile('boat').stamp_future == 0.25
     assert load_profile('crane_full_stack').stamp_future > 0.25

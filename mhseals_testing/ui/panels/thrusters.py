@@ -55,7 +55,8 @@ def thruster_rows(view):
         by_output = view['test_pulses']
     elif view['units'] == 'effort' and view['armed']:
         by_output = thruster_pulses(view['command'], view['matrix'], channel_map, reversed_,
-                                    *split_decoupling(view['hardware']))
+                                    *split_decoupling(view['hardware']),
+                                    view['hardware'].get('reverse_thrust_ratio', 1.0))
     else:
         by_output = [NEUTRAL] * 4
     saved = view['hardware']

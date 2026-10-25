@@ -1,27 +1,32 @@
-# Thruster characterization of the crane_ml boat (measured with open-loop effort holds at 0.3 and 1.0, speed_curves
-# e|e| = d1 v + d2 v|v|). Overrides over mhseals_hardware defaults; start.sh points MHSEALS_HARDWARE_CONFIG here.
+# mhseals_hardware overrides for the crane_ml boat, used as MHSEALS_HARDWARE_CONFIG for crane_full_stack.
+# crane_ml models the T200 curve, reverse 40.2 N of 51.5 N forward, so the mixer gets that ratio; at 1.0
+# 45 degree effort diagonals turn the boat at 7-8 deg/s, at 0.78 under 0.4 deg/s.
+reverse_thrust_ratio: 0.78
+# Open-loop effort holds with no current (--crane-water-current 0,0) at 0.3, 0.6, 0.8 and 1.0,
+# speed_curves e|e| = d1 v + d2 v|v|. Cross-axis speed stayed under 2% of the driven axis, so the
+# default identity decoupling stands.
 characterization:
   speed_curves:
     surge+:
-      d1: 0.0968
-      d2: 0.1494
+      d1: 0.0857
+      d2: 0.1523
     surge-:
-      d1: 0.0828
-      d2: 0.158
+      d1: 0.0805
+      d2: 0.1556
     sway+:
-      d1: 0.3264
-      d2: 0.2585
+      d1: 0.1284
+      d2: 0.3232
     sway-:
-      d1: 0.0076
-      d2: 0.3337
+      d1: 0.1375
+      d2: 0.3118
     yaw+:
-      d1: 0.1309
-      d2: 0.2433
+      d1: 0.1312
+      d2: 0.2431
     yaw-:
-      d1: 0.1291
-      d2: 0.2445
+      d1: 0.1307
+      d2: 0.2436
   motion_limits:
     velocity:
       surge: 2.04
-      sway: 1.29
+      sway: 1.41
       yaw: 1.6
