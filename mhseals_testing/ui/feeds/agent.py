@@ -116,11 +116,18 @@ class AgentDesk:
                 self.errors.add(error)
                 self.app.notice = f'agent channel: {error}'
         records, self.deferred = self.deferred + records, []
+        dry = False
         for record in records:
             if urgent and not (record['kind'] in ('renew', 'reply')
                                or (record['kind'] == 'req' and record.get('op') in URGENT)):
                 self.deferred.append(record)
                 continue
+            if record['kind'] == 'req' and record.get('dry') and record.get('op') in MOTION \
+                    and record.get('id') not in self.answered:
+                if dry:                      # a dry run asks Nav2 (up to ~1 s): one per tick keeps Space prompt
+                    self.deferred.append(record)
+                    continue
+                dry = True
             try:
                 getattr(self, 'on_' + record['kind'])(record)
             except (KeyError, TypeError, ValueError, AttributeError, ArithmeticError) as error:   # bad values

@@ -714,6 +714,20 @@ def test_status_file_is_written_as_json(rig, tmp_path):
     assert status['health']['gates']['square'] is None
 
 
+def test_a_dry_run_flood_answers_one_per_tick_and_never_holds_the_loop(rig):
+    c = claim(rig)
+    reqs = [ch.request('goal', 'claude-3f2a', {'x': 5, 'y': 0}, claim=c, dry=True) for _ in range(5)]
+    planned, plan = [], rig.app.nav.plan
+    rig.app.nav.plan = lambda *a, **k: planned.append(1) or plan(*a, **k)
+    mark = ch.request('mark', 'claude-3f2a', {'note': 'behind the flood'})
+    rig.desk.tick()
+    assert len(planned) == 1 and replies(mark['id'])        # a request behind the flood is answered at once
+    assert [bool(replies(r['id'])) for r in reqs] == [True, False, False, False, False]
+    for _ in range(4):
+        rig.desk.tick()
+    assert len(planned) == 5 and all(final(r['id'])['ok'] for r in reqs)
+
+
 def test_procedure_names_and_keys_resolve():
     found, name = agent_acts.procedure('w')
     assert name == 'square' and found.title == 'Waypoint square'
