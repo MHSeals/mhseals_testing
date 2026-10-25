@@ -1,0 +1,225 @@
+"""What an agent act does inside the TUI (spec agent-control sections 3 and 4): the same code as a key.
+
+The desk (ui/feeds/agent.py) decides when an act may start; these functions do it. ``run``
+calls ``app.run_procedure`` as the procedure key would; ``goal_*`` use ``app.goals`` (a
+``harness.goals.Goals``), the one goal sender the cursor goal shares; ``choose`` is the
+timed ``popup.choose`` for the confirm and ``ask`` popups. ``dry_run`` evaluates the live gates
+and returns them without moving anything.
+"""
+
+import math
+import time
+
+from mhseals_hardware.menu import Cancelled
+import numpy as np
+
+from mhseals_testing.data import read_json
+from mhseals_testing.harness import goals as goals_module
+from mhseals_testing.harness import runs
+from mhseals_testing.procedures import PROCEDURES
+from mhseals_testing.runner import Aborted, fold
+from mhseals_testing.ui import theme
+
+# The key loop's stopping errors (ui/app.py STOPPING_ERRORS).
+STOPPING = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
+# Agent names for procedure keys; config/agent.yaml ``run`` lists the ones agents may request.
+NAMES = {'square': 'w', 'station': 's', 'nav2_bringup': 'n', 'controller_check': 'v', 'perception': 'p',
+         'mission': 't', 'characterize': 'f', 'compass_calibration': 'g', 'interference': 'e',
+         'manual': 'm', 'thruster_set': 'i'}
+NAV_NODES = ('bt_navigator', 'planner_server')
+
+
+def procedure(name_or_key):
+    """(Procedure, agent name) for ``square`` or its key ``w``; (None, None) when unknown."""
+    key = NAMES.get(name_or_key, name_or_key)
+    found = next((p for p in PROCEDURES if p.key == key), None)
+    name = next((n for n, k in NAMES.items() if k == key), None)
+    return (found, name) if found and name else (None, None)
+
+
+def run_key(args):
+    """The procedure a ``run`` request names: ``{key}`` (a key or an agent name)."""
+    return str(args.get('key', ''))
+
+
+class Closed(Exception):
+    """A desk popup closed by its deadline or by the act's cancel cause."""
+
+
+def choose(app, title, options, timeout_s, cause, message=None, danger=True, clock=time.monotonic):
+    """A ``popup.choose`` that closes itself after ``timeout_s`` or once ``cause()`` names a reason.
+
+    Returns (choice, None), or (None, why): 'refused' (Esc), 'timeout' or the cause. Space and E pass
+    through as in every popup.
+    """
+    deadline = clock() + timeout_s
+    sep = theme.SEPARATOR
+    modal = dict(kind='choice', title=title, message=message, options=list(options), selected=0,
+                 danger=danger, rows=None, width=64, keys=[None] * len(options), scroll_hint='[ ]',
+                 hint=sep.join(('Enter choose', 'Esc refuse', f'closes in {timeout_s:.0f} s')))
+
+    def handle(key):
+        key = fold(key)
+        if key in ('up', 'k', 'down', 'j'):
+            modal['selected'] = (modal['selected'] + (-1 if key in ('up', 'k') else 1)) % len(options)
+        elif key == 'enter':
+            return options[modal['selected']]
+        elif key in ('escape', 'q'):
+            raise Cancelled('refused by operator')
+
+    def check():
+        why = cause() or ('timeout' if clock() > deadline else None)
+        if why:
+            raise Closed(why)
+
+    try:
+        return app.popup(modal, handle, check), None
+    except Cancelled:
+        return None, 'refused'
+    except Closed as closed:
+        return None, str(closed)
+
+
+def run(app, found):
+    """Run ``found`` as its key would; returns (result, error). The run file names the outcome."""
+    run_id = runs.next_run_id(app.paths.runs, found.title)
+    error = None
+    try:
+        app.run_procedure(found)
+    except STOPPING as stopped:
+        error = str(stopped) or type(stopped).__name__
+        app.stop(error, by='error')             # what the key loop does with a stopping error
+    record = read_json(app.paths.runs / f'{run_id}.json') or {}
+    notice = str(app.notice or '')
+    result = {'run_id': run_id if record else None,
+              'run_file': str(app.paths.runs / f'{run_id}.json') if record else None,
+              'status': record.get('status'), 'results': (record.get('result') or {}).get('results', []),
+              'invalid': 'window invalid' in notice, 'notice': notice}
+    if error is None and notice.endswith('cancelled'):
+        error = notice
+    return result, error
+
+
+# --- goals -----------------------------------------------------------------------------------
+
+class Nav2Goals:
+    """The Nav2 behind ``app.goals``, resolved on first use; a cancel never blocks the caller.
+
+    The arbiter cancels from its ROS timer, on the same executor that would answer the cancel,
+    so waiting there could only time out. The request is sent; Goals journals the stop.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    def plan(self, goal, timeout=2.0):
+        return self.app.nav2().plan(goal, timeout=timeout)
+
+    def navigate(self, goals, timeout=10.0):
+        return _Quick(self.app.nav2().navigate(goals, timeout=timeout))
+
+
+class _Quick:
+    def __init__(self, goal):
+        self.goal = goal
+
+    done = property(lambda self: self.goal.done)
+    status = property(lambda self: self.goal.status)
+
+    def cancel(self):
+        self.goal.cancel(timeout=0.0)
+
+
+def goal_facts(app, lifecycle=None):
+    """``goals.Facts`` from the app. ``lifecycle`` None asks Nav2 (blocking, up to 0.5 s per server)."""
+    nodes = {name.rsplit('/', 1)[-1] for name in app.ros.nodes()}
+    nav2 = nav2_of(app)
+    if lifecycle is None:
+        lifecycle = nav2.lifecycle(timeout=0.5) if nav2 is not None else {}
+    odometry = app.monitor.snapshot()['sensors'].get('odometry', {})
+    fix = app.facts.get('gps.fix_type')
+    costmap_at = getattr(nav2, 'costmap_time', None)
+    driving = app.running or ('manual control' if app.manual else '')
+    return goals_module.Facts(
+        live=bool(app.source.live), owner=not app.watching, nav_running=set(NAV_NODES) <= nodes,
+        lifecycle=lifecycle, unit=app.profile.command_units, armed=bool(app.armed), driving=driving or '',
+        pose_age_s=odometry.get('age', math.inf) if odometry.get('status') == 'LIVE' else math.inf,
+        fix=int(fix.value) if fix is not None else 0,
+        costmap_age_s=time.monotonic() - costmap_at if costmap_at is not None else math.inf)
+
+
+def nav2_of(app):
+    try:
+        return app.nav2()
+    except RuntimeError:
+        return None
+
+
+def grid(costmap):
+    """A ``goals.Grid`` from a nav_msgs/OccupancyGrid, or None."""
+    if costmap is None:
+        return None
+    info = costmap.info
+    data = np.asarray(costmap.data, dtype=np.int16).reshape(info.height, info.width)
+    return goals_module.Grid(data, info.resolution, (info.origin.position.x, info.origin.position.y))
+
+
+def _plan(app, goal, facts):
+    """(boat, grid, path_m, None) or (.., reason): the gates, the goal cell and a planned path.
+
+    The costmap is fetched fresh (<= 2 s) and the planner asked (<= 2 s), like the cursor goal.
+    """
+    try:
+        nav2 = app.nav2()
+        pose, cells = nav2.pose(), grid(nav2.fetch_costmap())
+    except RuntimeError as error:
+        return None, None, None, str(error)
+    if pose is None or cells is None:
+        return None, None, None, 'no map pose' if pose is None else 'no costmap'
+    path, reason = app.goals.preview(goal, pose[:2], cells, facts)
+    if reason:
+        return pose[:2], cells, None, reason
+    return pose[:2], cells, float(sum(math.dist(a, b) for a, b in zip(path, path[1:]))), None
+
+
+def goal_preview(app, goal, facts):
+    """(path_m, None) or (None, reason)."""
+    return _plan(app, goal, facts)[2:]
+
+
+def goal_send(app, goal, facts, claim):
+    """Send ``goal`` for ``claim`` through ``app.goals``; (path_m, None) or (None, reason)."""
+    boat, cells, path_m, reason = _plan(app, goal, facts)
+    if reason is None:
+        reason = app.goals.send(goal, boat, cells, facts, claim, path_m)
+    return (None, reason) if reason else (path_m, None)
+
+
+# --- dry run ---------------------------------------------------------------------------------
+
+def dry_run(app, op, args, motion_setting):
+    """Everything a run or goal would check, without executing (spec section 3 --dry-run)."""
+    confirm = motion_setting == 'confirm'
+    if op == 'run':
+        found, name = procedure(run_key(args))
+        blocking, advisory = (app.engine.gate(found.key, app.args.bench_override, 'armed' in found.needs)
+                              if app.engine is not None else ([], []))
+        needs_arm = 'armed' in found.needs and not app.armed
+        return {'procedure': name, 'title': found.title, 'availability': app.availability(found) or None,
+                'gates': list(blocking), 'advisories': list(advisory),
+                'arm_blockers': app.arm_blockers() if needs_arm else [],
+                'motion_blockers': app.motion_blockers() if app.armed else [],
+                'settings': vars(app.settings), 'asks': {'arm': needs_arm, 'confirm': confirm},
+                'hint': 'ask the operator to arm (a)' if needs_arm else ''}
+    facts = goal_facts(app)
+    path_m, reason = goal_preview(app, goal_args(args), facts)
+    return {'goal': goal_args(args), 'gate': reason, 'path_m': path_m, 'asks': {'confirm': confirm},
+            'hint': 'ask the operator to arm (a)' if reason == 'outputs are not armed' else ''}
+
+
+def goal_args(args):
+    """(x, y, yaw radians) from ``{'x', 'y', 'yaw'}``; ValueError when not finite numbers."""
+    goal = tuple(float(args.get(k, 0.0 if k == 'yaw' else math.nan)) for k in ('x', 'y', 'yaw'))
+    if not all(math.isfinite(v) for v in goal):
+        raise ValueError('goal needs finite x, y (and yaw)')
+    return goal
