@@ -1300,6 +1300,23 @@ def test_pins_readback_needs_the_arming_word_or_no_driver_starts(tmp_path, monke
     assert not processes.started and not seen
 
 
+def test_no_driver_starts_on_a_host_without_the_thrusters_capability(tmp_path, monkeypatch):
+    from mhseals_testing import devices
+    app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    root = tmp_path / 'registry'
+    root.mkdir()
+    (root / 'devices.yaml').write_text('hosts: {local: {capabilities: [mavros, gpu, zed, lidar]}}\n')
+    package = devices.layer_paths()[0]
+    monkeypatch.setattr(devices, 'layer_paths', lambda: (package, root / 'devices.yaml',
+                                                         root / 'none.yaml', root / 'none.env'))
+    app.dispatch('M')
+    assert app.notice.startswith('Pins saved; driver not started: local has no thrusters capability')
+    assert 'local has no thrusters capability' in ' '.join(app.arm_blockers())
+    app.arm_panel()
+    assert app.notice.startswith('Arming refused: local has no thrusters')
+    assert not app.armed and app.typed == [] and processes.started == [] and seen == []
+
+
 def test_pins_popup_does_not_start_a_driver_beside_another(tmp_path, monkeypatch):
     app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
     app.arming.ros.node_names.append('/sim/thruster_pwm_node')
@@ -2241,7 +2258,7 @@ def test_nested_release_restores_authority_and_e_revokes_inside_confirm(tmp_path
     seen, revoked = [], []
     app.arbiter.neutral = lambda: None
     app.arbiter.hold = lambda cause, by: revoked.append(cause)
-    outer = dict(kind='message', title='Authority')
+    outer = dict(kind='message', title='Authority', release=True)
 
     def handle(key):
         seen.append((key, app.modal is outer))
@@ -2418,7 +2435,7 @@ def test_ordinary_popups_ignore_release_key(tmp_path, context):
 
 def test_authority_popup_release_confirms_and_restores_parent(tmp_path):
     app, boat, calls = release_app(tmp_path)
-    outer = dict(kind='message', title='Authority · 7')
+    outer = dict(kind='message', title='Authority · 7', release=True)
     restored = []
 
     def handle(key):
