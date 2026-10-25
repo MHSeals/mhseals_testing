@@ -119,9 +119,13 @@ class BoatMonitor:
         with self.lock:
             return [dict(parent=parent, child=child, authority=authority, seen=now - received,
                          stamp_age=age + now - received, static=static,
-                         fresh=static or (now - received <= self.stale_after and
-                                          -.25 <= age + now - received <= self.stale_after))
+                         fresh=self._tf_fresh(now, received, age, static))
                     for (parent, child, authority), (received, age, static) in self.edges.items()]
+
+    def _tf_fresh(self, now, received, age, static):
+        """A TF edge counts toward a chain: static, or received and stamped within ``stale_after``."""
+        return static or (now - received <= self.stale_after and
+                          -.25 <= age + now - received <= self.stale_after)
 
     def _sensor_rows(self, now):
         sensors = {}
@@ -156,8 +160,7 @@ class BoatMonitor:
         for source, target in required_tf:
             graph, parents = {}, {}
             for (parent, child, authority), (received, age, static) in self.edges.items():
-                if static or (now - received <= self.stale_after and
-                              -.25 <= age + now - received <= self.stale_after):
+                if self._tf_fresh(now, received, age, static):
                     graph.setdefault(parent, []).append(child)
                     parents.setdefault(child, set()).add((parent, authority))
             pending, found = [(source, ())], None
