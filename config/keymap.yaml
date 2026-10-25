@@ -2,7 +2,7 @@
 #
 # Contexts
 #   layered:  global → tab.<drive|correction|map|bags> → panel.<name> | view.minimap
-#             review: global → review → review.activity (Drive) | view.minimap (Map)
+#             review: global → review → review.activity (Drive) | tab.map → view.minimap (Map)
 #   modal:    manual, runner, minimap.goal, popup.<name>: own bindings + `passthrough` actions only
 # `override:` in a layered child lists the ancestor actions it shadows on purpose.
 # Key names are KeyReader's (case-sensitive after K1).  Labels and hint priority live in ui/actions.py.
@@ -59,7 +59,11 @@ tab.correction:
   apply_pending: [A]
   hardware_changed: [I]
 
-tab.map: {}                     # view.minimap is the focused child
+tab.map:                        # view.minimap is the focused child; these keys are Drive procedures
+  override: [goto]              # g rings over review's goto on the Map tab
+  layer_wake: [w]
+  layer_rings: [g]
+  centre: [e]
 
 tab.bags:
   pin: [p]
@@ -104,8 +108,7 @@ panel.activity:
   zoom: [z]                     # fit · 30m · 10m · 2m
   exclude: [X]
 
-view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols
-  override: [interference, magcal, square, goto]   # e centres, g rings, w wake while the map has focus
+view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols; no Drive procedure key
   layer_costmap: [c]
   costmap_source: [C]
   layer_hits: [r]
@@ -115,14 +118,11 @@ view.minimap:                   # Map tab, and the Drive minimap column at ≥15
   trail_restart: [Y]
   referee: [R]
   layer_fov: [F]
-  layer_wake: [w]
-  layer_rings: [g]
   course: [K]
   up_mode: [u]
   zoom_in: [z]
   zoom_out: [Z]
   zoom_fit: ['0']
-  centre: [e]
   goal_mode: [G]
   cancel_goal: [X]
 

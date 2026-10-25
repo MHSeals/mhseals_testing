@@ -150,14 +150,15 @@ def test_auto_tab_stays_on_drive_while_map_has_no_body(tmp_path, monkeypatch):
     assert app.tab == 'Drive'
 
 
-def test_minimap_centre_key_does_not_start_interference(tmp_path, monkeypatch):
+def test_drive_minimap_leaves_procedure_keys_to_the_procedures(tmp_path, monkeypatch):
+    """e (centre), w and g bind on the Map tab only: on Drive they stay the procedures."""
     app, _ = make_app(tmp_path)
     app.console.size = (160, 45)
     app.focus = 'minimap'
     ran = []
     monkeypatch.setattr(app, 'run_procedure', lambda p: ran.append(p.key))
     app.dispatch('e')
-    assert ran == []
-    app.focus = 'thrusters'
+    assert ran == ['e']
+    app.show_tab('Map')
     app.dispatch('e')
     assert ran == ['e']

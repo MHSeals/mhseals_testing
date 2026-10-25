@@ -139,8 +139,7 @@ PANEL_HINTS = {
                   ('c', 'Clear decoupling'), ('M', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'View')],
-    'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom'), ('u', 'Heading-up'), ('F', 'Fov'), ('w', 'Wake'),
-                ('g', 'Rings')],
+    'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom'), ('u', 'Heading-up'), ('F', 'Fov')],
     'map': [('c', 'Costmap'), ('d', 'Tracks'), ('y', 'Trail'), ('z/Z', 'Zoom'), ('u', 'Heading-up'),
             ('F', 'Fov'), ('w', 'Wake'), ('g', 'Rings')],
     'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune'), ('F', 'Finalize')],
@@ -213,6 +212,13 @@ ARM_WRAP = 52  # arm-panel value column: the 72-wide popup less its label column
 CURSORS = (*PANELS, 'list')   # every cursor an App keeps, the Bags tab's 'list' included
 
 
+def map_key_maps(doc):
+    """``(drive, map)`` key -> action of the map views: view.minimap on the Drive column, and on
+    the Map tab with tab.map's toggles (w g e) over it, which are Drive procedure keys elsewhere."""
+    view = keymap_module.key_map(doc.get('view.minimap'))
+    return view, {**keymap_module.key_map(doc.get('tab.map')), **view}
+
+
 class App:
     """The page, its key handling and the procedure context.
 
@@ -274,7 +280,7 @@ class App:
         self.tabs = TabMemory()
         self.minimap = minimap_panel.MiniMap(self.map_state)
         self.layerbox = LayerBox(getattr(self.ros, 'map', None), self.map_state, live=True)
-        self.map_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('view.minimap'))
+        self.map_keys, self.map_tab_keys = map_key_maps(keymap_module.load()[0].doc)
         self.bag_recording_key = None
         self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
         self.focus = 'status'
@@ -615,7 +621,7 @@ class App:
             return new
 
         def apply_keymap(keymap):
-            self.map_keys = keymap_module.key_map(keymap.doc.get('view.minimap'))
+            self.map_keys, self.map_tab_keys = map_key_maps(keymap.doc)
 
         def apply_theme(new):
             theme.use_palette(new)
@@ -1035,16 +1041,18 @@ class App:
         if step:
             self.switch_tab(step)
 
-    def on_minimap(self, key):
+    def on_minimap(self, key, keys=None):
         """view.minimap keys (Drive column and Map tab): zoom, and the Layers box toggles."""
         if key in ('z', 'Z'):
             self.minimap.zoom(1 if key == 'z' else -1)
         elif key == '0':
             self.minimap.reset()
         else:
-            self.layerbox.press(self.map_keys.get(key), self.minimap.half)
+            self.layerbox.press((keys or self.map_keys).get(key), self.minimap.half)
 
-    on_map = on_minimap
+    def on_map(self, key):
+        """The Map tab adds tab.map's toggles, whose keys are Drive procedures elsewhere."""
+        self.on_minimap(key, self.map_tab_keys)
 
     def recording_paths(self):
         """Authoritative live session and exact writer segment, resolved at action time."""
