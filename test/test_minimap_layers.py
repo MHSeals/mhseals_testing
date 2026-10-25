@@ -131,7 +131,7 @@ def test_far_zoom_drops_costs_below_inscribed_and_near_zoom_ramps():
     near = _frame(half=5.0)
     layers.draw_costmap(near, _grid(98), 0.4, (-20.0, -20.0))
     assert {c.bg for row in near.canvas.cells() for c in row if c.bg} == {'cost.3'}
-    for cost, token in ((50, 'cost.1'), (66, 'cost.2'), (83, 'cost.3')):
+    for cost, token in ((50, 'cost.2'), (66, 'cost.2'), (83, 'cost.3')):   # cost.1 merges into cost.2
         ramp = _frame(half=5.0)
         layers.draw_costmap(ramp, _grid(cost), 0.4, (-20.0, -20.0))
         assert {c.bg for row in ramp.canvas.cells() for c in row if c.bg} == {token}
@@ -213,9 +213,35 @@ def test_trail_fades_by_age_and_keeps_old_epochs_old():
     assert used == {'trail.old', 'trail.mid', 'trail.plain.plain'}
 
 
-def test_a_dense_faded_tail_is_dropped_but_fresh_trail_stays():
-    f = _frame(cols=20, rows=4, half=10.0)
-    old = [layers.Crumb(-10 + i * 0.2, (i % 40) * 0.2 - 4, t=0.0) for i in range(100)]
+def _old_cells(f):
+    return {(c, r) for r, row in enumerate(f.canvas.cells()) for c, cell in enumerate(row) if cell.fg == 'trail.old'}
+
+
+def test_a_dense_faded_tail_thins_from_its_oldest_end_and_never_vanishes():
+    old = [layers.Crumb(-10 + i * 0.2, (i % 40) * 0.2 - 4, t=float(i)) for i in range(100)]
     fresh = [layers.Crumb(0.0, -1.0, t=500.0), layers.Crumb(0.0, 1.0, t=500.0)]
+    cap = 20 * 4 // layers.OLD_SHARE
+    f = _frame(cols=20, rows=4, half=10.0)
     layers.draw_trail(f, old + fresh, now=500.0)
-    assert {c.fg for row in f.canvas.cells() for c in row if c.fg} == {'trail.plain.plain'}
+    kept = _old_cells(f)
+    assert 0 < len(kept) <= cap and 'trail.plain.plain' in {c.fg for row in f.canvas.cells() for c in row}
+    newest = _frame(cols=20, rows=4, half=10.0)
+    layers.draw_trail(newest, old[-12:] + fresh, now=500.0)   # the newest old crumbs alone
+    assert _old_cells(newest) & kept                          # are what the cap keeps
+    for half in (8.0, 12.0, 16.0):                            # and some history shows at every zoom
+        z = _frame(cols=20, rows=4, half=half)
+        layers.draw_trail(z, old + fresh, now=500.0)
+        assert 0 < len(_old_cells(z)) <= cap
+
+
+def test_trail_columns_convert_only_what_changed_and_match_a_full_conversion():
+    from collections import deque
+    trail = deque((Crumb(float(i), 0.0, t=float(i)) for i in range(50)), maxlen=60)
+    columns = layers.TrailColumns()
+    assert np.array_equal(columns(list(trail)), layers._columns(list(trail)))
+    trail.pop()                                              # the smoothing cuts the last crumb
+    trail.extend(Crumb(49.0 + i, 1.0, t=None) for i in range(20))   # and the ring drops its head
+    got = columns(list(trail))
+    assert np.array_equal(got, layers._columns(list(trail)), equal_nan=True) and trail[0].x == 9.0
+    other = [Crumb(1.0, 2.0)]                                # a new trail converts in full
+    assert np.array_equal(columns(other), layers._columns(other), equal_nan=True)

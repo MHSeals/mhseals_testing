@@ -29,7 +29,7 @@ HITS_RANGE, HITS_NEAR = 20.0, 3.0  # m from the boat
 # xte is the cross-track error against the goal's first plan, None when unknown.
 # ``t`` (s, the pose clock) ages the crumb into the mid and old bands.
 Crumb = namedtuple('Crumb', 'x y fix xte speed epoch t', defaults=(0, None, 0.0, 0, None))
-OLD_SHARE = 16   # the faded tail is dropped when it would fill more than 1/16 of the canvas cells
+OLD_SHARE = 64   # the faded tail keeps at most 1/64 of the canvas cells, its newest ones (SSH bytes)
 AGE_BANDS = ((30.0, None), (120.0, 'mid'))   # fresh up to 30 s keeps its mode band, then mid, then old
 
 
@@ -99,19 +99,47 @@ def _quality(crumb, mode, vmax):
     return 'plain', 1
 
 
-def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=False, now=None):
-    """Draw the trail; ``mode`` is plain, gps, speed or track.
+def _columns(crumbs):
+    """``(n, 4)`` floats x, y, epoch, t of crumbs; a None t becomes nan."""
+    return np.array([(c[0], c[1], c[5], c[6]) for c in crumbs], dtype=float).reshape(-1, 4)
+
+
+class TrailColumns:
+    """``_columns`` of the trail, converted incrementally (about 1 ms for the whole ring).
+
+    The smoothed trail is a deque that changes only at its tail (the last crumb is cut into
+    two) and drops crumbs from its head, so the crumbs before the first changed one are the
+    same objects as last frame and keep their rows; anything else converts in full."""
+
+    def __init__(self):
+        self.items, self.array = [], _columns([])
+
+    def __call__(self, crumbs):
+        old, start = self.items, 0
+        if old and crumbs and crumbs[0] is not old[0]:   # dropped from the head, or a new trail
+            start = next((i for i, c in enumerate(old) if c is crumbs[0]), len(old))
+        same = min(len(old) - start, len(crumbs))
+        while same and crumbs[same - 1] is not old[start + same - 1]:
+            same -= 1
+        self.array = np.concatenate((self.array[start:start + same], _columns(crumbs[same:])))
+        self.items = list(crumbs)
+        return self.array
+
+
+def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=False, now=None, columns=_columns):
+    """Draw the trail; ``mode`` is plain, gps, speed or track. ``columns`` converts the crumbs
+    to arrays (a ``TrailColumns`` keeps the conversion across frames).
 
     Crumbs of an epoch other than ``epoch`` (the current map datum) are ``trail.old``, and with
     ``now`` crumbs fade by age: ``trail.mid`` after 30 s, ``trail.old`` after 120 s.
     Segments never join two epochs. Colourless tiers dash the over-vmax speed parts.
-    Projection, ages and stepping are numpy; Python touches only the painted dots. A faded tail
-    covering more than 1/16 of the canvas cells is left out, so a long session stays in the byte budget.
+    Projection, ages and stepping are numpy; Python touches only the painted on-canvas dots. The
+    faded tail is capped at the 1/64 of the canvas cells it reached most recently, so a long
+    session stays in the byte budget and its history thins from the oldest end, never all at once.
     """
     if not crumbs:
         return
-    columns = list(zip(*crumbs))   # x y fix xte speed epoch t; a None t becomes nan
-    a = np.array((columns[0], columns[1], columns[5], columns[6]), dtype=float).T
+    a = columns(crumbs)
     ok = np.isfinite(a[:, 0]) & np.isfinite(a[:, 1])
     if not ok.all():
         a, crumbs = a[ok], [c for c, keep in zip(crumbs, ok.tolist()) if keep]
@@ -149,11 +177,15 @@ def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=Fal
     if not px:
         return
     px, py, names = np.concatenate(px), np.concatenate(py), np.concatenate(names)
-    old = names == 'trail.old'
     inside = (px >= 0) & (px < canvas.dots_wide) & (py >= 0) & (py < canvas.dots_high)
-    cells = np.unique((px[old & inside] // 2) * canvas.rows + py[old & inside] // 4)
-    if len(cells) > canvas.cols * canvas.rows // OLD_SHARE:   # a dense faded tail goes first (SSH bytes)
-        px, py, names = px[~old], py[~old], names[~old]
+    px, py, names = px[inside], py[inside], names[inside]   # Python never walks off-canvas dots
+    old = names == 'trail.old'
+    cell = (px // 2) * canvas.rows + py // 4
+    cells, first = np.unique(cell[old][::-1], return_index=True)   # dots run oldest first
+    if len(cells) > canvas.cols * canvas.rows // OLD_SHARE:   # keep the newest old cells (SSH bytes)
+        newest = cells[np.argsort(first)[:canvas.cols * canvas.rows // OLD_SHARE]]
+        keep = ~old | np.isin(cell, newest)
+        px, py, names = px[keep], py[keep], names[keep]
     canvas.dots(px.tolist(), py.tolist(), names.tolist())
 
 
@@ -162,15 +194,18 @@ DENSITY = {'lethal': 0xFF, 'inscribed': 0x55, 'cost.3': 0x02}  # colourless tier
 
 
 def _tint_for(cost, far):
-    """Costmap tint token for a cost, or None when it is not drawn: the 5-stop ramp binned at
-    50/66/83/99/100 (tui-visual 2.3); the far zoom keeps only inscribed and lethal."""
+    """Costmap tint token for a cost, or None when it is not drawn: the ramp binned at
+    50/66/83/99/100 (tui-visual 2.3) with its two lowest stops merged into ``cost.2`` (at the
+    detail zoom nearly every cell is tinted and each stop change is a background SGR run, about
+    a third of a frame's bytes); the far zoom keeps only inscribed and lethal."""
     if cost >= LETHAL:
         return 'lethal'
     if cost == INSCRIBED:
         return 'inscribed'
     if cost < COST_MIN or far:
         return None
-    return next(token for bound, token in TINTS if cost < bound)
+    token = next(token for bound, token in TINTS if cost < bound)
+    return 'cost.2' if token == 'cost.1' else token
 
 
 def _cells(grid, resolution, origin, floor=COST_MIN):
@@ -214,12 +249,15 @@ def draw_costmap(frame, grid, resolution, origin, density=False):
 
 
 def draw_hits(frame, grid, resolution, origin, boat):
-    """Lethal costmap cells within 20 m of the boat as single dots; `hits.near` inside 3 m."""
+    """Lethal costmap cells within 20 m of the boat as single dots; `hits.near` inside 3 m. A far
+    hit on a cell the costmap already tints lethal adds nothing but bytes, so it is not drawn."""
     xs, ys, _ = _cells(grid, resolution, origin, LETHAL)
     d = np.hypot(xs - boat[0], ys - boat[1])
     keep = d <= HITS_RANGE
     x, y = frame.dots((xs[keep], ys[keep]))
     # far sorts after near, so a dot shared by both keeps the near warning (first layer wins).
     dots = np.unique(np.stack([np.floor(x), np.floor(y), d[keep] > HITS_NEAR]).T, axis=0)
+    tint = frame.canvas._tint
     for px, py, far in dots:
-        frame.canvas.dot(int(px), int(py), 'hits' if far else 'hits.near')
+        if not (far and tint.get((int(px) // 2, int(py) // 4)) == 'lethal'):
+            frame.canvas.dot(int(px), int(py), 'hits' if far else 'hits.near')

@@ -8,6 +8,7 @@ measured frame cost stays over `BUDGET_MS`.
 """
 
 from mhseals_testing.ui.minimap.canvas import Canvas
+from mhseals_testing.ui.minimap.layers import TrailColumns
 
 MAP_HZ = 5.0
 DRIVE_HZ = 2.0
@@ -20,6 +21,7 @@ class LayerCache:
 
     def __init__(self):
         self._items = {}  # name -> (key, canvas)
+        self.trail = TrailColumns()   # the trail's arrays, converted only where the trail changed
 
     def get(self, name, key, build):
         """The layer ``name`` for ``key``; ``build()`` runs only when the key changed."""
