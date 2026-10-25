@@ -2,9 +2,13 @@
 
 A costmap is 58-250 KB per message, so its subscription exists only while a
 consumer holds a lease on it (``LazySub``). The cheap feeds (pose, plan,
-local plan, objects, GPS quality, tf_static) are always on and go straight
-into ``MapState``; the session owner also writes trail.jsonl (``want_trail``).
+local plan, tracks, GPS quality, tf_static, the camera fov) are always on and go
+straight into ``MapState``; the session owner also writes trail.jsonl (``want_trail``).
 Everything but the ROS wiring in ``MapFeeds`` is pure and tested with fakes.
+
+Tracks come from ``/perception/tracks`` (mhseals_nav ``TrackArray``, perception-v2 2); the
+message types are imported only in ``perception_msgs``, and a stack without them keeps
+``/objects/map``.
 """
 
 import math
@@ -22,6 +26,9 @@ from mhseals_testing.ui.minimap.marks import Obj
 from mhseals_testing.ui.minimap.state import UNKNOWN_SPEED, MapState
 
 LOCAL, GLOBAL = '/local_costmap/costmap', '/global_costmap/costmap'
+TRACKS, STATUS, OBJECTS = '/perception/tracks', '/perception/status', '/objects/map'
+MOTIONS = ('unknown', 'static', 'moving')   # Track.MOTION_UNKNOWN, _STATIC, _MOVING
+SOURCES = ('live', 'prior')                 # Track.SOURCE_LIVE, _PRIOR
 RECORDED = '/mhseals_testing/minimap/costmap'
 RECORD_PERIOD = 5.0     # s between recorded costmaps (0.2 Hz)
 RECORD_RES = 0.4        # m per cell of the recorded costmap
@@ -56,6 +63,53 @@ def object_marks(message):
             continue
         out.append(Obj(position.x, position.y, str(hypothesis.class_id), float(hypothesis.score)))
     return out
+
+
+def perception_msgs():
+    """The mhseals_nav message module (TrackArray, ObservationArray), or None on a stack without it."""
+    try:
+        from mhseals_nav import msg
+        return msg if hasattr(msg, 'TrackArray') else None
+    except ImportError:
+        return None
+
+
+def track_marks(message):
+    """marks.Obj per Track of a TrackArray: map position, class, existence confidence as the score,
+    motion, velocity, size and source; a non-finite position means no object."""
+    out = []
+    for t in message.tracks:
+        p, v = t.pose.pose.position, t.twist.twist.linear
+        if not (math.isfinite(p.x) and math.isfinite(p.y)):
+            continue
+        out.append(Obj(p.x, p.y, str(t.class_id), float(t.confidence), False,
+                       MOTIONS[t.motion] if t.motion < len(MOTIONS) else 'unknown',
+                       float(v.x), float(v.y), float(t.size.x), float(t.size.y),
+                       SOURCES[t.source] if t.source < len(SOURCES) else 'live'))
+    return out
+
+
+def backend_fov(message):
+    """``{hfov_deg, range_m, frame}`` from the backend stage (``perception/<s>/backend``) of a
+    /perception/status DiagnosticArray, or None when it has none or the keys are missing."""
+    for status in message.status:
+        if status.name.startswith('perception/') and status.name.endswith('/backend'):
+            values = {kv.key: kv.value for kv in status.values}
+            try:
+                fov = {'hfov_deg': float(values['hfov_deg']), 'range_m': float(values['range_m']),
+                       'frame': str(values['frame'])}
+            except (KeyError, ValueError):
+                return None
+            return fov if math.isfinite(fov['hfov_deg']) and math.isfinite(fov['range_m']) else None
+    return None
+
+
+def navsat_accuracy(message):
+    """Horizontal accuracy (m) from a NavSatFix covariance, or None when it is unknown."""
+    cov = getattr(message, 'position_covariance', None)
+    if getattr(message, 'position_covariance_type', 0) <= 0 or not all(math.isfinite(c) for c in (cov[0], cov[4])):
+        return None
+    return math.sqrt(max(cov[0], cov[4], 0.0))
 
 
 def static_transforms(message):
@@ -183,8 +237,13 @@ class MapFeeds:
         ingest = self.state.ingest
         node.create_subscription(path_type, '/plan', lambda m: ingest('plan', points=path_points(m)), 10)
         node.create_subscription(path_type, '/local_plan', lambda m: ingest('local_plan', data=path_points(m)), 10)
-        node.create_subscription(objects_type, '/objects/map',
-                                 lambda m: ingest('objects', items=object_marks(m)), 10)
+        msgs = perception_msgs()
+        if msgs is not None:
+            node.create_subscription(msgs.TrackArray, TRACKS, lambda m: ingest('objects', items=track_marks(m)), 1)
+        else:
+            node.create_subscription(objects_type, OBJECTS, lambda m: ingest('objects', items=object_marks(m)), 10)
+        from diagnostic_msgs.msg import DiagnosticArray
+        node.create_subscription(DiagnosticArray, STATUS, self._status, 10)
         node.create_subscription(tf_type, '/tf_static',
                                  lambda m: ingest('tf_static', transforms=static_transforms(m)),
                                  QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -193,6 +252,11 @@ class MapFeeds:
         except ImportError:
             return
         node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw', self._gps_raw, qos_profile_sensor_data)
+
+    def _status(self, m):
+        fov = backend_fov(m)
+        if fov:
+            self.state.ingest('fov', **fov)
 
     def _gps_raw(self, m):
         if m.fix_type != self.gps[0]:
@@ -232,6 +296,9 @@ class MapFeeds:
             self.state.ingest('costmap', data=message)
 
     def _fix(self, m):
+        h_acc = navsat_accuracy(m)
+        if h_acc is not None:
+            self.state.ingest('gps_cov', h_acc_m=h_acc, status=m.status.status)
         if m.status.status >= 0 and math.isfinite(m.latitude):
             self.origin = self.origin or (m.latitude, m.longitude)
             self.fix_xy = enu(m.latitude, m.longitude, self.origin)

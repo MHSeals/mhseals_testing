@@ -169,7 +169,8 @@ def feed_pairs(node, count, theta):
 def test_no_costmap_subscription_until_a_layer_lease():
     now = [0.0]
     node, _, map_feeds = wired(lambda: now[0])
-    assert {'/gps/fix', '/odom/global', '/odom/gps', '/plan', '/local_plan', '/objects/map',
+    objects = feeds.TRACKS if feeds.perception_msgs() else feeds.OBJECTS
+    assert {'/gps/fix', '/odom/global', '/odom/gps', '/plan', '/local_plan', objects, feeds.STATUS,
             '/tf_static'} <= {t for t, _ in node.live}
     map_feeds.want_layers(True, False, 20)
     assert feeds.GLOBAL in [t for t, _ in node.live]
@@ -233,7 +234,8 @@ def ns(**kw):
     return types.SimpleNamespace(**kw)
 
 
-def test_plan_objects_gps_and_tf_reach_map_state():
+def test_plan_objects_gps_and_tf_reach_map_state(monkeypatch):
+    monkeypatch.setattr(feeds, 'perception_msgs', lambda: None)   # a stack without the v2 messages
     node, _, map_feeds = wired(lambda: 0.0)
     live = dict(node.live)
     pose = lambda x, y: ns(pose=ns(position=ns(x=x, y=y)))
@@ -297,3 +299,72 @@ def test_crumbs_are_stamped_in_wall_time_not_monotonic(tmp_path):
     dict(node.live)['/odom/global'](odom(1.0, 2.0))
     assert map_feeds.state.crumbs[0]['t'] == 1.7e9
     assert data.read_jsonl(tmp_path / 'minimap' / 'trail.jsonl')[0]['t_ns'] == int(1.7e18)
+
+
+def track(tid=1, cls='red_buoy', x=1.0, y=2.0, vx=0.0, vy=0.0, motion=1, source=0, confidence=0.8):
+    vec = lambda a, b: ns(x=a, y=b, z=0.0)
+    return ns(id=tid, class_id=cls, class_score=0.9, backend_id='', motion=motion, source=source,
+              pose=ns(pose=ns(position=vec(x, y))), twist=ns(twist=ns(linear=vec(vx, vy))),
+              size=vec(0.4, 0.4), confidence=confidence)
+
+
+def test_track_marks_map_motion_source_velocity_and_skip_bad_positions():
+    message = ns(tracks=[track(), track(2, 'yellow_target_boat', 3, 4, 1.5, -0.5, motion=2),
+                         track(3, motion=0, source=1), track(4, motion=9, source=7), track(5, x=float('nan'))])
+    marks = feeds.track_marks(message)
+    assert marks[0] == Obj(1.0, 2.0, 'red_buoy', 0.8, False, 'static', 0.0, 0.0, 0.4, 0.4, 'live')
+    assert (marks[1].motion, marks[1].vx, marks[1].vy) == ('moving', 1.5, -0.5)
+    assert (marks[2].motion, marks[2].source) == ('unknown', 'prior')
+    assert (marks[3].motion, marks[3].source) == ('unknown', 'live') and len(marks) == 4
+
+
+def test_backend_fov_reads_the_backend_stage_only():
+    kv = lambda **values: [ns(key=k, value=v) for k, v in values.items()]
+    tracker = ns(name='perception/zed_native/tracker', values=kv(hz='10'))
+    backend = ns(name='perception/zed_native/backend', values=kv(hfov_deg='110', range_m='20', frame='front_camera_link'))
+    assert feeds.backend_fov(ns(status=[tracker])) is None
+    assert feeds.backend_fov(ns(status=[tracker, backend])) == {'hfov_deg': 110.0, 'range_m': 20.0,
+                                                                'frame': 'front_camera_link'}
+    assert feeds.backend_fov(ns(status=[ns(name='perception/sim/backend', values=kv(hfov_deg='x'))])) is None
+
+
+def test_navsat_accuracy_needs_a_known_covariance():
+    fix = lambda kind, cov: ns(position_covariance_type=kind, position_covariance=cov)
+    assert feeds.navsat_accuracy(fix(0, [1.0] * 9)) is None
+    assert feeds.navsat_accuracy(fix(2, [0.04, 0, 0, 0, 0.09, 0, 0, 0, 1])) == pytest.approx(0.3)
+    assert feeds.navsat_accuracy(ns()) is None
+
+
+def test_tracks_status_and_navsat_reach_map_state(monkeypatch):
+    monkeypatch.setattr(feeds, 'perception_msgs', lambda: ns(TrackArray=object))
+    node, _, map_feeds = wired(lambda: 0.0)
+    live = dict(node.live)
+    assert feeds.OBJECTS not in live
+    live[feeds.TRACKS](ns(tracks=[track(motion=2, vx=1.0)]))
+    kv = lambda **values: [ns(key=k, value=v) for k, v in values.items()]
+    live[feeds.STATUS](ns(status=[ns(name='perception/sim/backend', values=kv(hfov_deg='90', range_m='15', frame='cam'))]))
+    live['/gps/fix'](ns(status=ns(status=0), latitude=float('nan'), longitude=0.0,
+                        position_covariance_type=2, position_covariance=[0.25, 0, 0, 0, 0.25, 0, 0, 0, 1]))
+    state = map_feeds.state
+    assert state.objects[0].motion == 'moving' and state.fov == {'hfov_deg': 90.0, 'range_m': 15.0, 'frame': 'cam'}
+    assert state.accuracy() == (0.5, '3d')
+
+
+def test_real_track_and_observation_messages_fit_the_adapters():
+    msgs = feeds.perception_msgs()
+    if msgs is None:
+        pytest.skip('mhseals_nav perception messages not built')
+    from mhseals_testing.ros.camera_feed import ObservationBoxes
+    t = msgs.Track(class_id='yellow_target_boat', motion=msgs.Track.MOTION_MOVING, source=msgs.Track.SOURCE_PRIOR,
+                   confidence=0.75)
+    t.pose.pose.position.x, t.pose.pose.position.y, t.twist.twist.linear.x = 3.0, 4.0, 1.5
+    mark = feeds.track_marks(msgs.TrackArray(tracks=[t]))[0]
+    assert (mark.x, mark.y, mark.motion, mark.source, mark.vx) == (3.0, 4.0, 'moving', 'prior', 1.5)
+    assert mark.score == pytest.approx(0.75)
+    o = msgs.Observation(class_id='red_buoy', has_box2d=True, box2d=[0.1, 0.2, 0.3, 0.4])
+    calls = []
+    boxes = ObservationBoxes(lambda topic, cb: calls.append(cb) or 1, lambda h: None, lambda label: label,
+                             clock=lambda: 5.0)
+    boxes.want(True)
+    calls[0](msgs.ObservationArray(processing_latency=0.0, observations=[o]))
+    assert boxes.rects((100, 100), at=5.0) == [((10, 20, 30, 40), 'red_buoy')]
