@@ -144,7 +144,7 @@ def world():
 
 def make(world, recorded=None, **kwargs):
     ticks = iter(x * 0.5 for x in range(10 ** 6))
-    record = (lambda: recorded.append(1)) if recorded is not None else None
+    record = (lambda: recorded.append(1)) if recorded is not None else kwargs.pop('record', None)
     return Nav2Live(world, me=kwargs.pop('me', 4242), record=record,
                     sleep=lambda s: None, clock=lambda: next(ticks), **kwargs)
 
@@ -831,6 +831,46 @@ def test_the_popup_previews_from_the_live_nodes_and_applies_live(tmp_path):
     assert app.notice == 'Nav2 applied 1 key(s) live'
     assert world.nodes['/controller_server']['FollowPath.vx_max'] == 0.5
     assert reset_calls(world)[:2] == ['reset', 'set']
+
+
+EDITED = 'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.9\n'
+
+
+def test_cli_records_the_content_it_applied_not_an_edit_saved_meanwhile(world, tmp_path):
+    from mhseals_testing import nav2_limits
+    from mhseals_testing.history import History
+    original = world.put
+
+    def edit_meanwhile(node, values):
+        nav2_limits.path().write_text(EDITED)
+        return original(node, values)
+    world.put = edit_meanwhile
+    assert run_cli(world, tmp_path, '--yes', '--json')[0] == 0
+    history = History()
+    stored = history.version(history.head('nav2'))
+    assert stored['raw'] == FILE and stored['value']['controller_server'] is not None
+    assert stored['value']['controller_server']['ros__parameters']['FollowPath']['wz_max'] == 0.4
+
+
+def test_the_tui_records_the_previewed_content_not_an_edit_saved_meanwhile(tmp_path):
+    from test_app import nav2_app
+    from mhseals_testing.ui.app import nav2_recorder
+    world = World()
+    app, path = nav2_app(tmp_path)
+    original = world.put
+
+    def edit_meanwhile(node, values):
+        path.write_text(EDITED)
+        return original(node, values)
+    world.put = edit_meanwhile
+    live = make(world, record=nav2_recorder(lambda: app))
+    app.nav2_live_factory = lambda: live
+    app.nav2_file.applier = app.apply_nav2_live
+    assert app.nav2_file.apply() == 'Nav2 applied 1 key(s) live'
+    stored = app.history.version(app.history.head('nav2'))
+    follow = stored['value']['controller_server']['ros__parameters']['FollowPath']
+    assert follow == {'vx_max': 0.5} and 'vx_max: 0.5' in stored['raw']
+    assert app.nav2_file.applying is None
 
 
 def test_the_popup_offers_only_close_when_refused_and_a_watcher_never_applies(tmp_path):

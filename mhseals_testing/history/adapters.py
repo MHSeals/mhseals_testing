@@ -123,6 +123,17 @@ def record_file(history, sub, source, path=None, warn=None, applied=None):
     return _capture(history, sub, path, warn, source=source, **extra)
 
 
+def record_value(history, sub, source, value, raw=None, warn=None, applied=None):
+    """Log ``value``, the content that was applied (not the file as it is now), as ``source``."""
+    extra = {'applied': applied} if applied else {}
+    try:
+        return history.record(sub, value, raw, source=source, **extra)
+    except Exception as error:      # the apply already happened; history is best effort
+        if warn:
+            warn(f'Config history could not record {sub}: {error}')
+        return None
+
+
 def observe_all(history, paths=None, warn=None):
     """Observe every file subsystem; ``paths`` overrides locations by name."""
     paths = paths or {}

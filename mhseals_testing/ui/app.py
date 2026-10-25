@@ -2565,15 +2565,26 @@ def detach(*_):
     raise Detach
 
 
+def nav2_recorder(app):
+    """Return the history writer for a live apply: the content Nav2File handed to it.
+
+    Not the file as it is now, so an edit saved during the apply is not recorded as applied.
+    """
+    def record():
+        applying = getattr(app().nav2_file, 'applying', None)
+        if applying:
+            adapters.record_value(app().history, 'nav2', 'tui:nav2-live', *applying,
+                                  app().warn_history, applied='live-session')
+    return record
+
+
 def build_nav2_live(ros, registry, profile, app):
     """Build the live Nav2 applier for this session owner (``app``: a callable, built later)."""
     from mhseals_testing.harness.nav2_live import Nav2Live
     from mhseals_testing.ros.nav2_live import RosPorts
     ports = RosPorts(ros.node, registry, lambda phase, **fields: ros.emit(phase, **fields),
                      lambda: bool(app().armed) and muxed(profile))
-    return Nav2Live(ports, me=os.getpid(), record=lambda: adapters.record_file(
-        app().history, 'nav2', 'tui:nav2-live', nav2_limits.path(), app().warn_history,
-        applied='live-session'))
+    return Nav2Live(ports, me=os.getpid(), record=nav2_recorder(app))
 
 
 def review_main(args, profile):

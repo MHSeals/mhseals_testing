@@ -62,7 +62,8 @@ class Nav2File:
     def __init__(self, path, applier=None):
         self.path, self.applier = Path(path), applier
         self.error = ''
-        self.current = {}
+        self.current, self.raw = {}, None
+        self.applying = None   # (content, raw) handed to the applier; what history records
         self.read()
         self.applied = {}
         self.verified = False
@@ -80,7 +81,8 @@ class Nav2File:
         """Parse the file into ``current``; set ``error`` ('' when usable or missing)."""
         self.error = ''
         try:
-            data = yaml.safe_load(self.path.read_text())
+            text = self.path.read_text()
+            data = yaml.safe_load(text)
         except OSError:
             self.error = 'unreadable'
             return  # keep the last good content
@@ -91,7 +93,7 @@ class Nav2File:
         if data is not None and not isinstance(data, dict):
             self.error = 'not a mapping'
             return
-        self.current = data or {}
+        self.current, self.raw = data or {}, text
 
     def poll(self):
         """One tick; the toast text once a changed file has settled, else ''."""
@@ -166,10 +168,13 @@ class Nav2File:
         # runtime state if the attempt fails or only partially takes effect.
         expected = self.requested(content)
         self.verified = False
+        self.applying = (deepcopy(content), self.raw if content is self.current else None)
         try:
             outcome = self.applier(expected) or {}
         except Exception as error:  # the applier reports its own refusals; never crash the page
             return f'Nav2 apply failed: {error}'
+        finally:
+            self.applying = None
         if not isinstance(outcome, dict):
             return 'Nav2 apply unverified: invalid receipt'
         if outcome.get('refused') or outcome.get('blocked'):

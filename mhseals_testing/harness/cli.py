@@ -182,7 +182,9 @@ def apply_nav2(args, ports=None, **timing):
     from mhseals_testing.history import History, adapters
     path = nav2_limits.path()
     try:
-        requested = nav2_edit.flatten(nav2_limits.load(path))
+        raw = path.read_text() if path.exists() else ''
+        content = nav2_limits.load(path, raw)
+        requested = nav2_edit.flatten(content)
     except (OSError, ValueError) as error:
         print(f'boat_trial config apply: {path}: {error}', file=sys.stderr)
         return nav2_live.REFUSED
@@ -195,8 +197,8 @@ def apply_nav2(args, ports=None, **timing):
         ports = RosPorts(node, registry, session_journal(registry),
                          lambda: cli_mux_expected(registry, box[0].authority()))
         box.append(ports)
-    live = nav2_live.Nav2Live(ports, record=lambda: adapters.record_file(
-        History(), 'nav2', 'cli:apply-nav2', path, applied='live-session'), **timing)
+    live = nav2_live.Nav2Live(ports, record=lambda: adapters.record_value(
+        History(), 'nav2', 'cli:apply-nav2', content, raw, applied='live-session'), **timing)
     try:
         return nav2_live.cli_apply(requested, live, yes=args.yes, now=args.now,
                                    as_json=args.json)

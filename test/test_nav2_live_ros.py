@@ -602,6 +602,7 @@ def test_a_reset_is_refused_while_a_goal_runs_even_with_now(stack, live):
 
 def test_the_tui_wiring_applies_only_as_the_session_owner(stack, live, tmp_path):
     from mhseals_testing import nav2_limits
+    from mhseals_testing.harness.nav2_edit import Nav2File
     from mhseals_testing.history import History
     from mhseals_testing.profiles import load_profile
     from mhseals_testing.ui.app import build_nav2_live
@@ -612,9 +613,9 @@ def test_the_tui_wiring_applies_only_as_the_session_owner(stack, live, tmp_path)
     nav2_limits.path().write_text(
         'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.25\n')
     tui = build_nav2_live(ros, stack.registry, load_profile('boat'), lambda: app)
+    app.nav2_file = Nav2File(nav2_limits.path(), tui.applier)
     assert tui.me == os.getpid()
-    receipt = tui.apply(ask(wz_max=0.25))
-    assert receipt['status'] == 'verified', receipt
+    assert app.nav2_file.apply() == 'Nav2 applied 1 key(s) live'
     assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
     assert events == ['nav2_live_intent', 'nav2_live_outcome']
     change = app.history.head('nav2')

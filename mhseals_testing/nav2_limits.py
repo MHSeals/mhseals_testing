@@ -25,10 +25,13 @@ def path():
     return Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'mhseals/nav2.yaml'
 
 
-def load(target=None):
-    """The overlay mapping; a missing, empty or non-mapping file is no overlay."""
+def load(target=None, text=None):
+    """Return the overlay mapping; a missing, empty or non-mapping file is no overlay.
+
+    ``text`` is the file's content already read, so a caller parses what it holds.
+    """
     try:
-        loaded = load_strict(Path(target or path()).read_text())
+        loaded = load_strict(Path(target or path()).read_text() if text is None else text)
     except FileNotFoundError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
