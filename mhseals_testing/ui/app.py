@@ -396,8 +396,25 @@ class App:
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
         rival = self.arming.rival() if self.arming and self.profile.outputs != 'none' else ''
-        return (self.blockers() + ([rival] if rival else []) + self.plant.conflicts()
-                + self.foreign_blockers())
+        refusal = self.thruster_refusal()
+        return (self.blockers() + ([rival] if rival else []) + ([refusal] if refusal else [])
+                + self.plant.conflicts() + self.foreign_blockers())
+
+    def thruster_refusal(self):
+        """Why the real thruster driver may not start on this computer, or ''.
+
+        Only a device-registry host with the ``thrusters`` capability drives real pins; a laptop
+        or the camera host running a boat profile must not. An unreadable registry refuses too.
+        """
+        if self.profile.outputs != 'odroid':
+            return ''
+        try:
+            me = self.profile.placed[0]
+        except DeviceError as error:
+            return f'device registry: {error}'
+        if 'thrusters' not in me.capabilities:
+            return f'{me.name} has no thrusters capability in devices.yaml; the driver runs on the boat computer'
+        return ''
 
     def foreign_instances(self):
         """Suite nodes on the graph that no live registry entry explains: (seen, confirmed live).
@@ -2134,6 +2151,10 @@ class App:
                 return
             if self.arming is None:
                 raise RuntimeError('this session cannot arm (no ROS)')
+            refusal = self.thruster_refusal()
+            if refusal:
+                self.notice = f'Arming refused: {refusal}'
+                return
             if self.profile.outputs == 'odroid':
                 ok = self.confirm_drive(title)
             else:

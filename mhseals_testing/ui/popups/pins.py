@@ -47,6 +47,9 @@ def edit_pins(app):
         return f'Pins not saved: {app.notice}'
     if app.profile.outputs != 'odroid' or app.arming is None:
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
+    refusal = app.thruster_refusal()
+    if refusal:
+        return f'Pins saved; driver not started: {refusal}'
     try:   # the readback starts the real driver: the same typed word as arming
         ok = app.confirm_drive(f'Pin readback{theme.SEPARATOR}{app.profile.name}')
     except Cancelled:
