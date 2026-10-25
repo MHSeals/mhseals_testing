@@ -10,11 +10,10 @@ from fnmatch import fnmatch
 import json
 import math
 import os
-import uuid
 
 import numpy as np
 import pytest
-from simrig import PERCEPTION, read_bag, run_perception_case
+from simrig import PERCEPTION, pick_domain, read_bag, run_perception_case
 import yaml
 
 CFG = yaml.safe_load(PERCEPTION.read_text())
@@ -157,12 +156,12 @@ def test_perception_command_sets_the_mode_and_case_after_the_node_appears():
     assert sum(r[0] for r in json.loads(lines[-2].split(' ', 3)[3].strip("'"))) >= 300
 
 
-def test_perception_session_uses_the_camera_rig_config_and_the_overlay(monkeypatch):
+def test_perception_session_uses_the_camera_rig_config_and_the_overlay(monkeypatch, tmp_path):
     import simrig
     from pathlib import Path
     seen = {}
     monkeypatch.setattr(simrig.subprocess, 'run', lambda cmd, **kw: seen.setdefault('cmd', cmd))
-    simrig.run_perception_case(Path('/rig'), '/out', 'zed', overlay='/ov', domain=210)
+    simrig.run_perception_case(Path('/rig'), tmp_path / 's', 'zed', overlay='/ov', domain=210)
     cmd = seen['cmd']
     assert cmd[cmd.index('--config') + 1] == '/rig/rig-camera.yaml'
     assert cmd[cmd.index('--overlay') + 1] == '/ov' and '--run' in cmd
@@ -173,11 +172,11 @@ def test_perception_session_uses_the_camera_rig_config_and_the_overlay(monkeypat
 @pytest.fixture(scope='module', params=['plain', 'zed'])
 def perception(request, rig, tmp_path_factory):
     """Record a metamorphic session per mode; $SIMRIG_OVERLAY names a v2 mhseals_nav install."""
-    domain = 200 + uuid.uuid4().int % 29
+    pytest.importorskip('rosbag2_py')   # before the five-minute recording, not after it
+    domain, seed = pick_domain()
     out = tmp_path_factory.mktemp(f'perception_{request.param}') / 's'
     session = run_perception_case(rig, out, request.param, CFG['case'], CFG['seconds'],
-                                  domain=domain, overlay=os.environ.get('SIMRIG_OVERLAY'))
-    pytest.importorskip('rosbag2_py')
+                                  domain=domain, overlay=os.environ.get('SIMRIG_OVERLAY'), seed=seed)
     return request.param, load_session(session)
 
 

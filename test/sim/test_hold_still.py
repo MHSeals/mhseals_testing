@@ -29,8 +29,9 @@ def test_session_records_the_truth_the_checks_compare_with(session):
     assert (session / 'bag').is_dir()
 
 
-def test_hold_still_drift_matches_the_scene_current(session):
-    pytest.importorskip('rosbag2_py')
+def test_hold_still_drift_matches_the_scene_current(request):
+    pytest.importorskip('rosbag2_py')   # before the session fixture records one
+    session = request.getfixturevalue('session')
     t, vel, heading, rate = read_odometry(session)
     keep = t > t[0] + SETTLE_S
     s = c.load_settings()

@@ -8,12 +8,30 @@ import math
 import os
 import shlex
 import subprocess
+import uuid
 from pathlib import Path
 
 import numpy as np
 import yaml
 
 PERCEPTION = Path(__file__).with_name('perception_sim.yaml')
+RUN_RECORD = 'simrig_run.json'   # the session's DDS domain and the draw that chose it
+
+
+def pick_domain():
+    """(domain, seed): a DDS domain in the network rule's 200..228 (run_sim.sh refuses > 232)."""
+    seed = uuid.uuid4().int
+    return 200 + seed % 29, seed
+
+
+def run_rig(cmd, out, timeout, domain=None, seed=None):
+    """Run the rig, then write the domain and seed into the session dir, also when the run fails."""
+    try:
+        subprocess.run(cmd, check=True, timeout=timeout)
+    finally:
+        Path(out).mkdir(parents=True, exist_ok=True)
+        (Path(out) / RUN_RECORD).write_text(json.dumps({'domain': domain, 'seed': seed}) + '\n')
+    return Path(out)
 
 
 def rig_dir(env=None):
@@ -23,7 +41,7 @@ def rig_dir(env=None):
     return path if env.get('SIMRIG') and (path / 'run_sim.sh').is_file() else None
 
 
-def run_hold_still(rig, out, seconds=45, domain=None):
+def run_hold_still(rig, out, seconds=45, domain=None, seed=None):
     """Record a neutral boat (no drive) for ``seconds`` into ``out``.
 
     No ``--smoke``: its gates need thruster frames, which a neutral session lacks.
@@ -31,8 +49,7 @@ def run_hold_still(rig, out, seconds=45, domain=None):
     cmd = [str(rig / 'run_sim.sh'), '--no-drive', '-d', str(seconds), '-o', str(out)]
     if domain:
         cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
-    subprocess.run(cmd, check=True, timeout=seconds + 300)
-    return Path(out)
+    return run_rig(cmd, out, seconds + 300, domain, seed)
 
 
 def truth_current(truth):
@@ -94,7 +111,7 @@ def perception_command(mode, case, cfg):
 
 
 def run_perception_case(rig, out, mode, case='metamorphic', seconds=300, domain=None,
-                        overlay=None):
+                        overlay=None, seed=None):
     """Record one sim_backend ``mode`` session running ``case`` into ``out`` (bag: perception/).
 
     ``overlay`` is a container install with the perception-v2 mhseals_nav when the rig's
@@ -107,8 +124,7 @@ def run_perception_case(rig, out, mode, case='metamorphic', seconds=300, domain=
         cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
     if overlay:
         cmd += ['--overlay', str(overlay)]
-    subprocess.run(cmd, check=True, timeout=seconds + 300)
-    return Path(out)
+    return run_rig(cmd, out, seconds + 300, domain, seed)
 
 
 def read_bag(path, topics):

@@ -5,11 +5,10 @@
 """
 import os
 from pathlib import Path
-import uuid
 
 import pytest
 
-from simrig import rig_dir, run_hold_still
+from simrig import pick_domain, rig_dir, run_hold_still
 
 
 def pytest_collection_modifyitems(items):
@@ -32,5 +31,5 @@ def session(rig, tmp_path_factory):
     given = os.environ.get('SIMRIG_SESSION')
     if given:
         return Path(given)
-    domain = 200 + uuid.uuid4().int % 29  # network rule 200..228; run_sim.sh refuses > 232
-    return run_hold_still(rig, tmp_path_factory.mktemp('hold_still') / 's', domain=domain)
+    domain, seed = pick_domain()
+    return run_hold_still(rig, tmp_path_factory.mktemp('hold_still') / 's', domain=domain, seed=seed)
