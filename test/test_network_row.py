@@ -7,7 +7,8 @@ import pytest
 from mhseals_testing.health.network import NetworkRow
 from test_network import Clock, proc
 
-NO_PINGS = dict(pinger=lambda peers: None)      # test_pinger.py covers the peer pings
+LAN = Path(__file__).resolve().parent / 'data' / 'boat-network.env'
+NO_PINGS = dict(pinger=lambda peers: None, targets={}, env_file=LAN)   # test_pinger.py covers the pings
 
 
 @pytest.fixture

@@ -1,12 +1,12 @@
 """The Status `Network` row: boat-link facts judged by config/health/network.yaml.
 
-``peers`` there names hosts to ping (the camera host); each name's address comes from the
-DHCP reservations in the workspace's config/boat-network.env, else from the resolver.
+The boat subnet is ``BOAT_SUBNET`` in the workspace's config/boat-network.env (without it there is
+no boat link to watch and the row stays hidden). The hosts pinged are those of the device
+registry's ``ping:`` roles, never this machine (mhseals_testing.devices); the worst host's loss and
+round trip are judged, and the row names that host.
 """
 
-import shlex
-
-from mhseals_testing import data
+from mhseals_testing import devices
 from mhseals_testing.health import config
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.netstat import Link
@@ -15,30 +15,26 @@ from mhseals_testing.health.pinger import Pinger
 GROUP = 'Network & DDS'
 LEVELS = {'ok': 'OK', 'info': 'OK', 'unknown': 'N/A', 'warn': 'WARN', 'fail': 'FAIL'}
 PERIOD = 5.0                 # seconds between /proc reads
+PEER_FACTS = ('net.loss_pct', 'net.rtt_ms')   # the worst pinged host's, labelled with its name
 
 
-def lease_addresses(path):
-    """{hostname: address} from STATIC_LEASES (``MAC=hostname=address ...``); {} if unreadable."""
+def ping_targets(env_file=None):
+    """{host: address} of the registry's ping roles, never this machine; {} if the registry is refused."""
     try:
-        text = path.read_text()
-    except OSError:
+        registry = devices.load(env=env_file)
+        return devices.ping_targets(registry, devices.whoami(registry, devices.local_addresses()))
+    except devices.DeviceError:
         return {}
-    for line in text.splitlines():
-        name, _, value = line.partition('=')
-        if name.strip() == 'STATIC_LEASES':
-            try:
-                words = shlex.split(value, comments=True)
-            except ValueError:       # an unclosed quote: no reservations, never a crashed TUI
-                return {}
-            leases = [word.split('=') for word in (words[0].split() if words else ())]
-            return {lease[1]: lease[2] for lease in leases if len(lease) == 3}
-    return {}
 
 
-def peer_addresses(peers, lan_file=None):
-    """{peer: address} for the pinger; a host with no reservation is left for the resolver."""
-    leases = lease_addresses(lan_file or data.workspace() / 'config' / 'boat-network.env')
-    return {name: leases.get(host, host) for name, host in peers.items()}
+def worst(facts):
+    """``facts`` plus ``net.loss_pct`` and ``net.rtt_ms``: the worst host's, labelled with it."""
+    out = dict(facts)
+    for name in PEER_FACTS:
+        found = [fact for key, fact in facts.items() if key.startswith(name + '.')]
+        if found:
+            out[name] = max(found, key=lambda fact: fact.value)
+    return out
 
 
 class NetworkRow:
@@ -48,17 +44,18 @@ class NetworkRow:
     losing it reads FAIL so the row cannot keep its last OK.
     """
 
-    def __init__(self, directory=None, user=None, root='/', clock=None, lan_file=None,
-                 pinger=Pinger, **link):
+    def __init__(self, directory=None, user=None, root='/', clock=None, env_file=None,
+                 targets=None, pinger=Pinger, **link):
         loaded = config.load(directory, user=user if user is not None else False)
         self.specs = [s for s in loaded.specs if s.group == GROUP]
         settings = loaded.probes.get('network', {})
         kwargs = {'clock': clock} if clock else {}
-        self.link = Link(settings.get('subnet', '192.168.0.0/24'), root=root, **kwargs, **link)
+        subnet = devices.env_values(env_file or devices.layer_paths()[3]).get('BOAT_SUBNET')
+        self.link = Link(subnet, root=root, **kwargs, **link) if subnet else None
         self.engine = Engine(self.specs, **kwargs)
         self.period = settings.get('period', PERIOD)
-        peers = settings.get('peers') or {}
-        self.pinger = pinger(peer_addresses(peers, lan_file)) if peers else None
+        targets = ping_targets(env_file) if targets is None else targets
+        self.pinger = pinger(targets) if targets and self.link else None
         self.pinging = False         # started with the first boat-link sample, never off the boat
         self.next = None
         self.facts = {}
@@ -66,6 +63,8 @@ class NetworkRow:
         self.seen = False            # a boat link has been shown; losing it must not go quiet
 
     def poll(self):
+        if self.link is None:
+            return None
         now = self.link.clock()
         if self.next is not None and now < self.next:
             return self.shown
@@ -75,7 +74,7 @@ class NetworkRow:
             if not self.pinging:
                 self.pinger.start()
                 self.pinging = True
-            self.facts.update(self.pinger.facts())
+            self.facts.update(worst(self.pinger.facts()))
         if self.facts:
             self.seen, self.shown = True, self.render()
         elif self.seen and self.link.known == set():
@@ -90,7 +89,8 @@ class NetworkRow:
         bad = [(i, r) for i, r in report.results.items() if r.status in ('warn', 'fail')]
         if bad:
             i, r = max(bad, key=lambda b: (b[1].status == 'fail',))
-            return LEVELS[r.status], f'{r.value}; {titles[i]}'
+            host = (r.data or {}).get('label') if i.startswith('net.peer.') else None
+            return LEVELS[r.status], f'{r.value}; {titles[i]}' + (f' {host}' if host else '')
         rx, tx = self.facts.get('net.rx_bps'), self.facts.get('net.tx_bps')
         iface = next(iter(self.facts.values())).label
         if rx is None or tx is None:

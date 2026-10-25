@@ -100,17 +100,23 @@ def test_forbidden_socket_yields_no_facts():
     assert p.available is False and p.facts() == {}
 
 
-def test_peer_addresses_come_from_the_lan_reservations_else_the_resolver(tmp_path):
-    from mhseals_testing.health.network import lease_addresses, peer_addresses
+def test_ping_targets_are_the_registry_ping_roles_never_this_machine(tmp_path, monkeypatch):
+    from mhseals_testing import devices
+    from mhseals_testing.health.network import ping_targets
     lan = tmp_path / 'boat-network.env'
     lan.write_text('ROUTER_IP=10.0.0.1\n'
                    'STATIC_LEASES="aa:bb=boat-pc=10.0.0.5 cc:dd=cam-host=10.0.0.6"  # leases\n')
-    assert lease_addresses(lan) == {'boat-pc': '10.0.0.5', 'cam-host': '10.0.0.6'}
-    peers = {'camera': 'cam-host', 'other': 'elsewhere.local'}
-    assert peer_addresses(peers, lan) == {'camera': '10.0.0.6', 'other': 'elsewhere.local'}
-    assert lease_addresses(tmp_path / 'missing.env') == {}
-    lan.write_text('STATIC_LEASES="aa:bb=cam-host=10.0.0.6\n')      # unclosed quote
-    assert lease_addresses(lan) == {} and peer_addresses(peers, lan) == peers
+    (tmp_path / 'devices.yaml').write_text(
+        'hosts:\n  boat-pc: {roles: [boat_computer]}\n  cam-host: {roles: [camera_host]}\n'
+        '  router: {roles: [router], address: $ROUTER_IP, ssh: false}\n'
+        'ping: [camera_host, boat_computer, router]\n')
+    package = devices.layer_paths()[0]
+    monkeypatch.setattr(devices, 'layer_paths', lambda: (package, tmp_path / 'devices.yaml',
+                                                         tmp_path / 'none.yaml', lan))
+    monkeypatch.setattr(devices, 'local_addresses', lambda: {'10.0.0.5'})     # this is boat-pc
+    assert ping_targets() == {'cam-host': '10.0.0.6', 'router': '10.0.0.1'}
+    (tmp_path / 'devices.yaml').write_text('hosts: {router: {address: $MISSING}}\n')
+    assert ping_targets() == {}                                  # a refused registry pings nothing
 
 
 class FakePinger:
@@ -130,23 +136,34 @@ def test_network_row_pings_the_camera_host_only_on_the_boat_link(tmp_path):
     from mhseals_testing.health.network import NetworkRow
     from test_network import Clock, proc
     lan = tmp_path / 'lan.env'
-    lan.write_text('STATIC_LEASES="aa=blastoise-jetson=10.1.2.3"\n')
+    lan.write_text('BOAT_SUBNET=192.168.0.0/24\n')
     made, held, clock = [], {}, Clock()
 
     def pinger(peers):
         made.append(FakePinger(peers))
         return made[-1]
+    targets = {'blastoise-jetson': '10.1.2.3', 'router': '10.1.2.1'}
     net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path,
-                     clock=clock, environ={}, addresses=lambda names: dict(held), lan_file=lan,
-                     pinger=pinger)
-    assert made[0].peers == {'camera': '10.1.2.3'}
+                     clock=clock, environ={}, addresses=lambda names: dict(held), env_file=lan,
+                     targets=targets, pinger=pinger)
+    assert made[0].peers == targets
     proc(tmp_path)
     assert net.poll() is None and made[0].started == 0          # off the boat: never ping
     held['end0'] = '192.168.0.152'
-    made[0].values = {'net.loss_pct.camera': Fact(100.0, label='camera')}
+    made[0].values = {'net.loss_pct.blastoise-jetson': Fact(100.0, label='blastoise-jetson'),
+                      'net.loss_pct.router': Fact(0.0, label='router')}
     for _ in range(4):                                          # past the check's raise time
         clock.now += 5
         proc(tmp_path)
         level, detail = net.poll()
     assert made[0].started == 1
-    assert (level, detail) == ('FAIL', '100.00 %; camera host ping loss')
+    assert (level, detail) == ('FAIL', '100.00 %; ping loss to blastoise-jetson')
+
+
+def test_network_row_is_hidden_without_a_boat_subnet(tmp_path):
+    from pathlib import Path
+    from mhseals_testing.health.network import NetworkRow
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path,
+                     environ={}, addresses=lambda names: {'end0': '192.168.0.152'},
+                     env_file=tmp_path / 'missing.env', targets={'x': '10.0.0.1'}, pinger=FakePinger)
+    assert net.poll() is None and net.pinger is None
