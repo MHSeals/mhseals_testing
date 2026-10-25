@@ -6,6 +6,7 @@ Metrics: analysis/nav_metrics.py.
 """
 
 import math
+import time
 
 from mhseals_testing.analysis.nav_metrics import path_length, station_keeping, waypoint_metrics
 
@@ -30,8 +31,13 @@ def square(pose, side):
     return route
 
 
-def current_pose(nav):
+def current_pose(nav, wait=3.0):
+    """The base pose in the map frame; a client created just now needs a moment to hear TF."""
+    deadline = time.monotonic() + wait
     pose = nav.pose()
+    while pose is None and time.monotonic() < deadline:
+        time.sleep(0.1)
+        pose = nav.pose()
     if pose is None:
         raise RuntimeError(f'no {nav.map_frame} -> {nav.base_frame} transform')
     return pose

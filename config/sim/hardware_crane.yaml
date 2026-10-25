@@ -1,0 +1,27 @@
+# Thruster characterization of the crane_ml boat (measured with open-loop effort holds at 0.3 and 1.0, speed_curves
+# e|e| = d1 v + d2 v|v|). Overrides over mhseals_hardware defaults; start.sh points MHSEALS_HARDWARE_CONFIG here.
+characterization:
+  speed_curves:
+    surge+:
+      d1: 0.0968
+      d2: 0.1494
+    surge-:
+      d1: 0.0828
+      d2: 0.158
+    sway+:
+      d1: 0.3264
+      d2: 0.2585
+    sway-:
+      d1: 0.0076
+      d2: 0.3337
+    yaw+:
+      d1: 0.1309
+      d2: 0.2433
+    yaw-:
+      d1: 0.1291
+      d2: 0.2445
+  motion_limits:
+    velocity:
+      surge: 2.04
+      sway: 1.29
+      yaw: 1.6

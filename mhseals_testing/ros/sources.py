@@ -24,4 +24,5 @@ def subscribe_sources(ros, topics=None):
 
 
 def _store(ros, name, message):
-    ros.sources[name] = validate('odometry', message, ros.now(), stale_after=ros.stale_after)
+    ros.sources[name] = validate('odometry', message, ros.now(), stale_after=ros.stale_after,
+                                    future=ros.profile.stamp_future)

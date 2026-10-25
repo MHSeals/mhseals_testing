@@ -11,6 +11,8 @@ import math
 import threading
 import time
 
+from mhseals_testing.validation import FUTURE_TOLERANCE
+
 PLOT_WINDOW = 10.0    # seconds of motion history the Motion plots draw
 COMMAND_SAMPLES = 2000  # about 40 s of the Runner's 50 Hz command loop
 HISTORY_SAMPLES = 120000  # 40 minutes at 50 Hz, covering a full 30-minute mission
@@ -22,8 +24,9 @@ ADVISORY_LEVELS = ('OK', 'WARN', 'FAIL', 'N/A')
 
 class BoatMonitor:
     def __init__(self, stale_after=2.0, clock=time.monotonic, history_sensors=('odometry',),
-                 deadlines=None, gyro_sensor=None):
+                 deadlines=None, gyro_sensor=None, future=FUTURE_TOLERANCE):
         self.stale_after = stale_after
+        self.future = future  # s a stamp may run ahead of the clock
         self.deadlines = dict(deadlines or {})  # per-sensor freshness, derived from rates
         self.clock = clock
         self.lock = threading.RLock()
@@ -125,7 +128,7 @@ class BoatMonitor:
     def _tf_fresh(self, now, received, age, static):
         """A TF edge counts toward a chain: static, or received and stamped within ``stale_after``."""
         return static or (now - received <= self.stale_after and
-                          -.25 <= age + now - received <= self.stale_after)
+                          -self.future <= age + now - received <= self.stale_after)
 
     def _sensor_rows(self, now):
         sensors = {}
@@ -138,7 +141,7 @@ class BoatMonitor:
             stamp_age, issue = entry['stamp_age'], entry['issue']
             if stamp_age is not None:
                 stamp_age += age  # the message has aged since it arrived
-                if stamp_age < -0.25:
+                if stamp_age < -self.future:
                     issue = issue or 'timestamp is in the future'
                 elif stamp_age > stale_after:
                     issue = issue or 'stale message timestamp'

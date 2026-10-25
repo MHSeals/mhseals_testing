@@ -21,6 +21,11 @@ def test_frames_drive_required_tf():
     assert load_profile('crane_direct').required_tf == (('odom', 'base_link'),)
 
 
+def test_stamp_future_defaults_to_the_boats_tolerance_and_is_wider_for_the_sim():
+    assert load_profile('boat').stamp_future == 0.25
+    assert load_profile('crane_full_stack').stamp_future > 0.25
+
+
 def test_velocity_control_needs_outputs():
     boat = load_profile('boat').with_velocity_control()
     assert boat.command_units == 'velocity' and boat.velocity_controller

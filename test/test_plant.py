@@ -61,6 +61,13 @@ def test_idle_plants_do_not_conflict_and_neutral_stays_silent():
     assert armed.conflicts() == []
 
 
+def test_nav2_smoother_is_not_a_rival_on_a_muxed_profile():
+    armed, idle = pair()
+    armed.engage()
+    armed.ros.name = '/velocity_smoother'
+    assert idle.conflicts() == []
+
+
 def test_release_withdraws_the_publisher():
     armed, idle = pair()
     armed.engage()

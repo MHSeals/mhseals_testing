@@ -141,7 +141,7 @@ def _detections(message):
     return values, ''
 
 
-def validate(kind, message, now, base_frame=None, stale_after=2.0):
+def validate(kind, message, now, base_frame=None, stale_after=2.0, future=FUTURE_TOLERANCE):
     """Check one message of ``kind`` received at ROS time ``now`` (seconds)."""
     if kind == 'odometry':
         values, issue = _odometry(message, base_frame)
@@ -166,7 +166,7 @@ def validate(kind, message, now, base_frame=None, stale_after=2.0):
     stamp_age = now - stamp_seconds(stamp)
     if stamp.sec == 0 and stamp.nanosec == 0:
         issue = issue or 'zero message timestamp'
-    elif stamp_age < -FUTURE_TOLERANCE or stamp_age > stale_after:
+    elif stamp_age < -future or stamp_age > stale_after:
         issue = issue or 'message timestamp outside freshness window'
     return Observation(values, issue, stamp_age)
 
@@ -174,7 +174,7 @@ def validate(kind, message, now, base_frame=None, stale_after=2.0):
 RAW_KINDS = ('points', 'image', 'compressed')  # heavy messages: only the header is read
 
 
-def validate_raw(data, now, stale_after=2.0):
+def validate_raw(data, now, stale_after=2.0, future=FUTURE_TOLERANCE):
     """Like ``validate`` for a serialized CDR message, reading only ``header.stamp``.
 
     Skips deserializing multi-megabyte clouds and images on the ODROID; the first
@@ -187,6 +187,6 @@ def validate_raw(data, now, stale_after=2.0):
     issue = ''
     if sec == 0 and nanosec == 0:
         issue = 'zero message timestamp'
-    elif stamp_age < -FUTURE_TOLERANCE or stamp_age > stale_after:
+    elif stamp_age < -future or stamp_age > stale_after:
         issue = 'message timestamp outside freshness window'
     return Observation({}, issue, stamp_age)

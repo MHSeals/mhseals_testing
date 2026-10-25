@@ -1,15 +1,19 @@
 # crane_ml running the boat's full stack without ArduPilot: thruster_pwm_node
 # publishes PWM to the simulator, which publishes the boat's sensor topics.
-# Start crane_ml with --crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract.
+# Start crane_ml with --crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract
+# --crane-ros-nav-state, --crane-ros-port <endpoint unity.port> and
+# --crane-roboboat-course-truth <host path of course_truth below>, then boat_test --start-stack.
 name: crane_full_stack
 description: 'Unity full stack: ROS PWM outputs and simulated sensors through mhseals_nav.'
 command: {topic: /cmd_vel, type: twist, units: effort, limit: [1.0, 1.0, 1.0]}
 odometry: /odom/local
 ground_truth: /crane/odom
-# Written by crane_ml's --crane-roboboat-course-truth; the referee judges missions with it.
-course_truth: /bags/course_truth.json
+# Written by crane_ml's --crane-roboboat-course-truth (data root $MHSEALS_DATA); the referee judges missions with it.
+course_truth: /home/roboboat/roboboat_ws/bags/course_truth.json
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: true
+# The simulator's sensor stamps run up to ~0.6 s ahead of /clock under load; the default 0.25 s trips the interlock.
+stamp_future: 1.0
 arming: {outputs: topic}
 # sensors with sim only starts the ROS-TCP endpoint crane_ml connects to.
 components:
@@ -23,9 +27,9 @@ components:
   mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'true'}, nodes: [rtabmap],
             needs: [odometry, ekf]}
   navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'true'}, limits: true,
-               nodes: [bt_navigator], needs: [odometry, ekf]}
+               nodes: [bt_navigator], needs: [odometry, ekf], start: true}
   objects: {launch: [mhseals_nav, objects.launch.py], args: {sim: 'true'},
-            nodes: [object_tracker]}
+            nodes: [object_tracker], start: true}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}

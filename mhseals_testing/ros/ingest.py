@@ -61,9 +61,9 @@ def ingest(monitor, profile, topic, kind, msg, t, stale_after=2.0, authority='')
                 deadline = monitor.deadlines.get(sensor.name, stale_after)  # rate-derived (profiles)
                 if kind in RAW_KINDS and isinstance(msg, (bytes, bytearray, memoryview)):
                     # Subscribed raw (live): only the header stamp is read.
-                    result = validate_raw(msg, t, deadline)
+                    result = validate_raw(msg, t, deadline, profile.stamp_future)
                 else:
-                    result = validate(kind, msg, t, base, deadline)
+                    result = validate(kind, msg, t, base, deadline, profile.stamp_future)
                 monitor.observe(sensor.name, result.values, result.issue, result.stamp_age)
 
 

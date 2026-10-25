@@ -11,7 +11,7 @@ from mhseals_testing.ui.source import LiveSource
 
 T = 100.0
 PROFILE = NS(sensors=(SensorSpec('odometry', '/odom', 'odometry'), SensorSpec('imu', '/imu', 'imu')),
-             base_frame='base_link', required_tf=(('odom', 'base_link'),))
+             base_frame='base_link', required_tf=(('odom', 'base_link'),), stamp_future=0.25)
 
 
 def quaternion(w=1.0):

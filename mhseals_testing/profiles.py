@@ -22,6 +22,7 @@ from pathlib import Path
 from mhseals_testing.analysis.power import CHEMISTRIES
 from mhseals_testing.harness.components import parse_components
 from mhseals_testing.strict_yaml import load_strict
+from mhseals_testing.validation import FUTURE_TOLERANCE
 
 
 def _profile_dir():
@@ -95,6 +96,7 @@ class PlantProfile:
         return {key: value for key, value in given.items() if value is not None}
     plot_scale: tuple = PLOT_SCALE     # Motion plot half-range for surge, sway (m/s) and yaw (rad/s)
 
+    stamp_future: float = FUTURE_TOLERANCE  # s a sensor stamp may run ahead of the clock (a simulator's link jitters)
     conditions_velocity: str = 'gpsraw'  # explicit odom:<topic|name> is simulation-only
 
     @property
@@ -229,7 +231,8 @@ def parse_profile(data, where='profile'):
         outputs=outputs, velocity_controller=controller,
         sensors=tuple(sensors), components=components or None, battery_cells=cells,
         battery_chemistry=chemistry, battery_capacity_mah=capacity,
-        plot_scale=scale, conditions_velocity=velocity)
+        plot_scale=scale, stamp_future=_positive(data, 'stamp_future', where) or FUTURE_TOLERANCE,
+        conditions_velocity=velocity)
 
 
 def available_profiles(directory=PROFILE_DIR):

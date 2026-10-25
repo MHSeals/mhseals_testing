@@ -15,6 +15,8 @@ NEUTRAL_REPEATS = 3  # a few copies so one dropped message can't leave thrust on
 # thruster_pwm_node's raw-pulse input: physical outputs 1-4 in µs, for bench tests.
 TEST_PULSES_TOPIC = '/thruster_pwm_node/test_pulses'
 MUX_REQUEST_TOPIC = '/command_mux/request'  # command_mux ~/request: {op, cause, by}
+# Nav2's smoother is the mux's own auto source (quiet while no goal runs), not a rival.
+NAV2_AUTO_SOURCE = '/velocity_smoother'
 
 
 class Plant:
@@ -113,7 +115,8 @@ class Plant:
         """Another node commanding the same topic would fight every trial."""
         topic = self.profile.command_topic
         pubs = self.ros.graph_facts([topic])[topic_fact_name(topic)].value['pub']
-        return [f'{topic} also published by {ep.node}' for ep in pubs if not ep.own]
+        return [f'{topic} also published by {ep.node}' for ep in pubs if not ep.own
+                and not (self.profile.muxed and ep.node == NAV2_AUTO_SOURCE)]
 
     def close(self):
         self.neutral()

@@ -2688,7 +2688,8 @@ def main(argv=None):
                               sensor.name for sensor in profile.sensors
                               if sensor.kind == 'odometry' or sensor.name == (gyros or [None])[0]),
                           deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
-                                     if sensor.deadline is not None})
+                                     if sensor.deadline is not None},
+                          future=profile.stamp_future)
     facts = Facts()
     ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
