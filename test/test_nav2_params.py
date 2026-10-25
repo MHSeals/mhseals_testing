@@ -1,4 +1,4 @@
-"""Nav2 parameter classes (HR6): what may be set live, what needs a reset or a restart."""
+"""Nav2 parameter plans: which keys a running stack applies by itself, which need a reset."""
 
 import pytest
 
@@ -11,54 +11,46 @@ CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0
            'velocity_smoother.max_velocity': [0.4, 0.15, 0.3]}
 
 
-@pytest.mark.parametrize('key,cls', [
-    (FOLLOW + 'vx_max', 'live'),
-    (FOLLOW + 'CostCritic.cost_weight', 'live'),
-    ('velocity_smoother.max_accel', 'live'),
-    ('controller_server.precise_goal_checker.xy_goal_tolerance', 'live'),
-    ('local_costmap.local_costmap.obstacle_layer.pointcloud.min_obstacle_height', 'live'),
-    ('global_costmap.inflation_layer.inflation_radius', 'live'),
-    ('local_costmap.inflation_layer.inflation_radius', 'reset'),
-    ('local_costmap.local_costmap.inflation_layer.enabled', 'reset'),
-    ('global_costmap.global_costmap.inflation_layer.enabled', 'live'),
-    ('local_costmap.footprint', 'reset'),
-    ('global_costmap.footprint', 'live'),
-    ('controller_server.controller_frequency', 'reset'),
-    (FOLLOW + 'critics', 'reset'),
-    ('bt_navigator.bt_loop_duration', 'reset'),
-    ('behavior_server.cycle_frequency', 'reset'),
-    ('planner_server.GridBased.tolerance', 'live'),
-    ('waypoint_follower.loop_rate', 'live'),
-    ('controller_server.use_sim_time', 'restart'),
+@pytest.mark.parametrize('key,live', [
+    (FOLLOW + 'vx_max', True),
+    (FOLLOW + 'vx_min', True),
+    (FOLLOW + 'CostCritic.cost_weight', True),
+    (FOLLOW + 'prune_distance', True),
+    ('velocity_smoother.max_accel', True),
+    ('global_costmap.global_costmap.footprint', True),
+    ('global_costmap.inflation_layer.inflation_radius', True),
+    ('global_costmap.global_costmap.inflation_layer.cost_scaling_factor', True),
+    # The local costmap feeds the MPPI CostCritic precompute, read at configure.
+    ('local_costmap.local_costmap.footprint', False),
+    ('local_costmap.inflation_layer.inflation_radius', False),
+    # Read at configure, or by nothing that listens.
+    (FOLLOW + 'motion_model', False),
+    (FOLLOW + 'PathAngleCritic.mode', False),
+    (FOLLOW + 'critics', False),
+    (FOLLOW + 'time_steps', False),
+    ('controller_server.controller_frequency', False),
+    ('velocity_smoother.scale_velocities', False),
+    ('controller_server.progress_checker.plugin', False),
+    ('planner_server.GridBased.tolerance', False),
+    ('bt_navigator.bt_loop_duration', False),
+    ('controller_server.use_sim_time', False),
 ])
-def test_classes(key, cls):
-    assert n2.classify(key) == cls
+def test_only_the_listed_keys_are_live(key, live):
+    assert n2.is_live(key) is live
 
 
-@pytest.mark.parametrize('key', [
-    'velocity_smoother.scale_velocities',
-    'controller_server.general_goal_checker.plugin', 'controller_server.progress_checker.plugin',
-    'global_costmap.global_costmap.inflation_layer.plugin'])
-def test_configure_time_keys_are_not_live(key):
-    assert n2.classify(key) != 'live'
+def test_every_pattern_matches_a_real_nav2_key_shape():
+    patterns = n2.live_patterns()
+    assert len(patterns) == len(set(patterns))
+    assert all(p.split('.')[0] in n2.ORDER for p in patterns)
 
 
-@pytest.mark.parametrize('key', [FOLLOW + 'motion_model', FOLLOW + 'PathAngleCritic.mode'])
-def test_motion_model_and_mode_are_never_live(key):
-    assert n2.classify(key, 'Omni', 'DiffDrive') == 'reset'
-    assert n2.classify(key, 'Omni', 'DiffDrive', declared={key[len('controller_server.'):]}) == 'reset'
-
-
-def test_undeclared_key_needs_a_restart_even_if_a_rule_says_live():
-    declared = {'FollowPath.vx_max'}
-    assert n2.classify(FOLLOW + 'vx_max', declared=declared) == 'live'
-    assert n2.classify(FOLLOW + 'NewCritic.cost_weight', declared=declared) == 'restart'
-    assert n2.classify(FOLLOW + 'NewCritic.cost_weight') == 'live'  # declared unknown: no verdict
-
-
-def test_vx_min_sign_change_resets():
-    assert n2.classify(FOLLOW + 'vx_min', -0.1, -0.2) == 'live'
-    assert n2.classify(FOLLOW + 'vx_min', -0.1, 0.05) == 'reset'
+def test_undeclared_key_is_missing_not_live_or_reset():
+    declared = {'controller_server': {'FollowPath.vx_max'}}
+    out = n2.plan({FOLLOW + 'vx_max': 0.5, FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT, declared)
+    assert out['missing'] == [FOLLOW + 'NewCritic.cost_weight']
+    assert out['live']['controller_server']['FollowPath.vx_max'] == 0.5
+    assert n2.plan({FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT)['missing'] == []   # declared unknown
 
 
 def test_target_names_the_ros_node():
@@ -74,7 +66,6 @@ def test_plan_adds_derived_keys_and_orders_nodes():
     assert list(live) == ['velocity_smoother', 'controller_server']
     assert live['velocity_smoother']['max_velocity'][0] == 0.5
     assert 'FollowPath.prune_distance' not in live['controller_server']  # floor holds
-    assert out['restart'] == {}
 
 
 def test_plan_moves_shim_and_stds_with_limits():
@@ -85,25 +76,16 @@ def test_plan_moves_shim_and_stds_with_limits():
     assert out['live']['controller_server']['FollowPath.vx_std'] == 0.1
 
 
-def test_plan_drops_unchanged_values_and_flags_undeclared():
-    out = n2.plan({FOLLOW + 'vx_max': 0.4, FOLLOW + 'Ghost.weight': 1.0}, CURRENT,
-                  declared={'controller_server': {'FollowPath.vx_max'}})
+def test_plan_drops_unchanged_values():
+    out = n2.plan({FOLLOW + 'vx_max': 0.4}, CURRENT)
     assert out['unchanged'] == [FOLLOW + 'vx_max']
-    assert out['live'] == {}
-    assert out['restart'] == {'controller_server': {'FollowPath.Ghost.weight': 1.0}}
-
-
-def test_rules_file_rejects_unknown_class(tmp_path):
-    path = tmp_path / 'r.yaml'
-    path.write_text("rules:\n  - {node: x, param: y, class: hot}\n")
-    with pytest.raises(ValueError):
-        n2.load_rules(path)
+    assert out['live'] == {} and out['reset'] == {}
 
 
 def _compiled_plan_values(current, changes, result):
     """Reconstruct the preview value set from its class/node groups."""
     values = dict(current)
-    for kind in n2.CLASSES:
+    for kind in ('live', 'reset'):
         for node, params in result[kind].items():
             values.update({node + '.' + key: value for key, value in params.items()})
     return values
@@ -213,7 +195,7 @@ def test_complete_preview_emits_canonical_caps_and_numeric_types(changes):
         key: type(value) for key, value in expected.items()}
     if FOLLOW + 'vx_min' in changes:
         assert result['unchanged'] == [FOLLOW + 'vx_min']
-        assert all(not result[kind] for kind in n2.CLASSES)
+        assert all(not result[kind] for kind in ('live', 'reset'))
     else:
         emitted = result['live']['controller_server']['FollowPath.vx_max']
         assert emitted == 1.0 and type(emitted) is float

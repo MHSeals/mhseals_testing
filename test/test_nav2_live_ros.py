@@ -3,8 +3,9 @@
 controller_server (rotation shim + MPPI), planner_server and velocity_smoother run on
 mhseals_nav's own nav2_params.yaml, with the real command_mux and the real authority arbiter.
 Skipped without ROS, Nav2 and mhseals_hardware. It starts its own processes on a private ROS
-domain (``MHSEALS_TEST_DOMAIN`` or a pid-derived one in 120-219) restricted to localhost, and
-stops only the process groups it started. The independent evidence is ``ros2 param get`` in a
+domain (``MHSEALS_TEST_DOMAIN``, else the caller's ``ROS_DOMAIN_ID``, else a pid-derived one in
+120-219) restricted to localhost, and refuses to start on a domain where other nodes already run
+(their mux or arbiter would answer on the same topics). It stops only the process groups it started. The independent evidence is ``ros2 param get`` in a
 separate process.
 """
 
@@ -98,6 +99,7 @@ class Ports(RosPorts):
         self.rewrite, self.log_after, self.freeze = {}, {}, None
         self.no_mux, self.rosout = False, None
         self.sets, self.held_during = [], []
+        self.commands, self.startup_fails = [], 0
 
     def put(self, node, values):
         self.sets.append(node)
@@ -112,6 +114,14 @@ class Ports(RosPorts):
             else:
                 self.node.get_logger().error(line)
         return result
+
+    def lifecycle(self, command):
+        self.commands.append(command)
+        done = super().lifecycle(command)
+        if command == 'startup' and self.startup_fails:
+            self.startup_fails -= 1
+            return False                                           # as if the manager reported failure
+        return done
 
     def say(self, name, text):
         """Publish a /rosout line as if node ``name`` had logged it."""
@@ -153,7 +163,8 @@ def stack(tmp_path_factory):
     params = nav / 'config' / 'nav2_params.yaml' if nav else None
     if not (shutil.which('ros2') and params and params.is_file()):
         pytest.skip('needs ros2 and mhseals_nav')
-    domain = int(os.environ.get('MHSEALS_TEST_DOMAIN') or 120 + os.getpid() % 100)
+    domain = int(os.environ.get('MHSEALS_TEST_DOMAIN') or os.environ.get('ROS_DOMAIN_ID')
+                 or 120 + os.getpid() % 100)
     run = Stack(tmp_path_factory.mktemp('nav2live'), domain, nav)
     probe = subprocess.run(['ros2', 'pkg', 'prefix', 'nav2_controller'], env=run.env,
                            capture_output=True)
@@ -171,6 +182,10 @@ def stack(tmp_path_factory):
     spin = threading.Thread(target=executor.spin, daemon=True)
     spin.start()
     try:
+        time.sleep(1.5)                      # graph discovery: who else is on this domain
+        others = sorted(n for n in set(node.get_node_names())
+                        if n != 'nav2_live_test' and not n.startswith('_ros2cli'))
+        assert not others, f'ROS domain {domain} is in use by {others}; set MHSEALS_TEST_DOMAIN'
         start_nav2(run, str(params))
         from mhseals_testing.harness.registry import Registry
         from mhseals_testing.ros import authority as authority_module
@@ -201,7 +216,11 @@ def stack(tmp_path_factory):
                 pytest.fail('the throwaway Nav2 did not become active:\n' + log)
             time.sleep(1.0)
         deadline = time.monotonic() + 30
-        while not (run.ports.authority() and run.ports.mux()) and time.monotonic() < deadline:
+        # The arbiter says 'unknown' until the first mux state reaches it.
+        while time.monotonic() < deadline:
+            record = run.ports.authority()
+            if record and run.ports.mux() and record['owner'] != 'unknown':
+                break
             time.sleep(0.5)
         assert run.ports.mux() is not None, 'the real command_mux published no state'
         assert run.ports.authority()['owner'] == 'none'
@@ -224,9 +243,9 @@ def stack(tmp_path_factory):
 def live(stack):
     """Yield a Nav2Live on the real ports; the original values are put back afterwards."""
     ports = stack.ports
-    for scratch in (ports.rewrite, ports.log_after, ports.sets, ports.held_during):
+    for scratch in (ports.rewrite, ports.log_after, ports.sets, ports.held_during, ports.commands):
         scratch.clear()
-    ports.freeze, ports.no_mux = None, False
+    ports.freeze, ports.no_mux, ports.startup_fails = None, False, 0
     stack.journal.clear()
     stack.state['procedure'] = None
     keys = ['FollowPath.vx_max', 'FollowPath.wz_max', 'failure_tolerance']
@@ -285,12 +304,26 @@ def test_a_bad_rosout_line_rolls_back_the_real_nodes(stack, live):
     assert stack.get(SMOOTHER, 'max_velocity')[0] == 0.4
 
 
-def test_a_malformed_footprint_logged_by_the_costmap_rolls_back(stack, live):
-    key = 'global_costmap.global_costmap.footprint'
-    before = stack.get('/global_costmap/global_costmap', 'footprint')
-    receipt = live.apply({key: '[[0.1, 0.1], [0.1'})
-    assert receipt['status'] == 'rolled_back' and 'footprint' in receipt['error'], receipt
-    assert stack.get('/global_costmap/global_costmap', 'footprint') == before
+def test_a_malformed_footprint_never_reaches_the_costmap(stack, live):
+    """The real costmap takes any string and only complains on its own stderr, never on /rosout."""
+    node, key, bad = '/global_costmap/global_costmap', 'footprint', '[[0.1, 0.1], [0.1'
+    before = stack.get(node, key)
+    assert stack.ports.params.set_atomically(node, {key: bad}) == (True, '')    # Nav2 says yes
+    try:
+        time.sleep(0.5)
+        assert 'Error parsing footprint' in (stack.dir / 'planner.log').read_text()
+    finally:
+        stack.ports.params.set_atomically(node, {key: before})
+    receipt = live.apply({'global_costmap.global_costmap.footprint': bad})
+    assert receipt['status'] == 'refused' and 'footprint must be' in receipt['refused'], receipt
+    assert stack.ports.sets == [] and stack.get(node, key) == before
+
+
+def test_any_error_line_in_the_window_rolls_back_whatever_it_says(stack, live):
+    stack.ports.log_after[CONTROLLER] = 'something broke'          # logged at ERROR, no keyword
+    receipt = live.apply(ask(vx_max=0.35))
+    assert receipt['status'] == 'rolled_back' and 'something broke' in receipt['error'], receipt
+    assert stack.get(CONTROLLER, 'FollowPath.vx_max') == 0.4
 
 
 def test_a_static_mppi_key_the_handler_does_not_own_rolls_back(stack, live):
@@ -438,6 +471,58 @@ def test_boat_trial_config_apply_nav2_end_to_end(stack, live):
     assert [(c['applied'], c['source']) for c in changes] == [('live-session', 'cli:apply-nav2')]
     again = subprocess.run([*command, '--yes'], **options)
     assert again.returncode == 1 and json.loads(again.stdout)['outcome'] == 'nothing to do'
+
+
+def activations(stack):
+    return (stack.dir / 'controller.log').read_text().count('Activating')
+
+
+def test_a_non_live_key_is_set_and_navigation_resets_and_starts_again(stack, live):
+    original = stack.get(CONTROLLER, 'FollowPath.batch_size')
+    starts = activations(stack)
+    receipt = live.apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'verified' and receipt['reset'], receipt
+    assert stack.get(CONTROLLER, 'FollowPath.batch_size') == 500
+    assert activations(stack) > starts                             # the controller really restarted
+    assert stack.ports.params.is_active(timeout=10.0)
+    assert stack.mux_holds() == [] and receipt['hold']['released']
+    again = live.apply({FOLLOW + 'batch_size': original})
+    assert again['status'] == 'verified', again
+    assert stack.get(CONTROLLER, 'FollowPath.batch_size') == original
+
+
+def test_a_failed_startup_restores_the_value_and_resets_again(stack, live):
+    original = stack.get(CONTROLLER, 'FollowPath.batch_size')
+    stack.ports.startup_fails = 1                                  # the first startup only
+    starts = activations(stack)
+    receipt = live.apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'rolled_back' and 'startup failed' in receipt['error'], receipt
+    assert stack.ports.commands == ['reset', 'startup', 'reset', 'startup']
+    assert stack.get(CONTROLLER, 'FollowPath.batch_size') == original
+    assert stack.ports.params.is_active(timeout=10.0) and activations(stack) >= starts + 1
+    assert stack.mux_holds() == []
+
+
+def test_a_reset_is_refused_while_a_goal_runs_even_with_now(stack, live):
+    from action_msgs.msg import GoalStatus, GoalStatusArray
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+    latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    status = stack.node.create_publisher(GoalStatusArray, '/navigate_to_pose/_action/status',
+                                         latched)
+    entry = GoalStatus(status=GoalStatus.STATUS_EXECUTING)
+    entry.goal_info.goal_id.uuid = list(range(16))
+    status.publish(GoalStatusArray(status_list=[entry]))
+    time.sleep(1.0)
+    try:
+        receipt = live.apply({FOLLOW + 'batch_size': 500}, now=True)
+        assert receipt['status'] == 'refused' and 'a goal is active' in receipt['refused']
+        assert stack.ports.sets == [] and stack.ports.commands == []
+    finally:
+        entry.status = GoalStatus.STATUS_SUCCEEDED
+        status.publish(GoalStatusArray(status_list=[entry]))
+        time.sleep(0.5)
+        stack.node.destroy_publisher(status)
 
 
 def test_the_tui_wiring_applies_only_as_the_session_owner(stack, live, tmp_path):

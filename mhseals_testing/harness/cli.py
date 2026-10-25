@@ -139,12 +139,12 @@ def build_parser():
     catalog = verbs.add_parser('catalog')
     catalog.add_argument('--json', metavar='PATH|-', help='write JSON to PATH, or - for stdout')
     apply = verbs.add_parser(
-        'apply', help='apply the operator nav2.yaml to the running Nav2 (live, tier 1)')
+        'apply', help='apply the operator nav2.yaml to the running Nav2 (live, or with a Navigation reset)')
     apply.add_argument('target', choices=('nav2',))
     apply.add_argument('--yes', action='store_true',
                        help='apply; without it only the preview is printed')
     apply.add_argument('--now', action='store_true',
-                       help='allow a limits-only change while a goal runs '
+                       help='allow a live limits-only change while a goal runs '
                             '(smoother and controller limits)')
     apply.add_argument('--json', action='store_true', help='print one JSON document')
     return parser

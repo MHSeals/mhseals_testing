@@ -58,9 +58,12 @@ class Rosout:
         return key[len('FollowPath.'):] in SHIM_NAMES
 
     def errors(self, nodes, params):
-        """Return the ERROR/FATAL lines of any logger (a costmap logs its own
-        parse failures under its own name) and the ``not found``/``Invalid``
-        lines about what was set."""
+        """Return the ERROR/FATAL lines of any node that logs to /rosout and
+        the ``not found``/``Invalid`` lines about what was set.
+
+        A library logger such as nav2_costmap_2d never reaches /rosout (see
+        harness.nav2_live.footprint_problem for the one that matters).
+        """
         found = []
         for stamp, name, text, level in list(self.buffer):
             low = text.lower()
@@ -175,6 +178,10 @@ class RosPorts(Ports):
         """Return every parameter of ``node`` and the names it declares."""
         names = self.params.list_parameters(node)
         return self.params.get(node, sorted(names)), names
+
+    def lifecycle(self, command):
+        """Run ``reset`` or ``startup`` on every managed Navigation server."""
+        return self.params.manage_nodes(command)
 
     def get(self, node, names):
         """Return the values of ``names`` on ``node``."""

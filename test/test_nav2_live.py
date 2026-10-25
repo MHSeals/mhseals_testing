@@ -55,6 +55,7 @@ class World(Ports):
         self.calls, self.events = [], []
         self.reject, self.timeout, self.drift, self.logs = {}, None, {}, []
         self.silent_mux = False
+        self.refuse_lifecycle, self.settle = set(), {}   # refuse: 1-based call numbers; settle: command -> {(node, name): value}
         self.flip = None            # (reads, change): the authority record changes after them
         self.reads = 0
         self.rosouts = []
@@ -109,6 +110,15 @@ class World(Ports):
             return False, self.reject[node]
         self.nodes[node].update(copy.deepcopy(values))
         return True, ''
+
+    def lifecycle(self, command):
+        self.calls.append(('lifecycle', command))
+        if self.timeout == ('lifecycle', command):
+            raise TimeoutError(f'{command} timed out')
+        number = sum(c[0] == 'lifecycle' for c in self.calls)
+        for (node, name), value in self.settle.get(command, {}).items():
+            self.nodes[node][name] = value
+        return number not in self.refuse_lifecycle
 
     def rosout_open(self):
         self.rosouts.append(Rosout(self))
@@ -352,15 +362,83 @@ def test_unknown_goal_state_refuses(world):
     assert 'cannot tell' in make(world).apply(ask(vx_max=0.5))['refused']
 
 
-@pytest.mark.parametrize('key,word', [
-    (FOLLOW + 'motion_model', 'reset'), (FOLLOW + 'critics', 'reset'),
-    (FOLLOW + 'batch_size', 'reset'),
-    ('controller_server.use_sim_time', 'restart'), (FOLLOW + 'Ghost.weight', 'restart'),
-    ('controller_server.bond_heartbeat_period', 'restart')])
-def test_keys_that_need_a_reset_or_restart_refuse_the_whole_request(world, key, word):
-    receipt = make(world).apply({key: 1.0, FOLLOW + 'vx_max': 0.5})
-    assert receipt['status'] == 'refused' and f'needs a {word}' in receipt['refused']
-    assert key in receipt['refused'] and world.calls == []
+def test_a_key_the_node_does_not_declare_refuses_the_whole_request(world):
+    receipt = make(world).apply({FOLLOW + 'Ghost.weight': 1.0, FOLLOW + 'vx_max': 0.5})
+    assert receipt['status'] == 'refused' and 'not declared' in receipt['refused']
+    assert FOLLOW + 'Ghost.weight' in receipt['refused'] and world.calls == []
+
+
+def reset_calls(world):
+    return [c[1] if c[0] == 'lifecycle' else c[0] for c in world.calls
+            if c[0] in ('lifecycle', 'set')]
+
+
+def test_a_non_live_key_is_set_then_navigation_resets_starts_and_reads_back(world):
+    world.mux_state = {'holds': []}
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500, FOLLOW + 'CostCritic.cost_weight': 4.0})
+    assert receipt['status'] == 'verified' and receipt['reset'], receipt
+    assert world.nodes[CONTROLLER]['FollowPath.batch_size'] == 500
+    kinds = [c[1] if c[0] == 'lifecycle' else c[0] for c in world.calls]
+    # hold, set, readback, reset, startup, readback again, release: the hold covers the whole reset
+    assert kinds == ['mux', 'set', 'get', 'reset', 'startup', 'get', 'mux']
+    assert receipt['hold']['released'] and not world.mux_state['holds']
+
+
+def test_a_live_only_request_never_resets(world):
+    receipt = make(world).apply(ask(vx_max=0.35))
+    assert receipt['status'] == 'verified' and not receipt['reset']
+    assert 'lifecycle' not in {c[0] for c in world.calls}
+
+
+def test_a_reset_needs_no_goal_even_with_now(world):
+    world.goal_list = ['navigate_to_pose:abcd']
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500, FOLLOW + 'vx_max': 0.35}, now=True)
+    assert receipt['status'] == 'refused' and 'a goal is active' in receipt['refused']
+    assert world.calls == []
+
+
+def test_a_reset_that_fails_restores_the_values_and_resets_again(world):
+    world.refuse_lifecycle = {2}                       # the first startup
+    before = copy.deepcopy(world.nodes)
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'rolled_back' and 'startup failed' in receipt['error'], receipt
+    assert reset_calls(world) == ['set', 'reset', 'startup', 'set', 'reset', 'startup']
+    assert world.nodes == before
+
+
+def test_a_value_that_differs_after_startup_rolls_back(world):
+    world.settle = {'startup': {(CONTROLLER, 'FollowPath.batch_size'): 1000}}
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'rolled_back' and 'FollowPath.batch_size' in receipt['error'], receipt
+
+
+def test_a_rollback_whose_reset_fails_is_reported(world):
+    world.refuse_lifecycle = {2, 4}
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'rollback_failed' and 'Navigation' in receipt['error'], receipt
+
+
+def test_a_reset_timeout_is_unknown_with_no_retry(world):
+    world.timeout = ('lifecycle', 'reset')
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500})
+    assert receipt['status'] == 'unknown' and 'nothing was retried' in receipt['error'], receipt
+    assert reset_calls(world) == ['set', 'reset']
+
+
+@pytest.mark.parametrize('value', [
+    '[[0.1, 0.1], [0.1', '[[0.1, 0.1], [0.1, -0.1]]', '[[0.1, 0.1], [0.1, -0.1], [1]]',
+    '[[0.1, 0.1], [0.1, -0.1], [NaN, 0]]', 'square', 0.3, None])
+def test_a_malformed_footprint_refuses_before_any_write(world, value):
+    world.nodes['/global_costmap/global_costmap'] = {'footprint': '[[1, 1], [1, -1], [-1, 0]]'}
+    receipt = make(world).apply({'global_costmap.global_costmap.footprint': value})
+    assert receipt['status'] == 'refused' and 'footprint must be' in receipt['refused']
+    assert world.calls == []
+
+
+def test_a_good_footprint_is_set_live(world):
+    world.nodes['/global_costmap/global_costmap'] = {'footprint': '[[1, 1], [1, -1], [-1, 0]]'}
+    receipt = make(world).apply({'global_costmap.footprint': '[[0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]]'})
+    assert receipt['status'] == 'verified' and not receipt['reset'], receipt
 
 
 def test_unreachable_node_refuses(world):

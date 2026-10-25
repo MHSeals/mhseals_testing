@@ -1,9 +1,9 @@
-"""Which Nav2 parameters can change on a running stack, and in what order. Pure, ROS-free.
+"""Which Nav2 parameters a running stack applies by itself, and in what order. Pure, ROS-free.
 
 Keys are flat ``<node>.<param>`` strings (``controller_server.FollowPath.vx_max``); the two
 costmaps are ``local_costmap`` / ``global_costmap`` and may repeat the name as in the YAML
-(``local_costmap.local_costmap.footprint``). The class table is config/nav2_classes.yaml.
-Spec: authority_hotreload 7.3 (HR6). Applying a plan is Nav2Apply (HR7).
+(``local_costmap.local_costmap.footprint``). The live keys are listed in config/nav2_classes.yaml;
+every other key needs a Navigation reset. Applying a plan is harness/nav2_live.py.
 """
 
 from fnmatch import fnmatchcase
@@ -11,8 +11,7 @@ from pathlib import Path
 
 import yaml
 
-CLASSES = ('live', 'reset', 'restart')
-# Apply order for the live group; the smoother is also sent first, at the more restrictive limits.
+# Apply order; the smoother is also sent first, at the more restrictive limits.
 ORDER = ('velocity_smoother', 'controller_server', 'local_costmap', 'global_costmap',
          'planner_server', 'waypoint_follower', 'behavior_server', 'bt_navigator')
 COSTMAPS = ('local_costmap', 'global_costmap')
@@ -30,13 +29,14 @@ def _rules_path():
         return source
 
 
-def load_rules(path=None):
-    """The ordered (node, param, class) rules; a bad class is an error at load, not at apply."""
-    rules = yaml.safe_load(Path(path or _rules_path()).read_text())['rules']
-    for rule in rules:
-        if rule['class'] not in CLASSES:
-            raise ValueError(f"nav2_classes: {rule['node']}.{rule['param']}: unknown class {rule['class']!r}")
-    return [(r['node'], r['param'], r['class']) for r in rules]
+def live_patterns(path=None):
+    """The fnmatch patterns of the keys a running stack applies by itself."""
+    return yaml.safe_load(Path(path or _rules_path()).read_text())['live']
+
+
+def rank(node):
+    """Position of ``node`` in the apply order."""
+    return ORDER.index(node) if node in ORDER else len(ORDER)
 
 
 def split(key):
@@ -53,22 +53,10 @@ def target(key):
     return (f'/{node}/{node}' if node in COSTMAPS else f'/{node}'), param
 
 
-def classify(key, old=None, new=None, declared=None, rules=None):
-    """'live', 'reset' or 'restart' for changing ``key`` from ``old`` to ``new``.
-
-    ``declared`` is the node's parameter names from list_parameters (None: unknown, so the
-    undeclared rule is skipped). A name the node never declared (a new critic, layer or
-    source) needs a restart. A sign change of vx_min is a reset: MPPI reads it at configure.
-    """
-    node, param = split(key)
-    if declared is not None and param not in declared:
-        return 'restart'
-    if key == FOLLOW + 'vx_min' and old is not None and new is not None and (old < 0) != (new < 0):
-        return 'reset'
-    for rule_node, rule_param, cls in rules or load_rules():
-        if fnmatchcase(node, rule_node) and fnmatchcase(param, rule_param):
-            return cls
-    return 'reset'
+def is_live(key, patterns=None):
+    """Whether a running stack applies ``key`` by itself (no reset)."""
+    flat = '.'.join(split(key))
+    return any(fnmatchcase(flat, pattern) for pattern in patterns or live_patterns())
 
 
 def _nested(values):
@@ -117,15 +105,16 @@ def derived(values, floor=None):
     return _flat(navigation_config.derived(config, original))
 
 
-def plan(changes, current, declared=None, rules=None):
-    """Group a change set by class and node.
+def plan(changes, current, declared=None, patterns=None):
+    """Group a change set by how it is applied.
 
-    ``changes`` and ``current`` are flat dicts (current: the live values read back). Derived
-    keys the change moves are added. Returns ``{'live': {node: {param: value}}, 'reset': ...,
-    'restart': ..., 'unchanged': [key, ...]}``; nodes follow ORDER. Unchanged values are
-    dropped so a full param load stays harmless.
+    ``changes`` and ``current`` are flat dicts (current: the live values read back); ``declared``
+    maps a node to the parameter names it declares (None: unknown). Derived keys the change moves
+    are added. Returns ``{'live': {node: {param: value}}, 'reset': ..., 'missing': [key, ...],
+    'unchanged': [key, ...]}``; nodes follow ORDER. Unchanged values are dropped so a full param
+    load stays harmless; a key its node does not declare cannot be set at all (``missing``).
     """
-    rules = rules or load_rules()
+    patterns = patterns or live_patterns()
     from mhseals_nav import navigation_config
 
     # Use the same explicit-derived conflict check as full launch compilation.
@@ -146,17 +135,20 @@ def plan(changes, current, declared=None, rules=None):
     wanted = {key: after['.'.join(split(key))] for key in changes}
     requested = {'.'.join(split(key)) for key in changes}
     wanted.update({k: v for k, v in after.items() if before.get(k) != v and k not in requested})
-    groups = {cls: {} for cls in CLASSES}
-    unchanged = []
+    groups = {'live': {}, 'reset': {}}
+    unchanged, missing = [], []
     for key, value in wanted.items():
         old = current.get(key)
         if old == value:
             unchanged.append(key)
             continue
         node, param = split(key)
-        cls = classify(key, old, value, None if declared is None else declared.get(node), rules)
+        names = (declared or {}).get(node)
+        if names is not None and param not in names:
+            missing.append(key)
+            continue
+        cls = 'live' if is_live(key, patterns) else 'reset'
         groups[cls].setdefault(node, {})[param] = value
-    rank = {node: i for i, node in enumerate(ORDER)}
-    for cls in CLASSES:
-        groups[cls] = dict(sorted(groups[cls].items(), key=lambda item: rank.get(item[0], len(ORDER))))
-    return {**groups, 'unchanged': unchanged}
+    for cls in groups:
+        groups[cls] = dict(sorted(groups[cls].items(), key=lambda item: rank(item[0])))
+    return {**groups, 'missing': missing, 'unchanged': unchanged}

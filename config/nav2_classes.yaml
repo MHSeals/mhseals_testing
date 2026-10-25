@@ -1,92 +1,32 @@
-# How each Nav2 parameter may be applied to a running stack (spec authority_hotreload 7.3).
-# First matching rule wins; node and param are fnmatch patterns. A declared parameter no rule
-# matches is `reset`; an undeclared one is `restart` (harness/nav2_params.py).
-#   live    set at once, one atomic request per node
-#   reset   lifecycle RESET, set, STARTUP (clears costmaps, ~5 s)
-#   restart restart the Navigation component with the new limits file
-rules:
-  # Never live anywhere: framework and wiring keys.
-  - {node: '*', param: use_sim_time, class: restart}
-  - {node: '*', param: use_lidar, class: restart}
-  - {node: '*', param: '*remap*', class: restart}
-  - {node: '*', param: 'bond_*', class: restart}
-  - {node: '*', param: enable_stamped_cmd_vel, class: restart}
-  - {node: '*', param: use_realtime_priority, class: restart}
-  - {node: '*', param: autostart_node, class: restart}
-  - {node: '*', param: 'qos_overrides.*', class: restart}
-  - {node: '*', param: start_type_description_service, class: restart}
-
-  # A plugin name is read at configure: an accepted live set changes nothing. Precedes every live rule.
-  - {node: '*', param: '*.plugin', class: reset}
-
-  # MPPI. motion_model and PathAngleCritic.mode are never sent while active: setting them live
-  # writes into freed memory. controller_frequency and model_dt move together.
-  - {node: controller_server, param: FollowPath.motion_model, class: reset}
-  - {node: controller_server, param: 'FollowPath.*.mode', class: reset}
-  - {node: controller_server, param: FollowPath.critics, class: reset}
-  - {node: controller_server, param: FollowPath.model_dt, class: reset}
-  # Read once at configure: an accepted live set would change nothing.
-  - {node: controller_server, param: FollowPath.time_steps, class: reset}
-  - {node: controller_server, param: FollowPath.batch_size, class: reset}
-  - {node: controller_server, param: FollowPath.iteration_count, class: reset}
-  - {node: controller_server, param: FollowPath.regenerate_noises, class: reset}
-  - {node: controller_server, param: FollowPath.retry_attempt_limit, class: reset}
-  - {node: controller_server, param: 'FollowPath.CostCritic.consider_footprint', class: reset}
-  - {node: controller_server, param: 'FollowPath.CostCritic.inflation_layer_name', class: reset}
-  - {node: controller_server, param: FollowPath.plugin, class: reset}
-  - {node: controller_server, param: FollowPath.primary_controller, class: reset}
-  - {node: controller_server, param: controller_frequency, class: reset}
-  - {node: controller_server, param: 'FollowPath.*', class: live}
-  - {node: controller_server, param: '*goal_checker.*', class: live}
-  - {node: controller_server, param: 'progress_checker.*', class: live}
-  - {node: controller_server, param: 'min_*_velocity_threshold', class: live}
-  - {node: controller_server, param: failure_tolerance, class: live}
-
-  # Only the keys the smoother's dynamic callback handles; the rest (scale_velocities) is read at configure.
-  - {node: velocity_smoother, param: smoothing_frequency, class: live}
-  - {node: velocity_smoother, param: velocity_timeout, class: live}
-  - {node: velocity_smoother, param: odom_duration, class: live}
-  - {node: velocity_smoother, param: max_velocity, class: live}
-  - {node: velocity_smoother, param: min_velocity, class: live}
-  - {node: velocity_smoother, param: max_accel, class: live}
-  - {node: velocity_smoother, param: max_decel, class: live}
-  - {node: velocity_smoother, param: deadband_velocity, class: live}
-  - {node: velocity_smoother, param: feedback, class: live}
-  - {node: velocity_smoother, param: odom_topic, class: live}
-
-  # The local inflation feeds the CostCritic precompute, so it is reset; this must precede the STVL rules.
-  - {node: local_costmap, param: 'inflation_layer.*', class: reset}
-
-  # STVL on both costmaps.
-  - {node: '*_costmap', param: '*_layer.enabled', class: live}
-  - {node: '*_costmap', param: '*_layer.mark_threshold', class: live}
-  - {node: '*_costmap', param: '*_layer.*.min_obstacle_height', class: live}
-  - {node: '*_costmap', param: '*_layer.*.max_obstacle_height', class: live}
-  - {node: '*_costmap', param: '*_layer.*.min_z', class: live}
-  - {node: '*_costmap', param: '*_layer.*.max_z', class: live}
-  - {node: '*_costmap', param: '*_layer.*.vertical_fov_angle', class: live}
-  - {node: '*_costmap', param: '*_layer.*.vertical_fov_padding', class: live}
-  - {node: '*_costmap', param: '*_layer.*.horizontal_fov_angle', class: live}
-  - {node: '*_costmap', param: publish_frequency, class: live}
-  - {node: '*_costmap', param: transform_tolerance, class: live}
-  # The global costmap has no CostCritic precompute; the local one does (so those stay reset).
-  - {node: global_costmap, param: footprint, class: live}
-  - {node: global_costmap, param: footprint_padding, class: live}
-  - {node: global_costmap, param: robot_radius, class: live}
-  - {node: global_costmap, param: inflation_layer.*, class: live}
-  - {node: global_costmap, param: width, class: live}
-  - {node: global_costmap, param: height, class: live}
-  - {node: global_costmap, param: resolution, class: live}
-
-  - {node: planner_server, param: expected_planner_frequency, class: live}
-  - {node: planner_server, param: 'GridBased.tolerance', class: live}
-  - {node: planner_server, param: 'GridBased.allow_unknown', class: live}
-  - {node: planner_server, param: 'GridBased.max_iterations', class: live}
-  - {node: planner_server, param: 'GridBased.max_on_approach_iterations', class: live}
-  - {node: planner_server, param: 'GridBased.max_planning_time', class: live}
-  - {node: planner_server, param: 'GridBased.cost_travel_multiplier', class: live}
-  - {node: planner_server, param: 'GridBased.use_final_approach_orientation', class: live}
-
-  - {node: waypoint_follower, param: loop_rate, class: live}
-  - {node: waypoint_follower, param: stop_on_failure, class: live}
-  # bt_navigator and behavior_server: every key falls through to reset.
+# The Nav2 parameters a running stack applies by itself (Nav2 Jazzy 1.3.13, checked against its
+# dynamic-parameter callbacks). Flat `node.param` fnmatch patterns; the costmaps are written
+# `<costmap>.<param>`. Every other key is set and then Navigation is reset and started again.
+# The controller's std, prune and rotation-shim entries move with the limits, so they are live too.
+# Not here on purpose: the local costmap footprint and inflation (the MPPI CostCritic reads them
+# once at configure).
+live:
+  - controller_server.FollowPath.*.cost_weight
+  - controller_server.FollowPath.vx_max
+  - controller_server.FollowPath.vx_min
+  - controller_server.FollowPath.vy_max
+  - controller_server.FollowPath.wz_max
+  - controller_server.FollowPath.ax_max
+  - controller_server.FollowPath.ax_min
+  - controller_server.FollowPath.ay_max
+  - controller_server.FollowPath.ay_min
+  - controller_server.FollowPath.az_max
+  - controller_server.FollowPath.vx_std
+  - controller_server.FollowPath.vy_std
+  - controller_server.FollowPath.wz_std
+  - controller_server.FollowPath.prune_distance
+  - controller_server.FollowPath.rotate_to_heading_angular_vel
+  - controller_server.FollowPath.max_angular_accel
+  - velocity_smoother.max_velocity
+  - velocity_smoother.min_velocity
+  - velocity_smoother.max_accel
+  - velocity_smoother.max_decel
+  - global_costmap.footprint
+  - global_costmap.footprint_padding
+  - global_costmap.robot_radius
+  - global_costmap.*.inflation_radius
+  - global_costmap.*.cost_scaling_factor

@@ -1,4 +1,4 @@
-"""Live tier-1 Nav2 apply (CFG-NAV-LIVE1).
+"""Live Nav2 apply (CFG-NAV-LIVE1).
 
 One path behind the TUI popup and ``boat_trial config apply nav2``. ROS-free:
 ``Nav2Live`` is driven through a ``Ports`` object (ros/nav2_live.py is the ROS
@@ -6,6 +6,10 @@ one), so the sequence is tested with plain fakes. The owner accepted the
 tradeoff of applying before T02-O1 owner fencing: the ownership check is the
 session registry owner plus the authority state, both rechecked right before
 the first write, and a failure partway may need a manual restart of Nav2.
+
+Two ways to apply, chosen by config/nav2_classes.yaml: the keys Nav2 applies
+by itself are only set; any other key is set and then Navigation is reset and
+started again through the lifecycle manager (clears the costmaps, ~5 s).
 
 The sequence, every step able to stop it:
 
@@ -15,14 +19,16 @@ The sequence, every step able to stop it:
     -> one atomic SetParameters per node, smoother first and at the more
        restrictive limits
     -> per-key GetParameters readback
-    -> no ERROR/FATAL (any logger) or ``not found``/``Invalid`` on /rosout for 2 s
+    -> live: no ERROR/FATAL or ``not found``/``Invalid`` on
+       /rosout for 2 s; reset: RESET then STARTUP, then the readback again
     -> hold released with the same token
     -> outcome journaled, history ``applied: live-session``
 
-A rejected set, a readback mismatch or a bad /rosout line rolls back in
-reverse order, each step read back. A timeout is ``unknown``: nothing is
-retried and nothing more is written. Scope: parameters the class table calls
-``live``; a request that needs a reset or restart is refused as a whole.
+A rejected set, a readback mismatch, a bad /rosout line or a failed reset
+rolls back in reverse order (previous values, then reset and startup again if
+one was done), each step read back. A timeout is ``unknown``: nothing is
+retried and nothing more is written. A reset needs no active goal (``--now``
+is for live limits only) and runs under the same hold.
 """
 
 import json
@@ -92,6 +98,13 @@ class Ports:
         """
         raise NotImplementedError
 
+    def lifecycle(self, command):
+        """Run ``reset`` or ``startup`` through the Navigation lifecycle manager.
+
+        Return whether it reported success; TimeoutError when it is silent.
+        """
+        raise NotImplementedError
+
     def get(self, node, names):
         """Return {param: value} for the names ``node`` has set."""
         raise NotImplementedError
@@ -122,6 +135,24 @@ def normalize(requested):
         parts = [p for p in str(key).split('.') if p != 'ros__parameters']
         out[key] = ('.'.join(n2.split('.'.join(parts))), value)
     return out
+
+
+def footprint_problem(value):
+    """Say why ``value`` is not a footprint Nav2 would take, or return ''.
+
+    A costmap accepts any string for ``footprint`` and keeps the old shape when
+    it cannot parse it, logging only to its own stderr (not /rosout), so the
+    value is checked here: a list of at least three finite [x, y] pairs.
+    """
+    try:
+        points = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        points = None
+    ok = (isinstance(points, list) and len(points) >= 3 and all(
+        isinstance(p, list) and len(p) == 2 and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool)
+            and math.isfinite(v) for v in p) for p in points))
+    return '' if ok else 'footprint must be a string like "[[x, y], ...]" with 3 or more points'
 
 
 def same(left, right):
@@ -166,6 +197,7 @@ class Preview:
     wanted: dict = field(default_factory=dict)  # flat key -> value to hold
     names: dict = field(default_factory=dict)   # raw key -> flat key
     allow_goal: bool = False
+    reset: bool = False          # a key needs the Navigation reset
 
     def signature(self):
         """Return a comparable text of the rows."""
@@ -210,6 +242,11 @@ class Nav2Live:
             found.refusals.append('two keys name the same parameter')
         if found.refusals:
             return found
+        for key, value in changes.items():
+            if n2.split(key)[1] == 'footprint' and footprint_problem(value):
+                found.refusals.append(f'{key}: {footprint_problem(value)}')
+        if found.refusals:
+            return found
         declared = self._read(found, changes)
         if found.refusals:
             return found
@@ -218,27 +255,29 @@ class Nav2Live:
         except (ValueError, KeyError, TypeError, ImportError, OSError) as error:
             found.refusals.append(f'cannot derive the request: {error}')
             return found
-        for cls in ('reset', 'restart'):
-            keys = sorted(f'{node}.{param}'
-                          for node, values in plan[cls].items()
-                          for param in values)
-            if keys:
-                found.refusals.append(
-                    f'needs a {cls} of Navigation, not a live set: '
-                    + ', '.join(keys))
+        if plan['missing']:
+            found.refusals.append(
+                'not declared by the running node (restart Navigation to '
+                'add it): ' + ', '.join(sorted(plan['missing'])))
+        groups = {node: {**plan['live'].get(node, {}),
+                         **plan['reset'].get(node, {})}
+                  for node in {*plan['live'], *plan['reset']}}
+        groups = dict(sorted(groups.items(), key=lambda item: n2.rank(item[0])))
         sent = {f'{node}.{param}': value
-                for node, values in plan['live'].items()
+                for node, values in groups.items()
                 for param, value in values.items()}
+        found.reset = bool(plan['reset'])
         unchanged = {key: found.live[key] for key in plan['unchanged']
                      if key in found.live}
         found.wanted = {**unchanged, **sent}
         found.rows = [{'key': key, 'old': found.live.get(key),
                        'new': sent[key], 'derived': key not in changes}
                       for key in sorted(sent)]
-        found.allow_goal = bool(now) and all(k in LIMIT_KEYS for k in sent)
+        found.allow_goal = (bool(now) and not found.reset
+                            and all(k in LIMIT_KEYS for k in sent))
         found.refusals += self.fences(found.owner, found.allow_goal)
         if not found.refusals:
-            found.steps = self._steps(plan['live'], found.live)
+            found.steps = self._steps(groups, found.live)
         return found
 
     def _read(self, found, changes):
@@ -357,7 +396,7 @@ class Nav2Live:
         try:
             self.ports.journal(
                 'nav2_live_intent', hold=token[:8],
-                steps=[s.node for s in found.steps],
+                steps=[s.node for s in found.steps], reset=found.reset,
                 keys={r['key']: r['new'] for r in found.rows},
                 before={r['key']: r['old'] for r in found.rows})
         except OSError as error:
@@ -409,7 +448,7 @@ class Nav2Live:
 
     def _receipt(self, found, status, **extra):
         receipt = {'status': status, 'live': True, 'rows': found.rows,
-                   **extra}
+                   'reset': found.reset, **extra}
         if status == 'verified':
             # Every requested key holds its requested value, or the value
             # the launch would derive for it.
@@ -497,6 +536,16 @@ class Nav2Live:
                     return self._back(
                         found, done,
                         f'{step.node} readback differs: {", ".join(bad)}')
+            if found.reset:
+                try:
+                    bad = self._cycle(found.steps)
+                except TimeoutError as error:
+                    return self._unknown(
+                        found, done, f'Navigation reset: {error}; nothing '
+                        'was retried; restart Navigation')
+                if bad:
+                    return self._back(found, done, f'Navigation reset: {bad}')
+                return self._receipt(found, 'verified', steps=len(done))
             deadline = self.clock() + ROSOUT_WINDOW_S
             while self.clock() < deadline:
                 self.sleep(0.05)
@@ -508,6 +557,20 @@ class Nav2Live:
         finally:
             watch.close()
 
+    def _cycle(self, steps):
+        """Reset and start Navigation, then read ``steps`` back.
+
+        Return what went wrong, or '' when it all held.
+        """
+        for command in ('reset', 'startup'):
+            if not self.ports.lifecycle(command):
+                return f'{command} failed'
+        for step in steps:
+            bad = self._mismatch(step.node, step.values)
+            if bad:
+                return f'{step.node} readback differs: {", ".join(bad)}'
+        return ''
+
     def _unknown(self, found, done, error):
         return self._receipt(found, 'unknown', error=error,
                              done=[s.node for s in done])
@@ -518,7 +581,10 @@ class Nav2Live:
                 if p not in got or not same(got[p], v)]
 
     def _back(self, found, done, error):
-        """Roll back the steps that went through, in reverse, each read."""
+        """Roll back the steps that went through, in reverse, each read.
+
+        After a reset, Navigation is reset and started again to take them.
+        """
         failed = []
         for step in reversed(done):
             try:
@@ -531,6 +597,15 @@ class Nav2Live:
                     f'{error}; rollback of {step.node}: {problem}')
             if bad:
                 failed.append(f'{step.node} ({", ".join(map(str, bad))})')
+        if found.reset and done:
+            try:
+                bad = self._cycle([Step(s.node, s.before)
+                                   for s in reversed(done)])
+            except (TimeoutError, ValueError) as problem:
+                return self._unknown(
+                    found, done, f'{error}; rollback reset: {problem}')
+            if bad:
+                failed.append(f'Navigation ({bad})')
         if failed:
             return self._receipt(
                 found, 'rollback_failed', done=[s.node for s in done],
@@ -590,9 +665,10 @@ def cli_apply(requested, live, *, yes=False, now=False, as_json=False,
            'changes': receipt['rows'], 'reasons': receipt.get('reasons', []),
            'error': receipt.get('error', ''), 'hold': receipt.get('hold'),
            'warning': receipt.get('warning', ''),
-           'live': 'until Navigation restarts'}
+           'reset': receipt['reset'], 'live': 'until Navigation restarts'}
     if status == 'verified':
-        verdict = ('applied live: lasts until Navigation restarts; '
+        how = 'with a Navigation reset' if receipt['reset'] else 'live'
+        verdict = (f'applied {how}: lasts until Navigation restarts; '
                    'nav2.yaml holds it for the next start')
     else:
         verdict = f'{status}: {receipt.get("error") or receipt.get("refused")}'
