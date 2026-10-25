@@ -96,6 +96,7 @@ panel.thrusters:
   save: [s]
   undo: [u]
   clear_decoupling: [c]
+  pin: [P]                      # the row's J2 PWM pin, a draft like 1-4 (p stays Perception)
   pins: [M]
 
 panel.procedures:

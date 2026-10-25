@@ -141,7 +141,7 @@ PANEL_HINTS = {
     'conditions': [('Enter', 'Details')],
     'thrusters': [(LEFTRIGHT, 'Pulse'), ('Enter', 'Move'), ('1-4', 'Output'), ('r', 'Reverse'),
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
-                  ('c', 'Clear decoupling'), ('M', 'Pins')],
+                  ('c', 'Clear decoupling'), ('P', 'Pin'), ('M', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'View')],
     'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom'), ('u', 'Heading-up'), ('F', 'Fov')],
@@ -181,6 +181,7 @@ HELP = [
      'Save the draft to the config (the next session starts from it) / undo it'),
     ('Thrusters M', 'Edit the PWM pins and MOSFET line; saved, then the driver restarts, sysfs '
                     'confirms and it stops (disarmed only; refused while armed or arming)'),
+    ('Thrusters P', 'Move the thruster to another free PWM pin (a draft; s saves and reads it back)'),
     ('Thrusters i', 'Thruster set: identify outputs by pulsing each one'),
     ('Thrusters c', 'Clear the fitted decoupling (asks first)'),
     ('Activity v', 'Switch between results and the event log'),
@@ -302,7 +303,8 @@ class App:
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
         self.test_pulses = None
-        self.draft = None        # unsaved thruster mapping: channel_map and reversed
+        self.draft = None        # unsaved thruster mapping: channel_map, reversed and pwm_chips
+        self.pins_unverified = False   # a saved pin change not read back yet: arming refused
         self.grabbed = None      # thruster row being moved with ↑↓
         self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
@@ -396,10 +398,14 @@ class App:
             return
         self.notice = CORRECTION_ACK_REQUIRED
 
+    def pin_refusal(self):
+        """Arming waits for the sysfs readback after a pin change (s or M runs it)."""
+        return 'pins changed, not read back yet: s runs the readback' if self.pins_unverified else ''
+
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
         rival = self.arming.rival() if self.arming and self.profile.outputs != 'none' else ''
-        refusal = self.thruster_refusal()
+        refusal = self.thruster_refusal() or self.pin_refusal()
         return (self.blockers() + ([rival] if rival else []) + ([refusal] if refusal else [])
                 + self.plant.conflicts() + self.foreign_blockers())
 
@@ -964,6 +970,8 @@ class App:
         options = ['Quit', 'Cancel']
         if self.draft is not None:
             rows.append(('Mapping', 'unsaved changes'))
+            if self.pins_moved():   # pins save only through s, which reads them back
+                rows.append(('Pins', 'unsaved pin change is dropped'))
             options = ['Save mapping and quit', 'Quit without saving', 'Cancel']
         remote = [] if self.watching else parts.quit_rows(self)
         rows += remote        # asked once; Quit stops only what this TUI started
@@ -1329,6 +1337,9 @@ class App:
         raw, key = key, fold(key)
         if raw == 'M' and self.focus == 'thrusters' and not self.review:  # keymap pins: M; folded 'm' stays Manual
             self.notice = pins.edit_pins(self)
+            return
+        if raw == 'P' and self.focus == 'thrusters' and not self.review:  # keymap pin: P; p stays Perception
+            self.notice = pins.edit_row_pin(self, self.cursors['thrusters'])
             return
         if raw == 'X' and self.focus == 'activity' and not self.review and self.activity == 'results':
             self.exclude_result()  # panel-level Exclude run; folded 'x' still writes the report
@@ -1974,11 +1985,21 @@ class App:
         config = self.draft or self.args.hardware_config
         return list(config['channel_map']), list(config['reversed'])
 
-    def edit_mapping(self, channel_map, reversed_):
+    def draft_chips(self):
+        """The PWM chip path of each physical output: the draft's, else the saved config's."""
+        return list({**self.args.hardware_config, **(self.draft or {})}['pwm_chips'])
+
+    def pins_moved(self):
+        return self.draft is not None and 'pwm_chips' in self.draft
+
+    def edit_mapping(self, channel_map, reversed_, chips=None):
         saved = self.args.hardware_config
+        chips = self.draft_chips() if chips is None else list(chips)
+        moved = chips != list(saved['pwm_chips'])   # pwm_chips joins the draft only when it moves
         unchanged = (channel_map == list(saved['channel_map'])
-                     and reversed_ == list(saved['reversed']))
-        self.draft = None if unchanged else dict(channel_map=channel_map, reversed=reversed_)
+                     and reversed_ == list(saved['reversed']) and not moved)
+        self.draft = None if unchanged else dict(channel_map=channel_map, reversed=reversed_,
+                                                 **(dict(pwm_chips=chips) if moved else {}))
         self.notice = 'Mapping unchanged' if unchanged else 'Unsaved mapping; s saves, u undoes'
 
     def on_thrusters(self, key):
@@ -2000,11 +2021,16 @@ class App:
             reversed_[position] = not reversed_[position]
             self.edit_mapping(channel_map, reversed_)
         elif key == 's':
-            if self.draft is None:
-                self.notice = 'Nothing to save'
+            if self.draft is None:   # a pin change still unread: s retries the readback
+                self.notice = pins.verify(self) if self.pins_unverified else 'Nothing to save'
                 return
-            if self.save_hardware(channel_map=channel_map, reversed=reversed_):
-                self.notice = f'Mapping saved to {self.config_file.name}'
+            moved = self.pins_moved()
+            if moved and pins.busy(self):
+                self.notice = pins.REFUSED
+                return
+            chips = dict(pwm_chips=self.draft['pwm_chips']) if moved else {}
+            if self.save_hardware(channel_map=channel_map, reversed=reversed_, **chips):
+                self.notice = pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}'
         elif key == 'u':
             self.draft = self.grabbed = None
             self.notice = 'Mapping changes undone'
@@ -2177,7 +2203,7 @@ class App:
                 return
             if self.arming is None:
                 raise RuntimeError('this session cannot arm (no ROS)')
-            refusal = self.thruster_refusal()
+            refusal = self.thruster_refusal() or self.pin_refusal()
             if refusal:
                 self.notice = f'Arming refused: {refusal}'
                 return

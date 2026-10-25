@@ -8,6 +8,7 @@ from mhseals_hardware.odroid_pwm import J2_PINS
 from mhseals_hardware.thruster_mixer import POSITIONS, thruster_pulses, validate_decoupling
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES
+from mhseals_testing.ui.popups.pins import output_pin
 
 
 SATURATED = 0.98    # |effort| at or above this is drawn as saturated
@@ -47,9 +48,17 @@ def split_decoupling(config):
             None if negative is None else validate_decoupling(negative))
 
 
+def pin_of(config, output):
+    """The J2 pin ``output`` is on: from the configured chip path, '?' for one off the pin table."""
+    if 'pwm_chips' not in config:
+        return J2_PINS[output][0]
+    pin = output_pin(config['pwm_chips'], output)
+    return '?' if pin is None else pin
+
+
 def thruster_rows(view):
     """Per position: physical output, reversal and the pulse it gets now."""
-    config = view['draft'] or view['hardware']
+    config = {**view['hardware'], **view['draft']} if view['draft'] else view['hardware']
     channel_map, reversed_ = config['channel_map'], config.get('reversed', [False] * 4)
     if view['test_pulses'] is not None:
         by_output = view['test_pulses']
@@ -61,7 +70,8 @@ def thruster_rows(view):
         by_output = [NEUTRAL] * 4
     saved = view['hardware']
     return [dict(position=position.upper(), output=output, reversed=flip,
-                 pulse=by_output[output - 1], pin=J2_PINS[output][0],
+                 pulse=by_output[output - 1], pin=pin_of(config, output),
+                 pin_changed=pin_of(config, output) != pin_of(saved, output),
                  saturated=abs(by_output[output - 1] - NEUTRAL) >= SATURATED * 400,
                  readback=view['pwm_readback'][output - 1],
                  changed=(output != saved['channel_map'][index]
@@ -96,7 +106,8 @@ def thrusters_panel(view, compact=False, pins=True):
         label = Text(row['position'] + (' ⇅' if grabbed else ''))
         cells = [theme.row(state, label, focused and index == cursor)]
         if pins:
-            cells.append(Text(f"p{row['pin']}", style=theme.MUTED))
+            cells.append(Text(f"p{row['pin']}",
+                              style=f'bold {theme.WARN}' if row['pin_changed'] else theme.MUTED))
         cells += [
             Text(str(row['output']), style=f'bold {theme.WARN}' if row['changed'] else None),
             Text(theme.pick('−', '-') if row['reversed'] else theme.MIDDOT,

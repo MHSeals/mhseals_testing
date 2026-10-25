@@ -1,17 +1,74 @@
-"""The thruster pin popup: PWM channels and the MOSFET line, restart-applied while disarmed.
+"""Thruster pins, restart-applied while disarmed.
 
-The text is ``channels line`` such as ``0 0 0 0 29``: four PWM channel numbers
-(outputs 1-4) then the MOSFET enable line. The chip paths stay as configured.
+``M`` edits the PWM channels and the MOSFET line: ``0 0 0 0 29`` is four channel
+numbers (outputs 1-4) then the line. ``P`` moves the selected thruster's output to
+another J2 header pin, one of the board's PWM pins (odroid_pwm.J2_PINS) that no
+other output uses; it is a draft that ``s`` saves. A saved pin change must pass
+the sysfs readback before arming.
 """
 
 import time
 
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.menu import Cancelled
+from mhseals_hardware.odroid_pwm import J2_PINS
+from mhseals_hardware.thruster_mixer import POSITIONS
 from mhseals_testing.health.pwm_sysfs import sample
 from mhseals_testing.ui import theme
 
 READBACK_TIMEOUT = 5.0   # seconds the restarted driver gets to export and enable the outputs
+PWM_PINS = {pin: chip for output, (pin, _pad, _pwm, chip) in J2_PINS.items() if output != 'mosfet'}
+REFUSED = 'Pins refused: disarm first, pins move real outputs'
+# Only the table's pins: each has its own controller. Another pad on a used PWM (J2 pin 22 is
+# PWM3's other mux, beside pin 12) would carry the same pulse, so it is not offered.
+PWM_NOTE = f"PWM pins {' '.join(map(str, sorted(PWM_PINS)))}; one pin per PWM (22 shares 12's)"
+
+
+def busy(app):
+    """True while armed or arming: pins never move under a running driver."""
+    return app.armed or (app.arming is not None and app.arming.pending is not None)
+
+
+def output_pin(chips, output):
+    """The J2 pin of physical ``output`` (1-based) under ``chips``; None for a path off the table."""
+    return next((pin for pin, chip in PWM_PINS.items() if chip == chips[output - 1]), None)
+
+
+def parse_pin(text, chips, output):
+    """Return ``chips`` with ``output`` on the J2 pin in ``text``; ValueError says why not."""
+    try:
+        pin = int(text)
+    except ValueError:
+        raise ValueError('a J2 pin number') from None
+    if pin == J2_PINS['mosfet'][0]:
+        raise ValueError(f'pin {pin} is the MOSFET enable')
+    if pin not in PWM_PINS:
+        raise ValueError(f"pin {pin} has no PWM; use {' '.join(map(str, sorted(PWM_PINS)))}")
+    for other in range(1, 5):
+        if other != output and output_pin(chips, other) == pin:
+            raise ValueError(f'pin {pin} already drives output {other}')
+    chips = list(chips)
+    chips[output - 1] = PWM_PINS[pin]
+    return chips
+
+
+def edit_row_pin(app, position):
+    """P: put the selected thruster's output on another PWM pin, as a draft (s saves)."""
+    if busy(app):
+        return REFUSED
+    channel_map, reversed_ = app.mapping()
+    chips, output = app.draft_chips(), channel_map[position]
+    pin = output_pin(chips, output)
+    text = app.ask_text(f'{POSITIONS[position].upper()} pin', f'Output {output}{theme.SEPARATOR}{PWM_NOTE}',
+                        '' if pin is None else str(pin), lambda text: parse_pin(text, chips, output))
+    if text is None:
+        return 'Pin unchanged'
+    try:
+        chips = parse_pin(text, chips, output)
+    except ValueError as error:
+        return f'Pin rejected: {error}'
+    app.edit_mapping(channel_map, reversed_, chips)
+    return app.notice
 
 
 def pin_text(config):
@@ -33,8 +90,8 @@ def parse_pins(text):
 
 def edit_pins(app):
     """Save new pins; while disarmed, run just the driver, read sysfs back, then stop it."""
-    if app.armed or (app.arming and app.arming.pending is not None):
-        return 'Pins refused: disarm first, pins move real outputs'
+    if busy(app):
+        return REFUSED
     text = app.ask_text('Thruster pins', 'PWM channels 1-4 then MOSFET line',
                         pin_text(app.args.hardware_config), parse_pins)
     if text is None:
@@ -45,8 +102,20 @@ def edit_pins(app):
         return f'Pins rejected: {error}'
     if not app.save_hardware(**changes):
         return f'Pins not saved: {app.notice}'
+    return verify(app)
+
+
+def verify(app):
+    """After a saved pin change: start just the driver, read sysfs back, stop it.
+
+    Arming stays refused (``app.pins_unverified``) until a readback confirms the pins.
+    """
+    if busy(app):
+        return REFUSED
     if app.profile.outputs != 'odroid' or app.arming is None:
+        app.pins_unverified = False
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
+    app.pins_unverified = True
     refusal = app.thruster_refusal()
     if refusal:
         return f'Pins saved; driver not started: {refusal}'
@@ -62,6 +131,7 @@ def edit_pins(app):
     except RuntimeError as error:
         return f'Pins saved; driver not restarted: {error}'
     if confirmed:
+        app.pins_unverified = False
         return ('Pins saved; driver restarted, sysfs showed the new channels enabled, driver '
                 'stopped again (MOSFET line not read back)')
     return ('Pins saved; driver restarted; sysfs readback did not show the new channels '
