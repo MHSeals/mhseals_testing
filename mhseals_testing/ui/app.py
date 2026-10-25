@@ -139,7 +139,10 @@ PANEL_HINTS = {
                   ('c', 'Clear decoupling'), ('M', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
     'activity': [('Enter', 'Run'), ('v', 'View')],
-    'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom')],
+    'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom'), ('u', 'Heading-up'), ('F', 'Fov'), ('w', 'Wake'),
+                ('g', 'Rings')],
+    'map': [('c', 'Costmap'), ('d', 'Tracks'), ('y', 'Trail'), ('z/Z', 'Zoom'), ('u', 'Heading-up'),
+            ('F', 'Fov'), ('w', 'Wake'), ('g', 'Rings')],
     'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune'), ('F', 'Finalize')],
 }
 CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
