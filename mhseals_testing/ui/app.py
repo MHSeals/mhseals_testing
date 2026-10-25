@@ -54,6 +54,7 @@ from mhseals_testing.health.network import NetworkRow
 from mhseals_testing.history import History, adapters, backends, revert
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES, unavailable
+from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.report import build_report, write_report
@@ -2580,6 +2581,11 @@ def parse_args(argv=None, *, defer_hardware=False):
     profile = load_profile(args.profile)
     if args.settings.command_mode == 'velocity':
         profile = profile.with_velocity_control()
+    if profile.components and args.review is None:
+        try:            # where each part runs: refused here, before a session directory exists
+            profile.placed
+        except DeviceError as error:
+            raise SystemExit(f'boat_test: {error}') from None
     return args, profile
 
 
@@ -2646,6 +2652,14 @@ def review_main(args, profile):
 
 
 def main(argv=None):
+    """boat_test: a device registry the harness refuses ends with its message, not a traceback."""
+    try:
+        return session_main(argv)
+    except DeviceError as error:
+        raise SystemExit(f'boat_test: {error}') from None
+
+
+def session_main(argv=None):
     args, profile = parse_args(argv, defer_hardware=True)
     if args.review is not None:
         args.hardware_config = load_config(args.config)

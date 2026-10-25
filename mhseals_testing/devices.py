@@ -326,8 +326,10 @@ def assign(registry, me, profiles=load_device_profile, placement=None, wanted=()
         profile = profiles(name)
         missing = set(profile.get('requires', ())) - host.capabilities
         if missing:
+            hint = (f'; {FALLBACK} is the package fallback; add $ROS_WS/config/devices.yaml'
+                    if host.name == FALLBACK else '')
             raise DeviceError(f'device profile {name} requires {sorted(missing)}; '
-                              f'host {host.name} has {sorted(host.capabilities) or "none"}')
+                              f'host {host.name} has {sorted(host.capabilities) or "none"}{hint}')
         for part, spec in (profile.get('parts') or {}).items():
             if part in parts:
                 raise DeviceError(f'part {part!r} is claimed by both {parts[part].profile} '

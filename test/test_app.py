@@ -260,6 +260,25 @@ def test_parse_args_profile_components_and_limits(tmp_path):
         parse_args(['--start-stack'])
 
 
+def test_a_boat_without_a_deployment_registry_is_refused_before_any_session(tmp_path, monkeypatch):
+    from mhseals_testing import devices
+    from mhseals_testing.ui import app as app_module
+    package = devices.layer_paths()[0]
+    monkeypatch.setattr(devices, 'layer_paths', lambda: (package, tmp_path / 'none.yaml',
+                                                         tmp_path / 'none.yaml', tmp_path / 'none.env'))
+    with pytest.raises(SystemExit) as refused:
+        parse_args(['--output', str(tmp_path / 'session')])
+    assert 'local is the package fallback; add $ROS_WS/config/devices.yaml' in str(refused.value)
+    assert not (tmp_path / 'session').exists()
+    parse_args(['--profile', 'crane_full_stack'])     # the sim runs everything here, no deployment
+
+    def late(argv):
+        raise devices.DeviceError('role camera_host needs exactly one host')
+    monkeypatch.setattr(app_module, 'session_main', late)
+    with pytest.raises(SystemExit, match='boat_test: role camera_host'):
+        app_module.main([])
+
+
 def arm(app):
     """Arm through the popup: typed ARM for real pins, the Arm button otherwise."""
     if app.profile.outputs == 'odroid':
