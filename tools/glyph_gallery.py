@@ -45,7 +45,7 @@ TODAY_NOTES = (
      'tidy dots, but the head visibly points 22.5° off the shaft.'),
 )
 COMBOS = (('CE', 'C hull + E glow arrow'), ('EE', 'E chevron + E glow arrow'), ('DA', 'D hybrid + A bold arrow'), ('CC', 'C hull + C half-block arrow'))
-ARMS = ('0', '1', '2', '3')
+ARMS = ('0', '1', '1c', '2', '3')
 TIERS = {
     'truecolor': {'COLORTERM': 'truecolor', 'TERM': 'xterm-256color'},
     'mono': {'NO_COLOR': '1', 'TERM': 'xterm-256color'},
@@ -202,9 +202,16 @@ ARROW_NOTES = {
 }
 ARM_NOTES = {
     '0': ('Today', 'Bold accent labels, rules per group, danger (fail) border, slots field.'),
-    '1': ('Quiet labels, state gutter', 'Labels muted and right-aligned to one column, values in fg; '
+    '1': ('Owner’s pick: quiet labels, state gutter, red field', 'Labels muted and right-aligned to one column, values in fg; '
           'each check has a ✓/✗/! gutter in its state colour; checks grouped as blocking vs clear '
-          'with a count on the rule; the caution line in warn; one blank line before the action.'),
+          'with a count on the rule; the caution line in warn; one blank line before the action. The typed '
+          'field and letters now use the <code>arm.word</code> crimson (see 1c).'),
+    '1c': ('Owner’s pick, centred, red field', 'Variant 1 on one axis: title and key hints centred on the '
+           'border, the caution centred, rules with their label in the middle, the label/value block and '
+           'the checks centred as blocks (their text stays left-aligned so the ✓/✗ column lines up), the '
+           'field or buttons centred. The typed field and its letters use the new <code>arm.word</code> '
+           'crimson (#EB4778 dark / #A31D48 light, armed family: ΔE₀₀ ≥ 14 from fail, stop and the buoys, '
+           '4.7:1 on the dark bg); a wrong letter still turns warn. NO_COLOR: bold border and letters.'),
     '2': ('Armed-hue frame', 'Border and title in the armed token (the state you are entering), '
           'not fail; the outputs value is the one emphasised value (“real thrusters”); '
           'checks as a two-column checklist; the field sits under a “type ARM” label.'),

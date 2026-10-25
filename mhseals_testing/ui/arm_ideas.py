@@ -197,7 +197,90 @@ def body_3(state, inner):
     return out
 
 
-BODIES = {'1': body_1, '2': body_2, '3': body_3}
+def red_field(typed, word):
+    """widgets.word_field in the ``arm.word`` crimson: border and typed letters; a wrong letter still
+    turns ``warn`` with ``! needs``. NO_COLOR: the border and letters are bold (the token's mono form)."""
+    red = _style('arm.word')
+    slots, wrong = Text(), False
+    for index in range(len(word)):
+        if index:
+            slots.append(' ')
+        if index < len(typed):
+            wrong = wrong or typed[index] != word[index]
+            slots.append(typed[index], style=f'bold {theme.WARN if wrong else red}')
+        else:
+            slots.append('_', style=theme.MUTED)
+    if typed == word:
+        note = Text(f'{word} {theme.pick("✓", "+")}', style=f'bold {red}')
+    elif wrong:
+        note = Text(f'! needs {word}', style=theme.WARN)
+    else:
+        note = Text.assemble(('needs ', theme.MUTED), (word, f'bold {red}'))
+    table = Table.grid(padding=(0, 2))
+    table.add_column(no_wrap=True)
+    table.add_column(vertical='middle')
+    table.add_row(widgets._box(slots, theme.WARN if wrong else (red or 'bold'), width=len(word) * 2 + 3), note)
+    return table
+
+
+def _crule(label, width, note=None, hue=None):
+    """``──── Checks · all clear ────``: a rule with its label in the middle."""
+    words = Text(label, style=f'bold {_style("slate")}')
+    if note:
+        words.append(theme.SEPARATOR, style=_style('border'))
+        words.append(note, style=hue or theme.MUTED)
+    side = max(2, (width - words.cell_len - 2) // 2)
+    text = Text(theme.RULE * side + ' ', style=_style('border'))
+    text.append_text(words)
+    text.append(' ' + theme.RULE * max(2, width - side - words.cell_len - 2), style=_style('border'))
+    return text
+
+
+def body_1c(state, inner):
+    """Variant 1 centred: caution, rules, the label/value block, checks and the action on one axis."""
+    name, info, checks = facts(state)
+    out = []
+    if state == 'typed':                     # two balanced lines, each centred
+        first, second = MESSAGE.split(', physical')
+        caution = Text(theme.pick('▲ ', '! '), style=f'bold {theme.WARN}')
+        caution.append(first + ',', style=theme.WARN)
+        out += [Align.center(caution), Align.center(Text('physical' + second, style=theme.WARN)), Text('')]
+    for title, items in info:
+        out.append(_crule(title, inner))
+        grid = _grid(10)
+        grid.columns[1].overflow = 'ellipsis'
+        grid.columns[1].min_width = 30
+        for label, value in items:
+            grid.add_row(Text(label, style=theme.MUTED), _value(value))
+        out.append(Align.center(grid))
+    bad = sum(1 for s, _ in checks if s == 'bad')
+    out.append(_crule('Checks', inner, f'{bad} blocking' if bad else 'all clear', theme.BAD if bad else theme.GOOD))
+    lines = []
+    for s, text in sorted(checks, key=lambda c: c[0] != 'bad'):
+        line = _icon(s).copy()
+        line.append(' ' + text, style=_style('fg') if s == 'bad' else theme.MUTED)
+        lines.append(line)
+    block = Table.grid()
+    block.add_column(max_width=inner - 4)
+    for line in lines:
+        block.add_row(line)
+    out += [Align.center(block), Text('')]
+    return out
+
+
+def _action(m, inner, centred):
+    """The field or the buttons, as layout.popup draws them, optionally centred."""
+    if m['kind'] == 'input':
+        part = red_field(m['text'], m['word'])
+        return [Align.center(part) if centred else part]
+    lines = widgets.choice_list(m['options'], m['keys'], m['selected'], m['risky'], inner)
+    hint = m['hint']
+    if len(lines) == 1:
+        m['hint'] = hint.replace(theme.pick('↑↓', 'Up/Down'), theme.pick('←→', 'Left/Right'))
+    return [Align.center(line) if centred else line for line in lines]
+
+
+BODIES = {'1': body_1, '1c': body_1c, '2': body_2, '3': body_3}
 
 
 def render(option, state, width):
@@ -205,7 +288,11 @@ def render(option, state, width):
     m = modal(state)
     if option != '0':
         inner = min(width - 4, WIDTH) - 4
-        m['body'] = Group(*BODIES[option](state, inner))
+        parts = BODIES[option](state, inner)
+        if option in ('1', '1c'):              # the action drawn here: the red field, or centred buttons
+            parts += _action(m, inner, option == '1c')
+            m['kind'] = 'custom'
+        m['body'] = Group(*parts)
         m['rows'], m['message'] = None, None
         if option == '2':
             m['danger'] = False
@@ -217,10 +304,13 @@ def render(option, state, width):
         chip.stylize('bold')
         heading = Text.assemble(chip, (f' {title[1]} ', theme.MUTED))
         panel.title = heading
-    elif option in ('1', '3'):
+    elif option in ('1', '1c', '3'):
         title = m['title'].split(theme.SEPARATOR)
         heading = Text(f' {title[0]}', style=f'bold {theme.BAD}')
-        heading.append(theme.SEPARATOR + title[1], style=theme.MUTED)
+        heading.append(theme.SEPARATOR + title[1] + ' ', style=theme.MUTED)
         panel.title = heading
+        if option == '1c':
+            panel.title_align = 'center'
+            panel.subtitle_align = 'center'
     panel.width = panel_width
     return Align.center(panel, width=width)
