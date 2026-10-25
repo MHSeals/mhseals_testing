@@ -31,7 +31,7 @@ def test_truecolor_and_16_colours_and_chip():
     row = emit.emit(sample(), style)[0]
     assert '\x1b[0;38;2;17;34;51m⠁' in row
     assert '\x1b[0;38;2;0;0;0;41mX' in row            # chip: bg glyph on the token colour
-    assert '\x1b[0;100m⠀' in row                 # tint painted
+    assert '\x1b[0;100m ' in row                 # tint painted (a blank cell goes out as a space)
     row16 = emit.emit(sample(), style, '16')[0]
     assert '\x1b[0;31;7mX' in row16                   # chip becomes reverse video
     assert '100' not in row16                       # tints dropped at 16 colours
@@ -49,7 +49,7 @@ def test_styles_reset_between_runs():
     c.dot(4, 0, 'trail')
     row = emit.emit(c, style)[0]
     assert row.endswith('\x1b[0;38;2;17;34;51m⠁' + emit.RESET)
-    assert '\x1b[0;100m⠀\x1b[0;90;1mB' in row
+    assert '\x1b[0;100m \x1b[0;90;1mB' in row
 
 
 def test_attribute_first_tokens_still_give_backgrounds():
