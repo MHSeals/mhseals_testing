@@ -91,6 +91,12 @@ def commander(argv, parts_of=device_parts):
     arguments = _arguments(argv)
     try:
         parts = parts_of(arguments)
+    except ModuleNotFoundError as error:
+        if (error.name or '').split('.')[0] != 'mhseals_nav':
+            return True
+        # Still refused (fail closed), but saying why: no part's kind can be read here.
+        raise UnitError('mhseals_nav is not installed on this computer, so the part\'s kind '
+                        'cannot be read; install it to start device parts as units') from error
     except Exception:          # unreadable counts as commander: fail closed
         return True
     chosen = [part.strip() for part in arguments.get('only', '').split(',') if part.strip()]

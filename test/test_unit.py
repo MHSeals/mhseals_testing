@@ -143,9 +143,20 @@ def test_an_override_that_makes_a_sensing_part_a_commander_is_read(tmp_path):
         unit.refuse([*argv, 'overrides:=' + json.dumps(nav2)], False)
 
 
-def test_a_whole_device_launch_without_readable_profiles_counts_as_commander(monkeypatch):
+def test_a_whole_device_launch_without_readable_profiles_counts_as_commander():
+    def unreadable(arguments):
+        raise ValueError('no device profile')
+    argv = ['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson']
+    assert unit.commander(argv, unreadable)
+    with pytest.raises(unit.UnitError, match='can command motion'):
+        unit.refuse(argv, False, unreadable)
+
+
+def test_without_mhseals_nav_every_part_is_refused_naming_the_missing_package(monkeypatch):
     monkeypatch.setitem(sys.modules, 'mhseals_nav.device_profile', None)
-    assert unit.commander(['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson'])
+    argv = ['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson', 'only:=camera']
+    with pytest.raises(unit.UnitError, match='mhseals_nav is not installed on this computer'):
+        unit.refuse(argv, False)
 
 
 def test_stop_and_status_of_an_unknown_unit_are_off_and_bad_names_are_refused():
