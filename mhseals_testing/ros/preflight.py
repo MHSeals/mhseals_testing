@@ -23,7 +23,7 @@ STATUS_TOPIC = f'/{DRIVER}/status'
 RC_TOPIC = '/mavros/rc/in'
 GPS_RAW_TOPIC = '/mavros/gpsstatus/gps1/raw'
 DIAGNOSTICS = '/diagnostics'
-HOST_SILENCE_S = 6.0            # three host_facts periods; older camera-host readings drop
+HOST_SILENCE_S = 6.0            # three host_diagnostic periods; older camera-host readings drop
 
 
 def watched_topics(specs):

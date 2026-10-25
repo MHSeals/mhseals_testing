@@ -1,7 +1,7 @@
 """preflight probe: read-only facts the pre-water checks need that no other probe publishes.
 
 Pure: ros/preflight.py feeds it plain values from the ROS callbacks and the graph, and the
-camera host's ros/host_facts.py fills the ``host:`` diagnostic it reads. Nothing here writes
+camera host's ros/host_diagnostic.py fills the ``host:`` diagnostic it reads. Nothing here writes
 a pin, a parameter or a command.
 
 Facts:
@@ -17,18 +17,17 @@ Facts:
   orin.disk_free_gb free disk on the camera host's data directory
 """
 
-import glob
 from pathlib import Path
 import shutil
 
 from mhseals_testing.health.model import Fact
+from mhseals_testing.health.probes import THERMAL_ZONES, hottest
 
 OUTPUT_KEYS = ('pwm_topic', 'pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line',
                'mosfet_active_high')    # the pins; output_backend is a launch argument
-HOST_PREFIX = 'host:'                   # DiagnosticStatus.hardware_id of ros/host_facts.py
+HOST_PREFIX = 'host:'                   # DiagnosticStatus.hardware_id of ros/host_diagnostic.py
 NVPMODEL_STATUS = '/var/lib/nvpmodel/status'
 NVPMODEL_CONF = '/etc/nvpmodel.conf'
-THERMAL_ZONES = '/sys/class/thermal/thermal_zone*/temp'
 
 
 def driver_facts(status, config):
@@ -93,14 +92,9 @@ def host_values(zones=THERMAL_ZONES, status=NVPMODEL_STATUS, conf=NVPMODEL_CONF,
     """The camera host's own readings as strings, for its ``host:`` diagnostic. Unreadable
     sources are left out, so the boat reads them as unknown."""
     values = {}
-    temps = []
-    for zone in glob.glob(zones):
-        try:
-            temps.append(int(Path(zone).read_text()) / 1000)
-        except (OSError, ValueError):
-            pass
-    if temps:
-        values['temp_max_c'] = f'{max(temps):.1f}'
+    temp = hottest(zones)
+    if temp is not None:
+        values['temp_max_c'] = f'{temp:.1f}'
     try:
         mode = Path(status).read_text().split('pmode:', 1)[1].split()[0].lstrip('0') or '0'
         names = {}

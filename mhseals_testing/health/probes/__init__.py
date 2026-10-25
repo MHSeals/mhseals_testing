@@ -96,18 +96,24 @@ def invalid_facts(current, hardware, history=None):
     return {'calibration.invalid': Fact(len(bad), label=', '.join(bad))}
 
 
-def host_facts(bag_directory, load=os.getloadavg, cpus=os.cpu_count, zones=THERMAL_ZONES):
-    """Load per CPU, hottest thermal zone and free disk (GB) where the bag is written."""
-    count, load1 = cpus() or 1, load()[0]
-    facts = {'host.load': Fact(load1 / count, label=f'{load1:.1f}/{count}')}
+def hottest(zones=THERMAL_ZONES):
+    """The hottest readable thermal zone in deg C, or None when no zone reads."""
     temperatures = []
     for zone in glob.glob(zones):
         try:
             temperatures.append(int(Path(zone).read_text()) / 1000)
         except (OSError, ValueError):
             pass
-    if temperatures:
-        facts['host.temp_max'] = Fact(max(temperatures))
+    return max(temperatures) if temperatures else None
+
+
+def host_facts(bag_directory, load=os.getloadavg, cpus=os.cpu_count, zones=THERMAL_ZONES):
+    """Load per CPU, hottest thermal zone and free disk (GB) where the bag is written."""
+    count, load1 = cpus() or 1, load()[0]
+    facts = {'host.load': Fact(load1 / count, label=f'{load1:.1f}/{count}')}
+    temperature = hottest(zones)
+    if temperature is not None:
+        facts['host.temp_max'] = Fact(temperature)
     directory = Path(bag_directory)
     while not directory.exists():
         directory = directory.parent

@@ -56,6 +56,15 @@ def test_host_facts_read_the_hottest_zone_and_call_load_once(tmp_path):
     assert facts['host.temp_max'].value == 77.5 and len(calls) == 1
 
 
+def test_hottest_is_shared_by_both_host_readers_and_none_without_a_zone(tmp_path):
+    from mhseals_testing.health.probes import preflight
+    (tmp_path / 'zone0').write_text('41000')
+    (tmp_path / 'zone1').write_text('bad')
+    zones = str(tmp_path / 'zone*')
+    assert probes.hottest(zones) == 41.0 and probes.hottest(str(tmp_path / 'none*')) is None
+    assert preflight.host_values(zones, tmp_path / 'x', tmp_path / 'y', tmp_path)['temp_max_c'] == '41.0'
+
+
 def test_facts_store_replaces_a_probes_facts_and_keeps_them_on_error():
     store = probes.Facts(clock=lambda: 5.0)
     store.publish('fcu', probes.fcu_facts(True, False, 'MANUAL'))

@@ -96,7 +96,7 @@ checks:
       - {source: zed_native, profiles: [boat]}
   - {id: pre.orin_temp, kind: threshold, fact: orin.temp_max, below: false, warn: 70, fail: 85,
      digits: 0, unit: ' C', probe: preflight, severity: fail, profiles: [boat], title: Orin temperature,
-     hint: 'host_facts on the Orin publishes this; unknown means it is not running there'}
+     hint: 'host_diagnostic on the Orin publishes this; unknown means it is not running there'}
   - {id: pre.orin_power, kind: state, fact: orin.power_mode, expect: [MAXN_SUPER], severity: warn,
      profiles: [boat], title: Orin power mode, hint: 'sudo nvpmodel -m <MAXN_SUPER id> on the Orin'}
   - {id: pre.orin_disk, kind: threshold, fact: orin.disk_free_gb, warn: 20, fail: 5, digits: 1,
