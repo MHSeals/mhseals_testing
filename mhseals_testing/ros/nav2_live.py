@@ -30,13 +30,9 @@ FIRST_SAMPLE_S = 4.0
 # controller_server and warns "Parameter <name> not found" for each one it
 # does not own. Measured on Nav2 1.3.13 (parameters_handler.hpp registers no
 # callback for static parameters, so for MPPI's own keys the line is the only
-# sign a key took no effect). Only keys MPPI cannot own are exempt: the
-# non-FollowPath controller keys and the rotation shim's names.
-SHIM_NAMES = frozenset((
-    'angular_dist_threshold', 'angular_disengage_threshold', 'closed_loop',
-    'forward_sampling_distance', 'max_angular_accel',
-    'rotate_to_goal_heading', 'rotate_to_heading_angular_vel',
-    'rotate_to_heading_once', 'simulate_ahead_time'))
+# sign a key took no effect). The window runs only for live keys, all
+# FollowPath.*; only the two rotation-shim names among them are MPPI's noise.
+SHIM_NAMES = frozenset(('max_angular_accel', 'rotate_to_heading_angular_vel'))
 MPPI_NOISE = re.compile(r'Parameter (\S+) not found')
 
 
@@ -52,10 +48,7 @@ class Rosout:
         noise = MPPI_NOISE.fullmatch(text)
         if name != 'controller_server' or not noise or noise[1] not in params:
             return False
-        key = noise[1]
-        if not key.startswith('FollowPath.'):
-            return True
-        return key[len('FollowPath.'):] in SHIM_NAMES
+        return noise[1].removeprefix('FollowPath.') in SHIM_NAMES
 
     def errors(self, nodes, params):
         """Return the ERROR/FATAL lines of any node that logs to /rosout and

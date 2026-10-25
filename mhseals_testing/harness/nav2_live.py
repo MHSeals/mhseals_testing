@@ -58,7 +58,7 @@ LIMIT_KEYS = frozenset(
      for k in ('max_velocity', 'min_velocity', 'max_accel', 'max_decel')]
     + [n2.FOLLOW + k for k in (
         'wz_max', 'ax_max', 'ax_min', 'ay_max',
-        'ay_min', 'az_max', 'az_min', 'vx_std', 'vy_std', 'wz_std',
+        'ay_min', 'az_max', 'vx_std', 'vy_std', 'wz_std',
         'prune_distance', 'rotate_to_heading_angular_vel',
         'max_angular_accel')])
 # The smoother value that is the more restrictive of two (closer to zero).
@@ -514,6 +514,9 @@ class Nav2Live:
         done, watch = [], self.ports.rosout_open()
         try:
             if found.reset:
+                # No /rosout window here: every configure logs an ERROR
+                # ("Inflation layer either not found ...") so the window would
+                # always roll back; startup success plus readback stands in.
                 return self._write_reset(found, done)
             early = self._sets(found, found.steps, done)
             if early:

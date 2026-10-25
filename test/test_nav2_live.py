@@ -772,9 +772,9 @@ def test_live_module_exports_the_documented_limit_keys():
 
 def test_rosout_keeps_failure_lines_about_what_was_set_and_skips_mppi_noise():
     from mhseals_testing.ros.nav2_live import Rosout
-    lines = [(1.0, 'controller_server', 'Parameter failure_tolerance not found', 30),  # earlier
-             # MPPI listing a key it does not own:
-             (5.0, 'controller_server', 'Parameter failure_tolerance not found', 30),
+    lines = [(1.0, 'controller_server', 'Parameter FollowPath.max_angular_accel not found', 30),  # earlier
+             # MPPI listing a shim key it does not own:
+             (5.0, 'controller_server', 'Parameter FollowPath.max_angular_accel not found', 30),
              (5.1, 'controller_server', 'Parameter FollowPath.batch_size not found', 30),  # not set
              (5.2, 'velocity_smoother', 'Invalid size of max_velocity', 30),
              (5.3, 'other_node', 'something else is Invalid', 30),
@@ -782,7 +782,7 @@ def test_rosout_keeps_failure_lines_about_what_was_set_and_skips_mppi_noise():
              (5.5, 'local_costmap.local_costmap', 'all fine', 30),
              (5.6, 'global_costmap.global_costmap', 'Error parsing footprint parameter', 40)]
     errors = Rosout(lines, 2.0).errors({'controller_server', 'velocity_smoother'},
-                                       ['failure_tolerance', 'max_velocity'])
+                                       ['FollowPath.max_angular_accel', 'max_velocity'])
     assert errors == ['controller_server: Parameter FollowPath.batch_size not found',
                       'velocity_smoother: Invalid size of max_velocity',
                       'bt_navigator: param max_velocity not found',

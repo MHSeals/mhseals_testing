@@ -277,7 +277,7 @@ def test_a_live_set_reaches_the_real_nodes_under_a_tokened_hold(stack, live):
     assert mux['last_release']['tokenless'] is False and mux['last_release']['cause'] == 'config'
 
 
-def test_a_non_limit_key_survives_the_mppi_parameter_warning(stack, live):
+def test_a_reset_path_key_survives_the_mppi_parameter_warning(stack, live):
     receipt = live.apply({'controller_server.failure_tolerance': 0.25})
     assert receipt['status'] == 'verified', receipt
     assert stack.get(CONTROLLER, 'failure_tolerance') == 0.25
@@ -349,10 +349,10 @@ def test_a_static_mppi_key_the_handler_does_not_own_rolls_back(stack, live):
     assert stack.get(SMOOTHER, 'max_velocity')[2] == 0.3
 
 
-def test_the_shim_and_non_followpath_not_found_lines_stay_exempt(stack, live):
+def test_the_shim_not_found_line_stays_exempt_on_the_live_path(stack, live):
     stack.ports.log_after[CONTROLLER] = (
-        'controller_server', 'Parameter FollowPath.closed_loop not found')
-    receipt = live.apply({FOLLOW + 'closed_loop': False, 'controller_server.failure_tolerance': 0.25})
+        'controller_server', 'Parameter FollowPath.rotate_to_heading_angular_vel not found')
+    receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'verified', receipt
 
 
