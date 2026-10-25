@@ -74,7 +74,7 @@ from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
 from mhseals_testing.ui import keymap as keymap_module, rtk
 from mhseals_testing.harness import bags as bags_module
-from mhseals_testing.ui.panels import PANELS, activity, correction, scrubber
+from mhseals_testing.ui.panels import PANELS, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.review import (
@@ -138,7 +138,7 @@ PANEL_HINTS = {
                   ('s', 'Save'), ('u', 'Undo'), ('0', 'Neutral'), ('i', 'Identify'),
                   ('c', 'Clear decoupling'), ('M', 'Pins')],
     'procedures': [('Enter', 'Run'), (UPDOWN, 'Select')],
-    'activity': [('Enter', 'Run'), ('v', 'Results/log')],
+    'activity': [('Enter', 'Run'), ('v', 'View')],
     'minimap': [('z/Z', 'Zoom'), ('0', 'Reset zoom')],
     'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune'), ('F', 'Finalize')],
 }
@@ -739,6 +739,8 @@ class App:
         if panel == 'procedures':
             return len(PROCEDURES)
         if panel == 'activity':
+            if self.activity == 'agent':
+                return len(agent_log.rows(feeds_module.merged(self.feeds).get('agent_desk')))
             snapshot = self.snapshot()
             return len(snapshot['events' if self.activity == 'log' else 'results'])
         return 0
@@ -772,7 +774,7 @@ class App:
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared),
-            agent=authority_chip.banner(shared.get('authority_record'), time.time()),
+            agent=authority_chip.banner(shared.get('authority_record'), time.time(), desk=shared.get('agent_desk')),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command, chords=self.chords,
             profile=self.profile.name, units=self.profile.command_units,
@@ -805,7 +807,8 @@ class App:
     def control(self):
         """``snapshot['control']`` for the Status Control rows."""
         record = feeds_module.merged(self.feeds).get('authority_record')
-        return authority_chip.control(record, self.driving(), time.time(), self.settings.agents)
+        return authority_chip.control(record, self.driving(), time.time(), self.settings.agents,
+                                      agent_motion=self.settings.agent_motion, agent_view=self.settings.agent_view)
 
     def render(self):
         return layout.render(self.snapshot(), self.view(),
@@ -1827,10 +1830,12 @@ class App:
 
     def on_activity(self, key):
         if key == 'v':
-            self.activity = 'log' if self.activity == 'results' else 'results'
-            self.cursors['activity'] = 0
+            desk = feeds_module.merged(getattr(self, 'feeds', ())).get('agent_desk')
+            self.activity, self.cursors['activity'] = agent_log.next_view(self.activity, desk), 0
         elif key == 'enter' and self.activity == 'results':
             self.open_run()
+        elif key == 'enter' and self.activity == 'agent':
+            agent_log.detail(self, feeds_module.merged(self.feeds).get('agent_desk'), self.cursors['activity'])
 
     # Reasons offered by the run popup's X; an exclusion always carries one (critique K4).
     EXCLUDE_REASONS = ('operator error', 'wrong conditions', 'sensor fault', 'test run')

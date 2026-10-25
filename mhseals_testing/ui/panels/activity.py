@@ -6,7 +6,7 @@ from rich.console import Group
 from rich.text import Text
 
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.panels import TITLES, window
+from mhseals_testing.ui.panels import TITLES, agent_log, window
 from mhseals_testing.ui.panels.scrubber import Loupe, label
 
 
@@ -64,6 +64,9 @@ def activity_panel(snapshot, view, height):
     review = review if review and not isinstance(review, bool) else None
     if _show_loupe(review):      # only a distinct local window takes rows from the list
         budget = max(1, budget - LOUPE_ROWS)
+    if view['activity'] == 'agent':
+        body, subtitle = agent_log.body(view, budget, focused)
+        return theme.block(_with_loupe(body, review), TITLES['activity'], focused, _subtitle(subtitle, review))
     if view['activity'] == 'log':
         table = theme.grid({'header': '  Event', 'ratio': 1}, {'header': 'Age', 'justify': 'right'},
                            padding=(0, 1))

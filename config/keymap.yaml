@@ -99,7 +99,7 @@ panel.procedures:
   unfold: [right, l]            # procedure row: unfold settings · setting row: step up
 
 panel.activity:
-  view_prev: [left, h]          # results · events · markers
+  view_prev: [left, h]          # v cycles results · log · agent (agent: while the AgentDesk runs)
   view_next: [right, l]
   zoom: [z]                     # fit · 30m · 10m · 2m
   exclude: [X]
