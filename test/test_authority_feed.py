@@ -187,10 +187,10 @@ def test_invariant_4_header_chips_are_arm_review_or_authority(name):
 
 
 def test_invariant_5_authority_hues_never_colour_status_glyphs():
-    tokens = {kind: token for kind, token in theme.CHIPS.items() if kind != 'armed'}
+    tokens = {kind: token for kind, token in theme.CHIPS.items() if kind not in ('armed', 'stop')}
     assert all(token.startswith('auth.') for token in tokens.values())
     assert theme.auth_style('unclaimed') == theme.BAD                 # the one allowed overlap
-    assert theme.CHIPS['armed'] == 'fail'                              # and ARMED
+    assert (theme.CHIPS['armed'], theme.CHIPS['stop']) == ('armed', 'stop')   # their own hues, not fail
 
 
 def test_motion_subtitle_carries_the_authority_word():
