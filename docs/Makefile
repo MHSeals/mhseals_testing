@@ -9,7 +9,11 @@ docker-pdf:
 	docker run --rm -u "$$(id -u):$$(id -g)" -v "$(CURDIR):/docs" -w /docs $(TEXLIVE) \
 		latexmk -pdf -interaction=nonstopmode -halt-on-error math.tex
 
+# Redraw the README screenshots (docs/screens/*.svg) from synthetic data; test/test_screens.py fails when they are stale.
+screens:
+	cd .. && PYTHONPATH=.:../mhseals_hardware:$$PYTHONPATH python3 docs/screens/render.py
+
 clean:
 	latexmk -C math.tex
 
-.PHONY: pdf docker-pdf clean
+.PHONY: pdf docker-pdf screens clean
