@@ -38,6 +38,7 @@ lean:
     - /navigate_to_pose/_action/status
     - /task/status
     - /task/events
+    - /task/hypotheses
     - /objects/map
     - /perception/tracks
     - /perception/status

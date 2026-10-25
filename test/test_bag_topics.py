@@ -90,3 +90,11 @@ def test_full_profile_drops_the_camera_hosts_topics_and_heavy_types():
     assert [t for t in DROPPED if not regex.fullmatch(t)] == []
     assert [t for t in KEPT if regex.fullmatch(t)] == []
     assert set(HEAVY) <= set(config['exclude_types'])
+
+
+def test_both_modes_record_the_task_streams():
+    import re
+    task = ('/task/status', '/task/events', '/task/hypotheses')
+    assert set(task) <= set(lean_topics())
+    regex = re.compile(yaml.safe_load((PROFILE.parents[1] / 'bags.yaml').read_text())['exclude_regex'])
+    assert [t for t in task if regex.fullmatch(t)] == []
