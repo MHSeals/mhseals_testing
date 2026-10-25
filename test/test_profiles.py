@@ -77,10 +77,10 @@ def test_boat_gps_declares_its_rate():
 
 
 def test_boat_proof_nodes_are_node_names():
-    """Proof nodes are ROS node names (launch name=), not executables: the velodyne
-    driver's executable is velodyne_driver_node but its node is velodyne_driver."""
+    """Proof nodes are ROS node names (launch name=), not executables. The Orin's velodyne driver
+    runs on the large-data transport no other computer discovers, so the relay is the proof."""
     parts = load_profile('boat').placed[1]
-    assert tuple(parts['sensors'].spec['nodes']) == ('velodyne_driver',)
+    assert tuple(parts['sensors'].spec['nodes']) == ('lidar_relay_publish',)
 
 
 def test_boat_lidar_counts_as_running_on_its_relay():
