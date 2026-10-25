@@ -16,6 +16,7 @@ import json
 import threading
 import time
 
+from mhseals_testing.harness import agent_config
 from mhseals_testing.harness.authority import ClaimTable, derive, events
 
 AUTHORITY_TOPIC = '/mhseals_testing/authority'
@@ -23,8 +24,8 @@ CLAIM_TOPIC = '/mhseals_testing/authority/claim'
 MUX_STATE_TOPIC = '/command_mux/state'
 HEARTBEAT_S = 1.0
 TICK_S = 0.25
-# Ack errors and the exit codes the CLI maps them to (spec section 6).
-EXIT_CODES = {'busy': 2, 'no_owner': 4, 'blocked': 5}
+# Ack errors and the exit codes the CLI maps them to (spec section 6, agent-control section 3).
+EXIT_CODES = {'busy': 2, 'not_holder': 2, 'revoked': 3, 'expired': 3, 'no_owner': 4, 'blocked': 5}
 
 
 def exit_code(ack):
@@ -39,17 +40,22 @@ class Arbiter:
     event. ``sources()`` returns {'nav', 'task', 'procedure', 'graph'} for
     ``derive``; nav goals may carry a ``cancel`` callable. ``neutral()`` and
     ``hold(cause, by)`` stop the boat (zero command, mux hold). ``tui_owner``
-    is False for a headless run, which refuses agent claims.
+    is False for a headless run, which refuses agent claims. ``config`` is the
+    hot-reloaded config/agent.yaml (``agent_config.Watch``): its lease bounds
+    agent claims. An expired lease stops the boat exactly as ``revoke`` does.
+    Renew and release over the topic must name the claim's ``who``.
     """
 
     def __init__(self, publish, emit, *, registry=None, tui_owner=False, allow_agents=True,
                  sources=lambda: {}, neutral=lambda: None, hold=lambda cause, by: None,
-                 clock=time.time):
+                 clock=time.time, config=None):
         self.publish, self.emit, self.registry = publish, emit, registry
         self.tui_owner, self.allow_agents = tui_owner, allow_agents
         self.sources, self.neutral, self.hold, self.clock = sources, neutral, hold, clock
         saved = (registry.read().get('authority') or {}) if registry else {}
         self.table = ClaimTable(saved.get('claims', ()), saved.get('seq', 0))
+        self.config = config or agent_config.Watch()
+        self.ended = {}          # claim id -> 'revoked' | 'expired', so the agent's next call learns why
         self.mux, self.mux_at = None, None
         self.record, self.ack, self.sent_at, self.sent = None, None, None, None
         self.saved = None
@@ -68,9 +74,7 @@ class Arbiter:
             if op == 'claim':
                 self._claim(request, now, ack)
             elif op in ('release', 'renew'):
-                done = (self.table.release(request.get('id'), now) if op == 'release'
-                        else self.table.renew(request.get('id'), now))
-                ack.update(ok=done, error='' if done else 'unknown_claim')
+                self._own(request, now, ack)
             else:  # revoke is the owner's own key; over the topic it is refused like any other op
                 ack.update(ok=False, error='forbidden' if op == 'revoke' else 'bad_op')
             self.ack = ack
@@ -90,23 +94,61 @@ class Arbiter:
             ack.update(ok=claim is not None, id=claim['id'] if claim else None,
                        claim=claim, holder=holder, error='' if claim else 'busy')
 
+    def _own(self, request, now, ack):
+        """Renew or release: only the claim's own ``who`` may (G5)."""
+        claim_id, op = request.get('id'), request.get('op')
+        claim = self.table.get(claim_id)
+        if claim is None:
+            ack.update(ok=False, error=self.ended.get(claim_id, 'unknown_claim'))
+        elif claim['who'] != request.get('who'):
+            ack.update(ok=False, error='not_holder', holder=claim['who'])
+        elif op == 'release':
+            ack.update(ok=self.table.release(claim_id, now), error='')
+        elif self.table.renew(claim_id, now):
+            ack.update(error='')
+        else:
+            ack.update(ok=False, error=self.ended.get(claim_id, 'revoked'))
+
+    def _stop(self, cause):
+        """Neutral, mux hold ``cause``, cancel every executing goal: what E and a lapsed lease do."""
+        self.neutral()
+        self.hold(cause, 'tui')
+        for goal in (self.sources().get('nav') or {}).get('goals', ()):
+            if goal.get('status') == 'executing' and goal.get('cancel'):
+                goal['cancel']()
+
     def revoke(self, claim_id):
         """The owner's revoke key: stop the boat as Space does, cancel the claim's goals, then revoke."""
         with self.lock:
-            self.neutral()
-            self.hold('revoke', 'tui')
-            for goal in (self.sources().get('nav') or {}).get('goals', ()):
-                if goal.get('status') == 'executing' and goal.get('cancel'):
-                    goal['cancel']()
+            self._stop('revoke')
             done = self.table.revoke(claim_id, self.clock())
+            if done:
+                self.ended[claim_id] = 'revoked'
             self.tick(force=True)
             return done
+
+    def expire(self, claim_id):
+        """A lapsed motion lease (the desk's): stop as revoke does, then end the claim as ``claim_expire``."""
+        with self.lock:
+            claim = self.table.get(claim_id)
+            if claim is None or claim['state'] != 'active':
+                return False
+            self._stop('lease')
+            self.table.release(claim_id, self.clock(), 'claim_expire')
+            self.ended[claim_id] = 'expired'
+            self.tick(force=True)
+            return True
 
     def tick(self, force=False):
         """Derive, journal edges, and publish on change or once per HEARTBEAT_S."""
         with self.lock:
             now = self.clock()
-            self.table.expire(now)
+            lease = (self.config.get() or {}).get('lease') or {}
+            self.table.idle_s = lease.get('idle_s', self.table.idle_s)
+            self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
+            for claim in self.table.expire(now):
+                self._stop('lease')
+                self.ended[claim['id']] = 'expired'
             found = self.sources()
             nav = found.get('nav')
             if nav:  # strip the cancel callables: the record is JSON

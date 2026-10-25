@@ -33,8 +33,9 @@ def is_unknown(record, now, age_s=None):
 class ClaimTable:
     """Explicit and implicit claims. At most one automated claim is active."""
 
-    def __init__(self, claims=(), seq=0):
+    def __init__(self, claims=(), seq=0, idle_s=120.0, max_claim_s=3600.0):
         self.claims = [dict(claim) for claim in claims]
+        self.idle_s, self.max_claim_s = idle_s, max_claim_s   # agent leases (config/agent.yaml)
         # Never re-issue an id already on record, even if seq was not persisted.
         numbers = [int(c['id'][1:]) for c in self.claims if c['id'][1:].isdigit()]
         self.seq = max([seq, *numbers])
@@ -57,10 +58,12 @@ class ClaimTable:
 
         Only the arbiter's own implicit claims pass ``local=True``. Every other
         requester is an agent, whatever it says it is (or omits): a guest
-        procedure (``--attach``) must not look like our own.
+        procedure (``--attach``) must not look like our own. An agent claim
+        always has a lease, at most ``idle_s``.
         """
         if not local:
             owner = 'agent'
+            lease_s = self._lease(lease_s)
         holder = self.holder()
         if holder is not None:
             return None, holder
@@ -98,11 +101,28 @@ class ClaimTable:
         return True
 
     def expire(self, now):
-        """Drop claims whose lease ran out; lease-less claims never expire."""
+        """End claims whose lease ran out, or agent claims older than ``max_claim_s``; returns them.
+
+        An agent claim stored without a lease (adopted from an older session) gets ``idle_s``.
+        """
+        expired = []
         for claim in list(self.claims):
-            lease = claim['lease_s']
-            if claim['state'] == 'active' and lease is not None and now - claim['seen_ns'] / 1e9 > lease:
+            if claim['state'] != 'active':
+                continue
+            agent = claim['owner'] == 'agent'
+            lease = claim['lease_s'] if claim['lease_s'] is not None else self.idle_s if agent else None
+            idle = lease is not None and now - claim['seen_ns'] / 1e9 > lease
+            if idle or (agent and now - claim['since_ns'] / 1e9 > self.max_claim_s):
                 self.release(claim['id'], now, 'claim_expire')
+                expired.append(claim)
+        return expired
+
+    def _lease(self, lease_s):
+        try:
+            lease_s = float(lease_s)
+        except (TypeError, ValueError):
+            return self.idle_s
+        return min(lease_s, self.idle_s) if lease_s > 0 else self.idle_s
 
     def _emit(self, phase, claim, now):
         self.pending.append({'phase': phase, 't_ns': _ns(now), 'rec': dict(claim)})

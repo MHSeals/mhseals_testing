@@ -107,3 +107,76 @@ def test_record_is_republished_only_on_change_or_heartbeat():
     rig.arbiter.on_mux({'input': 'auto', 't_ns': int(rig.now * 1e9)})
     rig.arbiter.tick()
     assert len(rig.sent) == count + 1
+
+
+def rig_with_goal():
+    rig = Rig(tui_owner=True)
+    rig.ask(lease_s=10)
+    rig.goals.append({'id': 'g1', 'status': 'executing', 'by': 'tune',
+                      'cancel': lambda: rig.calls.append('cancel g1')})
+    return rig
+
+
+def test_a_lapsed_lease_stops_the_boat_exactly_like_revoke():
+    rig = rig_with_goal()
+    rig.now += 9
+    rig.arbiter.tick()
+    assert rig.calls == [] and rig.arbiter.table.get('c1')
+    rig.now += 2
+    rig.arbiter.tick()
+    assert rig.calls == ['neutral', ('hold', 'lease', 'tui'), 'cancel g1']
+    assert rig.arbiter.table.get('c1') is None
+    assert [phase for phase, _ in rig.events].count('claim_expire') == 1
+    ack = rig.arbiter.handle({'op': 'renew', 'id': 'c1', 'who': 'tune', 'request': 'r9'})
+    assert ack['error'] == 'expired' and exit_code(ack) == 3
+
+
+def test_the_desks_motion_lease_expires_a_claim_like_revoke():
+    rig = rig_with_goal()
+    assert rig.arbiter.expire('c1')
+    assert rig.calls == ['neutral', ('hold', 'lease', 'tui'), 'cancel g1']
+    assert rig.arbiter.table.get('c1') is None and rig.arbiter.ended == {'c1': 'expired'}
+    assert not rig.arbiter.expire('c1')          # once only
+
+
+def test_only_the_claims_who_may_renew_or_release_it():
+    rig = Rig(tui_owner=True)
+    rig.ask(lease_s=10)
+    for op in ('renew', 'release'):
+        ack = rig.arbiter.handle({'op': op, 'id': 'c1', 'who': 'intruder', 'request': 'x'})
+        assert ack['error'] == 'not_holder' and exit_code(ack) == 2
+        assert rig.arbiter.handle({'op': op, 'id': 'c1', 'request': 'x'})['error'] == 'not_holder'
+    rig.now += 8
+    assert rig.arbiter.handle({'op': 'renew', 'id': 'c1', 'who': 'tune', 'request': 'x'})['ok']
+    rig.now += 8
+    rig.arbiter.tick()
+    assert rig.arbiter.table.get('c1')            # renewed at +8, so alive at +16
+    assert rig.arbiter.handle({'op': 'release', 'id': 'c1', 'who': 'tune', 'request': 'x'})['ok']
+    assert rig.arbiter.table.claims == [] and rig.calls == []   # a clean release does not stop
+
+
+def test_a_revoked_claim_cannot_be_renewed_and_says_why():
+    rig = Rig(tui_owner=True)
+    rig.ask()
+    rig.arbiter.revoke('c1')
+    ack = rig.arbiter.handle({'op': 'renew', 'id': 'c1', 'who': 'tune', 'request': 'x'})
+    assert ack['error'] == 'revoked' and exit_code(ack) == 3
+
+
+def test_lease_bounds_follow_the_hot_reloaded_config():
+    class Config:
+        lease = {'idle_s': 120, 'motion_s': 10, 'max_claim_s': 3600}
+
+        def get(self):
+            return {'lease': self.lease}
+
+    config = Config()
+    rig = Rig(tui_owner=True, config=config)
+    rig.ask(lease_s=100)
+    config.lease = dict(config.lease, max_claim_s=50)
+    rig.now += 51
+    rig.arbiter.handle({'op': 'renew', 'id': 'c1', 'who': 'tune', 'request': 'x'})
+    assert rig.arbiter.table.get('c1') is None and rig.arbiter.ended == {'c1': 'expired'}
+    config.lease = dict(config.lease, idle_s=5)
+    rig.arbiter.tick()
+    assert rig.ask(lease_s=100)['claim']['lease_s'] == 5

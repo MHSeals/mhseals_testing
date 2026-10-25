@@ -158,7 +158,7 @@ def test_second_claim_is_busy_and_names_the_holder():
     assert second is None and holder['id'] == first['id']
 
 
-def test_leases_expire_but_leaseless_claims_stay():
+def test_leases_expire_and_agent_claims_always_have_one():
     claims = table()
     leased, _ = claims.claim('agent', 'api', NOW, lease_s=10)
     claims.expire(NOW + 9)
@@ -166,13 +166,40 @@ def test_leases_expire_but_leaseless_claims_stay():
     claims.renew(leased['id'], NOW + 9)
     claims.expire(NOW + 18)
     assert claims.get(leased['id'])
-    claims.expire(NOW + 20)
+    assert [c['id'] for c in claims.expire(NOW + 20)] == [leased['id']]
     assert claims.get(leased['id']) is None
-    forever, _ = claims.claim('agent', 'cli', NOW + 20)
-    claims.expire(NOW + 9999)
-    assert claims.get(forever['id'])
+    unleased, _ = claims.claim('agent', 'cli', NOW + 20)
+    assert unleased['lease_s'] == claims.idle_s == 120
+    assert claims.expire(NOW + 20 + 121) == [unleased]
     assert [e['phase'] for e in claims.drain()] == [
-        'claim', 'claim_expire', 'claim']
+        'claim', 'claim_expire', 'claim', 'claim_expire']
+
+
+def test_agent_leases_clamp_to_idle_s_and_local_claims_have_none():
+    claims = ClaimTable(idle_s=60)
+    for asked, got in ((30, 30), (600, 60), (None, 60), (-1, 60), ('x', 60), (float('nan'), 60)):
+        claim, _ = claims.claim('procedure', 'x', NOW, lease_s=asked)   # a remote asker is an agent
+        assert (claim['owner'], claim['lease_s']) == ('agent', got)
+        claims.release(claim['id'], NOW)
+    local, _ = claims.claim('procedure', 'square', NOW, local=True)
+    assert local['lease_s'] is None and claims.expire(NOW + 1e6) == []
+
+
+def test_max_claim_s_ends_a_claim_that_keeps_renewing():
+    claims = ClaimTable(idle_s=10, max_claim_s=30)
+    claim, _ = claims.claim('agent', 'api', NOW)
+    for t in range(5, 31, 5):
+        claims.renew(claim['id'], NOW + t)
+        assert claims.expire(NOW + t) == []
+    assert claims.expire(NOW + 31) == [claim]
+
+
+def test_an_adopted_leaseless_agent_claim_gets_idle_s():
+    old = {'id': 'c3', 'owner': 'agent', 'who': 'x', 'host': None, 'pid': None, 'reason': '',
+           'since_ns': int(NOW * 1e9), 'seen_ns': int(NOW * 1e9), 'lease_s': None,
+           'state': 'active', 'explicit': True}
+    claims = ClaimTable([old], idle_s=10)
+    assert claims.expire(NOW + 9) == [] and [c['id'] for c in claims.expire(NOW + 11)] == ['c3']
 
 
 def test_a_revoked_claim_stays_on_record_but_never_drives_or_blocks():
