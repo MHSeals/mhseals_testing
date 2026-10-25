@@ -1,6 +1,7 @@
 """The whole map frame: perception overlay goldens (perception-v2 7.1, tui-visual 2.3) and its budgets."""
 import math
 import os
+import statistics
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ import pytest
 
 from mhseals_testing.analysis.classes import load_classes
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.minimap import frame, marks, panel
+from mhseals_testing.ui.minimap import frame, marks, panel, view
 from mhseals_testing.ui.minimap.cache import LayerCache
 from mhseals_testing.ui.minimap.emit import emit
 from mhseals_testing.ui.minimap.layerbox import LayerBox
@@ -99,7 +100,7 @@ def test_each_track_kind_draws_its_own_way():
     s = scene()
     s.ingest('gps_raw', fix_type=6, h_acc_m=2.0, vel_cms=80)   # a circle wider than the hull
     used = layers_at(panel.draw(s, 116, 27, 20.0, TABLE, False, box(s, costmap=True), full=True))
-    assert {'object:obj.red', 'object:obj.black@50', 'object:obj.red@50', 'track.pred', 'fov', 'grid',
+    assert {'object:obj.red', 'object:obj.black@50', 'object:obj.red@50', 'track.pred', 'fov:fov', 'grid',
             'chrome', 'boat', 'bow', 'wake', 'lethal'} <= used
     assert any(layer.startswith('track.vel:obj.yellow') for layer in used)
     assert any(layer.startswith('acc:gps.fix') for layer in used)
@@ -109,9 +110,9 @@ def test_toggles_remove_their_layers_and_the_drive_column_has_no_rings_or_fov():
     s = scene()
     off = box(s, fov=False, rings=False, wake=False, objects='off', costmap=False)
     used = layers_at(panel.draw(s, 116, 27, 20.0, TABLE, False, off, full=True))
-    assert not used & {'fov', 'grid', 'wake', 'lethal', 'object:obj.red'}
+    assert not used & {'fov:fov', 'grid', 'wake', 'lethal', 'object:obj.red'}
     drive = layers_at(panel.draw(s, 26, 12, 20.0, TABLE, False, box(s, costmap=True), full=False))
-    assert 'fov' not in drive and 'grid' not in drive and 'boat' in drive
+    assert 'fov:fov' not in drive and 'grid' not in drive and 'boat' in drive
 
 
 def test_fov_cone_follows_the_camera_extrinsic():
@@ -155,22 +156,30 @@ def test_motion_arrowhead_needs_three_cells_and_unknowns_fade():
     assert marks._fade(Obj(0, 0, 'r', 0.9, motion='unknown'), TABLE.tracks) == 50
 
 
-def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget():
-    """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB and draws (cached costmap and rings)
-    in <= 3 ms x scale, also with the whole 4000-crumb trail ring inside the view."""
-    for s in (scene(), scene(trail=4000, spiral=True)):   # the stress frame too: the TUI runs over SSH
-        b = box(s, costmap=True, hits=True)
-        canvas = panel.draw(s, 116, 27, 20.0, TABLE, False, b, full=True, tier='truecolor')
-        size = len('\n'.join(emit(canvas, lambda layer: panel.style(layer, 'truecolor'), 'truecolor')).encode())
-        assert size <= 10 * 1024, size
-    s, lc = scene(trail=4000, spiral=True), LayerCache()
-    assert len(s.crumbs) == 4000    # the whole ring, all inside the view
-    b = box(s, costmap=True, hits=True)
-    draw = lambda: panel.draw(s, 116, 27, 20.0, TABLE, False, b, full=True, tier='truecolor', cache=lc)
-    draw()
-    best = float('inf')
-    for _ in range(20):
-        t = time.perf_counter()
-        draw()
-        best = min(best, (time.perf_counter() - t) * 1000)
-    assert best <= 3.0 * SCALE, best
+TIERS = ('truecolor', '256', '16', 'mono', 'ascii')
+ZOOMS = sorted({*view.PRESETS, 8})   # every preset, and the 8 m detail golden
+
+
+@pytest.mark.parametrize('half', ZOOMS)
+def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget(half):
+    """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB and draws and emits (cached
+    costmap and rings, median frame) in <= 3 ms x scale, at every zoom preset and colour tier,
+    also with the whole 4000-crumb trail ring inside the view (the TUI runs over SSH)."""
+    over = []
+    for s in (scene(), scene(trail=4000, spiral=True)):
+        b, lc = box(s, costmap=True, hits=True), LayerCache()
+        for tier in TIERS:
+            plain = tier == 'ascii'
+            colours = 'mono' if plain else tier
+            frame = lambda: emit(panel.draw(s, 116, 27, float(half), TABLE, plain, b, full=True, tier=colours,
+                                            cache=lc), lambda layer: panel.style(layer, colours), colours, ascii=plain)
+            size = len('\n'.join(frame()).encode())
+            times = []
+            for _ in range(11):
+                t = time.perf_counter()
+                frame()
+                times.append((time.perf_counter() - t) * 1000)
+            ms = statistics.median(times)
+            if size > 10 * 1024 or ms > 3.0 * SCALE:
+                over.append(f'{len(s.crumbs)} crumbs {tier}: {size} B {ms:.2f} ms')
+    assert not over, over
