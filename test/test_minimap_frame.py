@@ -69,6 +69,21 @@ def with_tasks(state):
     return state
 
 
+def in_view_tasks(state):
+    """The review's worst case: a confirmed 6x6 m dock box and four hypotheses round the boat."""
+    def square(cx, cy, side):
+        h = side / 2
+        return [[cx - h, cy - h], [cx + h, cy - h], [cx + h, cy + h], [cx - h, cy + h], [cx - h, cy - h]]
+    found = [{'id': 'dock', 'type': 'dock', 'state': 'confirmed', 'confidence': 0.9, 'pose': [2, 1],
+              'extent': square(2, 1, 6)}]
+    found += [{'id': f'h{i}', 'type': 'speed_gate', 'state': 'hypothesis', 'confidence': 0.3 + 0.1 * i,
+               'pose': [x, y], 'extent': square(x, y, 3)}
+              for i, (x, y) in enumerate(((-3, 3), (3, -3), (-3, -3), (4, 4)))]
+    state.ingest('tasks', items=tasks.parse({'schema': tasks.SCHEMA, 'hypotheses': found}))
+    state.ingest('mission_goal', x=1.0, y=-1.0, yaw=0.0, why='dock in the confirmed bay')
+    return state
+
+
 def box(state, **flags):
     b = LayerBox(None, state)
     b.fov = True
@@ -165,7 +180,7 @@ def test_motion_arrowhead_needs_three_cells_and_unknowns_fade():
     assert marks._fade(Obj(0, 0, 'r', 0.9, motion='unknown'), TABLE.tracks) == 50
 
 
-TIERS =('truecolor', '256', '16', 'mono', 'ascii')
+TIERS = ('truecolor', '256', '16', 'mono', 'ascii')
 ZOOMS = sorted({*view.PRESETS, 8})   # every preset, and the 8 m detail golden
 
 
@@ -173,9 +188,11 @@ ZOOMS = sorted({*view.PRESETS, 8})   # every preset, and the 8 m detail golden
 def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget(half):
     """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB and draws and emits (cached
     costmap and rings, median frame) in <= 3 ms x scale, at every zoom preset and colour tier,
-    also with the whole 4000-crumb trail ring inside the view (the TUI runs over SSH)."""
+    also with the whole 4000-crumb trail ring inside the view (the TUI runs over SSH), and with
+    a confirmed dock box and four hypotheses round the boat over that trail."""
     over = []
-    for s in (with_tasks(scene()), with_tasks(scene(trail=4000, spiral=True))):
+    for s in (with_tasks(scene()), with_tasks(scene(trail=4000, spiral=True)),
+              in_view_tasks(scene(trail=4000, spiral=True))):
         b, lc = box(s, costmap=True, hits=True), LayerCache()
         for tier in TIERS:
             plain = tier == 'ascii'

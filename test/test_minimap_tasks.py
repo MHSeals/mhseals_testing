@@ -13,9 +13,9 @@ def by_id():
     return {t.id: t for t in tasks.parse(HYPOTHESES)}
 
 
-def painted(found, goal=None, ascii_=False, labels=True):
+def painted(found, goal=None, ascii_=False, labels=True, half=20.0):
     canvas = Canvas(60, 30)
-    tasks.draw(Projection(canvas, (0.0, 0.0), 20.0), found, goal, ascii_, labels)
+    tasks.draw(Projection(canvas, (0.0, 0.0), half), found, goal, ascii_, labels)
     return canvas
 
 
@@ -34,12 +34,32 @@ def test_parse_reads_the_contract_and_drops_what_it_cannot_place():
     assert tasks.parse(dict(HYPOTHESES, schema='other/1')) == [] and tasks.parse(dict(HYPOTHESES, frame='odom')) == []
 
 
-def test_confirmed_is_solid_a_hypothesis_dashed_and_faded_by_confidence():
+def test_confirmed_is_solid_a_hypothesis_dashed_and_close_in_every_task_is_its_corners():
     found = by_id()
     square = found['t4']._replace(extent=found['t3'].extent, pose=found['t3'].pose)
     solid = dots_of(painted([square]), 'task.confirmed')
-    dashed = dots_of(painted([found['t3']]), 'task.hypothesis@50')
-    assert solid > 2 * dashed > 0
+    dashed = dots_of(painted([found['t3']]), 'task:task.hypothesis')
+    assert solid > 2 * dashed > 0 and dots_of(painted([found['t3']]), '@') == 0   # no confidence fade
+    box = ((-2.0, -2.0), (2.0, -2.0), (2.0, 2.0), (-2.0, 2.0), (-2.0, -2.0))
+    for half in (5.0, 10.0):   # a closed 4-corner box in view: its 4 corners; a hypothesis its label alone
+        for task in (square, found['t2'], found['t1']):
+            assert dots_of(painted([task._replace(extent=box)], labels=False, half=half), 'task') == 4
+        hypothesis = painted([found['t3']._replace(extent=box, pose=(0.0, 0.0, 0.0))], half=half)
+        assert dots_of(hypothesis, 'task') == 0 and 'speed ?45' in '\n'.join(hypothesis.text())
+
+
+def test_parse_survives_fuzzed_hypotheses():
+    good = HYPOTHESES['hypotheses'][2]
+    bad = [5, 'x', None, [], {'pose': None}, {'pose': [1]}, {'pose': {'x': 1}}, dict(good, confidence=float('nan')),
+           dict(good, confidence=float('inf')), dict(good, confidence=1.5), dict(good, confidence='high'),
+           dict(good, pose=[1e308, -1e308]), dict(good, pose=[float('nan'), 0]), dict(good, state=['x'])]
+    for message in ({'hypotheses': 5}, {'hypotheses': {'a': 1}}, {'hypotheses': 'abc'}, [], 7,
+                    dict(HYPOTHESES, hypotheses=bad + [dict(good, extent=[[1e308, 0], [0, -1e308], [1], 3, [2, 2]])])):
+        found = tasks.parse(message)
+        assert all(abs(c) <= tasks.REACH for t in found for p in (t.pose[:2], *t.extent) for c in p)
+        painted(found)
+    found = tasks.parse(dict(HYPOTHESES, hypotheses=bad + [dict(good, extent=[[1e308, 0], [2, 2]])]))
+    assert [t.state for t in found] == ['hypothesis', 'hypothesis'] and found[-1].extent == ((2.0, 2.0),)
 
 
 def test_labels_carry_the_state_without_colour_and_stay_ascii():
@@ -57,7 +77,7 @@ def test_the_goal_and_its_why_draw_and_the_layer_ranks_between_object_and_wake()
     assert '◎' in text and 'waypoint between the gate b…' in text
     assert '@' in '\n'.join(painted([], goal=(0.0, 0.0, 0.0, ''), ascii_=True).text())
     rank = canvas_module.rank
-    assert rank('object') < rank('task:task.done@50') < rank('wake')
+    assert rank('object') < rank('task:task.done') < rank('wake')
 
 
 def test_a_far_off_extent_is_not_walked():
