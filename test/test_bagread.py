@@ -20,7 +20,7 @@ class FakeReader:
 
 
 def session(tmp_path, layout):
-    """Make bag_NN dirs; returns an opener serving ``layout[name]`` rows."""
+    """Make NN segment dirs; returns an opener serving ``layout[name]`` rows."""
     for name in layout:
         (tmp_path / name).mkdir()
         (tmp_path / name / 'metadata.yaml').write_text('x')
@@ -28,24 +28,24 @@ def session(tmp_path, layout):
 
 
 def test_segments_are_ordered_and_a_single_bag_is_itself(tmp_path):
-    session(tmp_path, {'bag_01': [], 'bag_00': []})
-    assert [p.name for p in bagread.segments(tmp_path)] == ['bag_00', 'bag_01']
-    assert bagread.segments(tmp_path / 'bag_00') == [tmp_path / 'bag_00']
+    session(tmp_path, {'01': [], '00': []})
+    assert [p.name for p in bagread.segments(tmp_path)] == ['00', '01']
+    assert bagread.segments(tmp_path / '00') == [tmp_path / '00']
 
 
 def test_window_spans_a_segment_boundary_and_filters_topics(tmp_path):
     opener = session(tmp_path, {
-        'bag_00': [('/a', b'', 1 * S), ('/b', b'', 2 * S), ('/a', b'', 3 * S)],
-        'bag_01': [('/a', b'', 5 * S), ('/a', b'', 7 * S)]})
+        '00': [('/a', b'', 1 * S), ('/b', b'', 2 * S), ('/a', b'', 3 * S)],
+        '01': [('/a', b'', 5 * S), ('/a', b'', 7 * S)]})
     got = [t for _, _, _, t in bagread.read_raw(tmp_path, ['/a'], 2 * S, 7 * S, opener)]
     assert got == [3 * S, 5 * S]
 
 
 def test_broken_segment_is_skipped(tmp_path):
-    good = session(tmp_path, {'bag_00': [('/a', b'', S)], 'bag_01': [('/a', b'', 2 * S)]})
+    good = session(tmp_path, {'00': [('/a', b'', S)], '01': [('/a', b'', 2 * S)]})
 
     def opener(segment):
-        if segment.name == 'bag_00':
+        if segment.name == '00':
             raise RuntimeError('no metadata')
         return good(segment)
     assert [t for *_, t in bagread.read_raw(tmp_path, None, opener=opener)] == [2 * S]
@@ -53,7 +53,7 @@ def test_broken_segment_is_skipped(tmp_path):
 
 def test_bag_source_seek_resets_and_plays_at_rate(tmp_path):
     rows = [('/a', b'', i * S) for i in range(1, 31)]
-    opener = session(tmp_path, {'bag_00': rows[:15], 'bag_01': rows[15:]})
+    opener = session(tmp_path, {'00': rows[:15], '01': rows[15:]})
     # The fake reader cannot be rewound, so open a fresh one per read.
     fresh = lambda segment: (FakeReader(list(opener(segment)[0].rows)), {'/a': 'T'})
     seen, resets = [], []
@@ -61,7 +61,7 @@ def test_bag_source_seek_resets_and_plays_at_rate(tmp_path):
                                lambda: (resets.append(1), seen.clear()),
                                opener=fresh, decode=lambda kind, data: data, span=(S, 30 * S))
     source.seek(16 * S)
-    assert resets and seen == [float(t) for t in range(6, 17)]  # 10 s back, across bag_00/bag_01
+    assert resets and seen == [float(t) for t in range(6, 17)]  # 10 s back, across 00/01
     source.play()
     source.set_rate(2.0)
     seen.clear()
@@ -86,8 +86,8 @@ def test_written_bag_reads_across_segments_and_seeks(tmp_path):
         for stamp in stamps:
             writer.write('/n', serialize_message(Int32(data=stamp)), stamp * S)
         del writer
-    write('bag_00', range(1, 6))
-    write('bag_01', range(6, 11))
+    write('00', range(1, 6))
+    write('01', range(6, 11))
     assert [m.data for _, m, _ in bagread.read(tmp_path, ['/n'], 4 * S, 8 * S)] == [4, 5, 6, 7]
     seen = []
     source = bagread.BagSource(tmp_path, ['/n'], lambda t, m, s: seen.append(m.data), seen.clear,
@@ -112,7 +112,7 @@ ROWS = [('/zed', b'z1', S), ('/a', b'a1', 2 * S), ('/zed', b'z2', 3 * S)]
 
 def zed_less_read(tmp_path, topics=None):
     """read() on a host without zed_msgs."""
-    session(tmp_path, {'bag_00': ROWS})
+    session(tmp_path, {'00': ROWS})
 
     def opener(segment):
         return FakeReader(list(ROWS)), TYPES

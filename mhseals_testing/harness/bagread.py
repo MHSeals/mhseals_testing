@@ -1,6 +1,6 @@
 """Read rosbag2 sessions across segments, and replay them (spec bags B9).
 
-A session holds one bag directory per recorder run (``bag_00``, ``bag_01``,
+A session holds one bag directory per recorder run (``bag/00``, ``bag/01``,
 ...), each with its own ``metadata.yaml`` and split files. ``read`` walks them
 in order as one stream; ``BagSource`` adds a playhead with seek, play and rate
 for review. ROS is imported inside the functions, so the module loads anywhere;
@@ -23,8 +23,8 @@ def segments(path):
     """Bag directories under ``path`` in recording order.
 
     ``path`` is a single bag (it has ``metadata.yaml`` or storage files), or a
-    session whose ``NN`` children (recorder layout, also under ``bag/``) or
-    legacy ``bag_NN`` children are the segments.
+    session whose ``NN`` children (recorder layout, also under ``bag/``) are
+    the segments.
     """
     path = Path(path)
     if _is_bag(path):
@@ -34,7 +34,7 @@ def segments(path):
         if _is_bag(path):
             return [path]
     return sorted(child for child in path.iterdir()
-                  if child.is_dir() and (child.name.startswith('bag_') or re.fullmatch(r'\d{2,}', child.name))
+                  if child.is_dir() and re.fullmatch(r'\d{2,}', child.name)
                   ) if path.is_dir() else []
 
 
