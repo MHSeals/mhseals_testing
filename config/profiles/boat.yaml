@@ -28,7 +28,7 @@ sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
   - {name: GPS, topic: /gps/fix, kind: gps, required: true, hz: 5}
-  - {name: IMU, topic: /imu/raw, kind: imu, required: true, hz: 20}
+  - {name: IMU, topic: /imu/raw, kind: imu, required: true, hz: 18}
   - {name: GPS raw, topic: /mavros/gpsstatus/gps1/raw, kind: gpsraw}
   - {name: compass, topic: /mavros/imu/mag, kind: mag}
   - {name: LiDAR, topic: /points, kind: points}
