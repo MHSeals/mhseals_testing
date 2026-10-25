@@ -53,6 +53,7 @@ class AgentDesk:
         self.queue, self.act, self.busy = [], None, False
         self.notes = deque(maxlen=NOTES)
         self.notices = deque(maxlen=5)
+        self.recent = deque(maxlen=20)      # finished or refused acts, newest last
         self.errors, self.saved = set(), None
         self.status, self.status_at = status, None
         self.active_claim = None
@@ -81,9 +82,9 @@ class AgentDesk:
         return {'act': None if act is None else {
                     'id': act['id'], 'op': act['op'], 'who': act['who'], 'claim': act['claim'],
                     'label': act['label'], 'state': act['state'], 'elapsed_s': self.clock() - act['at'],
-                    'motion_lease_s': lease, 'cause': act['cause']},
+                    'motion_lease_s': lease, 'motion_s': self.lease()['motion_s'], 'cause': act['cause']},
                 'queue': [{'id': r['id'], 'op': r['op'], 'who': r['who']} for r in self.queue],
-                'notes': list(self.notes)[-20:], 'config_error': self.config.error}
+                'recent': list(self.recent), 'notes': list(self.notes)[-20:], 'config_error': self.config.error}
 
     def blockers(self):
         """Extra runner blockers while an agent run is in flight: polls the channel, enforces the lease."""
@@ -119,6 +120,10 @@ class AgentDesk:
     def reply(self, req, ok=True, error='', state='done', result=None, hint=''):
         agent_channel.reply(req['id'], req['who'], ok=ok, state=state, error=error, result=result,
                             hint=hint, path=self.path)
+        if state == 'done':
+            label = self.act['label'] if self.act and self.act['id'] == req['id'] else req['op']
+            self.recent.append({'id': req['id'], 'op': req['op'], 'who': req['who'], 'label': label,
+                                't_ns': time.time_ns(), 'ok': bool(ok), 'error': error, 'hint': hint})
         if state != 'progress':
             self.app.emit('agent_act', id=req['id'], who=req['who'], op=req['op'], state=state, error=error)
 

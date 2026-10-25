@@ -561,3 +561,17 @@ def test_a_request_queued_behind_a_goal_expires_at_its_deadline(rig):
     time.sleep(0.06)
     rig.desk.tick()
     assert final(req['id'])['error'] == 'busy_ui' and rig.app.running is None
+
+
+def test_recent_keeps_finished_and_refused_acts_after_act_clears(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'observe'
+    ask(rig, 'run', c, key='square')
+    view = rig.desk.summary()
+    assert view['act'] is None
+    last = view['recent'][-1]
+    assert (last['op'], last['ok'], last['error']) == ('run', False, 'motion_observe') and last['hint']
+    assert {'id', 'who', 'label', 't_ns'} <= set(last)
+    rig.app.settings.agent_motion = 'allow'
+    ask(rig, 'goal', c, x=5, y=0)
+    assert rig.desk.summary()['act']['motion_s'] == 10
