@@ -322,9 +322,18 @@ def _table(view, width, height):
     for col in view['columns']:
         mark = {'?': ' ?', '✗': ' ' + theme.pick('✗', 'x'), 'x': ' ' + theme.pick('✗', 'x')}.get(col['mark']) or (' ' + fitrows.UP if col['up'] else '')
         heads.append((col['key'].replace('-', theme.pick('−', '-')) + mark, 'bold'))
-    lines = [line('', '', heads)]
+    lines, empty = [line('', '', heads)], []
     for row in rows:
-        lines.append(line(scope_tag(row[1]), row[0], [_cell(row, c, s) for c in view['columns']]))
+        cells = [_cell(row, c, s) for c in view['columns']]
+        if all(value == MISSING for value, _ in cells):   # no column has it yet: fold it below
+            empty.append(row[0].strip())
+            continue
+        lines.append(line(scope_tag(row[1]), row[0], cells))
+    if empty:
+        folded = Text(f"{'':<4}{'no data yet':<{label - 4}}", style=theme.MUTED)
+        folded.append(theme.SEPARATOR.join(empty), style=theme.MUTED)
+        folded.truncate(inner, overflow='ellipsis')
+        lines.append(folded)
     return lines
 
 

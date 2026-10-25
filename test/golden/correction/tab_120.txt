@@ -12,14 +12,14 @@
 │     su            —         —         +.000     +.000     +.000     +.000          │                                  
 │     ± σ / age     .006 2h   .006 2h   .006 2h   .006 2h   .006 2h   .006 2h        │                                  
 │     Trust hi/lo   96/91%    96/91%    96/91%    71/—      96/91%    96/91%         │                                  
-│     residual      —         —         —         —         —         —              │                                  
-│     iterations    —         —         —         —         —         —              │                                  
 │     fit under     good 91   good 91   good 91   good 91   good 91   good 91        │                                  
-│     ceiling now   —         —         —         —         —         —              │                                  
-│ cal Drag v lo/hi  —         —         —         —         —         —              │                                  
 │     d1 · d2       —         —         —         2.2·5.8   —         —              │                                  
-│     t95 · vmax    —         —         —         —         —         —              │                                  
-│     tracking      —         —         —         —         —         —              │                                  
+│     no data yet   residual · iterations · ceiling now · Drag v lo/hi · t95 · vmax… │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
+│                                                                                    │                                  
 │                                                                                    │                                  
 │                                                                                    │                                  
 │                                                                                    │                                  

@@ -12,14 +12,14 @@
 │     su            —         —         +.000     +.000     +.000     +.000          ││ surge  91%   90%      ↗        │
 │     ± σ / age     .006 2h   .006 2h   .006 2h   .006 2h   .006 2h   .006 2h        ││ sway   —     —        ↘        │
 │     Trust hi/lo   96/91%    96/91%    96/91%    71/—      96/91%    96/91%         ││ yaw    74%   —        —        │
-│     residual      —         —         —         —         —         —              ││ stale: sway falling trend      │
-│     iterations    —         —         —         —         —         —              │╰────────────────────────────────╯
-│     fit under     good 91   good 91   good 91   good 91   good 91   good 91        │╭─ sway− · holds ────────────────╮
-│     ceiling now   —         —         —         —         —         —              ││ #  a    main   cross ψ  J      │
-│ cal Drag v lo/hi  —         —         —         —         —         —              ││ 1  .60  −.21   +.012    .31    │
+│     fit under     good 91   good 91   good 91   good 91   good 91   good 91        ││ stale: sway falling trend      │
 │     d1 · d2       —         —         —         2.2·5.8   —         —              │╰────────────────────────────────╯
-│     t95 · vmax    —         —         —         —         —         —              │                                  
-│     tracking      —         —         —         —         —         —              │                                  
+│     no data yet   residual · iterations · ceiling now · Drag v lo/hi · t95 · vmax… │╭─ sway− · holds ────────────────╮
+│                                                                                    ││ #  a    main   cross ψ  J      │
+│                                                                                    ││ 1  .60  −.21   +.012    .31    │
+│                                                                                    │╰────────────────────────────────╯
+│                                                                                    │                                  
+│                                                                                    │                                  
 │                                                                                    │                                  
 │                                                                                    │                                  
 │                                                                                    │                                  
