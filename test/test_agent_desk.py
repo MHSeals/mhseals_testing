@@ -313,6 +313,180 @@ def test_a_dry_run_moves_nothing(rig):
     assert rig.app.nav.goal is None and not rig.app.running and rig.app.goals.active is None
 
 
+# --- the takeover table (spec 4.2) ------------------------------------------------------------
+
+def run_with(rig, step, action):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.on_step = {step: action}
+    req = ask(rig, 'run', c, key='square')
+    return c, final(req['id'])
+
+
+def test_space_cancels_an_agent_run_and_it_never_resumes(rig):
+    def space():
+        rig.app.operator_stop()
+        raise Aborted('motion cancelled by operator')
+    c, reply = run_with(rig, 1, space)
+    assert reply['error'] == 'overridden: keys' and ch.exit_code(reply) == 3
+    assert reply['hint'] == 'operator must U and re-arm'
+    assert rig.app.arbiter.table.get(c)['state'] == 'active'          # suspended, not dropped
+    rig.desk.tick()
+    assert rig.app.running is None and rig.desk.act is None          # nothing restarts it
+
+
+def test_manual_mode_cancels_the_agent_run(rig):
+    _, reply = run_with(rig, 1, lambda: setattr(rig.app, 'manual', True))
+    assert reply['error'] == 'overridden: keyboard'
+
+
+@pytest.mark.parametrize('input, cause', [('rc', 'rc'), ('manual', 'keyboard')])
+def test_an_rc_or_keyboard_mux_takeover_pauses_then_aborts_the_agent_run(rig, input, cause):
+    def takeover():
+        rig.app.set_mux(input)
+        rig.app._runner_paused = True                # the runner pauses on the override
+    _, reply = run_with(rig, 1, takeover)
+    assert reply['error'] == f'overridden: {cause}'
+    assert rig.app._runner_cancelled                 # set by desk.tick inside the pause
+
+
+def test_e_revokes_cancels_the_run_and_the_next_call_says_revoked(rig):
+    c, reply = run_with(rig, 1, lambda: rig.app.revoke_agent())
+    assert reply['error'] == 'revoked' and ch.exit_code(reply) == 3
+    assert ('hold', 'revoke') in rig.app.calls
+    again = final(ask(rig, 'run', c, key='square')['id'])
+    assert again['error'] == 'revoked'
+
+
+def test_a_physical_fault_cancels_the_agent_run(rig):
+    _, reply = run_with(rig, 1, lambda: setattr(rig.app, 'fault', 'driver fault'))
+    assert reply['error'] == 'overridden: fault'
+
+
+def test_a_lapsed_motion_lease_stops_exactly_like_e(rig):
+    rig.app.steps = 30                    # the fake run takes 30 s; the CLI never renews
+    c, reply = run_with(rig, 0, lambda: None)
+    assert reply['error'] == 'expired' and ch.exit_code(reply) == 3
+    assert rig.app.calls[:2] == ['neutral', ('hold', 'lease')]
+    assert rig.app.arbiter.table.get(c) is None and rig.app.arbiter.ended[c] == 'expired'
+
+
+def test_renewals_from_the_acts_cli_keep_the_motion_lease(rig):
+    rig.app.steps = 30
+    holder = {}
+
+    def renew():
+        ch.renew('claude-3f2a', holder['c'], rig.desk.act['id'])
+    rig.app.on_step = {s: renew for s in range(0, 30, 3)}
+    holder['c'] = c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    assert final(ask(rig, 'run', c, key='square')['id'])['ok']
+
+
+def test_an_idle_lease_lapse_expires_the_claim(rig):
+    c = claim(rig)
+    rig.clock[0] += 121
+    rig.app.arbiter.tick()
+    assert ('hold', 'lease') in rig.app.calls
+    assert final(ask(rig, 'run', c, key='square')['id'])['error'] == 'expired'
+
+
+def test_notes_by_the_holder_renew_the_idle_lease(rig):
+    c = claim(rig)
+    for _ in range(3):
+        rig.clock[0] += 100
+        ch.note('claude-3f2a', 'post', 'ros2 topic hz /odom', tool_id='t1', exit=0, dur_s=2.1)
+        rig.desk.tick()
+        rig.app.arbiter.tick()
+    assert rig.app.arbiter.table.get(c)
+    assert [p for p, _ in rig.app.events].count('agent_note') == 3, (rig.desk.errors, list(rig.desk.notes))
+
+
+def test_release_by_another_who_is_refused(rig):
+    c = claim(rig)
+    req = ch.request('release', 'intruder', claim=c)
+    rig.desk.tick()
+    assert final(req['id'])['error'] == 'not_holder' and rig.app.arbiter.table.get(c)
+
+
+def test_agents_block_refuses_new_claims_with_exit_5(rig):
+    rig.app.arbiter.allow_agents = False
+    req = ch.request('claim', 'claude-3f2a')
+    rig.desk.tick()
+    assert ch.exit_code(final(req['id'])) == 5
+
+
+def test_a_goal_is_cancelled_by_e_through_the_authority_sources(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    assert rig.app.goals.active['claim'] == c and [r['state'] for r in replies(req['id'])][-1] == 'started'
+    rig.app.revoke_agent()                           # E: the arbiter cancels app.goals' goal (G3)
+    assert rig.app.nav.goal.cancelled and rig.app.goals.active is None
+    rig.desk.tick()
+    assert final(req['id'])['error'] == 'revoked'
+
+
+@pytest.mark.parametrize('takeover', ['space', 'rc', 'lease'])
+def test_a_goal_is_cancelled_by_any_override(rig, takeover):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    if takeover == 'space':
+        rig.app.operator_stop()
+    elif takeover == 'rc':
+        rig.app.set_mux('rc')
+    else:
+        rig.clock[0] += 11
+    rig.desk.tick()
+    assert rig.app.nav.goal.cancelled and ch.exit_code(final(req['id'])) == 3
+
+
+def test_a_goal_that_arrives_succeeds(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    rig.app.nav.goal.done, rig.app.nav.goal.status = True, 'SUCCEEDED'
+    ch.renew('claude-3f2a', c, req['id'])
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['ok'] and reply['result']['status'] == 'SUCCEEDED' and rig.desk.act is None
+
+
+def test_handover_cancels_the_act_but_keeps_the_claim(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    queued = ch.request('ask', 'claude-3f2a', {'question': 'Dock lines off?'})
+    rig.desk.tick()
+    rig.app.detaching = True
+    rig.desk.close()
+    rig.app.arbiter.close(keep_claims=True)
+    assert final(req['id'])['error'] == 'handover' and final(queued['id'])['error'] == 'handover'
+    assert rig.app.nav.goal.cancelled and rig.registry.data['authority']['claims'][0]['id'] == c
+
+
+def test_stop_needs_no_claim_and_cancels_the_act(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    goal = ask(rig, 'goal', c, x=5, y=0)
+    req = ch.request('stop', 'other-agent')
+    rig.desk.tick()
+    assert final(req['id'])['ok'] and ('hold', 'keys') in rig.app.calls and not rig.app.armed
+    assert final(goal['id'])['result']['cause'] == 'stop'
+
+
+def test_ask_returns_the_humans_choice_and_mark_journals(rig):
+    rig.app.answers = [['down', 'enter']]
+    req = ask(rig, 'ask', None, question='Dock lines off?', options=['yes', 'no'])
+    assert final(req['id'])['result'] == {'choice': 'no'}
+    req = ch.request('mark', 'claude-3f2a', {'note': 'gust'})
+    rig.desk.tick()
+    assert final(req['id'])['ok']
+    assert ('marker', {'kind': 'agent', 'id': 1, 'who': 'claude-3f2a', 'note': 'gust',
+                       't_ns': rig.app.events[-2][1]['t_ns']}) in rig.app.events
+
+
 # --- the channel contract (spec section 2) ----------------------------------------------------
 
 def test_a_stale_request_is_never_executed(rig):
