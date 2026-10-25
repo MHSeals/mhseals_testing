@@ -18,6 +18,8 @@ from mhseals_testing.profiles import PROFILE_DIR
 
 MISSION_DIR = PROFILE_DIR.parent / 'missions'
 MARGIN = 30.0  # s past the rubric's time limit before the suite gives up
+# The task runner's exit codes (mhseals_nav tasks/interface.py); 3 is a human override.
+TASK_EXIT = {0: 'SUCCESS', 1: 'FAILURE', 2: 'TIMEOUT', 3: 'PREEMPTED'}
 
 
 def available(directory=MISSION_DIR):
@@ -43,10 +45,14 @@ def run(ctx):
                 done=lambda: not services['running'](f'task_{task}'),
                 label=lambda: f"{task}: {watcher.status.get('tip') or 'starting'}")
         finally:
+            # Read before the stop: a SIGINT from here would replace the task's own code.
+            code = services.get('returncode', lambda name: None)(f'task_{task}')
             services['stop'](f'task_{task}')  # SIGINT: the task cancels its Nav2 goal
     paused = runner.paused - paused_before
-    result = dict(score(watcher.events, rubric), procedure='mission', task=task,
-                  paused_s=paused)
+    # The runner's own exit outranks a stream that ends without task_finished (a stop).
+    exit_outcome = TASK_EXIT.get(code)
+    result = dict(score(watcher.events, rubric, outcome=exit_outcome), procedure='mission',
+                  task=task, paused_s=paused, exit_code=code, exit_outcome=exit_outcome)
     # The referee reads the wall-clock track; supervise's end excludes the paused time.
     judged = judge(ctx, task, rubric, watcher.events, start, end + paused)
     if judged is not None:

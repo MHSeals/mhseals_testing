@@ -2322,6 +2322,7 @@ class App:
                 conditions=self.conditions, nav2=self.nav2, task_watcher=self.task_watcher,
                 start=self.processes.start,
                 running=self.processes.running, stop=self.processes.stop,
+                returncode=self.processes.returncode,
                 nav2_params=nav2_params(), nav2_overlay=self.paths.nav2,
                 nav2_user=nav2_limits.path(),
                 hardware_config=self.args.hardware_config, wall_ns=self.wall_ns,

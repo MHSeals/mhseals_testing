@@ -77,9 +77,42 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
         services={'task_watcher': lambda: watcher, 'start': lambda *a: None,
                   'stop': lambda *a: None, 'running': lambda *a: False})
     monkeypatch.setattr(mission, 'available', lambda: ['gate'])
-    monkeypatch.setattr(mission, 'score', lambda events, rubric: {})
+    monkeypatch.setattr(mission, 'score', lambda events, rubric, outcome=None: {})
     monkeypatch.setattr(mission, 'judge', lambda *a: seen.append(a[-2:]))
     monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: {})
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
     result = mission.run(ctx)
     assert seen == [(10.0, 20.0)] and result['paused_s'] == 3.0
+
+
+def test_a_human_override_stop_is_recorded_from_the_task_exit_code(monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    runner = SimpleNamespace(paused=0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
+    watcher = SimpleNamespace(events=events('task_started', 'home')[:2], status={},
+                              reset=lambda: None)
+    recorded, asked = [], []
+
+    @contextmanager
+    def supervised(*args, **kwargs):
+        yield runner
+
+    def returncode(name):
+        asked.append(name)
+        return 3                    # run_task: PREEMPTED, the operator took over
+    ctx = SimpleNamespace(
+        choose=lambda *a: 'gate', prompt=lambda *a: None, supervise=supervised,
+        profile=SimpleNamespace(use_sim_time=True), record=recorded.append,
+        services={'task_watcher': lambda: watcher, 'start': lambda *a: None,
+                  'stop': lambda *a: None, 'running': lambda *a: False,
+                  'returncode': returncode})
+    monkeypatch.setattr(mission, 'available', lambda: ['gate'])
+    monkeypatch.setattr(mission, 'judge', lambda *a: None)
+    monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: dict(RUBRIC))
+    monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
+    result = mission.run(ctx)
+    assert asked == ['task_gate']
+    assert (result['exit_code'], result['exit_outcome']) == (3, 'PREEMPTED')
+    assert result['outcome'] == 'PREEMPTED' and result['verdict'] != 'PASS'
+    assert recorded == [result]                               # the run record carries both

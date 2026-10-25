@@ -190,6 +190,9 @@ class Processes:
     def running(self, name):
         return True
 
+    def returncode(self, name):
+        return None
+
     def exited(self):
         return []
 
