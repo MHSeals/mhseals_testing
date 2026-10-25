@@ -228,12 +228,14 @@ def session_muxed(registry):
 def cli_mux_expected(registry, record):
     """Say whether the mux must be up, from the fresh authority record and the profile.
 
-    A guest cannot see the arm state: a mux-backed input, an rc or a hold in
-    the record means the mux is in use. Without a record, assume it is.
+    A guest cannot see the arm state: a mux-backed input, a valid rc or a hold in
+    the record means the mux is in use, and owner ``unknown`` means it should be
+    (armed, no fresh state). Without a record, assume it is. Disarmed, the owner
+    derives ``none`` but keeps the last mux state's rc (``valid: false``): not in use.
     """
-    if not isinstance(record, dict):
+    if not isinstance(record, dict) or record.get('owner') == 'unknown':
         return True
-    if record.get('rc') or record.get('holds'):
+    if (record.get('rc') or {}).get('valid') or record.get('holds'):
         return True
     return record.get('input') is not None and session_muxed(registry) is not False
 

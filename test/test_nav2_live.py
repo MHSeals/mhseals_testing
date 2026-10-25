@@ -775,6 +775,10 @@ def test_cli_expects_the_mux_from_the_record_and_the_profile(tmp_path, monkeypat
     assert cli.cli_mux_expected(registry, {**quiet, 'rc': {'a': 1}})
     assert cli.cli_mux_expected(registry, {**quiet, 'holds': [{'cause': 'keys'}]})
     assert not cli.cli_mux_expected(registry, {'input': None, 'rc': None, 'holds': []})
+    disarmed = {'owner': 'none', 'input': None, 'rc': {'valid': False, 'mode': ''}, 'holds': []}
+    assert not cli.cli_mux_expected(registry, disarmed)              # H4: the stale rc is not a live mux
+    assert cli.cli_mux_expected(registry, {**disarmed, 'owner': 'unknown'})   # armed, mux silent
+    assert cli.cli_mux_expected(registry, {**disarmed, 'rc': {'valid': True, 'mode': 'GUIDED'}})
     for profile, muxed in (('muxed', True), ('plain', False)):
         header = tmp_path / profile
         header.mkdir()
