@@ -1,0 +1,4 @@
+[ y Release ]   [▸n Cancel ↵]
+▸ s Save mapping and quit ↵
+  q Quit
+  n Cancel
