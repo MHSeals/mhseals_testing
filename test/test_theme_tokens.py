@@ -41,7 +41,8 @@ def test_an_unknown_fov_colour_token_is_rejected(tmp_path):
 FAMILIES = {'buoy': ('obj.red', 'obj.green', 'obj.yellow', 'obj.blue'),
             'severity': ('ok', 'warn', 'fail'),
             'authority': ('auth.ours', 'auth.nav', 'auth.agent'),
-            'gps': ('gps.fix', 'gps.float', 'gps.dgps', 'gps.3d', 'gps.none')}   # the trail, on the map with buoys
+            'gps': ('gps.fix', 'gps.float', 'gps.dgps', 'gps.3d', 'gps.none'),   # the trail, on the map with buoys
+            'mission': ('task.confirmed', 'task.failed', 'task.goal', 'decision.search', 'decision.retry')}
 ALIKE = {frozenset(('severity', 'gps'))}   # fix quality reads as health on purpose: fix is ok, none is fail
 MIN_DELTA_E = 7.5   # CIEDE2000; the reviewed dark theme's closest pair (yellow buoy, warn) is 7.9
 

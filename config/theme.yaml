@@ -73,7 +73,7 @@ tokens:
   task.confirmed:  {dark: '#F2B183', light: '#A8551F', x256: [216, 130], ansi: bright_cyan}
   task.hypothesis: {alias: task.confirmed}
   task.done:       {dark: '#8F877D', light: '#8C8378', x256: [244, 245], ansi: bright_black}
-  task.failed:     {dark: '#D0907E', light: '#94503C', x256: [174, 95],  ansi: default}
+  task.failed:     {dark: '#D0907E', light: '#94503C', x256: [138, 95],  ansi: default}
   task.goal:       {dark: '#F7DDBA', light: '#7A4A12', x256: [223, 94],  ansi: bold}
   decision.start:     {alias: task.confirmed}
   decision.recognise: {alias: task.goal}
@@ -92,6 +92,9 @@ cvd_swap:
   gps.dgps:  {dark: '#C2B8A4', light: '#7C7A6E', x256: [181, 101], ansi: yellow}
   gps.3d:    {dark: '#D9A872', light: '#A8683A', x256: [179, 137], ansi: yellow}
   gps.none:  {dark: '#E08F5A', light: '#B4501A', x256: [173, 130], ansi: yellow}
+  # fail turns orange here, so the apricot mission tones step back to a sandy beige
+  task.confirmed: {dark: '#D9C2A6', light: '#7A5C3A', x256: [181, 95],  ansi: bright_cyan}
+  decision.retry: {dark: '#C8B49C', light: '#8A5A2E', x256: [144, 94],  ansi: default}
 
 # 16-colour tier: the one attribute added to a token's ansi name (ui.md section 3).
 attr16:
