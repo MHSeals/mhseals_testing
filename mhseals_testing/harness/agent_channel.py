@@ -35,8 +35,20 @@ STATES = ('queued', 'started', 'progress', 'done')
 REQUIRED = {'req': ('id', 'op', 'deadline_ns'), 'renew': ('claim', 'act'), 'note': ('phase',),
             'reply': ('re', 'ok', 'state')}
 CMD_MAX = 300
+# Reply errors and the CLI exit codes they map to (spec section 3): 2 refused/busy/blocked (the hint
+# names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI owner,
+# 5 agents blocked, 6 timeout. Anything else is 1.
+EXIT_CODES = {**dict.fromkeys(('refused', 'busy', 'busy_ui', 'not_holder', 'unknown_claim', 'no_mux',
+                               'not_allowed', 'not_armed', 'motion_observe', 'bad_args', 'bad_op'), 2),
+              **dict.fromkeys(('revoked', 'overridden', 'cancelled', 'expired', 'released'), 3),
+              'no_owner': 4, 'blocked': 5, 'timeout': 6}
 ROTATE_BYTES = 20 * 1024 * 1024
 _SECRET = re.compile(r'(?i)(token|pass(?:word)?|secret|key)=\S+')
+
+
+def exit_code(reply):
+    """0 for an ok reply, else the CLI exit code of its error."""
+    return 0 if reply.get('ok') else EXIT_CODES.get(reply.get('error'), 1)
 
 
 def channel_path():

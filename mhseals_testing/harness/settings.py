@@ -90,6 +90,10 @@ SPECS = (
     Spec('auto_tab', True, bool, group='Navigation', note='switch to Map when Navigate or Mission starts'),
     Spec('agents', 'allow', str, choices=('allow', 'block'), group='Control', reset=True,
          note='block refuses new agent claims; allow again at start'),
+    Spec('agent_motion', 'confirm', str, choices=('confirm', 'allow', 'observe'), group='Control', reset=True,
+         note='agent run/goal: confirm asks Enter each time, observe refuses; confirm again at start'),
+    Spec('agent_view', 'follow', str, choices=('follow', 'off'), group='Control',
+         note='follow switches Activity to the agent view when a claim turns active'),
     Spec('direction', '', str, group='Trials', reset=True,
          note='characterization: re-refine only this column, e.g. sway+'),
 )
