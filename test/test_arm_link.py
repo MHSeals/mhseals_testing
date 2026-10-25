@@ -65,6 +65,24 @@ def test_no_first_beat_means_no_children_and_an_exit():
     assert 'no operator beat' in watch.reason(15.1)
 
 
+def encoded(text):
+    return base64.b64encode(text.encode()).decode()
+
+
+def test_the_boat_refuses_a_config_whose_physical_setup_differs_from_its_own(tmp_path, monkeypatch):
+    monkeypatch.setattr(arm_link, 'rivals', lambda: [])
+    own = tmp_path / 'hardware.yaml'
+    own.write_text('channel_map: [1, 3, 2, 4]\nmanual_repeat_timeout: 0.5\n')
+    refused = arm_link.check(encoded(''), own)['error']             # the laptop's defaults
+    assert 'differs from this computer\'s in channel_map' in refused
+    assert arm_link.check(encoded('channel_map: [1, 3, 2, 4]\n'), own) == {'ok': True}  # live keys may differ
+    assert 'reversed' in arm_link.check(encoded('channel_map: [1, 3, 2, 4]\nreversed: [true, false, false, false]\n'),
+                                        own)['error']
+    assert 'unreadable' in arm_link.check(encoded('nonsense_key: 1\n'), own)['error']
+    monkeypatch.setattr(arm_link, 'rivals', lambda: [42])
+    assert 'already runs here (pids [42])' in arm_link.check(encoded(''), own)['error']
+
+
 def test_children_round_trip_and_the_config_placeholder():
     children = [('hardware', ['ros2', 'run', 'x', '-p', 'config_file:=@CONFIG@']),
                 ('mux', ['ros2', 'run', 'y'])]
@@ -187,8 +205,10 @@ def test_start_beats_before_the_ssh_start_and_ships_the_config():
     driver, link, ssh, _ = remote()
     driver.start([('hardware', ['ros2', 'run', 'x'])], 'pwm_channels: [0, 1, 2, 3]\n')
     driver.worker.shutdown(wait=True)
-    assert link.calls[0] == ('set', driver.token, True) and link.calls[1] == ('ssh', 'start')
-    words = shlex.split(ssh.commands[0])
+    assert link.calls[0] == ('set', driver.token, True) and link.calls[1] == ('ssh', 'check')
+    check, start = ssh.commands[0].split(' && ')
+    assert shlex.split(check)[3] == 'check' and shlex.split(start)[3] == 'start'
+    words = shlex.split(start)
     assert '--driver' in words and words[words.index('--lease-s') + 1] == str(arm_link.LEASE_S)
     shipped = words[words.index('--config-b64') + 1]
     assert base64.b64decode(shipped).decode() == 'pwm_channels: [0, 1, 2, 3]\n'
@@ -313,7 +333,7 @@ def test_remote_arm_ships_the_snapshot_and_arms_only_when_the_boat_confirms(tmp_
     arming, driver, link, ros, now = remote_arming(tmp_path)
     arming.begin()
     driver.worker.shutdown(wait=True)
-    shipped = shlex.split(driver.call.commands[0])
+    shipped = shlex.split(driver.call.commands[0].split(' && ')[1])
     config = base64.b64decode(shipped[shipped.index('--config-b64') + 1]).decode()
     assert config == (tmp_path / 'hardware.yaml').read_text()        # the session snapshot
     assert 'config_file:=@CONFIG@' in shipped and 'thruster_pwm_node' in shipped

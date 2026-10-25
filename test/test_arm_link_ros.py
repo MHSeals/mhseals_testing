@@ -100,7 +100,7 @@ def tree(status):
     return [record['pid'], *arm_link.descendants(record['pid'])] if record['state'] == 'running' else []
 
 
-def arm(node, call, children, config='a: 1\n'):
+def arm(node, call, children, config='command_timeout: 0.5\n'):
     driver = RemoteDriver(BOAT, RosLink(node), by={'host': 'tui'}, call=call)
     driver.start(children, config)
     assert wait_for(driver.confirmed, 30), driver.error or driver.last_line('hardware')
@@ -184,3 +184,13 @@ def test_the_real_driver_and_mux_reach_neutral_and_stop_on_link_loss(boat, tui, 
     assert pulses and pulses[-1] == [neutral] * 4
     assert stopped < LINK_S + 8.0
     print(f'real driver and mux stopped {stopped:.2f} s after the last beat')
+
+
+def test_a_config_whose_pins_differ_from_the_boats_never_starts_a_unit(boat, tui):
+    _, call, status, _ = boat
+    node, *_ = tui
+    driver = RemoteDriver(BOAT, RosLink(node), call=call)
+    driver.start(FAKE, 'channel_map: [4, 3, 2, 1]\n')
+    assert wait_for(lambda: driver.error, 20)
+    assert 'channel_map' in driver.error and not driver.running('hardware')
+    assert status()['state'] == 'off'

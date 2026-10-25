@@ -61,6 +61,10 @@ DRIVERS = {'thruster_pwm_node', 'command_mux'}
 WRAPPERS = {'mhseals_testing.ros.arm_link', 'mhseals_testing.harness.keeper',
             'mhseals_testing.harness.unit'}
 PR_SET_PDEATHSIG = 1
+# Restart-tier keys that decide which pins, which way and how power is cut: a shipped config must
+# agree with the boat's own (~/.config/mhseals/hardware.yaml there) on all of them.
+PHYSICAL = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high',
+            'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat_hz', 'channel_map', 'reversed')
 
 
 # --- boat side --------------------------------------------------------------------------------
@@ -230,6 +234,33 @@ def write_config(encoded, name):
     return target
 
 
+def mismatch(shipped, own):
+    """The PHYSICAL keys on which the shipped config differs from this computer's own."""
+    return [key for key in PHYSICAL if shipped.get(key) != own.get(key)]
+
+
+def check(encoded, own_path=None):
+    """Whether this computer may arm from the shipped config: no rival driver, same physical setup."""
+    import tempfile
+    from mhseals_hardware.configuration import load_config
+    found = rivals()
+    if found:
+        return {'error': f'a thruster driver or mux already runs here (pids {found})'}
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'hardware.yaml'
+        path.write_text(base64.b64decode(encoded, validate=True).decode())
+        try:
+            shipped = load_config(path)
+            own = load_config(own_path)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            return {'error': f'hardware config unreadable: {error}'}
+    keys = mismatch(shipped, own)
+    if keys:
+        return {'error': f'the TUI\'s hardware config differs from this computer\'s in {", ".join(keys)}; '
+                         'copy the boat\'s ~/.config/mhseals/hardware.yaml to the TUI\'s (or edit both)'}
+    return {'ok': True}
+
+
 def with_config(argv, path):
     return [word.replace(CONFIG, str(path)) for word in argv]
 
@@ -279,13 +310,12 @@ def run(token, encoded, children, lease=None, link_s=LINK_S, first_beat_s=FIRST_
     stopping = []
     for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(signum, lambda number, _: stopping.append(f'signal {number}'))
+    checked = check(encoded)
+    if 'error' in checked:
+        print(json.dumps(checked), flush=True)
+        return 2
     config = write_config(encoded, 'arm')
     children = [(name, with_config(argv, config)) for name, argv in children]
-    found = rivals()
-    if found:
-        print(json.dumps({'error': f'a thruster driver or mux already runs here (pids {found})'}),
-              flush=True)
-        return 2
     from std_msgs.msg import String
     node, close = _ros('arm_link')
     watch = Watch(token, link_s, first_beat_s)
@@ -353,11 +383,15 @@ def main(argv=None):
     hold.add_argument('--unit')
     hold.add_argument('--link-s', type=float, default=LINK_S)
     hold.add_argument('--first-beat-s', type=float, default=FIRST_BEAT_S)
-    for verb in (hold, verbs.add_parser('readback')):
+    for verb in (hold, verbs.add_parser('readback'), verbs.add_parser('check')):
         verb.add_argument('--config-b64', required=True)
     argv = sys.argv[1:] if argv is None else list(argv)
     at = argv.index('--') if '--' in argv else len(argv)
     args, words = parser.parse_args(argv[:at]), argv[at + 1:]
+    if args.verb == 'check':
+        result = check(args.config_b64)
+        print(json.dumps(result), flush=True)
+        return 0 if 'error' not in result else 2
     if not words:
         parser.error('the children follow --')
     if args.verb == 'readback':
@@ -453,11 +487,13 @@ class RemoteDriver:
         from mhseals_testing.harness.remote import unit_command
         self.token, self.error = secrets.token_hex(6), ''
         self.link.set(self.token, True)
-        argv = [*MODULE, 'run', '--token', self.token, '--unit', UNIT,
-                '--config-b64', base64.b64encode(config_text.encode()).decode(),
+        encoded = base64.b64encode(config_text.encode()).decode()
+        argv = [*MODULE, 'run', '--token', self.token, '--unit', UNIT, '--config-b64', encoded,
                 '--', *join_children(children)]
-        self._job(self._start, self.token,
-                  unit_command('start', UNIT, argv, self.by, lease_s=LEASE_S, driver=True))
+        # The check answers before any unit starts: a rival driver, or a physical setup that differs.
+        command = (shlex.join([*MODULE, 'check', '--config-b64', encoded]) + ' && '
+                   + unit_command('start', UNIT, argv, self.by, lease_s=LEASE_S, driver=True))
+        self._job(self._start, self.token, command)
 
     def _start(self, token, command):
         from mhseals_testing.harness.remote import CONNECT_S
