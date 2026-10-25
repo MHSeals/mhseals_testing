@@ -85,6 +85,7 @@ ACTIONS = {
     'layer_fov': Action('layer fov', 7),
     'layer_hits': Action('layer hits', 7),
     'layer_rings': Action('layer rings', 7),
+    'layer_tasks': Action('layer tasks', 7),
     'layer_wake': Action('layer wake', 7),
     'leave': Action('leave', 6),
     'magcal': Action('magcal', 7),

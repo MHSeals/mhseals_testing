@@ -5,7 +5,8 @@ message per layer, plus the trail crumbs, and never draws. Fields are plain numb
 tuples already pulled out of the ROS messages by the feed (ros/minimap_feeds.py).
 World points are (x, y) in the navsat ENU map frame, metres.
 
-Kinds: pose_map, gps_raw, gps_cov, plan, local_plan, objects, detections, hits, costmap, tf_static, fov.
+Kinds: pose_map, gps_raw, gps_cov, plan, local_plan, objects, detections, hits, costmap, tf_static, fov,
+and from the mission feed (ui/feeds/mission.py) tasks (minimap.tasks.Task items) and mission_goal.
 The trail is also kept smoothed (one Chaikin corner cut per crumb, O(1)) for drawing.
 """
 
@@ -62,6 +63,8 @@ class MapState:
         self._last = None         # last crumb (t, x, y)
         self.smooth = deque(maxlen=ring * 2)   # smoothed layers.Crumb tuples the trail painter walks
         self.fov = None           # {hfov_deg, range_m, frame} of the camera backend
+        self.tasks = []           # minimap.tasks.Task per /task/hypotheses entry
+        self.mission_goal = None  # (x, y, yaw, why) of the mission's current goal
 
     def ingest(self, kind, **f):
         """Take one message of ``kind``; unknown kinds raise ValueError."""
@@ -81,6 +84,10 @@ class MapState:
             self.objects = list(f['items'])
         elif kind == 'detections':
             self._detections = list(f['items'])
+        elif kind == 'tasks':
+            self.tasks = list(f['items'])
+        elif kind == 'mission_goal':
+            self.mission_goal = None if f.get('x') is None else (f['x'], f['y'], f.get('yaw', 0.0), f.get('why', ''))
         elif kind == 'tf_static':
             self.tf_static.update(f['transforms'])
         elif kind in LATEST:

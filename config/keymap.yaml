@@ -63,6 +63,7 @@ tab.map:                        # view.minimap is the focused child; w g are Dri
   override: [goto]              # g rings over review's goto on the Map tab
   layer_wake: [w]
   layer_rings: [g]
+  layer_tasks: [T]              # mission task hypotheses and the goal; Map tab only like w g
 
 tab.bags:
   pin: [p]

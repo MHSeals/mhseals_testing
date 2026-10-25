@@ -1,4 +1,5 @@
 """The whole map frame: perception overlay goldens (perception-v2 7.1, tui-visual 2.3) and its budgets."""
+import json
 import math
 import os
 import statistics
@@ -10,7 +11,7 @@ import pytest
 
 from mhseals_testing.analysis.classes import load_classes
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.minimap import frame, marks, panel, view
+from mhseals_testing.ui.minimap import frame, marks, panel, tasks, view
 from mhseals_testing.ui.minimap.cache import LayerCache
 from mhseals_testing.ui.minimap.emit import emit
 from mhseals_testing.ui.minimap.layerbox import LayerBox
@@ -58,6 +59,14 @@ def scene(trail=400, spiral=False):
         Obj(14, -4, 'black_buoy', 0.6, motion='unknown'),
         Obj(-8, -6, 'red_light_buoy', 0.7, source='prior')])
     return s
+
+
+def with_tasks(state):
+    """The mission's task hypotheses and goal on top of a scene (kept out of the goldens' scene)."""
+    message = json.loads((Path(__file__).parent / 'fixtures' / 'task_hypotheses.json').read_text())
+    state.ingest('tasks', items=tasks.parse(message))
+    state.ingest('mission_goal', x=12.0, y=-2.0, yaw=0.0, why='search the east field for the speed gate')
+    return state
 
 
 def box(state, **flags):
@@ -156,7 +165,7 @@ def test_motion_arrowhead_needs_three_cells_and_unknowns_fade():
     assert marks._fade(Obj(0, 0, 'r', 0.9, motion='unknown'), TABLE.tracks) == 50
 
 
-TIERS = ('truecolor', '256', '16', 'mono', 'ascii')
+TIERS =('truecolor', '256', '16', 'mono', 'ascii')
 ZOOMS = sorted({*view.PRESETS, 8})   # every preset, and the 8 m detail golden
 
 
@@ -166,7 +175,7 @@ def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget(half):
     costmap and rings, median frame) in <= 3 ms x scale, at every zoom preset and colour tier,
     also with the whole 4000-crumb trail ring inside the view (the TUI runs over SSH)."""
     over = []
-    for s in (scene(), scene(trail=4000, spiral=True)):
+    for s in (with_tasks(scene()), with_tasks(scene(trail=4000, spiral=True))):
         b, lc = box(s, costmap=True, hits=True), LayerCache()
         for tier in TIERS:
             plain = tier == 'ascii'

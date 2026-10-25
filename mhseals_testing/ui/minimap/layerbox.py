@@ -26,7 +26,7 @@ class LayerBox:
         ``live`` False refuses ``trail_restart`` (map.md 7: live only)."""
         self.feeds, self.state, self.truth, self.live = feeds, state, truth, live
         self.costmap = self.hits = self.referee = False
-        self.wake = self.rings = True
+        self.wake = self.rings = self.tasks = True
         self.fov = None   # None until the map first draws: minimap.yaml fov.show seeds it
         self.up = 'N'     # N (north-up) or H (heading-up)
         self.source, self.objects, self.trail, self.floor = 'auto', 'tracks', 'plain', 0
@@ -62,6 +62,8 @@ class LayerBox:
             self.wake = not self.wake
         elif action == 'layer_rings':
             self.rings = not self.rings
+        elif action == 'layer_tasks':
+            self.tasks = not self.tasks
         elif action == 'up_mode':
             self.up = 'H' if self.up == 'N' else 'N'
         else:
@@ -76,7 +78,7 @@ class LayerBox:
 
     def rows(self):
         """Layer cells ``(key, label, on)`` in reading order; the pinned costmap source and the
-        detection floor ride in the labels (ui.md 5.6), so the box stays five interior rows."""
+        detection floor ride in the labels (ui.md 5.6), so the box stays six interior rows."""
         floor = f'{FLOORS[self.floor]:g}'.lstrip('0')
         objects = 'objects' if self.objects == 'off' else self.objects
         return [('c', 'costmap' if self.source == 'auto' else self.source, self.costmap),
@@ -86,7 +88,8 @@ class LayerBox:
                 ('R', 'referee', self.referee),
                 ('F', 'fov', self.fov is not False),
                 ('w', 'wake', self.wake),
-                ('g', 'rings', self.rings)]
+                ('g', 'rings', self.rings),
+                ('T', 'tasks', self.tasks)]
 
     def render(self, focused=False, up=None, zoom='fit', centre='boat'):
         """The Layers panel. On layers are fg, off ones muted, so the state reads without colour
@@ -99,9 +102,9 @@ class LayerBox:
 
         cells = [cell(*row) for row in self.rows()]
         body = Text(no_wrap=True)
-        for left, right in zip(cells[::2], cells[1::2]):
-            body.append_text(left)
-            body.append_text(right)
+        for i in range(0, len(cells), 2):
+            for part in cells[i:i + 2]:
+                body.append_text(part)
             body.append('\n')
         for i, (key, label) in enumerate((('u', f'{up or self.up}{theme.pick("↑", "^")}'), ('z', zoom), ('e', centre))):
             body.append(key, style=f'bold {theme.ACCENT}')

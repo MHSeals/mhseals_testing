@@ -13,7 +13,7 @@ import numpy as np
 
 from mhseals_testing.analysis.classes import load_classes
 from mhseals_testing.ui import palette, theme
-from mhseals_testing.ui.minimap import view
+from mhseals_testing.ui.minimap import tasks, view
 from mhseals_testing.ui.minimap.cache import LayerCache, Redraw
 from mhseals_testing.ui.minimap.canvas import Canvas
 from mhseals_testing.ui.minimap.emit import emit
@@ -24,7 +24,7 @@ from mhseals_testing.ui.minimap.structure import VMAX, draw_boat
 
 TOKENS = {'plan': 'accent', 'local_plan': 'muted', 'goal': 'accent', 'home': 'accent', 'cursor': 'accent',
           'contact': 'fail', 'wall': 'fg', 'ring': 'muted', 'label': 'muted', 'trail': 'fg', 'chrome': 'muted',
-          'hits': 'fg', 'hits.near': 'fail', 'costmap': 'muted'}   # layer -> theme token
+          'hits': 'fg', 'hits.near': 'fail', 'costmap': 'muted', 'task': 'task.confirmed'}   # layer -> theme token
 HALF = 20.0   # m, the default half-width: the boat sits in the middle of +-20 m
 YAW_Q = 3.0   # deg: heading-up rotation of the cached costmap layer
 
@@ -131,6 +131,9 @@ def draw(state, cols, rows, half, table=None, ascii_=False, box=None, full=False
     if full and state.fov and (box is None or box.fov is not False) and (camera := state.camera()):
         draw_fov(proj, camera[:2], camera[2], state.fov['hfov_deg'], state.fov['range_m'],
                  table.fov['colour'] if table is not None else 'fov')
+    found, goal = getattr(state, 'tasks', ()), getattr(state, 'mission_goal', None)
+    if (box is None or box.tasks) and (found or goal):
+        tasks.draw(proj, found, goal, ascii_, labels=full)
     if table is not None and (box is None or box.objects != 'off'):
         draw_objects(proj, state.objects, table, boat=(x, y), ascii_=ascii_)
     draw_boat(proj, (x, y), math.degrees(yaw), ascii_=ascii_, speed=getattr(state, 'speed', None),

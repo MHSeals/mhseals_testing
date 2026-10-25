@@ -95,7 +95,7 @@ def paint(panel, width=32):
 def test_layers_box_golden_with_mixed_states(request):
     box = LayerBox(type('F', (), {'want_layers': lambda *a: None})(), truth=True)
     for action in ('layer_costmap', 'costmap_source', 'layer_detections', 'layer_detections',
-                   'detection_floor', 'detection_floor', 'trail_mode', 'referee'):
+                   'detection_floor', 'detection_floor', 'trail_mode', 'referee', 'layer_tasks'):
         box.press(action, 5.0)
     text = paint(box.render(focused=True, up='N', zoom='fit', centre='boat'))
     if request.config.getoption('--update-goldens'):
@@ -126,7 +126,7 @@ def test_labels_carry_the_pinned_source_and_the_detection_floor():
     box.press('detection_floor', 5.0)
     text = paint(box.render(up='H', zoom='10m', centre='goal'))
     assert 'local' in text and 'raw .3' in text and 'u H' in text and 'z 10m' in text and 'e goal' in text
-    assert len(text.splitlines()) == 7               # border + 5 interior rows + border
+    assert len(text.splitlines()) == 8               # border + 6 interior rows + border
 
 
 def test_trail_restart_is_live_only():

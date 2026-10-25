@@ -3,5 +3,6 @@
 │ d objects .5  y gps          │
 │ R referee     F fov          │
 │ w wake        g rings        │
+│ T tasks                      │
 │ u N↑  z fit  e boat  [truth] │
 ╰──────────────────────────────╯

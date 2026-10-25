@@ -68,6 +68,20 @@ tokens:
   cost.3:      {dark: '#2B3442', light: '#DCE2E9', x256: [236, 253], ansi: null}
   inscribed:   {dark: '#3C3340', light: '#EADDE0', x256: [237, 224], ansi: null}
   lethal:      {dark: '#5A3A42', light: '#E6C9CD', x256: [52, 217],  ansi: null}
+  # mission: a soft apricot family, apart from severity, buoy classes and authority hues;
+  # dashes, ✓/✗ and ?NN carry the state where colour is absent
+  task.confirmed:  {dark: '#F2B183', light: '#A8551F', x256: [216, 130], ansi: bright_cyan}
+  task.hypothesis: {alias: task.confirmed}
+  task.done:       {dark: '#8F877D', light: '#8C8378', x256: [244, 245], ansi: bright_black}
+  task.failed:     {dark: '#D0907E', light: '#94503C', x256: [174, 95],  ansi: default}
+  task.goal:       {dark: '#F7DDBA', light: '#7A4A12', x256: [223, 94],  ansi: bold}
+  decision.start:     {alias: task.confirmed}
+  decision.recognise: {alias: task.goal}
+  decision.switch:    {alias: task.goal}
+  decision.search:    {dark: '#B9AFC8', light: '#66597A', x256: [146, 60],  ansi: default}
+  decision.retry:     {dark: '#D8B08C', light: '#8A5A2E', x256: [180, 94],  ansi: default}
+  decision.give_up:   {alias: task.failed}
+  decision.skip:      {alias: task.done}
 
 # ui.cvd: status and trail tokens swap to a blue-to-orange sequence; aliases follow their target.
 cvd_swap:
@@ -100,6 +114,10 @@ mono:
   trail.mid: dim
   trail.old: dim
   boat: bold
+  task.done: dim
+  task.failed: bold
+  task.goal: bold
+  decision.skip: dim
 
 # id: [unicode, ascii]. `off` is a YAML 1.1 boolean, so that key stays quoted.
 glyphs:
