@@ -343,8 +343,8 @@ def test_an_agent_claim_shows_the_banner_in_the_live_header(tmp_path):
     assert app.view()['agent'] is None
     claim, _ = feed.arbiter.table.claim('agent', 'tune_mppi', time.time(), reason='MPPI sweep', pid=5120)
     feed.arbiter.tick()
-    assert app.view()['agent'].split(theme.SEPARATOR)[:3] == [
-        theme.pick('◆', '*') + ' AGENT DRIVING', 'tune_mppi', 'pid 5120']
+    parts = app.view()['agent'].split(theme.SEPARATOR)
+    assert parts[:2] == [theme.pick('◆', '*') + ' AGENT DRIVING', 'tune_mppi'] and 'pid 5120' in parts
     page = text(layout.header(app.snapshot(), app.view(), 120), 120, 3)
     assert 'AGENT DRIVING' in page and 'E revoke' in page and 'Space stop' in page
     feed.arbiter.on_mux({'input': 'rc', 't_ns': int(clock[0] * 1e9)})   # RC override suspends it

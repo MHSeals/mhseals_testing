@@ -62,11 +62,55 @@ def chip(record, now):
     return 'unclaimed', source if source.startswith('?') else STALE[1]
 
 
-def banner(record, now):
-    """The agent banner text (authority 4.2), or None while no non-TUI claim is on record.
+class Banner(str):
+    """The banner text; ``parts`` are its ``(text, rank)`` pieces so a narrow row drops rank 3 first."""
+    parts = ()
+
+
+WORKING_S = 60     # a note this recent, with no agent claim, shows the unclaimed-activity item
+MOTION_S = 10      # motion lease total when the act does not carry its own motion_s
+ACT_STATE = {'waiting_arm': 'WAITING ARM', 'asking': 'ASKING'}
+
+
+def act(desk, claim=None):
+    """The desk's current act (``agent_desk['act']``) when it belongs to ``claim`` (or names none)."""
+    item = (desk or {}).get('act')
+    return item if item and (claim is None or item.get('claim') in (None, claim)) else None
+
+
+def act_words(item):
+    """``run square 34 s``: the desk's label (else the op and its args) and the time it has run."""
+    args = item.get('args') or {}
+    words = item.get('label') or _words(item.get('op'), *(args.values() if isinstance(args, dict) else args))
+    elapsed = item.get('elapsed_s')
+    state = item.get('state') if item.get('state') in ('starting', 'queued') else None
+    return _words(words, state, age(elapsed) if isinstance(elapsed, (int, float)) and not state else None)
+
+
+def lease(claim, desk, now):
+    """``(text, low)``: ``lease ok`` or ``lease 3 s`` once under a third remains; None without one.
+
+    A running act's motion lease wins over the claim's idle lease.
+    """
+    doing = act(desk, claim.get('id'))
+    if doing and doing.get('motion_lease_s') is not None:
+        left, total = doing['motion_lease_s'], doing.get('motion_s') or MOTION_S
+    elif claim.get('lease_s'):
+        total = claim['lease_s']
+        left = total - (now - claim.get('seen_ns', claim.get('since_ns', 0)) / 1e9)
+    else:
+        return None
+    low = left < total / 3
+    return (f'lease {max(0, int(left))} s' if low else 'lease ok'), low
+
+
+def banner(record, now, desk=None):
+    """The agent banner text (agent-control 5), or None while no non-TUI claim is on record.
 
     Every claim whose owner is ``agent`` (a process other than the TUI owner) counts, active,
-    suspended or busy; revoked ones do not. A suspended claim reads PAUSED, else DRIVING.
+    suspended or busy; revoked ones do not. States: PAUSED (suspended), WAITING ARM, ASKING,
+    IDLE (the desk runs no act) and DRIVING. ``desk`` is the AgentDesk view (``act``, ``queue``,
+    ``notes``); without one (a watch guest) the claim alone reads DRIVING.
     """
     claims = [c for c in (record or {}).get('claims', ())
               if c.get('owner') == 'agent' and c.get('state', 'active') != 'revoked']
@@ -74,11 +118,34 @@ def banner(record, now):
         return None
     claim = next((c for c in claims if c.get('state', 'active') == 'active'), claims[0])
     paused = claim.get('state') == 'suspended'
-    parts = [f"{theme.pick('◆', '*')} AGENT {'PAUSED' if paused else 'DRIVING'}",
-             'RC override' if paused and record.get('owner') == 'rc' else None, claim.get('who'),
-             f"pid {claim['pid']}" if claim.get('pid') else None, claim.get('reason') or None,
-             since(claim, now) or None]
-    return theme.SEPARATOR.join(str(p) for p in parts if p)
+    doing = act(desk, claim.get('id')) if desk is not None else None
+    state = ('PAUSED' if paused else ACT_STATE.get((doing or {}).get('state'))
+             or ('IDLE' if desk is not None and not doing else 'DRIVING'))
+    held = lease(claim, desk, now)
+    parts = [(f"{theme.AGENT_GLYPH} AGENT {state}", 0),
+             ('RC override' if paused and record.get('owner') == 'rc' else None, 0),
+             (claim.get('who'), 0),
+             (f'{theme.FOCUS} {act_words(doing)}' if doing else None, 1),
+             (held[0] if held else None, 0 if held and held[1] else 2),
+             (f"pid {claim['pid']}" if claim.get('pid') else None, 3), (claim.get('reason') or None, 3),
+             (since(claim, now) or None, 2)]
+    parts = [(str(text), rank) for text, rank in parts if text]
+    out = Banner(theme.SEPARATOR.join(text for text, _ in parts))
+    out.parts = parts
+    return out
+
+
+def working(desk, record, now):
+    """``(who, seconds)`` of the newest note while no agent claim exists: working, not driving."""
+    if any(c.get('owner') == 'agent' and c.get('state', 'active') != 'revoked'
+           for c in (record or {}).get('claims', ())):
+        return None
+    notes = (desk or {}).get('notes') or ()
+    if not notes:
+        return None
+    note = notes[-1]
+    ago = now - (note.get('t_ns') or 0) / 1e9
+    return (note['who'], ago) if ago <= WORKING_S else None
 
 
 def driving(feed, arbiter, manual, running, now):
@@ -94,8 +161,9 @@ def driving(feed, arbiter, manual, running, now):
     return (('human', 'KEYS') if manual else ('ours', running.upper()) if running else None)
 
 
-def control(record, driving_chip, now, setting):
-    """The ``snapshot['control']`` dict the Control rows read; ``setting`` is the Agents value."""
-    return {'driving': driving_chip, 'rc': (record or {}).get('rc'),
+def control(record, driving_chip, now, setting, **agent):
+    """The ``snapshot['control']`` dict the Control rows read; ``setting`` is the Agents value and
+    ``agent`` the ``agent_motion``/``agent_view`` settings."""
+    return {**agent, 'driving': driving_chip, 'rc': (record or {}).get('rc'),
             'holds': [dict(h, age=age(now - h['since_ns'] / 1e9) if h.get('since_ns') else '')
                       for h in (record or {}).get('holds', ())], 'agents': setting}

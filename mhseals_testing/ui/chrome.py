@@ -8,11 +8,14 @@ today unless the app fills them:
   authority  (kind, WORD) with kind in human ours nav agent hold unclaimed
   review     True replaces the authority and arm chips with a REVIEW chip
   agent      banner text; while set it replaces the health strip row
+  agent_desk the AgentDesk view; its recent notes show ``◇ who 3s`` while no agent claim exists
 """
+
+import time
 
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import authority_chip, theme
 
 BANNER_KEYS = 'E revoke' + theme.SEPARATOR + 'Space stop'
 PROFILE_AT = 100   # the profile shows from this width
@@ -47,6 +50,15 @@ def host_item(view, short=False):
         return Text(review.host if short else host, style=theme.MUTED)
     host = view['host'] if short else f"{view['host']}{theme.SEPARATOR}ROS {view['domain']}"
     return Text(host, style=theme.MUTED)
+
+
+def working_item(view, now=None):
+    """``◇ claude-3f2a 3s`` in muted magenta: an agent is working on the boat but holds no claim."""
+    seen = authority_chip.working(view.get('agent_desk'), view.get('authority_record'),
+                                  time.time() if now is None else now)
+    if not seen:
+        return None
+    return Text(f'{theme.WORKING_GLYPH} {seen[0]} {authority_chip.age(seen[1])}', style=theme.AGENT_DIM)
 
 
 def chips(view):
@@ -86,9 +98,10 @@ def top_row(view, width):
             else view['profile'])
     profile = Text.assemble((f'  {name}', theme.MUTED))
     deploy, tail = deploy_item(view.get('deploy')), chips(view)
+    work = None if view.get('review') else working_item(view)
     lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title]
-    rights = [(deploy, host_item(view)), (deploy, host_item(view, True)), (None, host_item(view, True)),
-              (None, None)]
+    rights = [(deploy, work, host_item(view)), (deploy, work, host_item(view, True)),
+              (None, work, host_item(view, True)), (None, work, None), (None, None, None)]
     for left in lefts:
         for items in rights:
             right = join([*items, *tail])
@@ -106,9 +119,29 @@ def middle_cut(text, width):
     return text[:keep - keep // 2] + ellipsis + text[len(text) - keep // 2:] if keep else ellipsis[:width]
 
 
+def _fit(text, room):
+    """Drop the banner's lowest-ranked parts (pid and reason, then age) until it fits; else cut the middle."""
+    parts = list(getattr(text, 'parts', ()))
+    while parts and len(theme.SEPARATOR.join(t for t, _ in parts)) + 1 > room:
+        worst = max(rank for _, rank in parts)
+        if not worst:
+            break
+        parts.pop(max(i for i, (_, rank) in enumerate(parts) if rank == worst))
+    return middle_cut(f" {theme.SEPARATOR.join(t for t, _ in parts) if parts else text}", room)
+
+
 def banner(text, width):
-    """The whole row in the agent hue; the revoke and stop keys at the right are never cut."""
+    """The whole row in the agent hue; the revoke and stop keys at the right are never cut.
+
+    A low lease (``lease 3 s``) wears the warn cell so it reads before it lapses.
+    """
     keys = BANNER_KEYS
-    left = middle_cut(f' {text}', max(width - len(keys) - 2, 0))
-    line = left.ljust(max(width - len(keys) - 1, 0)) + keys + ' '
-    return Text(line[:width], style=theme.AGENT_BANNER, no_wrap=True)
+    left = _fit(text, max(width - len(keys) - 2, 0))
+    line = (left.ljust(max(width - len(keys) - 1, 0)) + keys + ' ')[:width]
+    out = Text(line, style=theme.AGENT_BANNER, no_wrap=True)
+    low = next((t for t, rank in getattr(text, 'parts', ()) if t.startswith('lease ') and not rank
+                and t != 'lease ok'), None)
+    if low and low in line:
+        start = line.index(low)
+        out.stylize(theme.AGENT_LOW, start, start + len(low))
+    return out
