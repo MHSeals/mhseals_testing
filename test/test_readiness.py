@@ -7,8 +7,11 @@ def test_a_watchdog_beat_silent_past_its_staleness_refuses_and_one_never_heard_i
     required = ('/link_watchdog', '/fcu_watchdog', '/fence_watchdog')
     beats = {'/link_watchdog': 10.0, '/fcu_watchdog': 10.0 - BEAT_STALE_S}
     assert liveness_refusal(required, beats, 10.0) == ''                       # exactly at the limit
+    beats['/link_watchdog'] = 10.1
     assert liveness_refusal(required, beats, 10.1) == (
         'safety watchdog silent: /fcu_watchdog 2.1 s (crashed, or the link to the boat is down)')
+    assert liveness_refusal(required, beats, 12.2) == ''      # every beat silent: a dropout, not a crash
+    assert liveness_refusal(required, {'/fcu_watchdog': 0.0}, 9.0) == ''      # none to compare with
     assert liveness_refusal(required, {}, 99.0) == ''                         # an older build: no beat
     assert liveness_refusal(required, {}, 99.0, ['Safety watchdogs on blastoise-odroid']) == (
         'safety watchdogs reported off: Safety watchdogs on blastoise-odroid')

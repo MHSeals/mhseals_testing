@@ -36,9 +36,20 @@ def liveness_refusal(required, beats, now, off=(), stale_s=BEAT_STALE_S):
     ``beats`` maps a watchdog FQN to when its ``~/status`` was last received (``now``'s clock);
     one never heard (a build without the beat) is left to the graph and ``off``, the parts holding
     the watchdogs that their computer reports off.
+
+    A beat counts as dead only while another required watchdog's beat is fresh and has arrived
+    over ``stale_s`` after the silent one's last: the link is up, so that one is gone. When every
+    beat stops together (a radio dropout) nothing here refuses; the boat's own link watchdog
+    holds, and the graph with its grace and the device report remain.
     """
-    silent = [f'{node} {now - beats[node]:.1f} s' for node in required
-              if node in beats and now - beats[node] > stale_s]
+    silent = []
+    for node in required:
+        if node not in beats:
+            continue
+        newest = max((beats[other] for other in required if other != node and other in beats),
+                     default=None)
+        if newest is not None and now - newest <= stale_s and newest - beats[node] > stale_s:
+            silent.append(f'{node} {now - beats[node]:.1f} s')
     reasons = []
     if silent:
         reasons.append(f"safety watchdog{'s' if len(silent) > 1 else ''} silent: {', '.join(silent)} "

@@ -498,6 +498,23 @@ def test_a_crashed_watchdog_is_held_on_its_silent_beat_while_the_graph_still_lis
     assert app.arm_blockers() and 'silent: /fcu_watchdog' in app.watchdog_refusal()
 
 
+def test_a_radio_dropout_silencing_every_beat_keeps_the_boat_armed(tmp_path):
+    """All four beats stop together: the TUI cannot hear the boat; the watchdogs are fine."""
+    app, boat = make_app(tmp_path)
+    beats = {}
+    app.ros.beats = lambda: dict(beats)
+    app.ros.watch_beats = lambda nodes: None
+    mux_stub(app)
+    with app.attached():
+        arm(app)
+    beats.update({node: app.clock.now for node in WATCHDOGS})
+    app.tick()
+    for _ in range(14):                            # 7 s of whole-boat silence
+        app.clock.now += 0.5
+        app.tick()
+    assert getattr(boat, 'holds', []) == [] and app.armed and app.watchdog_refusal() == ''
+
+
 def test_a_watchdog_part_its_computer_reports_off_refuses_arming(tmp_path):
     from types import SimpleNamespace
     app, _ = make_app(tmp_path)

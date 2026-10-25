@@ -572,8 +572,9 @@ class App:
         operator releases it (U) only once the watchdogs are back. plant.hold is a fire-and-forget
         publish, so the mux state must show input 'hold' within HOLD_CONFIRM_S of a request: a
         silent one is requested once more, then the session disarms (the driver stops, the MOSFET
-        cuts). Without a mux it disarms at once. A stopped ``~/status`` beat or a report of off
-        holds without the grace: the beat's 2 s staleness already is one.
+        cuts). Without a mux it disarms at once. A dead ``~/status`` beat (silent while another
+        watchdog's beats on, so never a radio dropout) or a report of off holds without the grace:
+        the beat's 2 s staleness already is one.
         """
         graph, live = self.watchdog_reasons() if self.armed else ('', '')
         reason = '; '.join(filter(None, (graph, live)))
