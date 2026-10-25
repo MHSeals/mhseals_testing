@@ -8,7 +8,7 @@ without one its kind's minimum applies.
 
 MIN_HZ = {'image': 5.0, 'compressed': 5.0, 'points': 5.0, 'detections': 1.0}
 FAIL_FRACTION = 0.5   # of a row's nominal hz; topic_rate's fail band
-PERCEPTION_COSTMAP = '/perception/costmap'   # the camera host's grid Nav2 layers in (perception v2)
+PERCEPTION_COSTMAP = '/perception/costmap'   # the camera host's grid Nav2 layers in (v2)
 LETHAL = 99  # costmap cell value of an obstacle (100) or its inscribed inflation (99)
 
 
@@ -47,10 +47,11 @@ def run(ctx):
     # Perception's own grid when the camera host publishes one, else Nav2's local costmap.
     source, costmap = PERCEPTION_COSTMAP, nav.fetch_costmap(topic=PERCEPTION_COSTMAP)
     if costmap is None:
-        source, costmap = 'local costmap', nav.fetch_costmap()
+        source, costmap = f'local costmap (no {PERCEPTION_COSTMAP})', nav.fetch_costmap()
     if costmap is None:
         results.append(dict(procedure='perception', check='costmap', verdict='N/A',
-                            detail=f'no {PERCEPTION_COSTMAP} and no local costmap (Nav2 not running)'))
+                            detail=f'no {PERCEPTION_COSTMAP} and no local costmap '
+                                   '(Nav2 not running)'))
     else:
         cells = occupied_cells(costmap)
         lidar = sensors.get('LiDAR', {}).get('status')

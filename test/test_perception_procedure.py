@@ -23,9 +23,11 @@ def run(grids, sensors=(), rows=None):
     def observe(name):
         yield SimpleNamespace(supervise=lambda *a, **k: None)
     nav, recorded = Nav(grids), []
-    ctx = SimpleNamespace(observe=observe, settings=SimpleNamespace(observe=1), record=recorded.append,
+    ctx = SimpleNamespace(observe=observe, settings=SimpleNamespace(observe=1),
+                          record=recorded.append,
                           monitor=SimpleNamespace(snapshot=lambda: {'sensors': rows or {}}),
-                          profile=SimpleNamespace(sensors=list(sensors)), services={'nav2': lambda: nav})
+                          profile=SimpleNamespace(sensors=list(sensors)),
+                          services={'nav2': lambda: nav})
     return {r['check']: r for r in perception.run(ctx)}, nav
 
 
@@ -35,7 +37,9 @@ def test_costmap_prefers_the_perception_grid_and_falls_back_to_nav2():
     assert results['costmap']['verdict'] == 'PASS' and nav.asked == [perception.PERCEPTION_COSTMAP]
     assert results['costmap']['detail'].startswith('/perception/costmap: 2 obstacle cells')
     results, nav = run({None: grid})
-    assert results['costmap']['detail'].startswith('local costmap: 2') and nav.asked == ['/perception/costmap', None]
+    detail = results['costmap']['detail']
+    assert detail.startswith('local costmap (no /perception/costmap): 2 obstacle cells')
+    assert nav.asked == ['/perception/costmap', None]
     assert run({})[0]['costmap']['verdict'] == 'N/A'
 
 
