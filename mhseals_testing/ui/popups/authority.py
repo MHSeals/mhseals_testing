@@ -133,7 +133,7 @@ def modal(record, events, now, state, desk=None):
     body, state['ids'] = rows(record, events, now, state['cursor'], desk)
     seq = f"seq {record['seq']}" if record and record.get('seq') is not None else ''
     return dict(kind='message', title=theme.SEPARATOR.join(filter(None, ('Authority', seq))),
-                rows=body, width=100, hint=KEYS)
+                rows=body, width=100, hint=KEYS, release=True)
 
 
 def journal_reader(path):

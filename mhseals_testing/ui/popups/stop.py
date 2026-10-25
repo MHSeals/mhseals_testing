@@ -45,7 +45,7 @@ def modal(app):
     hold = ((control.get('holds') or [{}])[0])
     return dict(kind='message', title=f"Stop{theme.SEPARATOR}{authority_chip.stop_cause(hold) or 'hold'}",
                 body=body(control, app.armed, list(getattr(app.monitor, 'events', ()))),
-                width=64, border=theme.PALETTE.style('stop'),
+                width=64, border=theme.PALETTE.style('stop'), release=True,
                 hint=f'U release{theme.SEPARATOR}Esc close')
 
 

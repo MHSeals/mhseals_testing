@@ -35,8 +35,8 @@ def popup(app, modal, handle, refresh=None):
                 if key == 'E' and not str(modal.get('title', '')).startswith('Authority'):
                     app.revoke_agent()
                     continue
-                if key == 'U':   # the Authority and Stop popups release through the confirm
-                    if str(modal.get('title', '')).startswith(('Authority', 'Stop')):
+                if key == 'U':   # a release modal (Authority, Stop) releases through the confirm
+                    if modal.get('release'):
                         app.release_hold()
                     continue
             result = handle(key)
