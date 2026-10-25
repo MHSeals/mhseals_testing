@@ -290,13 +290,41 @@ def driver(view):
     return label, hue
 
 
+GAUGE_CELLS = 10
+THROTTLE_BANDS = 5       # throttle.0 .. throttle.4 across the gauge, calm to hot
+
+
+def _throttle(fraction):
+    return theme.PALETTE.style('throttle.%d' % min(THROTTLE_BANDS - 1, int(fraction * THROTTLE_BANDS)))
+
+
+def speed_gauge(speed, cells=GAUGE_CELLS, label=True):
+    """``≫ ▰▰▰▰▰▰▰▱▱▱ 75%``: the manual speed as a gauge whose lit cells run calm to hot.
+
+    Each cell wears the band of its own position, so a higher speed reaches hotter cells; the colour
+    never reads as severity (cool blues to ice, not green/amber/red). ASCII: ``>> #######--- 75%``;
+    NO_COLOR keeps the count of lit cells and the percentage.
+    """
+    speed = min(1.0, max(0.0, float(speed)))
+    lit = int(speed * cells + 0.5)
+    on, off = theme.pick('▰', '#'), theme.pick('▱', '-')
+    out = Text.assemble((theme.PALETTE.glyph('speed'), _throttle(speed)), ' ')
+    for i in range(cells):
+        out.append(on, _throttle((i + 0.5) / cells)) if i < lit else out.append(off, theme.MUTED)
+    if label:
+        out.append(f' {speed:.0%}', _throttle(speed))
+    return out
+
+
 def command_column(view, info, width):
-    """The 9 right-hand rows: driver, blank, surge/sway/yaw figures over their bars, heading."""
+    """The 9 right-hand rows: driver, speed gauge, surge/sway/yaw figures over their bars, heading."""
     label, hue = driver(view)
     surge, sway, yaw = view['command']
     amplitude = view.get('amplitude', 1.0)
     cells = min(BAR_CELLS, (width - 3) // 2)
-    rows = [Text(label if len(label) <= width else label.replace('keyboard', 'keys'), style=hue), Text()]
+    speed = view.get('speed')
+    gauge = Text() if speed is None else speed_gauge(speed, min(GAUGE_CELLS, max(3, width - 9)))
+    rows = [Text(label if len(label) <= width else label.replace('keyboard', 'keys'), style=hue), gauge]
     for name, value, left in (('surge', surge, False), ('sway', sway, True), (_yaw_label(yaw), yaw, True)):
         rows.append(_labelled(name, value, amplitude, 3 + 2 * cells))
         rows.append(Text.assemble((theme.pick('▕', '['), theme.MUTED), bar(value, amplitude, cells, hue, left),
@@ -333,7 +361,9 @@ def compact_lines(view, info, width=46):
     axes = [Text.assemble(name, ' ', bar(value, amplitude, MICRO_CELLS, hue, left), _figure(value, amplitude))
             for name, value, left in (('surge', surge, False), ('sway', sway, True), (_yaw_label(yaw), yaw, True))
             if value] or [Text('0', style=theme.MUTED)]
-    return [_fit(cond, width), _fit([Text.assemble(head, ' ', axes[0]), *axes[1:], Text(label, style=hue)], width)]
+    speed = view.get('speed')
+    tail = [] if speed is None else [speed_gauge(speed, 5)]
+    return [_fit(cond, width), _fit([Text.assemble(head, ' ', axes[0]), *axes[1:], Text(label, style=hue), *tail], width)]
 
 
 class _Body:

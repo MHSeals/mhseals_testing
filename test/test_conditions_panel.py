@@ -132,6 +132,23 @@ def test_heading_row_has_its_cardinal_sigma_and_yaw_trust():
     assert conditions.heading_row({}).plain == f'hdg {theme.DASH}'
 
 
+def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues():
+    half, fast = conditions.speed_gauge(0.5), conditions.speed_gauge(0.75)
+    on, off = theme.pick('▰', '#'), theme.pick('▱', '-')
+    assert half.plain.count(on) == 5 and fast.plain.count(on) == 8 and fast.plain.endswith(' 75%')
+    if not theme.ASCII:
+        used = {str(span.style) for span in fast.spans} - {theme.MUTED}
+        assert len(used) >= 3                                   # a gradient, not one colour
+        assert not used & {theme.GOOD, theme.WARN, theme.BAD}   # fast is not a warning
+
+
+def test_command_column_shows_the_speed_gauge_under_the_driver():
+    view = dict(command=(0.0, 0.0, 0.0), speed=0.75, chords=True)
+    rows = conditions.command_column(view, {}, 30)
+    assert len(rows) == 9 and rows[1].plain.endswith('75%')
+    assert conditions.command_column(dict(view, speed=None), {}, 30)[1].plain == ''
+
+
 def test_label_names_the_mode_with_the_tmux_caveat():
     assert conditions.mode_label(True, tmux=True) == 'chords'
     assert conditions.mode_label(False, tmux=True) == 'single key (tmux)'

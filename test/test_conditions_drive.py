@@ -26,7 +26,7 @@ INFO = dict(verdict='good', ceiling=0.94, drift=[0.0849, 0.0849], se=0.02, drift
 
 def drive_view(**conditions_override):
     return view(load_profile('boat'), conditions={**INFO, **conditions_override}, command=(0.6, 0.0, 0.2),
-                authority=('human', 'KEYS'), chords=True)
+                authority=('human', 'KEYS'), chords=True, speed=0.75)
 
 
 def page(width, height, **override):
