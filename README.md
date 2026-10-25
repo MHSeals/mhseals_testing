@@ -57,6 +57,10 @@ Records go under `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`,
 
 Checks are YAML (`config/health/*.yaml`) over facts that probes publish. A `fail` blocks a procedure from starting, a `warn` shows its reason, and nothing interrupts a run. `~/.config/mhseals/health.yaml` can `disable` or `override` checks. Adding a fact, kind or check is described in `mhseals_testing/health/__init__.py`.
 
+### Agents
+
+An LLM agent drives the boat only through the running TUI: `boat_trial claim | status | follow | run | goal | stop | mark | note | ask | release` (from a dev machine, `ssh blastoise boat_agent <verb> --who NAME`; `tools/boat_agent`) append requests to `bags/agent/channel.jsonl`, the owner TUI executes them through the same gates, arm panel and runner as a keypress, and every verb prints JSON (exit 0 ok, 2 refused with a `hint`, 3 revoked or overridden, 4 no TUI, 5 agents blocked, 6 timeout). No verb arms or releases a hold; `run` and `goal` take `--dry-run`, and Space, RC and `E` always win. Leases, the procedures agents may run and the Claude Code hook (`harness/agent_hook.py`: names the agent, denies raw `/cmd_vel`, mux and MAVROS commands, logs boat-bound shell commands to the TUI) are in `config/agent.yaml`. `boat_trial analyze referee <session>` and `boat_trial index` (`--json`) re-judge and index finished sessions; `boat_trial check --require GROUP` exits 3 when that group was not evaluated.
+
 ### Development
 
 ```bash
