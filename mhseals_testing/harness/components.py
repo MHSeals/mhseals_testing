@@ -1,9 +1,11 @@
 """Stack components (odometry, sensors, navigation, ...) a profile can start and stop.
 
-A profile's ``components:`` mapping keeps only TUI behaviour (title, needs, start, limits, topic):
-each entry is one device part (``part:``, default the key) of mhseals_nav's device profiles, and
+A profile's ``components:`` mapping keeps only TUI behaviour (title, needs, start, limits, topic,
+nodes): each entry is one device part (``part:``, default the key) of mhseals_nav's device profiles, and
 the registry (mhseals_testing.devices) says which computer runs it. The launch file, its args,
-the proof nodes and the host all come from there; the session's own args (the odometry/endpoint
+the proof nodes and the host all come from there; ``nodes:`` replaces the proof nodes when the
+part's own are not discoverable from another computer (the lidar driver runs on the large-data
+transport; its relay's publisher is what the graph shows). The session's own args (the odometry/endpoint
 unification, the Nav2 limits file, the command line) travel as ``overrides`` to
 ``ros2 launch mhseals_nav device.launch.py device:=<profile> only:=<part>``.
 
@@ -19,7 +21,7 @@ import json
 from mhseals_testing import nav2_limits
 
 STARTING_LIMIT = 20.0   # s before a started component without its proof nodes warns
-KEYS = {'title', 'part', 'needs', 'limits', 'topic', 'start'}
+KEYS = {'title', 'part', 'needs', 'limits', 'topic', 'start', 'nodes'}   # nodes: proof seen from the TUI
 
 
 @dataclass(frozen=True)
@@ -72,11 +74,14 @@ def parse_components(data, where='components'):
             data[key] = spec = {}
         if not isinstance(spec, dict) or not set(spec) <= KEYS:
             raise ValueError(f'{here}: mapping with keys from {sorted(KEYS)} '
-                             '(launch, args, nodes and host come from the device profile)')
+                             '(launch, args and host come from the device profile)')
         if not isinstance(spec.get('part', key), str):
             raise ValueError(f'{here}.part: a device part name')
         if not isinstance(spec.get('needs', []), list):
             raise ValueError(f'{here}.needs: list')
+        proof = spec.get('nodes', [])
+        if not (isinstance(proof, list) and all(isinstance(node, str) and node for node in proof)):
+            raise ValueError(f'{here}.nodes: list of node names')
         if spec.get('start', False) not in (True, False, 'here'):
             raise ValueError(f'{here}.start: true, false or here (only when this computer runs it)')
         for need in spec.get('needs', []):
@@ -238,7 +243,7 @@ def components(profile, overlay=None, placed=None):
         session = {name: value for name, value in final.items() if base[key].get(name) != value}
         result.append(Component(
             key, spec.get('title', key.capitalize()), device_argv(part, session),
-            tuple(part.spec.get('nodes', ())), tuple(spec.get('needs', ())),
+            tuple(spec.get('nodes') or part.spec.get('nodes', ())), tuple(spec.get('needs', ())),
             None if here else part.host, spec.get('topic'),
             bool(spec.get('limits', False)), start, part.name,
             part.profile, kind, part.enabled, launches[key], final,

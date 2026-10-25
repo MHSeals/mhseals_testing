@@ -58,7 +58,8 @@ def test_profile_path_and_unknown_name(tmp_path):
     (lambda d: d['sensors'][0].update(stale_after='soon'), 'stale_after'),
     (lambda d: d['sensors'].append(dict(d['sensors'][0])), 'unique'),
     (lambda d: d.update(components='yes'), 'components'),
-    (lambda d: d.update(components={'a': {'nodes': []}}), 'come from the device profile'),
+    (lambda d: d.update(components={'a': {'args': {}}}), 'come from the device profile'),
+    (lambda d: d.update(components={'a': {'nodes': [1]}}), 'a.nodes: list of node names'),
     (lambda d: d.update(components={'a': {'needs': ['b']}}), 'unknown component'),
     (lambda d: d.update(placement={'self': 'sim'}), 'placement'),
     (lambda d: d.update(placement={'other': ['sim']}), 'placement'),
@@ -80,6 +81,14 @@ def test_boat_proof_nodes_are_node_names():
     driver's executable is velodyne_driver_node but its node is velodyne_driver."""
     parts = load_profile('boat').placed[1]
     assert tuple(parts['sensors'].spec['nodes']) == ('velodyne_driver',)
+
+
+def test_boat_lidar_counts_as_running_on_its_relay():
+    """The driver is on the large-data transport, invisible to other computers; /points's
+    default-transport publisher, lidar_relay_publish, proves the sensors part."""
+    from mhseals_testing.harness.components import components
+    [sensors] = [c for c in components(load_profile('boat')) if c.key == 'sensors']
+    assert sensors.nodes == ('lidar_relay_publish',)
 
 
 @pytest.mark.parametrize('choice', [None, True, 4, 'odom:', 'odom:/missing', 'unknown', []])

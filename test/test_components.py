@@ -185,8 +185,10 @@ def test_a_commander_marked_start_is_a_load_error_off_the_simulator():
 
 
 def test_profile_keys_and_part_names():
-    with pytest.raises(ValueError, match='launch, args, nodes and host come from the device'):
+    with pytest.raises(ValueError, match='launch, args and host come from the device'):
         parse_components({'a': {'launch': ['mhseals_nav', 'odom.launch.py']}})
+    with pytest.raises(ValueError, match='a.nodes: list of node names'):
+        parse_components({'a': {'nodes': 'lidar_relay_publish'}})
     with pytest.raises(ValueError, match='same part'):
         parse_components({'a': {'part': 'x'}, 'b': {'part': 'x'}})
     assert parse_components({'a': None}) == {'a': {}}
