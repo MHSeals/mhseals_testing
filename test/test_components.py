@@ -44,9 +44,16 @@ class FakeUnits:
 
     def __init__(self):
         self.records, self.errors, self.calls = {}, {}, []
+        self.now, self.failing = 0.0, {}       # host -> (why, since, last read)
+
+    def clock(self):
+        return self.now
 
     def status(self, item):
         return self.records.get(item.part), self.errors.get(item.part)
+
+    def trouble(self):
+        return dict(self.failing)
 
     def start(self, item, commander=False):
         self.calls.append(('start', item.part, commander))
@@ -201,19 +208,35 @@ def test_parse_components_rejects_needs_cycle():
         parse_components(data)
 
 
-def test_state_ours_starting_exited_external():
+def test_state_running_starting_exited_whoever_started_it():
     stack, processes, clock = make()
     assert stack.state('odometry', set()) == ('off', '')
     stack.start('odometry', set())
-    assert stack.state('odometry', set()) == ('starting', '')
-    assert stack.state('odometry', {'/ekf_local'})[0] == 'ours'
+    assert stack.state('odometry', set()) == ('starting', 'started by this TUI')
+    assert stack.state('odometry', {'/ekf_local'}) == ('running', 'started by this TUI')
     clock[0] = 21
-    assert stack.state('odometry', set()) == ('starting', 'WARN: no ekf_local')
+    assert stack.state('odometry', set()) == ('running', 'started by this TUI')   # our child runs
     processes.live.clear()
     processes.codes['odometry'] = 3
     assert stack.state('odometry', set())[1].startswith('exit 3 ')
     del processes.codes['odometry']
-    assert stack.state('odometry', {'ekf_local'})[0] == 'external'
+    # Someone else's: running, never 'external'; who started it is only the detail.
+    assert stack.state('odometry', {'ekf_local'}) == ('running', 'in the graph, not started by this TUI')
+
+
+def test_this_computers_process_table_decides_a_local_part_not_the_graph():
+    table = {'mhseals-odometry': {'running': True, 'pid': 42, 'how': 'launch'}}
+    processes, clock = FakeProcesses(), [0.0]
+    stack = Stack(items(Profile), processes, lambda: clock[0], scan=lambda specs: dict(table))
+    assert stack.state('odometry', set()) == ('running', 'pid 42, not started by this TUI')
+    with pytest.raises(ComponentError, match='Odometry runs outside the TUI'):
+        stack.stop('odometry', set())          # a shell's process is never stopped from here
+    with pytest.raises(ComponentError, match='already running'):
+        stack.start('odometry', set())
+    assert processes.stopped == [] and processes.started == []
+    table.clear()                 # read again after SCAN_S: gone from the process table
+    clock[0] = Stack.SCAN_S
+    assert stack.state('odometry', {'/ekf_local'})[0] == 'off'     # a lingering name is not a part
 
 
 def test_start_needs_prompt_and_order():
@@ -291,7 +314,7 @@ def test_autostart_survives_a_failed_start_and_attaches_to_what_runs():
     processes.start = start
     stack = Stack(items(Tracked), processes, lambda: 0.0)
     lines = stack.autostart({'/ekf_local'}, ['/ekf_local'], sim=True)   # odometry already up
-    assert lines == ['attached to Odometry (external)',
+    assert lines == ['attached to Odometry (running)',
                      'could not start Navigation: ros2: not found',
                      'skipped Objects: Navigation did not start']
     assert processes.started == []
@@ -343,9 +366,9 @@ def test_autostart_reports_a_foreign_odometry_publisher_and_starts_nothing():
     assert 'rosbag2_player' in lines[0] and processes.started == []
 
 
-def test_external_is_never_stopped():
+def test_a_part_no_tui_started_is_never_stopped():
     stack, processes, _ = make()
-    with pytest.raises(ComponentError, match='running outside this session'):
+    with pytest.raises(ComponentError, match='runs outside the TUI'):
         stack.stop('odometry', {'ekf_local'})
     with pytest.raises(ComponentError, match='blastoise-jetson; start it there'):
         stack.start('camera', set())                        # no remote control in this stack
@@ -364,57 +387,76 @@ def test_stop_ours_stops_dependants_first():
 
 def test_remote_parts_start_and_stop_as_units_on_their_host():
     units = FakeUnits()
-    stack, processes, _ = make(units)
-    assert stack.state('camera', set()) == ('unknown', 'unit status on blastoise-jetson not read yet')
-    units.records['camera'] = {'state': 'off'}
+    stack, processes, clock = make(units)
+    assert stack.state('camera', set()) == ('unknown', 'blastoise-jetson not read yet')
+    with pytest.raises(ComponentError, match='not read yet; try again shortly'):
+        stack.start('camera', set())          # it may run there already: never a blind start
+    units.records['camera'] = {'state': 'off', 'running': False}
     assert stack.state('camera', set()) == ('off', '')
     stack.start('camera', set())
     assert units.calls == [('start', 'camera', False)] and not processes.started
     assert stack.state('camera', set()) == ('starting', 'unit on blastoise-jetson')
-    assert stack.state('camera', {'/front/zed_node'}) == ('ours', 'unit on blastoise-jetson')
+    assert stack.state('camera', {'/front/zed_node'}) == ('running', 'unit on blastoise-jetson')
+    clock[0] = 21
+    assert stack.state('camera', set()) == ('running', 'unit on blastoise-jetson')
     assert stack.stop('camera', {'/front/zed_node'}) == ['camera']
     assert units.calls[-1] == ('stop', 'camera')
     units.records['camera'] = {'state': 'exited', 'code': 2, 'log': '/d/units/x.log'}
     assert stack.state('camera', set()) == ('exited', 'unit exited 2 on blastoise-jetson: /d/units/x.log')
 
 
-def test_unreachable_is_not_off_and_refuses_start_but_stop_still_tries():
+def test_a_discovery_dropout_never_changes_a_reported_part():
     units = FakeUnits()
     stack, _, _ = make(units)
-    units.errors['camera'] = 'ssh: timeout'
-    assert stack.state('camera', set()) == ('unreachable', 'ssh: timeout')
-    with pytest.raises(ComponentError, match='unreachable \\(ssh: timeout\\)'):
+    units.records['camera'] = {'state': 'off', 'running': True, 'pid': 9, 'how': 'launch'}
+    seen = stack.state('camera', {'/front/zed_node'})
+    assert seen == ('running', 'pid 9 on blastoise-jetson, not started by a TUI')
+    assert stack.state('camera', set()) == seen          # the nodes left the graph: still running
+    units.records['camera'] = {'state': 'off', 'running': False}
+    assert stack.state('camera', {'/front/zed_node'}) == ('off', '')   # nor do lingering names start it
+
+
+def test_an_ssh_blip_keeps_the_last_report_and_stop_still_tries():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    units.records['camera'] = {'unit': 'mhseals-camera', 'state': 'running', 'how': 'unit',
+                               'running': True, 'by': {'host': 'tranquility'}}
+    before = stack.state('camera', set())
+    assert before == ('running', 'unit on blastoise-jetson, started from tranquility')
+    units.errors['camera'] = 'ssh: timeout'               # Units keeps the record through the blip
+    assert stack.state('camera', set()) == before
+    assert stack.stop('camera', set()) == ['camera'] and units.calls == [('stop', 'camera')]
+
+
+def test_a_remote_part_no_tui_started_is_never_stopped_and_never_started_twice():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    units.records['camera'] = {'state': 'off', 'running': True, 'pid': 9, 'how': 'nodes'}
+    with pytest.raises(ComponentError, match='runs outside the TUI \\(pid 9 on blastoise-jetson'):
+        stack.stop('camera', set())
+    with pytest.raises(ComponentError, match='already running'):
         stack.start('camera', set())
-    assert stack.stop('camera', set()) == ['camera']      # the state is unknown: stop is sent anyway
-    assert units.calls == [('stop', 'camera')]
+    assert units.calls == []
 
 
-def test_remote_nodes_up_while_ssh_fails_or_before_the_first_read_stay_stoppable():
+def test_remote_nodes_up_before_the_first_read_are_running_and_stay_stoppable():
     units = FakeUnits()
     stack, _, _ = make(units)
     up = {'/front/zed_node'}
-    # Before the first status call: maybe ours, so not external; Start waits, Stop goes out.
-    assert stack.state('camera', up)[0] == 'unknown'
-    with pytest.raises(ComponentError, match='not read yet'):
+    # Before the first report the graph is positive proof (never 'external'); Stop goes out.
+    assert stack.state('camera', up) == ('running', 'on blastoise-jetson (in the graph; '
+                                                    'blastoise-jetson not read yet)')
+    with pytest.raises(ComponentError, match='already running'):
         stack.start('camera', up)
     assert stack.stop('camera', up) == ['camera']
-    # ssh down with the nodes still in the graph: unreachable, never external, and Stop is sent.
-    units.records.pop('camera')
-    units.errors['camera'] = 'ssh: timeout'
-    assert stack.state('camera', up) == ('unreachable', 'ssh: timeout')
-    assert stack.stop('camera', up) == ['camera']
-    # Read as off with the nodes up: someone else's; a Stop still goes out (harmless) and starts none.
-    units.errors.clear()
-    units.records['camera'] = {'state': 'off'}
-    assert stack.state('camera', up)[0] == 'external'
-    assert stack.stop('camera', up) == ['camera']
-    assert units.calls == [('stop', 'camera')] * 3
+    assert units.calls == [('stop', 'camera')]
 
 
 def test_a_remote_commander_needs_the_operators_confirmed_go_ahead():
     class Remote(Profile):
         components = {'tracker': {}}
     units = FakeUnits()
+    units.records['tracker'] = {'state': 'off', 'running': False}
     stack = Stack(items(Remote), FakeProcesses(), lambda: 0.0, units)
     with pytest.raises(ComponentError, match='can command motion'):
         stack.start('tracker', set())
@@ -433,17 +475,17 @@ def test_a_disabled_part_says_where_and_never_starts():
         stack.start('camera', set())
 
 
-def test_lingering_names_of_a_stopped_child_are_not_external_nor_duplicates():
+def test_lingering_names_of_a_stopped_child_are_not_running_nor_duplicates():
     from mhseals_testing.health.probes.graph import collapse
     stack, processes, clock = make()
     stack.start('odometry', set())
     stack.stop('odometry', {'ekf_local'})
     clock[0] = 100.0 + 10
-    assert stack.state('odometry', {'/ekf_local'}) == ('off', '')       # not 'external'
+    assert stack.state('odometry', {'/ekf_local'}) == ('off', '')
     assert stack.ghosts() == {'ekf_local'}
     assert collapse(['/ekf_local', '/ekf_local', '/x', '/x'], stack.ghosts()) == ['/ekf_local', '/x', '/x']
-    clock[0] = 100.0 + 30                                               # the lease has long expired
-    assert stack.state('odometry', {'/ekf_local'})[0] == 'external' and not stack.ghosts()
+    clock[0] = 100.0 + 70                                               # the 60 s lease has expired
+    assert stack.state('odometry', {'/ekf_local'})[0] == 'running' and not stack.ghosts()
 
 
 @pytest.mark.parametrize('profile_name, context', [('boat', 'included'),

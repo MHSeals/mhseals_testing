@@ -10,15 +10,18 @@ unification, the Nav2 limits file, the command line) travel as ``overrides`` to
 ``ros2 launch mhseals_nav device.launch.py device:=<profile> only:=<part>``.
 
 A part on this computer is a keeper child (ours to start and stop); a part on another computer is
-a named unit there (harness/remote.py), which any TUI may start and stop. ``state`` classifies a
-component from the node graph, our own children and the units; a process neither we nor a unit
-started is ``external`` and is never stopped.
+a named unit there (harness/remote.py), which any TUI may start and stop. ``state`` says whether a
+part runs as its own computer sees it (our children, the units and that computer's process table),
+not from DDS discovery: a running part is ``running`` whoever started it, and who did is only the
+detail. The graph counts only as positive proof while the computer has not been read. A process
+neither we nor a unit started is never stopped from here.
 """
 
 from dataclasses import dataclass, field
 import json
 
 from mhseals_testing import nav2_limits
+from mhseals_testing.harness.remote import probe_specs
 
 STARTING_LIMIT = 20.0   # s before a started component without its proof nodes warns
 KEYS = {'title', 'part', 'needs', 'limits', 'topic', 'start', 'nodes'}   # nodes: proof seen from the TUI
@@ -256,7 +259,7 @@ def moves(component):
     return component.limits or component.kind == 'commander' or component.launch == 'navigation.launch.py'
 
 
-GHOST_S = 25.0   # robot_localization exits without announcing itself; its names wait for the DDS lease (~20 s)
+GHOST_S = 65.0   # robot_localization exits without announcing itself; its names wait for the DDS lease (60 s)
 
 
 def stopped_recently(component, processes, now):
@@ -270,40 +273,49 @@ def _up(component, nodes):
     return bool(component.nodes) and all(node in nodes for node in component.nodes)
 
 
-def remote_state(component, nodes, units, now, started):
-    """(state, detail) of a part another computer runs, from the graph and its unit's status.
+def owner(record, where):
+    """Who started a running part, for the row's detail and popup only: never its state."""
+    if record.get('how') == 'unit' or (record.get('state') == 'running' and 'how' not in record):
+        by = (record.get('by') or {}).get('host')
+        return f'unit on {where}' + (f', started from {by}' if by else '')
+    if record.get('pid'):
+        return f'pid {record["pid"]} on {where}, not started by a TUI'
+    return f'on {where}'
 
-    The graph proves up; the unit says why not. Unreachable (ssh failed) is not off. Nodes in the
-    graph read as external only once the unit is known not to run them: while ssh is down or
-    before the first status call it may be ours, so the row stays stoppable.
+
+def remote_state(component, nodes, units, now, started):
+    """(state, detail) of a part another computer runs, as that computer reports it.
+
+    Its report (``unit status --probe``: the unit and its process table) is the truth, kept through
+    a failed read; the graph never turns a reported part off or on. Before the first report the
+    graph proves running (never off: discovery over the radio is slow), else it is unknown.
     """
     up = _up(component, nodes)
-    record, error = units.status(component) if units is not None else (None, None)
+    record, _ = units.status(component) if units is not None else (None, None)
     where = component.remote
-    if record is not None and record.get('state') == 'running':
-        if up or not component.nodes:
-            return 'ours', f'unit on {where}'
-        if started is not None and now - started > STARTING_LIMIT:
-            missing = next(node for node in component.nodes if node not in nodes)
-            return 'starting', f'WARN: no {missing} (unit on {where})'
-        return 'starting', f'unit on {where}'
-    if error:
-        return 'unreachable', error
-    if units is not None and record is None:
-        return 'unknown', f'unit status on {where} not read yet'
-    if up:
-        return 'external', where
-    if record is not None and record.get('state') == 'exited':
+    if record is None:
+        if up:
+            return 'running', f'on {where} (in the graph; {where} not read yet)'
+        return 'unknown', f'{where} not read yet'
+    if record.get('pending'):
+        return ('starting', f'starting on {where}') if record.get('state') == 'running' \
+            else ('off', f'stopping on {where}')
+    if record.get('running', record.get('state') == 'running'):
+        if started is not None and now - started < STARTING_LIMIT and component.nodes and not up:
+            return 'starting', owner(record, where)
+        return 'running', owner(record, where)
+    if record.get('state') == 'exited':
         return 'exited', f'unit exited {record.get("code")} on {where}: {record.get("log")}'
     return 'off', ''
 
 
-def state(component, nodes, processes, now, started=None, units=None):
-    """(state, detail): off, starting, ours, external, exited, unreachable, unknown or disabled.
+def state(component, nodes, processes, now, started=None, units=None, here=None):
+    """(state, detail): off, starting, running, exited, unknown or disabled.
 
     ``processes`` is the ProcessManager, ``nodes`` the node names in the graph (namespaces are ignored),
     ``started`` the time we started the component (same clock as ``now``), ``units`` the remote
-    units (harness/remote.Units) for a part on another computer.
+    units (harness/remote.Units) for a part on another computer, ``here`` this computer's
+    ``unit.probe`` result (``{unit: {running, pid, how}}``) or None when it is not read.
     """
     if not component.enabled:
         return 'disabled', f'disabled on {component.profile}'
@@ -316,37 +328,55 @@ def state(component, nodes, processes, now, started=None, units=None):
         return remote_state(component, nodes, units, now, started)
     up = bool(component.nodes) and all(node in nodes for node in component.nodes)
     if processes.running(component.key):
-        if up or not component.nodes:
-            return 'ours', 'ours'
-        if started is not None and now - started > STARTING_LIMIT:
-            missing = next(node for node in component.nodes if node not in nodes)
-            return 'starting', f'WARN: no {missing}'
-        return 'starting', ''
+        if started is not None and now - started < STARTING_LIMIT and component.nodes and not up:
+            return 'starting', 'started by this TUI'
+        return 'running', 'started by this TUI'
     code = processes.returncode(component.key)
     if code is not None:
         return 'exited', f'exit {code} {processes.log_directory / (component.key + ".log")}'
-    if up and stopped_recently(component, processes, now):
-        return 'off', ''                       # leftover names of our own stopped child, not a foreign process
-    return ('external', 'external') if up else ('off', '')
+    found = (here or {}).get(component.unit) or {}
+    if found.get('running'):
+        return 'running', f'pid {found["pid"]}, not started by this TUI'
+    if up and here is None and not stopped_recently(component, processes, now):
+        return 'running', 'in the graph, not started by this TUI'
+    return 'off', ''
 
 
 class Stack:
     """Starts and stops a profile's components; remembers when each one started.
 
     ``units`` (harness/remote.Units) starts and stops the parts other computers run; without it
-    those parts cannot be started from here.
+    those parts cannot be started from here. ``scan`` (``unit.probe``) reads this computer's
+    process table for the local parts, at most every ``SCAN_S``; None leaves them to our children
+    and the graph.
     """
 
-    def __init__(self, items, processes, clock, units=None):
+    SCAN_S = 2.0
+
+    def __init__(self, items, processes, clock, units=None, scan=None):
         self.items = {item.key: item for item in items}
         self.processes = processes
         self.clock = clock
         self.units = units
         self.started = {}
+        self.scan, self.scanned = scan, (float('-inf'), None)
+        self.local = probe_specs([item for item in items if item.host is None])
+
+    def here(self):
+        """This computer's process view of the local parts (cached), or None without a scan."""
+        if self.scan is None:
+            return None
+        now = self.clock()
+        if now - self.scanned[0] >= self.SCAN_S:
+            try:
+                self.scanned = (now, self.scan(self.local))
+            except OSError:
+                self.scanned = (now, None)
+        return self.scanned[1]
 
     def state(self, key, nodes):
         return state(self.items[key], nodes, self.processes, self.clock(), self.started.get(key),
-                     self.units)
+                     self.units, self.here())
 
     def ghosts(self):
         """Node names of components we stopped within GHOST_S and did not restart: they may linger."""
@@ -366,15 +396,15 @@ class Stack:
         status, detail = self.state(key, nodes)
         if status == 'disabled':
             raise ComponentError(f'{item.title} is {detail}', [key])
-        if status == 'unreachable':
-            raise ComponentError(f'{item.title}: {item.remote} is unreachable ({detail})', [key])
-        # Not read yet: a start adopts a running unit, but nodes already up may be someone else's.
-        if status == 'unknown' and _up(item, {node.rsplit('/', 1)[-1] for node in nodes}):
-            raise ComponentError(f'{item.title} is up and its {detail}; try again shortly', [key])
-        if status in ('ours', 'starting', 'external'):
-            raise ComponentError(f'{item.title} is already running', [key])
+        if item.host is not None and self.units is None:
+            raise ComponentError(f'{item.title} runs on {item.remote}; start it there', [key])
+        # Not read yet: it may run there already (a second MAVROS on the FCU link kills both).
+        if status == 'unknown':
+            raise ComponentError(f'{item.title}: {detail}; try again shortly', [key])
+        if status in ('running', 'starting'):
+            raise ComponentError(f'{item.title} is already running ({detail})', [key])
         off = [need for need in item.needs
-               if self.state(need, nodes)[0] in ('off', 'exited', 'unreachable', 'disabled')]
+               if self.state(need, nodes)[0] in ('off', 'exited', 'disabled')]
         if off:
             raise ComponentError(f'Start {self.items[off[0]].title} first', off)
         if item.host is None:
@@ -387,6 +417,10 @@ class Stack:
         else:
             self.units.start(item, commander=item.kind == 'commander')
         self.started[key] = self.clock()
+
+    def _record(self, item):
+        record = self.units.status(item)[0] if self.units is not None else None
+        return record or {}
 
     def running(self, key):
         """Ours to stop: a keeper child here, or a unit not known to be stopped (stop always tries)."""
@@ -401,16 +435,20 @@ class Stack:
     def stop(self, key, nodes):
         """Stop ours, dependants first; returns the keys stopped.
 
-        Never stops an external local process. A remote part's stop always goes out: ``unit
-        stop`` of a unit that is not running is harmless, and ssh may be down or not yet read.
+        Never stops a process no TUI started (a shell's, by hand): it is not a unit or our child.
+        Otherwise a remote part's stop always goes out: ``unit stop`` of a unit that is not
+        running is harmless, and ssh may be down or not yet read.
         """
         item = self.items[key]
         if item.carried_by:
             raise ComponentError(f'{item.title} run with {item.carried_by}: stopping that stops '
                                  'them, and arming then refuses', [key])
-        status, _ = self.state(key, nodes)
-        if status == 'external' and item.host is None:
-            raise ComponentError('running outside this session; stop it where it was started', [key])
+        status, detail = self.state(key, nodes)
+        foreign = (not self.processes.running(key) if item.host is None
+                   else self._record(item).get('how') not in (None, 'unit'))
+        if status == 'running' and foreign:
+            raise ComponentError(f'{item.title} runs outside the TUI ({detail}); stop it where it '
+                                 'was started', [key])
         if item.host is not None and self.units is None:
             raise ComponentError(f'{item.title} runs on {item.remote}; stop it there', [key])
         order = [other for other in self._dependants(key) if self.running(other)]
@@ -450,7 +488,7 @@ class Stack:
         lines, failed = [], set()
         # Without proof nodes a component's state is unknowable: beside a stack that is
         # already up it may be running too, so it is left to its Status row.
-        up = any(self.state(key, nodes)[0] == 'external' for key in order)
+        up = any(self.state(key, nodes)[0] == 'running' for key in order)
         for key in order:
             item = self.items[key]
             if not sim and moves(item):
@@ -464,7 +502,7 @@ class Stack:
                 lines.append(f'skipped {item.title}: {self.items[need].title} did not start')
                 continue
             status = self.state(key, nodes)[0]
-            if status in ('ours', 'starting', 'external'):
+            if status in ('running', 'starting'):
                 lines.append(f'attached to {item.title} ({status})')
                 continue
             # A part another computer runs may be up there and just not discovered yet (over the

@@ -187,6 +187,57 @@ def test_a_lease_must_be_finite_and_at_most_ten_minutes(lease, capsys):
     assert unit.status('mhseals-sleeper')['state'] == 'off'
 
 
+ODOM = {'unit': 'mhseals-odometry', 'part': 'odometry', 'profile': 'odroid',
+        'launch': 'odom.launch.py', 'nodes': ['robot_state_publisher']}
+EKF = {'unit': 'mhseals-ekf', 'part': 'ekf', 'profile': 'odroid', 'launch': 'ekf.launch.py',
+       'nodes': ['ekf_local', 'ekf_global']}
+
+
+@pytest.mark.parametrize('argv, running', [
+    (['/usr/bin/python3', '/opt/ros/jazzy/bin/ros2', 'launch', 'mhseals_nav', 'odom.launch.py',
+      'fcu:=true'], {'mhseals-odometry'}),                          # started by hand (setsid nohup)
+    ([sys.executable, '-m', 'mhseals_testing.harness.keeper', '--', 'ros2', 'launch', 'mhseals_nav',
+      'device.launch.py', 'device:=odroid', 'only:=ekf,odometry'], {'mhseals-odometry', 'mhseals-ekf'}),
+    (['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=odroid'],
+     {'mhseals-odometry', 'mhseals-ekf'}),                          # a whole device: every part
+    (['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson'], set()),
+    (['vim', 'odom.launch.py'], set()),                             # not a launch
+])
+def test_the_probe_finds_a_part_from_its_launch_whoever_started_it(argv, running):
+    found = unit.probe([ODOM, EKF], [(10, argv)])
+    assert {name for name, seen in found.items() if seen['running']} == running
+
+
+def test_the_probe_needs_every_proof_node_without_a_launch():
+    table = [(5, ['/opt/ros/jazzy/lib/robot_localization/ekf_node', '--ros-args', '-r',
+                  '__node:=ekf_local']),
+             (6, ['/opt/ros/jazzy/lib/robot_state_publisher/robot_state_publisher'])]
+    found = unit.probe([ODOM, EKF], table)
+    assert found['mhseals-odometry'] == {'running': True, 'pid': 6, 'how': 'nodes'}
+    assert not found['mhseals-ekf']['running']                     # ekf_global has no process
+    table.append((7, ['python3', '/ws/install/lib/robot_localization/ekf_global']))
+    assert unit.probe([ODOM, EKF], table)['mhseals-ekf']['running']
+
+
+def test_status_probe_reports_a_real_process(capsys):
+    node = [sys.executable, '-c', 'import time; time.sleep(30)', '--ros-args', '-r', '__node:=probe_me']
+    spec = {'unit': 'mhseals-probe', 'part': 'probe', 'profile': 'x', 'launch': 'probe.launch.py',
+            'nodes': ['probe_me']}
+    probe = json.dumps([spec])
+    assert unit.main(['status', '--probe', probe]) == 0
+    assert json.loads(capsys.readouterr().out)['running'] is False   # nothing runs it yet
+    child = subprocess.Popen(node)
+    try:
+        assert wait_for(lambda: unit.probe([spec])['mhseals-probe']['running'])
+        assert unit.main(['status', '--probe', probe]) == 0
+        record = json.loads(capsys.readouterr().out)
+        assert record['running'] and record['state'] == 'off' and record['pid'] == child.pid
+        assert record['how'] == 'nodes'
+    finally:
+        child.kill()
+        child.wait()
+
+
 def test_stop_never_signals_the_pids_of_a_finished_keeper(monkeypatch):
     started = unit.start('mhseals-done', [sys.executable, '-c', 'pass'])
     assert wait_for(lambda: unit.status('mhseals-done')['state'] == 'exited')

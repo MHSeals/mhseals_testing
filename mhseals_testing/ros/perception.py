@@ -47,11 +47,16 @@ def observe_diagnostics(probe, message):
 def subscribe_detections(ros, facts, profile):
     """Subscribe the two status topics on ``ros.node`` and publish the facts once a second."""
     from diagnostic_msgs.msg import DiagnosticArray
+    from rclpy.qos import qos_profile_sensor_data
     probe_settings = settings(profile)
     probe = Probe(source_name(profile), time.monotonic, probe_settings)
+    # Best effort: over the radio a reliable reader's repairs hold back newer status (both
+    # publishers are reliable, which serves a best-effort reader without retransmitting).
     ros.node.create_subscription(
-        DiagnosticArray, STATUS, lambda message, info: observe_status(probe, message, info), 10)
+        DiagnosticArray, STATUS, lambda message, info: observe_status(probe, message, info),
+        qos_profile_sensor_data)
     ros.node.create_subscription(
-        DiagnosticArray, DIAGNOSTICS, lambda message: observe_diagnostics(probe, message), 10)
+        DiagnosticArray, DIAGNOSTICS, lambda message: observe_diagnostics(probe, message),
+        qos_profile_sensor_data)
     ros.node.create_timer(float(probe_settings['period']), lambda: facts.publish('perception', probe.facts()))
     return probe

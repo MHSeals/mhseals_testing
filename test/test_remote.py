@@ -111,9 +111,10 @@ class FakeSsh:
                 if 'status' in command], None
 
 
-def test_a_running_unit_is_adopted_then_renewed_and_unreachable_is_not_off():
+def test_a_running_unit_is_adopted_then_renewed_and_a_failed_read_keeps_the_report():
     ssh = FakeSsh()
-    units = Units([item()], hosts={'tranquility': GATEWAY}, run=ssh)
+    now = [100.0]
+    units = Units([item()], hosts={'tranquility': GATEWAY}, run=ssh, clock=lambda: now[0])
     ssh.reply = {'mhseals-camera': {'state': 'running'}}
     units.refresh()
     assert units.status(item()) == ({'unit': 'mhseals-camera', 'state': 'running'}, None)
@@ -121,10 +122,46 @@ def test_a_running_unit_is_adopted_then_renewed_and_unreachable_is_not_off():
     assert ssh.calls[0][2] == 'tranquility' and 'renew' not in ssh.calls[0][1]
     units.refresh()
     assert 'renew mhseals-camera' in ssh.calls[1][1] and ssh.calls[1][1].endswith('status')
+    assert units.trouble() == {}
     ssh.error = 'ssh: timeout'
+    now[0] = 103.0
     units.refresh()
-    assert units.status(item()) == (None, 'ssh: timeout')
+    now[0] = 108.0
+    units.refresh()
+    assert units.status(item()) == ({'unit': 'mhseals-camera', 'state': 'running'}, 'ssh: timeout')
+    assert units.trouble() == {'blastoise-jetson': ('ssh: timeout', 103.0, 100.0)}   # since the first failure
     assert units.held_by_host() == {'blastoise-jetson': ['Camera']}   # still renewed once it answers
+    ssh.error = None
+    units.refresh()
+    assert units.trouble() == {}
+
+
+def test_the_status_read_probes_each_part_and_falls_back_on_an_older_device():
+    command = remote.status_command([item()])
+    probe, fallback = command.split(' || ')
+    words = shlex.split(probe.removesuffix(' 2>/dev/null'))
+    assert words[:5] == ['python3', '-m', 'mhseals_testing.harness.unit', 'status', '--probe']
+    assert json.loads(words[5]) == [{'unit': 'mhseals-camera', 'part': 'camera', 'profile': 'jetson',
+                                     'launch': None, 'nodes': []}]
+    assert fallback == unit_command('status')
+
+
+def test_options_share_one_connection_with_keepalives():
+    argv = ssh_argv(GATEWAY, 'true')
+    assert f'ControlPersist={remote.PERSIST_S}' in argv and 'ControlMaster=auto' in argv
+    assert f'ServerAliveInterval={remote.ALIVE_S}' in argv
+
+
+def test_an_ssh_failure_is_retried_once(monkeypatch):
+    runs = []
+
+    def run(argv, **_):
+        runs.append(argv)
+        return subprocess.CompletedProcess(argv, 255 if len(runs) == 1 else 0,
+                                           '{"unit": "mhseals-camera", "state": "off"}\n', '')
+    monkeypatch.setattr(remote.subprocess, 'run', run)
+    assert remote.call(GATEWAY, 'true') == ([{'unit': 'mhseals-camera', 'state': 'off'}], None)
+    assert len(runs) == 2
 
 
 def test_a_stale_unit_of_a_carried_part_is_never_adopted_or_renewed():

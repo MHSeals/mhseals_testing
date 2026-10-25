@@ -7,11 +7,16 @@ the jump. The keeper owns the part's process group on that computer, so a droppe
 crashed TUI never orphans it: the lease simply runs out.
 
 ``Units`` keeps each remote part's status for the Status rows, without blocking them: a worker thread
-runs the start and stop requests and, every ``PERIOD`` s, one call per host that renews the units
-this TUI holds and reads every unit's status. A unit found running is adopted (renewed from then on),
-which is how a later TUI on any computer takes over. An ssh failure marks the host unreachable,
-which is not off. Stop is never refused; a commander part starts only with ``commander`` set, which
-the Stack passes after the operator's confirm.
+runs the start and stop requests and, every ``period`` s, one call per host that renews the units
+this TUI holds and reads, from that computer's own process table, whether each of its parts runs
+(``unit status --probe``): whoever started it, and whatever DDS discovery shows. A unit found
+running is adopted (renewed from then on), which is how a later TUI on any computer takes over.
+
+The calls share one ssh connection per host (ControlMaster, kept ``PERSIST_S``, with keepalives),
+so a status read over the radio is one round trip, and a failed call is retried once. A failed read
+keeps the last report: the parts keep their state, and ``trouble()`` says since when the host has
+not answered (the TUI raises an issue only past its grace). Stop is never refused; a commander part
+starts only with ``commander`` set, which the Stack passes after the operator's confirm.
 """
 
 import json
@@ -21,12 +26,15 @@ import queue
 import shlex
 import subprocess
 import threading
+import time
 
 from mhseals_testing.harness.registry import runtime_dir
 from mhseals_testing.harness.unit import LEASE_S, START_WAIT, STOP_WAIT
 
-CONNECT_S = 6
-PERIOD = 30.0            # s between status + renew calls; well inside the lease
+CONNECT_S = 10          # the TCP connect and the ssh banner, over the radio
+PERSIST_S = 600         # the shared connection outlives a quiet spell
+ALIVE_S, ALIVE_COUNT = 5, 3   # a dead link closes the shared connection in 15 s, not at TCP timeout
+PERIOD = 5.0            # s between status + renew calls (the TUI's devices probe sets it)
 UNIT = ('python3', '-m', 'mhseals_testing.harness.unit')
 REASONS = (('timed out', 'timeout'), ('Connection refused', 'refused'), ('No route', 'no route'),
            ('Could not resolve', 'unknown host'), ('Permission denied', 'key refused'),
@@ -41,7 +49,8 @@ def _key_dir():
 def _options(token='%C'):
     keys = _key_dir()
     return ['-o', 'BatchMode=yes', '-o', f'ConnectTimeout={CONNECT_S}', '-o', 'ControlMaster=auto',
-            '-o', 'ControlPersist=60', '-o', f'ControlPath={runtime_dir()}/ssh-{token}',
+            '-o', f'ControlPersist={PERSIST_S}', '-o', f'ControlPath={runtime_dir()}/ssh-{token}',
+            '-o', f'ServerAliveInterval={ALIVE_S}', '-o', f'ServerAliveCountMax={ALIVE_COUNT}',
             '-i', str(keys / 'id_ed25519'), '-o', f'UserKnownHostsFile={keys / "known_hosts"}']
 
 
@@ -74,8 +83,12 @@ def reason(stderr, code):
     return f'ssh: {text[:60]}'
 
 
-def call(host, command, jump=None, timeout=CONNECT_S + 10):
-    """(JSON lines, error): run one unit command on ``host``; error is set when it was not reached."""
+def call(host, command, jump=None, timeout=CONNECT_S + 10, retries=1):
+    """(JSON lines, error): run one unit command on ``host``; error is set when it was not reached.
+
+    ssh's own failure (exit 255: a dropped shared connection, a banner timeout) is retried
+    ``retries`` times at once; a call that used up its time is not.
+    """
     try:
         done = subprocess.run(ssh_argv(host, command, jump), capture_output=True, text=True,
                               timeout=timeout, stdin=subprocess.DEVNULL)
@@ -83,6 +96,8 @@ def call(host, command, jump=None, timeout=CONNECT_S + 10):
         return [], 'ssh: timeout'
     except OSError as error:
         return [], f'ssh: {error.strerror or error}'
+    if done.returncode == 255 and retries > 0:
+        return call(host, command, jump, timeout, retries - 1)
     results = []
     for line in done.stdout.splitlines():
         try:
@@ -94,6 +109,19 @@ def call(host, command, jump=None, timeout=CONNECT_S + 10):
     if done.returncode == 255 or (done.returncode != 0 and not results):
         return [], reason(done.stderr, done.returncode)
     return results, None
+
+
+def probe_specs(items):
+    """What ``unit status --probe`` needs to find each part in the device's process table."""
+    return [{'unit': item.unit, 'part': item.part, 'profile': item.profile, 'launch': item.launch,
+             'nodes': list(item.nodes)} for item in items]
+
+
+def status_command(items):
+    """Status of ``items`` as their computer runs them; a device without ``--probe`` (older
+    mhseals_testing) answers with its plain unit status instead."""
+    probe = json.dumps(probe_specs(items), separators=(',', ':'), sort_keys=True)
+    return f'{shlex.join([*UNIT, "status", "--probe", probe])} 2>/dev/null || {unit_command("status")}'
 
 
 def unit_command(verb, unit=None, argv=(), by=None, commander=False, lease_s=LEASE_S, driver=False):
@@ -116,7 +144,8 @@ class Units:
     TUI that only watches: it reads status but keeps nothing alive.
     """
 
-    def __init__(self, items, hosts=None, by=None, renew=True, run=call, period=PERIOD):
+    def __init__(self, items, hosts=None, by=None, renew=True, run=call, period=PERIOD,
+                 clock=time.monotonic):
         # A carried part (the boat's watchdogs, inside odometry's launch) has no unit of its own:
         # adopting a stale one would renew it forever beside odometry's copy.
         self.items = [item for item in items if item.host is not None and not item.carried_by]
@@ -125,19 +154,32 @@ class Units:
             hosts = devices.load().hosts
         self.hosts = dict(hosts or {})
         self.by, self.renewing, self.run, self.period = dict(by or {}), renew, run, period
+        self.clock = clock
         self.lock = threading.Lock()
         self.records, self.errors, self.held, self.notices = {}, {}, set(), []
+        self.since = {}          # host -> when its calls began to fail
+        self.read = {}           # host -> when its status was last read
         self.started = set()     # the held units this TUI started; the rest of held are adopted
         self.jobs = queue.Queue()
         self.thread = None
         for item in self.items:
             if not item.host.ssh:
                 self.errors[item.host.name] = f'no ssh to {item.host.name}'
+                self.since[item.host.name] = clock()
 
     def status(self, item):
-        """(unit record or None, why the host is unreachable or None)."""
+        """(the part's last report or None, why its host does not answer now or None).
+
+        The report outlives a failed read: a blip on the link changes nothing in the row.
+        """
         with self.lock:
             return self.records.get(item.unit), self.errors.get(item.host.name)
+
+    def trouble(self):
+        """``{host: (why, since, last read or None)}`` for the hosts whose calls fail now."""
+        with self.lock:
+            return {name: (error, self.since.get(name), self.read.get(name))
+                    for name, error in self.errors.items()}
 
     def start(self, item, commander=False):
         with self.lock:
@@ -176,13 +218,12 @@ class Units:
         results, error = self.run(host, command, self.hosts.get(host.via) if host.via else None,
                                   timeout)
         with self.lock:
-            if error:
+            if error:                  # keep the last report: the issue, not the row, says it is old
                 self.errors[host.name] = error
-                for item in self.items:            # nothing is known about an unreachable host
-                    if item.host.name == host.name:
-                        self.records.pop(item.unit, None)
+                self.since.setdefault(host.name, self.clock())
             else:
                 self.errors.pop(host.name, None)
+                self.since.pop(host.name, None)
         return results, error
 
     def _note(self, line):
@@ -229,12 +270,13 @@ class Units:
             with self.lock:
                 renew = [item.unit for item in mine if item.unit in self.held] if self.renewing else []
             command = ' ; '.join([*(f'{unit_command("renew", unit)} >/dev/null 2>&1' for unit in renew),
-                                  unit_command('status')])
+                                  status_command(mine)])
             results, error = self._call(host, command, CONNECT_S + 10)
             if error:
                 continue
             found = {record.get('unit'): record for record in results}
             with self.lock:
+                self.read[name] = self.clock()
                 for item in mine:
                     record = found.get(item.unit, {'unit': item.unit, 'state': 'off'})
                     current = self.records.get(item.unit, {})

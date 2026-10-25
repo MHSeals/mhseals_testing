@@ -5,7 +5,9 @@ nothing here touches the network (device-topology.md section 4):
 
 ``python3 -m mhseals_testing.harness.unit start <unit> [--lease-s S] [--by JSON] -- argv...``
     starts the part, or reports the one already running (a later TUI adopts it that way);
-``status [<unit>]``, ``renew <unit>``, ``stop <unit>``: one JSON line per unit.
+``status [<unit>]``, ``renew <unit>``, ``stop <unit>``: one JSON line per unit;
+``status --probe JSON`` adds ``running`` per part from this computer's process table, whoever
+started it (a unit, a TUI's keeper, a shell), which is what the TUI shows instead of DDS discovery.
 
 The keeper puts the part in its own process group and stops the whole group on ``stop``, on
 SIGTERM (``docker stop`` reaches it through stop-children.sh) or when nobody renews the lease, so
@@ -173,6 +175,86 @@ def statuses():
     return [status(path.stem) for path in sorted(units_dir().glob('mhseals-*.json'))]
 
 
+# --- what runs here, whoever started it ---------------------------------------------------------
+
+SELF = 'mhseals_testing.harness.unit'     # this CLI (and the shell that runs it) is never a part
+
+
+def process_table(proc='/proc'):
+    """``[(pid, argv)]`` of every process this computer shows (the container has ``pid: host``)."""
+    table = []
+    for entry in Path(proc).iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            argv = (entry / 'cmdline').read_bytes().split(b'\0')
+        except OSError:
+            continue
+        argv = [word.decode(errors='replace') for word in argv if word]
+        if argv and not any(SELF in word for word in argv):
+            table.append((int(entry.name), argv))
+    return table
+
+
+def _node_names(argv):
+    """The ROS node names a process may carry: ``__node:=`` remaps and the executable's own name."""
+    names = {word.split('__node:=', 1)[1] for word in argv if '__node:=' in word}
+    names.add(Path(argv[0]).name)
+    if Path(argv[0]).name.startswith('python') and len(argv) > 1:
+        names.add(Path(argv[1]).name)          # ros2 run of a Python node: python3 .../lib/pkg/node
+    return names
+
+
+def _launches(argv, spec):
+    """True when ``argv`` is a ``ros2 launch`` (or a keeper around one) that starts ``spec``'s part."""
+    if 'launch' not in argv:
+        return False
+    names = [Path(word).name for word in argv]
+    arguments = _arguments(argv)
+    if DEVICE_LAUNCH in names and arguments.get('device') == spec.get('profile'):
+        only = [part.strip() for part in arguments.get('only', '').split(',') if part.strip()]
+        return not only or spec.get('part') in only
+    return bool(spec.get('launch')) and spec['launch'] in names
+
+
+def probe(specs, table=None):
+    """``{unit: {'running', 'pid', 'how'}}``: whether each part runs on this computer, from its processes.
+
+    ``specs`` are ``{unit, part, profile, launch, nodes}``. A part runs when a launch of it runs
+    (device.launch.py with its ``only:=``, or its own launch file), or when every proof node has a
+    process (a ``__node:=`` remap or the executable's name). Who started it does not matter: a unit,
+    a TUI's keeper or a shell. Nothing here asks DDS, so a discovery dropout cannot change it.
+    """
+    table = process_table() if table is None else table
+    found = {}
+    for spec in specs:
+        launch = next((pid for pid, argv in table if _launches(argv, spec)), None)
+        pids = {}
+        for node in spec.get('nodes') or ():
+            pids[node] = next((pid for pid, argv in table if node in _node_names(argv)), None)
+        if launch is not None:
+            found[spec['unit']] = {'running': True, 'pid': launch, 'how': 'launch'}
+        elif pids and all(pid is not None for pid in pids.values()):
+            found[spec['unit']] = {'running': True, 'pid': min(pids.values()), 'how': 'nodes'}
+        else:
+            found[spec['unit']] = {'running': False, 'pid': None, 'how': None}
+    return found
+
+
+def part_statuses(specs, table=None):
+    """One record per probed part: its unit's status plus ``running`` as this computer sees it."""
+    seen = probe(specs, table)
+    records = []
+    for spec in specs:
+        record = status(spec['unit'])
+        here = seen[spec['unit']]
+        record['running'] = record['state'] == 'running' or here['running']
+        record['pid'] = record.get('pid') or here['pid']
+        record['how'] = 'unit' if record['state'] == 'running' else here['how']
+        records.append(record)
+    return records
+
+
 def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, parts_of=device_parts,
           allow_driver=False):
     """Start ``argv`` as ``unit``, or return the running one with ``adopted`` set."""
@@ -260,7 +342,10 @@ def main(argv=None):
     begin.add_argument('--by', default='{}')
     begin.add_argument('--commander', action='store_true', help=argparse.SUPPRESS)  # TUI-internal
     begin.add_argument('--driver', action='store_true', help=argparse.SUPPRESS)     # arming-internal
-    verbs.add_parser('status').add_argument('unit', nargs='?')
+    state = verbs.add_parser('status')
+    state.add_argument('unit', nargs='?')
+    state.add_argument('--probe', help='JSON list of {unit, part, profile, launch, nodes}: '
+                       'report those parts as this computer runs them, whoever started them')
     verbs.add_parser('renew').add_argument('unit')
     verbs.add_parser('stop').add_argument('unit')
     argv = sys.argv[1:] if argv is None else list(argv)
@@ -273,6 +358,11 @@ def main(argv=None):
         if args.verb == 'start':
             results = [start(args.unit, command, args.lease_s, json.loads(args.by), args.commander,
                              allow_driver=args.driver)]
+        elif args.verb == 'status' and args.probe:
+            specs = json.loads(args.probe)
+            for spec in specs:
+                _check_name(spec['unit'])
+            results = part_statuses(specs)
         elif args.verb == 'status':
             results = [status(args.unit)] if args.unit else statuses()
         else:
