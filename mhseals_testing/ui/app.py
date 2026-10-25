@@ -2031,6 +2031,11 @@ class App:
             rows.append(('Override', 'bench: sensor and TF interlocks off'))
         return rows
 
+    def confirm_drive(self, title):
+        """The typed word that starts the real driver, for arming and the pin readback alike."""
+        return self.type_word(title, 'Propellers submerged, area clear, physical power '
+                              'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72)
+
     def arm_panel(self):
         """One popup for both directions; Space still stops without it."""
         if self.review:
@@ -2053,8 +2058,7 @@ class App:
             if self.arming is None:
                 raise RuntimeError('this session cannot arm (no ROS)')
             if self.profile.outputs == 'odroid':
-                ok = self.type_word(title, 'Propellers submerged, area clear, physical power '
-                                    'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72)
+                ok = self.confirm_drive(title)
             else:
                 ok = self.choose(title, ('Cancel', 'Arm'), {'n': 0, 'y': 1},
                                  rows=self.arm_rows(), width=72) == 'Arm'

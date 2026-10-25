@@ -1178,6 +1178,8 @@ def pins_app(tmp_path, monkeypatch, states):
     monkeypatch.setattr(pins, 'sample', sample)
     monkeypatch.setattr(pins.time, 'sleep', lambda s: None)
     app.ask_text = lambda *a: '1 0 0 0 27'
+    app.typed = []
+    app.type_word = lambda title, message, word, rows=None, width=64: app.typed.append(word) or True
     app.focus = 'thrusters'
     return app, processes, seen
 
@@ -1186,6 +1188,7 @@ def test_pins_popup_saves_restarts_only_the_driver_and_confirms_sysfs(tmp_path, 
     app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
     app.dispatch('M')
     assert app.notice.startswith('Pins saved; driver restarted, sysfs showed')
+    assert app.typed == ['arm']   # the readback asks for the same word as arming
     assert load_config(app.args.config)['pwm_channels'] == [1, 0, 0, 0]
     # Only the driver ran, and only for the readback: disarmed again, nothing holds the ESCs.
     assert processes.started == ['hardware'] == processes.stopped
@@ -1203,6 +1206,21 @@ def test_pins_popup_does_not_report_success_without_matching_readback(
     app.dispatch('M')
     assert 'did not show' in app.notice and 'sysfs showed' not in app.notice
     assert processes.started == ['hardware'] == processes.stopped
+
+
+@pytest.mark.parametrize('answer', ['declined', 'cancelled'])
+def test_pins_readback_needs_the_arming_word_or_no_driver_starts(tmp_path, monkeypatch, answer):
+    from mhseals_hardware.menu import Cancelled
+    app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    def refuse(*a, **kw):
+        if answer == 'cancelled':
+            raise Cancelled('cancelled')
+        return False
+    app.type_word = refuse
+    app.dispatch('M')
+    assert app.notice.startswith('Pins saved; driver not started')
+    assert load_config(app.args.config)['pwm_channels'] == [1, 0, 0, 0]
+    assert not processes.started and not seen
 
 
 def test_pins_popup_does_not_start_a_driver_beside_another(tmp_path, monkeypatch):

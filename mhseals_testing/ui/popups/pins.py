@@ -7,7 +7,9 @@ The text is ``channels line`` such as ``0 0 0 0 29``: four PWM channel numbers
 import time
 
 from mhseals_hardware.configuration import load_config
+from mhseals_hardware.menu import Cancelled
 from mhseals_testing.health.pwm_sysfs import sample
+from mhseals_testing.ui import theme
 
 READBACK_TIMEOUT = 5.0   # seconds the restarted driver gets to export and enable the outputs
 
@@ -45,6 +47,12 @@ def edit_pins(app):
         return f'Pins not saved: {app.notice}'
     if app.profile.outputs != 'odroid' or app.arming is None:
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
+    try:   # the readback starts the real driver: the same typed word as arming
+        ok = app.confirm_drive(f'Pin readback{theme.SEPARATOR}{app.profile.name}')
+    except Cancelled:
+        ok = False
+    if not ok:
+        return 'Pins saved; driver not started, readback not confirmed'
     config = load_config(app.args.config)
     try:
         confirmed = app.arming.restart_driver(config, lambda: readback(config))
