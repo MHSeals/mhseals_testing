@@ -2639,6 +2639,7 @@ def main(argv=None):
     from mhseals_testing.ros.arming import Arming
     from mhseals_testing.ros.health import subscribe_fcu
     from mhseals_testing.ros.perception import subscribe_detections
+    from mhseals_testing.ros.preflight import subscribe_tui as subscribe_preflight
     from mhseals_testing.ros.mission import TaskWatcher
     from mhseals_testing.ros.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO, node_name
@@ -2702,6 +2703,7 @@ def main(argv=None):
         subscribe_detections(ros, facts, profile)
         if profile.uses_fcu:
             subscribe_fcu(ros, monitor, facts, profile.battery)
+        subscribe_preflight(ros, facts, profile, lambda: args.hardware_config, registry)
         if watching:   # known to the owner, so it is not flagged as a foreign instance
             registry.add_guest(os.getpid(), me['node'], 'watch')
         else:
