@@ -30,3 +30,4 @@ jobs:
         env:
           PYTHONPATH: .:deps/mhseals_hardware:deps/mhseals_nav
           MHSEALS_NAV: deps/mhseals_nav
+          MHS_BENCH_SCALE: '3'

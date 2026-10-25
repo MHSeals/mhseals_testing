@@ -179,6 +179,7 @@ def test_near_hit_wins_a_dot_shared_with_a_far_hit():
 
 
 def test_dense_local_costmap_and_hits_stay_inside_the_frame_budget():
+    import os
     import time
     g = np.full((240, 240), 60, dtype=np.int8)
     g[::7, ::5] = 100
@@ -186,6 +187,7 @@ def test_dense_local_costmap_and_hits_stay_inside_the_frame_budget():
     t0 = time.perf_counter()
     layers.draw_costmap(f, g, 0.05, (-6.0, -6.0))
     layers.draw_hits(f, g, 0.05, (-6.0, -6.0), (0.0, 0.0))
-    assert time.perf_counter() - t0 < 0.05  # was ~0.2 s of per-cell Python
+    scale = float(os.environ.get('MHS_BENCH_SCALE', '1'))  # slow CI host budget multiplier
+    assert time.perf_counter() - t0 < 0.05 * scale  # was ~0.2 s of per-cell Python
     tints = {c.bg for row in f.canvas.cells() for c in row if c.bg}
     assert 'lethal_bg@100' in tints
