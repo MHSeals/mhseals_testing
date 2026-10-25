@@ -4,7 +4,7 @@
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.popups import authority, conditions, config, history, power
+from mhseals_testing.ui.popups import authority, conditions, config, history, inspect, power
 
 STOP_KEYS = ('space', 'press:space')
 UPDOWN = theme.pick('↑↓', 'Up/Down')
@@ -147,4 +147,5 @@ OPENERS = {
     'config': lambda app: config.open_config(app),
     'power': lambda app: power.open_power(app),
     'perception': lambda app: app.perception_popup(),
+    'inspect': lambda app: inspect.open_inspect(app),
 }

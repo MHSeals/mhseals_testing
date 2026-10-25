@@ -153,7 +153,7 @@ def test_enter_on_the_status_rtk_row_opens_the_odometry_popup(tmp_path, monkeypa
     monkeypatch.setattr(app_module, 'status_rows', lambda snapshot, sensors: rows)
     opened, shown = [], []
     monkeypatch.setattr(app, 'odometry', lambda: opened.append(True))
-    monkeypatch.setattr(app, 'show', lambda *a, **k: shown.append(a))
+    monkeypatch.setattr(app, 'popup', lambda *a, **k: shown.append(a))   # Enter on GPS opens inspect
     app.cursors['status'] = 1
     app.on_status('enter')
     assert opened == [True] and not shown

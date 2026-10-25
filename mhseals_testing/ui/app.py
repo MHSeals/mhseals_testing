@@ -1553,9 +1553,7 @@ class App:
                     return self.open('config')
                 if row['name'].lower() == 'battery':   # the health advisory is named 'battery'
                     return self.open('power')
-                self.show(row['name'], rows=[('Group', row['group']),
-                                             ('State', row['state'].lower()),
-                                             ('Detail', row['detail'])])
+                return popups.inspect.open_inspect(self, row)   # the view fits the row (sensor, tf, ...)
 
     @property
     def facts(self):

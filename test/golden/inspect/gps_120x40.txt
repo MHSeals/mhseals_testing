@@ -1,0 +1,28 @@
+╭─ ▸ GPS ──────────────────────────────────────────────────────────────────╮
+│ Accuracy 7 cm horizontal · RTK float for 4 m 12 s · 17 sats · vel 3 cm/s │
+│ Fix      ▁ none  ▃ 3D  ▅ DGPS  ▆ RTK float  █ RTK fixed                  │
+│                                                                          │
+│                                  ━ h_acc 7 cm                            │
+│             ⣀⡠⠤⠤⠤⢄⣀              ⠂ 241 fixes, 60 s                       │
+│           ⢠⠚       ⠓⡄            + mean position                         │
+│          ⢠⠃ ⢸⣟⡇⡿⣻⡿⡇ ⠘⡄             CEP50 3 cm                            │
+│          ⢨  ⢸⡿⠦⣽⡷⣱⡇  ⡅             max   5 cm                            │
+│          ⠘⡄ ⢸⣿⣇⣷⣽⣷⡇ ⢠⠃                                                   │
+│           ⠘⢤       ⡤⠃            ├──┤ 5 cm                               │
+│             ⠉⠑⠒⠒⠒⠊⠉                                                      │
+│                                                                          │
+│                                                                          │
+│ h_acc    7 cm now · 5 cm – 7 cm · 60 s                                   │
+│          ⠒⠒⠒⠒⠒⠒⠒⠒⠒⠲⠤⠤⠤⣄⣀⣀                          ⣀⣀⣀⡤⠤⠤⠴⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠦ │
+│                         ⠈⠉⠉⠙⠒⠒⠒⠦⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠖⠒⠒⠋⠉⠉⠁                     │
+│                                                                          │
+│ Rate     5 Hz · 5–5 · max gap 0.20 s · stamp 50 ms · ±0 ms p95           │
+│   6 ┤  ⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤ │
+│     │                                                                    │
+│   0 ┤                                                                    │
+│     -60 s                           typical 5 Hz (no nominal rate)  now  │
+│ Topic    /mavros/gpsstatus/gps1/raw · 1 publisher (mavros)               │
+│ Values   fix 5 · sats 17 · h_acc 0.0694 · vel_acc 0.03 · speed 0.02 ·    │
+│          cog — · lat 42 · lon -71 · alt 12                               │
+│ Detail   gpsraw fix, satellites, horizontal accuracy                     │
+╰─  Esc close  ────────────────────────────────────────────────────────────╯

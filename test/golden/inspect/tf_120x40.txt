@@ -1,0 +1,10 @@
+╭─ ▸ map → odom ───────────────────────────────────────────────────────────╮
+│ map ━━▶ odom                                                             │
+│      ! 2 publishers                                                      │
+│      0.05 s dyn                                                          │
+│                                                                          │
+│ edge                     publisher                            age        │
+│ map → odom               ekf_global                        0.05 s    ✓   │
+│ map → odom               rogue_node                        0.04 s    ✓   │
+│ Detail   multiple parents/publishers: odom                               │
+╰─  Esc close  ────────────────────────────────────────────────────────────╯
