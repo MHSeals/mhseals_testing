@@ -53,7 +53,7 @@ CASES = {
 def boat():
     registry.discover()
     config = load(user=False, profile=load_profile('boat'))
-    return {s.id: s for s in config.specs if s.group == 'Preflight'}, config.probes
+    return {s.id: s for s in config.specs if s.group == 'Preflight' and s.enabled}, config.probes
 
 
 def judge(boat, check, facts):
@@ -74,6 +74,18 @@ def test_fcu_link_is_the_existing_check_joined_to_the_group_on_the_boat_only(boa
                         {'id': 'pre.a', 'group': 'Preflight', 'status': 'ok'}]}
     assert cli.required(found, ['preflight'], {'preflight': ['fcu.link']})['preflight']['not_ok'] == ['fcu.link']
     assert cli.required(found, ['preflight'])['preflight']['not_ok'] == []
+
+
+@pytest.mark.parametrize('name', ['link', 'fcu', 'fence'])
+def test_watchdog_checks_ship_off_and_once_enabled_need_the_node(boat, name):
+    registry.discover()
+    specs = {s.id: s for s in load(user=False, profile=load_profile('boat')).specs}
+    spec = specs[f'pre.{name}_watchdog']
+    assert not spec.enabled and spec.id not in boat[0]
+    on = ({'pre.on': replace(spec, id='pre.on', enabled=True)}, boat[1])
+    assert judge(on, 'pre.on', {'graph.nodes': Fact([f'/{name}_watchdog'])}) == 'ok'
+    assert judge(on, 'pre.on', {'graph.nodes': Fact(['/x'])}) == 'fail'
+    assert judge(on, 'pre.on', {}) == 'unknown'
 
 
 def test_every_boat_preflight_check_is_covered(boat):

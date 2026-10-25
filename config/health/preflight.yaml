@@ -111,6 +111,21 @@ checks:
     profiles: [boat, crane_full_stack]
     title: costmap_watchdog
     hint: Starts with navigation on muxed profiles; without it a stale costmap never holds the boat
+  # Safety watchdogs (nav branch safety-watchdogs). Off until they are launched on the boat:
+  # set `enabled: true` here (or `override: {pre.link_watchdog: {enabled: true}}` in ~/.config/mhseals/health.yaml),
+  # after which a missing node fails --require preflight.
+  - id: pre.{name}_watchdog
+    kind: nodes
+    require: ['/{name}_watchdog']
+    enabled: false
+    severity: fail
+    profiles: [boat]
+    title: '{name}_watchdog'
+    hint: 'Not on the graph: the {name} watchdog was not launched with the boat profile'
+    each:
+      - {name: link}
+      - {name: fcu}
+      - {name: fence}
   - id: pre.costmap.{source}
     kind: threshold
     fact: perc.{source}.costmap_age
