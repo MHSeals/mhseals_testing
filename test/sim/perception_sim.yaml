@@ -2,6 +2,7 @@
 seconds: 300
 case: metamorphic            # sim_backend.yaml cases.metamorphic: five 60 s phases
 phase_s: 60.0
+rig_config: rig-camera.yaml  # in $SIMRIG; its interactive-low profile runs the camera
 command_topic: /cmd_vel
 # Open-loop [seconds, surge, sway, yaw] effort, repeated to fill the session: left loops
 # then right loops, so the yaw rate swings both ways for the heading check.

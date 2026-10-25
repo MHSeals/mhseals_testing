@@ -101,8 +101,8 @@ def run_perception_case(rig, out, mode, case='metamorphic', seconds=300, domain=
     base install predates it.
     """
     cfg = dict(yaml.safe_load(PERCEPTION.read_text()), seconds=seconds)
-    cmd = [str(rig / 'run_sim.sh'), '--run', perception_command(mode, case, cfg),
-           '-d', str(seconds), '-o', str(out)]
+    cmd = [str(rig / 'run_sim.sh'), '--config', str(rig / cfg['rig_config']),
+           '--run', perception_command(mode, case, cfg), '-d', str(seconds), '-o', str(out)]
     if domain:
         cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
     if overlay:

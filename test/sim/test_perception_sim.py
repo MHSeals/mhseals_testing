@@ -157,6 +157,17 @@ def test_perception_command_sets_the_mode_and_case_after_the_node_appears():
     assert sum(r[0] for r in json.loads(lines[-2].split(' ', 3)[3].strip("'"))) >= 300
 
 
+def test_perception_session_uses_the_camera_rig_config_and_the_overlay(monkeypatch):
+    import simrig
+    from pathlib import Path
+    seen = {}
+    monkeypatch.setattr(simrig.subprocess, 'run', lambda cmd, **kw: seen.setdefault('cmd', cmd))
+    simrig.run_perception_case(Path('/rig'), '/out', 'zed', overlay='/ov', domain=210)
+    cmd = seen['cmd']
+    assert cmd[cmd.index('--config') + 1] == '/rig/rig-camera.yaml'
+    assert cmd[cmd.index('--overlay') + 1] == '/ov' and '--run' in cmd
+
+
 # ------------------------------------------------------------------- live (needs $SIMRIG)
 
 @pytest.fixture(scope='module', params=['plain', 'zed'])
