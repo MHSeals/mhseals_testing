@@ -142,6 +142,13 @@ class Arming:
         rival = self.rival()
         if rival:
             raise RuntimeError(rival)
+        if self.remote is not None:        # the boat's own hardware.yaml, read again at each arm
+            config = self.remote.fetch_config()
+            if config is None:
+                raise RuntimeError(self.remote.config_error)
+            self.hardware_config = config
+            if self.remote.adopt is not None:
+                self.remote.adopt(config)  # the session shows and snapshots what it arms from
         if self.profile.velocity_controller:  # fail now, not after the 10 s timeout
             try:
                 Plant(self.hardware_config)
@@ -225,7 +232,8 @@ class Arming:
         save_config(dict(config, output_backend=self.profile.outputs), self.config_path)
         children = self.commands()
         if self.remote is not None:   # the boat runs, reads back and stops it (its sysfs)
-            return self.remote.readback(Path(self.config_path).read_text(), dict(children)['hardware'])
+            raise RuntimeError(f"pins are the boat's: edit hardware.yaml on {self.remote.host.name}; "
+                               'it is read again at each arm')
         try:
             self.processes.start('hardware', dict(children)['hardware'])
             return confirm()

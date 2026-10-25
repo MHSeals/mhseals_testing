@@ -249,8 +249,9 @@ class Link:
 class Ssh:
     """The ssh call: records commands; ``down`` answers like a dropped link."""
 
-    def __init__(self, answer=None, down=False):
+    def __init__(self, answer=None, down=False, config=None):
         self.commands, self.answer, self.down, self.link = [], answer, down, None
+        self.config = load_defaults() if config is None else config   # the boat's hardware.yaml
 
     def __call__(self, host, command, jump, timeout):
         if self.link is not None:
@@ -258,6 +259,8 @@ class Ssh:
         self.commands.append(command)
         if self.down:
             return [], 'ssh: timeout'
+        if command.split()[3] == 'config' and self.answer is None:
+            return [{'config': self.config}], None
         return [self.answer or {'state': 'running', 'adopted': False}], None
 
 
@@ -340,6 +343,31 @@ def test_readback_runs_on_the_boat_and_reports_its_answer():
         driver.readback('', ['x'])
 
 
+def test_the_tui_reads_the_boats_config_and_arms_from_it_only(tmp_path):
+    """One hardware.yaml: the operator TUI arms from the boat's, read over ssh at session start."""
+    own = tmp_path / 'hardware.yaml'
+    own.write_text('channel_map: [1, 3, 2, 4]\n')
+    assert arm_link.own_config(own)['config']['channel_map'] == [1, 3, 2, 4]
+    own.write_text('nonsense_key: 1\n')
+    assert 'unreadable' in arm_link.own_config(own)['error']
+    driver, _, ssh, _ = remote(Ssh({'config': {'channel_map': [1, 3, 2, 4]}}))
+    assert driver.fetch_config() == {'channel_map': [1, 3, 2, 4]} and driver.config_error == ''
+    assert shlex.split(ssh.commands[0])[3:] == ['config']
+
+
+@pytest.mark.parametrize('ssh', [Ssh(down=True), Ssh({'error': 'hardware config unreadable: x'})])
+def test_no_boat_config_means_no_arming(ssh):
+    driver, link, _, _ = remote(ssh)
+    assert driver.fetch_config() is None and 'could not be read' in driver.config_error
+    calls = len(ssh.commands)
+    driver.start([('hardware', ['x'])], 'a: 1\n')
+    driver.worker.shutdown(wait=True)
+    assert len(ssh.commands) == calls and link.calls == [('ssh', 'config')]   # no beat, no ssh start
+    assert not driver.running('hardware') and 'could not be read' in driver.last_line('hardware')
+    with pytest.raises(RuntimeError, match='could not be read'):
+        driver.readback('a: 1\n', ['x'])
+
+
 # --- target ------------------------------------------------------------------------------------
 
 def registry(*hosts):
@@ -399,17 +427,33 @@ def remote_arming(tmp_path, ssh=None):
 
 def test_remote_arm_ships_the_snapshot_and_arms_only_when_the_boat_confirms(tmp_path):
     arming, driver, link, ros, now = remote_arming(tmp_path)
+    driver.call.config = dict(load_defaults(), manual_amplitude=0.42)   # the boat's file, as it is now
+    adopted = []
+    driver.adopt = adopted.append
     arming.begin()
     driver.worker.shutdown(wait=True)
-    shipped = shlex.split(driver.call.commands[0].split(' && ')[1])
+    assert shlex.split(driver.call.commands[0])[3:] == ['config']      # read again at this arm, first
+    shipped = shlex.split(driver.call.commands[1].split(' && ')[1])
     config = base64.b64decode(shipped[shipped.index('--config-b64') + 1]).decode()
     assert config == (tmp_path / 'hardware.yaml').read_text()        # the session snapshot
+    assert 'manual_amplitude: 0.42' in config and adopted[0]['manual_amplitude'] == 0.42
+    assert arming.hardware_config['manual_amplitude'] == 0.42
     assert 'config_file:=@CONFIG@' in shipped and 'thruster_pwm_node' in shipped
     assert arming.poll() == 'starting'
     ros.subs = ['/thruster_pwm_node']
     assert arming.poll() == 'starting'                                 # graph alone is not enough
     link.report(driver.token, now[0])
     assert arming.poll() == 'armed' and arming.fault() == ''
+
+
+@pytest.mark.parametrize('ssh', [Ssh(down=True), Ssh({'error': 'hardware config unreadable: x'})])
+def test_an_arm_refuses_when_the_boats_config_cannot_be_read(tmp_path, ssh):
+    arming, driver, link, ros, now = remote_arming(tmp_path, ssh)
+    with pytest.raises(RuntimeError, match='could not be read'):
+        arming.begin()
+    driver.worker.shutdown(wait=True)
+    assert [shlex.split(c)[3] for c in ssh.commands] == ['config'] and not arming.armed
+    assert arming.pending is None and not any(call[0] == 'set' for call in link.calls)   # no beat, no start
 
 
 def test_remote_arm_times_out_with_the_boats_reason(tmp_path):
@@ -463,14 +507,13 @@ def test_remote_disarm_stops_over_dds_then_ssh(tmp_path):
     assert link.calls[-1] == ('ssh', 'stop')
 
 
-def test_remote_pin_readback_runs_on_the_boat(tmp_path):
+def test_a_local_pin_edit_never_reaches_a_remote_boat(tmp_path):
+    """One hardware.yaml: pins change on the boat, which the next arm reads; nothing local is shipped."""
     arming, driver, link, ros, now = remote_arming(tmp_path, Ssh({'confirmed': True}))
     config = dict(load_defaults(), pwm_channels=[4, 5, 6, 7])
-    assert arming.restart_driver(config, lambda: pytest.fail('read locally')) is True
-    words = shlex.split(driver.call.commands[0])
-    shipped = base64.b64decode(words[words.index('--config-b64') + 1]).decode()
-    assert '- 4' in shipped or '[4, 5, 6, 7]' in shipped
-    assert words[words.index('--') + 1:][:4] == ['ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node']
+    with pytest.raises(RuntimeError, match="pins are the boat's"):
+        arming.restart_driver(config, lambda: pytest.fail('read locally'))
+    assert driver.call.commands == []
 
 
 def test_the_cli_refuses_a_link_bound_that_is_not_short(capsys):

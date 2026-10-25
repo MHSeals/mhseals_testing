@@ -786,7 +786,15 @@ class App:
         return load_config(self.args.config)
 
     def apply_hardware(self, config):
-        """Take ``config`` and report what the hardware did with it, not just that it was saved."""
+        """Take ``config`` and report what the hardware did with it, not just that it was saved.
+
+        Arming a remote thrusters host, the boat's hardware.yaml is the only config: a local edit or
+        reload is refused and never replaces it (it is read from the boat at session start and each arm).
+        """
+        remote = getattr(self.arming, 'remote', None) if self.arming is not None else None
+        if remote is not None:
+            return dict(status='refused', error=f"the boat's hardware.yaml is the config here: edit it on "
+                                                f"{remote.host.name}; it is read again at each arm")
         driven = self.armed and self.profile.outputs != 'none'
         if driven:
             # Complete snapshot staging before replacing the last good in-memory state.
@@ -2941,6 +2949,12 @@ def session_main(argv=None):
     remote_driver = None if driver_host is None else arm_link.RemoteDriver(
         driver_host[0], arm_link.RosLink(ros.node), driver_host[1],
         by=dict(host=profile.placed[0].name, pid=os.getpid(), session=str(paths.directory)))
+    if remote_driver is not None:   # one hardware.yaml: the boat's, read now and again at each arm
+        args.hardware_config = remote_driver.fetch_config() or args.hardware_config   # shown only if unread
+
+        def adopt(config):
+            args.hardware_config = config
+        remote_driver.adopt = adopt
     arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, remote=remote_driver)
     app = authority = desk = None
     try:

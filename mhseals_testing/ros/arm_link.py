@@ -22,7 +22,10 @@ stop message, ``/thruster_pwm_node/estop``), then over ssh (``unit stop``).
 
 ``python3 -m mhseals_testing.ros.arm_link run --token T --config-b64 B [--unit U] -- name argv...
 [--next name argv...]`` (``@CONFIG@`` in an argv is the shipped hardware config's path);
-``readback --config-b64 B -- argv...`` runs the driver alone for the pin readback, then stops it.
+``readback --config-b64 B -- argv...`` runs the driver alone for the pin readback, then stops it;
+``config`` prints this computer's hardware config as JSON: the operator TUI reads the boat's at
+session start and again at each arm (``RemoteDriver.fetch_config``) and arms from that, so there is
+one hardware.yaml. A failed read refuses the arm; a local edit or reload never replaces it.
 """
 
 import argparse
@@ -289,8 +292,18 @@ def check(encoded, own_path=None):
     keys = mismatch(shipped, own)
     if keys:
         return {'error': f'the TUI\'s hardware config differs from this computer\'s in {", ".join(keys)}; '
-                         'copy the boat\'s ~/.config/mhseals/hardware.yaml to the TUI\'s (or edit both)'}
+                         'it was read from here at session start: edit it here and restart the TUI'}
     return {'ok': True}
+
+
+def own_config(own_path=None):
+    """This computer's hardware config, which an operator TUI reads at session start (``config``):
+    the boat's file is the one source; the TUI keeps no copy that must match it."""
+    from mhseals_hardware.configuration import load_config
+    try:
+        return {'config': load_config(own_path)}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {'error': f'hardware config unreadable: {error}'}
 
 
 def with_config(argv, path):
@@ -438,9 +451,14 @@ def main(argv=None):
     hold.add_argument('--first-beat-s', type=float, default=FIRST_BEAT_S)
     for verb in (hold, verbs.add_parser('readback'), verbs.add_parser('check')):
         verb.add_argument('--config-b64', required=True)
+    verbs.add_parser('config')
     argv = sys.argv[1:] if argv is None else list(argv)
     at = argv.index('--') if '--' in argv else len(argv)
     args, words = parser.parse_args(argv[:at]), argv[at + 1:]
+    if args.verb == 'config':
+        result = own_config()
+        print(json.dumps(result), flush=True)
+        return 0 if 'error' not in result else 2
     if args.verb == 'check':
         result = check(args.config_b64)
         print(json.dumps(result), flush=True)
@@ -527,6 +545,8 @@ class RemoteDriver:
         self.call = call or remote.call
         self.clock = clock
         self.token, self.error = None, ''
+        self.config_error = ''            # why the boat's hardware config was not read (no arming then)
+        self.adopt = None                 # called with each config read at an arm (the session's copy)
         self.lock = threading.Lock()      # a late answer never touches a newer arming
         self.worker = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix='arm_link')
 
@@ -536,11 +556,26 @@ class RemoteDriver:
     def _job(self, function, *args):
         return self.worker.submit(function, *args)
 
+    def fetch_config(self):
+        """The boat's own hardware config (``config``), read at session start and again at each arm.
+        On failure ``config_error`` says why, and arming is refused; returns None then."""
+        from mhseals_testing.harness.remote import CONNECT_S
+        results, error = self.call(self.host, shlex.join([*MODULE, 'config']), self.jump, CONNECT_S + 10)
+        found = results[-1] if results else {}
+        if error or not isinstance(found.get('config'), dict):
+            why = error or found.get('error') or 'no config in the answer'
+            self.config_error = f"{self.host.name}'s hardware config could not be read ({why}); not arming"
+            return None
+        self.config_error = ''
+        return found['config']
+
     def start(self, children, config_text):
         """Beat first, then ask the boat to start: it waits for the beat before any child."""
         from mhseals_testing.harness.remote import unit_command
         with self.lock:
-            self.token, self.error = secrets.token_hex(6), ''
+            self.token, self.error = secrets.token_hex(6), self.config_error
+            if self.error:              # never arm from a config that is not the boat's
+                return
             self.link.set(self.token, True)
         encoded = base64.b64encode(config_text.encode()).decode()
         argv = [*MODULE, 'run', '--token', self.token, '--unit', UNIT, '--config-b64', encoded,
@@ -623,6 +658,8 @@ class RemoteDriver:
 
     def readback(self, config_text, argv):
         """Run the pin readback on the boat (its sysfs); True when the new channels showed enabled."""
+        if self.config_error:
+            raise RuntimeError(self.config_error)
         command = shlex.join([*MODULE, 'readback', '--config-b64',
                               base64.b64encode(config_text.encode()).decode(), '--', *argv])
         results, error = self._job(self.call, self.host, command, self.jump, READBACK_S).result()

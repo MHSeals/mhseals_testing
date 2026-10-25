@@ -147,6 +147,9 @@ def edit_pins(app):
     """Save new pins; while disarmed, run just the driver, read sysfs back, then stop it."""
     if busy(app):
         return REFUSED
+    remote = getattr(app.arming, 'remote', None) if app.arming is not None else None
+    if remote is not None:     # one hardware.yaml: the boat's, read again at each arm
+        return f"Pins refused: they are the boat's, edit hardware.yaml on {remote.host.name}"
     text = app.ask_text('Thruster pins', 'PWM channels 1-4 then MOSFET line',
                         pin_text(app.args.hardware_config), parse_pins)
     if text is None:

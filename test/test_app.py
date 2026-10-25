@@ -644,6 +644,19 @@ def test_reload_refreshes_the_arming_copy_of_the_config(tmp_path):
     assert app.arming.hardware_config['reversed'][0] is True
 
 
+def test_a_local_reload_never_replaces_the_remote_boats_config(tmp_path):
+    """Arming a remote thrusters host, its hardware.yaml is the one config: a local edit is refused."""
+    from types import SimpleNamespace
+    app, _ = make_app(tmp_path)
+    boat = dict(app.args.hardware_config, manual_amplitude=0.42)
+    app.args.hardware_config = app.arming.hardware_config = boat
+    app.arming.remote = SimpleNamespace(host=SimpleNamespace(name='blastoise-odroid'))
+    (tmp_path / 'hardware.yaml').write_text('reversed: [true, false, false, false]\n')
+    app.announce(app.watcher.reload('hardware'))
+    assert 'rejected' in app.notice and 'blastoise-odroid' in app.notice
+    assert app.args.hardware_config is boat and app.arming.hardware_config is boat
+
+
 def test_manual_yaw_uses_the_configured_scale(tmp_path):
     app, boat = make_app(tmp_path)
     app.console.size = (120, 40)
@@ -1456,8 +1469,8 @@ def test_no_driver_starts_on_a_host_without_the_thrusters_capability(tmp_path, m
 
 
 def test_a_host_without_thrusters_arms_the_thrusters_host_with_every_gate(tmp_path, monkeypatch):
-    """Remote arming lifts only the capability refusal: the typed word stays, and the pin
-    readback runs on the boat, never on this computer's sysfs or processes."""
+    """Remote arming lifts only the capability refusal: the typed word stays. Pins are the boat's
+    hardware.yaml: a pin edit here is refused and nothing runs on either computer."""
     from mhseals_hardware.menu import Cancelled
     from mhseals_testing import devices
     from test_arm_link import BOAT, Link, Ssh
@@ -1474,14 +1487,14 @@ def test_a_host_without_thrusters_arms_the_thrusters_host_with_every_gate(tmp_pa
     assert app.thruster_refusal() == ''
     assert 'on blastoise-odroid (stops 1 s after the link drops)' in dict(app.arm_rows())['Outputs']
     app.dispatch('M')
-    assert app.typed == ['arm'] and app.notice.startswith('Pins saved; driver restarted')
-    assert processes.started == [] and seen == [] and 'readback' in ssh.commands[0]
+    assert app.notice == "Pins refused: they are the boat's, edit hardware.yaml on blastoise-odroid"
+    assert app.typed == [] and processes.started == [] and seen == [] and ssh.commands == []
 
     def decline(*a, **kw):
         raise Cancelled('escape')
     app.type_word = decline
     app.arm_panel()
-    assert app.notice == 'Arming cancelled' and not app.armed and len(ssh.commands) == 1
+    assert app.notice == 'Arming cancelled' and not app.armed and ssh.commands == []
     app.arming.remote = None
     app.arm_panel()
     assert app.notice.startswith('Arming refused: local has no thrusters')
