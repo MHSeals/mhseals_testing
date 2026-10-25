@@ -18,9 +18,9 @@ from mhseals_testing.profiles import PROFILE_DIR
 
 MISSION_DIR = PROFILE_DIR.parent / 'missions'
 MARGIN = 30.0  # s past the rubric's time limit before the suite gives up
-# run_task's exit codes (mhseals_nav tasks/interface.py); 3, a human override, is newer.
-# Any other code is a FAILURE.
-TASK_EXIT = {0: 'SUCCESS', 1: 'FAILURE', 2: 'TIMEOUT', 3: 'PREEMPTED'}
+# run_task's exit codes (mhseals_nav tasks/interface.py). Newer: 3, a human override stopped
+# it; 4, it refused to start while a human had control. Any other code is a FAILURE.
+TASK_EXIT = {0: 'SUCCESS', 1: 'FAILURE', 2: 'TIMEOUT', 3: 'PREEMPTED', 4: 'REFUSED'}
 
 
 def available(directory=MISSION_DIR):

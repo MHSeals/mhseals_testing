@@ -92,6 +92,8 @@ UNFINISHED = events('gate_cleared', 'gate_cleared')[:2]
 @pytest.mark.parametrize('stream,code,outcome', [
     (FINISHED_FAILURE, 0, 'FAILURE'),   # the stream's task_finished outranks the exit code
     (UNFINISHED, 3, 'PREEMPTED'),       # a human override stop
+    ([], 4, 'REFUSED'),                 # started while a human had control: never ran
+    (FINISHED_FAILURE, 4, 'FAILURE'),   # the stream still wins
     (UNFINISHED, 7, 'FAILURE'),         # an unknown code
     (UNFINISHED, None, 'INCOMPLETE'),   # still running when the suite stopped it
 ])
