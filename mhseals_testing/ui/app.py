@@ -933,7 +933,7 @@ class App:
             options = ['Save mapping and quit', 'Quit without saving', 'Cancel']
         try:
             choice = self.choose('Quit', options, {'y': 0, 'n': len(options) - 1}, rows=rows,
-                                 width=72)
+                                 default=len(options) - 1, width=72)
         except Cancelled:
             return
         if choice == 'Cancel':
@@ -1150,7 +1150,7 @@ class App:
 
     def delete_bag(self, bag):
         self.check_bag(bag, destructive=True)
-        if self.choose(f'Delete {bag.id}?', ('Delete', 'Cancel'), {'y': 0}, selected=1,
+        if self.choose(f'Delete {bag.id}?', ('Delete', 'Cancel'), {'y': 0}, default=1,
                        danger=True, message='Session files are removed for good.') == 'Delete':
             self.check_bag(bag, destructive=True)
             try:
@@ -1175,7 +1175,7 @@ class App:
             self.notice = 'Nothing to prune'
             return
         if self.choose(f'Prune {len(doomed)} sessions?', ('Delete', 'Cancel'), {'y': 0},
-                       selected=1, danger=True, rows=[(b.id, '') for b in doomed]) != 'Delete':
+                       default=1, danger=True, rows=[(b.id, '') for b in doomed]) != 'Delete':
             return
         attempted = False
         try:
@@ -1400,7 +1400,7 @@ class App:
         self._releasing = True
         try:
             answer = self.choose('Release hold?', ['Release', 'Cancel'],
-                                 message=f'{resumer} resumes', selected=1, danger=True)
+                                 message=f'{resumer} resumes', default=1, danger=True)
             if answer == 'Release':
                 refusal = self.release_refusal()
                 if not refusal and self.release_resumer()[0] != identity:
@@ -1640,7 +1640,7 @@ class App:
             rows += rtk.pane_rows(events, time.time(), 44, theme.ASCII)
         try:   # r opens the RTK base controls next to e (no base says so)
             answer = self.choose('Odometry', ['Restart EKFs', 'Base controls', 'Close'], {'e': 0, 'r': 1},
-                                 selected=2, rows=rows, width=76)
+                                 default=2, rows=rows, width=76)
         except Cancelled:
             return
         if answer == 'Restart EKFs':
@@ -1733,7 +1733,7 @@ class App:
                 return
             if self.choose(f'Bump hardware epoch to {epoch}?', ('Bump', 'Cancel'), {'y': 0},
                            message='Every C+/C- and speed-curve fit becomes stale and needs a refit.',
-                           danger=True) != 'Bump':
+                           danger=True, default=1) != 'Bump':
                 return
         except Cancelled:
             return
@@ -2041,10 +2041,10 @@ class App:
         rows = rows or [('', 'No changes pending')]
         label = 'Apply live' if live else 'Apply'
         options = ['Close'] if refused else [label, 'Close']
-        try:
-            first = source.pending and options[0] == label
-            answer = self.choose('Nav2 parameters', options, {'y': 0}, rows=rows,
-                                 selected=0 if first else len(options) - 1, width=76)
+        try:   # Close is focused: Enter never applies, y does
+            answer = self.choose('Nav2 parameters', options, {'y': 0} if len(options) > 1 else None,
+                                 rows=rows, default=len(options) - 1, width=76,
+                                 risky={0} if len(options) > 1 else set())
         except Cancelled:
             return
         if answer == label:
@@ -2054,8 +2054,8 @@ class App:
         return popups.prompt(self, message, title)
 
     def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None,
-               selected=0, width=64):
-        return popups.choose(self, title, options, shortcuts, message, danger, rows, selected, width)
+               default=0, width=64, risky=None):
+        return popups.choose(self, title, options, shortcuts, message, danger, rows, default, width, risky)
 
     def ask_text(self, title, message, text=''):
         return popups.ask_text(self, title, message, text)

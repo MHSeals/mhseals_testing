@@ -183,7 +183,9 @@ minimap.goal:
   send: [enter]
   leave: [escape, G]
 
-popup.choose:     {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], select: [enter], cancel: [escape, q]}
+popup.choose:     {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], left: [left, h],
+                   right: [right, l, tab], select: [enter], decline: [n], cancel: [escape, q]}
+                   # decline picks Cancel/Close; a call's own shortcuts win. No key confirms but Enter or a call's shortcut.
 popup.prompt:     {passthrough: [stop, revoke_agent], continue: [enter], cancel: [escape, q]}
 popup.show:       {passthrough: [stop, revoke_agent], close: [any]}
 popup.text:       {confirm: [enter], cancel: [escape], erase: [backspace, ctrl-h]}   # never open while anything moves

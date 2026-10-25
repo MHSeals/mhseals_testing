@@ -76,29 +76,68 @@ def prompt(app, message, title='Ready'):
                            hint=f'Enter continue{theme.SEPARATOR}Esc cancel'), handle)
 
 
-def choose(app, title, options, shortcuts=None, message=None, danger=False, rows=None,
-           selected=0, width=64):
-    modal = dict(kind='choice', title=title, message=message, options=list(options),
-                 selected=selected, danger=danger, rows=rows, width=width,
-                 hint=theme.SEPARATOR.join((f'{UPDOWN} select', 'Enter choose', 'Esc cancel')),
-                 keys=[None] * len(options),
-                 scroll_hint='[ ]')
+SAFE_WORDS = ('cancel', 'close', 'keep', 'no', 'disarm')   # never a danger button
+CHOOSE_KEYS = dict(up=['up', 'k'], down=['down', 'j'], left=['left', 'h'], right=['right', 'l', 'tab'],
+                   select=['enter'], decline=['n'], cancel=['escape', 'q'])   # when the keymap is unreadable
+
+
+def safe(option):
+    return str(option).split(' ', 1)[0].strip('[]').lower() in SAFE_WORDS
+
+
+def choose_keys():
+    """key -> action of ``popup.choose`` from the keymap YAML (the user overlay applied)."""
+    from mhseals_testing.ui import keymap
+    try:
+        context = keymap.load()[0].doc.get('popup.choose') or CHOOSE_KEYS
+    except Exception:              # a popup must open even when the keymap file is broken
+        context = CHOOSE_KEYS
+    return keymap.key_map(context)
+
+
+def choice_modal(title, options, shortcuts=None, message=None, danger=False, rows=None, default=0,
+                 width=64, risky=None):
+    """The ``choice`` modal dict; ``default`` is the focused option, the one Enter picks.
+
+    ``risky`` (default: with ``danger``, every option that is not Cancel/Close/Keep/No/Disarm)
+    is drawn as danger buttons. A danger default is a ValueError, so Enter alone never acts.
+    """
+    options = list(options)
+    if risky is None:
+        risky = {i for i, o in enumerate(options) if not safe(o)} if danger else set()
+    if default in risky:
+        raise ValueError(f'{title}: the default must be a safe option, not {options[default]!r}')
+    keys = [None] * len(options)
     for key, index in (shortcuts or {}).items():
-        modal['keys'][index] = key
+        keys[index] = key
+    return dict(kind='choice', title=title, message=message, options=options, selected=default,
+                danger=danger, risky=set(risky), rows=rows, width=width, keys=keys,
+                hint=theme.SEPARATOR.join((f'{UPDOWN} select', 'Enter choose', 'Esc cancel')),
+                scroll_hint='[ ]')
+
+
+def choose(app, title, options, shortcuts=None, message=None, danger=False, rows=None,
+           default=0, width=64, risky=None):
+    modal = choice_modal(title, options, shortcuts, message, danger, rows, default, width, risky)
+    options, keys = modal['options'], choose_keys()
+    decline = next((i for i, o in enumerate(options) if safe(o) and o.lower() in ('cancel', 'close')), None)
 
     def handle(key):
         key = fold(key)
         if app.scroll(modal, key, ('[', ']')):
             return None
-        if key in ('up', 'k'):
-            modal['selected'] = (modal['selected'] - 1) % len(options)
-        elif key in ('down', 'j'):
-            modal['selected'] = (modal['selected'] + 1) % len(options)
-        elif key == 'enter':
-            return options[modal['selected']]
-        elif shortcuts and key in shortcuts:
+        if shortcuts and key in shortcuts:          # a call's own shortcuts win
             return options[shortcuts[key]]
-        elif key in ('escape', 'q'):
+        action = keys.get(key)
+        if action in ('up', 'left'):
+            modal['selected'] = (modal['selected'] - 1) % len(options)
+        elif action in ('down', 'right'):
+            modal['selected'] = (modal['selected'] + 1) % len(options)
+        elif action == 'select':
+            return options[modal['selected']]
+        elif action == 'decline' and decline is not None:
+            return options[decline]
+        elif action == 'cancel':
             raise Cancelled('cancelled by operator')
     return app.popup(modal, handle)
 

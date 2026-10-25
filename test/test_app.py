@@ -787,7 +787,10 @@ def test_escape_never_quits_and_quit_asks_first(tmp_path):
         press(app, 'escape')
         app.dispatch('q')
         assert not app.quit
-        press(app, 'enter')
+        press(app, 'enter')     # Cancel is focused: Enter alone never quits
+        app.dispatch('q')
+        assert not app.quit
+        press(app, 'y')
         app.dispatch('q')
     assert app.quit
 
@@ -795,7 +798,7 @@ def test_escape_never_quits_and_quit_asks_first(tmp_path):
 def test_shifted_keys_still_quit_and_cancel_prompts(tmp_path):
     app, _ = make_app(tmp_path)
     with app.attached():
-        press(app, 'enter')
+        press(app, 'y')
         app.dispatch('Q')
         assert app.quit
         press(app, 'Q')
@@ -806,7 +809,7 @@ def test_shifted_keys_still_quit_and_cancel_prompts(tmp_path):
 def test_quitting_with_an_unsaved_mapping_can_save_it(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'], keys=['r', 'q'])
     app.focus = 'thrusters'
-    press(app, 'enter')  # Save mapping and quit
+    press(app, 'y')  # Save mapping and quit (Enter alone is Cancel)
     app.run()
     assert yaml.safe_load((tmp_path / 'hardware.yaml').read_text())['reversed'][0] is True
 
@@ -1618,6 +1621,41 @@ def test_e_on_navigation_previews_and_y_applies_once(tmp_path):
     assert next(r for r in dashboard_rows(app) if r['name'] == 'Navigation')['value'] == 'applied'
 
 
+def test_enter_alone_on_the_nav2_popup_closes_without_applying(tmp_path):
+    seen = []
+    app, path = nav2_app(tmp_path, applier=lambda changes: seen.append(changes) or dict(status='verified', verified=changes))
+    edit_nav2(app, path, 'controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.8\n')
+    app.focus = 'status'
+    app.cursors['status'] = next(i for i, r in enumerate(dashboard_rows(app)) if r['name'] == 'Navigation')
+    press(app, 'enter')
+    with app.attached():
+        app.dispatch('e')
+    assert seen == []
+
+
+@pytest.mark.parametrize('title,options,keys', [
+    ('Release hold?', ['Release', 'Cancel'], ['enter']),
+    ('Delete s1?', ['Delete', 'Cancel'], ['enter']),
+    ('Bump hardware epoch to 3?', ['Bump', 'Cancel'], ['enter']),
+    ('Quit', ['Quit', 'Cancel'], ['enter']),
+    ('RTK start', ['Start', 'Cancel'], ['left', 'right', 'enter']),
+])
+def test_enter_alone_never_confirms_a_changed_popup(title, options, keys):
+    from types import SimpleNamespace
+    from mhseals_testing.ui import popups
+
+    def popup(modal, handle):
+        for key in keys:
+            result = handle(key)
+        return result
+    app = SimpleNamespace(popup=popup, scroll=popups.scroll)
+    assert popups.choose(app, title, options, {'y': 0}, danger=True, default=1) == 'Cancel'
+    with pytest.raises(ValueError):          # a danger default cannot be built
+        popups.choice_modal(title, options, danger=True, default=0)
+    app = SimpleNamespace(popup=lambda modal, handle: handle('n'), scroll=popups.scroll)
+    assert popups.choose(app, title, options, danger=True, default=1) == 'Cancel'   # decline
+
+
 def test_e_opens_the_nav2_popup_only_on_the_navigation_row(tmp_path):
     app, path = nav2_app(tmp_path)
     opened = []
@@ -2201,7 +2239,7 @@ def test_release_confirmation_names_procedure_and_rechecks_rc(tmp_path):
     app.running = 'characterize'
 
     def choose(title, options, **kwargs):
-        assert kwargs['message'] == 'characterize resumes' and kwargs['selected'] == 1
+        assert kwargs['message'] == 'characterize resumes' and kwargs['default'] == 1
         app.arbiter.on_mux({'input': 'rc', 'rc': {'mode': 'MANUAL'}})
         return 'Release'
 
@@ -2352,7 +2390,7 @@ def test_ordinary_popups_ignore_release_key(tmp_path, context):
             app.open('config')
         else:
             press(app, 'U', 'up', 'enter', 'escape')
-            assert app.choose('Ordinary choice', ['Continue', 'Cancel'], selected=1) == 'Continue'
+            assert app.choose('Ordinary choice', ['Continue', 'Cancel'], default=1) == 'Continue'
     assert calls == [] and boat.sent == []
 
 

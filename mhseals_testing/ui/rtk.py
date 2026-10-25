@@ -44,13 +44,13 @@ def _asked(app, title, message, text):
 
 
 def _confirm(app, title, message):
-    if app.choose(title, ['Start', 'Cancel'], message=message) != 'Start':
+    if app.choose(title, ['Start', 'Cancel'], {'y': 0}, message=message, default=1, risky={0}) != 'Start':
         raise Cancelled('cancelled by operator')
 
 
 def _choose(app, config):
     """(new config, positions for the restart, drop the current position) for the chosen control; Cancelled backs out."""
-    answer = app.choose('RTK base', OPTIONS, SHORTCUTS, selected=0, rows=[
+    answer = app.choose('RTK base', OPTIONS, SHORTCUTS, default=0, rows=[
         ('survey', f"{config['survey_seconds']} s, {config['survey_accuracy']} m"),
         ('positions', ', '.join(config['positions']) or 'none saved'),
         ('radio', f"{config['radio'] or 'off'} {config['radio_baud']} baud")])

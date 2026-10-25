@@ -59,7 +59,7 @@ def test_dispatch_pin_title_and_cancel_delete(tmp_path, monkeypatch):
     assert data.read_json(path / 'summary.json')['title'] == 'Wind trial'
     assert data.read_json(tmp_path / 'INDEX.json')['sessions'][0]['title'] == 'Wind trial'
     def cancel(*a, **kw):
-        assert kw['selected'] == 1
+        assert kw['default'] == 1
         return 'Cancel'
     monkeypatch.setattr(app, 'choose', cancel)
     app.dispatch('d')
