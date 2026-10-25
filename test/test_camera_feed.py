@@ -106,3 +106,38 @@ def test_an_undecodable_raw_frame_does_not_raise_and_shows_as_a_bad_frame(messag
         callback(message)                                            # must not end the ROS spin
     view.lines()
     assert view.notice == camera_view.BAD_FRAME
+
+
+def observations(boxes, latency=0.1):
+    obs = [SimpleNamespace(has_box2d=b is not None, box2d=b or [0.0] * 4, class_id=c) for c, b in boxes]
+    return SimpleNamespace(processing_latency=latency, observations=obs)
+
+
+def test_observation_boxes_subscribe_only_while_wanted_and_scale_to_the_frame():
+    from mhseals_testing.ros.camera_feed import OBSERVATIONS_TOPIC, ObservationBoxes
+    bus = Bus()
+    boxes = ObservationBoxes(bus.subscribe, bus.unsubscribe, lambda label: (1, 2, 3), clock=lambda: bus.t)
+    assert not bus.live and boxes.rects((100, 50)) == []
+    boxes.want(True)
+    boxes.want(True)
+    assert [t for t, _ in bus.live.values()] == [OBSERVATIONS_TOPIC]
+    _, callback = next(iter(bus.live.values()))
+    bus.t = 10.0
+    callback(observations([('red_buoy', [0.1, 0.2, 0.5, 0.6]), ('green_buoy', None), ('x', [0.5, 0.5, 0.5, 0.9])]))
+    assert boxes.rects((100, 50), at=10.0) == [((10, 10, 50, 30), (1, 2, 3))]    # no box2d, zero width: dropped
+    assert boxes.rects((100, 50), at=10.5) == []                                  # 0.5 s from the frame
+    callback(SimpleNamespace(processing_latency='bad', observations=None))        # malformed: ignored
+    boxes.want(False)
+    assert not bus.live and boxes.rects((100, 50), at=10.0) == []
+
+
+def test_observation_boxes_pick_the_array_captured_nearest_the_frame():
+    from mhseals_testing.ros.camera_feed import ObservationBoxes
+    bus = Bus()
+    boxes = ObservationBoxes(bus.subscribe, bus.unsubscribe, lambda label: label, clock=lambda: bus.t)
+    boxes.want(True)
+    _, callback = next(iter(bus.live.values()))
+    for t, label in ((1.0, 'a'), (1.2, 'b'), (1.4, 'c')):
+        bus.t = t
+        callback(observations([(label, [0, 0, 1, 1])], latency=0.1))
+    assert [rgb for _, rgb in boxes.rects((10, 10), at=1.25)] == ['b']   # captured 1.1 nearest target 1.15

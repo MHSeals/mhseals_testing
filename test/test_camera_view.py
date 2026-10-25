@@ -262,3 +262,37 @@ def test_real_camera_serializer_runs_once_per_fresh_frame_and_save_retains_sourc
     v.lines()
     assert methods == [(64, Image.Quantize.FASTOCTREE)] * 2 and len(uploads) == 2
     v.close()
+
+
+class Observations:
+    """A fake ObservationBoxes: records the lease and the frame time the view asks with."""
+
+    def __init__(self):
+        self.leased, self.asked = [], []
+
+    def want(self, on):
+        self.leased.append(on)
+
+
+def test_observation_lease_follows_d_and_close_and_boxes_use_the_frame_time():
+    bus, obs = Bus(), Observations()
+    asked = []
+    v, _ = view(bus, detections=lambda size, floor, at: asked.append((floor, at)) or [], observations=obs)
+    assert obs.leased == []                       # open with boxes off: no subscription
+    bus.t = 2.5
+    bus.publish()
+    v.key('d')
+    v.lines()
+    assert obs.leased == [True] and (False, 2.5) in asked
+    v.key('d')
+    v.key('d')
+    v.close()
+    assert obs.leased == [True, False, True, False]
+
+
+def test_class_rgb_follows_the_class_colour_token():
+    from mhseals_testing.analysis.classes import load_classes
+    table = load_classes()
+    red, green = camera_view.class_rgb(table, 'red_buoy'), camera_view.class_rgb(table, 'green_buoy')
+    assert red != green and red[0] > red[1] and green[1] > green[0]
+    assert camera_view.class_rgb(None, 'x') == camera_view.BOX_RGB

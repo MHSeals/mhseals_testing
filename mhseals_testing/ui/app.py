@@ -1786,11 +1786,15 @@ class App:
                 return
             state['note'] = ''
             reader = self.keys
+            node = getattr(getattr(self, 'ros', None), 'node', None)
+            self.camera_boxes = None if node is None else camera_feed.node_observations(  # subscribed while `d` is on
+                node, lambda label: camera_view.class_rgb(self.minimap.table, label))
             state['view'] = CameraView(
                 feed, (1, CAMERA_ROWS), self.write_terminal,
                 kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
                                              getattr(reader, 'xtversion', None)),
-                save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections)
+                save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections,
+                observations=self.camera_boxes)
 
         def handle(key):
             current = state['view']
@@ -1819,9 +1823,10 @@ class App:
         node = getattr(self.ros, 'node', None)
         return None if node is None else camera_feed.profile_feed(node, self.profile.sensors)
 
-    def camera_detections(self, size, floor):
-        """Detection rects in camera pixels for the overlay (needs the tf cache; none wired yet)."""
-        return []
+    def camera_detections(self, size, floor, at=None):
+        """Observation boxes in camera pixels with class colours (perception-v2 7.3); floor boxes stay []."""
+        boxes = getattr(self, 'camera_boxes', None)
+        return [] if floor or boxes is None else boxes.rects(size, at)
 
     def write_terminal(self, text):
         """Kitty uploads and deletes go straight to the terminal, after Rich's refresh."""

@@ -8,10 +8,14 @@ subscription; closing destroys it, so a closed view costs no traffic.
 import io
 import threading
 import time
+from collections import deque
 
 PREVIEW_TOPIC = '/front_camera/preview/compressed'
 RATES_HZ = (1, 2, 4)  # frame rates the view offers; cycling wraps around
 RAW_MODES = {'rgb8': 'RGB', 'bgr8': 'RGB', 'mono8': 'L'}  # raw encodings the view can show
+OBSERVATIONS_TOPIC = '/perception/observations'
+MATCH_S = 0.3       # an observation array further than this from the frame's capture gives no boxes
+KEEP = 8            # observation arrays held (about half a second at 15 Hz)
 
 
 def raw_to_jpeg(message):
@@ -112,6 +116,79 @@ class CameraFeed:
             return self._encode(message) if self._encode else bytes(message.data)
         except Exception:
             return b''
+
+
+class ObservationBoxes:
+    """Detection boxes for the camera view from /perception/observations (perception-v2 7.3).
+
+    The subscription exists only while ``want(True)`` holds (the view open with boxes on); it
+    keeps the last few arrays with their capture time on the feed clock (receive time minus the
+    backend's ``processing_latency``). ``colour(class_id)`` gives the box RGB.
+    """
+
+    def __init__(self, subscribe, unsubscribe, colour, topic=OBSERVATIONS_TOPIC, clock=time.monotonic):
+        self._subscribe, self._unsubscribe, self.colour = subscribe, unsubscribe, colour
+        self.topic, self._clock = topic, clock
+        self._lock = threading.Lock()
+        self._handle, self._held = None, deque(maxlen=KEEP)
+
+    @property
+    def is_open(self):
+        return self._handle is not None
+
+    def want(self, on):
+        """Subscribe while ``on``; off destroys the subscription and forgets the arrays."""
+        if on and self._handle is None:
+            self._handle = self._subscribe(self.topic, self._on_message)
+        elif not on and self._handle is not None:
+            self._unsubscribe(self._handle)
+            with self._lock:
+                self._handle = None
+                self._held.clear()
+
+    def _on_message(self, message):
+        try:
+            latency = float(message.processing_latency)
+            boxes = [(tuple(float(v) for v in o.box2d), str(o.class_id))
+                     for o in message.observations if o.has_box2d]
+        except Exception:   # the executor thread must survive a malformed array
+            return
+        with self._lock:
+            if self._handle is not None:
+                self._held.append((self._clock() - latency, latency, boxes))
+
+    def rects(self, size, at=None):
+        """``[(x0, y0, x1, y1), rgb]`` in pixels of ``size`` from the array captured nearest the
+        frame received at ``at`` (feed clock; default now) less the newest latency, within 0.3 s."""
+        with self._lock:
+            held = list(self._held)
+        if not held:
+            return []
+        target = (self._clock() if at is None else at) - held[-1][1]
+        captured, _, boxes = min(held, key=lambda h: abs(h[0] - target))
+        if abs(captured - target) > MATCH_S:
+            return []
+        width, height = size
+        out = []
+        for (u0, v0, u1, v1), label in boxes:
+            rect = (round(min(u0, u1) * width), round(min(v0, v1) * height),
+                    round(max(u0, u1) * width), round(max(v0, v1) * height))
+            rect = tuple(min(max(v, 0), limit) for v, limit in zip(rect, (width, height) * 2))
+            if rect[2] > rect[0] and rect[3] > rect[1]:
+                out.append((rect, self.colour(label)))
+        return out
+
+
+def node_observations(node, colour, **kwargs):
+    """ObservationBoxes on ``node`` (BEST_EFFORT depth 1), or None without the mhseals_nav messages."""
+    from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+    from mhseals_testing.ros.minimap_feeds import perception_msgs
+    msgs = perception_msgs()
+    if msgs is None:
+        return None
+    qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, history=QoSHistoryPolicy.KEEP_LAST, depth=1)
+    return ObservationBoxes(lambda topic, callback: node.create_subscription(msgs.ObservationArray, topic, callback, qos),
+                            node.destroy_subscription, colour, **kwargs)
 
 
 def node_feed(node, raw=False, **kwargs):

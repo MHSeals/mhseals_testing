@@ -65,14 +65,30 @@ def draw_box(image, rect, rgb=BOX_RGB):
     image[y0:y1, x0] = image[y0:y1, x1 - 1] = rgb
 
 
+def class_rgb(table, label):
+    """The RGB of a class's minimap.yaml colour token (the box colour; the image is always RGB)."""
+    try:
+        mode = theme.PALETTE.mode if theme.PALETTE.mode != 'auto' else palette.detect_theme()
+        colour = theme.PALETTE.resolve(table.symbol(label).colour, mode, 'truecolor')
+        return tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return BOX_RGB
+
+
 class CameraView:
-    """One open camera view. ``detections(size, floor)`` -> [(rect, rgb)] in source pixels."""
+    """One open camera view. ``detections(size, floor)`` -> [(rect, rgb)] in source pixels.
+
+    With ``observations`` (a ``camera_feed.ObservationBoxes``) the view holds its subscription
+    only while boxes are on, and ``detections`` is called as ``(size, floor, at)`` with the
+    frame's receive time so the boxes match the shown frame.
+    """
 
     def __init__(self, feed, size, write, kitty=False, save_dir=None, detections=None,
-                 decode=decode_jpeg, encode=encode_png):
+                 decode=decode_jpeg, encode=encode_png, observations=None):
         self.feed, self.write, self.kitty = feed, write, kitty
         self.cols, self.rows = size
-        self.save_dir, self.detections = save_dir, detections
+        self.save_dir, self._detections, self.observations = save_dir, detections, observations
+        self.detections = self._detect if detections else None
         self.decode, self.encode = decode, encode
         self.clock = time.time
         self.boxes = self.floor = self.frozen = False
@@ -86,10 +102,17 @@ class CameraView:
 
     # --- keys ---------------------------------------------------------------------
 
+    def _detect(self, size, floor):
+        if self.observations is None:
+            return self._detections(size, floor)
+        return self._detections(size, floor, self._frame[0] if self._frame else None)
+
     def key(self, key):
         """Handle f s d D + -; True when the key was ours."""
         if key == 'd':
             self.boxes = not self.boxes
+            if self.observations is not None:
+                self.observations.want(self.boxes)
         elif key == 'D':
             self.floor = not self.floor
         elif key == 'f':
@@ -224,6 +247,8 @@ class CameraView:
         self._drawn, self._shown = False, None
 
     def close(self):
-        """Release the subscription and remove the image (view close, popup close, detach)."""
+        """Release the subscriptions and remove the image (view close, popup close, detach)."""
         self.feed.close()
+        if self.observations is not None:
+            self.observations.want(False)
         self._delete()
