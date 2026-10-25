@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
+from mhseals_testing import agent_hook as hook
 from mhseals_testing.harness import agent_channel, agent_config
-from mhseals_testing.harness import agent_hook as hook
 
 SID = '3f2a9c1e-0000-4000-8000-000000000000'
 
@@ -27,12 +27,10 @@ def sent(tmp_path, monkeypatch):
     return run
 
 
-def test_defaults_are_the_shipped_hook_config(tmp_path):
+def test_defaults_are_the_shipped_hook_config():
     shipped = agent_config.load()['hook']
-    assert hook.hook_config(cache_dir=tmp_path) == {k: shipped[k] for k in hook.DEFAULTS}
-    assert hook.hook_config(cache_dir=tmp_path) == hook.hook_config(cache_dir=tmp_path)    # from the cache
-    assert hook.hook_config('/nonexistent', cache_dir=tmp_path) == hook.DEFAULTS
-    assert (tmp_path / 'config.json').stat().st_mode & 0o077 == 0     # user-only
+    assert hook.hook_config() == {k: shipped[k] for k in hook.DEFAULTS}
+    assert hook.hook_config('/nonexistent') == hook.DEFAULTS
     assert {k: v for k, v in shipped.items() if k in hook.DEFAULTS} == hook.DEFAULTS
 
 
@@ -156,7 +154,7 @@ def test_imports_isolated_with_the_stdlib_only(tmp_path):
                           capture_output=True, text=True, env=env, cwd=tmp_path, timeout=10)
     assert done.returncode == 0, done.stderr
     assert 'codex-ab12' in json.loads(done.stdout)['deny']
-    assert (Path(hook.__file__).parents[2] / 'agent_hooks.yaml').read_text().count('agent_hook.py') == 1
+    assert Path(hook.__file__).parent.name == 'mhseals_testing'     # the dispatcher globs src/*/*/agent_hook.py
 
 
 def test_delivery_appends_locally_on_the_target_and_logs_failures(tmp_path, monkeypatch):

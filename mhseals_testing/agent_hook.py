@@ -1,9 +1,10 @@
 """The agent hook (spec agent-control section 6): playbook, raw-motion denies, notes to the TUI.
 
-``agent_hooks.yaml`` at the repo root registers ``agent_event`` with astro_dock's ``.agents/hook.py``,
-which calls it for Claude Code and Codex alike with one neutral event (``agent``, ``event``
+astro_dock's ``.agents/hook.py`` loads this file (``src/<repo>/<package>/agent_hook.py``) and calls
+``agent_event`` for Claude Code and Codex alike with one neutral event (``agent``, ``event``
 start|pre|post, ``session_id``, ``tool_id``, ``command``, ``exit``, ``duration_ms``, ``failed``).
-Stdlib only, imported under ``python3 -I`` on the dev machine: no ROS, no PyYAML on the hot path.
+Imported under ``python3 -I`` on the dev machine: no ROS. PyYAML, when present, reads
+config/agent.yaml (about 15 ms per call); without it the built-in defaults apply.
 
 * ``start`` returns the playbook: the agent's boat name and the ``boat_agent`` verbs.
 * ``pre`` denies a command matching ``hook.deny`` (raw /cmd_vel, /goal_pose, mux, MAVROS
@@ -34,7 +35,7 @@ SECRETS = (   # agent_channel._SECRETS, kept equal by test_agent_hook
     re.compile(r'(\bsshpass\b(?:\s+-[^p\s]\S*)*\s+-p\s*)' + _VALUE),
     re.compile(r'(?i)(\bauthorization\s*:\s*(?:(?:bearer|basic|token)\s+)?)' + _VALUE),
     re.compile(r'(?i)(\bbearer\s+)' + _VALUE))
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'agent.yaml'
+CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'agent.yaml'
 DEFAULTS = {
     'target': 'blastoise', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', r'\bros2\b', r'\bdocker\s+exec\b'],
@@ -56,7 +57,7 @@ USE = ((r'/cmd_vel|/mavros/(rc/override|setpoint)', 'raw motion', 'run KEY --cla
 
 def private_dir(directory=None):
     """``directory``, else ``$XDG_RUNTIME_DIR/boat_agent_hook``, else ``~/.cache/boat_agent_hook``:
-    user-only (0700), never a shared /tmp another user could plant a config or state file in."""
+    user-only (0700), never a shared /tmp another user could plant a state file in."""
     if directory:
         return Path(directory)
     base = os.environ.get('XDG_RUNTIME_DIR') or Path.home() / '.cache'
@@ -65,35 +66,14 @@ def private_dir(directory=None):
     return out
 
 
-def hook_config(path=CONFIG, cache_dir=None):
-    """``hook:`` of config/agent.yaml, else the built-in defaults; cached as JSON by the file's mtime."""
-    try:
-        cache = private_dir(cache_dir) / 'config.json'
-    except OSError:
-        cache = Path(os.devnull)
-    try:
-        stamp = os.stat(path).st_mtime_ns
-    except OSError:
-        return dict(DEFAULTS)
-    try:
-        cached = json.loads(cache.read_text())
-        if cached['path'] == str(path) and cached['mtime'] == stamp:
-            return cached['hook']
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
+def hook_config(path=CONFIG):
+    """``hook:`` of config/agent.yaml over the built-in defaults."""
     try:
         import yaml
         found = (yaml.safe_load(Path(path).read_text()) or {}).get('hook') or {}
-    except Exception:          # no PyYAML, or a broken file: the defaults are the shipped values
+    except Exception:          # no PyYAML, or a missing or broken file: the defaults are the shipped values
         return dict(DEFAULTS)
-    hook = {**DEFAULTS, **{k: v for k, v in found.items() if k in DEFAULTS}}
-    try:
-        fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, 'w') as handle:
-            handle.write(json.dumps({'path': str(path), 'mtime': stamp, 'hook': hook}))
-    except OSError:
-        pass
-    return hook
+    return {**DEFAULTS, **{k: v for k, v in found.items() if k in DEFAULTS}}
 
 
 def who_of(event):
