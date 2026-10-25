@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from mhseals_testing.referee import geometry
+from mhseals_testing.analysis import geometry
 
 
 def walk(points, dt=1.0):

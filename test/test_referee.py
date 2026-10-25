@@ -102,9 +102,8 @@ def test_commissioning_referee_needs_matching_course_truth(task):
     assert referee.judge(task, TRUTH, [])['verdict'] == 'N/A'
 
 
-def test_reported_lives_in_geometry_and_takes_the_latest_event():
-    from mhseals_testing.referee import geometry
+def test_reported_takes_the_latest_event():
+    from mhseals_testing.analysis import geometry
     events = [dict(event='spill_count', count=1), dict(event='spill_count', count=2)]
     assert geometry.reported(events, 'spill_count') == 2
     assert geometry.reported(events, 'species_count') is None
-    assert referee.reported is geometry.reported

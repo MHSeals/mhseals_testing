@@ -11,8 +11,8 @@ measured length and beam about the track point.
 
 import math
 
-from mhseals_testing.referee.geometry import (  # noqa: F401  (re-exported for callers)
-    HULL, circled, contacts, crossings, elements, gates, held_in_bay, hull_clearance, points, reported)
+from mhseals_testing.analysis.geometry import (
+    circled, contacts, crossings, elements, gates, held_in_bay, points, reported)
 
 GATE_WIDTH = {'nav_channel': 8.0, 'return_home': 4.0}  # widest pair that is one gate
 SMALL_GATE = 4.0
