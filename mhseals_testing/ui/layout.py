@@ -39,6 +39,7 @@ from mhseals_testing.ui.panels.thrusters import thrusters_panel
 
 PINNED_HINTS = ('Space', '?', 'q', 'x / Esc')  # footer keys that are never cut on narrow terminals
 WIDE = 106          # footer: four hint columns from here
+WIDER = 120         # and five from here, so a 120-column page keeps q Quit on the first row
 ROW = 90            # from here Motion sits beside the right column; below it Motion is a compact panel in the stack
 RIGHT = 42          # the right column's width below 110 columns: Conditions needs 38 columns inside its border
 MOTION_COMPACT = 5  # the stacked Motion: three one-row braille axes
@@ -178,7 +179,7 @@ def footer(view, width):
     if review:  # the strip footer takes the status line's place; the notice rides on its status line
         status = Group(*scrubber.review_footer(review, width, view['notice']))
     hints = view['hints']
-    columns = 4 if width >= WIDE else 3 if width >= 60 else 2
+    columns = 5 if width >= WIDER else 4 if width >= WIDE else 3 if width >= 60 else 2
     grid = Table.grid(expand=True)
     for _ in range(columns):
         grid.add_column(ratio=1, no_wrap=True, overflow=theme.OVERFLOW)

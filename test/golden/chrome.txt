@@ -2,32 +2,32 @@
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                      blastoise-odroid · ROS 42  idle  disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                          ✗ 2  ! 1 · sensors
  Focus Status · 1/9                                                                                                Ready
- Tab Focus                     a Arm                         Space Stop                    ? Help                       
- q Quit                                                                                                                 
+ Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
+                                                                                                                        
 == running 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort        ↑5 ↓39 ±2 ?7  blastoise-odroid   CHARACTERIZE    ARMED 
  ✗ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                             ✗ 2  ! 3 · compass innovation
  Focus Status · 1/9                                                                                                Ready
- Tab Focus                     a Arm                         Space Stop                    ? Help                       
- q Quit                                                                                                                 
+ Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
+                                                                                                                        
 == diverged 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort        ↕ code newer  blastoise-odroid · ROS 42   RC   disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
  Focus Status · 1/9                                                                                                Ready
- Tab Focus                     a Arm                         Space Stop                    ? Help                       
- q Quit                                                                                                                 
+ Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
+                                                                                                                        
 == agent 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                           blastoise · ROS 42   AGENT    ARMED 
  AGENT DRIVING | tune_mppi | tranquility pid 5120 | "MPPI vx_max sweep 3/8" | 4m12s               E revoke · Space stop 
  Focus Status · 1/9                                                                                                Ready
- Tab Focus                     a Arm                         Space Stop                    ? Help                       
- q Quit                                                                                                                 
+ Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
+                                                                                                                        
 == review 120
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                                        boat · ROS 42   REVIEW 
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
  Focus Status · 1/9                                                                                                Ready
- Tab Focus                     a Arm                         Space Stop                    ? Help                       
- q Quit                                                                                                                 
+ Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
+                                                                                                                        
 == idle 100
  boat_test  [Drive]  Correction  Map  Bags  boat · effort  blastoise-odroid · ROS 42  idle  disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                      ✗ 2  ! 1 · sensors

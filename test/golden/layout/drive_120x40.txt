@@ -36,5 +36,5 @@
 │                                ││                                  ││                                                │
 ╰────────────────────────────────╯╰──────────────────────────────────╯╰────────────────────────────────────────────────╯
  Focus Status · 1/9                                                                                                Ready
- Tab Focus                     a Arm                         Space Stop                    ? Help                       
- q Quit                                                                                                                 
+ Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
+                                                                                                                        

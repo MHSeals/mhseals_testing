@@ -36,5 +36,5 @@
 │ scope hw hardware: refit when rebuilt  cal calibration: refit each test            │                                  
 ╰────────────────────────────────────────────────────────────────────────────────────╯                                  
  Focus Correction · sway− column                                                                                   Ready
- ←→ Direction                  Enter Holds                   r Rerun direction             R Run all                    
- A Apply pending               I Hardware changed                                                                       
+ ←→ Direction            Enter Holds             r Rerun direction       R Run all               A Apply pending        
+ I Hardware changed                                                                                                     
