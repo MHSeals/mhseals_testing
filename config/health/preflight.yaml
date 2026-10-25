@@ -122,7 +122,7 @@ checks:
     profiles: [boat]
     gates: [arm]
     title: '{name}_watchdog'
-    hint: 'Not on the graph: start odometry on the boat (it brings the watchdogs) or the Safety watchdogs row'
+    hint: 'Not on the graph: start odometry on the boat (its launch brings the watchdogs)'
     each:
       - {name: link}
       - {name: fcu}

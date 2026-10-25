@@ -13,7 +13,7 @@ component from the node graph, our own children and the units; a process neither
 started is ``external`` and is never stopped.
 """
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 import json
 
 from mhseals_testing import nav2_limits
@@ -40,6 +40,7 @@ class Component:
     launch: str | None = None   # the part's launch file in mhseals_nav (None for a run part)
     arguments: dict = field(default_factory=dict, compare=False, hash=False)  # the include's, final
     brings: tuple = ()        # the part's ``with``: parts device.launch.py starts beside it
+    carried_by: str | None = None   # title of the component that brings this part: read-only row
 
     @property
     def remote(self):
@@ -213,11 +214,18 @@ def components(profile, overlay=None, placed=None):
     odometry_arguments(launches, arguments)
     validate_localization_profile(profile, launches, arguments)
     endpoint_arguments(launches, arguments)
+    # A part another component's part brings (nav's with:, the boat's watchdogs with odometry)
+    # runs inside that launch: its row only shows it, and never starts a second copy.
+    carriers = {brought: specs[key].get('title', key.capitalize())
+                for key, part in resolved.items() for brought in part.spec.get('with', ())}
     result = []
     for key, spec in specs.items():
         part = resolved[key]
         kind = part.spec.get('kind', 'sensing')
         here = part.host.name == me.name
+        carried = carriers.get(part.name)
+        if spec.get('start') and carried:
+            raise ValueError(f'components.{key}.start: {part.name} starts with {carried}')
         # start: here comes up with the session only on the computer that runs the part (the
         # operator heartbeat, from an operator's TUI); from another computer it stays a Status row.
         start = spec.get('start') is True or (spec.get('start') == 'here' and here)
@@ -234,17 +242,8 @@ def components(profile, overlay=None, placed=None):
             None if here else part.host, spec.get('topic'),
             bool(spec.get('limits', False)), start, part.name,
             part.profile, kind, part.enabled, launches[key], final,
-            tuple(part.spec.get('with', ()))))
+            tuple(part.spec.get('with', ())), carried))
     return tuple(result)
-
-
-def without_brought(argv, part, keep):
-    """``argv`` with the session layer's ``parts.<part>.with`` set to ``keep``."""
-    prefix = 'overrides:='
-    layer = next((json.loads(word[len(prefix):]) for word in argv if word.startswith(prefix)), {})
-    layer.setdefault('parts', {}).setdefault(part, {})['with'] = list(keep)
-    words = tuple(word for word in argv if not word.startswith(prefix))
-    return words + (f'{prefix}{json.dumps(layer, separators=(",", ":"), sort_keys=True)}',)
 
 
 def moves(component):
@@ -304,6 +303,10 @@ def state(component, nodes, processes, now, started=None, units=None):
     if not component.enabled:
         return 'disabled', f'disabled on {component.profile}'
     nodes = {node.rsplit('/', 1)[-1] for node in nodes}
+    if component.carried_by:     # inside another component's launch: the graph is all there is
+        if _up(component, nodes):
+            return 'external', f'with {component.carried_by}'
+        return 'off', f'starts with {component.carried_by}'
     if component.host is not None:
         return remote_state(component, nodes, units, now, started)
     up = bool(component.nodes) and all(node in nodes for node in component.nodes)
@@ -353,6 +356,8 @@ class Stack:
         ``commander``, which the TUI passes after the operator's keypress and confirm.
         """
         item = self.items[key]
+        if item.carried_by:
+            raise ComponentError(f'{item.title} start with {item.carried_by}: start that', [key])
         status, detail = self.state(key, nodes)
         if status == 'disabled':
             raise ComponentError(f'{item.title} is {detail}', [key])
@@ -367,7 +372,6 @@ class Stack:
                if self.state(need, nodes)[0] in ('off', 'exited', 'unreachable', 'disabled')]
         if off:
             raise ComponentError(f'Start {self.items[off[0]].title} first', off)
-        item = self._without_running(item, nodes)
         if item.host is None:
             self.processes.start(key, item.argv)
         elif self.units is None:
@@ -378,21 +382,6 @@ class Stack:
         else:
             self.units.start(item, commander=item.kind == 'commander')
         self.started[key] = self.clock()
-
-    def _without_running(self, item, nodes):
-        """``item`` minus the parts it brings that already run: a second copy duplicates nodes.
-
-        A brought part reads as running when any of its proof nodes is on the graph or its own
-        start is ours or still starting (the boat's watchdogs started by their own row first).
-        """
-        bare = {node.rsplit('/', 1)[-1] for node in nodes}
-        up = {other.part for other in self.items.values() if other.part in item.brings
-              and (any(node in bare for node in other.nodes)
-                   or self.state(other.key, nodes)[0] in ('ours', 'starting'))}
-        if not up:
-            return item
-        keep = [part for part in item.brings if part not in up]
-        return replace(item, argv=without_brought(item.argv, item.part, keep))
 
     def running(self, key):
         """Ours to stop: a keeper child here, or a unit not known to be stopped (stop always tries)."""
@@ -411,6 +400,9 @@ class Stack:
         stop`` of a unit that is not running is harmless, and ssh may be down or not yet read.
         """
         item = self.items[key]
+        if item.carried_by:
+            raise ComponentError(f'{item.title} run with {item.carried_by}: stopping that stops '
+                                 'them, and arming then refuses', [key])
         status, _ = self.state(key, nodes)
         if status == 'external' and item.host is None:
             raise ComponentError('running outside this session; stop it where it was started', [key])

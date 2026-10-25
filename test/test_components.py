@@ -146,7 +146,9 @@ def test_boat_session_start_brings_up_only_sensing():
     started = [item for item in components(load_profile('boat')) if item.start]
     assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors', 'watchdogs',
                                               'operator_heartbeat'}
-    assert 'watchdogs' in {item.key for item in started}     # hold-only, up before any autonomy
+    # The watchdogs run inside odometry's launch on the boat (nav's with:): a read-only row.
+    watchdogs = next(item for item in components(load_profile('boat')) if item.key == 'watchdogs')
+    assert watchdogs.carried_by == 'Odometry' and watchdogs not in started
     # MAVROS and the EKFs are the boat's own: a TUI that misses them in discovery must not start a second set.
     assert not {'odometry', 'ekf'} & {item.key for item in started}
     # Every role is on this machine here, so it is an operator host: the heartbeat comes up too.
@@ -225,33 +227,37 @@ def test_start_needs_prompt_and_order():
 
 
 class Watched(Profile):
-    components = {'odometry': {}, 'watchdogs': {'title': 'Safety watchdogs', 'start': True}}
+    components = {'odometry': {}, 'watchdogs': {'title': 'Safety watchdogs'}}
 
 
-def watched_stack():
-    parts = dict(PARTS, odometry=replace(PARTS['odometry'], spec=dict(
-        PARTS['odometry'].spec, **{'with': ['watchdogs']})),
-        watchdogs=part('watchdogs', 'watchdogs.launch.py',
-                       nodes=['link_watchdog', 'fence_watchdog', 'fcu_watchdog']))
+WATCHED_PARTS = dict(
+    PARTS, odometry=replace(PARTS['odometry'], spec=dict(PARTS['odometry'].spec,
+                                                         **{'with': ['watchdogs']})),
+    watchdogs=part('watchdogs', 'watchdogs.launch.py',
+                   nodes=['link_watchdog', 'fence_watchdog', 'fcu_watchdog']))
+DOGS = {'/link_watchdog', '/fence_watchdog', '/fcu_watchdog'}
+
+
+def test_the_watchdogs_odometry_brings_are_a_read_only_row():
     processes = FakeProcesses()
-    return Stack(components(Watched, None, (ME, parts)), processes, lambda: 0.0), processes
+    stack = Stack(components(Watched, None, (ME, WATCHED_PARTS)), processes, lambda: 0.0)
+    assert stack.items['watchdogs'].carried_by == 'Odometry'
+    assert stack.state('watchdogs', set()) == ('off', 'starts with Odometry')
+    with pytest.raises(ComponentError, match='start with Odometry'):
+        stack.start('watchdogs', set())
+    stack.start('odometry', set())                     # they come up inside its launch
+    assert stack.state('watchdogs', DOGS) == ('external', 'with Odometry')
+    with pytest.raises(ComponentError, match='run with Odometry'):
+        stack.stop('watchdogs', DOGS)
+    assert stack.stop('odometry', DOGS) == ['odometry']   # which takes them along
+    assert [name for name, _ in processes.started] == ['odometry']
 
 
-def test_odometry_brings_the_boat_watchdogs_but_never_a_second_copy():
-    stack, processes = watched_stack()
-    assert stack.items['odometry'].brings == ('watchdogs',)
-    stack.start('odometry', set())                     # nothing up: they come with odometry
-    assert 'with' not in overrides(processes.started[-1][1]).get('parts', {}).get('odometry', {})
-    with pytest.raises(ComponentError, match='Safety watchdogs is already running'):
-        stack.start('watchdogs', {'/link_watchdog', '/fence_watchdog', '/fcu_watchdog'})
-
-    stack, processes = watched_stack()
-    stack.start('watchdogs', set())                    # their own row first (a boat TUI's start)
-    stack.start('odometry', set())
-    assert overrides(processes.started[-1][1])['parts']['odometry']['with'] == []
-    stack, processes = watched_stack()                 # one of them already up elsewhere
-    stack.start('odometry', {'/fcu_watchdog'})
-    assert overrides(processes.started[-1][1])['parts']['odometry']['with'] == []
+def test_a_watchdogs_row_carried_by_odometry_may_not_start_with_the_session():
+    class Started(Profile):
+        components = {'odometry': {}, 'watchdogs': {'start': True}}
+    with pytest.raises(ValueError, match='watchdogs.start: watchdogs starts with Odometry'):
+        components(Started, None, (ME, WATCHED_PARTS))
 
 
 class Tracked(Profile):
@@ -322,7 +328,7 @@ def test_a_boat_tui_never_auto_starts_a_part_the_boat_runs_while_discovery_is_sl
             assert [name for name, _ in processes.started] == ['operator_heartbeat']
             processes.started.clear()
             processes.live.clear()
-            assert 'left Safety watchdogs to blastoise' in ' | '.join(lines)
+            assert 'Safety watchdogs' not in ' | '.join(lines)    # they come with odometry
             if profile is Started:
                 assert 'left Odometry to blastoise' in ' | '.join(lines)
                 assert 'skipped EKFs: Odometry did not start' in lines
