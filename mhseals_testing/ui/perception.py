@@ -1,6 +1,6 @@
-"""The perception popup (V): one source's pipeline, latency, drops and per-class rates.
+"""The perception popup (V): one source's pipeline, latency, drops, tracks, heading and classes.
 
-A pure view over the ``perc.<source>.*`` facts of perception.md section 4 (a mapping of
+A pure view over the ``perc.<source>.*`` facts of perception-v2.md section 7.2 (a mapping of
 fact name to ``health.model.Fact``). Absent facts leave their row out, so the popup works
 with whatever the probe publishes. Nothing here reads ROS or the clock.
 """
@@ -9,13 +9,15 @@ import re
 
 from mhseals_testing.ui import theme
 
-STAGES = ('camera', 'detector', 'sdk', 'bridge', 'converter')
+STAGES = ('camera', 'sdk', 'backend', 'tracker', 'heading')
+FRAME_CHAIN = ('sdk', 'backend')   # stages that should keep the camera's frame rate
 LOSS_WARN = 0.15            # a drop above this between two stages marks the arrow
-LATENCY_COLUMNS = 14        # seconds of latency history drawn
+LATENCY_COLUMNS = 14        # samples of latency history drawn
 CLASS_ROWS = 8              # classes listed before the "not seen" line
 SOURCE_FACT = re.compile(r'perc\.([^.]+)\.(?:hz|latency|stages|classes)$')
 BARS = theme.SPARK
 ELLIPSIS = theme.pick('…', '...')
+RHO = theme.pick('ρ', 'rho')
 
 
 def sources(facts):
@@ -23,7 +25,7 @@ def sources(facts):
     found = {}
     for name in facts:
         match = SOURCE_FACT.fullmatch(name)
-        if match and match.group(1) != 'tracks':
+        if match:
             found[match.group(1)] = True
     return list(found)
 
@@ -43,14 +45,17 @@ def value(facts, name, default=None):
 
 
 def pipeline(stages):
-    """``camera 4.8 -> detector 4.7 ...`` for the stages present; losses over 15 % are starred."""
+    """``camera 14.9 -> sdk 14.6 ...`` for the stages present; frame losses over 15 % are starred.
+
+    The tracker runs at its own rate, so only the frame chain camera, sdk, backend is judged.
+    """
     parts, last = [], None
     for name in STAGES:
         hz = (stages.get(name) or {}).get('hz')
         if hz is None:
             continue
         if parts:
-            lost = last and 1 - hz / last > LOSS_WARN
+            lost = last and name in FRAME_CHAIN and 1 - hz / last > LOSS_WARN
             parts.append(f' {theme.ARROW}{"!" if lost else ""} ')
         parts.append(f'{name} {hz:.1f}')
         last = hz
@@ -69,39 +74,65 @@ def latency_row(facts, source):
     if history:
         text += f'  {spark(history)}'
     extra = []
-    offset = next((f for n, f in facts.items() if n.startswith('clock.offset.')), None)
+    offset = value(facts, f'perc.{source}.clock_offset')
     if offset is not None:
-        extra.append(f'clock {offset.value * 1000:+.0f} ms')
+        extra.append(f'clock {offset * 1000:+.0f} ms')
     infer = value(facts, f'perc.{source}.inference_ms')
     if infer is not None:
         extra.append(f'infer {infer:.0f} ms')
+    tracker = value(facts, f'perc.{source}.tracker_latency')
+    if tracker is not None:
+        extra.append(f'tracker {tracker * 1000:.0f} ms')
     return text + (f'  ({f" {theme.MIDDOT} ".join(extra)})' if extra else '')
 
 
 def drops_row(facts, source):
-    drops = value(facts, f'perc.{source}.drops')
-    if not isinstance(drops, dict):
+    """``loss 12% · stale 10 · reorder 0`` from the backend's cumulative drop counters."""
+    fact = facts.get(f'perc.{source}.funnel_loss')
+    if fact is None:
         return None
-    text = f' {theme.MIDDOT} '.join(f'{reason} {count:g}' for reason, count in drops.items())
-    nodes = facts.get(f'perc.{source}.remote_nodes')
-    if nodes is not None:
-        text += f'    nodes {nodes.value}'
-    return text or 'none'
+    drops = fact.data.get('drops', {})
+    return f' {theme.MIDDOT} '.join([f'loss {fact.value:.0%}'] + [f'{k} {n:g}' for k, n in drops.items()])
+
+
+def tracks_row(facts, source):
+    """``S12 M1 U2 P8 · ids 93%``: the static/moving/unknown/prior split and id association."""
+    parts = []
+    split = value(facts, f'perc.{source}.split')
+    if split:
+        parts.append(split)
+    ids = facts.get(f'perc.{source}.ids')
+    if ids is not None:
+        share = ids.data.get('id_assoc_share')
+        parts.append(f'ids {share:.0%}' if share is not None and ids.value == 'true' else f'ids {ids.value}')
+    age = value(facts, f'perc.{source}.costmap_age')
+    if age is not None:
+        parts.append(f'costmap {age:.1f} s')
+    return f' {theme.MIDDOT} '.join(parts) or None
+
+
+def heading_row(facts, source):
+    """``lag 0.03 s ρ 0.21 ok``, or ``not excited`` while the boat has not turned enough."""
+    fact = facts.get(f'perc.{source}.heading')
+    if fact is None:
+        return None
+    if fact.data.get('excited') == 'false':
+        return f'not excited {theme.MIDDOT} {fact.value}'
+    try:
+        return f'lag {float(fact.data["lag_s"]):.2f} s {RHO} {float(fact.data["rho"]):.2f} {fact.value}'
+    except (KeyError, ValueError):
+        return fact.value
 
 
 def class_rows(facts, source, width=CLASS_ROWS):
-    """One row per class seen, busiest first, then a line naming those not seen."""
+    """One row per class seen (mean confidence, observations/s, confidence spark), busiest first."""
     fact = facts.get(f'perc.{source}.classes')
     if fact is None:
         return []
     seen = sorted(((n, d) for n, d in fact.data.items() if d.get('rate', 0) > 0),
                   key=lambda item: -item[1]['rate'])
-    rows = []
-    for name, d in seen[:width]:
-        age = d.get('last_age')
-        rows.append((name, f'{d["rate"]:.1f}/s {theme.MIDDOT} {d.get("presence", 0):.0%} '
-                           f'{theme.MIDDOT} p50 {d.get("p50", 0):.2f} {theme.MIDDOT} '
-                           f'{"-" if age is None else f"{age:.1f}s"}  {spark(d.get("hist", []), width=10)}'))
+    rows = [(name, f'conf {d.get("conf", 0):.2f} {theme.MIDDOT} {d["rate"]:.1f}/s  '
+                   f'{spark(d.get("history", []), high=1.0, width=10)}') for name, d in seen[:width]]
     more = seen[width:]
     if more:
         rows.append(('', f'+{len(more)} more'))
@@ -118,7 +149,8 @@ def rows(facts, source):
     stages = value(facts, f'perc.{source}.stages')
     if isinstance(stages, dict) and pipeline(stages):
         out.append(('Pipeline', pipeline(stages)))
-    for label, row in (('Latency', latency_row(facts, source)), ('Drops /min', drops_row(facts, source))):
+    for label, row in (('Latency', latency_row(facts, source)), ('Drops', drops_row(facts, source)),
+                       ('Tracks', tracks_row(facts, source)), ('Heading', heading_row(facts, source))):
         if row:
             out.append((label, row))
     out += class_rows(facts, source)

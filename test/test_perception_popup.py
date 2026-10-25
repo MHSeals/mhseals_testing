@@ -18,19 +18,22 @@ TESTS = Path(__file__).parent
 
 
 def facts():
-    cls = {'red_buoy': dict(rate=1.9, presence=.41, p50=.71, last_age=.2, hist=[1, 3, 8, 5, 2]),
-           'green_buoy': dict(rate=1.7, presence=.38, p50=.68, last_age=.4, hist=[1, 2, 6, 4]),
-           'black_buoy': dict(rate=0), 'blue_buoy': dict(rate=0), 'a_pole': dict(rate=0),
-           'z_pole': dict(rate=0)}
-    stages = {'camera': {'hz': 4.8}, 'detector': {'hz': 4.7}, 'bridge': {'hz': 3.0},
-              'converter': {'hz': 3.0}}
-    return {'perc.legacy_zed.stages': Fact(stages),
-            'perc.legacy_zed.latency': Fact(.231, data=dict(p95=.312, history=[.2, .25, .3, .23])),
-            'perc.legacy_zed.inference_ms': Fact(188.0),
-            'perc.legacy_zed.drops': Fact({'stale': 0, 'ingest': 1}),
-            'perc.legacy_zed.remote_nodes': Fact('4/4'),
-            'perc.legacy_zed.classes': Fact('2', data=cls),
-            'clock.offset.squirtle': Fact(-.004)}
+    cls = {'red_buoy': dict(conf=.71, rate=1.9, history=[.6, .7, .72, .71]),
+           'green_buoy': dict(conf=.68, rate=1.7, history=[.5, .66, .68]),
+           'black_buoy': dict(conf=0, rate=0), 'blue_buoy': dict(conf=0, rate=0), 'a_pole': dict(conf=0, rate=0),
+           'z_pole': dict(conf=0, rate=0)}
+    stages = {'camera': {'hz': 14.9}, 'sdk': {'hz': 14.6}, 'backend': {'hz': 9.0}, 'tracker': {'hz': 10.0}}
+    return {'perc.zed_native.stages': Fact(stages),
+            'perc.zed_native.latency': Fact(.231, data=dict(p95=.312, history=[.2, .25, .3, .23])),
+            'perc.zed_native.inference_ms': Fact(52.0),
+            'perc.zed_native.clock_offset': Fact(-.004),
+            'perc.zed_native.tracker_latency': Fact(.112),
+            'perc.zed_native.funnel_loss': Fact(.12, data=dict(drops={'stale': 10, 'reorder': 1, 'malformed': 0})),
+            'perc.zed_native.split': Fact('S12 M1 U2 P8'),
+            'perc.zed_native.ids': Fact('true', data=dict(id_assoc_share=.93)),
+            'perc.zed_native.costmap_age': Fact(.21),
+            'perc.zed_native.heading': Fact('ok', data=dict(lag_s='0.03', rho='0.21', excited='true')),
+            'perc.zed_native.classes': Fact(2, data=cls)}
 
 
 def draw(width, height=40, **kwargs):
@@ -42,8 +45,9 @@ def draw(width, height=40, **kwargs):
 
 def test_popup_shows_each_section_at_100_columns():
     text = draw(100)
-    for want in ('Perception', 'legacy_zed', 'camera 4.8', 'p50 231', 'p95 312', 'clock -4 ms',
-                 'infer 188 ms', 'ingest 1', 'nodes 4/4', 'red_buoy', '1.9/s', '41%', 'v view',
+    for want in ('Perception', 'zed_native', 'camera 14.9', 'p50 231', 'p95 312', 'clock -4 ms',
+                 'infer 52 ms', 'tracker 112 ms', 'loss 12%', 'stale 10', 'S12 M1 U2 P8', 'ids 93%',
+                 'costmap 0.2 s', 'lag 0.03 s ρ 0.21 ok', 'red_buoy', 'conf 0.71', '1.9/s', 'v view',
                  '4 not seen', 'a_pole, black_buoy, blue_buoy', 'Esc close'):
         assert want in text, want
     assert text.index('red_buoy') < text.index('green_buoy')   # busiest class first
@@ -51,8 +55,8 @@ def test_popup_shows_each_section_at_100_columns():
 
 def test_stage_loss_over_fifteen_percent_is_marked():
     text = draw(100)
-    assert 'detector 4.7 ->! bridge 3.0'.replace('->', '→') in text.replace('  ', ' ')
-    assert 'camera 4.8 → detector' in text
+    assert 'sdk 14.6 →! backend 9.0 → tracker 10.0' in text.replace('  ', ' ')
+    assert 'camera 14.9 → sdk' in text
 
 
 def test_popup_fits_60_columns_and_clips_to_a_short_terminal():
@@ -64,7 +68,7 @@ def test_popup_fits_60_columns_and_clips_to_a_short_terminal():
 def test_no_facts_says_so_and_unknown_source_is_empty():
     modal = perception.modal({})
     assert modal['rows'] == [('', 'No perception facts yet')]
-    assert perception.sources(facts()) == ['legacy_zed']
+    assert perception.sources(facts()) == ['zed_native']
 
 
 def test_capital_v_opens_the_popup_and_lowercase_keeps_results_log():
@@ -108,6 +112,13 @@ def test_popup_rebuilds_rows_from_changed_facts_without_a_key():
     app.App.perception_popup(host)
     assert held['before'] == [('', 'No perception facts yet')]
     assert any(name == 'red_buoy' for name, _ in held['after']) and held['scroll'] == 2
+
+
+def test_heading_row_says_when_the_boat_has_not_turned_enough():
+    held = {'perc.s.heading': Fact('ok', data=dict(excited='false'))}
+    assert perception.heading_row(held, 's') == 'not excited · ok'
+    assert perception.heading_row({'perc.s.heading': Fact('error', data=dict(lag_s='0.2', rho='0.8'))}, 's') \
+        == 'lag 0.20 s ρ 0.80 error'
 
 
 def test_seen_classes_past_the_limit_are_counted_apart_from_not_seen():
