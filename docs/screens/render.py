@@ -25,6 +25,7 @@ from mhseals_testing.profiles import load_profile  # noqa: E402
 from mhseals_testing.ui import layout  # noqa: E402
 from mhseals_testing.ui.minimap import tasks  # noqa: E402
 from mhseals_testing.ui.minimap.marks import Obj  # noqa: E402
+from mhseals_testing.ui.minimap.layerbox import LayerBox  # noqa: E402
 from mhseals_testing.ui.minimap.panel import MiniMap  # noqa: E402
 from mhseals_testing.ui.minimap.state import MapState  # noqa: E402
 from mhseals_testing.ui.popups import inspect  # noqa: E402
@@ -69,8 +70,10 @@ def map_state():
 
 def map_():
     monitor, _ = test_inspect_popup.scene()
-    minimap = MiniMap(map_state(), clock=lambda: 120.0, half=20.0)
-    return monitor.snapshot(PROFILE.required_tf), base_view(tab='Map', focus='map', minimap=minimap)
+    state = map_state()
+    minimap = MiniMap(state, clock=lambda: 120.0, half=20.0)
+    return monitor.snapshot(PROFILE.required_tf), base_view(tab='Map', focus='map', minimap=minimap,
+                                                            layerbox=LayerBox(None, state))
 
 
 def compass():
