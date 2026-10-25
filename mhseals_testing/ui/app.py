@@ -2274,14 +2274,14 @@ class App:
         return popups.prompt(self, message, title)
 
     def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None,
-               default=0, width=64, risky=None):
-        return popups.choose(self, title, options, shortcuts, message, danger, rows, default, width, risky)
+               default=0, width=64, risky=None, quiet=False):
+        return popups.choose(self, title, options, shortcuts, message, danger, rows, default, width, risky, quiet)
 
     def ask_text(self, title, message, text='', check=None):
         return popups.ask_text(self, title, message, text, check)
 
-    def type_word(self, title, message, word, rows=None, width=64):
-        return popups.type_word(self, title, message, word, rows, width)
+    def type_word(self, title, message, word, rows=None, width=64, quiet=False):
+        return popups.type_word(self, title, message, word, rows, width, quiet)
 
     # --- arming --------------------------------------------------------------------
 
@@ -2314,7 +2314,7 @@ class App:
     def confirm_drive(self, title):
         """The typed word that starts the real driver, for arming and the pin readback alike."""
         return self.type_word(title, 'Propellers submerged, area clear, physical power '
-                              'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72)
+                              'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72, quiet=True)
 
     def arm_panel(self):
         """One popup for both directions; Space still stops without it."""
@@ -2332,7 +2332,7 @@ class App:
             if self.armed:
                 if self.choose(f'Armed{theme.SEPARATOR}{self.profile.name}',
                                ('Disarm', 'Close'), {'d': 0, 'c': 1}, rows=self.arm_rows(),
-                               danger=True, width=72) == 'Disarm':
+                               danger=True, width=72, quiet=True) == 'Disarm':
                     self.disarm()
                 return
             if self.arming is None:
@@ -2345,7 +2345,7 @@ class App:
                 ok = self.confirm_drive(title)
             else:
                 ok = self.choose(title, ('Cancel', 'Arm'), {'n': 0, 'y': 1},
-                                 rows=self.arm_rows(), width=72) == 'Arm'
+                                 rows=self.arm_rows(), width=72, quiet=True) == 'Arm'
         except Cancelled:
             ok = False
         if not ok:

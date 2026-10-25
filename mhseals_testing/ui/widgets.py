@@ -118,10 +118,11 @@ def field(text, *, width, placeholder='', state='idle', note='', suffix='', limi
     return Group(*parts)
 
 
-def word_field(typed, word):
+def word_field(typed, word, hue=None):
     """The typed confirm's letter slots, ``A R _``, with what it still needs beside them.
 
     Letters matching the word so far are ``ok``; from the first wrong one on they are ``warn``.
+    ``hue`` (the arm panel's ``arm.word``) draws the box, the matching letters and the word instead.
     """
     slots, wrong = Text(), False
     for index in range(len(word)):
@@ -129,29 +130,37 @@ def word_field(typed, word):
             slots.append(' ')
         if index < len(typed):
             wrong = wrong or typed[index] != word[index]
-            slots.append(typed[index], style=f'bold {theme.WARN if wrong else theme.GOOD}')
+            slots.append(typed[index], style=f'bold {theme.WARN if wrong else hue or theme.GOOD}'.strip())
         else:
             slots.append('_', style=theme.MUTED)
     done = typed == word
     if done:
-        note = Text(f'{word} {theme.pick("✓", "+")}', style=theme.GOOD)
+        note = Text(f'{word} {theme.pick("✓", "+")}', style=f'bold {hue}' if hue else theme.GOOD)
     elif wrong:
         note = Text(f'! needs {word}', style=theme.WARN)
     else:
-        note = Text(f'needs {word}', style=theme.MUTED)
+        note = Text.assemble(('needs ', theme.MUTED), (word, f'bold {hue}'.strip())) if hue is not None \
+            else Text(f'needs {word}', style=theme.MUTED)
     table = Table.grid(padding=(0, 2))
     table.add_column(no_wrap=True)
     table.add_column(vertical='middle')
-    table.add_row(_box(slots, theme.WARN if wrong else theme.ACCENT, width=len(word) * 2 + 3), note)
+    table.add_row(_box(slots, theme.WARN if wrong else (hue or 'bold') if hue is not None else theme.ACCENT,
+                       width=len(word) * 2 + 3), note)
     return table
 
 
-def rule(label, width):
-    """``── Drift ─────``: a quiet section line for popups."""
+def rule(label, width, note=None, note_style=None, strong=False):
+    """``── Drift ─────``: a quiet section line for popups; ``strong`` labels in bold slate and a
+    ``note`` (``2 blocking``) follows the label after a separator."""
     dash = theme.RULE
     text = Text(f'{dash * 2} ', style=_style('border'))
-    text.append(label, style=theme.MUTED)
-    text.append(' ' + dash * max(0, width - len(label) - 4), style=_style('border'))
+    text.append(label, style=f'bold {_style("slate")}'.strip() if strong else theme.MUTED)
+    used = len(label) + 4
+    if note:
+        text.append(theme.SEPARATOR, style=_style('border'))
+        text.append(note, style=note_style or theme.MUTED)
+        used += len(theme.SEPARATOR) + len(note)
+    text.append(' ' + dash * max(0, width - used), style=_style('border'))
     return text
 
 
