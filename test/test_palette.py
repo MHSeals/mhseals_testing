@@ -40,7 +40,7 @@ def test_overlay_can_turn_cvd_on_and_retint_a_token(tmp_path):
     overlay.write_text("cvd: true\ntheme: light\n")
     theme, warning = palette.load_theme(overlay=overlay)
     assert warning is None and theme.cvd and theme.mode == 'light'
-    assert theme.style('ok', tier='truecolor') == '#2D63C4'
+    assert theme.style('ok', tier='truecolor') == '#2F78B8'
 
 
 @pytest.mark.parametrize('mode', ['dark', 'light'])
