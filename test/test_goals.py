@@ -130,3 +130,18 @@ def test_preview_refuses_on_gate_and_planner_failure():
     assert goals.preview((5, 0), (0, 0), grid(), ready())[0] == [(0, 0), (5, 0)]
     nav2.plan = lambda goal, timeout: (_ for _ in ()).throw(RuntimeError('no route'))
     assert 'no route' in goals.preview((5, 0), (0, 0), grid(), ready())[1]
+
+
+def test_an_unreadable_costmap_limit_is_read_again_on_the_next_goal(monkeypatch, tmp_path):
+    from mhseals_testing.harness import goals
+    from mhseals_testing.health import config
+    monkeypatch.setattr(goals, '_LIMIT', [])
+    monkeypatch.setattr(config, 'share_dir', lambda package: tmp_path / package)
+    assert goals.costmap_limit_s() is None and 'unreadable' in gate(ready(costmap_age_s=0.0))
+    path = tmp_path / 'mhseals_nav' / 'config' / 'costmap_watchdog.yaml'
+    path.parent.mkdir(parents=True)
+    path.write_text("/**:\n  ros__parameters:\n    max_age_s: .nan\n")
+    assert goals.costmap_limit_s() is None
+    path.write_text("/**:\n  ros__parameters:\n    max_age_s: 1.0\n")
+    assert goals.costmap_limit_s() == 1.0 and gate(ready(costmap_age_s=1.0)) is None
+    assert 'stale' in gate(ready(costmap_age_s=1.1))

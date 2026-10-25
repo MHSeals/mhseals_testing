@@ -9,7 +9,6 @@ whose goal is executing.
 """
 
 from dataclasses import dataclass, field
-from functools import cache
 import math
 
 import numpy as np
@@ -87,15 +86,23 @@ def gate(facts, auto=False):
     return None
 
 
-@cache
+_LIMIT = []  # the first good read; a failed read is retried on the next goal
+
+
 def costmap_limit_s():
     """mhseals_nav's costmap_watchdog ``max_age_s``, the one costmap freshness limit; None when unreadable."""
+    if _LIMIT:
+        return _LIMIT[0]
     from mhseals_testing.health.config import share_dir
     try:
         params = yaml.safe_load((share_dir('mhseals_nav') / 'config' / 'costmap_watchdog.yaml').read_text())
-        return float(params['/**']['ros__parameters']['max_age_s'])
+        limit = float(params['/**']['ros__parameters']['max_age_s'])
     except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError):
         return None
+    if not math.isfinite(limit) or limit < 0:
+        return None
+    _LIMIT.append(limit)
+    return limit
 
 
 def check_goal(goal, boat, grid):
