@@ -32,7 +32,17 @@ def test_defaults_are_the_shipped_hook_config(tmp_path):
     assert hook.hook_config(cache_dir=tmp_path) == {k: shipped[k] for k in hook.DEFAULTS}
     assert hook.hook_config(cache_dir=tmp_path) == hook.hook_config(cache_dir=tmp_path)    # from the cache
     assert hook.hook_config('/nonexistent', cache_dir=tmp_path) == hook.DEFAULTS
+    assert (tmp_path / 'config.json').stat().st_mode & 0o077 == 0     # user-only
     assert {k: v for k, v in shipped.items() if k in hook.DEFAULTS} == hook.DEFAULTS
+
+
+def test_the_private_dir_is_user_only_and_not_shared_tmp(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path / 'run'))
+    out = hook.private_dir()
+    assert out == tmp_path / 'run' / 'boat_agent_hook' and out.stat().st_mode & 0o077 == 0
+    monkeypatch.delenv('XDG_RUNTIME_DIR')
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    assert hook.private_dir() == tmp_path / 'home' / '.cache' / 'boat_agent_hook'
 
 
 @pytest.mark.parametrize('command, verb', [
@@ -48,7 +58,13 @@ def test_defaults_are_the_shipped_hook_config(tmp_path):
     ('ros2 action send_goal /backup nav2_msgs/action/BackUp "{}"', 'run KEY'),
     ('ros2 action send_goal /drive_on_heading nav2_msgs/action/DriveOnHeading "{}"', 'run KEY'),
     ('ros2 action send_goal /follow_waypoints nav2_msgs/action/FollowWaypoints "{}"', 'goal X Y'),
-    ('ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{}"', 'goal X Y')])
+    ('ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{}"', 'goal X Y'),
+    # quoting and continuations the shell removes cannot hide a match
+    ("ros2 topic pub /cmd''_vel geometry_msgs/msg/Twist {}", 'run KEY'),
+    ('ros2 topic pub "/cmd"_vel geometry_msgs/msg/Twist {}', 'run KEY'),
+    ("ros2 'topic' pub /cmd_vel geometry_msgs/msg/Twist {}", 'run KEY'),
+    ("ros2 service call /mavros/cmd/'arming' mavros_msgs/srv/CommandBool {}", 'ask'),
+    ('ros2 topic pub /cmd_\\\nvel geometry_msgs/msg/Twist {}', 'run KEY')])
 def test_raw_motion_is_denied_with_the_verb_to_use_and_noted(sent, command, verb):
     reason = sent('pre', command)['deny']
     assert reason.startswith('Blocked: ') and f'tools/boat_agent {verb}' in reason and '--who claude-3f2a' in reason

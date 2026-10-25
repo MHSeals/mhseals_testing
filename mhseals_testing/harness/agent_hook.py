@@ -54,9 +54,23 @@ USE = ((r'/cmd_vel|/mavros/(rc/override|setpoint)', 'raw motion', 'run KEY --cla
        (r'.', 'raw motion', 'run KEY --claim ID'))
 
 
+def private_dir(directory=None):
+    """``directory``, else ``$XDG_RUNTIME_DIR/boat_agent_hook``, else ``~/.cache/boat_agent_hook``:
+    user-only (0700), never a shared /tmp another user could plant a config or state file in."""
+    if directory:
+        return Path(directory)
+    base = os.environ.get('XDG_RUNTIME_DIR') or Path.home() / '.cache'
+    out = Path(base) / 'boat_agent_hook'
+    out.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return out
+
+
 def hook_config(path=CONFIG, cache_dir=None):
     """``hook:`` of config/agent.yaml, else the built-in defaults; cached as JSON by the file's mtime."""
-    cache = Path(cache_dir or os.environ.get('TMPDIR') or '/tmp') / f'boat_agent_hook-config-{os.getuid()}.json'
+    try:
+        cache = private_dir(cache_dir) / 'config.json'
+    except OSError:
+        cache = Path(os.devnull)
     try:
         stamp = os.stat(path).st_mtime_ns
     except OSError:
@@ -74,7 +88,9 @@ def hook_config(path=CONFIG, cache_dir=None):
         return dict(DEFAULTS)
     hook = {**DEFAULTS, **{k: v for k, v in found.items() if k in DEFAULTS}}
     try:
-        cache.write_text(json.dumps({'path': str(path), 'mtime': stamp, 'hook': hook}))
+        fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as handle:
+            handle.write(json.dumps({'path': str(path), 'mtime': stamp, 'hook': hook}))
     except OSError:
         pass
     return hook
@@ -110,7 +126,7 @@ def start_text(who, agent='claude'):
 
 def deny_reason(command, who):
     """One line: what was blocked, why, and the boat_agent verb that does it instead."""
-    what, verb = next((w, v) for p, w, v in USE if re.search(p, command, re.S))
+    what, verb = next((w, v) for p, w, v in USE if re.search(p, plain(command), re.S))
     head = f'Blocked: {what} from a shell bypasses the boat claim and the operator.'
     if verb is None:
         return f'{head} Those stay with the operator; ask them: ssh blastoise {BOAT_AGENT} ask "..." --who {who}'
@@ -120,12 +136,20 @@ def deny_reason(command, who):
 
 def use_of(command):
     """The short verb a deny names, for the TUI row."""
-    verb = next(v for p, _, v in USE if re.search(p, command, re.S))
+    verb = next(v for p, _, v in USE if re.search(p, plain(command), re.S))
     return f'boat_agent {verb.split()[0]}' if verb else 'operator'
 
 
+def plain(text):
+    """The command as the shell reads its words: continuations joined, quotes dropped, so
+    ``/cmd''_vel`` or ``ros2 'topic' pub`` cannot hide a match."""
+    return text.replace('\\\n', '').replace("'", '').replace('"', '')
+
+
 def matches(patterns, text):
-    """Any pattern found; ``.`` spans newlines, so a multi-line command cannot hide a match."""
+    """Any pattern found in ``plain(text)``; ``.`` spans newlines, so a multi-line command cannot
+    hide a match."""
+    text = plain(text)
     return any(re.search(p, text, re.S) for p in patterns)
 
 
@@ -144,7 +168,10 @@ class State:
     """
 
     def __init__(self, session, directory=None):
-        directory = Path(directory or os.environ.get('TMPDIR') or '/tmp')
+        try:
+            directory = private_dir(directory)
+        except OSError:
+            directory = Path(os.environ.get('TMPDIR') or '/tmp')
         self.path = directory / f'boat_agent_hook-{re.sub(r"[^A-Za-z0-9-]", "", session)[:64]}.json'
         self.handle, self.data = None, {}
 
