@@ -12,6 +12,8 @@ from typing import Optional
 
 from mhseals_testing.ui.timeaxis import clock
 
+SEP = ' · '
+
 # Fallback key letters for journals written before `key` rode on the start line.
 KEYS = {'characterize': 'f', 'magcal': 'g', 'controller_check': 'v', 'manual': 'm',
         'thruster_set': 'i', 'nav2_bringup': 'n', 'square': 'w', 'station': 's',
@@ -41,7 +43,7 @@ class Span:
 
 @dataclass(frozen=True)
 class Point:
-    kind: str                      # mark config health auth
+    kind: str                      # mark config health auth agent
     t: float
     sev: int
     label: str
@@ -78,6 +80,7 @@ class _Fold:
 
     def __init__(self):
         self.done, self.points, self.open = [], [], {}
+        self.agent_run = False     # an agent run act is open: the procedure starting now is the agent's
 
     def feed(self, e):
         phase, t = e.get('phase', ''), e['t']
@@ -134,7 +137,33 @@ class _Fold:
         self.close('recoff', t)
 
     def on_marker(self, e, t):
-        self.points.append(Point('mark', t, 0, str(e.get('note', '')), e.get('kind') == 'system', e))
+        agent = e.get('kind') == 'agent'
+        self.points.append(Point('agent' if agent else 'mark', t, 0, str(e.get('note', '')),
+                                 e.get('kind') == 'system', e))
+
+    def _agent(self, e, t, what, sev=0):
+        """An agent point (agent-control 5): claim, act edge, revoke, lease expiry."""
+        if e.get('owner', 'agent') == 'agent':
+            self.points.append(Point('agent', t, sev, f"{what}{SEP}{e.get('who', '?')}", ref=e))
+
+    def on_claim(self, e, t):
+        self._agent(e, t, 'claim')
+
+    def on_claim_release(self, e, t):
+        self._agent(e, t, 'release')
+
+    def on_claim_revoke(self, e, t):
+        self._agent(e, t, 'revoked', 1)
+
+    def on_claim_expire(self, e, t):
+        self._agent(e, t, 'lease expired', 1)
+
+    def on_agent_act(self, e, t):
+        if e.get('op') == 'run':
+            self.agent_run = e.get('state') == 'started' and not e.get('error')
+        if e.get('state') in ('started', 'done') or e.get('error'):
+            what = f"{e.get('op', 'act')} {e.get('error') or e.get('state')}"
+            self._agent(e, t, what, 1 if e.get('error') else 0)
 
     def on_config_changed(self, e, t):
         sev = {'rolled_back': 2, 'pending': 1, 'external': 1}.get(e.get('applied'), 0)
@@ -167,7 +196,8 @@ class _Fold:
         if not key:
             return                 # not a procedure phase (rec_start, session_start, ...)
         self.open[e.get('run_id') or name] = Span(
-            'manual' if name == 'manual' else 'proc', t, key=key, label=str(e.get('label', name)),
+            'manual' if name == 'manual' else 'proc', t, key=key,
+            label=f'agent:{name}' if self.agent_run else str(e.get('label', name)),
             run_id=e.get('run_id'))
 
     def stop(self, e, t, name):
@@ -254,8 +284,8 @@ class Timeline:
         """List rows for `view`, newest first; a hold set by an abort folds into its stop row."""
         spans, points = self._built()
         if view == 'markers':
-            return [Item('mark', p.t, 0, p.label, clock(p.t), '', p.ref)
-                    for p in reversed(points) if p.kind == 'mark']
+            return [Item(p.kind, p.t, 0, p.label, clock(p.t), '', p.ref) for p in reversed(points)
+                    if p.kind == 'mark' or (p.ref or {}).get('phase') == 'marker']
         if view not in VIEWS:
             raise ValueError(f'unknown view {view!r}')
         rows = [self._run_item(s, spans) for s in spans if s.kind in ('proc', 'manual')]

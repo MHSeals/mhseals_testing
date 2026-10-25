@@ -18,7 +18,7 @@ from .timeaxis import FOLD, clock
 
 WARN, FAIL = 'warn', 'fail'
 SEVERITY = {'ok': 0, WARN: 1, FAIL: 2}
-POINT_PRIORITY = {'health': 3, 'auth': 2, 'config': 1, 'mark': 0}
+POINT_PRIORITY = {'health': 4, 'agent': 3, 'auth': 2, 'config': 1, 'mark': 0}
 HOLD = 'bold bright_black'      # slate, bold (U11)
 CLUSTER_GAP = 2                 # event columns this close form one cluster
 MANUAL = 'manual'
@@ -41,7 +41,7 @@ class Span:
 
 @dataclass
 class Point:
-    """A point event: kind is mark, config, health or auth; level is ok/warn/fail."""
+    """A point event: kind is mark, config, health, auth or agent; level is ok/warn/fail."""
     t: float
     kind: str
     level: str = 'ok'
@@ -162,10 +162,16 @@ def _events(axis, points, g, color):
     def glyph(p):
         if p.kind == 'health':
             return g['health_fail'] if p.level == FAIL else g['health_warn']
-        return g[{'mark': 'mark', 'config': 'config', 'auth': 'auth'}[p.kind]]
+        return g[p.kind]
 
     def rank(p):
         return (SEVERITY[p.level], POINT_PRIORITY[p.kind])
+
+    def style(p):
+        if color and p.level != 'ok':
+            return _level_style(p.level, True)
+        # an agent point wears the agent hue: authority, never a severity colour
+        return f'bold {theme.auth_style("agent")}'.strip() if color and p.kind == 'agent' else 'bold'
 
     for cols in filter(None, groups):
         members = [p for c in cols for p in by_col[c]]
@@ -174,12 +180,11 @@ def _events(axis, points, g, color):
         if singles:
             for c in cols:
                 p = by_col[c][0]
-                line.put(c, glyph(p), _level_style(p.level, True) if color and p.level != 'ok' else 'bold')
+                line.put(c, glyph(p), style(p))
         else:
             worst = max(members, key=rank)
             count = '+' if len(members) >= 10 else str(len(members))
-            style = _level_style(worst.level, True) if color and worst.level != 'ok' else 'bold'
-            line.put(cols[0], glyph(worst) + count, style)
+            line.put(cols[0], glyph(worst) + count, style(worst))
     if off:
         line.put(0, g['off_left'] + str(min(off, 9)), 'dim')
     return line
