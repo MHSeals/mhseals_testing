@@ -1,8 +1,9 @@
 # mhseals_testing
 
-### Overview
-
 The ASV test suite: sensor and TF checks, thruster trials, characterization, controller, navigation and perception tests, and scored mission rehearsals, on the boat or the [`crane_ml`](https://github.com/1unarzDev/crane_ml) simulator. It drives [`mhseals_hardware`](https://github.com/mhseals/mhseals_hardware) (thruster driver, velocity controller) and [`mhseals_nav`](https://github.com/mhseals/mhseals_nav) (localization, Nav2, task trees) through their public topics and launch files only.
+
+### Screens
+<table><tr><td width="50%"><img src="docs/screens/drive.svg" alt="Drive tab"><br><sub><b>Drive</b>: status, motion, thrusters, procedures</sub></td><td width="50%"><img src="docs/screens/map.svg" alt="Map tab"><br><sub><b>Map</b>: track, plan, camera FOV, GPS accuracy, mission goal</sub></td></tr><tr><td><img src="docs/screens/compass.svg" alt="Compass inspect popup"><br><sub><b>Inspect</b>: compass popup with field, yaw and rate</sub></td><td><img src="docs/screens/agent.svg" alt="Agent control"><br><sub><b>Agent</b>: banner, revoke keys and the agent log</sub></td></tr></table>
 
 ### Usage
 
@@ -66,4 +67,4 @@ PYTHONPATH=.:../mhseals_hardware python -m pytest -q test
 make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
 ```
 
-Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`. Parameter inventory: `boat_trial config catalog` (`--json -`) or TUI **Config → Catalog**.
+Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`. `make -C docs screens` redraws the images above from synthetic data; a test fails when they are stale. Parameter inventory: `boat_trial config catalog` (`--json -`) or TUI **Config → Catalog**.
