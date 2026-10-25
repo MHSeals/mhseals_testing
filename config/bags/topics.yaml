@@ -52,8 +52,9 @@ extra:
       - /clock
       - /crane/odom
       - /detections          # the sim's detector output; the boat records its raw detections on the camera host
-# Send targets (bags.md section 7). Give hosts by mDNS name; an empty host means a local path (tests).
+# Send targets (bags.md section 7). `role` names the computer in the device registry
+# (mhseals_testing.devices: its user, address and workspace); `path` is under that workspace.
 transfer:
   targets:
-    - {name: tranquility, host: tranquility.local, user: peace, path: astro_dock/bags}
+    - {name: operator, role: operator, path: bags}
   bwlimit_kbps: 0

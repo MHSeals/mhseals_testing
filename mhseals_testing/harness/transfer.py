@@ -63,13 +63,28 @@ def fraction(total, pending, reported):
     return min(1.0, max(0.0, (total - pending + reported) / total))
 
 
-def destination(target, session_id):
-    """``user@host:path/id/`` for a remote target, a plain path when ``host`` is empty."""
-    path = f"{target['path']}/{session_id}/"
-    if not target.get('host'):
-        return path
-    user = f"{target['user']}@" if target.get('user') else ''
-    return f"{user}{target['host']}:{path}"
+def locate(role):
+    """(devices.Host of ``role``, True when it is another computer), from the device registry."""
+    from mhseals_testing import devices
+    registry = devices.load()
+    host = registry.host_for(role)
+    return host, host.name != devices.whoami(registry, devices.local_addresses()).name
+
+
+def destination(target, session_id, where=None):
+    """Where one session goes. A target's ``role`` names the computer (the device registry gives its
+    user, address and workspace): ``user@address:<workspace>/<path>/<id>/``, or that path here when
+    the role is this machine's. Without a role, ``<path>/<id>/`` on this machine (tests).
+    ``where`` is ``locate(role)``'s answer, looked up when not given."""
+    path = target['path']
+    if target.get('role'):
+        host, remote = where or locate(target['role'])
+        path = f"{host.workspace.rstrip('/')}/{path}"
+        if remote:
+            user = f'{host.user}@' if host.user else ''
+            return f'{user}{host.address}:{path}/{session_id}/'
+        path = os.path.expanduser(path)
+    return f'{path}/{session_id}/'
 
 
 def _write_json(path, record):
@@ -84,7 +99,8 @@ class Transfer:
     def __init__(self, session, target, open_segments=(), bwlimit_kbps=0, clock=time.time):
         self.session = Path(session)
         self.target = target
-        self.dest = destination(target, self.session.name)
+        self.where = locate(target['role']) if target.get('role') else None
+        self.dest = destination(target, self.session.name, self.where)
         self.open_segments = list(open_segments)
         self.bwlimit_kbps = bwlimit_kbps
         self.clock = clock
@@ -126,7 +142,7 @@ class Transfer:
             argv.append(f'--bwlimit={self.bwlimit_kbps}')
         prefix = '' if self.legacy else 'bag/'
         argv += [f'--exclude=/{prefix}{s}/' for s in self.open_segments]
-        if self.target.get('host'):
+        if self.where is not None and self.where[1]:
             argv += ['-e', SSH]
         parent = self.dest.rstrip('/').rpartition('/')[0]
         if siblings:

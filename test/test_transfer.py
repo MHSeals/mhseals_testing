@@ -5,6 +5,9 @@ import subprocess
 
 import pytest
 
+from pathlib import Path
+
+from mhseals_testing.devices import Host
 from mhseals_testing.harness import transfer as tr
 
 P32 = '  1,048,576   2%    1.00MB/s    0:00:40 (xfr#1, to-chk=3/5)\r  2,097,152   5%  500.00kB/s    0:01:01\r'
@@ -30,10 +33,25 @@ def test_fraction_corrects_resume():
     assert tr.fraction(0, 0, 0) == 1.0 and tr.fraction(100, 40, 999) == 1.0
 
 
-def test_destination():
-    t = {'host': 'h.local', 'user': 'u', 'path': 'p'}
-    assert tr.destination(t, 'id') == 'u@h.local:p/id/'
-    assert tr.destination({'host': '', 'path': '/x'}, 'id') == '/x/id/'
+OPERATOR = Host('tranquility', ('operator',), address='192.168.0.2', user='peace',
+                workspace='~/astro_dock')
+
+
+def test_destination_follows_the_role_to_its_host_and_workspace(monkeypatch, tmp_path):
+    t = {'name': 'operator', 'role': 'operator', 'path': 'bags'}
+    assert tr.destination(t, 'id', (OPERATOR, True)) == 'peace@192.168.0.2:~/astro_dock/bags/id/'
+    monkeypatch.setenv('HOME', str(tmp_path))
+    assert tr.destination(t, 'id', (OPERATOR, False)) == f'{tmp_path}/astro_dock/bags/id/'   # this machine
+    assert tr.destination({'path': '/x'}, 'id') == '/x/id/'
+    # The package registry puts every role on this machine.
+    host, remote = tr.locate('operator')
+    assert host.name == 'local' and remote is False
+
+
+def test_the_shipped_target_names_a_role_not_a_host():
+    import yaml
+    targets = yaml.safe_load((Path(__file__).parents[1] / 'config/bags/topics.yaml').read_text())
+    assert targets['transfer']['targets'] == [{'name': 'operator', 'role': 'operator', 'path': 'bags'}]
 
 
 def make_session(root):
@@ -47,12 +65,13 @@ def make_session(root):
     return s
 
 
-def test_command_passes_filters_and_open_segment(tmp_path):
-    job = tr.Transfer(make_session(tmp_path), {'host': 'h', 'user': 'u', 'path': 'p'}, ['01'], 500)
+def test_command_passes_filters_and_open_segment(tmp_path, monkeypatch):
+    monkeypatch.setattr(tr, 'locate', lambda role: (OPERATOR, True))
+    job = tr.Transfer(make_session(tmp_path), {'role': 'operator', 'path': 'bags'}, ['01'], 500)
     argv = job.command(tr.PASSES['reports'])
     assert '--exclude=/bag/01/' in argv and '--exclude=/bag/' in argv
     assert '--bwlimit=500' in argv and tr.SSH in argv
-    assert argv[-1] == 'u@h:p/boat_1/'
+    assert argv[-1] == 'peace@192.168.0.2:~/astro_dock/bags/boat_1/'
 
 
 def test_total_splits_passes_and_skips_open_segment(tmp_path):
