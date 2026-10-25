@@ -49,17 +49,18 @@ class AuthorityFeed:
         """The arbiter's inputs from the app's state (see harness.authority.derive)."""
         app = self.app
         procedure = {'name': app.running, 'run': app.run_id} if app.running else None
-        children = getattr(app, 'processes', None)
-        own = [n for n in getattr(children, 'processes', ()) if n.startswith('task_') and children.running(n)]
-        if procedure and own:
-            procedure['task'] = own[0][len('task_'):]     # Mission started it: the procedure's implicit claim
         task = getattr(getattr(app, '_watcher', None), 'status', None) or None
-        # The task our Mission procedure started is the procedure's own; any other conflicts.
         # run_task's status names it 'task'.
         name = task and (task.get('task') or task.get('name'))
-        if (name and app.running == MISSION
-                and app.processes.running(f'task_{name}')):
-            task = None
+        children = getattr(app, 'processes', None)
+        own = [n[len('task_'):] for n in getattr(children, 'processes', ())
+               if n.startswith('task_') and children.running(n)] if app.running == MISSION else []
+        if name in own:
+            task = None                        # the Mission's own task: not a second source
+        if procedure and own and not (task and task.get('status') == 'RUNNING'):
+            # Mission started it: the procedure's implicit claim. A different task that
+            # runs meanwhile stays a source of its own, so it still shows as a conflict.
+            procedure['task'] = own[0]
         topic = MUX_INPUT if muxed(app.profile) else app.profile.command_topic
         age = None if self.cmd_at is None else self.clock() - self.cmd_at
         publishers = self.ros.endpoints(topic) if hasattr(self.ros, 'endpoints') else []

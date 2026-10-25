@@ -424,10 +424,13 @@ def test_a_task_the_mission_procedure_started_is_not_a_second_source(tmp_path):
     app._watcher = SimpleNamespace(status={'task': 'pair_test', 'status': 'RUNNING'})
     from mhseals_testing.procedures import PROCEDURES
     app.running = next(p.title for p in PROCEDURES if p.key == 't')  # as run_procedure sets it
+    app.processes.processes = {'task_pair_test': None}
     app.processes.running = lambda name: name == 'task_pair_test'
     assert feed.sources()['task'] is None
+    assert feed.sources()['procedure']['task'] == 'pair_test'
     app._watcher.status = {'task': 'docking', 'status': 'RUNNING'}   # someone else's task
     assert feed.sources()['task']['task'] == 'docking'
+    assert 'task' not in feed.sources()['procedure']                 # so it still conflicts
     app._watcher.status = {'task': 'pair_test', 'status': 'RUNNING'}
     app.running = None                                                # no mission: not ours
     assert feed.sources()['task']['task'] == 'pair_test'
