@@ -147,7 +147,8 @@ class AgentDesk:
 
     def on_note(self, record):
         self.touch(record['who'])
-        row = {k: record.get(k) for k in ('t_ns', 'who', 'phase', 'tool_id', 'cmd', 'exit', 'dur_s', 'target')}
+        row = {k: record.get(k) for k in ('t_ns', 'who', 'phase', 'tool_id', 'cmd', 'exit', 'dur_s', 'target',
+                                          'agent', 'use')}
         self.notes.append(row)
         if record['phase'] != 'pre':          # one journal line per tool call
             self.app.emit('agent_note', who=row['who'], stage=row['phase'], cmd=row['cmd'], exit=row['exit'],

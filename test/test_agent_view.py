@@ -110,6 +110,7 @@ def test_working_item_sits_left_of_the_host():
     page = view(load_profile('boat'), host='blastoise', agent_desk=desk(), authority_record=record(owner='none'))
     item = chrome.working_item(page, NOW)
     assert item.plain == f'{theme.WORKING_GLYPH} {WHO} 29 s' and item.style == theme.AGENT_DIM
+    assert [str(span.style) for span in item.spans] == [theme.agent_style(WHO)]     # the name: vendor hue
     assert chrome.working_item(dict(page, authority_record=record(claim())), NOW) is None
 
 
@@ -144,11 +145,40 @@ def test_rows_are_cached_until_something_changes():
     assert any(r['what'] == 'blastoise$ uptime' for r in agent_log.rows(desk_))
 
 
+def test_commands_read_as_one_tidy_line():
+    assert agent_log.short('ssh -t blastoise "source /opt/ros/jazzy/setup.bash && cd ~/ws &&\n'
+                           '  ros2 node list"') == 'blastoise$ ros2 node list'
+    assert agent_log.short("ssh blastoise 'a' && echo 'b'") == "blastoise$ 'a' && echo 'b'"
+    assert agent_log.short('ros2   topic \\\n list') == '$ ros2 topic list'
+
+
+def test_a_denied_command_is_struck_through_with_the_verb_to_use():
+    cmd = 'ssh blastoise ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{}"'
+    rows = agent_log.fold({'notes': [note(-5, 'deny', 'd1', cmd, agent='codex', use='boat_agent run')]})
+    (row,) = rows
+    assert (row['state'], row['result'], row['hint'], row['agent']) == ('deny', 'denied', 'use boat_agent run', 'codex')
+    cell = agent_log.command(row)
+    assert cell.plain.startswith(f'use boat_agent run{theme.SEPARATOR}blastoise$ ros2 topic pub')
+    assert any('strike' in str(span.style) for span in cell.spans)
+    assert agent_log.result(row).plain == f'{theme.icon("bad").plain} denied'
+
+
+def test_rows_wear_their_vendor_hue_and_failures_keep_their_duration():
+    from mhseals_testing.ui import palette
+    tokens = palette.load_theme(overlay=False)[0]
+    assert theme.agent_style('claude-3f2a') == theme.PALETTE.style('agent.claude')
+    assert theme.agent_style('codex') == theme.PALETTE.style('agent.codex')
+    assert theme.agent_style('mapper') == theme.PALETTE.style('auth.agent')
+    assert tokens.resolve('agent.claude', 'dark') != tokens.resolve('agent.codex', 'dark')
+    failed = next(r for r in agent_log.fold(desk()) if 'node list' in r['what'])
+    assert agent_log.result(failed).plain.endswith('exit 1 0.4 s')
+
+
 def page(width, height, **extra):
     profile = load_profile('boat')
     page_ = view(profile, host='blastoise', armed=True, authority=('agent', f'AGENT {WHO} 4m'),
-                 activity='agent', focus='activity', agent_desk=desk(), authority_record=record(claim()),
-                 agent=authority_chip.banner(record(claim()), NOW, desk=desk()), **extra)
+                 activity='agent', focus='activity', authority_record=record(claim()),
+                 agent=authority_chip.banner(record(claim()), NOW, desk=desk()), **{'agent_desk': desk(), **extra})
     return text(layout.render(monitor().snapshot(profile.required_tf), page_, width, height), width, height)
 
 
@@ -162,6 +192,25 @@ def test_agent_view_and_banner_render_in_the_page(width, height):
     assert 'run square' in out
     if height >= 40:
         assert 'blastoise$ ros2 topic' in out and '! refused' in out
+
+
+def mixed_desk():
+    """Claude and Codex at work, one command denied: the captures in the agents-hook report."""
+    return desk(notes=desk()['notes'] + [
+        dict(note(-12, 'pre', 'x1', 'ssh blastoise "source install/setup.bash && ros2 topic echo --once /odom"'),
+             who='codex-9b1e', agent='codex'),
+        dict(note(-11, 'post', 'x1', exit=0, dur_s=1.3), who='codex-9b1e', agent='codex'),
+        dict(note(-6, 'deny', 'x2', 'ssh blastoise ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{}"',
+                  use='boat_agent run'), who='codex-9b1e', agent='codex')])
+
+
+@pytest.mark.parametrize('width, height', [(120, 40), (80, 24)])
+def test_mixed_agents_render_in_the_page(width, height):
+    out = page(width, height, agent_desk=mixed_desk())
+    assert all(len(r) <= width for r in out.splitlines())
+    assert 'agent' + theme.SEPARATOR + '6' in out
+    if height >= 40:
+        assert 'denied' in out and 'blastoise$ ros2 topic' in out
 
 
 def test_empty_agent_view_says_where_rows_come_from():

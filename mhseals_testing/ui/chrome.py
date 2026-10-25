@@ -53,12 +53,14 @@ def host_item(view, short=False):
 
 
 def working_item(view, now=None):
-    """``◇ claude-3f2a 3s`` in muted magenta: an agent is working on the boat but holds no claim."""
+    """``◇ claude-3f2a 3s``: an agent is working on the boat but holds no claim; the glyph and age in
+    muted magenta, the name in its vendor hue (Claude, Codex)."""
     seen = authority_chip.working(view.get('agent_desk'), view.get('authority_record'),
                                   time.time() if now is None else now)
     if not seen:
         return None
-    return Text(f'{theme.WORKING_GLYPH} {seen[0]} {authority_chip.age(seen[1])}', style=theme.AGENT_DIM)
+    return Text.assemble(f'{theme.WORKING_GLYPH} ', (seen[0], theme.agent_style(seen[0])),
+                         f' {authority_chip.age(seen[1])}', style=theme.AGENT_DIM)
 
 
 def chips(view):
