@@ -35,6 +35,8 @@ STATES = ('queued', 'started', 'progress', 'done')
 REQUIRED = {'req': ('id', 'op', 'deadline_ns'), 'renew': ('claim', 'act'), 'note': ('phase',),
             'reply': ('re', 'ok', 'state')}
 CMD_MAX = 300
+TEXT_ARGS = ('question', 'note', 'reason')   # free text an agent writes: redacted like a cmd
+TEXT_MAX = 1000
 # Reply errors (``overridden: <who>`` carries its cause) and the CLI exit codes they map to (spec
 # section 3): 2 refused/busy/blocked (the hint
 # names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI owner,
@@ -44,7 +46,13 @@ EXIT_CODES = {**dict.fromkeys(('refused', 'busy', 'busy_ui', 'not_holder', 'unkn
               **dict.fromkeys(('revoked', 'overridden', 'cancelled', 'expired', 'released', 'handover'), 3),
               'no_owner': 4, 'blocked': 5, 'timeout': 6}
 ROTATE_BYTES = 20 * 1024 * 1024
-_SECRET = re.compile(r'(?i)(token|pass(?:word)?|secret|key)=\S+')
+_VALUE = r'''("[^"]*"|'[^']*'|[^\s'"]+)'''
+_SECRETS = (   # (pattern, kept group): the value after the kept text becomes …
+    re.compile(r'(?i)(\b(?:token|pass(?:wd|word)?|secret|key)\s*=\s*)' + _VALUE),
+    re.compile(r'(?i)(--(?:token|pass(?:wd|word)?|secret|api-?key|key)(?:\s+|=))' + _VALUE),
+    re.compile(r'(\bsshpass\b(?:\s+-[^p\s]\S*)*\s+-p\s*)' + _VALUE),
+    re.compile(r'(?i)(\bauthorization\s*:\s*(?:(?:bearer|basic|token)\s+)?)' + _VALUE),
+    re.compile(r'(?i)(\bbearer\s+)' + _VALUE))
 
 
 def exit_code(reply):
@@ -56,9 +64,16 @@ def channel_path():
     return data.path('agent', 'channel.jsonl')
 
 
-def redact(cmd):
-    """``cmd`` with ``token=``/``password=``/``secret=``/``key=`` values hidden, cut to CMD_MAX chars."""
-    return _SECRET.sub(r'\1=…', str(cmd))[:CMD_MAX]
+def redact(cmd, limit=CMD_MAX):
+    """``cmd`` with secret values hidden, cut to ``limit`` chars.
+
+    ``token=``/``password=``/``secret=``/``key=``, ``--password x``, ``sshpass -p x`` and
+    ``Authorization: Bearer x``; a quoted value is hidden whole.
+    """
+    text = str(cmd)
+    for pattern in _SECRETS:
+        text = pattern.sub(r'\1…', text)
+    return text[:limit]
 
 
 def line(kind, who, **fields):
@@ -74,9 +89,10 @@ def append(record, path=None):
 
 
 def request(op, who, args=None, claim=None, dry=False, request_s=5.0, path=None):
-    """Append a ``req``; its ``id`` is what the reply's ``re`` names."""
+    """Append a ``req``; its ``id`` is what the reply's ``re`` names. Free text is redacted."""
     deadline = time.time_ns() + int(request_s * 1e9)
-    return append(line('req', who, id=uuid.uuid4().hex, op=op, args=dict(args or {}), claim=claim,
+    args = {k: redact(v, TEXT_MAX) if k in TEXT_ARGS and isinstance(v, str) else v for k, v in dict(args or {}).items()}
+    return append(line('req', who, id=uuid.uuid4().hex, op=op, args=args, claim=claim,
                        dry=bool(dry), deadline_ns=deadline), path)
 
 
@@ -154,9 +170,8 @@ class Tail:
             handle.seek(self.offset)
             chunk = handle.read(min(st.st_size - self.offset, max_lines * data.MAX_LINE))
         records, errors, start = [], [], clock()
-        for raw in chunk.splitlines(keepends=True)[:max_lines]:
-            if not raw.endswith(b'\n'):
-                break
+        lines = chunk.split(b'\n')         # never splitlines: a stray \r must not end a line
+        for raw in [part + b'\n' for part in lines[:-1]][:max_lines]:
             self.offset += len(raw)
             if not raw.strip():
                 continue
@@ -187,9 +202,9 @@ def replied(position, path=None):
 
 
 def rotate(active, path=None, now=None, limit=ROTATE_BYTES):
-    """At TUI start: rename a file over ``limit`` bytes to ``channel.<YYYYMMDD-HHMM>.jsonl``.
+    """At TUI start: rename a file over ``limit`` bytes to ``channel.<YYYYMMDD-HHMMSS>[-N].jsonl``.
 
-    Never while a claim is ``active``. Returns the new path, or None.
+    Never while a claim is ``active``, and never over an earlier rotation. Returns the new path, or None.
     """
     path = Path(path or channel_path())
     try:
@@ -197,6 +212,9 @@ def rotate(active, path=None, now=None, limit=ROTATE_BYTES):
             return None
     except FileNotFoundError:
         return None
-    target = path.with_name(f"channel.{time.strftime('%Y%m%d-%H%M', time.localtime(now))}.jsonl")
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.localtime(now))
+    n = 0
+    while (target := path.with_name(f"channel.{stamp}{f'-{n}' if n else ''}.jsonl")).exists():
+        n += 1
     os.replace(path, target)
     return target

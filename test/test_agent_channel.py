@@ -55,6 +55,36 @@ def test_bounded_reads_skip_malformed_lines_and_wait_for_torn_ones():
     assert [r['cmd'] for r in records] == ['after'] and errors == ['malformed JSON line']
 
 
+def test_a_raw_carriage_return_never_stops_the_tail():
+    ch.channel_path().parent.mkdir(parents=True)
+    with open(ch.channel_path(), 'ab') as handle:
+        handle.write(b'{"bad\rline": 1}\n')
+    ch.note('a', 'text', 'after')
+    tail = ch.Tail()
+    records, errors = tail.read()
+    assert [r['cmd'] for r in records] == ['after'] and errors == ['malformed JSON line']
+    ch.note('a', 'text', 'later')
+    assert [r['cmd'] for r in tail.read()[0]] == ['later']
+
+
+@pytest.mark.parametrize('text, secret', [
+    ('curl --password hunter2 x', 'hunter2'), ('curl --token=abc123 x', 'abc123'),
+    ('sshpass -p hunter2 ssh blastoise', 'hunter2'), ('sshpass -phunter2 ssh blastoise', 'hunter2'),
+    ('curl -H "Authorization: Bearer abc.def" x', 'abc.def'), ('wget --header="Bearer s3cr3t"', 's3cr3t'),
+    ('PASSWORD="two words" ros2 run x', 'two words'), ("token='quoted value' x", 'quoted value')])
+def test_redact_hides_flag_header_and_quoted_secrets(text, secret):
+    hidden = ch.redact(text)
+    assert secret not in hidden and '…' in hidden
+
+
+def test_free_text_args_are_redacted_on_the_channel():
+    ch.request('claim', 'a', {'reason': 'tune token=tokval'})
+    ch.request('ask', 'a', {'question': 'use sshpass -p hunter2?', 'options': ['yes']})
+    ch.request('mark', 'a', {'note': 'Authorization: Bearer sekrit'})
+    text = ch.channel_path().read_text()
+    assert not any(s in text for s in ('tokval', 'hunter2', 'sekrit')) and '"options":["yes"]' in text
+
+
 def test_tail_starts_over_on_rotation_or_truncation():
     ch.note('a', 'text', 'old')
     tail = ch.Tail()
@@ -74,6 +104,9 @@ def test_rotation_only_when_big_and_no_claim_is_active():
     moved = ch.rotate(active=False, limit=10, now=0)
     assert moved.name.startswith('channel.19') and moved.suffix == '.jsonl'
     assert not ch.channel_path().exists()
+    ch.note('a', 'text', 'x' * 100)
+    again = ch.rotate(active=False, limit=10, now=0)     # the same second: a new name, nothing lost
+    assert again != moved and moved.exists() and again.exists()
 
 
 def test_replied_finds_requests_already_answered_after_a_position():
