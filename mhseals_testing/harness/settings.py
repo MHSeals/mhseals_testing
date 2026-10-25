@@ -92,12 +92,11 @@ SPECS = (
          note='block refuses new agent claims; allow again at start'),
     Spec('agent_motion', 'confirm', str, choices=('confirm', 'allow', 'observe'), group='Control', reset=True,
          note='agent run/goal: confirm asks Enter each time, observe refuses; confirm again at start'),
-    Spec('agent_view', 'follow', str, choices=('follow', 'off'), group='Control',
-         note='follow switches Activity to the agent view when a claim turns active'),
     Spec('direction', '', str, group='Trials', reset=True,
          note='characterization: re-refine only this column, e.g. sway+'),
 )
 BY_KEY = {spec.key: spec for spec in SPECS}
+RETIRED = ('agent_view',)   # still in older settings files; read past, never an error
 
 
 class Settings:
@@ -150,7 +149,7 @@ def load(path=None, strict=False):
         raise ValueError('expected a mapping')
     for key, value in (saved if isinstance(saved, dict) else {}).items():
         spec = BY_KEY.get(key)
-        if spec is None and strict:
+        if spec is None and strict and key not in RETIRED:
             raise ValueError(f'unknown setting {key}')
         if spec is None or spec.reset:
             continue

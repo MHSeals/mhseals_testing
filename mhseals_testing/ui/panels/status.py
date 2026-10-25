@@ -118,10 +118,10 @@ def control_rows(snapshot, specs):
     left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
     rows.append(row('Agents', f"{left}{data.get('agents', 'allow')}{right}", 'left/right: allow or block new agent claims',
                     style='', setting='agents'))
-    for name, setting, note in (('Agent motion', 'agent_motion', 'confirm asks Enter per run/goal · observe refuses'),
-                                ('Agent view', 'agent_view', 'follow: Activity shows the agent view on a claim')):
-        if setting in data:
-            rows.append(row(name, f'{left}{data[setting]}{right}', f'left/right: {note}', style='', setting=setting))
+    if 'agent_motion' in data:
+        rows.append(row('Agent motion', f"{left}{data['agent_motion']}{right}",
+                        'left/right: confirm asks Enter per run/goal · observe refuses', style='',
+                        setting='agent_motion'))
     return rows
 
 

@@ -249,7 +249,7 @@ def ask(rig, op, claim_id, who='claude-3f2a', dry=False, **args):
 def test_a_claim_gets_the_idle_lease_and_a_run_goes_through_with_confirm(rig):
     c = claim(rig)
     assert rig.app.arbiter.table.get(c)['lease_s'] == 120
-    assert rig.app.activity == 'agent'                     # agent_view follow
+    assert rig.app.activity == 'agent'                     # Activity always follows a claim
     rig.app.answers = [['enter']]                          # Refuse is focused: Enter alone never allows
     assert final(ask(rig, 'run', c, key='square')['id'])['error'] == 'refused'
     rig.app.answers = [['left', 'enter']]
@@ -279,10 +279,14 @@ def test_motion_refusals_name_the_human_action(rig):
 
 
 def test_agent_motion_resets_to_confirm_at_every_start():
-    settings = Settings(agent_motion='allow', agent_view='off')
+    settings = Settings(agent_motion='allow')
     assert save_settings(settings)
     loaded = load_settings()
-    assert loaded.agent_motion == 'confirm' and loaded.agent_view == 'off'
+    assert loaded.agent_motion == 'confirm' and not hasattr(loaded, 'agent_view')
+    from mhseals_testing.harness.settings import settings_path
+    path = settings_path()
+    path.write_text(path.read_text() + 'agent_view: off\n')   # an older file: read past, even strictly
+    assert load_settings(strict=True).agent_motion == 'confirm'
 
 
 def test_no_verb_arms_a_run_waits_for_the_human_arm_panel(rig):

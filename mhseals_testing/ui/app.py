@@ -826,7 +826,7 @@ class App:
         """``snapshot['control']`` for the Status Control rows."""
         record = feeds_module.merged(self.feeds).get('authority_record')
         return authority_chip.control(record, self.driving(), time.time(), self.settings.agents,
-                                      agent_motion=self.settings.agent_motion, agent_view=self.settings.agent_view)
+                                      agent_motion=self.settings.agent_motion)
 
     def render(self):
         return layout.render(self.snapshot(), self.view(),
@@ -1550,7 +1550,7 @@ class App:
         rows = status_rows(self.snapshot(), self.profile.sensors)
         if key in ('left', 'right') and self.agents_row(rows):
             self.toggle_agents()
-        elif key in ('left', 'right') and self.row_setting(rows) in ('agent_motion', 'agent_view'):
+        elif key in ('left', 'right') and self.row_setting(rows) == 'agent_motion':
             agent_feed.step_setting(self, self.row_setting(rows), key)
         elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
             self.step_recording(key)

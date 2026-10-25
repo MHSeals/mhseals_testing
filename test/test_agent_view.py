@@ -230,11 +230,11 @@ def test_v_adds_the_agent_view_only_while_a_desk_runs():
 
 def test_control_group_shows_the_agent_settings():
     from mhseals_testing.ui.panels.status import status_rows
-    control = authority_chip.control(None, None, NOW, 'allow', agent_motion='confirm', agent_view='follow')
+    control = authority_chip.control(None, None, NOW, 'allow', agent_motion='confirm')
     rows = {r['name']: r for r in status_rows({**monitor().snapshot(), 'control': control},
                                               load_profile('boat').sensors) if r['group'] == 'Control'}
     assert rows['Agent motion']['setting'] == 'agent_motion' and 'confirm' in rows['Agent motion']['value']
-    assert rows['Agent view']['setting'] == 'agent_view' and 'follow' in rows['Agent view']['value']
+    assert 'Agent view' not in rows
 
 
 def test_agent_hues_stay_apart_from_status_class_and_trail_colours():

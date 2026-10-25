@@ -163,7 +163,7 @@ def driving(feed, arbiter, manual, running, now):
 
 def control(record, driving_chip, now, setting, **agent):
     """The ``snapshot['control']`` dict the Control rows read; ``setting`` is the Agents value and
-    ``agent`` the ``agent_motion``/``agent_view`` settings."""
+    ``agent`` the ``agent_motion`` setting."""
     return {**agent, 'driving': driving_chip, 'rc': (record or {}).get('rc'),
             'holds': [dict(h, age=age(now - h['since_ns'] / 1e9) if h.get('since_ns') else '')
                       for h in (record or {}).get('holds', ())], 'agents': setting}

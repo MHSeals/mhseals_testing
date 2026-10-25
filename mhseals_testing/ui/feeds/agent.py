@@ -510,10 +510,10 @@ class AgentDesk:
     # --- around the acts -------------------------------------------------------------------
 
     def follow(self):
-        """Agent view follow: Activity switches to the agent view when a claim turns active."""
+        """Activity switches to the agent view whenever an agent claim turns active."""
         holder = self.arbiter.table.holder() if self.arbiter is not None else None
         claim = holder['id'] if holder and holder.get('owner') == 'agent' else None
-        if claim and claim != self.active_claim and self.app.settings.agent_view == 'follow':
+        if claim and claim != self.active_claim:
             self.app.activity = 'agent'
         self.active_claim = claim
         notice = str(self.app.notice or '')
@@ -545,7 +545,7 @@ def blockers(app):
 
 
 def step_setting(app, name, key):
-    """Left/right on the Agent motion or Agent view row of Control."""
+    """Left/right on the Agent motion row of Control."""
     from mhseals_testing.harness.settings import BY_KEY
     choices = BY_KEY[name].choices
     value = choices[(choices.index(getattr(app.settings, name)) + (1 if key == 'right' else -1)) % len(choices)]
