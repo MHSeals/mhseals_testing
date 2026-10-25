@@ -51,6 +51,12 @@ tokens:
   spd.3:       {dark: '#D49A80', light: '#A8603E', x256: [173, 130], ansi: yellow}
   spd.4:       {dark: '#D88FB0', light: '#AA4C7A', x256: [175, 132], ansi: magenta}
   spd.5:       {dark: '#DE86D0', light: '#A8409A', x256: [176, 133], ansi: magenta}
+  # manual speed gauge, calm to hot: cool blues rising to ice white, apart from status, buoy and authority hues
+  throttle.0:  {dark: '#6A84B6', light: '#4A5F8C', x256: [67, 60],   ansi: blue}
+  throttle.1:  {dark: '#6A98E6', light: '#2F63C0', x256: [69, 26],   ansi: blue}
+  throttle.2:  {dark: '#7CBCF4', light: '#1F72C4', x256: [75, 32],   ansi: cyan}
+  throttle.3:  {dark: '#B4DAFA', light: '#1A5FA8', x256: [153, 25],  ansi: bright_cyan}
+  throttle.4:  {dark: '#F2F8FF', light: '#0B3F7A', x256: [231, 17],  ansi: bright_white}
   cost_bg:     {dark: '#2A3442', light: '#E2E7EE', x256: [236, 254], ansi: null}
   lethal_bg:   {dark: '#4B3A3A', light: '#ECDAD3', x256: [239, 224], ansi: null}
   # map structure: quiet and cool, never mistaken for data (tui-visual 1)
@@ -141,4 +147,5 @@ glyphs:
   reversed:  ['−', '-']
   yaw_ccw:   ['↩', '<']
   yaw_cw:    ['↪', '>']
+  speed:     ['≫', '>>']
   spinner:   ['⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', '|/-\']
