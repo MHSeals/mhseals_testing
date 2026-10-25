@@ -297,15 +297,24 @@ def test_status_cursor_walks_sensors_frames_and_system(tmp_path, up):
 def test_arming_needs_the_typed_word_on_real_outputs(tmp_path):
     app, _ = make_app(tmp_path)
     with app.attached():
-        press(app, 'n', 'o', 'enter')
+        press(app, 'n', 'o', 'enter', 'escape')   # a wrong word: Enter does nothing, Esc declines
         app.dispatch('a')
         assert not app.armed and app.notice == 'Arming cancelled'
+        press(app, 'a', 'r', 'n', 'enter', 'backspace', 'enter', 'escape')   # Enter alone never arms
+        app.dispatch('a')
+        assert not app.armed
+        press(app, 'a', 'r', 'm', 'x', 'enter')   # typing stops at the word's length
+        app.dispatch('a')
+        assert app.armed
+        press(app, 'enter')
+        app.dispatch('a')
+        assert not app.armed
         press(app, 'a', 'r', 'm', 'backspace', 'm', 'enter')
         app.dispatch('a')
         assert app.armed and 'armed' in app.ros.events
         press(app, 'enter')  # the arm panel offers Disarm first
         app.dispatch('a')
-        assert not app.armed and app.arming.calls == ['arm', 'disarm']
+        assert not app.armed and app.arming.calls == ['arm', 'disarm'] * 2
 
 
 def test_simulator_arms_with_a_button_and_escape_cancels(tmp_path):

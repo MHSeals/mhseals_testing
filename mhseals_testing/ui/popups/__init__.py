@@ -129,16 +129,21 @@ def ask_text(app, title, message, text=''):
 
 
 def type_word(app, title, message, word, rows=None, width=64):
-    """A typed confirmation for real outputs: only the exact word proceeds."""
-    modal = dict(kind='input', title=title, message=message, text='', danger=True,
-                 rows=rows, width=width, hint=f'Type {word.upper()} and Enter{theme.SEPARATOR}Esc cancel')
+    """A typed confirmation for real outputs: only the exact word proceeds.
+
+    Enter does nothing until the word matches, so a typo is corrected in place; only Esc
+    declines. Typing stops at the word's length (one slot per letter).
+    """
+    word = word.upper()
+    modal = dict(kind='input', title=title, message=message, text='', danger=True, word=word,
+                 rows=rows, width=width, hint=f'Type {word} and Enter{theme.SEPARATOR}Esc cancel')
 
     def handle(key):
         if key == 'enter':
-            return modal['text'].strip().lower() == word.lower()
+            return True if modal['text'] == word else None
         if key == 'escape':
             return False
-        modal['text'] = edit(modal['text'], key, upper=True)
+        modal['text'] = edit(modal['text'], key, upper=True)[:len(word)]
     return app.popup(modal, handle)
 
 
