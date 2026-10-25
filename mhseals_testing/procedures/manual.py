@@ -66,7 +66,8 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
 def run(ctx):
     manual = ctx.services['manual']
     config = ctx.services['hardware_config']
-    state = ManualState(config['manual_amplitude'], config['manual_repeat_timeout'],
+    kept = manual.get('speed', lambda: None)()   # the speed from the last manual session, if any
+    state = ManualState(config['manual_amplitude'] if kept is None else kept, config['manual_repeat_timeout'],
                         config['manual_initial_timeout'], config['manual_yaw_scale'])
     publisher = GuardedPublisher(manual['plant'], manual['blockers'])
     emit = manual.get('emit', lambda *args, **details: None)

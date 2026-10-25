@@ -299,6 +299,7 @@ class App:
         self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.chords = False             # the manual mode, for the Command glyph's label
+        self.manual_speed = None        # the last manual speed this session; None until manual ran
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
@@ -789,6 +790,8 @@ class App:
             agent=authority_chip.banner(shared.get('authority_record'), time.time(), desk=shared.get('agent_desk')),
             armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command, chords=self.chords,
+            speed=self.manual_speed if self.manual_speed is not None
+            else (self.args.hardware_config or {}).get('manual_amplitude'),
             profile=self.profile.name, units=self.profile.command_units,
             plot_scale=self.profile.plot_scale,
             outputs=self.profile.outputs, specs=self.profile.sensors,
@@ -2327,7 +2330,7 @@ class App:
                 mux_input=self.mux_input,
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
-                            clock=self.monitor.clock)))
+                            speed=lambda: self.manual_speed, clock=self.monitor.clock)))
 
     def mux_input(self):
         """The mux's latest input from the arbiter; 'auto' when no mux state has been seen."""
@@ -2492,6 +2495,7 @@ class App:
     def manual_show(self, command, amplitude, chords, done=False):
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""
         self.manual = not done
+        self.manual_speed = amplitude    # kept for the next time manual is enabled
         self.command, self.chords = tuple(command), bool(chords)
         self.monitor.command(command)
         if 'motion' in self.panels():

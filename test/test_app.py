@@ -1075,6 +1075,32 @@ def test_manual_wasd_reserved_after_yaw_and_speed_change(tmp_path, letter, direc
     assert not app.snapshot()['results']  # S did not run station keeping.
 
 
+def test_manual_speed_is_kept_when_manual_is_enabled_again(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.args.hardware_config['manual_amplitude'] = 0.25
+    sessions = iter([['+', None, '+', None, 'x'], ['w', None, 'x']])
+    app.open_events = lambda: Events(app.clock, next(sessions))
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+        assert app.manual_speed == pytest.approx(0.35) and app.view()['speed'] == pytest.approx(0.35)
+        app.dispatch('m')
+    sent = [command for command in boat.sent if command != 'neutral']
+    assert sent[-1] == pytest.approx((0.35, 0, 0))      # kept, not back to the 0.25 default
+
+
+def test_manual_speed_starts_at_the_configured_default(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.args.hardware_config['manual_amplitude'] = 0.75
+    app.open_events = lambda: Events(app.clock, ['w', None, 'x'])
+    with app.attached():
+        assert app.view()['speed'] == 0.75
+        arm(app)
+        app.dispatch('m')
+    sent = [command for command in boat.sent if command != 'neutral']
+    assert sent[-1] == pytest.approx((0.75, 0, 0)) and boat.sent[-1] == 'neutral'
+
+
 def test_arming_shows_progress_and_space_cancels_a_slow_driver(tmp_path):
     app, boat = make_app(tmp_path)
 
