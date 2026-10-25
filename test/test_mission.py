@@ -85,34 +85,40 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
     assert seen == [(10.0, 20.0)] and result['paused_s'] == 3.0
 
 
-def test_a_human_override_stop_is_recorded_from_the_task_exit_code(monkeypatch):
+FINISHED_FAILURE = events('gate_cleared', 'gate_cleared', outcome='FAILURE')
+UNFINISHED = events('gate_cleared', 'gate_cleared')[:2]
+
+
+@pytest.mark.parametrize('stream,code,outcome', [
+    (FINISHED_FAILURE, 0, 'FAILURE'),   # the stream's task_finished outranks the exit code
+    (UNFINISHED, 3, 'PREEMPTED'),       # a human override stop
+    (UNFINISHED, 7, 'FAILURE'),         # an unknown code
+    (UNFINISHED, None, 'INCOMPLETE'),   # still running when the suite stopped it
+])
+def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream, code, outcome):
     from contextlib import contextmanager
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
     runner = SimpleNamespace(paused=0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
-    watcher = SimpleNamespace(events=events('task_started', 'home')[:2], status={},
-                              reset=lambda: None)
-    recorded, asked = [], []
+    watcher = SimpleNamespace(events=stream, status={}, reset=lambda: None)
+    recorded, started = [], []
 
     @contextmanager
     def supervised(*args, **kwargs):
         yield runner
-
-    def returncode(name):
-        asked.append(name)
-        return 3                    # run_task: PREEMPTED, the operator took over
     ctx = SimpleNamespace(
         choose=lambda *a: 'gate', prompt=lambda *a: None, supervise=supervised,
         profile=SimpleNamespace(use_sim_time=True), record=recorded.append,
-        services={'task_watcher': lambda: watcher, 'start': lambda *a: None,
+        services={'task_watcher': lambda: watcher, 'start': lambda *a: started.append(a),
                   'stop': lambda *a: None, 'running': lambda *a: False,
-                  'returncode': returncode})
+                  'returncode': lambda name: code})
     monkeypatch.setattr(mission, 'available', lambda: ['gate'])
     monkeypatch.setattr(mission, 'judge', lambda *a: None)
     monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: dict(RUBRIC))
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
     result = mission.run(ctx)
-    assert asked == ['task_gate']
-    assert (result['exit_code'], result['exit_outcome']) == (3, 'PREEMPTED')
-    assert result['outcome'] == 'PREEMPTED' and result['verdict'] != 'PASS'
-    assert recorded == [result]                               # the run record carries both
+    # ros2 launch exits 0 whatever its node's code, so the runner must be the child itself.
+    assert started == [('task_gate', ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', 'gate',
+                                      '--ros-args', '-p', 'use_sim_time:=true'])]
+    assert result['outcome'] == outcome and result['verdict'] == 'FAIL'
+    assert result['exit_code'] == code and recorded == [result]

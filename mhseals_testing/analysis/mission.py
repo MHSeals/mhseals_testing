@@ -12,7 +12,8 @@ from collections import Counter
 def score(events, rubric, outcome=None):
     counts = Counter(event['event'] for event in events)
     finished = next((e for e in reversed(events) if e['event'] == 'task_finished'), None)
-    outcome = outcome or (finished or {}).get('outcome', 'INCOMPLETE')
+    # The stream's own task_finished wins; ``outcome`` (the exit code's) fills in without one.
+    outcome = (finished or {}).get('outcome') or outcome or 'INCOMPLETE'
     elapsed = (finished or (events[-1] if events else {})).get('elapsed', 0.0)
     required = rubric.get('required', {})
     missing = {name: count - counts[name] for name, count in required.items()
