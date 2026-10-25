@@ -172,7 +172,7 @@ def goal_facts(app, lifecycle=None, fence_wait=0.0):
     driving = app.running or ('manual control' if app.manual else '')
     fence, fence_age = nav2.fence_state(fence_wait) if hasattr(nav2, 'fence_state') else (None, math.inf)
     return goals_module.Facts(
-        fence=fence, fence_age_s=fence_age,
+        fence=fence, fence_age_s=fence_age, to_ll=getattr(nav2, 'to_ll', None),
         live=bool(app.source.live), owner=not app.watching, nav_running=set(NAV_NODES) <= nodes,
         lifecycle=lifecycle, unit=app.profile.command_units, armed=bool(app.armed), driving=driving or '',
         pose_age_s=odometry.get('age', math.inf) if odometry.get('status') == 'LIVE' else math.inf,
@@ -243,7 +243,7 @@ def fence_check(app, goal, facts):
     pose = nav2.pose() if nav2 is not None else None
     if pose is None:
         return 'no map pose'
-    return goals_module.check_fence(goal, pose, facts.fence, facts.fence_age_s)
+    return goals_module.check_fence(goal, pose, facts.fence, facts.fence_age_s, facts.to_ll)
 
 
 def goal_preview(app, goal, facts, timeout=2.0):

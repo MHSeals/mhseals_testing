@@ -126,6 +126,31 @@ def test_the_served_grid_keeps_origin_resolution_and_shape():
     assert cells.origin == pytest.approx((8.05, -8.95)) and math.isclose(cells.half_width(), 6.0, rel_tol=1e-6)
 
 
+def test_to_ll_asks_navsat_per_point_and_a_missing_service_raises():
+    from geographic_msgs.msg import GeoPoint
+    from robot_localization.srv import ToLL
+
+    class LL:
+        def __init__(self, up=True):
+            self.up, self.asked = up, []
+
+        def wait_for_service(self, timeout_sec):
+            return self.up
+
+        def call_async(self, request):
+            self.asked.append((request.map_point.x, request.map_point.y))
+            future = Future()
+            future.set_result(ToLL.Response(ll_point=GeoPoint(latitude=42.0 + request.map_point.y,
+                                                              longitude=-71.0 + request.map_point.x)))
+            return future
+    found = nav()
+    found.to_ll_client = (LL(), ToLL)
+    assert found.to_ll([(1.0, 2.0), (3.0, 4.0)]) == [(44.0, -70.0), (46.0, -68.0)]
+    found.to_ll_client = (LL(up=False), ToLL)
+    with pytest.raises(RuntimeError, match='/toLL is not available'):
+        found.to_ll([(1.0, 2.0)])
+
+
 def test_the_fence_message_is_kept_with_its_receipt_age_and_a_bad_one_is_invalid():
     from std_msgs.msg import String
     found = nav()

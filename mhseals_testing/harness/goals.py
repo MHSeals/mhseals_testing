@@ -38,6 +38,7 @@ class Facts:
     costmap_age_s: float = math.inf
     fence: dict = None  # fence_watchdog's last fence message (see check_fence), None when none came
     fence_age_s: float = math.inf  # its receipt age
+    to_ll: object = None  # map [(x, y)] -> [(lat, lon)] (navsat toLL) for a lat/lon fence; raises on failure
 
 
 @dataclass
@@ -163,14 +164,47 @@ def edges(p, poly):
     return out
 
 
-def check_fence(goal, boat, fence, age_s):
+AHEAD_M = 1.0  # a lat/lon fence: the boat's heading is toLL of a point this far ahead
+
+
+def fence_plane(goal, boat, fence, to_ll):
+    """(polygon, goal, boat (x, y), boat yaw) in the fence's own plane, or a refusal reason.
+
+    A map fence (the sim) is checked in map. A lat/lon fence is checked in lat/lon, never through a
+    map copy that a rotated map would shift: the goal, the boat and a point AHEAD_M ahead of it go
+    through ``to_ll`` (navsat's toLL, the EKF's own transform), then into the watchdog's projection
+    from the fence's first vertex. No ``to_ll``, or a failed one, refuses.
+    """
+    from mhseals_nav.fence_watchdog import polygon, project
+    poly = polygon(fence.get('frame'), fence.get('points'))
+    if poly is None:
+        return f"fence_watchdog has no valid fence: {fence.get('error') or 'no points'}"
+    if fence['frame'] == 'map':
+        return poly, (goal[0], goal[1]), (boat[0], boat[1]), boat[2]
+    if to_ll is None:
+        return 'lat/lon fence: no toLL to place the goal in lat/lon, goals are refused'
+    ahead = (boat[0] + AHEAD_M * math.cos(boat[2]), boat[1] + AHEAD_M * math.sin(boat[2]))
+    try:
+        found = to_ll([(goal[0], goal[1]), (boat[0], boat[1]), ahead])
+    except Exception as error:  # noqa: BLE001 - any failure refuses (fail closed)
+        return f'lat/lon fence: toLL failed ({error}), goals are refused'
+    if len(found) != 3 or not all(math.isfinite(v) for ll in found for v in ll) or \
+            any(abs(lat) < 1e-9 and abs(lon) < 1e-9 for lat, lon in found):
+        return 'lat/lon fence: toLL gave no position (navsat has no datum yet), goals are refused'
+    origin = fence['points'][:2]
+    g, b, a = (project(origin, lat, lon) for lat, lon in found)
+    return poly, g, b, math.atan2(a[1] - b[1], a[0] - b[0])
+
+
+def check_fence(goal, boat, fence, age_s, to_ll=None):
     """Refusal reason for a goal against fence_watchdog's fence, by its own rules; None when allowed.
 
-    ``fence`` is the watchdog's message (``valid``, ``points`` flat [x, y, ...] in map,
-    ``margin_m``, ``outward_angle_deg``); ``boat`` is (x, y, yaw) in map. A missing, stale or
-    invalid fence refuses. A goal must lie inside the fence and outside its margin. Within the
-    margin the watchdog holds while the boat faces outward, so there a goal is refused when the
-    boat faces outward, and allowed only when it lies farther from every edge than the boat (inward).
+    ``fence`` is the watchdog's message (``valid``, ``frame`` latlon or map, its raw ``points``,
+    ``margin_m``, ``outward_angle_deg``); ``boat`` is (x, y, yaw) in map; ``to_ll`` maps map points
+    to (lat, lon) (``fence_plane``). A missing, stale or invalid fence refuses. A goal must lie
+    inside the fence and outside its margin. Within the margin the watchdog holds while the boat
+    faces outward, so there a goal is refused when the boat faces outward, and allowed only when it
+    lies farther from every edge than the boat (inward).
     """
     from mhseals_nav.fence_watchdog import inside
     found = fence_config()
@@ -178,12 +212,14 @@ def check_fence(goal, boat, fence, age_s):
         return 'fence unknown: mhseals_nav fence_watchdog.yaml has no fence_topic/fence_rate_hz'
     if not isinstance(fence, dict) or age_s > found[1]:
         return f'no fence from fence_watchdog ({found[0]}): goals are refused without one'
-    points = fence.get('points')
-    if not fence.get('valid') or not isinstance(points, list) or len(points) < 6 or len(points) % 2:
+    if not fence.get('valid'):
         return f"fence_watchdog has no valid fence: {fence.get('error') or 'no points'}"
-    poly = list(zip(points[::2], points[1::2]))
+    plane = fence_plane(goal, boat, fence, to_ll)
+    if isinstance(plane, str):
+        return plane
+    poly, (x, y), boat_p, yaw = plane
+    boat = (*boat_p, yaw)
     margin = float(fence['margin_m'])
-    x, y = goal[0], goal[1]
     if not inside((x, y), poly):
         return 'goal is outside the fence'
     goal_m = min(d for d, _ in edges((x, y), poly))
@@ -221,7 +257,7 @@ class Goals:
     def preview(self, goal, boat, grid, facts, timeout=2.0):
         """(path, None) for the confirm popup, or (None, reason). ``boat`` is (x, y, yaw) in map."""
         reason = gate(facts) or check_goal(goal, boat, grid) or check_fence(goal, boat, facts.fence,
-                                                                            facts.fence_age_s)
+                                                                            facts.fence_age_s, facts.to_ll)
         if reason:
             return None, reason
         try:
@@ -235,7 +271,7 @@ class Goals:
     def send(self, goal, boat, grid, facts, claim, path_m):
         """Re-check every gate, then navigate. Returns None or the refusal reason."""
         reason = gate(facts) or check_goal(goal, boat, grid) or check_fence(goal, boat, facts.fence,
-                                                                            facts.fence_age_s)
+                                                                            facts.fence_age_s, facts.to_ll)
         if reason is None and self.active:
             reason = 'a goal is already active'
         if reason:

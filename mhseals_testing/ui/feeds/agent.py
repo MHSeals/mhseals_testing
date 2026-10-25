@@ -381,7 +381,8 @@ class AgentDesk:
 
     def start_next(self):
         now_ns, app = time.time_ns(), self.app
-        if self.busy or self.act is not None or app.modal is not None or app.running or app.manual:
+        if self.busy or self.act is not None or app.modal is not None or app.running or app.manual \
+                or self.dry is not None:            # strictly one Nav2 user at a time: a dry run first
             for req in [r for r in self.queue if now_ns > r['deadline_ns']]:
                 self.queue.remove(req)
                 self.reply(req, False, 'busy_ui', hint='a popup was open or something was running')
@@ -465,7 +466,10 @@ class AgentDesk:
         app = self.app
         goal = agent_acts.goal_args(act['req']['args'])
         facts = agent_acts.goal_facts(app, self.lifecycle())
-        reason = gate(replace(facts, costmap_age_s=0.0)) or agent_acts.fence_check(app, goal, facts)
+        reason = gate(replace(facts, costmap_age_s=0.0)) or agent_acts.in_background(
+            app, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f}",
+            lambda: agent_acts.fence_check(app, goal, facts),      # toLL may wait: off the key loop
+            message='Checking the fence', on_abort=lambda: self.cancel('handover'))
         if reason:                               # never ask Allow for a goal the gates already refuse (the
             #                                      send fetches the costmap fresh and checks it all again)
             return self.finish(act, False, 'refused', hint=reason)

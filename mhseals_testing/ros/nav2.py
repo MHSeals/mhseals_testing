@@ -32,6 +32,8 @@ SERVERS = ('controller_server', 'planner_server', 'behavior_server', 'bt_navigat
 
 
 COSTMAP_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+TO_LL = '/toLL'          # navsat_transform's map -> lat/lon service (robot_localization/srv/ToLL)
+TO_LL_TIMEOUT_S = 0.5    # per wait; callers run off the key loop
 FENCE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
 
 
@@ -131,6 +133,30 @@ class Nav2:
             state = None
         self.fence = state if isinstance(state, dict) else {'valid': False, 'error': 'unreadable fence message'}
         self.fence_time = time.monotonic()
+
+    def to_ll(self, points, timeout=TO_LL_TIMEOUT_S):
+        """[(lat, lon)] of map ``points`` [(x, y)] through navsat_transform's toLL (the transform the
+        EKF uses); RuntimeError when the service is missing or does not answer in ``timeout``."""
+        client = getattr(self, 'to_ll_client', None)
+        if client is None:
+            try:
+                from robot_localization.srv import ToLL
+            except ImportError:
+                raise RuntimeError('robot_localization is not installed') from None
+            client = self.to_ll_client = (self.node.create_client(ToLL, TO_LL), ToLL)
+        client, kind = client
+        if not client.wait_for_service(timeout_sec=timeout):
+            raise RuntimeError(f'{TO_LL} is not available')
+        out = []
+        for x, y in points:
+            request = kind.Request()
+            request.map_point.x, request.map_point.y = float(x), float(y)
+            try:
+                found = wait(client.call_async(request), timeout, TO_LL).ll_point
+            except TimeoutError as error:
+                raise RuntimeError(str(error)) from None
+            out.append((found.latitude, found.longitude))
+        return out
 
     def fence_state(self, timeout=1.0):
         """(fence_watchdog's last fence message or None, its receipt age in s). The first call waits up

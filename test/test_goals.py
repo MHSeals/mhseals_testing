@@ -1,5 +1,7 @@
 """Goal gates: each gate refuses with its reason; goals are attributed to the claim."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -7,7 +9,7 @@ from mhseals_testing.harness import goals as goals_module
 from mhseals_testing.harness.goals import REQUIRED, Facts, Goals, Grid, check_fence, check_goal, gate
 
 BOX = [-40.0, -40.0, 40.0, -40.0, 40.0, 40.0, -40.0, 40.0]   # map metres, as fence_watchdog publishes it
-FENCE = {'valid': True, 'frame': 'map', 'points': BOX, 'source_frame': 'map', 'margin_m': 5.0,
+FENCE = {'valid': True, 'frame': 'map', 'points': BOX, 'margin_m': 5.0,
          'outward_angle_deg': 60.0, 'outward_speed_mps': 0.1, 'reason': '', 'error': '', 'stamp_ns': 1}
 
 
@@ -226,6 +228,71 @@ def test_in_the_margin_facing_inward_only_inward_goals_pass():
     reason = check_fence((37.0, 3.0), boat, FENCE, 0.5)                # along the edge
     assert 'only goals farther inward' in reason
     assert 'only goals farther inward' in check_fence((38.0, 0.0), boat, FENCE, 0.5)
+
+
+LAT0, LON0 = 42.0, -71.0
+K = math.pi / 180.0 * 6371000.0                       # the watchdog's equirectangular metres per degree
+
+
+def lat_lon(east, north):
+    return LAT0 + north / K, LON0 + east / (K * math.cos(math.radians(LAT0)))
+
+
+# A lat/lon course 100 m east by 50 m north from (LAT0, LON0), as the boat's fence file gives it.
+LL_FENCE = dict(FENCE, frame='latlon', points=[v for p in ((0, 0), (100, 0), (100, 50), (0, 50))
+                                               for v in lat_lon(*p)])
+
+
+def rotated_to_ll(degrees, calls=None):
+    """navsat toLL for a map rotated ``degrees`` from ENU, its origin at the course centre (50, 25)."""
+    a = math.radians(degrees)
+
+    def to_ll(points):
+        if calls is not None:
+            calls.append(list(points))
+        return [lat_lon(50 + x * math.cos(a) - y * math.sin(a), 25 + x * math.sin(a) + y * math.cos(a))
+                for x, y in points]
+    return to_ll
+
+
+def test_a_lat_lon_fence_is_checked_in_lat_lon_through_tol_l_on_a_rotated_map():
+    """A goal a translated map copy would allow (map (40, 19): 6 m inside the north edge) lies past
+    the edge once the 10 degree map rotation is applied, as toLL does: refused."""
+    boat = (0.0, 0.0, 0.0)
+    assert check_fence((40.0, 19.0), boat, LL_FENCE, 0.5, rotated_to_ll(0.0)) is None
+    assert check_fence((40.0, 19.0), boat, LL_FENCE, 0.5, rotated_to_ll(10.0)) == 'goal is outside the fence'
+    calls = []
+    assert check_fence((10.0, 0.0), boat, LL_FENCE, 0.5, rotated_to_ll(10.0, calls)) is None
+    assert calls == [[(10.0, 0.0), (0.0, 0.0), (1.0, 0.0)]]   # the goal, the boat, a point ahead
+
+
+def map_of(degrees, east, north):
+    """The map point a map rotated ``degrees`` (rotated_to_ll) puts at course ENU (east, north)."""
+    a, e, n = math.radians(degrees), east - 50, north - 25
+    return e * math.cos(a) + n * math.sin(a), -e * math.sin(a) + n * math.cos(a)
+
+
+def test_a_lat_lon_fence_reads_the_heading_in_lat_lon_too():
+    """Facing map east is facing 45 deg north of east on a map rotated 45 deg: 2.6 m from the
+    north edge that is within the 60 deg outward rule, so refused; rotated -45 it faces away."""
+    for degrees, reason in ((45.0, 'facing outward'), (-45.0, None)):
+        boat = (*map_of(degrees, 47.0, 47.4), 0.0)
+        found = check_fence(map_of(degrees, 47.0, 40.0), boat, LL_FENCE, 0.5, rotated_to_ll(degrees))
+        assert found is None if reason is None else reason in found
+
+
+@pytest.mark.parametrize('to_ll, reason', [
+    (None, 'no toLL'),
+    (lambda points: (_ for _ in ()).throw(RuntimeError('/toLL is not available')), 'toLL failed'),
+    (lambda points: [(0.0, 0.0)] * len(points), 'no datum'),
+    (lambda points: [(float('nan'), 0.0)] * len(points), 'no datum'),
+])
+def test_a_lat_lon_fence_without_a_working_tol_l_refuses(to_ll, reason):
+    assert reason in check_fence((5.0, 0.0), (0.0, 0.0, 0.0), LL_FENCE, 0.5, to_ll)
+
+
+def test_a_map_fence_needs_no_tol_l():
+    assert check_fence((5.0, 0.0), (0.0, 0.0, 0.0), FENCE, 0.5, None) is None
 
 
 def test_the_boat_outside_the_fence_refuses_every_goal():

@@ -21,7 +21,7 @@ from mhseals_testing.ui.feeds.authority import AuthorityFeed
 
 # fence_watchdog's message: a map box around the start, as the sim's
 FENCE = {'valid': True, 'frame': 'map', 'points': [-40.0, -40.0, 40.0, -40.0, 40.0, 40.0, -40.0, 40.0],
-         'source_frame': 'map', 'margin_m': 5.0, 'outward_angle_deg': 60.0, 'outward_speed_mps': 0.1,
+         'margin_m': 5.0, 'outward_angle_deg': 60.0, 'outward_speed_mps': 0.1,
          'reason': '', 'error': '', 'stamp_ns': 1}
 
 
@@ -878,6 +878,7 @@ def test_recent_keeps_finished_and_refused_acts_after_act_clears(rig):
     (dict(FENCE, points=[-8.0, -8.0, 8.0, -8.0, 8.0, 8.0, -8.0, 8.0]), 5, 'fence margin'),
     (None, 5, 'no fence from fence_watchdog'),
     (dict(FENCE, valid=False, points=None, error='no valid fence configured'), 5, 'no valid fence'),
+    (dict(FENCE, frame='latlon', points=[42.0, -71.0, 42.0, -70.99, 42.01, -70.99]), 5, 'no toLL'),
 ])
 def test_a_goal_past_the_fence_or_its_margin_is_refused_before_allow(rig, fence, x, reason):
     """C9: the dry run and the act refuse it up front; no Allow is asked, nothing moves."""
