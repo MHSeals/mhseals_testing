@@ -69,11 +69,11 @@ def lines(kind=None):
 
 
 @pytest.mark.parametrize('error,code', [
-    ('', 0), ('busy', 2), ('blocked', 5), ('blocked: agent_motion observe', 2), ('no_mux', 2),
+    ('', 0), ('busy', 2), ('blocked', 5), ('motion_observe', 2), ('no_mux', 2),
     ('revoked', 3), ('overridden: keys', 3), ('expired', 3), ('cancelled: handover', 3),
     ('no_owner', 4), ('timeout', 6)])
 def test_exit_codes(error, code):
-    assert agent_cli.exit_code({'ok': not error, 'error': error}) == code
+    assert ch.exit_code({'ok': not error, 'error': error}) == code
 
 
 @pytest.mark.parametrize('argv', [['claim', '--who', 'a'], ['release', '--claim', 'c1'],

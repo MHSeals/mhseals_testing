@@ -21,7 +21,6 @@ VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'stop', 'mark', 
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s')
-LOST = ('revoked', 'overridden', 'cancelled', 'expired', 'released', 'handover')
 DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': {'idle_s': 120.0, 'motion_s': 10.0}}
 STATUS_STALE_S = 3.0
 STOP_WAIT_S = 1.0
@@ -61,17 +60,6 @@ def add_parsers(sub):
     ask.add_argument('--options', type=lambda s: s.split(','), default=['yes', 'no'])
 
 
-def exit_code(reply):
-    """The exit code of a reply's ``error`` (``overridden: keys`` reads as its first word)."""
-    if reply.get('ok'):
-        return 0
-    error = str(reply.get('error') or '')
-    if error == 'blocked':                 # Agents -> block; 'blocked: agent_motion observe' is 2
-        return 5
-    word = error.split(':')[0].strip()
-    return 4 if word == 'no_owner' else 6 if word == 'timeout' else 3 if word in LOST else 2
-
-
 def config():
     from mhseals_testing.harness import agent_config
     try:
@@ -103,7 +91,7 @@ class Agent:
         reply = channel.reply(req['id'], self.who, ok=not error, error=error, hint=hint,
                               result=result or None, path=self.path)
         self.emit(reply)
-        return exit_code(reply)
+        return channel.exit_code(reply)
 
     def send(self, op, args=None, claim=None, dry=False, wait=None):
         """Append a req and wait for its final reply; returns the exit code."""
@@ -126,7 +114,7 @@ class Agent:
                 if req['op'] in STREAMS or reply['state'] == 'done' or not reply['ok']:
                     self.emit(reply)
                 if reply['state'] == 'done' or not reply['ok']:
-                    return exit_code(reply)
+                    return channel.exit_code(reply)
             now = self.clock()
             if motion and now - renewed >= every:
                 channel.renew(self.who, req['claim'], req['id'], path=self.path)
@@ -194,7 +182,7 @@ class Agent:
                 replies = [r for r in tail.read()[0] if r['kind'] == 'reply' and r['re'] == req['id']]
                 if replies:
                     self.emit(replies[-1])
-                    return 0 if replies[-1]['ok'] else exit_code(replies[-1])
+                    return 0 if replies[-1]['ok'] else channel.exit_code(replies[-1])
                 self.sleep(POLL_S)
         else:
             req = channel.request('stop', self.who, path=self.path, request_s=self.cfg['request_s'])
