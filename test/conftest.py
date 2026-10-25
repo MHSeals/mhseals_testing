@@ -1,11 +1,16 @@
 """Shared test fixtures."""
 
+import os
 import sys
 from types import ModuleType
 
 import pytest
 
 from nav_paths import find_nav
+
+# The theme reads NO_COLOR once, at import, and the goldens and style asserts expect colour: a shell
+# that exports NO_COLOR (agent sandboxes do) would otherwise fail them. Tests that want mono set it.
+os.environ.pop('NO_COLOR', None)
 
 
 @pytest.fixture
