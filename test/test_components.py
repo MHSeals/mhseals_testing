@@ -56,8 +56,12 @@ def test_argv_and_shipped_profiles():
     assert odometry.argv == ('ros2', 'launch', 'mhseals_nav', 'odom.launch.py', 'sim:=false',
                              'fcu_url:=serial:///inert-fcu', 'endpoint_context:=tui')
     boat = {item.key: item for item in components(load_profile('boat'))}
-    # Same graph as the Orin: no rosbridge args, or the converter drops to websocket mode.
-    assert not any('rosbridge' in arg or 'ws://' in arg for arg in boat['objects'].argv)
+    # Perception runs on the camera host: nothing here can start it.
+    assert boat['objects'].remote == boat['camera'].remote and not boat['objects'].argv
+    assert boat['objects'].nodes == ('zed_backend', 'object_tracker', 'costmap')
+    for name in ('boat', 'crane_full_stack'):
+        navigation = next(i for i in components(load_profile(name)) if i.key == 'navigation')
+        assert ('command_mux:=true' in navigation.argv) == load_profile(name).muxed
     assert boat['camera'].remote and not boat['camera'].argv
     # Up follows the camera host's own wrapper; the converter runs here under objects.
     assert boat['camera'].nodes == ('zed_node',)

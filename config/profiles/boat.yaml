@@ -21,14 +21,14 @@ components:
             nodes: [velodyne_driver]}
   mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'false'}, nodes: [rtabmap],
             needs: [odometry, ekf]}
-  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'false'}, limits: true,
-               nodes: [bt_navigator], needs: [odometry, ekf]}
-  objects: {launch: [mhseals_nav, objects.launch.py],
-            args: {sim: 'false'},
-            nodes: [object_tracker]}
-  # The ZED wrapper runs on the camera host and shares this graph. Up means its own node is
-  # present, not that anything running here receives from it.
+  # command_mux starts the stale-costmap watchdog, which asks the mux to hold.
+  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'false', command_mux: 'true'},
+               limits: true, nodes: [bt_navigator], needs: [odometry, ekf]}
+  # Perception runs on the camera host (orin.launch.py) and shares this graph; nothing here
+  # starts it. Camera is up when the ZED wrapper's own node is present.
   camera: {remote: blastoise-jetson, nodes: [zed_node]}
+  objects: {remote: blastoise-jetson, nodes: [zed_backend, object_tracker, costmap],
+            topic: /perception/tracks}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}

@@ -28,8 +28,8 @@ components:
   sensors: {launch: [mhseals_nav, sensors.launch.py], args: {sim: 'true'}, start: true}
   mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'true'}, nodes: [rtabmap],
             needs: [odometry, ekf]}
-  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'true'}, limits: true,
-               nodes: [bt_navigator], needs: [odometry, ekf], start: true}
+  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'true', command_mux: 'true'},
+               limits: true, nodes: [bt_navigator], needs: [odometry, ekf], start: true}
   objects: {launch: [mhseals_nav, objects.launch.py], args: {sim: 'true'},
             nodes: [object_tracker], start: true}
 sensors:
