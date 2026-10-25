@@ -108,7 +108,7 @@ class Ports(RosPorts):
         self.held_during.append([h['cause'] for h in (self.mux() or {}).get('holds', [])])
         if self.freeze and node == SMOOTHER:
             os.kill(self.freeze, signal.SIGSTOP)    # silent between the preview and the write
-        result = super().put(node, self.rewrite.get(node, values))
+        result = super().put(node, self.rewrite.pop(node, values))
         if node in self.log_after:
             line = self.log_after[node]
             if isinstance(line, tuple):
