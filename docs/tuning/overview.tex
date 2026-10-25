@@ -1,0 +1,47 @@
+\section{The tuning loop}
+\label{sec:loop}
+
+Nav2 and the velocity loop have been retuned many times. Every pass that worked followed
+the same seven steps (Figure~\ref{fig:flow}); every pass that failed skipped one, usually by
+tuning a symptom in Nav2 that belonged to the velocity loop, or by reading a sim win as a
+boat win.
+
+\begin{enumerate}[leftmargin=*, itemsep=2pt]
+\item \textbf{Measure the plant and its latency} (Section~\ref{sec:latency},
+  Section~\ref{sec:field}). Three boat sessions give everything: a Characterize run (its
+  neutral phase gives the noise floor $\sigma_f$, its yaw onsets the dead time $L$, its yaw
+  rows the rotation-centre offset $d$), Controller steps (the closed-loop lag $\tau$ per
+  axis) and a moored log per GPS fix tier ($\sigma_p$). Mass, CoM and the antenna lever arm
+  $l$ are bench numbers. The dead time comes from bags already recorded; no new run is
+  needed to get it.
+\item \textbf{Classify each difference} between the boat and the simulator
+  (Section~\ref{sec:plant}). Steady plant differences (mass, drag, thrust scale, reverse
+  ratio, a weak thruster) are absorbed by the velocity loop: they move route time by a few
+  per cent. Delay and noise are not absorbed: delay drives yaw overshoot and noise drives
+  shaking. Only those two, plus the geometry ($d$, $l$, $\sigma_p$), reach Nav2.
+\item \textbf{Derive the limits from rules} (Section~\ref{sec:limits}). Each Nav2 velocity
+  and acceleration limit is $\min(\text{measured}, \text{rule})$, where the rule keeps a
+  stop inside a fixed distance and a turn's overshoot inside half the yaw tolerance, given
+  the lag $T = \tau + L$. Goal tolerances come from the fix tier and the lever arm.
+\item \textbf{Tune for noise robustness} (Section~\ref{sec:noise}). MPPI's temperature and
+  sampling spreads decide how much a noisy odometry sample moves the plan; the velocity
+  loop's $k_p$ decides how much it moves the thrusters. Each is set so the noise it passes on
+  stays under half of what it would take to reverse something.
+\item \textbf{Gate behaviours} (Section~\ref{sec:field}). Some conditions are not tuned around:
+  docking only at RTK fixed, no tuning with a dead thruster, no start above 0.35\,m/s of
+  drift, and latency fixed first when $L > 0.3$\,s.
+\item \textbf{Verify in simulation} (Section~\ref{sec:verify}): crane\_ml runs of the
+  candidate against the baseline over a matrix of plant variants and disturbances, scored by
+  the motion-quality metrics of Section~\ref{sec:quality}.
+\item \textbf{Decide by explicit thresholds} (Section~\ref{sec:accept}), set before the runs.
+  A candidate that passes becomes a proposal to the owner, never a change on the boat.
+\end{enumerate}
+
+\noindent Two habits keep the loop honest. A change is attributed to one layer at a time:
+the thruster chatter under odometry noise turned out to be the velocity loop's $k_p$, not
+MPPI's (Section~\ref{sec:noise}), and the dock pin turned out to be the drift observer, not
+the docking task (Section~\ref{sec:observer}). And a number is used only with its evidence:
+the Python plant (\code{crane\_ml Tools/Tuning}) ranks causes quickly, but only a crane\_ml
+full-stack run, with MPPI in the loop, confirms a Nav2 change.
+
+\input{tuning/fig_flow}

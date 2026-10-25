@@ -1,0 +1,97 @@
+\section{The velocity loop and the drift observer}
+\label{sec:vlaw}
+
+Nav2 sends a body velocity; the boat's velocity law turns it into effort
+(Figure~\ref{fig:loop}). Whatever this loop does between the command and the velocity is what
+MPPI does not model, so it is tuned first and read by every later rule.
+
+\input{tuning/fig_loop}
+
+\subsection{The law}
+Let $\bm v^\star = \clip(\bm v^*, -\bm v_\text{max}, \bm v_\text{max})$ be the clipped request,
+$\bm b$ the body-fixed mechanical bias, $\dhat$ the world drift estimate and $s_j^{-1}$ the
+inverse of axis $j$'s speed curve, $s_j^{-1}(v) = \sgn(w)\sqrt{|w|}$ with $w = d_1 v + d_2 v|v|$.
+Per axis,
+\[
+  e_j = \clip\!\Big(\underbrace{s_j^{-1}\big(v^\star_j - b_j - [R(\psi)^\top\dhat]_j\big)}_{\text{feed-forward}}
+        + k_{p,j}\,\epsilon_j + k_{i,j}\,z_j,\; -1,\; 1\Big),
+  \qquad \epsilon_j = v^\star_j - v_j ,
+\]
+with the integral $z_j$ clipped to $\pm z_\text{max}$ (\code{integral\_limit}) and frozen on an
+axis pinned at $\pm1$ in the direction of its error (conditional integration). The
+defaults are $k_p = (0.8, 0.8, 0.6)$, $k_i = (0.6, 0.6, 0.4)$, $z_\text{max} = 0.3$.
+
+\paragraph{Why invert the curve, and not a gain.} The feed-forward is exact on the model, so
+the PI loop only meets what the model gets wrong. A straight-line gain would leave the loop a
+speed-dependent error, and a correction through the \emph{secant} gain of a power law
+over-corrects: for $y = c\,x^n$ the secant inverse gives $\Delta x = \Delta y\,x/y$, $n$ times
+the local inverse $\Delta y/(n c x^{n-1})$. So no measured lag or offset is ``undone'' by
+dividing by a secant gain; the curve is inverted, and the residual is left to feedback.
+
+\paragraph{The integral ceiling.} $z_\text{max}$ bounds what the integral can hold. With the
+observer off (a stale estimate) it binds only from about 0.45\,m/s of current: goal overshoot
+0.39\,m at $z_\text{max} = 0.3$ against 0.27\,m at 0.5 in a 0.45\,m/s current, and no gain at
+0.3\,m/s (0.19 against 0.21\,m) \ev{stale\_v1:stale\_il0.3\_c0.45, stale\_il0.5\_c0.45, stale\_il0.3, stale\_il0.5}.
+Raising it is optional and only for currents over 0.45\,m/s.
+\file{mhseals\_hardware/velocity\_law.py (VelocityLaw.step)}
+
+\subsection{The drift observer}
+\label{sec:observer}
+Current and wind change from day to day, so the drift is estimated on the boat, in the world
+frame where it is constant, and rotated into the body when used. Each odometry sample gives
+the part of the velocity the model cannot explain,
+\[
+  \bm\rho = R(\psi)\,\big(\bm v - \bm b - \bm s(\bm e)\big)_{xy},
+\]
+and a first-order filter with $\alpha = \Delta t/(\tau_d + \Delta t)$, $\tau_d = 5$\,s, averages it:
+$\dhat \leftarrow \dhat + \alpha(\bm\rho - \dhat)$. Three rules decide when it may learn
+(Figure~\ref{fig:observer}).
+
+\begin{description}[leftmargin=1em, itemsep=2pt]
+\item[Only at rest.] It learns only while every $|v^\star_j| \le 0.1$ (\code{drift\_command\_limit})
+  and no effort is saturated. Under way, $\bm\rho$ is mostly the model's own error, which would
+  be taken for current and turned with the boat; the estimate is held and the PI covers the
+  rest. A held estimate matters: with the observer off, skid in a carved turn in a 0.3\,m/s
+  cross-current doubles, 0.054$\to$0.107\,m/s \ev{stale\_v1:observer\_on\_il0.3, stale\_il0.3}.
+\item[The sign gate.] Against a dock or a buoy the boat stops while the effort pushes on. The
+  residual then reads as a current pushing it \emph{off} the contact, and learning it would
+  hold the push and add to it every cycle. A real current that is not yet compensated does the
+  opposite: it carries the boat \emph{along} the residual before the loop catches it. So the
+  observer integrates the world displacement since the boat last got under way,
+  $\bm q \leftarrow \bm q + \Delta t\,R(\psi)\bm v_{xy}$ (on learning samples; reset to 0 whenever
+  under way), and lets $|\dhat|$ grow only once
+  \[
+    \bm q\cdot\frac{\bm\rho}{|\bm\rho|} > q_\text{min} = 0.02\text{\,m}\quad(\code{drift\_carry});
+  \]
+  otherwise the update may shrink or turn the estimate but $|\dhat|$ is capped at its previous
+  size. The gate reads displacement, not speed, because the PI loop soon stops a drifting boat:
+  the carry it already had stays on record. The correction is sign-dependent by construction:
+  being carried along the residual opens the gate; reaching the dock moving the other way, or
+  being pinned, keeps it shut.
+\item[The cap.] $|\dhat| \le d_\text{max} = 0.5$\,m/s (\code{drift\_limit}) always: no current
+  the boat operates in is faster, and the cap bounds the damage of any path the gate misses. It
+  must stay well below the slowest axis's full-effort speed (usually sway), or the feed-forward
+  alone could still drive that axis to full effort against a contact.
+\end{description}
+
+\noindent The failure these rules remove was seen in crane\_ml's full mission: in the dock
+back-out the command stayed under 0.1\,m/s, the observer learned the dock contact as current,
+and the effort wound up to $(-0.8, +1.0)$ and pinned the boat to the tine until Nav2 reported
+no progress \ev{ma\_v3 seed 2}. The estimate exceeded 0.35\,m/s for 10\,s or more in a
+0.15\,m/s current \ev{ma\_v2 seed 0}.
+
+\input{tuning/fig_observer}
+
+\paragraph{Hold means neutral.} The controller follows the command mux's latched state: while
+its input is anything but auto, manual or RC (a hold, including the operator's \texttt{E}, or idle),
+or the state cannot be read, the law is reset and the effort is zero. The command timeout does
+the same. The mux sends zeros while it holds; without this the law would station-keep on them,
+with the drift feed-forward and the kept integral still pushing. Station
+keeping happens only when autonomy explicitly commands zero velocity; a hold never drives the
+thrusters to hold position. The remote e-stop is separate: it cuts thruster power in hardware
+and is latched until the arm flow re-enables it.
+
+\paragraph{Drift as a gate.} Because the estimate is held under way, a large estimate at the
+start of a task is a condition, not a parameter: above 0.35\,m/s precise tasks (docking) do not
+start (Section~\ref{sec:field}).
+\file{mhseals\_hardware/velocity\_law.py (VelocityLaw.observe), velocity\_controller.py (hold, reset)}

@@ -1,0 +1,37 @@
+% Preamble of tuning.tex: the packages, macros and figure palette of the math document
+% (math.tex), plus the few symbols the tuning document adds. Needs pgfplots (docs/Dockerfile).
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning,decorations.pathreplacing,
+  decorations.pathmorphing,patterns,shapes.geometric,fit}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots}
+\usepackage{caption}
+\captionsetup{justification=raggedright, singlelinecheck=true}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem*{example}{Example}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\file}[1]{\par\noindent{\small\raggedright\color{gray} Implemented in \texttt{#1}.\par}}
+\newcommand{\ev}[1]{{\small\textsf{[#1]}}}          % an evidence citation: run, study row, session
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\SD}{\operatorname{SD}}
+\newcommand{\clip}{\operatorname{clip}}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\nuv}{\bm{\nu}}                          % body velocity (u, v, r)
+\newcommand{\dhat}{\hat{\bm d}}                      % world drift estimate, m/s
+\newcommand{\Tl}{T}                                  % total lag tau + L
+
+% --- figure colours (the math document's palette) -------------------------------
+\definecolor{sA}{RGB}{31,119,180}     % blue: model / estimate / new method
+\definecolor{sB}{RGB}{214,95,14}      % orange: alternative / old method / data
+\definecolor{sC}{RGB}{44,140,60}      % green: accepted region / truth
+\definecolor{sD}{RGB}{150,150,150}    % grey: guides

@@ -1,0 +1,102 @@
+\section{Verification in simulation}
+\label{sec:verify}
+
+Verification has two stages with different jobs. The Python plant ranks causes in seconds per
+run but has no MPPI; crane\_ml runs the whole stack (Nav2, the velocity loop, the mixer, the
+physics player) and is the only stage that confirms a Nav2 change.
+
+\subsection{Stage 1: the Python plant matrices}
+\code{study.py} runs a matrix file against the plant of Section~\ref{sec:plant} with the boat's
+velocity law and mixer imported unchanged. Each JSONL row holds the variant, the limits, the
+seed, a case hash and the git heads, and \code{rerun(row)} reproduces it alone.
+
+\begin{center}\small
+\begin{tabular}{@{}llp{0.55\linewidth}@{}}
+\toprule
+Matrix & rows & varies \\
+\midrule
+\code{plant\_v1} & 26 cases, seed 0 & mass, inertia, added mass, CoM, drag, thrust scale, sag, reverse ratio, mount error, ESC deadband, spin-up, dead time, latency; five of them also uncharacterized \\
+\code{disturb\_v1} & 23 cases, seeds 0--2 & current, wind, waves, velocity noise, latency, GPS $\sigma$ and float, heading bias, dead thruster, field mix \\
+\code{noise\_v1} & 9 cases, seeds 0--2 & velocity $k_p$, $k_i$, nav heading and position gains in the field mix \\
+\code{rules\_v1} & 6 cases, seeds 0--2 & today's limits against the rule caps, calm, field mix, heavy \\
+\code{stale\_drift\_v1} & 6 cases, seeds 0--2 & observer on/off, \code{integral\_limit}, current 0.3 and 0.45\,m/s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Metamorphic relations.} The boat's true parameters are unknown, so the plant matrix
+checks relations between runs instead of values against truth:
+\begin{enumerate}[leftmargin=*, itemsep=1pt]
+\item \emph{Absorption}: a characterized steady plant change (mass, drag, thrust, reverse ratio,
+  mount) moves route time by at most $\pm5\%$ and adds no failed goal. Holds in \code{plant\_v1}
+  ($\pm3\%$).
+\item \emph{Monotone in delay}: more dead time or latency never lowers the yaw step overshoot
+  (0.10, 0.40, 0.82 at dead time 0, 0.15, 0.3\,s; 0.58 at 0.2\,s latency \ev{plant\_v1}).
+\item \emph{Monotone in noise}: more velocity noise or wave SD never lowers thruster reversals
+  (5.1, 30.6, 152\,/min at 0, 0.05, 0.12\,m/s; 8.0, 24.2 for waves 0.05, 0.12 \ev{disturb\_v1}).
+  Yaw reversals are not monotone in noise (waves 0.05: 1.7\,/min against 2.2 calm), so no relation
+  is drawn on them.
+\item \emph{Layer separation}: a velocity-loop gain change moves thruster reversals far more than
+  command chatter, and a nav gain change the reverse (\code{noise\_v1}).
+\end{enumerate}
+A violated relation is a finding about the stack, not noise to average away.
+
+\subsection{Stage 2: crane\_ml full stack}
+The candidate is a Nav2 YAML on \code{tuning-nav} built into an overlay; the baseline is
+origin/main. Each cell runs \code{pair\_test} (goal behaviour) and the full \code{mission} task, 3
+seeds calm and 2 per disturbance, at most 3 instances machine-wide, \code{nice -n 10}, backing
+off above 85\,$^\circ$C. Every session records the seed, the player commit, the overlay and
+parameter hashes and the git heads.
+
+\begin{center}\small
+\begin{tabular}{@{}lp{0.68\linewidth}@{}}
+\toprule
+Axis & cells \\
+\midrule
+disturbance & calm; current 0.2\,m/s at 90$^\circ$; wind 5\,m/s at 45$^\circ$; GPS $\sigma$ 0.3\,m; odometry velocity $\sigma$ 0.05\,m/s \\
+plant (faults player) & mass 19 / 40\,kg; CoM aft / port; reverse ratio 0.6; weak / dead FL; dead time 0.2\,s; spin-up 0.3\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{What it has shown.} In pair runs (Table~\ref{tab:pair}) turning to the goal yaw inside
+the tolerance (A1) is the one clear win; widening the rotation shim's threshold (A2) and the yaw
+caps alone (A3) are not accepted. The full mission adds failures no pair run sees, and each was
+traced to one layer before anything was tuned: the dock pin to the drift observer
+(Section~\ref{sec:observer}); a back-out goal 2.9\,rad behind the boat, over the shim's 1.8\,rad
+threshold, turning in the bay (fixed in the task by a straight back-up); a speed lap ending 1\,s
+after it started on the previous goal's success (fixed by resending a success that arrives early
+and far from the route end); and buoy contacts between offset gates, still open, where MPPI's
+cost critic weight (3.81) is low against the path critics (10). Full-mission results from player
+\code{bf82744} are invalid (buoys leave detection after about 21\,s) and are not used.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+& change against main & goal time & overshoot & yaw rev/min & path ratio & away-spins \\
+\midrule
+A0 & none & 51.7\,s & 0.24\,m & 5.7 & 1.25 & 0 \\
+A1 & \code{rotate\_to\_goal\_heading} & 54.0\,s & 0.02\,m & 3.3 & 1.16 & 0 \\
+A2 & A1 + shim threshold 2.6 & 70.9\,s & 0.09\,m & 2.6 & 1.21 & 1 \\
+A3 & A1 + $w_z$/$\alpha_z$ 0.42/0.46 & 56.1\,s & 0.06\,m & 4.1 & \textbf{1.32} & 1 \\
+\bottomrule
+\end{tabular}
+\caption{crane\_ml pair\_test, 240\,s, calm, medians of seeds 0--2 \ev{tune\_A\{0,1,2,3\}\_pair*}.
+Away-spins are totals over the three seeds. A1 adopted; A2 rejected (one run 0.67\,m overshoot, path ratio 2.43); A3 retested with the full rule
+set on the fixed player.}
+\label{tab:pair}
+\end{table}
+
+\subsection{Acceptance}
+\label{sec:accept}
+The thresholds are fixed before the runs. A candidate is accepted only if, over the whole matrix:
+\begin{enumerate}[leftmargin=*, itemsep=1pt]
+\item the mission succeeds in at least 90\% of cells and in every calm cell;
+\item the median of every gated metric passes Table~\ref{tab:quality}, with zero away-spins and zero stalls;
+\item no metric is worse than the baseline in more than one cell in five;
+\item mission time is no worse than the baseline's $+5\%$.
+\end{enumerate}
+A failure goes back to the step whose layer the failing metric points at
+(Section~\ref{sec:quality}), not to the nearest Nav2 key.
+\file{crane\_ml Tools/Tuning/study.py, matrices/*.yaml; rig run\_sim.sh, batch.sh}

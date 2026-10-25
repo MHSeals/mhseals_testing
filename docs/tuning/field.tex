@@ -1,0 +1,67 @@
+\section{On the boat: measurements, gates and stopping}
+\label{sec:field}
+
+Agents never apply parameters to the boat and never write the FCU. Every boat step is a
+proposal the owner executes; the sim steps run unattended. The thrusters stay disconnected and
+every step is a dry run (\code{boat\_trial check --profile boat --gate t} clean) until the owner
+says otherwise, and arming stays with the owner. Heading and velocity data from the period the
+FCU yaw source was wrong are never inputs.
+
+\subsection{What to measure}
+\begin{center}\small
+\begin{tabular}{@{}p{0.17\linewidth}p{0.25\linewidth}p{0.28\linewidth}p{0.2\linewidth}@{}}
+\toprule
+Quantity & Session & Analysis & Sets \\
+\midrule
+mass, CoM, lever arm $l$ & bench (\texttt{bench.pdf}) & --- & URDF, $l$ \\
+noise floor $\sigma_f$, $\sigma_r$ & Characterize, neutral phase (20\,s) & neutral noise $\to$ \code{wave\_floor} & $k_p$, stopped velocities \\
+dead time $L$ & the same session's yaw onsets & \code{latency.py} (Section~\ref{sec:latency}) & all rules \\
+lag $\tau$ per axis & Controller steps, amplitude = planned limit & rise time$/\ln 9$ & all rules \\
+offset $d$ & Characterize yaw rows & $|v|/|r|$ on yaw holds, lever-corrected & xy tolerance, rotate speed \\
+$\sigma_p$ per fix tier & 5\,min moored per tier & SD of the global position & xy tolerances, docking gate \\
+current, wind & Conditions panel & conditions verdict & go / no-go \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent A fit stands until something says it no longer describes the boat: the
+change-point sentinel firing (critical value 4.60, the owner's correction of the sim-to-real review's 4.57), a hardware change, or a
+new day's conditions outside those it was fitted in. Then the boat is re-characterized before
+any tuning.
+
+\subsection{Gates}
+These are not tuned around; each one stops the session or the task.
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+\item \textbf{Conditions}: current $\le 0.3$\,m/s, wind $\le 6$\,m/s, and a wave floor under 2.5 times the
+  one the tuning assumed. Otherwise no tuning run.
+\item \textbf{Dead or weak thruster}: a direction Characterize marks dead fails the motion gates
+  (the \code{calib.dead} check). No Nav2 tuning that day: the route still completes in simulation, but
+  goals overshoot by 0.77\,m \ev{disturb\_v1:FL\_dead}.
+\item \textbf{Latency}: $L > 0.3$\,s means fixing the odometry chain first (Section~\ref{sec:latency}).
+\item \textbf{Fix tier}: docking and other precise goals start only at RTK fixed; if $\sigma_p$ at the
+  session's tier exceeds 0.15\,m, docking is perception-only or skipped.
+\item \textbf{Drift}: a drift estimate over 0.35\,m/s keeps precise tasks from starting
+  (Section~\ref{sec:observer}). It is a start gate only; a running task is aborted only by
+  saturated thrusters off the command.
+\end{itemize}
+
+\subsection{Order and stopping}
+The runs go in increasing exposure, and the first failure ends the day's tuning:
+\[
+  \text{Characterize} \to \text{Controller steps} \to \text{Station keeping} \to
+  \text{Waypoint square} \to \text{single tasks} \to \text{mission}.
+\]
+Nav2 keys that apply live go through \code{boat\_trial config apply nav2 --yes}, which writes the
+overlay first; keys that need a restart trigger a Navigation reset. Velocity-loop gains are the
+hardware owner's change.
+
+\paragraph{Abort.} Thruster chatter over 2\,Hz, yaw reversals over 15\,/min or a goal overshoot over
+1\,m (four, two and a half, and over three times their pass thresholds): abort the task, release the hold, and
+revert to the last good overlay. A hold puts the thrusters in neutral (Section~\ref{sec:observer});
+the RC mode switch takes over at any time; the remote e-stop cuts thruster power.
+
+\paragraph{Decide.} A field change is kept only if its session passes the metrics of
+Section~\ref{sec:quality} computed from \code{/odom/local} with the bands checked against the day's
+$\sigma_f$, and is no worse than the last good overlay on the same course. Otherwise it is reverted
+and the failing metric's layer is the next thing to look at, back in simulation.
+\file{mhseals\_testing boat\_test procedures (Characterize, Controller steps), harness gates; mhseals\_nav task conditions}

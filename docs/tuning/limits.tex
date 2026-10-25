@@ -1,0 +1,110 @@
+\section{Limits from rules}
+\label{sec:limits}
+
+The characterization measures how fast the boat \emph{can} go. That is no speed to plan gates
+at: what limits a lagging boat is how far it travels before a new command takes effect. Each
+limit the characterization writes to the Nav2 overlay is therefore
+\[
+  \text{limit} = \min(\text{measured} \times \text{headroom},\; \text{rule}(T)),
+\]
+with the rules below, in terms of the lag $T_a = \tau_a + L$ of Section~\ref{sec:latency}
+(Figure~\ref{fig:limits}).
+
+\subsection{Acceleration: a ramp lasts $k$ lags}
+A first-order lag $T$ following a velocity ramp of slope $a$ trails it by $aT$ in steady state.
+Ramping to $v$ at $a = v/(kT)$ keeps that tracking error at $v/k$, a $k$-th of the speed, so
+MPPI's kinematic plan stays one the boat can follow:
+\[
+  a_a = \frac{v_a}{k\,T_a},\qquad k = 3 \;(\code{ramp\_lags}).
+\]
+The same rule sets the deceleration and, with $w_z$, the angular acceleration
+$\alpha_z = w_z/(k T_\text{yaw})$.
+
+\subsection{Speed: stop inside $D$}
+After a stop command the boat keeps $v$ for about one lag, then decelerates at $a$:
+\[
+  s_\text{stop} = vT + \frac{v^2}{2a} = vT + \frac{v k T}{2} = vT\Big(\frac{k}{2} + 1\Big) \le D
+  \quad\Longrightarrow\quad
+  v_a = \frac{D}{T_a\,(k/2 + 1)},
+\]
+with $D = 1$\,m (\code{stop\_distance\_m}), so an obstacle or a goal one metre ahead is always
+stoppable for.
+
+\subsection{Yaw rate: overshoot within half the tolerance}
+A turn at rate $w_z$ keeps turning for about one lag after the command to stop, so it
+overshoots by $\theta_\text{os} \approx w_z T_\text{yaw}$. Keeping that within half the precise
+goal checker's yaw tolerance leaves the other half to heading noise, the same factor of two as
+every threshold against the noise it guards:
+\[
+  w_z\,T_\text{yaw} \le \tfrac12\,\psi_\text{tol}
+  \quad\Longrightarrow\quad
+  w_z = \frac{\psi_\text{tol}}{2\,T_\text{yaw}},\qquad \psi_\text{tol} = 0.25\text{\,rad}.
+\]
+The characterization writes it to \code{wz\_max} and the behaviour server's
+\code{max\_rotational\_vel}; the rotation shim's \code{rotate\_to\_heading\_angular\_vel} is set
+to match by hand. At $L = 0.3$\,s ($T_\text{yaw} = 0.45$\,s) a turn at 0.6\,rad/s would overshoot
+about $0.27$\,rad (15$^\circ$), twice the half-tolerance of 7$^\circ$.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+axis & $T$ (s) & rule $v$ or $w_z$ & rule $a$ or $\alpha_z$ & today's $v$ or $w_z$ \\
+\midrule
+surge & $0.35 + 0.15$ & 0.80\,m/s & 0.53\,m/s$^2$ & 0.4\,m/s \\
+sway  & $0.45 + 0.15$ & 0.67\,m/s & 0.37\,m/s$^2$ & 0.15\,m/s \\
+yaw   & $0.15 + 0.15$ & 0.42\,rad/s & 0.46\,rad/s$^2$ & 0.3\,rad/s \\
+\bottomrule
+\end{tabular}
+\caption{Rule outputs at the \code{nav2\_rules} constants ($\tau$ per axis $+$ \code{delay\_s} 0.15,
+$D = 1$\,m, $k = 3$, $\psi_\text{tol} = 0.25$), against today's limits. In the Python plant the caps
+cut route time 82.5$\to$47.6\,s calm and 84.4$\to$48.3\,s in the field mix, with goal overshoot
+no worse (0.58$\to$0.50\,m in the field mix) \ev{rules\_v1:cur\_calm, rule\_calm, cur\_field, rule\_field}. Under MPPI the yaw caps alone (A3) are not yet accepted:
+path ratio 1.32 and one away-spin \ev{tune\_A3\_pair}; the full set awaits the crane matrix.}
+\label{tab:rules}
+\end{table}
+
+\noindent MPPI's \code{prune\_distance} must cover the horizon at the new speed:
+$\ge 1.2\,v_x \times 4.8$\,s. A current $c_\text{max}$ needs $v_x \ge c_\text{max} + 0.2$\,m/s of
+headroom, or the day is a no-go.
+
+\input{tuning/fig_limits}
+
+\subsection{Stopped velocities}
+The precise goal checker calls the boat stopped below its stopped velocities,
+\code{trans\_stopped\_velocity} and \code{rot\_stopped\_velocity}. Afloat the measured velocity never reads zero, so both sit at
+least twice the per-sample neutral SD of their channel: $\ge 2\sigma_f$ and $\ge 2\sigma_r$.
+
+\subsection{Goal tolerances: fix tier, lever arm and spin drift}
+\label{sec:spin}
+A goal check is a position check, so its tolerance must cover what the position does with the
+boat standing still: twice the GPS noise of the fix tier in use, plus the uncorrected antenna
+lever arm $l$. A third term comes from the yaw.
+
+\paragraph{Spin drift.} Nav2 steers \code{base\_link}, but the hull turns about its centre of
+mass. With the CoM a distance $d$ from base\_link, a turn in place at rate $r$ moves base\_link
+on a circle of radius $d$ at speed $r d$, a sway the velocity loop reads as an error and pushes
+back on one lag late. Uncorrected, a 180$^\circ$ turn carries base\_link across the chord $2d$;
+measured with the loop, base\_link walks $1.2$--$2.5\,d$: $0.156$\,m at 0.3\,rad/s and $0.25$\,m at
+0.8\,rad/s for $d = 0.10$\,m \ev{ad hoc Python-plant runs t3/t5, not a study row}; the range
+and the factor $c$ below are read from those runs and are estimates until a study matrix
+covers them. The walk grows with the rate because the
+correction lags (Figure~\ref{fig:spin}). It matters most in the last turn to the goal yaw: a walk
+past the xy tolerance makes the goal checker fail and the boat re-approach and turn again.
+Hence
+\[
+  \text{xy\_goal\_tolerance} \ge 2\sigma_p + l + c\,d,\qquad c = 1.6 \text{ at } 0.3\text{\,rad/s},\; 2.0 \text{ at } 0.45\text{\,rad/s},
+\]
+and the in-place rotate speed stays at or under 0.3\,rad/s while $d > 0.08$\,m. Precise goals
+(docking) use the RTK-fixed $\sigma_p$ only. The GPS noise itself costs hold accuracy whatever the
+tuning: $\sigma_p = 0.5$\,m gives 0.6\,m hold RMS and $1.5$\,m (float) 2.3\,m
+\ev{disturb\_v1:gps0.5, gps1.5\_float}.
+
+\paragraph{Turning to the goal yaw inside the tolerance.} With \code{rotate\_to\_goal\_heading}
+the rotation shim turns to the goal yaw, closed loop, once inside the xy tolerance, instead of
+leaving the final yaw to MPPI's critics. In crane\_ml pair runs it cut goal overshoot from 0.24 to
+0.02\,m and yaw reversals from 5.7 to 3.3\,/min for 2.3\,s of goal time
+\ev{tune\_A0\_pair, tune\_A1\_pair, seeds 0--2}; it is adopted.
+
+\input{tuning/fig_spin}
+\file{mhseals\_testing analysis/characterization.py (rule\_limits, nav2\_profile), config/characterize.yaml (nav2\_rules)}

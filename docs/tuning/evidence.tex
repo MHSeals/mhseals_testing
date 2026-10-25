@@ -1,0 +1,27 @@
+\section{Evidence index}
+\label{app:evidence}
+
+Every bracketed citation names one of the sources below. Python-plant rows re-run alone with
+\code{study.rerun(row)}; the plotted rows are frozen under \code{docs/figures/tuning/study/} and
+the figures regenerate with \code{make tuning-figures}.
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.3\linewidth}p{0.64\linewidth}@{}}
+\toprule
+Citation & Source \\
+\midrule
+\ev{plant\_v1:\textit{case}} & Python plant, \code{matrices/plant\_v1.yaml}, seed 0, row \textit{case} \\
+\ev{disturb\_v1}, \ev{noise\_v1}, \ev{rules\_v1}, \ev{stale\_v1} & Python plant, the matrix of that name (\code{stale\_drift\_v1.yaml} for \code{stale\_v1}), seeds 0--2 \\
+\ev{latency synthetic} & 16 synthetic onsets (dead time 0--0.3\,s, spin-up 0.1/0.25\,s, odometry latency 0/0.1\,s) through \code{latency.estimate} \\
+\ev{crane relay latency fit} & crane\_ml Characterize yaw onsets with \code{pwm\_relay.py} dead time 0 and 0.1\,s, 8 onsets each \\
+\ev{tune\_A\textit{n}\_pair} & crane\_ml pair\_test sessions, 240\,s, seeds 0--2, scored by \code{motion\_quality.py} and \code{navmetrics.py} \\
+\ev{tune\_P4p\_*} & crane\_ml pair\_test, odometry velocity $\sigma$ 0.05, seeds 0--2 \\
+\ev{ma\_v2}, \ev{ma\_v3} & crane\_ml full-mission batches of the mission-autonomy branch (rig-percep player) \\
+\ev{sim2real R\textit{n}} & the sim-to-real specification's adversarial-review verdict table (\S17); only confirmed or plausible claims are cited, and R3-8 only for its corrected sign \\
+\ev{ad hoc runs t3/t5} & throwaway Python-plant scripts (in-place turns with a CoM offset), not a study matrix; their numbers are estimates \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Python-plant numbers rank causes; they are not boat numbers, and none of them confirms a
+Nav2 change without a crane\_ml run. The nominal plant is crane\_ml's physics, a fixture.

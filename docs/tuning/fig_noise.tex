@@ -1,0 +1,45 @@
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=1.7cm},
+  width=0.47\linewidth, height=5.2cm, xmin=-0.08, xmax=1.08, ymin=0,
+  xlabel={velocity $k_p$ factor ($\times$ 0.8, 0.8, 0.6)}, xtick={0,0.25,0.5,1},
+  xticklabels={0, 0.25, 0.5, 1},
+  tick label style={font=\footnotesize}, label style={font=\small},
+  legend cell align=left,
+  legend style={font=\footnotesize, draw=none, fill=white, fill opacity=0.85, text opacity=1,
+    at={(0.03,0.97)}, anchor=north west},
+  grid=major, grid style={gray!20}]
+\nextgroupplot[ylabel={thruster reversals (/min)}, ymax=72]
+  \addplot[sA, thick, mark=*, error bars/.cd, y dir=both, y explicit]
+    table[x=kp, y=thr, y error minus=thrlo, y error plus=thrhi] {figures/tuning/data/noise_kp.dat};
+  \addlegendentry{$k_{\text{yaw}} = 1$}
+  \addplot[sB, only marks, mark=triangle*, mark size=2.8pt, error bars/.cd, y dir=both, y explicit]
+    table[x expr=\thisrow{kp}+0.04, y=thr, y error minus=thrlo, y error plus=thrhi] {figures/tuning/data/noise_kyaw.dat};
+  \addlegendentry{$k_{\text{yaw}} = 0.5$}
+  \addplot[sD, thick, densely dotted, forget plot] table[x=kp, y=thr] {figures/tuning/data/noise_calm.dat};
+  \node[font=\scriptsize, sD!30!black, anchor=south east] at (axis cs:1.06,5.09) {calm, no noise};
+  \node[font=\scriptsize, anchor=south west] at (axis cs:-0.05,8.5) {f.-f.\ only};
+\nextgroupplot[ylabel={route yaw reversals (/min)}, ymax=30]
+  \addplot[sA, thick, mark=*, error bars/.cd, y dir=both, y explicit]
+    table[x=kp, y=yaw, y error minus=yawlo, y error plus=yawhi] {figures/tuning/data/noise_kp.dat};
+  \addplot[sB, only marks, mark=triangle*, mark size=2.8pt, error bars/.cd, y dir=both, y explicit]
+    table[x expr=\thisrow{kp}+0.04, y=yaw, y error minus=yawlo, y error plus=yawhi] {figures/tuning/data/noise_kyaw.dat};
+  \addplot[sD, thick, densely dotted] table[x=kp, y=yaw] {figures/tuning/data/noise_calm.dat};
+  \node[font=\scriptsize, sD!30!black, anchor=south east] at (axis cs:1.06,2.18) {calm, no noise};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Odometry noise through the velocity gain, on the field mix of noise\_v1 (dead time
+0.05\,s, odometry latency 0.1\,s, velocity noise 0.04\,m/s, \code{wave\_sd} 0.06); points are the mean
+of seeds 0--2, bars the min--max. Left: thruster reversals scale with $k_p$, 58.2, 28.2 and
+13.5 per minute at $\times 1$, $\times 0.5$ and $\times 0.25$, and 6.3 with feed-forward only
+($k_p = 0$, $k_i$ halved), against 5.09 in calm water. Right: yaw reversals
+change less with $k_p$ and spread widely across seeds (21.8, 17.4, 17.1, 11.5 at $\times 1$,
+$\times 0.5$, $\times 0.25$, 0); halving Nav2's $k_{\text{yaw}}$ (triangles, offset right)
+gives 14.2 at $\times 1$ and 13.1 at $\times 0.5$ and leaves the thruster reversals with
+$k_p$ (55.1, 24.7). The rule $k_p \le \Delta e / (2\sigma_f)$, $\Delta e = 0.0625$, keeps the
+effort a $2\sigma_f$ velocity-noise excursion produces within one effort step; with the
+mix's $\sigma_f = 0.04$\,m/s alone it allows $k_p \le 0.78$, about the $\times 1$ surge gain 0.8. Data:
+\code{figures/tuning/data/noise\_*.dat}.}
+\label{fig:noise}
+\end{figure}

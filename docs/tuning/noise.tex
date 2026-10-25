@@ -1,0 +1,71 @@
+\section{Noise robustness}
+\label{sec:noise}
+
+Afloat, every odometry sample carries sensor noise and wave motion: the per-sample neutral SD
+$\sigma_f$ that Characterize's neutral phase measures (the wave floor). Two layers pass it on:
+MPPI turns it into command chatter, and the velocity loop turns it into thruster reversals.
+They are told apart by where the chatter shows: \code{cmd\_chatter\_hz} on \code{/cmd\_vel\_nav}
+is MPPI's, \code{thruster\_chatter\_hz} on the pulse widths is the velocity loop's
+(Section~\ref{sec:quality}).
+
+\subsection{MPPI: blend more samples, sample closer}
+Each cycle MPPI draws $K = 600$ control sequences around its previous plan, perturbed with
+standard deviations $\Sigma = \operatorname{diag}(\sigma_{v_x}, \sigma_{v_y}, \sigma_{w_z})$, scores
+each by its critics' cost $S_k$ from the current state, and averages them with weights
+\[
+  w_k = \frac{\exp\!\big(-(S_k - S_\text{min})/\lambda\big)}{\sum_j \exp\!\big(-(S_j - S_\text{min})/\lambda\big)},
+  \qquad \bm u \leftarrow \sum_k w_k\,\bm u_k ,
+\]
+with $\lambda$ the \code{temperature}. The update is a weighted mean of perturbations of size
+$\Sigma$, so its spread from cycle to cycle is about $\Sigma/\sqrt{N_\text{eff}}$, with the
+effective sample count $N_\text{eff} = 1/\sum_k w_k^2$. At a low temperature $N_\text{eff}$ is
+close to 1: the plan follows the single best sample, and when a noisy state sample reorders the
+costs, the best sample jumps. Two keys damp that: a higher $\lambda$ raises $N_\text{eff}$, and a
+smaller $\Sigma$ shrinks each perturbation. The price is exploration: a plan that moves less per
+cycle answers a real change later. Each $\sigma$ stays below its axis limit so samples are not
+clipped.
+
+\paragraph{Evidence.} Crane\_ml pair runs, odometry velocity noise 0.05\,m/s, 3 seeds
+(Table~\ref{tab:noise}). N1 ($\lambda$ 0.1$\to$0.3, $\Sigma$ $(0.15, 0.10, 0.25)\to(0.10, 0.07, 0.15)$)
+cut command chatter 0.28$\to$0.11\,Hz and yaw reversals 4.4$\to$2.1\,/min at the same goal time,
+and is the cleanest calm configuration; it is adopted. It does not fix thruster chatter, which
+rose to 1.04\,Hz: that is the velocity loop's.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Configuration & goal time & yaw rev/min & cmd chatter & thruster chatter & path ratio \\
+\midrule
+A1 calm          & 54.0\,s & 3.3 & 0.26\,Hz & 0.16\,Hz & 1.16 \\
+N1 calm          & 54.6\,s & 2.0 & 0.11\,Hz & 0.08\,Hz & 1.13 \\
+A1 + noise       & 55.6\,s & 4.4 & 0.28\,Hz & \textbf{0.66\,Hz} & 1.20 \\
+N1 + noise       & 56.6\,s & 2.1 & 0.11\,Hz & \textbf{1.04\,Hz} & 1.14 \\
+A1 + $k_p{\times}0.5$ + noise & 59.8\,s & 3.9 & 0.30\,Hz & 0.40\,Hz & 1.24 \\
+N1 + $k_p{\times}0.5$ + noise & 76.3\,s & 0.9 & 0.13\,Hz & 0.38\,Hz & \textbf{1.66} \\
+\bottomrule
+\end{tabular}
+\caption{Noise variants on crane\_ml pair\_test, medians of seeds 0--2 \ev{tune\_P4p\_*; A1 calm: tune\_A1\_pair}.
+Bold: fails its threshold (thruster chatter $\le 0.5$\,Hz, path ratio $\le 1.3$).}
+\label{tab:noise}
+\end{table}
+
+\subsection{The velocity loop: keep noise under the deadband}
+The PI term passes odometry noise straight to the effort: per sample its SD is $k_p\sigma_f$.
+A thruster reverses only when its effort crosses the ESC deadband $\Delta_e = 25/400 = 0.0625$.
+Holding the passed-on noise to half the deadband, the same factor of two as every threshold
+against its noise, gives
+\[
+  k_p \le \frac{\Delta_e}{2\,\sigma_f}.
+\]
+At $\sigma_f = 0.05$\,m/s that is $k_p \le 0.63$, under today's 0.8, and the crane runs show the
+chatter that predicts. In the Python plant's field mix (velocity noise 0.04, waves 0.06) halving
+$k_p$ halves thruster reversals, 58.2$\to$28.2\,/min, for 3\% of route time
+\ev{noise\_v1:kp1.0\_ki1.0, kp0.5}; halving the nav heading gain instead cuts yaw reversals
+21.8$\to$14.2\,/min \ev{noise\_v1:kyaw0.5}. Under MPPI, $k_p\times0.5$ fixes the chatter with A1 but
+makes N1 sluggish (Table~\ref{tab:noise}), so the next candidate is $k_p\times0.7$ with N1. A
+velocity-loop gain is the hardware owner's change: the procedure proposes it, with this
+evidence, and never applies it.
+
+\input{tuning/fig_noise}
+\file{mhseals\_nav config/nav2\_params.yaml (FollowPath temperature, *\_std); mhseals\_hardware config/default.yaml (controller.kp)}

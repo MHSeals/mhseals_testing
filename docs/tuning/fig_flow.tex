@@ -1,0 +1,87 @@
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\footnotesize,
+  stage/.style={draw, thick, rounded corners=2pt, fill=sA!10, minimum width=2.7cm,
+    minimum height=0.9cm, align=center, font=\small\bfseries},
+  detail/.style={draw=sD, rounded corners=2pt, fill=white, text width=11.2cm, align=left,
+    inner sep=4pt, anchor=west},
+  gate/.style={draw, thick, diamond, aspect=2.1, fill=sB!10, align=center, inner sep=0.5pt,
+    minimum width=2.45cm, minimum height=1.15cm,
+    font=\scriptsize},
+  stop/.style={draw=sB, rounded corners=2pt, fill=sB!6, align=center, font=\scriptsize,
+    text width=2.1cm, inner sep=2pt},
+  field/.style={draw, rounded corners=2pt, fill=sC!10, align=center, font=\scriptsize,
+    minimum height=0.8cm, text width=1.95cm, inner sep=2pt},
+  flow/.style={->, thick},
+  back/.style={->, sB, thick}]
+  % ---- the spine -------------------------------------------------------------------
+  \node[stage] (measure)  at (0,0)     {1 Measure};
+  \node[stage] (classify) at (0,-1.75) {2 Classify};
+  \node[stage] (limits)   at (0,-3.4)  {3 Limits\\[-1pt]from rules};
+  \node[stage] (noise)    at (0,-4.85) {4 Noise\\[-1pt]robustness};
+  \node[stage] (gates)    at (0,-6.6)  {5 Gates};
+  \node[stage] (verify)   at (0,-9.9)  {6 Verify\\[-1pt]in sim};
+  \node[gate, font=\small\bfseries, fill=sA!10, aspect=1.6] (decide) at (0,-11.75) {7 Decide};
+  \foreach \a/\b in {measure/classify, classify/limits, limits/noise, noise/gates}
+    \draw[flow] (\a) -- (\b);
+  % ---- what each step does ---------------------------------------------------------
+  \node[detail] at (2.0,0) {runs: Characterize (neutral and yaw onsets), Controller steps,\\
+    5\,min moored per GPS tier; bench: mass, centre of mass, lever arm};
+  \node[detail] at (2.0,-1.75) {steady plant differences (mass, drag, thrust):
+    absorbed by the velocity loop\\ unmodelled by MPPI: delay $\tau + L$,
+    noise $\sigma_f$, rotation-centre offset $d$,\\ position $\sigma_p$};
+  \node[detail] at (2.0,-3.4) {each Nav2 limit is $\min(\text{measured}, \text{rule})$:
+    \ $v \le D / (T(k/2+1))$, \ $\omega_z \le \mathrm{tol}/(2T)$\\ with lag $T = \tau + L$, ramps of $k$ lags, stop distance $D$};
+  \node[detail] at (2.0,-4.85) {MPPI temperature and sampling std; velocity
+    $k_p \le \Delta e / (2\sigma_f)$};
+  % ---- gates: a chain of checks, each with its own way out ---------------------------
+  \node[gate] (g1) at (3.55,-6.6)  {RTK fix?};
+  \node[gate] (g2) at (6.35,-6.6)  {all thrusters\\alive?};
+  \node[gate] (g3) at (9.25,-6.6)  {drift\\$\le 0.35$\,m/s?};
+  \node[gate] (g4) at (12.05,-6.6) {$L \le 0.3$\,s?};
+  \draw[flow] (gates) -- (g1);
+  \draw[flow] (g1) -- node[above, font=\scriptsize] {yes} (g2);
+  \draw[flow] (g2) -- node[above, font=\scriptsize] {yes} (g3);
+  \draw[flow] (g3) -- node[above, font=\scriptsize] {yes} (g4);
+  \foreach \g/\txt in {g1/{no docking\\(rest goes on)}, g2/{no tuning:\\repair first},
+                        g3/{no-go\\today}, g4/{fix latency\\first}} {
+    \node[stop, below=0.45cm of \g] (s\g) {\txt};
+    \draw[->, sB, thick] (\g) -- node[right, font=\scriptsize] {no} (s\g);
+  }
+  \draw[flow] (g4.east) -- node[above, font=\scriptsize] {yes} ++(0.4,0)
+    |- ($(verify.north)+(0,0.55)$) -- (verify.north);
+  \node[detail] at (2.0,-9.9) {crane matrix (plant variants $\times$ seeds),
+    \code{motion\_quality} scores per run};
+  \draw[flow] (verify) -- (decide);
+  % ---- decide: pass -> owner and field order; fail -> back up the spine ------------
+  \node[draw, rounded corners=2pt, fill=sC!10, align=center, font=\small, anchor=west]
+    (owner) at (2.6,-11.75) {owner proposal};
+  \node[anchor=west, font=\scriptsize, sD!50!black, align=left] at (5.1,-11.75)
+    {acceptance thresholds on the sim runs\\ decide pass or fail; only the owner changes the boat};
+  \draw[->, sC!80!black, thick] (decide) -- node[above, font=\scriptsize] {pass} (owner);
+  \node[field] (f1) at (1.15,-13.65) {Characterize};
+  \node[field, right=0.45cm of f1] (f2) {Controller\\steps};
+  \node[field, right=0.45cm of f2] (f3) {Station\\keeping};
+  \node[field, right=0.45cm of f3] (f4) {Waypoint\\square};
+  \node[field, right=0.45cm of f4] (f5) {Mission};
+  \foreach \a/\b in {f1/f2, f2/f3, f3/f4, f4/f5} \draw[flow] (\a) -- (\b);
+  \draw[->, sC!80!black, thick] (owner.south) -- ++(0,-0.6) -| (f1.north);
+  \node[font=\scriptsize, anchor=south west] at (f1.north east) {field order};
+  \draw[sB, thick, dashed] ($(f1.south)+(0,-0.05)$) -- ++(0,-0.4) -| ($(f5.south)+(0,-0.05)$);
+  \foreach \f in {f2,f3,f4} \draw[sB, thick, dashed] ($(\f.south)+(0,-0.05)$) -- ++(0,-0.4);
+  \node[draw=sB, rounded corners=2pt, fill=sB!6, font=\scriptsize, below=0.85cm of f3] (revert) {any abort: revert the overlay};
+  \draw[->, sB, thick, dashed] ($(f3.south)+(0,-0.45)$) -- (revert.north);
+  % fail: a bus up the left side, back into the step the failure implicates
+  \draw[back] (decide.west) -- (-2.05,-11.75) -- (-2.05,0) -- (measure.west);
+  \foreach \s in {classify, limits, noise} \draw[back] (-2.05,0 |- \s) -- (\s.west);
+  \node[sB, font=\scriptsize, rotate=90, anchor=south] at (-2.05,-8.2)
+    {fail: back to the step it implicates};
+\end{tikzpicture}
+\caption{The tuning loop and the spine of this document. Steps 1--4 turn measurements
+into limits and gains; the gates (diamonds) stop or narrow a session before any
+tuning; step~6 runs the candidate through the simulated plant matrix and step~7
+compares it with the acceptance thresholds. A pass becomes an owner proposal that the
+boat then tests in the field order, and any abort reverts the overlay. A fail goes back to
+the step it implicates.}
+\label{fig:flow}
+\end{figure}

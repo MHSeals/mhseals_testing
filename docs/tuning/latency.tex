@@ -1,0 +1,58 @@
+\section{Latency: the lag MPPI does not see}
+\label{sec:latency}
+
+\subsection{The model}
+Between a command and the odometry that shows its effect sit three delays in series: the pure
+delay of the command chain $L_d$ (pulse out, ESC), the thruster spool (first order, time
+constant $\tau_s$) and the odometry latency $L_o$ (EKF and transport); then the hull itself
+responds with time constant $\tau_h$ ($I_z$ over the linearized damping, for yaw). Seen from
+the odometry, a yaw onset from rest is close to a first-order-plus-dead-time (FOPDT)
+response,
+\[
+  r(t) = r_0 + K\Big(1 - e^{-(t - t_\text{on} - L)/\tau}\Big)\quad (t > t_\text{on} + L),
+  \qquad r(t) = r_0 \text{ before},
+\]
+with the apparent dead time
+\[
+  L \approx L_d + L_o + c\,\tau_s, \qquad c \approx \tfrac12,
+\]
+since a FOPDT fit of a two-lag cascade moves about half the smaller lag into the dead time
+(Skogestad's half rule). On synthetic onsets the fit recovered $L_d + L_o$ within $\pm0.01$\,s,
+with $c$ between 0.40 and 0.50 \ev{latency synthetic, 16 cases}. That $L$ is what the loop
+feels, so it is the right input to the rules; the closed-loop velocity lag $\tau$ per axis is
+measured separately by Controller steps as the 10--90\% rise time over $\ln 9$ (the rise time
+of a first-order response is $\tau\ln 9$). The total lag of axis $a$ is
+\[
+  T_a = \tau_a + L .
+\]
+
+\subsection{The fit}
+Onsets are pulse outputs that leave neutral ($|p - 1500| \ge 25\,\mu$s on any thruster) after at
+least 1\,s of rest. For each onset the yaw rate over $[-0.5, 3]$\,s is fitted on a grid of
+$(L, \tau)$, $L \in [0, 0.8]$\,s by 0.01, $\tau \in [0.04, 1.5]$\,s by 0.02, with $r_0$ and $K$ solved
+by least squares at each node. An onset says nothing, and is dropped, when $|K|$ is under four
+times the pre-onset noise or the optimum sits on the grid's edge. The result is the median $L$
+over onsets with a bootstrap 90\% interval (2000 resamples, seed 0).
+
+Yaw is used because its $\tau_h$ is the shortest (0.1--0.3\,s), which separates it best from $L$,
+and the gyro is the cleanest channel. Both series are bag receipt times on the boat computer,
+so no clock alignment enters.
+
+\paragraph{Acceptance.} At least 6 fitted onsets and a 90\% interval no wider than 0.05\,s;
+otherwise one more Characterize yaw pair (it runs both signs).
+
+\paragraph{Evidence in simulation.} In crane\_ml, with \code{pwm\_relay.py} adding a known dead
+time (8 onsets each): $L = 0.165$\,s $[0.16, 0.175]$ at relay dead time 0, and $0.29$\,s at 0.1\,s,
+so $\Delta L = 0.125$\,s; the relay's 50\,Hz tick accounts for the 0.025\,s excess
+\ev{crane relay latency fit}. The sim's own 0.165\,s supports the rule constant
+\code{nav2\_rules.delay\_s} $= 0.15$. The 0.2\,s case is not yet run; the validation asks for
+$\Delta L$ within $\pm0.03$\,s at 0.1 and 0.2\,s.
+
+\paragraph{When the latency is the problem.} Dead time is the one difference nothing downstream
+absorbs (Table~\ref{tab:classify}): 0.3\,s of it raises the yaw step overshoot from 10\% to 82\%. Above
+$L = 0.3$\,s the yaw rule of Section~\ref{sec:limits} drops $w_z$ under 0.28\,rad/s at the precise
+tolerance, so the procedure stops and fixes the latency (odometry rate, the EKF chain) instead
+of tuning around it.
+
+\input{tuning/fig_delay}
+\file{crane\_ml Tools/Tuning/latency.py; pwm\_relay.py (sim dead time)}

@@ -1,0 +1,68 @@
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\footnotesize,
+  blk/.style={draw, thick, rounded corners=2pt, fill=white, align=center, inner sep=3pt,
+    minimum height=1.25cm},
+  sub/.style={font=\scriptsize, sD!40!black},
+  sig/.style={->, thick},
+  dist/.style={->, thick, sB, decorate, decoration={snake, amplitude=1pt, segment length=5pt,
+    post length=4pt}},
+  note/.style={font=\scriptsize, align=center}]
+  % ---- top row: command path ---------------------------------------------------------
+  \node[blk, fill=sA!10, text width=1.9cm] (mppi) at (0,0)
+    {Nav2 MPPI\\[1pt] {\scriptsize plans as if\\ $v = $ command}};
+  \node[blk, text width=1.5cm, right=0.85cm of mppi] (smooth) {velocity\\smoother};
+  \node[blk, text width=2.0cm, right=0.45cm of smooth] (mux)
+    {\code{command\_mux}\\[1pt] {\scriptsize hold $\Rightarrow$ neutral}};
+  \node[blk, text width=6.3cm, right=0.45cm of mux, align=left] (law)
+    {\textbf{velocity law}\\[1pt]
+     feed-forward through the speed curves $e|e| = d_1 v + d_2 v|v|$\\
+     \quad at $v = v^* - b - R^\top\dhat$ \ (fig.~\ref{fig:observer})\\
+     $+$ PI on odometry \quad $+$ drift observer $\dhat$};
+  % ---- bottom row: plant path, right to left ----------------------------------------
+  \node[blk, text width=1.5cm] (ekf) at ($(smooth)+(0,-2.6)$) {EKF\\odometry};
+  \node[blk, text width=4.2cm, right=0.45cm of ekf] (hull)
+    {hull, 3-DOF Fossen\\[1pt] {\scriptsize $M\dot\nuv + C(\nuv_r)\nuv_r + D(\nuv_r)\nuv_r = \bm\tau$}};
+  \node[blk, text width=3.0cm, right=0.45cm of hull] (esc)
+    {ESC / T200\\[1pt] {\scriptsize deadband 25/400, thrust $\propto e|e|$,\\ spool, dead time}};
+  \node[blk, text width=1.8cm, right=0.45cm of esc] (mixer) {force-space\\mixer};
+  % ---- signals ------------------------------------------------------------------------
+  \draw[sig] (mppi) -- node[above, sub] {$v^*$} (smooth);
+  \draw[sig] (smooth) -- (mux);
+  \draw[sig] (mux) -- (law);
+  \draw[sig] (law.east) -| node[pos=0.75, right, sub] {$e$} (mixer.north);
+  \draw[sig] (mixer) -- (esc);
+  \draw[sig] (esc) -- node[above, sub] {$\bm\tau$} (hull);
+  \draw[sig] (hull) -- node[above, sub] {$\nuv$} (ekf);
+  \coordinate (fb) at ($(ekf.north)+(0,0.6)$);
+  \draw[thick] (ekf.north) -- (fb);
+  \draw[sig] (fb) -| (mppi.south);
+  \draw[sig] (fb) -| node[pos=0.3, below, sub] {odometry $\hat\nuv$, $\psi$} ($(law.south)+(-2.0,0)$);
+  \fill (fb) circle (1.3pt);
+  % ---- what MPPI does not model --------------------------------------------------------
+  \node[draw=sA, dashed, rounded corners=4pt, inner sep=5pt,
+    fit=(smooth) (mux) (law) (mixer) (esc) (hull) (ekf)] (gap) {};
+  \node[anchor=south east, sA, font=\scriptsize] at (gap.north east) {not in MPPI's model};
+  % ---- what enters from outside, and where the lag comes from ---------------------------
+  \draw[dist] ($(hull.south |- gap.south)+(0,-0.75)$) node[below, note, sB] {waves, current, wind}
+    -- (hull.south);
+  \draw[dist] ($(ekf.south |- gap.south)+(0,-0.75)$) node[below, note, sB] {noise $\sigma_f$}
+    -- (ekf.south);
+  \draw[decorate, decoration={brace, amplitude=4pt, mirror}, thick, sD!60!black]
+    ($(esc.west |- gap.south)+(0,-0.1)$) -- ($(esc.east |- gap.south)+(0,-0.1)$)
+    node[midway, below=4pt, note] {spool + delay: part of $L$};
+  \node[note, anchor=north east] at ($(ekf.west |- gap.south)+(-0.1,-0.1)$) {odometry latency:\\ part of $L$};
+  \node[note, anchor=north] at ($(gap.south)+(0,-1.25)$)
+    {what MPPI meets: the closed-loop velocity lag $\tau$ (the law around the plant)\\
+     and the dead time $L$ = spool + delay + odometry latency};
+\end{tikzpicture}
+\caption{The velocity loop between Nav2 and the water. MPPI plans as if the boat moved
+at the commanded velocity; everything inside the dashed box is outside its model. The
+velocity law closes a loop around the thrusters and the hull: its feed-forward inverts
+the per-direction speed curves at the wanted velocity less the mechanical bias $b$ and
+the drift estimate $\dhat$ rotated into the body, and PI feedback on odometry covers the
+rest. What MPPI sees of that box is a lag $\tau$, a dead time $L$, the odometry noise
+$\sigma_f$ and the disturbances acting on the hull. A hold in \code{command\_mux} sends
+neutral thrust, not station keeping.}
+\label{fig:loop}
+\end{figure}

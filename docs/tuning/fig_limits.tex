@@ -1,0 +1,53 @@
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=1.6cm},
+  height=5.2cm, tick label style={font=\footnotesize}, label style={font=\small},
+  legend cell align=left,
+  legend style={font=\footnotesize, draw=none, fill=white, fill opacity=0.85, text opacity=1}]
+% (a) stopping geometry, in units of the lag T and the speed v (k = 3)
+\nextgroupplot[width=0.43\linewidth, xmin=-0.3, xmax=4.6, ymin=0, ymax=1.45,
+  axis lines=left, xtick={0,1,4}, xticklabels={$0$, $T$, $(k+1)T$}, ytick={1},
+  yticklabels={$v$}, xlabel={time after the stop command}, ylabel={speed},
+  title={\small (a) stopping takes $vT + v^2/2a$}, clip=false]
+  \fill[sA!15] (axis cs:0,0) -- (axis cs:0,1) -- (axis cs:1,1) -- (axis cs:4,0) -- cycle;
+  \draw[sA!50, dashed] (axis cs:1,0) -- (axis cs:1,1);
+  \addplot[sA, very thick] coordinates {(-0.3,1) (1,1) (4,0) (4.6,0)};
+  \node[font=\footnotesize] at (axis cs:0.5,0.5) {$vT$};
+  \node[font=\footnotesize] at (axis cs:1.9,0.33) {$\dfrac{v^2}{2a}$};
+  \node[font=\scriptsize, anchor=south west, align=left] at (axis cs:2.45,0.55)
+    {ramp $a = v/(kT)$};
+  \node[font=\footnotesize, anchor=south, align=center] at (axis cs:2.0,1.05)
+    {$vT\,(k/2 + 1) \le D$};
+% (b) the rule caps against the lag T
+\nextgroupplot[width=0.5\linewidth, xmin=0.2, xmax=1.0, ymin=0, ymax=1.2, clip mode=individual,
+  xlabel={lag $T = \tau + L$ (s)}, ylabel={cap (m/s, rad/s)},
+  title={\small (b) caps from $D = 1$\,m, $k = 3$, tol $= 0.25$\,rad},
+  grid=major, grid style={gray!20}, legend pos=north east]
+  \addplot[sA, very thick] table[x=T, y=v] {figures/tuning/data/limits_caps.dat};
+  \addlegendentry{$v_{\text{cap}} = D / (T(k/2+1))$}
+  \addplot[sB, very thick, dashed] table[x=T, y=wz] {figures/tuning/data/limits_caps.dat};
+  \addlegendentry{$\omega_{z,\text{cap}} = \mathrm{tol}/(2T)$}
+  \draw[sD, thick, densely dotted] (axis cs:0.2,0.4) -- (axis cs:1.0,0.4)
+    node[pos=1, font=\scriptsize, sD!30!black, anchor=west] {$v_x$ 0.4};
+  \draw[sD, thick, densely dotted] (axis cs:0.2,0.3) -- (axis cs:1.0,0.3)
+    node[pos=1, font=\scriptsize, sD!30!black, anchor=west] {$\omega_z$ 0.3};
+  \node[font=\scriptsize, fill=white, inner sep=1pt, anchor=north east] at (axis cs:0.49,0.79) {surge $T{=}0.5$: $v_x$ 0.8};
+  \node[font=\scriptsize, fill=white, inner sep=1pt, anchor=south west] at (axis cs:0.6,0.667) {sway $T{=}0.6$: $v_y$ 0.67};
+  \node[font=\scriptsize, fill=white, inner sep=1pt, anchor=south west] at (axis cs:0.305,0.43) {yaw $T{=}0.3$: $\omega_z$ 0.42};
+  \addplot[only marks, mark=*, sA, mark size=2.2pt] coordinates {(0.5,0.8) (0.6,0.666667)};
+  \addplot[only marks, mark=square*, sB, mark size=2.2pt] coordinates {(0.3,0.416667)};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Limits from rules. (a) After a stop command the boat keeps its speed for about
+one lag $T$, then the planner's deceleration ramp of $k$ lags brings it to rest; the
+distance covered, $vT + v^2/2a = vT(k/2+1)$, must fit inside the stop distance $D$.
+(b) The resulting caps against $T$, with a turn's overshoot $\omega_z T$ kept to half the
+yaw tolerance. The marks are the rule outputs for the lags of \code{nav2\_rules}
+(\code{config/characterize.yaml}): surge $T = 0.35 + 0.15$\,s gives $v_x = 0.8$\,m/s, sway
+$0.45 + 0.15$\,s gives $v_y = 0.67$\,m/s, yaw $0.15 + 0.15$\,s gives $\omega_z = 0.42$\,rad/s
+(\code{analysis/characterization.rule\_limits}). Each Nav2 limit is the smaller of the rule
+and the measured capability. Dotted grey: today's configured $v_x = 0.4$\,m/s and
+$\omega_z = 0.3$\,rad/s. Data: \code{figures/tuning/data/limits\_caps.dat}.}
+\label{fig:limits}
+\end{figure}

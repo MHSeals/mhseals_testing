@@ -1,0 +1,72 @@
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\footnotesize,
+  blk/.style={draw, thick, rounded corners=2pt, fill=white, align=center, inner sep=3pt,
+    minimum height=1.0cm},
+  gate/.style={draw, thick, diamond, aspect=2.0, fill=sB!10, align=center, inner sep=0.5pt,
+    font=\scriptsize},
+  frz/.style={draw=sB, rounded corners=2pt, fill=sB!6, align=center, font=\scriptsize,
+    inner sep=3pt},
+  sig/.style={->, thick},
+  lab/.style={font=\scriptsize}]
+  % ---- row 1: when the observer may learn --------------------------------------------
+  \node[blk, fill=sA!10] (in) at (0,0) {odometry $v$, $\psi$\\ last effort $e$\\ target $v^*$};
+  \node[gate] (way) at (3.55,0) {under way?\\ any $|v^*_i| > 0.1$};
+  \node[gate] (sat) at (7.4,0) {saturated?\\ any $|e_i| \ge 0.999$};
+  \node[blk] (res) at (12.2,0)
+    {residual, world frame\\[1pt]
+     $\bm r = R(\psi)\,[\,v - b - \mathrm{speed}(e)\,]_{xy}$\\[1pt]
+     carried $\bm q \mathrel{+}= \Delta t\, R(\psi)\,v_{xy}$};
+  \draw[sig] (in) -- (way);
+  \draw[sig] (way) -- node[above, lab] {no} (sat);
+  \draw[sig] (sat) -- node[above, lab] {no} (res);
+  \node[frz] (freeze) at (5.475,-1.65) {freeze $\dhat$ \quad (under way also resets $\bm q \leftarrow 0$)};
+  \draw[->, sB, thick] (way.south) -- node[left, lab] {yes} (way.south |- freeze.north);
+  \draw[->, sB, thick] (sat.south) -- node[right, lab] {yes} (sat.south |- freeze.north);
+  % ---- row 2: low-pass, then the sign gate, then the cap ----------------------------
+  \node[blk] (lp) at (1.3,-3.9)
+    {low-pass\\[1pt] $\dhat \leftarrow \dhat + \alpha(\bm r - \dhat)$\\[1pt]
+     $\alpha = \Delta t / (\tau_d + \Delta t)$, \ $\tau_d = 5$\,s};
+  \node[gate, aspect=1.7] (sign) at (5.75,-3.9) {carried along $\hat{\bm r}$?\\
+    $\bm q \cdot \bm r / |\bm r| > 0.02$\,m};
+  \node[blk, fill=sC!10] (grow) at (10.0,-3.25) {$|\dhat| \le 0.5$\,m/s \ may grow};
+  \node[blk, fill=sB!6] (keep) at (10.0,-4.55) {$|\dhat| \le \min(|\dhat_{\text{before}}|, 0.5)$\\
+    may only shrink or turn};
+  \node[blk, fill=sA!10] (out) at (14.0,-3.9) {$R(\psi)^\top \dhat$\\ to the\\ feed-forward};
+  \draw[sig] (res.south) -- ++(0,-1.85) -| (lp.north);
+  \draw[sig] (lp) -- (sign);
+  \draw[sig] (sign.east) -- ++(0.35,0) |- node[pos=0.75, above, lab] {yes} (grow.west);
+  \draw[sig] (sign.east) -- ++(0.35,0) |- node[pos=0.75, below, lab] {no} (keep.west);
+  \draw[sig] (grow.east) -- ++(0.3,0) |- (out.west);
+  \draw[sig] (keep.east) -- ++(0.3,0) |- (out.west);
+  % ---- row 3: the side path that bypasses the law -------------------------------------
+  \node[frz, font=\footnotesize] (hold) at (1.3,-6.5) {\code{command\_mux} hold or idle\\ or command timeout (0.5\,s)};
+  \node[blk] (reset) at (5.3,-6.5) {law reset\\ {\scriptsize integral, effort, target}};
+  \node[blk] (zero) at (8.6,-6.5) {zero effort\\ {\scriptsize neutral thrusters}};
+  \draw[sig] (hold) -- (reset);
+  \draw[sig] (reset) -- (zero);
+  \node[lab, align=left, anchor=north west] at ($(hold.south west)+(0,-0.12)$)
+    {hold means neutral thrusters, not station keeping; $\dhat$ is kept across the reset};
+  % ---- inset: the boat pinned on a dock -------------------------------------------------
+  \begin{scope}[shift={(12.9,-6.3)}]
+    \fill[pattern=north east lines, pattern color=sD] (1.05,-0.7) rectangle (1.3,0.7);
+    \draw[thick] (1.05,-0.7) -- (1.05,0.7);
+    \node[lab, rotate=90] at (1.5,0) {dock};
+    \draw[thick, fill=sD!15] (-0.75,-0.3) -- (0.75,-0.3) -- (1.05,0) -- (0.75,0.3) -- (-0.75,0.3) -- cycle;
+    \draw[->, very thick, sB] (-0.3,0.5) -- node[above, lab] {effort $e$} ++(0.9,0);
+    \draw[->, very thick, sA] (0.4,-0.5) -- node[below, lab] {residual $\bm r$} ++(-0.9,0);
+    \node[lab, align=center, anchor=north] at (0.1,-1.0) {it arrived moving into the dock,\\ so $\bm q \cdot \hat{\bm r} \le 0$: no growth};
+  \end{scope}
+\end{tikzpicture}
+\caption{The drift observer of the velocity law (\code{mhseals\_hardware} \code{velocity\_law.py}).
+It learns only while the boat is asked to hold still and no axis is saturated: the
+residual $\bm r$, the body velocity the speed curves do not explain, is turned into the
+world frame and low-passed into $\dhat$ with $\tau_d = 5$\,s. The estimate may grow only
+once the boat has been \emph{carried} at least 2\,cm along $\bm r$ since it last got under
+way; otherwise it may only shrink or turn, and $|\dhat| \le 0.5$\,m/s always. Inset: a
+boat pushed against a dock reads its stalled effort as a current pushing it off the
+contact, but it reached the contact moving the other way, so the estimate does not grow and the push
+does not wind up. Constants: \code{drift\_command\_limit} 0.1, \code{drift\_time\_constant}
+5\,s, \code{drift\_carry} 0.02\,m, \code{drift\_limit} 0.5\,m/s.}
+\label{fig:observer}
+\end{figure}

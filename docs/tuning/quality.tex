@@ -1,0 +1,47 @@
+\section{Motion-quality metrics}
+\label{sec:quality}
+
+A run is scored from its bag: the truth pose and twist (crane\_ml's \code{/crane/odom},
+rigidly aligned into the odometry frame; \code{/odom/local} on the boat), \code{/cmd\_vel\_nav},
+the pulse widths and the plan's endpoint as the goal. Most metrics count sign changes with
+hysteresis: for a signal $x$ and band $h$, the sign state is set to $\sgn x$ only when $|x| > h$, and
+a \emph{reversal} is a change of that state. While the boat is not under way ($|\bm v| \le 0.05$\,m/s
+and $|r| \le h$) the state is cleared, so a stop is never a reversal.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{0.2\linewidth}p{0.6\linewidth}c@{}}
+\toprule
+Metric & Definition & pass \\
+\midrule
+yaw reversals & reversals of the truth yaw rate, $h = 0.05$\,rad/s, per under-way minute & $\le 6$\,/min \\
+shake index & the subset whose ended lobe peaked above 0.10\,rad/s and lasted under 4\,s & $\le 1$\,/min \\
+command chatter & worst axis of \code{/cmd\_vel\_nav}: reversals with $h = 0.02$ per second & $\le 0.3$\,Hz \\
+thruster chatter & worst thruster: sign changes of $p - 1500$ outside $\pm25\,\mu$s, per second & $\le 0.5$\,Hz \\
+jerk & RMS planar jerk of the truth, after a 0.2\,s centred moving average & $\le 0.5$\,m/s$^3$ \\
+spin in place & time with $|r| > 0.15$\,rad/s and $|\bm v| < 0.05$\,m/s or turn radius $|\bm v|/|r| < 0.4$\,m & report \\
+away-spins & in-place turns that rotate away from the goal yaw & $0$ \\
+goal overshoot & worst distance past a goal along its approach, after first within 0.4\,m & $\le 0.3$\,m \\
+path ratio & worst leg's truth path length over the straight line from leg start to goal & $\le 1.3$ \\
+energy & $\int\sum_i |f_i|\,\dd t$ with $f = F^{\pm} e|e|$, $e = (p - 1500)/400$ & report \\
+stalls & \code{/cmd\_vel\_nav} gaps over 0.5\,s while a goal is active & $0$ \\
+\bottomrule
+\end{tabular}
+\caption{Motion-quality metrics and their pass thresholds (\code{motion\_quality.yaml}). A goal
+leg starts when the plan's endpoint jumps by 0.5\,m; a leg settles when the boat stays within
+0.4\,m for 3\,s.}
+\label{tab:quality}
+\end{table}
+
+\noindent Two choices need a reason. The spin fraction is report-only because a commanded
+turn-around (pair\_test, the docking back-out) is a legitimate in-place turn, 11--13\% of every calm
+A0, A1 and N1 crane pair run; the gate is away-spins, which are never commanded. And each hysteresis band sits at least twice above the noise of its channel, so noise alone
+counts nothing: the yaw band 0.05\,rad/s is over twice the 0.02\,rad/s gyro noise of the field
+mix, and a thruster reversal counts only outside the ESC deadband. On the boat the bands are
+checked against the measured $\sigma_f$ and $\sigma_r$ before any score is read.
+
+Each metric points at one layer. Command chatter is MPPI's; thruster chatter with clean
+commands is the velocity loop's; yaw reversals with clean commands and clean thrusters are delay
+(Section~\ref{sec:latency}); goal overshoot and path ratio with clean signals are limits and
+tolerances (Section~\ref{sec:limits}).
+\file{crane\_ml Tools/Tuning/motion\_quality.py, motion\_quality.yaml; away-spins: navmetrics.py}

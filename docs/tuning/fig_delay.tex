@@ -1,0 +1,44 @@
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=1.7cm},
+  width=0.47\linewidth, height=5.2cm, xmin=-0.015, xmax=0.36, ymin=0,
+  xlabel={added delay (s)}, xtick={0,0.1,0.2,0.3},
+  tick label style={font=\footnotesize}, label style={font=\small},
+  legend cell align=left,
+  legend style={font=\footnotesize, draw=none, fill=white, fill opacity=0.85, text opacity=1,
+    at={(0.03,0.97)}, anchor=north west},
+  grid=major, grid style={gray!20}, clip=false]
+\nextgroupplot[ylabel={yaw step overshoot (\%)}, ymax=100]
+  \fill[sD!18] (axis cs:0.3,0) rectangle (axis cs:0.36,100);
+  \draw[sD, dashed] (axis cs:0.165,0) -- (axis cs:0.165,100);
+  \addplot[sA, thick, mark=*, error bars/.cd, y dir=both, y explicit]
+    table[x=delay, y=val, y error minus=lo, y error plus=hi] {figures/tuning/data/delay_overshoot_dead.dat};
+  \addlegendentry{dead time}
+  \addplot[sB, thick, dashed, mark=square*, error bars/.cd, y dir=both, y explicit]
+    table[x=delay, y=val, y error minus=lo, y error plus=hi] {figures/tuning/data/delay_overshoot_latency.dat};
+  \addlegendentry{odometry latency}
+  \node[font=\scriptsize, sD!30!black, anchor=south] at (axis cs:0.165,100) {crane $L \approx 0.165$\,s};
+  \node[font=\scriptsize, rotate=90, anchor=north east] at (axis cs:0.3,98) {fix latency first};
+\nextgroupplot[ylabel={route yaw reversals (/min)}, ymax=11]
+  \fill[sD!18] (axis cs:0.3,0) rectangle (axis cs:0.36,11);
+  \draw[sD, dashed] (axis cs:0.165,0) -- (axis cs:0.165,11);
+  \addplot[sA, thick, mark=*, error bars/.cd, y dir=both, y explicit]
+    table[x=delay, y=val, y error minus=lo, y error plus=hi] {figures/tuning/data/delay_yawrev_dead.dat};
+  \addplot[sB, thick, dashed, mark=square*, error bars/.cd, y dir=both, y explicit]
+    table[x=delay, y=val, y error minus=lo, y error plus=hi] {figures/tuning/data/delay_yawrev_latency.dat};
+  \node[font=\scriptsize, sD!30!black, anchor=south] at (axis cs:0.165,11) {crane $L \approx 0.165$\,s};
+  \node[font=\scriptsize, rotate=90, anchor=north east] at (axis cs:0.3,10.8) {fix latency first};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Delay is what the velocity loop cannot absorb. Left: yaw step overshoot against
+added dead time (blue) or odometry latency (orange), plant\_v1 seed~0: 9.8\,\% at none,
+40.1\,\% at 0.15\,s and 81.9\,\% at 0.3\,s dead time, 57.5\,\% at 0.2\,s latency. Right: yaw
+reversals per minute on the route: 2.18 at no delay, still 2.18 at 0.15\,s dead time and
+2.17 at 0.1 and 0.2\,s latency, then 7.97 at 0.25\,s latency (disturb\_v1, mean of seeds
+0--2, which agree) and 9.49 at 0.3\,s dead time. The data are sparse: six delays with
+route data and four with step data, one variable at a time; the lines only join them.
+Dashed grey: the crane-measured $L \approx 0.165$\,s; shaded: $L > 0.3$\,s, fix latency
+before tuning. Data: \code{figures/tuning/data/delay\_*.dat}.}
+\label{fig:delay}
+\end{figure}

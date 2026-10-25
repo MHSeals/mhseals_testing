@@ -1,0 +1,96 @@
+\section{The plant and what its differences do}
+\label{sec:plant}
+
+\subsection{The 3-DOF model}
+The hull moves in surge $u$, sway $v$ and yaw rate $r$, in the body frame (x forward, y
+port) with the origin at the centre of mass. A constant world current $\bm c$ makes the
+water-relative velocity the one the hydrodynamics see,
+\[
+  \nuv_r = \nuv - \begin{bmatrix} R(\psi)^\top \bm c \\ 0 \end{bmatrix},
+  \qquad
+  M\dot{\nuv}_r + C(\nuv_r)\,\nuv_r + D(\nuv_r)\,\nuv_r = \bm\tau_\text{thr} + \bm\tau_\text{env},
+\]
+with
+\[
+  M = \operatorname{diag}(m + a_u,\; m + a_v,\; I_z + a_r),\qquad
+  C(\nuv_r) = \begin{bmatrix} 0 & 0 & -M_{22} v_r \\ 0 & 0 & M_{11} u_r \\ M_{22} v_r & -M_{11} u_r & 0 \end{bmatrix},
+\]
+and a linear-plus-quadratic damping per axis, $D(\nuv_r)\nuv_r = (D_{1j} + D_{2j}|\nu_j|)\,\nu_j$.
+The rigid body may integrate in $\nuv_r$ because its Coriolis term does not depend on the
+linear velocity. The $(3,\cdot)$ row of $C$ gives the Munk moment $-(M_{22}-M_{11})\,u_r v_r$:
+with sway added mass much larger than surge's, a hull moving obliquely is turned broadside.
+The added-mass priors are $a_u = 5.5 \pm 2.8$\,kg, $a_v = 21.3$\,kg and $a_r \approx 2.4$\,kg\,m$^2$
+\ev{sim2real R1-2}; the nominal plant (crane\_ml's physics: $m = 30$\,kg, $I_z = 4.1$\,kg\,m$^2$,
+no added mass) is a fixture, not a measurement of the boat.
+
+\paragraph{The thrust map.} Thruster $i$ at $(x_i, y_i)$ pushes along a unit vector at mount
+angle $\alpha_i$ (45$^\circ$ mounts; $|x_i| = 0.266$, $|y_i| = 0.343$\,m, a yaw lever of 0.43\,m).
+Its column of the wrench matrix, about the CoM, is
+\[
+  \bm b_i = \begin{bmatrix} \cos\alpha_i \\ \sin\alpha_i \\ x_i \sin\alpha_i - y_i\cos\alpha_i \end{bmatrix},
+  \qquad
+  \bm\tau_\text{thr} = \sum_i \bm b_i\, f_i,
+\]
+so a lever $y$ contributes $-y X$ to the yaw moment \ev{sim2real R3-8, corrected sign}. The thrust of an effort
+$e \in [-1,1]$ is quadratic in the effort outside the ESC deadband $\delta$:
+\[
+  f_i = F^{\sgn e}\,\Big(\frac{|e| - \delta}{1 - \delta}\Big)_+^2 \sgn e ,
+  \qquad F^{+} = 51.5\text{\,N},\; F^{-} = 40.2\text{\,N (T200)},\; \delta = \tfrac{25}{400} = 0.0625,
+\]
+reached through a first-order spool (time constant 0.1\,s) after any pure dead time. The
+thrust grows as $e|e|$: every wrench curve is in $e|e|$, never in $e$. The per-thruster forward
+and reverse scale is measured on the bench by pair pulls (\texttt{bench.pdf}), not fitted
+from motion.
+
+\paragraph{The speed curves.} In steady motion along one axis the wrench balances the drag,
+$F_j\, e|e| = D_{1j} v + D_{2j} v|v|$, so the velocity loop's model of each axis and sign is
+\[
+  e|e| = d_1 v + d_2 v|v|,\qquad d_1 = D_1/F,\; d_2 = D_2/F,
+\]
+fitted by the characterization (\texttt{math.pdf}). It is monotone for $d_1 \ge 0$ and
+$d_1 + 2 d_2 v_\text{max} > 0$, and inverts in closed form. A fit done in effort form clamps
+$d_2$ to 0. Section~\ref{sec:vlaw} inverts these curves; nothing in this document uses a
+straight-line gain.
+\file{crane\_ml Tools/Tuning/plant.py (fixture plant); mhseals\_hardware velocity\_law.Plant (curves)}
+
+\subsection{Classifying the differences}
+\label{sec:classify}
+The Python plant (\code{plant.py}) runs the boat's own velocity law and mixer, imported
+unchanged, behind a Nav2-like command layer (\code{loop.py}). Each study row is one plant
+variant and seed, with the route, a step and a carved turn scored; the rows carry the
+variant, the limits and the git heads (\code{study.py}). Varying one thing at a time sorts the
+differences into four kinds (Table~\ref{tab:classify}).
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{0.36\linewidth}p{0.36\linewidth}p{0.2\linewidth}@{}}
+\toprule
+Difference & Effect at today's limits (0.4\,m/s, 0.3\,rad/s) & Reaches \\
+\midrule
+\textbf{Steady plant}: mass 19--40\,kg, added mass, $I_z$ 2--8, drag $\times$0.6--1.6, thrust $\times$0.7,
+sag 0.8, reverse ratio 0.6, one thruster at 80\%, mount error 8$^\circ$ \ev{plant\_v1}
+& absorbed: route time $\pm$3\%, peak effort $\le 0.56$; the lag $\tau$ grows (surge 0.25$\to$0.45\,s,
+sway 0.3$\to$0.75\,s) & $\tau$ only \\
+\addlinespace
+\textbf{Delay}: dead time 0.15 / 0.3\,s, odometry latency 0.25\,s \ev{plant\_v1:deadtime*, disturb\_v1:latency0.25}
+& yaw overshoot 40\% / 82\%; yaw reversals 2.2$\to$9.5\,/min; 8\,/min at 0.25\,s latency & $w_z$, $\alpha_z$, rotate speed \\
+\addlinespace
+\textbf{Noise}: odometry velocity SD 0.05 / 0.12\,m/s, waves 0.12\,m/s \ev{disturb\_v1:velnoise*, waves0.12}
+& thruster reversals 31 / 152\,/min; waves: yaw reversals 17\,/min & $k_p$, MPPI noise keys \\
+\addlinespace
+\textbf{Geometry}: CoM 0.10\,m from base\_link; GPS $\sigma$ 0.5 / 1.5\,m (float) \ev{ad hoc runs t3/t5; disturb\_v1:gps*}
+& base\_link walks 0.16\,m per in-place 180$^\circ$; hold RMS 0.6 / 2.3\,m & goal tolerances \\
+\bottomrule
+\end{tabular}
+\caption{The four kinds of boat-to-sim difference and the parameters each one reaches.
+Python plant: \code{plant\_v1} rows are seed 0 only (one per variant); \code{disturb\_v1} rows are
+means of seeds 0--2, as are all other Python-plant study numbers in this document.}
+\label{tab:classify}
+\end{table}
+
+\noindent The steady differences need no Nav2 change because the velocity loop's feed-forward
+and integral take them up; they matter only through the lag $\tau$ that the rules of
+Section~\ref{sec:limits} read. Two more rows are gates rather than tuning: one dead thruster
+still completes the route but overshoots goals by 0.77\,m \ev{disturb\_v1:FL\_dead}, and a
+9\,m/s wind overshoots by 1.35\,m because the observer takes wind for current
+\ev{disturb\_v1:wind9\_ne}.

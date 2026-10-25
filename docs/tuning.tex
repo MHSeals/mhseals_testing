@@ -1,0 +1,40 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\input{tuning/preamble}
+
+\title{Tuning Nav2 and the velocity loop on the MHSeals boat}
+\author{\texttt{mhseals\_nav}, \texttt{mhseals\_hardware}, \texttt{mhseals\_testing}, \texttt{crane\_ml}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This is the maths and the procedure behind every Nav2 and velocity-loop
+parameter the boat runs with. Nav2's MPPI controller plans as if its command were the
+boat's velocity. Everything between the command and the velocity (the velocity loop,
+the thrusters, the hull and the odometry) is unmodelled by MPPI, so tuning is the job of
+measuring that gap and turning each measured part into a limit, a gain or a gate. The
+document follows one loop (Figure~\ref{fig:flow}): measure, classify, derive limits from
+rules, tune for noise, gate behaviours, verify in simulation, decide. Each section ends with
+the file that implements it. Every number cites its evidence in brackets: a study row of
+the Python plant (\ev{plant\_v1:deadtime0.3}), a crane\_ml session
+(\ev{tune\_A1\_pair}) or a mission batch. The companion \texttt{math.pdf} covers the
+characterization, the mixer and the thrust model this document builds on.
+
+\tableofcontents
+\bigskip
+
+\input{tuning/overview}
+\input{tuning/plant}
+\input{tuning/velocity}
+\input{tuning/latency}
+\input{tuning/limits}
+\input{tuning/noise}
+\input{tuning/quality}
+\input{tuning/verify}
+\input{tuning/field}
+
+\appendix
+\input{tuning/evidence}
+
+\end{document}
