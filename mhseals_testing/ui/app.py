@@ -1327,6 +1327,9 @@ class App:
         if key == 'o':  # odometry popup is global
             self.open('odometry')
             return
+        if raw == '!' and self.engine is not None:  # keymap global health
+            self.open('health')
+            return
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
             return
         panels = self.panels()

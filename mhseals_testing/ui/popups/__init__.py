@@ -4,7 +4,7 @@
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.popups import authority, conditions, config, history, inspect, power
+from mhseals_testing.ui.popups import authority, conditions, config, health, history, inspect, power
 
 STOP_KEYS = ('space', 'press:space')
 UPDOWN = theme.pick('↑↓', 'Up/Down')
@@ -204,6 +204,7 @@ def type_word(app, title, message, word, rows=None, width=64):
 # than by another branch in App.dispatch. Ids not listed (health ...) wait for their popups.
 OPENERS = {
     'authority': lambda app: authority.open(app),
+    'health': lambda app: health.open_health(app),
     'history': lambda app: history.open_history(app),
     'odometry': lambda app: app.odometry(),
     'conditions': lambda app: conditions.open_conditions(app),
