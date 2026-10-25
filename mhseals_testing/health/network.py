@@ -6,6 +6,8 @@ registry's ``ping:`` roles, never this machine (mhseals_testing.devices); the wo
 round trip are judged, and the row names that host.
 """
 
+from mhseals_nav import boat_network
+
 from mhseals_testing import devices
 from mhseals_testing.health import config
 from mhseals_testing.health.engine import Engine
@@ -50,7 +52,7 @@ class NetworkRow:
         self.specs = [s for s in loaded.specs if s.group == GROUP]
         settings = loaded.probes.get('network', {})
         kwargs = {'clock': clock} if clock else {}
-        subnet = devices.env_values(env_file or devices.layer_paths()[3]).get('BOAT_SUBNET')
+        subnet = boat_network.values(env_file or devices.layer_paths()[3]).get('BOAT_SUBNET')
         self.link = Link(subnet, root=root, **kwargs, **link) if subnet else None
         self.engine = Engine(self.specs, **kwargs)
         self.period = settings.get('period', PERIOD)

@@ -17,8 +17,9 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
-import shlex
 import sys
+
+from mhseals_nav import boat_network
 
 from mhseals_testing import data
 from mhseals_testing.strict_yaml import load_strict
@@ -93,34 +94,6 @@ class Part:
     @property
     def enabled(self):
         return self.spec.get('enabled', True)
-
-
-# --- boat-network.env --------------------------------------------------------------------------
-
-def env_values(path):
-    """``{KEY: value}`` from a shell env file; {} if unreadable. A value that does not parse is left out."""
-    try:
-        text = Path(path).read_text()
-    except OSError:
-        return {}
-    values = {}
-    for line in text.splitlines():
-        name, equals, value = line.partition('=')
-        name = name.strip()
-        if not equals or not name.isidentifier():
-            continue
-        try:
-            words = shlex.split(value, comments=True)
-        except ValueError:       # an unclosed quote: no value, never a crash
-            continue
-        values[name] = words[0] if words else ''
-    return values
-
-
-def leases(values):
-    """``{hostname: address}`` from STATIC_LEASES (``MAC=hostname=address ...``)."""
-    found = (lease.split('=') for lease in values.get('STATIC_LEASES', '').split())
-    return {lease[1]: lease[2] for lease in found if len(lease) == 3}
 
 
 # --- layers ------------------------------------------------------------------------------------
@@ -231,10 +204,10 @@ def _address(name, spec, env, reserved, where):
     return f'{name}.local', 'mdns'
 
 
-def build(merged, env):
-    """A Registry from merged layers and the env file's values."""
+def build(merged, env_file):
+    """A Registry from merged layers and boat-network.env (mhseals_nav's parser, the only one)."""
     defaults = {'user': '', 'container': '', 'workspace': '', 'ssh': True, **merged['defaults']}
-    reserved = leases(env)
+    env, reserved = boat_network.values(env_file), boat_network.leases(env_file)
     hosts = {}
     for name, spec in merged['hosts'].items():
         address, source = _address(name, spec, env, reserved, f'hosts.{name}')
@@ -269,7 +242,7 @@ def load(package=None, deployment=None, operator=None, env=None):
         except ValueError as error:
             raise DeviceError(str(error)) from None
         merged = merge(merged, validate_layer(layer, str(path)))
-    return build(merged, env_values(env))
+    return build(merged, env)
 
 
 # --- who am I, and the derived map ------------------------------------------------------------

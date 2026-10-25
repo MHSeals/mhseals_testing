@@ -186,13 +186,6 @@ def test_an_env_address_that_is_not_a_plain_name_is_refused(files):
         load(files)
 
 
-def test_env_parser_tolerates_comments_and_bad_quotes(tmp_path):
-    path = tmp_path / 'boat-network.env'
-    path.write_text('A=1  # note\nB="x y"\nC="unclosed\n# D=4\nnot a line\n')
-    assert devices.env_values(path) == {'A': '1', 'B': 'x y'}
-    assert devices.env_values(tmp_path / 'missing.env') == {}
-
-
 def test_profiles_unavailable_reads_as_a_device_error(monkeypatch):
     monkeypatch.setitem(__import__('sys').modules, 'mhseals_nav.device_profile', None)
     with pytest.raises(DeviceError, match='device profiles are not installed'):
