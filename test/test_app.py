@@ -4,6 +4,7 @@ import io
 import math
 import os
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -377,6 +378,19 @@ def test_a_watchdog_gone_while_the_operator_types_still_refuses(tmp_path):
     assert not app.armed and app.arming.calls == []
 
 
+def mux_stub(app):
+    """An arbiter that only records the mux state the app reads to confirm a hold."""
+    class Mux:
+        def __init__(self):
+            self.lock, self.mux, self.mux_at = threading.RLock(), None, None
+            self.clock = lambda: app.clock.now
+
+        def on_mux(self, state):
+            self.mux, self.mux_at = state, app.clock.now
+    app.arbiter = Mux()
+    return app.arbiter
+
+
 def test_a_watchdog_lost_while_armed_holds_the_mux_after_a_grace(tmp_path):
     from mhseals_testing.ui.app import WATCHDOG_GRACE
     app, boat = make_app(tmp_path)
@@ -393,11 +407,16 @@ def test_a_watchdog_lost_while_armed_holds_the_mux_after_a_grace(tmp_path):
     app.tick()
     assert getattr(boat, 'holds', []) == [] and app.watchdog_missing is None
 
+    mux = mux_stub(app)
     nodes.remove('/fence_watchdog')
     app.tick()
     app.clock.now += WATCHDOG_GRACE + 0.1
     app.tick()
+    assert boat.holds == ['watchdog']
+    mux.on_mux({'input': 'hold'})                      # the mux state confirms it
     app.clock.now += 1.0
+    app.tick()
+    app.clock.now += 10.0
     app.tick()
     assert boat.holds == ['watchdog'] and app.armed    # once, sticky, at neutral
     assert app.notice.startswith('Holding: safety watchdog not running: /fence_watchdog')
@@ -407,6 +426,49 @@ def test_a_watchdog_lost_while_armed_holds_the_mux_after_a_grace(tmp_path):
     app.tick()
     assert app.watchdog_missing is None
     assert 'watchdog' not in app.release_refusal()
+
+
+def test_a_hold_the_mux_never_shows_is_retried_once_then_disarms(tmp_path):
+    from mhseals_testing.ui.app import HOLD_CONFIRM_S, WATCHDOG_GRACE
+    app, boat = make_app(tmp_path)
+    nodes = list(WATCHDOGS)
+    app.ros.nodes = lambda: list(nodes)
+    mux_stub(app).on_mux({'input': 'auto'})            # the request was lost: still auto
+    with app.attached():
+        arm(app)
+    nodes.remove('/link_watchdog')
+    app.tick()
+    app.clock.now += WATCHDOG_GRACE + 0.1
+    app.tick()
+    assert boat.holds == ['watchdog'] and app.armed
+    app.clock.now += HOLD_CONFIRM_S / 2
+    app.tick()
+    assert boat.holds == ['watchdog']                  # still waiting for the mux state
+    app.clock.now += HOLD_CONFIRM_S
+    app.tick()
+    assert boat.holds == ['watchdog', 'watchdog'] and app.armed    # one retry
+    app.clock.now += HOLD_CONFIRM_S + 0.1
+    app.tick()
+    assert boat.holds == ['watchdog', 'watchdog'] and not app.armed
+    assert app.arming.calls[-1] == 'disarm'            # the driver stops, the MOSFET cuts
+    assert 'no mux hold seen' in app.notice
+
+
+def test_a_stale_hold_state_from_before_the_request_does_not_confirm_it(tmp_path):
+    from mhseals_testing.ui.app import HOLD_CONFIRM_S, WATCHDOG_GRACE
+    app, boat = make_app(tmp_path)
+    nodes = list(WATCHDOGS)
+    app.ros.nodes = lambda: list(nodes)
+    mux_stub(app).on_mux({'input': 'hold'})            # an old hold, seen before the request
+    with app.attached():
+        arm(app)
+    nodes.remove('/fcu_watchdog')
+    app.tick()
+    app.clock.now += WATCHDOG_GRACE + 0.1
+    app.tick()
+    app.clock.now += HOLD_CONFIRM_S + 0.1
+    app.tick()
+    assert boat.holds == ['watchdog', 'watchdog']      # not confirmed: asked again
 
 
 def test_the_simulator_arms_without_the_boat_watchdogs(tmp_path):

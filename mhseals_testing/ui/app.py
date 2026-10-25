@@ -109,6 +109,7 @@ ADVISORY_PERIOD = 1.0
 MUX_SETTLE_S = 5.0       # s after arming for the mux's first state (it starts last, then 1 Hz)
 HELD = 'applies once disarmed and idle'   # a health or settings edit read while armed or running
 FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease expires; later it counts as live
+HOLD_CONFIRM_S = 2.0      # s the mux state may take to show a requested watchdog hold
 WATCHDOG_GRACE = 2.0     # s a required safety watchdog may be missing from the graph while armed (graph lag)
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
@@ -312,7 +313,7 @@ class App:
         self.chords = False             # the manual mode, for the Command glyph's label
         self.manual_speed = None        # the last manual speed this session; None until manual ran
         self.last_advisory = float('-inf')
-        self.watchdog_missing = None    # (since, held) while armed with a safety watchdog off the graph
+        self.watchdog_missing = None    # {since, asked, retried, held} while armed with a watchdog off the graph
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
         if getattr(ros, 'mission', None) is not None:   # ui.feeds.mission.MissionState, fed by ROS
@@ -547,25 +548,51 @@ class App:
         """While armed, hold the mux once a required safety watchdog is off the graph WATCHDOG_GRACE.
 
         The arming gate's own check (watchdog_refusal), read every tick. The hold is sticky: the
-        operator releases it (U) only once the watchdogs are back. Without a mux, it disarms.
+        operator releases it (U) only once the watchdogs are back. plant.hold is a fire-and-forget
+        publish, so the mux state must show input 'hold' within HOLD_CONFIRM_S of a request: a
+        silent one is requested once more, then the session disarms (the driver stops, the MOSFET
+        cuts). Without a mux it disarms at once.
         """
         reason = self.watchdog_refusal() if self.armed else ''
         if not reason:
             self.watchdog_missing = None
             return
         now = self.clock()
-        since, held = self.watchdog_missing or (now, False)
-        self.watchdog_missing = (since, held)
-        if held or now - since < WATCHDOG_GRACE:
+        state = self.watchdog_missing
+        if state is None:
+            state = self.watchdog_missing = dict(since=now, asked=None, retried=False, held=False)
+        if state['held'] or now - state['since'] < WATCHDOG_GRACE:
             return
-        self.watchdog_missing = (since, True)
         if self.plant is None or not muxed(self.profile):
             self.stop(reason, by='fault')
             return
+        if state['asked'] is None:
+            self.request_watchdog_hold(state, now, reason)
+        elif self.mux_holding(state['asked']):
+            state['held'] = True
+        elif now - state['asked'] >= HOLD_CONFIRM_S:
+            if state['retried']:
+                self.stop(f'{reason}; no mux hold seen', by='fault')
+            else:
+                state['retried'] = True
+                self.request_watchdog_hold(state, now, reason)
+
+    def request_watchdog_hold(self, state, now, reason):
+        """Ask the mux to hold and note when, so the mux state can confirm it."""
+        state['asked'] = now
         self.plant.hold('watchdog')
         self.ros.emit('watchdog_hold', reason=reason)
         self.monitor.event('HOLD: ' + reason)
         self.notice = f'Holding: {reason}'
+
+    def mux_holding(self, since):
+        """True when the mux reported input 'hold' after ``since`` (the arbiter's clock)."""
+        arbiter = getattr(self, 'arbiter', None)
+        if arbiter is None:
+            return False
+        with arbiter.lock:
+            mux, at = arbiter.mux, arbiter.mux_at
+        return bool(mux) and mux.get('input') == 'hold' and at is not None and at >= since
 
     def refresh_advisories(self):
         """Sample the non-blocking checks at most once per ADVISORY_PERIOD."""
