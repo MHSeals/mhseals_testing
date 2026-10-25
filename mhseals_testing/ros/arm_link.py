@@ -53,6 +53,7 @@ STOP_REPEAT_S = 2.0     # the TUI repeats armed: false this long after a disarm
 LEASE_S = 3.0           # keeper backstop for a wedged boat side
 START_TIMEOUT_S = 30.0  # TUI: ssh, discovery and the driver's start
 READBACK_S = 40.0
+READBACK_HARD_S = 20     # s the boat side's readback may run the driver at most
 UNIT = 'mhseals-arming'
 CONFIG = '@CONFIG@'
 NEXT = '--next'
@@ -63,8 +64,11 @@ WRAPPERS = {'mhseals_testing.ros.arm_link', 'mhseals_testing.harness.keeper',
 PR_SET_PDEATHSIG = 1
 # Restart-tier keys that decide which pins, which way and how power is cut: a shipped config must
 # agree with the boat's own (~/.config/mhseals/hardware.yaml there) on all of them.
+# Dotted keys are nested: the RC kill switch and mode channels the driver reads at start.
 PHYSICAL = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high',
-            'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat_hz', 'channel_map', 'reversed')
+            'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat_hz', 'channel_map', 'reversed',
+            'reverse_thrust_ratio', 'command_mux.stop_ch', 'command_mux.mode_ch')
+CHILDREN = {'thruster_pwm_node', 'calibrated_velocity_controller', 'command_mux'}  # mhseals_hardware
 
 
 # --- boat side --------------------------------------------------------------------------------
@@ -171,12 +175,34 @@ def _prepare_child():
         ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGINT)
 
 
+def allowed(children):
+    """Why ``children`` are not exactly arming's (``ros2 run mhseals_hardware`` driver, controller,
+    mux), or ''; the unit's --driver gate accepts nothing else behind arm_link."""
+    for name, argv in children:
+        if argv[:3] != ['ros2', 'run', 'mhseals_hardware'] or len(argv) < 4 or argv[3] not in CHILDREN:
+            return f'{name}: only ros2 run mhseals_hardware {"/".join(sorted(CHILDREN))} run under arming'
+    return ''
+
+
+def direct(argv):
+    """``ros2 run pkg exe ...`` as the installed ``exe ...`` itself: ``ros2 run`` neither passes a
+    signal on nor dies with us, so the node must be our own child to get PDEATHSIG."""
+    if argv[:2] != ['ros2', 'run'] or len(argv) < 4:
+        return list(argv)
+    try:
+        from ament_index_python.packages import get_package_prefix
+        executable = Path(get_package_prefix(argv[2])) / 'lib' / argv[2] / argv[3]
+    except Exception:          # not installed here: ros2 run will say so
+        return list(argv)
+    return [str(executable), *argv[4:]] if os.access(executable, os.X_OK) else list(argv)
+
+
 class Child:
     """One child, its output copied to ours with its name, its last line kept."""
 
     def __init__(self, name, argv):
         self.name, self.last = name, ''
-        self.process = subprocess.Popen(argv, preexec_fn=_prepare_child, stdin=subprocess.DEVNULL,
+        self.process = subprocess.Popen(direct(argv), preexec_fn=_prepare_child, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         threading.Thread(target=self._copy, daemon=True).start()
 
@@ -236,7 +262,11 @@ def write_config(encoded, name):
 
 def mismatch(shipped, own):
     """The PHYSICAL keys on which the shipped config differs from this computer's own."""
-    return [key for key in PHYSICAL if shipped.get(key) != own.get(key)]
+    def get(config, key):
+        for part in key.split('.'):
+            config = config.get(part) if isinstance(config, dict) else None
+        return config
+    return [key for key in PHYSICAL if get(shipped, key) != get(own, key)]
 
 
 def check(encoded, own_path=None):
@@ -337,6 +367,10 @@ def run(token, encoded, children, lease=None, link_s=LINK_S, first_beat_s=FIRST_
             if not reason and watch.heard() and not running:
                 print(f'arm_link: operator heard; starting {", ".join(n for n, _ in children)}',
                       flush=True)
+                found = rivals()           # again: the first beat may come up to FIRST_BEAT_S later
+                if found:
+                    reason = f'a thruster driver or mux started meanwhile (pids {found})'
+                    break
                 running = [Child(name, argv) for name, argv in children]
             exited = [child for child in running if not child.running()]
             if exited and not reason:
@@ -364,10 +398,19 @@ def readback(encoded, argv, timeout=None):
     """Run only the driver from the shipped config, read its PWM outputs back from sysfs, stop it."""
     from mhseals_hardware.configuration import load_config
     from mhseals_testing.ui.popups import pins
+    def end(number, _):
+        raise SystemExit(f'signal {number}')     # the finally below still stops the driver
+    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGALRM):
+        signal.signal(signum, end)
+    signal.alarm(READBACK_HARD_S)      # however sysfs or the driver behave, it ends
+    refused = allowed([('hardware', argv)])
+    if refused:
+        return {'error': refused}
     config = write_config(encoded, 'readback')
     found = rivals()
     if found:
         return {'error': f'a thruster driver or mux already runs here (pids {found})'}
+    # The node is our direct child (direct()), so even a SIGKILL here reaches it as SIGINT.
     child = Child('hardware', with_config(argv, config))
     try:
         return {'confirmed': pins.readback(load_config(config))}
@@ -474,6 +517,7 @@ class RemoteDriver:
         self.call = call or remote.call
         self.clock = clock
         self.token, self.error = None, ''
+        self.lock = threading.Lock()      # a late answer never touches a newer arming
         self.worker = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix='arm_link')
 
     def describe(self):
@@ -485,8 +529,9 @@ class RemoteDriver:
     def start(self, children, config_text):
         """Beat first, then ask the boat to start: it waits for the beat before any child."""
         from mhseals_testing.harness.remote import unit_command
-        self.token, self.error = secrets.token_hex(6), ''
-        self.link.set(self.token, True)
+        with self.lock:
+            self.token, self.error = secrets.token_hex(6), ''
+            self.link.set(self.token, True)
         encoded = base64.b64encode(config_text.encode()).decode()
         argv = [*MODULE, 'run', '--token', self.token, '--unit', UNIT, '--config-b64', encoded,
                 '--', *join_children(children)]
@@ -500,6 +545,10 @@ class RemoteDriver:
         from mhseals_testing.harness.unit import START_WAIT
         results, error = self.call(self.host, command, self.jump, CONNECT_S + START_WAIT + 10)
         found = results[0] if results else {}
+        with self.lock:
+            self._answer(token, error, found)
+
+    def _answer(self, token, error, found):
         if token != self.token:
             return
         if error or 'error' in found:

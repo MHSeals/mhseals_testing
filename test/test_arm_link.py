@@ -83,6 +83,18 @@ def test_the_boat_refuses_a_config_whose_physical_setup_differs_from_its_own(tmp
     assert 'already runs here (pids [42])' in arm_link.check(encoded(''), own)['error']
 
 
+def test_the_rc_kill_switch_and_mode_channels_must_match_the_boats(tmp_path, monkeypatch):
+    monkeypatch.setattr(arm_link, 'rivals', lambda: [])
+    own = tmp_path / 'hardware.yaml'
+    own.write_text('command_mux:\n  stop_ch: 6\n')
+    assert 'command_mux.stop_ch' in arm_link.check(encoded('command_mux:\n  stop_ch: 7\n'), own)['error']
+    assert arm_link.check(encoded('command_mux:\n  stop_ch: 6\n'), own) == {'ok': True}
+    defaults = load_defaults()
+    moved = dict(defaults, command_mux=dict(defaults['command_mux'], mode_ch=defaults['command_mux']['mode_ch'] + 1),
+                 reverse_thrust_ratio=0.9 if defaults['reverse_thrust_ratio'] != 0.9 else 0.8)
+    assert arm_link.mismatch(moved, defaults) == ['reverse_thrust_ratio', 'command_mux.mode_ch']
+
+
 def test_children_round_trip_and_the_config_placeholder():
     children = [('hardware', ['ros2', 'run', 'x', '-p', 'config_file:=@CONFIG@']),
                 ('mux', ['ros2', 'run', 'y'])]
@@ -149,6 +161,53 @@ def test_a_driver_unit_needs_the_driver_flag_and_arm_link():
                                                                   *DRIVER_ARGV], True)):
         with pytest.raises(unit.UnitError, match='never runs as a unit'):
             unit.refuse(argv, True, allow_driver=allowed)
+
+
+def test_the_driver_flag_starts_only_armings_own_children():
+    head = ['python3', '-m', 'mhseals_testing.ros.arm_link', 'run', '--token', 't', '--']
+    nav = ['nav', 'ros2', 'launch', 'mhseals_nav', 'navigation.launch.py', '--next', 'hardware', *DRIVER_ARGV]
+    with pytest.raises(unit.UnitError, match='only ros2 run mhseals_hardware'):
+        unit.refuse(head + nav, False, allow_driver=True)
+    with pytest.raises(unit.UnitError, match='only ros2 run mhseals_hardware'):
+        unit.refuse(head + ['x', 'sleep', '60'], False, allow_driver=True)
+    for name in ('thruster_pwm_node', 'command_mux', 'calibrated_velocity_controller'):
+        unit.refuse(head + ['c', 'ros2', 'run', 'mhseals_hardware', name], False, allow_driver=True)
+
+
+def test_the_driver_unit_lease_is_capped_at_the_short_lease(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    argv = ['python3', '-m', 'mhseals_testing.ros.arm_link', 'run', '--', 'hardware', *DRIVER_ARGV]
+    with pytest.raises(unit.UnitError, match='at most 3 s'):
+        unit.start('mhseals-arming', argv, lease_s=120.0, allow_driver=True)
+
+
+def test_ros2_run_children_are_started_as_the_node_itself(tmp_path, monkeypatch):
+    import ament_index_python.packages as index
+    executable = tmp_path / 'lib' / 'mhseals_hardware' / 'thruster_pwm_node'
+    executable.parent.mkdir(parents=True)
+    executable.write_text('#!/bin/sh\n')
+    executable.chmod(0o755)
+    monkeypatch.setattr(index, 'get_package_prefix', lambda package: str(tmp_path))
+    assert arm_link.direct([*DRIVER_ARGV, '--ros-args']) == [str(executable), '--ros-args']
+    assert arm_link.direct(['sleep', '1']) == ['sleep', '1']
+
+
+def test_a_killed_parent_takes_its_child_node_down():
+    # SIGKILL skips every finally; PDEATHSIG still reaches the node, as it is a direct child.
+    node = 'import time; time.sleep(60)'
+    parent = subprocess.Popen([sys.executable, '-c',
+                               'import sys, time; from mhseals_testing.ros.arm_link import Child\n'
+                               f'c = Child("hardware", [sys.executable, "-c", {node!r}])\n'
+                               'print(c.process.pid, flush=True); time.sleep(60)'],
+                              stdout=subprocess.PIPE, text=True)
+    child = int(parent.stdout.readline())
+    parent.kill()
+    parent.wait()
+    import time
+    deadline = time.time() + 3
+    while arm_link._alive(child) and time.time() < deadline:
+        time.sleep(0.05)
+    assert not arm_link._alive(child)
 
 
 def test_the_unit_command_carries_the_short_lease_and_the_driver_flag():

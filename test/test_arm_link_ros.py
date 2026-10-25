@@ -9,7 +9,9 @@ skip where one runs (a simulator in the dev container); run them in a private pi
 """
 
 from dataclasses import replace
+import base64
 import json
+from pathlib import Path
 import os
 import subprocess
 import sys
@@ -32,12 +34,6 @@ from mhseals_testing.ros.arm_link import LINK_S, RemoteDriver, RosLink
 from mhseals_testing.ros.arming import driver_commands
 
 BOAT = Host('boat', capabilities=frozenset({'thrusters'}), address='127.0.0.1')
-NODE = 'import time; time.sleep(120)'
-# Like ros2 run: survives SIGINT itself and waits for its node.
-WRAPPER = ('import signal, subprocess, sys\n'
-           'signal.signal(signal.SIGINT, lambda *_: None)\n'
-           f'sys.exit(subprocess.Popen([sys.executable, "-c", {NODE!r}]).wait())')
-
 pytestmark = pytest.mark.skipif(bool(arm_link.rivals()),
                                 reason='a thruster driver or mux runs here; use a pid namespace')
 
@@ -100,14 +96,24 @@ def tree(status):
     return [record['pid'], *arm_link.descendants(record['pid'])] if record['state'] == 'running' else []
 
 
-def arm(node, call, children, config='command_timeout: 0.5\n'):
+def arm(node, call, children, config=None):
+    config = config or config_text()
     driver = RemoteDriver(BOAT, RosLink(node), by={'host': 'tui'}, call=call)
     driver.start(children, config)
     assert wait_for(driver.confirmed, 30), driver.error or driver.last_line('hardware')
     return driver
 
 
-FAKE = [('hardware', [sys.executable, '-c', WRAPPER]), ('mux', [sys.executable, '-c', NODE])]
+TOPIC = f'/arm_link_test_{os.getpid()}/pwm'      # never a simulator's on the same domain
+# The unit's --driver gate starts only arming's own children: the real driver and mux, on a topic.
+FAKE = driver_commands(replace(load_profile('boat'), outputs='topic', velocity_controller=False),
+                       arm_link.CONFIG, {})
+
+def config_text(tmp_path_factory=None):
+    import tempfile
+    path = Path(tempfile.mkdtemp()) / 'hardware.yaml'
+    save_config(dict(load_defaults(), output_backend='topic', pwm_topic=TOPIC), path)
+    return path.read_text()
 
 
 def test_link_loss_stops_every_child_within_the_bound(boat, tui):
@@ -115,7 +121,7 @@ def test_link_loss_stops_every_child_within_the_bound(boat, tui):
     node, *_ = tui
     driver = arm(node, call, FAKE)
     pids = tree(status)
-    assert len(pids) >= 4       # arm_link, two wrappers and the node under ros2-run-like one
+    assert len(pids) >= 3       # arm_link and the driver and mux nodes themselves
     with driver.link.lock:      # the radio drops: no beat and no stop message reach the boat
         driver.link.armed = False
         driver.link.stop_until = 0.0
@@ -147,14 +153,14 @@ def test_a_second_tuis_beats_never_keep_it_and_no_beat_starts_nothing(boat, tui,
     other = RosLink(node)
     other.set('other-token', True)
     argv = [*arm_link.MODULE, 'run', '--token', 'mine', '--unit', arm_link.UNIT,
-            '--first-beat-s', '2', '--config-b64', '', '--', *arm_link.join_children(FAKE)]
+            '--first-beat-s', '2', '--config-b64', base64.b64encode(config_text().encode()).decode(), '--', *arm_link.join_children(FAKE)]
     from mhseals_testing.harness.remote import unit_command
     [started], error = call(None, unit_command('start', arm_link.UNIT, argv, lease_s=3.0, driver=True),
                             None, 20)
     assert error is None and started['state'] == 'running'
     assert wait_for(lambda: status()['state'] == 'exited', 10)
     log = open(status()['log']).read()
-    assert 'starting' not in log and 'no operator beat' in log
+    assert 'operator heard' not in log and 'no operator beat' in log
     other.set('other-token', False)
 
 
@@ -163,10 +169,9 @@ def test_the_real_driver_and_mux_reach_neutral_and_stop_on_link_loss(boat, tui, 
     node, executor, *_ = tui
     profile = replace(load_profile('boat'), outputs='topic', velocity_controller=False)
     config = tmp_path / 'hardware.yaml'
-    topic = f'/arm_link_test_{os.getpid()}/pwm'      # never a simulator's on the same domain
-    save_config(dict(load_defaults(), output_backend='topic', pwm_topic=topic), config)
+    save_config(dict(load_defaults(), output_backend='topic', pwm_topic=TOPIC), config)
     pulses = []
-    node.create_subscription(UInt16MultiArray, topic,
+    node.create_subscription(UInt16MultiArray, TOPIC,
                              lambda message: pulses.append(list(message.data)), 10)
     mux_state = []
     node.create_subscription(String, '/command_mux/state', mux_state.append,
@@ -191,7 +196,30 @@ def test_a_config_whose_pins_differ_from_the_boats_never_starts_a_unit(boat, tui
     _, call, status, _ = boat
     node, *_ = tui
     driver = RemoteDriver(BOAT, RosLink(node), call=call)
-    driver.start(FAKE, 'channel_map: [4, 3, 2, 1]\n')
+    driver.start(FAKE, 'channel_map: [4, 3, 2, 1]\n')   # the boat (this test) keeps the defaults
     assert wait_for(lambda: driver.error, 20)
     assert 'channel_map' in driver.error and not driver.running('hardware')
     assert status()['state'] == 'off'
+
+
+@pytest.mark.parametrize('signum', ['SIGKILL', 'SIGTERM'])
+def test_a_killed_readback_never_leaves_the_real_driver_running(boat, tui, tmp_path, signum):
+    import signal
+    _, _, _, environment = boat
+    node, *_ = tui
+    topic = f'/arm_link_test_{os.getpid()}/pwm'
+    config = tmp_path / 'hardware.yaml'
+    save_config(dict(load_defaults(), output_backend='topic', pwm_topic=topic), config)
+    argv = ['ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node', '--ros-args',
+            '-p', f'config_file:={arm_link.CONFIG}', '-p', 'output_backend:=topic']
+    readback = subprocess.Popen(
+        [*arm_link.MODULE, 'readback', '--config-b64', base64.b64encode(config.read_bytes()).decode(),
+         '--', *argv], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert wait_for(lambda: arm_link.descendants(readback.pid), 15)
+        [driver] = arm_link.descendants(readback.pid)       # the node itself, no ros2 run between
+        time.sleep(3)                                       # well into its start: ROS up, outputs open
+        readback.send_signal(getattr(signal, signum))
+        assert wait_for(lambda: not arm_link._alive(driver), 5)
+    finally:
+        readback.kill()

@@ -115,7 +115,14 @@ def refuse(argv, allow_commander, parts_of=device_parts, allow_driver=False):
     if driver and not (allow_driver and tuple(argv[:len(ARM_LINK)]) == ARM_LINK):
         raise UnitError(f'{", ".join(sorted(driver))} never runs as a unit; '
                         'start it from the TUI through arming')
-    if driver:
+    if allow_driver and tuple(argv[:len(ARM_LINK)]) == ARM_LINK:
+        from mhseals_testing.ros.arm_link import allowed, split_children
+        try:
+            why = allowed(split_children(argv[argv.index('--') + 1:]))
+        except ValueError as error:
+            why = str(error)
+        if why:
+            raise UnitError(f'arming runs only its own children: {why}')
         return
     if not allow_commander and commander(argv, parts_of):
         raise UnitError('this part can command motion; start it from the TUI with a confirm')
@@ -175,6 +182,10 @@ def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, parts_of=
     if not 0 < lease_s <= MAX_LEASE_S:      # NaN fails too: a unit nobody renews must stop
         raise UnitError(f'the lease must be over 0 s and at most {MAX_LEASE_S:.0f} s')
     refuse(argv, allow_commander, parts_of, allow_driver)
+    if allow_driver:
+        from mhseals_testing.ros.arm_link import LEASE_S as DRIVER_LEASE_S
+        if lease_s > DRIVER_LEASE_S:
+            raise UnitError(f'the driver\'s lease is at most {DRIVER_LEASE_S:g} s')
     files = _files(unit)
     with _Lock(files['lock']):
         current = status(unit)
