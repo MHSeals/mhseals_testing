@@ -59,10 +59,12 @@ def test_every_pattern_matches_a_real_nav2_key_shape():
 
 def test_undeclared_key_is_missing_not_live_or_reset():
     declared = {'controller_server': {'FollowPath.wz_max'}}
-    out = n2.plan({FOLLOW + 'wz_max': 0.2, FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT, declared)
+    request = {FOLLOW + 'wz_max': 0.2, FOLLOW + 'NewCritic.cost_weight': 1.0}
+    out = n2.plan(request, CURRENT, declared)
     assert out['missing'] == [FOLLOW + 'NewCritic.cost_weight']
     assert out['live']['controller_server']['FollowPath.wz_max'] == 0.2
-    assert n2.plan({FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT)['missing'] == []   # declared unknown
+    # declared unknown:
+    assert n2.plan({FOLLOW + 'NewCritic.cost_weight': 1.0}, CURRENT)['missing'] == []
 
 
 def test_target_names_the_ros_node():

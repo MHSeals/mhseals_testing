@@ -30,7 +30,7 @@ def _rules_path():
 
 
 def live_patterns(path=None):
-    """The fnmatch patterns of the keys a running stack applies by itself."""
+    """Return the fnmatch patterns of the keys a running stack applies by itself."""
     return yaml.safe_load(Path(path or _rules_path()).read_text())['live']
 
 

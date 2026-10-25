@@ -27,10 +27,10 @@ pytest.importorskip('rclpy')
 pytest.importorskip('nav2_msgs')
 pytest.importorskip('mhseals_hardware.command_mux')
 
-from nav_paths import find_nav  # noqa: E402
-
 from mhseals_testing.harness.nav2_live import Nav2Live  # noqa: E402
 from mhseals_testing.ros.nav2_live import RosPorts  # noqa: E402
+
+from nav_paths import find_nav  # noqa: E402
 
 FOLLOW = 'controller_server.FollowPath.'
 SMOOTHER = '/velocity_smoother'
@@ -124,7 +124,7 @@ class Ports(RosPorts):
         done = super().lifecycle(command)
         if command == 'startup' and self.startup_fails:
             self.startup_fails -= 1
-            return False                                           # as if the manager reported failure
+            return False                         # as if the manager reported failure
         return done
 
     def say(self, name, text):
@@ -354,7 +354,8 @@ def test_a_costmap_key_is_set_before_the_reset_that_stops_serving_it(stack, live
     try:
         assert receipt['status'] == 'verified' and receipt['reset'], receipt
         assert stack.ports.order[0] == ('set', node) and stack.ports.order[1] == ('reset', None)
-        assert stack.get(node, 'width') == 50.0 and stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
+        assert stack.get(node, 'width') == 50.0
+        assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.25
     finally:
         stack.ports.params.set_atomically(node, {'width': 100})
         live.apply({'global_costmap.global_costmap.width': 100, **ask(wz_max=0.3)})
@@ -391,7 +392,8 @@ def test_any_error_line_in_the_window_rolls_back_whatever_it_says(stack, live):
 
 
 def test_a_static_mppi_key_the_handler_does_not_own_rolls_back(stack, live):
-    stack.ports.log_after[CONTROLLER] = ('controller_server', 'Parameter FollowPath.wz_max not found')
+    stack.ports.log_after[CONTROLLER] = ('controller_server',
+                                         'Parameter FollowPath.wz_max not found')
     receipt = live.apply(ask(wz_max=0.25))
     assert receipt['status'] == 'rolled_back' and '/rosout' in receipt['error'], receipt
     assert stack.get(CONTROLLER, 'FollowPath.wz_max') == 0.3
@@ -547,7 +549,7 @@ def test_a_non_live_key_is_set_and_navigation_resets_and_starts_again(stack, liv
     receipt = live.apply({FOLLOW + 'batch_size': 500})
     assert receipt['status'] == 'verified' and receipt['reset'], receipt
     assert stack.get(CONTROLLER, 'FollowPath.batch_size') == 500
-    assert activations(stack) > starts                             # the controller really restarted
+    assert activations(stack) > starts                   # the controller really restarted
     assert stack.ports.params.is_active(timeout=10.0)
     assert stack.mux_holds() == [] and receipt['hold']['released']
     again = live.apply({FOLLOW + 'batch_size': original})

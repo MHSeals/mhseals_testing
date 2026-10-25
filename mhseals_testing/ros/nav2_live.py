@@ -52,7 +52,9 @@ class Rosout:
         return noise[1].removeprefix('FollowPath.') in SHIM_NAMES
 
     def errors(self, nodes, params):
-        """Return the ERROR/FATAL lines of any node that logs to /rosout and
+        """Return the /rosout lines that say a parameter failed.
+
+        That is every ERROR/FATAL line of any node that logs to /rosout, and
         the ``not found``/``Invalid`` lines about what was set.
 
         A library logger such as nav2_costmap_2d never reaches /rosout (see

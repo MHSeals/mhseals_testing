@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness import nav2_live as live_module
 from mhseals_testing.harness.nav2_live import Nav2Live, Ports
 from mhseals_testing.ros.params import coerce
 
@@ -56,7 +55,8 @@ class World(Ports):
         self.reject, self.timeout, self.drift, self.logs = {}, None, {}, []
         self.leaky, self.members = set(), {}
         self.silent_mux = False
-        self.refuse_lifecycle, self.settle = set(), {}   # refuse: 1-based call numbers; settle: command -> {(node, name): value}
+        # refuse: 1-based call numbers; settle: command -> {(node, name): value}
+        self.refuse_lifecycle, self.settle = set(), {}
         self.flip = None            # (reads, change): the authority record changes after them
         self.reads = 0
         self.rosouts = []
@@ -184,8 +184,10 @@ def test_raising_a_limit_sets_the_controller_then_the_smoother_and_reads_both_ba
 def test_lowering_a_limit_sends_the_smoother_first_at_the_restrictive_value(world):
     make(world).apply(ask(wz_max=0.1))
     assert [n for n, _ in world.sets()] == ['/velocity_smoother', '/controller_server']
-    assert world.sets()[0][1] == {'max_velocity': [0.4, 0.15, 0.1], 'min_velocity': [-0.1, -0.15, -0.1]}
-    assert world.sets()[1][1]['FollowPath.rotate_to_heading_angular_vel'] == 0.1   # derived with the limit
+    assert world.sets()[0][1] == {'max_velocity': [0.4, 0.15, 0.1],
+                                  'min_velocity': [-0.1, -0.15, -0.1]}
+    # derived with the limit
+    assert world.sets()[1][1]['FollowPath.rotate_to_heading_angular_vel'] == 0.1
 
 
 def test_mixed_change_sends_the_restrictive_smoother_value_then_the_rest_last(world):
@@ -235,7 +237,8 @@ def test_a_rejected_set_is_sent_the_old_values_again_in_case_the_callback_change
     world.reject['/controller_server'] = 'FollowPath.wz_max: out of range'
     world.leaky.add('/controller_server')
     assert make(world).apply(ask(wz_max=0.1))['status'] == 'rolled_back'
-    assert world.members['/controller_server']['FollowPath.wz_max'] == LIVE['/controller_server']['FollowPath.wz_max']
+    wz_max = LIVE['/controller_server']['FollowPath.wz_max']
+    assert world.members['/controller_server']['FollowPath.wz_max'] == wz_max
 
 
 def test_a_rejected_key_rolls_back_the_earlier_nodes_in_reverse_with_readback(world):
@@ -244,8 +247,9 @@ def test_a_rejected_key_rolls_back_the_earlier_nodes_in_reverse_with_readback(wo
     assert receipt['status'] == 'rolled_back' and 'rejected the set' in receipt['error']
     assert world.nodes == LIVE
     sent = world.sets()
-    assert [n for n, _ in sent] == [SMOOTHER, CONTROLLER, CONTROLLER, SMOOTHER]   # the rejected node is restored too
-    assert sent[3][1] == {'max_velocity': [0.4, 0.15, 0.3], 'min_velocity': [-0.1, -0.15, -0.3]}   # the prior values
+    # the rejected node is restored too, and the smoother gets its prior values
+    assert [n for n, _ in sent] == [SMOOTHER, CONTROLLER, CONTROLLER, SMOOTHER]
+    assert sent[3][1] == {'max_velocity': [0.4, 0.15, 0.3], 'min_velocity': [-0.1, -0.15, -0.3]}
     assert world.calls[-1][0] == 'get'                                # the rollback was read back
 
 
@@ -408,7 +412,8 @@ def reset_calls(world):
 
 def test_a_non_live_key_is_set_then_navigation_resets_starts_and_reads_back(world):
     world.mux_state = {'holds': []}
-    receipt = make(world).apply({FOLLOW + 'batch_size': 500, FOLLOW + 'CostCritic.cost_weight': 4.0})
+    receipt = make(world).apply({FOLLOW + 'batch_size': 500,
+                                 FOLLOW + 'CostCritic.cost_weight': 4.0})
     assert receipt['status'] == 'verified' and receipt['reset'], receipt
     assert world.nodes[CONTROLLER]['FollowPath.batch_size'] == 500
     kinds = [c[1] if c[0] == 'lifecycle' else c[0] for c in world.calls]
@@ -454,7 +459,8 @@ def test_a_reset_that_fails_restores_the_values_and_resets_again(world):
 def test_a_value_that_differs_after_startup_rolls_back(world):
     world.settle = {'startup': {(CONTROLLER, 'FollowPath.batch_size'): 1000}}
     receipt = make(world).apply({FOLLOW + 'batch_size': 500})
-    assert receipt['status'] == 'rolled_back' and 'FollowPath.batch_size' in receipt['error'], receipt
+    assert receipt['status'] == 'rolled_back', receipt
+    assert 'FollowPath.batch_size' in receipt['error']
 
 
 def test_a_rollback_whose_reset_fails_is_reported(world):
@@ -498,7 +504,8 @@ def test_a_malformed_footprint_refuses_before_any_write(world, value):
 
 def test_a_good_footprint_is_applied_live_with_no_reset(world):
     world.nodes['/global_costmap/global_costmap'] = {'footprint': '[[1, 1], [1, -1], [-1, 0]]'}
-    receipt = make(world).apply({'global_costmap.footprint': '[[0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]]'})
+    shape = '[[0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]]'
+    receipt = make(world).apply({'global_costmap.footprint': shape})
     assert receipt['status'] == 'verified' and not receipt['reset'], receipt
     assert 'lifecycle' not in {c[0] for c in world.calls}
 
@@ -608,7 +615,8 @@ def test_an_unexpected_exception_mid_apply_is_unknown_journaled_and_released(wor
     receipt = make(world).apply(ask(wz_max=0.4))
     assert receipt['status'] == 'unknown' and 'RuntimeError' in receipt['error']
     assert [n for n, _ in world.sets()] == [CONTROLLER]
-    assert world.events[-1][0] == 'nav2_live_outcome' and world.events[-1][1]['status'] == 'unknown'
+    assert world.events[-1][0] == 'nav2_live_outcome'
+    assert world.events[-1][1]['status'] == 'unknown'
     assert world.mux_state['holds'] == [] and receipt['hold']['released']
     world.nodes = copy.deepcopy(LIVE)        # the CLI applies FILE from a fresh start
     code, _ = run_cli(world, tmp_path, '--yes', '--json')
@@ -893,10 +901,12 @@ def test_the_popup_offers_only_close_when_refused_and_a_watcher_never_applies(tm
 
 def test_rosout_keeps_failure_lines_about_what_was_set_and_skips_mppi_noise():
     from mhseals_testing.ros.nav2_live import Rosout
-    lines = [(1.0, 'controller_server', 'Parameter FollowPath.max_angular_accel not found', 30),  # earlier
+    lines = [(1.0, 'controller_server', 'Parameter FollowPath.max_angular_accel not found', 30),
+             # ^ earlier than the window
              # MPPI listing a shim key it does not own:
              (5.0, 'controller_server', 'Parameter FollowPath.max_angular_accel not found', 30),
-             (5.1, 'controller_server', 'Parameter FollowPath.batch_size not found', 30),  # not set
+             # not set:
+             (5.1, 'controller_server', 'Parameter FollowPath.batch_size not found', 30),
              (5.2, 'velocity_smoother', 'Invalid size of max_velocity', 30),
              (5.3, 'other_node', 'something else is Invalid', 30),
              (5.4, 'bt_navigator', 'param max_velocity not found', 30),
@@ -925,5 +935,9 @@ def test_a_malformed_profile_yaml_reads_as_unknown_mux(tmp_path, monkeypatch):
     from mhseals_testing.harness import cli
     (tmp_path / 'session.json').write_text('{"profile": "x"}')
     registry = SimpleNamespace(state=lambda: {'session': str(tmp_path)})
-    monkeypatch.setattr(cli, 'load_profile', lambda name: (_ for _ in ()).throw(__import__('yaml').YAMLError('bad')))
+    import yaml
+
+    def broken(name):
+        raise yaml.YAMLError('bad')
+    monkeypatch.setattr(cli, 'load_profile', broken)
     assert cli.session_muxed(registry) is None

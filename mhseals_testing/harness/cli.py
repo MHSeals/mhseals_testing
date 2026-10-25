@@ -7,11 +7,11 @@ an agent or CI can ask "is the boat ready" without the TUI. Exit codes: 0 ok,
 """
 
 import argparse
-from fnmatch import fnmatchcase
 import json
 import socket
 import sys
 import time
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from mhseals_testing.health import config as health_config
@@ -139,7 +139,8 @@ def build_parser():
     catalog = verbs.add_parser('catalog')
     catalog.add_argument('--json', metavar='PATH|-', help='write JSON to PATH, or - for stdout')
     apply = verbs.add_parser(
-        'apply', help='apply the operator nav2.yaml to the running Nav2 (live, or with a Navigation reset)')
+        'apply', help='apply the operator nav2.yaml to the running Nav2 '
+                      '(live, or with a Navigation reset)')
     apply.add_argument('target', choices=('nav2',))
     apply.add_argument('--yes', action='store_true',
                        help='apply; without it only the preview is printed')
