@@ -1,7 +1,10 @@
 """Keeper: runs one child in its own process group and stops it when its owner is gone.
 
-``python -m mhseals_testing.harness.keeper --owner PID --log LOG --exit EXIT [--registry
-FILE] [--grace S] -- argv...``
+``python -m mhseals_testing.harness.keeper (--owner PID | --lease FILE --lease-s S) --log LOG
+--exit EXIT [--registry FILE] [--grace S] -- argv...``
+
+A unit (harness/unit.py) has no owner: it runs until stopped or until its lease file goes
+unrenewed for ``--lease-s`` seconds.
 
 The keeper is the only thing tied to the owner, and only by polling: PDEATHSIG would reach
 just the direct child (``ros2 run`` wraps the real node and swallows SIGINT), so the keeper
@@ -71,7 +74,21 @@ def stop_group(child, grace):
     return child.wait()
 
 
-def run(argv, owner, log, exit_file, registry=None, grace=1.0):
+def lease_expired(lease, lease_s, now):
+    """True when the lease file is missing or was last renewed more than ``lease_s`` ago."""
+    try:
+        return now - os.stat(lease).st_mtime > lease_s
+    except OSError:
+        return True
+
+
+def run(argv, owner, log, exit_file, registry=None, grace=1.0, lease=None, lease_s=0.0):
+    """Keep ``argv`` until it exits, a stop signal, the owner is gone or the lease runs out.
+
+    A unit (harness/unit.py) has no owner pid, only a lease the TUI renews; ``owner`` is None then.
+    """
+    if owner is None and lease is None:
+        raise ValueError('a keeper needs an owner or a lease')
     stopping = []
     for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(signum, lambda *_: stopping.append(signum))
@@ -86,7 +103,9 @@ def run(argv, owner, log, exit_file, registry=None, grace=1.0):
             code = child.returncode
         elif time.time() - checked >= POLL:
             checked = time.time()
-            if owner_gone(owner, registry, checked):
+            if owner is not None and owner_gone(owner, registry, checked):
+                break
+            if lease is not None and lease_expired(lease, lease_s, checked):
                 break
     if code is None:
         code = stop_group(child, grace)
@@ -100,15 +119,19 @@ def run(argv, owner, log, exit_file, registry=None, grace=1.0):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--owner', type=int, required=True)
+    parser.add_argument('--owner', type=int)
     parser.add_argument('--log', required=True)
     parser.add_argument('--exit', required=True)
     parser.add_argument('--registry')
     parser.add_argument('--grace', type=float, default=1.0)
+    parser.add_argument('--lease')
+    parser.add_argument('--lease-s', type=float, default=0.0)
     parser.add_argument('command', nargs='+')
     args = parser.parse_args(argv)
+    if args.owner is None and args.lease is None:
+        parser.error('--owner or --lease is required')
     run(args.command, args.owner, args.log, args.exit,
-        Registry(args.registry) if args.registry else None, args.grace)
+        Registry(args.registry) if args.registry else None, args.grace, args.lease, args.lease_s)
 
 
 if __name__ == '__main__':
