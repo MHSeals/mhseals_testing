@@ -1,6 +1,5 @@
 """Actual boat/TUI/component propagation into inert navigation launch factories."""
 import ast
-from dataclasses import replace
 import importlib.util
 from types import SimpleNamespace
 
@@ -76,19 +75,24 @@ def defaults(entities):
             if hasattr(entity, 'default_value')}
 
 
+def include_argv(item):
+    """The include device.launch.py makes for one part, as the argv the launch factories read."""
+    return ('ros2', 'launch', 'mhseals_nav', item.launch,
+            *(f'{key}:={value}' for key, value in item.arguments.items()))
+
+
 def boat_argv(profile_args, overlay_args, launch='odom.launch.py'):
-    """Start with the shipped boat, then use actual UI and component merges."""
+    """Start with the shipped boat, then use actual UI and component merges.
+
+    ``launch`` only names the factory the caller feeds: odom and robot read the same arguments.
+    """
     boat = load_profile('boat')
-    specs = {key: dict(value) for key, value in boat.components.items()}
-    specs['odometry']['args'] = {**specs['odometry']['args'], **profile_args}
-    specs['odometry']['launch'] = ['mhseals_nav', launch]
-    boat = replace(boat, components=specs)
     overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
     assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
                        for key in ('odometry', 'sensors')}
+    overlay['odometry'].update(profile_args)
     overlay['odometry'].update(overlay_args)
-    return next(item.argv for item in components(boat, overlay)
-                if item.key == 'odometry')
+    return include_argv(next(item for item in components(boat, overlay) if item.key == 'odometry'))
 
 
 def selected_file(tmp_path, name, entries):

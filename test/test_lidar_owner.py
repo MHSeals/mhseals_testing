@@ -10,7 +10,7 @@ import yaml
 from mhseals_testing.harness.components import components
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui.app import stack_overlay
-from test_mavros_owner import context_for, launch_factory
+from test_mavros_owner import context_for, include_argv, launch_factory
 
 
 @pytest.fixture
@@ -31,22 +31,19 @@ def calibration_share(nav_root, tmp_path):
 
 
 def sensor_argv(profile_args=None, overlay_args=None, route='sensors', use_sim_time=False):
+    """The sensors include's argv for the shipped boat; ``route`` only names the caller's factory."""
     boat = load_profile('boat')
-    specs = {key: {**value, 'args': dict(value.get('args', {}))}
-             for key, value in boat.components.items()}
-    if use_sim_time:
-        for spec in specs.values():
-            if 'sim' in spec['args']:
-                spec['args']['sim'] = 'true'
-    specs['sensors']['args'] = {**specs['sensors']['args'], **(profile_args or {})}
-    specs['sensors']['launch'] = ['mhseals_nav', f'{route}.launch.py']
-    boat = replace(boat, components=specs, use_sim_time=use_sim_time)
+    if use_sim_time:   # every part's sim follows the clock, as on the sim device profile
+        me, parts = boat.placed
+        parts = {name: replace(part, defaults={**part.defaults, 'sim': 'true'})
+                 for name, part in parts.items()}
+        boat = replace(boat, use_sim_time=True)
+        boat.__dict__['placed'] = (me, parts)
     overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
     assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
                        for key in ('odometry', 'sensors')}
-    overlay['sensors'] = overlay_args or {}
-    return next(item.argv for item in components(boat, overlay)
-                if item.key == 'sensors')
+    overlay['sensors'] = {**(profile_args or {}), **(overlay_args or {})}
+    return include_argv(next(item for item in components(boat, overlay) if item.key == 'sensors'))
 
 
 def sensor_factory(nav_root, share):
@@ -186,10 +183,10 @@ def test_tui_deployment_leaf_validation_cannot_be_masked(
         ns['sensor_nodes'](context)
 
 
-def test_tui_robot_sim_clock_conflict_refuses_before_component(monkeypatch):
+def test_tui_sim_clock_conflict_refuses_before_component(monkeypatch):
     from mhseals_testing.harness import components as module
     constructors = []
     monkeypatch.setattr(module, 'Component', lambda *args: constructors.append(args))
-    with pytest.raises(ValueError, match='sensors.sim must match use_sim_time'):
-        sensor_argv(overlay_args={'sim': 'true'}, route='robot')
+    with pytest.raises(ValueError, match='odometry.sim must match use_sim_time'):
+        components(load_profile('boat'), {'odometry': {'sim': 'true'}})
     assert constructors == []

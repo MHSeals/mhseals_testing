@@ -8,27 +8,18 @@ ground_truth: null
 frames: {map: map, odom: odom, base: base_link}
 use_sim_time: false
 arming: {outputs: odroid}
+# Each component is a device part (mhseals_nav config/devices/): the registry's roles say which
+# computer runs it (mhseals_testing.devices), and the Status row starts or stops it there.
 # The components marked start come up with the session (attaches if already running); the
-# Status rows start the rest. Only sensing carries start: never the thrusters, mux or navigation.
+# Status rows start the rest. Only sensing carries start: never navigation or the mission.
 components:
-  # The EKFs run as a separate keeper child; runtime restart is not enabled.
-  # start_ekf:=false keeps odom.launch.py from starting a second set (rv1-35).
-  odometry: {launch: [mhseals_nav, odom.launch.py], args: {sim: 'false', fcu: 'true', start_ekf: 'false'},
-             nodes: [robot_state_publisher], start: true}
-  ekf: {launch: [mhseals_nav, ekf.launch.py], args: {sim: 'false', ekf_startup_context: 'included'},
-        title: EKFs, nodes: [ekf_local, ekf_global, navsat_transform], needs: [odometry], start: true}
-  sensors: {launch: [mhseals_nav, sensors.launch.py], args: {sim: 'false', sensors_ignore: camera},
-            nodes: [velodyne_driver]}
-  mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'false'}, nodes: [rtabmap],
-            needs: [odometry, ekf]}
-  # command_mux starts the stale-costmap watchdog, which asks the mux to hold.
-  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'false', command_mux: 'true'},
-               limits: true, nodes: [bt_navigator], needs: [odometry, ekf]}
-  # Perception runs on the camera host (orin.launch.py) and shares this graph; nothing here
-  # starts it. Camera is up when the ZED wrapper's own node is present.
-  camera: {remote: blastoise-jetson, nodes: [zed_node]}
-  objects: {remote: blastoise-jetson, nodes: [zed_backend, object_tracker, costmap],
-            topic: /perception/tracks}
+  odometry: {start: true}
+  ekf: {title: EKFs, needs: [odometry], start: true}
+  sensors: {}
+  mapping: {needs: [odometry, ekf]}
+  navigation: {limits: true, needs: [odometry, ekf]}
+  camera: {}
+  objects: {topic: /perception/tracks}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}

@@ -58,8 +58,10 @@ def test_profile_path_and_unknown_name(tmp_path):
     (lambda d: d['sensors'][0].update(stale_after='soon'), 'stale_after'),
     (lambda d: d['sensors'].append(dict(d['sensors'][0])), 'unique'),
     (lambda d: d.update(components='yes'), 'components'),
-    (lambda d: d.update(components={'a': {'nodes': []}}), 'launch or remote'),
-    (lambda d: d.update(components={'a': {'launch': ['p', 'f'], 'needs': ['b']}}), 'unknown component'),
+    (lambda d: d.update(components={'a': {'nodes': []}}), 'come from the device profile'),
+    (lambda d: d.update(components={'a': {'needs': ['b']}}), 'unknown component'),
+    (lambda d: d.update(placement={'self': 'sim'}), 'placement'),
+    (lambda d: d.update(placement={'other': ['sim']}), 'placement'),
 ])
 def test_invalid_profiles_name_the_field(edit, message):
     data = copy.deepcopy(base())
@@ -76,8 +78,8 @@ def test_boat_gps_declares_its_rate():
 def test_boat_proof_nodes_are_node_names():
     """Proof nodes are ROS node names (launch name=), not executables: the velodyne
     driver's executable is velodyne_driver_node but its node is velodyne_driver."""
-    components = load_profile('boat').components
-    assert tuple(components['sensors']['nodes']) == ('velodyne_driver',)
+    parts = load_profile('boat').placed[1]
+    assert tuple(parts['sensors'].spec['nodes']) == ('velodyne_driver',)
 
 
 @pytest.mark.parametrize('choice', [None, True, 4, 'odom:', 'odom:/missing', 'unknown', []])

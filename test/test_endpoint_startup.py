@@ -1,5 +1,4 @@
 """Endpoint planning preserves explicit selections without device discovery."""
-from dataclasses import replace
 import sys
 from types import ModuleType
 
@@ -19,17 +18,14 @@ def resolver(monkeypatch):
 
 
 def arguments(children):
-    return {item.key: dict(arg.split(':=', 1) for arg in item.argv[4:])
-            for item in children if item.argv and item.key in ('odometry', 'sensors')}
+    return {item.key: dict(item.arguments)
+            for item in children if item.key in ('odometry', 'sensors')}
 
 
-def test_omitted_cli_inherits_profile_alias_and_tui_context(resolver):
+def test_omitted_cli_inherits_session_alias_and_tui_context(resolver):
     args, profile = parse_args([])
     assert stack_overlay(profile, args) == {}
-    specs = {key: {**spec, 'args': dict(spec.get('args', {}))}
-             for key, spec in profile.components.items()}
-    specs['sensors']['args']['fcu_url'] = 'serial:///profile:57600'
-    selected = arguments(components(replace(profile, components=specs)))
+    selected = arguments(components(profile, {'sensors': {'fcu_url': 'serial:///profile:57600'}}))
     assert all(row['fcu_url'] == 'serial:///profile:57600' and
                row['endpoint_context'] == 'tui' for row in selected.values())
     assert resolver[-1]['aliases'] == {'fcu_url': 'serial:///profile:57600'}
@@ -101,7 +97,7 @@ def test_inherit_aliases_do_not_hide_shared_explicit_gcs_disable(resolver):
 def test_app_yaml_argv_reaches_actual_endpoint_factories(
         nav_root, tmp_path, profile_name, explicit, route):
     from hashlib import sha256
-    from test_mavros_owner import context_for, launch_factory
+    from test_mavros_owner import context_for, include_argv, launch_factory
     from mhseals_nav.endpoint_configuration import resolve_endpoints
     import yaml
 
@@ -112,22 +108,19 @@ def test_app_yaml_argv_reaches_actual_endpoint_factories(
     if explicit:
         cli += ['--fcu-url', 'serial:///inert-cli:57600']
     args, profile = parse_args(cli)
-    specs = {key: {**spec, 'args': dict(spec.get('args', {}))}
-             for key, spec in profile.components.items()}
-    specs['odometry']['launch'] = ['mhseals_nav', route + '.launch.py']
-    specs['sensors']['args'].update(
-        endpoint_deployment_file=str(deployment), endpoint_startup_file=str(operator), gcs_url='')
-    profile = replace(profile, components=specs)
     old = None
     for port in (7002, 7003):
         operator.write_text(yaml.safe_dump({'fcu_url': 'tcp://localhost:5763',
                                            'unity': {'ip': '0.0.0.0', 'port': port}}))
-        children = {item.key: item for item in components(profile, stack_overlay(profile, args))}
+        overlay = stack_overlay(profile, args)
+        overlay.setdefault('sensors', {}).update(
+            endpoint_deployment_file=str(deployment), endpoint_startup_file=str(operator), gcs_url='')
+        children = {item.key: include_argv(item) for item in components(profile, overlay)}
         odom = launch_factory(nav_root, 'odom')
-        invocation = context_for(odom, children['odometry'].argv)
-        if route == 'robot':
+        invocation = context_for(odom, children['odometry'])
+        if route == 'robot':      # robot.launch.py reads the same arguments as odom.launch.py
             robot = launch_factory(nav_root, 'robot')
-            parent = context_for(robot, children['odometry'].argv)
+            parent = context_for(robot, children['odometry'])
             assert robot['endpoint_preflight'](parent) == []
             include = next(entity for entity in robot['generate_launch_description']()
                            if hasattr(entity, 'launch_arguments') and
@@ -141,7 +134,7 @@ def test_app_yaml_argv_reaches_actual_endpoint_factories(
         assert params == {'fcu_url': expected, 'gcs_url': '',
                           'use_sim_time': profile.use_sim_time}
         sensors = launch_factory(nav_root, 'sensors')
-        invocation = context_for(sensors, children['sensors'].argv)
+        invocation = context_for(sensors, children['sensors'])
         invocation['sim'] = 'true'  # Exercise only the inert Unity endpoint consumer.
         unity = sensors['sensor_nodes'](invocation)[0].parameters[0]
         assert unity == {'ROS_IP': '0.0.0.0', 'ROS_TCP_PORT': port}

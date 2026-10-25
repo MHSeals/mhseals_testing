@@ -9,7 +9,8 @@ What a role runs is never written here: each role names a device profile (mhseal
 config/devices/<profile>.yaml), whose ``parts`` are the only place a responsibility is assigned.
 ``assign`` inverts the active profiles into part -> (profile, role, host) and refuses a part claimed
 twice, a part nobody claims, a role without one host, and a host lacking a profile's ``requires``.
-``python3 -m mhseals_testing.devices`` prints the map. ROS-free.
+``python3 -m mhseals_testing.devices [testing profile]`` prints the map (with that profile's
+``placement``). ROS-free.
 """
 
 from dataclasses import dataclass
@@ -74,6 +75,14 @@ class Part:
     role: str | None          # None under a profile's placement
     host: Host
     spec: dict                # the merged device-profile entry: launch|run, args, nodes, kind, enabled
+    defaults: dict = None     # the device profile's top-level args, under the part's own
+
+    @property
+    def arguments(self):
+        """The include's arguments as device.launch.py passes them: profile args, then the part's."""
+        merged = {**(self.defaults or {}), **self.spec.get('args', {})}
+        return {key: str(value).lower() if isinstance(value, bool) else str(value)
+                for key, value in merged.items()}
 
     @property
     def kind(self):
@@ -304,12 +313,19 @@ def assign(registry, me, profiles=load_device_profile, placement=None, wanted=()
             if part in parts:
                 raise DeviceError(f'part {part!r} is claimed by both {parts[part].profile} '
                                   f'and {name}; give it to one device profile')
-            parts[part] = Part(part, name, role, host, spec)
+            parts[part] = Part(part, name, role, host, spec, dict(profile.get('args') or {}))
     unclaimed = [part for part in wanted if part not in parts]
     if unclaimed:
         raise DeviceError(f'no active device profile runs {", ".join(unclaimed)} '
                           f'(active: {", ".join(name for name, _, _ in active)})')
     return parts
+
+
+def resolve(placement=None, wanted=()):
+    """(this machine's Host, ``{part: Part}``) from the layered registry; DeviceError when refused."""
+    registry = load()
+    me = whoami(registry, local_addresses())
+    return me, assign(registry, me, placement=placement, wanted=wanted)
 
 
 def reach(host, me):
@@ -336,11 +352,16 @@ def table(parts, me):
 
 
 def main(argv=None):
+    """Print the map; a testing profile name (``boat``, ``crane_full_stack``) applies its placement."""
+    argv = sys.argv[1:] if argv is None else argv
     try:
-        registry = load()
-        me = whoami(registry, local_addresses())
-        rows = table(assign(registry, me), me)
-    except DeviceError as error:
+        placement = None
+        if argv:
+            from mhseals_testing.profiles import load_profile
+            placement = load_profile(argv[0]).placement
+        me, parts = resolve(placement)
+        rows = table(parts, me)
+    except (DeviceError, FileNotFoundError, ValueError) as error:
         print(f'devices: {error}', file=sys.stderr)
         return 1
     rows.insert(0, ('part', 'profile', 'host', 'reach'))

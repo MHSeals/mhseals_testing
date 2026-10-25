@@ -10,13 +10,15 @@ navigation: EKFs without an FCU, sim time, ROS ``/thrusters/pwm``) and ``crane_d
 only; Unity's own velocity controller and truth). Components without ``start: true`` start from
 Status rows. Profiles that command ``/cmd_vel`` start ``mhseals_hardware``'s ``command_mux`` on
 arming; the driver, or the velocity controller in front of it, listens on ``/cmd_vel/applied``.
-Odometry and endpoint startup defaults come from ``mhseals_nav/config/{odometry,endpoint}_startup.yaml``
-(real boat: ``included`` context; simulator: ``standalone``); a component's launch ``args`` may name
-``*_startup_file`` / ``*_deployment_file`` layers, and conflicting selections refuse before any
-process starts.
+Each component is a device part (mhseals_nav config/devices/): its launch, args and host come from
+the device registry (mhseals_testing.devices); ``placement: {self: [sim]}`` runs the named device
+profiles on this machine instead. Odometry and endpoint startup defaults come from
+``mhseals_nav/config/{odometry,endpoint}_startup.yaml`` (real boat: ``included`` context;
+simulator: ``standalone``), and conflicting selections refuse before any process starts.
 """
 
 from dataclasses import dataclass, replace
+from functools import cached_property
 from pathlib import Path
 
 from mhseals_testing import data as records
@@ -101,11 +103,22 @@ class PlantProfile:
     stamp_future: float = FUTURE_TOLERANCE
     conditions_velocity: str = 'gpsraw'  # explicit odom:<topic|name> is simulation-only
 
+    placement: dict | None = None    # {self: [device profiles]}: all on this machine; None: the registry's roles
+
+    @cached_property
+    def placed(self):
+        """(this machine's devices.Host, {part: devices.Part}) for the components; DeviceError if refused."""
+        from mhseals_testing import devices
+        wanted = [spec.get('part', key) for key, spec in (self.components or {}).items()]
+        return devices.resolve(self.placement, wanted)
+
     @property
     def uses_fcu(self):
         """True when the odometry component brings up MAVROS (a real flight controller)."""
-        odometry = (self.components or {}).get('odometry', {})
-        return 'launch' in odometry and odometry.get('args', {}).get('fcu', 'true') != 'false'
+        spec = (self.components or {}).get('odometry')
+        if spec is None:
+            return False
+        return self.placed[1][spec.get('part', 'odometry')].arguments.get('fcu', 'true') != 'false'
 
     @property
     def muxed(self):
@@ -200,11 +213,14 @@ def parse_profile(data, where='profile'):
         if not data.get('use_sim_time') or len(matches) != 1:
             raise ValueError(f'{where}.conditions.velocity: gpsraw or unique sim odom:<topic|name>')
     components = parse_components(data.get('components'), where + '.components')
-    from mhseals_testing.harness.components import ODOMETRY_LAUNCHES
-    managed = any(tuple(spec.get('launch', ())) in ODOMETRY_LAUNCHES
-                  for spec in components.values())
-    if managed and type(data.get('use_sim_time')) is not bool:
-        raise ValueError(f'{where}.use_sim_time: managed localization requires a boolean')
+    if components and type(data.get('use_sim_time')) is not bool:
+        raise ValueError(f'{where}.use_sim_time: managed components require a boolean')
+    placement = data.get('placement')
+    if placement is not None and not (
+            isinstance(placement, dict) and set(placement) == {'self'}
+            and isinstance(placement['self'], list) and placement['self']
+            and all(isinstance(name, str) for name in placement['self'])):
+        raise ValueError(f'{where}.placement: {{self: [device profiles]}}')
     scale = tuple(float(value) for value in data.get('plot_scale', PLOT_SCALE))
     if len(scale) != 3 or not all(0 < value < float('inf') for value in scale):
         raise ValueError(f'{where}.plot_scale: three positive numbers')
@@ -231,7 +247,7 @@ def parse_profile(data, where='profile'):
         base_frame=_require(frames, 'base', str, where + '.frames'),
         use_sim_time=bool(data.get('use_sim_time', False)),
         outputs=outputs, velocity_controller=controller,
-        sensors=tuple(sensors), components=components or None, battery_cells=cells,
+        sensors=tuple(sensors), components=components or None, placement=placement, battery_cells=cells,
         battery_chemistry=chemistry, battery_capacity_mah=capacity,
         plot_scale=scale, stamp_future=_positive(data, 'stamp_future', where) or FUTURE_TOLERANCE,
         conditions_velocity=velocity)

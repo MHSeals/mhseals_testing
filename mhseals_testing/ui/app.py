@@ -2571,9 +2571,10 @@ def stack_overlay(profile, args):
     if not profile.uses_fcu or not args.fcu_url:
         return {}
     from mhseals_testing.harness.components import ENDPOINT_LAUNCHES
+    placed = profile.placed[1]
     return {key: {'fcu_url': args.fcu_url}
             for key, spec in (profile.components or {}).items()
-            if tuple(spec.get('launch', ())) in ENDPOINT_LAUNCHES}
+            if placed[spec.get('part', key)].spec.get('launch') in ENDPOINT_LAUNCHES}
 
 
 def terminal_gone(error):

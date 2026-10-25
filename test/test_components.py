@@ -1,12 +1,19 @@
-"""Stack components: parsing, state and the start and stop rules."""
+"""Stack components: device parts, parsing, state and the start and stop rules."""
 
+from dataclasses import replace
+import json
 from pathlib import Path
 
 import pytest
 
+from mhseals_testing.devices import Host, Part
 from mhseals_testing.harness.components import (
     ComponentError, Stack, components, parse_components, state)
 from mhseals_testing.profiles import load_profile
+
+ME = Host('local', address='127.0.0.1')
+JETSON = Host('blastoise-jetson', roles=('camera_host',), address='192.168.0.153',
+              user='roboboat', container='roboboat_dev')
 
 
 class FakeProcesses:
@@ -32,61 +39,130 @@ class FakeProcesses:
         self.stopped_at[name] = 100.0
 
 
+class FakeUnits:
+    """harness.remote.Units as the Stack sees it: status per part, start and stop requests."""
+
+    def __init__(self):
+        self.records, self.errors, self.calls = {}, {}, []
+
+    def status(self, item):
+        return self.records.get(item.part), self.errors.get(item.part)
+
+    def start(self, item, commander=False):
+        self.calls.append(('start', item.part, commander))
+        self.records[item.part] = {'state': 'running'}
+
+    def stop(self, item):
+        self.calls.append(('stop', item.part))
+        self.records[item.part] = {'state': 'off'}
+
+
+def part(name, launch, host=ME, profile='odroid', nodes=(), **spec):
+    return Part(name, profile, None, host, {'launch': launch, 'nodes': list(nodes), **spec},
+                {'sim': 'false'})
+
+
+PARTS = {
+    'odometry': part('odometry', 'odom.launch.py', nodes=['ekf_local'], args={'fcu': 'true'}),
+    'navigation': part('navigation', 'navigation.launch.py', nodes=['bt_navigator'],
+                       kind='commander', args={'command_mux': 'true'}),
+    'camera': part('camera', 'camera.launch.py', JETSON, 'jetson', ['zed_node']),
+    'objects': part('objects', 'objects.launch.py', nodes=['object_tracker']),
+    'sensors': part('sensors', 'sensors.launch.py'),
+    'tracker': part('tracker', 'objects.launch.py', JETSON, 'jetson', ['object_tracker'],
+                    kind='commander'),
+}
+
+
 class Profile:
     map_frame, odom_frame, base_frame = 'map', 'odom', 'base_link'
     odometry, use_sim_time = '/odom/local', False
     components = {
-        'odometry': {'launch': ['mhseals_nav', 'odom.launch.py'], 'args': {'sim': 'false'},
-                     'nodes': ['ekf_local'], 'start': True},
-        'navigation': {'launch': ['mhseals_nav', 'navigation.launch.py'], 'nodes': ['bt_navigator'],
-                       'needs': ['odometry']},
-        'camera': {'remote': 'camera-host', 'nodes': ['zed_node']},
+        'odometry': {'start': True},
+        'navigation': {'needs': ['odometry'], 'limits': True},
+        'camera': {},
     }
 
 
-def make():
+SIM_PARTS = {name: replace(found, defaults={'sim': 'true'}) for name, found in PARTS.items()}
+
+
+def items(profile=Profile, overlay=None):
+    return components(profile, overlay, (ME, SIM_PARTS if profile.use_sim_time else PARTS))
+
+
+def make(units=None):
     processes, clock = FakeProcesses(), [0.0]
-    stack = Stack(components(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}}),
-                  processes, lambda: clock[0])
+    stack = Stack(items(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}}),
+                  processes, lambda: clock[0], units)
     return stack, processes, clock
 
 
-def test_argv_and_shipped_profiles():
-    odometry = components(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}})[0]
-    assert odometry.argv == ('ros2', 'launch', 'mhseals_nav', 'odom.launch.py', 'sim:=false',
-                             'fcu_url:=serial:///inert-fcu', 'endpoint_context:=tui')
+def overrides(argv):
+    found = [arg.split(':=', 1)[1] for arg in argv if arg.startswith('overrides:=')]
+    return json.loads(found[0]) if found else {}
+
+
+def test_argv_runs_one_part_through_device_launch_with_session_overrides(monkeypatch, tmp_path):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    from mhseals_testing import nav2_limits
+    odometry, navigation, camera = items(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}})
+    assert odometry.argv[:6] == ('ros2', 'launch', 'mhseals_nav', 'device.launch.py',
+                                 'device:=odroid', 'only:=odometry')
+    # Only what the session adds travels; the device profile's own args stay in the profile.
+    assert overrides(odometry.argv) == {'parts': {'odometry': {'args': {
+        'fcu_url': 'serial:///inert-fcu', 'endpoint_context': 'tui'}}}}
+    assert odometry.arguments['fcu'] == 'true' and odometry.arguments['sim'] == 'false'
+    assert overrides(navigation.argv)['parts']['navigation']['args'] == {
+        'limits_file': str(nav2_limits.path())}
+    assert camera.remote == 'blastoise-jetson' and camera.unit == 'mhseals-camera'
+    assert camera.argv == ('ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson',
+                           'only:=camera')
+    assert odometry.host is None and navigation.kind == 'commander'
+
+
+def test_shipped_profiles_resolve_through_the_device_profiles():
     boat = {item.key: item for item in components(load_profile('boat'))}
-    # Perception runs on the camera host: nothing here can start it.
-    assert boat['objects'].remote == boat['camera'].remote and not boat['objects'].argv
     assert boat['objects'].nodes == ('zed_backend', 'object_tracker', 'costmap')
+    assert boat['camera'].nodes == ('zed_node',) and boat['camera'].profile == 'jetson'
+    assert boat['navigation'].kind == 'commander' and boat['odometry'].arguments['fcu'] == 'true'
     for name in ('boat', 'crane_full_stack'):
         navigation = next(i for i in components(load_profile(name)) if i.key == 'navigation')
-        assert ('command_mux:=true' in navigation.argv) == load_profile(name).muxed
-    assert boat['camera'].remote and not boat['camera'].argv
-    # Up follows the camera host's own wrapper; the converter runs here under objects.
-    assert boat['camera'].nodes == ('zed_node',)
-    sim = load_profile('crane_full_stack')
-    assert 'sim:=true' in components(sim)[0].argv and 'fcu:=false' in components(sim)[0].argv
+        assert (navigation.arguments.get('command_mux') == 'true') == load_profile(name).muxed
+    sim = {item.key: item for item in components(load_profile('crane_full_stack'))}
+    assert all(item.profile == 'sim' and item.host is None for item in sim.values())
+    assert sim['odometry'].arguments['sim'] == 'true' and sim['odometry'].arguments['fcu'] == 'false'
+    assert load_profile('crane_full_stack').uses_fcu is False and load_profile('boat').uses_fcu
     assert load_profile('crane_direct').components is None
 
 
 def test_boat_session_start_brings_up_only_sensing():
     started = [item for item in components(load_profile('boat')) if item.start]
     assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors'}
-    for item in started:   # no thruster driver or mux (mhseals_hardware), no Nav2 (limits)
-        assert not item.limits and 'mhseals_hardware' not in item.argv and not item.remote
+    for item in started:
+        assert not item.limits and item.kind == 'sensing'
 
 
-def test_navigation_gets_limits_file(monkeypatch, tmp_path):
-    monkeypatch.setenv('HOME', str(tmp_path))
-    from mhseals_testing import nav2_limits
-    for name in ('boat', 'crane_full_stack'):
-        items = {item.key: item for item in components(load_profile(name))}
-        flagged = [item for item in items.values() if item.limits]
-        assert flagged
-        for item in flagged:
-            assert item.argv.count(nav2_limits.launch_argument()) == 1
-        assert not any(a.startswith('limits_file:=') for i in items.values() if not i.limits for a in i.argv)
+def test_a_commander_marked_start_is_a_load_error_off_the_simulator():
+    class Marked(Profile):
+        components = dict(Profile.components, navigation={'needs': ['odometry'], 'start': True})
+    with pytest.raises(ValueError, match='navigation can command motion'):
+        items(Marked)
+
+
+def test_profile_keys_and_part_names():
+    with pytest.raises(ValueError, match='launch, args, nodes and host come from the device'):
+        parse_components({'a': {'launch': ['mhseals_nav', 'odom.launch.py']}})
+    with pytest.raises(ValueError, match='same part'):
+        parse_components({'a': {'part': 'x'}, 'b': {'part': 'x'}})
+    assert parse_components({'a': None}) == {'a': {}}
+    assert parse_components(None) == {}
+
+
+def test_parse_components_rejects_needs_cycle():
+    data = {'a': {'needs': ['b']}, 'b': {'needs': ['a']}}
+    with pytest.raises(ValueError, match=r'components\.a\.needs: cycle'):
+        parse_components(data)
 
 
 def test_state_ours_starting_exited_external():
@@ -117,36 +193,21 @@ def test_start_needs_prompt_and_order():
 
 
 class Tracked(Profile):
-    components = dict(Profile.components, objects={
-        'launch': ['mhseals_nav', 'objects.launch.py'], 'nodes': ['object_tracker'],
-        'needs': ['navigation'], 'start': True})
+    components = dict(Profile.components, objects={'needs': ['navigation'], 'start': True})
+    use_sim_time = True
 
 
 def test_autostart_never_moves_the_real_boat_even_through_needs():
     processes = FakeProcesses()
-    stack = Stack(components(Tracked), processes, lambda: 0.0)
+    stack = Stack(items(Tracked), processes, lambda: 0.0)
     assert stack.start_order() == ['odometry', 'navigation', 'objects']   # navigation pulled in
     lines = stack.autostart(set(), [], sim=False)
     assert [name for name, _ in processes.started] == ['odometry']
     assert lines[0].startswith('refused to auto-start Navigation')
     assert lines[1].startswith('skipped Objects: Navigation')
-    stack = Stack(components(Tracked), FakeProcesses(), lambda: 0.0)
+    stack = Stack(items(Tracked), FakeProcesses(), lambda: 0.0)
     assert stack.autostart(set(), [], sim=True) == []                     # the simulator may
     assert [name for name, _ in stack.processes.started] == ['odometry', 'navigation', 'objects']
-
-
-def test_autostart_refuses_a_boat_profile_by_path_that_marks_navigation_start(tmp_path):
-    text = (Path(__file__).parents[1] / 'config' / 'profiles' / 'boat.yaml').read_text()
-    marked = text.replace('nodes: [bt_navigator], needs: [odometry, ekf]}',
-                          'nodes: [bt_navigator], needs: [odometry, ekf], start: true}')
-    assert marked != text
-    (tmp_path / 'mine.yaml').write_text(marked)
-    processes = FakeProcesses()
-    stack = Stack(components(load_profile(str(tmp_path / 'mine.yaml'))), processes, lambda: 0.0)
-    assert 'navigation' in stack.start_order()
-    lines = stack.autostart(set(), [], sim=False)
-    assert 'navigation' not in {name for name, _ in processes.started}
-    assert any(line.startswith('refused to auto-start Navigation') for line in lines)
 
 
 def test_autostart_survives_a_failed_start_and_attaches_to_what_runs():
@@ -158,7 +219,7 @@ def test_autostart_survives_a_failed_start_and_attaches_to_what_runs():
         processes.live.add(name)
         processes.started.append((name, tuple(argv)))
     processes.start = start
-    stack = Stack(components(Tracked), processes, lambda: 0.0)
+    stack = Stack(items(Tracked), processes, lambda: 0.0)
     lines = stack.autostart({'/ekf_local'}, ['/ekf_local'], sim=True)   # odometry already up
     assert lines == ['attached to Odometry (external)',
                      'could not start Navigation: ros2: not found',
@@ -168,10 +229,9 @@ def test_autostart_survives_a_failed_start_and_attaches_to_what_runs():
 
 def test_autostart_leaves_a_nodeless_component_off_beside_a_running_stack():
     class Endpoint(Profile):
-        components = dict(Profile.components, sensors={
-            'launch': ['mhseals_nav', 'sensors.launch.py'], 'start': True})
+        components = dict(Profile.components, sensors={'start': True})
     processes = FakeProcesses()
-    stack = Stack(components(Endpoint), processes, lambda: 0.0)
+    stack = Stack(items(Endpoint), processes, lambda: 0.0)
     lines = stack.autostart({'/ekf_local'}, ['/ekf_local'], sim=True)
     assert lines[1].startswith('left Sensors off') and processes.started == []
     stack.autostart(set(), [], sim=True)                    # nothing up yet: start it
@@ -180,7 +240,7 @@ def test_autostart_leaves_a_nodeless_component_off_beside_a_running_stack():
 
 def test_autostart_reports_a_foreign_odometry_publisher_and_starts_nothing():
     processes = FakeProcesses()
-    stack = Stack(components(Tracked), processes, lambda: 0.0)
+    stack = Stack(items(Tracked), processes, lambda: 0.0)
     lines = stack.autostart(set(), ['/rosbag2_player'], sim=True)
     assert 'rosbag2_player' in lines[0] and processes.started == []
 
@@ -189,17 +249,11 @@ def test_external_is_never_stopped():
     stack, processes, _ = make()
     with pytest.raises(ComponentError, match='running outside this session'):
         stack.stop('odometry', {'ekf_local'})
-    with pytest.raises(ComponentError, match='camera-host'):
-        stack.start('camera', set())
+    with pytest.raises(ComponentError, match='blastoise-jetson; start it there'):
+        stack.start('camera', set())                        # no remote control in this stack
     with pytest.raises(ComponentError, match='outside'):
         stack.stop('camera', {'/front/zed_node'})
     assert processes.stopped == []
-
-
-def test_camera_is_up_only_with_the_camera_hosts_wrapper():
-    stack, _, _ = make()
-    assert stack.state('camera', {'/zed_detections_converter'}) == ('off', '')
-    assert stack.state('camera', {'/front/zed_node'}) == ('external', 'camera-host')
 
 
 def test_stop_ours_stops_dependants_first():
@@ -210,18 +264,51 @@ def test_stop_ours_stops_dependants_first():
     assert processes.stopped == ['navigation', 'odometry']
 
 
-def test_remote_state_without_process():
-    assert state(components(Profile)[2], set(), FakeProcesses(), 0)[0] == 'off'
+def test_remote_parts_start_and_stop_as_units_on_their_host():
+    units = FakeUnits()
+    stack, processes, _ = make(units)
+    assert stack.state('camera', set()) == ('off', '')
+    stack.start('camera', set())
+    assert units.calls == [('start', 'camera', False)] and not processes.started
+    assert stack.state('camera', set()) == ('starting', 'unit on blastoise-jetson')
+    assert stack.state('camera', {'/front/zed_node'}) == ('ours', 'unit on blastoise-jetson')
+    assert stack.stop('camera', {'/front/zed_node'}) == ['camera']
+    assert units.calls[-1] == ('stop', 'camera')
+    units.records['camera'] = {'state': 'exited', 'code': 2, 'log': '/d/units/x.log'}
+    assert stack.state('camera', set()) == ('exited', 'unit exited 2 on blastoise-jetson: /d/units/x.log')
 
 
-def test_parse_components_accepts_none():
-    assert parse_components(None) == {}
+def test_unreachable_is_not_off_and_refuses_start_but_stop_still_tries():
+    units = FakeUnits()
+    stack, _, _ = make(units)
+    units.errors['camera'] = 'ssh: timeout'
+    assert stack.state('camera', set()) == ('unreachable', 'ssh: timeout')
+    with pytest.raises(ComponentError, match='unreachable \\(ssh: timeout\\)'):
+        stack.start('camera', set())
+    assert stack.stop('camera', set()) == ['camera']      # the state is unknown: stop is sent anyway
+    assert units.calls == [('stop', 'camera')]
 
 
-def test_parse_components_rejects_needs_cycle():
-    data = {'a': {'remote': 'x', 'needs': ['b']}, 'b': {'remote': 'x', 'needs': ['a']}}
-    with pytest.raises(ValueError, match=r'components\.a\.needs: cycle'):
-        parse_components(data)
+def test_a_remote_commander_needs_the_operators_confirmed_go_ahead():
+    class Remote(Profile):
+        components = {'tracker': {}}
+    units = FakeUnits()
+    stack = Stack(items(Remote), FakeProcesses(), lambda: 0.0, units)
+    with pytest.raises(ComponentError, match='can command motion'):
+        stack.start('tracker', set())
+    assert units.calls == []
+    stack.start('tracker', set(), commander=True)
+    assert units.calls == [('start', 'tracker', True)]
+    assert stack.stop('tracker', set()) == ['tracker']    # stop has no kind checks
+
+
+def test_a_disabled_part_says_where_and_never_starts():
+    disabled = dict(PARTS, camera=part('camera', 'camera.launch.py', ME, 'sim', ['zed_node'],
+                                       enabled=False))
+    stack = Stack(components(Profile, None, (ME, disabled)), FakeProcesses(), lambda: 0.0)
+    assert stack.state('camera', set()) == ('disabled', 'disabled on sim')
+    with pytest.raises(ComponentError, match='disabled on sim'):
+        stack.start('camera', set())
 
 
 def test_lingering_names_of_a_stopped_child_are_not_external_nor_duplicates():
@@ -247,19 +334,20 @@ def test_odometry_yaml_selectors_reach_both_actual_children(profile_name, contex
               'ekf_local_config_file': '/deployment/local.yaml',
               'ekf_global_config_file': '/deployment/global.yaml',
               'ekf_overlay_file': '/operator/ekf.yaml'}
-    items = {item.key: item for item in components(profile, {'odometry': chosen})}
+    found = {item.key: item for item in components(profile, {'odometry': chosen})}
     for key in ('odometry', 'ekf'):
-        argv = items[key].argv
-        assert f'ekf_startup_context:={context}' in argv
-        assert not any(arg.startswith('ekf_delay:=') for arg in argv)
+        arguments = found[key].arguments
+        assert arguments['ekf_startup_context'] == context
+        assert 'ekf_delay' not in arguments
         for name, value in chosen.items():
-            assert f'{name}:={value}' in argv
+            assert arguments[name] == value
+            assert overrides(found[key].argv)['parts'][found[key].part]['args'][name] == value
 
 
 def test_explicit_odometry_alias_survives_and_mismatches_refuse():
     profile = load_profile('boat')
-    items = components(profile, {'ekf': {'ekf_delay': '2.5'}})
-    assert all('ekf_delay:=2.5' in item.argv for item in items if item.key in ('ekf', 'odometry'))
+    found = components(profile, {'ekf': {'ekf_delay': '2.5'}})
+    assert all(item.arguments['ekf_delay'] == '2.5' for item in found if item.key in ('ekf', 'odometry'))
     with pytest.raises(ValueError, match='conflicting odometry selection'):
         components(profile, {'odometry': {'odometry_startup_file': '/a.yaml'},
                              'ekf': {'odometry_startup_file': '/b.yaml'}})

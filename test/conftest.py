@@ -36,6 +36,19 @@ def isolated_user_config(tmp_path_factory, monkeypatch):
     monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path_factory.mktemp('xdg')))
 
 
+@pytest.fixture(autouse=True)
+def one_machine_registry(tmp_path_factory, monkeypatch):
+    """Every role on this machine, with every capability, so boat profiles resolve here."""
+    from mhseals_testing import devices
+    root = tmp_path_factory.mktemp('devices')
+    deployment = root / 'devices.yaml'
+    deployment.write_text('hosts: {local: {capabilities: [thrusters, mavros, gpu, zed, lidar]}}\n')
+    package = devices.layer_paths()[0]
+    monkeypatch.setattr(devices, 'layer_paths',
+                        lambda: (package, deployment, root / 'none.yaml', root / 'none.env'))
+    monkeypatch.setattr(devices, 'local_addresses', lambda: set())
+
+
 @pytest.fixture
 def nav_share(monkeypatch, tmp_path):
     """A stand-in mhseals_nav share holding the FCU parameter reference."""

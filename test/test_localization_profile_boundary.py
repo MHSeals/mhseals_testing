@@ -23,9 +23,9 @@ def test_shipped_full_and_partial_starts_keep_clock_and_selectors(name):
     expected = 'true' if profile.use_sim_time else 'false'
     localized = [item for item in children if item.key in ('odometry', 'ekf')]
     for item in localized:
-        assert f'sim:={expected}' in item.argv
-        assert 'ekf_overlay_file:=/selected/localization.yaml' in item.argv
-        assert 'ekf_local_config_file:=/selected/local.yaml' in item.argv
+        assert item.arguments['sim'] == expected
+        assert item.arguments['ekf_overlay_file'] == '/selected/localization.yaml'
+        assert item.arguments['ekf_local_config_file'] == '/selected/local.yaml'
     processes = FakeProcesses()
     stack = Stack(children, processes, lambda: 0.)
     for key in stack.start_order():
@@ -70,12 +70,14 @@ def test_overlay_clock_update_rejected_before_components(monkeypatch, clock):
 
 
 def test_missing_component_clock_inherits_profile_boolean():
-    """Managed child clocks are explicit even when profile args omit the selector."""
+    """Managed child clocks are explicit even when the device profile omits the selector."""
     profile = load_profile('crane_full_stack')
-    data = {key: {**spec, 'args': {k: v for k, v in spec.get('args', {}).items() if k != 'sim'}}
-            for key, spec in profile.components.items()}
-    children = components(replace(profile, components=data))
-    assert all('sim:=true' in item.argv for item in children if item.key in ('odometry', 'ekf'))
+    me, parts = profile.placed
+    bare = {name: replace(part, defaults={k: v for k, v in part.defaults.items() if k != 'sim'})
+            for name, part in parts.items()}
+    children = components(profile, None, (me, bare))
+    assert all(item.arguments['sim'] == 'true' and '"sim":"true"' in item.argv[-1]
+               for item in children if item.key in ('odometry', 'ekf'))
 
 
 @pytest.mark.parametrize('clock', ['false', 0, None])

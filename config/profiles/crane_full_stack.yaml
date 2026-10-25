@@ -17,21 +17,16 @@ use_sim_time: true
 # The simulator's sensor stamps run up to ~0.6 s ahead of /clock under load; the default 0.25 s trips the interlock.
 stamp_future: 1.0
 arming: {outputs: topic}
-# sensors with sim only starts the ROS-TCP endpoint crane_ml connects to.
+# Every part runs on this machine from mhseals_nav's sim device profile (odroid + jetson parts
+# against the simulator); sensors with sim only starts the ROS-TCP endpoint crane_ml connects to.
+placement: {self: [sim]}
 components:
-  # The EKFs run as the separate 'ekf' component so 'Restart EKFs' can restart them alone;
-  # start_ekf:=false keeps odom.launch.py from starting a second set (rv1-35).
-  odometry: {launch: [mhseals_nav, odom.launch.py], args: {sim: 'true', fcu: 'false', start_ekf: 'false'},
-             nodes: [robot_state_publisher], start: true}
-  ekf: {launch: [mhseals_nav, ekf.launch.py], args: {sim: 'true', ekf_startup_context: 'standalone'},
-        title: EKFs, nodes: [ekf_local, ekf_global, navsat_transform], needs: [odometry], start: true}
-  sensors: {launch: [mhseals_nav, sensors.launch.py], args: {sim: 'true'}, start: true}
-  mapping: {launch: [mhseals_nav, slam.launch.py], args: {sim: 'true'}, nodes: [rtabmap],
-            needs: [odometry, ekf]}
-  navigation: {launch: [mhseals_nav, navigation.launch.py], args: {sim: 'true', command_mux: 'true'},
-               limits: true, nodes: [bt_navigator], needs: [odometry, ekf], start: true}
-  objects: {launch: [mhseals_nav, objects.launch.py], args: {sim: 'true'},
-            nodes: [object_tracker], start: true}
+  odometry: {start: true}
+  ekf: {title: EKFs, needs: [odometry], start: true}
+  sensors: {start: true}
+  mapping: {needs: [odometry, ekf]}
+  navigation: {limits: true, needs: [odometry, ekf], start: true}
+  objects: {start: true}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}

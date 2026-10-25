@@ -39,9 +39,7 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
     monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
     operator, deployment = tmp_path / 'operator.yaml', tmp_path / 'deployment.yaml'
     deployment.write_text('mavros_velocity_stddev: 2\n')
-    data = yaml.safe_load((Path(__file__).resolve().parents[1] /
-                           f'config/profiles/{profile_name}.yaml').read_text())
-    data['components']['odometry']['args'].update(
+    selection = dict(
         odometry_startup_file=str(operator), odometry_deployment_file=str(deployment),
         ekf_local_config_file=str(tmp_path / 'selected-local.yaml'),
         ekf_global_config_file=str(tmp_path / 'selected-global.yaml'))
@@ -55,17 +53,16 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
             'ekf_local': 17., 'ekf_global': 23., 'navsat_transform': 11.}[node]
         path.write_text(yaml.safe_dump(document))
         base_paths[node] = path
-    data['components']['odometry']['args']['navsat_transform_config_file'] = str(
-        base_paths['navsat_transform'])
-    profile_file = tmp_path / 'profile.yaml'
-    profile_file.write_text(yaml.safe_dump(data))
+    selection['navsat_transform_config_file'] = str(base_paths['navsat_transform'])
     tree = ast.parse(source.read_text())
     function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
                     and node.name == 'ekf_nodes')
     for delay in (2.25, 3.75):
         operator.write_text(f'ekf_delay_{context}: {delay}\n')
-        args, profile = parse_args(['--profile', str(profile_file)])
-        children = {item.key: item for item in components(profile, stack_overlay(profile, args))}
+        args, profile = parse_args(['--profile', profile_name])
+        overlay = stack_overlay(profile, args)       # the session layer carries the selection
+        overlay.setdefault('odometry', {}).update(selection)
+        children = {item.key: item for item in components(profile, overlay)}
         # Exercise the session-start ordering and a partial EKF start with odometry external.
         processes = FakeProcesses()
         stack = Stack(tuple(children.values()), processes, lambda: 0.0)
@@ -76,9 +73,7 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
         Stack(tuple(children.values()), partial, lambda: 0.0).start(
             'ekf', children['odometry'].nodes)
         assert partial.started == [('ekf', children['ekf'].argv)]
-        invocations = [{name: value for name, value in
-                        (arg.split(':=', 1) for arg in children[key].argv[4:])}
-                       for key in ('odometry', 'ekf')]
+        invocations = [dict(children[key].arguments) for key in ('odometry', 'ekf')]
         selected = [from_launch(invocation) for invocation in invocations]
         assert all(item.delay == delay and item.values['mavros_velocity_stddev'] == 2.0
                    for item in selected)
@@ -96,8 +91,8 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
                          simulation_clock=simulation_clock)
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         for started in (processes.started, partial.started):
-            argv = next(argv for key, argv in started if key == 'ekf')
-            invocation = dict(arg.split(':=', 1) for arg in argv[4:])
+            assert next(argv for key, argv in started if key == 'ekf') == children['ekf'].argv
+            invocation = dict(children['ekf'].arguments)
             invocation.setdefault('ekf_overlay_file', '')
             calls.clear()
             namespace['ekf_nodes'](invocation)
