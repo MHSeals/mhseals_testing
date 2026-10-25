@@ -1,0 +1,5 @@
+# One entry per image in this folder: name (file stem), width x height, and the scene render.py draws.
+- {name: drive, scene: drive, size: [120, 40]}
+- {name: map, scene: map, size: [120, 40]}
+- {name: compass, scene: compass, size: [120, 40]}
+- {name: agent, scene: agent, size: [120, 40]}
