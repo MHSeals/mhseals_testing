@@ -11,9 +11,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
 from datetime import datetime, timezone
+from functools import cache
 import hashlib
 import re
 import socket
+import subprocess
 from pathlib import Path
 
 from mhseals_testing import data
@@ -126,6 +128,9 @@ def provenance(facts=None, history=None, profile=None):
            for name, value in facts.items()
            if name.startswith('git.') and isinstance(value, dict) and 'error' not in value}
     out = {'git': git, 'camera': {k: v for k, v in facts.items() if CAMERA_FACTS.match(k)}}
+    running = running_sources()
+    if running:
+        out['running'] = running
     if history is not None:
         heads = {}
         for change in history.changes():
@@ -138,6 +143,36 @@ def provenance(facts=None, history=None, profile=None):
             out['profile'] = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
         except OSError:
             pass
+    return out
+
+
+PACKAGES = ('mhseals_testing', 'mhseals_nav', 'mhseals_hardware')
+
+
+@cache
+def running_sources():
+    """{package: commit} of the code this process runs, read once (``git.<repo>`` is the workspace).
+
+    The installed package.xml leads to the source it was built from: an overlay sync's
+    ``.source_commit`` (``+dirty`` marks local edits) wins, else that checkout's ``git describe``.
+    A package that is not installed or not traceable is left out.
+    """
+    out = {}
+    for package in PACKAGES:
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            source = (Path(get_package_share_directory(package)) / 'package.xml').resolve().parent
+        except (ImportError, LookupError, OSError):
+            continue
+        stamp = source / '.source_commit'
+        try:
+            commit = stamp.read_text().strip() if stamp.is_file() else subprocess.run(
+                ['git', '-C', str(source), 'describe', '--always', '--dirty', '--abbrev=12'],
+                capture_output=True, text=True, timeout=2).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            commit = ''
+        if commit:
+            out[package] = {'commit': commit, 'source': str(source)}
     return out
 
 

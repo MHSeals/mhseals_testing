@@ -63,6 +63,33 @@ def test_require_exits_3_when_a_group_was_skipped(monkeypatch, capsys):
     assert cli.main(['check', '--require', 'perception']) == 2
 
 
+def test_provenance_names_the_running_overlay_by_its_source_commit(tmp_path, monkeypatch):
+    """M9: the code that runs (an overlay sync's .source_commit), not the workspace checkout."""
+    import sys
+    from types import ModuleType
+    source = tmp_path / 'overlay' / 'src' / 'mhseals_nav'
+    source.mkdir(parents=True)
+    (source / 'package.xml').write_text('<package/>')
+    (source / '.source_commit').write_text('c351f3f+dirty')
+    share = tmp_path / 'install' / 'share' / 'mhseals_nav'
+    share.mkdir(parents=True)
+    (share / 'package.xml').symlink_to(source / 'package.xml')       # colcon --symlink-install
+
+    def share_directory(name):
+        if name != 'mhseals_nav':
+            raise LookupError(name)
+        return str(share)
+    packages = ModuleType('ament_index_python.packages')
+    packages.get_package_share_directory = share_directory
+    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
+    session_module.running_sources.cache_clear()
+    try:
+        found = session_module.provenance()['running']
+    finally:
+        session_module.running_sources.cache_clear()
+    assert found == {'mhseals_nav': {'commit': 'c351f3f+dirty', 'source': str(source)}}
+
+
 def test_runs_record_provenance(tmp_path, data_root):
     history = History()
     history.record('nav2', {'a': 1}, source='tui:test')
@@ -80,7 +107,7 @@ def test_runs_record_provenance(tmp_path, data_root):
     assert found['camera'] == {'host.squirtle-jetson.image_digest': 'sha256:ff',
                                'host.squirtle-jetson.git.mhseals_nav': 'def456'}
     assert len(found['profile']['sha256']) == 64 and found['profile']['path'].endswith('boat.yaml')
-    assert session_module.provenance() == {'git': {}, 'camera': {}}
+    assert {k: v for k, v in session_module.provenance().items() if k != 'running'} == {'git': {}, 'camera': {}}
     record = runs.write_run(tmp_path, {'procedure': 'Square'}, provenance=found)
     assert data.read_json(tmp_path / f"{record['run_id']}.json")['provenance'] == found
     assert runs.write_run(tmp_path, {'procedure': 'Square'})['provenance'] == {}

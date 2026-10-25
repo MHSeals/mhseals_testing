@@ -2786,6 +2786,7 @@ def session_main(argv=None):
         paths = SessionPaths.from_output(session_module.create(
             profile.name, directory=args.output,
             clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
+            git=session_module.running_sources(),
             kind='sim' if profile.use_sim_time else 'boat').directory)
     overlay = stack_overlay(profile, args)
     if args.save_config:
