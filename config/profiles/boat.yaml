@@ -13,9 +13,11 @@ arming: {outputs: odroid}
 # The components marked start come up with the session (attaches if already running); the
 # Status rows start the rest. Only sensing carries start: never navigation or the mission.
 # start: here starts it with the session only when this computer runs it (an operator's TUI).
+# odometry and ekf never start with the session: over the radio link discovery can miss the boat's
+# running stack for longer than the autostart waits, and a second MAVROS on the FCU link kills both.
 components:
-  odometry: {start: true}
-  ekf: {title: EKFs, needs: [odometry], start: true}
+  odometry: {}
+  ekf: {title: EKFs, needs: [odometry]}
   sensors: {}
   mapping: {needs: [odometry, ekf]}
   navigation: {limits: true, needs: [odometry, ekf]}

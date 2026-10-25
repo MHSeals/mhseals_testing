@@ -147,6 +147,8 @@ def test_boat_session_start_brings_up_only_sensing():
     assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors', 'watchdogs',
                                               'operator_heartbeat'}
     assert 'watchdogs' in {item.key for item in started}     # hold-only, up before any autonomy
+    # MAVROS and the EKFs are the boat's own: a TUI that misses them in discovery must not start a second set.
+    assert not {'odometry', 'ekf'} & {item.key for item in started}
     # Every role is on this machine here, so it is an operator host: the heartbeat comes up too.
     assert 'operator_heartbeat' in {item.key for item in started}
     for item in started:
