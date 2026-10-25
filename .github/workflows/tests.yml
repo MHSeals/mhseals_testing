@@ -17,10 +17,16 @@ jobs:
         with:
           repository: MHSeals/mhseals_hardware
           path: deps/mhseals_hardware
+      # Launch and Nav2 parameter tests import mhseals_nav.
+      - uses: actions/checkout@v4
+        with:
+          repository: MHSeals/mhseals_nav
+          path: deps/mhseals_nav
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install pytest rich PyYAML numpy pyserial pyubx2 pymavlink
       - run: python -m pytest -q test
         env:
-          PYTHONPATH: .:deps/mhseals_hardware
+          PYTHONPATH: .:deps/mhseals_hardware:deps/mhseals_nav
+          MHSEALS_NAV: deps/mhseals_nav
