@@ -135,7 +135,8 @@ def test_heading_row_has_its_cardinal_sigma_and_yaw_trust():
 def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues():
     half, fast = conditions.speed_gauge(0.5), conditions.speed_gauge(0.75)
     on, off = theme.pick('▰', '#'), theme.pick('▱', '-')
-    assert half.plain.count(on) == 5 and fast.plain.count(on) == 8 and fast.plain.endswith(' 75%')
+    assert half.plain.count(on) == half.plain.count(off) == 5 and fast.plain.count(on) == 8
+    assert fast.plain.endswith(' 75%')
     if not theme.ASCII:
         used = {str(span.style) for span in fast.spans} - {theme.MUTED}
         assert len(used) >= 3                                   # a gradient, not one colour

@@ -1101,6 +1101,16 @@ def test_manual_speed_starts_at_the_configured_default(tmp_path):
     assert sent[-1] == pytest.approx((0.75, 0, 0)) and boat.sent[-1] == 'neutral'
 
 
+def test_a_new_configured_manual_amplitude_resets_the_session_speed(tmp_path):
+    app, _ = make_app(tmp_path)
+    app.args.hardware_config['manual_amplitude'] = 0.25
+    app.manual_speed = 0.35
+    app.apply_hardware(dict(app.args.hardware_config, rev_FL=True))   # another key: the speed stays
+    assert app.manual_speed == pytest.approx(0.35)
+    app.apply_hardware(dict(app.args.hardware_config, manual_amplitude=0.5))
+    assert app.manual_speed is None and app.view()['speed'] == pytest.approx(0.5)
+
+
 def test_arming_shows_progress_and_space_cancels_a_slow_driver(tmp_path):
     app, boat = make_app(tmp_path)
 

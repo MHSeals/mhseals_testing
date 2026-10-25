@@ -363,7 +363,8 @@ def compact_lines(view, info, width=46):
             if value] or [Text('0', style=theme.MUTED)]
     speed = view.get('speed')
     tail = [] if speed is None else [speed_gauge(speed, 5)]
-    return [_fit(cond, width), _fit([Text.assemble(head, ' ', axes[0]), *axes[1:], Text(label, style=hue), *tail], width)]
+    command = [Text.assemble(head, ' ', axes[0]), *axes[1:], Text(label, style=hue), *tail]
+    return [_fit(cond, width), _fit(command, width)]
 
 
 class _Body:

@@ -673,6 +673,8 @@ class App:
             save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
         previous = self.args.hardware_config or {}
         self.args.hardware_config = config
+        if config.get('manual_amplitude') != previous.get('manual_amplitude'):
+            self.manual_speed = None   # a new configured default wins over the session's last speed
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
         if not driven:
