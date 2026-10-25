@@ -77,3 +77,28 @@ def test_ambiguous_participant_tags_nothing_as_self():
     fake = fake_io({'/cmd_vel': infos((node_name(1), 1)),
                     EVENTS_TOPIC: infos((node_name(1), 1), (node_name(1), 2))})
     assert [e['self'] for e in RosIO.endpoints(fake, '/cmd_vel')] == [False]
+
+
+def test_a_callback_error_is_surfaced_once_and_the_executor_keeps_spinning(monkeypatch, tmp_path):
+    from mhseals_testing.ros import node as ros_node
+    monkeypatch.setattr(ros_node, 'FAULT_LOG', str(tmp_path / 'faults.log'))
+    monkeypatch.setattr(ros_node.rclpy, 'ok', lambda: True)
+    events, calls = [], []
+
+    def spin_once(timeout_sec):
+        calls.append(timeout_sec)
+        if len(calls) <= 2:
+            int(b'\x00')                  # the same bad sample twice
+        if len(calls) == 4:
+            io._spinning = False
+
+    io = RosIO.__new__(RosIO)
+    io._spinning, io._faults, io.fault = True, set(), ''
+    io.executor = SimpleNamespace(spin_once=spin_once)
+    io.monitor = SimpleNamespace(event=events.append)
+    io.node = SimpleNamespace(get_name=lambda: 'suite')
+    io._spin()
+    assert len(calls) == 4                # kept spinning past the fault
+    assert io.fault.startswith("invalid literal for int()") and 'test_ros_node_name.py:' in io.fault
+    assert events == ['ROS fault: ' + io.fault]
+    assert 'Traceback' in (tmp_path / 'faults.log').read_text()

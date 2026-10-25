@@ -9,8 +9,10 @@ import json
 import os
 import re
 import socket
+import tempfile
 import threading
 import time
+import traceback
 
 from geometry_msgs.msg import Vector3Stamped
 from nav_msgs.msg import Odometry
@@ -56,6 +58,7 @@ def message_type(kind):
 
 
 EVENTS_TOPIC = '/mhseals_testing/events'
+FAULT_LOG = os.path.join(tempfile.gettempdir(), 'boat_test_faults.log')  # callback tracebacks
 GUID_PREFIX = 12             # bytes of an endpoint gid that name its DDS participant
 DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
 EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
@@ -79,6 +82,7 @@ class RosIO:
         self.monitor = monitor
         self.stale_after = stale_after
         self.fault = ''
+        self._faults = set()    # callback faults already surfaced
         self.ghosts = set    # () -> node names to list once (the App sets Stack.ghosts)
         self.power_facts = None   # analysis.power facts of /mavros/battery; None without a voltage source
         self.journal_path = journal_path
@@ -124,12 +128,31 @@ class RosIO:
         self.thread.start()
 
     def _spin(self):
-        try:
-            while self._spinning and rclpy.ok():
+        while self._spinning and rclpy.ok():
+            try:
                 self.executor.spin_once(timeout_sec=0.1)
-        except Exception as error:  # surfaced on the dashboard; motion is then refused
-            self.fault = str(error)
-            self.monitor.event('ROS fault: ' + self.fault)
+            except Exception as error:  # a bad sample must not stop every other feed
+                self._callback_fault(error)
+
+    def _callback_fault(self, error):
+        """Surface a callback error once per kind and keep spinning; motion stays refused.
+
+        The full traceback goes to FAULT_LOG, the dashboard gets its last frame.
+        """
+        frame = traceback.extract_tb(error.__traceback__)[-1:] or [None]
+        where = f' at {os.path.basename(frame[0].filename)}:{frame[0].lineno}' if frame[0] else ''
+        fault = f'{error}{where}'
+        if fault in self._faults:
+            return
+        self._faults.add(fault)
+        self.fault = fault
+        try:
+            with open(FAULT_LOG, 'a') as log:
+                log.write(f'{time.strftime("%F %T")} {self.node.get_name()}\n'
+                          + ''.join(traceback.format_exception(error)))
+        except OSError:
+            pass
+        self.monitor.event('ROS fault: ' + fault)
 
     def now(self):
         return self.node.get_clock().now().nanoseconds / 1e9
