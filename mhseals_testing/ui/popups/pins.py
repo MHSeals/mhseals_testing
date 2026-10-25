@@ -7,6 +7,7 @@ The text is ``channels line`` such as ``0 0 0 0 29``: four PWM channel numbers
 import time
 
 from mhseals_hardware.configuration import load_config
+
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.health.pwm_sysfs import sample
 from mhseals_testing.ui import theme
@@ -60,9 +61,9 @@ def edit_pins(app):
         return f'Pins saved; driver not restarted: {error}'
     if confirmed:
         return ('Pins saved; driver restarted, sysfs showed the new channels enabled, driver '
-                f'stopped again (MOSFET line not read back)')
+                'stopped again (MOSFET line not read back)')
     return ('Pins saved; driver restarted; sysfs readback did not show the new channels '
-            f'enabled: check the driver log')
+            'enabled: check the driver log')
 
 
 def readback(config):

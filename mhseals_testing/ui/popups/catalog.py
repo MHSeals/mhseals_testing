@@ -26,7 +26,8 @@ def summary(entry):
 def open_catalog(app, view=None):
     """Every package and key remains reachable in narrow terminals; ``view`` is schema.rows()."""
     found, missing = schema.rows() if view is None else view
-    items = [(f'{package}', dict(status='not available', reason=why)) for package, why in missing.items()]
+    items = [(package, dict(status='not available', reason=why))
+             for package, why in missing.items()]
     items += [(f'{package}: {key}', entry) for package, key, entry in found]
     items = items or [('No schemas', dict(status='no package installs a config/schema.yaml'))]
     state = dict(selected=0)

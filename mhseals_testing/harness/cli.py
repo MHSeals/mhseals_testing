@@ -158,8 +158,8 @@ def main(argv=None, collect=None):
     if args.command == 'config':
         from mhseals_testing import schema
         found, missing = schema.rows()
-        encoded = json.dumps(dict(missing=missing, keys=[dict(package=p, key=k, **e) for p, k, e in found]),
-                             indent=2)
+        keys = [dict(package=p, key=k, **e) for p, k, e in found]
+        encoded = json.dumps(dict(missing=missing, keys=keys), indent=2)
         if args.json == '-':
             print(encoded)
         else:

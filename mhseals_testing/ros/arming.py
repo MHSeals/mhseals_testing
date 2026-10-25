@@ -108,7 +108,6 @@ class Arming:
         """Start the driver without waiting; ``poll`` reports when it listens."""
         if self.armed or self.pending is not None:
             return
-        hardware_config = self.hardware_config
         self.topics = controller_topics(self.profile)
         if self.profile.outputs == 'none':  # the plant takes commands directly
             self.armed = True
@@ -118,10 +117,10 @@ class Arming:
             raise RuntimeError(rival)
         if self.profile.velocity_controller:  # fail now, not after the 10 s timeout
             try:
-                Plant(hardware_config)
+                Plant(self.hardware_config)
             except (ValueError, KeyError, TypeError) as error:  # partial gain rows
                 raise RuntimeError(f'velocity model invalid: {error}') from error
-        save_config(dict(hardware_config, output_backend=self.profile.outputs),
+        save_config(dict(self.hardware_config, output_backend=self.profile.outputs),
                     self.config_path)
         for name, argv in driver_commands(
                 self.profile, self.config_path, self.bindings()):
@@ -186,8 +185,9 @@ class Arming:
             self.sleep(0.1)
 
     def restart_driver(self, config, confirm):
-        """Run only the driver from ``config`` (the saved operator file) while ``confirm()`` reads its outputs back, then stop it again: disarmed
-        means no driver holds the ESCs powered. The caller checks that it is disarmed."""
+        """Run only the driver from ``config`` (the saved operator file) while ``confirm()``
+        reads its outputs back, then stop it again: disarmed means no driver holds the ESCs
+        powered. The caller checks that it is disarmed."""
         rival = self.rival()
         if rival:
             raise RuntimeError(rival)

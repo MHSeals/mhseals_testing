@@ -17,7 +17,7 @@ class _Loader(yaml.SafeLoader):
 
     def compose_node(self, parent, index):
         if self.check_event(yaml.AliasEvent):
-            raise ValueError(f'aliases are unsupported ({self.where}line {self.peek_event().start_mark.line + 1})')
+            raise ValueError(f'aliases are unsupported ({self._at(self.peek_event())})')
         return super().compose_node(parent, index)
 
     def construct_object(self, node, deep=False):

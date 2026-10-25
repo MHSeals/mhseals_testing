@@ -146,4 +146,3 @@ def _header_lock(directory):
     with (Path(directory) / '.session-header.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield
-

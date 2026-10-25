@@ -28,7 +28,8 @@ def _check(key, entry, where):
         raise bad('doc and units are strings')
     bounds = entry.get('range')
     if bounds is not None and not (
-            entry['type'] in ('float', 'int', 'list') and isinstance(bounds, list) and len(bounds) == 2
+            entry['type'] in ('float', 'int', 'list')
+            and isinstance(bounds, list) and len(bounds) == 2
             and all(type(v) in (int, float) and math.isfinite(v) for v in bounds)
             and bounds[0] <= bounds[1]):
         raise bad('range is [lo, hi] on a number or a list of numbers')
@@ -46,7 +47,7 @@ def load(package):
 
 
 def rows():
-    """(package, key, entry) for every package, and {package: reason} for those that did not load."""
+    """(package, key, entry) for every package, and {package: reason} for those not loaded."""
     found, missing = [], {}
     for package in PACKAGES:
         try:

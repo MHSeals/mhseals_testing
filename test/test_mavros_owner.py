@@ -64,7 +64,6 @@ def launch_factory(nav_root, name):
               PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
               FindPackageShare=lambda package: str(nav_root),
               persistent_limits_path=persistent_limits_path,
-             
               ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS,
               endpoint_from_launch=endpoints, endpoint_boolean=endpoint_boolean,
               ENDPOINT_LAYERS=ENDPOINT_LAYERS, UNSET_GCS=UNSET_GCS)
