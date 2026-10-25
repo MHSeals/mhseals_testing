@@ -73,7 +73,7 @@ tokens:
 cvd_swap:
   ok:       {dark: '#8C9EEB', light: '#2F78B8', x256: [68, 25],   ansi: blue}   # clear of obj.blue
   fail:     {dark: '#F2AE78', light: '#B4601A', x256: [216, 130], ansi: yellow}
-  gps.fix:   {dark: '#7BB0EE', light: '#2F66C0', x256: [111, 26],  ansi: blue}
+  gps.fix:   {dark: '#7A95D6', light: '#2E4C9A', x256: [68, 24],   ansi: blue}   # clear of obj.blue on the map
   gps.float: {dark: '#9FB4D0', light: '#4F76A8', x256: [146, 67],  ansi: blue}
   gps.dgps:  {dark: '#C2B8A4', light: '#7C7A6E', x256: [181, 101], ansi: yellow}
   gps.3d:    {dark: '#D9A872', light: '#A8683A', x256: [179, 137], ansi: yellow}

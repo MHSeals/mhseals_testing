@@ -40,8 +40,17 @@ def test_an_unknown_fov_colour_token_is_rejected(tmp_path):
 # who drives. Within a family hues may meet (a red buoy and a red pole are one colour).
 FAMILIES = {'buoy': ('obj.red', 'obj.green', 'obj.yellow', 'obj.blue'),
             'severity': ('ok', 'warn', 'fail'),
-            'authority': ('auth.ours', 'auth.nav', 'auth.agent')}
+            'authority': ('auth.ours', 'auth.nav', 'auth.agent'),
+            'gps': ('gps.fix', 'gps.float', 'gps.dgps', 'gps.3d', 'gps.none')}   # the trail, on the map with buoys
+ALIKE = {frozenset(('severity', 'gps'))}   # fix quality reads as health on purpose: fix is ok, none is fail
 MIN_DELTA_E = 7.5   # CIEDE2000; the reviewed dark theme's closest pair (yellow buoy, warn) is 7.9
+
+
+def _apart():
+    """``((name, tokens), (name, tokens))`` for each pair of families that must stay apart."""
+    import itertools
+    return [(one, two) for one, two in itertools.combinations(FAMILIES.items(), 2)
+            if frozenset((one[0], two[0])) not in ALIKE]
 
 
 def _lab(rgb):
@@ -100,7 +109,7 @@ def test_known_delta_e_values():
 def test_hue_families_stay_apart_in_every_tier(theme, tier, mode, cvd):
     import itertools
     close = []
-    for (f1, one), (f2, two) in itertools.combinations(FAMILIES.items(), 2):
+    for (_, one), (_, two) in _apart():
         for a, b in itertools.product(one, two):
             d = delta_e(*(_lab(_rgb(theme.resolve(t, mode, tier, cvd))) for t in (a, b)))
             if d < MIN_DELTA_E:
@@ -110,6 +119,11 @@ def test_hue_families_stay_apart_in_every_tier(theme, tier, mode, cvd):
 
 @pytest.mark.parametrize('cvd', [False, True])
 def test_hue_families_never_share_a_16_colour_name(theme, cvd):
-    names = {family: {theme.resolve(t, tier='16', cvd=cvd) for t in tokens} for family, tokens in FAMILIES.items()}
-    assert not names['buoy'] & (names['severity'] | names['authority'])
-    assert not names['severity'] & names['authority']
+    """Every pair of families kept apart, not only buoy against the rest; ``default`` and attribute
+    names are no colour, so two families that both fall back to them still read apart by glyph."""
+    plain = {'default', 'bold', 'dim', 'underline'}
+    shared = []
+    for (f1, one), (f2, two) in _apart():
+        names = [{theme.resolve(t, tier='16', cvd=cvd) for t in tokens} - plain for tokens in (one, two)]
+        shared += [f'{f1}/{f2} {name}' for name in sorted(names[0] & names[1])]
+    assert not shared, shared
