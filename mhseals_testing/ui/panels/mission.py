@@ -14,7 +14,7 @@ from rich.text import Text
 
 from mhseals_testing.ui import theme
 
-STRIP_ROWS = 5      # the Drive strip: three interior rows and its border
+STRIP_ROWS = 6      # the Drive strip: four interior rows and its border
 LADDER = {'done': ('✓', '+'), 'running': ('▸', '>'), 'pending': ('·', '.'), 'skipped': ('↷', '-'),
           'failed': ('✗', 'x')}
 STAGE_TOKEN = {'done': 'task.done', 'running': 'task.confirmed', 'skipped': 'task.done', 'failed': 'task.failed'}
@@ -33,18 +33,26 @@ def _safe(text):
     return text.encode('ascii', 'replace').decode() if theme.ASCII else text
 
 
-def headline(status, behaviour=True):
-    """``search · search · sweep_lawnmower · 23 s``: stage bold, then phase, behaviour and stage elapsed."""
+def stage(status):
+    return status.get('stage') or status.get('task') or theme.DASH
+
+
+def headline(status, behaviour=True, named=True):
+    """``search · search · sweep_lawnmower · 23 s``: stage bold, then phase, behaviour and stage elapsed.
+    ``named`` False (the stage is in the title) leaves out the stage, and a phase that repeats it."""
     sep = theme.SEPARATOR
     out = Text(no_wrap=True, overflow=theme.OVERFLOW)
-    out.append(_safe(status.get('stage') or status.get('task') or theme.DASH), style=_style('task.confirmed', 'bold'))
-    facts = [status.get('phase')] + ([status.get('behaviour')] if behaviour else [])
+    if named:
+        out.append(_safe(stage(status)), style=_style('task.confirmed', 'bold'))
+    phase = status.get('phase') if named or status.get('phase') != stage(status) else None
+    facts = [phase] + ([status.get('behaviour')] if behaviour else [])
     for fact in filter(None, facts):
-        out.append(sep, style=theme.MUTED)
+        if out:
+            out.append(sep, style=theme.MUTED)
         out.append(_safe(fact))
     elapsed = ((status.get('stages') or {}).get(status.get('stage')) or {}).get('elapsed', status.get('elapsed'))
     if isinstance(elapsed, (int, float)):
-        out.append(f'{sep}{elapsed:.0f} s', style=theme.MUTED)
+        out.append(f'{sep if out else ""}{elapsed:.0f} s', style=theme.MUTED)
     return out
 
 
@@ -79,8 +87,9 @@ def ladder(mission, compact=False):
     return Text(' ', no_wrap=True, overflow=theme.OVERFLOW).join(entries)
 
 
-def decision(stamp, event, timed=True):
-    """``12:04:31 give up  docking: failed 3x``; an untimed entry (from status.recent) shows dashes."""
+def decision(stamp, event, timed=True, current=None):
+    """``12:04:31 give up  docking: failed 3x``; an untimed entry (from status.recent) shows dashes.
+    The stage is left out when it is ``current`` (already in the title)."""
     kind = str(event.get('kind', ''))
     out = Text(no_wrap=True, overflow=theme.OVERFLOW)
     if timed:
@@ -88,25 +97,23 @@ def decision(stamp, event, timed=True):
                    style=theme.MUTED)
     kind_word = kind.replace('_', ' ')
     out.append(kind_word.ljust(KIND_WIDTH) if timed else f'{kind_word} ', style=_style('decision.' + kind, 'bold'))
-    if event.get('stage'):
+    if event.get('stage') and event['stage'] != current:
         out.append(f'{_safe(event["stage"])}: ')
     out.append(_safe(event.get('reason', '')), style=theme.MUTED)
     return out
 
 
-def _latest(mission):
-    recent = mission.recent(1)
-    return decision(*recent[0], timed=False) if recent else None
-
-
 def strip(view):
-    """The Drive strip, or None while there is no fresh status (the slot then takes no rows)."""
+    """The Drive strip, or None while there is no fresh status (the slot then takes no rows): the
+    stage in the title, then phase and behaviour, the why, the ladder and the latest decision."""
     mission = view.get('mission')
     if mission is None or not mission.fresh():
         return None
     status = mission.status
-    body = Group(headline(status), why(status), ladder(mission, compact=True))
-    return theme.block(body, 'Mission', subtitle=_latest(mission))
+    rows = [headline(status, named=False), why(status), ladder(mission, compact=True)]
+    rows += [decision(*entry, current=status.get('stage')) for entry in mission.recent(1)]
+    title = Text(_safe(stage(status)), style=_style('task.confirmed', 'bold'))
+    return theme.block(Group(*rows), 'Mission', subtitle=title)
 
 
 def pane(view):

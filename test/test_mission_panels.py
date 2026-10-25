@@ -41,9 +41,10 @@ def page(tab, state, width=120):
 def test_the_strip_shows_stage_why_and_ladder_and_only_while_fresh():
     state, clock = mission()
     text = paint(panels.strip({'mission': state}), 60)
-    assert 'search · search · sweep_lawnmower · 23 s' in text
+    lines = text.splitlines()
+    assert lines[0].startswith('╭─ Mission · search ─') and lines[1].split('│')[1].strip() == 'sweep_lawnmower · 23 s'
     assert '→ search the east field' in text and '✗ docking ×3 ▸ search · speed_challenge' in text
-    assert 'search search: nothing left' in text   # the latest decision rides in the title
+    assert 'search    nothing left, searching for the spee…' in lines[4]   # own line, the current stage not repeated
     clock[0] = 5.0
     assert panels.strip({'mission': state}) is None and panels.strip({}) is None
 
@@ -71,7 +72,7 @@ def test_map_puts_mission_and_decisions_beside_layers():
 def test_an_old_status_without_the_new_keys_still_draws():
     state, _ = mission({'task': 'docking', 'status': 'RUNNING', 'elapsed': 3.0, 'tip': 'approach the bay'})
     text = paint(panels.strip({'mission': state}), 60)
-    assert 'docking · 3 s' in text and '→ approach the bay' in text
+    assert 'Mission · docking' in text and '│ 3 s' in text and '→ approach the bay' in text
 
 
 def test_ascii_mode_keeps_every_panel_ascii(monkeypatch):

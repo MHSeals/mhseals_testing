@@ -404,7 +404,9 @@ def drive_slots(snapshot, view, width, height):
     ``height`` is the body's. Below ROW columns Motion is the compact stacked panel, absent in a short body.
     """
     wide, lower, half = _drive_dims(width, height)
-    mission = mission_panel.strip(view)   # over Activity while the mission status is fresh
+    below = lower if wide else lower - half   # the Activity rows
+    # over Activity while the mission status is fresh, and only when Activity keeps three rows
+    mission = mission_panel.strip(view) if below - mission_panel.STRIP_ROWS >= 3 else None
     strip = mission_panel.STRIP_ROWS if mission is not None else 0
     motion = None
     if wide:
@@ -418,7 +420,7 @@ def drive_slots(snapshot, view, width, height):
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
         'procedures': procedures_panel(view, lower if wide else half),
         'mission': mission,
-        'activity': activity_panel(snapshot, view, (lower if wide else lower - half) - strip),
+        'activity': activity_panel(snapshot, view, below - strip),
         'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,
     }
 
