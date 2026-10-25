@@ -14,6 +14,7 @@ from rich.text import Text
 from mhseals_testing.ui import theme
 
 KINDS = {'plain': 'accent', 'danger': 'warn', 'stop': 'stop'}   # button kind -> fill token
+SECTION = '§'   # a popup row ``(SECTION, 'Will drive')`` draws as a rule() between label/value groups
 ROW_LABEL_MAX, ROW_OPTIONS_MAX, GAP = 14, 3, '   '               # a choice fits one row of buttons
 
 

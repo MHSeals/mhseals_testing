@@ -72,7 +72,7 @@ from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import MINIMAP, ROW, TabMemory, body_rows, motion_shown
 from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
-from mhseals_testing.ui import keymap as keymap_module, rtk
+from mhseals_testing.ui import keymap as keymap_module, rtk, widgets
 from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
@@ -2072,11 +2072,12 @@ class App:
                    'none': 'commands straight to the plant'}[self.profile.outputs]
         driver = ('running' if self.armed else 'starts on arm') if self.profile.outputs != 'none' \
             else 'none'
-        rows = [('Outputs', outputs), ('Driver', driver),
+        rows = [(widgets.SECTION, 'Will drive'), ('Outputs', outputs),
                 ('Commands', f'{self.profile.command_topic} ({self.profile.command_units})'),
+                ('Driver', driver), (widgets.SECTION, 'Setup'),
                 ('Config', str(self.config_file)),
                 ('Decoupling', theme.icon('off').plain + ' identity' if decoupled(self.args.hardware_config) is None
-                 else theme.icon('ok').plain + ' fitted (Thrusters c clears)')]
+                 else theme.icon('ok').plain + ' fitted (Thrusters c clears)'), (widgets.SECTION, 'Checks')]
         blockers = [] if self.armed else self.arm_blockers()
         if not blockers:
             rows.append(('Interlocks', theme.icon('ok').plain + ' clear'))

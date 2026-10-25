@@ -208,6 +208,27 @@ class Window:
             yield Segment.line()
 
 
+def popup_rows(rows, width):
+    """Label/value grids; a ``(widgets.SECTION, title)`` row starts a new group under a rule."""
+    out, grid = [], None
+    labels = [str(label) for label, _ in rows if label != widgets.SECTION]
+    # groups under rules share one label width so their values line up
+    column = max(map(len, labels), default=0) if len(labels) < len(rows) else None
+    for label, value in rows:
+        if label == widgets.SECTION:
+            out.append(widgets.rule(str(value), width))
+            grid = None
+            continue
+        if grid is None:
+            grid = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}', 'min_width': column},
+                              {'header': '', 'no_wrap': False, 'overflow': 'fold', 'ratio': 1},
+                              padding=(0, 2))
+            grid.show_header = False
+            out.append(grid)
+        grid.add_row(str(label), str(value))
+    return out
+
+
 def popup(modal, width, height=None):
     """A centred dialog: message, list of choices, or a text field.
 
@@ -219,16 +240,10 @@ def popup(modal, width, height=None):
         head.append(Text(modal['message']))
     if modal.get('body') is not None:       # a popup that draws itself (popup.history)
         head.append(modal['body'])
-    if modal.get('rows'):
-        rows = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}'},
-                          {'header': '', 'no_wrap': False, 'overflow': 'fold', 'ratio': 1},
-                          padding=(0, 2))
-        rows.show_header = False
-        for label, value in modal['rows']:
-            rows.add_row(str(label), str(value))
-        head.append(rows)
     panel_width = min(width - 4, modal.get('width', 64))
     inner = panel_width - 4
+    if modal.get('rows'):
+        head += popup_rows(modal['rows'], inner)
     hint = modal.get('hint')
     if modal['kind'] == 'choice':
         if head:
