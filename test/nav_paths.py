@@ -20,4 +20,4 @@ def find_nav(env=None, parent=None):
         candidates.append(Path(get_package_share_directory('mhseals_nav')))
     except Exception:
         pass
-    return next((c for c in candidates if c.is_dir()), None)
+    return next((c.resolve() for c in candidates if c.is_dir()), None)   # absolute: tests chdir
