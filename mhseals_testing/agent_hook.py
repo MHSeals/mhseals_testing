@@ -135,7 +135,8 @@ def who_of(event):
 
 def start_text(who, agent='claude', config=None):
     """The playbook the agent gets at session start (and after a compaction or /clear)."""
-    cli = f'{cli_of(config or hook_config())} <verb> --who {who}'
+    config = config or hook_config()
+    cli = f'{cli_of(config)} <verb> --who {who}'
     background = 'Bash run_in_background' if agent == 'claude' else 'a background shell'
     return '\n'.join((
         f'RoboBoat playbook: you are boat agent {who}.',
@@ -149,7 +150,9 @@ def start_text(who, agent='claude', config=None):
         'claim again only if asked), 4 no TUI, 5 agents blocked, 6 timeout.',
         'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, and never arm or release a hold: '
         'the hook blocks them and names the verb. Run in sim first. For runs over 9 min use '
-        f'{background} (the CLI keeps the lease). The TUI shows your boat commands.'))
+        f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
+        + (f' ({remote(config)}).' if remote(config) else
+           ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise in your environment.')))
 
 
 def deny_reason(command, who, config=None):

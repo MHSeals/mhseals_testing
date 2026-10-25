@@ -245,6 +245,7 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
     assert len(lines) == 3 and {line['target'] for line in lines} == {'local'} and not no_ssh
     context = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID})['context']
     assert f'`{hook.BOAT_AGENT} <verb>' in context and 'ssh blastoise' not in context
+    assert 'BOAT_AGENT_TARGET=blastoise' in context          # how a boat session reaches the boat's TUI
     deny = hook.agent_event({'agent': 'claude', 'event': 'pre', 'session_id': SID, 'tool_id': 'd',
                              'command': 'ros2 topic pub /cmd_vel x y'}, state_dir=tmp_path)['deny']
     assert 'ssh' not in deny and not no_ssh
