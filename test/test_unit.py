@@ -95,9 +95,9 @@ def test_drivers_never_run_as_units_even_with_the_commander_go_ahead(argv):
         unit.start('mhseals-x', argv, allow_commander=True)
 
 
-def kinds(profile, part):
-    return {'navigation': 'commander', 'mission': 'commander', 'camera': 'sensing',
-            'lidar': 'sensing'}.get(part)
+def kinds(arguments):
+    return {'navigation': {'kind': 'commander'}, 'mission': {'kind': 'commander'}, 'camera': {},
+            'lidar': {'kind': 'sensing'}}
 
 
 @pytest.mark.parametrize('argv, expected', [
@@ -113,6 +113,34 @@ def test_commander_parts_need_the_tuis_go_ahead(argv, expected):
         with pytest.raises(unit.UnitError, match='can command motion'):
             unit.refuse(argv, False, kinds)
     unit.refuse(argv, True, kinds)          # the go-ahead allows it; a driver it never would
+
+
+@pytest.mark.parametrize('layer', ['overrides', 'device_deployment_file', 'device_startup_file'])
+def test_the_argvs_own_layers_decide_the_kind(layer, tmp_path):
+    # The real profile loader: an argv layer that relabels Nav2 as sensing is refused, never trusted.
+    pytest.importorskip('mhseals_nav.device_profile')
+    relabel = {'parts': {'navigation': {'kind': 'sensing'}}}
+    if layer == 'overrides':
+        value = json.dumps(relabel)
+    else:
+        value = tmp_path / 'odroid.yaml'
+        value.write_text(json.dumps(relabel))
+    argv = ['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=odroid', 'only:=navigation',
+            f'{layer}:={value}']
+    assert unit.commander(argv)
+    with pytest.raises(unit.UnitError, match='can command motion'):
+        unit.refuse(argv, False)
+
+
+def test_an_override_that_makes_a_sensing_part_a_commander_is_read(tmp_path):
+    pytest.importorskip('mhseals_nav.device_profile')
+    argv = ['ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson', 'only:=camera']
+    assert not unit.commander(argv)
+    # The stock jetson camera is sensing; this override makes its include Nav2.
+    nav2 = {'parts': {'camera': {'launch': 'navigation.launch.py', 'kind': 'commander'}}}
+    assert unit.commander([*argv, 'overrides:=' + json.dumps(nav2)])
+    with pytest.raises(unit.UnitError, match='can command motion'):
+        unit.refuse([*argv, 'overrides:=' + json.dumps(nav2)], False)
 
 
 def test_a_whole_device_launch_without_readable_profiles_counts_as_commander(monkeypatch):
@@ -139,6 +167,23 @@ def test_the_cli_keeps_options_before_the_part_argv(capsys):
     started = json.loads(capsys.readouterr().out)
     assert started['argv'] == SLEEP and started['lease_s'] == 30.0 and started['by'] == {'host': 'a'}
     assert unit.main(['stop', 'mhseals-sleeper']) == 0
+
+
+@pytest.mark.parametrize('lease', ['0', '-5', 'nan', 'inf', '601'])
+def test_a_lease_must_be_finite_and_at_most_ten_minutes(lease, capsys):
+    assert unit.main(['start', 'mhseals-sleeper', '--lease-s', lease, '--', *SLEEP]) == 1
+    assert 'at most 600 s' in json.loads(capsys.readouterr().out)['error']
+    assert unit.status('mhseals-sleeper')['state'] == 'off'
+
+
+def test_stop_never_signals_the_pids_of_a_finished_keeper(monkeypatch):
+    started = unit.start('mhseals-done', [sys.executable, '-c', 'pass'])
+    assert wait_for(lambda: unit.status('mhseals-done')['state'] == 'exited')
+    # Its pids may be reused: a live stranger under the old keeper pid must be left alone.
+    monkeypatch.setattr(unit, 'alive', lambda pid: True)
+    monkeypatch.setattr(unit.os, 'kill', lambda *a: pytest.fail(f'signalled {a}'))
+    monkeypatch.setattr(unit.os, 'killpg', lambda *a: pytest.fail(f'signalled group {a}'))
+    assert unit.stop('mhseals-done')['code'] == 0 and started['unit'] == 'mhseals-done'
 
 
 def test_lease_expired(tmp_path):

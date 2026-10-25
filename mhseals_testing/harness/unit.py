@@ -33,6 +33,7 @@ from mhseals_testing import data
 from mhseals_testing.harness.registry import alive, runtime_dir
 
 LEASE_S = 120.0
+MAX_LEASE_S = 600.0
 START_WAIT = 5.0           # s for the keeper to report its child's pid
 STOP_WAIT = 30.0           # s for the keeper to stop the group and write the exit code
 NAME = re.compile(r'^mhseals-[a-z0-9][a-z0-9_-]*$')
@@ -66,16 +67,18 @@ def _arguments(argv):
     return dict(token.split(':=', 1) for token in argv if ':=' in token)
 
 
-def device_part_kind(profile, part):
-    """The kind of ``part`` in mhseals_nav's merged device profile; None when it cannot be read."""
-    try:
-        from mhseals_nav.device_profile import load
-        return load(profile)['parts'][part].get('kind', 'sensing')
-    except (ImportError, KeyError, OSError, ValueError):
-        return None
+def device_parts(arguments):
+    """The merged device profile's parts exactly as device.launch.py will build them from ``arguments``.
+
+    The argv's deployment and startup files and its session ``overrides`` are layers too, so
+    one of them could otherwise turn a commander into a sensing part unseen.
+    """
+    from mhseals_nav.device_profile import load
+    return load(arguments.get('device', ''), arguments.get('device_deployment_file', ''),
+                arguments.get('device_startup_file', ''), arguments.get('overrides', ''))['parts']
 
 
-def commander(argv, kind_of=device_part_kind):
+def commander(argv, parts_of=device_parts):
     """True when ``argv`` starts a part that can command motion, or one whose kind cannot be read.
 
     A device launch with no ``only:=`` starts every part of the profile, so each one is read.
@@ -86,24 +89,22 @@ def commander(argv, kind_of=device_part_kind):
     if DEVICE_LAUNCH not in names:
         return False
     arguments = _arguments(argv)
-    profile, only = arguments.get('device', ''), arguments.get('only', '')
-    parts = [part.strip() for part in only.split(',') if part.strip()]
-    if not parts:
-        try:
-            from mhseals_nav.device_profile import load
-            parts = list(load(profile)['parts'])
-        except (ImportError, KeyError, OSError, ValueError):
-            return True
-    return any(kind_of(profile, part) != 'sensing' for part in parts)
+    try:
+        parts = parts_of(arguments)
+    except Exception:          # unreadable counts as commander: fail closed
+        return True
+    chosen = [part.strip() for part in arguments.get('only', '').split(',') if part.strip()]
+    return any(part not in parts or parts[part].get('kind', 'sensing') != 'sensing'
+               for part in chosen or parts)
 
 
-def refuse(argv, allow_commander, kind_of=device_part_kind):
+def refuse(argv, allow_commander, parts_of=device_parts):
     """Raise UnitError for a driver, and for a commander without the TUI's explicit go-ahead."""
     driver = DRIVERS & {Path(token).name for token in argv}
     if driver:
         raise UnitError(f'{", ".join(sorted(driver))} never runs as a unit; '
                         'start it from the TUI on that computer, through arming')
-    if not allow_commander and commander(argv, kind_of):
+    if not allow_commander and commander(argv, parts_of):
         raise UnitError('this part can command motion; start it from the TUI with a confirm')
 
 
@@ -152,14 +153,14 @@ def statuses():
     return [status(path.stem) for path in sorted(units_dir().glob('mhseals-*.json'))]
 
 
-def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, kind_of=device_part_kind):
+def start(unit, argv, lease_s=LEASE_S, by=None, allow_commander=False, parts_of=device_parts):
     """Start ``argv`` as ``unit``, or return the running one with ``adopted`` set."""
     _check_name(unit)
     if not argv:
         raise UnitError('start needs a command after --')
-    if not lease_s > 0:
-        raise UnitError('the lease must be longer than 0 s')
-    refuse(argv, allow_commander, kind_of)
+    if not 0 < lease_s <= MAX_LEASE_S:      # NaN fails too: a unit nobody renews must stop
+        raise UnitError(f'the lease must be over 0 s and at most {MAX_LEASE_S:.0f} s')
+    refuse(argv, allow_commander, parts_of)
     files = _files(unit)
     with _Lock(files['lock']):
         current = status(unit)
@@ -209,13 +210,14 @@ def stop(unit, wait=STOP_WAIT):
     files = _files(unit)
     with _Lock(files['lock']):
         record = _read(files['json'])
-        if record is None or not alive(record['keeper']):
+        # An exit file means the keeper is done: its pids may belong to someone else by now.
+        if record is None or files['exit'].exists() or not alive(record['keeper']):
             return status(unit)
         os.kill(record['keeper'], signal.SIGTERM)
         deadline = time.time() + wait
         while alive(record['keeper']) and time.time() < deadline:
             time.sleep(0.05)
-        if alive(record['keeper']):            # a wedged keeper: end it and its child's group
+        if alive(record['keeper']) and not files['exit'].exists():   # wedged: end it and the group
             os.kill(record['keeper'], signal.SIGKILL)
             try:
                 os.killpg(record['pid'], signal.SIGKILL)
