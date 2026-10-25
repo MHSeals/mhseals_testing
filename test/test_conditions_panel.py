@@ -2,6 +2,7 @@ import io
 import math
 
 import pytest
+from rich.cells import cell_len
 
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import conditions
@@ -121,18 +122,50 @@ def test_icons_of_one_kind_sit_at_one_radius():
         assert max(radius[k] for k in kind) - min(radius[k] for k in kind) < 1.5
 
 
-def test_yaw_is_a_spin_glyph_in_the_corner_dim_when_small():
+LAST_COL, LAST_ROW = conditions.ROSE_COLS - 1, conditions.ROSE_ROWS - 1
+CORNER = {'tl': (0, 0), 'tr': (LAST_COL, 0), 'bl': (0, LAST_ROW), 'br': (LAST_COL, LAST_ROW)}
+SPINS = '⤴⤵⤶⤷'
+
+
+def test_yaw_ascii_spells_the_turn_in_the_top_right_corner():
+    if not theme.ASCII:
+        pytest.skip('ASCII only')
     base = plain(conditions.rose(heading=0))
     ccw = conditions.rose(heading=0, command=(0, 0, 0.4), amplitude=0.5, hue='magenta')
     cw = conditions.rose(heading=0, command=(0, 0, -0.1), amplitude=0.5, hue='magenta')
-    assert plain(ccw)[1:] == base[1:] == plain(cw)[1:]          # only the top row changes
-    if theme.ASCII:
-        assert plain(ccw)[0].endswith('ccw⠀'.replace('⠀', ' ')) or 'ccw' in plain(ccw)[0]
-        assert ' cw' in plain(cw)[0] or 'cw' in plain(cw)[0]
-    else:
-        assert plain(ccw)[0][-2] == '↺' and plain(cw)[0][-2] == '↻'
-        assert 'bold magenta' in styles(ccw, '↺') and 'dim magenta' in styles(cw, '↻')
+    assert plain(ccw)[1:] == base[1:] == plain(cw)[1:]
+    assert plain(ccw)[0].rstrip().endswith('ccw') and plain(cw)[0].rstrip().endswith('cw')
+
+
+@pytest.mark.skipif(theme.ASCII, reason='Unicode corner arrows')
+@pytest.mark.parametrize('yaw, expect', [
+    (0.4, {'tl': '⤶', 'tr': '⤴', 'bl': '⤵', 'br': '⤷'}),      # +yaw: counter-clockwise
+    (-0.4, {'tl': '⤷', 'tr': '⤵', 'bl': '⤴', 'br': '⤶'}),     # -yaw: clockwise
+])
+def test_yaw_puts_a_curved_arrow_in_each_corner_tracing_the_turn(yaw, expect):
+    base = conditions.rose(heading=0)
+    rows = conditions.rose(heading=0, command=(0, 0, yaw), amplitude=0.5, hue='magenta')
+    for r, (new, old) in enumerate(zip(rows, base)):
+        assert new.cell_len == old.cell_len == conditions.ROSE_COLS      # the layout does not shift
+    cells = [line.plain.replace(conditions.TEXT, '') for line in rows]
+    assert all(len(text) == conditions.ROSE_COLS for text in cells)
+    for name, (col, row) in CORNER.items():
+        assert cells[row][col] == expect[name]
+        assert cell_len(expect[name] + conditions.TEXT) == 1
+        assert expect[name] + conditions.TEXT in rows[row].plain       # text presentation, not emoji
+    stray = [(c, r) for r, text in enumerate(cells) for c, ch in enumerate(text)
+             if ch != plain(base)[r][c] and (c, r) not in CORNER.values()]
+    assert not stray                                                    # nothing but the corners changes
+    assert 'bold magenta' in styles(rows, SPINS)
+
+
+@pytest.mark.skipif(theme.ASCII, reason='Unicode corner arrows')
+def test_yaw_is_dim_below_half_and_hidden_at_zero():
+    base = plain(conditions.rose(heading=0))
+    small = conditions.rose(heading=0, command=(0, 0, 0.1), amplitude=0.5, hue='magenta')
+    assert 'dim magenta' in styles(small, SPINS)
     assert plain(conditions.rose(heading=0, command=(0, 0, 0))) == base
+    assert not set(''.join(base)) & set(SPINS)
 
 
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode bars')
