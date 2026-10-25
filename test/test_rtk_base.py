@@ -132,3 +132,10 @@ def test_status_keys_line_up_with_rtk_view():
     session.state.update(survey=None, base_position=None)
     idle = StatusTracker(session, sink).status()
     assert idle['survey'] == 0.0 and idle['base_ecef'] is None
+
+
+def test_base_refuses_to_start_while_another_correction_source_is_configured(tmp_path):
+    other = tmp_path / 'external.yaml'
+    other.write_text('source: external\ndevice: /dev/ttyACM9\n')
+    with pytest.raises(SystemExit, match='source is external'):
+        main(['--config', str(other)], serve=lambda *a: pytest.fail('served'))

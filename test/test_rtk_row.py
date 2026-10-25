@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from mhseals_testing.ui.rtk_row import RtkView, rtk_row, survey_fraction
+from mhseals_testing.ui.rtk_row import RtkView, rtk_row, strip_item, survey_fraction
 
 GOLDEN = Path(__file__).parent / 'fixtures' / 'rtk_row.txt'
 V = RtkView
@@ -80,3 +80,36 @@ def test_every_state_is_exactly_the_width_at_every_width(ascii):
     for width in range(26, 61):
         for number, view in enumerate(STATES, 1):
             assert len(rtk_row(view, width, ascii).plain) == width, (number, width)
+
+
+def plain(view, width=32, ascii=False):
+    return rtk_row(view, width, ascii).plain
+
+
+def test_external_corrections_show_the_source_and_judge_by_the_fcu_fix():
+    """Mission Planner injects over the radio: no base here, no sender age; the FCU fix decides."""
+    fixed, floating = V(source='external', fix='FIXED'), V(source='external', fix='FLOAT')
+    assert 'RTK ext ' in plain(fixed, 28) and 'RTK ext ' in plain(fixed, 32) and 'RTK external' in plain(fixed, 42)
+    assert style_of(fixed, '✓') == 'green' and style_of(fixed, 'external') == 'cyan'
+    assert '◌' in plain(floating) and style_of(V(source='external', fix='FLOAT', converge_warn=True), '!') == 'yellow'
+    assert strip_item(fixed) == ('LIVE', 'rtk ext FIXED') and strip_item(V(source='external', fix='3D'))[0] == 'CHECKING'
+    assert 'no base' not in plain(V(source='external', fix='3D'))
+
+
+def test_no_correction_source_is_quiet_and_never_a_failure():
+    view = V(source='none', fix='3D')
+    assert 'no corr' in plain(view) and plain(view).lstrip().startswith('·') and 'off' in plain(view, 28)
+    assert strip_item(view) == ('LIVE', 'rtk off')
+
+
+def test_our_base_running_beside_another_source_is_a_failure():
+    view = V(source='external', base='streaming', age=0.4, fix='FLOAT', pubs=2)
+    assert '✗' in plain(view) and '2 pubs' in plain(view) and strip_item(view)[0] == 'FAIL'
+
+
+@pytest.mark.parametrize('source', ['external', 'none'])
+def test_other_sources_fill_the_width_exactly(source):
+    for width in range(26, 61):
+        for ascii in (False, True):
+            row = rtk_row(V(source=source, fix='FLOAT'), width, ascii)
+            assert row.cell_len == width and (not ascii or row.plain.isascii())

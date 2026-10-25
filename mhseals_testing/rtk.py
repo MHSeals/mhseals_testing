@@ -20,8 +20,11 @@ import yaml
 from mhseals_testing import data
 from mhseals_testing.strict_yaml import load_strict
 
-DEFAULTS = dict(device='', radio='', radio_baud=57600, survey_seconds=120,
+DEFAULTS = dict(source='ours', device='', radio='', radio_baud=57600, survey_seconds=120,
                 survey_accuracy=2.0, positions={})
+# Who injects RTCM into the FCU: ours (this base), external (e.g. Mission Planner over the
+# telemetry radio) or none. The rover fix always comes from the FCU's GPS_RAW_INT either way.
+SOURCES = ('ours', 'external', 'none')
 
 GCS_SYSTEM, GCS_COMPONENT = 255, 190
 
@@ -48,6 +51,8 @@ def load_config(path=None):
 
 def validate(config):
     """Raise ValueError for a setting outside its range."""
+    if config['source'] not in SOURCES:
+        raise ValueError('source must be one of ' + ', '.join(SOURCES))
     if not 1 <= int(config['survey_seconds']) <= 86400:
         raise ValueError('survey duration must be 1..86400 seconds')
     if not math.isfinite(float(config['survey_accuracy'])) or not .001 <= float(config['survey_accuracy']) <= 100:
@@ -524,6 +529,9 @@ def parse(argv):
     mode.add_argument('--resume', action='store_true', help='adopt the receiver as it is (the default)')
     args = ap.parse_args(argv)
     config = load_config(args.config)
+    if config['source'] != 'ours':
+        raise ValueError(f"source is {config['source']} in the settings; two correction sources "
+                         'mix bases at the FCU (set source: ours to run this base)')
     if args.port:
         config['device'] = args.port
     position = None

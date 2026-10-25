@@ -224,3 +224,35 @@ def test_power_cycled_base_with_an_age_reads_dead_and_never_streamed_reads_no_ba
     assert strip_item(gone) == ('FAIL', 'rtk 11s')
     never = build(dict(base='none', age=None), gps_snapshot(fix=3), (SPEC,))
     assert strip_item(never)[0] == 'LIVE' and 'no base' in rtk_row(never, 42).plain
+
+
+def test_external_source_is_read_from_rtk_yaml_and_counts_only_float(tmp_path, monkeypatch):
+    """Corrections from another station: the row says so, no base is needed, and only a stuck
+    FLOAT (not SBAS DGPS or a plain 3D fix before anyone injects) starts the converge clock."""
+    (tmp_path / 'rtk.yaml').write_text('source: external\n')
+    monkeypatch.setenv('MHSEALS_RTK_CONFIG', str(tmp_path / 'rtk.yaml'))
+    app, facts = app_with()
+    feed = RtkFeed(boat())
+    assert feed.source == 'external'
+    seconds = lambda: facts.read()[0].get('rtk.seconds_below_fixed')
+    for fix, now in ((3, 1.0), (4, 300.0)):
+        feed.tick(app, gps_snapshot(fix), now)
+        assert seconds() is None and feed.current.source == 'external'
+    assert 'rtk.correction_age' not in facts.read()[0]        # no sender age: rtk.age skips
+    feed.tick(app, gps_snapshot(5), 400.0)
+    feed.tick(app, gps_snapshot(5), 600.0)
+    assert seconds().value == 200
+    feed.tick(app, gps_snapshot(6), 610.0)
+    assert seconds() is None and strip_item(feed.current) == ('LIVE', 'rtk ext FIXED')
+
+
+def test_our_base_streaming_while_another_source_is_set_reads_as_two_publishers():
+    got = build(dict(base='streaming', age=0.4), gps_snapshot(5), (SPEC,), source='external')
+    assert got.pubs == 2 and strip_item(got) == ('FAIL', 'rtk 2 pubs')
+    assert build(dict(base='streaming', age=0.4), gps_snapshot(5), (SPEC,)).pubs == 1
+
+
+def test_unreadable_rtk_yaml_falls_back_to_our_base(tmp_path, monkeypatch):
+    (tmp_path / 'rtk.yaml').write_text('source: mission_planner\n')
+    monkeypatch.setenv('MHSEALS_RTK_CONFIG', str(tmp_path / 'rtk.yaml'))
+    assert RtkFeed(boat()).source == 'ours'

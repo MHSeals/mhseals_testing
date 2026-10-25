@@ -334,3 +334,12 @@ def test_configured_missing_rtk_file_warns_and_a_duplicate_key_is_refused(monkey
     (tmp_path / 'rtk.yaml').write_text('radio_baud: 9600\nradio_baud: 57600\n')
     with pytest.raises(ValueError, match='duplicate key'):
         load_config()
+
+
+def test_source_defaults_to_ours_and_is_validated(tmp_path):
+    assert load_config(tmp_path / 'missing.yaml')['source'] == 'ours'
+    (tmp_path / 'ext.yaml').write_text('source: external\n')
+    assert load_config(tmp_path / 'ext.yaml')['source'] == 'external'
+    (tmp_path / 'bad.yaml').write_text('source: mp\n')
+    with pytest.raises(ValueError, match='source must be one of ours, external, none'):
+        load_config(tmp_path / 'bad.yaml')
