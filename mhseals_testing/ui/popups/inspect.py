@@ -152,6 +152,11 @@ class Inspect:
                 north = math.radians(v['lat'] - self.origin[0]) * 6371000.0
                 east = math.radians(v['lon'] - self.origin[1]) * 6371000.0 * math.cos(math.radians(v['lat']))
                 self.positions.append((gps['received'], east, north))
+        own = snapshot['sensors'].get(self.spec.name) if self.spec else None
+        if own and self.spec.kind == 'imu':
+            self.push('wz', own['received'], own['values'].get('wz'))
+        elif own and self.spec.kind == 'odometry' and own['values'].get('vx') is not None:
+            self.push('speed', own['received'], math.hypot(own['values']['vx'], own['values'].get('vy') or 0.0))
         if self.row['name'] == 'RC':
             rc = (snapshot.get('control') or {}).get('rc') or {}
             self.push('rate', now, rc.get('rate_hz'))
@@ -545,6 +550,9 @@ def body(state, snapshot, inner=WIDTH - 4, edges=()):
         out += rc_part(state, snapshot, inner)
     elif row.get('group') == 'System':
         out += advisory_part(state, snapshot, inner)
+    elif state.spec and state.spec.kind in ('imu', 'odometry'):
+        key, label, unit = ('wz', 'Gyro z', 'rad/s') if state.spec.kind == 'imu' else ('speed', 'Speed', 'm/s')
+        out += strip(label, recent(state.series.get(key, ()), state.now), state.now, inner, unit)
     if spec is not None:
         if out:
             out.append(Text(''))
