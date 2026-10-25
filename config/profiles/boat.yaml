@@ -20,6 +20,9 @@ components:
   navigation: {limits: true, needs: [odometry, ekf]}
   camera: {}
   objects: {topic: /perception/tracks}
+  watchdogs: {title: Safety watchdogs, start: true}    # hold-only: operator link, fence, FCU
+  operator_heartbeat: {title: Operator heartbeat}     # on the operator laptop
+  host_diagnostic: {title: Camera host diagnostic}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, topic: /odom/mavros, kind: odometry}

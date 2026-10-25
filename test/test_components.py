@@ -144,7 +144,8 @@ def test_shipped_profiles_resolve_through_the_device_profiles():
 
 def test_boat_session_start_brings_up_only_sensing():
     started = [item for item in components(load_profile('boat')) if item.start]
-    assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors'}
+    assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors', 'watchdogs'}
+    assert 'watchdogs' in {item.key for item in started}     # hold-only, up before any autonomy
     for item in started:
         assert not item.limits and item.kind == 'sensing'
 
@@ -355,7 +356,7 @@ def test_lingering_names_of_a_stopped_child_are_not_external_nor_duplicates():
 
 
 @pytest.mark.parametrize('profile_name, context', [('boat', 'included'),
-                                                ('crane_full_stack', 'standalone')])
+                                                   ('crane_full_stack', 'standalone')])
 def test_odometry_yaml_selectors_reach_both_actual_children(profile_name, context):
     profile = load_profile(profile_name)
     chosen = {'odometry_startup_file': '/operator/odometry.yaml',
