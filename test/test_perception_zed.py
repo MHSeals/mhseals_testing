@@ -48,3 +48,9 @@ def test_bad_values_skipped_and_empty_status():
 def test_clock_offset():
     assert clock.offset(100.25, 100.0) == 0.25
     assert clock.offset(0.0, 100.0) is None and clock.offset(float('inf'), 1.0) is None
+
+
+def test_level_arrives_as_rclpy_byte():
+    """diagnostic_msgs/DiagnosticStatus.level is a ROS ``byte``: live rclpy gives b'\\x00', not 0."""
+    assert zed_diag.parse(status(b'\x00', 'Camera grabbing', JP6))['status']['level'] == 'ok'
+    assert zed_diag.parse(status(b'\x02', 'Camera error', []))['status']['level'] == 'fail'

@@ -109,3 +109,10 @@ def test_mag_reports_field_in_milligauss():
     assert validate('mag', mag(), NOW).values['field_mg'] == pytest.approx(200)
     assert validate('mag', mag(x=float('nan')), NOW).issue == 'non-finite magnetic field'
     assert validate('mag', mag(x=0.), NOW).issue == 'magnetic field is zero'
+
+
+def test_mag_undoes_mavros_raw_imu_scaling():
+    """MAVROS publishes RAW_IMU's mG times 1000 as 'tesla'; the boat's live -84/-245/-330 mG."""
+    values = validate('mag', mag(x=-84000., y=-245000., z=-330000.), NOW).values
+    assert values['field_mg'] == pytest.approx(419.5, abs=0.1)
+    assert values['x'] == pytest.approx(-84e-7)

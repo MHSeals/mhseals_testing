@@ -13,6 +13,8 @@ import struct
 QUATERNION_TOLERANCE = 0.1
 # Clock offsets between boat computers make slightly-future stamps normal.
 FUTURE_TOLERANCE = 0.25
+MAG_TESLA_MAX = 0.01        # 100 G: no compass reads this; above it the vector is MAVROS-scaled mG
+MAVROS_MG_SCALE = 1e-10     # MAVROS's mG * 1000 back to tesla (1 mG = 1e-7 T)
 
 
 @dataclass
@@ -118,9 +120,13 @@ def _mag(message):
     values = dict(summary='')
     if not finite(field.x, field.y, field.z):
         return values, 'non-finite magnetic field'
+    x, y, z = field.x, field.y, field.z
+    if math.sqrt(x * x + y * y + z * z) > MAG_TESLA_MAX:
+        # MAVROS (imu.cpp, RAW_IMU/SCALED_IMU) multiplies the FCU's mG by MILLIT_TO_TESLA = 1000.
+        x, y, z = x * MAVROS_MG_SCALE, y * MAVROS_MG_SCALE, z * MAVROS_MG_SCALE
     # The vector stays in tesla for the Status compass row; field_mg converts (1 mG = 1e-7 T).
-    values.update(x=field.x, y=field.y, z=field.z)
-    values['field_mg'] = math.sqrt(field.x ** 2 + field.y ** 2 + field.z ** 2) * 1e7
+    values.update(x=x, y=y, z=z)
+    values['field_mg'] = math.sqrt(x * x + y * y + z * z) * 1e7
     values['summary'] = f"|B| {values['field_mg']:.0f} mG | {message.header.frame_id}"
     return values, '' if values['field_mg'] > 0 else 'magnetic field is zero'
 

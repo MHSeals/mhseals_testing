@@ -38,7 +38,9 @@ def parse(status):
         value = _number(float(match.group(2)), match.group(3), field)
         if value is not None:
             stages.setdefault(stage, {})[field] = value
-    level = int(status.level)
+    # diagnostic_msgs' level is a ``byte``: rclpy hands it over as one-byte bytes, not an int.
+    level = (int.from_bytes(status.level, 'little') if isinstance(status.level, (bytes, bytearray))
+             else int(status.level))
     return {'status': {'level': LEVELS.get(level, 'stale'), 'message': status.message},
             'stages': stages, 'inference_ms': stages.get('sdk', {}).get('proc_ms')}
 
