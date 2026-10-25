@@ -2,7 +2,7 @@
 
 ``parse`` reads one ``mhseals.task_hypotheses/1`` message into ``Task`` tuples. ``draw`` paints each
 task's extent polygon: confirmed solid, a hypothesis dashed and faded by its confidence, done
-every 2nd dot in the muted ``task.done``, failed solid with a ✗ by its label. The label (Map tab
+only its corners in the muted ``task.done``, failed solid with a ✗ by its label. The label (Map tab
 only) always carries the state as text or a glyph, so colour is never the only cue. The goal
 is a ``goal``-rank glyph with its ``why`` beside it. Layers are ``task:task.<state>@<fade>``.
 """
@@ -16,7 +16,7 @@ SCHEMA = 'mhseals.task_hypotheses/1'
 STATES = ('hypothesis', 'confirmed', 'done', 'failed')
 NAMES = {'nav_channel': 'channel', 'follow_path': 'path', 'speed_gate': 'speed', 'speed_mark': 'mark',
          'dock': 'dock', 'home_gate': 'home'}
-PERIOD = {'hypothesis': 3, 'confirmed': 1, 'done': 2, 'failed': 1}   # every Nth outline dot
+PERIOD = {'hypothesis': 3, 'confirmed': 1, 'done': 0, 'failed': 1}   # every Nth outline dot; 0 corners only
 SUFFIX = {'done': ('✓', '+'), 'failed': ('✗', 'x')}
 WHY = 28            # cells of the goal's why drawn beside it
 FAR = 4             # a segment longer than this many canvas widths is off the view: skipped
@@ -63,22 +63,55 @@ def _text(canvas, col, row, text, layer):
         canvas.glyph(col + i, row, char, layer)
 
 
-def draw(proj, tasks, goal=None, ascii_=False, labels=True):
-    """Paint ``tasks`` and the mission ``goal`` (x, y, yaw, why) through a ``marks.Projection``."""
+def _layer(task):
+    fade = strength(task.confidence) if task.state == 'hypothesis' else 100
+    return f'task:task.{task.state}' + (f'@{fade}' if fade < 100 else '')
+
+
+class _Dots:
+    """The outline raster: collects ``dot`` calls once, replayed with ``Canvas.dots`` each frame."""
+
+    def __init__(self):
+        self.xs, self.ys, self.layers = [], [], []
+
+    def dot(self, x, y, layer):
+        self.xs.append(x)
+        self.ys.append(y)
+        self.layers.append(layer)
+
+
+_memo = [None, None, None]   # (task list, projection key, _Dots): one hypothesis set per view
+
+
+def _outlines(proj, tasks):
+    """The outline dots of ``tasks``, rasterized again only when the set or the view changes. A done
+    task is history: its corners alone, so it costs a few cells of the frame's SSH byte budget."""
     canvas = proj.canvas
-    far = FAR * (canvas.dots_wide + canvas.dots_high)
+    key = (canvas.dots_wide, canvas.dots_high, proj.centre, proj.half, proj.yaw)
+    if _memo[0] is tasks and _memo[1] == key:
+        return _memo[2]
+    out, far = _Dots(), FAR * (canvas.dots_wide + canvas.dots_high)
     for task in tasks:
-        token = 'task.' + task.state
-        fade = strength(task.confidence) if task.state == 'hypothesis' else 100
-        layer = f'task:{token}' + (f'@{fade}' if fade < 100 else '')
+        layer, period = _layer(task), PERIOD[task.state]
         dots = [proj.dot(p) for p in task.extent]
         for a, b in zip(dots, dots[1:]):
             if abs(a[0] - b[0]) + abs(a[1] - b[1]) < far:
-                canvas.dot(*a, layer)
-                line(canvas, a, b, layer, PERIOD[task.state])
-        if labels or not dots:
+                out.dot(*a, layer)
+                if period:
+                    line(out, a, b, layer, period)
+    _memo[:] = tasks, key, out
+    return out
+
+
+def draw(proj, tasks, goal=None, ascii_=False, labels=True):
+    """Paint ``tasks`` and the mission ``goal`` (x, y, yaw, why) through a ``marks.Projection``."""
+    canvas = proj.canvas
+    out = _outlines(proj, tasks)
+    canvas.dots(out.xs, out.ys, out.layers)
+    for task in tasks:
+        if labels or not task.extent:
             col, row = proj.cell(task.pose[:2])
-            _text(canvas, col + (1 if labels else 0), row, label(task, ascii_) if labels else '·', layer)
+            _text(canvas, col + (1 if labels else 0), row, label(task, ascii_) if labels else '·', _layer(task))
     if goal is not None and _finite(goal[0], goal[1]):
         col, row = proj.cell(goal[:2])
         canvas.glyph(col, row, '@' if ascii_ else '◎', 'goal:task.goal')
