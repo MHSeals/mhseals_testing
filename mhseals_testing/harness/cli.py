@@ -4,6 +4,8 @@
 an agent or CI can ask "is the boat ready" without the TUI. Exit codes: 0 ok,
 1 warn (only with --fail-on warn), 2 fail, a blocked --gate, or bad input,
 3 every check unknown (nothing was sampled), or a --require group was not evaluated.
+--require GROUP also needs every check in GROUP OK: a fail exits 2, an unknown 3, a warn 1.
+With ROS importable and a window, the TUI's ROS probes are sampled too (ros/preflight.py).
 
 The agent verbs (claim, release, status, follow, run, goal, stop, mark, note, ask) live in
 ``agent_cli``; ``analyze NAME`` re-runs an offline analysis on a finished session and ``index``
@@ -11,6 +13,7 @@ rebuilds INDEX.json, both ROS-free.
 """
 
 import argparse
+import dataclasses
 import json
 import socket
 import sys
@@ -76,7 +79,20 @@ def host_collector(bag_directory=None, clock=time.monotonic):
         except Exception as error:          # an unreadable /proc reads as unknown, not a crash
             store.publish('host', {}, error=repr(error))
         return (*store.read(), {})
+    collect.store = store               # the ROS collector publishes into the same store
     return collect
+
+
+def ros_collector(profile, config, specs, window):
+    """(collect, shutdown) sampling the ROS probes too; None without rclpy or a window."""
+    if window <= 0:
+        return None                     # nothing could arrive; stay ROS-free
+    try:
+        import rclpy  # noqa: F401
+    except ImportError:
+        return None
+    from mhseals_testing.ros.preflight import cli_collector
+    return cli_collector(profile, config, specs, host_collector())
 
 
 def unchecked(report):
@@ -95,7 +111,8 @@ def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5
 
     ``collect()`` returns (facts, probes, session) as Engine.tick takes them.
     """
-    specs = select(config.specs, only)
+    # One snapshot: the last sample decides, so no raise or clear time hides a status.
+    specs = [dataclasses.replace(s, raise_after=0.0, clear_after=0.0) for s in select(config.specs, only)]
     engine = Engine(specs, periods={n: s['period'] for n, s in config.probes.items()
                                     if isinstance(s, dict) and 'period' in s}, clock=clock,
                     unknown_after=0.0)       # a one-shot check has no time to wait for evidence
@@ -119,12 +136,27 @@ def run_check(config, profile_name, only=(), gate=None, fail_on='fail', window=5
 
 
 def required(report, groups):
-    """{group: {evaluated, total}} for each ``--require`` group (any case)."""
+    """{group: {evaluated, total, not_ok}} for each ``--require`` group (any case).
+
+    ``not_ok`` lists the ids that are not OK (info counts as OK); unknown is never a pass.
+    """
     out = {}
     for group in groups:
         rows = [c for c in report['checks'] if c['group'].lower() == group.lower()]
-        out[group] = {'evaluated': sum(c['status'] != 'unknown' for c in rows), 'total': len(rows)}
+        out[group] = {'evaluated': sum(c['status'] != 'unknown' for c in rows), 'total': len(rows),
+                      'not_ok': [c['id'] for c in rows if c['status'] not in ('ok', 'info')]}
     return out
+
+
+def required_code(report, needed):
+    """Exit code from the --require groups: 2 a fail, 3 an unknown or an empty group, 1 a warn."""
+    ids = {i for n in needed.values() for i in n['not_ok']}
+    statuses = {c['status'] for c in report['checks'] if c['id'] in ids}
+    if 'fail' in statuses:
+        return 2
+    if 'unknown' in statuses or any(not n['evaluated'] for n in needed.values()):
+        return 3
+    return 1 if statuses else 0
 
 
 def table(report):
@@ -147,7 +179,7 @@ def build_parser():
     check.add_argument('--json', metavar='PATH', help='write JSON to PATH, or - for stdout')
     check.add_argument('--lint', action='store_true', help='check the YAML only; needs no ROS')
     check.add_argument('--require', action='append', default=[], metavar='GROUP',
-                       help='exit 3 unless GROUP has checks and at least one was evaluated')
+                       help='exit non-zero unless every check in GROUP is OK (unknown is not)')
     sub.add_parser('profiles', help='explain shipped profile command/sensor/output paths')
     course = sub.add_parser('course', help='compile course YAML to cached Unity JSON')
     course.add_argument('source', metavar='NAME|YAML')
@@ -294,8 +326,16 @@ def main(argv=None, collect=None):
     if args.gate and known is not None and args.gate not in known:
         print(f'boat_trial: --gate {args.gate!r} is not a procedure key', file=sys.stderr)
         return 2
-    report, code = run_check(config, profile.name, args.only, args.gate, args.fail_on,
-                             args.window, collect or host_collector())
+    shutdown = None
+    if collect is None:
+        sampled = ros_collector(profile, config, select(config.specs, args.only), args.window)
+        collect, shutdown = sampled or (host_collector(), None)
+    try:
+        report, code = run_check(config, profile.name, args.only, args.gate, args.fail_on,
+                                 args.window, collect)
+    finally:
+        if shutdown:
+            shutdown()
     banner = unchecked(report)
     if banner:
         print(f'boat_trial: {banner}', file=sys.stderr)
@@ -306,7 +346,11 @@ def main(argv=None, collect=None):
         unmet = [g for g, n in report['required'].items() if not n['evaluated']]
         if unmet:
             print(f'boat_trial: required group(s) not evaluated: {", ".join(unmet)}', file=sys.stderr)
-            code = 2 if code == 2 else 3
+        failing = [i for n in report['required'].values() for i in n['not_ok']]
+        if failing:
+            print(f'boat_trial: required checks not OK: {", ".join(failing)}', file=sys.stderr)
+        need = required_code(report, report['required'])
+        code = next((c for c in (2, 3, 1) if c in (code, need)), 0)
     text = json.dumps(report, indent=2, default=str)
     if args.json == '-':
         print(text)

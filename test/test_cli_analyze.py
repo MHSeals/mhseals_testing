@@ -48,12 +48,14 @@ def report(*rows):
 def test_require_exits_3_when_a_group_was_skipped(monkeypatch, capsys):
     found = report(('sys.load', 'System', 'ok'), ('perc.hz', 'Perception', 'unknown'))
     monkeypatch.setattr(cli, 'run_check', lambda *a, **k: (found, 0))
+    monkeypatch.setattr(cli, 'ros_collector', lambda *a: None)
     assert cli.main(['check', '--json', '-']) == 0
     capsys.readouterr()
     assert cli.main(['check', '--require', 'perception', '--require', 'System', '--json', '-']) == 3
     out = capsys.readouterr()
-    assert json.loads(out.out)['required'] == {'perception': {'evaluated': 0, 'total': 1},
-                                               'System': {'evaluated': 1, 'total': 1}}
+    assert json.loads(out.out)['required'] == {
+        'perception': {'evaluated': 0, 'total': 1, 'not_ok': ['perc.hz']},
+        'System': {'evaluated': 1, 'total': 1, 'not_ok': []}}
     assert 'perception' in out.err
     assert cli.main(['check', '--require', 'Absent']) == 3
     assert cli.main(['check', '--require', 'system']) == 0
