@@ -560,7 +560,8 @@ class App:
         now = self.clock()
         state = self.watchdog_missing
         if state is None:
-            state = self.watchdog_missing = dict(since=now, asked=None, retried=False, held=False)
+            state = self.watchdog_missing = dict(since=now, asked=None, asked_mux=None,
+                                                        retried=False, held=False)
         if state['held'] or now - state['since'] < WATCHDOG_GRACE:
             return
         if self.plant is None or not muxed(self.profile):
@@ -568,7 +569,7 @@ class App:
             return
         if state['asked'] is None:
             self.request_watchdog_hold(state, now, reason)
-        elif self.mux_holding(state['asked']):
+        elif self.mux_holding(state['asked_mux']):
             state['held'] = True
         elif now - state['asked'] >= HOLD_CONFIRM_S:
             if state['retried']:
@@ -578,17 +579,19 @@ class App:
                 self.request_watchdog_hold(state, now, reason)
 
     def request_watchdog_hold(self, state, now, reason):
-        """Ask the mux to hold and note when, so the mux state can confirm it."""
-        state['asked'] = now
+        """Ask the mux to hold and note when: ``now`` on the app's clock for the confirm timeout,
+        and the arbiter's own clock (wall time), which stamps the mux state, for the confirmation."""
+        arbiter = getattr(self, 'arbiter', None)
+        state['asked'], state['asked_mux'] = now, arbiter.clock() if arbiter is not None else None
         self.plant.hold('watchdog')
         self.ros.emit('watchdog_hold', reason=reason)
         self.monitor.event('HOLD: ' + reason)
         self.notice = f'Holding: {reason}'
 
     def mux_holding(self, since):
-        """True when the mux reported input 'hold' after ``since`` (the arbiter's clock)."""
+        """True when the mux reported input 'hold' at or after ``since`` (the arbiter's clock)."""
         arbiter = getattr(self, 'arbiter', None)
-        if arbiter is None:
+        if arbiter is None or since is None:
             return False
         with arbiter.lock:
             mux, at = arbiter.mux, arbiter.mux_at

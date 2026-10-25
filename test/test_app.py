@@ -379,14 +379,17 @@ def test_a_watchdog_gone_while_the_operator_types_still_refuses(tmp_path):
 
 
 def mux_stub(app):
-    """An arbiter that only records the mux state the app reads to confirm a hold."""
+    """An arbiter that only records the mux state the app reads to confirm a hold.
+
+    Its clock is wall time, as in the TUI (the app's is monotonic): far apart, same pace.
+    """
     class Mux:
         def __init__(self):
             self.lock, self.mux, self.mux_at = threading.RLock(), None, None
-            self.clock = lambda: app.clock.now
+            self.clock = lambda: 1.7e9 + app.clock.now
 
         def on_mux(self, state):
-            self.mux, self.mux_at = state, app.clock.now
+            self.mux, self.mux_at = state, self.clock()
     app.arbiter = Mux()
     return app.arbiter
 
