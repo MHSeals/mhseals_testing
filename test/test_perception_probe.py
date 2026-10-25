@@ -1,21 +1,43 @@
+"""The perception probe: /perception/status and /diagnostics fixtures to perc.<source>.* facts."""
+import json
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace as NS
+
 import pytest
 
-from mhseals_testing.perception.probe import Detection as D, Probe, histogram, percentile
+from mhseals_testing.health.engine import Engine
+from mhseals_testing.health.model import Fact
+from mhseals_testing.perception.probe import Probe
+from mhseals_testing.ros import perception as feed
+
+FIXTURE = Path(__file__).parent / 'fixtures' / 'perception_status.json'
 
 
 class Clock:
     def __init__(self):
-        self.t = 100.0
+        self.t = 0.0
 
     def __call__(self):
         return self.t
 
 
-def run(probe, clock, frames, dt=0.1, lag=0.05, **kw):
-    """Feed frames (lists of detections) every dt seconds with a fixed latency."""
-    for dets in frames:
-        clock.t += dt
-        probe.observe(clock.t - lag, dets, **kw)
+def status(name, values, level=0, message='', hw='blastoise-jetson'):
+    return NS(name=name, level=level, message=message, hardware_id=hw,
+              values=[NS(key=k, value=v) for k, v in values])
+
+
+def replay(probe, clock, messages=None):
+    """Feed the recorded arrays at their own times, as the ROS callbacks would."""
+    for m in messages or json.loads(FIXTURE.read_text()):
+        clock.t = m['t']
+        array = NS(status=[status(s['name'], s['values'], s['level'], s['message'], s['hardware_id'])
+                           for s in m['status']])
+        if m['topic'] == '/perception/status':
+            info = {'source_timestamp': int(m['source_ts'] * 1e9), 'received_timestamp': int(m['recv_ts'] * 1e9)}
+            feed.observe_status(probe, array, info)
+        else:
+            feed.observe_diagnostics(probe, array)
 
 
 @pytest.fixture
@@ -23,115 +45,140 @@ def clock():
     return Clock()
 
 
-def test_percentile_and_histogram():
-    assert percentile([], 0.5) is None
-    assert percentile([1, 2, 3, 4], 0.5) == 2.5
-    assert histogram([0.0, 0.05, 0.95, 1.0], 10) == [2, 0, 0, 0, 0, 0, 0, 0, 0, 2]
+@pytest.fixture
+def facts(clock):
+    probe = Probe('zed_native', clock)
+    replay(probe, clock)
+    return probe.facts()
 
 
-def test_no_frames_no_facts(clock):
-    assert Probe('z', clock).facts() == {}
+def test_every_fact_comes_from_the_fixture(facts):
+    s = 'perc.zed_native.'
+    assert facts[s + 'hz'].value == 14.8
+    assert facts[s + 'latency'].value == pytest.approx(0.088)
+    assert facts[s + 'latency'].data['p95'] == pytest.approx(0.131)
+    assert facts[s + 'clock_offset'].value == pytest.approx(0.012, abs=1e-6)
+    assert facts[s + 'inference_ms'].value == pytest.approx(52.0)
+    assert facts[s + 'stages'].value == {'camera': {'hz': 14.9, 'proc_ms': 12.0}, 'sdk': {'hz': 14.6, 'proc_ms': 52.0},
+                                         'backend': {'hz': 14.8}, 'tracker': {'hz': 10.0}}
+    # 2 drops per second against 14.8 frames per second
+    assert facts[s + 'funnel_loss'].value == pytest.approx(2 / 16.8)
+    assert facts[s + 'funnel_loss'].data['drops'] == {'stale': 10.0, 'reorder': 0.0, 'malformed': 0.0}
+    assert facts[s + 'tracker_hz'].value == 10.0
+    assert facts[s + 'tracker_latency'].value == pytest.approx(0.112)
+    assert facts[s + 'split'].value == 'S12 M1 U2 P8'
+    assert facts[s + 'classes'].value == 2 and set(facts[s + 'classes'].data) == {
+        'red_buoy', 'green_buoy', 'black_buoy'}
+    assert (facts[s + 'class_conf'].value, facts[s + 'class_conf'].label) == (0.68, 'green_buoy')
+    assert facts[s + 'heading'].value == 'ok' and facts[s + 'heading'].data['lag_s'] == '0.03'
+    assert facts[s + 'costmap_age'].value == pytest.approx(0.21)
+    assert facts[s + 'ids'].value == 'true' and facts[s + 'ids'].data['id_assoc_share'] == 0.93
 
 
-def test_rate_counts_empty_frames_and_latency(clock):
-    p = Probe('z', clock)
-    run(p, clock, [[]] * 50)                 # 10 Hz for 5 s
-    f = p.facts()
-    assert f['perc.z.hz'].value == pytest.approx(10, rel=0.05)
-    assert f['perc.z.latency'].value == pytest.approx(0.05)
-    assert f['perc.z.empty_ratio'].value == 1.0
-    assert f['perc.z.max_gap'].value == pytest.approx(0.1)
+def test_the_shipped_checks_evaluate_on_the_fixture_and_none_is_skipped(facts):
+    from mhseals_testing.health.config import load
+    from mhseals_testing.profiles import load_profile
+    config = load(profile=load_profile('boat'), user=False)
+    specs = [replace(s, raise_after=0.0) for s in config.specs if s.group == 'Perception']
+    results = Engine(specs).tick(facts, {}).results
+    assert {s.id for s in specs} == set(results)            # nothing skipped
+    assert {r.status for i, r in results.items() if i != 'perc.zed_native.split'} == {'ok'}
+    for check in ('inference', 'clock', 'funnel'):
+        assert results[f'perc.zed_native.{check}'].status == 'ok'
 
 
-def test_clock_offset_is_removed_from_latency(clock):
-    p = Probe('z', clock)
-    run(p, clock, [[]] * 5, lag=0.25, offset=0.2)
-    assert p.facts()['perc.z.latency'].value == pytest.approx(0.05)
+def check(source, fact_name, facts, profile='boat'):
+    from mhseals_testing.health.config import load
+    from mhseals_testing.profiles import load_profile
+    config = load(profile=load_profile(profile), user=False)
+    spec = replace(next(s for s in config.specs if s.id == f'perc.{source}.{fact_name}'), raise_after=0.0)
+    return Engine([spec]).tick(facts, {}).results[spec.id].status
 
 
-def test_gap_includes_silence_since_last_frame(clock):
-    p = Probe('z', clock)
-    run(p, clock, [[]] * 20)
-    clock.t += 3.0
-    f = p.facts()
-    assert f['perc.z.max_gap'].value == pytest.approx(3.0)
-    assert f['perc.z.hz'].value < 10
+def test_silent_source_reads_zero_hz_after_the_rate_window(clock):
+    probe = Probe('zed_native', clock)
+    assert probe.facts() == {}
+    clock.t = 4.0
+    assert probe.facts() == {}                              # still inside the window
+    clock.t = 5.5
+    facts = probe.facts()
+    assert facts == {'perc.zed_native.hz': facts['perc.zed_native.hz']} and facts['perc.zed_native.hz'].value == 0
+    assert check('zed_native', 'rate', facts) == 'fail'
 
 
-def test_classes_rate_presence_and_threshold(clock):
-    p = Probe('z', clock, thresholds={'red': 0.5})
-    run(p, clock, [[D('red', 0.9), D('red', 0.3)], []] * 25)    # 5 s, half the frames
-    f = p.facts()
-    c = f['perc.z.classes']
-    assert c.value == 1
-    red = c.data['red']
-    assert red['presence'] == pytest.approx(0.5, abs=0.05)
-    assert red['rate'] == pytest.approx(10, rel=0.1)
-    assert red['below_threshold'] == 25
-    assert red['hist'][9] == 25 and red['hist'][3] == 25
-    assert f['perc.z.confidence'].value == pytest.approx(0.6)
-    assert f['perc.z.empty_ratio'].value == pytest.approx(0.5)
+def test_a_source_that_goes_quiet_drops_to_zero_and_its_costmap_ages(clock, facts):
+    probe = Probe('zed_native', clock)
+    replay(probe, clock)
+    clock.t += 7.0
+    facts = probe.facts()
+    s = 'perc.zed_native.'
+    assert facts[s + 'hz'].value == 0 and facts[s + 'tracker_hz'].value == 0
+    for gone in ('latency', 'clock_offset', 'inference_ms', 'funnel_loss', 'heading', 'split'):
+        assert s + gone not in facts
+    assert facts[s + 'costmap_age'].value > 1.0
+    assert check('zed_native', 'costmap', facts) == 'fail'
+    assert check('zed_native', 'tracker_rate', facts) == 'fail'
 
 
-def test_class_ages_and_drops_out_of_window(clock):
-    p = Probe('z', clock)
-    run(p, clock, [[D('a', 0.8)]])
-    run(p, clock, [[]] * 20)
-    assert p.facts()['perc.z.classes'].data['a']['last_age'] == pytest.approx(2.0)
-    clock.t += 70
-    p.observe(clock.t - 0.05, [])
-    assert p.facts()['perc.z.classes'].value == 0
+def test_costmap_age_holds_through_the_status_period_then_grows(clock):
+    probe = Probe('sim', clock)
+    probe.status(status('perception/sim/tracker', [('grid_age_s', '0.2'), ('hz', '10')]))
+    clock.t = 1.2
+    assert probe.facts()['perc.sim.costmap_age'].value == pytest.approx(0.2)
+    clock.t = 2.5
+    assert probe.facts()['perc.sim.costmap_age'].value == pytest.approx(1.2)
 
 
-def test_stamp_errors(clock):
-    p = Probe('z', clock)
-    p.observe(99.0, [])
-    p.observe(99.0, [])                      # repeated
-    p.observe(98.0, [])                      # backwards
-    p.observe(0.0, [])                       # zero
-    p.observe(101.0, [], frame_id='')        # no frame id
-    f = p.facts()
-    assert f['perc.z.stamp_errors'].value == 4
-    assert f['perc.z.latency'].value == pytest.approx(1.0)   # only the first frame is good
-    assert f['perc.z.latency'].data['p95'] == pytest.approx(1.0)
-    clock.t += 61
-    assert p.facts()['perc.z.stamp_errors'].value == 0
+def test_missing_keys_leave_their_facts_out(clock):
+    probe = Probe('sim', clock)
+    probe.status(status('perception/sim/backend', [('hz', '9.5')]))
+    probe.status(status('perception/sim/tracker', [('hz', 'nan')]))
+    probe.status(status('perception/sim/inject', [('case', 'none')]))
+    probe.status(status('not/a/perception/stage', [('hz', '1')]))
+    assert set(probe.facts()) == {'perc.sim.hz', 'perc.sim.stages'}
 
 
-def test_history_buckets(clock):
-    p = Probe('z', clock, history=5)
-    run(p, clock, [[D('a', 0.5)]] * 20, dt=0.25)
-    h = p.facts()['perc.z.latency'].data['history']
-    assert len(h) == 5 and h[-1] == pytest.approx(0.05)
-    assert len(p.facts()['perc.z.confidence'].data['history']) == 5
+def test_heading_levels_map_to_pass_warn_fail(clock):
+    def level(n, message='lag'):
+        probe = Probe('zed_native', clock)
+        probe.status(status('perception/zed_native/heading', [('lag_s', '0.2'), ('rho', '0.8')], n, message))
+        return probe.facts()
+    assert check('zed_native', 'heading', level(0)) == 'ok'
+    assert check('zed_native', 'heading', level(1)) == 'warn'
+    error = level(2, 'heading lags 0.20 s')
+    assert error['perc.zed_native.heading'].value == 'error'
+    assert check('zed_native', 'heading', error) == 'fail'
 
 
-def test_first_frame_rates_are_not_absurd(clock):
-    p = Probe('z', clock)
-    p.observe(clock.t - 0.05, [D('a', 0.9)])
-    for dt in (0.0, 0.02):
-        clock.t += dt
-        f = p.facts()
-        assert f['perc.z.hz'].value <= 1.0
-        assert f['perc.z.classes'].data['a']['rate'] <= 1.0
+def test_badly_clocked_or_lossy_camera_fails(clock):
+    messages = json.loads(FIXTURE.read_text())
+    for m in messages:
+        if m['topic'] == '/perception/status':
+            m['source_ts'] += 0.2                            # Orin clock 0.2 s ahead
+            for s in m['status']:
+                if s['name'].endswith('backend'):
+                    s['values'] = [[k, str(int(m['t']) * 40) if k == 'drop_stale' else v] for k, v in s['values']]
+        else:
+            m['status'][0]['values'][3] = ['Object detection', 'Processing Time: 0.2 sec']
+    probe = Probe('zed_native', clock)
+    replay(probe, clock, messages)
+    facts = probe.facts()
+    assert check('zed_native', 'clock', facts) == 'fail'
+    assert check('zed_native', 'funnel', facts) == 'warn'          # loss and slow inference only warn
+    assert check('zed_native', 'inference', facts) == 'warn'
 
 
-def test_gap_reports_silence_longer_than_the_rate_window(clock):
-    p = Probe('z', clock)
-    run(p, clock, [[]] * 20)
-    clock.t += 15.0
-    f = p.facts()
-    assert f['perc.z.max_gap'].value == pytest.approx(10.0)
-    assert f['perc.z.hz'].value == 0.0
+def test_backend_restart_resets_the_funnel(clock):
+    probe = Probe('sim', clock)
+    for t, drops in ((0, 50), (1, 60), (2, 0), (3, 1)):
+        clock.t = t
+        probe.status(status('perception/sim/backend', [('hz', '10'), ('drop_stale', str(drops))]))
+    assert probe.facts()['perc.sim.funnel_loss'].value == pytest.approx(1 / 11)
 
 
-def test_clock_rewind_forgets_earlier_frames(clock):
-    p = Probe('z', clock)
-    run(p, clock, [[D('a', 0.9)]] * 50)
-    clock.t = 10.0                       # sim episode reset rewinds the ROS clock
-    assert p.facts() == {}
-    run(p, clock, [[]] * 5)              # stamps restart too, so none is an error
-    f = p.facts()
-    assert f['perc.z.hz'].value <= 5.0
-    assert f['perc.z.stamp_errors'].value == 0
-    assert f['perc.z.classes'].value == 0
+def test_weak_class_warns(clock):
+    probe = Probe('sim', clock)
+    probe.status(status('perception/sim/tracker', [('conf_red_buoy', '0.3'), ('n_red_buoy', '2')]))
+    facts = probe.facts()
+    assert check('sim', 'class_conf', facts, 'crane_full_stack') == 'warn'
+    assert facts['perc.sim.class_conf'] == Fact(0.3, 'red_buoy', {}, 0.0)

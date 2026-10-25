@@ -1,42 +1,51 @@
-"""Publish ``perc.<source>.*`` health facts from the canonical /detections topic.
+"""Publish ``perc.<source>.*`` health facts from /perception/status and the ZED /diagnostics.
 
-The ROS wiring is ``subscribe_detections``; ``observe_message`` is pure (duck-typed
-message, injected probe) and carries the tests. Time comes from the node clock,
-the timebase of the header stamps (sim time in the simulator).
+Only DiagnosticArray topics are read (perception-v2.md section 7.2): no detections or
+observations cross the network for health. ``observe_status`` and ``observe_diagnostics``
+are pure (duck-typed messages, injected probe) and carry the tests.
 """
 
-from mhseals_testing.perception.probe import Detection, Probe
+import time
 
-TOPIC = '/detections'
-PERIOD = 1.0      # s between fact publishes; the probe's own windows are longer
+from mhseals_testing.perception import clock
+from mhseals_testing.perception.probe import Probe
+
+STATUS = '/perception/status'
+DIAGNOSTICS = '/diagnostics'
+PERIOD = 1.0      # s between fact publishes
 
 
 def source_name(profile):
-    """The perception.yaml source a profile's detections belong to."""
+    """The perception.yaml source a profile's backend is."""
     return 'sim' if profile.use_sim_time else 'zed_native'
 
 
-def stamp_seconds(header):
-    return header.stamp.sec + header.stamp.nanosec * 1e-9
+def observe_status(probe, message, info=None):
+    """Feed one /perception/status array; ``info`` is rclpy's MessageInfo (ns stamps).
+
+    The clock offset is the DDS source_timestamp (the publisher's wall clock, the Orin's
+    on the boat) against our receive time.
+    """
+    offset = None
+    if info:
+        offset = clock.offset(info.get('source_timestamp', 0) * 1e-9,
+                              info.get('received_timestamp', 0) * 1e-9)
+    for status in message.status:
+        probe.status(status, offset)
 
 
-def observe_message(probe, message):
-    """Feed one vision_msgs/Detection3DArray (possibly empty) to ``probe``."""
-    found = []
-    for detection in message.detections:
-        if detection.results:
-            best = detection.results[0].hypothesis
-            found.append(Detection(best.class_id, float(best.score)))
-    probe.observe(stamp_seconds(message.header), found, message.header.frame_id)
+def observe_diagnostics(probe, message):
+    for status in message.status:
+        probe.diagnostic(status)
 
 
 def subscribe_detections(ros, facts, profile):
-    """Subscribe /detections on ``ros.node`` and publish the probe's facts once a second."""
-    from rclpy.qos import qos_profile_sensor_data
-    from vision_msgs.msg import Detection3DArray
-    probe = Probe(source_name(profile), ros.now)
+    """Subscribe the two status topics on ``ros.node`` and publish the facts once a second."""
+    from diagnostic_msgs.msg import DiagnosticArray
+    probe = Probe(source_name(profile), time.monotonic)
     ros.node.create_subscription(
-        Detection3DArray, TOPIC, lambda message: observe_message(probe, message),
-        qos_profile_sensor_data)
+        DiagnosticArray, STATUS, lambda message, info: observe_status(probe, message, info), 10)
+    ros.node.create_subscription(
+        DiagnosticArray, DIAGNOSTICS, lambda message: observe_diagnostics(probe, message), 10)
     ros.node.create_timer(PERIOD, lambda: facts.publish('perception', probe.facts()))
     return probe

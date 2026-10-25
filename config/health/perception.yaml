@@ -1,8 +1,9 @@
-# Perception checks, one set per detection source (perception.md section 5).
-# The perception probe publishes perc.<source>.* facts from the canonical
-# /detections topic and /perception/status; the boat has no camera topic of
-# its own (the ZED runs on squirtle), so the camera row comes from these
-# checks and the sensor:Camera anchor, not from a profile sensors row.
+# Perception checks, one set per backend source (perception-v2.md section 7.2).
+# The perception probe publishes perc.<source>.* facts from the backend, tracker
+# and heading stages of /perception/status and the ZED wrapper's /diagnostics; the
+# boat has no camera topic of its own (the ZED runs on the Orin), so the camera
+# row comes from these checks and the sensor:Camera anchor. A silent backend reads
+# 0 Hz, so a dead or unreachable camera host fails the rate row instead of skipping.
 # A source is added by one row under each; its profiles list says where it runs.
 group: Perception
 defaults: {severity: warn, missing: skip}
@@ -10,11 +11,12 @@ checks:
   - id: perc.{source}.rate
     kind: threshold
     fact: perc.{source}.hz
+    severity: fail
     unit: ' Hz'
     show: ['sensor:Camera']
     title: Detections rate {source}
     message: '{value} of {nominal} Hz expected'
-    hint: Frames include empty arrays; a low rate means the camera or detector is slow
+    hint: Backend frames include empty arrays; 0 Hz means no backend status reached us (Orin down, backend dead or DDS cut)
     each:
       - {source: zed_native, profiles: [boat, dev_zed], nominal: 15, warn: 10, fail: 3}  # provisional until the Orin hz is measured (orin.md T3)
       - {source: sim, profiles: [crane_full_stack], nominal: 10, warn: 7, fail: 2}
@@ -27,7 +29,7 @@ checks:
     fail: 0.5
     unit: ' s'
     title: Detection latency {source}
-    hint: The tracker and converter reject stamps older than 1.0 s; check the clock offset and the funnel
+    hint: The backend rejects stamps older than 1.0 s; check the clock offset and the funnel
     each:
       - {source: zed_native, profiles: [boat, dev_zed]}
       - {source: sim, profiles: [crane_full_stack]}
@@ -38,9 +40,10 @@ checks:
     warn: 0.15
     fail: 0.5
     title: Pipeline loss {source}
-    hint: Share of frames lost between the first and last stage
+    hint: Share of backend frames dropped as stale, reordered or malformed
     each:
       - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
   - id: perc.{source}.inference
     kind: threshold
     fact: perc.{source}.inference_ms
@@ -62,6 +65,73 @@ checks:
     fail: 0.08
     unit: ' s'
     title: Clock offset {source}
-    hint: DDS source_timestamp offset on /front/zed_node; check chrony on the Orin
+    hint: DDS source_timestamp offset of /perception/status from the Orin; check chrony on the Orin
     each:
       - {source: zed_native, profiles: [boat, dev_zed]}
+  - id: perc.{source}.tracker_rate
+    kind: threshold
+    fact: perc.{source}.tracker_hz
+    severity: fail
+    warn: 7
+    fail: 2
+    unit: ' Hz'
+    title: Tracker rate {source}
+    hint: 0 Hz means no tracker status reached us; the tracks and the costmap stop with it
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: perc.{source}.tracker_latency
+    kind: threshold
+    fact: perc.{source}.tracker_latency
+    below: false
+    warn: 0.3
+    fail: 0.6
+    unit: ' s'
+    title: Tracker latency {source}
+    hint: Capture stamp to track update on the Orin
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: perc.{source}.costmap
+    kind: threshold
+    fact: perc.{source}.costmap_age
+    severity: fail
+    below: false
+    warn: 0.5
+    fail: 1.0
+    unit: ' s'
+    title: Perception costmap age {source}
+    hint: A stale /perception/costmap holds the boat during autonomy; check object_tracker and the perception costmap on the Orin
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: perc.{source}.class_conf
+    kind: threshold
+    fact: perc.{source}.class_conf
+    warn: 0.4
+    title: Weakest class confidence {source}
+    hint: Mean score over 10 s of the weakest class seen; lighting, range or the model
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: perc.{source}.heading
+    kind: state
+    fact: perc.{source}.heading
+    severity: fail
+    expect: [ok]
+    warn: [warn, stale]
+    title: Heading consistency {source}
+    hint: heading or camera extrinsic lags during turns; check compass and front_camera_joint
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: perc.{source}.split
+    kind: state
+    fact: perc.{source}.split
+    severity: info
+    expect: []
+    title: Tracks {source}
+    hint: Static, moving, unknown and prior tracks
+    each:
+      - {source: zed_native, profiles: [boat, dev_zed]}
+      - {source: sim, profiles: [crane_full_stack]}

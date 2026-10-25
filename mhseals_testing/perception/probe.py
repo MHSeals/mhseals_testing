@@ -1,159 +1,187 @@
-"""Rolling perception statistics from canonical detection frames (perception.md section 4).
+"""``perc.<source>.*`` health facts from /perception/status stages and the ZED /diagnostics.
 
-``Probe.observe`` takes one frame (capture stamp, receive time, the detections
-in it, possibly none); ``Probe.facts`` returns the ``perc.<source>.*`` health
-facts. Time comes from an injected clock so tests need no sleeping.
+``Probe.status`` takes one DiagnosticStatus of /perception/status (``name`` is
+``perception/<source>/<stage>``, stage ``backend``, ``tracker`` or ``heading``;
+perception-v2.md section 7.2), ``Probe.diagnostic`` one of /diagnostics. Missing keys
+leave their fact out. A source that stays silent longer than ``rate_window`` reads 0 Hz
+instead of vanishing, so a dead or unreachable camera host turns the rate row red. Time
+comes from an injected monotonic clock so tests need no sleeping.
 """
 
-import math
-from collections import deque, namedtuple
+import statistics
+from collections import deque
 
 from mhseals_testing.health.model import Fact
+from mhseals_testing.perception import zed_diag
 
-Detection = namedtuple('Detection', 'label score')   # score 0..1
-Frame = namedtuple('Frame', 'recv latency detections')   # latency None for a bad stamp
-MIN_SPAN = 1.0      # seconds; rates over less than this are noise, so the span never shrinks below it
+RATE_WINDOW = 5.0           # s of silence before a stage reads 0 Hz and its facts drop
+STATUS_GRACE = 1.5          # s a 1 Hz stage may be quiet before the costmap age grows with it
+HISTORY = 30                # samples kept for sparks and the clock offset
+DROPS = ('drop_stale', 'drop_reorder', 'drop_malformed')
+HEADING = {0: 'ok', 1: 'warn', 2: 'error', 3: 'stale'}
+ZED = 'zed_native'          # the source the ZED wrapper diagnostics belong to
 
 
-def percentile(values, q):
-    """The q-quantile (0..1) of ``values`` by linear interpolation; None when empty."""
-    ordered = sorted(values)
-    if not ordered:
+def number(values, key):
+    """The float behind a numeric string key, or None when absent or not a number."""
+    try:
+        value = float(values[key])
+    except (KeyError, TypeError, ValueError):
         return None
-    pos = q * (len(ordered) - 1)
-    low = math.floor(pos)
-    high = min(low + 1, len(ordered) - 1)
-    return ordered[low] + (ordered[high] - ordered[low]) * (pos - low)
+    return value if value == value and abs(value) != float('inf') else None
 
 
-def histogram(values, bins=10):
-    """Counts of 0..1 values in ``bins`` equal bins; 1.0 lands in the last."""
-    counts = [0] * bins
-    for v in values:
-        counts[min(bins - 1, max(0, int(v * bins)))] += 1
-    return counts
+class Source:
+    """What one source's stages last said, and the short histories the facts need."""
 
-
-def _latencies(frames):
-    """Latency samples of ``frames``, leaving out those with a bad stamp."""
-    return [f.latency for f in frames if f.latency is not None]
+    def __init__(self):
+        self.stages = {}                       # stage -> (receive time, level, message, values)
+        self.latency = deque(maxlen=HISTORY)   # backend p50 in s, one per sample
+        self.funnel = deque()                  # (time, hz, total drops) inside rate_window
+        self.offsets = deque(maxlen=HISTORY)   # clock offsets in s
+        self.classes = {}                      # class -> deque of mean confidence
 
 
 class Probe:
-    """Rates, gaps, latency, confidence, class presence and stamp errors of one source.
+    """Maps the stage keys of every source to facts; ``source`` is the one the profile expects."""
 
-    ``clock`` must use the same timebase as the header stamps (ROS or wall time, not a
-    monotonic clock), because latency = clock() - stamp - offset.
-    """
+    def __init__(self, source, clock, rate_window=RATE_WINDOW):
+        self.source, self.clock, self.rate_window = source, clock, rate_window
+        self.started = clock()
+        self.sources = {source: Source()}
+        self.zed = None                        # (receive time, zed_diag.parse result)
 
-    def __init__(self, source, clock, rate_window=10.0, window=60.0, history=120,
-                 thresholds=None, bins=10):
-        self.source, self.clock = source, clock
-        self.rate_window, self.window, self.history, self.bins = rate_window, window, history, bins
-        self.thresholds = thresholds or {}       # class label -> minimum score
-        self.frames = deque()                    # kept for the longest window
-        self.errors = deque()                    # receive times of bad stamps
-        self.first = None
-        self.last_stamp = None
-        self.last_seen = {}                      # label -> receive time
-
-    def observe(self, stamp, detections=(), frame_id=None, offset=0.0):
-        """Record a frame; ``offset`` is the sender-minus-receiver clock offset in seconds.
-
-        ``frame_id`` is checked only when given (an empty one is a stamp error). Frames
-        with a bad stamp still count for rates but give no latency sample.
-        """
+    def status(self, status, offset=None):
+        """Record one /perception/status entry; ``offset`` is its clock offset in seconds."""
+        parts = str(status.name).split('/')
+        if len(parts) != 3 or parts[0] != 'perception':
+            return
+        _, name, stage = parts
         now = self.clock()
-        self._reset_if_rewound(now)
-        if self.first is None:
-            self.first = now
-        bad = stamp <= 0 or (frame_id is not None and not frame_id) or (
-            self.last_stamp is not None and stamp <= self.last_stamp)
-        if bad:
-            self.errors.append(now)
-        self.last_stamp = stamp
-        dets = tuple(detections)
-        self.frames.append(Frame(now, None if bad else now - stamp - offset, dets))
-        for d in dets:
-            self.last_seen[d.label] = now
-        self._trim(now)
+        src = self.sources.setdefault(name, Source())
+        values = {str(item.key): str(item.value) for item in status.values}
+        src.stages[stage] = (now, int.from_bytes(status.level, 'little')
+                             if isinstance(status.level, bytes) else int(status.level),
+                             str(status.message), values)
+        if offset is not None:
+            src.offsets.append(offset)
+        if stage == 'backend':
+            latency = number(values, 'latency_ms')
+            if latency is not None:
+                src.latency.append(latency / 1000)
+            hz = number(values, 'hz')
+            drops = [number(values, k) for k in DROPS if k in values]
+            if hz is not None and drops and None not in drops:
+                if src.funnel and sum(drops) < src.funnel[-1][2]:
+                    src.funnel.clear()         # the backend restarted; counters began again
+                src.funnel.append((now, hz, sum(drops)))
+        elif stage == 'tracker':
+            for key in values:
+                if key.startswith('conf_') and number(values, key) is not None:
+                    src.classes.setdefault(key[5:], deque(maxlen=HISTORY)).append(number(values, key))
 
-    def _reset_if_rewound(self, now):
-        """Forget everything when the clock went back (a sim episode reset rewinds ROS time)."""
-        if self.frames and now < self.frames[-1].recv:
-            self.frames.clear()
-            self.errors.clear()
-            self.last_seen.clear()
-            self.first = self.last_stamp = None
+    def diagnostic(self, status):
+        """Record one /diagnostics entry; only the ZED wrapper's count."""
+        if zed_diag.is_zed(status):
+            self.zed = (self.clock(), zed_diag.parse(status))
 
-    def _trim(self, now):
-        keep = max(self.window, self.history)
-        while self.frames and now - self.frames[0].recv > keep:
-            self.frames.popleft()
-        while self.errors and now - self.errors[0] > 60.0:
-            self.errors.popleft()
-
-    def _within(self, now, span):
-        return [f for f in self.frames if now - f.recv <= span]
-
-    def _span(self, now, span):
-        """Seconds the window really covers, so the first seconds do not read low."""
-        return max(MIN_SPAN, min(span, now - self.first)) if self.first is not None else span
-
-    def _buckets(self, now, value):
-        """``history`` one-second buckets, oldest first; ``value(frames)`` or None if empty."""
-        groups = [[] for _ in range(self.history)]
-        for f in self.frames:
-            age = int(now - f.recv)
-            if 0 <= age < self.history:
-                groups[self.history - 1 - age].append(f)
-        return [value(g) if g else None for g in groups]
+    def _live(self, src, stage, now):
+        entry = src.stages.get(stage)
+        return entry if entry and now - entry[0] <= self.rate_window else None
 
     def facts(self):
-        """``perc.<source>.*`` facts; empty until the first frame."""
+        """Every source's ``perc.<source>.*`` facts."""
         now = self.clock()
-        self._reset_if_rewound(now)
-        if not self.frames:
-            return {}
-        self._trim(now)
-        s = f'perc.{self.source}.'
-        recent = self._within(now, self.rate_window)
-        wide = self._within(now, self.window)
         out = {}
-
-        def put(name, value, **data):
-            out[s + name] = Fact(value, self.source, data, now)
-
-        put('hz', len(recent) / self._span(now, self.rate_window))
-        stamps = [f.recv for f in recent]
-        if len(recent) < len(self.frames):   # silence reaching back past the window still counts
-            stamps.insert(0, max(self.frames[-len(recent) - 1].recv, now - self.rate_window))
-        edges = stamps + [now]               # the trailing gap is silence since the last frame
-        put('max_gap', max((b - a for a, b in zip(edges, edges[1:])), default=0.0))
-
-        lat = _latencies(recent)
-        put('latency', percentile(lat, 0.5) if lat else None, p95=percentile(lat, 0.95),
-            history=self._buckets(now, lambda g: percentile(_latencies(g), 0.5)))
-        put('empty_ratio', sum(not f.detections for f in recent) / len(recent) if recent else None)
-        put('stamp_errors', len(self.errors))
-
-        scores = [d.score for f in wide for d in f.detections]
-        put('confidence', percentile(scores, 0.5), hist=histogram(scores, self.bins),
-            history=self._buckets(now, lambda g: (
-                sum(d.score for f in g for d in f.detections) / n
-                if (n := sum(len(f.detections) for f in g)) else None)))
-
-        classes = {}
-        for label in {d.label for f in wide for d in f.detections}:
-            mine = [d.score for f in wide for d in f.detections if d.label == label]
-            quick = [d for f in recent for d in f.detections if d.label == label]
-            floor = self.thresholds.get(label, 0.0)
-            classes[label] = {
-                'rate': len(quick) / self._span(now, self.rate_window),
-                'presence': sum(any(d.label == label for d in f.detections)
-                                for f in recent) / len(recent) if recent else 0.0,
-                'hist': histogram(mine, self.bins), 'p50': percentile(mine, 0.5),
-                'last_age': now - self.last_seen[label],
-                'below_threshold': sum(v < floor for v in mine)}
-        put('classes', len(classes), **classes)
+        for name, src in self.sources.items():
+            out.update(self._source(name, src, now))
         return out
+
+    def _source(self, name, src, now):
+        s, out = f'perc.{name}.', {}
+
+        def put(key, value, label='', **data):
+            out[s + key] = Fact(value, label or name, data, now)
+
+        silent = now - self.started > self.rate_window and (src.stages or name == self.source)
+        backend = self._live(src, 'backend', now)
+        stages = {}
+        if backend:
+            _, _, _, v = backend
+            hz = number(v, 'hz')
+            if hz is not None:
+                put('hz', hz)
+                stages['backend'] = {'hz': hz}
+            latency = number(v, 'latency_ms')
+            if latency is not None:
+                p95 = number(v, 'latency_ms_p95')
+                put('latency', latency / 1000, history=list(src.latency),
+                    **({} if p95 is None else {'p95': p95 / 1000}),
+                    **({} if number(v, 'proc_ms') is None else {'proc_ms': number(v, 'proc_ms')}))
+            loss = self._funnel(src, now)
+            if loss is not None:
+                put('funnel_loss', loss, drops={k[5:]: number(v, k) for k in DROPS if k in v})
+        elif silent:
+            put('hz', 0.0)
+        tracker = self._live(src, 'tracker', now)
+        if tracker:
+            self._tracker(put, tracker, stages, src)
+        elif silent and 'tracker' in src.stages:
+            put('tracker_hz', 0.0)
+        if 'tracker' in src.stages:            # no news from the tracker: its grid only ages
+            seen, _, _, v = src.stages['tracker']
+            age = number(v, 'grid_age_s')
+            if age is not None:
+                put('costmap_age', age + max(0.0, now - seen - STATUS_GRACE))
+        if backend and 'ids' in backend[3]:
+            share = number(tracker[3], 'id_assoc_share') if tracker else None
+            put('ids', backend[3]['ids'], **({} if share is None else {'id_assoc_share': share}))
+        heading = self._live(src, 'heading', now)
+        if heading:
+            _, level, message, v = heading
+            put('heading', HEADING.get(level, 'stale'), reason=message,
+                **{k: v[k] for k in ('lag_s', 'rho', 'agree', 'n', 'tracks', 'yaw_rate_std', 'excited')
+                   if k in v})
+        if src.offsets and backend:
+            put('clock_offset', statistics.median(src.offsets))
+        if name == ZED and self.zed and now - self.zed[0] <= self.rate_window:
+            parsed = self.zed[1]
+            if parsed['inference_ms'] is not None:
+                put('inference_ms', parsed['inference_ms'])
+            stages = {**parsed['stages'], **stages}
+        if stages:
+            put('stages', stages)
+        return out
+
+    def _tracker(self, put, tracker, stages, src):
+        _, _, _, v = tracker
+        hz = number(v, 'hz')
+        if hz is not None:
+            put('tracker_hz', hz)
+            stages['tracker'] = {'hz': hz}
+        if number(v, 'latency_ms') is not None:
+            put('tracker_latency', number(v, 'latency_ms') / 1000)
+        split = {k: number(v, f'tracks_{k}') for k in ('static', 'moving', 'unknown', 'prior')}
+        if None not in split.values():
+            put('split', ' '.join(f'{k[0].upper()}{n:.0f}' for k, n in split.items()), **split)
+        classes = {c: {'conf': number(v, f'conf_{c}'), 'rate': number(v, f'n_{c}') or 0.0,
+                       'history': list(src.classes.get(c, ()))}
+                   for c in sorted(k[5:] for k in v if k.startswith('conf_'))
+                   if number(v, f'conf_{c}') is not None}
+        seen = {c: d for c, d in classes.items() if d['rate'] > 0}
+        if classes:
+            put('classes', len(seen), **classes)
+        if seen:                               # the weakest class seen, for the warn row
+            low = min(seen, key=lambda c: seen[c]['conf'])
+            put('class_conf', seen[low]['conf'], low)
+
+    def _funnel(self, src, now):
+        """Share of frames the backend dropped over ``rate_window``: Δdrops / (Δframes + Δdrops)."""
+        while src.funnel and now - src.funnel[0][0] > self.rate_window:
+            src.funnel.popleft()
+        if len(src.funnel) < 2:
+            return None
+        samples = list(src.funnel)
+        frames = sum(b[1] * (b[0] - a[0]) for a, b in zip(samples, samples[1:]))
+        drops = samples[-1][2] - samples[0][2]
+        return drops / (frames + drops) if frames + drops > 0 else None

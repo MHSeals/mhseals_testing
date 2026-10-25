@@ -85,7 +85,9 @@ def test_each_source_gets_its_own_perception_check_set(nav_share):
     boat, sim = perception_ids('boat'), perception_ids('crane_full_stack')
     assert {'perc.zed_native.rate', 'perc.zed_native.latency', 'perc.zed_native.clock'} <= boat
     assert not any('.sim.' in i or 'legacy_zed' in i for i in boat)
-    assert sim == {'perc.sim.rate', 'perc.sim.latency'}
+    assert sim == {f'perc.sim.{c}' for c in ('rate', 'latency', 'funnel', 'tracker_rate', 'tracker_latency',
+                                             'costmap', 'class_conf', 'heading', 'split')}
+    assert {'perc.zed_native.inference', 'perc.zed_native.costmap', 'perc.zed_native.heading'} <= boat
     assert perception_ids('crane_direct') == set()
 
 
