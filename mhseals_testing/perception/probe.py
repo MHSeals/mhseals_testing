@@ -15,7 +15,7 @@ from collections import deque
 from mhseals_testing.health.model import Fact
 from mhseals_testing.perception import zed_diag
 
-HISTORY = 30                # samples kept for sparks and the clock offset
+HISTORY = 30                # samples kept for the popup sparks (display only)
 DROPS = ('drop_stale', 'drop_reorder', 'drop_malformed')
 HEADING = {0: 'ok', 1: 'warn', 2: 'error', 3: 'stale'}
 ZED = 'zed_native'          # the source the ZED wrapper diagnostics belong to
@@ -37,7 +37,7 @@ class Source:
         self.stages = {}                       # stage -> (receive time, level, message, values)
         self.latency = deque(maxlen=HISTORY)   # backend p50 in s, one per sample
         self.funnel = deque()                  # (time, hz, total drops) inside silence_s
-        self.offsets = deque(maxlen=HISTORY)   # clock offsets in s
+        self.offsets = deque()                 # (time, clock offset in s) inside silence_s
         self.classes = {}                      # class -> deque of mean confidence
 
 
@@ -65,7 +65,7 @@ class Probe:
                              if isinstance(status.level, bytes) else int(status.level),
                              str(status.message), values)
         if offset is not None:
-            src.offsets.append(offset)
+            src.offsets.append((now, offset))
         if stage == 'backend':
             latency = number(values, 'latency_ms')
             if latency is not None:
@@ -127,13 +127,15 @@ class Probe:
         tracker = self._live(src, 'tracker', now)
         if tracker:
             self._tracker(put, tracker, stages, src)
-        elif silent and 'tracker' in src.stages:
+        elif silent:                           # dead, or never reached us since we started
             put('tracker_hz', 0.0)
         if 'tracker' in src.stages:            # no news from the tracker: its grid only ages
             seen, _, _, v = src.stages['tracker']
             age = number(v, 'grid_age_s')
             if age is not None:
                 put('costmap_age', age + max(0.0, now - seen - self.grace))
+        elif silent:                           # no grid seen at all: as old as our wait for one
+            put('costmap_age', now - self.started)
         if backend and 'ids' in backend[3]:
             share = number(tracker[3], 'id_assoc_share') if tracker else None
             put('ids', backend[3]['ids'], **({} if share is None else {'id_assoc_share': share}))
@@ -143,8 +145,10 @@ class Probe:
             put('heading', HEADING.get(level, 'stale'), reason=message,
                 **{k: v[k] for k in ('lag_s', 'rho', 'agree', 'n', 'tracks', 'yaw_rate_std', 'excited')
                    if k in v})
+        while src.offsets and now - src.offsets[0][0] > self.rate_window:
+            src.offsets.popleft()
         if src.offsets and backend:
-            put('clock_offset', statistics.median(src.offsets))
+            put('clock_offset', statistics.median(o for _, o in src.offsets))
         if name == ZED and self.zed and now - self.zed[0] <= self.rate_window:
             parsed = self.zed[1]
             if parsed['inference_ms'] is not None:

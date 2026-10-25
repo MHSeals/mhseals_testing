@@ -104,8 +104,23 @@ def test_silent_source_reads_zero_hz_after_the_rate_window(clock):
     assert probe.facts() == {}                              # still inside the window
     clock.t = 5.5
     facts = probe.facts()
-    assert facts == {'perc.zed_native.hz': facts['perc.zed_native.hz']} and facts['perc.zed_native.hz'].value == 0
-    assert check('zed_native', 'rate', facts) == 'fail'
+    assert set(facts) == {f'perc.zed_native.{n}' for n in ('hz', 'tracker_hz', 'costmap_age')}
+    assert facts['perc.zed_native.hz'].value == 0 and facts['perc.zed_native.tracker_hz'].value == 0
+    assert facts['perc.zed_native.costmap_age'].value == pytest.approx(5.5)
+    for name in ('rate', 'tracker_rate', 'costmap'):
+        assert check('zed_native', name, facts) == 'fail'
+
+
+def test_a_tracker_never_seen_fails_while_the_backend_runs(clock):
+    probe = Probe('sim', clock, SETTINGS)
+    for t in range(8):
+        clock.t = float(t)
+        probe.status(status('perception/sim/backend', [('hz', '10')]))
+    facts = probe.facts()
+    assert facts['perc.sim.hz'].value == 10 and facts['perc.sim.tracker_hz'].value == 0
+    assert facts['perc.sim.costmap_age'].value == pytest.approx(7.0)
+    assert check('sim', 'tracker_rate', facts, 'crane_full_stack') == 'fail'
+    assert check('sim', 'costmap', facts, 'crane_full_stack') == 'fail'
 
 
 def test_a_source_that_goes_quiet_drops_to_zero_and_its_costmap_ages(clock, facts):

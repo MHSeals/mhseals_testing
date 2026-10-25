@@ -116,7 +116,7 @@ def heading_row(facts, source):
     fact = facts.get(f'perc.{source}.heading')
     if fact is None:
         return None
-    if fact.data.get('excited') == 'false':
+    if str(fact.data.get('excited')).lower() == 'false':
         return f'not excited {theme.MIDDOT} {fact.value}'
     try:
         return f'lag {float(fact.data["lag_s"]):.2f} s {RHO} {float(fact.data["rho"]):.2f} {fact.value}'

@@ -115,8 +115,9 @@ def test_popup_rebuilds_rows_from_changed_facts_without_a_key():
 
 
 def test_heading_row_says_when_the_boat_has_not_turned_enough():
-    held = {'perc.s.heading': Fact('ok', data=dict(excited='false'))}
-    assert perception.heading_row(held, 's') == 'not excited · ok'
+    for excited in ('false', 'False', False):
+        held = {'perc.s.heading': Fact('ok', data=dict(excited=excited))}
+        assert perception.heading_row(held, 's') == 'not excited · ok'
     assert perception.heading_row({'perc.s.heading': Fact('error', data=dict(lag_s='0.2', rho='0.8'))}, 's') \
         == 'lag 0.20 s ρ 0.80 error'
 
