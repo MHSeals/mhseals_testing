@@ -163,9 +163,10 @@ def test_the_real_driver_and_mux_reach_neutral_and_stop_on_link_loss(boat, tui, 
     node, executor, *_ = tui
     profile = replace(load_profile('boat'), outputs='topic', velocity_controller=False)
     config = tmp_path / 'hardware.yaml'
-    save_config(dict(load_defaults(), output_backend='topic'), config)
+    topic = f'/arm_link_test_{os.getpid()}/pwm'      # never a simulator's on the same domain
+    save_config(dict(load_defaults(), output_backend='topic', pwm_topic=topic), config)
     pulses = []
-    node.create_subscription(UInt16MultiArray, load_defaults()['pwm_topic'],
+    node.create_subscription(UInt16MultiArray, topic,
                              lambda message: pulses.append(list(message.data)), 10)
     mux_state = []
     node.create_subscription(String, '/command_mux/state', mux_state.append,
