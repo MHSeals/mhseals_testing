@@ -1,0 +1,34 @@
+# Numbers the tuning figures quote; regenerate with make_all.py
+fig_delay: rows that differ from plant_v1:nominal only by dead_time / odom_latency
+  disturb_v1:latency0.1[s0,1,2] + disturb_v1:latency0.25[s0,1,2] + plant_v1:deadtime0.15[s0] + plant_v1:deadtime0.3[s0] + plant_v1:latency0.2[s0] + plant_v1:nominal[s0]
+  dead    overshoot dead_time 0.00 s: 9.8 (seed 0) <- plant_v1:nominal[s0]
+  dead    overshoot dead_time 0.15 s: 40.1 (seed 0) <- plant_v1:deadtime0.15[s0]
+  dead    overshoot dead_time 0.30 s: 81.9 (seed 0) <- plant_v1:deadtime0.3[s0]
+  dead    yawrev    dead_time 0.00 s: 2.18 (seed 0) <- plant_v1:nominal[s0]
+  dead    yawrev    dead_time 0.15 s: 2.18 (seed 0) <- plant_v1:deadtime0.15[s0]
+  dead    yawrev    dead_time 0.30 s: 9.49 (seed 0) <- plant_v1:deadtime0.3[s0]
+  latency overshoot odom_latency 0.00 s: 9.8 (seed 0) <- plant_v1:nominal[s0]
+  latency overshoot odom_latency 0.20 s: 57.5 (seed 0) <- plant_v1:latency0.2[s0]
+  latency yawrev    odom_latency 0.00 s: 2.18 (seed 0) <- plant_v1:nominal[s0]
+  latency yawrev    odom_latency 0.10 s: 2.17 (mean of seeds 0,1,2, min 2.17, max 2.17) <- disturb_v1:latency0.1[s0,1,2]
+  latency yawrev    odom_latency 0.20 s: 2.17 (seed 0) <- plant_v1:latency0.2[s0]
+  latency yawrev    odom_latency 0.25 s: 7.97 (mean of seeds 0,1,2, min 7.97, max 7.97) <- disturb_v1:latency0.25[s0,1,2]
+  delay points: 6 with route data [0.0, 0.1, 0.15, 0.2, 0.25, 0.3], 4 with step data [0.0, 0.15, 0.2, 0.3]; disturb_v1 rows carry no step block, plant_v1 has seed 0 only, and the disturb_v1 delay cases give identical seeds (no random input)
+fig_noise: noise_v1 field mix (dead_time 0.05, odom_latency 0.1, vel_sd 0.04, wave_sd 0.06)
+  kp0_ff_only    kp x0.00 k_yaw 1.0: thruster rev/min 6.313 (mean of seeds 0,1,2; min 5.48, max 7.2, median 6.26); yaw rev/min 11.53 (min 10.42, max 13.29) <- noise_v1:kp0_ff_only[s0,1,2]
+  kp0.25         kp x0.25 k_yaw 1.0: thruster rev/min 13.5 (mean of seeds 0,1,2; min 13.1, max 14.05, median 13.34); yaw rev/min 17.08 (min 14.38, max 20.52) <- noise_v1:kp0.25[s0,1,2]
+  kp0.5          kp x0.50 k_yaw 1.0: thruster rev/min 28.23 (mean of seeds 0,1,2; min 26.64, max 29.9, median 28.14); yaw rev/min 17.43 (min 13.59, max 19.38) <- noise_v1:kp0.5[s0,1,2]
+  kp1.0_ki1.0    kp x1.00 k_yaw 1.0: thruster rev/min 58.18 (mean of seeds 0,1,2; min 54.19, max 64.89, median 55.47); yaw rev/min 21.81 (min 12.06, max 26.83) <- noise_v1:kp1.0_ki1.0[s0,1,2]
+  kyaw0.5_kp0.5  kp x0.50 k_yaw 0.5: thruster rev/min 24.67 (mean of seeds 0,1,2; min 23.68, max 25.94, median 24.38); yaw rev/min 13.14 (min 8.77, max 16.51) <- noise_v1:kyaw0.5_kp0.5[s0,1,2]
+  kyaw0.5        kp x1.00 k_yaw 0.5: thruster rev/min 55.12 (mean of seeds 0,1,2; min 52.12, max 58.03, median 55.22); yaw rev/min 14.22 (min 7.46, max 17.67) <- noise_v1:kyaw0.5[s0,1,2]
+  calm reference (mean of seeds 0,1,2) thruster rev/min 5.09, yaw rev/min 2.18 <- disturb_v1:calm[s0,1,2]
+  rule kp <= de/(2 sigma_f): de 0.0625, sigma_f = vel_sd 0.04 m/s -> 0.781 (default surge kp 0.8)
+fig_limits: nav2_rules (config/characterize.yaml, branch tuning-testing) D 1.0 m, k 3.0, tol 0.25 rad
+  surge: T = 0.35 + 0.15 = 0.50 s -> cap 0.8
+  sway: T = 0.45 + 0.15 = 0.60 s -> cap 0.6667
+  yaw: T = 0.15 + 0.15 = 0.30 s -> cap 0.4167
+fig_spin: plant_v1 turn/route rows (no row records the base_link walk of an in-place turn)
+  nominal    com [0.0, 0.0]: turn.skid_rms 0.0152, route yaw rev/min 2.18, cmd_wz rev/min 2.18 <- plant_v1:nominal[s0]
+  com_aft10  com [-0.1, 0.0]: turn.skid_rms 0.0164, route yaw rev/min 1.47, cmd_wz rev/min 2.21 <- plant_v1:com_aft10[s0]
+  com_port5  com [0.0, 0.05]: turn.skid_rms 0.0137, route yaw rev/min 0.72, cmd_wz rev/min 3.58 <- plant_v1:com_port5[s0]
+  not a study row: the in-place-turn walk of base_link with com (0.10, 0) (0.156 m at wz 0.3 rad/s, 0.25 m at 0.8 rad/s) comes from ad hoc Python-plant runs (/tmp/tune/t3.py, t5.py; numpy, not frozen here)

@@ -1,0 +1,5 @@
+# route reversals/min vs velocity kp factor (x 0.8/0.8/0.6); mean of seeds, lo/hi to min/max
+# rows: noise_v1:kyaw0.5[s0,1,2] + noise_v1:kyaw0.5_kp0.5[s0,1,2]
+kp thr thrlo thrhi yaw yawlo yawhi
+0.5 24.6667 0.986667 1.27333 13.1367 4.36667 3.37333
+1 55.1233 3.00333 2.90667 14.2167 6.75667 3.45333

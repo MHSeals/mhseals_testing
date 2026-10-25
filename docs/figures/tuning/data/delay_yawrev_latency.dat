@@ -1,0 +1,7 @@
+# yawrev vs added odom_latency (s); seed mean (one value for seed 0), lo/hi = distance to min/max
+# rows: disturb_v1:latency0.1[s0,1,2] + disturb_v1:latency0.25[s0,1,2] + plant_v1:latency0.2[s0] + plant_v1:nominal[s0]
+delay val lo hi
+0 2.18 0 0
+0.1 2.17 0 0
+0.2 2.17 0 0
+0.25 7.97 0 0

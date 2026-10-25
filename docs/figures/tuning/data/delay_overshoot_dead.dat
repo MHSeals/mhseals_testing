@@ -1,0 +1,6 @@
+# overshoot vs added dead_time (s); seed mean (one value for seed 0), lo/hi = distance to min/max
+# rows: plant_v1:deadtime0.15[s0] + plant_v1:deadtime0.3[s0] + plant_v1:nominal[s0]
+delay val lo hi
+0 9.8 0 0
+0.15 40.1 0 0
+0.3 81.9 0 0

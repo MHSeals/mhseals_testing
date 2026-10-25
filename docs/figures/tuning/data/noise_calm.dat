@@ -1,0 +1,4 @@
+# calm reference (no noise, no delay), kp x1: disturb_v1:calm[s0,1,2]
+kp thr yaw
+-0.1 5.09 2.18
+1.1 5.09 2.18

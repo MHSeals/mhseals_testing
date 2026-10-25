@@ -1,0 +1,6 @@
+# yawrev vs added dead_time (s); seed mean (one value for seed 0), lo/hi = distance to min/max
+# rows: plant_v1:deadtime0.15[s0] + plant_v1:deadtime0.3[s0] + plant_v1:nominal[s0]
+delay val lo hi
+0 2.18 0 0
+0.15 2.18 0 0
+0.3 9.49 0 0

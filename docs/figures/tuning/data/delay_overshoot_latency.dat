@@ -1,0 +1,5 @@
+# overshoot vs added odom_latency (s); seed mean (one value for seed 0), lo/hi = distance to min/max
+# rows: plant_v1:latency0.2[s0] + plant_v1:nominal[s0]
+delay val lo hi
+0 9.8 0 0
+0.2 57.5 0 0
