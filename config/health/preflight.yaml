@@ -1,0 +1,155 @@
+# Pre-water checks: `boat_trial check --require preflight` exits non-zero unless every one is OK
+# (unknown never passes). Read only; nothing here moves a thruster. The `preflight` probe
+# (ros/preflight.py) publishes driver.*, rc.*, gps.*, bag.active, orin.* and pwm.readback; the
+# rest are other probes' facts judged at pre-water bands. Thresholds live only here.
+group: Preflight
+probes:
+  preflight: {period: 1}
+checks:
+  # Thrusters. The driver runs only while armed: arm on the dock with the thrusters
+  # disconnected to read its status; disarmed these read unknown.
+  - id: pre.driver_config
+    kind: state
+    fact: driver.outputs
+    expect: [match]
+    severity: fail
+    profiles: [boat, crane_full_stack]
+    title: Driver pins
+    hint: 'The running driver against hardware.yaml pins (pwm_chips, pwm_channels, mosfet_*); unknown: arm first'
+  - id: pre.pwm_readback
+    kind: pwm_readback
+    severity: fail
+    profiles: [boat]
+    title: PWM readback
+    hint: Kernel sysfs settings of the configured pins; disarmed they must be off or neutral
+  - id: pre.mosfet
+    kind: state
+    fact: driver.mosfet
+    expect: ['on']        # quoted: bare on is YAML true
+    severity: fail
+    profiles: [boat]
+    title: MOSFET
+    hint: 'Armed, the ESC power MOSFET must be on; off means cut (e-stop) and none means no MOSFET configured'
+  - id: pre.estop
+    kind: state
+    fact: driver.estop
+    expect: [armed]
+    severity: fail
+    profiles: [boat]
+    title: RC e-stop
+    hint: 'The RC stop channel must be able to cut the MOSFET (estop_cuts_power) and not be latched; needs hw-estop-mosfet'
+  - id: pre.calib_dead
+    kind: threshold
+    fact: calibration.dead
+    below: false
+    warn: 0.5
+    fail: 0.5
+    severity: fail
+    title: Dead thruster direction
+    hint: Characterize got no response from a direction; unknown until a fit is stored
+
+  # Links
+  - {id: pre.fcu, kind: threshold, fact: fcu.connected, expect: true, probe: fcu, severity: fail,
+     profiles: [boat], title: FCU link}
+  - id: pre.rc
+    kind: state
+    fact: rc.link
+    expect: [valid]
+    severity: fail
+    profiles: [boat]
+    title: RC link
+    hint: /mavros/rc/in judged by the command mux rule (rc_max_age, 900-2100 us); bind and power the transmitter
+  - id: pre.mavros_extras
+    kind: endpoints
+    topic: /mavros/gps_rtk/send_rtcm
+    subscribers: [1, 10]
+    severity: fail
+    profiles: [boat]
+    title: mavros_extras (RTK)
+    hint: No gps_rtk subscriber means the mavros_extras plugins did not load; RTCM goes nowhere
+  - id: pre.gps_fix
+    kind: threshold
+    fact: gps.fix_type
+    fail: [3, 6]          # below a 3D fix: no water
+    warn: [5, 6]          # below RTK float: no precise tasks (docking, gates)
+    fmt: '{:.0f}'
+    probe: preflight
+    severity: fail
+    profiles: [boat]
+    title: GPS fix tier
+    hint: 3 3D, 4 DGPS, 5 RTK float, 6 RTK fixed; precise tasks need 5 or better
+
+  # Camera host (Orin): no RTC, chrony to blastoise. costmap_watchdog compares cross-host stamps
+  # with a 2 s limit, so 50 ms is far inside it.
+  - id: pre.orin_clock
+    kind: threshold
+    fact: perc.{source}.clock_offset
+    abs: true
+    below: false
+    warn: 0.03
+    fail: 0.05
+    unit: ' s'
+    severity: fail
+    title: Orin clock offset
+    hint: DDS source stamp of /perception/status against blastoise; fix chrony on the Orin
+    each:
+      - {source: zed_native, profiles: [boat]}
+  - {id: pre.orin_temp, kind: threshold, fact: orin.temp_max, below: false, warn: 70, fail: 85,
+     digits: 0, unit: ' C', probe: preflight, severity: fail, profiles: [boat], title: Orin temperature,
+     hint: 'host_facts on the Orin publishes this; unknown means it is not running there'}
+  - {id: pre.orin_power, kind: state, fact: orin.power_mode, expect: [MAXN_SUPER], severity: warn,
+     profiles: [boat], title: Orin power mode, hint: 'sudo nvpmodel -m <MAXN_SUPER id> on the Orin'}
+  - {id: pre.orin_disk, kind: threshold, fact: orin.disk_free_gb, warn: 20, fail: 5, digits: 1,
+     unit: ' GB', probe: preflight, severity: fail, profiles: [boat], title: Orin free disk}
+
+  # Perception chain into the hold watchdog
+  - id: pre.watchdog
+    kind: nodes
+    require: [/costmap_watchdog]
+    severity: fail
+    profiles: [boat, crane_full_stack]
+    title: costmap_watchdog
+    hint: Starts with navigation on muxed profiles; without it a stale costmap never holds the boat
+  - id: pre.costmap.{source}
+    kind: threshold
+    fact: perc.{source}.costmap_age
+    below: false
+    warn: 0.5
+    fail: 1.0
+    unit: ' s'
+    severity: fail
+    title: /perception/costmap age
+    each:
+      - {source: zed_native, profiles: [boat]}
+      - {source: sim, profiles: [crane_full_stack]}
+  - id: pre.tracks.{source}
+    kind: threshold
+    fact: perc.{source}.tracker_hz
+    warn: 7
+    fail: 2
+    unit: ' Hz'
+    severity: fail
+    title: /perception/tracks rate
+    each:
+      - {source: zed_native, profiles: [boat]}
+      - {source: sim, profiles: [crane_full_stack]}
+
+  # Bags and disk
+  - {id: pre.recording, kind: threshold, fact: bag.active, expect: true, probe: preflight, severity: fail,
+     title: Recording, hint: Start lean recording in the TUI before leaving the dock}
+  - {id: pre.disk, kind: threshold, fact: host.disk_free_gb, warn: 30, fail: 10, digits: 1, unit: ' GB',
+     probe: host, severity: fail, title: Free disk (bags)}
+
+  # Battery: per cell from the FCU monitor. An implausible reading (the FCU supply's 6-6.8 V,
+  # a wrong BATT_VOLT_MULT or cell count) publishes no cell voltage, so this reads unknown.
+  - id: pre.battery
+    kind: threshold
+    fact: battery.cell_v
+    warn: 3.7
+    fail: 3.5
+    unit: ' V/cell'
+    probe: battery
+    severity: fail
+    profiles: [boat]
+    title: Battery voltage
+    hint: 'Unknown: the monitor reading is implausible for the pack (see the Power group); calibrate BATT_VOLT_MULT'
