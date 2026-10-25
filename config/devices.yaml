@@ -1,0 +1,14 @@
+# Which computer has which role (device-topology.md). Package default: this one machine plays
+# every role, so simulation and a dev laptop need nothing else. A deployment adds
+# $ROS_WS/config/devices.yaml (the boat's hosts); an operator may add
+# ~/.config/mhseals/devices.yaml, usually only `self:`. Host `local` is a fallback: a role
+# resolves to it only while no other host claims that role.
+# What each role runs lives in mhseals_nav config/devices/<profile>.yaml, never here.
+defaults: {user: roboboat, container: roboboat_dev, workspace: ~/astro_dock, ssh: true}
+roles:
+  boat_computer: {profile: odroid}
+  camera_host: {profile: jetson}
+  operator: {profile: operator}
+hosts:
+  local: {roles: [boat_computer, camera_host, operator], address: 127.0.0.1}
+ping: []
