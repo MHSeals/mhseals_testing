@@ -49,6 +49,7 @@ def add_parsers(sub):
     run = verb('run', 'run a procedure through the TUI', claim=True)
     run.add_argument('procedure', metavar='KEY|NAME')
     run.add_argument('--dry-run', action='store_true', help='evaluate the gates only')
+    run.add_argument('--task', help='mission only: the task to rehearse (else the operator picks it)')
     goal = verb('goal', 'send a map-frame goal through the TUI', claim=True)
     for name in ('x', 'y'):
         goal.add_argument(name, type=float)
@@ -151,7 +152,10 @@ class Agent:
         return self.send('release', claim=self.args.claim)
 
     def run(self):
-        return self.send('run', {'key': self.args.procedure}, self.args.claim, self.args.dry_run)
+        args = {'key': self.args.procedure}
+        if getattr(self.args, 'task', None):
+            args['task'] = self.args.task
+        return self.send('run', args, self.args.claim, self.args.dry_run)
 
     def goal(self):
         args = {'x': self.args.x, 'y': self.args.y, 'yaw': self.args.yaw}

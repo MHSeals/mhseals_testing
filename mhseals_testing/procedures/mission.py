@@ -29,7 +29,7 @@ def available(directory=MISSION_DIR):
 
 
 def run(ctx):
-    task = ctx.choose('Mission', tuple(available()))
+    task = ctx.services.get('task') or ctx.choose('Mission', tuple(available()))   # an agent's run names it
     rubric = yaml.safe_load((MISSION_DIR / f'{task}.yaml').read_text())
     services = ctx.services
     watcher = services['task_watcher']()

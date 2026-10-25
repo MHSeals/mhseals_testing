@@ -38,9 +38,18 @@ DRY_TIMEOUT_S = 0.5            # costmap and plan waits of a dry run, answered o
 NOTES = 200
 PROGRESS_S = 5.0
 STATUS_S = 1.0
-HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U', 'keyboard': 'operator left manual',
+HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U',
+         # Space's hold puts the mux on manual too, so 'keyboard' is Space or manual driving
+         'keyboard': 'operator took over (Space or manual): wait until they re-arm and release the hold (U)',
          'rc': 'RC must return to auto', 'fault': 'operator must clear the fault and re-arm',
-         'unknown': 'mux state is unknown'}
+         'unknown': 'mux state is unknown',
+         'geofence': 'fence hold: outside the fence or in its margin facing out; the operator drives inward, '
+                     'then releases (U)',
+         'costmap_stale': 'costmap hold: the costmap went stale; operator must U once it is fresh',
+         'operator_link': 'operator link hold: operator must U once the link is back',
+         'fcu_link': 'FCU link hold: operator must U once MAVROS is back',
+         'ekf_inputs': 'EKF input hold: operator must U once the sensors are back',
+         'approach': 'approach guard hold: operator must U'}
 
 
 class AgentDesk:
@@ -288,6 +297,11 @@ class AgentDesk:
             found, name = agent_acts.procedure(agent_acts.run_key(req['args']))
             if found is None or name not in self.config.get()['run']:
                 return 'not_allowed', f"agent.yaml run: lists {', '.join(self.config.get()['run'])}"
+            task = agent_acts.run_task(req['args'])
+            if task is not None and name != 'mission':
+                return 'bad_args', '--task is for run mission only'
+            if task is not None and task not in agent_acts.mission_tasks():
+                return 'bad_args', f"mission tasks: {', '.join(agent_acts.mission_tasks())}"
         else:
             agent_acts.goal_args(req['args'])
         return None
@@ -340,7 +354,8 @@ class AgentDesk:
         if req['op'] in MOTION and (refusal := self.refusal(req)):
             return self.reply(req, False, refusal[0], hint=refusal[1])
         args = req['args']
-        label = {'run': f'run {agent_acts.procedure(agent_acts.run_key(args))[1]}', 'ask': 'ask',
+        label = {'run': ' '.join(filter(None, ('run', agent_acts.procedure(agent_acts.run_key(args))[1],
+                                                agent_acts.run_task(args)))), 'ask': 'ask',
                  'goal': f"goal {args.get('x')}, {args.get('y')}"}[req['op']]
         self.act = {'id': req['id'], 'op': req['op'], 'who': req['who'], 'claim': req.get('claim'),
                     'req': req, 'label': label, 'state': 'starting', 'cause': None, 'armed': app.armed,
@@ -382,7 +397,8 @@ class AgentDesk:
     def act_run(self, act):
         app = self.app
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
-        if not self.confirm(act, f"Agent {act['who']}: run {name} · allow?"):
+        task = agent_acts.run_task(act['req']['args'])
+        if not self.confirm(act, f"Agent {act['who']}: run {name}{' ' + task if task else ''} · allow?"):
             return False
         if 'armed' in found.needs and not app.armed:
             self.set_state(act, 'waiting_arm')
@@ -396,8 +412,9 @@ class AgentDesk:
             act['armed'] = True
         if self.watch():
             return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
-        self.begin(act)
-        result, error = agent_acts.run(app, found)
+        # started says who picks the mission task, so 'started' is not read as the course running
+        self.begin(act, {'task': task or 'the operator picks it'} if name == 'mission' else None)
+        result, error = agent_acts.run(app, found, task)
         cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
         if cause:
             self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),
@@ -412,8 +429,9 @@ class AgentDesk:
         app = self.app
         goal = agent_acts.goal_args(act['req']['args'])
         facts = agent_acts.goal_facts(app, self.lifecycle())
-        reason = gate(replace(facts, costmap_age_s=0.0))   # the send fetches the costmap fresh
-        if reason:                               # never ask Allow for a goal the gates already refuse
+        reason = gate(replace(facts, costmap_age_s=0.0)) or agent_acts.fence_check(app, goal, facts)
+        if reason:                               # never ask Allow for a goal the gates already refuse (the
+            #                                      send fetches the costmap fresh and checks it all again)
             return self.finish(act, False, 'refused', hint=reason)
         if not self.confirm(act, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f} · allow?"):
             return False
@@ -480,6 +498,13 @@ class AgentDesk:
     def cancel(self, cause):
         if self.act is not None and not self.act['cause']:
             self.act['cause'] = cause
+
+    def take_over(self):
+        """Manual control starts: an agent goal is cancelled in Nav2 now (rc 3, never resumed)."""
+        act = self.act
+        if act is not None and act['op'] == 'goal' and act['started']:
+            self.cancel('overridden: keyboard')
+            self.watch_goal(act, act['cause'])
 
     def watch(self):
         """The act's cancel cause (set once, never cleared), acting on it; None while it may go on."""

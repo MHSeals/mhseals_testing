@@ -1168,6 +1168,28 @@ def test_manual_control_drives_held_keys_on_the_page_and_ends_neutral(tmp_path):
     assert app.focus == 'motion' and app.notice == 'Manual control ended'
 
 
+def test_manual_control_takes_over_from_the_agent_desk_and_keeps_it_ticking(tmp_path):
+    """C3: m cancels an agent goal at once, and the desk keeps answering (status.json) in manual."""
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    seen = []
+
+    class Desk:
+        def take_over(self):
+            seen.append(('take_over', app.manual))
+
+        def tick(self):
+            seen.append(('tick', app.manual))
+    app.desk = Desk()
+    app.open_events = lambda: Events(app.clock, ['press:w', None, 'release:w', None, None, None, 'press:x'])
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    assert seen[0] == ('take_over', False)                  # before manual drives
+    assert ('tick', True) in seen                           # the desk ticks from inside manual
+    app.desk = None
+
+
 def test_manual_notice_labels_the_chord_modes_like_keyboard_control(tmp_path):
     app, _ = make_app(tmp_path)
     app.console.size = (120, 40)

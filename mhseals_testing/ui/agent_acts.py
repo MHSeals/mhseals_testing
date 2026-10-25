@@ -89,15 +89,31 @@ def choose(app, title, options, timeout_s, cause, message=None, danger=True, clo
         return None, str(closed)
 
 
-def run(app, found):
-    """Run ``found`` as its key would; returns (result, error). The run file names the outcome."""
+def run_task(args):
+    """The mission task a ``run`` request names (``{task}``), or None: the operator picks it."""
+    return str(args['task']) if args.get('task') else None
+
+
+def mission_tasks():
+    from mhseals_testing.procedures import mission
+    return mission.available()
+
+
+def run(app, found, task=None):
+    """Run ``found`` as its key would; returns (result, error). The run file names the outcome.
+
+    ``task`` is the mission task an agent named; without it the mission asks the operator.
+    """
     run_id = runs.next_run_id(app.paths.runs, found.title)
     error = None
+    app.agent_task = task
     try:
         app.run_procedure(found)
     except STOPPING as stopped:
         error = str(stopped) or type(stopped).__name__
         app.stop(error, by='error')             # what the key loop does with a stopping error
+    finally:
+        app.agent_task = None
     record = read_json(app.paths.runs / f'{run_id}.json') or {}
     notice = str(app.notice or '')
     result = {'run_id': run_id if record else None,
@@ -153,7 +169,9 @@ def goal_facts(app, lifecycle=None):
     else:
         fix = navsat_fix(app.profile, sensors)
     driving = app.running or ('manual control' if app.manual else '')
+    fence, fence_age = nav2.fence_state() if hasattr(nav2, 'fence_state') else (None, math.inf)
     return goals_module.Facts(
+        fence=fence, fence_age_s=fence_age,
         live=bool(app.source.live), owner=not app.watching, nav_running=set(NAV_NODES) <= nodes,
         lifecycle=lifecycle, unit=app.profile.command_units, armed=bool(app.armed), driving=driving or '',
         pose_age_s=odometry.get('age', math.inf) if odometry.get('status') == 'LIVE' else math.inf,
@@ -212,10 +230,19 @@ def _plan(app, goal, facts, timeout=2.0):
     if pose is None or cells is None:
         return None, None, None, 'no map pose' if pose is None else 'no costmap'
     facts = replace(facts, costmap_age_s=costmap_age(nav2))  # judged on the grid just fetched
-    path, reason = app.goals.preview(goal, pose[:2], cells, facts, timeout=timeout)
+    path, reason = app.goals.preview(goal, pose, cells, facts, timeout=timeout)
     if reason:
-        return pose[:2], cells, None, reason
-    return pose[:2], cells, float(sum(math.dist(a, b) for a, b in zip(path, path[1:]))), None
+        return pose, cells, None, reason
+    return pose, cells, float(sum(math.dist(a, b) for a, b in zip(path, path[1:]))), None
+
+
+def fence_check(app, goal, facts):
+    """The fence's refusal for ``goal`` from the boat's pose now, or None; before any Allow is asked."""
+    nav2 = nav2_of(app)
+    pose = nav2.pose() if nav2 is not None else None
+    if pose is None:
+        return 'no map pose'
+    return goals_module.check_fence(goal, pose, facts.fence, facts.fence_age_s)
 
 
 def goal_preview(app, goal, facts, timeout=2.0):
@@ -288,6 +315,7 @@ def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0):
                               if app.engine is not None else ([], []))
         needs_arm = 'armed' in found.needs and not app.armed
         return {'procedure': name, 'title': found.title, 'availability': app.availability(found) or None,
+                'task': run_task(args) if name == 'mission' else None,
                 'gates': list(blocking), 'advisories': list(advisory),
                 'arm_blockers': app.arm_blockers() if needs_arm else [],
                 'motion_blockers': app.motion_blockers() if app.armed else [],

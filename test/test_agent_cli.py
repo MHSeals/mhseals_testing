@@ -105,6 +105,13 @@ def test_run_streams_progress_and_renews_the_motion_lease():
     assert renews and all(r['claim'] == 'c4' and r['act'] == req['id'] for r in renews)
 
 
+def test_run_mission_sends_the_task_it_names():
+    desk = Desk(lambda req: [dict(state='done', result={})])
+    call(['run', 'mission', '--task', 'nav_channel', '--claim', 'c4', '--dry-run'], desk)
+    [req] = lines('req')
+    assert req['args'] == {'key': 'mission', 'task': 'nav_channel'}
+
+
 def test_dry_run_sends_dry_and_does_not_renew():
     desk = Desk(lambda req: [dict(state='done', result={'blockers': []})])
     code, _ = call(['goal', '3', '-4.5', '0.5', '--claim', 'c4', '--dry-run'], desk)

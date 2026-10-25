@@ -12,12 +12,22 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness import agent_channel as ch, runs
+from mhseals_testing.harness import agent_channel as ch, goals as goals_module, runs
 from mhseals_testing.harness.settings import Settings, load as load_settings, save as save_settings
 from mhseals_testing.runner import Aborted, interlock_abort
 from mhseals_testing.ui import agent_acts, status_file
 from mhseals_testing.ui.feeds import agent as agent_feed
 from mhseals_testing.ui.feeds.authority import AuthorityFeed
+
+# fence_watchdog's message: a map box around the start, as the sim's
+FENCE = {'valid': True, 'frame': 'map', 'points': [-40.0, -40.0, 40.0, -40.0, 40.0, 40.0, -40.0, 40.0],
+         'source_frame': 'map', 'margin_m': 5.0, 'outward_angle_deg': 60.0, 'outward_speed_mps': 0.1,
+         'reason': '', 'error': '', 'stamp_ns': 1}
+
+
+@pytest.fixture(autouse=True)
+def fence_topic(monkeypatch):
+    monkeypatch.setattr(goals_module, 'fence_config', lambda: ('/fence_watchdog/fence', 3.0))
 
 
 class Registry:
@@ -45,6 +55,10 @@ class Nav2:
 
     def __init__(self):
         self.goal, self.costmap_time, self.costmap_delay = None, None, 0.0
+        self.fence = FENCE
+
+    def fence_state(self, timeout=1.0):
+        return self.fence, 0.5
 
     def lifecycle(self, timeout=2.0):
         return dict.fromkeys(('bt_navigator', 'controller_server', 'planner_server', 'velocity_smoother'),
@@ -265,6 +279,25 @@ def test_a_claim_gets_the_idle_lease_and_a_run_goes_through_with_confirm(rig):
     assert states[:3] == ['queued', 'asking', 'started'] and states[-1] == 'done'
     phases = [p for p, _ in rig.app.events]
     assert 'agent_req' in phases and 'agent_act' in phases
+
+
+def test_run_mission_names_its_task_or_says_the_operator_picks(rig):
+    """C27: --task reaches the mission (no task menu); without it the reply says who picks."""
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    seen = []
+    rig.app.on_step = {0: lambda: seen.append(getattr(rig.app, 'agent_task', None))}
+    req = ask(rig, 'run', c, key='mission', task='nav_channel')
+    started = next(r for r in replies(req['id']) if r['state'] == 'started')
+    assert started['result'] == {'task': 'nav_channel'} and seen == ['nav_channel']
+    assert final(req['id'])['ok'] and rig.app.agent_task is None
+    assert rig.desk.recent[-1]['label'] == 'run mission nav_channel'
+    req = ask(rig, 'run', c, key='mission')
+    assert next(r for r in replies(req['id']) if r['state'] == 'started')['result'] == {
+        'task': 'the operator picks it'}
+    reply = final(ask(rig, 'run', c, key='mission', task='nope')['id'])
+    assert reply['error'] == 'bad_args' and 'nav_channel' in reply['hint']
+    assert final(ask(rig, 'run', c, key='square', task='nav_channel')['id'])['error'] == 'bad_args'
 
 
 def test_motion_refusals_name_the_human_action(rig):
@@ -810,6 +843,58 @@ def test_recent_keeps_finished_and_refused_acts_after_act_clears(rig):
     rig.app.settings.agent_motion = 'allow'
     ask(rig, 'goal', c, x=5, y=0)
     assert rig.desk.summary()['act']['motion_s'] == 10
+
+
+@pytest.mark.parametrize('fence, x, reason', [
+    (FENCE, 5, None),
+    (dict(FENCE, points=[-8.0, -8.0, 4.0, -8.0, 4.0, 8.0, -8.0, 8.0]), 5, 'outside the fence'),
+    (dict(FENCE, points=[-8.0, -8.0, 8.0, -8.0, 8.0, 8.0, -8.0, 8.0]), 5, 'fence margin'),
+    (None, 5, 'no fence from fence_watchdog'),
+    (dict(FENCE, valid=False, points=None, error='no valid fence configured'), 5, 'no valid fence'),
+])
+def test_a_goal_past_the_fence_or_its_margin_is_refused_before_allow(rig, fence, x, reason):
+    """C9: the dry run and the act refuse it up front; no Allow is asked, nothing moves."""
+    c = claim(rig)
+    rig.app.nav.fence = fence
+    reply = final(ask(rig, 'goal', c, dry=True, x=x, y=0)['id'])
+    assert reply['result']['gate'] == reason or reason in reply['result']['gate']
+    if reason is None:
+        return
+    reply = final(ask(rig, 'goal', c, x=x, y=0)['id'])
+    assert reply['error'] == 'refused' and reason in reply['hint']
+    assert 'asking' not in [r['state'] for r in replies(reply['re'])]
+    assert rig.app.nav.goal is None and rig.app.goals.active is None
+
+
+def test_manual_takeover_cancels_the_agent_goal_in_nav2_and_the_desk_keeps_answering(rig):
+    """C3: m cancels the goal at once (rc 3, no resume); in manual the desk answers without Nav2."""
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    rig.desk.take_over()                                     # app.run_procedure(manual) calls it first
+    assert rig.app.nav.goal.cancelled and rig.app.goals.active is None and rig.desk.act is None
+    reply = final(req['id'])
+    assert reply['error'] == 'overridden: keyboard' and ch.exit_code(reply) == 3 and 'U' in reply['hint']
+    rig.app.manual, rig.app.running = True, 'Manual control'
+    written = []
+    rig.desk.status = lambda app, desk: written.append(desk.summary())
+    rig.clock[0] += agent_feed.STATUS_S
+    dry = ask(rig, 'goal', c, dry=True, x=5, y=0)
+    goal = ask(rig, 'goal', c, x=5, y=0)
+    assert final(dry['id'])['error'] == final(goal['id'])['error'] == 'overridden'
+    assert written and rig.app.nav.goal.cancelled            # status.json keeps updating; nothing resumed
+
+
+def test_space_and_fence_holds_say_what_the_operator_does(rig):
+    """C1/C11: the hint names U, not 'operator left manual'; a fence hold says how to get out."""
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    rig.app.set_mux('hold', 'geofence')
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['error'] == 'overridden: geofence' and 'inward' in reply['hint'] and '(U)' in reply['hint']
+    assert '(U)' in agent_feed.HINTS['keyboard'] and 'left manual' not in agent_feed.HINTS['keyboard']
 
 
 def test_goal_freshness_is_judged_on_the_grid_fetched_for_it(rig):

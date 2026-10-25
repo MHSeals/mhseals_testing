@@ -112,6 +112,7 @@ FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease exp
 HOLD_CONFIRM_S = 2.0      # s the mux state may take to show a requested watchdog hold
 WATCHDOG_GRACE = 2.0     # s a required safety watchdog may be missing from the graph while armed (graph lag)
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
+MANUAL_DESK_S = 0.2      # s; the agent desk's tick from inside manual control
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
 NEUTRAL = 1500
@@ -2508,6 +2509,9 @@ class App:
             self.notice = f'{procedure.title}: {reason}'
             return
         self.clear_pulses()
+        desk = getattr(self, 'desk', None)
+        if desk is not None and procedure.key == 'm':
+            desk.take_over()             # manual cancels an agent goal at once, as Space and E do
         # Only jump to Map once it has a body; otherwise the operator lands on a placeholder.
         if (self.settings.auto_tab and 'Map' in layout.BODIES
                 and getattr(procedure, 'group', '') in ('Navigate', 'Mission')):
@@ -2590,6 +2594,7 @@ class App:
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 mux_input=self.mux_input,
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
+                task=getattr(self, 'agent_task', None),   # mission: the task an agent's run named
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             speed=lambda: self.manual_speed, clock=self.monitor.clock)))
@@ -2764,6 +2769,12 @@ class App:
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""
         self.manual = not done
         self.manual_speed = amplitude    # kept for the next time manual is enabled
+        desk = getattr(self, 'desk', None)
+        if desk is not None and not done and time.monotonic() - getattr(self, '_manual_desk_at', 0.0) >= MANUAL_DESK_S:
+            # The key loop is manual's own: the desk keeps answering (motion refused, dry runs busy, no
+            # Nav2 call) and status.json stays current, and an agent goal still live is cancelled.
+            self._manual_desk_at = time.monotonic()
+            desk.tick()
         self.command, self.chords = tuple(command), bool(chords)
         self.monitor.command(command)
         if 'motion' in self.panels():
