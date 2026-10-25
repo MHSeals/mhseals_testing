@@ -432,7 +432,7 @@ def test_refusals_with_the_real_authority_state(stack, live):
     assert ack['ok']
     time.sleep(1.3)
     assert 'claim held' in live.apply(ask(wz_max=0.25))['refused']
-    stack.arbiter.handle({'op': 'release', 'id': ack['id']})
+    stack.arbiter.handle({'op': 'release', 'who': 'agent-x', 'id': ack['id']})
     time.sleep(1.3)
     assert live.preview(ask(wz_max=0.25)).refusals == []
     dead = subprocess.Popen([sys.executable, '-c', 'pass'])
