@@ -60,10 +60,10 @@ def toggle(app, key):
         info.append(('Motion', 'can command the boat once armed with the mux in auto'))
     if item.kind == 'commander' and stopping and app.armed:
         info.append(('Armed', 'stopping it leaves the mux holding'))
-    # The title never starts with Stop: popups route U by that prefix to the hold release.
+    # Cancel is focused, so Enter alone never starts or stops a part.
     try:
         choice = app.choose(f'{item.title} on {where}: {verb}?', [verb, 'Cancel'], {'y': 0, 'n': 1},
-                            rows=info, danger=item.kind == 'commander' and not stopping)
+                            rows=info, danger=item.kind == 'commander' and not stopping, default=1)
     except Cancelled:
         return
     if choice != verb:

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from mhseals_hardware.menu import Cancelled
 
 from mhseals_testing.harness.components import Stack
-from mhseals_testing.ui import parts
+from mhseals_testing.ui import parts, popups
 from test_components import FakeProcesses, FakeUnits, Profile, items
 
 
@@ -16,8 +16,11 @@ class App:
         self.ros = SimpleNamespace(nodes=lambda: [], emit=lambda *a, **k: self.events.append((a, k)))
         self.answer, self.armed, self.asked, self.events, self.notice = answer, armed, [], [], ''
 
-    def choose(self, title, options, shortcuts=None, rows=None, danger=False, **_):
+    def choose(self, title, options, shortcuts=None, rows=None, danger=False, default=0, **_):
+        # The real modal refuses a danger default, as the popup would.
+        popups.choice_modal(title, options, shortcuts, rows=rows, danger=danger, default=default)
         self.asked.append((title, options, dict(rows), danger))
+        self.default = options[default]
         if self.answer is None:
             raise Cancelled()
         return self.answer
@@ -38,7 +41,7 @@ def test_enter_confirms_with_the_host_then_starts_a_remote_part():
     parts.toggle(app, 'camera')
     title, options, rows, danger = app.asked[0]
     assert title == 'Camera on blastoise-jetson: Start?' and options == ['Start', 'Cancel']
-    assert rows['Computer'] == 'blastoise-jetson' and not danger
+    assert rows['Computer'] == 'blastoise-jetson' and not danger and app.default == 'Cancel'
     assert app.stack.units.calls == [('start', 'camera', False)]
 
 
@@ -46,7 +49,7 @@ def test_a_commander_start_is_a_danger_confirm_and_cancel_does_nothing():
     app = App(answer=None)
     app.stack.processes.live.add('odometry')
     parts.toggle(app, 'navigation')
-    assert app.asked[0][3] and 'Motion' in app.asked[0][2]
+    assert app.asked[0][3] and 'Motion' in app.asked[0][2] and app.default == 'Cancel'
     assert app.stack.processes.started == []
 
 
@@ -55,7 +58,6 @@ def test_stop_while_armed_warns_but_stops():
     app.stack.units.records['camera'] = {'state': 'running'}
     parts.toggle(app, 'camera')
     assert app.asked[0][0] == 'Camera on blastoise-jetson: Stop?'
-    assert not app.asked[0][0].startswith(('Stop', 'Authority'))    # U never releases a hold here
     assert app.stack.units.calls == [('stop', 'camera')]
 
 
@@ -70,3 +72,16 @@ def test_quit_names_the_units_held_on_each_host():
     app.stack.units.held_by_host = lambda: {'blastoise-jetson': ['Camera', 'Objects']}
     assert parts.quit_rows(app) == [('On blastoise-jetson', 'Camera, Objects: Quit stops them')]
     assert parts.quit_rows(SimpleNamespace(stack=None)) == []
+
+
+def test_u_releases_only_from_a_release_modal_whatever_the_title():
+    released = []
+    keys = iter(['U', 'x'])
+    app = SimpleNamespace(modal=None, refresh=lambda: None, tick=lambda: None,
+                          keys=SimpleNamespace(read=lambda timeout: next(keys)),
+                          release_hold=lambda: released.append(1))
+    popups.popup(app, dict(kind='choice', title='Stop part?'), lambda key: key)
+    assert released == []
+    keys = iter(['U', 'x'])
+    popups.popup(app, dict(kind='message', title='Hold', release=True), lambda key: key)
+    assert released == [1]
