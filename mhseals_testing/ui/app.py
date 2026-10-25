@@ -2478,6 +2478,12 @@ class App:
             action = 'abort'  # Caps Lock must not defeat abort; E/U remain case-sensitive.
         if action == 'abort':
             return 'abort'
+        if action is None and keymap.resolve(['tab.drive'], key) == 'manual':
+            # A manual takeover: the run (an agent's too) ends at neutral; m again drives.
+            desk = getattr(self, 'desk', None)
+            if desk is not None:
+                desk.cancel('overridden: keyboard')
+            return 'abort'
         if action in ('mark', 'revoke_agent', 'release_hold'):
             {'mark': self.mark, 'revoke_agent': self.revoke_agent,
              'release_hold': self.release_hold}[action]()

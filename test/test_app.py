@@ -1943,6 +1943,17 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     assert app.notice == 'Release requested' and released == [1]
 
 
+def test_the_manual_key_takes_over_a_run_and_overrides_the_agent(tmp_path):
+    """M3: m during a procedure ends it at neutral (no hold); an agent's act reads overridden: keyboard."""
+    from mhseals_testing.ui import keymap as keymap_module
+    app, _ = make_app(tmp_path)
+    keymap, _ = keymap_module.load()
+    causes = []
+    app.desk = __import__('types').SimpleNamespace(cancel=causes.append)
+    assert app.runner_key('m', keymap) == 'abort' and causes == ['overridden: keyboard']
+    assert app.runner_key('w', keymap) is None
+
+
 @pytest.mark.parametrize('release', [True, False])
 def test_arming_waits_for_the_mux_and_offers_its_restored_hold_for_release(tmp_path, release):
     """H2: the mux starts with the saved keys hold; arming then running needs the human's U, not a cancel."""
