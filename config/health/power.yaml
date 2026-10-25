@@ -31,7 +31,10 @@ checks:
     severity: warn
     missing: skip
     title: Battery reading
+  # The FCU's charge estimate: its battery band is not validated on this pack, so it ships off.
+  # Set enabled: true here (or `override: {power.charge: {enabled: true}}` in ~/.config/mhseals/health.yaml).
   - id: power.charge
+    enabled: false
     kind: threshold
     fact: battery.percent
     warn: 30

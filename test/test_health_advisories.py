@@ -9,6 +9,7 @@ import time
 import pytest
 
 from mhseals_testing.health import advisories, probes
+from mhseals_testing.health import config as health_config
 from mhseals_testing.health.config import HEALTH_DIR, lint, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import Fact
@@ -28,10 +29,18 @@ class Clock:
 
 
 @pytest.fixture
-def health(tmp_path):
-    """A Health over the shipped checks with a hand-driven clock; returns (health, clock)."""
+def health(tmp_path, monkeypatch):
+    """A Health over the shipped checks, the charge estimate enabled, with a hand-driven clock;
+    returns (health, clock). The test's own user file replaces ~/.config/mhseals/health.yaml."""
+    user = tmp_path / 'health.yaml'
+    user.write_text('override: {power.charge: {enabled: true}}\n')
+    monkeypatch.setattr(health_config, 'USER_FILE', user)
     clock = Clock()
     return advisories.Health(None, tmp_path, clock=clock, host=lambda: CALM), clock
+
+
+def test_the_charge_estimate_ships_disabled():
+    assert not {s.id: s for s in load(HEALTH_DIR, user=False).specs}['power.charge'].enabled
 
 
 def settle(health, clock, snapshot=None, seconds=12):
