@@ -568,7 +568,7 @@ class FakeNav:
     def costmap_lease(self, who):
         yield self
 
-    def fetch_costmap(self, timeout=2.0):
+    def fetch_costmap(self, timeout=2.0, topic=None):
         return self.costmap
 
     def lifecycle(self):
