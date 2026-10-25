@@ -112,6 +112,34 @@ def test_the_ros_feed_drops_any_bad_message_and_logs_once():
     assert ros.drops.get('hypotheses', 0) <= 3 and len(logged) <= 1
 
 
+def test_a_runner_gone_without_a_final_status_stops_reading_running(monkeypatch):
+    import importlib
+    import sys
+    from types import ModuleType, SimpleNamespace
+    if importlib.util.find_spec('rclpy') is None:   # stub the two imports; nothing spins
+        qos = ModuleType('rclpy.qos')
+        qos.DurabilityPolicy = qos.ReliabilityPolicy = SimpleNamespace(TRANSIENT_LOCAL=1, RELIABLE=1)
+        qos.QoSProfile = lambda **kw: kw
+        msg = ModuleType('std_msgs.msg')
+        msg.String = object
+        for name, module in (('rclpy', ModuleType('rclpy')), ('rclpy.qos', qos),
+                             ('std_msgs', ModuleType('std_msgs')), ('std_msgs.msg', msg)):
+            monkeypatch.setitem(sys.modules, name, module)
+        monkeypatch.setitem(sys.modules, 'mhseals_testing.ros.mission', None)   # dropped on undo
+        monkeypatch.delitem(sys.modules, 'mhseals_testing.ros.mission')
+    from mhseals_testing.ros.mission import TaskWatcher
+    publishers = [1]
+    node = SimpleNamespace(create_subscription=lambda *a: None,
+                           count_publishers=lambda topic: publishers[0] if topic == '/task/status' else 0)
+    watcher = TaskWatcher(SimpleNamespace(node=node, monitor=None))
+    watcher._status(SimpleNamespace(data='{"task": "gate", "status": "RUNNING"}'))
+    assert watcher.status['status'] == 'RUNNING'
+    publishers[0] = 0                   # the runner crashed: its latched RUNNING is stale
+    assert watcher.status == {}
+    watcher._status(SimpleNamespace(data='{"task": "gate", "status": "SUCCEEDED"}'))
+    assert watcher.status['status'] == 'SUCCEEDED'   # a final status stays after the runner exits
+
+
 def test_the_feed_view_is_itself():
     mission, _ = feed()
     assert mission.view() == {'mission': mission}

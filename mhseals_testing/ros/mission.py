@@ -36,8 +36,15 @@ class MissionFeed:
 
 
 class TaskWatcher:
+    """The run's events and its latest status.
+
+    A runner that dies without a final status leaves a latched RUNNING behind, so ``status``
+    reads empty once ``/task/status`` has no publisher left while it still says RUNNING.
+    """
+
     def __init__(self, ros):
-        self.events, self.status = [], {}
+        self.events, self._latest = [], {}
+        self.node = ros.node
         ros.node.create_subscription(  # transient local: the run's first events too
             String, '/task/events', self._event,
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -46,6 +53,13 @@ class TaskWatcher:
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.monitor = ros.monitor
 
+    @property
+    def status(self):
+        if (self._latest.get('status') == 'RUNNING'
+                and self.node.count_publishers('/task/status') == 0):
+            self._latest = {}     # the runner is gone without a final status
+        return self._latest
+
     def _event(self, message):
         event = json.loads(message.data)
         event['received'] = self.monitor.clock()  # on the track's clock, for the referee
@@ -53,8 +67,8 @@ class TaskWatcher:
         self.monitor.event(f"task {event.get('event')}")
 
     def _status(self, message):
-        self.status = json.loads(message.data)
+        self._latest = json.loads(message.data)
 
     def reset(self):
         self.events.clear()
-        self.status = {}
+        self._latest = {}
