@@ -1,10 +1,10 @@
  boat_test  [Drive]  Correction  Map  Bags  boat · effort                                boat · ROS 42   KEYS   disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
 ╭─ ▸ Status · 1/8 live ──────────╮╭─ Motion · effort · ✓ odom · KEYS ───────╮╭─ Conditions · good 94% · 4 min ─────────╮
-│ Components                     ││ Surge  +60% → +0.20                     ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀N⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀ │ keyboard·chords │
-│ › ✓ odometry              once ││ +0.6                                    ││ ⠀⠀⠀⠀⠠⡀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀⡠⠀⠀⠀⠀ │ ≫ ▰▰▰▰▰▱ 75%    │
-│   · FCU odometry               ││                                       ⠐ ││ ⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠤⠤⣨⠋⡇⠀⠀⠀⢀⠀⠀ │ surge      +60% │
-│   ✗ GPS                        ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⠣⠈⠀⠀⠀⠀⠀⠀⠀ │ ▕      │███▋  ▏ │
+│ Components                     ││ Surge  +60% → +0.20                     ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀N⠀⠀⠀⠄⠀⠀⠀⠀↺⠀ │ keyboard·chords │
+│ › ✓ odometry              once ││ +0.6                                    ││ ⠀⠀⠀⠀⠠⡀⠀⠀⠀⠀⠀⠀⣀⡄⠀⠀⡠⠀⠀⠀⠀ │ ≫ ▰▰▰▰▰▱ 75%    │
+│   · FCU odometry               ││                                       ⠐ ││ ⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡸⠉⡀⠀⠀⠀⢀⠀⠀ │ surge      +60% │
+│   ✗ GPS                        ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⠡⠈⠀⠀⠀⠀⠀⠀⠀ │ ▕      │███▋  ▏ │
 │   ! IMU                  once× ││ -0.6                                    ││ ⠀⠀W⠀⠀⠀⠀⠀⠀⣼⣿⣿⠆⠀⠀⠀⠀⠀⠀E⠀ │ sway          0 │
 │   · GPS raw                    ││ Sway  +0% → +0.00                       ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⢿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀ │ ▕      │      ▏ │
 │   · compass                    ││ +0.3                                    ││ ⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠀ │ yaw ↺      +20% │
