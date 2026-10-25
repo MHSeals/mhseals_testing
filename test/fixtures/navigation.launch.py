@@ -66,7 +66,8 @@ def generate_launch_description():
                 condition=UnlessCondition(LaunchConfiguration('use_lidar'))),
         DeclareLaunchArgument('command_mux', default_value='false',
                               description='A command_mux arbitrates /cmd_vel; start the '
-                                          'stale-costmap watchdog that asks it to hold'),
+                                          'stale-costmap watchdog and the approach guard '
+                                          'that ask it to hold'),
         OpaqueFunction(function=navigation_nodes),
         # Hold-only: without a mux nothing would act on its requests.
         Node(package='mhseals_nav', executable='costmap_watchdog', name='costmap_watchdog',
@@ -74,4 +75,13 @@ def generate_launch_description():
              parameters=[PathJoinSubstitution([share, 'config', 'costmap_watchdog.yaml']),
                          {'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
                                                          value_type=bool)}]),
+        # Holds, hold-only too, when an obstacle closes in on the hull from any side.
+        Node(package='mhseals_nav', executable='approach_guard', name='approach_guard',
+             output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
+             parameters=[PathJoinSubstitution([share, 'config', 'approach_guard.yaml']),
+                         {'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
+                                                         value_type=bool),
+                          # Log-only on the boat until water bags replay clean.
+                          'enforce': ParameterValue(LaunchConfiguration('sim'),
+                                                    value_type=bool)}]),
     ])
