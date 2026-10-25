@@ -1,4 +1,4 @@
-# Agent control (boat_trial claim/run/goal/... and the Claude Code hook). Hot reloaded.
+# Agent control (boat_trial claim/run/goal/... and the agent hook for Claude Code and Codex). Hot reloaded.
 # lease.idle_s: any verb or hook note by the claim's `who` renews it; motion_s: the blocking CLI of
 # a running act renews it every motion_s/3. Expiry acts exactly like E: neutral, mux hold, goal
 # cancelled. max_claim_s ends a claim that keeps renewing.

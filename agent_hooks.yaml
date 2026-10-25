@@ -1,0 +1,3 @@
+# The agent hook astro_dock's .agents/hook.py runs for Claude Code and Codex (see that file).
+name: mhseals_testing
+script: mhseals_testing/harness/agent_hook.py      # agent_event(event); settings in config/agent.yaml hook:

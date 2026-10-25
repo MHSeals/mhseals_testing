@@ -1,4 +1,4 @@
-"""The Claude Code hook (spec agent-control section 6): deny list, notes, rate cap, -I stdlib run."""
+"""The agent hook (spec agent-control section 6): playbook, deny list, notes, rate cap, -I stdlib import."""
 
 import json
 from pathlib import Path
@@ -15,52 +15,56 @@ SID = '3f2a9c1e-0000-4000-8000-000000000000'
 
 @pytest.fixture
 def sent(tmp_path, monkeypatch):
+    """``sent(event, command, ...)``: one neutral event from astro_dock's .agents/hook.py."""
     monkeypatch.delenv('BOAT_AGENT', raising=False)
     lines = []
 
-    def run(phase, command, now=100.0, tool='t1', **extra):
-        event = {'session_id': SID, 'tool_use_id': tool, 'tool_input': {'command': command}, **extra}
-        return hook.handle(phase, event, send=lines.append, now=now, state_dir=tmp_path)
+    def run(phase, command, now=100.0, tool='t1', agent='claude', **extra):
+        event = {'agent': agent, 'event': phase, 'session_id': SID, 'tool_id': tool, 'command': command,
+                 'exit': None, 'duration_ms': None, 'failed': False, **extra}
+        return hook.agent_event(event, config=dict(hook.DEFAULTS), send=lines.append, now=now, state_dir=tmp_path)
     run.lines = lines
     return run
 
 
-def test_defaults_are_the_shipped_hook_config():
+def test_defaults_are_the_shipped_hook_config(tmp_path):
     shipped = agent_config.load()['hook']
-    assert hook.hook_config() == {k: shipped[k] for k in hook.DEFAULTS}
-    assert hook.hook_config('/nonexistent') == hook.DEFAULTS
+    assert hook.hook_config(cache_dir=tmp_path) == {k: shipped[k] for k in hook.DEFAULTS}
+    assert hook.hook_config(cache_dir=tmp_path) == hook.hook_config(cache_dir=tmp_path)    # from the cache
+    assert hook.hook_config('/nonexistent', cache_dir=tmp_path) == hook.DEFAULTS
     assert {k: v for k, v in shipped.items() if k in hook.DEFAULTS} == hook.DEFAULTS
 
 
-@pytest.mark.parametrize('command', [
-    'ssh blastoise ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{}"',
-    'ros2 topic pub --once /command_mux/request std_msgs/msg/String "{data: release}"',
-    'ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"',
-    'ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{}"',
-    'ssh blastoise pkill -f boat_test',
-    'ssh blastoise "source x &&\nros2 topic pub --once \\\n  /cmd_vel geometry_msgs/msg/Twist {}"',
-    'ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 400, param1: 1}"',
-    'ros2 action send_goal /spin nav2_msgs/action/Spin "{target_yaw: 1.57}"',
-    'ros2 action send_goal /backup nav2_msgs/action/BackUp "{}"',
-    'ros2 action send_goal /drive_on_heading nav2_msgs/action/DriveOnHeading "{}"',
-    'ros2 action send_goal /follow_waypoints nav2_msgs/action/FollowWaypoints "{}"',
-    'ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{}"'])
-def test_raw_motion_is_denied_with_the_verb_to_use(sent, command):
-    decision = json.loads(sent('pre', command))['hookSpecificOutput']
-    assert decision['permissionDecision'] == 'deny' and decision['hookEventName'] == 'PreToolUse'
-    assert 'boat_agent run|goal|stop' in decision['permissionDecisionReason']
-    assert 'claude-3f2a' in decision['permissionDecisionReason'] and not sent.lines
+@pytest.mark.parametrize('command, verb', [
+    ('ssh blastoise ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{}"', 'run KEY --claim ID'),
+    ('ros2 topic pub --once /command_mux/request std_msgs/msg/String "{data: release}"', 'stop'),
+    ('ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"', 'ask'),
+    ('ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{}"', 'goal X Y'),
+    ('ssh blastoise pkill -f boat_test', 'stop'),
+    ('ssh blastoise "source x &&\nros2 topic pub --once \\\n  /cmd_vel geometry_msgs/msg/Twist {}"', 'run KEY'),
+    ('ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 400, param1: 1}"', 'ask'),
+    ('ros2 topic pub /mavros/rc/override mavros_msgs/msg/OverrideRCIn "{}"', 'run KEY'),
+    ('ros2 action send_goal /spin nav2_msgs/action/Spin "{target_yaw: 1.57}"', 'run KEY'),
+    ('ros2 action send_goal /backup nav2_msgs/action/BackUp "{}"', 'run KEY'),
+    ('ros2 action send_goal /drive_on_heading nav2_msgs/action/DriveOnHeading "{}"', 'run KEY'),
+    ('ros2 action send_goal /follow_waypoints nav2_msgs/action/FollowWaypoints "{}"', 'goal X Y'),
+    ('ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{}"', 'goal X Y')])
+def test_raw_motion_is_denied_with_the_verb_to_use_and_noted(sent, command, verb):
+    reason = sent('pre', command)['deny']
+    assert reason.startswith('Blocked: ') and f'tools/boat_agent {verb}' in reason and '--who claude-3f2a' in reason
+    (note,) = sent.lines
+    assert note['phase'] == 'deny' and note['use'].startswith(('boat_agent ', 'operator'))
+    assert agent_channel.invalid(note) is None
 
 
 def test_boat_commands_become_redacted_notes_and_others_are_ignored(sent):
-    assert sent('pre', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=100.0) == ''
-    assert sent('post', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=102.5,
-                hook_event_name='PostToolUse', tool_response={'stdout': '', 'interrupted': False}) == ''
+    assert sent('pre', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=100.0) is None
+    assert sent('post', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=102.5, exit=0) is None
     for ignored in ('git status', 'ssh blastoise boat_agent status --who claude-3f2a', 'ls ~/ros2_ws'):
         sent('pre', ignored)
     pre, post = sent.lines
     for line in (pre, post):
-        assert agent_channel.invalid(line) is None and line['who'] == 'claude-3f2a'
+        assert agent_channel.invalid(line) is None and line['who'] == 'claude-3f2a' and line['agent'] == 'claude'
         assert line['cmd'] == agent_channel.redact('ssh blastoise ros2 topic hz /odom TOKEN=abc')
     assert pre['phase'] == 'pre' and pre['tool_id'] == 't1' and pre['target'] == 'blastoise'
     assert post['exit'] == 0 and post['dur_s'] == 2.5
@@ -68,11 +72,15 @@ def test_boat_commands_become_redacted_notes_and_others_are_ignored(sent):
 
 def test_a_failed_call_reports_its_exit_code_and_duration(sent):
     sent('pre', 'ros2 node list', tool='f1')
-    sent('post', 'ros2 node list', tool='f1', hook_event_name='PostToolUseFailure',
-         error='Exit code 3\nboom', duration_ms=4187)
-    sent('post', 'ros2 node list', tool='f2', hook_event_name='PostToolUseFailure',
-         error='spawn failed', is_interrupt=True)
+    sent('post', 'ros2 node list', tool='f1', exit=3, failed=True, duration_ms=4187)
+    sent('post', 'ros2 node list', tool='f2', failed=True)
     assert [(n['exit'], n['dur_s']) for n in sent.lines[1:]] == [(3, 4.19), (None, None)]
+
+
+def test_codex_sessions_are_named_codex(sent):
+    sent('pre', 'ros2 node list', agent='codex')
+    assert sent.lines[0]['who'] == 'codex-3f2a' and sent.lines[0]['agent'] == 'codex'
+    assert 'background shell' in sent('start', '', agent='codex')['context']
 
 
 def test_rate_cap_folds_the_excess_into_the_next_line(sent):
@@ -97,8 +105,8 @@ def test_parallel_calls_share_one_locked_window(tmp_path):
     lines = []
 
     def call(i):
-        event = {'session_id': SID, 'tool_use_id': f'p{i}', 'tool_input': {'command': 'ros2 node list'}}
-        hook.handle('pre', event, send=lines.append, now=100.0, state_dir=tmp_path)
+        event = {'agent': 'claude', 'event': 'pre', 'session_id': SID, 'tool_id': f'p{i}', 'command': 'ros2 node list'}
+        hook.agent_event(event, config=dict(hook.DEFAULTS), send=lines.append, now=100.0, state_dir=tmp_path)
     with ThreadPoolExecutor(8) as pool:
         list(pool.map(call, range(24)))
     assert len(lines) == 6
@@ -112,33 +120,33 @@ def test_hook_redaction_matches_the_channel(command):
     assert hook.redact(command) == agent_channel.redact(command) != command
 
 
-def test_start_names_the_agent_and_boat_agent_env_wins(sent, monkeypatch):
-    context = json.loads(sent('start', ''))['hookSpecificOutput']
-    assert context['hookEventName'] == 'SessionStart'
-    assert 'claude-3f2a' in context['additionalContext']
-    assert 'ssh blastoise ~/astro_dock/src/mhseals_testing/tools/boat_agent' in context['additionalContext']
+def test_start_gives_the_playbook_and_boat_agent_env_wins(sent, monkeypatch):
+    context = sent('start', '')['context']
+    assert context.startswith('RoboBoat playbook: you are boat agent claude-3f2a.')
+    assert f'ssh blastoise {hook.BOAT_AGENT} <verb> --who claude-3f2a' in context
+    assert 'run_in_background' in context and not sent.lines
     monkeypatch.setenv('BOAT_AGENT', 'mapper')
-    assert 'mapper' in json.loads(sent('start', ''))['hookSpecificOutput']['additionalContext']
+    assert 'agent mapper' in sent('start', '')['context']
 
 
-def test_runs_isolated_from_the_checkout_and_always_exits_0(tmp_path):
-    script = Path(hook.__file__)
-    deny = {'session_id': SID, 'tool_input': {'command': 'ros2 topic pub /cmd_vel x y'}}
-    env = {'PATH': '/usr/bin:/bin', 'XDG_STATE_HOME': str(tmp_path), 'HOME': str(tmp_path)}
-    done = subprocess.run([sys.executable, '-I', str(script), 'pre'], input=json.dumps(deny),
+def test_imports_isolated_with_the_stdlib_only(tmp_path):
+    """astro_dock's dispatcher imports this file under ``python3 -I``, outside the package."""
+    probe = ('import importlib.util, json, sys; spec = importlib.util.spec_from_file_location("h", sys.argv[1]); '
+             'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); '
+             'print(json.dumps(m.agent_event({"agent": "codex", "event": "pre", "session_id": "ab12", '
+             '"command": "ros2 topic pub /cmd_vel x y"}, send=lambda line: None, state_dir=sys.argv[2])))')
+    env = {'PATH': '/usr/bin:/bin', 'XDG_STATE_HOME': str(tmp_path), 'HOME': str(tmp_path), 'TMPDIR': str(tmp_path)}
+    done = subprocess.run([sys.executable, '-I', '-c', probe, str(Path(hook.__file__)), str(tmp_path)],
                           capture_output=True, text=True, env=env, cwd=tmp_path, timeout=10)
-    assert done.returncode == 0
-    assert json.loads(done.stdout)['hookSpecificOutput']['permissionDecision'] == 'deny'
-    bad = subprocess.run([sys.executable, '-I', str(script), 'pre'], input='not json',
-                         capture_output=True, text=True, env=env, cwd=tmp_path, timeout=10)
-    assert bad.returncode == 0 and bad.stdout == ''
-    assert (tmp_path / 'boat_agent_hook.log').read_text()
+    assert done.returncode == 0, done.stderr
+    assert 'codex-ab12' in json.loads(done.stdout)['deny']
+    assert (Path(hook.__file__).parents[2] / 'agent_hooks.yaml').read_text().count('agent_hook.py') == 1
 
 
 def test_delivery_appends_locally_on_the_target_and_logs_failures(tmp_path, monkeypatch):
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
     channel = tmp_path / 'channel.jsonl'
-    monkeypatch.setattr(hook.socket, 'gethostname', lambda: 'blastoise')
+    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise')
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(channel)))
     assert json.loads(channel.read_text()) == {'kind': 'note'}
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(tmp_path / 'no' / 'dir.jsonl')))
