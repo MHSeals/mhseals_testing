@@ -70,7 +70,9 @@ def test_command_passes_filters_and_open_segment(tmp_path, monkeypatch):
     job = tr.Transfer(make_session(tmp_path), {'role': 'operator', 'path': 'bags'}, ['01'], 500)
     argv = job.command(tr.PASSES['reports'])
     assert '--exclude=/bag/01/' in argv and '--exclude=/bag/' in argv
-    assert '--bwlimit=500' in argv and tr.SSH in argv
+    assert '--bwlimit=500' in argv
+    ssh = argv[argv.index('-e') + 1]     # the registry's key, as remote unit calls use
+    assert ssh.startswith('ssh -o BatchMode=yes') and 'id_ed25519' in ssh and 'ControlMaster=auto' in ssh
     assert argv[-1] == 'peace@192.168.0.2:~/astro_dock/bags/boat_1/'
 
 

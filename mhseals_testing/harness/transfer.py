@@ -11,13 +11,21 @@ state never depends on rsync's stderr wording.
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import time
 from glob import escape as glob_escape
 from pathlib import Path
 
-SSH = 'ssh -o BatchMode=yes -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2'
+
+def ssh_command():
+    """rsync's ``-e``: the same key, known hosts and connection sharing as remote unit calls."""
+    from mhseals_testing.harness import remote
+    return 'ssh ' + shlex.join([*remote._options(), '-o', 'ServerAliveInterval=5',
+                                '-o', 'ServerAliveCountMax=2'])
+
+
 # 3.2 prints "1,234  45%  3.10MB/s  0:00:12", 3.5 adds a B suffix to the byte count.
 PROGRESS = re.compile(r'^\s*([\d,]+)B?\s+(\d+)%\s+([\d.]+)([kKMGT]?)B/s\s+(\d+):(\d\d):(\d\d)')
 # rsync filters per pass: reports first, then only the bags (data_layout: bag/NN/ segments).
@@ -143,7 +151,7 @@ class Transfer:
         prefix = '' if self.legacy else 'bag/'
         argv += [f'--exclude=/{prefix}{s}/' for s in self.open_segments]
         if self.where is not None and self.where[1]:
-            argv += ['-e', SSH]
+            argv += ['-e', ssh_command()]
         parent = self.dest.rstrip('/').rpartition('/')[0]
         if siblings:
             return argv + [str(p) for p in self.siblings()] + [parent + '/']
