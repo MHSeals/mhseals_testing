@@ -38,6 +38,26 @@ def test_remaining_route_skips_reached_leading_waypoints():
     assert remaining_route(route, []) == route
 
 
+def test_the_square_timeout_scales_with_its_length():
+    """H5: a 4 m square (16 m) at the slowest accepted 0.1 m/s gets 60 + 160 s, not 120 s."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from mhseals_testing.procedures import nav
+    goal = SimpleNamespace(done=True, status='SUCCEEDED', cancel=lambda: None)
+    fake = SimpleNamespace(pose=lambda: (0.0, 0.0, 0.0), navigate=lambda route: goal)
+    seen = []
+    runner = SimpleNamespace(paused=0.0, supervise=lambda timeout, **k: seen.append(timeout) or (0.0, 1.0, True))
+
+    @contextmanager
+    def supervise(*args, **kwargs):
+        yield runner
+    ctx = SimpleNamespace(services={'nav2': lambda: fake}, settings=SimpleNamespace(nav_distance=4.0),
+                          prompt=lambda *a: None, supervise=supervise, record=lambda r: None)
+    nav.waypoints(ctx)
+    assert seen == [pytest.approx(220.0)]
+
+
 def test_thruster_set_refuses_unless_the_mux_is_auto():
     from types import SimpleNamespace
 

@@ -44,6 +44,7 @@ def current_pose(nav, wait=3.0):
 
 
 REACHED_RADIUS = 1.0  # m; a waypoint this close to a sampled point counts as passed on resume
+SLOWEST_SPEED = 0.1   # m/s; the waypoint square times out below this mean speed (plus 60 s)
 
 
 def remaining_route(route, points):
@@ -106,7 +107,8 @@ def waypoints(ctx):
         # Back from an override: carry on from wherever the boat is now.
         state['goal'] = nav.navigate(remaining_route(route, points) or route[-1:])
 
-    timeout = 60.0 + 15.0 * len(route)
+    # Scaled by the distance: a slow sim boat (~0.12 m/s) needs ~130 s for 16 m; slower is a fault.
+    timeout = 60.0 + path_length([start[:2], *(corner[:2] for corner in route)]) / SLOWEST_SPEED
     state = {}
     with ctx.supervise('waypoints', route=route) as runner:
         paused_before = runner.paused
