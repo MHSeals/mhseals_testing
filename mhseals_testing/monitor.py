@@ -106,6 +106,23 @@ class BoatMonitor:
         return [(t, values) for t, values, issue in samples
                 if since <= t <= until and (include_issues or not issue)]
 
+    def arrivals(self, name, since=float('-inf')):
+        """Receive times of ``name`` after ``since`` (the last 300 at most), oldest first; read-only."""
+        with self.lock:
+            entry = self.sensors.get(name)
+            return [t for t in entry['times'] if t > since] if entry else []
+
+    def tf_edges(self):
+        """Every TF edge seen, as dicts: parent, child, authority, seen (s since received),
+        stamp_age (s, aged to now), static, and fresh by the rule the chains use; read-only."""
+        now = self.clock()
+        with self.lock:
+            return [dict(parent=parent, child=child, authority=authority, seen=now - received,
+                         stamp_age=age + now - received, static=static,
+                         fresh=static or (now - received <= self.stale_after and
+                                          -.25 <= age + now - received <= self.stale_after))
+                    for (parent, child, authority), (received, age, static) in self.edges.items()]
+
     def _sensor_rows(self, now):
         sensors = {}
         for name, entry in self.sensors.items():
