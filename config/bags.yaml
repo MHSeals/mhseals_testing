@@ -4,7 +4,10 @@
 # path segment so /waypoints, /mavros/mission/waypoints and /perception/image_status stay recorded.
 # RTAB-Map's growing grids are excluded by full name (/map, /grid_prob_map) so /objects/map (perception
 # tracks) stays; the decimated minimap costmap is kept for replay, Nav2 costmaps are excluded.
-exclude_regex: '^(?!/mhseals_testing/minimap/costmap$)(/(map|grid_prob_map)|.*(costmap.*|/(points|cloud[^/]*|deskewed[^/]*|image(_raw|_rect[^/]*|_color)?(/compressed)?|camera_info)))$'
+# Recording a topic subscribes to it, which pulls the camera host's local and lazy topics across the
+# LAN: the ZED wrapper (only its status is kept), observations, the track grid and the RViz markers.
+# Raw detections are recorded on the camera host.
+exclude_regex: '^(?!/mhseals_testing/minimap/costmap$|/[^/]+/zed_node/status/.*$)(/(map|grid_prob_map|tracked_objects)|/[^/]+/zed_node/.*|/perception/(observations|track_grid|detection_markers)|.*(costmap.*|/(points|cloud[^/]*|deskewed[^/]*|image(_raw|_rect[^/]*|_color)?(/compressed(Depth)?)?|camera_info)))$'
 
 # Message types never recorded (ros2 bag --exclude-topic-types). Catches heavy topics the name regex misses
 # (/scan_cloud, /livox/lidar, depth_registered, disparity_image, ...theora).
@@ -14,3 +17,7 @@ exclude_types:
   - sensor_msgs/msg/CompressedImage
   - stereo_msgs/msg/DisparityImage
   - nav2_msgs/msg/Costmap
+  - theora_image_transport/msg/Packet
+  - ffmpeg_image_transport_msgs/msg/FFMPEGPacket
+  - point_cloud_interfaces/msg/CompressedPointCloud2
+  - zed_msgs/msg/DepthInfoStamped

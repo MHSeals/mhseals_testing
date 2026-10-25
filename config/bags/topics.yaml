@@ -39,8 +39,9 @@ lean:
     - /task/status
     - /task/events
     - /objects/map
-    - /detections
+    - /perception/tracks
     - /perception/status
+    - /front_camera/preview/compressed    # 2 Hz throttle from the camera host: image evidence for a miss
     - /mhseals_testing/minimap/costmap
   regex: '^/(mhseals_testing|thrusters)/.*'  # the -e include regex, not an exclude
 # Per-profile additions merged into either mode (bags.md section 2); the map truth golden needs /crane/odom.
@@ -49,6 +50,7 @@ extra:
     topics:
       - /clock
       - /crane/odom
+      - /detections          # the sim's detector output; the boat records its raw detections on the camera host
 # Send targets (bags.md section 7). Give hosts by mDNS name; an empty host means a local path (tests).
 transfer:
   targets:

@@ -104,3 +104,19 @@ def test_segments_find_recorder_layout_session_bag_nn(tmp_path):
     expect = [bag / '00', bag / '01']
     assert bagread.segments(tmp_path) == expect
     assert bagread.segments(bag) == expect
+
+
+def test_a_type_this_host_cannot_import_is_skipped_with_one_warning(tmp_path):
+    rows = [('/zed', b'z1', S), ('/a', b'a1', 2 * S), ('/zed', b'z2', 3 * S)]
+    session(tmp_path, {'bag_00': rows})
+    opener = lambda segment: (FakeReader(list(rows)), {'/a': 'std_msgs/msg/String', '/zed': 'zed_msgs/msg/ObjectsStamped'})
+
+    def lookup(kind):
+        if kind.startswith('zed_msgs/'):
+            raise ModuleNotFoundError("No module named 'zed_msgs'")
+        return kind
+    decode = bagread.ros_decoder(lookup, deserialize=lambda data, cls: (cls, data))
+    with pytest.warns(UserWarning, match='zed_msgs/msg/ObjectsStamped') as caught:
+        got = list(bagread.read(tmp_path, opener=opener, decode=decode))
+    assert got == [('/a', ('std_msgs/msg/String', b'a1'), 2 * S)]
+    assert len(caught) == 1

@@ -10,6 +10,7 @@ receive stamp rosbag2 writes, which is also the journal's axis.
 
 import re
 from pathlib import Path
+import warnings
 
 WINDOW_S = 10.0
 
@@ -80,17 +81,45 @@ def read_raw(path, topics=None, start_ns=None, end_ns=None, opener=open_segment,
             yield topic, types.get(topic, ''), data, t_ns
 
 
+SKIP = object()   # what a decoder returns for a type this host cannot import
+
+
+def ros_decoder(lookup=None, deserialize=None):
+    """``decode(kind, data)``: the message, or SKIP when this host lacks its package (zed_msgs on a laptop)."""
+    if lookup is None:
+        from rosidl_runtime_py.utilities import get_message as lookup
+    classes = {}
+
+    def decode(kind, data):
+        nonlocal deserialize
+        if kind not in classes:
+            try:
+                classes[kind] = lookup(kind)
+            except (ImportError, AttributeError, ValueError):
+                classes[kind] = None
+        if classes[kind] is None:
+            return SKIP
+        if deserialize is None:
+            from rclpy.serialization import deserialize_message as deserialize
+        return deserialize(data, classes[kind])
+    return decode
+
+
 def read(path, topics=None, start_ns=None, end_ns=None, opener=open_segment, decode=None,
          on_segment=None):
-    """Like ``read_raw`` but yields ``(topic, message, t_ns)`` with decoded messages."""
-    if decode is None:
-        from rclpy.serialization import deserialize_message
-        from rosidl_runtime_py.utilities import get_message
+    """Like ``read_raw`` but yields ``(topic, message, t_ns)`` with decoded messages.
 
-        def decode(kind, data):
-            return deserialize_message(data, get_message(kind))
+    A type ``decode`` returns SKIP for is left out with one warning, not fatal for the read.
+    """
+    decode = decode or ros_decoder()
+    skipped = set()
     for topic, kind, data, t_ns in read_raw(path, topics, start_ns, end_ns, opener, on_segment):
-        yield topic, decode(kind, data), t_ns
+        message = decode(kind, data)
+        if message is not SKIP:
+            yield topic, message, t_ns
+        elif kind not in skipped:
+            skipped.add(kind)
+            warnings.warn(f'bag: skipping {kind} (first on {topic}): its message package is not installed')
 
 
 def bounds(path, opener=open_segment):

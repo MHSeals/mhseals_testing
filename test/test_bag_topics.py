@@ -57,3 +57,29 @@ def test_lean_profile_records_the_authority_set():
     for needed in ('/cmd_vel', '/cmd_vel/manual', '/cmd_vel/applied', '/command_mux/state',
                    '/command_mux/request', '/mhseals_testing/authority'):
         assert needed in lean_topics()
+
+
+def test_lean_profile_records_v2_perception_but_nothing_local_to_the_camera_host():
+    topics = lean_topics()
+    for needed in ('/perception/tracks', '/perception/status', '/objects/map', '/front_camera/preview/compressed'):
+        assert needed in topics
+    # Raw detections and observations stay on the camera host; the sim keeps its /detections.
+    assert not [t for t in topics if 'zed_node' in t or t in ('/detections', '/perception/observations')]
+    assert '/detections' in yaml.safe_load(PROFILE.read_text())['extra']['crane_full_stack']['topics']
+
+
+def test_full_profile_drops_the_camera_hosts_topics_and_heavy_types():
+    import re
+    config = yaml.safe_load((PROFILE.parents[1] / 'bags.yaml').read_text())
+    regex = re.compile(config['exclude_regex'])
+    for dropped in ('/front/zed_node/imu/data', '/front/zed_node/obj_det/objects', '/front/zed_node/left/camera_info',
+                    '/front_camera/camera_info', '/perception/observations', '/perception/track_grid',
+                    '/perception/detection_markers', '/tracked_objects', '/perception/costmap',
+                    '/front_camera/depth/image/compressedDepth', '/cam/camera_info'):
+        assert regex.fullmatch(dropped), dropped
+    for kept in ('/front/zed_node/status/health', '/perception/tracks', '/perception/status', '/detections',
+                 '/objects/map', '/mhseals_testing/minimap/costmap', '/zed_node_like', '/front_camera/preview/compressed'):
+        assert not regex.fullmatch(kept), kept
+    for heavy in ('theora_image_transport/msg/Packet', 'ffmpeg_image_transport_msgs/msg/FFMPEGPacket',
+                  'point_cloud_interfaces/msg/CompressedPointCloud2', 'zed_msgs/msg/DepthInfoStamped'):
+        assert heavy in config['exclude_types']
