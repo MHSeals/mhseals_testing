@@ -1,13 +1,14 @@
 """Conditions · Command panel (tui-visual 3): one north-up rose, one command arrow, labelled bars.
 
 Pure and ROS-free. The rose is a world-frame picture: the hull (the map's pentagon) turns to the
-heading, the command is a single solid line from the hull in the hue of whoever drives, ending in
-the only arrowhead; yaw is an arc around the hull and the world drift a dashed muted line. The
+heading, the command is one arrow icon at its bearing in the hue of whoever drives (16 bearings,
+hand-drawn in braille), yaw is ↺ or ↻ in the top-right corner and the world drift a dashed muted line. The
 right column names the driver, then surge, sway and yaw as bipolar bars, then the heading.
 """
 
 import math
 import os
+from functools import lru_cache
 
 from rich.text import Text
 
@@ -20,20 +21,31 @@ RADIUS = 17                 # dots; the canvas is 42 x 36 dots and dots are squa
 CENTRE = (ROSE_COLS, ROSE_ROWS * 2)
 HULL_DOTS = (9, 6)          # length, beam of the rose's hull
 REACH = (HULL_DOTS[0] / 2 + 1, HULL_DOTS[1] / 2 + 1)   # the command line starts this far out
-COMMAND_END = RADIUS - 5    # dots; the arrowhead cell sits past it, inside the ring
-HEAD_LEN, HEAD_SPREAD = 3, 35   # dots and degrees of the command arrowhead's barbs
-YAW_RADIUS = 8              # dots, about RADIUS / 2
+ICON_REACH = RADIUS - 3     # dots; no command-icon dot lies farther out, clear of the ticks and letters
 FULL_SPEED = 0.3            # m/s at the full radius; faster is clipped to the ring
 STALE_S = 60.0              # an older drift estimate is drawn dim
 ARROWS = '↑↗→↘↓↙←↖'         # screen directions, clockwise from up
 ARROWS_ASCII = '^/>\\v/<\\'
+# The command icon: a filled head on a short stem, in braille dots (x right, y down) about its middle,
+# hand-drawn for 0, 22.5 and 45 deg; the other 13 bearings are exact flips and transposes of these
+# (dots are square), so all 16 have one weight. ICON_SYM maps a master's offsets onto a bearing.
+ICONS = {
+    0: ((0, -3), (-1, -2), (0, -2), (1, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1),
+        (0, 0), (0, 1), (0, 2), (0, 3)),
+    1: ((1, -3), (-1, -2), (0, -2), (1, -2), (0, -1), (1, -1), (2, -1), (0, 0), (0, 1), (-1, 2), (-1, 3)),
+    2: ((3, -3), (1, -3), (2, -3), (3, -2), (3, -1), (2, -2), (1, -1), (0, 0), (-1, 1), (-2, 2)),
+}
+ICON_SYM = ((1, 0, 0, 1), (-1, 0, 0, 1), (1, 0, 0, -1), (-1, 0, 0, -1),
+            (0, -1, -1, 0), (0, 1, -1, 0), (0, -1, 1, 0), (0, 1, 1, 0))   # (x, y) -> (ax + by, cx + dy)
+SPIN = ('↺', '↻')           # +yaw turns counter-clockwise (REP 103); drawn in the top-right corner
+SPIN_ASCII = ('ccw', 'cw')
 POINTS = ('N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW')
 EIGHTHS = ' ▏▎▍▌▋▊▉█'       # left-aligned fills; a bar growing left shows them in reverse video
 BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
         (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 # Rose layers, highest first: a cell takes the hue of its strongest dot.
 BOW, BOAT, COMMAND, YAW, DRIFT, TICK = range(6)
-ASCII_DOTS = '##.(:.'       # the ASCII cell per layer; yaw is ( or ) by sense
+ASCII_DOTS = '##.(:.'       # the ASCII cell per layer
 
 
 def _polar(bearing_deg, radius):
@@ -44,6 +56,45 @@ def _polar(bearing_deg, radius):
 
 def _arrow(bearing):
     return theme.pick(ARROWS, ARROWS_ASCII)[round(bearing / 45) % 8]
+
+
+def _shape(k):
+    a, b, c, d = next(m for m in ICON_SYM if _maps(m, k))
+    return tuple((a * x + b * y, c * x + d * y) for x, y in ICONS[k % 4 if k % 4 < 3 else 1])
+
+
+def _fits(k, tenths):
+    """The icon's (shape, anchor) at ``tenths`` / 10 dots out, or None if a dot passes ICON_REACH or
+    lands in a letter cell."""
+    letters = {((CENTRE[0] + round(dx)) // 2, (CENTRE[1] + round(dy)) // 4)
+               for dx, dy in (_polar(t, RADIUS) for t in (0, 90, 180, 270))}
+    shape = _shape(k)
+    ox, oy = (round(v) for v in _polar(k * 22.5, tenths / 10))
+    spots = [(ox + x, oy + y) for x, y in shape]
+    if all(math.hypot(x + 0.5, y + 0.5) <= ICON_REACH for x, y in spots) and not any(
+            ((CENTRE[0] + x) // 2, (CENTRE[1] + y) // 4) in letters for x, y in spots):
+        return shape, (ox, oy)
+    return None
+
+
+@lru_cache(maxsize=16)
+def command_icon(k):
+    """(dot offsets, anchor) of the icon for screen bearing ``k`` * 22.5 deg. The anchor is the
+    farthest out that fits every bearing of the same kind (cardinal, diagonal, in-between), so
+    mirrored bearings sit at one radius."""
+    kin = [j for j in range(16) if (j % 4 == 0) == (k % 4 == 0) and (j % 4 == 2) == (k % 4 == 2)]
+    for tenths in range(120, 40, -5):
+        if all(_fits(j, tenths) for j in kin):
+            return _fits(k, tenths)
+    raise AssertionError(k)
+
+
+def _maps(m, k):
+    """Whether symmetry ``m`` turns the master's bearing (0, 22.5 or 45) into bearing ``k``."""
+    base = {0: 0, 1: 1, 2: 2, 3: 1}[k % 4]
+    bx, by = _polar(base * 22.5, 1.0)
+    wx, wy = _polar(k * 22.5, 1.0)
+    return abs(m[0] * bx + m[1] * by - wx) < 1e-6 and abs(m[2] * bx + m[3] * by - wy) < 1e-6
 
 
 def cardinal(heading):
@@ -104,34 +155,25 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
 
     surge, sway, yaw = command
     scale = amplitude or 1.0
-    if surge or sway:
-        rel = -math.atan2(sway, surge)               # +sway is to port: counter-clockwise on screen
-        start = _reach(rel)
-        stop = start + round(min(math.hypot(surge, sway) / scale, 1.0) * (COMMAND_END - start))
-        bearing = up + math.degrees(rel)
-        if theme.ASCII:                              # no dots to draw a direction with: the glyph, as before
-            ray(bearing, start, stop, COMMAND)
-            dx, dy = _polar(bearing, stop + 2)
-            glyphs[((cx + round(dx)) // 2, (cy + round(dy)) // 4)] = (_arrow(bearing), hue)
-        else:                                        # the head is dots too: any bearing, on the line's end
-            tip = stop + HEAD_LEN
-            ray(bearing, start, tip, COMMAND)
-            tx, ty = _polar(bearing, tip)
-            for barb in (bearing + 180 - HEAD_SPREAD, bearing + 180 + HEAD_SPREAD):
-                for length in range(1, HEAD_LEN + 1):
-                    dx, dy = _polar(barb, length)
-                    put(cx + round(tx + dx), cy + round(ty + dy), COMMAND)
-    if yaw:
-        sweep = math.copysign(min(abs(yaw) / scale, 1.0) * 180.0, yaw)
-        count = max(2, round(abs(math.radians(sweep)) * YAW_RADIUS))
-        for i in range(1, count + 1):
-            dx, dy = _polar(up - sweep * i / count, YAW_RADIUS)
-            put(cx + round(dx), cy + round(dy), YAW)
+    if surge or sway:                                # one icon at the commanded bearing, no shaft
+        bearing = up + math.degrees(-math.atan2(sway, surge))   # +sway is to port: counter-clockwise
+        k = round(bearing / 22.5) % 16
+        dots_, (ox, oy) = command_icon(k)
+        if theme.ASCII:
+            glyphs[((cx + ox) // 2, (cy + oy) // 4)] = (ARROWS_ASCII[round(k / 2) % 8], hue)
+        else:
+            for dx, dy in dots_:
+                put(cx + ox + dx, cy + oy + dy, COMMAND)
+    if yaw:                                          # the turn: ↺ / ↻ in the corner, dim below half
+        word = theme.pick(SPIN, SPIN_ASCII)[yaw < 0]
+        strong = abs(yaw) / scale >= 0.5
+        for i, char in enumerate(word):
+            glyphs[(ROSE_COLS - 1 - len(word) + i, 0)] = (char, f'{"bold" if strong else "dim"} {hue}'.strip())
 
     boat = _token('boat', 'bold') if yaw_ok else theme.WARN
     styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
               f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, theme.MUTED)
-    ascii_dots = ASCII_DOTS.replace('(', '(' if yaw > 0 else ')')
+    ascii_dots = ASCII_DOTS
     rows = []
     for row in range(ROSE_ROWS):
         line = Text()
