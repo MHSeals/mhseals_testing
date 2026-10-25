@@ -2266,7 +2266,9 @@ class App:
         if aborted is not None:
             record['reason'] = aborted
         runs.write_run(self.paths.runs, record, settings=vars(self.settings),
-                       status=runs.ABORTED if aborted is not None else None)
+                       status=runs.ABORTED if aborted is not None else None,
+                       provenance=session_module.provenance(
+                           self.facts, self.history, getattr(self.args, 'profile', None)))
 
     def health_window(self, procedure, began):
         """Snapshot health and flag the trial window invalid when a gated check left ok.

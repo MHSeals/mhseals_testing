@@ -32,10 +32,11 @@ def next_run_id(directory, procedure):
     return f'{count + 1:03d}-{slug(procedure)}'
 
 
-def write_run(directory, result, settings=None, schedule=None, now=None, status=None):
+def write_run(directory, result, settings=None, schedule=None, now=None, status=None, provenance=None):
     """Write the run file for ``result`` and return its record (``run_id`` included).
 
     A ``run_id`` already in ``result`` is kept; an existing file is never replaced.
+    ``provenance`` (``session.provenance``) is what produced the run: git, config ids, profile hash.
     """
     run_id = result.get('run_id') or next_run_id(directory, result.get('procedure', 'run'))
     target = directory / f'{run_id}.json'
@@ -43,7 +44,7 @@ def write_run(directory, result, settings=None, schedule=None, now=None, status=
         return data.read_json(target)
     record = dict(run_id=run_id, procedure=result.get('procedure'), status=status or status_of(result),
                   excluded=None, time=(now or datetime.now().astimezone()).isoformat(),
-                  settings=settings or {}, schedule=schedule or [],
+                  settings=settings or {}, schedule=schedule or [], provenance=provenance or {},
                   result={k: v for k, v in result.items() if k != 'run_id'}, history=[])
     data.write_json(target, record, SCHEMA)
     return record

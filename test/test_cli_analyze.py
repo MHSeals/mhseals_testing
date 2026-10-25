@@ -1,9 +1,11 @@
-"""boat_trial analyze, index and check --require, (harness-gaps P7). No ROS."""
+"""boat_trial analyze, index and check --require, plus run provenance (harness-gaps P7, P6). No ROS."""
 
 import json
 
 from mhseals_testing import data
-from mhseals_testing.harness import cli
+from mhseals_testing.harness import cli, runs, session as session_module
+from mhseals_testing.health.model import Fact
+from mhseals_testing.history import History
 from test_referee_analyze import line, session
 
 
@@ -57,3 +59,26 @@ def test_require_exits_3_when_a_group_was_skipped(monkeypatch, capsys):
     assert cli.main(['check', '--require', 'system']) == 0
     monkeypatch.setattr(cli, 'run_check', lambda *a, **k: (found, 2))
     assert cli.main(['check', '--require', 'perception']) == 2
+
+
+def test_runs_record_provenance(tmp_path, data_root):
+    history = History()
+    history.record('nav2', {'a': 1}, source='tui:test')
+    history.record('hardware', {'b': 1}, source='tui:test')
+    history.record('nav2', {'a': 2}, source='tui:test')
+    facts = {'git.mhseals_nav': Fact({'hash': 'abc123', 'branch': 'main', 'dirty': 1, 'untracked': 0,
+                                      'behind': 0}),
+             'git.broken': Fact({'error': 'not a repo'}),
+             'host.load': Fact(0.2),
+             'host.squirtle-jetson.image_digest': Fact('sha256:ff'),
+             'host.squirtle-jetson.git.mhseals_nav': Fact('def456')}
+    found = session_module.provenance(facts, history, 'boat')
+    assert found['git'] == {'mhseals_nav': {'hash': 'abc123', 'branch': 'main', 'dirty': 1, 'untracked': 0}}
+    assert found['config'] == {'nav2': 'c0003', 'hardware': 'c0002'}
+    assert found['camera'] == {'host.squirtle-jetson.image_digest': 'sha256:ff',
+                               'host.squirtle-jetson.git.mhseals_nav': 'def456'}
+    assert len(found['profile']['sha256']) == 64 and found['profile']['path'].endswith('boat.yaml')
+    assert session_module.provenance() == {'git': {}, 'camera': {}}
+    record = runs.write_run(tmp_path, {'procedure': 'Square'}, provenance=found)
+    assert data.read_json(tmp_path / f"{record['run_id']}.json")['provenance'] == found
+    assert runs.write_run(tmp_path, {'procedure': 'Square'})['provenance'] == {}

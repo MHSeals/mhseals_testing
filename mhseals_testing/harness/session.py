@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
 from datetime import datetime, timezone
+import hashlib
 import re
 import socket
 from pathlib import Path
@@ -106,6 +107,38 @@ def update(session, **fields):
         header.update(fields)
         data.write_json(session.file, header, SCHEMA)
         return header
+
+
+CAMERA_FACTS = re.compile(r'host\.[^.]+\.(git\..+|image_digest|zed_sdk|onnx_sha256|engine_cache)$')
+
+
+def provenance(facts=None, history=None, profile=None):
+    """What produced a run, taken when it ends (a session can span a deploy or a hot reload).
+
+    ``facts`` maps names to health Facts (or plain values): ``git.<repo>`` gives each repo's
+    hash, branch and dirty count, and the camera host's ``host.<name>.*`` provenance facts are
+    copied as they are. ``history`` (config history) gives the newest change id per subsystem,
+    and ``profile`` (a shipped name or a YAML path) the profile file's sha256. Missing inputs
+    are left out, never guessed.
+    """
+    facts = {k: getattr(v, 'value', v) for k, v in (facts or {}).items()}
+    git = {name[4:]: {k: value.get(k) for k in ('hash', 'branch', 'dirty', 'untracked')}
+           for name, value in facts.items()
+           if name.startswith('git.') and isinstance(value, dict) and 'error' not in value}
+    out = {'git': git, 'camera': {k: v for k, v in facts.items() if CAMERA_FACTS.match(k)}}
+    if history is not None:
+        heads = {}
+        for change in history.changes():
+            heads[change['subsystem']] = change['id']
+        out['config'] = heads
+    if profile:
+        from mhseals_testing.profiles import PROFILE_DIR
+        path = Path(profile) if str(profile).endswith('.yaml') else PROFILE_DIR / f'{profile}.yaml'
+        try:
+            out['profile'] = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        except OSError:
+            pass
+    return out
 
 
 _STAMP = re.compile(r'_(\d{8}_\d{6})$')
