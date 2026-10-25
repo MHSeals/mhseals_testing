@@ -13,7 +13,7 @@ from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.ui import theme
 
 LEVELS = {'ours': 'OK', 'external': 'OK', 'starting': 'CHECKING', 'exited': 'FAIL', 'off': 'OFF',
-          'unreachable': 'WARN', 'disabled': 'N/A'}
+          'unreachable': 'WARN', 'unknown': 'CHECKING', 'disabled': 'N/A'}
 
 
 def rows(stack, nodes):
@@ -50,7 +50,9 @@ def toggle(app, key):
     if status in ('disabled', 'external'):
         app.notice = f'{item.title}: {detail or status}'
         return
-    stopping = status in ('ours', 'starting') or (status == 'unreachable' and stack.running(key))
+    # Unreachable or not read yet may still be ours: Stop goes out anyway (harmless if absent).
+    stopping = status in ('ours', 'starting') or (status in ('unreachable', 'unknown')
+                                                  and stack.running(key))
     verb = 'Stop' if stopping else 'Start'
     where = item.remote or 'this computer'
     info = [('Computer', where), ('Part', f'{item.part} ({item.profile}, {item.kind})')]
@@ -58,8 +60,9 @@ def toggle(app, key):
         info.append(('Motion', 'can command the boat once armed with the mux in auto'))
     if item.kind == 'commander' and stopping and app.armed:
         info.append(('Armed', 'stopping it leaves the mux holding'))
+    # The title never starts with Stop: popups route U by that prefix to the hold release.
     try:
-        choice = app.choose(f'{verb} {item.title} on {where}?', [verb, 'Cancel'], {'y': 0, 'n': 1},
+        choice = app.choose(f'{item.title} on {where}: {verb}?', [verb, 'Cancel'], {'y': 0, 'n': 1},
                             rows=info, danger=item.kind == 'commander' and not stopping)
     except Cancelled:
         return

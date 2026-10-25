@@ -34,9 +34,10 @@ def test_rows_show_state_and_host():
 
 def test_enter_confirms_with_the_host_then_starts_a_remote_part():
     app = App()
+    app.stack.units.records['camera'] = {'state': 'off'}
     parts.toggle(app, 'camera')
     title, options, rows, danger = app.asked[0]
-    assert title == 'Start Camera on blastoise-jetson?' and options == ['Start', 'Cancel']
+    assert title == 'Camera on blastoise-jetson: Start?' and options == ['Start', 'Cancel']
     assert rows['Computer'] == 'blastoise-jetson' and not danger
     assert app.stack.units.calls == [('start', 'camera', False)]
 
@@ -53,8 +54,15 @@ def test_stop_while_armed_warns_but_stops():
     app = App(answer='Stop', armed=True)
     app.stack.units.records['camera'] = {'state': 'running'}
     parts.toggle(app, 'camera')
-    assert app.asked[0][0] == 'Stop Camera on blastoise-jetson?'
+    assert app.asked[0][0] == 'Camera on blastoise-jetson: Stop?'
+    assert not app.asked[0][0].startswith(('Stop', 'Authority'))    # U never releases a hold here
     assert app.stack.units.calls == [('stop', 'camera')]
+
+
+def test_a_part_not_read_yet_offers_stop():
+    app = App(answer='Stop')
+    parts.toggle(app, 'camera')
+    assert app.asked[0][1] == ['Stop', 'Cancel'] and app.stack.units.calls == [('stop', 'camera')]
 
 
 def test_quit_names_the_units_held_on_each_host():
