@@ -38,10 +38,10 @@ def _key_dir():
     return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'mhseals' / 'ssh'
 
 
-def _options():
+def _options(token='%C'):
     keys = _key_dir()
     return ['-o', 'BatchMode=yes', '-o', f'ConnectTimeout={CONNECT_S}', '-o', 'ControlMaster=auto',
-            '-o', 'ControlPersist=60', '-o', f'ControlPath={runtime_dir()}/ssh-%C',
+            '-o', 'ControlPersist=60', '-o', f'ControlPath={runtime_dir()}/ssh-{token}',
             '-i', str(keys / 'id_ed25519'), '-o', f'UserKnownHostsFile={keys / "known_hosts"}']
 
 
@@ -52,13 +52,16 @@ def _target(host):
 def ssh_argv(host, command, jump=None):
     """argv that runs ``command`` (one shell line) in ``host``'s container, through ``jump`` if given.
 
-    The jump gets the same key and known hosts (``-J`` would not pass them on).
+    The jump gets the same key and known hosts (``-J`` would not pass them on); ssh expands
+    ProxyCommand's own tokens, so its ``%C`` is written ``%%C`` for the inner ssh to expand.
+    The remote shell gets one quoted line, so no registry value is ever read as shell syntax.
     """
     argv = ['ssh', *_options()]
     if jump is not None:
-        argv += ['-o', 'ProxyCommand=' + shlex.join(['ssh', *_options(), '-W', '%h:%p', _target(jump)])]
-    return argv + [_target(host), 'docker', 'exec', '-i', host.container, 'bash', '-c',
-                   shlex.quote(command)]
+        inner = ['ssh', *_options('%%C'), '-W', '%h:%p', _target(jump)]
+        argv += ['-o', 'ProxyCommand=' + shlex.join(inner)]
+    return argv + [_target(host), shlex.join(['docker', 'exec', '-i', host.container, 'bash', '-c',
+                                              command])]
 
 
 def reason(stderr, code):

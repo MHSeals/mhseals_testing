@@ -1,9 +1,12 @@
 """Remote parts: the ssh argv, the unit commands, and Units over a fake ssh and the real unit CLI."""
 
 import json
+import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -17,8 +20,10 @@ JETSON = Host('blastoise-jetson', address='192.168.0.153', user='roboboat', cont
 GATEWAY = Host('tranquility', address='192.168.0.2', user='peace', container='roboboat_dev')
 
 
-def item(part='camera', host=JETSON, argv=('ros2', 'launch', 'mhseals_nav', 'device.launch.py',
-                                            'device:=jetson', 'only:=camera'), kind='sensing'):
+CAMERA_ARGV = ('ros2', 'launch', 'mhseals_nav', 'device.launch.py', 'device:=jetson', 'only:=camera')
+
+
+def item(part='camera', host=JETSON, argv=CAMERA_ARGV, kind='sensing'):
     return Component(part, part.capitalize(), tuple(argv), host=host, part=part, profile='jetson',
                      kind=kind)
 
@@ -37,8 +42,44 @@ def test_ssh_argv_reaches_the_container_with_the_operator_key_through_the_jump(t
     assert str(tmp_path / 'cfg/mhseals/ssh/id_ed25519') in argv
     jump = next(arg for arg in argv if arg.startswith('ProxyCommand='))
     assert '-W %h:%p peace@192.168.0.2' in jump and 'id_ed25519' in jump
-    assert argv[-8:-1] == ['roboboat@192.168.0.153', 'docker', 'exec', '-i', 'roboboat_dev', 'bash', '-c']
-    assert shlex.split(argv[-1]) == ['echo hi']     # one word for the remote shell
+    assert 'ssh-%%C' in jump and 'ssh-%C' not in jump.replace('%%C', '')
+    assert argv[-2] == 'roboboat@192.168.0.153'
+    # One line for the remote shell, which splits it back into exactly these words.
+    assert shlex.split(argv[-1]) == ['docker', 'exec', '-i', 'roboboat_dev', 'bash', '-c', 'echo hi']
+
+
+@pytest.mark.parametrize('hostile', ['x; touch /tmp/pwned', '$(touch /tmp/pwned)', '`id`', 'a b',
+                                     "it's", 'x && reboot', '-oProxyCommand=sh'])
+def test_no_value_reaches_the_remote_shell_as_syntax(hostile):
+    # Even a container name past the registry's check stays one word for the remote shell.
+    host = Host('h', address='10.0.0.9', user='u', container=hostile)
+    argv = ssh_argv(host, f'echo {hostile}')
+    assert shlex.split(argv[-1]) == ['docker', 'exec', '-i', hostile, 'bash', '-c', f'echo {hostile}']
+
+
+@pytest.mark.skipif(shutil.which('ssh') is None, reason='no ssh client')
+def test_ssh_expands_the_proxy_command_and_hands_the_inner_ssh_its_control_path(tmp_path, monkeypatch):
+    # A stand-in inner ssh on PATH records what the real outer ssh expanded the ProxyCommand into.
+    real = shutil.which('ssh')
+    bin_dir, seen = tmp_path / 'bin', tmp_path / 'seen'
+    bin_dir.mkdir()
+    (bin_dir / 'ssh').write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {seen}\nexit 1\n')
+    (bin_dir / 'ssh').chmod(0o755)
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'cfg'))
+    run = tempfile.TemporaryDirectory(prefix='mh')     # a socket path stays under 108 bytes
+    monkeypatch.setenv('XDG_RUNTIME_DIR', run.name)
+    argv = ssh_argv(JETSON, 'true', GATEWAY)
+    config = subprocess.run([real, '-G', *argv[1:-1]], capture_output=True, text=True, timeout=10)
+    assert config.returncode == 0, config.stderr
+    monkeypatch.setenv('PATH', f'{bin_dir}:{os.environ["PATH"]}')
+    done = subprocess.run([real, *argv[1:]], capture_output=True, text=True, timeout=20,
+                          stdin=subprocess.DEVNULL)
+    assert 'unknown key' not in done.stderr and 'percent_expand' not in done.stderr, done.stderr
+    assert seen.exists(), done.stderr
+    inner = seen.read_text().splitlines()
+    assert f'ControlPath={run.name}/mhseals/ssh-%C' in inner
+    run.cleanup()
+    assert inner[-3:] == ['-W', '192.168.0.153:22', 'peace@192.168.0.2']
 
 
 def test_the_commander_argument_is_only_set_when_asked():
