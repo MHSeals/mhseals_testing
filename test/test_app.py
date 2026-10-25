@@ -1865,14 +1865,18 @@ def test_map_toggles_on_procedure_keys_bind_only_on_the_map_tab(tmp_path):
     app.ran = []
     app.run_procedure = app.ran.append
     app.focus = 'minimap'
-    app.dispatch('w'), app.dispatch('g'), app.dispatch('e'), app.dispatch('F')
+    app.dispatch('w'), app.dispatch('g'), app.dispatch('e'), app.dispatch('F'), app.dispatch('T')
     assert [p.key for p in app.ran] == ['w', 'g'] and app.layerbox.wake and app.layerbox.rings
+    assert app.layerbox.tasks                            # T is no Drive key: neither a toggle nor Mission (t)
     assert app.layerbox.fov is False                     # a shared view key still toggles on Drive
     app.show_tab('Map')
     app.dispatch('w'), app.dispatch('g'), app.dispatch('e')
     assert len(app.ran) == 2 and not app.layerbox.wake and not app.layerbox.rings
     hints = dict(PANEL_HINTS['minimap'])
-    assert 'w' not in hints and 'g' not in hints and PANEL_HINTS['map'][-2:] == [('w', 'Wake'), ('g', 'Rings')]
+    assert 'w' not in hints and 'g' not in hints and 'T' not in hints
+    assert PANEL_HINTS['map'][-3:] == [('w', 'Wake'), ('g', 'Rings'), ('T', 'Tasks')]
+    app.dispatch('T')                                    # Map tab only, like w g
+    assert not app.layerbox.tasks and len(app.ran) == 2
 
 
 def test_bags_tab_with_a_session_renders_and_moves_the_cursor(tmp_path):
