@@ -68,45 +68,67 @@ def _ascii_text(cell):
     return '.' if 0x2800 <= ord(cell.text) <= 0x28FF else cell.text
 
 
-def _cell_sgr(cell, style, tier):
-    """``(sequence, see_through)`` for one cell ('' = default style). ``see_through`` is True when
-    the style only colours glyphs (no background, reverse or underline), so a blank may share it."""
-    fore, attrs = parse(style(cell.fg)) if cell.fg else ('', [])
-    if cell.chip:
+def _cell_sgr(fg, bg, chip, style, tier):
+    """``(sequence, background, clear, foreground, attributes)`` for a cell's look ('' = default
+    style). ``background`` is its bg SGR ('' none, None for a chip, which nothing joins or diffs
+    against); ``clear`` is False with reverse or underline. A blank shows only its background, so
+    it may join a clear run of the same one."""
+    fore, attrs = parse(style(fg)) if fg else ('', [])
+    if chip:
         if tier in ('16', 'mono'):
-            return _sgr(fore if tier == '16' else '', *attrs, '7'), False
-        back = _back(style(cell.fg))
-        return _sgr(parse(style('bg'))[0], back), False
+            return _sgr(fore if tier == '16' else '', *attrs, '7'), None, False, None, ()
+        return _sgr(parse(style('bg'))[0], _back(style(fg))), None, False, None, ()
     clear = '4' not in attrs and '7' not in attrs
     if tier == 'mono':
-        return _sgr(*attrs), clear
-    back = ''
-    if cell.bg and tier != '16':
-        back = _back(style(cell.bg))
-    return _sgr(fore, back, *attrs), clear and not back
+        return _sgr(*attrs), '', clear, '', tuple(attrs)
+    back = _back(style(bg)) if bg and tier != '16' else ''
+    return _sgr(fore, back, *attrs), back, clear, fore, tuple(attrs)
+
+
+def _switch(old, new):
+    """The sequence from look ``old`` to ``new``: only the changed colours when both are styled
+    plain looks with the same attributes (``39``/``49`` back to default), else a full reset sequence."""
+    if not old[0] or old[3] is None or new[3] is None or old[4] != new[4]:
+        return new[0] or RESET
+    params = ([new[3] or '39'] if new[3] != old[3] else []) + ([new[1] or '49'] if new[1] != old[1] else [])
+    return f'\x1b[{";".join(params)}m' if params else ''
 
 
 def emit(canvas, style, tier='truecolor', ascii=False):
     """One string per canvas row; styles coalesce into runs and each row ends in a reset.
 
-    A blank cell without a tint joins the current run when that run only colours glyphs, so
-    sparse dots do not pay a reset and a new sequence each."""
-    rows = []
+    A blank cell joins the current run when that run is clear (no reverse or underline) and has
+    the blank's background, so sparse dots and tinted costmap stretches do not pay a sequence each;
+    a change of colour alone sends only that colour. Each distinct look is resolved once per frame."""
+    rows, looks, default = [], {}, ('', '', True, '', ())
     for row in canvas.cells():
         if ascii:
             rows.append(''.join(_ascii_text(cell) for cell in row))
             continue
-        out, active, through = [], '', True
+        out, active, prev = [], default, None
         for cell in row:
-            if cell.text == BLANK and not cell.bg and through:
-                out.append(' ')   # 1 byte, not 3: half a frame is blank
+            if cell is prev:   # the same look again (shared blank cells): only its text
+                out.append(text)
                 continue
-            code, see = _cell_sgr(cell, style, tier)
-            if code != active:
-                out.append(code or RESET)
-                active, through = code, see
-            out.append(' ' if cell.text == BLANK else cell.text)
-        if active:
+            prev, blank = cell, cell.text == BLANK
+            text = ' ' if blank else cell.text
+            look = looks.get(cell)
+            if look is None:   # by cell, then by its look: braille cells differ only in text
+                key = (None if blank else cell.fg, cell.bg, cell.chip)
+                look = looks[cell] = looks.get(key) or looks.setdefault(key, _cell_sgr(*key, style, tier))
+            if blank and active[2] and look[1] is not None and active[3] is not None \
+                    and (active[0] or look[1] == active[1]):
+                if look[1] != active[1]:   # a blank shows only its background: keep the glyph colour
+                    out.append(f'\x1b[{look[1] or "49"}m')
+                    fore, attrs = active[3], active[4]
+                    active = (_sgr(fore, look[1], *attrs), look[1], True, fore, attrs)
+                out.append(text)   # 1 byte, not 3: half a frame is blank
+                continue
+            if look[0] != active[0]:
+                out.append(_switch(active, look))
+                active = look
+            out.append(text)
+        if active[0]:
             out.append(RESET)
         rows.append(''.join(out))
     return rows

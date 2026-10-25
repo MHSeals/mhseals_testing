@@ -140,8 +140,15 @@ class Canvas:
         return Cell(BLANK, None, False, bg)
 
     def cells(self):
-        """Rows of resolved `Cell`s, top row first."""
-        return [[self._resolve((c, r)) for c in range(self.cols)] for r in range(self.rows)]
+        """Rows of resolved `Cell`s, top row first. Empty cells share one `Cell` per tint and only
+        cells holding a dot, glyph or gap are resolved, so a sparse frame costs what it holds."""
+        tinted = {None: Cell(BLANK, None, False, None)}
+        out = [[tinted[None]] * self.cols for _ in range(self.rows)]
+        for (c, r), bg in self._tint.items():
+            out[r][c] = tinted.get(bg) or tinted.setdefault(bg, Cell(BLANK, None, False, bg))
+        for pos in self._glyphs.keys() | self._dots.keys() | self._gaps:
+            out[pos[1]][pos[0]] = self._resolve(pos)
+        return out
 
     def text(self):
         """The canvas as plain strings, one per row, for tests and the colourless dump."""
