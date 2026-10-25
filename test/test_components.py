@@ -112,6 +112,63 @@ def test_start_needs_prompt_and_order():
         stack.start('navigation', set())
 
 
+class Tracked(Profile):
+    components = dict(Profile.components, objects={
+        'launch': ['mhseals_nav', 'objects.launch.py'], 'nodes': ['object_tracker'],
+        'needs': ['navigation'], 'start': True})
+
+
+def test_autostart_never_moves_the_real_boat_even_through_needs():
+    processes = FakeProcesses()
+    stack = Stack(components(Tracked), processes, lambda: 0.0)
+    assert stack.start_order() == ['odometry', 'navigation', 'objects']   # navigation pulled in
+    lines = stack.autostart(set(), [], sim=False)
+    assert [name for name, _ in processes.started] == ['odometry']
+    assert lines[0].startswith('refused to auto-start Navigation')
+    assert lines[1].startswith('skipped Objects: Navigation')
+    stack = Stack(components(Tracked), FakeProcesses(), lambda: 0.0)
+    assert stack.autostart(set(), [], sim=True) == []                     # the simulator may
+    assert [name for name, _ in stack.processes.started] == ['odometry', 'navigation', 'objects']
+
+
+def test_autostart_refuses_a_boat_profile_by_path_that_marks_navigation_start(tmp_path):
+    text = (Path(__file__).parents[1] / 'config' / 'profiles' / 'boat.yaml').read_text()
+    marked = text.replace('nodes: [bt_navigator], needs: [odometry, ekf]}',
+                          'nodes: [bt_navigator], needs: [odometry, ekf], start: true}')
+    assert marked != text
+    (tmp_path / 'mine.yaml').write_text(marked)
+    processes = FakeProcesses()
+    stack = Stack(components(load_profile(str(tmp_path / 'mine.yaml'))), processes, lambda: 0.0)
+    assert 'navigation' in stack.start_order()
+    lines = stack.autostart(set(), [], sim=False)
+    assert 'navigation' not in {name for name, _ in processes.started}
+    assert any(line.startswith('refused to auto-start Navigation') for line in lines)
+
+
+def test_autostart_survives_a_failed_start_and_attaches_to_what_runs():
+    processes = FakeProcesses()
+
+    def start(name, argv):
+        if name == 'navigation':
+            raise OSError('ros2: not found')
+        processes.live.add(name)
+        processes.started.append((name, tuple(argv)))
+    processes.start = start
+    stack = Stack(components(Tracked), processes, lambda: 0.0)
+    lines = stack.autostart({'/ekf_local'}, ['/ekf_local'], sim=True)   # odometry already up
+    assert lines == ['attached to Odometry (external)',
+                     'could not start Navigation: ros2: not found',
+                     'skipped Objects: Navigation did not start']
+    assert processes.started == []
+
+
+def test_autostart_reports_a_foreign_odometry_publisher_and_starts_nothing():
+    processes = FakeProcesses()
+    stack = Stack(components(Tracked), processes, lambda: 0.0)
+    lines = stack.autostart(set(), ['/rosbag2_player'], sim=True)
+    assert 'rosbag2_player' in lines[0] and processes.started == []
+
+
 def test_external_is_never_stopped():
     stack, processes, _ = make()
     with pytest.raises(ComponentError, match='running outside this session'):

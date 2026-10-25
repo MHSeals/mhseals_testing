@@ -2709,13 +2709,15 @@ def main(argv=None):
         else:
             registry.update(lambda state: state.update(session=str(paths.directory)))
             start_session(profile, paths.session, paths.truth)
-            # The profile's components marked start come up with the session, unless a stack
-            # already publishes odometry: then attach to it (the Status rows start the rest).
-            if stack.start_order() and not any(processes.running(key) for key in stack.start_order()):
+            # The profile's components marked start come up with the session; whatever of
+            # them already runs is attached to (Stack.autostart). Off the simulator nothing
+            # that moves the boat auto-starts.
+            if stack.start_order():
                 time.sleep(2.0)  # let discovery find an already-running stack
-                if not ros.publishers(profile.odometry):
-                    for key in stack.start_order():
-                        stack.start(key, ros.nodes())
+                sim = profile.use_sim_time is True and profile.outputs == 'topic'
+                for line in stack.autostart(ros.nodes(), ros.publishers(profile.odometry), sim):
+                    console.print(Text(line, style='yellow'))
+                    ros.emit('autostart', detail=line)
             registry.set_children(processes.records())
         app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
                   nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,

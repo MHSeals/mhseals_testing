@@ -186,6 +186,12 @@ def components(profile, overlay=None):
     return tuple(result)
 
 
+def moves(component):
+    """True for a component that can drive the boat: Nav2, a hardware driver or the mux."""
+    package, launch = (component.argv[2:4] + ('', ''))[:2]
+    return component.limits or package == 'mhseals_hardware' or launch == 'navigation.launch.py'
+
+
 GHOST_S = 25.0   # robot_localization exits without announcing itself; its names wait for the DDS lease (~20 s)
 
 
@@ -272,6 +278,44 @@ class Stack:
             if key in item.needs:
                 found += [*self._dependants(item.key), item.key]
         return list(dict.fromkeys(found))
+
+    def autostart(self, nodes, publishers, sim):
+        """Start the profile's ``start`` components with the session; returns lines to report.
+
+        A component already running (ours or another process's) is attached to. Off the
+        simulator nothing that moves the boat auto-starts, needs pulled in included. A
+        failed start skips the components that need it. ``publishers`` are the odometry
+        topic's nodes: one no component claims (a bag play, another stack) starts nothing.
+        """
+        order = self.start_order()
+        known = {node for item in self.items.values() for node in item.nodes}
+        foreign = sorted({node for node in publishers if node.rsplit('/', 1)[-1] not in known})
+        if order and foreign:
+            return [f'odometry already published by {", ".join(foreign)}: attaching, '
+                    'starting nothing (the Status rows start components)']
+        lines, failed = [], set()
+        for key in order:
+            item = self.items[key]
+            if not sim and moves(item):
+                failed.add(key)
+                lines.append(f'refused to auto-start {item.title}: it moves the boat '
+                             '(start it from its Status row)')
+                continue
+            need = next((need for need in item.needs if need in failed), None)
+            if need is not None:
+                failed.add(key)
+                lines.append(f'skipped {item.title}: {self.items[need].title} did not start')
+                continue
+            status = self.state(key, nodes)[0]
+            if status in ('ours', 'starting', 'external'):
+                lines.append(f'attached to {item.title} ({status})')
+                continue
+            try:
+                self.start(key, nodes)
+            except Exception as error:  # noqa: BLE001 - one bad component must not stop the TUI
+                failed.add(key)
+                lines.append(f'could not start {item.title}: {error}')
+        return lines
 
     def start_order(self):
         """Keys marked ``start``, each after its needs."""
