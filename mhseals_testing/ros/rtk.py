@@ -100,23 +100,49 @@ class StatusPublisher:
         self.publisher.publish(String(data=json.dumps(self.tracker.status())))
 
 
+# The rover's fix for NTRIP picking and the GGA uplink: stock MAVROS publishes it, no extras needed.
+ROVER_FIX = '/mavros/global_position/raw/fix'
+
+
 def serve(config, survey=False, position=None):
-    """Own the node: session -> MavrosSink (+ Radio if configured), status at 1 Hz, until Ctrl-C."""
+    """Own the node: local base and/or NTRIP -> Corrections -> MavrosSink (+ Radio), status at 1 Hz."""
     import rclpy
+    from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import NavSatFix
+    from mhseals_testing import ntrip
+    from mhseals_testing.corrections import Corrections
     from mhseals_testing.rtk import BaseSession, Radio, StatusTracker
     rclpy.init()
     node = rclpy.create_node('rtk_base')
     sink = MavrosSink(node)
     sinks = [sink] + ([Radio(config['radio'], config['radio_baud'])] if config['radio'] else [])
-    session = BaseSession(sinks, config)
-    StatusPublisher(node, StatusTracker(session, sink, lambda: node.count_publishers(sink.topic)))
-    session.start(survey=survey, position=position)
+    settings = ntrip.load_settings(config)
+    mux = Corrections(sinks, config['priority'], settings['near_km'], config=config)
+    rough = ntrip.Position(settings['position_cache'], settings['fallback'])
+    base = BaseSession([mux.gate('base')], config) if config['device'] else None
+    net = (ntrip.NtripSource(settings, mux.gate('ntrip'), rough)
+           if settings['enabled'] and settings['casters'] else None)
+    mux.attach(base, net, rough)
+
+    def on_fix(msg):
+        if msg.status.status >= 0:      # STATUS_NO_FIX is -1
+            rough.offer('rover', msg.latitude, msg.longitude, msg.altitude)
+
+    node.create_subscription(NavSatFix, ROVER_FIX, on_fix, qos_profile_sensor_data)
+    node.create_timer(1.0, mux.evaluate)
+    StatusPublisher(node, StatusTracker(mux, sink, lambda: node.count_publishers(sink.topic)))
+    if base:
+        base.start(survey=survey, position=position, auto=config['auto_site'])
+    if net:
+        net.start()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        session.close()
+        for part in (base, net):
+            if part:
+                part.close()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

@@ -40,9 +40,11 @@ def test_unknown_position_and_missing_device_are_errors(conf, tmp_path):
     with pytest.raises(ValueError, match='dock'):
         parse(['--known', 'nowhere'])
     empty = tmp_path / 'empty.yaml'
-    empty.write_text('survey_seconds: 60\n')
+    empty.write_text('survey_seconds: 60\nntrip: {enabled: false}\n')
     with pytest.raises(ValueError, match='no base receiver'):
         parse(['--config', str(empty)])
+    empty.write_text('survey_seconds: 60\n')        # NTRIP alone is a correction source
+    assert parse(['--config', str(empty)])[0]['device'] == ''
 
 
 def test_main_exits_cleanly_on_a_bad_config_and_serves_otherwise(conf, tmp_path):

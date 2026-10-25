@@ -111,8 +111,14 @@ def test_commands_are_valid_ubx_and_ram_only(model, position):
         assert all(c.identity == 'CFG-VALSET' for c in decoded)
         assert all(c.ram == 1 and c.bbr == 0 and c.flash == 0 for c in decoded)
         assert decoded[-1].CFG_TMODE_MODE == (2 if position else 1)
-        assert decoded[-1].CFG_MSGOUT_RTCM_3X_TYPE1074_USB == 1
-        assert not hasattr(decoded[-1], 'CFG_MSGOUT_RTCM_3X_TYPE1077_USB')
+        # Here4 base: dual-band MSM7 on four constellations at 1 Hz, MSM4 off, 1005 every 1 s, 1230 every 5 s
+        assert [getattr(decoded[-1], f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1077, 1087, 1097, 1127)] == [1] * 4
+        assert [getattr(decoded[-1], f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1074, 1084, 1094, 1124)] == [0] * 4
+        assert (decoded[-1].CFG_MSGOUT_RTCM_3X_TYPE1005_USB, decoded[-1].CFG_MSGOUT_RTCM_3X_TYPE1230_USB) == (1, 5)
+        assert (decoded[-1].CFG_RATE_MEAS, decoded[-1].CFG_RATE_NAV) == (1000, 1)
+        signals = decoded[0]
+        assert all(getattr(signals, f'CFG_SIGNAL_{s}_ENA') == 1 for s in (
+            'GPS_L1CA', 'GPS_L2C', 'GLO_L1', 'GLO_L2', 'GAL_E1', 'GAL_E5B', 'BDS_B1', 'BDS_B2'))
 
 
 def test_unknown_model_is_refused():
@@ -334,6 +340,109 @@ def test_configured_missing_rtk_file_warns_and_a_duplicate_key_is_refused(monkey
     (tmp_path / 'rtk.yaml').write_text('radio_baud: 9600\nradio_baud: 57600\n')
     with pytest.raises(ValueError, match='duplicate key'):
         load_config()
+
+
+SITES = {'dock': dict(latitude=27.372100, longitude=-82.446900, height=-24.0),
+         'ramp': dict(latitude=27.372140, longitude=-82.446900, height=-24.0),      # 4.4 m north of dock
+         'arlington': dict(latitude=32.730000, longitude=-97.110000, height=150.0)}
+
+
+def test_site_table_picks_the_nearest_site_within_the_radius():
+    from mhseals_testing.rtk import pick_site
+    assert pick_site(SITES, 27.372105, -82.446900, 5.0) == ('dock', pytest.approx(0.56, abs=0.01))
+    assert pick_site(SITES, 27.372135, -82.446900, 5.0)[0] == 'ramp'         # both within 5 m: the nearer
+    name, metres = pick_site(SITES, 27.372200, -82.447000, 5.0)            # 12 m from ramp, 15 m from dock
+    assert name is None and metres == pytest.approx(11.9, abs=0.3)
+    assert pick_site({}, 0, 0, 5.0) == (None, float('inf'))
+
+
+class SiteReceiver(FakeReceiver):
+    """An idle (just powered) receiver that also answers NAV-PVT polls with a rough fix."""
+
+    def __init__(self, model, lat, lon, h_acc_mm=1500):
+        super().__init__(model, mode=0, valid=False, active=False)
+        self.fix = (lat, lon, h_acc_mm)
+
+    def write(self, data):
+        message = None
+        try:
+            message = UBXReader.parse(data, msgmode=2)
+        except Exception:
+            pass
+        if message is not None and message.identity == 'NAV-PVT' and len(data) == 8:
+            lat, lon, acc = self.fix
+            self.sent.append('NAV-PVT')
+            self.pending += UBXMessage('NAV', 'NAV-PVT', GET, fixType=3, lat=lat, lon=lon, height=-21000,
+                                       hAcc=acc, numSV=24).serialize()
+            return len(data)
+        try:            # a survey request makes NAV-SVIN report an active survey, as a receiver does
+            if getattr(UBXReader.parse(data, msgmode=1), 'CFG_TMODE_MODE', None) == 1:
+                self.active = True
+        except Exception:
+            pass
+        return super().write(data)
+
+
+def auto_session(monkeypatch, port):
+    import serial
+    monkeypatch.setattr(serial, 'Serial', lambda *a, **k: port)
+    session = BaseSession([lambda frame, stamp: None], dict(DEFAULTS, device='/dev/test', positions=SITES))
+    session.start(auto=True)
+    deadline = time.monotonic() + 8
+    while session.snapshot()['phase'] not in ('fixed', 'surveying') and time.monotonic() < deadline:
+        time.sleep(.01)
+    state = session.snapshot()
+    session.close()
+    return state
+
+
+@pytest.mark.parametrize('model', ['M8P', 'F9P'])
+def test_auto_fixes_an_idle_base_at_the_site_under_its_rough_fix(monkeypatch, model):
+    port = SiteReceiver(model, 27.372102, -82.446903)
+    state = auto_session(monkeypatch, port)
+    assert state['phase'] == 'fixed' and state['site'] == 'dock' and state['detail'] == 'site dock', state
+    assert state['rough']['h_acc'] == 1.5
+    assert 'NAV-PVT' in port.sent and port.sent.count('CFG-TMODE3' if model == 'M8P' else 'CFG-VALSET') >= 2
+
+
+def test_auto_surveys_when_no_site_is_near(monkeypatch):
+    port = SiteReceiver('F9P', 27.3800, -82.4500)
+    state = auto_session(monkeypatch, port)
+    assert state['phase'] == 'surveying' and state['site'] is None
+
+
+def test_auto_never_touches_a_receiver_that_is_already_working(monkeypatch):
+    port = SiteReceiver('M8P', 27.372102, -82.446903)
+    port.mode, port.valid = 2, False          # already fixed (e.g. rtk_base restarted)
+    import serial
+    monkeypatch.setattr(serial, 'Serial', lambda *a, **k: port)
+    session = BaseSession([], dict(DEFAULTS, device='/dev/test', positions=SITES))
+    session.start(auto=True)
+    deadline = time.monotonic() + 5
+    while session.snapshot()['phase'] != 'fixed' and time.monotonic() < deadline:
+        time.sleep(.01)
+    time.sleep(.2)
+    session.close()
+    assert not any(name in port.sent for name in ('CFG-VALSET', 'CFG-MSG', 'CFG-RATE'))
+
+
+def test_here4_msm4_option_and_cadence_settings():
+    commands = base_commands('F9P', dict(DEFAULTS, msm=4, rtcm_1005_every=5))
+    last = UBXReader.parse(commands[-1].serialize(), msgmode=1)
+    assert [getattr(last, f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1074, 1084, 1094, 1124)] == [1] * 4
+    assert [getattr(last, f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1077, 1087, 1097, 1127)] == [0] * 4
+    assert last.CFG_MSGOUT_RTCM_3X_TYPE1005_USB == 5
+    m8p = [UBXReader.parse(c.serialize(), msgmode=1) for c in base_commands('M8P', DEFAULTS)]
+    rates = {d.msgID: d.rateUSB for d in m8p if d.identity == 'CFG-MSG'}
+    assert (rates[0x05], rates[0x4D], rates[0x57], rates[0xE6]) == (1, 1, 1, 5)    # Here+: same frame set
+
+
+def test_new_settings_are_validated(tmp_path):
+    for text, message in (('priority: first\n', 'priority'), ('msm: 5\n', 'msm'), ('site_radius: 0\n', 'site radius'),
+                          ('rtcm_1005_every: 0\n', 'rtcm_1005_every'), ('ntrip: [1]\n', 'ntrip')):
+        (tmp_path / 'bad.yaml').write_text(text)
+        with pytest.raises(ValueError, match=message):
+            load_config(tmp_path / 'bad.yaml')
 
 
 def test_source_defaults_to_ours_and_is_validated(tmp_path):

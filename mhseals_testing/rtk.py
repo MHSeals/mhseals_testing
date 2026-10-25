@@ -21,10 +21,15 @@ from mhseals_testing import data
 from mhseals_testing.strict_yaml import load_strict
 
 DEFAULTS = dict(source='ours', device='', radio='', radio_baud=57600, survey_seconds=120,
-                survey_accuracy=2.0, positions={})
-# Who injects RTCM into the FCU: ours (this base), external (e.g. Mission Planner over the
-# telemetry radio) or none. The rover fix always comes from the FCU's GPS_RAW_INT either way.
+                survey_accuracy=2.0, positions={}, priority='auto', auto_site=True, site_radius=5.0,
+                msm=7, rtcm_1005_every=1, rtcm_1230_every=5, ntrip={})
+# Who injects RTCM into the FCU: ours (this base and/or NTRIP), external (e.g. Mission Planner
+# over the telemetry radio) or none. The rover fix always comes from the FCU's GPS_RAW_INT either way.
 SOURCES = ('ours', 'external', 'none')
+# With source ours, which of the local base and NTRIP feeds the FCU (corrections.choose).
+PRIORITIES = ('auto', 'base', 'ntrip')
+# Receiver -> the base it is in: the Here+ is a NEO-M8P (L1), the Here4 an F9P (L1/L2).
+MODELS = {'M8P': 'Here+', 'F9P': 'Here4'}
 
 GCS_SYSTEM, GCS_COMPONENT = 255, 190
 
@@ -63,6 +68,29 @@ def validate(config):
         raise ValueError('positions must be a mapping of names to latitude, longitude, height')
     for position in config['positions'].values():
         coordinates(position)
+    if config['priority'] not in PRIORITIES:
+        raise ValueError('priority must be one of ' + ', '.join(PRIORITIES))
+    if not math.isfinite(float(config['site_radius'])) or not .1 <= float(config['site_radius']) <= 50:
+        raise ValueError('site radius must be .1..50 metres')
+    if int(config['msm']) not in (4, 7):
+        raise ValueError('msm must be 4 or 7')
+    for key in ('rtcm_1005_every', 'rtcm_1230_every'):
+        if not 1 <= int(config[key]) <= 60:
+            raise ValueError(f'{key} must be 1..60 seconds')
+    if not isinstance(config['ntrip'], dict):
+        raise ValueError('ntrip must be a mapping of NTRIP settings')
+
+
+def pick_site(positions, lat, lon, radius):
+    """(name, metres) of the nearest saved site within ``radius`` of a rough fix, else (None, metres to the nearest)."""
+    from mhseals_testing.analysis.geo import enu
+    best, metres = None, math.inf
+    for name, position in positions.items():
+        site_lat, site_lon, _ = coordinates(position)
+        distance = math.hypot(*enu(site_lat, site_lon, (lat, lon)))
+        if distance < metres:
+            best, metres = name, distance
+    return (best, metres) if metres <= radius else (None, metres)
 
 
 def save_config(config, path=None):
@@ -100,10 +128,19 @@ def split_position(position):
     return result
 
 
+# F9P (Here4) base signals: GPS L1C/A+L2C, GLONASS L1+L2, Galileo E1+E5b, BeiDou B1I+B2I.
+F9P_SIGNALS = ('GPS', 'GPS_L1CA', 'GPS_L2C', 'GLO', 'GLO_L1', 'GLO_L2', 'GAL', 'GAL_E1', 'GAL_E5B',
+               'BDS', 'BDS_B1', 'BDS_B2')
+# RTCM MSM ids per constellation (GPS, GLONASS, Galileo, BeiDou)
+F9P_MSM = {7: (1077, 1087, 1097, 1127), 4: (1074, 1084, 1094, 1124)}
+
+
 def base_commands(model, config, position=None):
-    """Receiver-specific commands that start a survey, or fix a known position."""
+    """Receiver-specific commands that start a survey, or fix a known position (RAM only)."""
     from pyubx2 import UBXMessage, SET
     seconds, accuracy = int(config['survey_seconds']), round(float(config['survey_accuracy']) * 10000)
+    arp = int(config.get('rtcm_1005_every', DEFAULTS['rtcm_1005_every']))
+    biases = int(config.get('rtcm_1230_every', DEFAULTS['rtcm_1230_every']))
     if model == 'M8P':
         def mode(value):
             fields = dict(rcvrMode=value, svinMinDur=seconds, svinAccLimit=accuracy)
@@ -115,20 +152,26 @@ def base_commands(model, config, position=None):
                               fixedPosAcc=round(float(position.get('accuracy', .02)) * 10000))
             return UBXMessage('CFG', 'CFG-TMODE3', SET, **fields)
         commands = [mode(0), UBXMessage('CFG', 'CFG-RATE', SET, measRate=1000, navRate=1, timeRef=1)]
-        # NAV-SVIN, NAV-PVT, then RTCM 1005 / 1077 / 1087 (MSM7) / 1230; rates are per epoch.
-        for cls, msg, rate in ((1, 0x3B, 1), (1, 7, 1), (0xF5, 5, 5),
-                               (0xF5, 0x4D, 1), (0xF5, 0x57, 1), (0xF5, 0xE6, 5)):
+        # NAV-SVIN, NAV-PVT, then RTCM 1005 / 1077 / 1087 (MSM7, L1 only) / 1230; rates are per 1 Hz epoch.
+        for cls, msg, rate in ((1, 0x3B, 1), (1, 7, 1), (0xF5, 5, arp),
+                               (0xF5, 0x4D, 1), (0xF5, 0x57, 1), (0xF5, 0xE6, biases)):
             commands.append(UBXMessage('CFG', 'CFG-MSG', SET, msgClass=cls, msgID=msg, rateUSB=rate))
         return commands + [mode(2 if position else 1)]
     if model != 'F9P':
         raise ValueError(f'unsupported base receiver {model}; expected M8P or F9P')
-    commands = [UBXMessage.config_set(1, 0, [('CFG_TMODE_MODE', 0)])]
+    # Signal changes restart the GNSS engine, so they go first and in one message (u-blox F9 HPG).
+    commands = [UBXMessage.config_set(1, 0, [(f'CFG_SIGNAL_{s}_ENA', 1) for s in F9P_SIGNALS]),
+                UBXMessage.config_set(1, 0, [('CFG_TMODE_MODE', 0)])]
     data = [('CFG_USBOUTPROT_UBX', 1), ('CFG_USBOUTPROT_RTCM3X', 1),
             ('CFG_RATE_MEAS', 1000), ('CFG_RATE_NAV', 1),
             ('CFG_MSGOUT_UBX_NAV_SVIN_USB', 1), ('CFG_MSGOUT_UBX_NAV_PVT_USB', 1)]
-    # MSM4 keeps one epoch under the 2400 B DroneCAN buffer.
-    for msg, rate in ((1005, 5), (1074, 1), (1084, 1), (1094, 1), (1124, 1), (1230, 5)):
+    # Dual-band MSM7, 4 constellations: about 1.2-1.6 kB per 1 Hz epoch, every frame under the
+    # 720 B GPS_RTCM_DATA limit and the epoch under the 2400 B DroneCAN buffer. msm: 4 is smaller.
+    msm = F9P_MSM[int(config.get('msm', DEFAULTS['msm']))]
+    for msg, rate in ((1005, arp), *((m, 1) for m in msm), (1230, biases)):
         data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', rate))
+    for msg in F9P_MSM[4 if msm == F9P_MSM[7] else 7]:
+        data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', 0))   # the other MSM set off, never both
     if position:
         lat, lat_hp, lon, lon_hp, alt, alt_hp = split_position(position)
         data += list(zip(('CFG_TMODE_LAT', 'CFG_TMODE_LAT_HP', 'CFG_TMODE_LON',
@@ -231,12 +274,13 @@ class BaseSession:
         self.lock = threading.RLock()
         self.state = dict(phase='off', detail='Enter to configure', received=0, delivered=0,
                           errors=0, routes=self._blank_routes(), model='', survey=None,
-                          base_position=None, base_satellites=None)
+                          base_position=None, base_satellites=None, site=None, rough=None)
         self.stopped = threading.Event()
         self.thread = None
         self.position = None
         self.configure = False
         self.fixed = False
+        self.auto = False
 
     def _blank_routes(self):
         return [dict(sent=0, failed=0, error='', error_at=None) for _ in self.sinks]
@@ -260,8 +304,14 @@ class BaseSession:
             state['phase'] = 'off'
         return state
 
-    def start(self, survey=False, position=None):
-        """Open the receiver; configure it only for a survey or a known position."""
+    def start(self, survey=False, position=None, auto=False):
+        """Open the receiver; configure it only for a survey or a known position.
+
+        ``auto``: when the receiver is idle (not surveying, surveyed or fixed: e.g. just powered),
+        fix it at the saved site its rough fix is within ``site_radius`` of, else start a survey.
+        It acts once per start, never on a reconnect.
+        """
+        self.auto = bool(auto) and not (survey or position)
         if self.running:
             raise ValueError('stop the current base session first')
         if not self.config['device']:
@@ -273,7 +323,8 @@ class BaseSession:
         self.fixed = bool(position)
         self.stopped.clear()
         self.update(phase='connecting', detail='identifying receiver', survey=None, received=0,
-                    delivered=0, errors=0, routes=self._blank_routes(), base_position=None)
+                    delivered=0, errors=0, routes=self._blank_routes(), base_position=None,
+                    site=(position or {}).get('name'))
         self.thread = threading.Thread(target=self._run, name='rtk-base', daemon=True)
         self.thread.start()
 
@@ -308,9 +359,13 @@ class BaseSession:
                         else:
                             identified = True
                             self._resume(serial_port, reader, model)
+                            if self.auto and self.state['phase'] == 'idle':
+                                self._auto_site(serial_port, reader, model)
+                        self.auto = False
                         polled = float('-inf')
                     if self.clock() - polled >= 2:
                         serial_port.write(self._poll('NAV-SVIN').serialize())
+                        serial_port.write(self._poll('NAV-PVT').serialize())   # the rough fix, for NTRIP picking
                         polled = self.clock()
                     self._handle(*reader.read())
                 except (serial.SerialException, OSError, RuntimeError, ValueError) as error:
@@ -341,7 +396,7 @@ class BaseSession:
         if identity == 'NAV-SVIN':
             self._survey(message)
         elif identity == 'NAV-PVT':
-            self.update(base_satellites=message.numSV)
+            self.update(base_satellites=message.numSV, rough=self._rough(message))
         elif raw[:1] == b'\xd3':
             # pyubx2 has already checked the CRC24Q of an RTCM3 frame by here.
             self.count('received')
@@ -408,8 +463,10 @@ class BaseSession:
                 # Let the 1 Hz engine see time mode off before re-enabling, so survey-in restarts.
                 self.stopped.wait(1.2)
             self._command(port, reader, command)
+        site = (self.position or {}).get('name')
         self.update(phase='fixed' if self.position else 'surveying',
-                    detail='known position' if self.position else 'waiting for survey observations')
+                    detail=f'site {site}' if site else 'known position' if self.position
+                    else 'waiting for survey observations')
 
     def _resume(self, port, reader, model):
         """Adopt whatever the receiver is already doing: fixed, surveyed, surveying or idle."""
@@ -432,6 +489,47 @@ class BaseSession:
             self.update(phase='surveying', detail='waiting for survey observations')
         else:
             self.update(phase='idle', detail='no survey running; start one to send corrections')
+
+    @staticmethod
+    def _rough(message):
+        """The receiver's own fix from NAV-PVT: lat, lon, height (m), h_acc (m); None without a 3D fix."""
+        if getattr(message, 'fixType', 0) < 3:
+            return None
+        return dict(latitude=message.lat, longitude=message.lon, height=message.height / 1000,
+                    h_acc=message.hAcc / 1000)
+
+    def _auto_site(self, port, reader, model, wait=90.0):
+        """Fix the base at the saved site under its rough fix, or survey when none is near.
+
+        Waits up to ``wait`` s for a 3D fix whose h_acc is within the site radius, polling NAV-PVT.
+        """
+        radius = float(self.config['site_radius'])
+        self.update(phase='connecting', detail='rough fix for the site table')
+        deadline, polled, rough = self.clock() + wait, float('-inf'), None
+        while self.config['positions'] and not self.stopped.is_set() and self.clock() < deadline:
+            if self.clock() - polled >= 1:
+                port.write(self._poll('NAV-PVT').serialize())
+                polled = self.clock()
+            _, message = reader.read()
+            if message is not None and message.identity == 'NAV-PVT':
+                fix = self._rough(message)
+                if fix:
+                    rough = fix
+                    self.update(rough=fix, base_satellites=message.numSV)
+                    if fix['h_acc'] <= radius:
+                        break
+        name = None
+        if rough is not None:
+            name, metres = pick_site(self.config['positions'], rough['latitude'], rough['longitude'], radius)
+        if self.stopped.is_set():
+            return
+        if name:
+            self.position = dict(self.config['positions'][name], name=name)
+            self.fixed = True
+            self.update(site=name)
+        else:
+            self.position, self.fixed = None, False
+        self._configure(port, reader, model)
 
     def _command(self, port, reader, command):
         if self.stopped.is_set():
@@ -488,7 +586,9 @@ class StatusTracker:
                     age=None if last is None else round(max(now - last, 0.0), 2),
                     drops=len(self.drops), pubs=self.pubs(), rates=rates,
                     frames=dict(received=state['received'], delivered=state['delivered'],
-                                errors=state['errors'], oversize=self.sink.counts['oversize']))
+                                errors=state['errors'], oversize=self.sink.counts['oversize']),
+                    base_model=MODELS.get(state['model'], state['model']), site=state.get('site'),
+                    source=state.get('source') or dict(kind='base'))
 
     @staticmethod
     def _ecef(position):
@@ -526,7 +626,10 @@ def parse(argv):
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument('--survey', action='store_true', help='start a new survey-in')
     mode.add_argument('--known', metavar='NAME', help='fix the base at a named position from the config')
-    mode.add_argument('--resume', action='store_true', help='adopt the receiver as it is (the default)')
+    mode.add_argument('--resume', action='store_true',
+                      help='adopt the receiver as it is; without it an idle receiver is fixed at the nearest '
+                           'saved site, else surveyed (auto_site)')
+    ap.add_argument('--priority', choices=PRIORITIES, help='local base or NTRIP first (default: config priority)')
     args = ap.parse_args(argv)
     config = load_config(args.config)
     if config['source'] != 'ours':
@@ -534,13 +637,20 @@ def parse(argv):
                          'mix bases at the FCU (set source: ours to run this base)')
     if args.port:
         config['device'] = args.port
+    if args.priority:
+        config['priority'] = args.priority
+    if args.resume:
+        config['auto_site'] = False
     position = None
     if args.known:
         if args.known not in config['positions']:
             raise ValueError(f'no known position {args.known!r}; have: ' + (', '.join(config['positions']) or 'none'))
-        position = config['positions'][args.known]
+        position = dict(config['positions'][args.known], name=args.known)
     if not config['device']:
-        raise ValueError('no base receiver: pass a port or set device in the settings')
+        from mhseals_testing import ntrip
+        settings = ntrip.load_settings(config)
+        if not (settings['enabled'] and settings['casters']):
+            raise ValueError('no base receiver: pass a port or set device in the settings (NTRIP is off)')
     return config, args.survey, position
 
 

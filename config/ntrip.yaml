@@ -1,0 +1,85 @@
+# NTRIP casters for rtk_base (mhseals_testing/ntrip.py), checked 2026-10-25 against the pages cited.
+# Per machine: rtk.yaml `ntrip:` overrides any key here; `ntrip: {casters: [{name: X, enabled: false}]}`
+# merges into the caster of that name, and an unknown name adds one.
+# Credentials are never here: each caster names environment variables, read from `secrets` (a .env
+# file, mode 600, not in any repo) or the environment. A caster whose variables are unset still
+# lends its sourcetable to the picker, but is never streamed from.
+#
+# Picking: cost = station km + caster bias_km + penalties (MSM7 best; single band +40 km), and
+# anything beyond max_km is a last resort. A network (VRS/IMAX) mountpoint counts half the
+# distance to the network's nearest listed station, NEAR the full distance.
+# Source rule (rtk.yaml priority auto): NTRIP when its best station is under near_km and the local
+# base is not at a fixed site, otherwise the local base.
+enabled: true
+max_km: 30.0             # prefer stations within this; RTK error grows ~1 ppm and fixes slow past 20-30 km
+near_km: 15.0            # priority auto: NTRIP beats a surveying local base under this
+refresh_s: 600.0         # sourcetable refresh; RTK2go bans clients that hammer it
+stale_s: 5.0             # no frame for this long on a streaming mountpoint: fail over (rtk.age fail)
+connect_grace_s: 10.0    # first frame after connecting (VRS needs a GGA round trip)
+gga_every_s: 10.0        # GGA uplink to mountpoints whose table entry asks for it (NMEA=1)
+repick_s: 60.0           # re-rank as the boat moves; switch only if this much cheaper:
+repick_margin_km: 5.0
+mount_cooldown_s: 60.0   # a failed mountpoint rests this long, doubling to 10 min (RTK2go: retry >= 10 s)
+auth_cooldown_s: 600.0   # a refused login rests the whole caster
+secrets: ~/.config/mhseals_testing/secrets.env
+position_cache: ~/.cache/mhseals_testing/ntrip_position.json   # last rough fix, survives reboots
+fallback: null           # {latitude, longitude, height} when no fix was ever seen
+
+casters:
+  # Florida Permanent Reference Network (FDOT), Leica Spider caster. Free, one account per rover:
+  # register at https://www.myfloridagps.com/sbc (https://www.myfloridagps.com/links/registration.pdf);
+  # accounts from before 2025-11-03 expired. Host: https://www.myfloridagps.com/faq/fprnfaq2025.html
+  # Port 25000: single base, RTCM 3 MSM4, GPS+GLO+GAL+BDS, mountpoint = 4-character site id.
+  # FPRN coordinates are NAD83(2011): about 1-1.5 m from WGS84/ITRF in Florida, so the boat's
+  # absolute position shifts by that against WGS84 course points; relative accuracy is unaffected.
+  - name: FPRN
+    host: ntrip.myfloridagps.com
+    port: 25000
+    version: 2
+    user_env: FPRN_USER
+    password_env: FPRN_PASSWORD
+    bias_km: 0
+  # Port 20000: the network (NAD_MSM4_VRS, _IMAX, _NEAR ...); every mountpoint wants GGA.
+  # Same account. Its stations are FPRN's, so `group` takes network distances from that table.
+  - name: FPRN-NET
+    group: FPRN
+    host: ntrip.myfloridagps.com
+    port: 20000
+    version: 2
+    user_env: FPRN_USER
+    password_env: FPRN_PASSWORD
+    bias_km: 2
+  # TxDOT RTN (https://txrtn.txdot.gov/, Trimble-hosted). Accounts go to TxDOT staff and
+  # contractors (https://www.txdot.gov/data-maps/global-positioning-system-gps.html; ask via
+  # https://txrtn.txdot.gov/contacts.aspx). Ports 2102-2104 answer; most streams are RAW (not
+  # usable here), 2102 also lists RTCM 3 OKDOT_TX* bases. Enable once an account exists.
+  - name: TxDOT
+    enabled: false
+    host: ntrip.txdot.trimblenms.net
+    port: 2102
+    version: 2
+    user_env: TXDOT_USER
+    password_env: TXDOT_PASSWORD
+    bias_km: 0
+  # EarthScope (formerly UNAVCO) real-time GNSS: https://www.earthscope.org/data/gnss-realtime/
+  # Free noncommercial license: https://www.earthscope.org/user/licenses. RTCM 3.3 MSM7 1 Hz,
+  # single site, mountpoint {SITE}_RTCM3P3; TLS port 3101 (plain 2101). ITRF coordinates.
+  # Few sites in Texas and none in Florida: a fallback.
+  - name: EarthScope
+    host: ntrip.earthscope.org
+    port: 3101
+    tls: true
+    version: 2
+    user_env: EARTHSCOPE_USER
+    password_env: EARTHSCOPE_PASSWORD
+    bias_km: 2
+  # RTK2go community caster: http://rtk2go.com/how-to-connect/ . User name = a valid e-mail, the
+  # password is ignored; no registration. Failed connects in the hundreds ban the IP for hours
+  # (http://rtk2go.com/how-to-get-your-ip-banned/), hence the cooldowns above. Bases vary in
+  # quality and survey, so it carries a bias.
+  - name: RTK2go
+    host: rtk2go.com
+    port: 2101
+    version: 2
+    user_env: RTK2GO_USER
+    bias_km: 5
