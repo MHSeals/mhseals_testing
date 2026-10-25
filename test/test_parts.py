@@ -35,6 +35,23 @@ def test_rows_show_state_and_host():
     assert rows['camera']['state'] == 'WARN' and 'ssh: timeout' in rows['camera']['detail']
 
 
+def test_a_stopped_heartbeat_says_the_link_watchdog_holds():
+    from test_components import ME, PARTS, part
+    from mhseals_testing.harness.components import components
+
+    class Operator(Profile):
+        components = dict(Profile.components, operator_heartbeat={})
+    processes = FakeProcesses()
+    stack = Stack(components(Operator, None, (ME, dict(
+        PARTS, operator_heartbeat=part('operator_heartbeat', None, nodes=['operator_heartbeat'])))),
+        processes, lambda: 0.0, FakeUnits())
+    row = {row['key']: row for row in parts.rows(stack, [])}['operator_heartbeat']
+    assert 'link watchdog holds autonomy until started' in row['detail']
+    processes.live.add('operator_heartbeat')
+    row = {row['key']: row for row in parts.rows(stack, ['/operator_heartbeat'])}['operator_heartbeat']
+    assert 'link watchdog' not in row['detail']
+
+
 def test_enter_confirms_with_the_host_then_starts_a_remote_part():
     app = App()
     app.stack.units.records['camera'] = {'state': 'off'}
@@ -69,9 +86,39 @@ def test_a_part_not_read_yet_offers_stop():
 
 def test_quit_names_the_units_held_on_each_host():
     app = App()
-    app.stack.units.held_by_host = lambda: {'blastoise-jetson': ['Camera', 'Objects']}
-    assert parts.quit_rows(app) == [('On blastoise-jetson', 'Camera, Objects: Quit stops them')]
+    held = {False: {'blastoise-jetson': ['Camera', 'Objects']}, True: {'vlp16': ['LiDAR']}}
+    app.stack.units.held_by_host = lambda adopted=None: held[adopted]
+    assert parts.quit_rows(app) == [('On blastoise-jetson', 'Camera, Objects: Quit stops them'),
+                                    ('On vlp16', 'LiDAR: adopted, Quit keeps them running')]
     assert parts.quit_rows(SimpleNamespace(stack=None)) == []
+
+
+def test_quit_keeps_adopted_units_unless_the_operator_chooses_to_stop_them():
+    from mhseals_testing.ui.app import App as Tui
+    held = {False: {}, True: {'blastoise-jetson': ['Camera']}}
+    units = SimpleNamespace(held_by_host=lambda adopted=None: held[adopted],
+                            close=lambda stop, adopted: closed.append((stop, adopted)))
+    closed, asked = [], []
+
+    def tui(answer):
+        def choose(title, options, shortcuts=None, rows=None, default=0, **_):
+            asked.append((options, dict(rows), options[default], options[shortcuts['y']]))
+            return answer
+        return SimpleNamespace(armed=False, paths=SimpleNamespace(bag='b', report='r'), draft=None,
+                               watching=None, snapshot=lambda: {'results': []}, quit=False,
+                               choose=choose, stack=SimpleNamespace(units=units),
+                               keep_units=False, stop_adopted=False)
+    plain = tui('Quit')
+    Tui.confirm_quit(plain)
+    options, rows, default, yes = asked[0]
+    assert options == ['Quit', 'Quit, also stop adopted parts', 'Cancel'] and yes == 'Quit'
+    assert default != 'Quit, also stop adopted parts'
+    assert rows['On blastoise-jetson'] == 'Camera: adopted, Quit keeps them running'
+    Tui.close_units(plain)
+    explicit = tui('Quit, also stop adopted parts')
+    Tui.confirm_quit(explicit)
+    Tui.close_units(explicit)
+    assert closed == [(True, False), (True, True)] and plain.quit and explicit.quit
 
 
 def test_u_releases_only_from_a_release_modal_whatever_the_title():

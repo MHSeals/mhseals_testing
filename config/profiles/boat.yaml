@@ -12,6 +12,7 @@ arming: {outputs: odroid}
 # computer runs it (mhseals_testing.devices), and the Status row starts or stops it there.
 # The components marked start come up with the session (attaches if already running); the
 # Status rows start the rest. Only sensing carries start: never navigation or the mission.
+# start: here starts it with the session only when this computer runs it (an operator's TUI).
 components:
   odometry: {start: true}
   ekf: {title: EKFs, needs: [odometry], start: true}
@@ -21,7 +22,7 @@ components:
   camera: {}
   objects: {topic: /perception/tracks}
   watchdogs: {title: Safety watchdogs, start: true}    # hold-only: operator link, fence, FCU
-  operator_heartbeat: {title: Operator heartbeat}     # on the operator laptop
+  operator_heartbeat: {title: Operator heartbeat, start: here}   # on the operator laptop; link_watchdog holds without it
   host_diagnostic: {title: Camera host diagnostic}
 sensors:
   - {name: odometry, topic: /odom/local, kind: odometry, required: true}

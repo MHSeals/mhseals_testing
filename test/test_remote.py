@@ -14,6 +14,7 @@ from mhseals_testing.devices import Host
 from mhseals_testing.harness import remote
 from mhseals_testing.harness.components import Component
 from mhseals_testing.harness.remote import Units, reason, ssh_argv, unit_command
+from mhseals_testing.harness.unit import LEASE_S
 
 JETSON = Host('blastoise-jetson', address='192.168.0.153', user='roboboat', container='roboboat_dev',
               via='tranquility')
@@ -165,6 +166,25 @@ def test_start_adopt_renew_and_stop_through_the_real_unit_cli():
     assert first.close(stop=True) == 'stopped Sleeper'
     second.refresh()
     assert second.status(sleeper)[0]['state'] == 'exited' and second.held_by_host() == {}
+
+
+def test_quit_stops_only_what_this_tui_started_and_keeps_adopted_units():
+    sleeper, camera = item('sleeper', argv=('sleep', '60')), item('napper', argv=('sleep', '60'))
+    first = Units([sleeper], hosts={'tranquility': GATEWAY}, run=local)       # another operator
+    first.do_start(sleeper, False)
+    second = Units([sleeper, camera], hosts={'tranquility': GATEWAY}, run=local)
+    second.refresh()                                                         # adopts the sleeper
+    second.do_start(camera, False)                                           # starts its own
+    assert second.held_by_host(adopted=False) == {'blastoise-jetson': ['Napper']}
+    assert second.held_by_host(adopted=True) == {'blastoise-jetson': ['Sleeper']}
+    assert second.close(stop=True) == f'stopped Napper; kept Sleeper (lease {LEASE_S:.0f} s)'
+    first.refresh()
+    assert first.status(sleeper)[0]['state'] == 'running'                   # the other TUI's unit runs on
+    third = Units([sleeper], hosts={'tranquility': GATEWAY}, run=local)
+    third.refresh()
+    assert third.close(stop=True, adopted=True) == 'stopped Sleeper'        # only on the explicit choice
+    first.refresh()
+    assert first.status(sleeper)[0]['state'] == 'exited'
 
 
 def test_a_commander_unit_is_refused_without_the_go_ahead():

@@ -14,6 +14,9 @@ from mhseals_testing.ui import theme
 
 LEVELS = {'ours': 'OK', 'external': 'OK', 'starting': 'CHECKING', 'exited': 'FAIL', 'off': 'OFF',
           'unreachable': 'WARN', 'unknown': 'CHECKING', 'disabled': 'N/A'}
+UP = {'ours', 'starting', 'external'}
+# Why a part matters while it is not running, beside its own detail.
+WHY_DOWN = {'operator_heartbeat': 'link watchdog holds autonomy until started'}
 
 
 def rows(stack, nodes):
@@ -21,6 +24,8 @@ def rows(stack, nodes):
     out = []
     for item in stack.items.values():
         status, detail = stack.state(item.key, nodes)
+        if status not in UP and item.part in WHY_DOWN:
+            detail = theme.SEPARATOR.join(filter(None, [WHY_DOWN[item.part], detail]))
         where = item.remote or 'here'
         out.append(dict(group='Components', source='part', key=item.key, state=LEVELS[status],
                         name=item.title, value=status if item.remote is None else f'{status} on {where}',
@@ -81,9 +86,15 @@ def toggle(app, key):
 
 
 def quit_rows(app):
-    """Quit popup rows for the units this TUI keeps alive on other computers, or []."""
+    """Quit popup rows for the units this TUI keeps alive on other computers, or [].
+
+    Quit stops the ones it started; the ones it adopted (another TUI may have started them)
+    keep running unless the operator picks the option that stops them too.
+    """
     stack = getattr(app, 'stack', None)
     if stack is None or stack.units is None:
         return []
-    return [(f'On {host}', f'{", ".join(titles)}: Quit stops them')
-            for host, titles in stack.units.held_by_host().items()]
+    return [*((f'On {host}', f'{", ".join(titles)}: Quit stops them')
+              for host, titles in stack.units.held_by_host(adopted=False).items()),
+            *((f'On {host}', f'{", ".join(titles)}: adopted, Quit keeps them running')
+              for host, titles in stack.units.held_by_host(adopted=True).items())]

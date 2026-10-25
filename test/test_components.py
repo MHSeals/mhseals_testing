@@ -59,7 +59,7 @@ class FakeUnits:
     def take_notices(self):
         return []
 
-    def held_by_host(self):
+    def held_by_host(self, adopted=None):
         return {}
 
 
@@ -144,10 +144,33 @@ def test_shipped_profiles_resolve_through_the_device_profiles():
 
 def test_boat_session_start_brings_up_only_sensing():
     started = [item for item in components(load_profile('boat')) if item.start]
-    assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors', 'watchdogs'}
+    assert {item.key for item in started} <= {'odometry', 'ekf', 'sensors', 'watchdogs',
+                                              'operator_heartbeat'}
     assert 'watchdogs' in {item.key for item in started}     # hold-only, up before any autonomy
+    # Every role is on this machine here, so it is an operator host: the heartbeat comes up too.
+    assert 'operator_heartbeat' in {item.key for item in started}
     for item in started:
         assert not item.limits and item.kind == 'sensing'
+
+
+def test_the_operator_heartbeat_starts_with_the_session_only_on_its_own_computer():
+    """link_watchdog (require_operator) holds until the heartbeat runs: an operator TUI starts it."""
+    beat = part('operator_heartbeat', None, nodes=['operator_heartbeat'])
+    laptop = Host('laptop', roles=('operator',), address='192.168.0.20')
+
+    class Operator(Profile):
+        components = dict(Profile.components, operator_heartbeat={'start': 'here'})
+    here = Stack(components(Operator, None, (ME, dict(PARTS, operator_heartbeat=beat))),
+                 FakeProcesses(), lambda: 0.0, FakeUnits())
+    assert here.autostart(set(), [], sim=False) == []
+    assert ('operator_heartbeat', here.items['operator_heartbeat'].argv) in here.processes.started
+    units = FakeUnits()
+    boat = Stack(components(Operator, None, (ME, dict(PARTS, operator_heartbeat=replace(beat, host=laptop)))),
+                 FakeProcesses(), lambda: 0.0, units)
+    boat.autostart(set(), [], sim=False)       # a TUI on the boat leaves the laptop's part alone
+    assert not boat.items['operator_heartbeat'].start and units.calls == []
+    with pytest.raises(ValueError, match='start: true, false or here'):
+        parse_components({'a': {'start': 'there'}})
 
 
 def test_a_commander_marked_start_is_a_load_error_off_the_simulator():

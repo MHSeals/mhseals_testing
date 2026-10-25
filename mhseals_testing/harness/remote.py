@@ -123,6 +123,7 @@ class Units:
         self.by, self.renewing, self.run, self.period = dict(by or {}), renew, run, period
         self.lock = threading.Lock()
         self.records, self.errors, self.held, self.notices = {}, {}, set(), []
+        self.started = set()     # the held units this TUI started; the rest of held are adopted
         self.jobs = queue.Queue()
         self.thread = None
         for item in self.items:
@@ -142,15 +143,19 @@ class Units:
     def stop(self, item):
         with self.lock:
             self.held.discard(item.unit)
+            self.started.discard(item.unit)
             self.records[item.unit] = {'state': 'off', 'pending': True}
         self.jobs.put(('stop', item, False))
 
-    def held_by_host(self):
-        """{host name: [titles]} of the units this TUI keeps alive."""
+    def held_by_host(self, adopted=None):
+        """{host name: [titles]} of the units this TUI keeps alive.
+
+        ``adopted`` False keeps only the ones it started, True only the ones it adopted.
+        """
         found = {}
         with self.lock:
             for item in self.items:
-                if item.unit in self.held:
+                if item.unit in self.held and adopted in (None, item.unit not in self.started):
                     found.setdefault(item.host.name, []).append(item.title)
         return found
 
@@ -190,6 +195,8 @@ class Units:
             else:
                 self.records[item.unit] = found
                 self.held.add(item.unit)
+                if not found.get('adopted'):
+                    self.started.add(item.unit)
         if error or 'error' in found:
             self._note(f'{item.title} not started on {item.host.name}: {error or found["error"]}')
         else:
@@ -204,6 +211,7 @@ class Units:
             with self.lock:
                 self.records[item.unit] = found
                 self.held.discard(item.unit)
+                self.started.discard(item.unit)
             self._note(f'{item.title} stopped on {item.host.name}')
         else:
             self._note(f'{item.title} stop on {item.host.name} failed: {error or found["error"]}')
@@ -233,6 +241,7 @@ class Units:
                         self.held.add(item.unit)   # adopt: from now on this TUI renews it too
                     elif record['state'] != 'running':
                         self.held.discard(item.unit)
+                        self.started.discard(item.unit)
 
     def work(self):
         while True:
@@ -256,18 +265,21 @@ class Units:
             self.thread.start()
         return self
 
-    def close(self, stop=True):
-        """End the worker; with ``stop`` stop every unit we hold (else their leases run out)."""
+    def close(self, stop=True, adopted=False):
+        """End the worker; with ``stop`` stop the units this TUI started, and with ``adopted``
+        also the ones it adopted (another TUI's, by default left running). The rest are left to
+        their leases."""
         if self.thread is not None:
             self.jobs.put(None)
             self.thread.join(timeout=CONNECT_S + STOP_WAIT + 20)
             self.thread = None
         with self.lock:
             held = [item for item in self.items if item.unit in self.held]
-        if not stop:
-            return f'kept {", ".join(item.title for item in held)} (lease {LEASE_S:.0f} s)' if held \
-                else 'none held'
-        failed = [item.title for item in held if self.do_stop(item)]
-        stopped = [item.title for item in held if item.title not in failed]
+            ending = [item for item in held if stop and (adopted or item.unit in self.started)]
+        kept = [item.title for item in held if item not in ending]
+        failed = [item.title for item in ending if self.do_stop(item)]
+        stopped = [item.title for item in ending if item.title not in failed]
         return '; '.join(filter(None, [stopped and f'stopped {", ".join(stopped)}',
-                                       failed and f'could not stop {", ".join(failed)}'])) or 'none held'
+                                       failed and f'could not stop {", ".join(failed)}',
+                                       kept and f'kept {", ".join(kept)} (lease {LEASE_S:.0f} s)'])) \
+            or 'none held'

@@ -241,6 +241,7 @@ class App:
         self.args = args
         self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
         self.keep_units = False   # Quit's 'keep remote parts': their leases run out instead
+        self.stop_adopted = False  # Quit's 'also stop adopted parts' (units another TUI may own)
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
@@ -955,9 +956,11 @@ class App:
             rows.append(('Mapping', 'unsaved changes'))
             options = ['Save mapping and quit', 'Quit without saving', 'Cancel']
         remote = [] if self.watching else parts.quit_rows(self)
-        if remote:            # asked once; Quit (the default) stops them
-            rows += remote
+        rows += remote        # asked once; Quit stops only what this TUI started
+        if any(value.endswith('Quit stops them') for _, value in remote):
             options.insert(-1, 'Quit, keep remote parts running')
+        if any(value.endswith('Quit keeps them running') for _, value in remote):
+            options.insert(-1, 'Quit, also stop adopted parts')
         try:
             choice = self.choose('Quit', options, {'y': 0, 'n': len(options) - 1}, rows=rows,
                                  default=len(options) - 1, width=72)
@@ -966,6 +969,7 @@ class App:
         if choice == 'Cancel':
             return
         self.keep_units = choice == 'Quit, keep remote parts running'
+        self.stop_adopted = choice == 'Quit, also stop adopted parts'
         if choice == 'Save mapping and quit':
             channel_map, reversed_ = self.mapping()
             if not self.save_hardware(channel_map=channel_map, reversed=reversed_):
@@ -1031,9 +1035,11 @@ class App:
         return f"stopped {', '.join(names)}" if names else 'none running'
 
     def close_units(self):
-        """Stop the units we hold on other computers (Quit's default), or leave them to their lease."""
+        """Stop the units we started on other computers (Quit's default), or leave them to their
+        lease; adopted ones are stopped only on the operator's explicit choice."""
         units = getattr(self.stack, 'units', None)
-        return units.close(stop=not self.keep_units) if units is not None else 'none'
+        return units.close(stop=not self.keep_units, adopted=self.stop_adopted) \
+            if units is not None else 'none'
 
     def close_report(self):
         self.ros.emit('session_stop')

@@ -75,6 +75,8 @@ def parse_components(data, where='components'):
             raise ValueError(f'{here}.part: a device part name')
         if not isinstance(spec.get('needs', []), list):
             raise ValueError(f'{here}.needs: list')
+        if spec.get('start', False) not in (True, False, 'here'):
+            raise ValueError(f'{here}.start: true, false or here (only when this computer runs it)')
         for need in spec.get('needs', []):
             if need not in data or need == key:
                 raise ValueError(f'{here}.needs: unknown component {need!r}')
@@ -214,6 +216,10 @@ def components(profile, overlay=None, placed=None):
     for key, spec in specs.items():
         part = resolved[key]
         kind = part.spec.get('kind', 'sensing')
+        here = part.host.name == me.name
+        # start: here comes up with the session only on the computer that runs the part (the
+        # operator heartbeat, from an operator's TUI); from another computer it stays a Status row.
+        start = spec.get('start') is True or (spec.get('start') == 'here' and here)
         if spec.get('start') and kind == 'commander' and profile.use_sim_time is not True:
             raise ValueError(f'components.{key}.start: {part.name} can command motion; only a '
                              'simulator profile (use_sim_time) starts it with the session')
@@ -224,8 +230,8 @@ def components(profile, overlay=None, placed=None):
         result.append(Component(
             key, spec.get('title', key.capitalize()), device_argv(part, session),
             tuple(part.spec.get('nodes', ())), tuple(spec.get('needs', ())),
-            None if part.host.name == me.name else part.host, spec.get('topic'),
-            bool(spec.get('limits', False)), bool(spec.get('start', False)), part.name,
+            None if here else part.host, spec.get('topic'),
+            bool(spec.get('limits', False)), start, part.name,
             part.profile, kind, part.enabled, launches[key], final))
     return tuple(result)
 
