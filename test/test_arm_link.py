@@ -333,16 +333,6 @@ def test_disarm_and_estop_act_over_dds_while_ssh_is_down():
     assert link.calls[2] == ('ssh', 'stop')
 
 
-def test_readback_runs_on_the_boat_and_reports_its_answer():
-    driver, _, ssh, _ = remote(Ssh({'confirmed': True}))
-    assert driver.readback('a: 1\n', ['ros2', 'run', 'x', 'config_file:=@CONFIG@']) is True
-    words = shlex.split(ssh.commands[0])
-    assert words[:4] == ['python3', '-m', 'mhseals_testing.ros.arm_link', 'readback']
-    driver, _, _, _ = remote(Ssh({'error': 'a thruster driver or mux already runs here (pids [9])'}))
-    with pytest.raises(RuntimeError, match='already runs here'):
-        driver.readback('', ['x'])
-
-
 def test_the_tui_reads_the_boats_config_and_arms_from_it_only(tmp_path):
     """One hardware.yaml: the operator TUI arms from the boat's, read over ssh at session start."""
     own = tmp_path / 'hardware.yaml'
@@ -364,8 +354,6 @@ def test_no_boat_config_means_no_arming(ssh):
     driver.worker.shutdown(wait=True)
     assert len(ssh.commands) == calls and link.calls == [('ssh', 'config')]   # no beat, no ssh start
     assert not driver.running('hardware') and 'could not be read' in driver.last_line('hardware')
-    with pytest.raises(RuntimeError, match='could not be read'):
-        driver.readback('a: 1\n', ['x'])
 
 
 # --- target ------------------------------------------------------------------------------------

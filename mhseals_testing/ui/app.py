@@ -843,8 +843,13 @@ class App:
     def save_hardware(self, **changes):
         """Write ``changes`` into the operator's hardware YAML; the watcher applies it.
 
-        Returns False, keeping the draft, when the file on disk is broken.
+        Returns False, keeping the draft, when the file on disk is broken, or when a remote boat's
+        hardware.yaml is the config (refused before any write).
         """
+        remote = getattr(self.arming, 'remote', None) if self.arming is not None else None
+        if remote is not None:
+            self.notice = f"Not saved: the boat's hardware.yaml is the config, edit it on {remote.host.name}"
+            return False
         adapters.observe_file(self.history, 'hardware', self.config_file, self.warn_history)   # a hand edit first
         try:
             update_config(changes, self.args.config)

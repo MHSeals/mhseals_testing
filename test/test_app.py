@@ -655,6 +655,9 @@ def test_a_local_reload_never_replaces_the_remote_boats_config(tmp_path):
     app.announce(app.watcher.reload('hardware'))
     assert 'rejected' in app.notice and 'blastoise-odroid' in app.notice
     assert app.args.hardware_config is boat and app.arming.hardware_config is boat
+    before = (tmp_path / 'hardware.yaml').read_text()
+    assert app.save_hardware(channel_map=[2, 1, 3, 4]) is False        # a panel save never writes
+    assert (tmp_path / 'hardware.yaml').read_text() == before and 'blastoise-odroid' in app.notice
 
 
 def test_manual_yaw_uses_the_configured_scale(tmp_path):

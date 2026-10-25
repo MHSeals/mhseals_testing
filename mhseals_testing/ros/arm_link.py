@@ -55,7 +55,6 @@ FIRST_BEAT_S = 15.0     # the boat waits this long for the first beat (discovery
 STOP_REPEAT_S = 2.0     # the TUI repeats armed: false this long after a disarm
 LEASE_S = 3.0           # keeper backstop for a wedged boat side
 START_TIMEOUT_S = 30.0  # TUI: ssh, discovery and the driver's start
-READBACK_S = 40.0
 READBACK_HARD_S = 20     # s the boat side's readback may run the driver at most
 UNIT = 'mhseals-arming'
 CONFIG = '@CONFIG@'
@@ -655,19 +654,6 @@ class RemoteDriver:
         from mhseals_testing.harness.remote import CONNECT_S, unit_command
         from mhseals_testing.harness.unit import STOP_WAIT
         return self.call(self.host, unit_command('stop', UNIT), self.jump, CONNECT_S + STOP_WAIT + 10)
-
-    def readback(self, config_text, argv):
-        """Run the pin readback on the boat (its sysfs); True when the new channels showed enabled."""
-        if self.config_error:
-            raise RuntimeError(self.config_error)
-        command = shlex.join([*MODULE, 'readback', '--config-b64',
-                              base64.b64encode(config_text.encode()).decode(), '--', *argv])
-        results, error = self._job(self.call, self.host, command, self.jump, READBACK_S).result()
-        found = results[-1] if results else {}
-        if error or 'error' in found:
-            raise RuntimeError(f'{self.host.name}: {error or found["error"]}')
-        return bool(found.get('confirmed'))
-
 
 def target(profile, registry=None):
     """``(host, jump)`` whose thrusters this TUI arms over the link, or None (arm here, or refuse).

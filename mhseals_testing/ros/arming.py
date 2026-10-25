@@ -226,14 +226,14 @@ class Arming:
         """Run only the driver from ``config`` (the saved operator file) while ``confirm()``
         reads its outputs back, then stop it again: disarmed means no driver holds the ESCs
         powered. The caller checks that it is disarmed."""
+        if self.remote is not None:   # before any write: the snapshot only ever holds the boat's config
+            raise RuntimeError(f"pins are the boat's: edit hardware.yaml on {self.remote.host.name}; "
+                               'it is read again at each arm')
         rival = self.rival()
         if rival:
             raise RuntimeError(rival)
         save_config(dict(config, output_backend=self.profile.outputs), self.config_path)
         children = self.commands()
-        if self.remote is not None:   # the boat runs, reads back and stops it (its sysfs)
-            raise RuntimeError(f"pins are the boat's: edit hardware.yaml on {self.remote.host.name}; "
-                               'it is read again at each arm')
         try:
             self.processes.start('hardware', dict(children)['hardware'])
             return confirm()
