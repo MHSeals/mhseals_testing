@@ -1,14 +1,19 @@
-"""Helpers for the sim tests: find the rig, run a hold_still session, read its bag.
+"""Helpers for the sim tests: find the rig, run hold_still or perception sessions, read bags.
 
 The rig lives outside the repos (``$SIMRIG``, normally /tmp/wt/simrig). Everything here is
 import-safe without ROS: rosbag2_py is only imported by ``read_odometry``.
 """
+import json
 import math
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
 import numpy as np
+import yaml
+
+PERCEPTION = Path(__file__).with_name('perception_sim.yaml')
 
 
 def rig_dir(env=None):
@@ -66,3 +71,57 @@ def read_odometry(session, topic='/odom/mavros'):
                          v.linear.x, v.linear.y, v.angular.z))
     a = np.array(rows).reshape(-1, 8)
     return world_arrays(a[:, 0], a[:, 1:5], a[:, 5:8])
+
+
+def perception_command(mode, case, cfg):
+    """Build the --run script: tracker, sim_backend and a bag, then emulate/case, the drive."""
+    share = '"$(ros2 pkg prefix mhseals_nav)/share/mhseals_nav/config"'
+    loops = math.ceil(cfg['seconds'] / sum(row[0] for row in cfg['drive']))
+    return '\n'.join([
+        f'share={share}',
+        'ros2 bag record -o "$SIMRIG_DIR/perception" --topics ' + ' '.join(cfg['record']) + ' &',
+        'ros2 run mhseals_nav object_tracker --ros-args --params-file "$share/tracker.yaml"'
+        ' -p use_sim_time:=true &',
+        'ros2 run mhseals_nav sim_backend --ros-args --params-file "$share/sim_backend.yaml"'
+        ' -p use_sim_time:=true -p course_truth:="$SIMRIG_DIR/course_truth.json" &',
+        f'for _ in $(seq {cfg["node_wait_s"]}); do'
+        ' ros2 node list | grep -qx /sim_backend && break; sleep 1; done',
+        f'ros2 param set /sim_backend emulate {shlex.quote(mode)} || exit 1',
+        f'ros2 param set /sim_backend case {shlex.quote(case)} || exit 1',
+        f'python3 "$SIMRIG_DIR/drive.py" {cfg["command_topic"]} '
+        + shlex.quote(json.dumps(cfg['drive'] * loops)),
+        'wait'])
+
+
+def run_perception_case(rig, out, mode, case='metamorphic', seconds=300, domain=None,
+                        overlay=None):
+    """Record one sim_backend ``mode`` session running ``case`` into ``out`` (bag: perception/).
+
+    ``overlay`` is a container install with the perception-v2 mhseals_nav when the rig's
+    base install predates it.
+    """
+    cfg = dict(yaml.safe_load(PERCEPTION.read_text()), seconds=seconds)
+    cmd = [str(rig / 'run_sim.sh'), '--run', perception_command(mode, case, cfg),
+           '-d', str(seconds), '-o', str(out)]
+    if domain:
+        cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
+    if overlay:
+        cmd += ['--overlay', str(overlay)]
+    subprocess.run(cmd, check=True, timeout=seconds + 300)
+    return Path(out)
+
+
+def read_bag(path, topics):
+    """{topic: [message, ...]} for ``topics`` in the bag at ``path``, in bag order."""
+    import rosbag2_py
+    from rclpy.serialization import deserialize_message
+    from rosidl_runtime_py.utilities import get_message
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=str(path)), rosbag2_py.ConverterOptions('', ''))
+    types = {t.name: get_message(t.type) for t in reader.get_all_topics_and_types()}
+    out = {topic: [] for topic in topics}
+    while reader.has_next():
+        name, data, _ = reader.read_next()
+        if name in out:
+            out[name].append(deserialize_message(data, types[name]))
+    return out

@@ -1,0 +1,24 @@
+# Live metamorphic perception test (perception-v2 §8): one rig session per sim_backend mode.
+seconds: 300
+case: metamorphic            # sim_backend.yaml cases.metamorphic: five 60 s phases
+phase_s: 60.0
+command_topic: /cmd_vel
+# Open-loop [seconds, surge, sway, yaw] effort, repeated to fill the session: left loops
+# then right loops, so the yaw rate swings both ways for the heading check.
+drive:
+  - [4, 0.5, 0.0, 0.0]
+  - [12, 0.4, 0.0, 0.5]
+  - [4, 0.5, 0.0, 0.0]
+  - [12, 0.4, 0.0, 0.5]
+  - [4, 0.5, 0.0, 0.0]
+  - [12, 0.4, 0.0, -0.5]
+  - [4, 0.5, 0.0, 0.0]
+  - [12, 0.4, 0.0, -0.5]
+node_wait_s: 30              # for /sim_backend to appear before the params are set
+record: [/perception/tracks, /perception/status, /crane/odom, /odom/global]
+static_classes: ['*_buoy', black_cross, black_triangle]
+match_m: 3.0                 # track <-> truth after the map -> world fit
+in_view_s: 5.0               # R2: a buoy this long in view during a phase must hold a STATIC track
+settle_s: 10.0               # R2 looks at the last settle_s of each phase
+fov: {hfov_deg: 110.0, range_m: 20.0}
+r4: {lag_s: 0.3, tolerance_s: 0.07}
