@@ -5,6 +5,8 @@ import pytest
 from mhseals_testing import devices
 from mhseals_testing.devices import DeviceError
 
+MACHINE_NAME = devices.machine_name
+
 ENV = '''# Boat LAN
 BOAT_SUBNET=192.168.0.0/24
 ROUTER_IP=192.168.0.1
@@ -36,6 +38,12 @@ PROFILES = {
                       'camera': {'launch': 'camera.launch.py', 'enabled': False},
                       'navigation': {'launch': 'navigation.launch.py', 'kind': 'commander'}}},
 }
+
+
+@pytest.fixture(autouse=True)
+def anonymous_machine(monkeypatch):
+    """The suite may run on tranquility or blastoise: this machine's name must not pick the host."""
+    monkeypatch.setattr(devices, 'machine_name', lambda: 'test-runner')
 
 
 @pytest.fixture
@@ -148,6 +156,21 @@ def test_placement_runs_the_named_profiles_here(files):
 def test_operator_self_wins_over_addresses(files):
     registry = load(files, operator='self: tranquility')
     assert devices.whoami(registry, {'192.168.0.152'}).name == 'tranquility'
+
+
+def test_this_machine_is_found_by_its_host_name_before_any_address(files, monkeypatch):
+    registry = load(files)
+    # tranquility on a DHCP address (.135), not the gateway's .2: the name still finds it.
+    assert devices.whoami(registry, {'192.168.0.135'}, hostname='tranquility').name == 'tranquility'
+    # The name wins over an address registered for another host (a moved or shared address).
+    assert devices.whoami(registry, {'192.168.0.2'}, hostname='blastoise-odroid').name == 'blastoise-odroid'
+    # An old container is named roboboat, which is no host: the addresses decide, then the fallback.
+    assert devices.whoami(registry, {'192.168.0.153'}, hostname='roboboat').name == 'blastoise-jetson'
+    assert devices.whoami(registry, set(), hostname='roboboat').name == 'local'
+    monkeypatch.setattr(devices, 'machine_name', MACHINE_NAME)
+    monkeypatch.setenv('ASTRO_HOSTNAME', 'blastoise-jetson.local')
+    assert devices.machine_name() == 'blastoise-jetson'
+    assert devices.whoami(registry, set()).name == 'blastoise-jetson'
 
 
 def test_ping_targets_skip_this_machine(files):

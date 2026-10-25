@@ -26,13 +26,22 @@ class App:
         return self.answer
 
 
-def test_rows_show_state_and_host():
+def test_rows_show_state_and_host_and_an_issue_only_as_a_glyph():
+    from mhseals_testing.ui import theme
+    from mhseals_testing.ui.feeds.issues import Issues
     app = App()
+    app.stack.units.records['camera'] = {'state': 'running', 'how': 'unit', 'running': True}
     app.stack.units.errors['camera'] = 'ssh: timeout'
     rows = {row['key']: row for row in parts.feed(app)}
     assert rows['odometry']['value'] == 'off' and rows['odometry']['state'] == 'OFF'
-    assert rows['camera']['value'] == 'unreachable on blastoise-jetson'
-    assert rows['camera']['state'] == 'WARN' and 'ssh: timeout' in rows['camera']['detail']
+    assert rows['camera']['value'] == 'running on blastoise-jetson'      # never 'unreachable'
+    assert rows['camera']['state'] == 'OK'
+    app.issues = Issues()
+    app.issues.shown['device:blastoise-jetson'] = 'blastoise-jetson does not answer (ssh: timeout)'
+    rows = {row['key']: row for row in parts.feed(app)}
+    assert rows['camera']['value'] == f"running on blastoise-jetson {theme.PALETTE.glyph('issue')}"
+    assert rows['camera']['state'] == 'OK' and 'does not answer' in rows['camera']['detail']
+    assert rows['odometry']['value'] == 'off'
 
 
 def test_a_stopped_heartbeat_says_the_link_watchdog_holds():
@@ -76,6 +85,16 @@ def test_stop_while_armed_warns_but_stops():
     parts.toggle(app, 'camera')
     assert app.asked[0][0] == 'Camera on blastoise-jetson: Stop?'
     assert app.stack.units.calls == [('stop', 'camera')]
+
+
+def test_ownership_is_only_a_popup_detail():
+    app = App(answer='Stop')
+    app.stack.units.records['camera'] = {'state': 'off', 'running': True, 'pid': 9, 'how': 'launch'}
+    row = {row['key']: row for row in parts.feed(app)}['camera']
+    assert row['value'] == 'running on blastoise-jetson' and 'external' not in row['detail']
+    parts.toggle(app, 'camera')
+    assert app.asked[0][2]['Owner'] == 'pid 9 on blastoise-jetson, not started by a TUI'
+    assert 'stop it where it was started' in app.notice and app.stack.units.calls == []
 
 
 def test_a_part_not_read_yet_offers_stop():

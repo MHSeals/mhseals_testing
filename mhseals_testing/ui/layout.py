@@ -75,12 +75,20 @@ def rec_chip(view):
     return Text(text, style=theme.MUTED if state == 'ok' else 'dim')
 
 
+def issue_chip(issues):
+    """The issue glyph and count (ui/feeds/issues.py), first in the strip so it is never cut."""
+    word = 'issue' if len(issues) == 1 else 'issues'
+    return Text(theme.PALETTE.glyph('issue'), style=f'bold {theme.WARN}') + Text(f' {len(issues)} {word}',
+                                                                              style=theme.WARN)
+
+
 def health_strip(snapshot, view, width=None):
     rows = status_rows(snapshot, view['specs'])
     sensors = [row for row in rows if row.get('source') == 'sensor' and row['required']]
     sensors_ok = all(row['state'] == 'LIVE' for row in sensors)
     frames_ok = all(row['state'] == 'LIVE' for row in rows if row.get('source') == 'tf')
-    parts = [rec_chip(view),
+    issues = view.get('issues') or {}
+    parts = [*([issue_chip(issues)] if issues else []), rec_chip(view),
              strip_item('LIVE' if sensors_ok else 'FAIL',
                         f"sensors {sum(r['state'] == 'LIVE' for r in sensors)}/{len(sensors)}"),
              strip_item('LIVE' if frames_ok else 'FAIL', 'tf')]

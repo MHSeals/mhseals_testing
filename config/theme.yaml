@@ -159,4 +159,5 @@ glyphs:
   yaw_cw:    ['↪', '>']
   speed:     ['≫', '>>']
   stop:      ['⊘', '(/)']      # e-stop: the chip, the STOPPED line and the Hold row
+  issue:     ['⚑', '(!)']      # a device, part or transport problem past its grace: header and part row
   spinner:   ['⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', '|/-\']

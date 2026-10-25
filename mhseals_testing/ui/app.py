@@ -38,6 +38,7 @@ from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.remote import Units
+from mhseals_testing.harness.unit import probe as unit_probe
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
 from mhseals_testing.runner import STALE_MUX_S, override_cause
@@ -67,6 +68,7 @@ from mhseals_testing.ui import (
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
+from mhseals_testing.ui.feeds.issues import IssuesFeed, settings as issue_settings
 from mhseals_testing.ui.feeds.rtk import RtkFeed
 from mhseals_testing.ui.feeds.toasts import ToastFeed
 from mhseals_testing.ui.feeds.tracking import TrackingFeed
@@ -243,9 +245,11 @@ class App:
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None, nav2_live=None,
-                 review=None, network=None, recorder=None, ekf=None, quiet_run=None, stack=None):
+                 review=None, network=None, recorder=None, ekf=None, quiet_run=None, stack=None,
+                 issues=None):
         self.args = args
         self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
+        self.issues = issues or IssuesFeed()   # device/part/transport problems past their grace
         self.keep_units = False   # Quit's 'keep remote parts': their leases run out instead
         self.stop_adopted = False  # Quit's 'also stop adopted parts' (units another TUI may own)
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
@@ -260,7 +264,7 @@ class App:
         self.tracking = TrackingFeed()  # model ghost and live scores; session scores recorded at close
         self.rtk = RtkFeed(profile)
         # ui.feeds objects: ticked live, their view() merged into view()
-        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed(), self.rtk]
+        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed(), self.rtk, self.issues]
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -2986,10 +2990,12 @@ def session_main(argv=None):
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
     # Parts on other computers run as units there; a watcher reads them but keeps none alive.
+    # Every computer reports its own parts (its process table), so DDS discovery never sets a state.
+    status = issue_settings()
     units = Units(stack_items, by=dict(host=profile.placed[0].name if stack_items else '',
                                        pid=os.getpid(), session=str(paths.directory)),
-                  renew=not watching).begin()
-    stack = Stack(stack_items, processes, time.monotonic, units)
+                  renew=not watching, period=float(status.get('period', 5.0))).begin()
+    stack = Stack(stack_items, processes, time.monotonic, units, scan=unit_probe)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
     # Off the thrusters host, arming targets it over DDS + ssh (ros/arm_link.py); a watcher never arms.
     driver_host = None if watching else arm_link.target(profile)
@@ -3034,7 +3040,8 @@ def session_main(argv=None):
                   task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
                   registry=registry, watching=watching, facts=facts,
                   nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
-                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack)
+                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack,
+                  issues=IssuesFeed(status.get('grace_s', 15.0), status.get('discovery_grace_s', 20.0)))
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))

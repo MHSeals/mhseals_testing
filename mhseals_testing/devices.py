@@ -259,13 +259,29 @@ def local_addresses():
     return found | ({pinned} if pinned else set())
 
 
-def whoami(registry, addresses=()):
-    """This machine's host: the operator's ``self:``, else the host holding one of ``addresses``, else the fallback.
+def machine_name():
+    """This machine's short host name: ``ASTRO_HOSTNAME``, else gethostname().
 
-    gethostname() is not used: inside the container it names the container, not the machine.
+    astro_dock's prebuild.sh names the container after its machine (``uname -n``); a container
+    from before that is ``roboboat``, which no registry host is named.
+    """
+    import socket
+    return (os.environ.get('ASTRO_HOSTNAME') or socket.gethostname()).split('.')[0]
+
+
+def whoami(registry, addresses=(), hostname=None):
+    """This machine's host: the operator's ``self:``, else the registry host named like this
+    machine (``hostname``, default ``machine_name()``), else the host holding one of
+    ``addresses``, else the fallback.
+
+    The name comes first: an address can be shared or move (tranquility holds the gateway .2 and a
+    DHCP address), the machine's name does not.
     """
     if registry.self_name:
         return registry.hosts[registry.self_name]
+    name = machine_name() if hostname is None else hostname
+    if name and name != FALLBACK and name in registry.hosts:
+        return registry.hosts[name]
     for host in registry.hosts.values():
         if host.name != FALLBACK and host.address in addresses:
             return host

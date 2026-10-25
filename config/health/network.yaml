@@ -7,6 +7,15 @@ probes:
   # (mhseals_testing.devices); the checks below judge the worst of them and name it.
   network:
     period: 5
+  # Each computer reports its own parts (unit status --probe over one shared ssh connection per
+  # host), every `period` s; DDS discovery never sets a part's state. A problem shows as an issue
+  # (header and row glyph, and a toast) only once it lasts its grace: `grace_s` for a host whose
+  # reads fail or a part that exited, `discovery_grace_s` for a running part's nodes missing from
+  # this computer's graph (radio dropouts last about 5 s).
+  devices:
+    period: 5
+    grace_s: 15
+    discovery_grace_s: 20
 defaults:
   missing: skip                  # rates need two samples; no boat interface hides the group
 checks:
