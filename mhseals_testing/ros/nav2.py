@@ -25,6 +25,9 @@ SERVERS = ('controller_server', 'planner_server', 'behavior_server', 'bt_navigat
            'waypoint_follower', 'velocity_smoother')
 
 
+COSTMAP_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+
 def wait(future, timeout, what):
     deadline = time.monotonic() + timeout
     while not future.done():
@@ -82,8 +85,8 @@ class Nav2:
         self.costmap, self.costmap_time = None, None
         # Costmaps publish transient-local, so a late subscriber still gets the last one. The grid
         # is 0.58 MB/s, so it is subscribed only inside costmap_lease().
-        self._costmap_sub = LazySub(node, OccupancyGrid, costmap, self._costmap,
-                                    QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.costmap_topic = costmap
+        self._costmap_sub = LazySub(node, OccupancyGrid, costmap, self._costmap, COSTMAP_QOS)
 
     def _costmap(self, message):
         self.costmap, self.costmap_time = message, time.monotonic()
@@ -101,8 +104,21 @@ class Nav2:
         finally:
             self._costmap_sub.lease(who, False)
 
-    def fetch_costmap(self, timeout=2.0):
-        """The latest costmap, subscribing just long enough to get one; None if none arrives."""
+    def fetch_costmap(self, timeout=2.0, topic=None):
+        """The latest costmap, subscribing just long enough to get one; None if none arrives.
+
+        ``topic`` reads another grid once (the camera host's /perception/costmap) without
+        touching the leased one."""
+        if topic is not None and topic != self.costmap_topic:
+            got = []
+            sub = self.node.create_subscription(OccupancyGrid, topic, got.append, COSTMAP_QOS)
+            try:
+                deadline = time.monotonic() + timeout
+                while not got and time.monotonic() < deadline:
+                    time.sleep(0.02)
+            finally:
+                self.node.destroy_subscription(sub)
+            return got[-1] if got else None
         with self.costmap_lease('fetch'):
             deadline = time.monotonic() + timeout
             while self.costmap is None and time.monotonic() < deadline:
