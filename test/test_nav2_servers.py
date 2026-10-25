@@ -51,7 +51,7 @@ def factory(nav_root, share):
 
 
 def test_fixture_matches_installed_launch_file(nav_root):
-    # Byte-copy provenance: integrated mhseals_nav fbebfbc83148da71b08d420e0ab21def6883e852.
+    # Byte-copy provenance: integrated mhseals_nav 32b62c7abbf3cdd89fad8555b02ef1869a07e60e.
     installed = nav_root / 'launch/navigation.launch.py'
     assert (HERE / 'fixtures/navigation.launch.py').read_bytes() == installed.read_bytes()
 

@@ -4,9 +4,10 @@ import tempfile
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
-from launch.conditions import UnlessCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 import yaml
 
@@ -63,5 +64,14 @@ def generate_launch_description():
         DeclareLaunchArgument('use_lidar', default_value='true'),
         LogInfo(msg='LIDAR DISABLED: no range-obstacle avoidance; visual supervision required.',
                 condition=UnlessCondition(LaunchConfiguration('use_lidar'))),
+        DeclareLaunchArgument('command_mux', default_value='false',
+                              description='A command_mux arbitrates /cmd_vel; start the '
+                                          'stale-costmap watchdog that asks it to hold'),
         OpaqueFunction(function=navigation_nodes),
+        # Hold-only: without a mux nothing would act on its requests.
+        Node(package='mhseals_nav', executable='costmap_watchdog', name='costmap_watchdog',
+             output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
+             parameters=[PathJoinSubstitution([share, 'config', 'costmap_watchdog.yaml']),
+                         {'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
+                                                         value_type=bool)}]),
     ])

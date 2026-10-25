@@ -1048,12 +1048,15 @@ def test_panel_edit_keys_take_precedence_over_procedure_shortcuts(tmp_path):
     assert called == ['n']
 
 
-@pytest.mark.parametrize('letter,expected', [
-    ('w', (.35, 0, 0)), ('s', (-.35, 0, 0)),
-    ('a', (0, .35, 0)), ('d', (0, -.35, 0)),
+@pytest.mark.parametrize('letter,direction', [
+    ('w', (1, 0, 0)), ('s', (-1, 0, 0)),
+    ('a', (0, 1, 0)), ('d', (0, -1, 0)),
 ])
-def test_manual_wasd_reserved_after_yaw_and_speed_change(tmp_path, letter, expected):
+def test_manual_wasd_reserved_after_yaw_and_speed_change(tmp_path, letter, direction):
     app, boat = make_app(tmp_path)
+    # Two '+' presses raise the configured manual amplitude by 0.1.
+    speed = app.args.hardware_config['manual_amplitude'] + .1
+    expected = tuple(speed * axis for axis in direction)
     events = Events(app.clock, ['press:left', None, '+', None, '+', None,
                                 letter, None, 'repeat:left', None, 'release:left',
                                 None, 'x'])
