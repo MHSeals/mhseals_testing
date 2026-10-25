@@ -63,7 +63,7 @@ from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
     authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, parts,
-    perception, popups, theme)
+    perception, pixels, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -875,17 +875,22 @@ class App:
             return
         self.last_frame = now
         frame = self.render()
-        if not force:
+        images = pixels.active()
+        if not force or images:
             # Idle ticks: skip the write when the frame is byte-identical to the last one,
             # and hand Live the segments already laid out instead of rendering twice.
+            # Image tiers always lay out first: pixels finds its tiles in the segments.
             drawn = list(self.console.render(frame))
-            if drawn == self.last_drawn:
+            drawn = pixels.frame(drawn, tuple(self.console.size))
+            if not force and drawn == self.last_drawn:
                 return
-            self.last_drawn = drawn
+            self.last_drawn = drawn if not force else None
             frame = Segments(drawn)
         else:
             self.last_drawn = None
+        pixels.before(self.write_terminal)
         self.live.update(frame, refresh=True)
+        pixels.after(self.write_terminal)
 
     def export(self):
         report = build_report(self.profile, self.snapshot(), self.paths.bag,
@@ -913,13 +918,19 @@ class App:
         """One key reader and one full-screen live view for the whole session."""
         # No refresh thread: the loop draws right after each key, and nothing else writes
         # to the terminal between frames, so mode switches such as Kitty's reach it intact.
-        with self.open_keys() as keys, self.live_factory(
-                self.render(), console=self.console, screen=True, auto_refresh=False) as live:
-            self.keys, self.live = keys, live
+        # The image tier is probed on the key reader's fd before the screen switches (ui/pixels.py).
+        with self.open_keys() as keys:
+            pixels.start(keys, self.console, self.write_terminal, theme.PALETTE.graphics)
             try:
-                yield self
+                with self.live_factory(self.render(), console=self.console, screen=True,
+                                       auto_refresh=False) as live:
+                    self.keys, self.live = keys, live
+                    try:
+                        yield self
+                    finally:
+                        self.keys = self.live = None
             finally:
-                self.keys = self.live = None
+                pixels.stop(self.console, self.write_terminal)
 
     def run(self):
         with self.attached():

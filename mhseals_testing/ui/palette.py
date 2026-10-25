@@ -103,11 +103,14 @@ class Theme:
         self.glyphs = data['glyphs']
         self.mode = data.get('theme', 'auto')
         self.cvd = bool(data.get('cvd', False))
+        self.graphics = data.get('graphics', 'auto')   # ui/pixels.py tier: auto | kitty | sixel | text
         self.validate()
 
     def validate(self):
         if self.mode not in ('auto', 'dark', 'light'):
             raise ValueError(f'theme {self.mode!r} must be auto, dark or light')
+        if self.graphics not in ('auto', 'kitty', 'sixel', 'text'):
+            raise ValueError(f'graphics {self.graphics!r} must be auto, kitty, sixel or text')
         for name, entry in self.tokens.items():
             _check_entry(name, entry)
             self._leaf(name)
@@ -209,7 +212,7 @@ def _merge(base, overlay):
             if not isinstance(value, dict):
                 raise ValueError(f'{key}: expected a mapping')
             merged.setdefault(key, {}).update(value)
-        elif key in ('theme', 'cvd'):
+        elif key in ('theme', 'cvd', 'graphics'):
             merged[key] = value
         elif key != 'schema':
             raise ValueError(f'unknown key {key!r}')
