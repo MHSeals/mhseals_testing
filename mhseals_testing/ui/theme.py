@@ -66,6 +66,7 @@ def ascii_safe(text):
 SEPARATOR = pick(' · ', ' | ')
 MIDDOT, DASH = pick('·', '.'), pick('—', '-')
 BAR, RULE, FILL = pick('│', '|'), pick('─', '-'), pick('█', '#')
+CURSOR_BLOCK = pick('█', '_')   # a text field's caret; FILL's ASCII '#' would read as content
 SPARK = pick('▁▂▃▄▅▆▇█', '._-:=+*#')
 OVERFLOW = pick('ellipsis', 'crop')   # Rich's ellipsis cell is the Unicode …
 FOCUS = '>' if ASCII else '▸'
@@ -115,7 +116,8 @@ def labelled(state, label=None, style=None):
 
 # Solid chips (ui spec 1, 2): the word in reverse video on the authority hue; ASCII brackets the word.
 CHIPS = {'human': 'auth.human', 'ours': 'auth.ours', 'nav': 'auth.nav', 'agent': 'auth.agent',
-         'hold': 'auth.hold', 'unclaimed': 'auth.unclaimed', 'armed': 'fail'}   # chip kind -> palette token
+         'hold': 'auth.hold', 'unclaimed': 'auth.unclaimed', 'armed': 'armed',
+         'stop': 'stop'}   # chip kind -> palette token
 
 
 def chip(word, kind):

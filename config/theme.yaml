@@ -23,6 +23,10 @@ tokens:
   fail:      {dark: '#F0898C', light: '#C23B41', x256: [210, 131], ansi: red}
   unknown:   {alias: muted}
   busy:      {alias: accent}
+  # the safe stop state (e-stop, Space) and the hot armed state: apart from fail, buoys and each other;
+  # on 16 colours ⊘ STOP and ARMED carry the meaning with the word
+  stop:      {dark: '#E06A3C', light: '#A8320C', x256: [166, 166], ansi: bold}
+  armed:     {dark: '#FF6FA8', light: '#C2185B', x256: [205, 161], ansi: bright_magenta}
   auth.human:     {alias: fg}
   auth.ours:      {alias: accent}
   auth.nav:       {alias: violet}
@@ -115,6 +119,8 @@ mono:
   unknown: dim
   auth.agent_dim: dim
   fail: bold
+  stop: bold
+  armed: bold
   sel_bg: underline
   grid: dim
   wake: dim
@@ -148,4 +154,5 @@ glyphs:
   yaw_ccw:   ['↩', '<']
   yaw_cw:    ['↪', '>']
   speed:     ['≫', '>>']
+  stop:      ['⊘', '(/)']      # e-stop: the chip, the STOPPED line and the Hold row
   spinner:   ['⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', '|/-\']
