@@ -238,10 +238,10 @@ def page(frags):
                  'cells, block elements drawn as exact rectangles the way kitty, WezTerm, foot and Ghostty draw '
                  'them (a font-drawn terminal may show hairline seams). Braille and shapes are font glyphs.</p>')
 
-    parts.append('<h2>Arrow, revised: one icon, no shaft, ↻/↺ for yaw</h2><p class="lede">North-up rose, '
+    parts.append('<h2>Arrow, revised: one icon, no shaft, curved corner arrows for yaw</h2><p class="lede">North-up rose, '
                  'heading 0. The command is a single icon at a fixed radius (11 dots) in the driver’s colour; '
-                 'surge and sway sizes stay in the bars beside the rose. Yaw shows ↻ (clockwise, −yaw) or ↺ '
-                 '(counter-clockwise, +yaw) in the top-right corner, brighter with the yaw command (CW row at '
+                 'surge and sway sizes stay in the bars beside the rose. Yaw puts a curved arrow ⤴ ⤵ ⤶ ⤷ in each corner, '
+                 'together tracing the turn: clockwise (−yaw) or counter-clockwise (+yaw), brighter with the yaw command (CW row at '
                  '100 %, CCW row at 40 %), hidden at zero. ASCII spells <code>cw</code>/<code>ccw</code>.</p>')
     for style in ICON_STYLES:
         title, note = ICON_NOTES[style]
@@ -267,7 +267,7 @@ def page(frags):
                  'into the cell’s own costmap tint rather than the panel bg. Runner-up: D, if the owner wants '
                  'the exact heading as a bowsprit.<br>'
                  '<b>Arrow (revised direction): B</b>, the hand-drawn braille icon: the only option that is exact '
-                 'at all 16 bearings with one weight, and font-safe; ↻/↺ in the top-right corner, brightness '
+                 'at all 16 bearings with one weight, and font-safe; curved arrows ⤴ ⤵ ⤶ ⤷ in the four corners, brightness '
                  'scaling with yaw.<br>'
                  '<b>Arm panel: 1</b>, quiet labels with a state gutter: muted right-aligned labels, values in fg, '
                  'checks with ✓/✗ in state colour under a rule that counts what blocks, the caution line in warn; '

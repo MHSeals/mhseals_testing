@@ -568,7 +568,7 @@ def icon_dots(k):
 
 
 def rose_icon(style='braille', heading=0.0, bearing=None, yaw=0.0, magnitude=0.8, amplitude=1.0):
-    """The rose with the command as one icon at a fixed radius and yaw as ↻/↺ in the top-right corner.
+    """The rose with the command as one icon at a fixed radius and yaw as curved arrows (⤴ ⤵ ⤶ ⤷) in the four corners.
 
     ``style``: 'braille' (16 hand-drawn icons), 'light' (↑↗ snapped to 8), 'heavy' (⬆⬈ snapped to 8),
     'mixed' (light glyphs on the eight main bearings, braille icons between)."""
@@ -607,7 +607,8 @@ def rose_icon(style='braille', heading=0.0, bearing=None, yaw=0.0, magnitude=0.8
         else:
             style_ = (f'bold {mix(hexof("bg"), hue, 0.35 + 0.65 * share)}' if tc
                       else 'bold' if share >= 0.5 else '')
-            grid[0][cond.ROSE_COLS - 2] = (SPIN_CCW if yaw > 0 else SPIN_CW, style_)
+            for (right, bottom), char in cond.SPIN_CORNERS[yaw < 0].items():
+                grid[bottom * (cond.ROSE_ROWS - 1)][right * (cond.ROSE_COLS - 1)] = (char + cond.TEXT, style_)
     out = []
     for cells in grid:
         line = Text()

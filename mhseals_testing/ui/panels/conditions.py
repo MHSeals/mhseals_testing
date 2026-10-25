@@ -2,8 +2,8 @@
 
 Pure and ROS-free. The rose is a world-frame picture: the hull (the map's pentagon) turns to the
 heading, the command is one arrow icon at its bearing in the hue of whoever drives (16 bearings,
-hand-drawn in braille), yaw is ↺ or ↻ in the top-right corner and the world drift a dashed muted line. The
-right column names the driver, then surge, sway and yaw as bipolar bars, then the heading.
+hand-drawn in braille), yaw is four curved arrows (⤴ ⤵ ⤶ ⤷) round the corners and the world drift a dashed muted
+line. The right column names the driver, then surge, sway and yaw as bipolar bars, then the heading.
 """
 
 import math
@@ -37,7 +37,13 @@ ICONS = {
 }
 ICON_SYM = ((1, 0, 0, 1), (-1, 0, 0, 1), (1, 0, 0, -1), (-1, 0, 0, -1),
             (0, -1, -1, 0), (0, 1, -1, 0), (0, -1, 1, 0), (0, 1, 1, 0))   # (x, y) -> (ax + by, cx + dy)
-SPIN = ('↺', '↻')           # +yaw turns counter-clockwise (REP 103); drawn in the top-right corner
+SPIN = ('↺', '↻')           # +yaw turns counter-clockwise (REP 103); the readout label
+TEXT = '\ufe0e'             # text presentation: keeps ⤴ from rendering as a two-cell emoji
+# one curved arrow in each corner, together tracing the turn: (col, row) -> glyph, counter-clockwise first
+SPIN_CORNERS = (
+    {(1, 0): '⤴', (0, 0): '⤶', (0, 1): '⤵', (1, 1): '⤷'},    # +yaw: TR up, TL left, BL down, BR right
+    {(1, 0): '⤵', (0, 0): '⤷', (0, 1): '⤴', (1, 1): '⤶'},    # -yaw: TR down, TL right, BL up, BR left
+)
 SPIN_ASCII = ('ccw', 'cw')
 POINTS = ('N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW')
 EIGHTHS = ' ▏▎▍▌▋▊▉█'       # left-aligned fills; a bar growing left shows them in reverse video
@@ -164,11 +170,16 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
         else:
             for dx, dy in dots_:
                 put(cx + ox + dx, cy + oy + dy, COMMAND)
-    if yaw:                                          # the turn: ↺ / ↻ in the corner, dim below half
-        word = theme.pick(SPIN, SPIN_ASCII)[yaw < 0]
+    if yaw:                                          # the turn: curved arrows round the corners, dim below half
         strong = abs(yaw) / scale >= 0.5
-        for i, char in enumerate(word):
-            glyphs[(ROSE_COLS - 1 - len(word) + i, 0)] = (char, f'{"bold" if strong else "dim"} {hue}'.strip())
+        look = f'{"bold" if strong else "dim"} {hue}'.strip()
+        if theme.ASCII:
+            word = SPIN_ASCII[yaw < 0]
+            for i, char in enumerate(word):
+                glyphs[(ROSE_COLS - 1 - len(word) + i, 0)] = (char, look)
+        else:
+            for (right, bottom), char in SPIN_CORNERS[yaw < 0].items():
+                glyphs[(right * (ROSE_COLS - 1), bottom * (ROSE_ROWS - 1))] = (char + TEXT, look)
 
     boat = _token('boat', 'bold') if yaw_ok else theme.WARN
     styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
