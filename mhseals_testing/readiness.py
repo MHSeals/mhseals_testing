@@ -29,7 +29,7 @@ def arm_refusal(required, nodes):
 BEAT_STALE_S = 2.0    # s without a watchdog's ~/status beat (0.5 s apart) before it counts as dead
 
 
-def liveness_refusal(required, beats, now, off=(), stale_s=BEAT_STALE_S):
+def liveness_refusal(required, beats, now, off=(), stale_s=BEAT_STALE_S, runs=None):
     """Why arming is refused by the watchdogs' own word, or '': faster than the graph, which keeps
     a crashed node until its DDS lease ends.
 
@@ -37,18 +37,21 @@ def liveness_refusal(required, beats, now, off=(), stale_s=BEAT_STALE_S):
     one never heard (a build without the beat) is left to the graph and ``off``, the parts holding
     the watchdogs that their computer reports off.
 
-    A beat counts as dead only while another required watchdog's beat is fresh and has arrived
-    over ``stale_s`` after the silent one's last: the link is up, so that one is gone. When every
-    beat stops together (a radio dropout) nothing here refuses; the boat's own link watchdog
-    holds, and the graph with its grace and the device report remain.
+    A beat counts as dead only while another required watchdog's beat is fresh and has been
+    arriving without a gap over ``stale_s`` (``runs``: when each one's unbroken run began) for over
+    ``stale_s`` past the silent one's last: the link was up all that time, so that one is gone.
+    When every beat stops together (a radio dropout) nothing here refuses, nor in the first
+    ``stale_s`` after the link returns, while the others' first beats are still on their way; the
+    boat's own link watchdog holds, and the graph with its grace and the device report remain.
     """
+    runs = runs or {}
     silent = []
     for node in required:
         if node not in beats:
             continue
-        newest = max((beats[other] for other in required if other != node and other in beats),
-                     default=None)
-        if newest is not None and now - newest <= stale_s and newest - beats[node] > stale_s:
+        if any(now - beats[other] <= stale_s
+               and now - max(runs.get(other, beats[other]), beats[node]) > stale_s
+               for other in required if other != node and other in beats):
             silent.append(f'{node} {now - beats[node]:.1f} s')
     reasons = []
     if silent:

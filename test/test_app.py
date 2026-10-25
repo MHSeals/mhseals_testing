@@ -480,6 +480,7 @@ def test_a_crashed_watchdog_is_held_on_its_silent_beat_while_the_graph_still_lis
     app, boat = make_app(tmp_path)
     beats = {node: app.clock.now for node in WATCHDOGS}
     app.ros.beats = lambda: dict(beats)
+    app.ros.runs = lambda: {node: 0.0 for node in WATCHDOGS}     # all beating since long before
     watched = []
     app.ros.watch_beats = watched.extend
     mux_stub(app)
@@ -513,6 +514,13 @@ def test_a_radio_dropout_silencing_every_beat_keeps_the_boat_armed(tmp_path):
         app.clock.now += 0.5
         app.tick()
     assert getattr(boat, 'holds', []) == [] and app.armed and app.watchdog_refusal() == ''
+    runs = {node: beats[node] for node in WATCHDOGS}
+    app.ros.runs = lambda: dict(runs)
+    app.clock.now += 0.05                          # the link returns: one beat lands first
+    beats['/link_watchdog'] = runs['/link_watchdog'] = app.clock.now
+    app.clock.now += 0.05
+    app.tick()
+    assert getattr(boat, 'holds', []) == [] and app.armed and app.watchdog_missing is None
 
 
 def test_a_watchdog_part_its_computer_reports_off_refuses_arming(tmp_path):

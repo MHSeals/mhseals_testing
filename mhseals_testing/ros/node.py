@@ -31,6 +31,7 @@ from mhseals_testing import events
 from mhseals_testing.harness import journal
 from mhseals_testing.harness.simsession import ClockWatch
 from mhseals_testing.health.probes.graph import collect
+from mhseals_testing.readiness import BEAT_STALE_S
 from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.ros.ingest import RTK_TOPIC, ingest
 from mhseals_testing.ros.minimap_feeds import MapFeeds
@@ -90,7 +91,7 @@ class RosIO:
         self.journal_path = journal_path
         self.recording = True  # stamped on each event as ``rec``
         self._prefix = None
-        self.beat_at, self._beat_subs = {}, {}    # watchdog ~/status receipts (watch_beats)
+        self.beat_at, self.beat_runs, self._beat_subs = {}, {}, {}   # watchdog ~/status (watch_beats)
         self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
@@ -252,11 +253,19 @@ class RosIO:
                     String, f'{node}/status', partial(self._beat, node), qos_profile_sensor_data)
 
     def _beat(self, node, message):
-        self.beat_at[node] = time.monotonic()      # the App's clock
+        now = time.monotonic()                     # the App's clock
+        last = self.beat_at.get(node)
+        if last is None or now - last > BEAT_STALE_S:
+            self.beat_runs[node] = now             # a gap: its unbroken run starts again
+        self.beat_at[node] = now
 
     def beats(self):
         """``{node: when its ~/status was last received}`` (monotonic), for the beats ever heard."""
         return dict(self.beat_at)
+
+    def runs(self):
+        """``{node: when its beats last began to arrive without a gap over BEAT_STALE_S}``."""
+        return dict(self.beat_runs)
 
     def nodes(self):
         return [f'{namespace.rstrip("/")}/{name}'

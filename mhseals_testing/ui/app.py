@@ -448,8 +448,9 @@ class App:
         if self.stack is not None:
             off = [f'{item.title} on {item.remote or "this computer"}' for key, item in self.stack.items.items()
                    if names & set(item.nodes) and self.stack.reported(key) is False]
-        beats = getattr(self.ros, 'beats', dict)()
-        return arm_refusal(required, nodes), liveness_refusal(required, beats, self.clock(), off)
+        beats, runs = getattr(self.ros, 'beats', dict)(), getattr(self.ros, 'runs', dict)()
+        return arm_refusal(required, nodes), liveness_refusal(required, beats, self.clock(), off,
+                                                              runs=runs)
 
     def thruster_refusal(self):
         """Why the real thruster driver may not start on this computer, or ''.
