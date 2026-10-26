@@ -753,31 +753,28 @@ def sixel(px, palette):
     used = [int(i) for i in np.unique(px) if i]
     head = f'{ESC}P0;1;0q"1;1;{w};{h}' + ''.join(
         f'#{i};2;{r * 100 // 255};{g * 100 // 255};{b * 100 // 255}' for i in used for r, g, b in (palette[i],))
-    weights = (1 << np.arange(6, dtype=np.uint8))[:, None]
+    bands = -(-h // 6)
+    stack = np.zeros((bands * 6, w), np.uint8)
+    stack[:h] = px
+    stack = stack.reshape(bands, 6, w)
+    weights = (1 << np.arange(6, dtype=np.uint8))[None, :, None]
+    # every colour's sixel characters for every band at once: (colour, band, x)
+    chars = np.stack([((stack == i) * weights).sum(1, dtype=np.uint8) + 63 for i in used]) if used else []
     out = []
-    for y in range(0, h, 6):
-        band = px[y:y + 6]
-        if band.shape[0] < 6:
-            band = np.vstack([band, np.zeros((6 - band.shape[0], w), np.uint8)])
+    for b in range(bands):
         rows = []
-        for i in np.unique(band):
-            if not i:
-                continue
-            bits = ((band == i) * weights).sum(0).astype(np.uint8) + 63
-            last = int(np.flatnonzero(bits != 63)[-1]) + 1
-            rows.append(f'#{i}' + _rle(bits[:last]))
+        for c, i in enumerate(used):
+            line = chars[c, b].tobytes().rstrip(b'?')      # no trailing blanks; a colour absent here: none
+            if line:
+                rows.append(f'#{i}' + _RUN.sub(_run, line.decode('ascii')))
         out.append('$'.join(rows))
     while out and not out[-1]:       # no empty bands, and no line feed, below the last pixels
         out.pop()
     return head + '-'.join(out) + ST
 
 
-def _rle(chars):
-    edges = np.flatnonzero(np.diff(chars)) + 1
-    starts = np.concatenate(([0], edges))
-    ends = np.concatenate((edges, [len(chars)]))
-    parts = []
-    for s, e in zip(starts.tolist(), ends.tolist()):
-        ch = chr(chars[s])
-        parts.append(ch * (e - s) if e - s < 4 else f'!{e - s}{ch}')
-    return ''.join(parts)
+_RUN = re.compile(r'(.)\1{3,}')     # four or more of a character go out as !N<char>
+
+
+def _run(match):
+    return f'!{len(match.group())}{match.group(1)}'
