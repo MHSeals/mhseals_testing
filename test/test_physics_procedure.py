@@ -309,3 +309,24 @@ def test_maneuvers_are_saved_withheld_with_circles_both_ways_and_zigzags(tmp_pat
     samples = json.loads((tmp_path / 'char' / record['samples_file']['path']).read_text())
     first, last = zigzag['segments']
     assert {s['label'].split()[0] for s in samples['segments'][first:last]} == {'zigzag+', 'zigzag-'}
+
+
+def test_records_from_the_sim_or_its_config_are_marked_sim_derived(tmp_path):
+    import pathlib
+    sim = pathlib.Path(physics.__file__).resolve().parents[2] / 'config' / 'sim' / 'hardware_crane.yaml'
+    assert physics_record.hardware_block(sim)['sim_derived'] is True
+    assert load_config(sim)['characterization']['source'].startswith('sim:')
+    ctx, _ = make_ctx(tmp_path, ['24.6', '0', '0', '0', ''])
+    assert saved(physics.dock(ctx))['hardware']['sim_derived'] is False
+    ctx, _ = make_ctx(tmp_path, ['24.6', '0', '0', '0', ''])
+    ctx.profile.use_sim_time = True
+    assert saved(physics.dock(ctx))['hardware']['sim_derived'] is True
+
+
+def test_every_record_names_the_config_history_snapshot_at_fit_time(tmp_path):
+    head = dict(id='c7', after='abc123def456')
+    ctx, _ = make_ctx(tmp_path, ['24.6', '0', '0', '0', ''])
+    ctx.services['history'] = SimpleNamespace(head=lambda sub: head if sub == 'hardware' else None)
+    hardware = saved(physics.dock(ctx))['hardware']
+    assert hardware['history'] == {'id': 'c7', 'sha': 'abc123def456'}
+    assert set(hardware['keys']) == set(physics_record.KEYS) and hardware['thrusters'] == ['FL', 'FR', 'RR', 'RL']

@@ -483,7 +483,8 @@ def maneuvers(ctx, cfg):
     body = dict(withheld=True, use='validation and C_A / a26 only: never fitted with the other steps',
                 runs=runs, units=dict(surge='normalized effort', circle_yaw='normalized effort', zigzag_deg='deg',
                                       time='s, monitor clock', segments='index range into samples.segments'),
-                counts=dict(runs=len(runs), samples=len(ctx.history(log.segments[0]['start'], log.segments[-1]['end'])),
+                counts=dict(runs=len(runs),
+                            samples=len(ctx.history(log.segments[0]['start'], log.segments[-1]['end'])),
                             **log.counts()),
                 summary=dict(runs=len(runs)))
     return body, log.samples(), driver

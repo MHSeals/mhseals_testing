@@ -59,14 +59,15 @@ def driver_check(status, hardware_path, needs_driver):
     return block, ''
 
 
-def hardware_block(hardware_path, history=None, driver=None):
+def hardware_block(hardware_path, history=None, driver=None, sim=False):
     """What the record was made under: the config-history snapshot, the mapping keys and their hashes."""
     config = load_config(hardware_path) if hardware_path else {}
     head = history.head('hardware') if history else None
     source = str(Path(hardware_path).resolve()) if hardware_path else None
     return dict(
         source=source,
-        sim_derived=bool(source and '/config/sim/' in source),
+        sim_derived=bool(sim or (source and '/config/sim/' in source)
+                         or str((config.get('characterization') or {}).get('source', '')).startswith('sim:')),
         history=dict(id=head['id'], sha=head['after']) if head else None,
         hash=calibration.dependency_hash(config, calibration.depends_on()['invalid']),
         physics_hash=calibration.dependency_hash(config, KEYS),
@@ -86,7 +87,8 @@ def provenance(ctx, step, fit=None, driver=None):
     return dict(
         step=step, fit=dict(fit, session=context.get('session'), run=context.get('run')),
         software=software(),
-        hardware=hardware_block(services.get('user_config'), services.get('history'), driver),
+        hardware=hardware_block(services.get('user_config'), services.get('history'), driver,
+                                bool(getattr(getattr(ctx, 'profile', None), 'use_sim_time', False))),
         conditions=water or dict(verdict='unknown'),
         battery_v=context.get('battery_v'), gate_muted=bool(context.get('muted')))
 

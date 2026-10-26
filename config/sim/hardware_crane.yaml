@@ -4,8 +4,10 @@
 reverse_thrust_ratio: 0.78
 # Open-loop effort holds with no current (--crane-water-current 0,0) at 0.3, 0.6, 0.8 and 1.0,
 # speed_curves e|e| = d1 v + d2 v|v|. Cross-axis speed stayed under 2% of the driven axis, so the
-# default identity decoupling stands.
+# default identity decoupling stands. These are crane's own numbers: never a boat calibration, and
+# importing them into crane would be circular, so the source says sim (physics_record sim_derived).
 characterization:
+  source: 'sim: crane_ml open-loop holds, not a calibration'
   speed_curves:
     surge+:
       d1: 0.0857
