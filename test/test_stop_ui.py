@@ -55,7 +55,9 @@ def test_row_two_says_stopped_with_the_release_keys_never_cut(width):
 
 def test_space_wears_the_stop_hue_in_the_footer():
     cell = theme.hint('Space', 'stop', style=layout.key_style('Space'))
-    assert str(cell.style) == f"bold {theme.PALETTE.style('stop')}"
+    stop = f"bold {theme.PALETTE.style('stop')}"
+    assert [str(span.style) for span in cell.spans] == [stop, stop]   # key and label, one unit
+    assert len(theme.hint('q', 'quit').spans) == 1                    # other labels stay plain
     assert layout.key_style('q') is None and layout.key_style('E') == theme.PALETTE.style('auth.agent')
 
 

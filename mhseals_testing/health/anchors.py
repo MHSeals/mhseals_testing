@@ -1,11 +1,11 @@
 """Inline anchors: the worst status among the checks that colour one place on screen.
 
-Healthy is plain text. Colours are ANSI names: yellow warn, red fail, dim unknown.
+Healthy is plain text. Colours are theme tokens (config/theme.yaml): warn, fail, unknown.
 """
 
 from mhseals_testing.health.model import STATUSES
 
-COLOURS = {'warn': 'yellow', 'fail': 'red', 'unknown': 'dim'}
+COLOURS = {'warn': 'warn', 'fail': 'fail', 'unknown': 'unknown'}   # status -> palette token
 
 
 def anchor_status(specs, results, anchor):
@@ -15,5 +15,5 @@ def anchor_status(specs, results, anchor):
 
 
 def anchor_colour(specs, results, anchor):
-    """The colour name for ``anchor``, or '' when it should stay plain."""
+    """The palette token for ``anchor``, or '' when it should stay plain."""
     return COLOURS.get(anchor_status(specs, results, anchor), '')

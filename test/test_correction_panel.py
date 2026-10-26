@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from rich.console import Console
+from rich.style import Style
 
 from mhseals_testing.ui import fitrows, theme
 from mhseals_testing.ui.panels import correction
@@ -99,7 +100,7 @@ def test_cursor_tint_on_256_colours(monkeypatch):
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.delenv('COLORTERM', raising=False)
     monkeypatch.setenv('TERM', 'xterm-256color')
-    assert correction._tint() == 'on grey15'
+    assert correction._tint() == 'on color(235)'   # the sel_bg token's 256 form (grey15)
 
 
 # --- UIW22: scope tags from fields.yaml, fit under / ceiling now, header marks ---
@@ -140,13 +141,15 @@ def test_fit_rows_and_header_marks():
 
 def test_scope_tags_never_take_a_status_hue():
     status = {theme.OK, theme.WARN, theme.FAIL} if hasattr(theme, 'OK') else {theme.WARN}
-    assert correction.SCOPE == 'italic bright_black' and not any(h in correction.SCOPE for h in status)
+    scope = correction.scope_style()
+    assert scope == f"italic {theme.PALETTE.style('scope')}" and not any(h in scope for h in status)
 
 
-def test_rendered_scope_tag_spans_are_slate_italic():
+def test_rendered_scope_tag_spans_are_scope_italic():
     tags = [seg for seg in Console(width=120).render(correction.render(correction_view(scope_data()), 120, 40))
             if seg.text.strip() in ('hw', 'cal')]
-    assert tags and all(seg.style.italic and seg.style.color.name == 'bright_black' for seg in tags)
+    want = Style.parse(theme.PALETTE.style('scope')).color
+    assert tags and all(seg.style.italic and seg.style.color == want for seg in tags)
 
 
 def test_provenance_fits_fill_fit_under_and_ceiling_now_from_current_json():

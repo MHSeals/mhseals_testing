@@ -62,8 +62,8 @@ def test_compass_and_speed_checks_colour_their_anchors(specs):
     p.on_speeds(3.8, 0.1, 1.0)
     results = report(specs, p)
     assert results['compass.field'].status == 'warn'          # capped at the check's default severity
-    assert anchors.anchor_colour(specs, results, 'rose') == 'yellow'
-    assert anchors.anchor_colour(specs, results, 'odometry') == 'yellow'
+    assert anchors.anchor_colour(specs, results, 'rose') == 'warn'
+    assert anchors.anchor_colour(specs, results, 'odometry') == 'warn'
     healthy = FcuProbe()
     healthy.on_mag(470 / TESLA_TO_MG, 0, 0, 1.0)
     assert anchors.anchor_colour(specs, report(specs, healthy), 'rose') == ''
@@ -80,8 +80,8 @@ def test_anchor_colours_follow_the_worst_status():
 
     specs = [Spec('a', ('rose',)), Spec('b', ('rose',)), Spec('c', ('odometry',))]
     colour = lambda **r: anchors.anchor_colour(specs, {k: Res(v) for k, v in r.items()}, 'rose')
-    assert colour(a='ok', b='ok') == '' and colour(a='warn', b='ok') == 'yellow'
-    assert colour(a='warn', b='fail') == 'red' and colour(a='unknown', b='ok') == 'dim'
+    assert colour(a='ok', b='ok') == '' and colour(a='warn', b='ok') == 'warn'
+    assert colour(a='warn', b='fail') == 'fail' and colour(a='unknown', b='ok') == 'unknown'
     assert colour(c='fail') == ''
 
 

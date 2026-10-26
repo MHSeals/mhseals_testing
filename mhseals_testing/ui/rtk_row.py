@@ -11,6 +11,8 @@ import math
 
 from rich.text import Text
 
+from . import theme
+
 STALE, DEAD = 2.0, 5.0          # s, rtk.age warn and fail (health.md)
 GUTTER = 3                      # 1 pad and a 2-col cursor gutter before the glyph
 OVERHEAD = 10                   # gutter, glyph, space, "RTK", space, right pad
@@ -20,9 +22,14 @@ FIXES = {'none': ('▁', '_'), '2D': ('▂', '.'), '3D': ('▃', '-'),
          'DGPS': ('▄', '='), 'FLOAT': ('▆', '+'), 'FIXED': ('█', '#')}
 SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 PARTIAL = ' ▏▎▍▌▋▊▉'
-# (unicode, ascii, style) per row state
-GLYPHS = {'good': ('✓', '+', 'green'), 'warn': ('!', '!', 'yellow'), 'bad': ('✗', 'x', 'red'),
-          'busy': ('◌', '~', 'cyan'), 'off': ('·', 'o', 'dim')}
+# (unicode, ascii, hue) per row state; a hue is a theme style name (GOOD, WARN, ...) or an attribute
+GLYPHS = {'good': ('✓', '+', 'GOOD'), 'warn': ('!', '!', 'WARN'), 'bad': ('✗', 'x', 'BAD'),
+          'busy': ('◌', '~', 'BUSY'), 'off': ('·', 'o', 'dim')}
+
+
+def _hue(name):
+    """The current theme's style for ``name`` (GOOD, WARN, BAD, BUSY, ACCENT); attributes pass through."""
+    return getattr(theme, name, name)
 
 
 @dataclass
@@ -113,12 +120,12 @@ def _link(view, link, cells, ascii):
     short = cells < 7           # 'no base' is 7 cells
     if link == 'off':
         return Text(('off' if short else 'no base').ljust(cells), style='dim')
-    if link == 'external':          # cyan: external, as elsewhere in Status
-        return Text(('external' if cells >= 8 else 'ext').ljust(cells), style='cyan')
+    if link == 'external':          # accent: external, as elsewhere in Status
+        return Text(('external' if cells >= 8 else 'ext').ljust(cells), style=_hue('ACCENT'))
     if link == 'unused':
         return Text(('off' if short else 'no corr').ljust(cells), style='dim')
     if link == 'error':
-        return Text(('err' if short else 'error').ljust(cells), style='red')
+        return Text(('err' if short else 'error').ljust(cells), style=_hue('BAD'))
     if link == 'identifying':
         frame = '|/-\\'[view.tick % 4] if ascii else SPINNER[view.tick % len(SPINNER)]
         return Text((frame + ('' if short else ' base')).ljust(cells), style='dim')
@@ -126,7 +133,7 @@ def _link(view, link, cells, ascii):
         return _bar(view.survey, cells, ascii)
     if link == 'fresh':
         return Text(('=' if ascii else '━') * (cells - 1) + ('>' if ascii else '▸'))
-    style = 'yellow' if link == 'stale' else 'red'
+    style = _hue('WARN') if link == 'stale' else _hue('BAD')
     pattern = ''.join('- '[i % 2] for i in range(cells)) if ascii else '╌' * cells
     if link == 'dead':
         cross = 'x' if ascii else '×'
@@ -149,11 +156,11 @@ def _distance(metres, narrow):
 def _tail_items(view, link, ascii, narrow, long):
     """(text, style) candidates in priority order; the caller keeps what fits."""
     if view.pubs > 1:
-        yield (f'{view.pubs}pub' if narrow else f'{view.pubs} pubs'), 'red'
+        yield (f'{view.pubs}pub' if narrow else f'{view.pubs} pubs'), _hue('BAD')
     if link in ('stale', 'dead') and view.age is not None:
-        yield _age(view.age, narrow), 'yellow' if link == 'stale' else 'red'
+        yield _age(view.age, narrow), _hue('WARN') if link == 'stale' else _hue('BAD')
     if view.drops:
-        yield ('-' if ascii else '−') + str(view.drops), 'yellow'
+        yield ('-' if ascii else '−') + str(view.drops), _hue('WARN')
     if link == 'surveying':
         if view.survey_limit == 'time' and view.survey_left is not None:
             yield (f'{view.survey_left:.0f}s left' if long else f'{view.survey_left:.0f}s'), ''
@@ -178,10 +185,11 @@ def rtk_row(view, width, ascii=False, cursor=None):
     tail_width = value - cells - WORD - 4
     link, state = _state(view)
     glyph, plain, style = GLYPHS[state]
+    style = _hue(style)
     rung, rung_ascii = FIXES.get(view.fix, FIXES['none'])
-    fix_style = {'none': 'red', '2D': 'yellow', 'FIXED': 'bold green'}.get(view.fix, '')
+    fix_style = {'none': _hue('BAD'), '2D': _hue('WARN'), 'FIXED': 'bold'}.get(view.fix, '')   # healthy: no hue
     if view.fix == 'FLOAT' and view.converge_warn:
-        fix_style = 'yellow'
+        fix_style = _hue('WARN')
 
     tail, used = [], 0
     for text, item_style in _tail_items(view, link, ascii, narrow, long):
@@ -189,7 +197,7 @@ def rtk_row(view, width, ascii=False, cursor=None):
             used += len(text) + bool(tail)
             tail.append((text, item_style))
     row = Text(' ')
-    row.append(cursor if cursor else '  ', style='bold cyan')
+    row.append(cursor if cursor else '  ', style=f"bold {_hue('ACCENT')}")
     row.append(plain if ascii else glyph, style=style)
     row.append(' RTK ')
     row.append_text(_link(view, link, cells, ascii))

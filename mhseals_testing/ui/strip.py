@@ -19,9 +19,13 @@ from .timeaxis import FOLD, clock
 WARN, FAIL = 'warn', 'fail'
 SEVERITY = {'ok': 0, WARN: 1, FAIL: 2}
 POINT_PRIORITY = {'health': 4, 'agent': 3, 'auth': 2, 'config': 1, 'mark': 0}
-HOLD = 'bold bright_black'      # slate, bold (U11)
 CLUSTER_GAP = 2                 # event columns this close form one cluster
 MANUAL = 'manual'
+
+
+def _hold():
+    """A hold's idle cell: the auth.hold slate, bold (U11)."""
+    return f"bold {theme.PALETTE.style('auth.hold')}".strip()
 
 
 @dataclass
@@ -92,7 +96,7 @@ def _span_range(reach, a, b):
 
 
 def _level_style(level, bold=False):
-    base = {WARN: 'yellow', FAIL: 'red'}.get(level, '')
+    base = {WARN: theme.WARN, FAIL: theme.BAD}.get(level, '')
     return f'bold {base}'.strip() if bold else base
 
 
@@ -138,7 +142,7 @@ def _skyline(axis, spans, armed, holds, g, color):
         if c and c[0] != FOLD and bottom.cells[i][0] == ' ':
             hold = any(_hits(c, a, b) for a, b in holds)
             if hold or any(_hits(c, a, b) for a, b in armed):
-                bottom.put(i, g['idle'], HOLD if hold else 'dim')
+                bottom.put(i, g['idle'], _hold() if hold else 'dim')
     return top, bottom
 
 
@@ -200,8 +204,8 @@ def _axis_row(axis, bands, g):
             line.put(i, g['fold'], 'dim')
             continue
         states = {b.state for b in bands if _hits(c, b.a, b.b)}
-        for state, style in (('armrecoff', 'bold yellow'), (FAIL, 'bold red'),
-                             (WARN, 'bold yellow'), ('recoff', 'dim')):
+        for state, style in (('armrecoff', _level_style(WARN, True)), (FAIL, _level_style(FAIL, True)),
+                             (WARN, _level_style(WARN, True)), ('recoff', 'dim')):
             if state in states:
                 line.put(i, g[state], style)
                 break
@@ -218,9 +222,9 @@ def _labels(axis, g, end_text, sel, fmt):
             a, b = ext
             n = b - a + 1
             bracket = g['single'] if n == 1 else g['bracket'][0] + g['bracket'][1] * (n - 2) + g['bracket'][2]
-            line.put(a, bracket, 'bold cyan')
+            line.put(a, bracket, f'bold {theme.ACCENT}')
     for col, text, role in axis.labels(end_text, sel, fmt):
-        line.put(col, text, 'bold cyan' if role == 'sel' else ('bold' if role == 'end' else 'dim'))
+        line.put(col, text, f'bold {theme.ACCENT}' if role == 'sel' else ('bold' if role == 'end' else 'dim'))
     return line
 
 
@@ -229,11 +233,11 @@ def _loupe_row(axis, bands, g, window, play):
     line = _axis_row(axis, bands, g)
     ext = axis.extent(*window) if window else None
     if ext:
-        line.put(ext[0], g['loupe_l'], 'bold cyan')
-        line.put(ext[1], g['loupe_r'], 'bold cyan')
+        line.put(ext[0], g['loupe_l'], f'bold {theme.ACCENT}')
+        line.put(ext[1], g['loupe_r'], f'bold {theme.ACCENT}')
     col = axis.col(play) if play is not None else None
     if col is not None:
-        line.put(col, g['play'], 'bold cyan')
+        line.put(col, g['play'], f'bold {theme.ACCENT}')
     return line
 
 

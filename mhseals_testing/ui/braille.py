@@ -4,7 +4,7 @@ A cell is 2 dots wide and 4 high. Series are binned to one dot column each
 (mean), gaps longer than ``GAP`` seconds stay empty, and samples outside the
 scale are drawn on the edge row, non-finite samples are skipped and a flat or
 non-finite scale draws on the centre row. Two layers share a canvas: ``meas`` in the
-accent color, ``pred`` muted; a cell holding both takes the accent.
+fg colour, ``pred`` muted; a cell holding both takes the fg.
 """
 
 import math
@@ -14,7 +14,7 @@ from rich.text import Text
 from mhseals_testing.ui import theme
 
 GAP = 0.5
-LAYERS = {'pred': 'MUTED', 'meas': 'ACCENT'}   # theme names, read at use
+LAYERS = {'pred': 'MUTED', 'meas': 'FG'}   # theme names, read at use; data is plain, the accent is focus
 
 # Dot bit per (column, row) inside a cell, as in the Unicode braille block.
 _BITS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))

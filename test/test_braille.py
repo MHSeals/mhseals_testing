@@ -54,13 +54,13 @@ def test_vertical_join_between_neighbouring_columns():
     assert len(c.dots['meas']) > 2
 
 
-def test_two_layers_prefer_the_accent_and_hline_only_in_empty_cells():
+def test_two_layers_prefer_the_measurement_and_hline_only_in_empty_cells():
     c = braille.canvas(2, 2)
     c.line([(0.1, 1.0)], 0, 1, -1, 1, 'pred')
     c.line([(0.1, 1.0)], 0, 1, -1, 1, 'meas')
     c.hline(0.0, -1, 1)
     top, bottom = c.rows()
-    assert top.spans[0].style == theme.ACCENT
+    assert top.spans[0].style == theme.FG
     assert top.plain[0] != ' ' and bottom.plain == '┈┈'
 
 

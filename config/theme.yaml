@@ -1,6 +1,10 @@
 # One look for the whole TUI: palette, status tokens, CVD swaps and glyphs (ui.md section 3).
 # Rendering code names tokens and glyph ids, never hex values or characters (ui/palette.py).
 # Overlay: ~/.config/mhseals/theme.yaml may set theme, cvd and individual tokens or glyphs.
+# Reserved roles: data and healthy values are fg/muted (uncoloured); accent is focus, panel titles
+# and key labels only; borders and separators are border/muted grey; warn/fail only for real
+# problems; stop and armed for the safety states; auth.*, obj.*, scope and task.* are kept apart
+# from severity and each other (test/test_theme_tokens.py).
 schema: mhseals.theme/1
 theme: auto            # auto | dark | light   (auto: COLORFGBG, else dark)
 cvd: false             # swaps status and trail tokens only; obj.* never change
@@ -25,7 +29,7 @@ tokens:
   busy:      {alias: accent}
   # the safe stop state (e-stop, Space) and the hot armed state: apart from fail, buoys and each other;
   # on 16 colours ⊘ STOP and ARMED carry the meaning with the word
-  stop:      {dark: '#E06A3C', light: '#A8320C', x256: [166, 166], ansi: bold}
+  stop:      {dark: '#FC8460', light: '#A8320C', x256: [209, 166], ansi: bold}   # soft coral at the palette's lightness
   armed:     {dark: '#FF6FA8', light: '#C2185B', x256: [205, 161], ansi: bright_magenta}
   auth.human:     {alias: fg}
   auth.ours:      {alias: accent}
@@ -33,6 +37,8 @@ tokens:
   auth.agent:     {dark: '#EFA6E2', light: '#C0209E', x256: [219, 162], ansi: magenta}   # apart from spd.5
   auth.agent_dim: {dark: '#B58BAE', light: '#8A5A84', x256: [139, 96],  ansi: magenta}   # working, not driving
   auth.hold:      {alias: slate}
+  # scope tags (Correction hw / cal): grey italic, apart from status, buoy and authority hues
+  scope:          {alias: muted}
   auth.unclaimed: {alias: fail}
   # which coding agent (Activity agent rows, the working item): apart from every family, stop and
   # armed included, so no warm hue is left; the vendor word carries it where colour is absent
@@ -65,12 +71,13 @@ tokens:
   spd.3:       {dark: '#D49A80', light: '#A8603E', x256: [173, 130], ansi: yellow}
   spd.4:       {dark: '#D88FB0', light: '#AA4C7A', x256: [175, 132], ansi: magenta}
   spd.5:       {dark: '#DE86D0', light: '#A8409A', x256: [176, 133], ansi: magenta}
-  # manual speed gauge, calm to hot: cool blues rising to ice white, apart from status, buoy and authority hues
-  throttle.0:  {dark: '#6A84B6', light: '#4A5F8C', x256: [67, 60],   ansi: blue}
-  throttle.1:  {dark: '#6A98E6', light: '#2F63C0', x256: [69, 26],   ansi: blue}
-  throttle.2:  {dark: '#7CBCF4', light: '#1F72C4', x256: [75, 32],   ansi: cyan}
-  throttle.3:  {dark: '#B4DAFA', light: '#1A5FA8', x256: [153, 25],  ansi: bright_cyan}
-  throttle.4:  {dark: '#F2F8FF', light: '#0B3F7A', x256: [231, 17],  ansi: bright_white}
+  # manual speed gauge, calm to hot: a neutral grey ramp rising to white, so it never reads as a
+  # status, buoy, authority or accent hue; the lit-cell count and the percentage carry the value
+  throttle.0:  {dark: '#858E9D', light: '#7A828F', x256: [245, 244], ansi: bright_black}
+  throttle.1:  {dark: '#9DA6B4', light: '#646C79', x256: [247, 242], ansi: bright_black}
+  throttle.2:  {dark: '#B5BDC9', light: '#4E5663', x256: [250, 240], ansi: default}
+  throttle.3:  {dark: '#CDD3DC', light: '#3A414C', x256: [252, 238], ansi: default}
+  throttle.4:  {dark: '#EEF1F5', light: '#1F242C', x256: [255, 235], ansi: bold}
   cost_bg:     {dark: '#2A3442', light: '#E2E7EE', x256: [236, 254], ansi: null}
   lethal_bg:   {dark: '#4B3A3A', light: '#ECDAD3', x256: [239, 224], ansi: null}
   # map structure: quiet and cool, never mistaken for data (tui-visual 1)
@@ -130,6 +137,7 @@ mono:
   auth.agent_dim: dim
   fail: bold
   stop: bold
+  scope: italic
   armed: bold
   sel_bg: underline
   grid: dim

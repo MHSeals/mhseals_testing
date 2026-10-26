@@ -49,9 +49,9 @@ def paint(text, **console):
 
 def test_no_color_keeps_the_marks_and_drops_the_colors():
     text = render(CASES['hardware'](), 80, ascii_=False)
-    assert '33m' in paint(text)                                       # changed cells are yellow
+    assert any(code in paint(text) for code in ('33m', '93m'))         # changed cells wear warn (yellow)
     plain = paint(text, no_color=True)
-    assert '33m' not in plain and '•0.000' in plain and '+ note_key' in plain
+    assert not any(code in plain for code in ('33m', '93m')) and '•0.000' in plain and '+ note_key' in plain
 
 
 def test_precision_widens_only_to_show_the_difference():

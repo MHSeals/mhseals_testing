@@ -312,7 +312,7 @@ def speed_gauge(speed, cells=GAUGE_CELLS, label=True):
     """``≫ ▰▰▰▰▰▰▰▱▱▱ 75%``: the manual speed as a gauge whose lit cells run calm to hot.
 
     Each cell wears the band of its own position, so a higher speed reaches hotter cells; the colour
-    never reads as severity (cool blues to ice, not green/amber/red). ASCII: ``>> #######--- 75%``;
+    never reads as severity or any hue family (a neutral grey ramp up to white). ASCII: ``>> #######--- 75%``;
     NO_COLOR keeps the count of lit cells and the percentage.
     """
     speed = min(1.0, max(0.0, float(speed)))

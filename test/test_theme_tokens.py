@@ -43,6 +43,7 @@ FAMILIES = {'buoy': ('obj.red', 'obj.green', 'obj.yellow', 'obj.blue'),
             'authority': ('auth.ours', 'auth.nav', 'auth.agent'),
             'gps': ('gps.fix', 'gps.float', 'gps.dgps', 'gps.3d', 'gps.none'),   # the trail, on the map with buoys
             'mission': ('task.confirmed', 'task.failed', 'task.goal'),   # the decision words alias these
+            'scope': ('scope',),     # the hw / cal tag is not a status, buoy or authority
             'stop': ('stop',),       # the safe stopped state is not a failure
             'armed': ('armed',)}     # and the hot armed state is neither
 ALIKE = {frozenset(('severity', 'gps'))}   # fix quality reads as health on purpose: fix is ok, none is fail

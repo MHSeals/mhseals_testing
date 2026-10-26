@@ -24,8 +24,12 @@ AXES = ('surge', 'sway', 'yaw')
 CROSS = ('sw', 'ψ', 'su')   # cross-entry rows: sway, yaw, surge (the axis index of each is below)
 CROSS_AXIS = (1, 2, 0)
 DIRECTIONS = tuple(f'{axis}{sign}' for axis in AXES for sign in '+-')
-SCOPE = 'italic bright_black'   # the slate hw / cal tag
 MISSING = theme.DASH
+
+
+def scope_style():
+    """The hw / cal tag: italic in the theme's ``scope`` token, never a status, buoy or authority hue."""
+    return f"italic {theme.PALETTE.style('scope')}".strip()
 
 
 def load_settings(path=None) -> dict:
@@ -281,8 +285,8 @@ def _tint():
     if theme.ASCII or os.environ.get('NO_COLOR'):
         return 'underline'
     if os.environ.get('COLORTERM') in ('truecolor', '24bit'):
-        return 'on #232A36'
-    return 'on grey15' if '256' in os.environ.get('TERM', '') else 'underline'
+        return f"on {theme.PALETTE.style('sel_bg', tier='truecolor')}"
+    return f"on {theme.PALETTE.style('sel_bg', tier='256')}" if '256' in os.environ.get('TERM', '') else 'underline'
 
 
 def _cell(row, col, settings):
@@ -310,7 +314,7 @@ def _table(view, width, height):
         rows = [r for r in rows if r[2] != name]
 
     def line(tag, name, cells):
-        out = Text(f'{tag:<4}', style=SCOPE) + Text(f'{name:<{label - 4}}' if len(name) <= label - 4 else name[:label - 4])
+        out = Text(f'{tag:<4}', style=scope_style()) + Text(f'{name:<{label - 4}}' if len(name) <= label - 4 else name[:label - 4])
         for i, (value, style) in enumerate(cells):
             text = Text(f'{value:<{cell}}'[:cell], style=style)
             if i == cursor:
@@ -404,9 +408,9 @@ def render(view, width=120, height=40, focused=True):
     footer = []
     if view.get('plan'):
         footer.append(Text('Plan  ' + view['plan']))
-    footer.append(Text.assemble(('scope ', theme.MUTED), (TAGS['hardware'], SCOPE),
+    footer.append(Text.assemble(('scope ', theme.MUTED), (TAGS['hardware'], scope_style()),
                                 ' hardware: refit when rebuilt  ',
-                                (TAGS['calibration'], SCOPE), ' calibration: refit each test'))
+                                (TAGS['calibration'], scope_style()), ' calibration: refit each test'))
     pad = max(0, height - 2 - len(body) - len(lines) - len(footer) - 2)   # the box fills the body
     main = theme.block(Group(*body, Text(''), *lines, *[Text('')] * (pad + 1), *footer),
                        theme.SEPARATOR.join(_title(view)), focused=focused)

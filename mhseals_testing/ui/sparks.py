@@ -86,7 +86,7 @@ def spark(values, width, lo, hi, band=None, gaps=None, height=2, style=None):
     (bools, one per value) marks a cell ``┄`` in the fail hue on the bottom row where data is missing.
     """
     grid, n, columns = Dots(width, height), len(values), width * 2
-    band_dots, line = grid.layer(theme.PALETTE.style('faint')), grid.layer(style or theme.ACCENT)
+    band_dots, line = grid.layer(theme.PALETTE.style('faint')), grid.layer(style or theme.FG)
     dots = height * 4
     if band:
         for edge in band:
@@ -120,7 +120,7 @@ def hbar(value, lo, hi, width, band=None, style=None):
         fill = min(8, max(0, eighths - col * 8))
         if fill:
             char = theme.FILL if theme.ASCII else ('█' if fill == 8 else EIGHTHS[fill])
-            text.append(char, style=style or theme.ACCENT)
+            text.append(char, style=style or theme.FG)
             continue
         mid = lo + (hi - lo) * (col + .5) / width
         inside = band and band[0] <= mid <= band[1]
@@ -134,7 +134,7 @@ def ladder(steps, current, styles=None):
     for i, step in enumerate(steps):
         rung = RUNGS[round(i * (len(RUNGS) - 1) / max(1, len(steps) - 1))]
         lit = step == current
-        style = f"bold {(styles or {}).get(step, theme.ACCENT)}" if lit else faint
+        style = f"bold {(styles or {}).get(step, theme.FG)}" if lit else faint
         if i:
             text.append('  ')
         text.append(f'{theme.FOCUS if lit else " "}' if theme.ASCII else '', style=style)

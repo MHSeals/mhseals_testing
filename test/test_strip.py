@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from mhseals_testing.ui import theme
 from mhseals_testing.ui.strip import FAIL, WARN, Band, Point, Span, rows
 from mhseals_testing.ui.timeaxis import Axis
 
@@ -65,16 +66,16 @@ def test_no_color_texture_replaces_the_bad_slice_colour():
     assert '▓' in plain and '▓' not in colored
 
 
-def test_styles_cap_bold_yellow_and_cyan_only_on_the_bracket():
+def test_styles_cap_bold_warn_and_accent_only_on_the_bracket():
     kw, t0, end = abort_scene()
     sel = kw.pop('sel')
     axis = Axis(t0, end, 48, [(s.a, s.b) for s in kw['spans']])
     out = rows(axis, sel=sel, fmt=fmt, ascii_mode=False, color=True, **kw)
     cap = next(s for s in out[1].spans if out[1].plain[s.start] == '×')
-    assert cap.style == 'bold yellow'
+    assert cap.style == f'bold {theme.WARN}'
     for line in out[:4]:
-        assert not any('cyan' in str(s.style) for s in line.spans)
-    assert any('cyan' in str(s.style) for s in out[4].spans)
+        assert not any(theme.ACCENT in str(s.style) for s in line.spans)
+    assert any(theme.ACCENT in str(s.style) for s in out[4].spans)
 
 
 def test_one_row_form_and_cluster_count():

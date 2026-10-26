@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 from rich.console import Console
+from rich.style import Style
 
+from mhseals_testing.ui import theme
 from mhseals_testing.ui.rtk_row import RtkView, rtk_row, strip_item, survey_fraction
 
 GOLDEN = Path(__file__).parent / 'fixtures' / 'rtk_row.txt'
@@ -60,12 +62,17 @@ def style_of(view, text, width=42):
     return str(row.get_style_at_offset(Console(), at))
 
 
+def hue(name, bold=False):
+    """The rendered style string of a theme style name (GOOD, WARN, BAD, ACCENT)."""
+    return str(Style.parse(f"{'bold ' if bold else ''}{getattr(theme, name)}"))
+
+
 def test_colours_follow_the_state():
-    assert style_of(STATES[7], '✓') == 'green' and style_of(STATES[7], 'FIXED') == 'bold green'
-    assert style_of(STATES[8], '╌') == 'yellow' and style_of(STATES[8], '3.1s') == 'yellow'
-    assert style_of(STATES[9], '14s') == 'red' and style_of(STATES[9], '✗') == 'red'
+    assert style_of(STATES[7], '✓') == hue('GOOD') and style_of(STATES[7], 'FIXED') == 'bold'   # healthy: no hue
+    assert style_of(STATES[8], '╌') == hue('WARN') and style_of(STATES[8], '3.1s') == hue('WARN')
+    assert style_of(STATES[9], '14s') == hue('BAD') and style_of(STATES[9], '✗') == hue('BAD')
     assert style_of(STATES[5], 'FLOAT') == 'none' and style_of(STATES[5], '━') == 'none'   # converging is plain
-    assert style_of(STATES[6], 'FLOAT') == 'yellow'                                       # stuck is not
+    assert style_of(STATES[6], 'FLOAT') == hue('WARN')                                     # stuck is not
 
 
 def test_survey_never_shows_complete_before_valid():
@@ -90,8 +97,8 @@ def test_external_corrections_show_the_source_and_judge_by_the_fcu_fix():
     """Mission Planner injects over the radio: no base here, no sender age; the FCU fix decides."""
     fixed, floating = V(source='external', fix='FIXED'), V(source='external', fix='FLOAT')
     assert 'RTK ext ' in plain(fixed, 28) and 'RTK ext ' in plain(fixed, 32) and 'RTK external' in plain(fixed, 42)
-    assert style_of(fixed, '✓') == 'green' and style_of(fixed, 'external') == 'cyan'
-    assert '◌' in plain(floating) and style_of(V(source='external', fix='FLOAT', converge_warn=True), '!') == 'yellow'
+    assert style_of(fixed, '✓') == hue('GOOD') and style_of(fixed, 'external') == hue('ACCENT')
+    assert '◌' in plain(floating) and style_of(V(source='external', fix='FLOAT', converge_warn=True), '!') == hue('WARN')
     assert strip_item(fixed) == ('LIVE', 'rtk ext FIXED') and strip_item(V(source='external', fix='3D'))[0] == 'CHECKING'
     assert 'no base' not in plain(V(source='external', fix='3D'))
 

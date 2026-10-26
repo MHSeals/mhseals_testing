@@ -164,7 +164,7 @@ def _block(title, grid, values, marks, mark, cw):
         line = Text(name.ljust(rl))
         for c, value in enumerate(values[r]):
             changed = marks[r][c]
-            line.append(((mark if changed else ' ') + value).rjust(cw - 2).ljust(cw), style='bold yellow' if changed else '')
+            line.append(((mark if changed else ' ') + value).rjust(cw - 2).ljust(cw), style=f'bold {theme.WARN}' if changed else '')
         lines.append(line)
     return lines
 

@@ -94,7 +94,7 @@ def cell(view, ascii=False):
 def source_row(view, width, ascii=False, cursor=None):
     """The Status row in the RTK row's grammar: gutter, the ring where the glyph goes, ``Source``, the label."""
     row = Text(' ')
-    row.append(cursor if cursor else '  ', style='bold cyan')
+    row.append(cursor if cursor else '  ', style=f'bold {theme.ACCENT}')
     row.append_text(cell(view, ascii)[:1])
     row.append(' Source ')
     row.append(label(view))

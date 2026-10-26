@@ -25,15 +25,19 @@ AUTHORITY_HUES, _GLYPHS = {}, {}   # filled by use_palette; read as theme.X at c
 def use_palette(new):
     """Make ``new`` the theme: the style names below follow it (the hot reload calls this too)."""
     global PALETTE, ACCENT, MUTED, GOOD, WARN, BAD, BUSY, SEL_BG, AGENT_BANNER, AGENT_LOW, AGENT_DIM
+    global BORDER, FG
     PALETTE = new
-    ACCENT, MUTED = PALETTE.style('accent'), PALETTE.style('muted')
+    ACCENT, MUTED, FG = PALETTE.style('accent'), PALETTE.style('muted'), PALETTE.style('fg')   # FG: data
+    BORDER = PALETTE.style('border')   # grey frames and separators
     GOOD, WARN, BAD, BUSY = (PALETTE.style(token) for token in ('ok', 'warn', 'fail', 'busy'))
     SEL_BG = f"on {PALETTE.style('sel_bg')}" if TINT else ''
     # Who drives, as a hue (ui.md U4); the command arrow wears the same one. Never a status hue
     # except unclaimed. Owners are harness.authority.OWNERS.
+    hue = PALETTE.style
     AUTHORITY_HUES.update({
-        'rc': 'bold', 'keyboard': 'bold', 'hold': 'bright_black', 'agent': 'bright_magenta',
-        'task': ACCENT, 'procedure': ACCENT, 'nav': 'magenta', 'external': BAD, 'none': MUTED,
+        'rc': f"bold {hue('auth.human')}".strip(), 'keyboard': f"bold {hue('auth.human')}".strip(),
+        'hold': hue('auth.hold'), 'agent': hue('auth.agent'), 'task': hue('auth.ours'),
+        'procedure': hue('auth.ours'), 'nav': hue('auth.nav'), 'external': hue('auth.unclaimed'), 'none': MUTED,
     })
     # The agent banner is the auth.agent chip cell stretched over the row; a low lease is a warn cell.
     AGENT_BANNER = f"{PALETTE.chip('', 'auth.agent', ascii=False).style} bold".strip()
@@ -141,18 +145,23 @@ def agent_style(agent):
 
 
 def block(renderable, title, focused=False, subtitle=None, keys=None, **kwargs):
-    """A rounded panel; the focused one gets a bold border and a ▸ before its title.
+    """A rounded panel in the grey ``border`` token; the focused one gets a bold accent border and a
+    ▸ before its title.
 
-    ``keys`` is written on the bottom border (popup key hints).
+    ``keys`` is written on the bottom border (popup key hints). The title is all spans and no base
+    style: Rich's Panel re-applies a title's base style over its spans, which would paint the muted
+    subtitle and its status glyphs in the accent.
     """
-    heading = Text(f'{FOCUS} {title}' if focused else title, style=f'bold {ACCENT}')
+    heading = Text()
+    heading.append(f'{FOCUS} {title}' if focused else title, style=f'bold {ACCENT}')
     if subtitle:
         heading.append(SEPARATOR, style=MUTED)
         heading.append_text(subtitle) if isinstance(subtitle, Text) else heading.append(subtitle, style=MUTED)
     bottom = Text(f' {keys} ', style=MUTED) if keys else None
     return Panel(renderable, title=heading, title_align='left', subtitle=bottom, subtitle_align='left',
                  box=box.ASCII if ASCII else box.ROUNDED,
-                 border_style='bold' if focused else 'default', padding=(0, 1), **kwargs)
+                 border_style=f'bold {ACCENT}'.strip() if focused else (BORDER or 'default'),
+                 padding=(0, 1), **kwargs)
 
 
 def grid(*columns, padding=(0, 2)):
@@ -167,9 +176,13 @@ def grid(*columns, padding=(0, 2)):
 
 
 def hint(key, label, style=None):
-    """`` key label``; ``style`` replaces the accent on the key (Space wears ``stop``)."""
-    text = Text(f' {key} ', style=f'bold {style or ACCENT}')
-    text.append(label)
+    """`` key label``: the key bold in the accent, the label plain. ``style`` replaces the accent and
+    covers the label too, so a safety key (Space wears ``stop``) reads as one unit apart from the rest.
+
+    Spans only, no base style: a base style would also colour the label."""
+    text = Text()
+    text.append(f' {key} ', style=f'bold {style or ACCENT}')
+    text.append(label, style=f'bold {style}' if style else None)
     return text
 
 
