@@ -21,7 +21,7 @@ from mhseals_testing.analysis import physics
 from mhseals_testing.strict_yaml import load_strict
 
 DOCK_STEPS = ('weigh_in', 'dock_noise')
-THRUST_STEPS = ('bollard',)
+THRUST_STEPS = ('bollard', 'pulses')
 
 
 class Refused(ValueError):
@@ -247,7 +247,57 @@ def bollard(ctx, cfg):
     return body, log.samples(), driver
 
 
-STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard)
+def pulses(ctx, cfg):
+    """Single-thruster pulses afloat: each output alone, both ways, from rest; the onset acceleration per axis.
+
+    The experiments are (cmd4, W_hat, sigma) for crane's estimate_mixer: cmd4 is the canonical
+    effort per thruster in FL FR RR RL order (the motor effort, flipped where ``reversed``), W_hat
+    the body acceleration [ax, ay, alpha] the pulse started, net of the drift before it.
+    """
+    driver = require_driver(ctx)
+    log = Log(ctx)
+    names = output_names(log.config)
+    ctx.prompt(f'Boat afloat, untied, clear water all round. Each output pulses alone to '
+               f'{", ".join(f"{level:+.0%}" for level in cfg["levels"])} for {cfg["hold_s"]:g} s from '
+               f'{cfg["rest_s"]:g} s of rest. Press Enter... ', 'Single-thruster pulses')
+    runs = []
+    try:
+        with ctx.motion('physics_pulses', levels=list(cfg['levels'])) as runner:
+            for output in cfg['outputs']:
+                for level in cfg['levels']:
+                    pulse = [1500] * 4
+                    pulse[output - 1] = round(1500 + 400 * level)
+                    log.pulse(runner, [1500] * 4, cfg['rest_s'], 'rest')
+                    runs.append((output, level, log.pulse(runner, pulse, cfg['hold_s'], f'output {output} {level:+.0%}')))
+            log.pulse(runner, [1500] * 4, cfg['rest_s'], 'rest')
+    finally:
+        ctx.services['pulses'](None)
+    rows = [(t, v.get('vx'), v.get('vy'), v.get('wz')) for t, v in ctx.history(log.segments[0]['start'], log.segments[-1]['end'])]
+    experiments, skipped = [], []
+    floor = cfg['sigma_floor']
+    for output, level, segment in runs:
+        found = None if segment['overridden'] else physics.onset(
+            rows, segment['start'], cfg['skip_s'], cfg['edge_s'], cfg['rest_s'] / 2)
+        if found is None:
+            skipped.append(segment['label'])
+            continue
+        name, flipped = names[output]
+        cmd4 = [0.0] * 4
+        cmd4[physics_record.THRUSTERS.index(name)] = -level if flipped else level
+        experiments.append(dict(output=output, thruster=name, motor_effort=level, cmd4=cmd4, W_hat=found[0],
+                                sigma=[max(s, f) for s, f in zip(found[1], floor)]))
+    if not experiments:
+        raise Refused('no pulse left a usable onset: check odometry')
+    body = dict(experiments=experiments, skipped=skipped, order=list(physics_record.THRUSTERS),
+                window=dict(skip_s=cfg['skip_s'], edge_s=cfg['edge_s'], before_s=cfg['rest_s'] / 2),
+                units=dict(cmd4='normalized canonical effort', W_hat='m/s^2, m/s^2, rad/s^2 (body)',
+                           sigma='same as W_hat'),
+                counts=dict(experiments=len(experiments), skipped=len(skipped), samples=len(rows), **log.counts()),
+                summary=dict(experiments=len(experiments), skipped=len(skipped)))
+    return body, log.samples(), driver
+
+
+STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard, pulses=pulses)
 
 
 def _run(ctx, step, allowed):

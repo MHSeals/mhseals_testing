@@ -230,3 +230,19 @@ def test_bollard_fits_forward_and_reverse_strength_deadband_and_ratio_per_output
 def test_thrust_steps_refuse_when_the_driver_runs_another_file(tmp_path):
     ctx, records = make_ctx(tmp_path, runner=Boat(), status=dict(config_sha='0', pending_restart_keys=[]))
     assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'another hardware file' in records[-1]['reason']
+
+
+def test_pulses_give_estimate_mixer_experiments_in_canonical_order(tmp_path):
+    boat = Boat(noise=0.0005)
+    update_config(dict(reversed=[False, True, False, False]), tmp_path / 'hardware.yaml')
+    ctx, _ = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='pulses')
+    record = saved(physics.thrust(ctx))
+    assert record['counts']['experiments'] == 16 and record['skipped'] == []
+    first = record['experiments'][0]
+    assert first['thruster'] == 'FL' and first['cmd4'] == [0.3, 0.0, 0.0, 0.0]
+    # FL at +30 %: 40 N * 0.09 = 3.6 N; surge 0.7 * 3.6 / 25 kg, yaw -0.43 * 3.6 / 4 (less drag at onset)
+    assert first['W_hat'][0] == pytest.approx(0.7 * 3.6 / 25, rel=0.15)
+    assert first['W_hat'][2] == pytest.approx(-0.43 * 3.6 / 4, rel=0.15)
+    flipped = next(e for e in record['experiments'] if e['thruster'] == 'FR')
+    assert flipped['cmd4'] == [0.0, -0.3, 0.0, 0.0] and min(first['sigma']) >= 0.005
+    assert record['order'] == ['FL', 'FR', 'RR', 'RL'] and record['units']['W_hat'].startswith('m/s^2')

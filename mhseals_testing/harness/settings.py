@@ -96,7 +96,7 @@ SPECS = (
          note='characterization: re-refine only this column, e.g. sway+'),
     Spec('dock_step', 'weigh_in', str, choices=('weigh_in', 'dock_noise'), group='Physics',
          note='Dock physics (d) runs this step; config/physics.yaml holds its parameters'),
-    Spec('thrust_step', 'bollard', str, choices=('bollard',), group='Physics',
+    Spec('thrust_step', 'bollard', str, choices=('bollard', 'pulses'), group='Physics',
          note='Thrust physics (y) runs this step; config/physics.yaml holds its parameters'),
 )
 BY_KEY = {spec.key: spec for spec in SPECS}

@@ -87,3 +87,39 @@ def bollard_fit(readings, zero_n):
         ratio = reverse['K'] / forward['K'] if forward and reverse and forward['K'] > 0 else None
         result[int(output)] = dict(forward=forward, reverse=reverse, o_us=offset, reverse_ratio=ratio)
     return result
+
+
+def _slope(t, y, degree=1):
+    """(slope at the first t, standard error) of a polynomial through (t, y); None with too few points.
+
+    Degree 2 reads the slope where the window starts, before drag bends the response over.
+    """
+    if len(t) < degree + 4:
+        return None
+    t, y = numpy.asarray(t, float) - t[0], numpy.asarray(y, float)
+    basis = numpy.vander(t, degree + 1, increasing=True)
+    coefficients, *_ = numpy.linalg.lstsq(basis, y, rcond=None)
+    residual = y - basis @ coefficients
+    variance = residual @ residual / (len(t) - degree - 1)
+    return float(coefficients[1]), float(numpy.sqrt(variance * numpy.linalg.inv(basis.T @ basis)[1, 1]))
+
+
+def onset(rows, t_on, skip, edge, before):
+    """Acceleration per axis a pulse started, net of the drift before it: ([ax, ay, alpha], [sigma x3]).
+
+    ``rows`` are (t, vx, vy, wz). The quadratic's slope at t_on + skip over [t_on + skip, t_on + skip
+    + edge] (``skip`` covers spin-up and the estimator's lag) minus the straight-line slope over the
+    ``before`` s leading up to t_on; the sigma combines both standard errors. None when either
+    window has too few samples.
+    """
+    accel, sigma = [], []
+    for axis in (1, 2, 3):
+        after = [(r[0], r[axis]) for r in rows if t_on + skip <= r[0] <= t_on + skip + edge and r[axis] is not None]
+        prior = [(r[0], r[axis]) for r in rows if t_on - before <= r[0] < t_on and r[axis] is not None]
+        a = _slope(*zip(*after), degree=2) if after else None
+        b = _slope(*zip(*prior)) if prior else None
+        if a is None or b is None:
+            return None
+        accel.append(a[0] - b[0])
+        sigma.append(math.hypot(a[1], b[1]))
+    return accel, sigma

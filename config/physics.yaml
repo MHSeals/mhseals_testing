@@ -14,3 +14,11 @@ bollard:
   scale_unit: kgf            # kgf (a hanging or spring scale) or N (a load cell readout)
   max_reading: 30.0          # largest accepted reading, in scale_unit
   resolution: 0.05           # smallest reading the scale shows, in scale_unit: at or below it a level is in the deadband
+pulses:
+  outputs: [1, 2, 3, 4]
+  levels: [0.3, 0.6, -0.3, -0.6]   # motor effort per pulse (crane adv_excitation.all_pulses levels)
+  rest_s: 4.0                # neutral before each pulse; its second half is the drift baseline
+  hold_s: 3.0
+  skip_s: 0.2                # after thrust on: spin-up and estimator lag, left out of the onset slope
+  edge_s: 0.8                # onset slope window
+  sigma_floor: [0.005, 0.005, 0.005]   # smallest sigma per axis (m/s^2, m/s^2, rad/s^2): a noise-free fit is not exact
