@@ -32,11 +32,21 @@ def graphics_row(app):
 
 def test_the_row_reads_the_setting_and_names_the_tier_only_when_it_differs():
     assert graphics_rows({}, ()) == []                       # only the attached App feeds it
-    assert graphics_rows({'graphics': ('off', 'text')}, ())[0]['value'] == '‹ off ›'
-    assert graphics_rows({'graphics': ('auto', 'sixel')}, ())[0]['value'] == '‹ auto ›' + theme.SEPARATOR + 'sixel'
-    assert graphics_rows({'graphics': ('sixel', 'sixel')}, ())[0]['value'] == '‹ sixel ›'
+    row = graphics_rows({'graphics': ('off', 'text')}, ())[0]
+    assert row['value'] == '‹ off ›' and not row['detail'].startswith('drawing')
+    row = graphics_rows({'graphics': ('auto', 'sixel')}, ())[0]
+    assert row['value'] == '‹ auto ›' and row['detail'].startswith('drawing sixel' + theme.SEPARATOR)
+    assert not graphics_rows({'graphics': ('sixel', 'sixel')}, ())[0]['detail'].startswith('drawing')
     row = graphics_rows({'graphics': ('kitty', 'text')}, ())[0]   # forced, but NO_COLOR or ASCII: text
-    assert row['value'].endswith('text') and row['group'] == 'Session' and row['state'] == 'OK'
+    assert row['detail'].startswith('drawing text') and row['group'] == 'Session' and row['state'] == 'OK'
+
+
+def test_the_conditions_title_names_an_image_tier_only(overlay):
+    import test_conditions_drive as tcd
+    pixels.use('text')
+    assert 'sixel' not in tcd.page(120, 40)
+    pixels.use('sixel')
+    assert f'4 min{theme.SEPARATOR}sixel' in tcd.page(120, 40)
 
 
 def test_arrows_step_off_auto_kitty_sixel_save_the_overlay_and_switch_the_tier(tmp_path, overlay):

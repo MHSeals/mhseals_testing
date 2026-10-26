@@ -144,18 +144,19 @@ def recording_rows(snapshot, specs):
 
 
 def graphics_rows(snapshot, specs):
-    """``Graphics ‹ auto › · sixel`` (Session group): theme.yaml ``graphics`` and, when it differs,
-    the tier drawing now (ui/pixels.py); left/right steps off, auto, kitty, sixel. Only the live
-    App feeds ``graphics``."""
+    """``Graphics ‹ auto ›`` (Session group): theme.yaml ``graphics``; the detail names the tier
+    drawing now when it differs (ui/pixels.py; the Conditions title also names an image tier).
+    left/right steps off, auto, kitty, sixel. Only the live App feeds ``graphics``."""
     graphics = snapshot.get('graphics')
     if graphics is None:
         return []
     setting, tier = graphics
     left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
-    value = f'{left}{setting}{right}' + (f'{theme.SEPARATOR}{tier}' if tier != setting and setting != 'off' else '')
-    return [dict(group='Session', state='OK', name='Graphics', required=False, value=value, plain=True,
-                 setting='graphics',
-                 detail='left/right: off, auto, kitty or sixel; drawings as terminal images, saved to the theme overlay')]
+    drawing = f'drawing {tier}{theme.SEPARATOR}' if tier != setting and setting != 'off' else ''
+    return [dict(group='Session', state='OK', name='Graphics', required=False, value=f'{left}{setting}{right}',
+                 plain=True, setting='graphics',
+                 detail=f'{drawing}left/right: off, auto, kitty or sixel; drawings as terminal images, '
+                        'saved to the theme overlay')]
 
 
 def session_rows(snapshot, specs):

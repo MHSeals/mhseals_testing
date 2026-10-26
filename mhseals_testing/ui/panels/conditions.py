@@ -595,5 +595,7 @@ def conditions_panel(view, compact=False):
     """
     info = view.get('conditions') or {}
     subtitle = None if compact else conditions_title(info)
+    if subtitle is not None and pixels.active():     # the rose is an image: name the tier, quietly
+        subtitle.append(f'{theme.SEPARATOR}{pixels.TIER}', style=theme.MUTED)
     return theme.block(_Body(view, info, compact), TITLES['conditions'], view['focus'] == 'conditions',
                        subtitle=subtitle)

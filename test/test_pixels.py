@@ -320,6 +320,43 @@ def test_sixel_draws_round_a_label_hole_and_a_tile_shown_twice():
     assert '\x1b[1;2H' not in drawn and '\x1b[1;7H' not in drawn         # never over the letters
 
 
+@pytest.mark.parametrize('tier', ['sixel', 'kitty'])
+def test_a_tile_under_a_modal_backdrop_is_drawn_dimmed_like_the_text(tier):
+    pixels.use(tier)
+    grid = pixels.surface('s', paint_box((200, 100, 0)), 4, 2)
+    (bright,) = pixels._by_id.values()
+    dimmed = [row.copy() for row in pixels.text_rows(grid)]
+    for row in dimmed:
+        row.stylize('dim')
+    segments, _ = render(dimmed)
+    pixels.frame(segments, (80, 40))
+    copies = [t for t in pixels._by_id.values() if t is not bright]
+    assert len(copies) == 1 and copies[0].palette[1] == tuple((c + b) // 2 for c, b in zip((200, 100, 0),
+                                                                                       pixels.token('bg', (0, 0, 0))))
+    if tier == 'sixel':
+        assert {n for n, _ in pixels._live.values()} == {copies[0].id}
+        assert pixels._stream is None or bright.id in pixels._stream.live
+    else:
+        assert copies[0] in pixels._pending       # uploaded before the frame that names it
+
+
+def test_the_image_rose_paints_the_text_tiers_tokens():
+    pixels.use('sixel')
+    seen = {}
+    real = pixels.surface
+    try:
+        pixels.surface = lambda name, paint, cols, rows, **kw: seen.setdefault('r', paint) and real(
+            name, paint, cols, rows, **kw)
+        conditions.rose(None, 30.0, True, 0.0, (0.6, 0.2, 0.0), 1.0, '#ff00ff')
+    finally:
+        pixels.surface = real
+    raster = pixels.Raster(conditions.ROSE_COLS, conditions.ROSE_ROWS)
+    seen['r'](raster)
+    used = {raster.palette[i] for i in np.unique(raster.px) if i}
+    assert used == {pixels.rgb(theme.PALETTE.style('slate')), pixels.rgb(theme.PALETTE.style('bow')),
+                    pixels.rgb(theme.MUTED), (255, 0, 255)}
+
+
 def test_rects_cover_cells_with_whole_row_runs():
     cells = {(0, 0), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2), (1, 3), (2, 0), (2, 1), (2, 2), (2, 3)}
     assert pixels._rects(cells) == [(0, 0, 1, 1), (0, 2, 1, 4), (1, 0, 3, 4)]

@@ -348,8 +348,11 @@ class Tile:
 def _tile(raster, c0, r0, cols, rows):
     """The pooled Tile for a cell rectangle of ``raster``, made and queued for kitty when new."""
     ys, xs = slice(r0 * raster.ch, (r0 + rows) * raster.ch), slice(c0 * raster.cw, (c0 + cols) * raster.cw)
-    px = raster.px[ys, xs]
-    h = hashlib.blake2b(bytes(c for rgb in raster.palette for c in rgb), digest_size=12,
+    return _pooled(raster.px[ys, xs], raster.palette, cols, rows)
+
+
+def _pooled(px, palette, cols, rows):
+    h = hashlib.blake2b(bytes(c for rgb in palette for c in rgb), digest_size=12,
                         person=b'%dx%d' % (cols, rows))
     h.update(np.ascontiguousarray(px))
     digest = h.digest()
@@ -359,7 +362,7 @@ def _tile(raster, c0, r0, cols, rows):
         return tile
     if not _free:
         _evict()
-    tile = Tile(digest, cols, rows, px.copy(), raster.palette[:])
+    tile = Tile(digest, cols, rows, px.copy(), list(palette))
     tile.id = _free.pop()
     _pool[digest] = tile
     _by_id[tile.id] = tile
@@ -367,6 +370,17 @@ def _tile(raster, c0, r0, cols, rows):
     if TIER == 'kitty':
         _pending.append(tile)
     return tile
+
+
+def _dim(n):
+    """The id of tile ``n`` dimmed halfway to the theme bg, as Rich dims the text under a modal
+    backdrop (layout.Overlay): an image never outshines the popup over it."""
+    tile = _by_id.get(n)
+    if tile is None:
+        return n
+    bg = token('bg', (0, 0, 0))
+    palette = [tile.palette[0]] + [tuple((c + b) // 2 for c, b in zip(rgb, bg)) for rgb in tile.palette[1:]]
+    return _pooled(tile.px, palette, tile.cols, tile.rows).id
 
 
 def _evict():
@@ -488,12 +502,12 @@ def _scan(segments):
             out.append(seg)
             continue
         if TIER == 'sixel' and _MARKS.search(text):
-            here = col
+            here, dim = col, bool(seg.style and seg.style.dim)    # dim: under a modal backdrop
             for ch in text:
                 n = ord(ch) - MARK0
                 if 0 <= n < 0xFFFE:
                     r, c = (n >> 4) & 7, n & 15     # by the tile's screen origin: a tile may show twice
-                    found.setdefault(n >> 7, {}).setdefault((row - r, here - c), set()).add((r, c))
+                    found.setdefault(n >> 7, {}).setdefault((row - r, here - c, dim), set()).add((r, c))
                     here += 1
                 else:
                     here += cell_len(ch)
@@ -501,6 +515,9 @@ def _scan(segments):
             col = here
             continue
         elif TIER == 'kitty' and PLACEHOLDER in text and seg.style is not None and seg.style.color is not None:
+            if seg.style.dim:
+                seg = _kitty_dim(seg)
+                text = seg.text
             low = seg.style.color.number or 0
             parts = text.split(PLACEHOLDER)
             kept, here = [parts[0]], col + cell_len(parts[0])
@@ -520,6 +537,20 @@ def _scan(segments):
         out.append(seg)
         col += cell_len(text)
     return found, out
+
+
+def _kitty_dim(seg):
+    """A dimmed placeholder run (under a modal backdrop) re-pointed at its tile's dimmed copy; a
+    run naming more than one tile is left as it is."""
+    low = seg.style.color.number or 0
+    parts = seg.text.split(PLACEHOLDER)
+    highs = {p[2] for p in parts[1:] if len(p) >= 3 and p[2] in DIACRITICS}
+    if len(highs) != 1:
+        return seg
+    kid = _kitty_id(_dim((DIACRITICS.index(highs.pop()) - 1) * 255 + low))
+    high = DIACRITICS[kid >> 24]
+    text = parts[0] + ''.join(PLACEHOLDER + (p[:2] + high + p[3:] if len(p) >= 3 else p) for p in parts[1:])
+    return Segment(text, seg.style + Style(color=f'color({kid & 0xFF})'), seg.control)
 
 
 def before(write):
@@ -562,11 +593,12 @@ def frame(segments, size):
             continue
         # A tile's visible cells (a label hole, a popup's edge or corner may hide some) go out as
         # the fewest rectangles of whole rows: each is drawn cropped, never over text.
-        for (top, left), cells in places.items():
+        for (top, left, dim), cells in places.items():
+            shown = _dim(n) if dim else n
             for r0, c0, r1, c1 in _rects(cells):
-                _live[(top + r0, left + c0)] = (n, (r0, c0, r1, c1))
-    if _stream is not None:
-        _stream.live = frozenset(n for n, _ in _live.values())
+                _live[(top + r0, left + c0)] = (shown, (r0, c0, r1, c1))
+    if _stream is not None:      # the markers carry the undimmed id
+        _stream.live = frozenset(n for n in found if n in _by_id)
     return segments
 
 
@@ -600,7 +632,9 @@ def after(write):
         return
     out, drawn = [], {}
     for (row, col), (n, crop) in _live.items():
-        tile = _by_id[n]
+        tile = _by_id.get(n)
+        if tile is None:            # evicted while this frame made a dimmed copy: drawn next frame
+            continue
         drawn[(row, col)] = (n, crop)
         if _drawn.get((row, col)) == (n, crop):
             continue
