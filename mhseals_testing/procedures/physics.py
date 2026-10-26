@@ -10,6 +10,11 @@ Each step writes one record (physics_record.py) and records its summary in the s
 
 from pathlib import Path
 
+from mhseals_hardware.configuration import load_config
+from mhseals_hardware.thruster_mixer import (
+    thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
+    validate_reversed,
+)
 from mhseals_testing import physics_record
 from mhseals_testing.analysis import physics
 from mhseals_testing.strict_yaml import load_strict
@@ -78,6 +83,82 @@ def weigh_in(ctx, cfg):
                 units=dict(mass='kg', cg='m (base_link x fwd, y left, z up)', iz='kg m^2', period_s='s'),
                 counts=dict(entries=4 + (3 if iz else 0)))
     return body, None, None
+
+
+def require_driver(ctx):
+    """The driver's report of the file it runs, or Refused: motion steps name the mixer and C they ran."""
+    status = (ctx.services.get('driver_status') or (lambda: None))()
+    hardware = getattr(getattr(ctx, 'profile', None), 'outputs', None) == 'odroid'
+    driver, reason = physics_record.driver_check(status, ctx.services.get('user_config'), hardware)
+    if reason:
+        raise Refused(reason)
+    return driver
+
+
+def commanded_pulses(command, config):
+    """The pulses per output the driver makes of an effort command under ``config`` (its C, mixer, flips)."""
+    return list(thruster_pulses(
+        command, validate_mixer(config['thruster_matrix']), validate_channel_map(config['channel_map']),
+        validate_reversed(config['reversed']), validate_decoupling(config['decoupling']),
+        validate_decoupling(config['decoupling_negative'] or config['decoupling']),
+        validate_reverse_ratio(config['reverse_thrust_ratio'])))
+
+
+class Log:
+    """One step's segments and samples on the monitor clock (design 9 step 2, synced logging).
+
+    Each segment names what was sent (an effort command through the driver, or raw pulses per
+    output), the pulses that makes under the fit-time config, the battery at its start and end and
+    whether an override touched it. ``samples()`` adds the odometry and the raw gyro over the run,
+    the gyro kept apart for the estimator-lag check. The driver publishes no pulse readback, so
+    ``pulse_source`` says these are commanded pulses.
+    """
+
+    def __init__(self, ctx, config=None):
+        self.ctx, self.segments = ctx, []
+        self.config = config if config is not None else load_config(ctx.services['user_config'])
+
+    def battery(self):
+        context = dict((self.ctx.services.get('fit_context') or dict)())
+        return [self.ctx.monitor.clock(), context.get('battery_v')]
+
+    def _segment(self, runner, label, start, end, **sent):
+        invalid = getattr(runner, 'invalid', None)
+        self.segments.append(dict(label=label, start=start, end=end, **sent,
+                                  overridden=bool(invalid and invalid(start, end))))
+        return self.segments[-1]
+
+    def hold(self, runner, command, seconds, label):
+        """An effort hold through the driver (its deployed C applies)."""
+        battery = self.battery()
+        start, end = runner.hold(command, seconds, label)
+        return self._segment(runner, label, start, end, command=list(command),
+                             pulses=commanded_pulses(command, self.config), battery=[battery, self.battery()])
+
+    def pulse(self, runner, pulses, seconds, label, sample=None):
+        """Raw pulses per output for ``seconds`` (~/test_pulses: no C, no mixer)."""
+        battery = self.battery()
+        self.ctx.services['pulses'](list(pulses))
+        start = self.ctx.monitor.clock()
+        runner.supervise(seconds, label=label, sample=sample)
+        return self._segment(runner, label, start, self.ctx.monitor.clock(), pulses=list(pulses),
+                             battery=[battery, self.battery()])
+
+    def samples(self, margin=1.0):
+        """{segments, odometry [t, vx, vy, wz, yaw], gyro [t, wz]} over the run."""
+        if not self.segments:
+            return dict(clock='monitor', segments=[], odometry=[], gyro=[])
+        since, until = self.segments[0]['start'] - margin, self.segments[-1]['end'] + margin
+        odometry = [[t, *(v.get(k) for k in ('vx', 'vy', 'wz', 'yaw'))]
+                    for t, v in self.ctx.history(since, until)]
+        gyro_name = getattr(self.ctx.monitor, 'gyro_sensor', None)
+        gyro = [[t, v.get('wz')] for t, v in self.ctx.history(since, until, gyro_name)] if gyro_name else []
+        return dict(clock='monitor receive time, s', pulse_source='commanded', segments=self.segments,
+                    odometry=odometry, gyro=gyro)
+
+    def counts(self):
+        return dict(segments=len(self.segments),
+                    overridden=sum(segment['overridden'] for segment in self.segments))
 
 
 STEPS = dict(weigh_in=weigh_in)
