@@ -426,20 +426,20 @@ def test_auto_never_touches_a_receiver_that_is_already_working(monkeypatch):
     assert not any(name in port.sent for name in ('CFG-VALSET', 'CFG-MSG', 'CFG-RATE'))
 
 
-def test_here4_msm4_option_and_cadence_settings():
-    commands = base_commands('F9P', dict(DEFAULTS, msm=4, rtcm_1005_every=5))
+def test_here4_sends_msm7_only_at_a_fixed_cadence():
+    commands = base_commands('F9P', DEFAULTS)
     last = UBXReader.parse(commands[-1].serialize(), msgmode=1)
-    assert [getattr(last, f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1074, 1084, 1094, 1124)] == [1] * 4
-    assert [getattr(last, f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1077, 1087, 1097, 1127)] == [0] * 4
-    assert last.CFG_MSGOUT_RTCM_3X_TYPE1005_USB == 5
+    assert [getattr(last, f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1077, 1087, 1097, 1127)] == [1] * 4
+    assert [getattr(last, f'CFG_MSGOUT_RTCM_3X_TYPE{m}_USB') for m in (1074, 1084, 1094, 1124)] == [0] * 4
+    assert (last.CFG_MSGOUT_RTCM_3X_TYPE1005_USB, last.CFG_MSGOUT_RTCM_3X_TYPE1230_USB) == (1, 5)
     m8p = [UBXReader.parse(c.serialize(), msgmode=1) for c in base_commands('M8P', DEFAULTS)]
     rates = {d.msgID: d.rateUSB for d in m8p if d.identity == 'CFG-MSG'}
     assert (rates[0x05], rates[0x4D], rates[0x57], rates[0xE6]) == (1, 1, 1, 5)    # Here+: same frame set
 
 
 def test_new_settings_are_validated(tmp_path):
-    for text, message in (('priority: first\n', 'priority'), ('msm: 5\n', 'msm'), ('site_radius: 0\n', 'site radius'),
-                          ('rtcm_1005_every: 0\n', 'rtcm_1005_every'), ('ntrip: [1]\n', 'ntrip')):
+    for text, message in (('priority: first\n', 'priority'), ('site_radius: 0\n', 'site radius'),
+                          ('ntrip: [1]\n', 'ntrip')):
         (tmp_path / 'bad.yaml').write_text(text)
         with pytest.raises(ValueError, match=message):
             load_config(tmp_path / 'bad.yaml')

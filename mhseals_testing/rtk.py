@@ -22,7 +22,7 @@ from mhseals_testing.strict_yaml import load_strict
 
 DEFAULTS = dict(source='ours', device='', radio='', radio_baud=57600, survey_seconds=120,
                 survey_accuracy=2.0, positions={}, priority='auto', auto_site=True, site_radius=5.0,
-                msm=7, rtcm_1005_every=1, rtcm_1230_every=5, ntrip={})
+                ntrip={})
 # Who injects RTCM into the FCU: ours (this base and/or NTRIP), external (e.g. Mission Planner
 # over the telemetry radio) or none. The rover fix always comes from the FCU's GPS_RAW_INT either way.
 SOURCES = ('ours', 'external', 'none')
@@ -72,11 +72,6 @@ def validate(config):
         raise ValueError('priority must be one of ' + ', '.join(PRIORITIES))
     if not math.isfinite(float(config['site_radius'])) or not .1 <= float(config['site_radius']) <= 50:
         raise ValueError('site radius must be .1..50 metres')
-    if int(config['msm']) not in (4, 7):
-        raise ValueError('msm must be 4 or 7')
-    for key in ('rtcm_1005_every', 'rtcm_1230_every'):
-        if not 1 <= int(config[key]) <= 60:
-            raise ValueError(f'{key} must be 1..60 seconds')
     if not isinstance(config['ntrip'], dict):
         raise ValueError('ntrip must be a mapping of NTRIP settings')
 
@@ -139,8 +134,7 @@ def base_commands(model, config, position=None):
     """Receiver-specific commands that start a survey, or fix a known position (RAM only)."""
     from pyubx2 import UBXMessage, SET
     seconds, accuracy = int(config['survey_seconds']), round(float(config['survey_accuracy']) * 10000)
-    arp = int(config.get('rtcm_1005_every', DEFAULTS['rtcm_1005_every']))
-    biases = int(config.get('rtcm_1230_every', DEFAULTS['rtcm_1230_every']))
+    arp, biases = 1, 5          # RTCM 1005 every epoch, 1230 every 5th
     if model == 'M8P':
         def mode(value):
             fields = dict(rcvrMode=value, svinMinDur=seconds, svinAccLimit=accuracy)
@@ -166,12 +160,11 @@ def base_commands(model, config, position=None):
             ('CFG_RATE_MEAS', 1000), ('CFG_RATE_NAV', 1),
             ('CFG_MSGOUT_UBX_NAV_SVIN_USB', 1), ('CFG_MSGOUT_UBX_NAV_PVT_USB', 1)]
     # Dual-band MSM7, 4 constellations: about 1.2-1.6 kB per 1 Hz epoch, every frame under the
-    # 720 B GPS_RTCM_DATA limit and the epoch under the 2400 B DroneCAN buffer. msm: 4 is smaller.
-    msm = F9P_MSM[int(config.get('msm', DEFAULTS['msm']))]
-    for msg, rate in ((1005, arp), *((m, 1) for m in msm), (1230, biases)):
+    # 720 B GPS_RTCM_DATA limit and the epoch under the 2400 B DroneCAN buffer.
+    for msg, rate in ((1005, arp), *((m, 1) for m in F9P_MSM[7]), (1230, biases)):
         data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', rate))
-    for msg in F9P_MSM[4 if msm == F9P_MSM[7] else 7]:
-        data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', 0))   # the other MSM set off, never both
+    for msg in F9P_MSM[4]:
+        data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', 0))   # MSM4 off, never both sets
     if position:
         lat, lat_hp, lon, lon_hp, alt, alt_hp = split_position(position)
         data += list(zip(('CFG_TMODE_LAT', 'CFG_TMODE_LAT_HP', 'CFG_TMODE_LON',
@@ -629,7 +622,6 @@ def parse(argv):
     mode.add_argument('--resume', action='store_true',
                       help='adopt the receiver as it is; without it an idle receiver is fixed at the nearest '
                            'saved site, else surveyed (auto_site)')
-    ap.add_argument('--priority', choices=PRIORITIES, help='local base or NTRIP first (default: config priority)')
     args = ap.parse_args(argv)
     config = load_config(args.config)
     if config['source'] != 'ours':
@@ -637,8 +629,6 @@ def parse(argv):
                          'mix bases at the FCU (set source: ours to run this base)')
     if args.port:
         config['device'] = args.port
-    if args.priority:
-        config['priority'] = args.priority
     if args.resume:
         config['auto_site'] = False
     position = None

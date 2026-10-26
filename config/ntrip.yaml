@@ -49,18 +49,6 @@ casters:
     user_env: FPRN_USER
     password_env: FPRN_PASSWORD
     bias_km: 2
-  # TxDOT RTN (https://txrtn.txdot.gov/, Trimble-hosted). Accounts go to TxDOT staff and
-  # contractors (https://www.txdot.gov/data-maps/global-positioning-system-gps.html; ask via
-  # https://txrtn.txdot.gov/contacts.aspx). Ports 2102-2104 answer; most streams are RAW (not
-  # usable here), 2102 also lists RTCM 3 OKDOT_TX* bases. Enable once an account exists.
-  - name: TxDOT
-    enabled: false
-    host: ntrip.txdot.trimblenms.net
-    port: 2102
-    version: 2
-    user_env: TXDOT_USER
-    password_env: TXDOT_PASSWORD
-    bias_km: 0
   # EarthScope (formerly UNAVCO) real-time GNSS: https://www.earthscope.org/data/gnss-realtime/
   # Free noncommercial license: https://www.earthscope.org/user/licenses. RTCM 3.3 MSM7 1 Hz,
   # single site, mountpoint {SITE}_RTCM3P3; TLS port 3101 (plain 2101). ITRF coordinates.

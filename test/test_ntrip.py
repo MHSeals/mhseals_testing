@@ -99,14 +99,13 @@ def test_beyond_max_km_is_a_last_resort_and_resting_mounts_are_skipped():
 def test_shipped_casters_load_and_overlay_merges_by_name(tmp_path):
     settings = load_settings({})
     names = [c['name'] for c in settings['casters']]
-    assert names == ['FPRN', 'FPRN-NET', 'TxDOT', 'EarthScope', 'RTK2go']
+    assert names == ['FPRN', 'FPRN-NET', 'EarthScope', 'RTK2go']
     assert all('password' not in c and 'user' not in c for c in settings['casters'])     # names of env vars only
-    tx = next(c for c in settings['casters'] if c['name'] == 'TxDOT')
-    assert tx['enabled'] is False
-    merged = load_settings({'ntrip': {'max_km': 20, 'casters': [{'name': 'TxDOT', 'enabled': True},
+    merged = load_settings({'ntrip': {'max_km': 20, 'casters': [{'name': 'RTK2go', 'enabled': False},
                                                                   {'name': 'Mine', 'host': 'x', 'port': 2101}]}})
     assert merged['max_km'] == 20
-    assert next(c for c in merged['casters'] if c['name'] == 'TxDOT')['enabled'] is True
+    rtk2go = next(c for c in merged['casters'] if c['name'] == 'RTK2go')
+    assert rtk2go['enabled'] is False and rtk2go['host']
     assert merged['casters'][-1]['name'] == 'Mine'
     with pytest.raises(ValueError, match='missing host'):
         load_settings({'ntrip': {'casters': [{'name': 'Bad', 'port': 1}]}})
