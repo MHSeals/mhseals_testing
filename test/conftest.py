@@ -7,10 +7,16 @@ from types import ModuleType
 import pytest
 
 from nav_paths import find_nav
+from ros_isolation import isolate_ros_env
 
 # The theme reads NO_COLOR once, at import, and the goldens and style asserts expect colour: a shell
 # that exports NO_COLOR (agent sandboxes do) would otherwise fail them. Tests that want mono set it.
 os.environ.pop('NO_COLOR', None)
+
+
+def pytest_configure(config):
+    """Tests that start nodes never reach the live boat: private domain, no static peers, localhost only."""
+    isolate_ros_env()
 
 
 @pytest.fixture
