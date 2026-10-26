@@ -79,7 +79,7 @@ class Map:
         canvas = self.panel.draw(self.state, self.cols, self.rows, 10.0, self.table, theme.ASCII,
                                  self.box(self.state), True, 'truecolor')
         look = lambda layer: self.panel.style(layer, 'truecolor')
-        lines = emit_image(canvas, look) if pixels.active() else emit(canvas, look, 'truecolor')
+        lines = emit_image(canvas, look) if pixels.images('minimap') else emit(canvas, look, 'truecolor')
         return [Text.from_ansi(line) for line in lines]
 
 
@@ -149,7 +149,7 @@ def _plots(t, window=10.0, rate=10.0):
                      for s in ts])
 
 
-def run_screen(screen, width, height, tier, frames, rate, cell):
+def run_screen(screen, width, height, tier, frames, rate, cell, budget=None):
     """Drive or Map frames through App.refresh's path (layout, frame, before, write, after) while
     the boat turns 15 deg/s, runs at 1.5 m/s and the plots scroll; a simulated clock at ``rate`` Hz
     keeps the minimap's and plots' own rates honest. Returns per-frame ms, text and image bytes."""
@@ -160,7 +160,7 @@ def run_screen(screen, width, height, tier, frames, rate, cell):
     from mhseals_testing.ui import layout
     from mhseals_testing.ui.minimap.panel import MiniMap
     sim = [0.0]
-    pixels.use(tier, cell)
+    pixels.use(tier, cell, budget)
     pixels.clock = lambda: sim[0]
     console = Console(file=io.StringIO(), width=width, height=height, force_terminal=True,
                       color_system='truecolor', legacy_windows=False)
@@ -209,12 +209,12 @@ def run_screen(screen, width, height, tier, frames, rate, cell):
 def screens(args):
     cell = tuple(int(v) for v in args.cell.split('x'))
     print(f'cell {cell[0]}x{cell[1]} px, {args.frames} frames at {args.rate:g} Hz (every frame changes); '
-          f'link {LINK * 8 / 1e6:g} Mbit/s; ODROID = x86 x {ODROID}')
+          f'link {LINK * 8 / 1e6:g} Mbit/s; ODROID = x86 x {ODROID}; image budget {args.budget or "none"}')
     print(f'{"screen":12} {"tier":6} {"ms/frame":>9} {"p95":>6} {"text B/f":>9} {"image B/f":>10} '
           f'{"KB/s":>7} {"link %":>7} {"ODROID CPU %":>13}')
     for screen, width, height in SCREENS:
         for tier in ('text', 'sixel', 'kitty'):
-            ms, text, image = run_screen(screen, width, height, tier, args.frames, args.rate, cell)
+            ms, text, image = run_screen(screen, width, height, tier, args.frames, args.rate, cell, args.budget)
             mean = lambda xs: sum(xs) / len(xs)
             rate = (mean(text) + mean(image)) * args.rate
             p95 = sorted(ms)[int(len(ms) * 0.95)]
@@ -318,6 +318,8 @@ def main():
     s.add_argument('--cell', default='10x20')
     s.add_argument('--frames', type=int, default=80)
     s.add_argument('--rate', type=float, default=10.0, help='screen refreshes per second (the idle loop: 10)')
+    s.add_argument('--budget', type=float, default=None,
+                   help=f'image B/s budget, as over SSH (pixels.SSH_BUDGET = {pixels.SSH_BUDGET})')
     p = sub.add_parser('png')
     p.add_argument('out')
     p.add_argument('--cell', default='10x20')

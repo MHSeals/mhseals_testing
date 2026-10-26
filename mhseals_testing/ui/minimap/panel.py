@@ -106,7 +106,7 @@ def draw(state, cols, rows, half, table=None, ascii_=False, box=None, full=False
         cell = canvas.sy * frame.metres_per_dot   # snap the cached layer's centre to a cell
         centre = (round(x / cell) * cell, round(y / cell) * cell)
         up_q = None if up is None else round(up / YAW_Q) * YAW_Q
-        density = (tier in ('16', 'mono') or ascii_) and not pixels.active()   # an image has the tints
+        density = (tier in ('16', 'mono') or ascii_) and not pixels.images('minimap')   # an image has the tints
         layers.append(('costmap', (id(message), cols, rows, half, centre, up_q, box.costmap, box.hits, density,
                                    canvas.k),
                        _costmap_layer(cols, rows, half, centre, up_q, message, box, density)))
@@ -213,7 +213,7 @@ class MiniMap:
                 rings = full and self.half > 0 and (box is None or box.rings)
                 self._step = ring_step(rows * 4, cols / self.half) if rings else None
                 self._facts = self._title_facts(state, full)
-                if pixels.active():
+                if pixels.images('minimap'):
                     self._lines = emit_image(canvas, lambda layer: style(layer, 'truecolor'), self.tier)
                 else:
                     self._lines = emit(canvas, lambda layer: style(layer, self.tier),

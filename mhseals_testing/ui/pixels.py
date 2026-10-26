@@ -28,7 +28,7 @@ import re
 import select
 import time
 import zlib
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 import numpy as np
 from rich.cells import cell_len
@@ -65,6 +65,13 @@ TIER = 'text'
 SETTING = 'off'             # the setting start() was given
 _caps = {}                  # the session's probe replies: start() asks the terminal once
 clock = time.monotonic      # s; surface()'s repaint rate (the bench runs a simulated clock)
+# Over SSH (the boat radio: about 1 Mbit/s) image bytes get a budget, a fifth of that link; above
+# it every image repaints at THROTTLE_HZ at most. Text costs more than sixel, so never fall back to it.
+SSH_BUDGET = 25_000         # B/s
+THROTTLE_HZ = 2.0
+METER_S = 2.0               # s of image bytes the rate is measured over
+BUDGET = None               # B/s, or None: no budget (a local terminal)
+_sent = deque()             # (time, bytes) of image writes within METER_S
 CELL = DEFAULT_CELL
 K = 1                       # dot canvases use 2K x 4K dots per cell in an image tier (1: braille)
 GENERATION = 0              # bumped by start(): cached surfaces repaint for a new terminal
@@ -156,7 +163,7 @@ def start(keys, console, write, setting='off', env=None):
 
     ``off`` probes nothing. Bytes that were not probe replies (keys typed meanwhile) go back to the
     reader's buffer. In sixel the console's stream is wrapped so markers become cursor-forward."""
-    global TIER, CELL, K, GENERATION, SETTING, _stream
+    global TIER, CELL, K, GENERATION, SETTING, BUDGET, _stream
     _reset()
     GENERATION += 1
     SETTING = setting
@@ -175,6 +182,7 @@ def start(keys, console, write, setting='off', env=None):
             caps = {}
     system = getattr(console, 'color_system', None) or 'truecolor'
     TIER = choose(setting, caps, env, system)
+    BUDGET = SSH_BUDGET if env.get('SSH_CONNECTION') else None
     CELL = caps.get('cell') or DEFAULT_CELL
     K = 1 if TIER == 'text' else max(1, min(4, round(CELL[0] / 3.5)))
     if TIER == 'sixel' and console is not None and not isinstance(console.file, _Stream):
@@ -209,12 +217,12 @@ def forget():
     _caps.clear()
 
 
-def use(tier, cell=DEFAULT_CELL):
+def use(tier, cell=DEFAULT_CELL, budget=None):
     """Set the tier without a terminal (tests, the bench, the gallery)."""
-    global TIER, CELL, K, GENERATION
+    global TIER, CELL, K, GENERATION, BUDGET
     _reset()
     GENERATION += 1
-    TIER, CELL = tier, cell
+    TIER, CELL, BUDGET = tier, cell, budget
     K = 1 if tier == 'text' else max(1, min(4, round(cell[0] / 3.5)))
 
 
@@ -227,12 +235,40 @@ def _reset():
     _surfaces.clear()
     _live.clear()
     _drawn.clear()
+    _sent.clear()
     _size = None
     STATS.update(upload=0, sixel=0, tiles=0)
 
 
 def active():
     return TIER != 'text'
+
+
+def _meter(size):
+    _sent.append((clock(), size))
+
+
+def rate(now=None):
+    """Image bytes per second written over the last METER_S."""
+    now = clock() if now is None else now
+    while _sent and _sent[0][0] < now - METER_S:
+        _sent.popleft()
+    return sum(size for _, size in _sent) / METER_S
+
+
+# Kitty placeholders are text Rich rewrites every frame (about 4-10 B a cell): for the large,
+# boat-centred minimap that is 2-3x its braille, so under kitty it stays braille (sixel draws it).
+KITTY_TEXT = ('minimap',)
+
+
+def images(widget):
+    """Whether ``widget`` draws as image cells in the active tier."""
+    return TIER == 'sixel' or (TIER == 'kitty' and widget not in KITTY_TEXT)
+
+
+def k(widget):
+    """Dots per braille dot of ``widget``'s canvas: K as an image, 1 as braille."""
+    return K if images(widget) else 1
 
 
 # --- colours -----------------------------------------------------------------------------------
@@ -423,6 +459,9 @@ def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile
         return held[2]
     if held is not None and hz and now - held[1] < 1.0 / hz and held[0][1:] == (cols, rows, GENERATION):
         return held[2]
+    if (held is not None and BUDGET and now - held[1] < 1.0 / THROTTLE_HZ
+            and held[0][1:] == (cols, rows, GENERATION) and rate(now) > BUDGET):
+        return held[2]        # over the link budget: every image repaints at THROTTLE_HZ at most
     raster = raster_or_paint
     if callable(raster_or_paint):
         raster = Raster(cols, rows)
@@ -578,6 +617,7 @@ def before(write):
     data = ''.join(out)
     STATS['upload'] += len(data)
     if data:
+        _meter(len(data))
         write(data)
 
 
@@ -663,6 +703,7 @@ def after(write):
     if out:
         data = '\x1b7\x1b[0m' + ''.join(out) + '\x1b8'
         STATS['sixel'] += len(data)
+        _meter(len(data))
         write(data)
 
 

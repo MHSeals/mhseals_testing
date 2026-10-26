@@ -45,7 +45,7 @@ class Canvas:
 
     def __init__(self, cols, rows, k=None):
         self.cols, self.rows = max(cols, 0), max(rows, 0)
-        self.k = pixels.K if k is None else k
+        self.k = pixels.k('minimap') if k is None else k
         self.sx, self.sy = 2 * self.k, 4 * self.k
         self._dots = {}    # (col, row) -> {bit: layer}; bit is (x, y) in the cell when k > 1
         self._glyphs = {}  # (col, row) -> (char, layer, chip)

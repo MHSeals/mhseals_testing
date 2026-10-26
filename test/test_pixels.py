@@ -180,6 +180,33 @@ def paint_box(colour):
     return paint
 
 
+def test_over_the_link_budget_images_repaint_at_the_throttle_rate(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    pixels.use('sixel', budget=1000)
+    paint = lambda colour: paint_box((colour, 0, 0))
+    first = pixels.surface('s', paint(10), 4, 2, key=1)
+    pixels._meter(5000)                                    # 2500 B/s over the last METER_S
+    now[0] += 0.1
+    assert pixels.surface('s', paint(20), 4, 2, key=2) is first     # held: over budget
+    now[0] += 1.0 / pixels.THROTTLE_HZ
+    assert pixels.surface('s', paint(30), 4, 2, key=3) is not first
+    now[0] += pixels.METER_S + 1                           # the burst ages out: back to every change
+    held = pixels.surface('s', paint(40), 4, 2, key=4)
+    now[0] += 0.01
+    assert pixels.surface('s', paint(50), 4, 2, key=5) is not held
+
+
+def test_ssh_sets_the_budget(monkeypatch):
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(done=True, sixel=True), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    keys = SimpleNamespace(fd=5, buffer=bytearray())
+    pixels.start(keys, None, lambda text: None, 'sixel', env={'SSH_CONNECTION': '10 1 10 22'})
+    assert pixels.BUDGET == pixels.SSH_BUDGET
+    pixels.restart(keys, None, lambda text: None, 'sixel', env={})
+    assert pixels.BUDGET is None
+
+
 def test_an_empty_sixel_tile_clears_its_cells_once_and_draws_nothing():
     pixels.use('sixel')
     rows = pixels.text_rows(pixels.surface('s', lambda r: None, 4, 2))

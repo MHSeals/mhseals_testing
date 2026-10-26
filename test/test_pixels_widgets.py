@@ -34,12 +34,23 @@ def test_each_widget_draws_as_image_cells_with_its_labels_as_text(tier):
     assert {'N', 'E', 'S', 'W'} <= set(''.join(r.plain for r in out['dial']))
 
 
-@pytest.mark.parametrize('tier', ['kitty', 'sixel'])
-def test_the_minimap_draws_as_image_lines_with_glyphs_as_text(tier):
+def test_the_minimap_stays_braille_under_kitty():
+    from test_minimap_frame import TABLE, box, scene
+    from mhseals_testing.ui.minimap import panel
+    from mhseals_testing.ui.minimap.panel import MiniMap
+    pixels.use('kitty')
+    s = scene()
+    assert panel.draw(s, 60, 20, 10.0, TABLE, False, box(s), full=True).k == 1
+    lines = MiniMap(s, clock=lambda: 0.0)(60, 20, full=True)
+    assert any(0x2801 <= ord(ch) <= 0x28FF for line in lines for ch in line)
+    assert not any(pixels.PLACEHOLDER in line for line in lines)
+
+
+def test_the_minimap_draws_as_image_lines_with_glyphs_as_text():
     from test_minimap_frame import TABLE, box, scene
     from mhseals_testing.ui.minimap import panel
     from mhseals_testing.ui.minimap.emit import emit_image
-    pixels.use(tier)
+    pixels.use('sixel')
     s = scene()
     canvas = panel.draw(s, 60, 20, 10.0, TABLE, False, box(s), full=True)
     assert canvas.k == pixels.K > 1 and canvas.dots_wide == 60 * 2 * pixels.K
