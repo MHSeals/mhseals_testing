@@ -41,18 +41,22 @@ class GuardedPublisher:
         self.plant.publish(command, manual=True)
 
 
-DRAIN_S = 0.1   # s; the whole queued batch is read before publishing, bounded by time, not count
+DRAIN_S = 0.1   # s after the last publish: the queued batch is read before the next, bounded by time, not count
+MIN_DRAIN_S = 0.02   # s; after a long stall the budget is spent already, yet a stale burst must still be read whole
 
 
 def drive(keys, state, publisher, show, clock=time.monotonic):
     """Read keys until an exit key; publish one coherent command per batch of events."""
+    published = clock()
     while True:
         key = keys.read(timeout=0.05)
         command = state.update(None, clock()) if key is None else None
         # Consume every queued event before publishing, so no intermediate command goes out
         # between a press and its release: a burst of stale repeats after a link stall must
         # meet its release before anything is published.
-        deadline = clock() + DRAIN_S
+        # The bound counts from the last publish, so the gap between commands stays under the deadman
+        # even when the first read waited; MIN_DRAIN_S keeps a stalled link's burst whole.
+        deadline = max(published + DRAIN_S, clock() + MIN_DRAIN_S)
         while key is not None:
             if fold(key) in EXIT_KEYS:
                 return
@@ -65,6 +69,7 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
                 break      # the rest stays queued for the next batch
             key = keys.read(timeout=0)
         publisher.publish(command)
+        published = clock()
         show(command, state.amplitude, state.chords)
 
 
