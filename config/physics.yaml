@@ -22,3 +22,14 @@ pulses:
   skip_s: 0.2                # after thrust on: spin-up and estimator lag, left out of the onset slope
   edge_s: 0.8                # onset slope window
   sigma_floor: [0.005, 0.005, 0.005]   # smallest sigma per axis (m/s^2, m/s^2, rad/s^2): a noise-free fit is not exact
+survey:
+  levels: [1.0, 0.75, 0.5, 0.25]   # fractions of the amplitude setting; at least 4 distinct
+  repeats: 2                 # every level of every signed axis this many times, the order reversed each repeat
+  hold_s: 10.0               # long enough to reach steady speed (several t95)
+  steady_share: 0.4          # the last share of a hold is its steady speed
+  settle_s: 10.0             # neutral after each hold: its coast-down, then the wave floor
+  coast_skip_s: 0.3          # after the cut: spin-down and estimator lag
+  coast_span_s: 0.4          # line fitted per derivative sample
+  coast_floor: [0.05, 0.05, 0.05]   # |v| below this is left out of the coast fit (m/s, m/s, rad/s)
+  coast_levels: 2            # coasts after the top this-many levels are fitted
+  floor_tail_s: 3.0          # the settled tail of each coast measures the wave floor

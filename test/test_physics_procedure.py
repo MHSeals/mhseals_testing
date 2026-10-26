@@ -246,3 +246,37 @@ def test_pulses_give_estimate_mixer_experiments_in_canonical_order(tmp_path):
     flipped = next(e for e in record['experiments'] if e['thruster'] == 'FR')
     assert flipped['cmd4'] == [0.0, -0.3, 0.0, 0.0] and min(first['sigma']) >= 0.005
     assert record['order'] == ['FL', 'FR', 'RR', 'RL'] and record['units']['W_hat'].startswith('m/s^2')
+
+
+def test_survey_fits_curves_with_errors_and_coast_down_drag_over_mass(tmp_path):
+    boat = Boat(k=(30.0, 30.0, 10.0), noise=0.002)
+    ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='survey', amplitude=1.0)
+    record = saved(physics.thrust(ctx))
+    surge = record['speed_curves']['surge+']
+    assert surge['n'] == 8 and surge['levels'] == 4 and surge['dof'] == 6 and len(surge['residuals']) == 8
+    assert surge['d1'] == pytest.approx(5 / 30, rel=0.1) and surge['d2'] == pytest.approx(12 / 30, rel=0.05)
+    assert len(surge['covariance']) == 2 and surge['pure_error_var'] is not None
+    sway = record['speed_curves']['sway-']
+    assert sway['d2'] == pytest.approx(25 / 30, rel=0.05)
+    coast = record['coast_down']['surge+']
+    assert coast['d1_over_m'] == pytest.approx(5 / 25, abs=0.05) and coast['d2_over_m'] == pytest.approx(12 / 25, rel=0.1)
+    assert record['coast_down']['yaw-']['d2_over_m'] == pytest.approx(1.5 / 4, rel=0.1)
+    assert record['counts']['holds'] == 48 and len(record['holds']) == 48
+    assert record['wave_floor']['vx'] == pytest.approx(0.002, rel=0.2) and record['env_floor'] is None
+    assert record['holds'][0]['applied'] == [1.0, 0.0, 0.0] and boat.sent[1] == (1.0, 0.0, 0.0)
+
+
+def test_survey_splits_the_wave_floor_against_the_dock_sigma(tmp_path):
+    root = tmp_path / 'char'
+    root.mkdir()
+    (root / 'f1-dock_noise.yaml').write_text(yaml.safe_dump(dict(noise={'odometry.vx': dict(sigma=0.001)})))
+    ctx, _ = make_ctx(tmp_path, runner=Boat(k=(30.0, 30.0, 10.0), noise=0.002), status='ok',
+                      thrust_step='survey', amplitude=1.0)
+    env = saved(physics.thrust(ctx))['env_floor']['vx']
+    assert env['ok'] and env['value'] == pytest.approx((0.002 ** 2 - 0.001 ** 2) ** 0.5, rel=0.2)
+
+
+def test_survey_refuses_a_backwards_axis(tmp_path):
+    ctx, records = make_ctx(tmp_path, runner=Boat(k=(-30.0, 30.0, 10.0)), status='ok', thrust_step='survey',
+                            amplitude=1.0)
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'backwards' in records[-1]['reason']

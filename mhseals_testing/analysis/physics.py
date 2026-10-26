@@ -123,3 +123,69 @@ def onset(rows, t_on, skip, edge, before):
         accel.append(a[0] - b[0])
         sigma.append(math.hypot(a[1], b[1]))
     return accel, sigma
+
+
+def _lstsq(basis, target):
+    """Coefficients, covariance (residual variance x (X'X)^-1), residuals, dof and condition of X."""
+    basis, target = numpy.asarray(basis, float), numpy.asarray(target, float)
+    coefficients, *_ = numpy.linalg.lstsq(basis, target, rcond=None)
+    residual = target - basis @ coefficients
+    dof = len(target) - basis.shape[1]
+    variance = float(residual @ residual / dof) if dof > 0 else None
+    covariance = (variance * numpy.linalg.pinv(basis.T @ basis)).tolist() if variance is not None else None
+    singular = numpy.linalg.svd(basis, compute_uv=False)
+    return dict(coefficients=[float(c) for c in coefficients], covariance=covariance,
+                residuals=[float(r) for r in residual], dof=dof, residual_var=variance,
+                cond=float(singular[0] / singular[-1]) if singular[-1] > 0 else math.inf)
+
+
+def speed_fit(points):
+    """e|e| = d1 v + d2 v|v| over (speed, applied effort, level) hold means of one signed axis.
+
+    Both terms are kept whatever their sign (a negative one is the gate's NEG_COEFF, not a refit);
+    ``levels`` counts distinct commanded levels and ``pure_error_var`` is the variance of the speeds
+    between repeats of a level, the noise a lack-of-fit test compares the residuals with.
+    """
+    points = [(v, e, level) for v, e, level in points if math.isfinite(v) and math.isfinite(e)]
+    if len(points) < 2:
+        return None
+    v = numpy.array([p[0] for p in points])
+    fit = _lstsq(numpy.column_stack((v, v * numpy.abs(v))), [e * abs(e) for _, e, _ in points])
+    groups = {}
+    for speed, _, level in points:
+        groups.setdefault(level, []).append(speed)
+    spread = [s - numpy.mean(g) for g in groups.values() for s in g]
+    repeats = sum(len(g) - 1 for g in groups.values())
+    d1, d2 = fit.pop('coefficients')
+    return dict(fit, d1=d1, d2=d2, n=len(points), levels=len(groups),
+                pure_error_var=float(numpy.dot(spread, spread) / repeats) if repeats else None,
+                points=[[float(a), float(b), float(c)] for a, b, c in sorted(points)])
+
+
+def deceleration(rows, span):
+    """(v, dv/dt) pairs from (t, v) rows: a straight line over each ``span`` s, centred on its sample."""
+    pairs = []
+    t = [r[0] for r in rows]
+    for i, (centre, value) in enumerate(rows):
+        window = [(a, b) for a, b in rows[max(0, i - 50):i + 50] if abs(a - centre) <= span / 2]
+        found = _slope(*zip(*window)) if len(window) >= 5 else None
+        if found and t[0] + span / 2 <= centre <= t[-1] - span / 2:
+            pairs.append((value, found[0]))
+    return pairs
+
+
+def coast_fit(windows, span=0.4, floor=0.0):
+    """-dv/dt = c0 + D1/M v + D2/M v|v| over the coast windows (thrust off) of one signed axis.
+
+    ``windows`` are lists of (t, v) after a hold ended; only |v| above ``floor`` is used, below it the
+    wave floor dominates. ``c0`` takes a steady current or bias, so it is reported, not hidden.
+    """
+    pairs = [p for rows in windows for p in deceleration(rows, span) if abs(p[0]) > floor]
+    if len(pairs) < 4:
+        return None
+    v = numpy.array([p[0] for p in pairs])
+    fit = _lstsq(numpy.column_stack((numpy.ones_like(v), v, v * numpy.abs(v))), [-a for _, a in pairs])
+    c0, d1, d2 = fit.pop('coefficients')
+    fit.pop('residuals')        # one per derivative sample; the counts and variance say enough
+    return dict(fit, c0=c0, d1_over_m=d1, d2_over_m=d2, n=len(pairs), windows=len(windows),
+                v_range=[float(v.min()), float(v.max())])

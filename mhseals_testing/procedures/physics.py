@@ -11,17 +11,20 @@ Each step writes one record (physics_record.py) and records its summary in the s
 import math
 from pathlib import Path
 
+import numpy
+import yaml
+
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.thruster_mixer import (
-    thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
+    decouple, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
     validate_reversed,
 )
-from mhseals_testing import physics_record
+from mhseals_testing import data, physics_record
 from mhseals_testing.analysis import physics
 from mhseals_testing.strict_yaml import load_strict
 
 DOCK_STEPS = ('weigh_in', 'dock_noise')
-THRUST_STEPS = ('bollard', 'pulses')
+THRUST_STEPS = ('bollard', 'pulses', 'survey')
 
 
 class Refused(ValueError):
@@ -268,11 +271,13 @@ def pulses(ctx, cfg):
                     pulse = [1500] * 4
                     pulse[output - 1] = round(1500 + 400 * level)
                     log.pulse(runner, [1500] * 4, cfg['rest_s'], 'rest')
-                    runs.append((output, level, log.pulse(runner, pulse, cfg['hold_s'], f'output {output} {level:+.0%}')))
+                    segment = log.pulse(runner, pulse, cfg['hold_s'], f'output {output} {level:+.0%}')
+                    runs.append((output, level, segment))
             log.pulse(runner, [1500] * 4, cfg['rest_s'], 'rest')
     finally:
         ctx.services['pulses'](None)
-    rows = [(t, v.get('vx'), v.get('vy'), v.get('wz')) for t, v in ctx.history(log.segments[0]['start'], log.segments[-1]['end'])]
+    rows = [(t, v.get('vx'), v.get('vy'), v.get('wz'))
+            for t, v in ctx.history(log.segments[0]['start'], log.segments[-1]['end'])]
     experiments, skipped = [], []
     floor = cfg['sigma_floor']
     for output, level, segment in runs:
@@ -297,7 +302,134 @@ def pulses(ctx, cfg):
     return body, log.samples(), driver
 
 
-STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard, pulses=pulses)
+AXES = ('surge', 'sway', 'yaw')
+KEYS = ('vx', 'vy', 'wz')
+
+
+def applied(command, config):
+    """The efforts the driver mixes for ``command`` under the fit-time C+/C- (the deployed correction)."""
+    return list(decouple(command, validate_decoupling(config['decoupling']),
+                         validate_decoupling(config['decoupling_negative'] or config['decoupling'])))
+
+
+def hold_stats(rows, segment, share):
+    """Means and SDs of vx, vy, wz (and the mean yaw) over the last ``share`` of a hold."""
+    begin = segment['end'] - share * (segment['end'] - segment['start'])
+    inside = [v for t, v in rows if begin <= t <= segment['end']]
+    stats = dict(n=len(inside))
+    for key in KEYS + ('yaw',):
+        values = [v[key] for v in inside if v.get(key) is not None and math.isfinite(v[key])]
+        stats[key] = float(numpy.mean(values)) if values else None
+        if key != 'yaw':
+            stats[key + '_sd'] = float(numpy.std(values, ddof=1)) if len(values) > 1 else None
+    return stats
+
+
+def latest(ctx, step):
+    """The newest record of ``step`` in the characterization folder, or None."""
+    root = Path(ctx.services.get('physics_root') or data.path('characterization'))
+    found = sorted(root.glob(f'*-{step}.yaml'))
+    return yaml.safe_load(found[-1].read_text()) if found else None
+
+
+def survey(ctx, cfg):
+    """Open water: every signed axis at each level, repeated; the neutral after each hold is its coast-down.
+
+    Runs the deployed C (restart-only in the driver, never staged here): the main-axis effort the
+    curves use is the one the driver applies under the fit-time C+/C-, recorded per hold with the
+    cross efforts C added. Per signed axis it saves the speed curve with its covariance, residuals
+    and repeat spread, the coast-down D/M fit, and every hold's means; the run's neutral tails give
+    the wave floor, split against the latest dock_noise sigma when there is one.
+    """
+    driver = require_driver(ctx)
+    log, amplitude = Log(ctx), ctx.settings.amplitude
+    levels = [level * amplitude for level in cfg['levels']]
+    if len(set(levels)) < 4 or cfg['repeats'] < 2:
+        raise Refused('the survey needs at least 4 distinct levels and 2 repeats (config/physics.yaml)')
+    conditions = ctx.services.get('conditions')
+    if conditions:
+        water = conditions.summary(ctx.monitor.clock())
+        if water.get('verdict') == 'poor':
+            raise Refused(f'conditions poor: {water.get("reason")}')
+    ctx.prompt(f'Open water, at least 30 m clear all round. {len(levels)} levels x {cfg["repeats"]} repeats x '
+               f'6 directions, {cfg["hold_s"]:g} s holds with {cfg["settle_s"]:g} s coasts. Press Enter... ',
+               'Speed survey')
+    holds = []
+    with ctx.motion('physics_survey', levels=levels, repeats=cfg['repeats']) as runner:
+        log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'neutral')
+        for repeat in range(cfg['repeats']):
+            for level in (levels if repeat % 2 == 0 else levels[::-1]):
+                for axis in range(3):
+                    for sign in (1, -1):
+                        command = [0.0] * 3
+                        command[axis] = sign * level
+                        name = AXES[axis] + ('+' if sign > 0 else '-')
+                        segment = log.hold(runner, tuple(command), cfg['hold_s'], f'{name} {level:.2f}')
+                        segment.update(axis=axis, sign=sign, level=level, repeat=repeat,
+                                       applied=applied(command, log.config))
+                        coast = log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'coast')
+                        holds.append((segment, coast))
+                        if repeat == 0 and level == levels[0] and sign == 1:
+                            moved = ctx.history(segment['start'], segment['end'])
+                            if moved and moved[-1][1].get(KEYS[axis], 0.0) * sign <= 0:
+                                runner.stop()
+                                raise Refused(f'{AXES[axis]} responds backwards: check wiring, run Thrusters')
+    rows = ctx.history(log.segments[0]['start'], log.segments[-1]['end'])
+    per_hold, curves, coasts = [], {}, {}
+    for segment, coast in holds:
+        stats = hold_stats(rows, segment, cfg['steady_share'])
+        segment['stats'] = stats
+        per_hold.append(dict(name=segment['label'], start=segment['start'], end=segment['end'],
+                             command=segment['command'], applied=segment['applied'], repeat=segment['repeat'],
+                             overridden=segment['overridden'], **stats))
+    for axis in range(3):
+        for sign in (1, -1):
+            name = AXES[axis] + ('+' if sign > 0 else '-')
+            mine = [(s, c) for s, c in holds if s['axis'] == axis and s['sign'] == sign and not s['overridden']
+                    and s['stats'][KEYS[axis]] is not None]
+            curves[name] = physics.speed_fit([(sign * s['stats'][KEYS[axis]], sign * s['applied'][axis], s['level'])
+                                              for s, _ in mine])
+            top = sorted({s['level'] for s, _ in mine})[-cfg['coast_levels']:]
+            windows = [[(t, sign * v[KEYS[axis]]) for t, v in rows
+                        if c['start'] + cfg['coast_skip_s'] <= t <= c['end'] and v.get(KEYS[axis]) is not None]
+                       for s, c in mine if s['level'] in top]
+            coasts[name] = physics.coast_fit(windows, cfg['coast_span_s'], cfg['coast_floor'][axis])
+    floor = neutral_floor(rows, [c for _, c in holds], cfg)
+    noise = (latest(ctx, 'dock_noise') or {}).get('noise', {})
+    env = {key: dict(zip(('value', 'ok'), physics.env_floor(floor[key], noise[f'odometry.{key}']['sigma'])))
+           for key in KEYS if floor.get(key) is not None and f'odometry.{key}' in noise}
+    body = dict(amplitude=amplitude, levels=levels, repeats=cfg['repeats'], speed_curves=curves, coast_down=coasts,
+                holds=per_hold, wave_floor=floor, env_floor=env or None,
+                model=dict(curve='e|e| = d1 v + d2 v|v| (e: applied main-axis effort, v: hold mean)',
+                           coast='-dv/dt = c0 + d1_over_m v + d2_over_m v|v| (thrust off)'),
+                units=dict(effort='normalized', v='m/s (surge, sway), rad/s (yaw)', d1='effort^2 per v',
+                           d2='effort^2 per v^2', d1_over_m='1/s', d2_over_m='1/m (surge, sway), 1/rad (yaw)',
+                           c0='v per s', wave_floor='per-sample SD, same as v', time='s, monitor clock'),
+                counts=dict(holds=len(holds), samples=len(rows), **log.counts(),
+                            per_direction={n: (c or {}).get('n', 0) for n, c in curves.items()}),
+                summary=dict(directions={n: dict(d1=round(c['d1'], 4), d2=round(c['d2'], 4), dof=c['dof'])
+                                         for n, c in curves.items() if c}))
+    return body, log.samples(), driver
+
+
+def neutral_floor(rows, coasts, cfg):
+    """Per-sample SD of each velocity over the settled tail of every coast, a line removed from each tail.
+
+    The line takes a coast still dying out and a drift change; what is left is the wave floor.
+    """
+    residuals = {key: [] for key in KEYS}
+    for coast in coasts:
+        begin = coast['end'] - cfg['floor_tail_s']
+        for key in KEYS:
+            tail = [(t, v[key]) for t, v in rows if begin <= t <= coast['end'] and v.get(key) is not None]
+            if len(tail) > 3:
+                t, y = (numpy.array(c) for c in zip(*tail))
+                residuals[key].extend(y - numpy.polyval(numpy.polyfit(t - t[0], y, 1), t - t[0]))
+    return {key: float(numpy.sqrt(numpy.dot(r, r) / (len(r) - 2 * len(coasts)))) if len(r) > 2 * len(coasts)
+            else None for key, r in residuals.items()}
+
+
+STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard, pulses=pulses, survey=survey)
 
 
 def _run(ctx, step, allowed):
