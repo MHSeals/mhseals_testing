@@ -134,6 +134,95 @@ def bench(args):
             print(f'{name:8} {tier:6} {cold:8.0f} {text:13.0f} {image:15.0f} {ms:10.2f} {tiles:6d}')
 
 
+# --- screens: whole App frames ------------------------------------------------------------------
+
+LINK = 1_000_000 / 8        # B/s: the boat radio link an operator may run the TUI over (ssh, ~1 Mbit/s)
+ODROID = 2.7                # the repo's ODROID / x86 cost ratio (minimap budgets: 8 ms against 3 ms)
+SCREENS = (('drive', 120, 40), ('drive', 160, 45), ('map', 160, 45))
+
+
+def _plots(t, window=10.0, rate=10.0):
+    ts = [t - window + k / rate for k in range(int(window * rate) + 1)]
+    wave = lambda phase, amp: [(s, amp * math.sin(s * 0.9 + phase)) for s in ts]
+    return dict(now=t, window=window, meas={'vx': wave(0.0, 0.5), 'vy': wave(1.0, 0.2), 'wz': wave(2.0, 0.3)},
+                cmd=[(s, (0.6 * math.sin(s * 0.9), 0.2 * math.sin(s * 0.9 + 1), 0.3 * math.sin(s * 0.9 + 2)))
+                     for s in ts])
+
+
+def run_screen(screen, width, height, tier, frames, rate, cell):
+    """Drive or Map frames through App.refresh's path (layout, frame, before, write, after) while
+    the boat turns 15 deg/s, runs at 1.5 m/s and the plots scroll; a simulated clock at ``rate`` Hz
+    keeps the minimap's and plots' own rates honest. Returns per-frame ms, text and image bytes."""
+    from test_conditions_drive import drive_view
+    from test_layout import monitor, view
+    from test_minimap_panel import state
+    from mhseals_testing.profiles import load_profile
+    from mhseals_testing.ui import layout
+    from mhseals_testing.ui.minimap.panel import MiniMap
+    sim = [0.0]
+    pixels.use(tier, cell)
+    pixels.clock = lambda: sim[0]
+    console = Console(file=io.StringIO(), width=width, height=height, force_terminal=True,
+                      color_system='truecolor', legacy_windows=False)
+    stream = pixels._Stream(io.StringIO())
+    pixels._stream = stream if tier == 'sixel' else None
+    world = state()
+    mini = MiniMap(world, clock=lambda: sim[0])
+    boat = monitor()
+    ms, text_b, image_b, last = [], [], [], None
+    try:
+        for i in range(frames):
+            sim[0] = 100.0 + i / rate
+            t, x, y, yaw = world.pose
+            world.ingest('pose_map', t=t + 1 / rate, x=x + 1.5 / rate * math.cos(yaw),
+                         y=y + 1.5 / rate * math.sin(yaw), yaw=yaw + math.radians(15 / rate))
+            snapshot = boat.snapshot()
+            snapshot['plots'] = _plots(sim[0])
+            if screen == 'map':
+                v = {**view(load_profile('boat'), tab='Map'), 'minimap': mini}
+            else:
+                v = {**drive_view(heading=(30 + 15 * i / rate) % 360), 'minimap': mini,
+                     'command': (0.6 * math.cos(i / 20), 0.3 * math.sin(i / 15), 0.2)}
+            began = time.perf_counter()
+            drawn = list(console.render(layout.render(snapshot, v, width, height)))
+            if drawn == last:                     # App.refresh skips a byte-identical idle frame
+                ms.append((time.perf_counter() - began) * 1000)
+                text_b.append(0)
+                image_b.append(0)
+                continue
+            last, out = drawn, []
+            drawn = pixels.frame(drawn, (width, height))
+            pixels.before(out.append)
+            text = console._render_buffer(drawn)
+            if tier == 'sixel':
+                text = pixels._MARKS.sub(stream._swap, text)
+            pixels.after(out.append)
+            ms.append((time.perf_counter() - began) * 1000)
+            text_b.append(len(text.encode()))
+            image_b.append(sum(len(s.encode()) for s in out))
+    finally:
+        pixels.clock = time.monotonic
+        pixels.use('text')
+    return ms[5:], text_b[5:], image_b[5:]
+
+
+def screens(args):
+    cell = tuple(int(v) for v in args.cell.split('x'))
+    print(f'cell {cell[0]}x{cell[1]} px, {args.frames} frames at {args.rate:g} Hz (every frame changes); '
+          f'link {LINK * 8 / 1e6:g} Mbit/s; ODROID = x86 x {ODROID}')
+    print(f'{"screen":12} {"tier":6} {"ms/frame":>9} {"p95":>6} {"text B/f":>9} {"image B/f":>10} '
+          f'{"KB/s":>7} {"link %":>7} {"ODROID CPU %":>13}')
+    for screen, width, height in SCREENS:
+        for tier in ('text', 'sixel', 'kitty'):
+            ms, text, image = run_screen(screen, width, height, tier, args.frames, args.rate, cell)
+            mean = lambda xs: sum(xs) / len(xs)
+            rate = (mean(text) + mean(image)) * args.rate
+            p95 = sorted(ms)[int(len(ms) * 0.95)]
+            print(f'{screen + f" {width}":12} {tier:6} {mean(ms):9.2f} {p95:6.1f} {mean(text):9.0f} '
+                  f'{mean(image):10.0f} {rate / 1000:7.1f} {100 * rate / LINK:7.0f} '
+                  f'{mean(ms) * args.rate * ODROID / 10:13.1f}')
+
+
 # --- png -----------------------------------------------------------------------------------------
 
 def png(args):
@@ -225,11 +314,15 @@ def main():
     b = sub.add_parser('bench')
     b.add_argument('--cell', default='10x20')
     b.add_argument('--updates', type=int, default=60)
+    s = sub.add_parser('screens')
+    s.add_argument('--cell', default='10x20')
+    s.add_argument('--frames', type=int, default=80)
+    s.add_argument('--rate', type=float, default=10.0, help='screen refreshes per second (the idle loop: 10)')
     p = sub.add_parser('png')
     p.add_argument('out')
     p.add_argument('--cell', default='10x20')
     args = parser.parse_args()
-    {'demo': demo, 'bench': bench, 'png': png}[args.cmd](args)
+    {'demo': demo, 'bench': bench, 'screens': screens, 'png': png}[args.cmd](args)
 
 
 if __name__ == '__main__':

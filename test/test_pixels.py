@@ -180,6 +180,14 @@ def paint_box(colour):
     return paint
 
 
+def test_an_empty_sixel_tile_clears_its_cells_once_and_draws_nothing():
+    pixels.use('sixel')
+    rows = pixels.text_rows(pixels.surface('s', lambda r: None, 4, 2))
+    text, drawn = sixel_frame(rows)
+    assert '\x1b[4C' in text and '\x1bP' not in drawn and '\x1b[1;1H    ' in drawn
+    assert sixel_frame(rows)[1] == ''
+
+
 def test_same_content_reuses_its_tile_id_and_a_key_skips_the_paint():
     pixels.use('kitty')
     a = pixels.surface('a', paint_box((200, 0, 0)), 4, 2)
@@ -188,9 +196,10 @@ def test_same_content_reuses_its_tile_id_and_a_key_skips_the_paint():
     calls = []
     pixels.surface('k', lambda r: calls.append(1), 4, 2, key=1)
     pixels.surface('k', lambda r: calls.append(1), 4, 2, key=1)
-    assert calls == [1]
+    assert calls == [1] and pixels.STATS['tiles'] == 1   # nothing painted: plain spaces, no tile
+    assert pixels.surface('e', lambda r: None, 4, 2, key=1) == [[pixels.BLANK] * 4] * 2
     c = pixels.surface('a', paint_box((0, 200, 0)), 4, 2)
-    assert c != a and pixels.STATS['tiles'] == 3
+    assert c != a and pixels.STATS['tiles'] == 2
 
 
 def test_kitty_ids_carry_a_high_byte_and_a_256_colour_low_byte():
@@ -358,8 +367,10 @@ def test_the_image_rose_paints_the_text_tiers_tokens():
 
 
 def test_rects_cover_cells_with_whole_row_runs():
-    cells = {(0, 0), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2), (1, 3), (2, 0), (2, 1), (2, 2), (2, 3)}
-    assert pixels._rects(cells) == [(0, 0, 1, 1), (0, 2, 1, 4), (1, 0, 3, 4)]
+    spans = [(0, 0, 1), (0, 2, 4), (1, 0, 2), (1, 2, 4), (2, 0, 4)]     # (1, ...) split by a style change
+    assert pixels._rects(spans) == [(0, 0, 1, 1), (0, 2, 1, 4), (1, 0, 3, 4)]
+    assert pixels._rects([(1, 2, 5), (2, 2, 5)]) == [(1, 2, 3, 5)]
+    assert pixels._rects([(0, 2, 5), (2, 2, 5)]) == [(0, 2, 1, 5), (2, 2, 3, 5)]   # a row hidden between
 
 
 # --- widgets ------------------------------------------------------------------------------------

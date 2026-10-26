@@ -1025,11 +1025,10 @@ class App:
             # and hand Live the segments already laid out instead of rendering twice.
             # Image tiers always lay out first: pixels finds its tiles in the segments.
             drawn = list(self.console.render(frame))
-            drawn = pixels.frame(drawn, tuple(self.console.size))
             if not force and drawn == self.last_drawn:
                 return
             self.last_drawn = drawn if not force else None
-            frame = Segments(drawn)
+            frame = Segments(pixels.frame(drawn, tuple(self.console.size)))   # scanned only when it changed
         else:
             self.last_drawn = None
         pixels.before(self.write_terminal)

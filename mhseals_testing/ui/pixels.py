@@ -57,12 +57,14 @@ DIACRITICS = tuple(chr(c) for c in (
     0x305, 0x30D, 0x30E, 0x310, 0x312, 0x33D, 0x33E, 0x33F, 0x346, 0x34A, 0x34B, 0x34C, 0x350, 0x351, 0x352,
     0x357, 0x35B, 0x363, 0x364, 0x365, 0x366, 0x367, 0x368, 0x369, 0x36A, 0x36B, 0x36C, 0x36D, 0x36E, 0x36F,
     0x483, 0x484))
-MARK0 = 0xF0000             # sixel marker: MARK0 + id * 128 + row * 16 + col (Supplementary PUA-A)
+BLANK = (' ', None)         # the cell of an empty tile
+MARK0 = 0xF0000            # sixel marker: MARK0 + id * 128 + row * 16 + col (Supplementary PUA-A)
 _MARKS = re.compile('[\U000F0000-\U000FFFFD]+')
 
 TIER = 'text'
 SETTING = 'off'             # the setting start() was given
 _caps = {}                  # the session's probe replies: start() asks the terminal once
+clock = time.monotonic      # s; surface()'s repaint rate (the bench runs a simulated clock)
 CELL = DEFAULT_CELL
 K = 1                       # dot canvases use 2K x 4K dots per cell in an image tier (1: braille)
 GENERATION = 0              # bumped by start(): cached surfaces repaint for a new terminal
@@ -415,7 +417,7 @@ def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile
 
     ``raster_or_paint`` is a Raster or a ``paint(raster)`` callable (called only when due: ``key``
     changed, or ``hz`` allows a repaint). Cells listed in ``holes`` are left to the widget's text."""
-    now = time.monotonic()
+    now = clock()
     held = _surfaces.get(name)
     if held is not None and held[0] == (key, cols, rows, GENERATION) and key is not None:
         return held[2]
@@ -433,11 +435,15 @@ def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile
             w, h = min(tw, cols - c0), min(th, rows - r0)
             if all((c0 + c, r0 + r) in holes for r in range(h) for c in range(w)):
                 continue
-            t = _tile(raster, c0, r0, w, h)
+            if TIER == 'kitty' and not raster.px[r0 * raster.ch:(r0 + h) * raster.ch,
+                                                 c0 * raster.cw:(c0 + w) * raster.cw].any():
+                t = None      # kitty: an empty tile is plain spaces, no upload or placeholders
+            else:
+                t = _tile(raster, c0, r0, w, h)
             for r in range(h):
                 for c in range(w):
                     if (c0 + c, r0 + r) not in holes:
-                        grid[r0 + r][c0 + c] = cell(t, r, c)
+                        grid[r0 + r][c0 + c] = cell(t, r, c) if t is not None else BLANK
     _surfaces[name] = ((key, cols, rows, GENERATION), now, grid)
     return grid
 
@@ -502,17 +508,21 @@ def _scan(segments):
             out.append(seg)
             continue
         if TIER == 'sixel' and _MARKS.search(text):
-            here, dim = col, bool(seg.style and seg.style.dim)    # dim: under a modal backdrop
-            for ch in text:
-                n = ord(ch) - MARK0
-                if 0 <= n < 0xFFFE:
+            dim, pos = bool(seg.style and seg.style.dim), 0    # dim: under a modal backdrop
+            for match in _MARKS.finditer(text):
+                here = col + cell_len(text[pos:match.start()])
+                codes = [ord(ch) - MARK0 for ch in match.group()]
+                i = 0
+                while i < len(codes):       # one run per tile row: its codes count up by one
+                    n, j = codes[i], i + 1
+                    while j < len(codes) and codes[j] == codes[j - 1] + 1 and (codes[j] ^ n) >> 4 == 0:
+                        j += 1
                     r, c = (n >> 4) & 7, n & 15     # by the tile's screen origin: a tile may show twice
-                    found.setdefault(n >> 7, {}).setdefault((row - r, here - c, dim), set()).add((r, c))
-                    here += 1
-                else:
-                    here += cell_len(ch)
+                    found.setdefault(n >> 7, {}).setdefault((row - r, here - c, dim), []).append((r, c, c + j - i))
+                    here, i = here + j - i, j
+                col, pos = here, match.end()
+            col += cell_len(text[pos:])
             out.append(seg)
-            col = here
             continue
         elif TIER == 'kitty' and PLACEHOLDER in text and seg.style is not None and seg.style.color is not None:
             if seg.style.dim:
@@ -602,17 +612,22 @@ def frame(segments, size):
     return segments
 
 
-def _rects(cells):
-    """``(r0, c0, r1, c1)`` rectangles covering the ``(r, c)`` cells: runs of a row, merged with
-    the same run on the rows below."""
+def _rects(spans):
+    """``(r0, c0, r1, c1)`` rectangles covering the ``(r, c0, c1)`` row spans: a row's touching
+    spans joined, then merged with the same span on the rows below."""
+    rows = {}
+    for r, a, b in sorted(spans):
+        line = rows.setdefault(r, [])
+        if line and line[-1][1] == a:
+            line[-1] = (line[-1][0], b)
+        else:
+            line.append((a, b))
+    first = next(iter(rows.values()))
+    if all(line == first for line in rows.values()) and len(first) == 1 and len(rows) == max(rows) - min(rows) + 1:
+        return [(min(rows), first[0][0], max(rows) + 1, first[0][1])]   # the usual case: one rectangle
     rects, open_ = [], {}
-    for r in sorted({r for r, _ in cells}):
-        cols = sorted(c for rr, c in cells if rr == r)
-        runs, start = [], cols[0]
-        for a, b in zip(cols, cols[1:] + [None]):
-            if b != a + 1:
-                runs.append((start, a + 1))
-                start = b
+    for r in sorted(rows):
+        runs = rows[r]
         still = {}
         for run in runs:
             if run in open_ and open_[run][1] == r:
@@ -641,7 +656,9 @@ def after(write):
         r0, c0, r1, c1 = crop
         ch, cw = tile.px.shape[0] // tile.rows, tile.px.shape[1] // tile.cols
         out.append(''.join(f'\x1b[{row + r + 1};{col + 1}H' + ' ' * (c1 - c0) for r in range(r1 - r0)))
-        out.append(f'\x1b[{row + 1};{col + 1}H' + sixel(tile.px[r0 * ch:r1 * ch, c0 * cw:c1 * cw], tile.palette))
+        part = tile.px[r0 * ch:r1 * ch, c0 * cw:c1 * cw]
+        if part.any():               # an empty tile only clears what was under it, once
+            out.append(f'\x1b[{row + 1};{col + 1}H' + sixel(part, tile.palette))
     _drawn = drawn
     if out:
         data = '\x1b7\x1b[0m' + ''.join(out) + '\x1b8'
