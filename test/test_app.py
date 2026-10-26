@@ -358,7 +358,7 @@ def test_the_boat_refuses_to_arm_while_a_safety_watchdog_is_off_the_graph(tmp_pa
     app.engine.mute('pre.ekf_input_watchdog')          # a mute never lifts the gate
     app.dispatch('a')
     assert app.notice == ('Arming refused: safety watchdog not running: /ekf_input_watchdog '
-                          '(they start with odometry on the boat)')
+                          '(they start with the Odom stack)')
     assert not app.armed and app.arming.calls == []
     app.ros.nodes = lambda: []
     assert any('/link_watchdog, /fcu_watchdog, /fence_watchdog, /ekf_input_watchdog' in reason

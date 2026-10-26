@@ -23,7 +23,7 @@ def arm_refusal(required, nodes):
     if not missing:
         return ''
     return (f"safety watchdog{'s' if len(missing) > 1 else ''} not running: {', '.join(missing)}"
-            ' (they start with odometry on the boat)')
+            ' (they start with the Odom stack)')
 
 
 BEAT_STALE_S = 2.0    # s without a watchdog's ~/status beat (0.5 s apart) before it counts as dead
