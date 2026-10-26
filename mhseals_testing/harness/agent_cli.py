@@ -12,6 +12,7 @@ arms, and only a stack every harness/sim_arm.py check proves a simulator.
 import json
 import math
 import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -35,8 +36,8 @@ def add_parsers(sub):
     """Register the agent verbs on the boat_trial subparsers."""
     def verb(name, help, claim=None):
         parser = sub.add_parser(name, help=help)
-        parser.add_argument('--who', default=os.environ.get('BOAT_AGENT', 'agent'),
-                            help='agent name (default $BOAT_AGENT)')
+        parser.add_argument('--who', default=os.environ.get('BOAT_AGENT'),
+                            help='your own agent id (default $BOAT_AGENT; required: no shared default)')
         if claim is not None:
             parser.add_argument('--claim', required=claim, metavar='ID')
         return parser
@@ -344,6 +345,29 @@ def follow(agent, until=None, timeout=None, claim=None):
         agent.sleep(POLL_S)
 
 
+SHARED_WHO = {'', 'agent', 'agent-0000'}     # the old defaults: every agent that copied them was one principal
+
+
+def who_of(args):
+    """``(who, None)``, or ``(None, hint)`` when the verb needs an id of its own and has none. ``status`` reads only
+    and needs none; ``stop`` always works: without an id it is ``agent@HOST:PPID``, so the operator still sees
+    that an agent (not they) stopped."""
+    who = (args.who or '').strip()
+    if who not in SHARED_WHO:
+        return who, None
+    if args.command == 'stop':
+        return f'agent@{socket.gethostname().split(".")[0]}:{os.getppid()}', None
+    if args.command == 'status':
+        return who or 'agent', None
+    return None, ('pass --who ID (or export BOAT_AGENT=ID) with an id of your own, such as the one '
+                  '`python3 .agents/hook.py --playbook` prints; "agent" and "agent-0000" are shared, so refused')
+
+
 def main(args, **seams):
     """Run verb ``args.command``; returns its exit code."""
+    args.who, hint = who_of(args)
+    if hint:
+        print(json.dumps({'ok': False, 'error': 'bad_args', 'hint': hint}),
+              file=seams.get('out') or sys.stdout, flush=True)
+        return channel.EXIT_CODES['bad_args']
     return getattr(Agent(args, **seams), args.command)()

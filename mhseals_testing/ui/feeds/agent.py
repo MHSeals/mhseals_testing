@@ -260,10 +260,15 @@ class AgentDesk:
                                    'reason': str(req['args'].get('reason', '')), 'pid': req['pid'],
                                    'host': req['host']})
         holder = ack.get('holder') or {}
+        error = ack.get('error', '')
         hint = {'busy': f"{holder.get('who')} holds {holder.get('id')}",
-                'blocked': 'operator must set Agents to allow'}.get(ack.get('error'), '')
-        self.reply(req, ack['ok'], ack.get('error', ''), result={'claim': ack.get('id'), 'lease_s': idle},
-                   hint=hint)
+                'blocked': 'operator must set Agents to allow'}.get(error, '')
+        if error == 'busy' and holder.get('who') == req['who']:   # two agents sharing one id: refuse, say so
+            error = 'duplicate_who'
+            hint = (f"the id {req['who']} already holds {holder.get('id')} (pid {holder.get('pid')} on "
+                    f"{holder.get('host')}): if that is you, keep using --claim {holder.get('id')}; another agent "
+                    'needs its own --who')
+        self.reply(req, ack['ok'], error, result={'claim': ack.get('id'), 'lease_s': idle}, hint=hint)
 
     def do_release(self, req):
         claim = req.get('claim') or req['args'].get('claim')
@@ -275,10 +280,11 @@ class AgentDesk:
         self.reply(req, ack['ok'], ack.get('error', ''))
 
     def do_stop(self, req):
-        """Space for the agent: hold, neutral, disarm. Always allowed, never needs a claim."""
+        """Space for the agent: hold, neutral, disarm. Always allowed, never needs a claim. The stop is the
+        agent's, not the operator's: another agent's act ends ``overridden: agent W`` and the hold's hints name W."""
         if self.act and self.act['op'] in MOTION:
-            self.cancel('stop')
-        self.app.operator_stop()
+            self.cancel('stop' if self.act['who'] == req['who'] else f"overridden: agent {req['who']}")
+        self.app.operator_stop(agent=req['who'])
         self.reply(req, True, result={'stopped': True})
 
     def do_mark(self, req):
@@ -349,9 +355,9 @@ class AgentDesk:
             return found, 'claim again' if found != 'not_holder' else 'use your own claim'
         if not (muxed(app.profile) or app.profile.use_sim_time):
             return 'no_mux', 'agent motion needs a muxed profile or a sim'
-        cause = self.override()
+        cause = self.human()
         if cause:
-            return 'overridden', HINTS.get(cause, cause)
+            return 'overridden', self.hint_of(cause, cause)
         if req['op'] == 'run':
             found, name = agent_acts.procedure(agent_acts.run_key(req['args']))
             if found is None or name not in self.config.get()['run']:
@@ -455,7 +461,7 @@ class AgentDesk:
             return True
         cause = act['cause'] or why or 'refused'      # the Refuse button names no cause
         self.finish(act, False, self.error_of(cause) if act['cause'] else 'refused',
-                    hint=HINTS.get(cause.split(': ')[-1], f'operator: {cause}'))
+                    hint=self.hint_of(cause, f'operator: {cause}'))
         return False
 
     def act_run(self, act):
@@ -487,7 +493,7 @@ class AgentDesk:
             cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
             if cause:
                 self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),
-                            hint=HINTS.get(cause.split(': ')[-1], ''))
+                            hint=self.hint_of(cause, ''))
             elif error:
                 self.finish(act, False, 'cancelled', result=dict(result, cause=error))
             else:
@@ -637,6 +643,23 @@ class AgentDesk:
         self.reply(act['req'], ok, error, result=result, hint=hint)
         return False
 
+    def human(self):
+        """``override()``, with a Space-style hold an agent's ``stop`` set named ``agent W``."""
+        cause = self.override()
+        stopper = str(getattr(self.app, 'stopped_by', '') or '')
+        if cause in ('keys', 'keyboard') and stopper.startswith('agent '):
+            return stopper
+        return cause
+
+    @staticmethod
+    def hint_of(cause, default=''):
+        """The hint for a cancel or refusal cause; ``agent W`` says another agent stopped the boat."""
+        key = cause.split(': ')[-1]
+        if key.startswith('agent '):
+            return (f'{key} stopped the boat (boat_agent stop), not the operator; the operator must re-arm and '
+                    'release the hold (U)')
+        return HINTS.get(key, default)
+
     @staticmethod
     def error_of(cause):
         """The reply error for a cancel cause: revoked, expired, released, overridden: <who>, handover, cancelled."""
@@ -680,7 +703,7 @@ class AgentDesk:
         state = self.claim_state(act['claim'], act['who'])
         if state:
             return state
-        human = '' if act.get('arming') else self.override()
+        human = '' if act.get('arming') else self.human()
         if human:
             return f'overridden: {human}'
         if act.get('sim_armed') and sim_arm.stop_path().exists():
@@ -712,7 +735,7 @@ class AgentDesk:
     def end_goal(self, act, cause, status):
         if cause:
             self.finish(act, False, self.error_of(cause), result={'status': status, 'cause': cause},
-                        hint=HINTS.get(cause.split(': ')[-1], ''))
+                        hint=self.hint_of(cause, ''))
         else:
             self.finish(act, True, result={'status': status})
         self.act = None

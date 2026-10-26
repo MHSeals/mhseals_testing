@@ -42,7 +42,8 @@ TEXT_MAX = 1000
 # names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI owner,
 # 5 agents blocked, 6 timeout. Anything else is 1.
 EXIT_CODES = {**dict.fromkeys(('refused', 'busy', 'busy_ui', 'not_holder', 'unknown_claim', 'no_mux',
-                               'not_allowed', 'not_armed', 'motion_observe', 'bad_args', 'bad_op'), 2),
+                               'not_allowed', 'not_armed', 'motion_observe', 'bad_args', 'bad_op',
+                               'duplicate_who'), 2),
               **dict.fromkeys(('revoked', 'overridden', 'cancelled', 'expired', 'released', 'handover'), 3),
               'no_owner': 4, 'blocked': 5, 'timeout': 6}
 ROTATE_BYTES = 20 * 1024 * 1024

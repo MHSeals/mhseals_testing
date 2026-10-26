@@ -2505,14 +2505,16 @@ class App:
             self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'
 
-    def operator_stop(self):
-        """Space requests a sticky manual hold, then always neutralizes and disarms."""
+    def operator_stop(self, agent=None):
+        """Space requests a sticky manual hold, then always neutralizes and disarms. ``agent`` is the id of an
+        agent whose ``stop`` this is (None: the operator's Space); ``stopped_by`` keeps it for the desk's hints."""
         self.command = (0.0, 0.0, 0.0)
+        self.stopped_by = f'agent {agent}' if agent else 'operator'
         try:
             if self.plant is not None:
                 self.plant.hold('keys')
         finally:
-            self.stop('stopped by operator')
+            self.stop(f'stopped by {self.stopped_by}')
 
     def stop(self, reason, by='operator'):
         """Neutral and disarmed, whatever happened; ``by`` is operator, fault or error.

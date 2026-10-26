@@ -55,6 +55,13 @@ class Desk:
             self.every(self)
 
 
+
+@pytest.fixture(autouse=True)
+def agent_id(monkeypatch):
+    """Every agent has an id of its own; the tests that need none clear it."""
+    monkeypatch.setenv('BOAT_AGENT', 'claude-test')
+
+
 def call(argv, desk=None, registry=None, **seams):
     args = cli.build_parser().parse_args(argv)
     out = io.StringIO()
@@ -272,3 +279,32 @@ def test_cli_registers_every_verb():
         assert parser.parse_args([verb, *{'release': ['--claim', 'c'], 'run': ['k', '--claim', 'c'],
                                           'goal': ['1', '2', '--claim', 'c'], 'note': ['t'],
                                           'ask': ['q']}.get(verb, [])]).command == verb
+
+
+@pytest.mark.parametrize('who', [None, 'agent', 'agent-0000', ' '])
+@pytest.mark.parametrize('argv', [['claim'], ['run', 's', '--claim', 'c1'], ['goal', '1', '2', '--claim', 'c1'],
+                                  ['release', '--claim', 'c1'], ['note', 'x'], ['ask', 'q?']])
+def test_a_verb_without_an_id_of_its_own_is_refused_and_sends_nothing(monkeypatch, argv, who):
+    monkeypatch.delenv('BOAT_AGENT')
+    code, out = call(argv + ([] if who is None else ['--who', who]))
+    assert code == 2 and out[0]['error'] == 'bad_args' and '--who' in out[0]['hint'] and 'shared' in out[0]['hint']
+    assert lines() == []
+
+
+def test_boat_agent_env_is_the_id_and_who_overrides_it(monkeypatch):
+    code, _ = call(['claim'], registry=Reg(pid=None))
+    assert lines('req')[-1]['who'] == 'claude-test'
+    call(['claim', '--who', 'codex-9a1b'], registry=Reg(pid=None))
+    assert lines('req')[-1]['who'] == 'codex-9a1b'
+
+
+def test_stop_without_an_id_still_stops_and_names_an_agent(monkeypatch):
+    monkeypatch.delenv('BOAT_AGENT')
+    held = []
+    code, out = call(['stop'], registry=Reg(pid=None), backup=lambda who: held.append(who) or True)
+    assert code == 0 and held and held[0].startswith('agent@') and held[0] != 'agent'
+
+
+def test_status_needs_no_id(monkeypatch):
+    monkeypatch.delenv('BOAT_AGENT')
+    assert agent_cli.who_of(cli.build_parser().parse_args(['status']))[1] is None

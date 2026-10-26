@@ -31,6 +31,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shlex
 import subprocess
 import time
@@ -48,28 +49,35 @@ CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'agent.yaml'
 # What starts the thruster driver, the mux or the velocity controller: executables and their modules.
 DRIVER = r'(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)'
 MODULE = r'(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)'
-# Starting the thruster driver, the mux or the velocity controller (arming) in any form: ros2 run, the module
-# or the installed path, an import of it, a bare or ./ executable in command position, a launch that starts the mux.
+# Starting the thruster driver, the mux or the velocity controller (arming) in any form: ros2 run, python -m
+# the module or the installed path in command position, an import of it (reading or editing its source is fine), a bare or ./ executable in command position, a launch that starts the mux.
 ARMING = [r'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*' + DRIVER + r'\b',
-          r'\bmhseals_hardware[./]' + MODULE + r'(\.py)?(?![\w-]|\.(json|ya?ml|md|txt)\b)',
-          r'\bfrom\s+mhseals_hardware(\.\w+)?\s+import\b[^\n]*\b' + MODULE + r'\b',
+          r'\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_hardware\.' + MODULE + r'\b',
+          r'(\bimport\s+|\b(run_module|import_module|__import__)\(\s*)mhseals_hardware\.' + MODULE + r'\b',
+          r'\bfrom\s+mhseals_hardware(\.' + MODULE + r'\b|(\.\w+)?\s+import\b[^\n]*\b' + MODULE + r'\b)',
           r'(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash'
           r'|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*' + DRIVER + r'(\.py)?(?=\s|$|[;&|)`])',
           r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)', r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
           r'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)']   # a launch file by path
 # Turning sim-arm on: the switch's env name anywhere (MHSEALS_SIM_ARM=1 tui, docker exec -e ...), or a shell write to
-# agent.yaml at any path (sim_arm.enabled; the TUI re-reads it live). Only the owner turns sim-arm on.
+# agent.yaml at any path (sim_arm.enabled; the TUI re-reads it live); cp/ln/install/rsync only when agent.yaml is
+# the last word or the destination is a directory. Only the owner turns sim-arm on.
 SIM_ARM = [r'\bMHSEALS_SIM_ARM\b',
-           r'(?<![\w-])(rm|mv|cp|ln|install|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink'
+           r'(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink'
            r'|shred|rsync|python[\d.]*|git\s+(checkout|restore|apply|reset|stash))\b.*\bagent\.ya?ml\b',
+           r'(?<![\w-])(cp|ln|install|rsync)\b[^;&|\n]*\bagent\.ya?ml\b(?![^;&|\n]*\s(?!\S*\bagent\.ya?ml\b)\S*[^/\s]'
+           r'\.\w+\s*($|[;&|)\n]))',      # a copy *from* agent.yaml to a named file is a read
            r'>\|?\s*\S*\bagent\.ya?ml\b']
 # The mux's saved holds (a sim session's command_mux_holds.json, the boat's command_mux_<domain>.json and their
 # directory) and the agent stop file: no shell write, truncation, move or delete. touch on the stop file stays.
+# The stop file is <data root>/agent/stop: a path ending in agent/stop anywhere; a whole agent dir or a glob in it
+# only under bags/, a $VAR, ~ or bare (a relative agent dir may be the data root's): build/.../agent is not it.
 HOLDS = [r'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)',
          r'(?<![\w-])(rm|mv|rmdir|unlink|shred|find|rsync)\b.*/mhseals(/\*?)?(?=\s|$|[;&|)])']
+AGENT_DIR = r'((?<![\w./~$}-])|(?<=\bbags/)|(?<=[}~]/)|\$\w+/)agent'
 STOP = [r'(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr'
-        r'|rmdir)\b.*\bagent/(stop\b|\*|\?|\[)',
-        r'>\|?\s*\S*\bagent/stop\b', r'(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*\bagent/?(?=\s|$|[;&|)])',
+        r'|rmdir)\b.*(\bagent/stop\b|' + AGENT_DIR + r'/(\*|\?|\['  r'))',
+        r'>\|?\s*\S*\bagent/stop\b', r'(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*' + AGENT_DIR + r'/?(?=\s|$|[;&|)])',
         # a bare stop after a cd into the agent dir: cd .../agent && rm stop
         r'\b(cd|pushd)\s+(-\S+\s+)*\S*\bagent/?(?=\s|$|[;&|)]).*((?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install'
         r'|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr)\b.*|>\|?\s*)(?<![\w/.-])(\./)?(stop\b|\*|\?|\[)',
@@ -89,6 +97,9 @@ EDITS = [r'(?m)^EDIT \w+ live [^\n]*/agent\.ya?ml$',
 # dev copy; a relative name after a cd, a $variable or a glob counts as live (fail closed).
 FILES = re.compile(r'[^\s;&|<>()=]*(agent\.ya?ml|command_mux[^\s;&|<>()/]*\.json|agent/stop|\.launch\.(py|xml|ya?ml))'
                    r'(?![\w.-])')
+# Nav2's servers: a lifecycle or parameter change breaks a claimed goal that is running.
+NAV2 = (r'(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother'
+        r'|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)')
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -106,6 +117,12 @@ DEFAULTS = {
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+             r'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
+             r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b' + NAV2 + r'\b',
+             r'ros2\s+service\s+call\b.*\b' + NAV2 + r'/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
+             r'ros2\s+run\s+(--?\S+\s+)*mhseals_nav\s+(--?\S+\s+)*run_task\b',
+             r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
+             r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
              r'|\bthruster_pwm_node/estop|\bthrusters/)',
              r'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
@@ -124,33 +141,67 @@ DEFAULTS = {
 NETWORK = 'config/boat-network.env'    # legacy path; STATIC_LEASES "MAC=hostname=address ...": the boat computers
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
-# Why a denied command is denied and the verb that does it through the claim, first match wins.
-USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing processes (kill only your own, by exact PID)', 'stop'),
-       (r'^(docker|podman|systemctl|reboot|poweroff|halt|shutdown|init|telinit|loginctl)\b|sysrq',
-        "stopping or restarting the boat's software or computer", None),
-       (r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
-        'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
-       ('|'.join(SIM_ARM), 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git '
-        'worktree; to arm a sim, ask the operator to enable sim-arm in the sim container, then run KEY --sim-arm)',
-        None),
-       ('|'.join(HOLDS), "changing the mux's live saved holds (only the operator releases a hold, with U in the TUI)",
-        None),
-       ('|'.join(STOP), 'removing or changing the live agent stop file (to stop, touch it or use stop; only the '
-        'operator removes it)', None),
-       ('|'.join(ARMING),
-        'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID'),
+# Why a denied command is denied and the route that does it instead: (regex on the hit's matched line or None,
+# what it blocks, the boat_agent verb (None: the operator's; PID: kill your own process by PID), the deny patterns
+# it owns). The deny pattern that matched picks its entry (``use_entry``); patterns no entry owns fall back to the
+# regex, searched in the matched text's last line, so a heredoc can't borrow a later line's reason.
+_DENY = DEFAULTS['deny']
+_KILL_CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
+                 r'|boat_(trial|test)\w*)\b')
+USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's control (the mux, a watchdog, the "
+        'driver, MAVROS or a trial)', 'stop', (r'\bkill\b.*' + _KILL_CONTROL,)),
+       (None, 'pkill, killall and xargs kill (they can hit processes that are not yours)', 'PID',
+        (r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b')),
+       (None, 'killing processes on a boat computer', 'stop', (DEFAULTS['deny_boat'][0],)),
+       (None, "stopping or restarting the boat's software or computer", None, tuple(DEFAULTS['deny_boat'][1:])),
+       (None, 'replaying a bag that can carry motion topics (play only --topics without cmd_vel, thruster or mux '
+        'topics)', 'run KEY --claim ID', tuple(p for p in _DENY if p.startswith(r'ros2\s+bag\s+play'))),
+       (None, 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git worktree; sim-arm is '
+        'off unless the sim container sets MHSEALS_SIM_ARM=1: ask the operator to enable sim-arm in the sim container, '
+        'then run KEY --sim-arm)', None,
+        tuple(SIM_ARM)),
+       (None, "changing the mux's live saved holds (only the operator releases a hold, with U in the TUI)", None,
+        tuple(HOLDS)),
+       (None, 'removing or changing the live agent stop file (to stop, touch it or use stop; only the operator '
+        'removes it)', None, tuple(STOP)),
+       (None, 'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID', tuple(ARMING)),
+       (None, "changing Nav2's servers (a lifecycle or parameter change breaks a running claimed goal)", None,
+        tuple(p for p in _DENY if NAV2 in p)),
+       (None, 'starting the mission runner directly (outside the claim)', 'run mission --task NAME --claim ID',
+        tuple(p for p in _DENY if 'run_task' in p or r'mhseals_nav\.tasks' in p)),
+       (None, 'starting a test procedure directly (outside the claim)', 'run KEY --claim ID',
+        tuple(p for p in _DENY if r'mhseals_testing\.(procedures' in p)),
+       (None, "raw thruster pulses (thruster_pwm_node's test_pulses)", 'run KEY --claim ID',
+        tuple(p for p in _DENY if 'test_pulses' in p)),
        (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control|create_publisher',
-        'raw motion', 'run KEY --claim ID'),
-       (r'operator/heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority", None),
-       (r'estop', 'the thruster e-stop', 'stop'),
-       (r'mavros', 'an FCU arming, mode or parameter change', None),
-       (r'\$', 'a ros2 command whose target is a shell variable the hook cannot read (spell the name out)', None),
+        'raw motion', 'run KEY --claim ID', ()),
+       (r'operator/heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority", None, ()),
+       (r'estop', 'the thruster e-stop', 'stop', ()),
+       (r'mavros', 'an FCU arming, mode or parameter change', None, ()),
+       (r'\$', 'a ros2 command whose target is a shell variable the hook cannot read (spell the name out)', None, ()),
        (r'ros2\s+(param|lifecycle)\b|/(set_parameters\w*|load_parameters|change_state)\b',
-        'changing the thruster driver, the mux or a safety watchdog', None),
-       (r'command_mux', 'commanding the mux', 'stop'),
+        'changing the thruster driver, the mux or a safety watchdog', None, ()),
+       (r'command_mux', 'commanding the mux', 'stop', ()),
        (r'goal_pose|navigate|follow_\w*waypoints|follow_path|dock_robot|assisted_teleop', 'a raw Nav2 goal',
-        'goal X Y [YAW] --claim ID'),
-       (r'.', 'raw motion', 'run KEY --claim ID'))
+        'goal X Y [YAW] --claim ID', ()),
+       (r'.', 'raw motion', 'run KEY --claim ID', ()))
+PID_ROUTE = 'kill your own process by exact PID: kill PID (pgrep -af NAME lists them) or kill %JOB'
+
+
+class Hit(str):
+    """A denied command's text (``str``: from the match to the next separator), with the deny ``pattern`` that
+    matched, ``tail`` (the last line of the matched text, which names the reason) and ``host``."""
+    def __new__(cls, text, pattern=None, tail=None, host=None):
+        hit = super().__new__(cls, text)
+        hit.pattern, hit.tail, hit.host = pattern, text if tail is None else tail, host
+        return hit
+
+
+def use_entry(hit):
+    """``(what, verb)`` for a denied ``hit``: the first entry owning its pattern or whose regex finds its tail."""
+    pattern, tail = getattr(hit, 'pattern', None), getattr(hit, 'tail', hit)
+    return next((w, v) for r, w, v, owned in USE
+                if (pattern is not None and pattern in owned) or (r is not None and re.search(r, tail)))
 
 
 # Why an edit is denied, first match on the EDIT line wins.
@@ -216,12 +267,13 @@ def cli_of(config):
 
 
 def who_of(event):
-    """``$BOAT_AGENT``, else the agent CLI (claude, codex) and the first 4 hex digits of the session."""
+    """``$BOAT_AGENT``, else the agent CLI (claude, codex) and the first 4 hex digits of the session; with no
+    session (``--playbook`` from a shell) 4 random hex digits, never a name another agent shares."""
     explicit = os.environ.get('BOAT_AGENT')
     if explicit:
         return explicit
-    digits = re.sub(r'[^0-9a-f]', '', str(event.get('session_id', '')).lower())
-    return f'{event.get("agent") or "agent"}-{digits[:4] or "0000"}'
+    digits = re.sub(r'[^0-9a-f]', '', str(event.get('session_id', '')).lower())[:4]
+    return f'{event.get("agent") or "agent"}-{digits or secrets.token_hex(2)}'
 
 
 def brief_text(who, config=None):
@@ -241,19 +293,26 @@ def start_text(who, agent='claude', config=None):
     cli = f'{cli_of(config)} <verb> --who {who}'
     background = 'Bash run_in_background' if agent == 'claude' else 'a background shell'
     return '\n'.join((
-        f'RoboBoat playbook: you are boat agent {who}.',
-        f'Act on the boat only through `{cli}` (JSON out):',
+        f'RoboBoat playbook: you are boat agent {who}. Keep this id for the whole session (export BOAT_AGENT={who});'
+        ' every agent needs its own: the desk refuses a claim by an id that already holds one.',
+        f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
+        '(claim, run, ask, note, release, stop); nothing else there.',
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
-        '     Sim only: `run KEY --sim-arm` arms a verified sim for that run and disarms after; a real boat '
-        'refuses it.',
+        '     Sim only: `run KEY --sim-arm` arms a verified sim for that run and disarms after; it needs the sim '
+        'container started with MHSEALS_SIM_ARM=1 (the owner turns it on; ask), and a real boat refuses it '
+        '(the operator arms).',
+        '     Start sims and heavy runs through the host guard: `.handoff/tools/heavy sim ...` (Unity headless).',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
-        '  `stop` any time. `ask "..."` instead of guessing. `note "..."` writes a line in the TUI log.',
-        'Exit codes: 0 ok, 2 refused (read hint), 3 revoked or overridden (stop: a human took over; '
-        'claim again only if asked), 4 no TUI, 5 agents blocked, 6 timeout.',
-        'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, never arm (but --sim-arm) or release a hold: '
-        'the hook blocks them and names the verb; never answer a TUI popup. Run in sim first. For runs over 9 min use '
+        '  `stop` any time: the operator and the agent it interrupts see your id. `ask "..."` instead of guessing. '
+        '`note "..."` writes a line in the TUI log.',
+        'Exit codes: 0 ok, 2 refused (read hint), 3 revoked or overridden (the hint says who: '
+        'the operator or another agent; claim again only if asked), 4 no TUI, 5 agents blocked, 6 timeout.',
+        'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, change Nav2 lifecycles or params, send raw '
+        'test_pulses, start the mission runner or a procedure directly, never arm (but --sim-arm) or release a hold: '
+        'the hook blocks them and names the verb; kill only your own processes by exact PID; never answer a '
+        'TUI popup. Run in sim first. For runs over 9 min use '
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
         + (f' ({remote(config)}).' if remote(config) else
            ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise-odroid in your environment '
@@ -261,9 +320,14 @@ def start_text(who, agent='claude', config=None):
 
 
 def deny_reason(hit, host=None, who='agent', config=None):
-    """One line: the command blocked, why, and the boat_agent verb that does it instead."""
+    """One line: the command blocked, why, and the boat_agent verb (or operator action) that does it instead."""
     config = config or hook_config()
-    what, verb = next((w, v) for p, w, v in USE if re.search(p, hit))
+    what, verb = use_entry(hit)
+    if verb == 'PID' and host:          # on a boat computer nothing is the agent's to kill: stop the boat instead
+        what, verb = 'killing processes on a boat computer', 'stop'
+    if verb == 'PID':
+        return (f'Blocked `{hit[:80]}`: {what}. Instead {PID_ROUTE}. Never kill a boat process: '
+                f'{cli_of(config)} stop --who {who} stops the boat.')
     where = f' on {host}' if host else ''
     head = f'Blocked `{hit[:80]}`{where}: {what} from a shell bypasses the boat claim and the operator.'
     here = not host or hostname().split('.')[0] == host
@@ -273,14 +337,24 @@ def deny_reason(hit, host=None, who='agent', config=None):
     cli = cli_of(config) if here else f'ssh {target} {BOAT_AGENT}'    # the boat it aimed at
     if verb is None:
         return f'{head} Those stay with the operator; ask them: {cli} ask "..." --who {who}'
+    arms = ''
+    if '--sim-arm' in verb and (host or remote(config)):   # a real boat refuses --sim-arm
+        verb = verb.replace(' --sim-arm', '')
+        arms = ' On a real boat the operator arms from the arm panel; --sim-arm is sim only.'
+    elif '--sim-arm' in verb:
+        arms = ' --sim-arm needs a verified sim whose container sets MHSEALS_SIM_ARM=1; a real boat is armed by the operator.'
     return (f'{head} Use: {cli} {verb} --who {who}'
             + ('' if verb == 'stop' else f' (claim first: claim --reason "..." --who {who})')
-            + f'. Verbs and exit codes: BOAT_AGENT={who} python3 .agents/hook.py --playbook')
+            + f'.{arms} Verbs and exit codes: BOAT_AGENT={who} python3 .agents/hook.py --playbook')
 
 
 def use_of(hit):
-    """The short verb a deny names, for the TUI row."""
-    verb = next(v for p, _, v in USE if re.search(p, hit))
+    """The short route a deny names, for the TUI row."""
+    verb = use_entry(hit)[1]
+    if verb == 'PID':
+        verb = 'stop' if getattr(hit, 'host', None) else None
+        if verb is None:
+            return 'kill PID'
     return f'boat_agent {verb.split()[0]}' if verb else 'operator'
 
 
@@ -297,7 +371,8 @@ def matches(patterns, text):
 
 
 # Two tiers. Tier A: every command in the call (each part of a pipe or list, each $(...)) only reads,
-# searches or prints text (READ_ONLY, git commit/log/diff/show/status, pytest): its arguments are data,
+# searches or prints text (READ_ONLY, find without -exec/-delete, sort/uniq without an output file,
+# git commit/log/diff/show/status, pytest): its arguments are data,
 # so a grep pattern, an echo, a commit message or a heredoc into a file never denies. Tier B, anything
 # else: the whole command text is searched (quotes and escapes dropped, ``.`` spanning newlines), so
 # whatever wraps or hides a denied command is still denied. Variables, strings built at run time and
@@ -308,7 +383,10 @@ WRITES = {'>', '>>', '>|', '&>', '&>>'}
 PUNCT = re.compile(r'<<<|<<|>>|>&|<&|<>|&>>|&>|>\||\|\||&&|\|&|;;|[\s\S]')
 HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([\w.-]+)\1')
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
-READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc'}
+READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc', 'cut', 'nl',
+             'tr', 'column', 'ls', 'stat', 'diff', 'jq', 'basename', 'dirname', 'realpath', 'readlink', 'pwd', 'du',
+             'comm', 'true'}
+FIND_RUNS = ('-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls')
 GIT_READ = {'commit', 'log', 'diff', 'show', 'status'}
 _ADDR = r'(\d+|\$|/[^/\n]*/)(,(\d+|\$|/[^/\n]*/))?'
 _SED = rf'({_ADDR})?!?(p|s/[^/\n]*/[^/\n]*/[gpI\d]*)'
@@ -335,6 +413,14 @@ def reads_only(argv):
                 and args.index(rest[0]) == len(flags) and bool(SED_PLAIN.fullmatch(rest[0])))
     if name == 'rg':
         return not any(a.startswith('--pre') for a in args)     # --pre runs a program on each file
+    if name == 'find':                  # no -exec/-ok (runs), -delete or -fprint/-fls (writes)
+        return not any(a in FIND_RUNS for a in args)
+    if name == 'sort':                  # -o writes, --compress-program runs
+        return not any(a.startswith(('-o', '--output', '--compress')) or re.match(r'-[^-]*o', a) for a in args)
+    if name == 'uniq':                  # uniq IN OUT writes OUT
+        return len([a for a in args if not a.startswith('-')]) <= 1
+    if name == 'file':                  # -C compiles a magic file
+        return not any(re.match(r'-[^-]*C', a) or a == '--compile' for a in args)
     if name == 'less':                  # +!cmd runs it; -o/-O/--log-file write a file
         return not any(a.startswith(('+', '--log', '--LOG')) or re.match(r'-[^-]*[oO]', a) for a in args)
     return name in READ_ONLY
@@ -500,7 +586,8 @@ def denied(command, config, cwd=None):
             hit = ' '.join(text[match.start():rest.start() if rest else None].split())
             if pattern in live_only and all_dev(hit, cwd, text):
                 continue
-            return hit, host
+            tail = text[match.start():rest.start() if rest else None].rsplit('\n', 1)[-1]   # the matched line
+            return Hit(hit, pattern, ' '.join(tail.split()), host), host
     return None
 
 

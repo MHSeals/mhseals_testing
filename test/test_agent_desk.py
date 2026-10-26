@@ -137,9 +137,10 @@ class App:
     def override_cause(self):
         return '' if self.mux['input'] == 'auto' else self.mux['input']
 
-    def operator_stop(self):
+    def operator_stop(self, agent=None):
+        self.stopped_by = f'agent {agent}' if agent else 'operator'
         self.plant.hold('keys')
-        self.stop('stopped by operator')
+        self.stop(f'stopped by {self.stopped_by}')
 
     def stop(self, reason, by='operator'):
         self.calls.append(('stop', reason))
@@ -1232,3 +1233,37 @@ def test_runs_without_sim_arm_keep_the_human_ready(sim, monkeypatch):
     sim.app.on_step = {0: lambda: RealApp.prompt(sim.app, 'Clear the area and press Enter... ')}
     assert final(ask(sim, 'run', claim(sim), key='square')['id'])['ok']
     assert asked == ['Clear the area and press Enter... '] and not [e for e in sim.app.events if e[0] == 'ready']
+
+
+def test_another_agents_stop_names_it_to_the_interrupted_agent_and_the_operator(rig):
+    def other_stops():
+        rig.desk.do_stop(ch.request('stop', 'codex-77aa', {}))
+        raise Aborted('motion cancelled by operator')
+    c, reply = run_with(rig, 1, other_stops)
+    assert reply['error'] == 'overridden: agent codex-77aa' and ch.exit_code(reply) == 3
+    assert 'agent codex-77aa stopped the boat' in reply['hint'] and '(U)' in reply['hint']
+    assert ('stop', 'stopped by agent codex-77aa') in rig.app.calls
+    later = final(ask(rig, 'run', c, key='square')['id'])     # the hold stays the other agent's
+    assert later['error'] == 'overridden' and 'agent codex-77aa stopped the boat' in later['hint']
+
+
+def test_an_agents_own_stop_and_the_operators_space_are_named_as_such(rig):
+    def own():
+        rig.desk.do_stop(ch.request('stop', 'claude-3f2a', {}))
+        raise Aborted('motion cancelled')
+    _, reply = run_with(rig, 1, own)
+    assert 'codex' not in reply['hint'] and ('stop', 'stopped by agent claude-3f2a') in rig.app.calls
+    rig.app.operator_stop()
+    assert rig.app.stopped_by == 'operator' and ('stop', 'stopped by operator') in rig.app.calls
+
+
+def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
+    c = claim(rig)
+    req = ch.request('claim', 'claude-3f2a', {'reason': 'second agent, same id'})
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['error'] == 'duplicate_who' and ch.exit_code(reply) == 2
+    assert f'already holds {c}' in reply['hint'] and 'own --who' in reply['hint']
+    req = ch.request('claim', 'codex-77aa', {})
+    rig.desk.tick()
+    assert final(req['id'])['error'] == 'busy'

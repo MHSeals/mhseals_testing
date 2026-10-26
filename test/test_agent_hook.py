@@ -531,3 +531,117 @@ def test_every_shell_safety_deny_names_the_proper_route():
                           ('rm /data/agent/stop', 'touch it or use stop')):
         reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), config=hook.DEFAULTS)
         assert says in reason and 'boat_agent' in reason, reason
+
+
+# --- restriction audit (10-26): development is free, the boat routes are right ---------------------------------
+
+@pytest.mark.parametrize('command', [
+    'vim src/mhseals_hardware/mhseals_hardware/command_mux.py', 'sed -i s/a/b/ src/mhseals_hardware/mhseals_hardware/command_mux.py', 'ls -la src/mhseals_hardware/mhseals_hardware/command_mux.py', 'python3 -m pytest src/mhseals_hardware/test -q',
+    'black src/mhseals_hardware/mhseals_hardware/command_mux.py && git add src/mhseals_hardware/mhseals_hardware/command_mux.py', 'rm -rf build/mhseals_testing/agent/', 'rm -rf install/mhseals_testing/agent',
+    'cp config/agent.yaml /tmp/x.yaml', 'cp -a src/mhseals_testing/config/agent.yaml /tmp/agent-copy.yml',
+    'grep -rn pkill src | cut -d: -f1 | sort | uniq -c', "find src -name '*.py' | sort",
+    "jq .hook /tmp/a.json", 'diff a/agent.yaml b/agent.yaml', 'ls src/ && stat config/agent.yaml'])
+def test_development_of_the_safety_code_is_not_denied(command):
+    assert hook.denied(command, hook.DEFAULTS) is None
+
+
+@pytest.mark.parametrize('command', ["grep -rn 'ros2 topic pub /cmd_vel' src | cut -d: -f1 | sort -u",
+                                     "rg -l pkill src | head -3", "find . -name '*.py' -newer a | wc -l",
+                                     "ls -1 src | nl", "jq -r .deny[] c.json | tr a-z A-Z | column -t"])
+def test_more_read_only_tools_are_tier_a(command):
+    assert hook.text_only(command)
+
+
+@pytest.mark.parametrize('command', ['find . -name x -delete', "find . -exec rm {} ';'", 'find . -fprint out',
+                                     'sort -o out in', 'sort --output=out in', 'uniq in out', 'file -C -m m'])
+def test_tier_a_tools_that_write_or_run_are_not(command):
+    assert not hook.text_only(command)
+
+
+@pytest.mark.parametrize('command', [
+    'python3 -m mhseals_hardware.command_mux', 'python3 src/mhseals_hardware/mhseals_hardware/command_mux.py', 'python3 -c "import mhseals_hardware.command_mux"',
+    "python3 -c 'import runpy; runpy.run_module(\"mhseals_hardware.command_mux\")'",
+    'install/mhseals_hardware/lib/mhseals_hardware/command_mux', 'ros2 run mhseals_hardware thruster_test --help'])
+def test_running_the_driver_or_mux_is_still_arming(command):
+    hit = hook.denied(command, hook.DEFAULTS)
+    assert hit and 'arming' in hook.deny_reason(*hit, config=hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('command', ['cp ~/x/agent.yaml config/', 'cp /tmp/x.yaml config/agent.yaml',
+                                     'rsync -a /tmp/agent.yaml ~/astro_dock/src/mhseals_testing/config/agent.yaml',
+                                     'ln -sf /tmp/agent.yaml config/', 'rm -rf agent', 'rm -rf $MHSEALS_DATA/agent',
+                                     'rm -rf ~/agent', 'find bags/agent/* -delete', 'rm /data/run/agent/stop'])
+def test_writes_to_agent_yaml_and_the_stop_dir_stay_denied(command):
+    assert hook.denied(command, hook.DEFAULTS)
+
+
+def test_pkill_routes_to_kill_by_pid_not_to_stopping_the_boat():
+    hit = hook.denied('pkill -f pytest', hook.DEFAULTS)
+    reason = hook.deny_reason(*hit, who='claude-3f2a', config=hook.DEFAULTS)
+    assert 'kill PID' in reason and 'kill %JOB' in reason and 'Use: ' not in reason and hook.use_of(hit[0]) == 'kill PID'
+    for command in ('killall -u lunarz python3', 'pgrep x | xargs kill'):
+        assert 'kill PID' in hook.deny_reason(*hook.denied(command, hook.DEFAULTS), config=hook.DEFAULTS)
+    reason = hook.deny_reason(*hook.denied('pkill -f command_mux', hook.DEFAULTS), config=hook.DEFAULTS)
+    assert "the boat's control" in reason and 'boat_agent stop --who' in reason
+
+
+def test_arming_on_a_boat_routes_to_run_and_the_operators_arm_panel():
+    hit = hook.denied('ssh blastoise-odroid ros2 run mhseals_hardware command_mux', hook.DEFAULTS)
+    reason = hook.deny_reason(*hit, config=hook.DEFAULTS)
+    assert 'run KEY --claim ID' in reason and '--sim-arm --claim' not in reason and 'arm panel' in reason
+    reason = hook.deny_reason(*hook.denied('ros2 run mhseals_hardware command_mux', hook.DEFAULTS),
+                              config=hook.DEFAULTS)
+    assert 'run KEY --sim-arm --claim ID' in reason and 'MHSEALS_SIM_ARM=1' in reason
+
+
+def test_a_boat_session_target_also_drops_sim_arm(monkeypatch):
+    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise-odroid')
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    hit = hook.denied('python3 -m mhseals_hardware.command_mux', hook.DEFAULTS)
+    reason = hook.deny_reason(*hit, config=hook.DEFAULTS)
+    assert 'run KEY --claim ID' in reason and '--sim-arm --claim' not in reason
+
+
+@pytest.mark.parametrize('command, says', [
+    ('ros2 lifecycle set /bt_navigator shutdown', "Nav2's servers"),
+    ("ros2 topic pub /chatter std_msgs/String data:mavros\n/cmd_vel", 'raw motion'),
+    ('ros2 run mhseals_hardware command_mux --ros-args -p a:=agent.yaml', 'arming')])
+def test_the_reason_follows_the_rule_that_matched(command, says):
+    reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), config=hook.DEFAULTS)
+    assert says in reason and 'FCU' not in reason
+
+
+@pytest.mark.parametrize('command, route', [
+    ('ros2 topic pub /thruster_pwm_node/test_pulses std_msgs/UInt16MultiArray "{data: [1600]}"', 'run KEY --claim'),
+    ('ros2 lifecycle set /controller_server deactivate', 'ask "..."'),
+    ('ros2 param set /controller_server FollowPath.max_vel_x 2.0', 'ask "..."'),
+    ('ros2 param set /collision_monitor enabled false', 'ask "..."'),
+    ('ros2 service call /lifecycle_manager_navigation/manage_nodes nav2_msgs/srv/ManageLifecycleNodes "{command: 1}"',
+     'ask "..."'),
+    ('ros2 service call /velocity_smoother/set_parameters rcl_interfaces/srv/SetParameters "{}"', 'ask "..."'),
+    ('ros2 run mhseals_nav run_task --task gate', 'run mission --task NAME --claim'),
+    ('python3 -m mhseals_nav.tasks.interface', 'run mission --task NAME --claim'),
+    ('python3 -m mhseals_testing.procedures.nav', 'run KEY --claim')])
+def test_raw_pulses_nav2_changes_and_direct_mission_runs_go_through_boat_agent(command, route):
+    reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), who='claude-3f2a', config=hook.DEFAULTS)
+    assert f'tools/boat_agent {route}' in reason and '--who claude-3f2a' in reason
+
+
+@pytest.mark.parametrize('command', ['ros2 lifecycle get /controller_server', 'ros2 param get /bt_navigator x',
+                                     'ros2 topic echo /thruster_pwm_node/test_pulses', 'ros2 run mhseals_nav mission_check'])
+def test_reading_nav2_and_the_driver_stays_allowed(command):
+    assert hook.denied(command, hook.DEFAULTS) is None
+
+
+def test_no_session_gets_a_random_id_never_a_shared_one(monkeypatch):
+    monkeypatch.delenv('BOAT_AGENT', raising=False)
+    ids = iter(['a1b2', 'c3d4'])
+    monkeypatch.setattr(hook.secrets, 'token_hex', lambda n: next(ids))
+    assert [hook.who_of({'agent': 'claude'}), hook.who_of({})] == ['claude-a1b2', 'agent-c3d4']
+    assert hook.who_of({'agent': 'codex', 'session_id': '9F-3e-00'}) == 'codex-9f3e'
+
+
+def test_the_playbook_matches_playbook_md():
+    text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
+    assert 'ssh only to run boat_agent' in text and '.handoff/tools/heavy' in text
+    assert 'MHSEALS_SIM_ARM=1' in text and 'export BOAT_AGENT=claude-3f2a' in text and 'exact PID' in text
