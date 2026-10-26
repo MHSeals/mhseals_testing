@@ -19,7 +19,7 @@ import math
 from mhseals_testing.analysis.geometry import HULL, hull_clearance
 
 SCHEMA = 'mhseals.score/1'
-VERSION = 5                    # 5: harness run record + journal (state/referee.md "v5")
+VERSION = 6                    # 6: timeslot check, reliability + verdict (state/referee.md "v6")
 RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
 STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
 PARAMS = dict(
@@ -53,7 +53,11 @@ PARAMS = dict(
     time_limit_s=None,          # owner sets the official duration; no default is guessed: a
                                 # run without session.json time_limit_s has its earned rows
                                 # provisional (v4; v3 assumed 300 s, the mission config 1800 s)
+    timeslot_s=900.0,           # owner, 2026-10-26 (TIMESLOT_CITE): a run's recorded
+                                # time_limit_s above this is flagged; never used as the window
 )
+TIMESLOT_CITE = 'owner, 2026-10-26 (15-minute timeslot per run slot; the handbook gives no ' \
+    'length: H §3.5 p.59, live §3.5 and §4.2 say "time slot" only)'
 DOCK_PARTS = ('pier_spine', 'pier_tine', 'dock_sign', 'dock_indicator')  # docking touches these
 INTERVENING = ('rc', 'keyboard', 'hold', 'external')   # authority owners that are not autonomy
 LEGACY_TASKS = {'nav_channel': 'entry_gates', 'follow_path': 'debris_clearance',
@@ -929,9 +933,22 @@ def judge_record(record):
               'fall after it'
         _provisional(body, why)
         body['run']['warnings'].append(why + ' (scored to the track end, rows provisional)')
+    body['run']['timeslot'] = timeslot(record['time_limit_s'])
+    if body['run']['timeslot']['over']:
+        body['run']['warnings'].append(
+            f"time_limit_s {record['time_limit_s']:g} s is over the {PARAMS['timeslot_s']:g} s "
+            'timeslot (owner, 2026-10-26): the run budget exceeds the slot')
     body['penalties']['contact_basis'] = CONTACT_BASIS[caps['contacts']]
     _totals(body)
     return body
+
+
+def timeslot(limit):
+    """The run's recorded budget against the owner's timeslot: a flag, never the window (the
+    run's own ``time_limit_s`` stays the scored window; none is not defaulted)."""
+    slot = PARAMS['timeslot_s']
+    return dict(timeslot_s=slot, cite=TIMESLOT_CITE, run_time_limit_s=limit,
+                over=None if limit is None or slot is None else limit > slot)
 
 
 def summary(report):

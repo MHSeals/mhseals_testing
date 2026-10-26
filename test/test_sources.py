@@ -67,7 +67,8 @@ def sim_sessions(root):
 
 
 NEW_KEYS = (('run', 'capabilities'), ('run', 'time_limit_s'), ('scorer', 'version'),
-            ('diagnostics', 'version'), ('params', 'time_limit_s'))
+            ('diagnostics', 'version'), ('params', 'time_limit_s'), ('run', 'timeslot'),
+            ('params', 'timeslot_s'))    # v6 adds the timeslot check and reliability
 
 
 def digest(record):
@@ -76,6 +77,7 @@ def digest(record):
     rec = json.loads(json.dumps(record))
     for a, b in NEW_KEYS:
         rec.get(a, {}).pop(b, None)
+    rec.pop('reliability', None)
     return hashlib.sha256(json.dumps(rec, sort_keys=True).encode()).hexdigest()
 
 

@@ -9,7 +9,8 @@ Record::
 
     {source, session, run_id | None, meta, truth, track [(t, x, y, yaw)],
      window (t0, t1, end reason), time_limit_s | None, window_source,
-     authority [{t, by, cause}], authority_problem, horn_note,
+     authority [{t, by, cause}], authority_known, authority_problem, horn_note,
+     mission_stop {outcome, by, cause} | None, mission_stop_why,
      changes [{t_sim, id, value}], state_log_detail [str], task_events, statuses,
      contacts_reported [{t, object, by}] | None, caps}
 
@@ -253,7 +254,13 @@ def _files(session, run, time_limit_s):
         if approximate and any(c['value'] != 'off' for c in heard):
             horn_note = 'the horn time is aligned on mission_start, not the launch'
     claims = at('task_events').exists() or at('task_status').exists()
+    stop = (part or {}).get('ended')
     return dict(session=session, run_id=(run or {}).get('run_id'), meta=meta, truth=truth,
+                authority_known=offset is not None,
+                mission_stop=None if not stop else {k: stop.get(k)
+                                                    for k in ('outcome', 'by', 'cause')},
+                mission_stop_why=None if stop else 'no journal mission_start' if not part
+                else 'the journal has no mission_stop for this run',
                 track=track, window=window, time_limit_s=limit, state_log_detail=detail,
                 window_source=window_source, authority=authority,
                 authority_problem='; '.join(warnings) or None, horn_note=horn_note,

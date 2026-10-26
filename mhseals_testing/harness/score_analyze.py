@@ -24,7 +24,7 @@ from pathlib import Path
 import sys
 
 from mhseals_testing import data
-from mhseals_testing.analysis import diagnostics, run_record, score
+from mhseals_testing.analysis import diagnostics, reliability, run_record, score
 
 CLAIM_EVENTS = ('stage_completed', 'stage_failed', 'stage_skipped', 'gate_cleared', 'docked',
                 'undocked', 'debris', 'speed_started', 'speed_finished', 'returned_home')
@@ -124,6 +124,8 @@ def analyze(session, now=None):
         body['diagnostics'].update(diagnostics.diagnose(run, model, body, task_events,
                                                         rec['statuses'], trigger))
         body['penalties']['contacts'] = body['diagnostics']['contacts']['counts']
+    body['reliability'] = reliability.run_flags(body, rec['authority_known'],
+                                                rec['mission_stop'], rec['mission_stop_why'])
     record = dict(summary=score.summary(body),
                   scorer=dict(version=score.VERSION, rules=score.RULES,
                               handbook_sha256=(truth.get('handbook') or {}).get('sha256')),
@@ -149,6 +151,11 @@ def metrics(record):
         out[f'contacts.{kind}'] = n
     end = record['run']['end']['reason']
     out['exited'] = float(record['run'].get('exit_t') is not None)
+    clean = (record.get('reliability') or {}).get('clean')
+    if clean is not None:
+        out['clean_run'] = float(clean)
+        if clean:                            # time to the exit, clean runs only (conditional)
+            out['clean_time_s'] = record['run']['duration_s']
     ends = ('time_limit', 'intervention', 'out_of_bounds', 'track_end')
     out.update({f'end.{k}': float(k == end) for k in ends})
     if touch:
@@ -169,13 +176,15 @@ def metrics(record):
     return out
 
 
-BINARY = ('entered', 'exited', 'contact_free', 'safe_exit', 'end.', 'completed.')
+BINARY = ('entered', 'exited', 'contact_free', 'safe_exit', 'end.', 'completed.', 'clean_run')
 LABELS = {
     'time_s.*': 'completed runs only (survivorship): read beside completed.* (completion rate)',
     'time_cut_s.*': 'every run that encountered the task; an incomplete run counts at its '
                     'cutoff, so its mean is a lower bound',
     'binary': 'rates (entered, exited, contact_free, safe_exit, end.*, completed.*): Wilson '
               'interval; differences: Newcombe hybrid score interval',
+    'clean_time_s': 'scored time (start to exit) of clean runs only: compared only after the '
+                    'failure rate is non-inferior (reliability.decision)',
     'clear': 'interval excludes 0, unadjusted; clear_holm: Holm-adjusted p < 0.05 over every '
              'metric compared (one family)'}
 
@@ -225,12 +234,7 @@ def _norm_p(z):
     return math.erfc(abs(z) / math.sqrt(2))
 
 
-def wilson(k, n, z=1.959964):
-    """Wilson score interval for k successes in n."""
-    p = k / n
-    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return max(0.0, centre - half), min(1.0, centre + half)
+wilson = reliability.wilson
 
 
 def stats(values, binary=False):
@@ -251,8 +255,9 @@ def stats(values, binary=False):
     return out
 
 
-def batch(records):
-    """Aggregate per metric across runs; sources and course seeds are listed."""
+def batch(records, points_at_least=None):
+    """Aggregate per metric across runs; sources and course seeds are listed; reliability
+    (failure rate, categories, finals view) when the reports carry it."""
     rows = [metrics(r) for r in records]
     keys = sorted({k for r in rows for k in r})
     out = dict(runs=len(records),
@@ -266,7 +271,17 @@ def batch(records):
         time_s_completed_only=out['metrics'].get('time_s.' + k[len('completed.'):]),
         time_cut_s_incl_incomplete=out['metrics'].get('time_cut_s.' + k[len('completed.'):]))
         for k in out['metrics'] if k.startswith('completed.')}
+    if all('reliability' in r for r in records):
+        out['reliability'] = reliability.batch(records, points_at_least)
     return out
+
+
+def decide(a, b, b_minus_a, margin=None):
+    """Unpaired reliability-first decision: batch ``a`` is the baseline, ``b`` the candidate."""
+    if 'reliability' not in a or 'reliability' not in b:
+        return None
+    ni = reliability.unpaired_ni(a['reliability'], b['reliability'], margin)
+    return reliability.decision(ni, b_minus_a.get('clean_time_s'), b_minus_a.get('points'))
 
 
 def mixing(a, b):
@@ -357,7 +372,19 @@ def _pairs(pairs_file):
     return out
 
 
-def paired(pairs_file, force=False):
+def decide_pairs(recs, b_minus_a, margin=None):
+    """Paired reliability-first decision (side a the baseline): pairs whose cleanliness is
+    known on both sides; time from pairs clean on both sides (``clean_time_s``)."""
+    if not all('reliability' in r for pair in recs for r in pair):
+        return None
+    known = [(not a['reliability']['clean'], not b['reliability']['clean']) for a, b in recs
+             if a['reliability']['clean'] is not None and b['reliability']['clean'] is not None]
+    ni = reliability.paired_ni(known, margin)
+    ni['pairs_unknown'] = len(recs) - len(known)
+    return reliability.decision(ni, b_minus_a.get('clean_time_s'), b_minus_a.get('points'))
+
+
+def paired(pairs_file, force=False, margin=None):
     """B - A per explicit pair (``mhseals.score_pairs/1``): the pair file says which run
     matches which (same seed and order in the lower and the higher tier), so tiers may differ;
     every pair must be the same source pair. Rates: discordant counts and exact McNemar p;
@@ -407,11 +434,14 @@ def paired(pairs_file, force=False):
     for v in out.values():
         v['clear'] = v.get('p') is not None and v['p'] < 0.05
     _holm(out)
+    decision = decide_pairs(recs, out, margin)
     result = dict(schema='mhseals.score_pairs/1', pairs_file=str(pairs_file), loop=loop,
                   sources=dict(a=kind[0], b=kind[1]), n_pairs=len(rows),
                   pairs=[{k: r.get(k) for k in ('a_session', 'b_session', 'seed', 'order')}
                          for r in rows],
                   capability_differences=gaps, b_minus_a=out)
+    if decision:
+        result.update(verdict=decision['line'], decision=decision)
     if why:
         result['forced'] = why
     return result
@@ -444,24 +474,36 @@ def main(argv=None, out=None):
                              'order}): B - A per pair, across tiers (fast<->Unity, Unity<->real)')
     parser.add_argument('--force', action='store_true',
                         help='compare batches that mix sources or differ in seed set')
+    parser.add_argument('--failure-margin', type=float, default=None,
+                        help='non-inferiority margin on the failure rate (default '
+                             f"{reliability.RPARAMS['failure_margin']}, owner to confirm)")
+    parser.add_argument('--points-at-least', type=float, default=None,
+                        help='X for the finals view P(points >= X) (default '
+                             f"{reliability.RPARAMS['points_at_least']})")
     args = parser.parse_args(argv)
     if args.paired:
         try:
-            result = paired(args.session, args.force)
+            result = paired(args.session, args.force, args.failure_margin)
         except Refused as error:
             print(f'refused: {error}', file=sys.stderr)
             return 2
+        if result.get('verdict'):
+            print(result['verdict'], file=sys.stderr)
         if result.get('forced'):
             print('FORCED pairing: ' + '; '.join(result['forced']), file=sys.stderr)
         print(json.dumps(result, indent=2), file=out or sys.stdout)
         return 0
     if args.batch:
         try:
-            first = batch(_records([args.session]))
+            first = batch(_records([args.session]), args.points_at_least)
             result = dict(schema='mhseals.score_batch/1', a=first)
             if args.compare:
-                second = batch(_records([args.compare]))
+                second = batch(_records([args.compare]), args.points_at_least)
                 result.update(b=second, b_minus_a=compare(first, second, args.force))
+                decision = decide(first, second, result['b_minus_a'], args.failure_margin)
+                if decision:
+                    result.update(verdict=decision['line'], decision=decision)
+                    print(decision['line'], file=sys.stderr)
                 if args.force and mixing(first, second):
                     print('FORCED comparison, not like for like: ' +
                           '; '.join(mixing(first, second)), file=sys.stderr)
