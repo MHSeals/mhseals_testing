@@ -377,7 +377,9 @@ def network_file():
 
 def boats(config):
     """Every name a boat computer goes by: ``hook.hosts``, a boat ``$BOAT_AGENT_TARGET``, the hostnames
-    and addresses of STATIC_LEASES in config/boat-network.env, and ~/.ssh/config aliases for any of them."""
+    and addresses of STATIC_LEASES in config/boat-network.env (astro_dock's; a checkout without it, such as CI,
+    knows no boat addresses, so ``denied`` then treats any private-LAN address as a boat), and ~/.ssh/config
+    aliases for any of them."""
     names = set(config['hosts']) | {target_of(config)} - {'local'}
     try:
         leases = re.search(r'^STATIC_LEASES="?([^"\n]*)', network_file().read_text(), re.M).group(1)
@@ -405,8 +407,10 @@ def denied(command, config):
     if text_only(command):
         return None
     text, names = plain(command), boats(config)
-    found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(map(re.escape, sorted(names, key=len, reverse=True))),
-                      text) if names else None
+    alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
+    if network_file() is None:      # no boat-network.env (a checkout without astro_dock): fail closed, any private-LAN address
+        alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
+    found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(alternatives), text) if alternatives else None
     host = found.group(1) if found else (hostname().split('.')[0] if hostname().split('.')[0] in names else None)
     for pattern in config['deny'] + (config['deny_boat'] if host else []):
         match = re.search(pattern, text, re.S)

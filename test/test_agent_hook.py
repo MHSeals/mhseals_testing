@@ -13,6 +13,17 @@ from mhseals_testing.harness import agent_channel, agent_config
 SID = '3f2a9c1e-0000-4000-8000-000000000000'
 
 
+@pytest.fixture(autouse=True)
+def boat_network(tmp_path_factory, monkeypatch):
+    """A temporary boat-network.env, so the tests do not depend on astro_dock being checked out (CI)."""
+    path = tmp_path_factory.mktemp('astro_dock') / hook.NETWORK
+    path.parent.mkdir()
+    path.write_text('STATIC_LEASES="56:e2:03:5c:60:22=blastoise-odroid=192.168.0.152 '
+                    '3c:6d:66:bf:6b:e2=blastoise-jetson=192.168.0.153"\n')
+    monkeypatch.setattr(hook, 'network_file', lambda: path)
+    return path
+
+
 @pytest.fixture
 def sent(tmp_path, monkeypatch):
     """``sent(event, command, ...)``: one neutral event from astro_dock's .agents/hook.py."""
@@ -212,6 +223,14 @@ def test_the_boat_addresses_come_from_the_network_file(tmp_path, monkeypatch):
     assert {'boatpc', '10.9.8.7', 'boatpc2', '10.9.8.8'} <= hook.boats(hook.DEFAULTS)
     assert hook.denied('ssh me@10.9.8.8 reboot', hook.DEFAULTS)[1] == '10.9.8.8'
     assert hook.denied('ssh 10.9.8.80 reboot', hook.DEFAULTS) is None
+
+
+def test_without_a_network_file_any_private_lan_address_is_a_boat(monkeypatch):
+    monkeypatch.setattr(hook, 'network_file', lambda: None)
+    assert hook.denied('ssh roboboat@192.168.0.152 sudo systemctl stop x', hook.DEFAULTS)[1] == '192.168.0.152'
+    assert hook.denied('ssh me@10.1.2.3 reboot', hook.DEFAULTS)
+    assert hook.denied('ssh me@8.8.8.8 reboot', hook.DEFAULTS) is None
+    assert hook.denied('ping 192.168.0.1', hook.DEFAULTS) is None
 
 
 def test_matching_is_fast():
