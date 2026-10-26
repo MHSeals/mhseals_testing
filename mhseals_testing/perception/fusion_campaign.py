@@ -439,7 +439,12 @@ def metrics(out, statics, elements, cfg):
                 i = int(np.argmin(d))
                 if d[i] > cfg['truth_match_m'] or elements[i]['label'] != tr['cls']:
                     continue
-                ids.setdefault(i, set()).add(tr['id'])
+                # Ids count unambiguous matches only: a track among same-class buoys 0.6 m
+                # apart (S4's pairs, the 19 m cluster) was credited to each by turns, so
+                # resolving a merged box read as switches while never resolving it did not.
+                if sum(elements[j]['label'] == tr['cls']
+                       for j in np.nonzero(d <= cfg['truth_match_m'])[0]) == 1:
+                    ids.setdefault(i, set()).add(tr['id'])
                 if tr['cls'].endswith('_buoy'):
                     total += dt
                     moving += dt * (tr['motion'] == 2)
