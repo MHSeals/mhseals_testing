@@ -647,13 +647,23 @@ def test_handover_cancels_the_act_but_keeps_the_claim(rig):
     assert rig.app.nav.goal.cancelled and rig.registry.data['authority']['claims'][0]['id'] == c
 
 
-def test_stop_needs_no_claim_and_cancels_the_act(rig):
+def test_another_agents_stop_needs_no_claim_and_names_the_stopper(rig):
     c = claim(rig)
     rig.app.settings.agent_motion = 'allow'
     goal = ask(rig, 'goal', c, x=5, y=0)
     req = ch.request('stop', 'other-agent')
     rig.desk.tick()
     assert final(req['id'])['ok'] and ('hold', 'keys') in rig.app.calls and not rig.app.armed
+    assert final(goal['id'])['result']['cause'] == 'overridden: agent other-agent'
+
+
+def test_an_agents_own_stop_reads_stop(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    goal = ask(rig, 'goal', c, x=5, y=0)
+    req = ch.request('stop', 'claude-3f2a')
+    rig.desk.tick()
+    assert final(req['id'])['ok'] and not rig.app.armed
     assert final(goal['id'])['result']['cause'] == 'stop'
 
 
