@@ -405,6 +405,20 @@ def test_a_key_the_node_does_not_declare_refuses_the_whole_request(world):
     assert FOLLOW + 'Ghost.weight' in receipt['refused'] and world.calls == []
 
 
+
+@pytest.mark.parametrize('keys', [dict(vx_max=5.0), dict(wz_max=1e6), dict(vx_min=-5.0),
+                                  dict(ax_min=-0.7, wz_max=0.4)])
+def test_a_value_beyond_the_launch_ceilings_is_refused_and_sets_nothing(world, keys):
+    receipt = make(world).apply(ask(**keys))
+    assert receipt['status'] == 'refused'
+    assert 'cannot derive the request' in receipt['refused'] and 'ceiling' in receipt['refused']
+    assert world.calls == [] and world.sets() == []
+
+
+def test_a_value_within_the_launch_ceilings_still_goes_through(world):
+    assert make(world).apply(ask(vx_max=0.8))['status'] == 'verified'
+
+
 def reset_calls(world):
     return [c[1] if c[0] == 'lifecycle' else c[0] for c in world.calls
             if c[0] in ('lifecycle', 'set')]

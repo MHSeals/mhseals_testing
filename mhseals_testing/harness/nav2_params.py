@@ -29,6 +29,19 @@ def _rules_path():
         return source
 
 
+def _ceilings():
+    """mhseals_nav's ceilings (source tree, else installed share), strictly loaded: a missing or bad file raises."""
+    from mhseals_nav import navigation_config, startup_projection
+    path = startup_projection.ceilings_path()
+    if not path.is_file():
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            path = startup_projection.ceilings_path(get_package_share_directory('mhseals_nav'))
+        except (ImportError, KeyError):
+            pass
+    return navigation_config.load_ceilings(path)
+
+
 def live_patterns(path=None):
     """Return the fnmatch patterns of the keys a running stack applies by itself."""
     return yaml.safe_load(Path(path or _rules_path()).read_text())['live']
@@ -125,10 +138,17 @@ def plan(changes, current, declared=None, patterns=None):
     # historical plugin-free fixtures retain the partial-helper compatibility.
     plugin_aware = 'controller_plugins' in controller or any(
         isinstance(value, dict) and 'plugin' in value for value in controller.values())
-    compile_values = navigation_config.lower_navigation
+    # The launch ceilings bound a live request too: beyond one is refused, as at launch.
+    ceilings = _ceilings()
+
+    def compile_values(base, explicit):
+        return navigation_config.lower_navigation(
+            base, navigation_config.within_ceilings(ceilings, explicit, strict=True))
     if plugin_aware:
         navigation_config.validate_navigation_base(base)
-        compile_values = navigation_config.validated_merge_limits
+
+        def compile_values(base, explicit):
+            return navigation_config.validated_merge_limits(base, explicit, ceilings)
     before = _flat(compile_values(base, {}))
     after = _flat(compile_values(base, explicit))
     # Requested values may be capped or normalized by the compiler too.

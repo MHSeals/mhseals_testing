@@ -32,6 +32,8 @@ def factory(nav_root, share):
     share.mkdir()
     import shutil
     shutil.copytree(nav_root / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    (share / 'config').mkdir()
+    shutil.copyfile(nav_root / 'config/nav2_ceilings.yaml', share / 'config/nav2_ceilings.yaml')
     (share / 'launch').mkdir()
     shutil.copyfile(source, share / 'launch/navigation.launch.py')
     actions = types.ModuleType('launch.actions')

@@ -195,8 +195,9 @@ def test_selected_overlay_missing_is_empty_invalid_is_rejected(tmp_path):
     {FOLLOW + 'vx_min': -0.8},
     {FOLLOW + 'vx_max': 1},
 ])
-def test_complete_preview_emits_canonical_caps_and_numeric_types(changes):
+def test_complete_preview_emits_canonical_caps_and_numeric_types(changes, monkeypatch):
     from mhseals_nav import navigation_config as domain
+    monkeypatch.setattr(n2, '_ceilings', lambda: {})   # caps and types; the ceilings have their own tests
 
     current = {**CURRENT, 'controller_server.controller_plugins': ['FollowPath'],
                FOLLOW + 'plugin': 'nav2_mppi_controller::MPPIController',
@@ -213,3 +214,29 @@ def test_complete_preview_emits_canonical_caps_and_numeric_types(changes):
     else:
         emitted = result['reset']['controller_server']['FollowPath.vx_max']
         assert emitted == 1.0 and type(emitted) is float
+
+
+def _plugin_aware(current):
+    current = dict(current)
+    current.update({'controller_server.controller_plugins': ['FollowPath'],
+                    FOLLOW + 'plugin': 'nav2_mppi_controller::MPPIController', FOLLOW + 'vx_std': 0.3,
+                    FOLLOW + 'vy_std': 0.1, FOLLOW + 'wz_std': 0.2,
+                    FOLLOW + 'rotate_to_heading_angular_vel': 0.3})
+    return current
+
+
+@pytest.mark.parametrize('aware', [False, True])
+@pytest.mark.parametrize('changes', [{FOLLOW + 'vx_max': 5.0}, {FOLLOW + 'vx_min': -5.0},
+                                     {FOLLOW + 'wz_max': float('1e6')}])
+def test_plan_refuses_values_beyond_the_launch_ceilings(aware, changes):
+    current = _plugin_aware(CURRENT) if aware else CURRENT
+    with pytest.raises(ValueError, match='ceiling'):
+        n2.plan(changes, current)
+    assert n2.plan({FOLLOW + 'vx_max': 0.8}, current)['live'] or n2.plan({FOLLOW + 'vx_max': 0.8}, current)['reset']
+
+
+def test_plan_without_the_ceilings_file_refuses(monkeypatch, tmp_path):
+    from mhseals_nav import startup_projection
+    monkeypatch.setattr(startup_projection, 'ceilings_path', lambda share=None: tmp_path / 'absent.yaml')
+    with pytest.raises(FileNotFoundError):
+        n2.plan({FOLLOW + 'vx_max': 0.5}, CURRENT)
