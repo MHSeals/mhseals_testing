@@ -19,7 +19,7 @@ from mhseals_testing import physics_record
 from mhseals_testing.analysis import physics
 from mhseals_testing.strict_yaml import load_strict
 
-DOCK_STEPS = ('weigh_in',)
+DOCK_STEPS = ('weigh_in', 'dock_noise')
 THRUST_STEPS = ()
 
 
@@ -161,7 +161,38 @@ class Log:
                     overridden=sum(segment['overridden'] for segment in self.segments))
 
 
-STEPS = dict(weigh_in=weigh_in)
+CHANNELS = (('odometry', 'vx'), ('odometry', 'vy'), ('odometry', 'wz'), ('gyro', 'wz'))
+
+
+def dock_noise(ctx, cfg):
+    """Sensor sigma per channel with the boat tied tight and still: the part of the wave floor that is sensor."""
+    ctx.prompt(f'Boat tied tight at the dock, disarmed, nobody aboard or touching lines. '
+               f'{cfg["seconds"]:g} s of recording. Press Enter... ', 'Dock noise')
+    with ctx.observe('physics_dock_noise') as runner:
+        start = ctx.monitor.clock()
+        runner.supervise(cfg['seconds'], label='recording sensor noise (tied)')
+        end = ctx.monitor.clock()
+    gyro_name = getattr(ctx.monitor, 'gyro_sensor', None)
+    series = dict(odometry=ctx.history(start, end), gyro=ctx.history(start, end, gyro_name) if gyro_name else [])
+    noise = {}
+    for source, key in CHANNELS:
+        rows = [(t, v.get(key)) for t, v in series[source]]
+        found = physics.channel_noise(*zip(*rows)) if rows else None
+        if found:
+            noise[f'{source}.{key}'] = found
+    if 'odometry.vx' not in noise:
+        raise Refused('too few odometry samples in the recording')
+    body = dict(window=[start, end], noise=noise,
+                units=dict(sigma='m/s for vx, vy; rad/s for wz', lag1='-', window='s, monitor clock'),
+                counts={name: found['n'] for name, found in noise.items()},
+                summary=dict(sigma={name: round(found['sigma'], 5) for name, found in noise.items()}))
+    samples = dict(clock='monitor receive time, s', odometry=[[t, *(v.get(k) for k in ('vx', 'vy', 'wz'))]
+                                                              for t, v in series['odometry']],
+                   gyro=[[t, v.get('wz')] for t, v in series['gyro']])
+    return body, samples, None
+
+
+STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise)
 
 
 def _run(ctx, step, allowed):

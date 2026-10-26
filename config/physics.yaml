@@ -4,3 +4,5 @@ weigh_in:
   mass_kg: [5.0, 120.0]      # accepted range of the scale reading
   cg_m: 1.0                  # |CG offset| from base_link accepted per axis, m
   bifilar_m: [0.05, 5.0]     # accepted string separation and length, m
+dock_noise:
+  seconds: 60                # tied-tight recording; sigma per channel, then env^2 = wave_floor^2 - sigma^2

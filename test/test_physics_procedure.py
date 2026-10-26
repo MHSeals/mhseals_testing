@@ -182,3 +182,22 @@ def test_require_driver_refuses_on_the_boat_without_a_status(tmp_path):
         physics.require_driver(ctx)
     ctx, _ = make_ctx(tmp_path, status='ok')
     assert physics.require_driver(ctx)['pending_restart_keys'] == []
+
+
+def test_dock_noise_records_sigma_per_channel_after_removing_a_slow_swing(tmp_path):
+    boat = Boat(noise=0.004)
+    boat.v = [0.0, 0.0, 0.0]
+    ctx, records = make_ctx(tmp_path, runner=boat, dock_step='dock_noise')
+    result = physics.dock(ctx)
+    record = saved(result)
+    noise = record['noise']
+    assert noise['odometry.vx']['sigma'] == pytest.approx(0.004, rel=0.05) and noise['odometry.vx']['n'] == 1200
+    assert noise['odometry.vx']['lag1'] == pytest.approx(-1.0, abs=0.01)    # alternating, white-ish
+    assert noise['gyro.wz']['sigma'] == pytest.approx(0.0, abs=1e-9)
+    assert record['counts']['odometry.vy'] == 1200 and 'sigma' in record['units']
+    assert record['samples_file']['path'].endswith('dock_noise.samples.json')
+
+
+def test_env_floor_never_attributes_when_the_sensor_exceeds_the_floor():
+    assert fits.env_floor(0.05, 0.03) == (pytest.approx(0.04), True)
+    assert fits.env_floor(0.02, 0.03) == (0.0, False)
