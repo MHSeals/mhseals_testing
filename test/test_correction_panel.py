@@ -95,6 +95,7 @@ def test_side_column_fits_a_short_terminal():
     assert len(lines) <= 24 and 'holds' in '\n'.join(lines)
 
 
+@pytest.mark.own_colour_env
 def test_cursor_tint_on_256_colours(monkeypatch):
     monkeypatch.setattr(theme, 'ASCII', False)
     monkeypatch.delenv('NO_COLOR', raising=False)

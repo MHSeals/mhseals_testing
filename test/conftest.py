@@ -9,9 +9,10 @@ import pytest
 from nav_paths import find_nav
 from ros_isolation import isolate_ros_env
 
-# The theme reads NO_COLOR once, at import, and the goldens and style asserts expect colour: a shell
-# that exports NO_COLOR (agent sandboxes do) would otherwise fail them. Tests that want mono set it.
-os.environ.pop('NO_COLOR', None)
+# The theme reads NO_COLOR and the ASCII switches once, at import, and the goldens and style asserts
+# expect Unicode colour: a shell that exports them (agent sandboxes do) would otherwise fail them.
+for _name in ('NO_COLOR', 'MHS_ASCII', 'CX_ASCII'):
+    os.environ.pop(_name, None)
 
 
 def pytest_configure(config):
@@ -39,6 +40,32 @@ def data_root(tmp_path, monkeypatch):
 def no_tmux(monkeypatch):
     """Render goldens must not depend on whether the suite runs inside tmux."""
     monkeypatch.delenv('TMUX', raising=False)
+
+
+@pytest.fixture(autouse=True)
+def shipped_theme(request, monkeypatch, tmp_path_factory):
+    """Truecolor, dark, the shipped theme without the user overlay, whatever the runner's terminal.
+
+    Tests of another tier (16, 256, NO_COLOR, ASCII) are marked ``own_colour_env`` and set their own
+    environment. Either way the theme's module state is put back afterwards, so nothing leaks.
+    """
+    from mhseals_testing.ui import palette, theme
+    saved, hues, glyphs = dict(vars(theme)), dict(theme.AUTHORITY_HUES), dict(theme._GLYPHS)
+    monkeypatch.setattr(palette, 'OVERLAY', tmp_path_factory.mktemp('theme') / 'theme.yaml')   # never written
+    if request.node.get_closest_marker('own_colour_env') is None:
+        for name in ('NO_COLOR', 'COLORFGBG', 'MHS_ASCII', 'CX_ASCII'):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv('COLORTERM', 'truecolor')
+        theme.TINT = True
+    shipped, _ = palette.load_theme(overlay=False)
+    shipped.mode = 'dark'
+    theme.use_palette(shipped)
+    yield
+    vars(theme).update(saved)
+    theme.AUTHORITY_HUES.clear()
+    theme.AUTHORITY_HUES.update(hues)
+    theme._GLYPHS.clear()
+    theme._GLYPHS.update(glyphs)
 
 
 @pytest.fixture(autouse=True)

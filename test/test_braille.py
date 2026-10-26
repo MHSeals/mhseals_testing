@@ -1,6 +1,8 @@
 import importlib
 import math
 
+import pytest
+
 from mhseals_testing.ui import braille, theme
 
 
@@ -85,6 +87,7 @@ def test_ascii_fallback_uses_dots(monkeypatch):
     assert text(empty)[0] == '--'
 
 
+@pytest.mark.own_colour_env
 def test_cx_ascii_alias_and_spinner(monkeypatch):
     monkeypatch.setenv('CX_ASCII', '1')
     try:
@@ -131,6 +134,7 @@ def test_infinite_or_overflowing_windows_plot_nothing():
         assert not c.dots['meas']
 
 
+@pytest.mark.own_colour_env
 def test_cx_ascii_alias_is_read(monkeypatch):
     monkeypatch.delenv('MHS_ASCII', raising=False)
     monkeypatch.setenv('CX_ASCII', '1')

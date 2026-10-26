@@ -235,6 +235,7 @@ def test_heading_row_has_its_cardinal_sigma_and_yaw_trust():
     assert conditions.heading_row({}).plain == f'hdg {theme.DASH}'
 
 
+@pytest.mark.own_colour_env
 @pytest.mark.parametrize('term, colorterm, ramp', [('xterm-256color', '', 4), ('xterm-256color', 'truecolor', 4),
                                                      ('xterm', '', 2)])
 def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues(monkeypatch, term, colorterm, ramp):

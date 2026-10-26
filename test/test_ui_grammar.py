@@ -20,13 +20,13 @@ from mhseals_testing.ui.feeds.health import summary
 
 OBJECT_GLYPHS = '●○▲▴▼■▪⊠◉◆◇△⊕'
 SGR = re.compile(r'\x1b\[([0-9;]*)m')
-STYLE = {'✓': theme.GOOD, '!': theme.WARN, '✗': theme.BAD, '◌': theme.BUSY}
+STATUS = {'✓': 'GOOD', '!': 'WARN', '✗': 'BAD', '◌': 'BUSY'}   # read at call time: conftest pins the theme
 
 
 def hue(glyph):
     """The SGR colour codes the palette token for ``glyph`` renders as in 16 colours."""
     console = Console(file=io.StringIO(), color_system='standard', force_terminal=True)
-    console.print(glyph, style=STYLE[glyph], end='')
+    console.print(glyph, style=getattr(theme, STATUS[glyph]), end='')
     return {c for group in SGR.findall(console.file.getvalue()) for c in group.split(';')} - {'0', '1'}
 
 

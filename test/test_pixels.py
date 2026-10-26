@@ -412,23 +412,7 @@ def test_a_tile_under_a_modal_backdrop_is_drawn_dimmed_like_the_text(tier):
         assert copies[0] in pixels._pending       # uploaded before the frame that names it
 
 
-def test_the_image_rose_paints_the_text_tiers_tokens(monkeypatch):
-    # pinned to the shipped dark theme in truecolor: a 16-colour runner (no COLORTERM, plain TERM)
-    # maps slate to the default fg as text, while the image keeps slate's own hex
-    for name in ('NO_COLOR', 'COLORFGBG'):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv('COLORTERM', 'truecolor')
-    shipped, _ = palette.load_theme(overlay=False)
-    shipped.mode = 'dark'
-    old = theme.PALETTE
-    theme.use_palette(shipped)
-    try:
-        _image_rose_tokens()
-    finally:
-        theme.use_palette(old)
-
-
-def _image_rose_tokens():
+def test_the_image_rose_paints_the_text_tiers_tokens():
     pixels.use('sixel')
     seen = {}
     real = pixels.surface

@@ -62,6 +62,7 @@ def test_eta_waits_two_seconds_and_bar_eases():
     assert t.shown == 1.0
 
 
+@pytest.mark.own_colour_env
 def test_ascii_frame_is_ascii(monkeypatch):
     monkeypatch.setenv('MHS_ASCII', '1')
     importlib.reload(theme)

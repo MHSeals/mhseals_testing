@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from rich.console import Console
 
 from mhseals_testing.ros.camera_feed import CameraFeed
@@ -187,6 +188,7 @@ def test_status_line_shows_rate_age_and_frozen():
     assert v.status().endswith('0.3 s old · frozen')
 
 
+@pytest.mark.own_colour_env
 def test_ascii_or_no_colour_lists_detections_instead_of_half_blocks(monkeypatch):
     bus = Bus()
     v, _ = view(bus, size=(8, 4), detections=lambda size, floor: [((1, 2, 5, 6), (255, 0, 0))])
