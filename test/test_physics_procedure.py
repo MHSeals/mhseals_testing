@@ -280,3 +280,18 @@ def test_survey_refuses_a_backwards_axis(tmp_path):
     ctx, records = make_ctx(tmp_path, runner=Boat(k=(-30.0, 30.0, 10.0)), status='ok', thrust_step='survey',
                             amplitude=1.0)
     assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'backwards' in records[-1]['reason']
+
+
+def test_survey_turns_between_repeats_so_headings_spread():
+    assert fits.heading_spread([0.0, 0.0]) == pytest.approx(1.0)
+    assert fits.heading_spread([0.0, math.pi]) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_survey_records_the_heading_spread_it_reached(tmp_path):
+    boat = Boat(k=(30.0, 30.0, 10.0))
+    ctx, _ = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='survey', amplitude=1.0)
+    record = saved(physics.thrust(ctx))
+    spread = record['heading_spread']
+    assert spread['n'] == 48 and spread['ok'] and spread['R'] < 0.9
+    turns = [s for s in record['holds'] if s['repeat'] == 1]
+    assert abs(math.remainder(turns[0]['yaw'] - record['holds'][23]['yaw'], 2 * math.pi)) > 2.0

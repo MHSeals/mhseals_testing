@@ -33,3 +33,8 @@ survey:
   coast_floor: [0.05, 0.05, 0.05]   # |v| below this is left out of the coast fit (m/s, m/s, rad/s)
   coast_levels: 2            # coasts after the top this-many levels are fitted
   floor_tail_s: 3.0          # the settled tail of each coast measures the wave floor
+  heading_spread: true       # turn 360 / repeats degrees before each repeat, so drift splits into wind and current
+  heading_R_max: 0.9         # mean resultant length of hold headings below which the spread counts
+  turn_effort: 0.3           # yaw effort of the turn
+  turn_chunk_s: 0.5          # the turn is held in chunks, yaw checked after each
+  turn_max_s: 30.0           # the turn stops here however far it got

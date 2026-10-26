@@ -189,3 +189,10 @@ def coast_fit(windows, span=0.4, floor=0.0):
     fit.pop('residuals')        # one per derivative sample; the counts and variance say enough
     return dict(fit, c0=c0, d1_over_m=d1, d2_over_m=d2, n=len(pairs), windows=len(windows),
                 v_range=[float(v.min()), float(v.max())])
+
+
+def heading_spread(headings):
+    """Mean resultant length R of the hold headings (rad): 1 all one way, 0 evenly spread; None without any."""
+    if not headings:
+        return None
+    return float(math.hypot(sum(math.cos(h) for h in headings), sum(math.sin(h) for h in headings)) / len(headings))

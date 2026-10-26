@@ -358,6 +358,8 @@ def survey(ctx, cfg):
     with ctx.motion('physics_survey', levels=levels, repeats=cfg['repeats']) as runner:
         log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'neutral')
         for repeat in range(cfg['repeats']):
+            if repeat and cfg['heading_spread']:
+                turn(ctx, log, runner, 2 * math.pi / cfg['repeats'], cfg)
             for level in (levels if repeat % 2 == 0 else levels[::-1]):
                 for axis in range(3):
                     for sign in (1, -1):
@@ -398,8 +400,12 @@ def survey(ctx, cfg):
     noise = (latest(ctx, 'dock_noise') or {}).get('noise', {})
     env = {key: dict(zip(('value', 'ok'), physics.env_floor(floor[key], noise[f'odometry.{key}']['sigma'])))
            for key in KEYS if floor.get(key) is not None and f'odometry.{key}' in noise}
+    headings = [h['yaw'] for h in per_hold if h['yaw'] is not None and not h['overridden']]
+    spread = physics.heading_spread(headings)
     body = dict(amplitude=amplitude, levels=levels, repeats=cfg['repeats'], speed_curves=curves, coast_down=coasts,
                 holds=per_hold, wave_floor=floor, env_floor=env or None,
+                heading_spread=dict(R=spread, ok=spread is not None and spread < cfg['heading_R_max'],
+                                    max=cfg['heading_R_max'], n=len(headings)),
                 model=dict(curve='e|e| = d1 v + d2 v|v| (e: applied main-axis effort, v: hold mean)',
                            coast='-dv/dt = c0 + d1_over_m v + d2_over_m v|v| (thrust off)'),
                 units=dict(effort='normalized', v='m/s (surge, sway), rad/s (yaw)', d1='effort^2 per v',
@@ -410,6 +416,28 @@ def survey(ctx, cfg):
                 summary=dict(directions={n: dict(d1=round(c['d1'], 4), d2=round(c['d2'], 4), dof=c['dof'])
                                          for n, c in curves.items() if c}))
     return body, log.samples(), driver
+
+
+def turn(ctx, log, runner, angle, cfg):
+    """Yaw the boat by about ``angle`` rad in short effort chunks, closed on odometry yaw, then settle.
+
+    Between repeats, so each level is held at another heading and drift splits into wind and current
+    (design 9 step 7). Stops at ``turn_max_s`` however far it got; the R it reached is in the record.
+    """
+    def yaw():
+        rows = ctx.history(ctx.monitor.clock() - 1.0, ctx.monitor.clock())
+        return next((v['yaw'] for _, v in reversed(rows) if v.get('yaw') is not None), None)
+    begin, turned, elapsed = yaw(), 0.0, 0.0
+    previous = begin
+    while begin is not None and turned < angle and elapsed < cfg['turn_max_s']:
+        log.hold(runner, (0.0, 0.0, cfg['turn_effort']), cfg['turn_chunk_s'], 'turn')
+        elapsed += cfg['turn_chunk_s']
+        now = yaw()
+        if now is not None:
+            turned += math.remainder(now - previous, 2 * math.pi)
+            previous = now
+    log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'neutral')
+    return turned
 
 
 def neutral_floor(rows, coasts, cfg):
