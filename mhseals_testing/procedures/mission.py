@@ -131,6 +131,9 @@ def run(ctx):
     task = ctx.services.get('task') or ctx.choose('Mission', tuple(available()))   # an agent's run names it
     rubric = yaml.safe_load((MISSION_DIR / f'{task}.yaml').read_text())
     services = ctx.services
+    ctx.prompt(f'Rehearse {task}: Nav2 drives the course from here. '
+               'Clear the area and press Enter... ')
+    # After the prompt: the idle sim boat drifts while the operator waits.
     unreset = reset_to_start(ctx)
     if unreset:
         return refuse(ctx, task, unreset)
@@ -139,8 +142,6 @@ def run(ctx):
         return refuse(ctx, task, away)
     watcher = services['task_watcher']()
     watcher.reset()
-    ctx.prompt(f'Rehearse {task}: Nav2 drives the course from here. '
-               'Clear the area and press Enter... ')
     # run_task directly: ros2 launch exits 0 whatever its node's code.
     command = ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', task, '--ros-args',
                '-p', f'use_sim_time:={str(ctx.profile.use_sim_time).lower()}']

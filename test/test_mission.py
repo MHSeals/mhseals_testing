@@ -126,7 +126,7 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
     assert result['exit_code'] == code and recorded == [result]
 
 
-def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path):
+def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path, monkeypatch):
     # The 10-26 demo: the player kept running, the boat sat 100 m south of the course while its
     # odometry said (0, 0), and nav_channel searched empty water for 3 min.
     import json
@@ -147,12 +147,15 @@ def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path):
     boat = SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom', use_sim_time=False)
     assert mission.off_course(boat, at(11.1, -102.8)) == ''            # a boat profile never refuses
     assert mission.off_course(SimpleNamespace(course_truth=None, ground_truth=None), at(1e3, 0)) == ''
-    recorded = []
+    recorded, order = [], []
     ctx = SimpleNamespace(services={'task': 'nav_channel'}, profile=profile, record=recorded.append,
                           history=lambda name: at(11.1, -102.8)(),
-                          prompt=lambda *a: pytest.fail('a refused mission never prompts'))
+                          prompt=lambda *a: order.append('prompt'))
+    monkeypatch.setattr(mission, 'reset_to_start', lambda ctx: order.append('reset') or '')
     result = mission.run(ctx)
     assert result == recorded[0] and result['verdict'] == 'REFUSED' and result['task'] == 'nav_channel'
+    assert 'from the nearest course element' in result['reason']
+    assert order == ['prompt', 'reset']      # checked where the boat is after the reset
 
 
 def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_truth='/crane/odom'):
@@ -164,10 +167,11 @@ def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_t
     truth.write_text(json.dumps({'startX': -2.3, 'startY': -4.8, 'startYaw': 0.5, 'elements': [
         {'label': 'red_pole_buoy', 'x': 4.8, 'y': -3.3}]}))
     profile = SimpleNamespace(course_truth=str(truth), ground_truth=ground_truth, use_sim_time=sim)
-    calls, recorded = [], []
+    calls, recorded, order = [], [], []
 
     def call(timeout):
         calls.append(timeout)
+        order.append('reset')
         if isinstance(reset, Exception):
             raise reset
         return reset == 'ok', 'x=-2.3 y=-4.8 yaw=0.5' if reset == 'ok' else 'no boat body to reset'
@@ -180,7 +184,7 @@ def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_t
     if reset is not None:
         services['reset_to_start'] = call
     ctx = SimpleNamespace(services=services, profile=profile, record=recorded.append,
-                          history=history, prompt=lambda *a: pytest.fail('a refused mission never prompts'))
+                          history=history, prompt=lambda *a: order.append('prompt'), order=order)
     return ctx, calls, recorded
 
 
@@ -198,6 +202,28 @@ def test_a_sim_mission_resets_the_boat_to_the_course_start_and_verifies_it(tmp_p
     assert calls == [5.0]
 
 
+def test_the_reset_runs_after_the_operator_prompt_right_before_the_task_starts(tmp_path, monkeypatch):
+    # A long wait at the prompt let the idle sim boat drift off the start it was reset to.
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    ctx, calls, recorded = _reset_ctx(tmp_path)
+    runner = SimpleNamespace(paused=0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
+
+    @contextmanager
+    def supervised(*args, **kwargs):
+        yield runner
+    watcher = SimpleNamespace(events=[], status={}, reset=lambda: ctx.order.append('watch'))
+    ctx.supervise = supervised
+    ctx.services.update({'task_watcher': lambda: watcher, 'running': lambda *a: False,
+                         'start': lambda *a: ctx.order.append('start'), 'stop': lambda *a: None})
+    monkeypatch.setattr(mission.reset_to_start, '__defaults__', (_settle_fast(tmp_path),))
+    monkeypatch.setattr(mission, 'judge', lambda *a: None)
+    result = mission.run(ctx)
+    assert calls == [5.0] and result['verdict'] != 'REFUSED'
+    assert ctx.order == ['prompt', 'reset', 'watch', 'start']
+
+
 @pytest.mark.parametrize('at,said', [
     ((2.7, -4.8, 0.5), '5.0 m and 0 deg off the course start'),    # still drifted
     ((-2.3, -4.8, 1.0), '0.0 m and 29 deg off the course start'),  # turned
@@ -207,6 +233,7 @@ def test_a_sim_mission_refuses_with_the_offset_left_after_the_reset(tmp_path, at
     ctx, calls, recorded = _reset_ctx(tmp_path, at=at)
     result = mission.run(ctx)
     assert calls and result == recorded[0] and result['verdict'] == 'REFUSED'
+    assert ctx.order == ['prompt', 'reset']   # the operator's wait comes first, then the reset
     assert said in result['reason'] and 'limits 2 m and 15 deg' in result['reason']
 
 
