@@ -57,7 +57,7 @@ def test_course_fixture_verdicts(case):
     for bid, val in debris.get('avoid', {}).items():
         deg = got['T2.red_avoid']['evidence']['avoid'][bid]['sweep_deg']
         assert deg == pytest.approx(val['sweep_deg']['approx'], abs=val['sweep_deg']['tol'])
-        assert (got['T2.red_avoid']['status'] == 'provisional') == (abs(deg) < 350)
+        assert (got['T2.red_avoid']['status'] == 'provisional') == (abs(deg) < 360)
     if 'contacts' in expected and case.startswith(('contact', 'dock_wrong')):
         assert [s['object'] for s in report['penalties']['strikes']] == expected['contacts']
 
@@ -132,7 +132,7 @@ def test_speed_loop_scores_the_same_either_way_round(direction):
     """Symmetric: the loop row and time do not depend on the side (no direction source)."""
     got = rows(score.judge(gate_truth(), path(loop(direction))))
     assert got['T3.loop']['status'] == 'earned'
-    assert math.copysign(1, got['T3.loop']['evidence']['sweep_deg']) == direction
+    assert got['T3.loop']['evidence']['turns'] == direction
     assert got['T3.time']['points'] == pytest.approx(250 - got['T3.time']['evidence']['T_s'])
     assert got['T3.direction']['status'] == 'n/a'
 
@@ -197,3 +197,64 @@ def test_batch_stats_and_compare():
     assert sa.compare(a, b)['points']['clear'] and sa.compare(a, b)['points']['diff'] == 200
     same = sa.compare(a, a)['points']
     assert same['diff'] == 0 and not same['clear']
+
+
+# ---- v2 fixes (ideator round 1)
+
+def test_a_clean_entry_after_a_touched_one_counts():
+    truth = gate_truth()
+    touched = path([(0, 0.95), (20, 0.95)])          # hull grazes the port buoys
+    back = path([(20, 0.95), (0, 0.0)], t0=touched[-1][0] + 0.1)
+    clean = path([(0, 0), (20, 0)], t0=back[-1][0] + 0.1)
+    got = rows(score.judge(truth, touched + back + clean))
+    assert got['T1.entry']['status'] == 'earned'
+    assert got['T1.entry']['evidence']['attempts'] >= 1
+    assert got['T1.entry']['t'] > back[-1][0]
+
+
+def test_nothing_after_the_exit_changes_the_score():
+    run = path(loop(1))
+    base = score.judge(gate_truth(), run)
+    more = run + path([(-2, 0), (20, 0), (20, 10)], t0=run[-1][0] + 0.1)
+    after = score.judge(gate_truth(), more)
+    assert after['total'] == base['total'] and rows(after)['T1.exit']['t'] == rows(base)['T1.exit']['t']
+
+
+def test_sprint_near_loop_that_retraces_does_not_count():
+    """Out to the mark's side and back the same way winds zero times: no loop."""
+    pts = [(0, 0), (20, 0), (20, 10), (20, 30), (23, 40), (20, 30), (20, 10), (20, 0), (0, 0)]
+    assert rows(score.judge(gate_truth(), path(pts)))['T3.loop']['status'] == 'missed'
+
+
+def test_circle_after_a_reversal_still_counts():
+    """A lead-in sweep the other way does not hide a later full turn."""
+    centre = (0.0, 0.0)
+    back = [(t * 0.1, 5 * math.cos(-t * 0.05), 5 * math.sin(-t * 0.05), 0.0) for t in range(40)]
+    a0 = -40 * 0.05
+    turn = [(4 + t * 0.1, 5 * math.cos(a0 + t * 0.05), 5 * math.sin(a0 + t * 0.05), 0.0)
+            for t in range(int(2 * math.pi / 0.05) + 2)]
+    deg, t = score.sweep(back + turn, centre, 8.0, 360.0)
+    assert deg >= 360 and t is not None
+    short = turn[:int(1.9 * math.pi / 0.05)]
+    assert abs(score.sweep(short, centre, 8.0)[0]) < 360
+
+
+def test_harbor_unknown_pattern_never_picks_a_zone():
+    truth = gate_truth()
+    truth['tasks'].append(dict(id='harbor_alert', type='harbor_alert', anchors=dict(
+        zone1=dict(x=20, y=0, r=3), zone2=dict(x=40, y=0, r=3))))
+    truth['states'] = [dict(id='harbor_alert.horn', program=dict(trigger_s=1.0, pattern='?'))]
+    got = rows(score.judge(truth, path([(0, 0), (20, 0)]), require_entry=False))
+    assert got['T6.zone']['evidence']['target_zone'] is None
+    assert got['T6.zone']['points'] == 150
+
+
+def test_dock_tie_for_lowest_green_and_no_report_needed():
+    bays = [dict(id=f'marina.{s}1', x=x, y=20.0, yaw=math.pi / 2, width=1.5, depth=2.4,
+                 occupied=False, sign=dict(number=1), indicator=dict(id=f'i{s}', color='green'))
+            for s, x in (('N', 0.0), ('S', 10.0))]
+    for x in (0.0, 10.0):
+        truth = dict(gate_truth(), bays=bays)
+        track = path([(x, 15), (x, 20)]) + [(10 + k * 0.1, x, 20.0, 0.0) for k in range(40)]
+        got = rows(score.judge(truth, track, require_entry=False))['T5.dock']
+        assert got['status'] == 'earned' and got['points'] == 350

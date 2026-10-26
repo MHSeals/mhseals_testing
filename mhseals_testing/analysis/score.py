@@ -18,21 +18,23 @@ import math
 from mhseals_testing.analysis.geometry import HULL, hull_clearance
 
 SCHEMA = 'mhseals.score/1'
-VERSION = 1
+VERSION = 2                    # 2: round-1 ideator fixes, frozen in state/referee.md
 RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
 STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
 PARAMS = dict(
     gate_hysteresis_m=0.3,      # D: a side counts once the centre is this far off the line
     entry_contact_pad_s=3.0,    # D: contact window around the entry passes (L 3.2.1)
     circle_radius_m=8.0,        # D: a circle counts while within this of the buoy
-    full_circle_deg=350.0,      # D: "full 360" less sim noise (L 3.2.2)
+    full_circle_deg=360.0,      # L 3.2.2 (Feb 4): "full 360", over any sub-interval of one stay
     red_encounter_m=8.0,        # D: an avoided red must have been approached this close
-    speed_loop_deg=330.0,       # D: gate -> around the mark -> gate sweeps ~360
     dock_dwell_s=2.0,           # D: S says "enters"; 2 s rejects a pass-through and jitter
     dock_gap_s=0.5,             # D: brief exits from the slip that do not reset the dwell
     strike_rearm_m=0.2,         # D: a new strike once clear by this much
     start_offset_warn_m=10.0,   # D: warn when the run starts this far from the course start
-    start_standoff_m=1.83,      # H p.45, L 3.2.1: start >= 6 ft before the first gate
+    start_standoff_m=1.8288,    # H p.45, L 3.2.1: start >= 6 ft before the first gate
+    dock_tiers='highest',       # D, owner to confirm: 'highest' or 'additive' (S 4.2 lists rows)
+    harbor_tiers='highest',     # D, owner to confirm: 'highest' or 'additive' (S 4.2 lists rows)
+    green_circles_needed=1,     # D, owner to confirm: green indicators to circle ('all' = every one)
 )
 DOCK_PARTS = ('pier_spine', 'pier_tine', 'dock_sign', 'dock_indicator')  # docking touches these
 INTERVENING = ('rc', 'keyboard', 'hold', 'external')   # authority owners that are not autonomy
@@ -138,10 +140,10 @@ def state_at(model, sid, t, changes=()):
         if period:
             value = values[int(math.floor((t + phase) / period)) % len(values)]
     elif program.get('type') == 'scripted':
-        for step in program.get('steps', []):
+        for step in sorted(program.get('steps', []), key=lambda s: s['t']):
             if step['t'] <= t:
                 value = step.get('color', step.get('value'))
-    for change in changes:
+    for change in sorted(changes, key=lambda c: c.get('t_sim', math.inf)):
         if change.get('id') == sid and change.get('t_sim', math.inf) <= t:
             value = change.get('value')
     return value
@@ -182,7 +184,7 @@ def passes(track, gate, hull, h=PARAMS['gate_hysteresis_m']):
             p, q = previous[1], sample
             f = previous[0] / (previous[0] - s) if previous[0] != s else 0.0
             last_zero = tuple(a + f * (b - a) for a, b in zip(p, q))
-            last_zero = last_zero[:3] + (q[3] if abs(f) > 0.5 else p[3],)
+            last_zero = last_zero[:3] + (p[3] + f * math.remainder(q[3] - p[3], 2 * math.pi),)
         previous = (s, sample)
         now = 1 if s > h else -1 if s < -h else 0
         if now and side and now != side and last_zero is not None:
@@ -212,22 +214,37 @@ def sequence(passes_by_gate, direction, after, need_inside=True):
 
 
 def sweep(track, centre, radius=math.inf, reach=None):
-    """(deg, t): the largest net signed sweep (+CCW) round ``centre`` in one stay within
-    ``radius``, and when the net first reached ``reach`` degrees either way (or None)."""
+    """(deg, t): the largest net signed sweep (+CCW) round ``centre`` over any contiguous
+    part of one stay within ``radius`` (lead-in and reversals do not hide a later full
+    turn), and when such a sweep first reached ``reach`` degrees either way (or None)."""
     best, net, previous, reached = 0.0, 0.0, None, None
+    low = high = 0.0
     for t, x, y, _ in track:
         if not math.isfinite(x + y) or math.dist((x, y), centre) > radius:
-            previous, net = None, 0.0
+            previous, net, low, high = None, 0.0, 0.0, 0.0
             continue
         angle = math.atan2(y - centre[1], x - centre[0])
         if previous is not None:
             net += math.remainder(angle - previous, 2 * math.pi)
-            if abs(net) > abs(best):
-                best = net
-            if reached is None and reach is not None and abs(math.degrees(net)) >= reach:
+            for span in (net - low, net - high):
+                if abs(span) > abs(best):
+                    best = span
+            low, high = min(low, net), max(high, net)
+            if reached is None and reach is not None and abs(math.degrees(best)) >= reach - 1e-9:
                 reached = t
         previous = angle
     return math.degrees(best), reached
+
+
+def winding(track, mark):
+    """Signed turns (+CCW) round ``mark`` of ``track`` closed by the straight line from its
+    last point back to its first (the gate line for a sprint loop): an integer, no threshold."""
+    pts = [(p[1] - mark[0], p[2] - mark[1]) for p in track]
+    pts.append(pts[0])
+    total = 0.0
+    for a, b in zip(pts, pts[1:]):
+        total += math.remainder(math.atan2(b[1], b[0]) - math.atan2(a[1], a[0]), 2 * math.pi)
+    return round(total / (2 * math.pi))
 
 
 def strikes(track, items, hull, rearm=PARAMS['strike_rearm_m']):
@@ -347,30 +364,39 @@ def _entry_exit(model, run, rows_for, gate_passes):
                    key=lambda g: g['order'])
     rows = rows_for('entry_gates')
     if len(gates) < 2:
-        return rows, None, None
-    seq = sequence([gate_passes[g['id']] for g in gates], 1, -math.inf)
-    t_entry, touched = None, []
-    if seq:
-        pad = PARAMS['entry_contact_pad_s']
-        lo, hi = seq[0]['t'] - pad, seq[-1]['t'] + pad
-        buoys = [g[side] for g in gates for side in ('port', 'stbd')]
-        touched = [s['object'] for s in strikes([p for p in run if lo <= p[0] <= hi],
-                                                buoys, model['hull'])]
-        t_entry = seq[-1]['t'] if not touched else None
+        rows.add('T1.entry', 'S; L 3.2.1', 'H', 'entry gates', 100, None, status='n/a')
+        return rows, None, (None, [])
+    seq, t_entry, touched, attempts = [], None, [], 0
+    buoys = [g[side] for g in gates for side in ('port', 'stbd')]
+    pad = PARAMS['entry_contact_pad_s']
+    for first in gate_passes[gates[0]['id']]:     # every attempt; the first clean one enters
+        if first['dir'] != 1 or not first['hull_inside']:
+            continue
+        cand = sequence([gate_passes[g['id']] for g in gates], 1, first['t'] - 1e-9)
+        if not cand or cand[0] is not first:
+            continue
+        attempts += 1
+        lo, hi = cand[0]['t'] - pad, cand[-1]['t'] + pad
+        hit = [s['object'] for s in strikes([p for p in run if lo <= p[0] <= hi],
+                                            buoys, model['hull'])]
+        seq, touched = cand, hit
+        if not hit:
+            t_entry = cand[-1]['t']
+            break
     rows.rows.clear()
     first = _Rows(lambda t: True)       # the entry row is the start of the scored run
     first.add('T1.entry', 'S; L 3.2.1; H pp.45-47', 'H', 'through both entry gates, whole hull, '
-              'no contact', 100, bool(seq) and not touched, t=seq[-1]['t'] if seq else None,
-              passes=[dict(p, gate=g['id']) for g, p in zip(gates, seq)], touched=touched)
+              'no contact', 100, t_entry is not None, t=seq[-1]['t'] if seq else None,
+              passes=[dict(p, gate=g['id']) for g, p in zip(gates, seq)], touched=touched,
+              attempts=attempts)
     rows.rows.extend(first.rows)
     t_exit, exits = None, []
     if t_entry is not None:
-        first_gate = gate_passes[gates[0]['id']]
         for start in gate_passes[gates[-1]['id']]:
             if start['t'] <= t_entry or start['dir'] != -1:
                 continue
             back = sequence([gate_passes[g['id']] for g in reversed(gates)], -1, start['t'] - 1e-9)
-            if back and not any(p['dir'] == 1 and p['t'] > back[-1]['t'] for p in first_gate):
+            if back and back[0] is start:     # the first exit ends the run; later moves don't count
                 exits = back
                 break
         t_exit = exits[-1]['t'] if exits else None
@@ -424,9 +450,12 @@ def _debris(model, run, rows, gate_passes, t_entry):
                            PARAMS['full_circle_deg'])
             detail[green['id']] = dict(sweep_deg=round(deg, 1), t=t)
             times += [t] if t is not None else []
+        need = len(greens) if PARAMS['green_circles_needed'] == 'all' else \
+            min(int(PARAMS['green_circles_needed']), len(greens))
         rows.add('T2.green_circle', 'S; L 3.2.2 (Feb 4: full 360)', 'H+D', 'a full circle round '
-                 'a green indicator; report its position', 200, bool(times),
-                 t=min(times, default=None), report=None, rescue=detail)
+                 'a green indicator; report its position', 200, len(times) >= need,
+                 t=sorted(times)[need - 1] if len(times) >= need else None, report=None,
+                 rescue=detail, needed=need)
     else:
         rows.add('T2.green_circle', 'S; L 3.2.2', 'H', 'green indicator', 200, None, status='n/a')
     if sem.get('report'):
@@ -450,17 +479,19 @@ def _speed(model, run, rows, gate_passes, t_entry, changes):
     mine = gate_passes[gate['id']]
     loop = None
     for p_in in (p for p in mine if p['dir'] == 1 and p['t'] > after and p['hull_inside']):
-        for p_out in (p for p in mine if p['dir'] == -1 and p['t'] > p_in['t']):
-            deg, _ = sweep([s for s in run if p_in['t'] <= s[0] <= p_out['t']], _xy(mark))
-            if abs(deg) >= PARAMS['speed_loop_deg'] and p_out['hull_inside']:
-                loop = (p_in, p_out, deg)
-                break
+        p_out = next((p for p in mine if p['dir'] == -1 and p['t'] > p_in['t']), None)
+        if p_out is None:               # an attempt ends at its next inbound pass
+            break
+        turns = winding([s for s in run if p_in['t'] <= s[0] <= p_out['t']], _xy(mark))
+        if turns and p_out['hull_inside']:
+            loop = (p_in, p_out, 360.0 * turns)
+            break
         if loop:
             break
     rows.add('T3.loop', 'S; L 3.2.3; H pp.49-51', 'H+D', 'in through the gate, round the '
              'yellow mark, out through the same gate', 200, bool(loop),
              t=loop[1]['t'] if loop else None,
-             sweep_deg=round(loop[2], 1) if loop else None)
+             turns=round(loop[2] / 360) if loop else None)
     source = sem.get('direction_source')
     sid = (sem.get(source) or {}).get('id') if source else None
     if sid is None:
@@ -514,36 +545,41 @@ def _marina(model, run, rows, changes, allowed):
         rows.add('T5.report', 'S; L 3.2.5', 'H', 'dock report', 100, None, status='n/a')
         return []
     warnings, held = [], []
-    green = []
-    for bay in bays:
+
+    def busy(bay):
+        return bool(bay.get('occupied') or bay.get('vessel'))
+
+    def colour(bay, t):
         indicator = bay.get('indicator') or {}
-        colour = indicator.get('color')
-        busy = bool(bay.get('occupied') or bay.get('vessel'))
-        if not busy and colour == 'green':
-            green.append(bay)
+        return state_at(model, indicator.get('id'), t, changes) or indicator.get('color')
+
+    for bay in bays:
         t, longest = docked(run, bay)
-        held.append(dict(bay=bay['id'], t=t, held_s=round(longest, 1), occupied=busy))
-    lowest = min(green, key=lambda b: (b.get('sign') or {}).get('number', 9), default=None)
-    claimed = ((model['tasks'].get('marina') or {}).get('semantics') or {}) \
-        .get('tiers', {}).get('lowest_green')
-    if lowest and claimed and claimed != lowest['id']:
-        warnings.append(f'truth names {claimed} lowest green; the bays say {lowest["id"]}')
-    best = None
+        held.append(dict(bay=bay['id'], t=t, held_s=round(longest, 1), occupied=busy(bay)))
+    best, tiers = None, set()
     for h, bay in zip(held, bays):
         if h['t'] is None or not allowed(h['t']):
             continue
-        indicator = bay.get('indicator') or {}
-        colour = state_at(model, indicator.get('id'), h['t'], changes) or indicator.get('color')
-        tier = ('occupied' if h['occupied'] else 'lowest_green' if lowest is bay and
-                colour == 'green' else 'green' if colour == 'green' else 'unoccupied')
+        green = [b for b in bays if not busy(b) and colour(b, h['t']) == 'green']
+        low = min(((b.get('sign') or {}).get('number', 9) for b in green), default=None)
+        number = (bay.get('sign') or {}).get('number', 9)
+        tier = ('occupied' if h['occupied'] else 'unoccupied' if colour(bay, h['t']) != 'green'
+                else 'lowest_green' if number == low else 'green')     # ties all count
         h['tier'] = tier
-        if tier != 'occupied' and (best is None or TIER_POINTS[tier] > TIER_POINTS[best[0]]):
-            best = (tier, h)
-    possible = 50 if model['legacy'] else 350
+        if tier != 'occupied':
+            tiers.add(tier)
+            if best is None or TIER_POINTS[tier] > TIER_POINTS[best[0]]:
+                best = (tier, h)
+    order = list(TIER_POINTS)
+    if PARAMS['dock_tiers'] == 'additive' and best:     # every tier up to the best one reached
+        points = sum(TIER_POINTS[k] for k in order[:order.index(best[0]) + 1])
+    else:
+        points = TIER_POINTS[best[0]] if best else None
+    possible = 50 if model['legacy'] else (sum(TIER_POINTS.values())
+                                          if PARAMS['dock_tiers'] == 'additive' else 350)
     rows.add('T5.dock', 'S; L 3.2.5; H pp.54-56', 'H+D', 'held in a slip; 50 unoccupied, 200 '
              'green, 350 lowest green (highest tier only, D)', possible, bool(best),
-             t=best[1]['t'] if best else None, points=TIER_POINTS[best[0]] if best else None,
-             report=None if best and best[0] != 'unoccupied' else False,
+             t=best[1]['t'] if best else None, points=points,
              tier=best[0] if best else None, entered=best[1]['bay'] if best else None,
              bays=[h for h in held if h['held_s'] > 0])
     _report_only(rows, 'T5.report', 'S; L 3.2.5', 'report dock N/S and slip', 100)
@@ -560,7 +596,7 @@ def _harbor(model, run, rows, t_from, t_cut):
                  reason='no horn during the scored run')
         rows.add('T6.report', 'S; L 3.2.6', 'H', 'alert report', 150, None, status='n/a')
         return
-    target = 'zone1' if program.get('pattern') == 'one' else 'zone2'     # L 3.2.6
+    target = {'one': 'zone1', 'two': 'zone2'}.get(program.get('pattern'))  # L 3.2.6; else unknown
     zones = {z: task['anchors'][z] for z in ('zone1', 'zone2') if z in task.get('anchors', {})}
     reached = None
     for t, x, y, _ in run:
@@ -572,10 +608,12 @@ def _harbor(model, run, rows, t_from, t_cut):
             reached = (hit, t)
             break
     tier = 300 if reached and reached[0] == target else 150 if reached else 0
+    if tier == 300 and PARAMS['harbor_tiers'] == 'additive':
+        tier = 450
     rows.add('T6.zone', 'S; L 3.2.6; H pp.56-58', 'H+D', 'after the horn, reach a zone '
-             '(150) or the commanded zone (300); zone = anchor radius (D)', 300, bool(reached),
-             t=reached[1] if reached else None, points=tier or None,
-             report=None, trigger_s=trigger, pattern=program.get('pattern'),
+             '(150) or the commanded zone (300); zone = anchor radius (D)',
+             450 if PARAMS['harbor_tiers'] == 'additive' else 300, bool(reached),
+             t=reached[1] if reached else None, points=tier or None, trigger_s=trigger, pattern=program.get('pattern'),
              target_zone=target, reached=reached[0] if reached else None,
              correct=bool(reached) and reached[0] == target,
              response_s=round(reached[1] - trigger, 2) if reached else None)
@@ -596,8 +634,9 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
                         if t0 <= p[0] <= t1 and all(map(math.isfinite, p[:3]))])
     warnings = []
     end = dict(reason='track_end' if not window else 'finished', t=t1)
-    interventions = [dict(a, kind='intervention') for a in authority
-                     if t0 <= a['t'] <= t1 and a.get('by') in INTERVENING]
+    interventions = sorted((dict(a, kind='intervention') for a in authority
+                            if t0 <= a['t'] <= t1 and a.get('by') in INTERVENING),
+                           key=lambda a: a['t'])
     if interventions:
         end = dict(reason='intervention', t=interventions[0]['t'])
     out = []
@@ -619,6 +658,8 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
 
     entry_rows, t_entry, (t_exit, exits) = _entry_exit(model, run, rows_for, gate_passes)
     t_cut = t_exit if t_exit is not None else end['t']
+    run = [p for p in run if p[0] <= t_cut]          # nothing after the cutoff is evidence
+    gate_passes = {g: [p for p in v if p['t'] <= t_cut] for g, v in gate_passes.items()}
     if require_entry:
         allowed['f'] = lambda t: t is not None and t_entry is not None and t_entry < t <= t_cut
     else:
