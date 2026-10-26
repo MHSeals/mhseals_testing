@@ -1,7 +1,7 @@
 """Activity panel, ``agent`` view (agent-control 5): what agents run on the boat, newest first.
 
 Rows fold from the AgentDesk view (``ui/feeds/agent.py``, ``agent_desk``): a hook note pair
-(pre/post, one ``tool_id``) is one shell row ``blastoise$ ros2 node list  ✓ 2.1 s``; a denied
+(pre/post, one ``tool_id``) is one shell row ``blastoise-odroid$ ros2 node list  ✓ 2.1 s``; a denied
 command is struck through, ``✗ denied`` with the verb to use; the current act and the queue are
 verb rows ``▸ run square  ◌ 34 s``; ``recent`` finished acts, when the desk gives them, keep their
 result, and a refusal reads warn with its hint. Each row wears its agent's vendor hue (Claude,
@@ -26,7 +26,7 @@ _SETUP = re.compile(r'^(?:(?:source|\.|cd)\s+\S+\s*(?:&&|;)\s*)+')     # env and
 
 
 def short(cmd):
-    """``ssh -t blastoise "source x && ros2 node list"`` reads ``blastoise$ ros2 node list``; others
+    """``ssh -t blastoise-odroid "source x && ros2 node list"`` reads ``blastoise-odroid$ ros2 node list``; others
     ``$ cmd``. One line: whitespace runs fold, an outer quote pair and setup preambles drop."""
     cmd = ' '.join(cmd.replace('\\\n', ' ').split())
     match = _SSH.match(cmd)
