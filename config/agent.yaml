@@ -59,7 +59,7 @@ hook:
          '\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\b',
          '\b(pkill|killall)\b', '\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
          '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b',
-         # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to agent.yaml (only the owner enables sim-arm)
+         # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to a live agent.yaml (a worktree copy is fine)
          '\bMHSEALS_SIM_ARM\b',
          '(?<![\w-])(rm|mv|cp|ln|install|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|python[\d.]*|git\s+(checkout|restore|apply|reset|stash))\b.*\bagent\.ya?ml\b',
          '>\|?\s*\S*\bagent\.ya?ml\b',
@@ -71,14 +71,21 @@ hook:
          'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)',
          'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
          'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)',
-         # agent_hook.HOLDS and STOP: the mux's saved holds and <data root>/agent/stop (touch it to stop)
+         # agent_hook.HOLDS and STOP: the mux's saved holds and <data root>/agent/stop (touch it to stop); live copies only
          'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)',
          '(?<![\w-])(rm|mv|rmdir|unlink|shred|find|rsync)\b.*/mhseals(/\*?)?(?=\s|$|[;&|)])',
          '(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr|rmdir)\b.*\bagent/(stop\b|\*|\?|\[)',
          '>\|?\s*\S*\bagent/stop\b',
          '(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*\bagent/?(?=\s|$|[;&|)])',
          '\b(cd|pushd)\s+(-\S+\s+)*\S*\bagent/?(?=\s|$|[;&|)]).*((?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr)\b.*|>\|?\s*)(?<![\w/.-])(\./)?(stop\b|\*|\?|\[)',
-         '\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b']
+         '\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b',
+         # agent_hook.EDITS: the Edit/Write/NotebookEdit and apply_patch tools, one line per file:
+         # EDIT create|change|delete live|dev <path>. dev: in a linked git worktree and not ignored (develop there);
+         # live: the main checkouts, install/, data and runtime dirs. Live agent.yaml, holds, an existing stop, launch files.
+         '(?m)^EDIT \w+ live [^\n]*/agent\.ya?ml$',
+         '(?m)^EDIT \w+ live [^\n]*(/command_mux[^/\n]*\.json$|/hold_store(/|$|\.json$)|/mhseals(/|$))',
+         '(?m)^EDIT (change|delete) live [^\n]*/agent/stop$',
+         '(?m)^EDIT \w+ live [^\n]*(/launch/[^/\n]+\.(py|xml|ya?ml)|[^/\n]\.launch\.(py|xml|ya?ml))$']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   deny_boat: ['\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
               '\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',

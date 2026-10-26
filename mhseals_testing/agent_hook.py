@@ -32,6 +32,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import subprocess
 import time
 
 SCHEMA = 'mhseals.agent/1'
@@ -73,6 +74,21 @@ STOP = [r'(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|p
         r'\b(cd|pushd)\s+(-\S+\s+)*\S*\bagent/?(?=\s|$|[;&|)]).*((?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install'
         r'|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr)\b.*|>\|?\s*)(?<![\w/.-])(\./)?(stop\b|\*|\?|\[)',
         r'\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b']
+# The agent's file tools (Claude Edit/Write/NotebookEdit, Codex apply_patch): each file becomes one line
+# ``EDIT create|change|delete live|dev <absolute path>`` (``edit_text``), searched by the deny rules that start
+# with ``(?m)^EDIT``. Only live copies are denied (``place``): what the running stack and the TUI read. A linked
+# git worktree (~/.cache/wt, ~/worktrees) is where agent.yaml, launch files and the hook are developed: allowed.
+# Live: agent.yaml, the mux's saved holds (command_mux*.json, hold_store, the runtime mhseals dir), an existing stop
+# file (creating it is fine) and any launch file (ros2 launch starts the driver or mux from an installed one).
+LAUNCH = r'(/launch/[^/\n]+\.(py|xml|ya?ml)|[^/\n]\.launch\.(py|xml|ya?ml))$'
+EDITS = [r'(?m)^EDIT \w+ live [^\n]*/agent\.ya?ml$',
+         r'(?m)^EDIT \w+ live [^\n]*(/command_mux[^/\n]*\.json$|/hold_store(/|$|\.json$)|/mhseals(/|$))',
+         r'(?m)^EDIT (change|delete) live [^\n]*/agent/stop$',
+         r'(?m)^EDIT \w+ live [^\n]*' + LAUNCH]
+# A shell file rule (SIM_ARM's agent.yaml writes, HOLDS, STOP) is skipped when every file it names (FILES) is a
+# dev copy; a relative name after a cd, a $variable or a glob counts as live (fail closed).
+FILES = re.compile(r'[^\s;&|<>()=]*(agent\.ya?ml|command_mux[^\s;&|<>()/]*\.json|agent/stop|\.launch\.(py|xml|ya?ml))'
+                   r'(?![\w.-])')
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -99,7 +115,7 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + ARMING + HOLDS + STOP,
+             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + ARMING + HOLDS + STOP + EDITS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
@@ -114,10 +130,13 @@ USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing proce
         "stopping or restarting the boat's software or computer", None),
        (r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
         'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
-       ('|'.join(SIM_ARM), 'turning sim-arm on (only the owner enables it)', None),
-       ('|'.join(HOLDS), "changing the mux's saved holds (only the operator releases a hold, with U)", None),
-       ('|'.join(STOP), 'removing or changing the agent stop file (touch it to stop; only the operator removes it)',
+       ('|'.join(SIM_ARM), 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git '
+        'worktree; to arm a sim, ask the operator to enable sim-arm in the sim container, then run KEY --sim-arm)',
         None),
+       ('|'.join(HOLDS), "changing the mux's live saved holds (only the operator releases a hold, with U in the TUI)",
+        None),
+       ('|'.join(STOP), 'removing or changing the live agent stop file (to stop, touch it or use stop; only the '
+        'operator removes it)', None),
        ('|'.join(ARMING),
         'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID'),
        (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control|create_publisher',
@@ -132,6 +151,18 @@ USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing proce
        (r'goal_pose|navigate|follow_\w*waypoints|follow_path|dock_robot|assisted_teleop', 'a raw Nav2 goal',
         'goal X Y [YAW] --claim ID'),
        (r'.', 'raw motion', 'run KEY --claim ID'))
+
+
+# Why an edit is denied, first match on the EDIT line wins.
+EDIT_USE = ((r'/agent\.ya?ml$', 'the live agent.yaml (hook rules, sim-arm switch). Develop it in a git worktree and '
+             'have the operator land it; to arm a sim use {cli} run KEY --sim-arm --claim ID, and ask the operator '
+             'to enable sim-arm in the sim container: {cli} ask "..."'),
+            (r'command_mux|hold_store|/mhseals(/|$)', "the mux's live saved holds. Only the operator releases a hold "
+             '(U in the TUI); ask them: {cli} ask "..."'),
+            (r'/agent/stop$', 'the live agent stop file. To stop, create or touch it or use {cli} stop; only the '
+             'operator removes it'),
+            (r'.', 'a live launch file (the running stack starts the thruster driver and mux from these). Develop it '
+             'in a git worktree; to run the stack use {cli} run KEY --claim ID (a sim: --sim-arm)'))
 
 
 def private_dir(directory=None):
@@ -449,7 +480,7 @@ def boats(config):
     return names
 
 
-def denied(command, config):
+def denied(command, config, cwd=None):
     """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
     denied; anything else is denied when ``hook.deny`` is found anywhere in its text, or
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
@@ -461,11 +492,79 @@ def denied(command, config):
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
     found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(alternatives), text) if alternatives else None
     host = found.group(1) if found else (hostname().split('.')[0] if hostname().split('.')[0] in names else None)
+    live_only = set(SIM_ARM[1:] + HOLDS + STOP)        # file rules: a dev copy (a worktree) is development
     for pattern in config['deny'] + (config['deny_boat'] if host else []):
         match = re.search(pattern, text, re.S)
         if match:
             rest = re.compile(r'[\n;|&]').search(text, match.end())
-            return ' '.join(text[match.start():rest.start() if rest else None].split()), host
+            hit = ' '.join(text[match.start():rest.start() if rest else None].split())
+            if pattern in live_only and all_dev(hit, cwd, text):
+                continue
+            return hit, host
+    return None
+
+
+def place(path):
+    """``'dev'`` when ``path`` is in a linked git worktree (``git worktree add``: its .git file names a
+    ``.../worktrees/...`` git dir) and not ignored there, else ``'live'``: the main checkouts the TUI and the stack
+    read, install/ and build/, the data and runtime dirs, anything outside git. Any doubt is ``'live'``."""
+    root = next((d for d in Path(path).parents if (d / '.git').exists()), None)
+    try:
+        gitdir = (root / '.git').read_text().strip() if root and (root / '.git').is_file() else ''
+        if not re.match(r'gitdir: .*/worktrees/[^/]+$', gitdir):
+            return 'live'
+        done = subprocess.run(['git', '-C', str(root), 'check-ignore', '-q', '--no-index', str(path)],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=1)
+    except Exception:
+        return 'live'
+    return 'dev' if done.returncode == 1 else 'live'
+
+
+def all_dev(text, cwd=None, whole=''):
+    """Every file ``FILES`` finds in ``text`` is a dev copy (and it names at least one). A relative name is live
+    when the call (``whole``) changes directory anywhere."""
+    names = [m.group(0) for m in FILES.finditer(text)]
+    moved = re.search(r'(?<![\w-])(cd|pushd)\b', whole or text)
+    for name in names:
+        if re.search(r'[$*?\[{`]', name) or (not name.startswith(('/', '~')) and (moved or not cwd)):
+            return False
+        path = Path(os.path.expanduser(name))
+        if place(os.path.abspath(path if path.is_absolute() else Path(cwd) / path)) != 'dev':
+            return False
+    return bool(names)
+
+
+def edit_text(edits, cwd=None):
+    """The ``EDIT op where path`` lines of an edit tool's ``[[write|delete, path]]`` (the path as given and,
+    when it differs, its symlink target), or None when a path is missing (fail closed)."""
+    lines = []
+    for kind, given in edits or ():
+        if not given or kind not in ('write', 'delete'):
+            return None
+        path = Path(os.path.expanduser(str(given)))
+        path = path if path.is_absolute() else Path(cwd or os.getcwd()) / path
+        for each in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
+            op = 'delete' if kind == 'delete' else 'change' if os.path.lexists(each) else 'create'
+            lines.append(f'EDIT {op} {place(each)} {each}')
+    return '\n'.join(lines) or None
+
+
+def edit_denied(event, config):
+    """The deny reason for an edit tool's files (``event['edits']``), else None. Fails closed: a missing path or
+    any error denies."""
+    who = who_of(event)
+    try:
+        text = edit_text(event.get('edits'), event.get('cwd'))
+        if text is None:
+            return f'Blocked an edit whose file the hook cannot read (fail closed). Name the file. --who {who}'
+        for pattern in config['deny']:
+            match = re.search(pattern, text) if pattern.startswith('(?m)^EDIT') else None
+            if match:
+                line = match.group(0)
+                why = next(w for p, w in EDIT_USE if re.search(p, line)).format(cli=cli_of(config))
+                return f'Blocked editing `{line.split(" ", 3)[3]}`: {why} (--who {who}). Reads stay allowed.'
+    except Exception as error:
+        return f'Blocked an edit the hook could not check ({error!r}; fail closed). --who {who}'
     return None
 
 
@@ -584,8 +683,12 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
     now = time.time() if now is None else now
     command = str(event.get('command') or '')
     answer = blocked = None
+    if phase == 'pre' and 'edits' in event:     # an edit tool, or a shell apply_patch: its files first
+        reason = edit_denied(event, config)
+        if reason:
+            return {'deny': reason}
     if phase == 'pre':
-        blocked = denied(command, config)
+        blocked = denied(command, config, event.get('cwd'))
     if blocked:
         answer, phase = {'deny': deny_reason(*blocked, who=who, config=config)}, 'deny'
     elif not matches(config['match'], command) or matches(config['skip'], command):

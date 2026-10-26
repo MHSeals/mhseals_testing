@@ -426,3 +426,108 @@ def test_the_network_file_is_the_vessel_env_first(tmp_path, monkeypatch):
     legacy.write_text('STATIC_LEASES=""\n')
     checkout = Path(hook.__file__).resolve().parents[3] / hook.NETWORK
     assert hook.network_file() == (checkout if checkout.is_file() else legacy)    # this checkout's, else $ROS_WS's
+
+
+# The agent's file tools: only live copies are denied; a linked git worktree is where these files are developed.
+@pytest.fixture(scope='module')
+def trees(tmp_path_factory):
+    """A main checkout ``live`` (install/ ignored) and its linked worktree ``wt``, each with config/agent.yaml."""
+    base = tmp_path_factory.mktemp('trees')
+    live, wt = base / 'live', base / 'wt'
+    git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+    (live / 'config').mkdir(parents=True)
+    (live / 'config' / 'agent.yaml').write_text('hook: {}\n')
+    (live / '.gitignore').write_text('install/\n')
+    subprocess.run(git + ['init', '-q', str(live)], check=True)
+    subprocess.run(git + ['-C', str(live), 'add', '.'], check=True)
+    subprocess.run(git + ['-C', str(live), 'commit', '-qm', 'x'], check=True)
+    subprocess.run(git + ['-C', str(live), 'worktree', 'add', '-q', str(wt)], check=True)
+    data = base / 'bags' / 'agent'
+    data.mkdir(parents=True)
+    return live, wt, base
+
+
+def edit(files, cwd=None, agent='claude'):
+    event = {'agent': agent, 'event': 'pre', 'session_id': SID, 'tool_id': 't', 'command': '', 'cwd': cwd,
+             'edits': files}
+    return (hook.agent_event(event, config=dict(hook.DEFAULTS), send=lambda line: None) or {}).get('deny')
+
+
+def test_place_tells_a_worktree_from_live_copies(trees):
+    live, wt, base = trees
+    assert hook.place(str(wt / 'config' / 'agent.yaml')) == 'dev'
+    assert hook.place(str(wt / 'launch' / 'new.launch.py')) == 'dev'
+    assert hook.place(str(live / 'config' / 'agent.yaml')) == 'live'                 # the main checkout
+    assert hook.place(str(wt / 'install' / 'share' / 'a.launch.py')) == 'live'       # ignored: built output
+    assert hook.place(str(base / 'bags' / 'agent' / 'stop')) == 'live'               # outside git
+
+
+@pytest.mark.parametrize('agent', ['claude', 'codex'])
+def test_edit_tools_are_denied_on_live_safety_files(trees, agent):
+    live, wt, base = trees
+    stop = base / 'bags' / 'agent' / 'stop'
+    assert 'enable sim-arm in the sim container' in edit([['write', str(live / 'config' / 'agent.yaml')]], agent=agent)
+    assert edit([['write', 'config/agent.yaml']], cwd=str(live), agent=agent)       # relative to the call's cwd
+    assert 'U in the TUI' in edit([['write', str(base / 'mhseals' / 'command_mux_232.json')]], agent=agent)
+    assert edit([['write', str(base / 'sess' / 'command_mux_holds.json')]], agent=agent)
+    assert edit([['write', str(base / 'run' / 'mhseals' / 'other')]], agent=agent)
+    assert edit([['write', str(live / 'launch' / 'arm.launch.py')]], agent=agent)                  # main checkout
+    reason = edit([['write', str(live / 'install' / 'pkg' / 'share' / 'pkg' / 'launch' / 'x.py')]], agent=agent)
+    assert 'run KEY --claim ID' in reason
+    assert edit([['write', str(wt / 'install' / 'pkg' / 'launch' / 'x.launch.xml')]], agent=agent)  # ignored there
+    assert edit([['write', str(base / 'tmp' / 'mine.launch.yaml')]], agent=agent)                  # outside git
+    assert edit([['write', '']], agent=agent) and edit([['rename', '/x']], agent=agent)            # fail closed
+    assert edit([['write', str(stop)]], agent=agent) is None                                       # creating stop
+    stop.write_text('')
+    try:
+        assert 'only the operator removes it' in edit([['write', str(stop)]], agent=agent)
+        assert edit([['delete', str(stop)]], agent=agent)
+    finally:
+        stop.unlink()
+
+
+def test_edit_tools_are_allowed_in_a_worktree_and_on_ordinary_files(trees):
+    live, wt, base = trees
+    assert edit([['write', str(wt / 'config' / 'agent.yaml')]]) is None
+    assert edit([['write', 'config/agent.yaml']], cwd=str(wt)) is None
+    assert edit([['write', str(wt / 'launch' / 'thrusters.launch.py')]]) is None
+    assert edit([['write', str(wt / 'mhseals_hardware' / 'launch' / 'mux.launch.py')]]) is None
+    assert edit([['write', str(wt / 'test' / 'command_mux_holds.json')]]) is None       # a fixture in a worktree
+    assert edit([['write', str(live / 'README.md')], ['delete', str(live / 'old.py')]]) is None
+    assert edit([['write', str(wt / 'agent_hook.py')]]) is None
+
+
+def test_a_worktree_symlink_to_a_live_file_is_denied(trees):
+    live, wt, base = trees
+    link = wt / 'linked.yaml'
+    link.symlink_to(live / 'config' / 'agent.yaml')
+    try:
+        assert edit([['write', str(link)]])
+    finally:
+        link.unlink()
+
+
+def test_shell_writes_to_agent_yaml_are_denied_only_on_live_copies(trees):
+    live, wt, base = trees
+    for command in (f'sed -i s/false/true/ {wt}/config/agent.yaml', f'cp /tmp/a.yaml {wt}/config/agent.yaml',
+                    f'printf x > {wt}/config/agent.yaml'):
+        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
+    assert hook.denied('sed -i s/a/b/ config/agent.yaml', hook.DEFAULTS, cwd=str(wt)) is None
+    for command, cwd in ((f'sed -i s/false/true/ {live}/config/agent.yaml', '/'),
+                         (f'cp {wt}/config/agent.yaml {live}/config/agent.yaml', '/'),
+                         (f'printf x > {live}/config/agent.yaml', '/'),
+                         ('sed -i s/a/b/ config/agent.yaml', str(live)),
+                         ('sed -i s/a/b/ config/agent.yaml', None),                       # no cwd: live
+                         (f'cd {live} && sed -i s/a/b/ config/agent.yaml', str(wt)),      # a cd: live
+                         (f'sed -i s/a/b/ $W/config/agent.yaml', str(wt)),                # a variable: live
+                         (f'rm {base}/bags/agent/stop', '/'), (f'rm {base}/mhseals/command_mux_232.json', '/'),
+                         ('MHSEALS_SIM_ARM=1 tui', str(wt))):
+        assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
+
+
+def test_every_shell_safety_deny_names_the_proper_route():
+    for command, says in (('sed -i s/a/b/ /x/config/agent.yaml', 'enable sim-arm in the sim container'),
+                          ('rm /run/user/1000/mhseals/command_mux_232.json', 'U in the TUI'),
+                          ('rm /data/agent/stop', 'touch it or use stop')):
+        reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), config=hook.DEFAULTS)
+        assert says in reason and 'boat_agent' in reason, reason
