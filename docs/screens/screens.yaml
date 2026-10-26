@@ -1,5 +1,14 @@
-# One entry per image in this folder: name (file stem), width x height, and the scene render.py draws.
-- {name: drive, scene: drive, size: [120, 40]}
-- {name: map, scene: map, size: [120, 40]}
-- {name: compass, scene: compass, size: [120, 40]}
-- {name: agent, scene: agent, size: [120, 40]}
+# One entry per image in this folder: name (file stem), width x height, the scene render.py draws,
+# graphics (image: the kitty/sixel tiles; text: the braille fallback), and the README's alt and caption.
+- {name: drive, scene: drive, size: [120, 40], graphics: image, alt: Drive tab,
+   caption: '<b>Drive</b>: status, motion, thrusters, procedures'}
+- {name: map, scene: map, size: [120, 40], graphics: image, alt: Map tab,
+   caption: '<b>Map</b>: track, plan, camera FOV, GPS accuracy, mission goal'}
+- {name: compass, scene: compass, size: [120, 40], graphics: image, alt: Compass inspect popup,
+   caption: '<b>Inspect</b>: compass popup with field, yaw and rate'}
+- {name: agent, scene: agent, size: [120, 40], graphics: image, alt: Agent control,
+   caption: '<b>Agent</b>: banner, revoke keys and the agent log'}
+- {name: drive-text, scene: drive, size: [120, 40], graphics: text, alt: Drive tab in text,
+   caption: '<b>Text</b>: the Drive tab in braille (graphics off, tmux, SSH without images)'}
+- {name: map-text, scene: map, size: [120, 40], graphics: text, alt: Map tab in text,
+   caption: '<b>Text</b>: the Map tab in braille'}

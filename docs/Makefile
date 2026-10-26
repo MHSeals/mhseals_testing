@@ -9,7 +9,8 @@ docker-pdf:
 	docker run --rm -u "$$(id -u):$$(id -g)" -v "$(CURDIR):/docs" -w /docs $(TEXLIVE) \
 		latexmk -pdf -interaction=nonstopmode -halt-on-error math.tex
 
-# Redraw the README screenshots (docs/screens/*.svg) from synthetic data; test/test_screens.py fails when they are stale.
+# Redraw the README screenshots (docs/screens/*.svg: image tiers and the braille fallback) and the README table of them
+# from synthetic data, no ROS or terminal; test/test_screens.py fails when either is stale.
 screens:
 	cd .. && PYTHONPATH=.:../mhseals_hardware:$$PYTHONPATH python3 docs/screens/render.py
 

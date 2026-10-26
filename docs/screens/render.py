@@ -1,13 +1,19 @@
 """Render the README screenshots offline: python3 docs/screens/render.py [OUT_DIR]  (default: this folder).
 
-Synthetic data from the test fixtures, no ROS and no boat; the scenes in screens.yaml decide the images.
+Synthetic data from the test fixtures, no ROS, no boat and no terminal; the scenes in screens.yaml decide
+the images and the README's screens table. An image scene draws the TUI's own kitty/sixel tiles (pixels.py)
+as one PNG over Rich's SVG text, at the cells sixel paints them; a text scene is the braille fallback.
 `make -C docs screens` regenerates them, `test/test_screens.py` fails when the committed SVGs are stale.
 """
+import base64
 import io
 import json
 import math
 import os
+import re
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -16,16 +22,19 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'test')]   # mhseals_hardware comes from P
 os.environ['COLORTERM'] = 'truecolor'
 os.environ.pop('NO_COLOR', None)
 os.environ.pop('TMUX', None)
+os.environ.pop('COLORFGBG', None)   # the dark palette, whatever terminal runs this
 os.environ['TZ'] = 'UTC'   # the agent scene prints clock times; CI renders in UTC
 import time  # noqa: E402
 time.tzset()
 
+import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 from rich.console import Console  # noqa: E402
+from rich.segment import Segment, Segments  # noqa: E402
 from rich.terminal_theme import MONOKAI  # noqa: E402
 
 from mhseals_testing.profiles import load_profile  # noqa: E402
-from mhseals_testing.ui import layout  # noqa: E402
+from mhseals_testing.ui import layout, pixels  # noqa: E402
 from mhseals_testing.ui.minimap import tasks  # noqa: E402
 from mhseals_testing.ui.minimap.marks import Obj  # noqa: E402
 from mhseals_testing.ui.minimap.layerbox import LayerBox  # noqa: E402
@@ -98,26 +107,88 @@ def agent():
 SCENES = {'drive': drive, 'map': map_, 'compass': compass, 'agent': agent}
 
 
+# The scene's `graphics`: `text` draws the braille, `image` the tiles a sixel or kitty terminal shows
+# (sixel's placement: kitty keeps the minimap braille).
+TIERS = {'text': 'text', 'image': 'sixel'}
+CELL = (12, 24)                 # px per cell the tiles are painted at: about Rich's SVG cell, as a terminal draws them
+SVG_CELL = (12.2, 24.4)         # Rich's export_svg cell: char_height 20, aspect 0.61, line height 1.22
+_MARKS = re.compile('[\U000F0000-\U000FFFFD]')   # pixels' sixel markers: cells an image covers
+
+
+def png(rgba):
+    """A deterministic RGBA PNG (stdlib only)."""
+    h, w = rgba.shape[:2]
+    raw = b''.join(b'\0' + row.tobytes() for row in rgba)
+
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
+
+
+def overlay(width, height, parts):
+    """One transparent screen-sized image with every tile part at its cell, or None."""
+    if not parts:
+        return None
+    cw, ch = CELL
+    canvas = np.zeros((height * ch, width * cw, 4), np.uint8)
+    for row, col, rgba in parts:
+        h, w = rgba.shape[:2]
+        canvas[row * ch:row * ch + h, col * cw:col * cw + w] = rgba
+    return canvas
+
+
 def render(entry):
     width, height = entry['size']
+    pixels.use(TIERS[entry.get('graphics', 'text')], cell=CELL)
     snapshot, view = SCENES[entry['scene']]()
     console = Console(width=width, height=height, file=io.StringIO(), record=True,
                       force_terminal=True, color_system='truecolor', legacy_windows=False)
-    console.print(layout.render(snapshot, view, width, height))
-    return console.export_svg(title='boat_test', theme=MONOKAI, unique_id=entry['name'])
+    segments = pixels.frame(list(console.render(layout.render(snapshot, view, width, height))), (width, height))
+    image = overlay(width, height, pixels.placed() if pixels.TIER == 'sixel' else [])
+    console.print(Segments([Segment(_MARKS.sub(' ', s.text), s.style, s.control) for s in segments]))
+    svg = console.export_svg(title='boat_test', theme=MONOKAI, unique_id=entry['name'])
+    if image is not None:
+        uri = 'data:image/png;base64,' + base64.b64encode(png(image)).decode()
+        tag = (f'<image x="0" y="1.5" width="{width * SVG_CELL[0]:g}" height="{height * SVG_CELL[1]:g}" '
+               f'preserveAspectRatio="none" style="image-rendering:pixelated" href="{uri}"/>')
+        matrix = f'<g class="{entry["name"]}-matrix">'
+        svg = svg.replace(matrix, tag + matrix, 1)
+    return svg
 
 
 RICH_VERSION = 'rich-version.txt'   # the rich that drew the SVGs; another rich draws other bytes
+README = ROOT / 'README.md'
+BLOCK = re.compile(r'(<!-- screens: docs/screens/screens.yaml -->).*?(<!-- /screens -->)', re.S)   # one line
 
 
-def render_all(out):
+def table(entries):
+    """The README's screens table: two per row, each image with its caption."""
+    cells = [f'<td width="50%"><img src="docs/screens/{e["name"]}.svg" alt="{e["alt"]}">'
+             f'<br><sub>{e["caption"]}</sub></td>' for e in entries]
+    return '<table>' + ''.join(f'<tr>{"".join(cells[i:i + 2])}</tr>' for i in range(0, len(cells), 2)) + '</table>'
+
+
+def readme(entries, text):
+    """``text`` (the README) with its screens table drawn from screens.yaml."""
+    out, n = BLOCK.subn(lambda m: m.group(1) + table(entries) + m.group(2), text)
+    if n != 1:
+        raise SystemExit(f'{README}: no <!-- screens: docs/screens/screens.yaml --> ... <!-- /screens --> block')
+    return out
+
+
+def render_all(out, readme_to=README):
     from importlib.metadata import version
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    for entry in yaml.safe_load((HERE / 'screens.yaml').read_text()):
+    entries = yaml.safe_load((HERE / 'screens.yaml').read_text())
+    for entry in entries:
         (out / f"{entry['name']}.svg").write_text(render(entry))
     (out / RICH_VERSION).write_text(version('rich') + '\n')
+    readme_to.write_text(readme(entries, README.read_text()))
 
 
 if __name__ == '__main__':
-    render_all(sys.argv[1] if len(sys.argv) > 1 else HERE)
+    # The default redraws the images here and the README's table; an OUT_DIR (the staleness test) gets both.
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE
+    render_all(out, README if out == HERE else out / 'README.md')

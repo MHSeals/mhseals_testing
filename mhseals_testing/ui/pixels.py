@@ -659,6 +659,17 @@ def frame(segments, size):
     return segments
 
 
+def placed():
+    """``[(row, col, rgba)]``: the image parts the last sixel frame() put on screen, by their top-left
+    cell (docs/screens/render.py composites the README screens from them)."""
+    cw, ch = CELL
+    out = []
+    for (row, col), (n, (r0, c0, r1, c1)) in sorted(_live.items()):
+        tile = _by_id[n]
+        out.append((row, col, _rgba(tile.px[r0 * ch:r1 * ch, c0 * cw:c1 * cw], tile.palette)))
+    return out
+
+
 def _rects(spans):
     """``(r0, c0, r1, c1)`` rectangles covering the ``(r, c0, c1)`` row spans: a row's touching
     spans joined, then merged with the same span on the rows below."""
