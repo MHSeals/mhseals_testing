@@ -2629,6 +2629,7 @@ class App:
         self.running = procedure.title
         results = len(self.snapshot()['results'])
         self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
+        self.run_fields = {}   # run-level fields a procedure adds to its run record (mission)
         self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
         self.notice = f'Running {procedure.title}'
         self.health_snapshot('start', procedure)
@@ -2663,7 +2664,8 @@ class App:
         run_id, self.run_id = self.run_id, None
         if not found and aborted is None:
             return
-        record = dict(procedure=procedure.title, run_id=run_id, results=found)
+        record = dict(getattr(self, 'run_fields', None) or {}, procedure=procedure.title,
+                      run_id=run_id, results=found)
         if aborted is not None:
             record['reason'] = aborted
         runs.write_run(self.paths.runs, record, settings=vars(self.settings),
@@ -2707,6 +2709,7 @@ class App:
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
                 task=getattr(self, 'agent_task', None),   # mission: the task an agent's run named
                 reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
+                run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             speed=lambda: self.manual_speed, clock=self.monitor.clock)))

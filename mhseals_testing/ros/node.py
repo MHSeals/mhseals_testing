@@ -29,6 +29,7 @@ from vision_msgs.msg import Detection3DArray
 
 from mhseals_testing import events
 from mhseals_testing.harness import journal
+from mhseals_testing.harness.horn import TOPIC as HORN_TOPIC, HornJournal
 from mhseals_testing.harness.simsession import ClockWatch
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.readiness import BEAT_STALE_S
@@ -126,6 +127,9 @@ class RosIO:
         self.node.create_subscription(
             String, '/thruster_pwm_node/status', self._driver_status,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        if profile.use_sim_time:   # the sim's harbor-alert horn, journaled for the referee
+            hear = HornJournal(self.emit, getattr(profile, 'course_truth', None))
+            self.node.create_subscription(String, HORN_TOPIC, lambda m: hear(m.data), 10)
         self.map = MapFeeds(self.node, facts=facts, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
         self.mission = MissionState(self.map.state)   # a ui feed; tasks and the goal go on into the map
         MissionFeed(self.node, self.mission)

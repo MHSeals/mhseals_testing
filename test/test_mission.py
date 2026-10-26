@@ -59,7 +59,7 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
     from contextlib import contextmanager
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
-    runner = SimpleNamespace(paused=5.0)
+    runner = SimpleNamespace(paused=5.0, clock=lambda: 10.0)
 
     def supervise(*args, **kwargs):
         runner.paused += 3.0       # a 3 s override inside this run
@@ -101,7 +101,7 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
     from contextlib import contextmanager
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
-    runner = SimpleNamespace(paused=0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
+    runner = SimpleNamespace(paused=0.0, clock=lambda: 0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
     watcher = SimpleNamespace(events=stream, statuses=[], status={}, reset=lambda: None)
     recorded, started = [], []
 
@@ -315,3 +315,47 @@ def test_the_tasks_claimed_phases_are_kept_next_to_its_events(tmp_path):
                                                                  ('channel', 2.0, 'nav_channel')]
     assert all(r['schema'] == 'mhseals.mission_status/1' for r in rows)
     assert (session / 'task_events.jsonl').exists()
+
+
+def test_a_run_links_its_own_track_and_event_files(tmp_path):
+    # The run record links runs/<run_id>/ copies, which a later mission run never overwrites.
+    import json
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    truth = tmp_path / 'course_truth.json'
+    truth.write_text(json.dumps({'startX': 0.0, 'startY': 0.0, 'elements': []}))
+    session = tmp_path / 'session'
+    session.mkdir()
+    services = {'session_dir': str(session), 'run_id': '003-mission'}
+    ctx = SimpleNamespace(profile=SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom'),
+                          services=services, history=lambda *a, **k: [(1.0, {'x': 2.0, 'y': 0.0})])
+    mission.judge(ctx, 'nav_channel', RUBRIC, [dict(event='task_started', received=1.0)], 0.0, 3.0)
+    files = services['run_fields']['files']
+    assert files == {'track': 'runs/003-mission/track.jsonl',
+                     'task_events': 'runs/003-mission/task_events.jsonl',
+                     'task_status': 'runs/003-mission/task_status.jsonl'}
+    assert json.loads((session / files['track']).read_text()) == dict(t=1.0, x=2.0, y=0.0, yaw=0.0)
+    assert (session / 'track.jsonl').read_text() == (session / files['track']).read_text()
+
+
+def test_the_run_record_takes_the_limit_from_the_mission_config_and_the_start_from_the_track_clock(monkeypatch):
+    # mission.yaml is the whole 2026 run (1800 s): the procedure records its limit, not a constant.
+    import yaml
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    runner = SimpleNamespace(paused=0.0, clock=lambda: 42.5, supervise=lambda *a, **k: (42.5, 50.0, True))
+    watcher = SimpleNamespace(events=[], statuses=[], status={}, reset=lambda: None)
+
+    @contextmanager
+    def supervised(*args, **kwargs):
+        yield runner
+    services = {'task': 'mission', 'task_watcher': lambda: watcher, 'start': lambda *a: None,
+                'stop': lambda *a: None, 'running': lambda *a: False, 'returncode': lambda name: 0}
+    ctx = SimpleNamespace(prompt=lambda *a: None, supervise=supervised, services=services,
+                          profile=SimpleNamespace(use_sim_time=True), record=lambda r: None)
+    monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
+    mission.run(ctx)
+    limit = yaml.safe_load((MISSION_DIR / 'mission.yaml').read_text())['time_limit']
+    assert limit == 1800.0
+    assert services['run_fields'] == dict(time_limit_s=limit, run_start_t=42.5)

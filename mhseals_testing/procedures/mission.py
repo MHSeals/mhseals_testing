@@ -150,11 +150,16 @@ def run(ctx):
         return refuse(ctx, task, away)
     watcher = services['task_watcher']()
     watcher.reset()
+    # Run-level fields for the run record (the App merges them into runs/<run_id>.json's
+    # ``result``, aborted runs included): the official limit from the mission config.
+    fields = services.setdefault('run_fields', {})
+    fields['time_limit_s'] = rubric.get('time_limit')
     # run_task directly: ros2 launch exits 0 whatever its node's code.
     command = ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', task, '--ros-args',
                '-p', f'use_sim_time:={str(ctx.profile.use_sim_time).lower()}']
     with ctx.supervise('mission', task=task) as runner:
         paused_before = runner.paused
+        fields['run_start_t'] = runner.clock()   # the clock of ctx.history, so of track.jsonl's t
         services['start'](f'task_{task}', command)
         try:
             start, end, _ = runner.supervise(
@@ -190,21 +195,31 @@ def judge(ctx, task, rubric, events, start, end, statuses=()):
              if v.get('x') is not None]
     events = [dict(e, time=e.get('received', e.get('time', 0.0))) for e in events]
     statuses = [dict(s, time=s.get('received', 0.0)) for s in statuses]
-    keep(ctx.services.get('session_dir'), task, track, events, statuses)
+    # The run record links the run's own files (relative to the session directory).
+    ctx.services.setdefault('run_fields', {})['files'] = keep(
+        ctx.services.get('session_dir'), task, track, events, statuses, run_id=ctx.services.get('run_id'))
     return referee.judge_task(task, truth, track, events, rubric)
 
 
-def keep(session, task, track, events, statuses=()):
+def keep(session, task, track, events, statuses=(), run_id=None):
     """Write what the referee judged into the session, for ``boat_trial analyze referee``.
 
     ``track.jsonl`` (rows ``{t, x, y, yaw}``), ``task_events.jsonl`` and ``task_status.jsonl``
     (every /task/status message, mhseals.mission_status/1; each row naming ``task``) hold the
-    latest mission run; nothing is written without a session directory.
+    latest mission run; with a ``run_id`` the run's own copies go to ``runs/<run_id>/``, which a
+    later run never overwrites. Returns those files' paths relative to the session directory
+    (``track``, ``task_events``, ``task_status``; empty without a session directory).
     """
     if session is None:
-        return
+        return {}
     lines = lambda rows: ''.join(json.dumps(row) + '\n' for row in rows)
-    data.atomic_write(Path(session) / 'track.jsonl',
-                      lines(dict(t=t, x=x, y=y, yaw=yaw) for t, x, y, yaw in track))
-    data.atomic_write(Path(session) / 'task_events.jsonl', lines(dict(e, task=task) for e in events))
-    data.atomic_write(Path(session) / 'task_status.jsonl', lines(dict(s, task=task) for s in statuses))
+    texts = {'track.jsonl': lines(dict(t=t, x=x, y=y, yaw=yaw) for t, x, y, yaw in track),
+             'task_events.jsonl': lines(dict(e, task=task) for e in events),
+             'task_status.jsonl': lines(dict(s, task=task) for s in statuses)}
+    for name, text in texts.items():
+        data.atomic_write(Path(session) / name, text)
+    where = Path('runs', run_id) if run_id else Path()
+    if run_id:
+        for name, text in texts.items():
+            data.atomic_write(Path(session) / where / name, text)
+    return {name.removesuffix('.jsonl'): str(where / name) for name in texts}

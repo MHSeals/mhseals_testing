@@ -1027,6 +1027,43 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
     assert result['verdict'] == 'PASS' and result['points'] == 20
     assert started[0][:6] == ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', 'nav_channel']
     assert stopped == ['task_nav_channel']
+    # The run record carries what the referee needs: the config's limit and the start on the track clock.
+    import yaml
+    from mhseals_testing.procedures.mission import MISSION_DIR
+    record = json.loads(next(app.paths.runs.glob('*.json')).read_text())
+    limit = yaml.safe_load((MISSION_DIR / 'nav_channel.yaml').read_text())['time_limit']
+    assert record['result']['time_limit_s'] == limit
+    assert isinstance(record['result']['run_start_t'], float)
+    # The journal's run-end marker names the run.
+    stop = [d for phase, d in app.ros.lines if phase == 'mission_stop']
+    assert len(stop) == 1 and stop[0]['run_id'] == record['run_id'] and stop[0]['outcome'] == 'complete'
+
+
+def test_an_aborted_mission_still_records_its_limit_start_and_end(tmp_path):
+    from mhseals_testing.runner import Aborted
+    app, _ = nav_app(tmp_path)
+    watcher, clock = Watcher(), app.clock
+    app.watcher_factory = lambda: watcher
+
+    class Processes(type(app.processes)):
+        def running(self, name):
+            if name != 'bag' and clock.now > 2:
+                raise Aborted('operator abort')   # e.g. Space, mid-run
+            return True
+
+        def stop(self, name):
+            pass
+
+    app.processes = Processes()
+    app.arming.armed = True
+    scripted(app, 'nav_channel')
+    with pytest.raises(Aborted):
+        run(app, 't')
+    record = json.loads(next(app.paths.runs.glob('*.json')).read_text())
+    assert record['status'] == 'ABORTED' and record['result']['results'] == []
+    assert record['result']['time_limit_s'] == 180.0 and 'run_start_t' in record['result']
+    stop = [d for phase, d in app.ros.lines if phase == 'mission_stop']
+    assert len(stop) == 1 and stop[0]['run_id'] == record['run_id'] and stop[0]['outcome'] != 'complete'
 
 
 @pytest.mark.parametrize('width,path,expected', [
