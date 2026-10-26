@@ -90,12 +90,18 @@ class ProcessManager:
                             stderr=subprocess.DEVNULL)
         pid_file = exit_file.with_suffix('.pid')
         deadline = time.time() + 5
-        while not pid_file.exists() and keeper.poll() is None and time.time() < deadline:
-            time.sleep(0.01)
-        try:
-            pid = int(pid_file.read_text())
-        except (OSError, ValueError):
-            raise RuntimeError(f'keeper for {name} did not start the child') from None
+        pid = None
+        # Poll until the file holds a whole pid (it may be seen empty mid-write) or the keeper is
+        # gone or the bound passes; a keeper that died or never wrote still fails below.
+        while pid is None:
+            try:
+                pid = int(pid_file.read_text())
+            except (OSError, ValueError):
+                if keeper.poll() is not None or time.time() >= deadline:
+                    break
+                time.sleep(0.01)
+        if pid is None:
+            raise RuntimeError(f'keeper for {name} did not start the child')
         self.processes[name] = Child(name, pid, exit_file, keeper, log)
         return self.processes[name]
 
