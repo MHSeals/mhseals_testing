@@ -22,12 +22,13 @@ from mhseals_testing.analysis import score
 
 DPARAMS = dict(
     near_miss_m=0.5,            # D: a near miss is hull clearance below this without contact
+    exposure_m=(0.25, 0.5, 1.0),  # D: seconds with the nearest strike object closer than these
     near_miss_exit_m=0.6,       # D: a near-miss episode ends once clear by this much
     contact_clear_m=0.2,        # D: a contact ends (recovered) once clear by this much
-    speed_window_s=0.5,         # D: speed = displacement over this centred window
+    speed_window_s=0.5,         # D: contact speed = path over this window before contact
     execute_near_m=3.0,         # D: within this clearance of a task object counts as acting on it
     derived_region_m=3.0,       # D: region round a task with no truth footprint
-    sensor_range_m=30.0,        # D, owner to confirm: plausible detection range (all round)
+    sensor_range_m=20.0,        # D, owner to confirm: plausible detection range (all round)
     visibility_dt_s=0.5,        # D: visibility is sampled this often
     claim_window_s=(-0.5, 5.0),  # D: a claim matches a truth event this close (latency kept)
 )
@@ -84,15 +85,17 @@ def path_length(track):
 
 
 def speeds(track, window=DPARAMS['speed_window_s']):
-    """Speed at each sample: displacement over a centred window (shorter at the ends)."""
-    out, j0, j1 = [], 0, 0
-    for t, *_ in track:
-        while track[j0][0] < t - window / 2:
-            j0 += 1
-        while j1 < len(track) - 1 and track[j1 + 1][0] <= t + window / 2:
-            j1 += 1
-        dt = track[j1][0] - track[j0][0]
-        out.append(math.dist(track[j0][1:3], track[j1][1:3]) / dt if dt > 0 else 0.0)
+    """Ground speed arriving at each sample: path length over the ``window`` before it
+    (None when less than 0.2 s of track precedes it)."""
+    out, j, run = [], 0, 0.0
+    for i, (t, *_) in enumerate(track):
+        if i:
+            run += math.dist(track[i - 1][1:3], track[i][1:3])
+        while track[j][0] < t - window:
+            run -= math.dist(track[j][1:3], track[j + 1][1:3])
+            j += 1
+        dt = t - track[j][0]
+        out.append(run / dt if dt >= 0.2 else None)
     return out
 
 
@@ -107,7 +110,8 @@ def contacts(run, model, p=DPARAMS):
     hull = model['hull']
     reach = math.hypot(*hull) / 2
     v = speeds(run)
-    found, near, below_s, closest = [], [], 0.0, math.inf
+    found, near, closest = [], [], math.inf
+    nearest = [math.inf] * len(run)         # per sample, the nearest strike object
     objects = [(e, 'dock' if e.get('role') in score.DOCK_PARTS else 'strike')
                for e in model['elements']]
     shore = model.get('shore')
@@ -125,12 +129,13 @@ def contacts(run, model, p=DPARAMS):
                 clear = score.hull_clearance((x, y, yaw), (item['x'], item['y']),
                                              item.get('radius') or 0.2, hull)
             closest = min(closest, clear)
-            if i and clear < p['near_miss_m']:
-                below_s += t - run[i - 1][0]
+            if kind == 'strike':
+                nearest[i] = min(nearest[i], clear)
             if clear < 0 and state != 'contact':
+                pre = v[i - 1] if i else None          # arriving at the last clear sample
                 episode = dict(object=item['id'], role=item.get('role'), kind=kind, t=round(t, 3),
-                               speed_mps=round(v[i], 3), min_clearance_m=round(clear, 3),
-                               recovered_s=None)
+                               speed_mps=None if pre is None else round(pre, 3),
+                               min_clearance_m=round(clear, 3), recovered_s=None)
                 found.append(episode)
                 if state == 'near':
                     near.pop()          # it became a contact: not a near miss
@@ -142,23 +147,26 @@ def contacts(run, model, p=DPARAMS):
                     state = 'clear'
             elif clear < p['near_miss_m'] and state == 'clear':
                 episode = dict(object=item['id'], role=item.get('role'), kind=kind,
-                               t=round(t, 3), speed_mps=round(v[i], 3),
+                               t=round(t, 3), speed_mps=v[i] and round(v[i], 3),
                                min_clearance_m=round(clear, 3))
                 near.append(episode)
                 state = 'near'
             elif state == 'near':
                 if clear < episode['min_clearance_m']:
-                    episode.update(t=round(t, 3), speed_mps=round(v[i], 3),
+                    episode.update(t=round(t, 3), speed_mps=v[i] and round(v[i], 3),
                                    min_clearance_m=round(clear, 3))
                 if clear > p['near_miss_exit_m']:
                     state = 'clear'
     found.sort(key=lambda c: c['t'])
     near.sort(key=lambda c: c['t'])
     count = {k: sum(c['kind'] == k for c in found) for k in ('strike', 'dock', 'shore')}
+    exposure = {f'{m}': round(sum(b[0] - a[0] for a, b, c in zip(run, run[1:], nearest[1:])
+                                  if 0 <= c < m), 2) for m in p['exposure_m']}
     return dict(contacts=found, near_misses=near, counts=count, near_miss_count=len(near),
-                seconds_below_near_miss=round(below_s, 2),
+                strike_exposure_s=exposure,
                 min_clearance_m=None if closest == math.inf else round(closest, 3),
-                peak_contact_speed_mps=max((c['speed_mps'] for c in found), default=None))
+                peak_contact_speed_mps=max((c['speed_mps'] for c in found
+                                            if c['speed_mps'] is not None), default=None))
 
 
 # ---------------------------------------------------------------- task timeline
@@ -243,12 +251,15 @@ def timeline(run, model, report, gate_passes, contact_list, trigger=None):
         if done:
             end, outcome = max(done), 'completed'
         elif inside and inside[-1][0] >= run[-1][0] - 1e-6:
-            end, outcome = run[-1][0], 'run_ended'
-        else:
-            end, outcome = (inside[-1][0] if inside else met), 'left_unfinished'
+            end, outcome = run[-1][0], 'cut_off_incomplete'
+        else:       # a give-up proxy only: the track cannot show intent
+            end, outcome = (inside[-1][0] if inside else met), 'departed_incomplete'
+        visits = sum(1 for a, b in zip(run, run[1:]) if dist(a[1:3]) > 0 >= dist(b[1:3])) + \
+            (1 if run and dist(run[0][1:3]) <= 0 else 0)
         out[tid] = dict(encountered=True, region=how, encounter_t=round(met, 3),
                         execute_t=None if execute is None else round(execute, 3),
-                        end_t=round(end, 3), outcome=outcome, failed_candidates=len(failed))
+                        end_t=round(end, 3), outcome=outcome, visits=visits,
+                        failed_candidates=len(failed))
     # transit before each task: from the latest end of another task (or the run start)
     for tid, row in out.items():
         if not row['encountered']:

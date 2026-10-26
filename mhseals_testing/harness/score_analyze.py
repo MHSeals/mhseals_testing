@@ -75,8 +75,9 @@ def statuses(session):
 
 def claims(task_events, report):
     """The boat's claims beside what ground truth credits, per task (claims never score)."""
-    said = [dict(t=e.get('time'), event=e['event'], stage=e.get('stage'))
-            for e in task_events if e.get('event') in CLAIM_EVENTS]
+    said = [dict(e, t=e.get('time')) for e in task_events
+            if e.get('event') in CLAIM_EVENTS + ('decision', 'stage_started', 'spill_count',
+                                                 'species_count')]
     out = {}
     for c in said:
         if c['event'] != 'stage_completed' or not c['stage']:
@@ -166,7 +167,15 @@ def metrics(record):
     touch = diag.get('contacts') or {}
     for kind, n in (touch.get('counts') or {}).items():
         out[f'contacts.{kind}'] = n
+    end = record['run']['end']['reason']
+    out['exited'] = float(record['run'].get('exit_t') is not None)
+    out.update({f'end.{k}': float(k == end) for k in ('finished', 'intervention',
+                                                     'out_of_bounds', 'track_end')})
     if touch:
+        out['contact_free'] = float(not touch.get('contacts'))
+        out['safe_exit'] = float(out['exited'] and not touch.get('contacts')
+                                 and not record['penalties']['out_of_bounds']
+                                 and not record['penalties']['interventions'])
         out['near_misses'] = touch.get('near_miss_count')
         out['min_clearance_m'] = touch.get('min_clearance_m')
     for tid, row in (diag.get('timeline') or {}).items():
