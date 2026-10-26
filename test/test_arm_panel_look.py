@@ -13,13 +13,6 @@ BLOCKED = ROWS + [('Interlocks', theme.icon('bad').plain + ' FCU heading is unre
                   ('', theme.icon('bad').plain + ' another instance is live')]
 
 
-def text(renderable, width=80):
-    console = Console(width=width, file=io.StringIO(), color_system='truecolor', force_terminal=True)
-    with console.capture() as cap:
-        console.print(renderable)
-    return cap.get()
-
-
 def plain(renderable, width=80):
     console = Console(width=width, file=io.StringIO(), color_system=None)
     with console.capture() as cap:
@@ -49,16 +42,18 @@ def test_the_field_wears_arm_word_and_a_wrong_letter_still_warns():
     red = theme.PALETTE.style('arm.word')
     field = widgets.word_field('AR', 'ARM', red)
     if red.startswith('#'):
-        assert red.lower() in text(field).lower() or _rgb(red) in text(field)
-        assert _rgb(theme.WARN) in text(widgets.word_field('AX', 'ARM', red))
+        assert red.lower() in colours(field)
+        assert theme.WARN.lower() in colours(widgets.word_field('AX', 'ARM', red))
     assert 'needs ARM' in plain(field) and '! needs ARM' in plain(widgets.word_field('AX', 'ARM', red))
 
 
-def _rgb(hex_colour):
-    if not hex_colour.startswith('#'):
-        return hex_colour
-    r, g, b = (int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
-    return f'{r};{g};{b}'
+def colours(renderable, width=80):
+    """The foreground hexes of the laid-out cells. Reads segment styles rather than ANSI: Rich keeps a
+    parsed style's codes from the first console that renders it, so a truecolor render here would
+    leak truecolor codes into later 16-colour renders of the same style."""
+    console = Console(width=width, file=io.StringIO(), color_system=None)
+    return {seg.style.color.triplet.hex for line in console.render_lines(renderable) for seg in line
+            if seg.style and seg.style.color and seg.style.color.triplet}
 
 
 def test_cancel_stays_the_focused_default():
