@@ -46,11 +46,11 @@ def _synthetic():
 
 def sim_sessions(root):
     """Every sim session the v3 snapshot covers: crane's fixtures and the synthetic runs, each
-    as a unity session, a kinematic session and a legacy session without session.json."""
+    as a unity and a kinematic session with v3's 300 s limit stated (v4 guesses none)."""
     out = {}
     cases = sorted(p for p in DATA.iterdir() if p.is_dir() and p.name != 'sources')
-    for meta_name, meta in (('unity', dict(source='unity')), ('kinematic', dict(kind='kinematic')),
-                            ('legacy', None)):
+    for meta_name, meta in (('unity', dict(source='unity', time_limit_s=300.0)),
+                            ('kinematic', dict(kind='kinematic', time_limit_s=300.0))):
         for case in cases:
             truth = json.loads((DATA / f"truth-{(case / 'truth').read_text().strip()}.json")
                                .read_text())
@@ -66,11 +66,13 @@ def sim_sessions(root):
     return out
 
 
-NEW_KEYS = (('run', 'capabilities'), ('scorer', 'version'), ('diagnostics', 'version'))
+NEW_KEYS = (('run', 'capabilities'), ('run', 'time_limit_s'), ('scorer', 'version'),
+            ('diagnostics', 'version'), ('params', 'time_limit_s'))
 
 
 def digest(record):
-    """sha256 of the report without the fields v4 adds (capabilities) or bumps (versions)."""
+    """sha256 of the report without what v4 adds (capabilities, time limit) or changes
+    (versions, the PARAMS time limit default, now None)."""
     rec = json.loads(json.dumps(record))
     for a, b in NEW_KEYS:
         rec.get(a, {}).pop(b, None)
@@ -92,6 +94,7 @@ def _analyze_all(root):
 
 
 SIGMA = 0.3
+LIMIT = 1800.0      # the mission config's duration; stated per run, never defaulted
 JUDGE_SHEET = [dict(t=12.0, object='entry_gates.g2.p', by='judge 1'),
                dict(t=999.0, object='entry_gates.g1.s', by='judge 1')]   # after the run: ignored
 
@@ -116,12 +119,13 @@ def write_fixtures():
     for name in ('kinematic', 'unity', 'real'):
         shutil.rmtree(SOURCES / name, ignore_errors=True)
     _write(SOURCES / 'kinematic', gate_truth(), path(loop(+1), step=0.2),
-           dict(source='kinematic', kind='kinematic', seed=1))
+           dict(source='kinematic', kind='kinematic', seed=1, time_limit_s=LIMIT))
     _write(SOURCES / 'unity', _harbor_truth(), path([(0, 0), (30, 0)], step=0.2),
-           dict(source='unity', seed=1), (),
+           dict(source='unity', seed=1, time_limit_s=LIMIT), (),
            [dict(t_sim=HORN_AT, id='harbor_alert.horn', value='one')])
     sheet = ''.join(json.dumps(c) + '\n' for c in JUDGE_SHEET)
-    _write(SOURCES / 'real', real_truth(), real_track(), dict(source='real'), (), None,
+    _write(SOURCES / 'real', real_truth(), real_track(), dict(source='real', time_limit_s=LIMIT),
+           (), None,
            {'judge_contacts.jsonl': sheet})
 
 
@@ -150,11 +154,12 @@ def _copy(name, tmp_path, **files):
 
 
 @pytest.mark.parametrize('name, caps', [
-    ('kinematic', dict(truth='exact', truth_sigma_m=None, contacts='geometric', state_log=False,
+    ('kinematic', dict(truth='exact', truth_sigma_m=None, contacts='geometric',
+                       state_log='missing',
                        horn='planned', claims=True, reports=False)),
-    ('unity', dict(truth='exact', truth_sigma_m=None, contacts='physics', state_log=True,
+    ('unity', dict(truth='exact', truth_sigma_m=None, contacts='physics', state_log='complete',
                    horn='recorded', claims=True, reports=False)),
-    ('real', dict(truth='surveyed', truth_sigma_m=SIGMA, contacts='judge', state_log=False,
+    ('real', dict(truth='surveyed', truth_sigma_m=SIGMA, contacts='judge', state_log='missing',
                   horn='unknown', claims=True, reports=False))])
 def test_each_adapter_loads_one_record_and_declares_its_capabilities(name, caps, tmp_path):
     from mhseals_testing.analysis import run_record
@@ -198,7 +203,8 @@ def test_the_same_run_as_unity_differs_only_by_capability(tmp_path):
     """Same track and course, exact truth and geometric contacts: the exit earns, the strike
     sheet is ignored and the harbor row is n/a (the sim program says the horn never sounded)."""
     from mhseals_testing.harness import score_analyze as sa
-    folder = _copy('real', tmp_path, **{'session.json': json.dumps(dict(source='unity'))})
+    meta = json.dumps(dict(source='unity', time_limit_s=LIMIT))
+    folder = _copy('real', tmp_path, **{'session.json': meta})
     _, rec = sa.analyze(folder)
     got = rows(rec)
     assert got['T1.exit']['status'] == 'earned' and got['T6.zone']['status'] == 'n/a'
@@ -225,6 +231,75 @@ def test_no_scoring_code_names_a_source():
     assert not [m.group(0) for t in texts for m in named.finditer(t)]
 
 
+# ---- state log: missing vs complete-empty vs partial vs contradictory (review finding 1)
+
+HORN_REC = dict(t_sim=HORN_AT, id='harbor_alert.horn', value='one')
+LOGS = {   # name: (states.jsonl text or None, session source, T6 status, horn basis or reason)
+    'missing_sim': (None, 'unity', 'provisional', 'planned (no state log)'),
+    'missing_real': (None, 'real', 'unscorable', 'caps.horn unknown'),
+    'complete_empty': ('', 'unity', 'n/a', 'recorded: never sounded'),
+    'complete_other_state': (json.dumps(dict(t_sim=1.0, id='speed_challenge.light',
+                                             value='red')) + '\n', 'unity', 'n/a',
+                             'recorded: never sounded'),
+    'complete_horn': (json.dumps(HORN_REC) + '\n', 'unity', 'earned', 'recorded'),
+    'partial_gap_no_horn': (json.dumps(dict(t_sim=5.0, id='log_gap')) + '\n', 'unity',
+                            'unscorable', 'caps.horn partial'),
+    'partial_torn_with_horn': (json.dumps(HORN_REC) + '\n{"t_sim": 20.0, "id": "har',
+                               'unity', 'provisional', 'recorded (partial log'),
+    'partial_ends_early': (json.dumps(dict(t_sim=10.0, id='log_end')) + '\n', 'unity',
+                           'unscorable', 'caps.horn partial'),
+    'contradictory': (json.dumps(HORN_REC) + '\n' + json.dumps(dict(HORN_REC, value='two'))
+                      + '\n', 'unity', 'unscorable', 'caps.horn contradictory')}
+
+
+@pytest.mark.parametrize('case', sorted(LOGS))
+def test_state_log_status_decides_the_horn(case, tmp_path):
+    from mhseals_testing.harness import score_analyze as sa
+    text, source, status, basis = LOGS[case]
+    truth = json.loads((SOURCES / 'unity' / 'course_truth.json').read_text())
+    truth['states'][0]['program']['trigger_s'] = HORN_AT      # a planned horn inside the run
+    if source == 'real':
+        truth['survey'] = dict(sigma_m=SIGMA)
+    folder = _copy('unity', tmp_path, **{
+        'states.jsonl': text, 'course_truth.json': json.dumps(truth),
+        'session.json': json.dumps(dict(source=source, time_limit_s=LIMIT))})
+    _, rec = sa.analyze(folder)
+    got = rows(rec)['T6.zone']
+    assert got['status'] == status
+    assert basis in str(got['evidence'].get('horn')) + str(got['evidence'].get('reason'))
+    assert rec['run']['capabilities']['state_log'] == case.split('_')[0]
+
+
+def test_partial_state_log_makes_state_reading_rows_provisional():
+    from mhseals_testing.analysis import score
+    body = dict(tasks=dict(speed_challenge=dict(rows=[dict(
+        id='T3.direction', status='earned', points=150, provisional=0, evidence={})])))
+    score._provisional(body, 'state log partial', score.STATE_ROWS)
+    row = body['tasks']['speed_challenge']['rows'][0]
+    assert (row['status'], row['points'], row['provisional']) == ('provisional', 0, 150)
+
+
+# ---- time limit: none is guessed (review finding 2)
+
+def test_no_time_limit_scores_to_the_track_end_with_rows_provisional(tmp_path):
+    from mhseals_testing.harness import score_analyze as sa
+    folder = _copy('kinematic', tmp_path, **{'session.json': json.dumps(dict(kind='kinematic'))})
+    _, rec = sa.analyze(folder)
+    assert rec['run']['time_limit_s'] is None and rec['run']['end']['reason'] == 'track_end'
+    assert rec['total']['points'] == 0 and rec['total']['provisional'] == 700.8
+    assert 'no time_limit_s' in ' '.join(rec['run']['warnings'])
+    assert 'no time_limit_s' in rows(rec)['T1.entry']['evidence']['provisional_because'][0]
+
+
+def test_a_stated_time_limit_cuts_the_run(tmp_path):
+    from mhseals_testing.harness import score_analyze as sa
+    folder = _copy('kinematic', tmp_path, **{'session.json': json.dumps(
+        dict(kind='kinematic', time_limit_s=30.0))})
+    _, rec = sa.analyze(folder)
+    assert rec['run']['end']['reason'] == 'time_limit' and rec['run']['time_limit_s'] == 30.0
+    assert rows(rec)['T1.exit']['status'] == 'missed'
+
+
 # ---- pairing across tiers
 
 def _pairs(tmp_path, rows_):
@@ -237,7 +312,7 @@ def _twin(tmp_path, name, source, seed):
     import shutil
     folder = tmp_path / name
     shutil.copytree(SOURCES / 'real', folder)
-    (folder / 'session.json').write_text(json.dumps(dict(source=source)))
+    (folder / 'session.json').write_text(json.dumps(dict(source=source, time_limit_s=LIMIT)))
     if source == 'kinematic':
         (folder / 'course_truth.json').write_text(json.dumps(gate_truth()))
     return folder.name

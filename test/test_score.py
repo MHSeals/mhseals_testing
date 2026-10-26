@@ -511,7 +511,7 @@ def test_the_harness_not_the_boat_sets_the_scored_window(tmp_path):
     from mhseals_testing.harness import score_analyze as sa
     run = path([(0, 0), (20, 0), (0, 0), (-2, 0)])
     claims = [dict(event='task_started', time=30.0), dict(event='task_finished', time=31.0)]
-    _, rec = sa.analyze(_session(tmp_path / 's1', run, claims))
+    _, rec = sa.analyze(_session(tmp_path / 's1', run, claims, dict(time_limit_s=300.0)))
     assert rec['run']['window'][0] == run[0][0] and rec['run']['end']['reason'] == 'track_end'
     assert rec['run']['claimed_window'] == [30.0, 31.0]
     assert rows(rec)['T1.exit']['status'] == 'earned'

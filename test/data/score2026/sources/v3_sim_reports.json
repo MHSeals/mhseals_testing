@@ -123,7 +123,7 @@
     "provisional": 0
    }
   },
-  "sha256": "9449e82c2f3176079ee429b54f02802b9b3422dfdb6660a610234ec39bc834ea"
+  "sha256": "1b756841a27f892b627738692454dffeec1b447765bdb3aede33d3feeb334adf"
  },
  "kinematic-debris_green_full_circle": {
   "score": {
@@ -249,7 +249,7 @@
     "provisional": 0
    }
   },
-  "sha256": "f94712d3b3a28182df6cd601e63ef51bc9fe31ade897e01a37ee44bbd61c6855"
+  "sha256": "2af414f6877cf6bb1d05494566be8af33ee272447395cd52ac1a918b33af8a95"
  },
  "kinematic-debris_green_partial": {
   "score": {
@@ -375,7 +375,7 @@
     "provisional": 0
    }
   },
-  "sha256": "c15edcf3f22d54ceeb034fbe2e388e23f5f2faf4b0cfdde1a86af3293c997851"
+  "sha256": "ba73513cca758a007aa0540ba9ff30ba577294102333f2c47276a5fb471940c1"
  },
  "kinematic-debris_red_avoided": {
   "score": {
@@ -501,7 +501,7 @@
     "provisional": 0
    }
   },
-  "sha256": "edbb0d7c578ef06105cb6973b7f8fe24b42751e53a8c99b0e94b8f52a6dc62be"
+  "sha256": "4ea7f279fa810cb515f7e9b1d16526d7caaaf675d21e9c0e0d41bceb29aa3bc8"
  },
  "kinematic-debris_red_circled": {
   "score": {
@@ -627,7 +627,7 @@
     "provisional": 0
    }
   },
-  "sha256": "e56ce09ace0ec648d6f4a558f978ad67ae8e5d13199bba985ae0210b68fe5115"
+  "sha256": "709124ccb66094ed555bc01e06e80c55386a71bf4cf359dbb1c2f31d6601814c"
  },
  "kinematic-dock_any_unoccupied": {
   "score": {
@@ -753,7 +753,7 @@
     "provisional": 0
    }
   },
-  "sha256": "bbd42bf26c493f4b5d3644e03b4e8fb3f93ed0ca2aeddce7924f9502d9c9fcd9"
+  "sha256": "51a299dd8a73d93e25939c44b0380b409da6d07d59020aa42ddd7c9f8a00dd18"
  },
  "kinematic-dock_green_not_lowest": {
   "score": {
@@ -879,7 +879,7 @@
     "provisional": 0
    }
   },
-  "sha256": "4e7a746f77989b4c7b88cde3b4786274e41897b480a4895dad67cfe58d83606f"
+  "sha256": "19c2e0faf524440699d4c44edc45041d2803eeee9b0ef75d39cea2f7bb9d8a9e"
  },
  "kinematic-dock_lowest_green": {
   "score": {
@@ -1005,7 +1005,7 @@
     "provisional": 0
    }
   },
-  "sha256": "ddcf552483a4d5bcc496541b2d1e50bf9dbf5576650671d344c492f5e0e7c64a"
+  "sha256": "58d1439c9968ef0a63118d1899a898d0f6de9a7612c856181fea61abd96eccc8"
  },
  "kinematic-dock_wrong_slip_occupied": {
   "score": {
@@ -1131,7 +1131,7 @@
     "provisional": 0
    }
   },
-  "sha256": "2db81b1de315f7dfd0d019be7144563fca39d141bc27503c2ed725e5485412c0"
+  "sha256": "8fc042a33af647f08e24db50366dd1c09070d9efecf65688a38558c4c788bdcc"
  },
  "kinematic-entry_out_and_back": {
   "score": {
@@ -1257,7 +1257,7 @@
     "provisional": 0
    }
   },
-  "sha256": "6a43ba3593cb1c465449c9545651427fe9c11a0ced7298a8535b1f50facb7092"
+  "sha256": "aec1a19f00189d31a40a1f7a45ba3b703b23ccc57445c20f65037dd587e917ef"
  },
  "kinematic-harbor_planned": {
   "score": {
@@ -1383,7 +1383,7 @@
     "provisional": 300
    }
   },
-  "sha256": "5e63ad73ed7a92aa72cac49d832145bfe6660339774fae6c0c33928a76acc1bb"
+  "sha256": "fce710570d06f4dfb787756675b4a8729eb22493626cfebfc00293c72a6f7bda"
  },
  "kinematic-harbor_recorded": {
   "score": {
@@ -1509,7 +1509,7 @@
     "provisional": 0
    }
   },
-  "sha256": "9f10a220f4fc243dd0335592acc699998bf1f26eaaefbc29a96caf32609d525f"
+  "sha256": "4b9f919801d92e7b9df1f380495583d73e5ff55c57f104bc9f182250ff0f5e6d"
  },
  "kinematic-horn_zone_correct": {
   "score": {
@@ -1635,7 +1635,7 @@
     "provisional": 0
    }
   },
-  "sha256": "bc941fb6efad20d6a11bdcf2fbb1810869e3a2e277d18532e3522bf12717d363"
+  "sha256": "4e503552b6659ce73da01859035db4735c50af4ae13b350e6f173334e2e1b873"
  },
  "kinematic-horn_zone_wrong": {
   "score": {
@@ -1761,7 +1761,7 @@
     "provisional": 0
    }
   },
-  "sha256": "209204f12fe622bd70dbaade7ab99402bb65d53974c04032244f11bd014fdc40"
+  "sha256": "e40154b4e76b97a5d6022bd55cd3b8572f716fd94a081990fac44e03ed731f4d"
  },
  "kinematic-loop_ccw": {
   "score": {
@@ -1887,7 +1887,7 @@
     "provisional": 0
    }
   },
-  "sha256": "5a250d4f7322b8a02b1cfb51d785c585ea035e22a9995acd50e272761defa907"
+  "sha256": "56f509648b82fe38687398934cc89b3b41951e7ccd951ca7cbab22f297f291f5"
  },
  "kinematic-speed_marker_correct": {
   "score": {
@@ -2013,7 +2013,7 @@
     "provisional": 0
    }
   },
-  "sha256": "7a21565cb0940269638df92ada9b30f894237bd5af56c6ef3174f21ae5c67fe1"
+  "sha256": "6fcf36d729b48e3baea416e75f6d178ecffeb6b074e8adeb41b317803ff8eb6f"
  },
  "kinematic-speed_marker_wrong": {
   "score": {
@@ -2139,7 +2139,7 @@
     "provisional": 0
    }
   },
-  "sha256": "bb4dccd5ecfe1deef167e2ec680b4dcea7823a7e032591e2fe409d198205c1b0"
+  "sha256": "da652e138962f3c75a52e3549c9fc917abaf51982e6d1310eaa9e8c3422b7389"
  },
  "kinematic-speed_sign_correct": {
   "score": {
@@ -2265,7 +2265,7 @@
     "provisional": 0
    }
   },
-  "sha256": "c5e4bf44ad9bf967bbddf66269381bd0ac52f5f850dc7aa26b8295f4b73c067f"
+  "sha256": "0432b07def606afb32cc92fcc9f30b0a492007c4a2cc877fa81ca098b0747fc9"
  },
  "kinematic-speed_sign_toggled_mid_approach": {
   "score": {
@@ -2391,7 +2391,7 @@
     "provisional": 0
    }
   },
-  "sha256": "a847cf10e02e39e6b1a35f555c7abece5b8ac3e9dcfd46f028990210b46cd3fa"
+  "sha256": "476ae92a574e8ec05b0b9425fe1e314eb55be7d6da1dff52426e2bd7f6491055"
  },
  "kinematic-speed_sign_wrong": {
   "score": {
@@ -2517,7 +2517,7 @@
     "provisional": 0
    }
   },
-  "sha256": "f0c09df32aca05c153fcb6c6f13700b4f5decb5bc93f3edcb989cf1729cf8152"
+  "sha256": "ac1c51e3cb51a5a36a02cf3625ba4208c43ad935ecc33174a6d0b727daf16d6e"
  },
  "kinematic-strikes_after_entry": {
   "score": {
@@ -2643,2653 +2643,7 @@
     "provisional": 0
    }
   },
-  "sha256": "34cdf42a2dcb481db7cdf6c427b1e79c19f3479e8faf7b30c80fb22e3b66363b"
- },
- "legacy-contact_strike": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 1,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": -25,
-    "points": -25,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "a8943c71157f0d4f4ae0d63cf47bb41ac2cb461beb07c4b6afac1af7970e7741"
- },
- "legacy-debris_green_full_circle": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "6bc4a3ea22dd30f29dd1e132b3797633c625adc49f9ec6e02b253d6927d21333"
- },
- "legacy-debris_green_partial": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "8072ac69ceccd581f3c50190c44760b492035a920491261eb8f36389e1a791d3"
- },
- "legacy-debris_red_avoided": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "449af376b9dfcfb0828663c54ec945856d287256c4259fd35bb3a254f1583ae9"
- },
- "legacy-debris_red_circled": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "d368630dec44b1224ccb8d4499dd253d3047c7aa47cca3dae6aff9a2f5572875"
- },
- "legacy-dock_any_unoccupied": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "3fe655d5f74814e0ce2795930c63aea60e4c42517726f7e4fbb8f55ec501bcb4"
- },
- "legacy-dock_green_not_lowest": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "710d175a2c605025d7f6952a8c3b3a0e90f075140014304465ff28993ff50615"
- },
- "legacy-dock_lowest_green": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "cb0415650f11ac20a79efcb5a9a015c25a7e9c43d988f0bb96ca37094eb43b92"
- },
- "legacy-dock_wrong_slip_occupied": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 1,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": -25,
-    "points": -25,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "c015b72f94db478af9d6005fc40662c9b46dfaba7e3df1106f42811d5162e16a"
- },
- "legacy-entry_out_and_back": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "earned",
-     100,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "earned",
-     200,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 300,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 300,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "8759f83840b23ae5f2c5f9832cc2cef0d5f7c9255364c35311e82d24b80c8365"
- },
- "legacy-harbor_planned": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "earned",
-     100,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.water": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "provisional",
-     0,
-     300
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 100,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 100,
-    "possible": 1500,
-    "possible_scorable": 1050,
-    "provisional": 300
-   }
-  },
-  "sha256": "2d11d22ad8028b797b522bed2e5367f05933755751d94d80ce6ce985300dfc82"
- },
- "legacy-harbor_recorded": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "earned",
-     100,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.water": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "earned",
-     300,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 100,
-     "harbor_alert": 300,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 400,
-    "possible": 1500,
-    "possible_scorable": 1050,
-    "provisional": 0
-   }
-  },
-  "sha256": "19e79d36a3f87ec1fb5bb88767031b5e383d7c5b5b5c328bc7f6b78a888bdfd7"
- },
- "legacy-horn_zone_correct": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "missed",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 3050,
-    "possible_scorable": 2050,
-    "provisional": 0
-   }
-  },
-  "sha256": "2cbcec383c767e53c1c0fbe32efb447afd0edc6a9bea1493af09c4a0da39b09c"
- },
- "legacy-horn_zone_wrong": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "missed",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 3050,
-    "possible_scorable": 2050,
-    "provisional": 0
-   }
-  },
-  "sha256": "68b929e382f9b040333aa46ef964b49363a6766ebe9d6f47dc90442971e21831"
- },
- "legacy-loop_ccw": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "earned",
-     100,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "earned",
-     200,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "earned",
-     200,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "earned",
-     200.8,
-     0
-    ],
-    "T4.ball": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.water": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 300,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 400.8,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 700.8,
-    "possible": 1050,
-    "possible_scorable": 750,
-    "provisional": 0
-   }
-  },
-  "sha256": "1192aadb0fecff23a02754ef4ce81aff154ee3cf22827ea3fb96a536d46a082d"
- },
- "legacy-speed_marker_correct": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "6f372f1a5fbe367fdab699bfabfd00e570b15c9ad93056e0ab4da0a8fddc2a46"
- },
- "legacy-speed_marker_wrong": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "613e6aadbcd30b2dce8c7a5e8bd2f90f487b81afa5908e5c0a0c0f934a187c26"
- },
- "legacy-speed_sign_correct": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "dc7de8f1979a41dbedd04c5b9da786d51ef3da6500392b440e640760ba3efc51"
- },
- "legacy-speed_sign_toggled_mid_approach": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "cf85e4f4c859107dcc8c327183d76fd090b8d10eaa8735b5a06a641bacd622bb"
- },
- "legacy-speed_sign_wrong": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "missed",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T4.water": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "missed",
-     0,
-     0
-    ],
-    "T5.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 0,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 0,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": 0,
-    "points": 0,
-    "possible": 2600,
-    "possible_scorable": 1750,
-    "provisional": 0
-   }
-  },
-  "sha256": "46a03254cbb858392953abaad1c3b99eb2b5d76d02d99c7ec17e0c21d68ded24"
- },
- "legacy-strikes_after_entry": {
-  "score": {
-   "basis": "geometry",
-   "end": "track_end",
-   "rows": {
-    "T1.entry": [
-     "earned",
-     100,
-     0
-    ],
-    "T1.entry_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T1.exit": [
-     "missed",
-     0,
-     0
-    ],
-    "T1.exit_report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T2.channel_in": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.channel_out": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.green_circle": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.red_avoid": [
-     "n/a",
-     0,
-     0
-    ],
-    "T2.report_all": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.direction": [
-     "n/a",
-     0,
-     0
-    ],
-    "T3.loop": [
-     "missed",
-     0,
-     0
-    ],
-    "T3.report": [
-     "unscorable",
-     0,
-     0
-    ],
-    "T3.time": [
-     "missed",
-     0,
-     0
-    ],
-    "T4.ball": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T4.water": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.dock": [
-     "n/a",
-     0,
-     0
-    ],
-    "T5.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.report": [
-     "n/a",
-     0,
-     0
-    ],
-    "T6.zone": [
-     "n/a",
-     0,
-     0
-    ]
-   },
-   "source": "unity",
-   "strikes": 4,
-   "total": {
-    "by_task": {
-     "debris_clearance": 0,
-     "entry_gates": 100,
-     "harbor_alert": 0,
-     "marina": 0,
-     "speed_challenge": 0,
-     "supply_drop": 0
-    },
-    "penalty": -100,
-    "points": 0,
-    "possible": 1050,
-    "possible_scorable": 750,
-    "provisional": 0
-   }
-  },
-  "sha256": "86fa0b772edd51ae3b50c5d5621ada36b1733e0b8412d2ec798e5cd382e52618"
+  "sha256": "36f34c96c4ed1e0fed95396f5179e26010c6063eda0f25408d0a38f99dcfca2e"
  },
  "unity-contact_strike": {
   "score": {
@@ -5415,7 +2769,7 @@
     "provisional": 0
    }
   },
-  "sha256": "341ae487d86f8780ddd20241d251462d6226e79c0ffde00a22ec09d0f57ce8ae"
+  "sha256": "9960eca56fe66c7ddb33e3a5d354679464101b6e78a8430d582721361812a35b"
  },
  "unity-debris_green_full_circle": {
   "score": {
@@ -5541,7 +2895,7 @@
     "provisional": 0
    }
   },
-  "sha256": "98dc0fb16e801562e3c34d516420a184cfb2544d6d79e8ed665435325c34312f"
+  "sha256": "52502304d27ff97fc2cbc60d0fb45b234aad8047f5e0a7fa6f46f608708c0cf4"
  },
  "unity-debris_green_partial": {
   "score": {
@@ -5667,7 +3021,7 @@
     "provisional": 0
    }
   },
-  "sha256": "50ea32dfcb3b48951b9ceec4848cf3889ca3b4c4d750766695353cd6097e90ad"
+  "sha256": "a4712f4ac079693d6b957d584648d8bb9a9a2822f348b6ba1cc50e415dc731f9"
  },
  "unity-debris_red_avoided": {
   "score": {
@@ -5793,7 +3147,7 @@
     "provisional": 0
    }
   },
-  "sha256": "519ef9ebfd008d0afae8e2f3fb0913336c097dd118c4ce60703d963b0dc604e6"
+  "sha256": "33494859044bcc5c8dd2cb6273255ddf92d7de2a03e080b68cdb78bfcd60f676"
  },
  "unity-debris_red_circled": {
   "score": {
@@ -5919,7 +3273,7 @@
     "provisional": 0
    }
   },
-  "sha256": "d5c13b2e2acca6f02cfa545d99fe1c0335d0c37b11ed327720fc56135ca17046"
+  "sha256": "97c15b4179081d735ca168b7d21697e848e949582d723d969707cc5efbf50cfd"
  },
  "unity-dock_any_unoccupied": {
   "score": {
@@ -6045,7 +3399,7 @@
     "provisional": 0
    }
   },
-  "sha256": "c8c3b70dc8b21181a9d0f26bd8d7160ad59c412388eef1ad198d6af09e7dacf2"
+  "sha256": "d56e3d61338bfbc5c3d741a64e7211397318f79d4c21b9e4e6f41ca006a3f293"
  },
  "unity-dock_green_not_lowest": {
   "score": {
@@ -6171,7 +3525,7 @@
     "provisional": 0
    }
   },
-  "sha256": "1d276d6780deed0e9298b696a7b344bcfbbd55088f5b2f70350ed266b1171473"
+  "sha256": "e81842fa343d0f1b3b5b5ddb4acfd663b4703b5838f19bed15ee29edff5cec5c"
  },
  "unity-dock_lowest_green": {
   "score": {
@@ -6297,7 +3651,7 @@
     "provisional": 0
    }
   },
-  "sha256": "11f33c7d8800ed0ea456fd19302d243dfce7f4127e1c031265211940377b54a5"
+  "sha256": "5e79e40d306fe46b283c2213d9751fb0b463ab8f05fed1f63e0e328e28755498"
  },
  "unity-dock_wrong_slip_occupied": {
   "score": {
@@ -6423,7 +3777,7 @@
     "provisional": 0
    }
   },
-  "sha256": "838a8abbe5c2c38f288b5e0547e8d30ce4fb5bd27a312504994d24c93958ef2e"
+  "sha256": "ef2d8706c92c111b4db6d19cf565ce3abdae9e358de11ea06811e1f2a0b2d3a2"
  },
  "unity-entry_out_and_back": {
   "score": {
@@ -6549,7 +3903,7 @@
     "provisional": 0
    }
   },
-  "sha256": "920879c4bbb1b87b2169d2e636004cf9767e3321c3a166cde0b676bac43b1203"
+  "sha256": "7a15d41f05fbc05a2656a23849d81e1041efa6d80630eb2efec78aef6dea43dc"
  },
  "unity-harbor_planned": {
   "score": {
@@ -6675,7 +4029,7 @@
     "provisional": 300
    }
   },
-  "sha256": "52eaf5db75b82b4930b2e273d5b630917df07802e0bc6998c34eda44fdb72e14"
+  "sha256": "cd58e9e4b89410ce25c76d13a23fe2956659057304756888cbfafcc184870411"
  },
  "unity-harbor_recorded": {
   "score": {
@@ -6801,7 +4155,7 @@
     "provisional": 0
    }
   },
-  "sha256": "f9c4b8a9b095329ccd903bf62ba01c467459211b0045462c612f2aea563d22b1"
+  "sha256": "a77a467898eb9cbb6e42990d0250c299bce9a0a0a1cf1e4ec6987a14e0959825"
  },
  "unity-horn_zone_correct": {
   "score": {
@@ -6927,7 +4281,7 @@
     "provisional": 0
    }
   },
-  "sha256": "5aa12102127096de2b4a34c9c4fbc95435190c196fc9fdb6d415f7052cd15cce"
+  "sha256": "345996adb524195c72cae3112f98dd3f14420779683106b2118afaa60acb15c4"
  },
  "unity-horn_zone_wrong": {
   "score": {
@@ -7053,7 +4407,7 @@
     "provisional": 0
    }
   },
-  "sha256": "013721a9d1b7f1fd92ef9bbe61bec44671f2a6e2ca96bb157cffbae6733cd469"
+  "sha256": "ed3c309a6d6a7b51c43f21d8603d3b94af72ac1fcb04c7d8be101640eb1be8a3"
  },
  "unity-loop_ccw": {
   "score": {
@@ -7179,7 +4533,7 @@
     "provisional": 0
    }
   },
-  "sha256": "63c47328f3c37ab16cc46cb4d4e013c462de68949cad929a2b7627b751484f30"
+  "sha256": "f7d712fa6be7e6e3b0ae9cadfd2a0d25e4e30a592229d2789b2f88cb377f78b6"
  },
  "unity-speed_marker_correct": {
   "score": {
@@ -7305,7 +4659,7 @@
     "provisional": 0
    }
   },
-  "sha256": "9d0b86bb418f2980af26a3eb33e5fd3ebc2b2879fc6e92408bccae5d90b073b6"
+  "sha256": "767384087a5b6ca0cfee4d168ab3b6bfc9e3f18a1b3ea0ae67dd3e670d687573"
  },
  "unity-speed_marker_wrong": {
   "score": {
@@ -7431,7 +4785,7 @@
     "provisional": 0
    }
   },
-  "sha256": "533094fbeb355154be23c6783e269d65802d8c4ffe605ae593304f9f9b040f92"
+  "sha256": "d02042f3bfb16031259fa9f1ccb845f5a75509856b3ced503c487b714640ba19"
  },
  "unity-speed_sign_correct": {
   "score": {
@@ -7557,7 +4911,7 @@
     "provisional": 0
    }
   },
-  "sha256": "e708c9a7df7ec603b1f7121c14b3101b52dc9209c95a41dcfce558141c1bcd46"
+  "sha256": "5c991c5584243bc382e8d1abdf41af588bb10dba530cd25d80dea2a159f47d86"
  },
  "unity-speed_sign_toggled_mid_approach": {
   "score": {
@@ -7683,7 +5037,7 @@
     "provisional": 0
    }
   },
-  "sha256": "a75c40c09f6be6c8c41a612b7a1e4b087fc4eba6fe058a80b820d43dddb95631"
+  "sha256": "0d1e69cffabce69ca61e9f24c3eb1fb6abe9efca7c1037c9e97227c2e18c510e"
  },
  "unity-speed_sign_wrong": {
   "score": {
@@ -7809,7 +5163,7 @@
     "provisional": 0
    }
   },
-  "sha256": "c4f50b87c9fb521adbcff2e3294d961d7858dd0e7d58462787d05a4af11e88df"
+  "sha256": "741e9079bb9faa05934fcb656a6acc68f2584372f12c9aa41a7bc6a08fea8bbb"
  },
  "unity-strikes_after_entry": {
   "score": {
@@ -7935,6 +5289,6 @@
     "provisional": 0
    }
   },
-  "sha256": "7d66e17c7bd6e72515c3568a2cfcbf78a7bcc5272675c84409337015385a87a7"
+  "sha256": "0d7e6c7b9b3166d15365cc0913aa255a2a47b92166ddc8974f26aa7e4e729557"
  }
 }

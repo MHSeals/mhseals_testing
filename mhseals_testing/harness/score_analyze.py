@@ -2,12 +2,14 @@
 
 Reads files only (no ROS), through the session's source adapter
 (:mod:`mhseals_testing.analysis.run_record`: kinematic | unity | real, one run record with
-declared capabilities; ``--paired`` compares explicit pairs across tiers): ``course_truth.json``, ``track.jsonl`` (ground truth ``{t, x, y,
-yaw}``, captured by the harness from its run start), authority changes from ``events.jsonl``
-and optional ``states.jsonl`` (course state changes). The run window is the harness's: it
-starts at ``session.json`` ``run_start_t`` (else the first track sample) and ends at the time
-limit or the track end; the judge cuts it earlier at the exit, a hold, a takeover or out of
-bounds. ``task_events.jsonl`` holds the boat's claims, never used to judge or to window. Writes
+declared capabilities; ``--paired`` compares explicit pairs across tiers):
+``course_truth.json``, ``track.jsonl`` (ground truth ``{t, x, y, yaw}``, captured by the
+harness from its run start), authority changes from ``events.jsonl`` and optional
+``states.jsonl`` (course state changes). The run window is the harness's: it starts at
+``session.json`` ``run_start_t`` (else the first track sample) and ends at ``time_limit_s``
+(none is guessed: without it, the track end with earned rows provisional) or the track end;
+the judge cuts it earlier at the exit, a hold, a takeover or out of bounds.
+``task_events.jsonl`` holds the boat's claims, never used to judge or to window. Writes
 ``<session>/analysis/score.<ts>.json`` (schema ``mhseals.score/1``, docs in the module
 :mod:`mhseals_testing.analysis.score`). Exit 0 when scored, 2 when it cannot be.
 """
@@ -111,8 +113,9 @@ def analyze(session, now=None):
     run = score.with_heading([p for p in track
                               if window[0] <= p[0] <= body['run']['scored_until']])
     program = (model['states'].get('harbor_alert.horn') or {}).get('program')
-    trigger = score.horn_sounded(rec['changes'],
-                                 None if rec['caps']['horn'] == 'unknown' else program)[0]
+    horn = rec['caps']['horn']
+    trigger = score.horn_sounded(rec['changes'], program if horn == 'planned' else None,
+                                 horn in ('recorded', 'partial'))[0]
     if run:
         body['diagnostics'].update(diagnostics.diagnose(run, model, body, task_events,
                                                         rec['statuses'], trigger))

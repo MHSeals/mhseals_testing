@@ -50,8 +50,9 @@ PARAMS = dict(
     object_radius_m=0.2,        # D: radius of a truth object that gives none (H p.48: A-0 buoys
                                 # are 20.3 cm across, so this is generous)
     missing_sign_number=9,      # D: a slip without a sign number ranks after signs 1-3
-    time_limit_s=300.0,         # D, owner to confirm: scored-run limit when session.json has no
-                                # time_limit_s (handbook: none found; harness rubric default 300)
+    time_limit_s=None,          # owner sets the official duration; no default is guessed: a
+                                # run without session.json time_limit_s has its earned rows
+                                # provisional (v4; v3 assumed 300 s, the mission config 1800 s)
 )
 DOCK_PARTS = ('pier_spine', 'pier_tine', 'dock_sign', 'dock_indicator')  # docking touches these
 INTERVENING = ('rc', 'keyboard', 'hold', 'external')   # authority owners that are not autonomy
@@ -612,12 +613,13 @@ def _marina(model, run, rows, changes, allowed):
     return warnings
 
 
-def horn_sounded(changes, program=None):
+def horn_sounded(changes, program=None, logged=None):
     """(t, value, basis) of the first horn sound. A recorded state log decides (basis
     'recorded'; a log with no horn record means it never sounded). Only with no state log at
     all does the program's planned trigger_s stand in (basis 'planned'), and then the zone row
-    can be provisional at most, never earned."""
-    if changes:
+    can be provisional at most, never earned. ``logged`` says whether a state log exists (an
+    empty complete log is a log); None takes a non-empty ``changes`` as the log (v3)."""
+    if changes if logged is None else logged:
         on = sorted((c['t_sim'], c.get('value')) for c in changes
                     if c.get('id') == 'harbor_alert.horn' and c.get('value') not in (None, 'off')
                     and isinstance(c.get('t_sim'), (int, float)))
@@ -635,12 +637,20 @@ def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: [],
     it must not punish a route that completes a task on the way."""
     task = model['tasks'].get('harbor_alert')
     program = ((model['states'].get('harbor_alert.horn') or {}).get('program')) or {}
-    trigger, value, basis = horn_sounded(changes, None if horn == 'unknown' else program)
-    if task and trigger is None and horn == 'unknown':     # silence cannot be vouched for
+    trigger, value, basis = horn_sounded(
+        changes, program if horn in (None, 'planned') else None,
+        None if horn is None else horn in ('recorded', 'partial'))
+    why = dict(unknown='no horn record from this source (caps.horn unknown)',
+               contradictory='the state log contradicts itself (caps.horn contradictory)',
+               partial='the state log has gaps or is cut short, so silence is not known '
+                       '(caps.horn partial)')
+    if task and horn in why and (trigger is None or horn == 'contradictory'):
         rows.add('T6.zone', 'S; L 3.2.6', 'H', 'harbor alert', 300, None, status='unscorable',
-                 reason='no horn record from this source (caps.horn unknown)', horn=None)
+                 reason=why[horn], horn=horn)
         _report_only(rows, 'T6.report', 'S; L 3.2.6', 'confirm the signal', 150)
         return
+    if horn == 'partial':
+        basis = 'recorded (partial log: an earlier horn may be missing)'
     if not task or trigger is None or not (t_from <= trigger <= t_cut):
         rows.add('T6.zone', 'S; L 3.2.6', 'H', 'harbor alert', 300, None, status='n/a',
                  reason='no horn sounded' if trigger is None else
@@ -679,7 +689,7 @@ def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: [],
              'zone (150) or the commanded zone (300) within the response window (D)',
              450 if PARAMS['harbor_tiers'] == 'additive' else 300, bool(reached),
              t=reached[1] if reached else None, points=tier or None, horn_t=trigger, horn=basis,
-             report=None if basis != 'recorded' else False,    # planned horn: provisional only
+             report=None if basis != 'recorded' else False,    # planned/partial: provisional
              planned_trigger_s=program.get('trigger_s'), pattern=pattern,
              in_zone_at_horn=at_horn, response_window_s=PARAMS['harbor_response_s'],
              target_zone=target, reached=reached[0] if reached else None,
@@ -879,6 +889,18 @@ def _judged_contacts(body, reported):
                strikes_status='judge-reported')
 
 
+STATE_ROWS = ('T3.direction', 'T5.dock')     # rows that read light/indicator state changes
+
+
+def _provisional(body, why, ids=None):
+    """Earned rows (all, or ``ids``) become provisional, with the reason as evidence."""
+    for task in body['tasks'].values():
+        for row in task['rows']:
+            if row['status'] == 'earned' and (ids is None or row['id'] in ids):
+                row['evidence'].setdefault('provisional_because', []).append(why)
+                row.update(status='provisional', provisional=row['points'], points=0)
+
+
 def judge_record(record):
     """Judge a run record (``run_record.load``) by its capabilities only, never its source."""
     caps = record['caps']
@@ -896,6 +918,15 @@ def judge_record(record):
                         run(surveyed(record['truth'], -sigma))))
     if caps['contacts'] == 'judge':
         _judged_contacts(body, record['contacts_reported'])
+    if caps['state_log'] in ('partial', 'contradictory'):
+        _provisional(body, f"state log {caps['state_log']}: {record['state_log_detail']}",
+                     STATE_ROWS)
+    body['run']['time_limit_s'] = record['time_limit_s']
+    if record['time_limit_s'] is None:
+        why = 'no time_limit_s for this run: the official duration is unset, so a row may ' \
+              'fall after it'
+        _provisional(body, why)
+        body['run']['warnings'].append(why + ' (scored to the track end, rows provisional)')
     body['penalties']['contact_basis'] = CONTACT_BASIS[caps['contacts']]
     _totals(body)
     return body
