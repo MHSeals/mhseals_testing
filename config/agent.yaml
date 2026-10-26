@@ -52,14 +52,18 @@ hook:
          'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)/(set_parameters\w*|load_parameters|change_state)\b',
          'ros2\s+bag\s+play\b(?!.*--topics\b)',
          'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
-         'ros2\s+run\b[^;&|\n]*\b(mavros\s+(--?\S+\s+)*mav\w*|teleop_twist_\w+|mhseals_hardware\s+(--?\S+\s+)*keyboard_control)\b',
-         'ros2\s+run\b[^;&|\n]*\bmhseals_testing\s+(--?\S+\s+)*operator_heartbeat\b|\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
+         'ros2\s+run\b[^;&|\n]*\bmavros\s+([^;&|\n]*\s)?mav\w*\b',
+         'ros2\s+run\b[^;&|\n]*\bteleop_twist_\w+\b',
+         'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+([^;&|\n]*\s)?keyboard_control\b',
+         # the operator's heartbeat: ros2 run (any flags or --prefix before the executable), -m, its script or installed path
+         'ros2\s+run\b[^;&|\n]*\bmhseals_testing\s+([^;&|\n]*\s)?operator_heartbeat\b|\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
+         '(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*operator_heartbeat(\.py)?(?=\s|$|[;&|)`])',
          # raw PWM (test_pulses), Nav2 lifecycle/params (break a claimed goal), the mission runner and procedures
          # started directly: boat_agent run / goal, or ask the operator
          'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
          'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)\b',
          'ros2\s+service\s+call\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
-         'ros2\s+run\b[^;&|\n]*\bmhseals_nav\s+(--?\S+\s+)*run_task\b',
+         'ros2\s+run\b[^;&|\n]*\bmhseals_nav\s+([^;&|\n]*\s)?run_task\b',
          'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
          'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
          'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority|\bthruster_pwm_node/estop|\bthrusters/)',
@@ -71,16 +75,18 @@ hook:
          '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b',
          # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to a live agent.yaml (writers,
          # a copy into it, a redirection, xargs; a worktree copy is fine, symlinks resolved; a copy *from* it is a read);
-         # INTO: rsync, tar -x or git checkout/restore into a dir holding a live agent.yaml
+         # INTO: rsync, tar -x, git checkout/restore/apply, patch, cp -r/-a or find -delete/-exec rm into a dir that is or
+         # holds a live config, launch or hook dir; a python one-liner writing a file is a writer too
          '\bMHSEALS_SIM_ARM\b',
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm)|python[\d.]*|pytest|py\.test)(?![\w.-]).*(\bagent\.ya?ml\b)',
+         '\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*(\bagent\.ya?ml\b)',
          '(?<![\w-])(cp|install)\b[^;&|\n]*(\bagent\.ya?ml\b)(?![^;&|\n]*\s(?!\S*(\bagent\.ya?ml\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*(\bagent\.ya?ml\b)',
          '(\bagent\.ya?ml\b)[^;&\n]*\|\s*xargs\b',
-         '(?<![\w-])(rsync|tar|git\s+(-C\s+\S+\s+)?(checkout|restore))\b[^;&|\n]*',
+         '(?<![\w-])(rsync|tar|patch|git\s+(-C\s+\S+\s+)?(checkout|restore|apply)|cp(?=[^;&|\n]*\s(-[A-Za-z]*[raR][A-Za-z]*|--recursive|--archive)(?=\s))|find(?=[^;&|\n]*\s(-delete|-fprint\w*|-fls|-(exec|execdir|ok|okdir)\s+(\S*/)?(rm|rmdir|mv|sed|perl|cp|tee|truncate|chmod|shred|unlink|ln|dd|install|rsync|sh|bash)\b)))\b[^;&|\n]*',
          # agent_hook.ARMING: the thruster driver, mux or controller started by any route (run --sim-arm arms a sim);
          # reading or editing its source is development
-         'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)\b',
+         'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+([^;&|\n]*\s)?(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)\b',
          '\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_hardware\.(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)\b',
          '(\bimport\s+|\b(run_module|import_module|__import__)\(\s*)mhseals_hardware\.(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)\b',
          '\bfrom\s+mhseals_hardware(\.(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)\b|(\.\w+)?\s+import\b[^\n]*\b(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)\b)',
@@ -100,10 +106,12 @@ hook:
          # agent_hook.LAUNCHES and HOOKS: shell writes to a live launch file or the live agent hook and its wiring
          # (agent_hook.py, .agents/hook.py, .claude/settings*.json, .codex/hooks.json); worktree copies are free
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
+         '\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
          '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
          '((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)[^;&\n]*\|\s*xargs\b',
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
+         '\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
          '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-])))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
          '((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))[^;&\n]*\|\s*xargs\b',

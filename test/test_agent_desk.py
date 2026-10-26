@@ -1267,4 +1267,5 @@ def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
     assert '--claim' not in reply['hint']
     req = ch.request('claim', 'codex-77aa', {})
     rig.desk.tick()
-    assert final(req['id'])['error'] == 'busy'
+    busy = final(req['id'])
+    assert busy['error'] == 'busy' and 'claude-3f2a' in busy['hint'] and c not in busy['hint']   # who, not the id

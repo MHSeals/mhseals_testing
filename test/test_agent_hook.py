@@ -730,3 +730,64 @@ def test_a_subagent_gets_its_own_id_from_agent_id(monkeypatch):
     assert parent == 'claude-3f2a' and parent not in subs and len(subs) == 3
     assert hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': 'a1'}) in subs     # stable
     assert 'honour-based' in hook.start_text(parent, config=hook.DEFAULTS)
+
+
+# Re-review gaps (10-26): env -C and python chdir, directory-level writes (cp -r, git apply, patch -d, find roots),
+# the heartbeat by path and ros2 run flags after the package. Worktree development stays free.
+DIR_LIVE = [('/', 'env -C {L} sed -i s/a/b/ launch/robot.launch.py'),
+            ('/', 'env --chdir={L} cp /tmp/x.py launch/robot.launch.py'),
+            ('W', 'env -C {L} sed -i s/a/b/ config/agent.yaml'),
+            ('/', '''python3 -c "import os; os.chdir('{L}'); open('config/agent.yaml', 'w').write('x')"'''),
+            ('W', '''python3 -c "import os, sys; os.chdir(sys.argv[1]); open('launch/robot.launch.py', 'a')" {L}'''),
+            ('/', '''python3 -c "from pathlib import Path; Path('{L}/.agents/hook.py').write_text('')"'''),
+            ('/', 'cp -r {W}/config {L}/'), ('/', 'cp -r {W}/config/. {L}/config'),
+            ('/', 'cd {W} && cp -r config {L}/'), ('/', 'cp -a {W}/launch {L}'), ('/', 'cp -rt {L} {W}/launch'),
+            ('/', 'git -C {L} apply /tmp/p.diff'), ('L', 'git apply /tmp/p.diff'),
+            ('/', 'patch -d {L} -p1 -i /tmp/p.diff'), ('L', 'patch -p1 < /tmp/p.diff'),
+            ('/', 'patch --directory={L}/launch -p0 < /tmp/p.diff'),
+            ('/', 'find {L}/config -name *.yaml -delete'), ('/', 'find {L}/launch -type f -exec rm {{}} +'),
+            ('L', 'find launch -exec sed -i s/a/b/ {{}} ;')]
+DIR_DEV = [('/', 'env -C {W} sed -i s/a/b/ launch/robot.launch.py'),
+           ('/', '''python3 -c "import os; os.chdir('{W}'); open('config/agent.yaml', 'w').write('x')"'''),
+           ('/', '''python3 -c "print(open('{L}/launch/robot.launch.py').read())"'''),
+           ('/', 'cp -r {L}/config {W}/'), ('/', 'cp -r {W}/config/. {W}/config2'), ('W', 'cp -r config /tmp/cfg'),
+           ('/', 'git -C {W} apply /tmp/p.diff'), ('W', 'git apply /tmp/p.diff'),
+           ('/', 'patch -d {W} -p1 -i /tmp/p.diff'), ('W', 'patch -p1 < /tmp/p.diff'),
+           ('/', 'find {W}/config -name *.yaml -delete'), ('/', 'find {L} -name *.pyc -delete'),
+           ('/', 'find {L}/launch -name *.py -exec grep -n x {{}} +'), ('L', 'cp -r /tmp/a /tmp/b')]
+
+
+@pytest.mark.parametrize('cwd, command', DIR_LIVE)
+def test_directory_level_and_chdir_writes_into_live_files_are_denied(live_files, cwd, command):
+    live, wt, base = live_files
+    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
+    hit = hook.denied(command, hook.DEFAULTS, cwd=cwd)
+    assert hit, command
+    assert 'operator' in hook.deny_reason(hit[0], config=hook.DEFAULTS) or 'live' in hook.deny_reason(
+        hit[0], config=hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('cwd, command', DIR_DEV + SHELL_DEV)
+def test_directory_level_and_chdir_work_in_a_worktree_stays_allowed(live_files, cwd, command):
+    live, wt, base = live_files
+    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
+    assert hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
+
+
+@pytest.mark.parametrize('command, says', [
+    ('python3 src/mhseals_testing/mhseals_testing/ros/operator_heartbeat.py', "operator's heartbeat"),
+    ('install/mhseals_testing/lib/mhseals_testing/operator_heartbeat', "operator's heartbeat"),
+    ('nohup ~/astro_dock/install/mhseals_testing/lib/mhseals_testing/operator_heartbeat &', "operator's heartbeat"),
+    ('ros2 run mhseals_testing --prefix nice operator_heartbeat', "operator's heartbeat"),
+    ('ros2 run mhseals_nav --prefix nice run_task --task gate', 'run mission --task NAME'),
+    ('ros2 run mhseals_hardware --prefix nice thruster_pwm_node', 'arming')])
+def test_the_heartbeat_by_path_and_flags_after_the_package_are_denied(command, says):
+    assert says in hook.deny_reason(hook.denied(command, hook.DEFAULTS)[0], config=hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('command', [
+    'sed -i s/a/b/ src/mhseals_testing/mhseals_testing/ros/operator_heartbeat.py',
+    'python3 -m pytest test/test_operator_heartbeat.py -q', 'ls install/mhseals_testing/lib/mhseals_testing/',
+    'cat src/mhseals_nav/mhseals_nav/tasks/run_task.py | head'])
+def test_editing_and_testing_the_heartbeat_stays_allowed(command):
+    assert hook.denied(command, hook.DEFAULTS) is None

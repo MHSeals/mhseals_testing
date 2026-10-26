@@ -52,12 +52,23 @@ DRIVER = r'(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruste
 MODULE = r'(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)'
 # Starting the thruster driver, the mux or the velocity controller (arming) in any form: ros2 run, python -m
 # the module or the installed path in command position, an import of it (reading or editing its source is fine), a bare or ./ executable in command position, a launch that starts the mux.
-ARMING = [r'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*' + DRIVER + r'\b',
+# ros2 run PKG ... EXE: any flags or --prefix value between the package and the executable.
+def ros2_run(package, executable):
+    return r'ros2\s+run\b[^;&|\n]*\b' + package + r'\s+([^;&|\n]*\s)?' + executable + r'\b'
+
+
+def started(names):
+    """``names`` (executables) started in command position: bare, by path (./, ~/, /, install/.../lib/...) or after
+    exec, env, nice, python and the like."""
+    return (r'(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash'
+            r'|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*' + names + r'(\.py)?(?=\s|$|[;&|)`])')
+
+
+ARMING = [ros2_run('mhseals_hardware', DRIVER),
           r'\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_hardware\.' + MODULE + r'\b',
           r'(\bimport\s+|\b(run_module|import_module|__import__)\(\s*)mhseals_hardware\.' + MODULE + r'\b',
           r'\bfrom\s+mhseals_hardware(\.' + MODULE + r'\b|(\.\w+)?\s+import\b[^\n]*\b' + MODULE + r'\b)',
-          r'(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash'
-          r'|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*' + DRIVER + r'(\.py)?(?=\s|$|[;&|)`])',
+          started(DRIVER),
           r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)', r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
           r'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)']   # a launch file by path
 # Turning sim-arm on: the switch's env name anywhere (MHSEALS_SIM_ARM=1 tui, docker exec -e ...), or a shell write to
@@ -71,20 +82,29 @@ WRITERS = (r'rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|
            r'|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm)')
 
 
+# A python one-liner (-c or stdin) that writes, moves or deletes a file: open(..., w|a|x), write_*, unlink, ...
+PY_WRITE = (r'\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move'
+            r'|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax]))')
+
+
 def writes(name, more=''):
     """Shell writes to a file ``name`` (a regex): a writer naming it, a copy into it (a copy *from* it to a named
-    file is a read), a redirection onto it, a list naming it fed to xargs."""
+    file is a read), a redirection onto it, a list naming it fed to xargs, a python one-liner writing it."""
     span = '.*' if more else r'[^;&|\n]*'
-    return [rf'(?<![\w-])({WRITERS}{more})(?![\w.-]){span}({name})',
+    return [rf'(?<![\w-])({WRITERS}{more})(?![\w.-]){span}({name})', PY_WRITE + rf'.*({name})',
             rf'(?<![\w-])(cp|install)\b[^;&|\n]*({name})(?![^;&|\n]*\s(?!\S*({name}))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
             rf'>\|?\s*\S*({name})', rf'({name})[^;&\n]*\|\s*xargs\b']
 
 
 AGENT_YAML = r'\bagent\.ya?ml\b'
 SIM_ARM = [r'\bMHSEALS_SIM_ARM\b'] + writes(AGENT_YAML, r'|python[\d.]*|pytest|py\.test')
-# rsync, tar or git checkout/restore into a directory holding a live agent.yaml (``into_live``: d/agent.yaml,
-# d/config/agent.yaml or d/*/config/agent.yaml): a config/ restore overwrites it without naming it.
-INTO = [r'(?<![\w-])(rsync|tar|git\s+(-C\s+\S+\s+)?(checkout|restore))\b[^;&|\n]*']
+# Writes into a directory that is or holds a live protected dir (``into_live``: a config dir with agent.yaml, a
+# launch dir, the hook's dirs) without naming the file: rsync, tar -x, git checkout/restore/apply, patch (-d),
+# cp -r/-a, and find whose root is a protected dir with -delete or -exec/-ok of a writer.
+FIND_WRITE = (r'find(?=[^;&|\n]*\s(-delete|-fprint\w*|-fls|-(exec|execdir|ok|okdir)\s+(\S*/)?(rm|rmdir|mv|sed|perl|cp'
+              r'|tee|truncate|chmod|shred|unlink|ln|dd|install|rsync|sh|bash)\b))')
+INTO = [r'(?<![\w-])(rsync|tar|patch|git\s+(-C\s+\S+\s+)?(checkout|restore|apply)'
+        r'|cp(?=[^;&|\n]*\s(-[A-Za-z]*[raR][A-Za-z]*|--recursive|--archive)(?=\s))|' + FIND_WRITE + r')\b[^;&|\n]*']
 # Live launch files (ros2 launch starts the driver and mux from these) and the live agent hook and its wiring.
 _START = r'(?:(?<=/)|(?<![^\s;&|<>()=]))'
 LAUNCH_SH = _START + r'launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b'
@@ -140,14 +160,15 @@ DEFAULTS = {
              r'ros2\s+bag\s+play\b(?!.*--topics\b)',
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
-             r'ros2\s+run\b[^;&|\n]*\b(mavros\s+(--?\S+\s+)*mav\w*|teleop_twist_\w+|mhseals_hardware\s+(--?\S+\s+)*'
-             r'keyboard_control)\b',
-             r'ros2\s+run\b[^;&|\n]*\bmhseals_testing\s+(--?\S+\s+)*operator_heartbeat\b'
-             r'|\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
+             ros2_run('mavros', r'mav\w*'), r'ros2\s+run\b[^;&|\n]*\bteleop_twist_\w+\b',
+             ros2_run('mhseals_hardware', 'keyboard_control'),
+             ros2_run('mhseals_testing', 'operator_heartbeat')
+             + r'|\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
+             started('operator_heartbeat'),
              r'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
              r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b' + NAV2 + r'\b',
              r'ros2\s+service\s+call\b.*\b' + NAV2 + r'/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
-             r'ros2\s+run\b[^;&|\n]*\bmhseals_nav\s+(--?\S+\s+)*run_task\b',
+             ros2_run('mhseals_nav', 'run_task'),
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
@@ -186,7 +207,9 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
        (None, 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git worktree; sim-arm is '
         'off unless the sim container sets MHSEALS_SIM_ARM=1: ask the operator to enable sim-arm in the sim container, '
         'then run KEY --sim-arm)', None,
-        tuple(SIM_ARM + INTO)),
+        tuple(SIM_ARM)),
+       (None, 'writing into a live config, launch or hook dir (it holds agent.yaml, launch files or the agent hook; '
+        'develop in a git worktree and have the operator land it)', None, tuple(INTO)),
        (None, "changing the mux's live saved holds (only the operator releases a hold, with U in the TUI)", None,
         tuple(HOLDS)),
        (None, 'removing or changing the live agent stop file (to stop, touch it or use stop; only the operator '
@@ -623,7 +646,8 @@ def denied(command, config, cwd=None):
     live_only = set(SIM_ARM[1:] + HOLDS + STOP + LAUNCHES + HOOKS)   # file rules: a dev copy (a worktree) is development
     for pattern in config['deny'] + (config['deny_boat'] if host else []):
         for match in re.finditer(pattern, text, re.S):
-            rest = re.compile(r'[\n;|&]').search(text, match.end())
+            one_liner = re.match(r'python[\d.]*\s', text[match.start():])    # its ; are python's: to the line end
+            rest = re.compile(r'\n' if one_liner else r'[\n;|&]').search(text, match.end())
             hit = ' '.join(text[match.start():rest.start() if rest else None].split())
             if pattern in INTO and not into_live(hit, cwd, text):
                 continue
@@ -662,11 +686,18 @@ def place(path):
     return 'dev' if done.returncode == 1 else 'live'
 
 
+MOVES = re.compile(r'(?<![\w-])(?:cd|pushd)\b|\benv\b[^;&|\n]*\s(?:-[A-Za-z]*C|--chdir\b)|\bchdir\(')
+_DIR = r'([/~][^\s;&|$`*?\[{()]*)'
+
+
 def where(whole, cwd):
-    """The directory relative names resolve in: the call's ``cwd``, or the literal directory of a leading
-    ``cd DIR &&`` when that is the call's only cd; None when it changes directory otherwise (fail closed)."""
-    moves = re.findall(r'(?<![\w-])(?:cd|pushd)\b', whole)
-    lead = re.match(r'\s*(?:cd|pushd)\s+([/~][^\s;&|$`*?\[{]*)\s*&&', whole)
+    """The directory relative names resolve in: the call's ``cwd``, or the literal directory of its only change
+    of directory when that is a leading ``cd DIR &&``, a leading ``env -C DIR`` or a python ``os.chdir(DIR)``; None
+    when it changes directory otherwise (fail closed)."""
+    moves = MOVES.findall(whole)
+    lead = (re.match(r'\s*(?:cd|pushd)\s+' + _DIR + r'\s*&&', whole)
+            or re.match(r'\s*env\s+(?:-\S+\s+)*?(?:-C\s*|--chdir[= ])' + _DIR + r'\s', whole)
+            or re.search(r'\bchdir\(\s*' + _DIR + r'\s*\)', whole))
     if lead and len(moves) == 1:
         return os.path.expanduser(lead.group(1))
     return None if moves else cwd
@@ -730,13 +761,37 @@ def all_dev(text, cwd=None, whole=''):
     return bool(names + made)
 
 
+# What makes a directory protected (``holds_live``): the file itself, a protected file in it, a config dir with
+# agent.yaml, a launch dir, a package's launch dir, the hook's wiring.
+PROTECTED = ('', '*', 'config/agent.y*ml', '*/config/agent.y*ml', 'launch/*', '*/launch/*', '.agents/hook.py',
+             '.claude/settings*.json', '.codex/hooks.json')
+
+
+def holds_live(path, globs=PROTECTED):
+    """``path`` is, or holds (``globs``), a live protected file (``FILES``: agent.yaml, a launch file, the hook)."""
+    for glob in globs:
+        for found in (Path(path).glob(glob) if glob else [Path(path)]):
+            if FILES.fullmatch(str(found)) and found.exists() and place(str(found)) != 'dev':
+                return True
+    return False
+
+
 def into_live(text, cwd=None, whole=''):
-    """An rsync, tar -x or git checkout/restore in ``text`` writes into a directory holding a live agent.yaml (or
-    one it cannot read: a $variable, a remote ...config/ dir). Its destination, -C dir or pathspecs."""
+    """A write in ``text`` into a directory that is or holds a live protected dir (or one it cannot read: a
+    $variable, a remote ...config/ dir): rsync's or cp -r's destination, tar -x's or git's -C dir and pathspecs,
+    git apply's and patch's dir, find's roots (only a protected dir itself: find LIVE -name x.pyc -delete is fine)."""
     words, base = text.split(), where(whole or text, cwd)
-    if words[:1] == ['rsync']:
+    globs = PROTECTED
+    if words[:1] in (['rsync'], ['cp']):
+        into = next((w.split('=', 1)[1] if '=' in w else words[i + 1] for i, w in enumerate(words[:-1])
+                     if re.fullmatch(r'-[A-Za-z]*t|--target-directory(=.*)?', w)), None)
         args = [w for w in words[1:] if not w.startswith('-')]
-        dirs = args[-1:] if len(args) >= 2 else []
+        dirs = [into] if into else args[-1:] if len(args) >= 2 else []
+    elif words[:1] == ['find']:
+        dirs, globs = targets(text), ('', '*')
+    elif words[:1] == ['patch']:
+        found = re.search(r'(?:\s-d\s*|--directory[= ])(\S+)', text)
+        dirs = [found.group(1) if found else '.']
     elif words[:1] == ['tar']:
         if not (any(re.fullmatch(r'-?[A-Za-z]*x[A-Za-z]*', w) for w in words[1:2]) or any(
                 re.fullmatch(r'-[A-Za-z]*x[A-Za-z]*|--extract|--get', w) for w in words[1:])):
@@ -747,9 +802,9 @@ def into_live(text, cwd=None, whole=''):
         found = re.search(r'\s-C\s+(\S+)', text)                       # git -C DIR: pathspecs are relative to DIR
         if found:
             base = (resolve(found.group(1), base) or [None])[0]
-        rest = re.split(r'\b(?:checkout|restore)\b', text, maxsplit=1)[-1].split()
-        dirs, skip = [], False
-        for word in rest:
+        verb, rest = re.split(r'\b(checkout|restore|apply)\b', text, maxsplit=1)[-2:]
+        dirs, skip = ([] if verb != 'apply' else ['.']), False
+        for word in rest.split() if verb != 'apply' else ():
             if skip:
                 skip = False
             elif word in ('-s', '--source', '-b', '-B'):
@@ -758,17 +813,12 @@ def into_live(text, cwd=None, whole=''):
                 dirs.append(word)
     for name in dirs:
         if re.match(r'[\w.-]+@?[\w.-]*:', name):                    # a remote destination: a config dir is live
-            if re.search(r'(^|[:/])config/?$', name):
+            if re.search(r'(^|[:/])(config|launch)/?$', name):
                 return True
             continue
         paths = resolve(name, base)
-        if paths is None:
+        if paths is None or any(holds_live(path, globs) for path in paths):
             return True
-        for path in paths:
-            for found in [Path(path)] + [Path(path) / 'agent.yaml', Path(path) / 'config' / 'agent.yaml'] + list(
-                    Path(path).glob('*/config/agent.yaml')) if os.path.isdir(path) else [Path(path)]:
-                if found.name in ('agent.yaml', 'agent.yml') and found.exists() and place(str(found)) != 'dev':
-                    return True
     return False
 
 
