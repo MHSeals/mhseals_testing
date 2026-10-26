@@ -81,7 +81,8 @@ def test_the_shipped_checks_evaluate_on_the_fixture_and_none_is_skipped(facts):
     from mhseals_testing.health.config import load
     from mhseals_testing.profiles import load_profile
     config = load(profile=load_profile('boat'), user=False)
-    specs = [replace(s, raise_after=0.0) for s in config.specs if s.group == 'Perception']
+    specs = [replace(s, raise_after=0.0) for s in config.specs  # fusion is off
+             if s.group == 'Perception' and not s.id.startswith('perc.lidar.')]
     results = Engine(specs).tick(facts, {}).results
     assert {s.id for s in specs} == set(results)            # nothing skipped
     assert {r.status for i, r in results.items() if i != 'perc.zed_native.split'} == {'ok'}
@@ -165,6 +166,26 @@ def test_heading_levels_map_to_pass_warn_fail(clock):
     error = level(2, 'heading lags 0.20 s')
     assert error['perc.zed_native.heading'].value == 'error'
     assert check('zed_native', 'heading', error) == 'fail'
+
+
+def test_fusion_stage_rows_and_a_dead_fusion_node_fails(clock):
+    """The lidar_fusion stage feeds its four rows; silence after it fails."""
+    probe = Probe('zed_native', clock, SETTINGS)
+    values = [('hz', '14.5'), ('lidar_share', '0.62'), ('proc_ms_p95', '4.4'),
+              ('extrinsic_deg', '0.10 0.20 0.00')]
+    probe.status(status('perception/lidar/fusion', values))
+    facts = probe.facts()
+    assert {k for k in facts if k.startswith('perc.lidar.')} == {
+        f'perc.lidar.fusion_{n}' for n in ('hz', 'share', 'p95_ms', 'state')}
+    for row in ('fusion_rate', 'fusion_share', 'fusion_p95', 'fusion_state'):
+        assert check('lidar', row, facts) == 'ok'
+    probe.status(status('perception/lidar/fusion', values, 2, 'beyond 1.5 deg'))
+    assert check('lidar', 'fusion_state', probe.facts()) == 'fail'
+    clock.t = 7.0
+    facts = probe.facts()
+    assert facts['perc.lidar.fusion_hz'].value == 0
+    assert 'perc.lidar.fusion_state' not in facts
+    assert check('lidar', 'fusion_rate', facts) == 'fail'
 
 
 def test_badly_clocked_or_lossy_camera_fails(clock):
