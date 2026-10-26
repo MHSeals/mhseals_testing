@@ -393,6 +393,14 @@ def metrics(out, statics, elements, cfg):
         return next((f'{a}-{b}' for a, b in zip(bins, bins[1:]) if a <= r < b), None)
     err, nees_obs = {}, {}
     share, ball = {}, {}    # ball: the design's share floors are for ball buoys (no poles)
+    # The floors gate unpaired balls beyond r_min's reach only: pairs are gated by
+    # association errors (ambiguity rule (b) keeps them on stereo by design).
+    unpaired, spacing = {}, np.full(len(xy), np.inf)
+    if len(xy) > 1:
+        D = np.hypot(*(xy[:, None] - xy[None]).transpose(2, 0, 1))
+        np.fill_diagonal(D, np.inf)
+        spacing = D.min(axis=1)
+    before_e, paired = {}, {}   # held/stereo vs raw stereo on the same (frame, buoy)
     assoc = {'lidar': 0, 'errors': 0}
     srcs = {round(s['t'], 4): s['sources'] for s in out['sources']}
     whys = {round(s['t'], 4): s.get('why') or [] for s in out['sources']}
@@ -424,6 +432,11 @@ def metrics(out, statics, elements, cfg):
                     continue
                 e = horiz(o['p']) - rt
                 err.setdefault((kind, b), []).append(e)
+                key = (round(frame['t'], 4), i)
+                if kind == 'before':
+                    before_e[key] = e
+                elif src in ('held', 'stereo') and key in before_e:
+                    paired.setdefault((src, b), []).append((e, before_e[key]))
                 if kind == 'fused':
                     err.setdefault((src, b), []).append(e)
                     u = np.array(o['p'][:2]) / max(horiz(o['p']), 1e-6)
@@ -435,6 +448,8 @@ def metrics(out, statics, elements, cfg):
                     share.setdefault(b, []).append(lidar)
                     if o['cls'].endswith('_buoy') and not o['cls'].endswith('pole_buoy'):
                         ball.setdefault(b, []).append(lidar)
+                        if spacing[i] > cfg['unpaired_m'] and rt >= cfg['share_r_min_m']:
+                            unpaired.setdefault(b, []).append(lidar)
                     why = whys.get(round(frame['t'], 4), [])
                     if not lidar and k < len(why):
                         m = misses.setdefault(b, {})
@@ -498,6 +513,14 @@ def metrics(out, statics, elements, cfg):
             'extrinsic_fit': extrinsic_fit(samples),
             'lidar_share': {b: float(np.mean(v)) for b, v in sorted(share.items())},
             'lidar_share_ball': {b: float(np.mean(v)) for b, v in sorted(ball.items())},
+            'lidar_share_ball_unpaired': {b: float(np.mean(v))
+                                          for b, v in sorted(unpaired.items())},
+            'lidar_share_ball_unpaired_n': {b: len(v) for b, v in sorted(unpaired.items())},
+            'same_frames': {f'{s}|{b}': {'n': len(v),
+                                         'rms': float(np.sqrt(np.mean([f * f for f, _ in v]))),
+                                         'rms_before': float(np.sqrt(np.mean(
+                                             [r * r for _, r in v])))}
+                            for (s, b), v in sorted(paired.items())},
             'misses': misses,
             'assoc': {**assoc, 'rate': assoc['errors'] / assoc['lidar'] if assoc['lidar'] else 0},
             'tracks': tracks, 'skips': skips,
