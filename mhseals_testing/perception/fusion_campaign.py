@@ -372,7 +372,7 @@ def metrics(out, statics, elements, cfg):
     def bin_of(r):
         return next((f'{a}-{b}' for a, b in zip(bins, bins[1:]) if a <= r < b), None)
     err, nees_obs = {}, {}
-    share = {}
+    share, ball = {}, {}    # ball: the design's share floors are for ball buoys (no poles)
     assoc = {'lidar': 0, 'errors': 0}
     srcs = {round(s['t'], 4): s['sources'] for s in out['sources']}
     whys = {round(s['t'], 4): s.get('why') or [] for s in out['sources']}
@@ -413,6 +413,8 @@ def metrics(out, statics, elements, cfg):
                         nees_obs.setdefault(src, []).append(e * e / s2)
                     lidar = src in ('lidar', 'split')
                     share.setdefault(b, []).append(lidar)
+                    if o['cls'].endswith('_buoy') and not o['cls'].endswith('pole_buoy'):
+                        ball.setdefault(b, []).append(lidar)
                     why = whys.get(round(frame['t'], 4), [])
                     if not lidar and k < len(why):
                         m = misses.setdefault(b, {})
@@ -468,6 +470,7 @@ def metrics(out, statics, elements, cfg):
                           'wait_p50_p95': pct('wait')},
             'extrinsic_fit': extrinsic_fit(samples),
             'lidar_share': {b: float(np.mean(v)) for b, v in sorted(share.items())},
+            'lidar_share_ball': {b: float(np.mean(v)) for b, v in sorted(ball.items())},
             'misses': misses,
             'assoc': {**assoc, 'rate': assoc['errors'] / assoc['lidar'] if assoc['lidar'] else 0},
             'tracks': tracks, 'skips': skips,
