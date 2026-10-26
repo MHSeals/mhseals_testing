@@ -61,6 +61,7 @@ DEFAULTS = {
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+             r'ros2\s+run\s+mhseals_hardware\s+(thruster_pwm_node|command_mux|calibrated_velocity_controller)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
              r'|\bthruster_pwm_node/estop|\bthrusters/)',
              r'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
@@ -85,6 +86,8 @@ USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing proce
         "stopping or restarting the boat's software or computer", None),
        (r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
         'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
+       (r'ros2\s+run\s+mhseals_hardware\s+(thruster_pwm_node|command_mux|calibrated_velocity_controller)',
+        'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID'),
        (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control|create_publisher',
         'raw motion', 'run KEY --claim ID'),
        (r'operator/heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority", None),
@@ -180,12 +183,14 @@ def start_text(who, agent='claude', config=None):
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
+        '     Sim only: `run KEY --sim-arm` arms a verified sim for that run and disarms after; a real boat '
+        'refuses it.',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
         '  `stop` any time. `ask "..."` instead of guessing. `note "..."` writes a line in the TUI log.',
         'Exit codes: 0 ok, 2 refused (read hint), 3 revoked or overridden (stop: a human took over; '
         'claim again only if asked), 4 no TUI, 5 agents blocked, 6 timeout.',
-        'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, and never arm or release a hold: '
-        'the hook blocks them and names the verb. Run in sim first. For runs over 9 min use '
+        'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, never arm (but --sim-arm) or release a hold: '
+        'the hook blocks them and names the verb; never answer a TUI popup. Run in sim first. For runs over 9 min use '
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
         + (f' ({remote(config)}).' if remote(config) else
            ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise-odroid in your environment '
