@@ -1,7 +1,7 @@
 """Conditions · Command panel (tui-visual 3): one north-up rose, one command arrow, labelled bars.
 
-Pure and ROS-free. The rose is a world-frame picture: the hull (the map's pentagon) turns to the
-heading, the command is one arrow icon at its bearing in the hue of whoever drives (16 bearings,
+Pure and ROS-free. The rose is a world-frame picture: the hull (the map's pentagon in quadrant blocks, slate with an
+accent bow and a braille bowsprit at the exact heading) turns to the heading, the command is one arrow icon at its bearing in the hue of whoever drives (16 bearings,
 hand-drawn in braille), yaw is four curved arrows (⤴ ⤵ ⤶ ⤷) round the corners and the world drift a dashed muted
 line. The right column names the driver, then surge, sway and yaw as bipolar bars, then the heading.
 """
@@ -52,6 +52,11 @@ BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
 # Rose layers, highest first: a cell takes the hue of its strongest dot.
 BOW, BOAT, COMMAND, YAW, DRIFT, TICK = range(6)
 ASCII_DOTS = '##.(:.'       # the ASCII cell per layer
+# The hull: the map's pentagon in quadrant blocks (a pixel is 1 x 2 dots) at 16 headings, solid at
+# every colour depth; a short braille bowsprit at the exact heading gives the fine angle, also in NO_COLOR.
+QUAD = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█'          # by TL=1 TR=2 BL=4 BR=8
+BOW_SHARE = 0.25            # the hull's foremost quarter wears the bow hue
+BOWSPRIT = 3                # dots
 
 
 def _polar(bearing_deg, radius):
@@ -112,6 +117,30 @@ def _reach(rel):
     return math.ceil(1 / math.hypot(math.cos(rel) / REACH[0], math.sin(rel) / REACH[1]))
 
 
+@lru_cache(maxsize=16)
+def hull_cells(k):
+    """``{(col, row): (char, layer)}``: the rose's hull at screen bearing ``k`` * 22.5 deg in
+    quadrant blocks about CENTRE. A pixel is set when the hull covers half of it; a cell is BOW
+    when most of its pixels lie in the foremost quarter."""
+    bearing = math.radians(k * 22.5)
+    fx, fy = math.sin(bearing), -math.cos(bearing)
+    poly = hull.outline(90.0 - k * 22.5, *HULL_DOTS)
+    cx, cy = CENTRE
+    reach = HULL_DOTS[0] // 2 + 1
+    cells = {}
+    for x in range(cx - reach, cx + reach + 1):              # one dot column per pixel
+        for p in range((cy - reach) // 2, (cy + reach) // 2 + 1):   # two dot rows per pixel
+            hits = sum(hull._inside(x - cx - 0.375 + i / 4, 2 * p - cy - 0.25 + j / 2, poly)
+                       for i in range(4) for j in range(4))
+            if hits < 8:
+                continue
+            ahead = (x - cx) * fx + (2 * p + 0.5 - cy) * fy > HULL_DOTS[0] * (0.5 - BOW_SHARE)
+            pos = (x // 2, p // 2)
+            bits, bow, total = cells.get(pos, (0, 0, 0))
+            cells[pos] = (bits | 1 << (x % 2 + 2 * (p % 2)), bow + ahead, total + 1)
+    return {pos: (QUAD[bits], BOW if 2 * bow >= total else BOAT) for pos, (bits, bow, total) in cells.items()}
+
+
 def _token(name, fallback):
     """A palette token's style, or ``fallback`` under a theme overlay that lacks it."""
     try:
@@ -156,9 +185,14 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
             start = _reach(math.radians(bearing - up))
             ray(bearing, start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)),
                 DRIFT, 2)
-    for dx, dy, part in hull.mask(90.0 - up, minimum=HULL_DOTS):
-        put(cx + dx, cy + dy, BOW if part == 'bow' else BOAT)
+    solid = {}
+    if theme.ASCII:
+        for dx, dy, part in hull.mask(90.0 - up, minimum=HULL_DOTS):
+            put(cx + dx, cy + dy, BOW if part == 'bow' else BOAT)
+    else:
+        solid = hull_cells(round(up / 22.5) % 16)
 
+    icon = set()
     surge, sway, yaw = command
     scale = amplitude or 1.0
     if surge or sway:                                # one icon at the commanded bearing, no shaft
@@ -168,9 +202,26 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
         if theme.ASCII:
             glyphs[((cx + ox) // 2, (cy + oy) // 4)] = (ARROWS_ASCII[round(k / 2) % 8], hue)
         else:
-            for dx, dy in dots_:
-                put(cx + ox + dx, cy + oy + dy, COMMAND)
-    if yaw:                                          # the turn: curved arrows round the corners, dim below half
+            icon = {(cx + ox + dx, cy + oy + dy) for dx, dy in dots_}
+            for x, y in icon:
+                put(x, y, COMMAND)
+            shared = solid.keys() & {(x // 2, y // 4) for x, y in icon}
+            if shared:                               # a block would hide the icon: that cell goes back to dots
+                solid = {pos: cell for pos, cell in solid.items() if pos not in shared}
+                for dx, dy, part in hull.mask(90.0 - up, minimum=HULL_DOTS):
+                    if ((cx + dx) // 2, (cy + dy) // 4) in shared:
+                        put(cx + dx, cy + dy, BOW if part == 'bow' else BOAT)
+    if solid:       # the bowsprit, from the first dot clear of the body; it steps aside for an icon ahead
+        sprit = []
+        for radius in range(HULL_DOTS[1] // 2, RADIUS):
+            dx, dy = _polar(up, radius)
+            x, y = cx + round(dx), cy + round(dy)
+            if (x // 2, y // 4) not in solid and len(sprit) < BOWSPRIT:
+                sprit.append((x, y))
+        if not any(abs(x - ix) <= 2 and abs(y - iy) <= 2 for x, y in sprit for ix, iy in icon):
+            for x, y in sprit:
+                put(x, y, BOW)
+    if yaw:                                        # the turn: curved arrows round the corners, dim below half
         strong = abs(yaw) / scale >= 0.5
         look = f'{"bold" if strong else "dim"} {hue}'.strip()
         if theme.ASCII:
@@ -181,7 +232,8 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
             for (right, bottom), char in SPIN_CORNERS[yaw < 0].items():
                 glyphs[(right * (ROSE_COLS - 1), bottom * (ROSE_ROWS - 1))] = (char + TEXT, look)
 
-    boat = _token('boat', 'bold') if yaw_ok else theme.WARN
+    # a solid body in slate sits with the frames; the map's dot stipple keeps the brighter boat token
+    boat = (_token('boat', 'bold') if theme.ASCII else _token('slate', '')) if yaw_ok else theme.WARN
     styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
               f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, theme.MUTED)
     ascii_dots = ASCII_DOTS
@@ -191,6 +243,9 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
         for col in range(ROSE_COLS):
             if (col, row) in glyphs:
                 line.append(*glyphs[(col, row)])
+            elif (col, row) in solid:
+                char, layer = solid[(col, row)]
+                line.append(char, styles[layer])
             elif (col, row) in dots:
                 bits, layer = dots[(col, row)]
                 line.append(ascii_dots[layer] if theme.ASCII else chr(0x2800 + bits), styles[layer])

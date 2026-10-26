@@ -30,7 +30,28 @@ def test_rose_is_9_by_21_north_up_with_the_hull_at_the_centre():
     rows = plain(conditions.rose(heading=0))
     assert len(rows) == 9 and all(len(row) == 21 for row in rows)
     assert rows[0][10] == 'N' and rows[8][10] == 'S' and rows[4][2] == 'W' and rows[4][19] == 'E'
-    assert rows[4][9:12] == '⢸⣿⣿'         # the filled hull, not a cross
+    assert rows[4][10:12] == '██' and rows[3][10] in conditions.QUAD   # the solid hull, not a cross
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode rose')
+@pytest.mark.parametrize('k', range(16))
+def test_hull_is_solid_with_the_bow_and_bowsprit_ahead(k):
+    """Every 22.5 deg: quadrant cells about the centre, the bow cells foremost, a bowsprit beyond."""
+    cells = conditions.hull_cells(k)
+    assert 4 <= len(cells) <= 12 and {char for char, _ in cells.values()} <= set(conditions.QUAD[1:])
+    fx, fy = conditions._polar(k * 22.5, 1.0)
+
+    def ahead(pos):     # dots forward of the centre, from the cell's middle
+        return (pos[0] * 2 + 1 - conditions.CENTRE[0]) * fx + (pos[1] * 4 + 2 - conditions.CENTRE[1]) * fy
+
+    bow = [ahead(pos) for pos, (_, layer) in cells.items() if layer == conditions.BOW]
+    body = [ahead(pos) for pos, (_, layer) in cells.items() if layer == conditions.BOAT]
+    assert bow and body and min(bow) >= max(body) - 2 and max(bow) >= max(body) - 1e-9
+    rows = plain(conditions.rose(heading=k * 22.5))
+    sprit = [(c, r) for r, row in enumerate(rows) for c, ch in enumerate(row)
+             if '⠀' < ch <= '⣿' and (c, r) not in cells and ahead((c, r)) > 0
+             and abs(c - 10) <= 3 and abs(r - 4) <= 2]
+    assert sprit                                                    # the bowsprit's braille dots, ahead
     assert plain(conditions.rose(heading=0)) != plain(conditions.rose(heading=90))   # it turns
 
 
@@ -94,6 +115,11 @@ def test_every_icon_stays_inside_the_ring_clear_of_letters_and_hull(k):
     assert not cells & _letters() and (conditions.ROSE_COLS - 2, 0) not in cells
     hull = {(x, y) for x, y, _ in conditions.hull.mask(90.0 - k * 22.5, minimum=conditions.HULL_DOTS)}
     assert not hull & {(ox + x, oy + y) for x, y in shape}
+
+    for j in range(16 if not theme.ASCII else 0):     # any heading: a block cell the icon reaches goes back to dots, so the icon stays whole
+        rose = conditions.rose(heading=j * 22.5, command=(math.cos(math.radians((k - j) * 22.5)),
+                                                          -math.sin(math.radians((k - j) * 22.5)), 0.0), hue='magenta')
+        assert all('⠀' <= rose[row].plain[col] <= '⣿' for col, row in cells)
 
 
 @pytest.mark.parametrize('k', range(16))
