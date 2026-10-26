@@ -149,3 +149,41 @@ def test_sink_tracks_bytes_and_the_last_frame_time():
     send = sink(FakeNode(), now=100.)
     send(bytes(100), 99.9)
     assert send.bytes == 100 and send.last == 100.
+
+
+def test_non_private_ntrip_secrets_warn_and_keep_the_local_base_serving(tmp_path, monkeypatch):
+    import rclpy
+    from mhseals_testing import corrections, rtk
+    from mhseals_testing.ros import rtk as ros_rtk
+
+    secrets = tmp_path / 'secrets.env'
+    secrets.write_text('FPRN_USER=test\n')
+    secrets.chmod(0o644)
+    config = dict(rtk.DEFAULTS, device='/dev/fake', ntrip=dict(
+        enabled=True, secrets=str(secrets), position_cache=str(tmp_path / 'position.json'),
+        casters=[dict(name='test', host='invalid.test', port=2101)]))
+    node, events = FakeNode(), []
+    base = SimpleNamespace(start=lambda **kwargs: events.append(('start', kwargs)),
+                           close=lambda: events.append(('close',)))
+    mux = SimpleNamespace(gate=lambda source: lambda *args: None,
+                          attach=lambda *parts: events.append(('attach', parts)), evaluate=lambda: None)
+    node.create_subscription = lambda *args: None
+    node.create_timer = lambda *args: None
+    node.destroy_node = lambda: events.append(('destroy',))
+    monkeypatch.setattr(rclpy, 'init', lambda: None)
+    monkeypatch.setattr(rclpy, 'create_node', lambda name: node)
+    monkeypatch.setattr(rclpy, 'spin', lambda node: events.append(('spin',)))
+    monkeypatch.setattr(rclpy, 'ok', lambda: False)
+    monkeypatch.setattr(corrections, 'Corrections', lambda *args, **kwargs: mux)
+    monkeypatch.setattr(rtk, 'BaseSession', lambda *args: base)
+    monkeypatch.setattr(rtk, 'StatusTracker', lambda *args: None)
+    monkeypatch.setattr(ros_rtk, 'StatusPublisher', lambda *args: None)
+
+    ros_rtk.serve(config)
+
+    assert events[0][0] == 'attach' and events[0][1][:2] == (base, None)
+    assert [event[0] for event in events] == ['attach', 'start', 'spin', 'close', 'destroy']
+    assert events[1][1] == dict(survey=False, position=None, auto=config['auto_site'])
+    assert len(node.logger.warnings) == 1
+    assert str(secrets) in node.logger.warnings[0]
+    assert 'NTRIP disabled' in node.logger.warnings[0]

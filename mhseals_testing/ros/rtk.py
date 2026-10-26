@@ -120,8 +120,12 @@ def serve(config, survey=False, position=None):
     mux = Corrections(sinks, config['priority'], settings['near_km'], config=config)
     rough = ntrip.Position(settings['position_cache'], settings['fallback'])
     base = BaseSession([mux.gate('base')], config) if config['device'] else None
-    net = (ntrip.NtripSource(settings, mux.gate('ntrip'), rough)
-           if settings['enabled'] and settings['casters'] else None)
+    try:
+        net = (ntrip.NtripSource(settings, mux.gate('ntrip'), rough)
+               if settings['enabled'] and settings['casters'] else None)
+    except PermissionError as error:
+        node.get_logger().warning(f'NTRIP disabled: {error}')
+        net = None
     mux.attach(base, net, rough)
 
     def on_fix(msg):
