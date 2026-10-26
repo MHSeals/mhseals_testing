@@ -9,7 +9,7 @@ import math
 
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import pixels, theme
 
 _BITS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))
 _ASCII = ' \'.:'
@@ -18,10 +18,15 @@ RUNGS = '▁▂▃▄▅▆▇█'
 
 
 class Dots:
-    """A ``cols`` x ``rows`` cell grid of braille dots in layers; a later layer wins a shared cell."""
+    """A ``cols`` x ``rows`` cell grid of braille dots in layers; a later layer wins a shared cell.
 
-    def __init__(self, cols, rows):
-        self.cols, self.rows = cols, rows
+    A cell holds ``sx`` x ``sy`` dots: 2 x 4 in braille, 2K x 4K in an image tier (ui/pixels.py),
+    where ``rows_text()`` returns image cells with the labels as text."""
+
+    def __init__(self, cols, rows, name='dots'):
+        self.cols, self.rows, self.name = cols, rows, name
+        self.k = pixels.K
+        self.sx, self.sy = 2 * self.k, 4 * self.k
         self.layers, self.labels = [], {}
 
     def layer(self, style):
@@ -48,6 +53,12 @@ class Dots:
             dots.add((round(cx + r * math.cos(a)), round(cy + r * math.sin(a))))
 
     def rows_text(self):
+        if pixels.active():
+            def paint(r):
+                pixels.dots_to_px(r, [(r.ink(pixels.rgb(style, pixels.token('fg'))), *zip(*dots))
+                                      for style, dots in self.layers if dots], self.sx, self.sy)
+            grid = pixels.surface(self.name, paint, self.cols, self.rows, holes=self.labels)
+            return pixels.text_rows(grid, lambda col, row: self.labels[(col, row)])
         out = []
         for row in range(self.rows):
             text = Text()
@@ -85,20 +96,20 @@ def spark(values, width, lo, hi, band=None, gaps=None, height=2, style=None):
     None values draw nothing. ``band`` (low, high) is drawn as two dotted faint lines; ``gaps``
     (bools, one per value) marks a cell ``┄`` in the fail hue on the bottom row where data is missing.
     """
-    grid, n, columns = Dots(width, height), len(values), width * 2
+    grid, n = Dots(width, height, name='spark'), len(values)
+    columns, dots = width * grid.sx, height * grid.sy
     band_dots, line = grid.layer(theme.PALETTE.style('faint')), grid.layer(style or theme.FG)
-    dots = height * 4
     if band:
         for edge in band:
             if lo <= edge <= hi:
                 y = _y(edge, lo, hi, dots)
-                band_dots.update((x, y) for x in range(0, columns, 2))
+                band_dots.update((x, y) for x in range(0, columns, 2 * grid.k))
     prev, gap_cells = None, set()
     for x in range(columns):
         i = int(x * n / columns) if n else None
         value = values[i] if i is not None else None
         if gaps and i is not None and gaps[i]:
-            gap_cells.add(x // 2)
+            gap_cells.add(x // grid.sx)
         if value is None or not math.isfinite(value):
             prev = None
             continue

@@ -11,7 +11,7 @@ import math
 
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import pixels, theme
 
 GAP = 0.5
 LAYERS = {'pred': 'MUTED', 'meas': 'FG'}   # theme names, read at use; data is plain, the accent is focus
@@ -30,17 +30,20 @@ def _row(value, low, high, rows):
 
 
 class Canvas:
-    def __init__(self, width, height):
-        self.width, self.height = width, height
+    """In an image tier (ui/pixels.py) a cell holds 2K x 4K dots and ``rows()`` returns image cells."""
+
+    def __init__(self, width, height, name='plot'):
+        self.width, self.height, self.name = width, height, name
+        self.sx, self.sy = 2 * pixels.K, 4 * pixels.K
         self.dots = {layer: set() for layer in LAYERS}
-        self.lines = []
+        self.lines, self.rules = [], []
 
     def line(self, series, t0, t1, low, high, layer='meas'):
         """Plot ``[(t, v)]`` over the window t0..t1 on the scale low..high.
 
         Returns the clip marks as a set of ``'▲'`` / ``'▼'`` for the label.
         """
-        columns, rows = self.width * 2, self.height * 4
+        columns, rows = self.width * self.sx, self.height * self.sy
         span = t1 - t0
         bins = {}
         # A non-finite window, or one whose span overflows, plots nothing.
@@ -81,11 +84,14 @@ class Canvas:
 
         ``char`` defaults to a dotted rule, or ``-`` in ASCII mode.
         """
-        row = _row(value, low, high, self.height * 4) // 4
-        self.lines.append((row, char))
+        dot = _row(value, low, high, self.height * self.sy)
+        self.lines.append((dot // self.sy, char))
+        self.rules.append(dot)        # the dot row, for the image tier
 
     def rows(self):
         """One ``Text`` per cell row."""
+        if pixels.active():
+            return self._image()
         out = []
         for row in range(self.height):
             text = Text()
@@ -117,6 +123,22 @@ class Canvas:
             return _ASCII[bool(upper) + 2 * bool(lower)], style
         return chr(0x2800 + bits), style
 
+    def _image(self):
+        """The plot as image cells, repainted at most HZ times a second (the rest reuse it)."""
+        def paint(r):
+            fy = r.ch / self.sy
+            for dot in self.rules:
+                y = int((dot + 0.5) * fy)
+                r.line(0, y, r.w - 1, y, r.ink(pixels.rgb(theme.MUTED)), 1, dash=2)
+            layers = [(r.ink(pixels.rgb(getattr(theme, LAYERS[name]))), *zip(*dots)) for name, dots
+                      in self.dots.items() if dots]
+            pixels.dots_to_px(r, layers, self.sx, self.sy)
+        grid = pixels.surface(self.name, paint, self.width, self.height, hz=HZ)
+        return pixels.text_rows(grid)
 
-def canvas(width, height):
-    return Canvas(width, height)
+
+HZ = 5.0    # image repaints per second of a plot; the braille draws every frame
+
+
+def canvas(width, height, name='plot'):
+    return Canvas(width, height, name)

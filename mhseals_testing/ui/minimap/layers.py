@@ -169,7 +169,7 @@ def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=Fal
         keep = ~gap & ((n + np.arange(len(k))) % np.maximum(step, 1) == 0)
         n += len(k)
         cx, cy = np.floor(sx).astype(int), np.floor(sy).astype(int)
-        for col, row in zip((cx[gap] // 2).tolist(), (cy[gap] // 4).tolist()):
+        for col, row in zip((cx[gap] // canvas.sx).tolist(), (cy[gap] // canvas.sy).tolist()):
             canvas.gap(col, row)
         px.append(cx[keep])
         py.append(cy[keep])
@@ -180,7 +180,7 @@ def draw_trail(frame, crumbs, mode='plain', epoch=None, vmax=0.0, colourless=Fal
     inside = (px >= 0) & (px < canvas.dots_wide) & (py >= 0) & (py < canvas.dots_high)
     px, py, names = px[inside], py[inside], names[inside]   # Python never walks off-canvas dots
     old = names == 'trail.old'
-    cell = (px // 2) * canvas.rows + py // 4
+    cell = (px // canvas.sx) * canvas.rows + py // canvas.sy
     cells, first = np.unique(cell[old][::-1], return_index=True)   # dots run oldest first
     if len(cells) > canvas.cols * canvas.rows // OLD_SHARE:   # keep the newest old cells (SSH bytes)
         newest = cells[np.argsort(first)[:canvas.cols * canvas.rows // OLD_SHARE]]
@@ -228,9 +228,10 @@ def draw_costmap(frame, grid, resolution, origin, density=False):
     reach = resolution / frame.metres_per_dot / 2  # footprint half-size in dots
     xs, ys, costs = _cells(grid, resolution, origin)
     x, y = frame.dots((xs, ys))
-    c0, c1 = np.floor((x - reach) / 2).astype(int), np.floor((x + reach) / 2).astype(int)
-    r0, r1 = np.floor((y - reach) / 4).astype(int), np.floor((y + reach) / 4).astype(int)
     canvas = frame.canvas
+    sx, sy = canvas.sx, canvas.sy
+    c0, c1 = np.floor((x - reach) / sx).astype(int), np.floor((x + reach) / sx).astype(int)
+    r0, r1 = np.floor((y - reach) / sy).astype(int), np.floor((y + reach) / sy).astype(int)
     pooled = np.zeros((canvas.cols, canvas.rows), dtype=int)
     if pooled.size and len(costs):
         for dc in range(int((c1 - c0).max()) + 1):
@@ -245,7 +246,7 @@ def draw_costmap(frame, grid, resolution, origin, density=False):
         elif token in DENSITY:
             for (dx, dy), bit in BITS.items():
                 if DENSITY[token] & bit:
-                    canvas.dot(int(col) * 2 + dx, int(row) * 4 + dy, 'costmap')
+                    canvas.dot(int(col) * sx + dx * canvas.k, int(row) * sy + dy * canvas.k, 'costmap')
 
 
 def draw_hits(frame, grid, resolution, origin, boat):
@@ -259,5 +260,5 @@ def draw_hits(frame, grid, resolution, origin, boat):
     dots = np.unique(np.stack([np.floor(x), np.floor(y), d[keep] > HITS_NEAR]).T, axis=0)
     tint = frame.canvas._tint
     for px, py, far in dots:
-        if not (far and tint.get((int(px) // 2, int(py) // 4)) == 'lethal'):
+        if not (far and tint.get(frame.canvas.cell(int(px), int(py))) == 'lethal'):
             frame.canvas.dot(int(px), int(py), 'hits' if far else 'hits.near')

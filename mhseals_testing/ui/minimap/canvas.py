@@ -8,6 +8,8 @@ palette (and the colourless tiers) are applied later by the emitter.
 from collections import namedtuple
 from functools import lru_cache
 
+from mhseals_testing.ui import pixels
+
 # Layer priority, highest first (map.md 4.1, tui-visual 2.3). A layer not listed ranks below all of these.
 PRIORITY = (
     'chrome', 'contact', 'cursor', 'goal', 'home', 'label', 'bow', 'boat', 'track.vel',
@@ -38,18 +40,28 @@ def rank(layer):
 
 
 class Canvas:
-    """A ``cols`` x ``rows`` grid of cells, each 2 x 4 braille dots."""
+    """A ``cols`` x ``rows`` grid of cells, each 2 x 4 braille dots; or, in an image tier
+    (ui/pixels.py), ``k`` times finer each way: 2k x 4k dots a cell, drawn as pixels."""
 
-    def __init__(self, cols, rows):
+    def __init__(self, cols, rows, k=None):
         self.cols, self.rows = max(cols, 0), max(rows, 0)
-        self._dots = {}    # (col, row) -> {bit: layer}
+        self.k = pixels.K if k is None else k
+        self.sx, self.sy = 2 * self.k, 4 * self.k
+        self._dots = {}    # (col, row) -> {bit: layer}; bit is (x, y) in the cell when k > 1
         self._glyphs = {}  # (col, row) -> (char, layer, chip)
         self._gaps = set()
         self._tint = {}    # (col, row) -> background token
 
+    def cell(self, x, y):
+        """The (col, row) of dot (x, y)."""
+        return x // self.sx, y // self.sy
+
+    def _bit(self, x, y):
+        return BITS[(x % 2, y % 4)] if self.k == 1 else (x % self.sx, y % self.sy)
+
     def copy(self):
         """An independent canvas with the same content, so a cached layer is never painted on."""
-        other = Canvas(self.cols, self.rows)
+        other = Canvas(self.cols, self.rows, self.k)
         other._dots = {pos: dict(bits) for pos, bits in self._dots.items()}
         other._glyphs = dict(self._glyphs)
         other._gaps = set(self._gaps)
@@ -76,33 +88,33 @@ class Canvas:
 
     @property
     def dots_wide(self):
-        return self.cols * 2
+        return self.cols * self.sx
 
     @property
     def dots_high(self):
-        return self.rows * 4
+        return self.rows * self.sy
 
     def _inside(self, col, row):
         return 0 <= col < self.cols and 0 <= row < self.rows
 
     def dot(self, x, y, layer):
         """OR one dot at dot coordinates (x right, y down); off-canvas dots are dropped."""
-        col, row = x // 2, y // 4
+        col, row = x // self.sx, y // self.sy
         if not self._inside(col, row):
             return
         bits = self._dots.setdefault((col, row), {})
-        bit = BITS[(x % 2, y % 4)]
+        bit = self._bit(x, y)
         if bit not in bits or rank(layer) < rank(bits[bit]):
             bits[bit] = layer
 
     def dots(self, xs, ys, layers):
         """``dot`` for many points at once (the trail): same rules, one Python loop."""
-        cols, rows, store = self.cols, self.rows, self._dots
+        cols, rows, store, sx, sy, braille = self.cols, self.rows, self._dots, self.sx, self.sy, self.k == 1
         for x, y, layer in zip(xs, ys, layers):
-            col, row = x // 2, y // 4
+            col, row = x // sx, y // sy
             if 0 <= col < cols and 0 <= row < rows:
                 bits = store.setdefault((col, row), {})
-                bit = BITS[(x % 2, y % 4)]
+                bit = BITS[(x % 2, y % 4)] if braille else (x % sx, y % sy)
                 if bit not in bits or rank(layer) < rank(bits[bit]):
                     bits[bit] = layer
 
@@ -134,7 +146,7 @@ class Canvas:
             top = min(bits.values(), key=rank)
             if pos in self._gaps and rank(top) >= rank('trail'):
                 return Cell(GAP, 'trail', False, bg)
-            return Cell(chr(0x2800 + sum(bits)), top, False, bg)
+            return Cell(chr(0x2800 + sum(bits)) if self.k == 1 else BLANK, top, False, bg)
         if pos in self._gaps:
             return Cell(GAP, 'trail', False, bg)
         return Cell(BLANK, None, False, bg)

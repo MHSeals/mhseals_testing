@@ -26,7 +26,7 @@ def _traces(index, snapshot, view, width, rows):
     effort = view['units'] == 'effort'
     now, window = plots['now'], plots['window']
     gutter = max(len(f'{scale:+g}'), len(f'{-scale:+g}')) + 1 if rows > 1 else 0
-    plot = braille.canvas(max(1, width - gutter), rows)
+    plot = braille.canvas(max(1, width - gutter), rows, name=f'motion.{key}.{rows}')
     if rows > 1:
         plot.hline(0.0, -scale, scale)
     series = plots['meas'].get(key, [])

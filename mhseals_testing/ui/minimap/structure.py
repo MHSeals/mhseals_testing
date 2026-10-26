@@ -25,7 +25,7 @@ BRACKET = 4.5       # cells a bay needs for the ASCII [bs] form
 def bay_cells(proj, bay):
     """The bay mouth's length in cells (cells are 2 dots wide, 4 high), at any rotation."""
     (xa, ya), (xb, yb) = proj.dot(bay.a), proj.dot(bay.b)
-    return math.hypot((xb - xa) / 2, (yb - ya) / 4)
+    return math.hypot((xb - xa) / proj.canvas.sx, (yb - ya) / proj.canvas.sy)
 
 
 def draw_dock(proj, bay, tier='colour'):
@@ -66,25 +66,27 @@ def draw_boat(proj, pos, yaw, reliable=True, ascii_=False, speed=None, cog=None,
     shown = 90.0 if up or not finite else yaw
     x, y = proj.dot(pos)
     canvas = proj.canvas
+    k = canvas.k                      # sizes below are braille dots; an image canvas has k times more
+    minimum = (hull.MIN_DOTS[0] * k, hull.MIN_DOTS[1] * k)
     cells = {}
-    for dx, dy, part in hull.mask(shown, proj.scale):
+    for dx, dy, part in hull.mask(shown, proj.scale, minimum):
         layer = part if good else 'boat:warn'
         if ascii_:
-            cell = ((x + dx) // 2, (y + dy) // 4)
+            cell = canvas.cell(x + dx, y + dy)
             cells[cell] = 'bow' if part == 'bow' or cells.get(cell) == 'bow' else 'boat'
         else:
             canvas.dot(x + dx, y + dy, layer)
     for cell, part in cells.items():
         canvas.glyph(*cell, arrow(shown, True) if part == 'bow' else '#', part if good else 'boat:warn')
-    bow, port, starboard = hull.points(shown, proj.scale)
+    bow, port, starboard = hull.points(shown, proj.scale, minimum)
     moving = speed is not None and math.isfinite(speed) and speed > WAKE_SPEED
     if good:
-        reach = min(max(3.0, (speed or 0.0) * LEAD_S * proj.scale), LEAD_MAX) if moving else 3.0
+        reach = min(max(3.0 * k, (speed or 0.0) * LEAD_S * proj.scale), LEAD_MAX * k) if moving else 3.0 * k
         _ray(canvas, (x + bow[0], y + bow[1]), shown, reach, 'bow', 2)
         if moving and cog is not None and math.isfinite(cog) and abs((cog - yaw + 180) % 360 - 180) > CRAB_DEG:
             _ray(canvas, (x, y), shown + cog - yaw, reach + math.hypot(*bow), 'wake:muted', 2)
     if wake and moving:
-        length = WAKE_DOTS[0] + WAKE_DOTS[1] * min(speed / VMAX, 1.0)
+        length = (WAKE_DOTS[0] + WAKE_DOTS[1] * min(speed / VMAX, 1.0)) * k
         for side, corner in ((1, port), (-1, starboard)):
             _ray(canvas, (x + corner[0], y + corner[1]), shown + 180 - side * WAKE_DEG, length, 'wake', 2)
 

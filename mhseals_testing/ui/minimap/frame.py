@@ -33,7 +33,7 @@ def draw_rings(canvas, scale, count=2, labels=False):
             canvas.dot(math.floor(cx + r * math.cos(a)), math.floor(cy - r * math.sin(a)), 'grid')
         if labels:
             a = math.radians(LABEL_DEG)
-            col, row = int((cx + r * math.cos(a)) // 2) + 1, int((cy - r * math.sin(a)) // 4)
+            col, row = int((cx + r * math.cos(a)) // canvas.sx) + 1, int((cy - r * math.sin(a)) // canvas.sy)
             for i, ch in enumerate(f'{step * k:g}'):
                 canvas.glyph(col + i, row, ch, 'grid')
     return step
@@ -51,7 +51,7 @@ def draw_chrome(canvas, step, scale, up_yaw=None, ascii_=False, accuracy=None):
 
     ``up_yaw`` is the boat yaw (map degrees) in heading-up, None in north-up; ``accuracy`` is h_acc m.
     """
-    cells = max(2, round(step * scale / 2))
+    cells = max(2, round(step * scale / canvas.sx))
     ends, dash = ('|', '-') if ascii_ else ('├┤', '─')
     bar = ends[0] + dash * (cells - 2) + ends[-1] + f' {step:g} m'
     room = canvas.cols - 4    # leave the north arrow its corner
