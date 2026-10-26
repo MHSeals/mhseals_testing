@@ -106,3 +106,22 @@ def test_header_row_never_exceeds_the_width_and_keeps_the_arm_chip(width):
     page = scenes(load_profile('boat'))['running']
     row = text(layout.header(monitor().snapshot(), page, width), width, 3).splitlines()[0]
     assert len(row) <= width and row.rstrip().endswith('ARMED')
+
+
+@pytest.mark.parametrize('width', WIDTHS)
+def test_an_agents_arm_is_marked_after_the_armed_chip_and_the_operators_is_not(width):
+    """Who armed: the operator's ARMED stands alone; an agent's adds ◆ who and sim-arm in the agent hue."""
+    profile = load_profile('boat')
+    agent = view(profile, armed=True, authority=('agent', 'AGENT claude'), armed_by={'who': 'claude', 'sim': True})
+    row = text(layout.header(monitor().snapshot(), agent, width), width, 3).splitlines()[0]
+    mark = f'{theme.AGENT_GLYPH} claude sim-arm' if width >= 100 else f'{theme.AGENT_GLYPH} sim-arm'
+    flat = ' '.join(row.split()).replace('[', '').replace(']', '')     # ASCII brackets its chips
+    assert len(row) <= width and flat.endswith(f'ARMED {mark}')
+    own = text(layout.header(monitor().snapshot(), view(profile, armed=True), width), width, 3).splitlines()[0]
+    assert own.rstrip().rstrip(']').endswith('ARMED') and f' {theme.AGENT_GLYPH} ' not in own
+
+
+def test_the_agent_arm_mark_wears_the_agent_hue_not_the_armed_chips():
+    mark = layout.chrome.armed_by({'who': 'claude', 'sim': False})
+    assert mark.plain == f'{theme.AGENT_GLYPH} claude'
+    assert str(mark.style) == f"bold {theme.PALETTE.style('auth.agent')}".strip()

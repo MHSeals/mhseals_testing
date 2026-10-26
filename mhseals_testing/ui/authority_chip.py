@@ -140,7 +140,7 @@ def banner(record, now, desk=None):
     held = lease(claim, desk, now)
     parts = [(f"{theme.AGENT_GLYPH} AGENT {state}", 0),
              ('RC override' if paused and record.get('owner') == 'rc' else None, 0),
-             (claim.get('who'), 0),
+             (claim.get('who'), 0), (claim.get('id'), 0),      # the claim id, as the agent's CLI names it
              (f'{theme.FOCUS} {act_words(doing)}' if doing else None, 1),
              (held[0] if held else None, 0 if held and held[1] else 2),
              (f"pid {claim['pid']}" if claim.get('pid') else None, 3), (claim.get('reason') or None, 3),

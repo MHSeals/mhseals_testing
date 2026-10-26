@@ -90,3 +90,37 @@ def test_enter_closes_the_stop_popup_and_only_u_asks_to_release():
     app.popup = lambda modal, handle, refresh=None: popups.popup(app, modal, handle, refresh)
     stop.open_stop(app)
     assert calls == ['release'] and not keys      # U opened the confirm; Enter only closed
+
+
+def agent_banner(state='suspended'):
+    """The agent banner text for a claim Space suspended (``AGENT PAUSED``)."""
+    return authority_chip.banner({'owner': 'hold', 'claims': [
+        {'id': 'c7', 'owner': 'agent', 'who': 'claude-3f2a', 'state': state, 'since_ns': NS - int(30e9)}]},
+        NOW, desk={'act': None})
+
+
+@pytest.mark.parametrize('width', [160, 120, 80])
+def test_space_under_an_agent_claim_shows_stopped_first_and_the_paused_claim(width):
+    """Space never hides STOPPED behind the agent banner: the stop owns the row, the claim is named on it."""
+    lines = text(layout.render(monitor().snapshot(), view(
+        load_profile('boat'), authority=authority_chip.chip(held('keys', 'tui'), NOW), agent=agent_banner()),
+        width, 40 if width >= 120 else 24), width).splitlines()
+    assert lines[1].lstrip().startswith(f"{theme.pick('⊘', '(/)')} STOPPED")
+    assert ('AGENT PAUSED' if width >= 120 else f'{theme.AGENT_GLYPH} claude-3f2a') in lines[1]
+    assert f'claude-3f2a{theme.SEPARATOR}c7' in lines[1] and len(lines[1]) <= width
+    assert lines[1].rstrip().endswith(layout.chrome.AGENT_STOP_KEYS)
+
+
+def test_stopped_wins_the_eye_over_the_agent_claim_on_its_row():
+    row = layout.chrome.stop_banner(False, 120, agent=agent_banner())
+    styles = {row.plain[span.start:span.end].strip(): str(span.style) for span in row.spans}
+    stopped = next(v for k, v in styles.items() if k.endswith('STOPPED'))
+    claim = next(v for k, v in styles.items() if 'AGENT PAUSED' in k)
+    assert 'bold' in stopped and 'bold' not in claim and 'reverse' not in claim
+    assert claim == theme.PALETTE.style('auth.agent')        # unreversed agent hue, not the solid banner
+
+
+def test_without_a_stop_the_agent_banner_keeps_the_row():
+    lines = text(layout.render(monitor().snapshot(), view(load_profile('boat'), authority=('agent', 'AGENT c'),
+                                                          agent=agent_banner('active')), 120, 40), 120).splitlines()
+    assert 'STOPPED' not in lines[1] and 'AGENT IDLE' in lines[1]

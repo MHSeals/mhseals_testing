@@ -362,6 +362,8 @@ class App:
     def armed(self):
         return self.arming is not None and self.arming.armed
 
+    armed_by = None   # who armed, for the ARMED chip: None is the operator, else {'who', 'sim'} (an agent)
+
     def ack_toasts(self, id=None):
         """Dismiss one toast, or every standing one (the Health popup's x)."""
         self.toasts.ack(id)
@@ -982,7 +984,8 @@ class App:
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared),
             agent=authority_chip.banner(shared.get('authority_record'), time.time(), desk=shared.get('agent_desk')),
-            armed=self.armed, arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
+            armed=self.armed, armed_by=self.armed_by if self.armed else None,
+            arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command, chords=self.chords,
             speed=self.manual_speed if self.manual_speed is not None
             else (self.args.hardware_config or {}).get('manual_amplitude'),
@@ -1836,6 +1839,9 @@ class App:
         if arbiter is not None:
             arbiter.allow_agents = self.settings.agents == 'allow'
         self.notice = f'Agents {self.settings.agents}'
+        desk = getattr(self, 'desk', None)
+        if desk is not None:
+            desk.setting_changed()           # block stops an agent run in flight, as E does
 
     def open(self, action_id):
         """Open the popup registered for ``action_id`` in ``popups.OPENERS``; an unbound id does nothing."""
@@ -2409,6 +2415,7 @@ class App:
         self.wait_for_driver()
         if self.plant is not None:
             self.plant.engage()
+        self.armed_by = None                     # the operator's arm; an agent's sets {'who', 'sim'}
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
         self.notice = 'Armed at neutral'
@@ -2548,6 +2555,7 @@ class App:
         self.command = (0.0, 0.0, 0.0)
         if self.armed:
             self.arming.disarm()
+            self.armed_by = None
             self.watcher.watches['hardware'].warning = None
             self.ros.emit('disarmed', reason=reason, by=by)
         self.notice = f'{reason}; outputs neutral'

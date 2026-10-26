@@ -32,13 +32,14 @@ tokens:
   # the safe stop state (e-stop, Space) and the hot armed state: apart from fail, buoys and each other;
   # on 16 colours ⊘ STOP and ARMED carry the meaning with the word
   stop:      {dark: '#FC8460', light: '#A8320C', x256: [209, 166], ansi: bold red}   # soft coral at the palette's lightness
-  armed:     {dark: '#FF6FA8', light: '#C2185B', x256: [205, 161], ansi: bright_magenta}
+  # a hot rose, clear of the agent's orchid so an agent's ARMED is not one pink blob with its chip
+  armed:     {dark: '#FF3D7F', light: '#C2185B', x256: [198, 161], ansi: bright_magenta}
   # the typed arm word and its field: a crimson of the armed family, apart from fail, stop and buoys
   arm.word:  {dark: '#EB4778', light: '#A31D48', x256: [204, 125], ansi: bright_magenta}
   auth.human:     {alias: fg}
   auth.ours:      {alias: accent}
   auth.nav:       {alias: violet}
-  auth.agent:     {dark: '#EFA6E2', light: '#C0209E', x256: [219, 162], ansi: magenta}   # apart from spd.5
+  auth.agent:     {dark: '#EFA6E2', light: '#A82AB8', x256: [219, 128], ansi: magenta}   # apart from spd.5 and armed
   auth.agent_dim: {dark: '#B58BAE', light: '#8A5A84', x256: [139, 96],  ansi: magenta}   # working, not driving
   auth.hold:      {alias: slate}
   # scope tags (Correction hw / cal): grey italic, apart from status, buoy and authority hues
@@ -129,6 +130,7 @@ cvd_swap:
 # 16-colour tier: the one attribute added to a token's ansi name (ui.md section 3).
 attr16:
   unknown: dim
+  armed: bold        # bright_magenta beside the agent's magenta: bold keeps ARMED the louder chip
   auth.agent_dim: dim
   sel_bg: underline
 

@@ -132,3 +132,19 @@ def test_hue_families_never_share_a_16_colour_name(theme, cvd):
         names = [{theme.resolve(t, tier='16', cvd=cvd) for t in tokens} - plain for tokens in (one, two)]
         shared += [f'{f1}/{f2} {name}' for name in sorted(names[0] & names[1])]
     assert not shared, shared
+
+
+ARMED_FROM_AGENT = 20   # the ARMED chip sits next to the AGENT chip: well past MIN_DELTA_E
+
+
+@pytest.mark.parametrize('cvd', [False, True])
+@pytest.mark.parametrize('mode', ['dark', 'light'])
+@pytest.mark.parametrize('tier', ['truecolor', '256'])
+def test_the_armed_chip_is_far_from_the_agent_chip(theme, tier, mode, cvd):
+    d = delta_e(*(_lab(_rgb(theme.resolve(t, mode, tier, cvd))) for t in ('armed', 'auth.agent')))
+    assert d >= ARMED_FROM_AGENT, f'armed/auth.agent {d:.1f}'
+
+
+def test_on_16_colours_armed_is_its_own_name_and_bold(theme):
+    assert theme.resolve('armed', tier='16') != theme.resolve('auth.agent', tier='16')
+    assert 'bold' in theme.attr16.get('armed', '')

@@ -1279,3 +1279,84 @@ def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
     rig.desk.tick()
     busy = final(req['id'])
     assert busy['error'] == 'busy' and 'claude-3f2a' in busy['hint'] and c not in busy['hint']   # who, not the id
+
+
+# --- operator visibility: refusals, lapsed leases, settings switched mid-act ------------------
+
+def test_a_refused_claim_or_run_is_a_footer_notice_naming_the_agent(rig):
+    rig.app.arbiter.allow_agents = False
+    ch.request('claim', 'codex-1')
+    rig.desk.tick()
+    assert rig.app.notice == 'Agent codex-1 claim refused: blocked (operator must set Agents to allow)'
+    rig.app.arbiter.allow_agents = True
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'observe'
+    ask(rig, 'run', c, key='square')
+    assert rig.app.notice.startswith(f'Agent claude-3f2a {c} run refused: motion_observe (')
+
+
+def test_a_dry_run_refusal_stays_in_the_agent_log(rig):
+    c = claim(rig)
+    rig.app.notice = 'before'
+    rig.app.settings.agent_motion = 'observe'
+    ask(rig, 'run', c, dry=True, key='square')
+    assert rig.app.notice == 'before'
+
+
+def test_an_idle_lease_lapse_is_a_notice(rig):
+    c = claim(rig)
+    rig.clock[0] += 121
+    rig.app.arbiter.tick()
+    rig.desk.tick()
+    assert rig.app.notice.startswith(f'Agent claude-3f2a {c} lease expired: stopped')
+    rig.app.notice = ''
+    rig.desk.tick()
+    assert rig.app.notice == ''                       # told once
+
+
+def test_a_lapsed_motion_lease_is_a_notice(rig):
+    rig.app.steps = 30
+    c, reply = run_with(rig, 0, lambda: None)
+    assert reply['error'] == 'expired' and f'{c} lease expired' in rig.app.notice
+
+
+@pytest.mark.parametrize('switch, cause', [
+    (lambda app: agent_feed.step_setting(app, 'agent_motion', 'right'), 'motion observe'),   # allow -> observe
+    (lambda app: (setattr(app.settings, 'agents', 'block'), app.desk.setting_changed()), 'agents block')])
+def test_switching_a_control_row_mid_run_stops_it_as_e_does(rig, switch, cause):
+    c, reply = run_with(rig, 1, lambda: switch(rig.app))
+    assert reply['error'] == f'overridden: {cause}' and ch.exit_code(reply) == 3
+    assert reply['hint'].startswith('operator set Agent')
+    assert rig.app.calls[:2] == ['neutral', ('hold', cause.replace(' ', '_'))]   # neutral, then the hold
+    assert f'{c} stopped: {cause}' in rig.app.notice
+    assert rig.app.arbiter.table.get(c) is not None                                # the claim stays
+    rig.desk.tick()
+    assert rig.desk.act is None and rig.app.running is None                        # never resumes
+    rig.app.revoke_agent()                                                         # E still wins
+    assert rig.app.arbiter.table.get(c)['state'] == 'revoked' and ('hold', 'revoke') in rig.app.calls
+
+
+def test_switching_observe_mid_goal_cancels_it_in_nav2(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    req = ask(rig, 'goal', c, x=5, y=0)
+    agent_feed.step_setting(rig.app, 'agent_motion', 'right')
+    assert rig.app.nav.goal.cancelled and rig.app.goals.active is None
+    assert final(req['id'])['error'] == 'overridden: motion observe'
+    assert ('hold', 'motion_observe') in rig.app.calls
+
+
+def test_agents_block_refuses_a_run_under_a_live_claim(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.settings.agents = 'block'
+    assert final(ask(rig, 'run', c, key='square')['id'])['error'] == 'agents_block'
+
+
+def test_the_status_rows_switches_reach_the_desk():
+    from mhseals_testing.ui.app import App as BoatApp
+    seen = []
+    app = SimpleNamespace(settings=SimpleNamespace(agents='allow'), arbiter=None, notice='',
+                          desk=SimpleNamespace(setting_changed=lambda: seen.append('desk')))
+    BoatApp.toggle_agents(app)
+    assert app.settings.agents == 'block' and seen == ['desk'] and app.notice == 'Agents block'

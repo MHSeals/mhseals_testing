@@ -127,6 +127,13 @@ class Arbiter:
             self.tick(force=True)
             return done
 
+    def halt(self, cause):
+        """An operator setting (Agents block, Agent motion observe) ended an agent act: stop as E does;
+        the claim stays, suspended under the hold until the operator releases it."""
+        with self.lock:
+            self._stop(cause)
+            self.tick(force=True)
+
     def expire(self, claim_id):
         """A lapsed motion lease (the desk's): stop as revoke does, then end the claim as ``claim_expire``."""
         with self.lock:

@@ -57,8 +57,15 @@ def desk(**changes):
 def test_banner_names_the_agent_its_act_lease_and_age():
     text_ = authority_chip.banner(record(claim()), NOW, desk=desk())
     parts = text_.split(theme.SEPARATOR)
-    assert parts[:4] == [f'{theme.AGENT_GLYPH} AGENT DRIVING', WHO, f'{theme.FOCUS} run square 34 s', 'lease ok']
+    assert parts[:5] == [f'{theme.AGENT_GLYPH} AGENT DRIVING', WHO, 'c4', f'{theme.FOCUS} run square 34 s',
+                         'lease ok']
     assert parts[-1] == '4m'
+
+
+@pytest.mark.parametrize('width', [160, 120, 80])
+def test_the_banner_keeps_the_claim_id_at_every_width(width):
+    row = chrome.banner(authority_chip.banner(record(claim()), NOW, desk=desk()), width).plain
+    assert f'{WHO}{theme.SEPARATOR}c4' in row and row.rstrip().endswith(chrome.BANNER_KEYS)
 
 
 @pytest.mark.parametrize('desk_, state', [

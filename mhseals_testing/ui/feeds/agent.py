@@ -33,9 +33,10 @@ from mhseals_testing.harness import agent_channel, agent_config, journal, sim_ar
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.ros.arming import muxed
-from mhseals_testing.ui import agent_acts
+from mhseals_testing.ui import agent_acts, theme
 
 MOTION = ('run', 'goal')
+NOTICED = ('claim', 'run', 'goal')   # a refusal of these is a footer notice too, not only an agent-log row
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
@@ -58,7 +59,9 @@ HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'opera
          'ekf_inputs': 'EKF input hold: operator must U once the sensors are back',
          'approach': 'approach guard hold: operator must U',
          'stop file': 'the sim-arm stop file exists; only the operator removes it',
-         'sim-arm timeout': 'the run passed agent.yaml sim_arm.max_s; it was disarmed'}
+         'sim-arm timeout': 'the run passed agent.yaml sim_arm.max_s; it was disarmed',
+         'motion observe': 'operator set Agent motion to observe: stopped and held; operator must U',
+         'agents block': 'operator set Agents to block: stopped and held; operator must U'}
 
 
 def operator_popup(app):
@@ -96,6 +99,7 @@ class AgentDesk:
         self.errors, self.saved = set(), None
         self.status, self.status_at = status, None
         self.active_claim = None
+        self.claim_who, self.expired_seen = {}, set()   # agent claim id -> who; lapsed leases already told
         self.dry = None                     # (req, thread, box) of the goal dry run in flight
 
     # --- the feed --------------------------------------------------------------------------
@@ -105,6 +109,7 @@ class AgentDesk:
         self.poll()
         if self.act is not None:
             self.watch()
+        self.note_expiry()
         if self.queue:
             self.start_next()
         self.follow()
@@ -183,6 +188,10 @@ class AgentDesk:
                                 't_ns': time.time_ns(), 'ok': bool(ok), 'error': error, 'hint': hint})
         if state != 'progress':
             self.app.emit('agent_act', id=req['id'], who=req['who'], op=req['op'], state=state, error=error)
+        if not ok and state == 'done' and req['op'] in NOTICED and not req.get('dry') and not ended(error):
+            claim = req.get('claim') or ''
+            self.app.notice = (f"Agent {req['who']}{' ' + claim if claim else ''} {req['op']} refused: {error}"
+                               + (f' ({hint})' if hint else ''))
 
     def on_reply(self, record):
         pass
@@ -349,6 +358,8 @@ class AgentDesk:
         app, setting = self.app, self.app.settings.agent_motion
         if setting == 'observe':
             return 'motion_observe', 'operator sets Agent motion to confirm or allow'
+        if app.settings.agents == 'block':
+            return 'agents_block', 'operator sets Agents to allow'
         found = self.claim_state(req['claim'], req['who'])
         if found:
             return found, 'claim again' if found != 'not_holder' else 'use your own claim'
@@ -704,6 +715,12 @@ class AgentDesk:
         state = self.claim_state(act['claim'], act['who'])
         if state:
             return state
+        setting = self.operator_setting()
+        if setting:                                 # switched mid-act: stop as E does, the claim stays
+            self.arbiter.halt(setting.replace(' ', '_'))
+            self.app.notice = (f"Agent {act['who']} {act['claim']} stopped: {setting}{theme.SEPARATOR}"
+                               'neutral, hold (U releases)')
+            return f'overridden: {setting}'
         human = '' if act.get('arming') else self.human()
         if human:
             return f'overridden: {human}'
@@ -717,8 +734,35 @@ class AgentDesk:
                 return why
         if self.clock() - act['renewed'] > self.lease()['motion_s']:   # in the confirm popup too
             self.arbiter.expire(act['claim'])       # stops exactly as E does
+            self.note_expiry()
             return 'expired'
         return None
+
+    def operator_setting(self):
+        """'motion observe' or 'agents block' while a Control row forbids agent motion, else ''."""
+        settings = self.app.settings
+        if settings.agent_motion == 'observe':
+            return 'motion observe'
+        return 'agents block' if settings.agents == 'block' else ''
+
+    def setting_changed(self):
+        """The operator switched Agents or Agent motion: a motion act in flight stops now (``lost``)."""
+        if self.act is not None and self.act['op'] in MOTION and self.operator_setting():
+            self.watch()
+
+    def note_expiry(self):
+        """A lapsed lease (idle or motion) ended a claim and stopped the boat as E: tell the operator once."""
+        arbiter = self.arbiter
+        if arbiter is None:
+            return
+        with arbiter.lock:
+            self.claim_who.update({c['id']: c['who'] for c in arbiter.table.claims if c['owner'] == 'agent'})
+            lapsed = [cid for cid, why in arbiter.ended.items() if why == 'expired' and cid not in self.expired_seen]
+        for cid in lapsed:
+            self.expired_seen.add(cid)
+            if cid in self.claim_who:
+                self.app.notice = (f'Agent {self.claim_who[cid]} {cid} lease expired: '
+                                   f'stopped{theme.SEPARATOR}neutral, hold (U releases)')
 
     def watch_goal(self, act, cause):
         goals = self.app.goals
@@ -776,6 +820,11 @@ class AgentDesk:
         self.persist()
 
 
+def ended(error):
+    """A running act's end the operator caused or already sees (E, Space, a lapsed lease): no refusal notice."""
+    return error in ('revoked', 'expired', 'released', 'handover', 'cancelled') or error.startswith('overridden: ')
+
+
 def blockers(app):
     """The desk's runner blockers (app.session adds them to every runner); [] without a desk."""
     desk = getattr(app, 'desk', None)
@@ -789,6 +838,9 @@ def step_setting(app, name, key):
     value = choices[(choices.index(getattr(app.settings, name)) + (1 if key == 'right' else -1)) % len(choices)]
     setattr(app.settings, name, value)
     app.notice = f"{name.replace('_', ' ').capitalize()} {value}"
+    desk = getattr(app, 'desk', None)
+    if desk is not None:
+        desk.setting_changed()               # observe stops a run in flight, as E does
 
 
 def start(app, ros, registry=None, status=None, clock=time.time):

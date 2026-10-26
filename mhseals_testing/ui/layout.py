@@ -138,10 +138,11 @@ def fit_strip(chips, width, extra=0):
 def header(snapshot, view, width=120):
     """Row 1: title, profile, deploy, host and the authority and arm chips; row 2: the health strip or agent banner."""
     top = chrome.top_row(view, width)
+    stopped = (view.get('authority') or (None,))[0] == 'stop' and not view.get('review')
+    if stopped:      # a stop wins the row; an agent claim on it is named there, never hidden
+        return Group(top, chrome.stop_banner(view.get('armed'), width, agent=view.get('agent')))
     if view.get('agent'):
         return Group(top, chrome.banner(view['agent'], width))
-    if (view.get('authority') or (None,))[0] == 'stop' and not view.get('review'):
-        return Group(top, chrome.stop_banner(view.get('armed'), width))
     total = health_total(reconcile(view.get('health'), status_rows(snapshot, view['specs'])))
     row = Table.grid(expand=True)
     row.add_column(no_wrap=True, overflow=theme.OVERFLOW)

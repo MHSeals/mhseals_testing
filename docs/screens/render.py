@@ -51,7 +51,7 @@ HINTS = [('Tab', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q',
 
 
 def base_view(**extra):
-    return test_dashboard.view(PROFILE, host='blastoise', hints=HINTS, notice='Ready', **extra)
+    return test_dashboard.view(PROFILE, **{'host': 'blastoise', 'hints': HINTS, 'notice': 'Ready', **extra})
 
 
 def drive():
@@ -104,7 +104,21 @@ def agent():
     return monitor.snapshot(PROFILE.required_tf), base_view(tab='Drive', **extra)
 
 
-SCENES = {'drive': drive, 'map': map_, 'compass': compass, 'agent': agent}
+def agent_stopped():
+    """Space under an agent claim: STOPPED keeps row two and names the paused claim."""
+    view = test_agent_view
+    record = dict(view.record(view.claim(state='suspended'), owner='hold'), since_ns=view.NS - int(8e9),
+                  holds=[{'cause': 'keys', 'by': 'tui', 'since_ns': view.NS - int(8e9)}])
+    desk = dict(view.desk(), act=None)
+    monitor, _ = test_inspect_popup.scene()
+    extra = dict(armed=False, authority=view.authority_chip.chip(record, view.NOW), activity='agent',
+                 focus='activity', agent_desk=desk, authority_record=record,
+                 notice='stopped by operator; outputs neutral',
+                 agent=view.authority_chip.banner(record, view.NOW, desk=desk))
+    return monitor.snapshot(PROFILE.required_tf), base_view(tab='Drive', **extra)
+
+
+SCENES = {'drive': drive, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
 
 
 # The scene's `graphics`: `text` draws the braille, `image` the tiles a sixel or kitty terminal shows
