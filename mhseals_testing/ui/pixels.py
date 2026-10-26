@@ -44,7 +44,7 @@ PROBE = ('\x1b[>0q'                                              # XTVERSION
 # window title, so the query never goes out blind.
 PROBE_KITTY = f'\x1b_Gi={PROBE_ID},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c'
 PROBE_S = 0.5               # s; the probe normally ends at the DA1 reply, one round trip
-DEFAULT_CELL = (10, 20)     # px per cell when the terminal does not say
+DEFAULT_CELL = (10, 20)     # px per cell when the terminal does not say (kitty; sixel then stays text)
 POOL = 480                  # tile ids alive at once (sixel markers have room for 511)
 TILE = (8, 4)               # cells per tile, at most 16 x 8 (the marker code)
 KITTY_NAMES = ('kitty', 'ghostty')
@@ -64,7 +64,7 @@ _MARKS = re.compile('[\U000F0000-\U000FFFFD]+')
 TIER = 'text'
 SETTING = 'off'             # the setting start() was given
 _caps = {}                  # the session's probe replies: start() asks the terminal once
-clock = time.monotonic      # s; surface()'s repaint rate (the bench runs a simulated clock)
+clock = time.monotonic      # s; surface()'s repaint rate (tests run a simulated clock)
 # Over SSH (the boat radio: about 1 Mbit/s) image bytes get a budget, a fifth of that link; above
 # it every image repaints at THROTTLE_HZ at most. Text costs more than sixel, so never fall back to it.
 SSH_BUDGET = 25_000         # B/s
@@ -75,7 +75,7 @@ _sent = deque()             # (time, bytes) of image writes within METER_S
 CELL = DEFAULT_CELL
 K = 1                       # dot canvases use 2K x 4K dots per cell in an image tier (1: braille)
 GENERATION = 0              # bumped by start(): cached surfaces repaint for a new terminal
-STATS = {'upload': 0, 'sixel': 0, 'tiles': 0}   # bytes and tiles sent since start (the bench reads it)
+STATS = {'upload': 0, 'sixel': 0, 'tiles': 0}   # bytes and tiles sent since start
 _pool = OrderedDict()       # digest -> Tile, least recently used first
 _by_id = {}
 _free = []
@@ -141,28 +141,29 @@ def probe(fd, write, timeout=PROBE_S, env=None):
 def choose(setting, caps, env=None, colours='truecolor'):
     """The tier for theme.yaml's ``graphics`` setting, the probe's ``caps`` and the environment.
 
-    ``auto`` never picks an image tier under tmux (named by XTVERSION even through ssh and docker,
-    or by $TMUX): tmux keeps only a few sixel images per pane and drops the oldest tiles."""
+    No setting picks an image tier under tmux or screen (named by XTVERSION even through ssh and
+    docker, or by $TMUX / $STY): tmux keeps only a few sixel images per pane and drops the oldest
+    tiles. Nor in a dumb terminal, nor sixel unless the terminal gave its cell size: a guessed cell
+    lets tiles spill past their cells, over the arm and stop popups."""
     from mhseals_testing.ui import palette
     env = os.environ if env is None else env
-    if setting == 'off' or env.get('NO_COLOR') or palette.ascii_mode(env):
-        return 'text'
-    if setting in ('kitty', 'sixel'):
-        return setting
     name = (caps.get('xtversion') or '').lower()
-    if env.get('TMUX') or name.startswith(('tmux', 'screen')):
+    if (setting == 'off' or env.get('NO_COLOR') or palette.ascii_mode(env) or env.get('TERM') == 'dumb'
+            or env.get('TMUX') or env.get('STY') or name.startswith(('tmux', 'screen'))):
         return 'text'
-    if (caps.get('kitty') and colours in ('256', 'truecolor', 'eight_bit')
-            and (name.startswith(KITTY_NAMES) or (not name and _kitty_env(env)))):
+    if setting == 'kitty' or (setting == 'auto' and caps.get('kitty')
+                              and colours in ('256', 'truecolor', 'eight_bit')
+                              and (name.startswith(KITTY_NAMES) or (not name and _kitty_env(env)))):
         return 'kitty'
-    return 'sixel' if caps.get('sixel') else 'text'
+    return 'sixel' if caps.get('cell') and (setting == 'sixel' or caps.get('sixel')) else 'text'
 
 
 def start(keys, console, write, setting='off', env=None):
     """Probe the terminal on the key reader's fd (once a session) and pick the tier; returns it.
 
     ``off`` probes nothing. Bytes that were not probe replies (keys typed meanwhile) go back to the
-    reader's buffer. In sixel the console's stream is wrapped so markers become cursor-forward."""
+    reader's buffer. In sixel the console's stream is wrapped so markers become cursor-forward.
+    Without a tty on the reader's fd every setting is text."""
     global TIER, CELL, K, GENERATION, SETTING, BUDGET, _stream
     _reset()
     GENERATION += 1
@@ -170,18 +171,21 @@ def start(keys, console, write, setting='off', env=None):
     env = os.environ if env is None else env
     fd = getattr(keys, 'fd', None)
     caps = _caps
-    if not caps and choose(setting, {'sixel': True}, env) != 'text' and fd is not None:
+    try:
+        tty = fd is not None and os.isatty(fd)
+    except OSError:
+        tty = False
+    if not caps and tty and choose(setting, {'sixel': True, 'cell': DEFAULT_CELL}, env) != 'text':
         try:
-            if os.isatty(fd):
-                caps, rest = probe(fd, write, env=env)
-                _caps.update(caps)
-                if rest and hasattr(keys, 'buffer'):
-                    keys.buffer.extend(rest)
-                    keys.escape_started = time.monotonic()
+            caps, rest = probe(fd, write, env=env)
+            _caps.update(caps)
+            if rest and hasattr(keys, 'buffer'):
+                keys.buffer.extend(rest)
+                keys.escape_started = time.monotonic()
         except OSError:
             caps = {}
     system = getattr(console, 'color_system', None) or 'truecolor'
-    TIER = choose(setting, caps, env, system)
+    TIER = choose(setting, caps, env, system) if tty else 'text'
     BUDGET = SSH_BUDGET if env.get('SSH_CONNECTION') else None
     CELL = caps.get('cell') or DEFAULT_CELL
     K = 1 if TIER == 'text' else max(1, min(4, round(CELL[0] / 3.5)))
@@ -218,7 +222,7 @@ def forget():
 
 
 def use(tier, cell=DEFAULT_CELL, budget=None):
-    """Set the tier without a terminal (tests, the bench, the gallery)."""
+    """Set the tier without a terminal (tests)."""
     global TIER, CELL, K, GENERATION, BUDGET
     _reset()
     GENERATION += 1
@@ -245,7 +249,10 @@ def active():
 
 
 def _meter(size):
-    _sent.append((clock(), size))
+    now = clock()
+    _sent.append((now, size))
+    while _sent[0][0] < now - METER_S:      # trimmed here too: rate() runs only under a budget
+        _sent.popleft()
 
 
 def rate(now=None):

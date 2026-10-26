@@ -56,16 +56,23 @@ def test_parse_before_da1_is_not_done_and_an_error_reply_is_no_kitty():
 @pytest.mark.parametrize('setting,caps,env,want', [
     ('auto', dict(kitty=True, xtversion='kitty(0.39)'), {}, 'kitty'),
     ('auto', dict(kitty=True, xtversion='ghostty 1.2'), {}, 'kitty'),
-    ('auto', dict(kitty=True, xtversion='WezTerm 2024', sixel=True), {}, 'sixel'),   # no placeholders
+    ('auto', dict(kitty=True, xtversion='WezTerm 2024', sixel=True, cell=(9, 18)), {}, 'sixel'),   # no placeholders
     ('auto', dict(kitty=True), {'TERM': 'xterm-kitty'}, 'kitty'),                    # no XTVERSION: env hint
     ('auto', dict(kitty=True, xtversion='kitty'), {'TMUX': '/tmp/t'}, 'text'),
     ('auto', dict(sixel=True, xtversion='tmux 3.8'), {}, 'text'),      # tmux drops old sixel tiles
-    ('sixel', dict(sixel=True, xtversion='tmux 3.8'), {}, 'sixel'),
-    ('auto', dict(sixel=True, xtversion='foot(1.28.0)'), {}, 'sixel'),
+    ('auto', dict(sixel=True, cell=(9, 18), xtversion='foot(1.28.0)'), {}, 'sixel'),
+    ('auto', dict(sixel=True, xtversion='foot(1.28.0)'), {}, 'text'),    # no cell size: tiles could spill
     ('auto', {}, {}, 'text'),
     ('off', dict(kitty=True, sixel=True, xtversion='kitty'), {}, 'text'),
-    ('sixel', {}, {}, 'sixel'),
+    ('sixel', dict(cell=(9, 18)), {}, 'sixel'),
+    ('sixel', {}, {}, 'text'),                                            # forced, still no guessed cell
     ('kitty', {}, {}, 'kitty'),
+    # a forced tier keeps the guards: tmux, screen, a dumb terminal
+    ('sixel', dict(sixel=True, cell=(9, 18), xtversion='tmux 3.8'), {}, 'text'),
+    ('sixel', dict(sixel=True, cell=(9, 18)), {'TMUX': '/tmp/t'}, 'text'),
+    ('kitty', dict(kitty=True), {'STY': '1.pts-0'}, 'text'),
+    ('kitty', dict(kitty=True), {'TERM': 'dumb'}, 'text'),
+    ('sixel', dict(sixel=True, cell=(9, 18)), {'TERM': 'dumb'}, 'text'),
     ('kitty', dict(kitty=True), {'NO_COLOR': '1'}, 'text'),
     ('sixel', dict(sixel=True), {'MHS_ASCII': '1'}, 'text'),
 ])
@@ -172,6 +179,25 @@ def test_off_probes_nothing_and_a_session_probes_once(monkeypatch):
     assert pixels.CELL == (9, 18) and pixels.SETTING == 'sixel'
 
 
+def test_a_forced_tier_needs_a_tty(monkeypatch):
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (
+        dict(done=True, sixel=True, kitty=True, cell=(9, 18), xtversion='kitty'), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: False)
+    for setting in ('kitty', 'sixel'):
+        assert pixels.start(SimpleNamespace(fd=5, buffer=bytearray()), None, lambda text: None, setting,
+                            env={}) == 'text'
+    assert pixels.start(SimpleNamespace(), None, lambda text: None, 'kitty', env={}) == 'text'
+
+
+def test_sixel_without_a_cell_size_reply_stays_text(monkeypatch):
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (
+        dict(done=True, sixel=True, kitty=False, cell=None, xtversion='foot(1.28)'), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    keys = SimpleNamespace(fd=5, buffer=bytearray())
+    assert pixels.start(keys, None, lambda text: None, 'auto', env={}) == 'text'
+    assert pixels.restart(keys, None, lambda text: None, 'sixel', env={}) == 'text'
+
+
 # --- tiles, ids and kitty placeholders -----------------------------------------------------------
 
 def paint_box(colour):
@@ -197,8 +223,18 @@ def test_over_the_link_budget_images_repaint_at_the_throttle_rate(monkeypatch):
     assert pixels.surface('s', paint(50), 4, 2, key=5) is not held
 
 
+def test_the_byte_meter_stays_bounded_without_a_budget(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    pixels.use('sixel')                                    # a local terminal: rate() never runs
+    for _ in range(1000):
+        pixels._meter(100)
+        now[0] += 0.1
+    assert len(pixels._sent) <= pixels.METER_S / 0.1 + 1
+
+
 def test_ssh_sets_the_budget(monkeypatch):
-    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(done=True, sixel=True), b''))
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(done=True, sixel=True, cell=(9, 18)), b''))
     monkeypatch.setattr(os, 'isatty', lambda fd: True)
     keys = SimpleNamespace(fd=5, buffer=bytearray())
     pixels.start(keys, None, lambda text: None, 'sixel', env={'SSH_CONNECTION': '10 1 10 22'})

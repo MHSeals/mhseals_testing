@@ -64,7 +64,8 @@ def test_arrows_step_off_auto_kitty_sixel_save_the_overlay_and_switch_the_tier(t
         assert overlay.read_text() == 'graphics: auto\n' and pixels.SETTING == 'auto' and pixels.TIER == 'text'
         app.dispatch('right')
         app.dispatch('right')
-        assert overlay.read_text() == 'graphics: sixel\n' and pixels.TIER == 'sixel'
+        assert overlay.read_text() == 'graphics: sixel\n' and pixels.SETTING == 'sixel'
+        assert pixels.TIER == 'text'                          # forced, but still no tty here
         assert graphics_row(app)['value'] == chip('sixel') and 'sixel' in app.notice
         app.dispatch('right')                                 # no wrap past sixel
         assert theme.PALETTE.graphics == 'sixel'
