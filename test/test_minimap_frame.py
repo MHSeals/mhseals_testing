@@ -36,7 +36,7 @@ def machine_slowdown():
         for i in range(200000):
             d[i % 977] = (i * 31) % 1013 + len(str(i))
         runs.append((time.perf_counter() - t) * 1000)
-    return max(1.0, statistics.median(runs) / BASELINE_MS)
+    return min(8.0, max(1.0, statistics.median(runs) / BASELINE_MS))   # capped: a hung host still fails
 
 
 def grid(size=160, resolution=0.1, origin=(-8.0, -8.0)):

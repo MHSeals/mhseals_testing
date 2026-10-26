@@ -95,7 +95,10 @@ def run(argv, owner, log, exit_file, registry=None, grace=1.0, lease=None, lease
     with open(log, 'ab') as output:
         child = subprocess.Popen(argv, preexec_fn=_prepare_child, stdin=subprocess.DEVNULL,
                                  stdout=output, stderr=subprocess.STDOUT)
-    Path(exit_file).with_suffix('.pid').write_text(str(child.pid))
+    pid_file = Path(exit_file).with_suffix('.pid')
+    pending = pid_file.with_name(pid_file.name + '.tmp')
+    pending.write_text(str(child.pid))
+    os.replace(pending, pid_file)
     code, checked = None, 0.0
     while code is None and not stopping:
         time.sleep(0.05)
