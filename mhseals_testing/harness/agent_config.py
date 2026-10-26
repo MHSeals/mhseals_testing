@@ -17,7 +17,7 @@ SCHEMA = 'mhseals.agent_config/1'
 LEASE_KEYS = ('idle_s', 'motion_s', 'max_claim_s')
 NUMBERS = ('request_s', 'confirm_s', 'ask_s')
 DRIVERS = ('warn', 'hold')
-HOOK_LISTS = ('match', 'skip', 'deny')
+HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
 
 
 def config_path():

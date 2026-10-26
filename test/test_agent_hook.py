@@ -96,7 +96,7 @@ def test_the_private_dir_is_user_only_and_not_shared_tmp(tmp_path, monkeypatch):
     ('ros2 run teleop_twist_keyboard teleop_twist_keyboard', 'run KEY')])
 def test_raw_motion_is_denied_with_the_verb_to_use_and_noted(sent, command, verb):
     reason = sent('pre', command)['deny']
-    assert reason.startswith('Blocked: ') and f'tools/boat_agent {verb}' in reason and '--who claude-3f2a' in reason
+    assert reason.startswith('Blocked `') and f'tools/boat_agent {verb}' in reason and '--who claude-3f2a' in reason
     (note,) = sent.lines
     assert note['phase'] == 'deny' and note['use'].startswith(('boat_agent ', 'operator'))
     assert agent_channel.invalid(note) is None
@@ -112,6 +112,87 @@ def test_raw_motion_is_denied_with_the_verb_to_use_and_noted(sent, command, verb
     'ros2 bag play bags/run1 --topics /odom/global /gps/fix /perception/costmap'])
 def test_reads_stay_allowed(sent, command):
     assert sent('pre', command) is None
+
+
+# The regression table: what a shell would run is checked, what a command only reads is not.
+BLOCK = [
+    # wrappers and nesting
+    'ssh blastoise \'docker exec roboboat_dev bash -c "ros2 topic pub /cmd_vel x y"\'',
+    'docker exec -it roboboat_dev ros2 topic pub /cmd_vel x y',
+    'docker compose -f x.yml exec dev ros2 topic pub /cmd_vel x y',
+    'source /opt/ros/jazzy/setup.bash && ros2 topic pub /cmd_vel x y',
+    "bash -lc 'ros2 topic pub /cmd_vel x y'", 'eval "ros2 topic pub /cmd_vel x y"',
+    'timeout 5 ros2 topic pub -r 10 /cmd_vel x y', 'sudo -u roboboat ros2 topic pub /cmd_vel x y',
+    'env ROS_DOMAIN_ID=3 ros2 topic pub /cmd_vel x y', '/opt/ros/jazzy/bin/ros2 topic pub /cmd_vel x y',
+    'nohup ros2 topic pub /cmd_vel x y &', 'watch -n 1 ros2 topic pub --once /cmd_vel x y',
+    '(cd /tmp && ros2 topic pub /cmd_vel x y)', '{ ros2 topic pub /cmd_vel x y; }',
+    'if true; then ros2 topic pub /cmd_vel x y; fi',
+    "ssh -o BatchMode=yes -p 22 roboboat@blastoise.local 'ros2 service call /mavros/set_mode x y'",
+    # code the shell feeds to a shell or an interpreter
+    "ssh blastoise <<'EOF'\nsource x\nros2 topic pub /cmd_vel x y\nEOF",
+    "ssh blastoise bash -s <<'EOF'\npkill -f boat_test\nEOF",
+    'bash <<EOF\nros2 topic pub /cmd_vel x y\nEOF', 'bash <<< "ros2 topic pub /cmd_vel x y"',
+    'echo "ros2 topic pub /cmd_vel x y" | bash', 'echo ros2 topic pub /cmd_vel x y | ssh blastoise',
+    'echo /cmd_vel | xargs ros2 topic pub',
+    "cat > /tmp/x.sh <<'EOF'\nros2 topic pub /cmd_vel x y\nEOF\nbash /tmp/x.sh",
+    "python3 -c \"import os; os.system('ros2 topic pub /cmd_vel x y')\"",
+    "python3 - <<'EOF'\nimport subprocess\nsubprocess.run('ros2 service call /mavros/cmd/arming x y', shell=True)\nEOF",
+    'echo "$(ros2 topic pub --once /cmd_vel x y)"', 'x=`ros2 topic pub --once /cmd_vel x y`',
+    'cat <<EOF\n$(ros2 topic pub --once /cmd_vel x y)\nEOF',
+    "ros2 topic pub /cmd_vel x 'y",                                  # unreadable: searched whole
+    'T=/cmd_vel; ros2 topic pub $T geometry_msgs/msg/Twist {}',     # a target the hook cannot read
+    # killing the boat's control, here or anything on the boat
+    'pkill -f command_mux', 'kill -9 $(pgrep -f fence_watchdog)', 'killall mavros_node',
+    "ssh blastoise 'killall thruster_pwm_node'", 'ssh blastoise pkill -f anything',
+    'ssh blastoise docker stop roboboat_dev', "ssh blastoise 'docker compose down'",
+    'ssh blastoise systemctl --user restart mavros', 'ssh squirtle sudo reboot']
+ALLOW = [
+    'git status', 'pkill -P 12345', 'kill 12345', 'kill -TERM %1', 'killall -u lunarz codex',
+    'pkill -P 4242; kill %1', 'docker kill crane_ml_train', 'docker stop roboboat_dev', 'tmux kill-session -t x',
+    "python3 - <<'EOF'\nimport os, signal\nos.kill(pid, signal.SIGTERM)\nEOF",
+    "cat > test_x.py <<'EOF'\ndef test_kill():\n    proc.kill()  # the watchdog test\nEOF",
+    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
+    "grep -rn 'ros2 topic pub /cmd_vel' src/", 'rg "goal_pose|cmd_vel" src/mhseals_nav', "rg -n 'reboot' src/",
+    'git commit -m "deny ros2 topic pub /cmd_vel in the hook"',
+    "git commit -F - <<'EOF'\nBlock ros2 topic pub /cmd_vel and pkill on the boat\nEOF",
+    "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
+    "echo 'ros2 service call /mavros/cmd/arming' > notes.txt", "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv",
+    "sed -i 's/cmd_vel/cmd_vel_nav/' src/mhseals_nav/config/nav2.yaml",
+    "python3 -m pytest src/mhseals_testing/test -q -k 'kill or pkill'",
+    'ros2 topic pub /chatter std_msgs/msg/String "{data: hi}"', 'ros2 param set /my_detector threshold 0.5',
+    'ros2 node list | grep -i watchdog', 'ros2 bag info bags/run1',
+    'ssh blastoise ros2 topic echo /cmd_vel --once', "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'",
+    'ssh blastoise kill 4242', 'ssh blastoise journalctl --user -u mavros -n 50',
+    f'ssh blastoise {hook.BOAT_AGENT} stop --who x']
+
+
+@pytest.mark.parametrize('agent', ['claude', 'codex'])
+@pytest.mark.parametrize('command', BLOCK)
+def test_regression_commands_that_run_raw_control_are_blocked(sent, agent, command):
+    reason = (sent('pre', command, agent=agent) or {}).get('deny', '')
+    assert reason.startswith('Blocked `') and f'--who {agent}-3f2a' in reason
+
+
+@pytest.mark.parametrize('agent', ['claude', 'codex'])
+@pytest.mark.parametrize('command', ALLOW)
+def test_regression_text_and_local_work_are_allowed(sent, agent, command):
+    assert sent('pre', command, agent=agent) is None
+
+
+def test_a_boat_deny_names_the_host_and_the_command():
+    reason = hook.deny_reason(*hook.denied('ssh squirtle pkill -f x', hook.DEFAULTS), who='claude-3f2a',
+                              config=hook.DEFAULTS)
+    assert reason.startswith('Blocked `pkill -f x` on squirtle: killing boat processes')
+    assert f'Use: ssh squirtle {hook.BOAT_AGENT} stop --who claude-3f2a' in reason    # the boat it aimed at
+    assert hook.denied('ssh devbox pkill -f x', hook.DEFAULTS) is None
+
+
+def test_matching_is_fast():
+    import time
+    began = time.perf_counter()
+    for command in BLOCK + ALLOW:
+        hook.denied(command, hook.DEFAULTS)
+    assert (time.perf_counter() - began) / len(BLOCK + ALLOW) < 0.005      # per command, well under 5 ms
 
 
 def test_a_mission_push_is_advisory_allowed_and_noted(sent):
@@ -245,7 +326,9 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
     assert len(lines) == 3 and {line['target'] for line in lines} == {'local'} and not no_ssh
     context = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID})['context']
     assert f'`{hook.BOAT_AGENT} <verb>' in context and 'ssh blastoise' not in context
-    assert 'BOAT_AGENT_TARGET=blastoise' in context          # how a boat session reaches the boat's TUI
+    assert 'hook.py --playbook' in context and len(context) < 600     # brief: no robot work, little context
+    playbook = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID, 'source': 'playbook'})
+    assert 'BOAT_AGENT_TARGET=blastoise' in playbook['context']        # how a boat session reaches the boat's TUI
     deny = hook.agent_event({'agent': 'claude', 'event': 'pre', 'session_id': SID, 'tool_id': 'd',
                              'command': 'ros2 topic pub /cmd_vel x y'}, state_dir=tmp_path)['deny']
     assert 'ssh' not in deny and not no_ssh

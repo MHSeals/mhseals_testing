@@ -17,9 +17,15 @@ hook:
   match: ['\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', '\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
-  # Names match with or without the leading slash. Advisory: variables, python or decoded scripts still get through,
-  # and so does /mavros/mission/push (a waypoint upload; the FCU drives nothing here): noted in the TUI, not denied.
-  # ros2 bag play needs --topics without motion topics (cmd_vel*, thrusters, the mux, MAVROS RC/setpoints).
+  # Each deny pattern matches from the start of a command the shell runs (ssh, docker exec, sh -c, sudo, timeout,
+  # env, xargs, watch taken off; $(...) and heredocs into a shell included), never text a command only reads: a
+  # grep pattern, an echo, a commit message, a heredoc into a file. Code handed to an interpreter is searched line
+  # by line. Names match with or without the leading slash. Advisory: run-time strings and scripts from earlier
+  # calls still get through, and so does /mavros/mission/push (a waypoint upload; the FCU drives nothing here):
+  # noted in the TUI, not denied. ros2 bag play needs --topics without motion topics (cmd_vel*, thrusters, the
+  # mux, MAVROS RC/setpoints). A ros2 write whose target is a $variable is denied: the hook cannot read it.
+  # Killing is denied for the boat-control processes here, and for anything on a boat host (deny_boat, which
+  # also covers stopping its containers or units and rebooting it): use boat_agent stop.
   deny: ['ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
          'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
          'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
@@ -28,5 +34,9 @@ hook:
          'ros2\s+bag\s+play\b(?!.*--topics\b)',
          'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
          'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
-         '\b(pkill|killall)\b',
-         '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|velocity_controller)\b']
+         'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\s+(--?[\w-]+\s+)*[^\s-]*\$',
+         '(pkill|killall|kill)\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b']
+  hosts: [blastoise, squirtle]
+  deny_boat: ['(pkill|killall)\b', '(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
+              'systemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
+              '(reboot|poweroff|halt|shutdown)\b']
