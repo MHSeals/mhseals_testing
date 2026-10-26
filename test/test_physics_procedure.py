@@ -32,6 +32,7 @@ class Boat:
         self.series = dict(odometry=[], gyro=[])
         self.sent, self.pulses = [], None
         self.takeover, self.abort, self.calls, self.overrides = takeover, abort, dict(hold=0, pulse=0), []
+        self.on_resume, self.resumed = lambda: None, None
 
     def wrench(self, command):
         if command is not None:
@@ -64,8 +65,11 @@ class Boat:
         self.calls['hold'] += 1
         if self.takeover == ('hold', self.calls['hold']):
             began = self.t
+            self.sent.append(tuple(command))
             self.advance(seconds / 2, tuple(command))
             self.advance(5.0, (0.0, 0.0, 0.0))      # the human drives, then the settle
+            self.resumed = self.t
+            self.on_resume()                        # as Runner._pause: a raise here ends at neutral
             self.overrides.append(dict(by='manual', start=began, end=self.t, window=(began - 0.5, self.t)))
         start = self.t
         self.sent.append(tuple(command))
@@ -486,3 +490,14 @@ def test_survey_and_maneuvers_say_their_efforts_are_commanded(tmp_path):
     ctx, _ = make_ctx(tmp_path, runner=Boat(k=(30.0, 30.0, 10.0)), status='ok', thrust_step='maneuvers',
                       amplitude=0.5)
     assert saved(physics.thrust(ctx))['effort_source'] == 'commanded'
+
+
+def test_after_a_takeover_no_hold_runs_again(tmp_path):
+    for step, takeover, amplitude in (('survey', ('hold', 2), 1.0), ('maneuvers', ('hold', 2), 0.5)):
+        boat = Boat(k=(30.0, 30.0, 10.0), takeover=takeover)
+        ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step=step, amplitude=amplitude)
+        sent = len(boat.sent)
+        assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'took over' in records[-1]['reason']
+        assert boat.calls['hold'] == 2 and boat.t == boat.resumed          # nothing driven after the release
+        assert len(boat.sent) == sent + 2 and boat.overrides == []         # the interrupted hold never re-ran
+        assert records[-1]['invalidated'][-1] == records[-1]['taken_over']

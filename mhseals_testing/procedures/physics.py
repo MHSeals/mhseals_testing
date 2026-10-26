@@ -182,7 +182,23 @@ class Log:
     def hold(self, runner, command, seconds, label):
         """An effort hold through the driver (its deployed C applies)."""
         battery, before = self.battery(), len(getattr(runner, 'overrides', ()))
-        start, end = runner.hold(command, seconds, label)
+        begun, resume = self.ctx.monitor.clock(), getattr(runner, 'on_resume', None)
+
+        def stopped():
+            """runner._pause calls this once the human released and the boat settled, before it would
+            re-run the hold: raising here goes neutral and ends the step before any thrust resumes."""
+            resume()
+            self.segments.append(dict(label=label, start=begun, end=self.ctx.monitor.clock(), command=list(command),
+                                      pulses=commanded_pulses(command, self.config),
+                                      battery=[battery, self.battery()], overridden=True))
+            self.taken_over(label)
+        if resume is not None:
+            runner.on_resume = stopped
+        try:
+            start, end = runner.hold(command, seconds, label)
+        finally:
+            if resume is not None:
+                runner.on_resume = resume
         segment = self._segment(runner, label, start, end, command=list(command),
                                 pulses=commanded_pulses(command, self.config), battery=[battery, self.battery()])
         if len(getattr(runner, 'overrides', ())) > before:
