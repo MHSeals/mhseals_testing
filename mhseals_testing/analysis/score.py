@@ -18,15 +18,19 @@ import math
 from mhseals_testing.analysis.geometry import HULL, hull_clearance
 
 SCHEMA = 'mhseals.score/1'
-VERSION = 2                    # 2: round-1 ideator fixes, frozen in state/referee.md
+VERSION = 3                    # 3: bias-audit fixes (state/referee.md "v3 changes")
 RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
 STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
 PARAMS = dict(
     gate_hysteresis_m=0.3,      # D: a side counts once the centre is this far off the line
     entry_contact_pad_s=3.0,    # D: contact window around the entry passes (L 3.2.1)
-    circle_radius_m=8.0,        # D: a circle counts while within this of the buoy
+    circle_radius_m=8.0,        # D, owner to confirm: a circle counts while within this of the
+                                # buoy; L 3.2.2 sets no radius, and without a cap a course-wide
+                                # loop "circles" every buoy (evidence: sweep_deg_uncapped)
     full_circle_deg=360.0,      # L 3.2.2 (Feb 4): "full 360", over any sub-interval of one stay
-    red_encounter_m=8.0,        # D: an avoided red must have been approached this close
+    red_encounter_m=20.0,       # D, owner to confirm: a red within this (the diagnostics'
+                                # plausible detection range) was an avoidance opportunity;
+                                # L 3.2.2 sets no distance, so no closer approach is rewarded
     dock_dwell_s=2.0,           # D: S says "enters"; 2 s rejects a pass-through and jitter
     dock_gap_s=0.5,             # D: brief exits from the slip that do not reset the dwell
     strike_rearm_m=0.2,         # D: a new strike once clear by this much
@@ -35,6 +39,18 @@ PARAMS = dict(
     dock_tiers='highest',       # D, owner to confirm: 'highest' or 'additive' (S 4.2 lists rows)
     harbor_tiers='highest',     # D, owner to confirm: 'highest' or 'additive' (S 4.2 lists rows)
     green_circles_needed=1,     # D, owner to confirm: greens to circle ('all' = every one)
+    dock_bay_choice='first',    # D, owner to confirm: 'first' = the first slip held decides the
+                                # tier (a wrong bay is not undone by visiting others); 'best' =
+                                # best over all slips held. L 3.2.5 / S 4.2 do not say.
+    harbor_zone_r_m=3.0,        # D, owner to confirm: zone radius round a yellow alert buoy when
+                                # the truth anchor gives none (L 3.2.6 gives no radius)
+    harbor_response_s=120.0,    # D, owner to confirm: a zone entry counts only this long after
+                                # the recorded horn (L 3.2.6 "immediately", no number)
+    object_radius_m=0.2,        # D: radius of a truth object that gives none (H p.48: A-0 buoys
+                                # are 20.3 cm across, so this is generous)
+    missing_sign_number=9,      # D: a slip without a sign number ranks after signs 1-3
+    time_limit_s=300.0,         # D, owner to confirm: scored-run limit when session.json has no
+                                # time_limit_s (handbook: none found; harness rubric default 300)
 )
 DOCK_PARTS = ('pier_spine', 'pier_tine', 'dock_sign', 'dock_indicator')  # docking touches these
 INTERVENING = ('rc', 'keyboard', 'hold', 'external')   # authority owners that are not autonomy
@@ -173,8 +189,9 @@ def passes(track, gate, hull, h=PARAMS['gate_hysteresis_m']):
     tx, ty = -ny, nx
     lp = (gate['port']['x'] - cx) * tx + (gate['port']['y'] - cy) * ty
     ls = (gate['stbd']['x'] - cx) * tx + (gate['stbd']['y'] - cy) * ty
-    lo = min(lp, ls) + (gate['port' if lp < ls else 'stbd'].get('radius') or 0.2)
-    hi = max(lp, ls) - (gate['stbd' if lp < ls else 'port'].get('radius') or 0.2)
+    r0 = PARAMS['object_radius_m']
+    lo = min(lp, ls) + (gate['port' if lp < ls else 'stbd'].get('radius') or r0)
+    hi = max(lp, ls) - (gate['stbd' if lp < ls else 'port'].get('radius') or r0)
     found, side, last_zero = [], 0, None
     previous = None
     for sample in track:
@@ -252,7 +269,7 @@ def strikes(track, items, hull, rearm=PARAMS['strike_rearm_m']):
     reach = math.hypot(*hull) / 2
     found = []
     for item in items:
-        cx, cy, r = item['x'], item['y'], item.get('radius') or 0.2
+        cx, cy, r = item['x'], item['y'], item.get('radius') or PARAMS['object_radius_m']
         near = (reach + r + rearm) ** 2
         touching, worst = False, None
         for t, x, y, yaw in track:
@@ -276,7 +293,8 @@ def strikes(track, items, hull, rearm=PARAMS['strike_rearm_m']):
 def min_clearance(track, item, hull):
     if not track:
         return None
-    return round(min(hull_clearance((x, y, yaw), _xy(item), item.get('radius') or 0.2, hull)
+    return round(min(hull_clearance((x, y, yaw), _xy(item),
+                                    item.get('radius') or PARAMS['object_radius_m'], hull)
                      for _, x, y, yaw in track), 3)
 
 
@@ -448,7 +466,9 @@ def _debris(model, run, rows, gate_passes, t_entry):
         for green in greens:
             deg, t = sweep(scored, _xy(green), PARAMS['circle_radius_m'],
                            PARAMS['full_circle_deg'])
-            detail[green['id']] = dict(sweep_deg=round(deg, 1), t=t)
+            wide, _ = sweep(scored, _xy(green))     # evidence for the radius question only
+            detail[green['id']] = dict(sweep_deg=round(deg, 1), t=t,
+                                       sweep_deg_uncapped=round(wide, 1))
             times += [t] if t is not None else []
         need = len(greens) if PARAMS['green_circles_needed'] == 'all' else \
             min(int(PARAMS['green_circles_needed']), len(greens))
@@ -557,12 +577,15 @@ def _marina(model, run, rows, changes, allowed):
         t, longest = docked(run, bay)
         held.append(dict(bay=bay['id'], t=t, held_s=round(longest, 1), occupied=busy(bay)))
     best, tiers = None, set()
-    for h, bay in zip(held, bays):
-        if h['t'] is None or not allowed(h['t']):
-            continue
+    order_held = sorted((hb for hb in zip(held, bays) if hb[0]['t'] is not None
+                         and allowed(hb[0]['t'])), key=lambda hb: hb[0]['t'])
+    if PARAMS['dock_bay_choice'] == 'first':
+        order_held = order_held[:1]
+    for h, bay in order_held:
         green = [b for b in bays if not busy(b) and colour(b, h['t']) == 'green']
-        low = min(((b.get('sign') or {}).get('number', 9) for b in green), default=None)
-        number = (bay.get('sign') or {}).get('number', 9)
+        nosign = PARAMS['missing_sign_number']
+        low = min(((b.get('sign') or {}).get('number', nosign) for b in green), default=None)
+        number = (bay.get('sign') or {}).get('number', nosign)
         tier = ('occupied' if h['occupied'] else 'unoccupied' if colour(bay, h['t']) != 'green'
                 else 'lowest_green' if number == low else 'green')     # ties all count
         h['tier'] = tier
@@ -580,53 +603,94 @@ def _marina(model, run, rows, changes, allowed):
     rows.add('T5.dock', 'S; L 3.2.5; H pp.54-56', 'H+D', 'held in a slip; 50 unoccupied, 200 '
              'green, 350 lowest green (highest tier only, D)', possible, bool(best),
              t=best[1]['t'] if best else None, points=points,
+             choice=PARAMS['dock_bay_choice'], slips_held=len([h for h in held if h['t']]),
+
              tier=best[0] if best else None, entered=best[1]['bay'] if best else None,
              bays=[h for h in held if h['held_s'] > 0])
     _report_only(rows, 'T5.report', 'S; L 3.2.5', 'report dock N/S and slip', 100)
     return warnings
 
 
-def _harbor(model, run, rows, t_from, t_cut):
+def horn_sounded(changes, program=None):
+    """(t, value, basis) of the first horn sound. A recorded state log decides (basis
+    'recorded'; a log with no horn record means it never sounded). Only with no state log at
+    all does the program's planned trigger_s stand in (basis 'planned'), and then the zone row
+    can be provisional at most, never earned."""
+    if changes:
+        on = sorted((c['t_sim'], c.get('value')) for c in changes
+                    if c.get('id') == 'harbor_alert.horn' and c.get('value') not in (None, 'off')
+                    and isinstance(c.get('t_sim'), (int, float)))
+        return (*on[0], 'recorded') if on else (None, None, 'recorded: never sounded')
+    planned = (program or {}).get('trigger_s')
+    return planned, None, None if planned is None else 'planned (no state log)'
+
+
+def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: []):
+    """L 3.2.6: after the horn the ASV abandons its task and goes to the commanded zone.
+
+    Scored: the first real entry (outside -> inside) into a zone after the recorded horn and
+    within ``harbor_response_s``; being in a zone when it sounds is not an entry. Whether other
+    tasks still earned credit before the entry is evidence only (``dropped_task``), never a gate:
+    it must not punish a route that completes a task on the way."""
     task = model['tasks'].get('harbor_alert')
-    horn = model['states'].get('harbor_alert.horn')
-    program = (horn or {}).get('program') or {}
-    trigger = program.get('trigger_s')
+    program = ((model['states'].get('harbor_alert.horn') or {}).get('program')) or {}
+    trigger, value, basis = horn_sounded(changes, program)
     if not task or trigger is None or not (t_from <= trigger <= t_cut):
         rows.add('T6.zone', 'S; L 3.2.6', 'H', 'harbor alert', 300, None, status='n/a',
-                 reason='no horn during the scored run')
+                 reason='no horn sounded' if trigger is None else
+                 'horn outside the scored run', horn=basis, horn_t=trigger,
+                 planned_trigger_s=program.get('trigger_s'))
         rows.add('T6.report', 'S; L 3.2.6', 'H', 'alert report', 150, None, status='n/a')
         return
-    target = {'one': 'zone1', 'two': 'zone2'}.get(program.get('pattern'))  # L 3.2.6; else unknown
+    pattern = value if value in ('one', 'two') else program.get('pattern')
+    target = {'one': 'zone1', 'two': 'zone2'}.get(pattern)     # L 3.2.6; else unknown
     zones = {z: task['anchors'][z] for z in ('zone1', 'zone2') if z in task.get('anchors', {})}
-    reached = None
+
+    def zone_at(x, y):
+        return next((z for z, a in zones.items() if math.dist((x, y), (a['x'], a['y']))
+                     <= (a.get('r') or PARAMS['harbor_zone_r_m'])), None)
+
+    before = [p for p in run if p[0] <= trigger]
+    at_horn = zone_at(*before[-1][1:3]) if before else None
+    deadline = trigger + PARAMS['harbor_response_s']
+    reached = late = None
+    prev = at_horn
     for t, x, y, _ in run:
-        if t < trigger:
+        if t <= trigger:
             continue
-        hit = next((z for z, a in zones.items() if math.dist((x, y), (a['x'], a['y']))
-                    <= a.get('r', 3.0)), None)
-        if hit:
-            reached = (hit, t)
-            break
+        here = zone_at(x, y)
+        if here and here != prev:                       # a real entry, not presence
+            if t <= deadline and reached is None:
+                reached = (here, t)
+            elif t > deadline and late is None:
+                late = dict(zone=here, t=round(t, 2))
+        prev = here
     tier = 300 if reached and reached[0] == target else 150 if reached else 0
     if tier == 300 and PARAMS['harbor_tiers'] == 'additive':
         tier = 450
-    rows.add('T6.zone', 'S; L 3.2.6; H pp.56-58', 'H+D', 'after the horn, reach a zone '
-             '(150) or the commanded zone (300); zone = anchor radius (D)',
+    between = worked(trigger, reached[1] if reached else min(deadline, t_cut))
+    rows.add('T6.zone', 'S; L 3.2.6; H pp.56-58', 'H+D', 'after the recorded horn, enter a '
+             'zone (150) or the commanded zone (300) within the response window (D)',
              450 if PARAMS['harbor_tiers'] == 'additive' else 300, bool(reached),
-             t=reached[1] if reached else None, points=tier or None, trigger_s=trigger,
-             pattern=program.get('pattern'),
+             t=reached[1] if reached else None, points=tier or None, horn_t=trigger, horn=basis,
+             report=None if basis != 'recorded' else False,    # planned horn: provisional only
+             planned_trigger_s=program.get('trigger_s'), pattern=pattern,
+             in_zone_at_horn=at_horn, response_window_s=PARAMS['harbor_response_s'],
              target_zone=target, reached=reached[0] if reached else None,
-             correct=bool(reached) and reached[0] == target,
-             response_s=round(reached[1] - trigger, 2) if reached else None)
+             correct=bool(reached) and reached[0] == target, late_entry=late,
+             response_s=round(reached[1] - trigger, 2) if reached else None,
+             credited_after_horn=between, dropped_task=not between)    # evidence, not a gate
     _report_only(rows, 'T6.report', 'S; L 3.2.6', 'confirm the signal', 150)
 
 
-def judge(truth, track, window=None, authority=(), changes=(), require_entry=True):
+def judge(truth, track, window=None, authority=(), changes=(), require_entry=True,
+          end_reason=None):
     """The scored run: a ``mhseals.score/1`` report body (without ``schema``/``summary``).
 
     ``window`` (t0, t1) is the run; ``authority`` is [{t, by, cause}] owner changes in track
     time; ``changes`` are recorded state changes [{t_sim, id, value}].
     ``require_entry`` False scores each task alone (fixtures that skip the entry gates).
+    ``end_reason`` names why the window ends (the harness's ``time_limit`` or ``track_end``).
     """
     model = course(truth)
     hull = model['hull']
@@ -634,7 +698,7 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
     run = with_heading([(p[0], p[1], p[2], p[3] or 0.0) for p in track
                         if t0 <= p[0] <= t1 and all(map(math.isfinite, p[:3]))])
     warnings = []
-    end = dict(reason='track_end' if not window else 'finished', t=t1)
+    end = dict(reason=end_reason or ('track_end' if not window else 'finished'), t=t1)
     interventions = sorted((dict(a, kind='intervention') for a in authority
                             if t0 <= a['t'] <= t1 and a.get('by') in INTERVENING),
                            key=lambda a: a['t'])
@@ -681,8 +745,16 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
            t_entry if require_entry else None, changes)
     _supply(model, run, rows_for('supply_drop'))
     warnings += _marina(model, run, rows_for('marina'), changes, allowed['f'])
+
+    def worked(a, b):
+        """Task work completed in (a, b); avoiding the red indicator is passive, not work."""
+        return [r['id'] for name, task in tasks.items() if name != 'harbor_alert'
+                for r in task.rows if r['status'] in ('earned', 'provisional')
+                and r['id'] != 'T2.red_avoid' and r['t'] is not None and a < r['t'] < b]
+
     _harbor(model, run, rows_for('harbor_alert'),
-            (t_entry if require_entry and t_entry is not None else t0), t_cut)
+            (t_entry if require_entry and t_entry is not None else t0), t_cut, changes,
+            worked)
     scored = [p for p in run if p[0] <= t_cut]
     items = [e for e in model['elements'] if e.get('role') not in DOCK_PARTS]
     hits = strikes(scored, items, hull)

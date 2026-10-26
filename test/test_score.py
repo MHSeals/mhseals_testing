@@ -28,7 +28,11 @@ def rows(report):
 def test_course_fixture_verdicts(case):
     """Crane's per-tier fixtures (task-level: they skip the entry gates)."""
     truth, track, expected = load(case)
-    report = score.judge(truth, track, require_entry=False)
+    horn = next((st.get('program') for st in truth.get('states', [])
+                 if st.get('id') == 'harbor_alert.horn' and st.get('program')), None)
+    log = [dict(t_sim=horn['trigger_s'], id='harbor_alert.horn', value=horn.get('pattern'))] \
+        if horn and horn.get('trigger_s') is not None else []   # the sim's record of the horn
+    report = score.judge(truth, track, require_entry=False, changes=log)
     got = rows(report)
     want = expected.get('tasks', {})
     if 'marina' in want:
@@ -189,8 +193,8 @@ def test_legacy_2025_truth_scores_entry_gates():
 
 def test_batch_stats_and_compare():
     from mhseals_testing.harness import score_analyze as sa
-    a = dict(metrics=dict(points=sa.stats([100, 120, 110, 90])))
-    b = dict(metrics=dict(points=sa.stats([300, 320, 310, 290])))
+    a = dict(metrics=dict(points=sa.stats([100, 120, 110, 90])), sources=['unity'], seeds=['1'])
+    b = dict(a, metrics=dict(points=sa.stats([300, 320, 310, 290])))
     assert a['metrics']['points']['mean'] == 105
     lo, hi = a['metrics']['points']['ci95']
     assert lo < 105 < hi
@@ -245,7 +249,8 @@ def test_harbor_unknown_pattern_never_picks_a_zone():
     truth['tasks'].append(dict(id='harbor_alert', type='harbor_alert', anchors=dict(
         zone1=dict(x=20, y=0, r=3), zone2=dict(x=40, y=0, r=3))))
     truth['states'] = [dict(id='harbor_alert.horn', program=dict(trigger_s=1.0, pattern='?'))]
-    got = rows(score.judge(truth, path([(0, 0), (20, 0)]), require_entry=False))
+    log = [dict(t_sim=1.0, id='harbor_alert.horn', value='on')]
+    got = rows(score.judge(truth, path([(0, 0), (20, 0)]), require_entry=False, changes=log))
     assert got['T6.zone']['evidence']['target_zone'] is None
     assert got['T6.zone']['points'] == 150
 
@@ -315,3 +320,220 @@ def test_diagnostics_symmetric_either_way_round(direction):
     assert line['distance_m']['in_task'] == pytest.approx(
         _diag(gate_truth(), path(loop(-direction)))[1]['timeline']['speed_challenge']
         ['distance_m']['in_task'], abs=0.2)
+
+
+def _harbor_truth():
+    truth = gate_truth()
+    truth['tasks'].append(dict(id='harbor_alert', type='harbor_alert', anchors=dict(
+        zone1=dict(x=20, y=0, r=3), zone2=dict(x=40, y=0, r=3))))
+    truth['states'] = [dict(id='harbor_alert.horn', initial='off',
+                            program=dict(trigger_s=1.0, pattern='one'))]
+    return truth
+
+
+def test_harbor_zone_by_chance_with_the_horn_off_earns_nothing():
+    """L 3.2.6: points need a response to a sounded horn; crossing a zone is not one."""
+    log = [dict(t_sim=0.0, id='speed_challenge.light', value='red')]   # a log, no horn
+    got = rows(score.judge(_harbor_truth(), path([(0, 0), (20, 0)]), require_entry=False,
+                           changes=log))['T6.zone']
+    assert got['status'] == 'n/a' and got['points'] == 0
+    assert got['evidence']['horn'] == 'recorded: never sounded'
+
+
+HORN = [dict(t_sim=1.0, id='harbor_alert.horn', value='one')]
+
+
+def test_harbor_route_that_finishes_a_task_on_the_way_still_earns():
+    """Dropping the task is evidence only: completing the entry on the way is not punished."""
+    got = rows(score.judge(_harbor_truth(), path([(0, 0), (20, 0)]), require_entry=False,
+                           changes=HORN))['T6.zone']
+    assert got['status'] == 'earned' and got['points'] == 300
+    assert got['evidence']['credited_after_horn'] == ['T1.entry']
+    assert got['evidence']['dropped_task'] is False
+
+
+def test_harbor_already_in_the_zone_is_not_an_entry():
+    still = [(k * 0.1, 20.0, 0.0, 0.0) for k in range(300)]
+    got = rows(score.judge(_harbor_truth(), still, require_entry=False, changes=HORN))['T6.zone']
+    assert got['status'] == 'missed' and got['points'] == 0
+    assert got['evidence']['in_zone_at_horn'] == 'zone1'
+    again = path([(20, 0), (20, 6), (20, 0)])           # leave, then really enter
+    got = rows(score.judge(_harbor_truth(), again, require_entry=False, changes=HORN))['T6.zone']
+    assert got['status'] == 'earned' and got['points'] == 300
+
+
+def test_harbor_pass_through_after_the_response_window_earns_nothing(monkeypatch):
+    monkeypatch.setitem(score.PARAMS, 'harbor_response_s', 5.0)
+    got = rows(score.judge(_harbor_truth(), path([(0, 0), (20, 0), (20, 6)]),
+                           require_entry=False, changes=HORN))['T6.zone']
+    assert got['status'] == 'missed' and got['points'] == 0
+    assert got['evidence']['late_entry']['zone'] == 'zone1'
+
+
+def test_harbor_planned_horn_without_a_state_log_is_provisional_only():
+    got = rows(score.judge(_harbor_truth(), path([(0, 0), (20, 0)]),
+                           require_entry=False))['T6.zone']
+    assert got['status'] == 'provisional' and got['points'] == 0
+    assert got['provisional'] == 300 and got['evidence']['horn'] == 'planned (no state log)'
+
+
+def test_harbor_response_to_a_recorded_horn_earns():
+    got = rows(score.judge(_harbor_truth(), path([(25, 5), (20, 0)]), require_entry=False,
+                           changes=HORN))['T6.zone']
+    assert got['status'] == 'earned' and got['points'] == 300
+
+
+# ---- symmetry (bias guard): the same outcome by different paths or orders scores the same
+
+def _bay(x, y, colour='red'):
+    return dict(id='marina.N1', x=x, y=y, yaw=math.pi / 2, width=1.5, depth=2.4, occupied=False,
+                sign=dict(number=1), indicator=dict(id='iN', color=colour))
+
+
+def _then(track, points=None, pause=0.0):
+    """Continue ``track`` along ``points``, or hold still for ``pause`` seconds."""
+    t, x, y, yaw = track[-1]
+    if pause:
+        return track + [(t + 0.1 * (k + 1), x, y, yaw) for k in range(int(pause / 0.1))]
+    return track + path([(x, y)] + points, t0=t + 0.1)[1:]
+
+
+def test_same_tasks_in_a_different_order_score_the_same():
+    truth = dict(gate_truth(), bays=[_bay(30, 5)])
+    sprint = loop(1)[2:10]                 # (20, 10) .. round the mark .. back to (20, 0)
+    a = _then(_then(path([(0, 0), (20, 0)] + sprint + [(30, 0), (30, 5)]), pause=3),
+              [(30, 0), (20, 0), (0, 0), (-2, 0)])
+    b = _then(_then(path([(0, 0), (20, 0), (30, 0), (30, 5)]), pause=3),
+              [(30, 0), (20, 0)] + sprint + [(0, 0), (-2, 0)])
+    ra, rb = score.judge(truth, a), score.judge(truth, b)
+    assert rows(ra)['T5.dock']['status'] == rows(rb)['T5.dock']['status'] == 'earned'
+    assert rows(ra)['T3.loop']['status'] == rows(rb)['T3.loop']['status'] == 'earned'
+    assert ra['total']['points'] == pytest.approx(rb['total']['points'], abs=0.05)
+    assert ra['total']['by_task'].keys() == rb['total']['by_task'].keys()
+    for task in ra['total']['by_task']:
+        assert ra['total']['by_task'][task] == pytest.approx(rb['total']['by_task'][task],
+                                                             abs=0.05)
+
+
+def _green_truth():
+    truth = gate_truth()
+    truth['elements'].append(dict(id='debris_clearance.green1', task='debris_clearance',
+                                  role='indicator', label='green', x=0.0, y=30.0, radius=0.2))
+    truth['tasks'].append(dict(id='debris_clearance', type='debris_clearance',
+                               semantics=dict(rescue=['debris_clearance.green1'])))
+    return truth
+
+
+@pytest.mark.parametrize('direction', [1, -1])
+def test_green_circle_scores_the_same_clockwise_or_anticlockwise(direction):
+    ring = [(5 * math.cos(direction * k * 0.05), 30 + 5 * math.sin(direction * k * 0.05))
+            for k in range(int(2.2 * math.pi / 0.05))]
+    got = rows(score.judge(_green_truth(), path([(5, 20)] + ring), require_entry=False))
+    row = got['T2.green_circle']
+    assert row['status'] == 'provisional' and row['provisional'] == 200
+    assert abs(row['evidence']['rescue']['debris_clearance.green1']['sweep_deg']) >= 360
+
+
+@pytest.mark.parametrize('stern_in', [False, True])
+def test_docking_bow_in_or_stern_in_scores_the_same(stern_in):
+    truth = dict(gate_truth(), bays=[_bay(0, 20, 'green')])
+    track = _then(path([(0, 15), (0, 20)]), pause=3)
+    if stern_in:                                       # same positions, reversed heading
+        track = [(t, x, y, yaw + math.pi) for t, x, y, yaw in track]
+    report = score.judge(truth, track, require_entry=False)
+    got = rows(report)['T5.dock']
+    assert got['status'] == 'earned' and got['points'] == 350
+    assert got['evidence']['entered'] == 'marina.N1'
+    assert report['penalties']['strikes'] == []
+
+
+# ---- v3 batch statistics (bias audit)
+
+def test_t_quantile_is_exact_not_rounded_up():
+    from mhseals_testing.harness import score_analyze as sa
+    assert sa.t_quantile(11) == pytest.approx(2.201, abs=1e-3)   # the old table gave 2.13 (df 15)
+    assert sa.t_quantile(9.6) > sa.t_quantile(10)
+
+
+def test_rates_use_wilson_and_newcombe_and_survive_sd_zero():
+    from mhseals_testing.harness import score_analyze as sa
+    none = sa.stats([0.0] * 10, binary=True)
+    assert none['interval'] == 'wilson' and none['ci95'][0] == 0 and none['ci95'][1] > 0.2
+    a = dict(metrics=dict(entered=none), sources=['unity'], seeds=['1'])
+    b = dict(metrics=dict(entered=sa.stats([1.0] * 10, binary=True)), sources=['unity'],
+             seeds=['1'])
+    got = sa.compare(a, b)['entered']
+    assert got['diff'] == 1 and got['ci95'][0] > 0 and got['clear'] and got['clear_holm']
+    flat = dict(metrics=dict(points=sa.stats([5, 5, 5])), sources=['unity'], seeds=['1'])
+    assert 'sd=0' in flat['metrics']['points']['note']
+    assert sa.compare(flat, flat)['points']['ci95'] is None
+
+
+def test_compare_refuses_mixed_sources_or_seeds_unless_forced():
+    from mhseals_testing.harness import score_analyze as sa
+    m = dict(points=sa.stats([1, 2, 3]))
+    a = dict(metrics=m, sources=['unity'], seeds=['1', '2'])
+    with pytest.raises(sa.Refused):
+        sa.compare(a, dict(metrics=m, sources=['kinematic'], seeds=['1', '2']))
+    with pytest.raises(sa.Refused):
+        sa.compare(a, dict(metrics=m, sources=['unity'], seeds=['1', '3']))
+    forced = sa.compare(a, dict(metrics=m, sources=['unity'], seeds=['1', '3']), force=True)
+    assert forced['_forced'] and 'seed sets differ' in forced['_forced'][0]
+
+
+def test_dock_first_slip_held_decides_unless_best(monkeypatch):
+    bays = [dict(id=f'marina.N{n}', x=x, y=20.0, yaw=math.pi / 2, width=1.5, depth=2.4,
+                 occupied=False, sign=dict(number=n), indicator=dict(id=f'i{n}', color='green'))
+            for n, x in ((1, 0.0), (2, 10.0))]
+    truth = dict(gate_truth(), bays=bays)
+    wrong_first = _then(path([(10, 15), (10, 20)]), pause=3)
+    track = _then(_then(wrong_first, [(10, 15), (0, 15), (0, 20)]), pause=3)
+    got = rows(score.judge(truth, track, require_entry=False))['T5.dock']
+    assert (got['evidence']['tier'], got['points']) == ('green', 200)    # wrong slip first
+    monkeypatch.setitem(score.PARAMS, 'dock_bay_choice', 'best')
+    got = rows(score.judge(truth, track, require_entry=False))['T5.dock']
+    assert (got['evidence']['tier'], got['points']) == ('lowest_green', 350)
+
+
+def _session(folder, track, task_events=(), meta=None):
+    folder.mkdir()
+    (folder / 'course_truth.json').write_text(json.dumps(gate_truth()))
+    (folder / 'track.jsonl').write_text(''.join(
+        json.dumps(dict(t=t, x=x, y=y, yaw=yaw)) + '\n' for t, x, y, yaw in track))
+    (folder / 'task_events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in task_events))
+    if meta:
+        (folder / 'session.json').write_text(json.dumps(meta))
+    return folder
+
+
+def test_the_harness_not_the_boat_sets_the_scored_window(tmp_path):
+    """A boat that claims to start late or finish early does not move the window."""
+    from mhseals_testing.harness import score_analyze as sa
+    run = path([(0, 0), (20, 0), (0, 0), (-2, 0)])
+    claims = [dict(event='task_started', time=30.0), dict(event='task_finished', time=31.0)]
+    _, rec = sa.analyze(_session(tmp_path / 's1', run, claims))
+    assert rec['run']['window'][0] == run[0][0] and rec['run']['end']['reason'] == 'track_end'
+    assert rec['run']['claimed_window'] == [30.0, 31.0]
+    assert rows(rec)['T1.exit']['status'] == 'earned'
+    _, rec = sa.analyze(_session(tmp_path / 's2', run, claims, dict(time_limit_s=10.0)))
+    assert rec['run']['end']['reason'] == 'time_limit' and rec['run']['scored_until'] <= 10.0
+
+
+def test_batch_reports_completion_and_time_including_cutoffs():
+    from mhseals_testing.harness import score_analyze as sa
+
+    def record(outcome, end_t):
+        return dict(total=dict(points=0, provisional=0, by_task={}),
+                    penalties=dict(strikes=[], out_of_bounds=[], interventions=[]),
+                    run=dict(entry_t=0, duration_s=50, end=dict(reason='time_limit'),
+                             scored_until=50.0),
+                    diagnostics=dict(timeline=dict(marina=dict(
+                        outcome=outcome, encounter_t=10.0, end_t=end_t))))
+    done, cut = sa.metrics(record('completed', 20.0)), sa.metrics(record('cut_off_incomplete',
+                                                                         None))
+    assert done['time_s.marina'] == 10 and 'time_s.marina' not in cut
+    assert cut['time_cut_s.marina'] == 40 and cut['completed.marina'] == 0
+    side = sa.batch([record('completed', 20.0), record('cut_off_incomplete', None)])
+    side = side['time_by_task']['marina']
+    assert side['completion']['mean'] == 0.5 and side['completion']['interval'] == 'wilson'
+    assert side['time_s_completed_only']['n'] == 1 and side['time_cut_s_incl_incomplete']['n'] == 2
