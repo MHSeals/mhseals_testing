@@ -258,3 +258,57 @@ def test_dock_tie_for_lowest_green_and_no_report_needed():
         track = path([(x, 15), (x, 20)]) + [(10 + k * 0.1, x, 20.0, 0.0) for k in range(40)]
         got = rows(score.judge(truth, track, require_entry=False))['T5.dock']
         assert got['status'] == 'earned' and got['points'] == 350
+
+
+# ---- diagnostics (never scored)
+
+def _diag(truth, track, **kw):
+    from mhseals_testing.analysis import diagnostics
+    report = score.judge(truth, track)
+    model = score.course(truth)
+    run = [p for p in track if p[0] <= report['run']['scored_until']]
+    return report, diagnostics.diagnose(run, model, report, **kw)
+
+
+def test_timeline_contacts_and_near_misses():
+    truth = gate_truth()
+    truth['elements'].append(dict(id='speed_challenge.rock', task='speed_challenge', role='obstacle',
+                                  label='black', x=20.0, y=15.0, radius=0.2))
+    truth['elements'].append(dict(id='speed_challenge.rock2', task='speed_challenge',
+                                  role='obstacle', label='black', x=20.75, y=25.0, radius=0.2))
+    report, diag = _diag(truth, path(loop(1)))
+    line = diag['timeline']['speed_challenge']
+    assert line['outcome'] == 'completed' and line['encounter_t'] <= line['execute_t'] <= line['end_t']
+    assert set(line['split_s']) == {'search_or_transit', 'approach', 'execution', 'recovery'}
+    hits = diag['contacts']['contacts']
+    assert [c['object'] for c in hits] == ['speed_challenge.rock'] * 2   # out and back
+    assert all(c['speed_mps'] == pytest.approx(1.0, abs=0.05) for c in hits)
+    assert hits[0]['kind'] == 'strike' and hits[0]['recovered_s'] > 0
+    assert any(n['object'] == 'speed_challenge.rock2' for n in diag['contacts']['near_misses'])
+    assert diag['hindsight']['label'].startswith('hindsight')
+    assert len(report['penalties']['strikes']) == 2      # diagnostics agree with the strikes
+
+
+def test_claims_are_checked_never_scored():
+    run = path(loop(1))
+    exit_t = rows(score.judge(gate_truth(), run))['T1.exit']['t']
+    events = [dict(event='returned_home', time=exit_t + 1.0),
+              dict(event='speed_finished', time=1.0),
+              dict(event='stage_completed', stage='speed_challenge', time=2.0)]
+    plain = score.judge(gate_truth(), run)
+    _, diag = _diag(gate_truth(), run, task_events=events)
+    got = {c['event']: c for c in diag['claims_vs_truth']}
+    assert got['returned_home']['matched'] and got['returned_home']['latency_s'] == 1.0
+    assert not got['speed_finished']['matched']
+    assert diag['claimed']['speed_challenge']['outcome'] == 'completed'
+    assert score.judge(gate_truth(), run)['total'] == plain['total']
+
+
+@pytest.mark.parametrize('direction', [1, -1])
+def test_diagnostics_symmetric_either_way_round(direction):
+    _, diag = _diag(gate_truth(), path(loop(direction)))
+    line = diag['timeline']['speed_challenge']
+    assert line['outcome'] == 'completed'
+    assert line['distance_m']['in_task'] == pytest.approx(
+        _diag(gate_truth(), path(loop(-direction)))[1]['timeline']['speed_challenge']
+        ['distance_m']['in_task'], abs=0.2)

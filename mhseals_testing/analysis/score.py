@@ -67,7 +67,7 @@ def course(truth):
                     gates=gates, bays=truth.get('bays', []),
                     tasks={t['id']: t for t in truth.get('tasks', [])},
                     states={s['id']: s for s in truth.get('states', [])},
-                    boundary=truth.get('boundary') or None)
+                    boundary=truth.get('boundary') or None, shore=truth.get('shore') or None)
     return _legacy(truth, hull, start)
 
 
@@ -124,7 +124,7 @@ def _legacy(truth, hull, start):
     for e in elements:
         e['task'] = LEGACY_TASKS.get(e['task'], e['task'])
     return dict(legacy=True, hull=hull, start=start, elements=elements, gates=gates,
-                bays=bays, tasks=tasks, states={}, boundary=None)
+                bays=bays, tasks=tasks, states={}, boundary=None, shore=None)
 
 
 def state_at(model, sid, t, changes=()):

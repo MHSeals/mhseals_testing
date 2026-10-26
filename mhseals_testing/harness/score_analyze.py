@@ -16,7 +16,7 @@ from pathlib import Path
 import sys
 
 from mhseals_testing import data
-from mhseals_testing.analysis import score
+from mhseals_testing.analysis import diagnostics, score
 
 CLAIM_EVENTS = ('stage_completed', 'stage_failed', 'stage_skipped', 'gate_cleared', 'docked',
                 'undocked', 'debris', 'speed_started', 'speed_finished', 'returned_home')
@@ -66,6 +66,11 @@ def load(session):
     events = list(data.read_jsonl(session / 'events.jsonl'))
     changes = list(data.read_jsonl(session / 'states.jsonl'))
     return truth, track, task_events, events, changes
+
+
+def statuses(session):
+    """The boat's /task/status records (mhseals.mission_status/1), if the session kept them."""
+    return list(data.read_jsonl(Path(session) / 'task_status.jsonl'))
 
 
 def claims(task_events, report):
@@ -130,6 +135,15 @@ def analyze(session, now=None):
         mode=gen.get('mode'), truth_sha256=gen.get('truth_sha256')))
     body['claims'] = claims(task_events, body)
     body['diagnostics'] = dict(motion=motion(track, window[0], body['run']['scored_until']))
+    model = score.course(truth)
+    run = score.with_heading([p for p in track
+                              if window[0] <= p[0] <= body['run']['scored_until']])
+    trigger = ((model['states'].get('harbor_alert.horn') or {}).get('program') or {}) \
+        .get('trigger_s')
+    if run:
+        body['diagnostics'].update(diagnostics.diagnose(run, model, body, task_events,
+                                                        statuses(session), trigger))
+        body['penalties']['contacts'] = body['diagnostics']['contacts']['counts']
     record = dict(summary=score.summary(body),
                   scorer=dict(version=score.VERSION, rules=score.RULES,
                               handbook_sha256=(truth.get('handbook') or {}).get('sha256')),
@@ -147,8 +161,18 @@ def metrics(record):
                entered=float(record['run']['entry_t'] is not None),
                duration_s=record['run']['duration_s'])
     out.update({f'task.{k}': v for k, v in record['total']['by_task'].items()})
-    out.update({k: v for k, v in record.get('diagnostics', {}).get('motion', {}).items()
-                if isinstance(v, (int, float))})
+    diag = record.get('diagnostics', {})
+    out.update({k: v for k, v in diag.get('motion', {}).items() if isinstance(v, (int, float))})
+    touch = diag.get('contacts') or {}
+    for kind, n in (touch.get('counts') or {}).items():
+        out[f'contacts.{kind}'] = n
+    if touch:
+        out['near_misses'] = touch.get('near_miss_count')
+        out['min_clearance_m'] = touch.get('min_clearance_m')
+    for tid, row in (diag.get('timeline') or {}).items():
+        out[f'completed.{tid}'] = float(row.get('outcome') == 'completed')
+        if row.get('outcome') == 'completed':        # success-conditional: n differs per task
+            out[f'time_s.{tid}'] = round(row['end_t'] - row['encounter_t'], 2)
     return out
 
 
