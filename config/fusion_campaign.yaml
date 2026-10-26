@@ -1,0 +1,57 @@
+# Lidar fusion campaign (mhseals_nav lidar-fusion-design.md §4): replay a crane recording with
+# camera-side (sim_backend inject.*) and lidar-side (applied to the bag) injections.
+camera: {emulate: zed, depth_k: 0.01, box_px: 1.5}   # every replay
+merge_gap_px: 12.0                                   # S5 (fusion_close with merges)
+water_z_base_m: 0.0                                  # water plane in base_link (synthetic water)
+bow_x_m: 1.0                                         # spray cone apex in base_link
+bins_m: [2, 5, 10, 15, 20]
+truth_match_m: 1.0                                   # track -> truth element
+assoc_error_m: 0.5                                   # lidar range off its own truth by more
+warmup_s: 2.0
+injections:
+  E0: {}
+  cam_pitch_0.5: {camera: {extrinsic_pitch_deg: 0.5}}
+  cam_pitch_1: {camera: {extrinsic_pitch_deg: 1.0}}
+  cam_pitch_3: {camera: {extrinsic_pitch_deg: 3.0}}
+  cam_yaw_0.5: {camera: {extrinsic_yaw_deg: 0.5}}
+  cam_yaw_1: {camera: {extrinsic_yaw_deg: 1.0}}
+  cam_yaw_3: {camera: {extrinsic_yaw_deg: 3.0}}
+  cam_y_2: {camera: {extrinsic_xyz_m: [0.0, 0.02, 0.0]}}
+  cam_y_5: {camera: {extrinsic_xyz_m: [0.0, 0.05, 0.0]}}
+  cam_y_10: {camera: {extrinsic_xyz_m: [0.0, 0.10, 0.0]}}
+  cam_z_2: {camera: {extrinsic_xyz_m: [0.0, 0.0, 0.02]}}
+  cam_z_5: {camera: {extrinsic_xyz_m: [0.0, 0.0, 0.05]}}
+  cam_z_10: {camera: {extrinsic_xyz_m: [0.0, 0.0, 0.10]}}
+  lidar_roll_0.5: {lidar: {rpy_deg: [0.5, 0, 0]}}
+  lidar_roll_1: {lidar: {rpy_deg: [1.0, 0, 0]}}
+  lidar_roll_3: {lidar: {rpy_deg: [3.0, 0, 0]}}
+  lidar_pitch_0.5: {lidar: {rpy_deg: [0, 0.5, 0]}}
+  lidar_pitch_1: {lidar: {rpy_deg: [0, 1.0, 0]}}
+  lidar_pitch_3: {lidar: {rpy_deg: [0, 3.0, 0]}}
+  lidar_yaw_0.5: {lidar: {rpy_deg: [0, 0, 0.5]}}
+  lidar_yaw_1: {lidar: {rpy_deg: [0, 0, 1.0]}}
+  lidar_yaw_3: {lidar: {rpy_deg: [0, 0, 3.0]}}
+  lidar_x_2: {lidar: {xyz_m: [0.02, 0, 0]}}
+  lidar_x_5: {lidar: {xyz_m: [0.05, 0, 0]}}
+  lidar_x_10: {lidar: {xyz_m: [0.10, 0, 0]}}
+  lidar_y_2: {lidar: {xyz_m: [0, 0.02, 0]}}
+  lidar_y_5: {lidar: {xyz_m: [0, 0.05, 0]}}
+  lidar_y_10: {lidar: {xyz_m: [0, 0.10, 0]}}
+  lidar_z_2: {lidar: {xyz_m: [0, 0, 0.02]}}
+  lidar_z_5: {lidar: {xyz_m: [0, 0, 0.05]}}
+  lidar_z_10: {lidar: {xyz_m: [0, 0, 0.10]}}
+  Ew: {lidar: {water: 200}}
+  Es: {lidar: {spray: [50, 300]}}
+  Et50: {lidar: {tf_lag_s: 0.05}}
+  Et150: {lidar: {tf_lag_s: 0.15}}
+  Ea: {lidar: {attitude_hz: 4.0}}
+  Ec50: {lidar: {late_s: 0.05, drop_p: 0.2}}
+  Ec200: {lidar: {late_s: 0.2, drop_p: 0.2}}
+  Ex: {camera: {extrinsic_pitch_deg: -1.0, extrinsic_xyz_m: [0.0, 0.05, 0.0],
+                stamp_offset_s: 0.01},
+       lidar: {rpy_deg: [0, 0, 1.5]}}
+# Scenario -> injections (S1, S3, S6 get the short list; S2, S4, S5 everything).
+short: [E0, Ew, Es, Ex]
+# Published first; a bag's own /tf_static overrides them. Rig bags can miss the latched
+# /tf_static: these are the blastoise URDF values (base_link <- child, xyz m, identity rotation).
+static_tf: {lidar_link: [0.28981, 0.0, 0.27775], front_camera_link: [0.32701, 0.0, 0.12519]}

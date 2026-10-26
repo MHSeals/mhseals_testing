@@ -1,0 +1,12 @@
+{"name": "fusion_shore",
+ "hide": ["SpeedChallenge", "NavigationChannel", "GateTraversal", "Marina", "DeliveryBoats"],
+ "jitter": 0.3,
+ "elements": [
+  {"task": "shore", "template": "Dock0", "x": 17.0, "y": 0.0, "yaw": 1.5708,
+   "bays": ["blue_square", "red_circle", "blue_square"], "occupied": []},
+  {"task": "shore", "template": "RedBuoy0", "label": "red_buoy", "x": 15.5, "y": 1.5},
+  {"task": "shore", "template": "GreenBuoy0", "label": "green_buoy", "x": 15.0, "y": -1.5},
+  {"task": "shore", "template": "RedPoleBuoy0", "label": "red_pole_buoy", "x": 14.0, "y": 3.0},
+  {"task": "shore", "template": "GreenPoleBuoy0", "label": "green_pole_buoy", "x": 14.5, "y": -3.0},
+  {"task": "shore", "template": "BlackBuoy0", "label": "black_buoy", "x": 16.0, "y": 0.0}
+ ]}

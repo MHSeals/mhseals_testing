@@ -1,0 +1,198 @@
+{
+ "name": "fusion_2025",
+ "hide": [
+  "SpeedChallenge",
+  "NavigationChannel",
+  "GateTraversal",
+  "Marina",
+  "DeliveryBoats"
+ ],
+ "jitter": 0.3,
+ "elements": [
+  {
+   "task": "return_home",
+   "template": "BlackBuoy0",
+   "label": "black_buoy",
+   "x": -2.5,
+   "y": 1.6
+  },
+  {
+   "task": "return_home",
+   "template": "BlackBuoy0",
+   "label": "black_buoy",
+   "x": -2.5,
+   "y": -1.6
+  },
+  {
+   "task": "nav_channel",
+   "template": "RedPoleBuoy0",
+   "label": "red_pole_buoy",
+   "x": 7.0,
+   "y": 1.5
+  },
+  {
+   "task": "nav_channel",
+   "template": "GreenPoleBuoy0",
+   "label": "green_pole_buoy",
+   "x": 7.0,
+   "y": -1.5
+  },
+  {
+   "task": "nav_channel",
+   "template": "RedPoleBuoy0",
+   "label": "red_pole_buoy",
+   "x": 13.0,
+   "y": 1.5
+  },
+  {
+   "task": "nav_channel",
+   "template": "GreenPoleBuoy0",
+   "label": "green_pole_buoy",
+   "x": 13.0,
+   "y": -1.5
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "red_buoy",
+   "x": 19.0,
+   "y": 1.2
+  },
+  {
+   "task": "follow_path",
+   "template": "GreenBuoy0",
+   "label": "green_buoy",
+   "x": 19.0,
+   "y": -1.2
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "yellow_buoy",
+   "x": 21.5,
+   "y": 0.5,
+   "color": "#f2c20f"
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "red_buoy",
+   "x": 24.0,
+   "y": -0.8
+  },
+  {
+   "task": "follow_path",
+   "template": "GreenBuoy0",
+   "label": "green_buoy",
+   "x": 24.0,
+   "y": -3.2
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "yellow_buoy",
+   "x": 26.5,
+   "y": -2.6,
+   "color": "#f2c20f"
+  },
+  {
+   "task": "follow_path",
+   "template": "BlackDeliveryBoat0",
+   "label": "black_target_boat",
+   "x": 27.0,
+   "y": 2.5
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "red_buoy",
+   "x": 28.5,
+   "y": -4.3
+  },
+  {
+   "task": "follow_path",
+   "template": "GreenBuoy0",
+   "label": "green_buoy",
+   "x": 28.5,
+   "y": -6.7
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "yellow_buoy",
+   "x": 30.5,
+   "y": -6.0,
+   "color": "#f2c20f"
+  },
+  {
+   "task": "follow_path",
+   "template": "RedBuoy0",
+   "label": "red_buoy",
+   "x": 32.0,
+   "y": -8.8
+  },
+  {
+   "task": "follow_path",
+   "template": "GreenBuoy0",
+   "label": "green_buoy",
+   "x": 32.0,
+   "y": -11.2
+  },
+  {
+   "task": "docking",
+   "template": "Dock0",
+   "x": 12.0,
+   "y": -20.0,
+   "yaw": 1.5708,
+   "bays": [
+    "blue_square",
+    "red_circle",
+    "blue_square"
+   ],
+   "occupied": [
+    0
+   ],
+   "vessel": "BlackDeliveryBoat1",
+   "vesselLabel": "black_target_boat"
+  },
+  {
+   "task": "speed_challenge",
+   "template": "RedBuoy0",
+   "label": "red_buoy",
+   "x": 3.0,
+   "y": 12.25,
+   "scale": 1.5
+  },
+  {
+   "task": "speed_challenge",
+   "template": "GreenBuoy0",
+   "label": "green_buoy",
+   "x": 3.0,
+   "y": 9.75,
+   "scale": 1.5
+  },
+  {
+   "task": "speed_challenge",
+   "template": "BlackBuoy0",
+   "label": "black_buoy",
+   "x": 10.0,
+   "y": 12.6
+  },
+  {
+   "task": "speed_challenge",
+   "template": "BlackBuoy0",
+   "label": "black_buoy",
+   "x": 14.0,
+   "y": 9.4
+  },
+  {
+   "task": "speed_challenge",
+   "template": "RedBuoy0",
+   "label": "blue_buoy",
+   "x": 19.0,
+   "y": 11.0,
+   "scale": 1.5,
+   "color": "#1f4fe0"
+  }
+ ]
+}

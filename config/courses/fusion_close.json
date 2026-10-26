@@ -1,0 +1,18 @@
+{"name": "fusion_close",
+ "hide": ["SpeedChallenge", "NavigationChannel", "GateTraversal", "Marina", "DeliveryBoats"],
+ "jitter": 0.0,
+ "elements": [
+  {"task": "pair06", "template": "RedBuoy0", "label": "red_buoy", "x": 6.0, "y": 2.2},
+  {"task": "pair06", "template": "RedBuoy0", "label": "red_buoy", "x": 6.0, "y": 2.8},
+  {"task": "pair10", "template": "GreenBuoy0", "label": "green_buoy", "x": 11.0, "y": -2.0},
+  {"task": "pair10", "template": "GreenBuoy0", "label": "green_buoy", "x": 11.0, "y": -3.0},
+  {"task": "pair15", "template": "RedBuoy0", "label": "red_buoy", "x": 16.0, "y": 2.25},
+  {"task": "pair15", "template": "RedBuoy0", "label": "red_buoy", "x": 16.0, "y": 3.75},
+  {"task": "inline", "template": "BlackBuoy0", "label": "black_buoy", "x": 14.0, "y": -5.0},
+  {"task": "inline", "template": "BlackBuoy0", "label": "black_buoy", "x": 15.94, "y": -5.69},
+  {"task": "cluster", "template": "RedBuoy0", "label": "yellow_buoy", "color": "#f2c20f", "x": 21.0, "y": -2.0},
+  {"task": "cluster", "template": "RedBuoy0", "label": "yellow_buoy", "color": "#f2c20f", "x": 21.0, "y": -2.6},
+  {"task": "cluster", "template": "RedBuoy0", "label": "yellow_buoy", "color": "#f2c20f", "x": 21.5, "y": -2.3},
+  {"task": "poles", "template": "RedPoleBuoy0", "label": "red_pole_buoy", "x": 9.0, "y": 5.0},
+  {"task": "poles", "template": "GreenPoleBuoy0", "label": "green_pole_buoy", "x": 9.0, "y": 5.8}
+ ]}
