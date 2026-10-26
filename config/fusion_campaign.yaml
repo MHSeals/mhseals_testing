@@ -7,6 +7,8 @@ bow_x_m: 1.0                                         # spray cone apex in base_l
 bins_m: [2, 5, 10, 15, 20]
 truth_match_m: 1.0                                   # track -> truth element
 assoc_error_m: 0.5                                   # lidar range off its own truth by more
+unpaired_m: 1.5                                      # share floors: nearest other element beyond
+share_r_min_m: 2.2                                   # share floors: balls the 2 m r_min can range
 warmup_s: 2.0
 injections:
   E0: {}
