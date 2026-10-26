@@ -5,7 +5,8 @@ line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI
 (an owner with no agent desk, a review, is exit 4 once the request goes unanswered). Output is one JSON document, or
 JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/busy/blocked (the
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
-owner, 5 agents blocked, 6 timeout. No verb arms the boat or releases a hold.
+owner, 5 agents blocked, 6 timeout. No verb releases a hold, and none arms a boat: only ``run --sim-arm``
+arms, and only a stack every harness/sim_arm.py check proves a simulator.
 """
 
 import json
@@ -50,6 +51,8 @@ def add_parsers(sub):
     run.add_argument('procedure', metavar='KEY|NAME')
     run.add_argument('--dry-run', action='store_true', help='evaluate the gates only')
     run.add_argument('--task', help='mission only: the task to rehearse (else the operator picks it)')
+    run.add_argument('--sim-arm', action='store_true',
+                     help='sim only: arm a verified sim for this run, disarm after (harness/sim_arm.py)')
     goal = verb('goal', 'send a map-frame goal through the TUI', claim=True)
     for name in ('x', 'y'):
         goal.add_argument(name, type=float)
@@ -155,6 +158,8 @@ class Agent:
         args = {'key': self.args.procedure}
         if getattr(self.args, 'task', None):
             args['task'] = self.args.task
+        if getattr(self.args, 'sim_arm', False):
+            args['sim_arm'] = True
         return self.send('run', args, self.args.claim, self.args.dry_run)
 
     def goal(self):

@@ -112,6 +112,13 @@ def test_run_mission_sends_the_task_it_names():
     assert req['args'] == {'key': 'mission', 'task': 'nav_channel'}
 
 
+def test_run_sim_arm_asks_the_desk_to_sim_arm():
+    desk = Desk(lambda req: [dict(state='done', result={})])
+    call(['run', 'square', '--sim-arm', '--claim', 'c4'], desk)
+    call(['run', 'square', '--claim', 'c4'], desk)
+    assert [r['args'] for r in lines('req')] == [{'key': 'square', 'sim_arm': True}, {'key': 'square'}]
+
+
 def test_dry_run_sends_dry_and_does_not_renew():
     desk = Desk(lambda req: [dict(state='done', result={'blockers': []})])
     code, _ = call(['goal', '3', '-4.5', '0.5', '--claim', 'c4', '--dry-run'], desk)

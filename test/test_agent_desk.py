@@ -120,6 +120,7 @@ class App:
         self.ros = SimpleNamespace(emit=self.emit, nodes=lambda: ['/bt_navigator', '/planner_server'])
         self._watcher, self.engine, self.nav = None, None, Nav2()
         self.steps, self.on_step, self.arm_answer, self.answers = 3, {}, True, []
+        self.agent_arm_why = ''
 
     armed = property(lambda self: self.is_armed)
 
@@ -153,6 +154,15 @@ class App:
     def arm_panel(self):
         self.calls.append('arm_panel')
         self.is_armed = self.arm_answer
+
+    def agent_arm(self, who, checks):
+        self.calls.append(('agent_arm', who, tuple(checks)))
+        self.is_armed = self.arm_answer and not self.agent_arm_why
+        return self.agent_arm_why
+
+    def disarm(self, reason='disarmed', by='operator'):
+        self.calls.append(('disarm', reason, by))
+        self.is_armed = False
 
     def availability(self, procedure):
         return '' if self.armed or 'armed' not in procedure.needs else 'outputs are not armed'
@@ -960,3 +970,132 @@ def test_dry_run_helpers_name_an_off_course_sim_boat_a_boat_yaml_and_the_operato
     assert operator_popup(SimpleNamespace(modal={'kind': 'message', 'title': 'Ready',
                                                  'message': 'Clear the area and press Enter... '})) == \
         'Ready: Clear the area and press Enter... '
+
+
+# --- sim-only auto-arm (run --sim-arm, harness/sim_arm.py) -----------------------------------
+
+@pytest.fixture
+def sim(rig, monkeypatch):
+    """A disarmed rig whose sim checks pass unless a test sets ``facts``."""
+    from mhseals_testing.harness import sim_arm
+    from test_sim_arm import passing
+    state = {'facts': passing(rig.app.paths.directory)}
+    monkeypatch.setattr(sim_arm, 'gather', lambda app: state['facts'])
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.is_armed = False
+    rig.state = state
+    return rig
+
+
+def armed_by_agent(app):
+    return [c for c in app.calls if isinstance(c, tuple) and c[0] == 'agent_arm']
+
+
+def test_sim_arm_arms_a_verified_sim_runs_and_disarms_after(sim):
+    from mhseals_testing.harness import sim_arm
+    c = claim(sim)
+    seen = []
+    sim.app.on_step = {0: lambda: seen.append(sim.app.armed)}
+    req = ask(sim, 'run', c, key='square', sim_arm=True)
+    assert final(req['id'])['ok'] and seen == [True]
+    assert armed_by_agent(sim.app) == [('agent_arm', 'claude-3f2a', sim_arm.CHECKS)]
+    assert 'arm_panel' not in sim.app.calls and not sim.app.armed
+    assert ('disarm', 'sim auto-arm: run ended', 'agent') in sim.app.calls
+    assert 'sim_arming' in [r['state'] for r in replies(req['id'])]
+    logged = next(f for p, f in sim.app.events if p == 'sim_arm')
+    assert logged['who'] == 'claude-3f2a' and logged['claim'] == c and logged['ok']
+    assert logged['passed'] == list(sim_arm.CHECKS)
+
+
+def test_a_failed_sim_check_refuses_without_arming(sim):
+    from dataclasses import replace
+    c = claim(sim)
+    sim.state['facts'] = replace(sim.state['facts'], nodes=('/mavros',))
+    reply = final(ask(sim, 'run', c, key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'refused' and ch.exit_code(reply) == 2
+    assert reply['hint'].startswith('sim-arm refused: no_hardware') and '/mavros' in reply['hint']
+    assert not armed_by_agent(sim.app) and 'arm_panel' not in sim.app.calls and not sim.app.armed
+    assert {'check': 'no_hardware', 'ok': False, 'detail': 'real hardware nodes: /mavros'} \
+        in reply['result']['sim_arm']
+
+
+def test_unreadable_sim_facts_refuse(sim, monkeypatch):
+    from mhseals_testing.harness import sim_arm
+
+    def broken(app):
+        raise OSError('no graph')
+    monkeypatch.setattr(sim_arm, 'gather', broken)
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'refused' and 'facts' in reply['hint'] and not armed_by_agent(sim.app)
+
+
+def test_sim_arm_off_in_agent_yaml_is_not_allowed(sim):
+    config = sim.desk.config.get()
+    sim.desk.config = SimpleNamespace(get=lambda: dict(config, sim_arm=dict(config['sim_arm'], enabled=False)),
+                                      error=None)
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'not_allowed' and 'sim_arm.enabled' in reply['hint'] and not armed_by_agent(sim.app)
+
+
+def test_a_hold_the_mux_restores_undoes_the_sim_arm_and_is_never_released(sim):
+    sim.app.agent_arm_why = 'the mux holds (costmap_stale); only the operator releases it (U)'
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'refused' and 'costmap_stale' in reply['hint'] and not sim.app.armed
+    assert sim.app.running is None
+
+
+def test_a_saved_hold_refuses_the_sim_arm_before_arming(sim):
+    from mhseals_hardware import hold_store
+    hold_store.save(hold_store.default_path(),
+                    {'costmap_stale': {'cause': 'costmap_stale', 'by': 'costmap_watchdog', 'since': 1.0, 'token': None}})
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'overridden' and 'costmap' in reply['hint'] and not armed_by_agent(sim.app)
+
+
+def test_the_stop_file_ends_a_sim_armed_run_and_disarms(sim):
+    from mhseals_testing.harness import sim_arm
+    sim.app.on_step = {1: lambda: sim_arm.stop_path().parent.mkdir(parents=True, exist_ok=True)
+                       or sim_arm.stop_path().touch()}
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'cancelled' and reply['result']['cause'] == 'stop file'
+    assert not sim.app.armed and ('stop', 'interlock: agent: stop file') in sim.app.calls   # the runner's abort
+
+
+def test_a_sim_armed_run_past_max_s_is_disarmed(sim):
+    config = sim.desk.config.get()
+    sim.desk.config = SimpleNamespace(get=lambda: dict(config, sim_arm=dict(config['sim_arm'], max_s=1.5)),
+                                      error=None)
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['result']['cause'] == 'sim-arm timeout' and not sim.app.armed
+
+
+def test_a_lapsed_lease_aborts_a_sim_armed_run_and_disarms(sim):
+    c = claim(sim)
+    sim.app.on_step = {1: lambda: sim.clock.__setitem__(0, sim.clock[0] + 60)}   # the CLI stopped renewing
+    reply = final(ask(sim, 'run', c, key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'expired' and ('hold', 'lease') in sim.app.calls and not sim.app.armed
+
+
+def test_space_during_a_sim_armed_run_stops_it(sim):
+    def space():
+        sim.app.operator_stop()
+        raise Aborted('motion cancelled by operator')
+    sim.app.on_step = {1: space}
+    reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
+    assert reply['error'] == 'overridden: keys' and not sim.app.armed
+
+
+def test_a_sim_arm_dry_run_lists_the_checks_and_arms_nothing(sim):
+    from dataclasses import replace
+    c = claim(sim)
+    reply = final(ask(sim, 'run', c, dry=True, key='square', sim_arm=True)['id'])
+    assert reply['ok'] and all(row['ok'] for row in reply['result']['sim_arm'])
+    sim.state['facts'] = replace(sim.state['facts'], env=dict(sim.state['facts'].env, ROS_DOMAIN_ID='42'))
+    reply = final(ask(sim, 'run', c, dry=True, key='square', sim_arm=True)['id'])
+    assert reply['hint'].startswith('sim-arm refused: domain') and not armed_by_agent(sim.app)
+
+
+def test_without_sim_arm_a_run_still_waits_for_the_human_arm_panel(sim):
+    sim.app.arm_answer = False
+    reply = final(ask(sim, 'run', claim(sim), key='square')['id'])
+    assert reply['error'] == 'not_armed' and 'arm_panel' in sim.app.calls and not armed_by_agent(sim.app)

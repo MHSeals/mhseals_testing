@@ -13,7 +13,10 @@ Safety, in one place:
   ``app._runner_cancelled``. A goal is cancelled. A desk popup closes.
 * The motion lease: the act's blocking CLI renews every ``motion_s``/3; a lapse expires the claim
   through the arbiter, which stops exactly as ``E`` does.
-* Nothing here arms or releases a hold. ``run`` of an armed procedure raises the human arm panel.
+* Nothing here releases a hold. ``run`` of an armed procedure raises the human arm panel, except
+  ``run --sim-arm``: it arms (``app.agent_arm``) only when every harness/sim_arm.py check proves a
+  simulator, and disarms when the run ends, aborts, passes ``sim_arm.max_s``, loses its lease or meets the
+  stop file.
 * A request past its deadline is answered ``expired``, never executed; a request already answered
   (a crash between act and persist) is skipped. The read position persists in ``registry.agent``.
 """
@@ -25,7 +28,7 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_channel, agent_config, journal
+from mhseals_testing.harness import agent_channel, agent_config, journal, sim_arm
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.ros.arming import muxed
@@ -52,7 +55,9 @@ HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'opera
          'operator_link': 'operator link hold: operator must U once the link is back',
          'fcu_link': 'FCU link hold: operator must U once MAVROS is back',
          'ekf_inputs': 'EKF input hold: operator must U once the sensors are back',
-         'approach': 'approach guard hold: operator must U'}
+         'approach': 'approach guard hold: operator must U',
+         'stop file': 'the sim-arm stop file exists; remove it to sim-arm again',
+         'sim-arm timeout': 'the run passed agent.yaml sim_arm.max_s; it was disarmed'}
 
 
 def operator_popup(app):
@@ -294,6 +299,11 @@ class AgentDesk:
                 if req['op'] == 'goal':
                     return self.start_dry(req)
                 result = agent_acts.dry_run(self.app, req['op'], req['args'], self.app.settings.agent_motion)
+                if req['args'].get('sim_arm') and not self.app.armed:
+                    checks = self.sim_checks()
+                    why = sim_arm.refusal(checks)
+                    result = dict(result, sim_arm=[{'check': n, 'ok': ok, 'detail': d} for n, ok, d in checks],
+                                  hint=why or ('' if result.get('availability') else 'sim-arm checks pass'))
                 return self.reply(req, True, result=result, hint=result.get('hint', ''))
         self.queue.append(req)
         self.reply(req, True, state='queued')
@@ -350,6 +360,10 @@ class AgentDesk:
                 return 'bad_args', '--task is for run mission only'
             if task is not None and task not in agent_acts.mission_tasks():
                 return 'bad_args', f"mission tasks: {', '.join(agent_acts.mission_tasks())}"
+            if req['args'].get('sim_arm') not in (None, True):
+                return 'bad_args', 'sim_arm is true or absent'
+            if req['args'].get('sim_arm') and not self.config.get()['sim_arm']['enabled']:
+                return 'not_allowed', 'agent.yaml sim_arm.enabled is off'
         else:
             agent_acts.goal_args(req['args'])
         return None
@@ -449,7 +463,10 @@ class AgentDesk:
         task = agent_acts.run_task(act['req']['args'])
         if not self.confirm(act, f"Agent {act['who']}: run {name}{' ' + task if task else ''} · allow?"):
             return False
-        if 'armed' in found.needs and not app.armed:
+        if 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm'):
+            if not self.arm_sim(act):
+                return False
+        elif 'armed' in found.needs and not app.armed:
             self.set_state(act, 'waiting_arm')
             act['arming'] = True                 # the mux starts with arming: judged once it reported
             try:
@@ -459,20 +476,57 @@ class AgentDesk:
             if not app.armed:
                 return self.finish(act, False, 'not_armed', hint='operator did not arm')
             act['armed'] = True
-        if self.watch():
-            return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
-        # started says who picks the mission task, so 'started' is not read as the course running
-        self.begin(act, {'task': task or 'the operator picks it'} if name == 'mission' else None)
-        result, error = agent_acts.run(app, found, task)
-        cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
-        if cause:
-            self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),
-                        hint=HINTS.get(cause.split(': ')[-1], ''))
-        elif error:
-            self.finish(act, False, 'cancelled', result=dict(result, cause=error))
-        else:
-            self.finish(act, True, result=result)
-        return False
+        try:
+            if self.watch():
+                return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
+            # started says who picks the mission task, so 'started' is not read as the course running
+            self.begin(act, {'task': task or 'the operator picks it'} if name == 'mission' else None)
+            result, error = agent_acts.run(app, found, task)
+            cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
+            if cause:
+                self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),
+                            hint=HINTS.get(cause.split(': ')[-1], ''))
+            elif error:
+                self.finish(act, False, 'cancelled', result=dict(result, cause=error))
+            else:
+                self.finish(act, True, result=result)
+            return False
+        finally:
+            if act.get('sim_armed') and app.armed:    # whatever ended the run: what the desk armed, it disarms
+                app.disarm('sim auto-arm: run ended', by='agent')
+
+    def sim_checks(self):
+        """harness/sim_arm.py's checks on the live app; any error reading a fact refuses."""
+        config = self.config.get()['sim_arm']
+        try:
+            return sim_arm.checks(sim_arm.gather(self.app), config)
+        except Exception as error:      # noqa: BLE001 - an unreadable fact proves nothing: refuse
+            return [('facts', False, f'unreadable: {error!r}')]
+
+    def arm_sim(self, act):
+        """Arm a verified sim for ``act`` (``run --sim-arm``); True once armed, else finished refused."""
+        app = self.app
+        self.set_state(act, 'sim_arming')
+        checks = self.sim_checks()
+        why = sim_arm.refusal(checks)
+        app.emit('sim_arm', who=act['who'], claim=act['claim'], ok=not why, passed=sim_arm.passed(checks),
+                 refusal=why)
+        listed = [{'check': n, 'ok': ok, 'detail': d} for n, ok, d in checks]
+        if why:
+            return self.finish(act, False, 'refused', result={'sim_arm': listed}, hint=why)
+        act['arming'] = True                 # the mux starts with arming: judged once it reported
+        try:
+            why = app.agent_arm(act['who'], sim_arm.passed(checks))
+        finally:
+            act['arming'] = False
+        if why or not app.armed:
+            if app.armed:
+                app.disarm(f'sim auto-arm undone: {why}', by='agent')
+            return self.finish(act, False, 'refused', result={'sim_arm': listed},
+                               hint=f"sim-arm: {why or 'not armed'}")
+        act['armed'] = act['sim_armed'] = True
+        act['sim_armed_at'] = self.clock()
+        return True
 
     def act_goal(self, act):
         app = self.app
@@ -586,6 +640,10 @@ class AgentDesk:
         human = '' if act.get('arming') else self.override()
         if human:
             return f'overridden: {human}'
+        if act.get('sim_armed') and sim_arm.stop_path().exists():
+            return 'stop file'
+        if act.get('sim_armed') and self.clock() - act['sim_armed_at'] > self.config.get()['sim_arm']['max_s']:
+            return 'sim-arm timeout'
         if self.clock() - act['renewed'] > self.lease()['motion_s']:   # in the confirm popup too
             self.arbiter.expire(act['claim'])       # stops exactly as E does
             return 'expired'
