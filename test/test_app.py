@@ -5,6 +5,7 @@ import math
 import os
 import json
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -1022,7 +1023,9 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
     app.processes = Processes()
     app.arming.armed = True
     scripted(app, 'nav_channel')
+    before = time.time_ns()
     run(app, 't')
+    after = time.time_ns()
     [result] = app.snapshot()['results']
     assert result['verdict'] == 'PASS' and result['points'] == 20
     assert started[0][:6] == ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', 'nav_channel']
@@ -1034,6 +1037,7 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
     limit = yaml.safe_load((MISSION_DIR / 'nav_channel.yaml').read_text())['time_limit']
     assert record['result']['time_limit_s'] == limit
     assert isinstance(record['result']['run_start_t'], float)
+    assert before <= record['result']['run_start_t_ns'] <= after   # wall clock, for the journal's events
     # The journal's run-end marker names the run.
     stop = [d for phase, d in app.ros.lines if phase == 'mission_stop']
     assert len(stop) == 1 and stop[0]['run_id'] == record['run_id'] and stop[0]['outcome'] == 'complete'
@@ -1057,11 +1061,14 @@ def test_an_aborted_mission_still_records_its_limit_start_and_end(tmp_path):
     app.processes = Processes()
     app.arming.armed = True
     scripted(app, 'nav_channel')
+    before = time.time_ns()
     with pytest.raises(Aborted):
         run(app, 't')
+    after = time.time_ns()
     record = json.loads(next(app.paths.runs.glob('*.json')).read_text())
     assert record['status'] == 'ABORTED' and record['result']['results'] == []
     assert record['result']['time_limit_s'] == 180.0 and 'run_start_t' in record['result']
+    assert before <= record['result']['run_start_t_ns'] <= after
     stop = [d for phase, d in app.ros.lines if phase == 'mission_stop']
     assert len(stop) == 1 and stop[0]['run_id'] == record['run_id'] and stop[0]['outcome'] != 'complete'
 

@@ -344,13 +344,17 @@ def test_the_run_record_takes_the_limit_from_the_mission_config_and_the_start_fr
     from contextlib import contextmanager
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
-    runner = SimpleNamespace(paused=0.0, clock=lambda: 42.5, supervise=lambda *a, **k: (42.5, 50.0, True))
+    calls = []
+    runner = SimpleNamespace(paused=0.0, clock=lambda: calls.append('clock') or 42.5,
+                             supervise=lambda *a, **k: (42.5, 50.0, True))
+    # Both clocks read back to back, before the task launches: one instant on each.
+    monkeypatch.setattr(mission.time, 'time_ns', lambda: calls.append('wall') or 1_700_000_000_000_000_000)
     watcher = SimpleNamespace(events=[], statuses=[], status={}, reset=lambda: None)
 
     @contextmanager
     def supervised(*args, **kwargs):
         yield runner
-    services = {'task': 'mission', 'task_watcher': lambda: watcher, 'start': lambda *a: None,
+    services = {'task': 'mission', 'task_watcher': lambda: watcher, 'start': lambda *a: calls.append('start'),
                 'stop': lambda *a: None, 'running': lambda *a: False, 'returncode': lambda name: 0}
     ctx = SimpleNamespace(prompt=lambda *a: None, supervise=supervised, services=services,
                           profile=SimpleNamespace(use_sim_time=True), record=lambda r: None)
@@ -358,4 +362,6 @@ def test_the_run_record_takes_the_limit_from_the_mission_config_and_the_start_fr
     mission.run(ctx)
     limit = yaml.safe_load((MISSION_DIR / 'mission.yaml').read_text())['time_limit']
     assert limit == 1800.0
-    assert services['run_fields'] == dict(time_limit_s=limit, run_start_t=42.5)
+    assert services['run_fields'] == dict(time_limit_s=limit, run_start_t=42.5,
+                                          run_start_t_ns=1_700_000_000_000_000_000)
+    assert calls == ['clock', 'wall', 'start']

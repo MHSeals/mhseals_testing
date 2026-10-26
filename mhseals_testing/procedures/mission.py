@@ -159,7 +159,10 @@ def run(ctx):
                '-p', f'use_sim_time:={str(ctx.profile.use_sim_time).lower()}']
     with ctx.supervise('mission', task=task) as runner:
         paused_before = runner.paused
+        # The same instant on both clocks: the track's t and the wall clock (ns) that the
+        # session journal's horn, holds and takeovers carry, so the referee maps one onto the other.
         fields['run_start_t'] = runner.clock()   # the clock of ctx.history, so of track.jsonl's t
+        fields['run_start_t_ns'] = time.time_ns()
         services['start'](f'task_{task}', command)
         try:
             start, end, _ = runner.supervise(
