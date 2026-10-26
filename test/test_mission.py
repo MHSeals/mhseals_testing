@@ -158,8 +158,12 @@ def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path, mon
     assert order == ['prompt', 'reset']      # checked where the boat is after the reset
 
 
-def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_truth='/crane/odom'):
-    """A mission context on a course whose truth starts at (-2.3, -4.8, yaw 0.5)."""
+def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_truth='/crane/odom',
+               stale_during_call=False):
+    """A mission context on a course whose truth starts at (-2.3, -4.8, yaw 0.5).
+
+    stale_during_call: a pre-teleport (drifted) sample arrives while the reset call runs, and the
+    post-teleport sample only on a later poll."""
     import json
     import time
     from types import SimpleNamespace
@@ -167,11 +171,14 @@ def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_t
     truth.write_text(json.dumps({'startX': -2.3, 'startY': -4.8, 'startYaw': 0.5, 'elements': [
         {'label': 'red_pole_buoy', 'x': 4.8, 'y': -3.3}]}))
     profile = SimpleNamespace(course_truth=str(truth), ground_truth=ground_truth, use_sim_time=sim)
-    calls, recorded, order = [], [], []
+    calls, recorded, order, during, polls = [], [], [], [], []
 
     def call(timeout):
         calls.append(timeout)
         order.append('reset')
+        if stale_during_call:
+            during.append((time.monotonic(), {'x': 90.0, 'y': 40.0, 'yaw': 2.0}))
+            time.sleep(0.01)
         if isinstance(reset, Exception):
             raise reset
         return reset == 'ok', 'x=-2.3 y=-4.8 yaw=0.5' if reset == 'ok' else 'no boat body to reset'
@@ -179,7 +186,10 @@ def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_t
     def history(since=float('-inf'), until=float('inf'), name='odometry'):
         assert name == 'ground truth'
         stale = (since - 1.0, {'x': 90.0, 'y': 40.0, 'yaw': 2.0})   # before the reset: ignored
-        return [stale] if at is None else [stale, (time.monotonic(), dict(zip('xy', at), yaw=at[2]))]
+        polls.append(since)
+        if at is None or (stale_during_call and len(polls) < 2):
+            return [stale] + during
+        return [stale] + during + [(time.monotonic(), dict(zip('xy', at), yaw=at[2]))]
     services = {'task': 'nav_channel'}
     if reset is not None:
         services['reset_to_start'] = call
@@ -265,3 +275,20 @@ def test_a_reset_without_fresh_ground_truth_is_not_trusted(tmp_path):
     ctx, calls, _ = _reset_ctx(tmp_path, at=None)
     reason = mission.reset_to_start(ctx, config_path=_settle_fast(tmp_path))
     assert calls and 'no ground truth arrived' in reason
+
+
+def test_a_drifted_sample_received_during_the_reset_call_is_not_taken_as_fresh(tmp_path):
+    # The pre-teleport pose arrived while the service ran; only a sample after it returns counts.
+    from mhseals_testing.procedures import mission
+    ctx, calls, _ = _reset_ctx(tmp_path, stale_during_call=True)
+    assert mission.reset_to_start(ctx, config_path=_settle_fast(tmp_path)) == ''
+    assert calls == [5.0]
+
+
+def test_a_sim_profile_whose_course_truth_is_missing_refuses_the_reset(tmp_path):
+    from mhseals_testing.procedures import mission
+    ctx, calls, recorded = _reset_ctx(tmp_path)
+    ctx.profile.course_truth = str(tmp_path / 'gone.json')
+    result = mission.run(ctx)
+    assert result == recorded[0] and result['verdict'] == 'REFUSED' and calls == []
+    assert 'course truth' in result['reason'] and 'gone.json is missing' in result['reason']

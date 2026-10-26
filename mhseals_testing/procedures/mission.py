@@ -74,10 +74,18 @@ def reset_to_start(ctx, config_path=START_RESET):
 
     The idle sim boat drifts with the current before a mission (one demo started 99 m off and
     scored 0). Only a verified sim stack (sim_stack) is reset; on anything else this never
-    calls the service and returns ''. The pose is checked against the course truth's start from
-    a ground-truth sample newer than the reset, not from the simulator's own reply.
+    calls the service and returns ''. A sim profile that names a course truth missing on disk is
+    refused, not skipped. The pose is checked against the course truth's start from a
+    ground-truth sample taken strictly after the reset returned, not from the simulator's own
+    reply: a sample from before the teleport, even one received during the call, is not counted.
     """
-    if not sim_stack(ctx.profile):
+    profile = ctx.profile
+    path = getattr(profile, 'course_truth', None)
+    if (getattr(profile, 'use_sim_time', False) is True and getattr(profile, 'ground_truth', None)
+            and path and not Path(path).exists()):
+        return (f'cannot reset to the course start: the course truth {path} is missing; '
+                'restore it or fix the profile')
+    if not sim_stack(profile):
         return ''
     config = yaml.safe_load(Path(config_path).read_text())
     service = config['service']
@@ -90,7 +98,6 @@ def reset_to_start(ctx, config_path=START_RESET):
     if reset is None:
         return f'cannot reset to the course start: this session has no {service} client'
     clock = getattr(getattr(ctx, 'monitor', None), 'clock', time.monotonic)
-    began = clock()
     try:
         ok, message = reset(float(config['timeout_s']))
     except Exception as error:  # noqa: BLE001  (TimeoutError, or rclpy's own)
@@ -98,6 +105,7 @@ def reset_to_start(ctx, config_path=START_RESET):
                 'restart the simulator with a crane_ml that has it')
     if not ok:
         return f'cannot reset to the course start: {service} refused ({message})'
+    began = clock()   # after the teleport: a sample received during the call predates it
     deadline = time.monotonic() + float(config['settle_s'])
     while True:
         samples = [v for t, v in ctx.history(since=began, name='ground truth')
