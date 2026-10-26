@@ -1,6 +1,6 @@
 # Which computer has which role (device-topology.md). Package default: this one machine plays
 # every role, so simulation and a dev laptop need nothing else. A deployment adds
-# $ROS_WS/config/devices.yaml (the boat's hosts); an operator may add
+# the vessel's registry ($ASTRO_REGISTRY, legacy $ROS_WS/config/devices.yaml: the boat's hosts); an operator may add
 # ~/.config/mhseals/devices.yaml, usually only `self:`. Host `local` is a fallback: a role
 # resolves to it only while no other host claims that role.
 # What each role runs lives in mhseals_nav config/devices/<profile>.yaml, never here.

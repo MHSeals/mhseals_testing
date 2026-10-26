@@ -209,6 +209,55 @@ def test_an_env_address_that_is_not_a_plain_name_is_refused(files):
         load(files)
 
 
+LAYER_PATHS = devices.layer_paths       # the real one: conftest swaps in a one-machine registry
+
+
+@pytest.fixture
+def workspace(tmp_path, monkeypatch):
+    """$ROS_WS with the legacy config/devices.yaml and config/boat-network.env, no ASTRO_* set."""
+    monkeypatch.setenv('ROS_WS', str(tmp_path / 'ws'))
+    monkeypatch.delenv('ASTRO_REGISTRY', raising=False)
+    monkeypatch.delenv('ASTRO_NETWORK_ENV', raising=False)
+    config = tmp_path / 'ws' / 'config'
+    config.mkdir(parents=True)
+    (config / 'devices.yaml').write_text(DEPLOYMENT)
+    (config / 'boat-network.env').write_text(ENV)
+    return config
+
+
+def test_the_legacy_workspace_files_without_astro_variables(workspace, capsys):
+    _, deployment, _, env = LAYER_PATHS()
+    assert (deployment, env) == (workspace / 'devices.yaml', workspace / 'boat-network.env')
+    assert capsys.readouterr().err == ''
+
+
+def test_the_vessel_registry_and_network_env_win(workspace, tmp_path, monkeypatch, capsys):
+    vessel = tmp_path / 'vessel'
+    vessel.mkdir()
+    (vessel / 'registry.yaml').write_text(DEPLOYMENT.replace('tranquility: {roles: [operator, gateway], user: peace',
+                                                            'tranquility: {roles: [operator, gateway], user: calm'))
+    (vessel / 'network.env').write_text(ENV.replace('192.168.0.153', '192.168.0.163'))
+    monkeypatch.setenv('ASTRO_REGISTRY', str(vessel / 'registry.yaml'))
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(vessel / 'network.env'))
+    _, deployment, _, env = LAYER_PATHS()
+    assert (deployment, env) == (vessel / 'registry.yaml', vessel / 'network.env')
+    monkeypatch.setattr(devices, 'layer_paths', LAYER_PATHS)
+    hosts = devices.load(operator=tmp_path / 'none.yaml').hosts
+    assert hosts['blastoise-jetson'].address == '192.168.0.163' and hosts['tranquility'].user == 'calm'
+    assert capsys.readouterr().err == ''
+
+
+def test_a_missing_astro_file_warns_once_and_never_falls_back(workspace, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(tmp_path / 'gone.env'))
+    monkeypatch.setenv('ASTRO_REGISTRY', str(tmp_path / 'gone.yaml'))
+    for _ in range(2):
+        _, deployment, _, env = LAYER_PATHS()
+        assert (deployment, env) == (tmp_path / 'gone.yaml', tmp_path / 'gone.env')
+    err = capsys.readouterr().err
+    assert err.count('ASTRO_NETWORK_ENV=') == 1 and err.count('ASTRO_REGISTRY=') == 1
+    assert str(tmp_path / 'gone.env') in err
+
+
 def test_profiles_unavailable_reads_as_a_device_error(monkeypatch):
     monkeypatch.setitem(__import__('sys').modules, 'mhseals_nav.device_profile', None)
     with pytest.raises(DeviceError, match='device profiles are not installed'):

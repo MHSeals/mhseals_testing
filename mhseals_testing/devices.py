@@ -1,9 +1,10 @@
 """The device registry, and the part -> host map derived from the device profiles (device-topology.md).
 
 ``devices.yaml`` says which computer has which role and how to reach it. Layers, lowest first:
-the package config/devices.yaml, ``$ROS_WS/config/devices.yaml`` (the deployment), then
-``~/.config/mhseals/devices.yaml`` (the operator, usually only ``self:``). Addresses come from
-``$ROS_WS/config/boat-network.env``, joined on the hostname, so no address is written twice.
+the package config/devices.yaml, the deployment (the vessel's registry ``$ASTRO_REGISTRY``, else the
+legacy ``$ROS_WS/config/devices.yaml``), then ``~/.config/mhseals/devices.yaml`` (the operator,
+usually only ``self:``). Addresses come from the vessel's network env (``$ASTRO_NETWORK_ENV``, else
+the legacy ``$ROS_WS/config/boat-network.env``), joined on the hostname, so no address is written twice.
 
 What a role runs is never written here: each role names a device profile (mhseals_nav
 config/devices/<profile>.yaml), whose ``parts`` are the only place a responsibility is assigned.
@@ -110,12 +111,32 @@ def _config_dir():
         return source
 
 
+_warned = set()
+
+
+def _astro(name, legacy):
+    """``$name`` (astro_dock's resolved vessel file) when set, else the legacy workspace path. A set
+    variable wins even when its file is missing (warned once on stderr), so a wrong profile is never
+    silently replaced by another boat's file."""
+    explicit = os.environ.get(name)
+    if not explicit:
+        return legacy
+    path = Path(explicit).expanduser()
+    if not path.is_file() and (name, str(path)) not in _warned:
+        _warned.add((name, str(path)))
+        print(f'mhseals_testing: {name}={path} is missing (hw.sh env prints the vessel\'s files)',
+              file=sys.stderr)
+    return path
+
+
 def layer_paths():
-    """(package, deployment, operator, env) default paths."""
+    """(package, deployment, operator, env) default paths. The deployment registry is
+    ``$ASTRO_REGISTRY`` and the network env ``$ASTRO_NETWORK_ENV``, each else the legacy file in
+    ``$ROS_WS/config``."""
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
     workspace = data.workspace() / 'config'
-    return (_config_dir() / 'devices.yaml', workspace / 'devices.yaml',
-            config / 'mhseals' / 'devices.yaml', workspace / 'boat-network.env')
+    return (_config_dir() / 'devices.yaml', _astro('ASTRO_REGISTRY', workspace / 'devices.yaml'),
+            config / 'mhseals' / 'devices.yaml', _astro('ASTRO_NETWORK_ENV', workspace / 'boat-network.env'))
 
 
 def _strings(value, where):
@@ -315,7 +336,8 @@ def assign(registry, me, profiles=load_device_profile, placement=None, wanted=()
         profile = profiles(name)
         missing = set(profile.get('requires', ())) - host.capabilities
         if missing:
-            hint = (f'; {FALLBACK} is the package fallback; add $ROS_WS/config/devices.yaml'
+            hint = (f'; {FALLBACK} is the package fallback; add a deployment registry '
+                    '($ASTRO_REGISTRY, legacy $ROS_WS/config/devices.yaml)'
                     if host.name == FALLBACK else '')
             raise DeviceError(f'device profile {name} requires {sorted(missing)}; '
                               f'host {host.name} has {sorted(host.capabilities) or "none"}{hint}')

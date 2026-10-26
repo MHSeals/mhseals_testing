@@ -272,7 +272,8 @@ def test_a_boat_without_a_deployment_registry_is_refused_before_any_session(tmp_
                                                          tmp_path / 'none.yaml', tmp_path / 'none.env'))
     with pytest.raises(SystemExit) as refused:
         parse_args(['--output', str(tmp_path / 'session')])
-    assert 'local is the package fallback; add $ROS_WS/config/devices.yaml' in str(refused.value)
+    assert ('local is the package fallback; add a deployment registry ($ASTRO_REGISTRY, legacy '
+            '$ROS_WS/config/devices.yaml)') in str(refused.value)
     assert not (tmp_path / 'session').exists()
     parse_args(['--profile', 'crane_full_stack'])     # the sim runs everything here, no deployment
 

@@ -1,6 +1,6 @@
 """The Status `Network` row: boat-link facts judged by config/health/network.yaml.
 
-The boat subnet is ``BOAT_SUBNET`` in the workspace's config/boat-network.env (without it there is
+The boat subnet is ``BOAT_SUBNET`` in the vessel's network env (ASTRO_NETWORK_ENV) (without it there is
 no boat link to watch and the row stays hidden). The hosts pinged are those of the device
 registry's ``ping:`` roles, never this machine (mhseals_testing.devices); the worst host's loss and
 round trip are judged, and the row names that host.
