@@ -220,6 +220,7 @@ def test_the_real_driver_and_mux_reach_neutral_and_stop_on_link_loss(boat, tui, 
     driver = arm(node, call, driver_commands(profile, arm_link.CONFIG, {}), config.read_text())
     names = lambda: {name for name, _ in node.get_node_names_and_namespaces()}
     assert wait_for(lambda: {'thruster_pwm_node', 'command_mux'} <= names() and mux_state, 20)
+    assert wait_for(lambda: pulses, 15), 'no PWM pulse reached the test subscription within 15 s, so the link was not dropped'
     pids = tree(status)
     with driver.link.lock:
         driver.link.armed = False
