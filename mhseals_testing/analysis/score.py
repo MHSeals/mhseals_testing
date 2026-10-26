@@ -13,12 +13,13 @@ A report row needs a RoboCommand message the sim does not capture yet, so its
 report-only row is ``unscorable``.
 """
 
+import copy
 import math
 
 from mhseals_testing.analysis.geometry import HULL, hull_clearance
 
 SCHEMA = 'mhseals.score/1'
-VERSION = 3                    # 3: bias-audit fixes (state/referee.md "v3 changes")
+VERSION = 4                    # 4: rules by source capability (state/referee.md "v4")
 RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
 STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
 PARAMS = dict(
@@ -625,7 +626,7 @@ def horn_sounded(changes, program=None):
     return planned, None, None if planned is None else 'planned (no state log)'
 
 
-def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: []):
+def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: [], horn=None):
     """L 3.2.6: after the horn the ASV abandons its task and goes to the commanded zone.
 
     Scored: the first real entry (outside -> inside) into a zone after the recorded horn and
@@ -634,7 +635,12 @@ def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: [])
     it must not punish a route that completes a task on the way."""
     task = model['tasks'].get('harbor_alert')
     program = ((model['states'].get('harbor_alert.horn') or {}).get('program')) or {}
-    trigger, value, basis = horn_sounded(changes, program)
+    trigger, value, basis = horn_sounded(changes, None if horn == 'unknown' else program)
+    if task and trigger is None and horn == 'unknown':     # silence cannot be vouched for
+        rows.add('T6.zone', 'S; L 3.2.6', 'H', 'harbor alert', 300, None, status='unscorable',
+                 reason='no horn record from this source (caps.horn unknown)', horn=None)
+        _report_only(rows, 'T6.report', 'S; L 3.2.6', 'confirm the signal', 150)
+        return
     if not task or trigger is None or not (t_from <= trigger <= t_cut):
         rows.add('T6.zone', 'S; L 3.2.6', 'H', 'harbor alert', 300, None, status='n/a',
                  reason='no horn sounded' if trigger is None else
@@ -684,13 +690,14 @@ def _harbor(model, run, rows, t_from, t_cut, changes=(), worked=lambda a, b: [])
 
 
 def judge(truth, track, window=None, authority=(), changes=(), require_entry=True,
-          end_reason=None):
+          end_reason=None, horn=None):
     """The scored run: a ``mhseals.score/1`` report body (without ``schema``/``summary``).
 
     ``window`` (t0, t1) is the run; ``authority`` is [{t, by, cause}] owner changes in track
     time; ``changes`` are recorded state changes [{t_sim, id, value}].
     ``require_entry`` False scores each task alone (fixtures that skip the entry gates).
     ``end_reason`` names why the window ends (the harness's ``time_limit`` or ``track_end``).
+    ``horn`` is the source's horn capability (``unknown``: no planned stand-in, unscorable).
     """
     model = course(truth)
     hull = model['hull']
@@ -754,7 +761,7 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
 
     _harbor(model, run, rows_for('harbor_alert'),
             (t_entry if require_entry and t_entry is not None else t0), t_cut, changes,
-            worked)
+            worked, horn)
     scored = [p for p in run if p[0] <= t_cut]
     items = [e for e in model['elements'] if e.get('role') not in DOCK_PARTS]
     hits = strikes(scored, items, hull)
@@ -777,24 +784,12 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
         warnings.append('never entered through the entry gates: no other task scores (S 4.2)')
     body = dict(tasks={}, penalties=dict(strikes=hits, strike_points=-penalty,
                                          interventions=interventions, out_of_bounds=out))
-    total = dict(points=0, provisional=0, possible=0, possible_scorable=0,
-                 penalty=-penalty, by_task={})
     for name, rows in tasks.items():
         task = model['tasks'].get(name) or {}
-        points = sum(r['points'] for r in rows.rows)
-        prov = sum(r['provisional'] for r in rows.rows)
-        possible = sum(r['possible'] for r in rows.rows if r['status'] != 'n/a')
-        body['tasks'][name] = dict(
-            type=task.get('type', name), cite=task.get('cite'), points=points, provisional=prov,
-            possible=possible, attempted=any(r['behaviour'] for r in rows.rows), rows=rows.rows)
-        total['points'] += points
-        total['provisional'] += prov
-        total['possible'] += possible
-        total['possible_scorable'] += sum(r['possible'] for r in rows.rows
-                                          if r['status'] not in ('n/a', 'unscorable'))
-        total['by_task'][name] = points
-    total['points'] -= penalty
-    body['total'] = total
+        body['tasks'][name] = dict(type=task.get('type', name), cite=task.get('cite'),
+                                   attempted=any(r['behaviour'] for r in rows.rows),
+                                   rows=rows.rows)
+    _totals(body)
     body['run'] = dict(window=[t0, t1], end=dict(end, t=round(end['t'], 3)),
                        scored_until=round(t_cut, 3),
                        entry_t=None if t_entry is None else round(t_entry, 3),
@@ -803,6 +798,106 @@ def judge(truth, track, window=None, authority=(), changes=(), require_entry=Tru
                        mode='run' if require_entry else 'task', legacy_course=model['legacy'],
                        hull=dict(length=hull[0], beam=hull[1]), warnings=warnings)
     body['params'] = dict(PARAMS)
+    return body
+
+
+def _totals(body):
+    """Task and run totals from the rows and the strike penalty (recomputed after any
+    capability adjustment)."""
+    penalty = -body['penalties']['strike_points']
+    total = dict(points=0, provisional=0, possible=0, possible_scorable=0,
+                 penalty=-penalty, by_task={})
+    for name, task in body['tasks'].items():
+        rows = task['rows']
+        task.update(points=sum(r['points'] for r in rows),
+                    provisional=sum(r['provisional'] for r in rows),
+                    possible=sum(r['possible'] for r in rows if r['status'] != 'n/a'))
+        total['points'] += task['points']
+        total['provisional'] += task['provisional']
+        total['possible'] += task['possible']
+        total['possible_scorable'] += sum(r['possible'] for r in rows
+                                          if r['status'] not in ('n/a', 'unscorable'))
+        total['by_task'][name] = task['points']
+    total['points'] -= penalty
+    body['total'] = total
+
+
+# ---------------------------------------------------------------- capabilities
+
+CONTACT_BASIS = {'geometric': 'geometry (no physics)', 'physics': 'geometry',
+                 'judge': 'judge-reported (geometric contacts are diagnostic only)'}
+
+
+def surveyed(truth, d):
+    """``truth`` with every geometric margin moved by ``d`` m: objects grow by ``d``, slips
+    shrink by ``2d`` and harbor zones by ``d`` (``d`` > 0 is strict, < 0 lenient)."""
+    out = copy.deepcopy(truth)
+    for e in out.get('elements', []):
+        e['radius'] = max(0.01, (e.get('radius') or PARAMS['object_radius_m']) + d)
+    for bay in out.get('bays', []):
+        bay['width'], bay['depth'] = max(0.0, bay['width'] - 2 * d), max(0.0, bay['depth'] - 2 * d)
+    for task in out.get('tasks', []):
+        for anchor in (task.get('anchors') or {}).values():
+            if isinstance(anchor, dict) and anchor.get('x') is not None:
+                anchor['r'] = max(0.0, (anchor.get('r') or PARAMS['harbor_zone_r_m']) - d)
+    return out
+
+
+def _bracket(body, judged):
+    """Surveyed truth: a row whose verdict flips within one survey sigma (strict vs lenient
+    truth) was decided inside the margin, so it is provisional at the more generous points."""
+    strict, lenient = ({r['id']: r for t in j['tasks'].values() for r in t['rows']}
+                       for j in judged)
+    sigma = body['run']['capabilities']['truth_sigma_m']
+    for task in body['tasks'].values():
+        for row in task['rows']:
+            if row['status'] in ('unscorable', 'n/a'):
+                continue
+            lo, hi = strict.get(row['id']), lenient.get(row['id'])
+            got = row['points'] + row['provisional']
+            best = max(got, (hi or {}).get('points', 0) + (hi or {}).get('provisional', 0))
+            if (lo or {}).get('points', 0) + (lo or {}).get('provisional', 0) == best:
+                continue                                  # same verdict across the margin
+            row['evidence'].update(margin_m=sigma, decided_within_truth_sigma=True,
+                                   strict_status=(lo or {}).get('status'),
+                                   lenient_status=(hi or {}).get('status'))
+            row.update(status='provisional', points=0, provisional=best)
+
+
+def _judged_contacts(body, reported):
+    """Judge-reported contacts are the strikes; geometric strikes become evidence only."""
+    pen = body['penalties']
+    pen['geometric_strikes'] = pen['strikes']
+    if reported is None:
+        pen.update(strikes=[], strike_points=0, strikes_status='unscorable')
+        return
+    t0, t1 = body['run']['window'][0], body['run']['scored_until']
+    hits = sorted((dict(object=c.get('object'), task=c.get('task'), t=c['t'], by=c.get('by'),
+                        min_clearance_m=None) for c in reported if t0 <= c['t'] <= t1),
+                  key=lambda c: c['t'])
+    pen.update(strikes=hits, strike_points=-STRIKE_POINTS * min(len(hits), STRIKE_MAX),
+               strikes_status='judge-reported')
+
+
+def judge_record(record):
+    """Judge a run record (``run_record.load``) by its capabilities only, never its source."""
+    caps = record['caps']
+    t0, t1, reason = record['window']
+
+    def run(truth):
+        return judge(truth, record['track'], window=(t0, t1), authority=record['authority'],
+                     changes=record['changes'], end_reason=reason, horn=caps['horn'])
+
+    body = run(record['truth'])
+    body['run']['capabilities'] = dict(caps)
+    if caps['truth'] == 'surveyed':
+        sigma = caps['truth_sigma_m']
+        _bracket(body, (run(surveyed(record['truth'], sigma)),
+                        run(surveyed(record['truth'], -sigma))))
+    if caps['contacts'] == 'judge':
+        _judged_contacts(body, record['contacts_reported'])
+    body['penalties']['contact_basis'] = CONTACT_BASIS[caps['contacts']]
+    _totals(body)
     return body
 
 

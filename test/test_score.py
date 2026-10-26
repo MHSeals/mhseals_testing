@@ -9,7 +9,7 @@ import pytest
 from mhseals_testing.analysis import score
 
 DATA = Path(__file__).parent / 'data' / 'score2026'
-CASES = sorted(p.name for p in DATA.iterdir() if p.is_dir())
+CASES = sorted(p.name for p in DATA.iterdir() if p.is_dir() and p.name != 'sources')
 
 
 def load(case):

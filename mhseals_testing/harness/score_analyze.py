@@ -1,6 +1,8 @@
 """Score a finished session by the RoboBoat 2026 rules, headless: ``boat_trial analyze score``.
 
-Reads files only (no ROS): ``course_truth.json``, ``track.jsonl`` (ground truth ``{t, x, y,
+Reads files only (no ROS), through the session's source adapter
+(:mod:`mhseals_testing.analysis.run_record`: kinematic | unity | real, one run record with
+declared capabilities; ``--paired`` compares explicit pairs across tiers): ``course_truth.json``, ``track.jsonl`` (ground truth ``{t, x, y,
 yaw}``, captured by the harness from its run start), authority changes from ``events.jsonl``
 and optional ``states.jsonl`` (course state changes). The run window is the harness's: it
 starts at ``session.json`` ``run_start_t`` (else the first track sample) and ends at the time
@@ -18,7 +20,7 @@ from pathlib import Path
 import sys
 
 from mhseals_testing import data
-from mhseals_testing.analysis import diagnostics, score
+from mhseals_testing.analysis import diagnostics, run_record, score
 
 CLAIM_EVENTS = ('stage_completed', 'stage_failed', 'stage_skipped', 'gate_cleared', 'docked',
                 'undocked', 'debris', 'speed_started', 'speed_finished', 'returned_home')
@@ -26,8 +28,8 @@ STAGE_TASK = {'nav_channel': 'entry_gates', 'return_home': 'entry_gates',
               'follow_path': 'debris_clearance', 'docking': 'marina'}   # 2025 stage names
 
 
-class Refused(Exception):
-    """The session cannot be scored; the message says why."""
+Refused = run_record.Refused
+run_window = run_record.run_window
 
 
 def _claimed_window(task_events):
@@ -37,46 +39,9 @@ def _claimed_window(task_events):
     return start, end
 
 
-def run_window(track, meta):
-    """(t0, t1, end reason) from the harness: run start, then the time limit or track end."""
-    t0 = meta.get('run_start_t', track[0][0])
-    limit = meta.get('time_limit_s') or score.PARAMS['time_limit_s']
-    if t0 + limit < track[-1][0]:
-        return t0, t0 + limit, 'time_limit'
-    return t0, track[-1][0], 'track_end'
-
-
-def _authority(events, t_start):
-    """Owner changes in track time, aligned on the harness's mission_start = run start."""
-    started = next((e for e in events if e.get('phase') == 'mission_start'), None)
-    if started is None or t_start is None or 'ros_time' not in started:
-        return [], 'authority events not aligned to track time (no mission_start)'
-    offset = t_start - started['ros_time']
-    out = []
-    for e in events:
-        if e.get('phase') == 'authority':
-            out.append(dict(t=e['ros_time'] + offset, by=(e.get('to') or {}).get('owner'),
-                            cause=e.get('cause')))
-        elif e.get('phase') == 'disarmed':
-            out.append(dict(t=e['ros_time'] + offset, by='external', cause='disarmed'))
-    return out, None
-
-
 def load(session):
-    session = Path(session)
-    if not session.is_dir():
-        raise Refused(f'{session}: no such session')
-    truth = data.read_json(session / 'course_truth.json')
-    if truth is None:
-        raise Refused(f'{session.name}: no course_truth.json')
-    track = [(r['t'], r['x'], r['y'], r.get('yaw') or 0.0)
-             for r in data.read_jsonl(session / 'track.jsonl') if {'t', 'x', 'y'} <= set(r)]
-    if not track:
-        raise Refused(f'{session.name}: no track.jsonl samples')
-    task_events = list(data.read_jsonl(session / 'task_events.jsonl'))
-    events = list(data.read_jsonl(session / 'events.jsonl'))
-    changes = list(data.read_jsonl(session / 'states.jsonl'))
-    return truth, track, task_events, events, changes
+    """The run record (``run_record.load``) through the session's source adapter."""
+    return run_record.load(session, score.PARAMS['time_limit_s'])
 
 
 def statuses(session):
@@ -126,37 +91,31 @@ def motion(track, t0, t1):
 
 
 def analyze(session, now=None):
-    truth, track, task_events, events, changes = load(session)
-    meta = data.read_json(Path(session) / 'session.json', {}) or {}
-    t0, t1, reason = run_window(track, meta)
-    window = (t0, t1)
-    authority, problem = _authority(events, t0)
-    body = score.judge(truth, track, window=window, authority=authority, changes=changes,
-                       end_reason=reason)
-    if problem:
-        body['run']['warnings'].append(problem)
-    body['run']['window_source'] = ('session.json run_start_t' if 'run_start_t' in meta
-                                    else 'harness track start') + ' + ' + \
-        ('session.json time_limit_s' if meta.get('time_limit_s') else 'PARAMS time_limit_s')
+    rec = load(session)
+    truth, track, task_events = rec['truth'], rec['track'], rec['task_events']
+    window = rec['window'][:2]
+    body = score.judge_record(rec)
+    if rec['authority_problem']:
+        body['run']['warnings'].append(rec['authority_problem'])
+    body['run']['window_source'] = rec['window_source']
     body['run']['claimed_window'] = list(_claimed_window(task_events))   # the boat's, unused
+    body['run']['source'] = rec['source']           # a label: scoring reads only caps
     gen = truth.get('generator') or {}
-    source = meta.get('source') or ('kinematic' if meta.get('kind') == 'kinematic' else 'unity')
-    body['run']['source'] = source
-    physics = ' (no physics)' if source == 'kinematic' else ''
-    body['penalties']['contact_basis'] = 'geometry' + physics
     body['run'].update(session=Path(session).name, course=dict(
         name=truth.get('name'), family=truth.get('family'), seed=gen.get('seed'),
         mode=gen.get('mode'), truth_sha256=gen.get('truth_sha256')))
-    body['claims'] = claims(task_events, body)
+    body['claims'] = claims(task_events, body) if rec['caps']['claims'] else \
+        dict(events=[], by_stage={}, unavailable='no task events or status kept')
     body['diagnostics'] = dict(motion=motion(track, window[0], body['run']['scored_until']))
     model = score.course(truth)
     run = score.with_heading([p for p in track
                               if window[0] <= p[0] <= body['run']['scored_until']])
     program = (model['states'].get('harbor_alert.horn') or {}).get('program')
-    trigger = score.horn_sounded(changes, program)[0]
+    trigger = score.horn_sounded(rec['changes'],
+                                 None if rec['caps']['horn'] == 'unknown' else program)[0]
     if run:
         body['diagnostics'].update(diagnostics.diagnose(run, model, body, task_events,
-                                                        statuses(session), trigger))
+                                                        rec['statuses'], trigger))
         body['penalties']['contacts'] = body['diagnostics']['contacts']['counts']
     record = dict(summary=score.summary(body),
                   scorer=dict(version=score.VERSION, rules=score.RULES,
@@ -365,6 +324,91 @@ def compare(a, b, force=False):
     return out
 
 
+LOOPS = {('kinematic', 'unity'): 'loop 1: fast tier <-> Unity',
+         ('unity', 'real'): 'loop 2: Unity <-> real boat'}   # pairing labels, never scoring
+
+
+def _binom_two_sided(k, n):
+    """Exact McNemar: two-sided binomial p of k of n discordant pairs at 1/2."""
+    tail = sum(math.comb(n, i) for i in range(min(k, n - k) + 1)) / 2 ** n
+    return min(1.0, 2 * tail)
+
+
+def _pairs(pairs_file):
+    """Rows {a_session, b_session, seed, order} (``a``/``b`` also accepted), relative paths
+    resolved against the pair file's folder."""
+    base = Path(pairs_file).parent
+    out = []
+    for row in data.read_jsonl(Path(pairs_file)):
+        a, b = row.get('a_session') or row.get('a'), row.get('b_session') or row.get('b')
+        if not a or not b:
+            raise Refused(f'{pairs_file}: a pair row without a_session/b_session: {row}')
+        out.append(dict(row, a_session=str(base / a), b_session=str(base / b)))
+    if not out:
+        raise Refused(f'{pairs_file}: no pairs')
+    return out
+
+
+def paired(pairs_file, force=False):
+    """B - A per explicit pair (``mhseals.score_pairs/1``): the pair file says which run
+    matches which (same seed and order in the lower and the higher tier), so tiers may differ;
+    every pair must be the same source pair. Rates: discordant counts and exact McNemar p;
+    other metrics: paired mean difference with an exact-t interval. Capability differences
+    between the sides are listed, since they bound what a difference can mean."""
+    rows = _pairs(pairs_file)
+    recs = [(analyze(r['a_session'])[1], analyze(r['b_session'])[1]) for r in rows]
+    kinds = sorted({(a['run']['source'], b['run']['source']) for a, b in recs})
+    why = []
+    if len(kinds) > 1:
+        why.append(f'pairs mix source pairs {kinds}')
+    kind = kinds[0]
+    loop = 'same source' if kind[0] == kind[1] else LOOPS.get(kind) or LOOPS.get(kind[::-1])
+    if loop is None:
+        why.append(f'{kind[0]} -> {kind[1]} is not a loop of the double loop')
+    if why and not force:
+        raise Refused('not comparable: ' + '; '.join(why) + ' (--force to compare anyway)')
+    caps = [{k: sorted({str(rec['run']['capabilities'][k]) for rec in side})
+             for k in side[0]['run']['capabilities']} for side in zip(*recs)]
+    gaps = {k: dict(a=caps[0][k], b=caps[1][k]) for k in caps[0] if caps[0][k] != caps[1][k]}
+    per = [(metrics(a), metrics(b)) for a, b in recs]
+    out = {}
+    for k in sorted({k for ma, mb in per for k in ma} & {k for ma, mb in per for k in mb}):
+        both = [(ma[k], mb[k]) for ma, mb in per
+                if ma.get(k) is not None and mb.get(k) is not None]
+        if not both:
+            continue
+        diffs = [y - x for x, y in both]
+        n = len(diffs)
+        mean = sum(diffs) / n
+        if k.startswith(BINARY):
+            b_only = sum(1 for x, y in both if y > x)
+            a_only = sum(1 for x, y in both if x > y)
+            p = _binom_two_sided(b_only, b_only + a_only) if b_only + a_only else None
+            out[k] = dict(n=n, diff=round(mean, 3), b_only=b_only, a_only=a_only,
+                          p=None if p is None else round(p, 4), test='exact McNemar')
+            continue
+        sd = math.sqrt(sum((d - mean) ** 2 for d in diffs) / (n - 1)) if n > 1 else 0.0
+        half = t_quantile(n - 1) * sd / math.sqrt(n) if n > 1 and sd > 0 else None
+        p = t_sf(abs(mean) / (sd / math.sqrt(n)), n - 1) if half else None
+        out[k] = dict(n=n, diff=round(mean, 3), sd=round(sd, 3), test='paired t',
+                      ci95=None if half is None else [round(mean - half, 3),
+                                                      round(mean + half, 3)],
+                      p=None if p is None else round(p, 4))
+        if half is None:
+            out[k]['note'] = 'no interval: n < 2 or identical differences'
+    for v in out.values():
+        v['clear'] = v.get('p') is not None and v['p'] < 0.05
+    _holm(out)
+    result = dict(schema='mhseals.score_pairs/1', pairs_file=str(pairs_file), loop=loop,
+                  sources=dict(a=kind[0], b=kind[1]), n_pairs=len(rows),
+                  pairs=[{k: r.get(k) for k in ('a_session', 'b_session', 'seed', 'order')}
+                         for r in rows],
+                  capability_differences=gaps, b_minus_a=out)
+    if why:
+        result['forced'] = why
+    return result
+
+
 def _records(paths):
     sessions = [p for root in paths for p in sorted(Path(root).glob('**/track.jsonl'))]
     return [analyze(p.parent)[1] for p in sessions]
@@ -376,9 +420,22 @@ def main(argv=None, out=None):
     parser.add_argument('--json', action='store_true', help='print the record that was written')
     parser.add_argument('--batch', action='store_true', help='score every session under it')
     parser.add_argument('--compare', metavar='DIR', help='with --batch: a second batch (B - A)')
+    parser.add_argument('--paired', action='store_true',
+                        help='SESSION is a pair file (jsonl rows {a_session, b_session, seed, '
+                             'order}): B - A per pair, across tiers (fast<->Unity, Unity<->real)')
     parser.add_argument('--force', action='store_true',
                         help='compare batches that mix sources or differ in seed set')
     args = parser.parse_args(argv)
+    if args.paired:
+        try:
+            result = paired(args.session, args.force)
+        except Refused as error:
+            print(f'refused: {error}', file=sys.stderr)
+            return 2
+        if result.get('forced'):
+            print('FORCED pairing: ' + '; '.join(result['forced']), file=sys.stderr)
+        print(json.dumps(result, indent=2), file=out or sys.stdout)
+        return 0
     if args.batch:
         try:
             first = batch(_records([args.session]))
