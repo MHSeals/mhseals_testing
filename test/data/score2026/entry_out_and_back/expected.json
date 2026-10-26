@@ -1,0 +1,49 @@
+{
+ "tasks": {
+  "entry_gates": {
+   "all_out": true,
+   "all_in": true,
+   "gates": [
+    {
+     "id": "entry_gates.gate1",
+     "crossings": [
+      [
+       {
+        "approx": 3.062,
+        "tol": 0.25
+       },
+       "out"
+      ],
+      [
+       {
+        "approx": 49.608,
+        "tol": 0.25
+       },
+       "in"
+      ]
+     ]
+    },
+    {
+     "id": "entry_gates.gate2",
+     "crossings": [
+      [
+       {
+        "approx": 23.335,
+        "tol": 0.25
+       },
+       "out"
+      ],
+      [
+       {
+        "approx": 29.335,
+        "tol": 0.25
+       },
+       "in"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "contacts": []
+}

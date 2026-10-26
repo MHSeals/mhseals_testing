@@ -1,0 +1,703 @@
+"""Score a sim run by the RoboBoat 2026 rules, from ground truth only.
+
+The judge's view: the course crane_ml placed (its truth JSON), the boat's true
+track (``(t, x, y, yaw)`` from /crane/odom, the truth's frame) and the run's
+start, finish and authority events. The boat's own task events are never used
+to decide what it did; the run window is the only thing taken from them.
+
+Every rule cites its source: S (live scoring §4.2), L (live task rules §3.2),
+H (handbook 2025-11-11, page). Rules the handbook leaves open are tagged D and
+take their thresholds from ``PARAMS``, which the report records.
+A report row needs a RoboCommand message the sim does not capture yet, so its
+``report`` is None: a row whose behaviour happened is ``provisional``, a
+report-only row is ``unscorable``.
+"""
+
+import math
+
+from mhseals_testing.analysis.geometry import HULL, hull_clearance
+
+SCHEMA = 'mhseals.score/1'
+VERSION = 1
+RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
+STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
+PARAMS = dict(
+    gate_hysteresis_m=0.3,      # D: a side counts once the centre is this far off the line
+    entry_contact_pad_s=3.0,    # D: contact window around the entry passes (L 3.2.1)
+    circle_radius_m=8.0,        # D: a circle counts while within this of the buoy
+    full_circle_deg=350.0,      # D: "full 360" less sim noise (L 3.2.2)
+    red_encounter_m=8.0,        # D: an avoided red must have been approached this close
+    speed_loop_deg=330.0,       # D: gate -> around the mark -> gate sweeps ~360
+    dock_dwell_s=2.0,           # D: S says "enters"; 2 s rejects a pass-through and jitter
+    dock_gap_s=0.5,             # D: brief exits from the slip that do not reset the dwell
+    strike_rearm_m=0.2,         # D: a new strike once clear by this much
+    start_offset_warn_m=10.0,   # D: warn when the run starts this far from the course start
+    start_standoff_m=1.83,      # H p.45, L 3.2.1: start >= 6 ft before the first gate
+)
+DOCK_PARTS = ('pier_spine', 'pier_tine', 'dock_sign', 'dock_indicator')  # docking touches these
+INTERVENING = ('rc', 'keyboard', 'hold', 'external')   # authority owners that are not autonomy
+LEGACY_TASKS = {'nav_channel': 'entry_gates', 'follow_path': 'debris_clearance',
+                'speed_challenge': 'speed_challenge', 'docking': 'marina'}
+
+
+# ---------------------------------------------------------------- course model
+
+def _xy(item):
+    return (item['x'], item['y'])
+
+
+def _gate(gid, task, order, port, stbd, normal_yaw):
+    n = (math.cos(normal_yaw), math.sin(normal_yaw))
+    return dict(id=gid, task=task, order=order, port=port, stbd=stbd, n=n,
+                c=((port['x'] + stbd['x']) / 2, (port['y'] + stbd['y']) / 2))
+
+
+def course(truth):
+    """The course in one shape for v2 truth (crane.course_truth/2) and the 2025 v1 truth."""
+    vessel = truth.get('vessel') or {}
+    hull = (vessel.get('length') or HULL[0], vessel.get('beam') or HULL[1])
+    start = (truth.get('startX', 0.0), truth.get('startY', 0.0))
+    if truth.get('schema_version', 1) >= 2:
+        by_id = {e['id']: e for e in truth['elements']}
+        gates = [_gate(g['id'], g['task'], g['order'], by_id[g['port']], by_id[g['starboard']],
+                       g['normal_yaw']) for g in truth.get('gates', [])]
+        return dict(legacy=False, hull=hull, start=start, elements=truth['elements'],
+                    gates=gates, bays=truth.get('bays', []),
+                    tasks={t['id']: t for t in truth.get('tasks', [])},
+                    states={s['id']: s for s in truth.get('states', [])},
+                    boundary=truth.get('boundary') or None)
+    return _legacy(truth, hull, start)
+
+
+def _legacy(truth, hull, start):
+    """The 2025 course mapped onto the 2026 tasks it resembles (scored rows only)."""
+    elements, gates = [], []
+    for index, e in enumerate(truth['elements']):
+        elements.append(dict(e, id=f"{e['task']}.{e.get('label') or 'object'}{index}",
+                             role='pier_spine' if not e.get('label') else 'buoy'))
+    pairs = {'nav_channel': ('red_pole_buoy', 'green_pole_buoy', 8.0),
+             'follow_path': ('red_buoy', 'green_buoy', 4.0),
+             'speed_challenge': ('red_buoy', 'green_buoy', 4.0)}
+    for old, (red, green, widest) in pairs.items():
+        reds = [e for e in elements if e['task'] == old and e['label'] == red]
+        greens = [e for e in elements if e['task'] == old and e['label'] == green]
+        found = sorted((math.dist(_xy(r), _xy(g)), i, j) for i, r in enumerate(reds)
+                       for j, g in enumerate(greens) if math.dist(_xy(r), _xy(g)) <= widest)
+        used, made = set(), []
+        for _, i, j in found:
+            if ('r', i) in used or ('g', j) in used:
+                continue
+            used |= {('r', i), ('g', j)}
+            r, g = reds[i], greens[j]
+            c = ((r['x'] + g['x']) / 2, (r['y'] + g['y']) / 2)
+            yaw = math.atan2(r['y'] - g['y'], r['x'] - g['x']) - math.pi / 2  # red to port
+            if old != 'speed_challenge' and (math.cos(yaw) * (c[0] - start[0]) +
+                                             math.sin(yaw) * (c[1] - start[1])) < 0:
+                yaw += math.pi
+            made.append((math.dist(start, c), r, g, yaw))
+        for order, (_, r, g, yaw) in enumerate(sorted(made, key=lambda m: m[0]), 1):
+            task = LEGACY_TASKS[old]
+            port, stbd = (r, g) if math.cos(yaw) * (r['y'] - g['y']) - \
+                math.sin(yaw) * (r['x'] - g['x']) > 0 else (g, r)
+            gates.append(_gate(f'{task}.gate{order}' if task != 'speed_challenge'
+                               else 'speed_challenge.gate', task, order, port, stbd, yaw))
+    for g in gates:                     # the 2025 speed gate faces the blue mark
+        if g['task'] == 'speed_challenge':
+            mark = next((e for e in elements if e['label'] == 'blue_buoy'), None)
+            ahead = (mark['x'] - g['c'][0]) * g['n'][0] + (mark['y'] - g['c'][1]) * g['n'][1] \
+                if mark else 0
+            if ahead < 0:
+                g['n'] = (-g['n'][0], -g['n'][1])
+                g['port'], g['stbd'] = g['stbd'], g['port']
+    mark = next((e for e in elements if e['label'] == 'blue_buoy'), None)
+    bays = [dict(b, id=f"docking.bay{b.get('index', i)}", task='marina')
+            for i, b in enumerate(truth.get('bays', []))]
+    tasks = {'entry_gates': dict(id='entry_gates', semantics={}),
+             'debris_clearance': dict(id='debris_clearance', semantics={}),
+             'marina': dict(id='marina', semantics={})}
+    if mark:
+        mark['id'] = 'speed_challenge.mark'
+        tasks['speed_challenge'] = dict(id='speed_challenge',
+                                        semantics=dict(turn_mark=mark['id']))
+    for e in elements:
+        e['task'] = LEGACY_TASKS.get(e['task'], e['task'])
+    return dict(legacy=True, hull=hull, start=start, elements=elements, gates=gates,
+                bays=bays, tasks=tasks, states={}, boundary=None)
+
+
+def state_at(model, sid, t, changes=()):
+    """An object's state at time ``t``: its program, overridden by recorded changes."""
+    state = model['states'].get(sid)
+    if state is None:
+        return None
+    program = state.get('program') or {}
+    value = state.get('initial')
+    if program.get('type') == 'toggle':
+        values = program.get('values') or ['red', 'green']
+        period, phase = program.get('period_s') or 0, program.get('phase') or 0
+        if period:
+            value = values[int(math.floor((t + phase) / period)) % len(values)]
+    elif program.get('type') == 'scripted':
+        for step in program.get('steps', []):
+            if step['t'] <= t:
+                value = step.get('color', step.get('value'))
+    for change in changes:
+        if change.get('id') == sid and change.get('t_sim', math.inf) <= t:
+            value = change.get('value')
+    return value
+
+
+# ---------------------------------------------------------------- track geometry
+
+def _hull_span(pose, axis, hull):
+    """(min, max) of the hull rectangle projected on ``axis``."""
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    half_l, half_b = hull[0] / 2, hull[1] / 2
+    centre = x * axis[0] + y * axis[1]
+    reach = abs(c * axis[0] + s * axis[1]) * half_l + abs(-s * axis[0] + c * axis[1]) * half_b
+    return centre - reach, centre + reach
+
+
+def passes(track, gate, hull, h=PARAMS['gate_hysteresis_m']):
+    """Each pass of the hull centre through the gate opening, with direction and fit.
+
+    The centre must be ``h`` clear of the line on each side, so jitter at the line
+    is one pass. ``dir`` is +1 along the gate normal (outbound), -1 against it.
+    ``hull_inside`` says the whole hull fitted between the buoys' edges as the
+    centre crossed (L 3.2.1 "the entire ASV must pass through").
+    """
+    (cx, cy), (nx, ny) = gate['c'], gate['n']
+    tx, ty = -ny, nx
+    lp = (gate['port']['x'] - cx) * tx + (gate['port']['y'] - cy) * ty
+    ls = (gate['stbd']['x'] - cx) * tx + (gate['stbd']['y'] - cy) * ty
+    lo = min(lp, ls) + (gate['port' if lp < ls else 'stbd'].get('radius') or 0.2)
+    hi = max(lp, ls) - (gate['stbd' if lp < ls else 'port'].get('radius') or 0.2)
+    found, side, last_zero = [], 0, None
+    previous = None
+    for sample in track:
+        t, x, y, yaw = sample
+        s = (x - cx) * nx + (y - cy) * ny
+        if previous is not None and (previous[0] < 0) != (s < 0):
+            p, q = previous[1], sample
+            f = previous[0] / (previous[0] - s) if previous[0] != s else 0.0
+            last_zero = tuple(a + f * (b - a) for a, b in zip(p, q))
+            last_zero = last_zero[:3] + (q[3] if abs(f) > 0.5 else p[3],)
+        previous = (s, sample)
+        now = 1 if s > h else -1 if s < -h else 0
+        if now and side and now != side and last_zero is not None:
+            zt, zx, zy, zyaw = last_zero
+            lateral = (zx - cx) * tx + (zy - cy) * ty
+            if min(lp, ls) <= lateral <= max(lp, ls):
+                axis_lo, axis_hi = _hull_span((zx - cx, zy - cy, zyaw), (tx, ty), hull)
+                found.append(dict(t=zt, dir=now, lateral=round(lateral, 3),
+                                  hull_inside=lo <= axis_lo and axis_hi <= hi,
+                                  margin_m=round(min(axis_lo - lo, hi - axis_hi), 3)))
+        if now:
+            side = now
+    return found
+
+
+def sequence(passes_by_gate, direction, after, need_inside=True):
+    """Earliest in-order passes of every gate in ``direction`` after ``after``; [] if none."""
+    chosen, t = [], after
+    for gate_passes in passes_by_gate:
+        nxt = next((p for p in gate_passes if p['t'] > t and p['dir'] == direction
+                    and (p['hull_inside'] or not need_inside)), None)
+        if nxt is None:
+            return []
+        chosen.append(nxt)
+        t = nxt['t']
+    return chosen
+
+
+def sweep(track, centre, radius=math.inf, reach=None):
+    """(deg, t): the largest net signed sweep (+CCW) round ``centre`` in one stay within
+    ``radius``, and when the net first reached ``reach`` degrees either way (or None)."""
+    best, net, previous, reached = 0.0, 0.0, None, None
+    for t, x, y, _ in track:
+        if not math.isfinite(x + y) or math.dist((x, y), centre) > radius:
+            previous, net = None, 0.0
+            continue
+        angle = math.atan2(y - centre[1], x - centre[0])
+        if previous is not None:
+            net += math.remainder(angle - previous, 2 * math.pi)
+            if abs(net) > abs(best):
+                best = net
+            if reached is None and reach is not None and abs(math.degrees(net)) >= reach:
+                reached = t
+        previous = angle
+    return math.degrees(best), reached
+
+
+def strikes(track, items, hull, rearm=PARAMS['strike_rearm_m']):
+    """One strike per contact episode with each object: [{object, task, t, min_clearance_m}]."""
+    reach = math.hypot(*hull) / 2
+    found = []
+    for item in items:
+        cx, cy, r = item['x'], item['y'], item.get('radius') or 0.2
+        near = (reach + r + rearm) ** 2
+        touching, worst = False, None
+        for t, x, y, yaw in track:
+            if (x - cx) ** 2 + (y - cy) ** 2 > near:
+                clear = rearm + 1
+            else:
+                clear = hull_clearance((x, y, yaw), (cx, cy), r, hull)
+            if clear < 0:
+                if not touching:
+                    touching, worst = True, dict(object=item['id'], task=item.get('task'),
+                                                 t=round(t, 3), min_clearance_m=clear)
+                    found.append(worst)
+                worst['min_clearance_m'] = min(worst['min_clearance_m'], clear)
+            elif clear > rearm:
+                touching = False
+    for strike in found:
+        strike['min_clearance_m'] = round(strike['min_clearance_m'], 3)
+    return sorted(found, key=lambda s: s['t'])
+
+
+def min_clearance(track, item, hull):
+    if not track:
+        return None
+    return round(min(hull_clearance((x, y, yaw), _xy(item), item.get('radius') or 0.2, hull)
+                     for _, x, y, yaw in track), 3)
+
+
+def docked(track, bay, dwell=PARAMS['dock_dwell_s'], gap=PARAMS['dock_gap_s']):
+    """First time the hull centre had been held in ``bay`` for ``dwell`` s, and the longest
+    hold. Heading is free: bow in, stern in or sideways all dock (no design favoured)."""
+    c, s = math.cos(bay['yaw']), math.sin(bay['yaw'])
+    best, since, last_in, done = 0.0, None, None, None
+    for t, x, y, yaw in track:
+        dx, dy = x - bay['x'], y - bay['y']
+        along, across = c * dx + s * dy, -s * dx + c * dy
+        inside = abs(along) <= bay['depth'] / 2 and abs(across) <= bay['width'] / 2
+        if inside:
+            if since is None or t - last_in > gap:
+                since = t
+            last_in = t
+            best = max(best, t - since)
+            if done is None and t - since >= dwell:
+                done = t
+    return done, best
+
+
+def with_heading(track):
+    """The track, with yaw from the motion when it carries none (every yaw 0 or None)."""
+    if any(p[3] for p in track):
+        return track
+    out, yaw = [], 0.0
+    for i, (t, x, y, _) in enumerate(track):
+        j = min(i + 1, len(track) - 1)
+        k = max(j - 1, 0)
+        if math.dist(track[j][1:3], track[k][1:3]) > 1e-6:
+            yaw = math.atan2(track[j][2] - track[k][2], track[j][1] - track[k][1])
+        out.append((t, x, y, yaw))
+    return out
+
+
+def inside_polygon(point, polygon):
+    x, y = point
+    inside = False
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
+
+# ---------------------------------------------------------------- scoring
+
+class _Rows:
+    """Rows of one task; ``allowed(t)`` says whether a behaviour at ``t`` is in the scored run."""
+
+    def __init__(self, allowed):
+        self.allowed, self.rows = allowed, []
+
+    def add(self, rid, cite, tag, desc, possible, behaviour, t=None, report=False,
+            status=None, points=None, **evidence):
+        """``report`` False: no report part; None: a report is needed but not captured."""
+        row = dict(id=rid, cite=cite, tag=tag, desc=desc, possible=possible, points=0,
+                   provisional=0, status=status, t=None if t is None else round(t, 3),
+                   behaviour=behaviour, report=report if report is not False else None,
+                   evidence=evidence)
+        if status is None:
+            if not behaviour:
+                row['status'] = 'missed'
+            elif not self.allowed(t):
+                row['status'] = 'missed'
+                evidence['outside_run'] = True
+            elif report is None:
+                row['status'], row['provisional'] = 'provisional', \
+                    possible if points is None else points
+            elif report is False or report is True:
+                row['status'], row['points'] = 'earned', possible if points is None else points
+            else:
+                row['status'] = 'missed'
+        self.rows.append(row)
+        return row
+
+
+def _report_only(rows, rid, cite, desc, possible, **evidence):
+    rows.add(rid, cite, 'H', desc, possible, None, status='unscorable',
+             reason='report: no RoboCommand capture in the sim', **evidence)
+
+
+def _entry_exit(model, run, rows_for, gate_passes):
+    gates = sorted((g for g in model['gates'] if g['task'] == 'entry_gates'),
+                   key=lambda g: g['order'])
+    rows = rows_for('entry_gates')
+    if len(gates) < 2:
+        return rows, None, None
+    seq = sequence([gate_passes[g['id']] for g in gates], 1, -math.inf)
+    t_entry, touched = None, []
+    if seq:
+        pad = PARAMS['entry_contact_pad_s']
+        lo, hi = seq[0]['t'] - pad, seq[-1]['t'] + pad
+        buoys = [g[side] for g in gates for side in ('port', 'stbd')]
+        touched = [s['object'] for s in strikes([p for p in run if lo <= p[0] <= hi],
+                                                buoys, model['hull'])]
+        t_entry = seq[-1]['t'] if not touched else None
+    rows.rows.clear()
+    first = _Rows(lambda t: True)       # the entry row is the start of the scored run
+    first.add('T1.entry', 'S; L 3.2.1; H pp.45-47', 'H', 'through both entry gates, whole hull, '
+              'no contact', 100, bool(seq) and not touched, t=seq[-1]['t'] if seq else None,
+              passes=[dict(p, gate=g['id']) for g, p in zip(gates, seq)], touched=touched)
+    rows.rows.extend(first.rows)
+    t_exit, exits = None, []
+    if t_entry is not None:
+        first_gate = gate_passes[gates[0]['id']]
+        for start in gate_passes[gates[-1]['id']]:
+            if start['t'] <= t_entry or start['dir'] != -1:
+                continue
+            back = sequence([gate_passes[g['id']] for g in reversed(gates)], -1, start['t'] - 1e-9)
+            if back and not any(p['dir'] == 1 and p['t'] > back[-1]['t'] for p in first_gate):
+                exits = back
+                break
+        t_exit = exits[-1]['t'] if exits else None
+    return rows, t_entry, (t_exit, exits)
+
+
+def _debris(model, run, rows, gate_passes, t_entry):
+    task = model['tasks'].get('debris_clearance') or {}
+    sem = task.get('semantics') or {}
+    gates = sorted((g for g in model['gates'] if g['task'] == 'debris_clearance'),
+                   key=lambda g: g['order'])
+    by_id = {e['id']: e for e in model['elements']}
+    after = t_entry if t_entry is not None else -math.inf
+    inward = sequence([gate_passes[g['id']] for g in gates], 1, after) if gates else []
+    rows.add('T2.channel_in', 'S; L 3.2.2; H pp.47-49', 'H', 'through every channel gate in '
+             'order, outbound', 100, bool(inward), t=inward[-1]['t'] if inward else None,
+             gates=f'{len(inward)}/{len(gates)}', na=not gates) if gates else \
+        rows.add('T2.channel_in', 'S; L 3.2.2', 'H', 'channel in', 100, None, status='n/a')
+    outward = sequence([gate_passes[g['id']] for g in reversed(gates)], -1,
+                       inward[-1]['t']) if inward else []
+    if gates:
+        rows.add('T2.channel_out', 'S; L 3.2.2; H pp.47-49', 'H', 'back through every channel '
+                 'gate in reverse order', 100, bool(outward),
+                 t=outward[-1]['t'] if outward else None)
+    else:
+        rows.add('T2.channel_out', 'S; L 3.2.2', 'H', 'channel out', 100, None, status='n/a')
+    scored = [p for p in run if p[0] > after]
+    reds = [by_id[i] for i in sem.get('avoid', []) if i in by_id]
+    if reds:
+        detail = {}
+        for red in reds:
+            deg, _ = sweep(scored, _xy(red), PARAMS['circle_radius_m'])
+            near = min(scored, key=lambda p: math.dist(p[1:3], _xy(red)), default=None)
+            dist = math.dist(near[1:3], _xy(red)) if near else math.inf
+            detail[red['id']] = dict(sweep_deg=round(deg, 1), closest_m=round(dist, 2),
+                                     min_clearance_m=min_clearance(scored, red, model['hull']),
+                                     t=near[0] if near else None)
+        ok = [d for d in detail.values() if d['closest_m'] <= PARAMS['red_encounter_m']
+              and abs(d['sweep_deg']) < PARAMS['full_circle_deg']
+              and (d['min_clearance_m'] or 0) > 0]
+        rows.add('T2.red_avoid', 'S; L 3.2.2', 'H+D', 'approach the red indicator, avoid it, '
+                 'no circling; report its position', 100, bool(ok) and len(ok) == len(detail),
+                 t=max((d['t'] for d in ok), default=None), report=None, avoid=detail)
+    else:
+        rows.add('T2.red_avoid', 'S; L 3.2.2', 'H', 'red indicator', 100, None, status='n/a')
+    greens = [by_id[i] for i in sem.get('rescue', []) if i in by_id]
+    if greens:
+        detail, times = {}, []
+        for green in greens:
+            deg, t = sweep(scored, _xy(green), PARAMS['circle_radius_m'],
+                           PARAMS['full_circle_deg'])
+            detail[green['id']] = dict(sweep_deg=round(deg, 1), t=t)
+            times += [t] if t is not None else []
+        rows.add('T2.green_circle', 'S; L 3.2.2 (Feb 4: full 360)', 'H+D', 'a full circle round '
+                 'a green indicator; report its position', 200, bool(times),
+                 t=min(times, default=None), report=None, rescue=detail)
+    else:
+        rows.add('T2.green_circle', 'S; L 3.2.2', 'H', 'green indicator', 200, None, status='n/a')
+    if sem.get('report'):
+        _report_only(rows, 'T2.report_all', 'S; L 3.2.2', 'report every debris position', 200)
+    else:
+        rows.add('T2.report_all', 'S; L 3.2.2', 'H', 'report all debris', 200, None, status='n/a')
+
+
+def _speed(model, run, rows, gate_passes, t_entry, changes):
+    task = model['tasks'].get('speed_challenge')
+    gate = next((g for g in model['gates'] if g['task'] == 'speed_challenge'), None)
+    by_id = {e['id']: e for e in model['elements']}
+    sem = (task or {}).get('semantics') or {}
+    mark = by_id.get(sem.get('turn_mark'))
+    if not (task and gate and mark):
+        for rid, pts in (('T3.loop', 200), ('T3.direction', 150), ('T3.time', 250),
+                         ('T3.report', 100)):
+            rows.add(rid, 'S; L 3.2.3', 'H', 'speed challenge', pts, None, status='n/a')
+        return
+    after = t_entry if t_entry is not None else -math.inf
+    mine = gate_passes[gate['id']]
+    loop = None
+    for p_in in (p for p in mine if p['dir'] == 1 and p['t'] > after and p['hull_inside']):
+        for p_out in (p for p in mine if p['dir'] == -1 and p['t'] > p_in['t']):
+            deg, _ = sweep([s for s in run if p_in['t'] <= s[0] <= p_out['t']], _xy(mark))
+            if abs(deg) >= PARAMS['speed_loop_deg'] and p_out['hull_inside']:
+                loop = (p_in, p_out, deg)
+                break
+        if loop:
+            break
+    rows.add('T3.loop', 'S; L 3.2.3; H pp.49-51', 'H+D', 'in through the gate, round the '
+             'yellow mark, out through the same gate', 200, bool(loop),
+             t=loop[1]['t'] if loop else None,
+             sweep_deg=round(loop[2], 1) if loop else None)
+    source = sem.get('direction_source')
+    sid = (sem.get(source) or {}).get('id') if source else None
+    if sid is None:
+        rows.add('T3.direction', 'S; L 3.2.3', 'H', 'circle direction', 150, None, status='n/a',
+                 reason='no direction source on this course')
+    else:
+        colour = state_at(model, sid, loop[0]['t'] if loop else after, changes) \
+            or sem.get('source_color')
+        expected = {'red': 'ccw', 'green': 'cw'}.get(colour)
+        done = ('ccw' if loop[2] > 0 else 'cw') if loop else None
+        rows.add('T3.direction', 'S; L 3.2.3 (red = from the right, CCW; green = CW)', 'H',
+                 'round the mark in the direction the indicator commands', 150,
+                 bool(loop) and done == expected, t=loop[1]['t'] if loop else None,
+                 source=sid, source_color_at_entry=colour, expected=expected, direction=done)
+    took = loop[1]['t'] - loop[0]['t'] if loop else None
+    rows.add('T3.time', 'S (250 - T)', 'H+D', 'gate to gate time; points 250 - T s, '
+             'floored at 0 (D)', 250, bool(loop), t=loop[1]['t'] if loop else None,
+             points=round(max(0.0, 250 - took), 1) if loop else None,
+             T_s=round(took, 2) if loop else None)
+    _report_only(rows, 'T3.report', 'S; L 3.2.3', 'report indicator colour and time', 100)
+
+
+def _supply(model, run, rows):
+    task = model['tasks'].get('supply_drop')
+    sem = (task or {}).get('semantics') or {}
+    by_id = {e['id']: e for e in model['elements']}
+    for kind, cite in (('water', 'S; L 3.2.4; H pp.51-54'), ('ball', 'S; L 3.2.4')):
+        hulls = [by_id[i] for i in sem.get(kind, []) if i in by_id]
+        possible = sum((75, 125, 200)[:len(hulls)])
+        if not hulls:
+            rows.add(f'T4.{kind}', cite, 'H', f'{kind} delivery', 0, None, status='n/a')
+            continue
+        approach = {h['id']: min_clearance(run, h, model['hull']) for h in hulls}
+        rows.add(f'T4.{kind}', cite, 'H', f'{kind} delivered to each hull (75/125/200)',
+                 possible, None, status='unscorable', reason='the sim has no delivery sensing',
+                 min_clearance_m=approach)
+    if task:
+        _report_only(rows, 'T4.report', 'S; L 3.2.4', 'report hull location, colour and '
+                     'delivery type', 100)
+    else:
+        rows.add('T4.report', 'S; L 3.2.4', 'H', 'delivery report', 100, None, status='n/a')
+
+
+TIER_POINTS = {'unoccupied': 50, 'green': 200, 'lowest_green': 350}
+
+
+def _marina(model, run, rows, changes, allowed):
+    bays = model['bays']
+    if not bays:
+        rows.add('T5.dock', 'S; L 3.2.5', 'H', 'docking', 350, None, status='n/a')
+        rows.add('T5.report', 'S; L 3.2.5', 'H', 'dock report', 100, None, status='n/a')
+        return []
+    warnings, held = [], []
+    green = []
+    for bay in bays:
+        indicator = bay.get('indicator') or {}
+        colour = indicator.get('color')
+        busy = bool(bay.get('occupied') or bay.get('vessel'))
+        if not busy and colour == 'green':
+            green.append(bay)
+        t, longest = docked(run, bay)
+        held.append(dict(bay=bay['id'], t=t, held_s=round(longest, 1), occupied=busy))
+    lowest = min(green, key=lambda b: (b.get('sign') or {}).get('number', 9), default=None)
+    claimed = ((model['tasks'].get('marina') or {}).get('semantics') or {}) \
+        .get('tiers', {}).get('lowest_green')
+    if lowest and claimed and claimed != lowest['id']:
+        warnings.append(f'truth names {claimed} lowest green; the bays say {lowest["id"]}')
+    best = None
+    for h, bay in zip(held, bays):
+        if h['t'] is None or not allowed(h['t']):
+            continue
+        indicator = bay.get('indicator') or {}
+        colour = state_at(model, indicator.get('id'), h['t'], changes) or indicator.get('color')
+        tier = ('occupied' if h['occupied'] else 'lowest_green' if lowest is bay and
+                colour == 'green' else 'green' if colour == 'green' else 'unoccupied')
+        h['tier'] = tier
+        if tier != 'occupied' and (best is None or TIER_POINTS[tier] > TIER_POINTS[best[0]]):
+            best = (tier, h)
+    possible = 50 if model['legacy'] else 350
+    rows.add('T5.dock', 'S; L 3.2.5; H pp.54-56', 'H+D', 'held in a slip; 50 unoccupied, 200 '
+             'green, 350 lowest green (highest tier only, D)', possible, bool(best),
+             t=best[1]['t'] if best else None, points=TIER_POINTS[best[0]] if best else None,
+             report=None if best and best[0] != 'unoccupied' else False,
+             tier=best[0] if best else None, entered=best[1]['bay'] if best else None,
+             bays=[h for h in held if h['held_s'] > 0])
+    _report_only(rows, 'T5.report', 'S; L 3.2.5', 'report dock N/S and slip', 100)
+    return warnings
+
+
+def _harbor(model, run, rows, t_from, t_cut):
+    task = model['tasks'].get('harbor_alert')
+    horn = model['states'].get('harbor_alert.horn')
+    program = (horn or {}).get('program') or {}
+    trigger = program.get('trigger_s')
+    if not task or trigger is None or not (t_from <= trigger <= t_cut):
+        rows.add('T6.zone', 'S; L 3.2.6', 'H', 'harbor alert', 300, None, status='n/a',
+                 reason='no horn during the scored run')
+        rows.add('T6.report', 'S; L 3.2.6', 'H', 'alert report', 150, None, status='n/a')
+        return
+    target = 'zone1' if program.get('pattern') == 'one' else 'zone2'     # L 3.2.6
+    zones = {z: task['anchors'][z] for z in ('zone1', 'zone2') if z in task.get('anchors', {})}
+    reached = None
+    for t, x, y, _ in run:
+        if t < trigger:
+            continue
+        hit = next((z for z, a in zones.items() if math.dist((x, y), (a['x'], a['y']))
+                    <= a.get('r', 3.0)), None)
+        if hit:
+            reached = (hit, t)
+            break
+    tier = 300 if reached and reached[0] == target else 150 if reached else 0
+    rows.add('T6.zone', 'S; L 3.2.6; H pp.56-58', 'H+D', 'after the horn, reach a zone '
+             '(150) or the commanded zone (300); zone = anchor radius (D)', 300, bool(reached),
+             t=reached[1] if reached else None, points=tier or None,
+             report=None, trigger_s=trigger, pattern=program.get('pattern'),
+             target_zone=target, reached=reached[0] if reached else None,
+             correct=bool(reached) and reached[0] == target,
+             response_s=round(reached[1] - trigger, 2) if reached else None)
+    _report_only(rows, 'T6.report', 'S; L 3.2.6', 'confirm the signal', 150)
+
+
+def judge(truth, track, window=None, authority=(), changes=(), require_entry=True):
+    """The scored run: a ``mhseals.score/1`` report body (without ``schema``/``summary``).
+
+    ``window`` (t0, t1) is the run; ``authority`` is [{t, by, cause}] owner changes in track
+    time; ``changes`` are recorded state changes [{t_sim, id, value}].
+    ``require_entry`` False scores each task alone (fixtures that skip the entry gates).
+    """
+    model = course(truth)
+    hull = model['hull']
+    t0, t1 = window or (track[0][0], track[-1][0]) if track else (0.0, 0.0)
+    run = with_heading([(p[0], p[1], p[2], p[3] or 0.0) for p in track
+                        if t0 <= p[0] <= t1 and all(map(math.isfinite, p[:3]))])
+    warnings = []
+    end = dict(reason='track_end' if not window else 'finished', t=t1)
+    interventions = [dict(a, kind='intervention') for a in authority
+                     if t0 <= a['t'] <= t1 and a.get('by') in INTERVENING]
+    if interventions:
+        end = dict(reason='intervention', t=interventions[0]['t'])
+    out = []
+    if model['boundary']:
+        poly = [tuple(p) for p in model['boundary']]
+        first = next((p for p in run if not inside_polygon(p[1:3], poly)), None)
+        if first:
+            out.append(dict(t=first[0], x=round(first[1], 2), y=round(first[2], 2)))
+            if first[0] < end['t']:
+                end = dict(reason='out_of_bounds', t=first[0])      # H p.66 §5.1.12
+    run = [p for p in run if p[0] <= end['t']]
+    gate_passes = {g['id']: passes(run, g, hull) for g in model['gates']}
+    tasks = {}
+    allowed = {}
+
+    def rows_for(name):
+        tasks[name] = _Rows(lambda t: allowed['f'](t))
+        return tasks[name]
+
+    entry_rows, t_entry, (t_exit, exits) = _entry_exit(model, run, rows_for, gate_passes)
+    t_cut = t_exit if t_exit is not None else end['t']
+    if require_entry:
+        allowed['f'] = lambda t: t is not None and t_entry is not None and t_entry < t <= t_cut
+    else:
+        allowed['f'] = lambda t: t is not None and t <= t_cut
+    if t_exit is not None:
+        entry_rows.add('T1.exit', 'S; L 3.2.1; H pp.45-47', 'H', 'back out through both '
+                       'gates at the end of the run', 200, True, t=t_exit,
+                       passes=[dict(p) for p in exits])
+    else:
+        entry_rows.add('T1.exit', 'S; L 3.2.1', 'H', 'exit through both gates', 200, False)
+    _report_only(entry_rows, 'T1.entry_report', 'S; L 3.2.1; C', 'report entry time and '
+                 'position', 100)
+    _report_only(entry_rows, 'T1.exit_report', 'S; L 3.2.1; C', 'report exit time and '
+                 'position', 100)
+    _debris(model, run, rows_for('debris_clearance'), gate_passes,
+            t_entry if require_entry else None)
+    _speed(model, run, rows_for('speed_challenge'), gate_passes,
+           t_entry if require_entry else None, changes)
+    _supply(model, run, rows_for('supply_drop'))
+    warnings += _marina(model, run, rows_for('marina'), changes, allowed['f'])
+    _harbor(model, run, rows_for('harbor_alert'),
+            (t_entry if require_entry and t_entry is not None else t0), t_cut)
+    scored = [p for p in run if p[0] <= t_cut]
+    items = [e for e in model['elements'] if e.get('role') not in DOCK_PARTS]
+    hits = strikes(scored, items, hull)
+    penalty = STRIKE_POINTS * min(len(hits), STRIKE_MAX)
+    start = None
+    if run:
+        start = dict(x=round(run[0][1], 2), y=round(run[0][2], 2),
+                     offset_from_course_start_m=round(math.dist(run[0][1:3], model['start']), 2))
+        gate1 = next((g for g in model['gates'] if g['task'] == 'entry_gates'
+                      and g['order'] == 1), None)
+        if gate1:
+            behind = -((run[0][1] - gate1['c'][0]) * gate1['n'][0] +
+                       (run[0][2] - gate1['c'][1]) * gate1['n'][1])
+            start['before_gate1_m'] = round(behind, 2)
+            start['ok'] = behind >= PARAMS['start_standoff_m']
+        if start['offset_from_course_start_m'] > PARAMS['start_offset_warn_m']:
+            warnings.append(f"run started {start['offset_from_course_start_m']} m from the "
+                            'course start')
+    if require_entry and t_entry is None:
+        warnings.append('never entered through the entry gates: no other task scores (S 4.2)')
+    body = dict(tasks={}, penalties=dict(strikes=hits, strike_points=-penalty,
+                                         interventions=interventions, out_of_bounds=out))
+    total = dict(points=0, provisional=0, possible=0, possible_scorable=0,
+                 penalty=-penalty, by_task={})
+    for name, rows in tasks.items():
+        task = model['tasks'].get(name) or {}
+        points = sum(r['points'] for r in rows.rows)
+        prov = sum(r['provisional'] for r in rows.rows)
+        possible = sum(r['possible'] for r in rows.rows if r['status'] != 'n/a')
+        body['tasks'][name] = dict(
+            type=task.get('type', name), cite=task.get('cite'), points=points, provisional=prov,
+            possible=possible, attempted=any(r['behaviour'] for r in rows.rows), rows=rows.rows)
+        total['points'] += points
+        total['provisional'] += prov
+        total['possible'] += possible
+        total['possible_scorable'] += sum(r['possible'] for r in rows.rows
+                                          if r['status'] not in ('n/a', 'unscorable'))
+        total['by_task'][name] = points
+    total['points'] -= penalty
+    body['total'] = total
+    body['run'] = dict(window=[t0, t1], end=dict(end, t=round(end['t'], 3)),
+                       scored_until=round(t_cut, 3),
+                       entry_t=None if t_entry is None else round(t_entry, 3),
+                       exit_t=None if t_exit is None else round(t_exit, 3),
+                       duration_s=round(t_cut - t0, 2), start=start,
+                       mode='run' if require_entry else 'task', legacy_course=model['legacy'],
+                       hull=dict(length=hull[0], beam=hull[1]), warnings=warnings)
+    body['params'] = dict(PARAMS)
+    return body
+
+
+def summary(report):
+    """One line: points, provisional, scorable possible, task marks, strikes, end."""
+    total, run = report['total'], report['run']
+    marks = ' '.join(f"{name.split('_')[0]}:{t['points']}" for name, t in report['tasks'].items()
+                     if t['possible'])
+    strikes_n = len(report['penalties']['strikes'])
+    return (f"{total['points']} pts (+{total['provisional']} provisional) of "
+            f"{total['possible_scorable']} scorable · {marks} · {strikes_n} strike"
+            f"{'' if strikes_n == 1 else 's'} · ended {run['end']['reason']}")

@@ -1,0 +1,11 @@
+{
+ "tasks": {
+  "marina": {
+   "entered": "marina.S2",
+   "tier": "occupied"
+  }
+ },
+ "contacts": [
+  "marina.S2.vessel"
+ ]
+}

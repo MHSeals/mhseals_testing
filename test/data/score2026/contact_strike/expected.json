@@ -1,0 +1,11 @@
+{
+ "contacts": [
+  "entry_gates.gate1.port"
+ ],
+ "min_clearance": {
+  "entry_gates.gate1.port": {
+   "approx": -0.676,
+   "tol": 0.01
+  }
+ }
+}

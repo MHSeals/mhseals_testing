@@ -1,0 +1,12 @@
+{
+ "tasks": {
+  "speed_challenge": {
+   "source": "speed_challenge.sign",
+   "source_color_at_entry": "green",
+   "expected": "cw",
+   "direction": "ccw",
+   "correct": false
+  }
+ },
+ "contacts": []
+}

@@ -1,0 +1,18 @@
+{
+ "tasks": {
+  "debris_clearance": {
+   "avoid": {
+    "debris_clearance.red_beacon1": {
+     "sweep_deg": {
+      "approx": -135.951,
+      "tol": 1
+     },
+     "min_clearance": {
+      "approx": 2.253,
+      "tol": 0.01
+     }
+    }
+   }
+  }
+ }
+}

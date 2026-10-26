@@ -1,0 +1,10 @@
+{
+ "tasks": {
+  "harbor_alert": {
+   "target_zone": "zone2",
+   "reached": "zone2",
+   "correct": true
+  }
+ },
+ "contacts": []
+}

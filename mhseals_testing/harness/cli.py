@@ -28,7 +28,8 @@ from mhseals_testing.profiles import load_profile
 
 TICK = 0.5          # seconds between evaluations while sampling
 # boat_trial analyze NAME: the module whose main(argv) re-runs it on a finished session
-ANALYSES = {'referee': 'mhseals_testing.harness.referee_analyze'}
+ANALYSES = {'referee': 'mhseals_testing.harness.referee_analyze',
+            'score': 'mhseals_testing.harness.score_analyze'}
 
 
 def procedure_keys():
