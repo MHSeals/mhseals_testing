@@ -24,6 +24,11 @@ stop_file    ``<data root>/agent/stop`` is absent (touch it to end every sim-arm
 ===========  ===================================================================================
 
 Anything missing or unreadable fails its check. ``refusal`` names the first failed check.
+
+``enabled`` ships false (agent.yaml is the boat's too); the sim container sets ``MHSEALS_SIM_ARM=1``.
+While armed, ``recheck`` repeats the graph half every ``RECHECK_S`` (TOCTOU) and the desk disarms on a
+failure. ``stale_holds`` (owner decision 2026-10-26): in a brand-new sim session whose only failed check
+is ``holds`` on its own file, the desk clears what a previous session left there and logs it.
 """
 
 from dataclasses import dataclass, field
@@ -37,12 +42,22 @@ BOAT_DOMAIN = 42                    # the fleet's domain: never a sim, whatever 
 INIT_IPC = 'ipc:[4026531839]'       # PROC_IPC_INIT_INO: the host's initial IPC namespace
 CONTAINER_MARKERS = ('/.dockerenv', '/run/.containerenv')
 PLAYER_PREFIX = '/crane/'
+ENABLE_ENV = 'MHSEALS_SIM_ARM'          # set only by the sim container (docker run -e)
+RECHECK_S = 5.0                        # the graph re-check while sim-armed
+OWN_NODES = ('thruster_pwm_node', 'command_mux', 'calibrated_velocity_controller')   # what arming starts
 HOLD_FILE = 'command_mux_holds.json'   # arming.session_hardware's per-session file
 CHECKS = ('enabled', 'profile', 'domain', 'discovery', 'container', 'private_ipc', 'clock', 'player',
           'no_hardware', 'holds', 'stop_file')
 DEFAULTS = {'enabled': False, 'max_s': 1800, 'domains': [101, 232],
             'real_nodes': [r'mavros\w*', r'zed_\w+', r'velodyne\w*', 'lidar_relay_publish', 'fcu_watchdog',
                            'host_diagnostic', r'ntrip\w*', r'ublox\w*', 'thruster_pwm_node', 'command_mux']}
+
+
+def enabled(config, env=None):
+    """The owner's switch: ``sim_arm.enabled`` (shipped false: agent.yaml is the boat's too), or
+    ``MHSEALS_SIM_ARM=1`` in the TUI's environment, which only the sim container's ``docker run -e`` sets."""
+    env = os.environ if env is None else env
+    return (config or {}).get('enabled') is True or env.get(ENABLE_ENV) == '1'
 
 
 def stop_path():
@@ -146,7 +161,7 @@ def checks(facts, config):
     peers = env.get('ROS_STATIC_PEERS', '')
     discovery = env.get('ROS_AUTOMATIC_DISCOVERY_RANGE', '')
     found = real_nodes(f.nodes, config['real_nodes'])
-    out = [('enabled', config['enabled'] is True, 'agent.yaml sim_arm.enabled'),
+    out = [('enabled', enabled(config, env), f'agent.yaml sim_arm.enabled or {ENABLE_ENV}=1 in the sim container'),
            ('profile', not profile_bad, '; '.join(profile_bad) or 'sim profile, topic outputs, muxed'),
            ('domain', *domain_check(env, config['domains'])),
            ('discovery', discovery == 'LOCALHOST' and not peers,
@@ -173,3 +188,37 @@ def refusal(results):
 
 def passed(results):
     return [name for name, ok, _ in results if ok]
+
+
+def recheck(ros, ground_truth, domain, config, env=None):
+    """'' while a sim-armed run's graph still proves a sim, else why not (the desk disarms).
+
+    The graph half of the checks, cheap enough for every ``RECHECK_S``: /clock and the crane ground truth
+    still published, no real-hardware node, ROS_DOMAIN_ID still ``domain``. The driver, mux and
+    controller this run started are expected, one of each; a second one is not. Any error fails.
+    """
+    config = {**DEFAULTS, **(config or {})}
+    try:
+        env = os.environ if env is None else env
+        if str(env.get('ROS_DOMAIN_ID', '')) != str(domain):
+            return f"ROS_DOMAIN_ID changed from {domain} to {env.get('ROS_DOMAIN_ID', 'unset')}"
+        clock, now, truth, nodes = graph_facts(ros, ground_truth)
+        if not clock or now <= 0:
+            return 'no /clock publisher' if not clock else 'sim time not running'
+        if not ground_truth.startswith(PLAYER_PREFIX) or not truth:
+            return f'nobody publishes {ground_truth or "the ground truth"}'
+        names = [n.rsplit('/', 1)[-1] for n in nodes]
+        extra = sorted({n for n in OWN_NODES if names.count(n) > 1})
+        found = sorted(set(real_nodes([n for n in nodes if n.rsplit('/', 1)[-1] not in OWN_NODES],
+                                      config['real_nodes'])) | set(extra))
+        return f'real hardware nodes: {", ".join(found)}' if found else ''
+    except Exception as error:      # noqa: BLE001 - an unreadable graph proves nothing
+        return f'graph unreadable: {error!r}'
+
+
+def stale_holds(facts, results, fresh):
+    """True when the only failed check is ``holds`` on the session's own hold file and ``fresh``: the
+    harness may clear holds a previous session left there (owner decision 2026-10-26, sim only)."""
+    failed = [name for name, ok, _ in results if not ok]
+    own = bool(facts.session) and facts.hold_file == str(Path(facts.session) / HOLD_FILE)
+    return fresh and own and bool(facts.holds) and failed == ['holds']

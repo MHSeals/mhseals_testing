@@ -2264,6 +2264,13 @@ class App:
             self.notice = source.apply(previewed)
 
     def prompt(self, message, title='Ready'):
+        # Owner decision 2026-10-26: a --sim-arm run whose checks passed (the desk sets agent_ready for it,
+        # and only while it holds the arm) has its Ready prompts confirmed by the agent, journaled as such.
+        who = getattr(self, 'agent_ready', None)
+        if who and title == 'Ready' and self.armed:
+            self.ros.emit('ready', by='agent', who=who, sim_arm=True, message=message)
+            self.notice = f'Ready confirmed by agent {who} (sim auto-arm)'
+            return ''
         return popups.prompt(self, message, title)
 
     def choose(self, title, options, shortcuts=None, message=None, danger=False, rows=None,
@@ -2441,6 +2448,7 @@ class App:
         The view keeps redrawing while the driver comes up, so arming reads as
         loading, never as a frozen screen.
         """
+        self.ever_armed = True                   # a hold saved after this is this session's (sim stale holds)
         if getattr(self.arming, 'remote', None) is None:
             self.arming.begin()
         else:                                    # the ssh read ran off the key loop; None refuses

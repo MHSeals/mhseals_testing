@@ -141,9 +141,9 @@ def test_gather_on_a_boat_refuses(tmp_path, monkeypatch):
     assert {'profile', 'holds'} <= set(failed(remote))           # a remote (ssh) driver keeps the boat's hold file
 
 
-def test_agent_yaml_ships_sim_arm_on_and_validates_it():
-    shipped = agent_config.load()['sim_arm']
-    assert shipped['enabled'] is True and shipped['domains'] == [101, 232] and 'mavros\\w*' in shipped['real_nodes']
+def test_agent_yaml_ships_sim_arm_off_and_validates_it():
+    shipped = agent_config.load()['sim_arm']       # the boat reads this file too: only the sim env turns it on
+    assert shipped['enabled'] is False and shipped['domains'] == [101, 232] and 'mavros\\w*' in shipped['real_nodes']
     assert agent_config.sim_arm({}) == sim_arm.DEFAULTS and sim_arm.DEFAULTS['enabled'] is False
     for bad in ({'enabled': 'yes'}, {'max_s': 0}, {'domains': [1]}, {'domains': [100, 300]}, {'domains': [True, 5]},
                 {'real_nodes': []}, {'real_nodes': ['(']}, {'release_holds': True}, []):
@@ -232,14 +232,58 @@ def test_agent_arm_keeps_the_panels_refusals(App):
 @pytest.mark.parametrize('command', [
     'ros2 run mhseals_hardware thruster_pwm_node --ros-args -p output_backend:=topic',
     'ros2 run mhseals_hardware command_mux', 'ros2 run mhseals_hardware calibrated_velocity_controller',
+    'ros2 run --prefix "nice -n 5" mhseals_hardware thruster_pwm_node',
+    # the module, the installed executable, the source file, an import, a bare or ./ executable, a launch
+    'python3 -m mhseals_hardware.thruster_pwm_node', 'python3 -u -m mhseals_hardware.command_mux --ros-args',
+    '/ws/install/mhseals_hardware/lib/mhseals_hardware/thruster_pwm_node --ros-args -p output_backend:=topic',
+    'install/lib/mhseals_hardware/command_mux', 'cd install/lib/mhseals_hardware && ./thruster_pwm_node',
+    'thruster_pwm_node --ros-args', 'nohup calibrated_velocity_controller &', 'bash -c "thruster_pwm_node"',
+    'timeout 600 env A=1 command_mux', 'python3 src/mhseals_hardware/mhseals_hardware/command_mux.py',
+    "python3 -c 'from mhseals_hardware.command_mux import main; main()'",
+    "python3 -c 'from mhseals_hardware import command_mux; command_mux.main()'",
+    "python3 -c 'import runpy; runpy.run_module(\"mhseals_hardware.thruster_pwm_node\")'",
+    'ros2 launch mhseals_nav navigation.launch.py command_mux:=true',
+    'ros2 launch mhseals_nav robot.launch.py use_sim_time:=true command_mux:=True',
+    'ros2 launch mhseals_hardware driver.launch.py',
     'ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"',
     'ros2 run mavros mavsafety arm'])
 def test_the_hook_blocks_direct_arming(command):
     from mhseals_testing import agent_hook as hook
     hit = hook.denied(command, hook.DEFAULTS)
     assert hit is not None
-    if 'mhseals_hardware' in command:
+    if 'mavros' not in command:
         assert 'run KEY --sim-arm --claim ID' in hook.deny_reason(*hit, config=hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('command, what', [
+    ('echo [] > /tmp/s/sessions/1/command_mux_holds.json', 'saved holds'),
+    (': > s/command_mux_holds.json', 'saved holds'), ('truncate -s0 command_mux_holds.json', 'saved holds'),
+    ('mv s/command_mux_holds.json /tmp/x', 'saved holds'), ('rm /run/user/1000/mhseals/command_mux_42.json', 'saved holds'),
+    ('rm -f /tmp/mhseals/command_mux_*', 'saved holds'), ('rm -rf /run/user/1000/mhseals', 'saved holds'),
+    ('find /tmp -name command_mux_*.json -delete', 'saved holds'),
+    ("python3 -c 'from mhseals_hardware import hold_store; hold_store.save(p, {})'", 'saved holds'),
+    ('rm ~/astro_dock/bags/agent/stop', 'stop file'), ('rm -f $MHSEALS_DATA/agent/stop', 'stop file'),
+    ('mv bags/agent/stop /tmp/s', 'stop file'), ('unlink bags/agent/stop', 'stop file'),
+    (': > bags/agent/stop', 'stop file'), ('rm bags/agent/*', 'stop file'), ('rm -rf ~/astro_dock/bags/agent', 'stop file'),
+    ("python3 -c 'import os; os.remove(\"bags/agent/stop\")'", 'stop file'),
+    ("python3 -c 'from mhseals_testing.harness.sim_arm import stop_path; stop_path().unlink()'", 'stop file')])
+def test_the_hook_blocks_changing_the_saved_holds_and_the_stop_file(command, what):
+    from mhseals_testing import agent_hook as hook
+    hit = hook.denied(command, hook.DEFAULTS)
+    assert hit is not None
+    reason = hook.deny_reason(*hit, config=hook.DEFAULTS)
+    assert what in reason and 'ask' in reason
+
+
+@pytest.mark.parametrize('command', [
+    'touch ~/astro_dock/bags/agent/stop', 'ros2 param get /command_mux cmd_timeout',
+    'ros2 topic echo /command_mux/state --once', 'ros2 node info /thruster_pwm_node',
+    'ros2 node list | grep -c command_mux', 'ros2 launch mhseals_nav navigation.launch.py command_mux:=false',
+    'colcon build --packages-select mhseals_hardware', 'pgrep -f thruster_pwm_node', 'ls config/command_mux.yaml',
+    'cat /tmp/mhseals/command_mux_42.json', 'python3 -m pytest test/test_command_mux.py -q'])
+def test_the_hook_still_allows_reads_and_the_stop_touch(command):
+    from mhseals_testing import agent_hook as hook
+    assert hook.denied(command, hook.DEFAULTS) is None
 
 
 def test_the_playbook_names_sim_arm_as_sim_only():
@@ -313,3 +357,41 @@ def test_a_live_sim_graph_in_the_private_ipc_container_passes_and_mavros_refuses
     finally:
         executor.shutdown()
         rclpy.shutdown(context=context)
+
+
+# --- the periodic re-check while sim-armed, and stale holds of a previous session ---------------------
+
+def graph(nodes=('/ros_tcp_endpoint', '/thruster_pwm_node', '/command_mux', '/calibrated_velocity_controller'),
+          clock=('/ros_tcp_endpoint',), now=3.0, truth=('/ros_tcp_endpoint',)):
+    return SimpleNamespace(publishers=lambda topic: clock if topic == '/clock' else truth, now=lambda: now,
+                           nodes=lambda: list(nodes))
+
+
+def test_the_recheck_passes_a_sim_and_ignores_the_driver_this_run_started():
+    assert sim_arm.recheck(graph(), '/crane/odom', '177', ON, ENV) == ''
+
+
+@pytest.mark.parametrize('ros, truth, env, why', [
+    (graph(nodes=('/mavros',)), '/crane/odom', ENV, 'real hardware nodes: /mavros'),
+    (graph(nodes=('/zed/zed_node',)), '/crane/odom', ENV, 'real hardware nodes: /zed/zed_node'),
+    (graph(nodes=('/thruster_pwm_node', '/x/thruster_pwm_node')), '/crane/odom', ENV,
+     'real hardware nodes: thruster_pwm_node'),
+    (graph(clock=()), '/crane/odom', ENV, 'no /clock publisher'), (graph(now=0.0), '/crane/odom', ENV, 'sim time'),
+    (graph(truth=()), '/crane/odom', ENV, 'nobody publishes /crane/odom'),
+    (graph(), '/odometry/global', ENV, 'nobody publishes'),
+    (graph(), '/crane/odom', dict(ENV, ROS_DOMAIN_ID='42'), 'ROS_DOMAIN_ID changed from 177 to 42'),
+    (SimpleNamespace(), '/crane/odom', ENV, 'graph unreadable')])
+def test_the_recheck_fails_when_the_graph_stops_proving_a_sim(ros, truth, env, why):
+    assert why in sim_arm.recheck(ros, truth, '177', ON, env)
+
+
+def test_stale_holds_clear_only_in_a_fresh_verified_sim_on_its_own_file(tmp_path):
+    held = replace(passing(tmp_path), holds=('costmap_stale',))
+    results = sim_arm.checks(held, ON)
+    assert sim_arm.stale_holds(held, results, fresh=True)
+    assert not sim_arm.stale_holds(held, results, fresh=False)                   # raised this session
+    other = replace(held, hold_file='/run/user/1000/mhseals/command_mux_42.json')  # not the session's own
+    assert not sim_arm.stale_holds(other, sim_arm.checks(other, ON), fresh=True)
+    boat = replace(held, env=dict(held.env, ROS_DOMAIN_ID='42'))                 # any other check failing
+    assert not sim_arm.stale_holds(boat, sim_arm.checks(boat, ON), fresh=True)
+    assert not sim_arm.stale_holds(passing(tmp_path), sim_arm.checks(passing(tmp_path), ON), fresh=True)

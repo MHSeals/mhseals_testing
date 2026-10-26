@@ -13,9 +13,12 @@ unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaime
 # harness/sim_arm.py proves a sim (sim profile and clock, crane player, private domain in `domains`, never 42,
 # localhost discovery, private-IPC container, no real-hardware node in `real_nodes`, the session's empty hold
 # file, no <data root>/agent/stop). It never releases a hold and disarms when the run ends, after max_s, on a
-# lapsed lease or when the stop file appears.
+# lapsed lease, when the stop file appears or when the graph re-check (every 5 s) stops proving a sim. A fresh sim
+# session clears holds a previous session left in its own hold file; a --sim-arm run's Ready prompts are the agent's.
+# This file is the boat's too, so it ships off. The sim container turns it on: `docker run -e MHSEALS_SIM_ARM=1`
+# (crane_autodemo, roboboat_test); the boat's containers never set it. enabled: true here also turns it on.
 sim_arm:
-  enabled: true
+  enabled: false
   max_s: 1800
   domains: [101, 232]
   real_nodes: ['mavros\w*', 'zed_\w+', 'velodyne\w*', lidar_relay_publish, fcu_watchdog, host_diagnostic, 'ntrip\w*',
@@ -50,13 +53,26 @@ hook:
          'ros2\s+bag\s+play\b(?!.*--topics\b)',
          'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
          'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
-         'ros2\s+run\s+mhseals_hardware\s+(thruster_pwm_node|command_mux|calibrated_velocity_controller)\b',
          'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority|\bthruster_pwm_node/estop|\bthrusters/)',
          'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
          'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\s+(--?[\w-]+\s+)*[^\s-]*\$',
          '\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\b',
          '\b(pkill|killall)\b', '\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
-         '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b']
+         '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b',
+         # agent_hook.ARMING: the thruster driver, mux or controller started by any route (run --sim-arm arms a sim)
+         'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)\b',
+         '\bmhseals_hardware[./](thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)(\.py)?(?![\w-]|\.(json|ya?ml|md|txt)\b)',
+         '\bfrom\s+mhseals_hardware(\.\w+)?\s+import\b[^\n]*\b(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)\b',
+         '(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)(\.py)?(?=\s|$|[;&|)`])',
+         'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)',
+         'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
+         # agent_hook.HOLDS and STOP: the mux's saved holds and <data root>/agent/stop (touch it to stop)
+         'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)',
+         '(?<![\w-])(rm|mv|rmdir|unlink|shred|find|rsync)\b.*/mhseals(/\*?)?(?=\s|$|[;&|)])',
+         '(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr|rmdir)\b.*\bagent/(stop\b|\*|\?|\[)',
+         '>\|?\s*\S*\bagent/stop\b',
+         '(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*\bagent/?(?=\s|$|[;&|)])',
+         '\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   deny_boat: ['\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
               '\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',

@@ -44,6 +44,25 @@ SECRETS = (   # agent_channel._SECRETS, kept equal by test_agent_hook
     re.compile(r'(?i)(\bauthorization\s*:\s*(?:(?:bearer|basic|token)\s+)?)' + _VALUE),
     re.compile(r'(?i)(\bbearer\s+)' + _VALUE))
 CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'agent.yaml'
+# What starts the thruster driver, the mux or the velocity controller: executables and their modules.
+DRIVER = r'(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)'
+MODULE = r'(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)'
+# Starting the thruster driver, the mux or the velocity controller (arming) in any form: ros2 run, the module
+# or the installed path, an import of it, a bare or ./ executable in command position, a launch that starts the mux.
+ARMING = [r'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*' + DRIVER + r'\b',
+          r'\bmhseals_hardware[./]' + MODULE + r'(\.py)?(?![\w-]|\.(json|ya?ml|md|txt)\b)',
+          r'\bfrom\s+mhseals_hardware(\.\w+)?\s+import\b[^\n]*\b' + MODULE + r'\b',
+          r'(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash'
+          r'|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*' + DRIVER + r'(\.py)?(?=\s|$|[;&|)`])',
+          r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)', r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b']
+# The mux's saved holds (a sim session's command_mux_holds.json, the boat's command_mux_<domain>.json and their
+# directory) and the agent stop file: no shell write, truncation, move or delete. touch on the stop file stays.
+HOLDS = [r'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)',
+         r'(?<![\w-])(rm|mv|rmdir|unlink|shred|find|rsync)\b.*/mhseals(/\*?)?(?=\s|$|[;&|)])']
+STOP = [r'(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr'
+        r'|rmdir)\b.*\bagent/(stop\b|\*|\?|\[)',
+        r'>\|?\s*\S*\bagent/stop\b', r'(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*\bagent/?(?=\s|$|[;&|)])',
+        r'\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b']
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -61,7 +80,6 @@ DEFAULTS = {
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
-             r'ros2\s+run\s+mhseals_hardware\s+(thruster_pwm_node|command_mux|calibrated_velocity_controller)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
              r'|\bthruster_pwm_node/estop|\bthrusters/)',
              r'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
@@ -71,7 +89,7 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'],
+             r'|mavros\w*|boat_(trial|test)\w*)\b'] + ARMING + HOLDS + STOP,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
@@ -86,7 +104,10 @@ USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing proce
         "stopping or restarting the boat's software or computer", None),
        (r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
         'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
-       (r'ros2\s+run\s+mhseals_hardware\s+(thruster_pwm_node|command_mux|calibrated_velocity_controller)',
+       ('|'.join(HOLDS), "changing the mux's saved holds (only the operator releases a hold, with U)", None),
+       ('|'.join(STOP), 'removing or changing the agent stop file (touch it to stop; only the operator removes it)',
+        None),
+       ('|'.join(ARMING),
         'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID'),
        (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control|create_publisher',
         'raw motion', 'run KEY --claim ID'),
