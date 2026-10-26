@@ -38,7 +38,7 @@ class Corrections:
         self.dead_after, self.clock = dead_after, clock
         self.config = config or {}          # the base settings, for StatusTracker's survey terms
         self.base = self.ntrip = self.rough = None
-        self.active = self.used = None      # used: the last source that was active
+        self.active = self.used = None      # used: the last source that reached the sinks
         self.last, self.switches = {}, 0
         self.routes = [dict(sent=0, failed=0, error='', error_at=None) for _ in self.sinks]
         self.lock = threading.RLock()
@@ -57,6 +57,9 @@ class Corrections:
                 self.evaluate()
             if name != self.active:
                 return
+            if name != self.used:           # a switch counts once the new source actually streams
+                self.switches += self.used is not None
+                self.used = name
         for index, sink in enumerate(self.sinks):
             route = self.routes[index]
             try:
@@ -77,26 +80,23 @@ class Corrections:
             if base and self.rough is not None and base.get('rough'):
                 r = base['rough']
                 self.rough.offer('base', r['latitude'], r['longitude'], r['height'])
-            base_ok = bool(base) and base['phase'] in BASE_UP
+            # A fixed base must also be streaming: it can stay fixed after its frames stop.
+            base_ok = bool(base) and base['phase'] in BASE_UP and (
+                base['phase'] != 'fixed' or self._alive('base', now))
             ntrip_ok = self.ntrip is not None and self.ntrip.available
             km = self.ntrip.best_km() if ntrip_ok else None
             want = choose(self.priority, base_ok, bool(base) and base['phase'] == 'fixed', ntrip_ok, km, self.near_km)
             if want != self.active and (self.active is None or not self._alive(self.active, now)
                                         or self.priority != 'auto'):
-                self._switch(want)
-            if self.ntrip is not None:      # NTRIP connects only while it is in use
-                if self.active == 'ntrip':
+                self.active = want
+            # NTRIP connects while in use, and ahead of a failover once the base is unhealthy;
+            # it stays idle while a live base is preferred.
+            if self.ntrip is not None:
+                if self.active == 'ntrip' or (want == 'ntrip' and not base_ok):
                     self.ntrip.wanted.set()
                 else:
                     self.ntrip.wanted.clear()
             return self.active
-
-    def _switch(self, name):
-        if name is not None:
-            if self.used is not None and name != self.used:
-                self.switches += 1
-            self.used = name
-        self.active = name
 
     def snapshot(self):
         """The BaseSession-shaped state of the active source, plus ``source`` for the status document."""
