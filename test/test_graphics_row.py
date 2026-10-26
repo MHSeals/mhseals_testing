@@ -23,6 +23,10 @@ def overlay(tmp_path, monkeypatch):
     pixels.forget()
 
 
+def chip(word):
+    return theme.pick(f'‹ {word} ›', f'< {word} >')
+
+
 def graphics_row(app):
     rows = status_rows(app.snapshot(), app.profile.sensors)
     app.cursors['status'] = next(i for i, r in enumerate(rows) if r['name'] == 'Graphics')
@@ -33,9 +37,9 @@ def graphics_row(app):
 def test_the_row_reads_the_setting_and_names_the_tier_only_when_it_differs():
     assert graphics_rows({}, ()) == []                       # only the attached App feeds it
     row = graphics_rows({'graphics': ('off', 'text')}, ())[0]
-    assert row['value'] == '‹ off ›' and not row['detail'].startswith('drawing')
+    assert row['value'] == chip('off') and not row['detail'].startswith('drawing')
     row = graphics_rows({'graphics': ('auto', 'sixel')}, ())[0]
-    assert row['value'] == '‹ auto ›' and row['detail'].startswith('drawing sixel' + theme.SEPARATOR)
+    assert row['value'] == chip('auto') and row['detail'].startswith('drawing sixel' + theme.SEPARATOR)
     assert not graphics_rows({'graphics': ('sixel', 'sixel')}, ())[0]['detail'].startswith('drawing')
     row = graphics_rows({'graphics': ('kitty', 'text')}, ())[0]   # forced, but NO_COLOR or ASCII: text
     assert row['detail'].startswith('drawing text') and row['group'] == 'Session' and row['state'] == 'OK'
@@ -53,7 +57,7 @@ def test_arrows_step_off_auto_kitty_sixel_save_the_overlay_and_switch_the_tier(t
     app, _ = make_app(tmp_path)
     with app.attached():
         assert theme.PALETTE.graphics == 'off' and pixels.TIER == 'text'
-        assert graphics_row(app)['value'] == '‹ off ›'
+        assert graphics_row(app)['value'] == chip('off')
         app.dispatch('left')                                  # already first: stays, writes nothing
         assert not overlay.exists()
         app.dispatch('right')                                 # auto: no terminal to ask here, so text
@@ -61,7 +65,7 @@ def test_arrows_step_off_auto_kitty_sixel_save_the_overlay_and_switch_the_tier(t
         app.dispatch('right')
         app.dispatch('right')
         assert overlay.read_text() == 'graphics: sixel\n' and pixels.TIER == 'sixel'
-        assert graphics_row(app)['value'] == '‹ sixel ›' and 'sixel' in app.notice
+        assert graphics_row(app)['value'] == chip('sixel') and 'sixel' in app.notice
         app.dispatch('right')                                 # no wrap past sixel
         assert theme.PALETTE.graphics == 'sixel'
         app.dispatch('left')

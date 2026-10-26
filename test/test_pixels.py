@@ -436,6 +436,7 @@ def test_the_rose_repaints_only_when_a_quantized_input_changes():
     assert pixels.STATS['tiles'] == tiles + 1
 
 
+@pytest.mark.skipif(theme.ASCII, reason='ASCII draws no braille')
 def test_the_text_tier_draws_the_braille_rose_as_before():
     pixels.use('text')
     assert pixels.K == 1 and not pixels.active()

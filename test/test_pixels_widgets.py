@@ -34,6 +34,7 @@ def test_each_widget_draws_as_image_cells_with_its_labels_as_text(tier):
     assert {'N', 'E', 'S', 'W'} <= set(''.join(r.plain for r in out['dial']))
 
 
+@pytest.mark.skipif(theme.ASCII, reason='ASCII draws no braille')
 def test_the_minimap_stays_braille_under_kitty():
     from test_minimap_frame import TABLE, box, scene
     from mhseals_testing.ui.minimap import panel
@@ -60,6 +61,7 @@ def test_the_minimap_draws_as_image_lines_with_glyphs_as_text():
     assert '5 m' in ''.join(plain)          # the scale bar stays text
 
 
+@pytest.mark.skipif(theme.ASCII, reason='ASCII draws no braille')
 def test_the_text_tier_draws_braille_as_before():
     pixels.use('text')
     for name, rows in widgets().items():
