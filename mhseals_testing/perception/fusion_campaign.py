@@ -375,6 +375,8 @@ def metrics(out, statics, elements, cfg):
     share = {}
     assoc = {'lidar': 0, 'errors': 0}
     srcs = {round(s['t'], 4): s['sources'] for s in out['sources']}
+    whys = {round(s['t'], 4): s.get('why') or [] for s in out['sources']}
+    misses = {}             # bin -> decision -> count, of non-lidar boxes
     skips = {}
     for s in out['sources']:
         if s.get('skip'):
@@ -411,6 +413,10 @@ def metrics(out, statics, elements, cfg):
                         nees_obs.setdefault(src, []).append(e * e / s2)
                     lidar = src in ('lidar', 'split')
                     share.setdefault(b, []).append(lidar)
+                    why = whys.get(round(frame['t'], 4), [])
+                    if not lidar and k < len(why):
+                        m = misses.setdefault(b, {})
+                        m[why[k]] = m.get(why[k], 0) + 1
                     if lidar:
                         assoc['lidar'] += 1
                         assoc['errors'] += abs(e) > cfg['assoc_error_m']
@@ -462,6 +468,7 @@ def metrics(out, statics, elements, cfg):
                           'wait_p50_p95': pct('wait')},
             'extrinsic_fit': extrinsic_fit(samples),
             'lidar_share': {b: float(np.mean(v)) for b, v in sorted(share.items())},
+            'misses': misses,
             'assoc': {**assoc, 'rate': assoc['errors'] / assoc['lidar'] if assoc['lidar'] else 0},
             'tracks': tracks, 'skips': skips,
             'warn_s': first[1], 'error_s': first[2],
