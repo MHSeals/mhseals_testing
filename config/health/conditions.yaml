@@ -1,5 +1,6 @@
 # Water conditions. The `snapshot` probe publishes conditions.* from the live estimator (harness/conditions.py).
-# Thresholds live only in config/conditions.yaml; these checks gate the start of Characterize, never a run in progress.
+# Thresholds live only in config/conditions.yaml; these checks gate the start of Characterize and
+# Thrust physics, never a run in progress.
 group: Conditions
 checks:
   - id: conditions.poor
@@ -7,7 +8,7 @@ checks:
     fact: conditions.verdict
     expect: [good, marginal, unknown]
     severity: fail
-    gates: [f]
+    gates: [f, y]
     raise_after: 0      # the verdict is already windowed; no second debounce
     title: Water conditions
     message: '{reason}'
@@ -17,7 +18,7 @@ checks:
     fact: conditions.verdict
     expect: [good, unknown]
     severity: warn
-    gates: [f]
+    gates: [f, y]
     raise_after: 0      # the verdict is already windowed; no second debounce
     title: Water conditions
     message: '{reason}'
