@@ -65,7 +65,7 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
         runner.paused += 3.0       # a 3 s override inside this run
         return 10.0, 17.0, True    # end excludes the pause (wall end is 20)
     runner.supervise = supervise
-    watcher = SimpleNamespace(events=[], status={}, reset=lambda: None)
+    watcher = SimpleNamespace(events=[], statuses=[], status={}, reset=lambda: None)
     seen = []
 
     @contextmanager
@@ -78,7 +78,7 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
                   'stop': lambda *a: None, 'running': lambda *a: False})
     monkeypatch.setattr(mission, 'available', lambda: ['gate'])
     monkeypatch.setattr(mission, 'score', lambda events, rubric, outcome=None: {})
-    monkeypatch.setattr(mission, 'judge', lambda *a: seen.append(a[-2:]))
+    monkeypatch.setattr(mission, 'judge', lambda *a, **k: seen.append(a[-2:]))
     monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: {})
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
     result = mission.run(ctx)
@@ -102,7 +102,7 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
     runner = SimpleNamespace(paused=0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
-    watcher = SimpleNamespace(events=stream, status={}, reset=lambda: None)
+    watcher = SimpleNamespace(events=stream, statuses=[], status={}, reset=lambda: None)
     recorded, started = [], []
 
     @contextmanager
@@ -115,7 +115,7 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
                   'stop': lambda *a: None, 'running': lambda *a: False,
                   'returncode': lambda name: code})
     monkeypatch.setattr(mission, 'available', lambda: ['gate'])
-    monkeypatch.setattr(mission, 'judge', lambda *a: None)
+    monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
     monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: dict(RUBRIC))
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
     result = mission.run(ctx)
@@ -292,3 +292,26 @@ def test_a_sim_profile_whose_course_truth_is_missing_refuses_the_reset(tmp_path)
     result = mission.run(ctx)
     assert result == recorded[0] and result['verdict'] == 'REFUSED' and calls == []
     assert 'course truth' in result['reason'] and 'gone.json is missing' in result['reason']
+
+
+def test_the_tasks_claimed_phases_are_kept_next_to_its_events(tmp_path):
+    # The referee sees what the boat said it was doing: every /task/status, on the track's clock.
+    import json
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    truth = tmp_path / 'course_truth.json'
+    truth.write_text(json.dumps({'startX': 0.0, 'startY': 0.0, 'elements': []}))
+    session = tmp_path / 'session'
+    session.mkdir()
+    status = {'schema': 'mhseals.mission_status/1', 'task': 'nav_channel', 'status': 'RUNNING'}
+    ctx = SimpleNamespace(profile=SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom'),
+                          services={'session_dir': str(session)},
+                          history=lambda *a, **k: [(1.0, {'x': 0.0, 'y': 0.0, 'yaw': 0.0})])
+    statuses = [dict(status, phase='gate', received=1.0), dict(status, phase='channel', received=2.0)]
+    mission.judge(ctx, 'nav_channel', RUBRIC, [dict(event='task_started', received=1.0)], 0.0, 3.0,
+                  statuses=statuses)
+    rows = [json.loads(line) for line in (session / 'task_status.jsonl').read_text().splitlines()]
+    assert [(r['phase'], r['time'], r['task']) for r in rows] == [('gate', 1.0, 'nav_channel'),
+                                                                 ('channel', 2.0, 'nav_channel')]
+    assert all(r['schema'] == 'mhseals.mission_status/1' for r in rows)
+    assert (session / 'task_events.jsonl').exists()

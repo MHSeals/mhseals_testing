@@ -990,7 +990,7 @@ def test_perception_rates_and_costmap(tmp_path):
 
 class Watcher:
     def __init__(self):
-        self.events, self.status = [], {}
+        self.events, self.statuses, self.status = [], [], {}
 
     def reset(self):
         self.events.clear()

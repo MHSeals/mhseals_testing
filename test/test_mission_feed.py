@@ -131,13 +131,17 @@ def test_a_runner_gone_without_a_final_status_stops_reading_running(monkeypatch)
     publishers = [1]
     node = SimpleNamespace(create_subscription=lambda *a: None,
                            count_publishers=lambda topic: publishers[0] if topic == '/task/status' else 0)
-    watcher = TaskWatcher(SimpleNamespace(node=node, monitor=None))
+    watcher = TaskWatcher(SimpleNamespace(node=node, monitor=SimpleNamespace(clock=lambda: 1.0)))
     watcher._status(SimpleNamespace(data='{"task": "gate", "status": "RUNNING"}'))
     assert watcher.status['status'] == 'RUNNING'
     publishers[0] = 0                   # the runner crashed: its latched RUNNING is stale
     assert watcher.status == {}
     watcher._status(SimpleNamespace(data='{"task": "gate", "status": "SUCCEEDED"}'))
     assert watcher.status['status'] == 'SUCCEEDED'   # a final status stays after the runner exits
+    assert [s['status'] for s in watcher.statuses] == ['RUNNING', 'SUCCEEDED']   # each one recorded
+    assert watcher.statuses[0]['received'] == 1.0
+    watcher.reset()
+    assert watcher.statuses == []
 
 
 def test_the_feed_view_is_itself():

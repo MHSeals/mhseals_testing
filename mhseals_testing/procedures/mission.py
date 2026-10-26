@@ -171,7 +171,7 @@ def run(ctx):
     result = dict(score(watcher.events, rubric, outcome=exit_outcome), procedure='mission',
                   task=task, paused_s=paused, exit_code=code, exit_outcome=exit_outcome)
     # The referee reads the wall-clock track; supervise's end excludes the paused time.
-    judged = judge(ctx, task, rubric, watcher.events, start, end + paused)
+    judged = judge(ctx, task, rubric, watcher.events, start, end + paused, statuses=watcher.statuses)
     if judged is not None:
         result['referee'] = judged['verdict']
         result['referee_detail'] = judged
@@ -179,7 +179,7 @@ def run(ctx):
     return result
 
 
-def judge(ctx, task, rubric, events, start, end):
+def judge(ctx, task, rubric, events, start, end, statuses=()):
     """The referee's view, or an explicit reason it could not judge the run."""
     path = ctx.profile.course_truth
     if not path or not ctx.profile.ground_truth or not Path(path).exists():
@@ -189,15 +189,17 @@ def judge(ctx, task, rubric, events, start, end):
     track = [(t, v['x'], v['y'], v.get('yaw') or 0.0) for t, v in samples
              if v.get('x') is not None]
     events = [dict(e, time=e.get('received', e.get('time', 0.0))) for e in events]
-    keep(ctx.services.get('session_dir'), task, track, events)
+    statuses = [dict(s, time=s.get('received', 0.0)) for s in statuses]
+    keep(ctx.services.get('session_dir'), task, track, events, statuses)
     return referee.judge_task(task, truth, track, events, rubric)
 
 
-def keep(session, task, track, events):
+def keep(session, task, track, events, statuses=()):
     """Write what the referee judged into the session, for ``boat_trial analyze referee``.
 
-    ``track.jsonl`` (rows ``{t, x, y, yaw}``) and ``task_events.jsonl`` (each naming ``task``)
-    hold the latest mission run; nothing is written without a session directory.
+    ``track.jsonl`` (rows ``{t, x, y, yaw}``), ``task_events.jsonl`` and ``task_status.jsonl``
+    (every /task/status message, mhseals.mission_status/1; each row naming ``task``) hold the
+    latest mission run; nothing is written without a session directory.
     """
     if session is None:
         return
@@ -205,3 +207,4 @@ def keep(session, task, track, events):
     data.atomic_write(Path(session) / 'track.jsonl',
                       lines(dict(t=t, x=x, y=y, yaw=yaw) for t, x, y, yaw in track))
     data.atomic_write(Path(session) / 'task_events.jsonl', lines(dict(e, task=task) for e in events))
+    data.atomic_write(Path(session) / 'task_status.jsonl', lines(dict(s, task=task) for s in statuses))

@@ -36,14 +36,14 @@ class MissionFeed:
 
 
 class TaskWatcher:
-    """The run's events and its latest status.
+    """The run's events, every status it published (``statuses``) and its latest status.
 
     A runner that dies without a final status leaves a latched RUNNING behind, so ``status``
     reads empty once ``/task/status`` has no publisher left while it still says RUNNING.
     """
 
     def __init__(self, ros):
-        self.events, self._latest = [], {}
+        self.events, self.statuses, self._latest = [], [], {}
         self.node = ros.node
         ros.node.create_subscription(  # transient local: the run's first events too
             String, '/task/events', self._event,
@@ -68,7 +68,10 @@ class TaskWatcher:
 
     def _status(self, message):
         self._latest = json.loads(message.data)
+        # the phases the task claims, on the track's clock, for the referee
+        self.statuses.append(dict(self._latest, received=self.monitor.clock()))
 
     def reset(self):
         self.events.clear()
+        self.statuses.clear()
         self._latest = {}
