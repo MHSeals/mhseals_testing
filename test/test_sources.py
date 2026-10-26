@@ -372,3 +372,153 @@ if __name__ == '__main__' and sys.argv[1:] == ['--snapshot']:
 
 if __name__ == '__main__' and sys.argv[1:] == ['--fixtures']:
     write_fixtures()
+
+
+# ---- harness runs: the run record and the session journal (writer mission-run-referee-fields)
+# unity_run was built with the writer's own code at bb947204 (events.payload + journal.append as
+# ros/node.py emits, HornJournal, runs.write_run): runs 003 and 004 in one journal, run 004
+# judged (runs/004-mission.json links its files), horn 16 s after its start, sim time at 0.8x.
+
+RUN = 'runs/004-mission.json'
+
+
+def _journal(folder):
+    return [json.loads(line) for line in (folder / 'events.jsonl').read_text().splitlines()]
+
+
+def _harness(tmp_path, edit=None, record=None, text=None):
+    folder = _copy('unity_run', tmp_path)
+    if edit or text is not None:
+        lines = [json.dumps(e) for e in edit(_journal(folder))] if edit else []
+        (folder / 'events.jsonl').write_text(text if text is not None else
+                                             '\n'.join(lines) + '\n')
+    if record:
+        run = json.loads((folder / RUN).read_text())
+        record(run['result'])
+        (folder / RUN).write_text(json.dumps(run))
+    return folder
+
+
+def _of(run_id, phase=None):
+    return lambda e: e.get('run_id') == run_id and (phase is None or e['phase'] == phase)
+
+
+def _horns(run_id, journal):
+    """Run ``run_id``'s horn edges: those between its mission_start and mission_stop."""
+    start = next(n for n, e in enumerate(journal) if _of(run_id, 'mission_start')(e))
+    stop = next(n for n, e in enumerate(journal) if _of(run_id, 'mission_stop')(e))
+    return [e for e in journal[start:stop] if e['phase'] == 'horn']
+
+
+def test_a_harness_run_is_read_from_its_run_record_and_journal(tmp_path):
+    from mhseals_testing.analysis import run_record
+    from mhseals_testing.harness import score_analyze as sa
+    folder = _harness(tmp_path)
+    rec = run_record.load(folder)
+    assert rec['run_id'] == '004-mission' and rec['time_limit_s'] == LIMIT
+    assert rec['window'][0] == 1000.0 and 'run record' in rec['window_source']
+    assert rec['caps']['horn'] == 'recorded' and rec['caps']['state_log'] == 'complete'
+    # the journal's horn on the track clock (t_ns, not 0.8x sim time); crane's sim-clock
+    # states.jsonl horn and run 003's horn are not this run's
+    assert [(c['t_sim'], c['value']) for c in rec['changes']] == [(1016.0, 'one'),
+                                                                  (1017.0, 'off')]
+    assert rec['statuses'][0]['phase'] == 'harbor'
+    target, report = sa.analyze(folder / RUN)
+    assert report['run']['run_id'] == '004-mission' and '004-mission' in target.name
+    zone = rows(report)['T6.zone']
+    assert zone['status'] == 'provisional' and zone['provisional'] == 300
+    assert 'mission_start' in zone['evidence']['provisional_because'][0]
+    assert any('run_start_t_ns' in w for w in report['run']['warnings'])
+
+
+def test_the_launch_time_on_the_journal_clock_makes_the_horn_exact(tmp_path):
+    from mhseals_testing.harness import score_analyze as sa
+    folder = _harness(tmp_path, record=lambda r: r.update(run_start_t_ns=1793000000 * 10**9))
+    _, report = sa.analyze(folder)
+    zone = rows(report)['T6.zone']
+    assert zone['status'] == 'earned' and zone['points'] == 300
+    assert not any('mission_start' in w for w in report['run']['warnings'])
+
+
+_STOP = _of('004-mission', 'mission_stop')
+JOURNALS = {   # name: (journal edit, caps.horn, T6 status, horn basis or reason)
+    'complete_no_horn': (lambda j: [e for e in j if e['phase'] != 'horn'],
+                         'recorded', 'n/a', 'recorded: never sounded'),
+    'earlier_runs_horn_only': (lambda j: [e for e in j if e not in _horns('004-mission', j)],
+                               'recorded', 'n/a', 'recorded: never sounded'),
+    'partial_no_stop_horn': (lambda j: [e for e in j if not _STOP(e)],
+                             'partial', 'provisional', 'recorded (partial log'),
+    'partial_no_stop_no_horn': (lambda j: [e for e in j if not _STOP(e)
+                                           and e not in _horns('004-mission', j)],
+                                'partial', 'unscorable', 'caps.horn partial'),
+    'contradictory': (lambda j: j[:-1] + [dict(_horns('004-mission', j)[0], on=False)] + j[-1:],
+                      'contradictory', 'unscorable', 'caps.horn contradictory')}
+
+
+@pytest.mark.parametrize('case', sorted(JOURNALS))
+def test_the_journal_slice_decides_the_harness_runs_horn(case, tmp_path):
+    from mhseals_testing.harness import score_analyze as sa
+    edit, horn, status, basis = JOURNALS[case]
+    folder = _harness(tmp_path, edit, record=lambda r: r.update(run_start_t_ns=1793 * 10**15))
+    _, report = sa.analyze(folder)
+    got = rows(report)['T6.zone']
+    assert report['run']['capabilities']['horn'] == horn and got['status'] == status
+    assert basis in str(got['evidence'].get('horn')) + str(got['evidence'].get('reason'))
+
+
+def test_a_torn_line_inside_the_run_makes_the_journal_partial(tmp_path):
+    from mhseals_testing.analysis import run_record
+    folder = _copy('unity_run', tmp_path)
+    lines = (folder / 'events.jsonl').read_text().splitlines()
+    lines.insert(-1, lines[-1][:40])                    # torn before run 004's mission_stop
+    (folder / 'events.jsonl').write_text('\n'.join(lines) + '\n')
+    rec = run_record.load(folder)
+    assert rec['caps']['horn'] == 'partial' and 'torn' in ' '.join(rec['state_log_detail'])
+
+
+def test_without_a_journal_the_run_falls_back_to_the_state_log(tmp_path):
+    from mhseals_testing.analysis import run_record
+    folder = _harness(tmp_path, text='')
+    (folder / 'events.jsonl').unlink()
+    rec = run_record.load(folder)
+    assert rec['caps']['horn'] == 'recorded' and rec['changes'][0]['value'] == 'on:600'
+    assert 'no mission_start' in rec['authority_problem']
+
+
+def test_journal_holds_cut_only_their_own_run(tmp_path):
+    from mhseals_testing.analysis import run_record
+
+    def takeovers(journal):
+        start = next(e for e in journal if _of('004-mission', 'mission_start')(e))
+        hold = dict(start, phase='authority', to=dict(owner='hold'), cause='operator',
+                    t_ns=start['t_ns'] + 10 * 10**9, ros_time=start['ros_time'] + 8.0)
+        hold.pop('run_id')
+        after = dict(hold, t_ns=start['t_ns'] + 40 * 10**9, to=dict(owner='rc'))
+        return journal[:-1] + [hold, journal[-1], after]
+    rec = run_record.load(_harness(tmp_path, takeovers))
+    assert [(round(a['t'], 6), a['by']) for a in rec['authority']] == [(1010.0, 'hold')]
+
+
+def test_the_run_records_limit_decides_even_when_null(tmp_path):
+    from mhseals_testing.analysis import run_record
+    folder = _harness(tmp_path, record=lambda r: r.update(time_limit_s=None))
+    (folder / 'session.json').write_text(json.dumps(dict(source='unity', time_limit_s=30.0)))
+    assert run_record.load(folder)['time_limit_s'] is None
+    folder = _harness(tmp_path / 'b', record=lambda r: r.pop('time_limit_s'))
+    (folder / 'session.json').write_text(json.dumps(dict(source='unity', time_limit_s=30.0)))
+    assert run_record.load(folder)['window'][2] == 'time_limit'
+
+
+def test_a_batch_scores_each_judged_run_once(tmp_path):
+    from mhseals_testing.analysis import run_record
+    from mhseals_testing.harness import score_analyze as sa
+    _harness(tmp_path / 'batch')
+    _copy('unity', tmp_path / 'batch')
+    got = sa._records([tmp_path / 'batch'])
+    assert sorted(str(r['run'].get('run_id')) for r in got) == ['004-mission', 'None']
+    folder = tmp_path / 'batch' / 'unity_run'
+    run = json.loads((folder / RUN).read_text())
+    del run['result']['files']
+    (folder / 'runs' / '005-mission.json').write_text(json.dumps(run))
+    with pytest.raises(run_record.Refused, match='not judged'):
+        run_record.load(folder / 'runs' / '005-mission.json')

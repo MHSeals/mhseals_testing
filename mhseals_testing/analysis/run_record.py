@@ -7,13 +7,25 @@ source name is a label and nothing in scoring branches on it. A new tier costs o
 
 Record::
 
-    {source, session, meta, truth, track [(t, x, y, yaw)], window (t0, t1, end reason),
-     time_limit_s | None, window_source, authority [{t, by, cause}], authority_problem,
+    {source, session, run_id | None, meta, truth, track [(t, x, y, yaw)],
+     window (t0, t1, end reason), time_limit_s | None, window_source,
+     authority [{t, by, cause}], authority_problem, horn_note,
      changes [{t_sim, id, value}], state_log_detail [str], task_events, statuses,
      contacts_reported [{t, object, by}] | None, caps}
 
-``time_limit_s`` comes from session.json only. Without it the run is scored to the track end
-and every earned row is provisional (the owner sets the official duration; none is guessed).
+A harness run (the run record ``<session>/runs/<run_id>.json`` that links its own files in
+``result.files`` {track, task_events, task_status}) is read from that record:
+``result.run_start_t`` (track clock) and ``result.time_limit_s`` (a key there decides, even
+null). Its slice of the session journal ``events.jsonl`` (its ``mission_start`` ..
+``mission_stop``, matched by run id) gives the holds and takeovers (``phase:
+authority``/``disarmed``) and the horn (``phase: horn``, one per on/off edge), which then
+replaces any horn in states.jsonl. ``mission_stop`` is the completeness marker. Journal times
+are wall ``t_ns`` (the track clock's rate), aligned on ``result.run_start_t_ns`` when recorded,
+else on ``mission_start`` = run start, which may come before the launch: then a journaled
+horn's T6.zone is provisional (``horn_note``). An older session (no such record) is read from
+session.json and the session-level files. Without a time limit the run is scored to the track
+end and every earned row is provisional: the handbook sets no run duration (state/referee.md),
+so none is guessed.
 
 Capabilities (``caps``)::
 
@@ -30,6 +42,8 @@ Capabilities (``caps``)::
                   before the window end, or session.json states_log.complete false;
                   contradictory: one state given two values at one time, or time running back
     horn          recorded | partial | contradictory | planned | unknown
+                  (a harness run: the journal slice's status, by the same rules, with a
+                  missing mission_stop or a torn line inside as partial)
                   recorded: a complete log decides (no horn record = never sounded); partial:
                   a recorded horn is provisional, no horn is unscorable; contradictory:
                   unscorable; planned: no log, the course program's trigger stands in
@@ -46,6 +60,7 @@ from mhseals_testing import data
 
 CAPS = ('truth', 'truth_sigma_m', 'contacts', 'state_log', 'horn', 'claims', 'reports')
 MARKERS = ('log_gap', 'log_end')
+HORN = 'harbor_alert.horn'
 
 
 class Refused(Exception):
@@ -62,20 +77,88 @@ def run_window(track, meta, time_limit_s=None):
     return t0, track[-1][0], 'track_end'
 
 
-def _authority(events, t_start):
-    """Owner changes in track time, aligned on the harness's mission_start = run start."""
-    started = next((e for e in events if e.get('phase') == 'mission_start'), None)
-    if started is None or t_start is None or 'ros_time' not in started:
-        return [], 'authority events not aligned to track time (no mission_start)'
-    offset = t_start - started['ros_time']
+def _seconds(event, anchor):
+    """An event's journal time in seconds: wall ``t_ns`` (the track clock's rate) when both
+    carry it, else ``ros_time`` (sim time, 0.0 before the first /clock)."""
+    if 't_ns' in event and 't_ns' in anchor:
+        return event['t_ns'] / 1e9
+    return event.get('ros_time')
+
+
+def journal(path, run_id=None):
+    """The session journal's slice for one run: ``{events, started, ended, torn}``, or None
+    without a journal or a ``mission_start``. A run id picks its own ``mission_start`` ..
+    ``mission_stop``; without one (older sessions, whose session files are the latest run)
+    the last ``mission_start`` and the next ``mission_stop``. ``ended`` is the stop event
+    (None: the journal never recorded the run's end), ``torn`` the unparsable lines inside."""
+    if not path.exists():
+        return None
+    lines = []
+    for line in path.read_text(errors='replace').splitlines():
+        if line.strip():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                event = None
+            lines.append(event if isinstance(event, dict) else None)
+
+    def mine(event, phase):
+        return event and event.get('phase') == phase and (
+            run_id is None or event.get('run_id') == run_id)
+    starts = [n for n, e in enumerate(lines) if mine(e, 'mission_start')]
+    if not starts:
+        return None
+    first = starts[0] if run_id else starts[-1]
+    last = next((n for n in range(first + 1, len(lines)) if mine(lines[n], 'mission_stop')),
+                None)
+    part = lines[first:len(lines) if last is None else last + 1]
+    return dict(events=[e for e in part if e], started=lines[first],
+                ended=None if last is None else lines[last], torn=part.count(None))
+
+
+def _authority(events, offset, started):
+    """Owner changes (holds, takeovers, disarms) in track time."""
     out = []
     for e in events:
+        t = _seconds(e, started)
+        if t is None:
+            continue
         if e.get('phase') == 'authority':
-            out.append(dict(t=e['ros_time'] + offset, by=(e.get('to') or {}).get('owner'),
+            out.append(dict(t=t + offset, by=(e.get('to') or {}).get('owner'),
                             cause=e.get('cause')))
         elif e.get('phase') == 'disarmed':
-            out.append(dict(t=e['ros_time'] + offset, by='external', cause='disarmed'))
-    return out, None
+            out.append(dict(t=t + offset, by='external', cause='disarmed'))
+    return out
+
+
+def horn_log(part, offset):
+    """(changes, status, detail) of the journaled horn (``phase: horn``, one per on/off edge)
+    in one run's slice. complete: the run's ``mission_stop`` is journaled and nothing inside is
+    torn; partial: no ``mission_stop`` (cut short) or a torn line; contradictory: two edges at
+    one time with different values, or time running back. An ``on`` edge's value is the
+    pattern (``one``/``two``), else ``on:<Hz>`` (unknown pattern, no zone commanded)."""
+    changes, partial, contra, seen, last = [], [], [], {}, -float('inf')
+    for e in part['events']:
+        if e.get('phase') != 'horn':
+            continue
+        t = _seconds(e, part['started'])
+        if not isinstance(t, (int, float)):
+            partial.append('a horn event without a time')
+            continue
+        t += offset
+        value = (e.get('pattern') or f"on:{e.get('freq_hz')}") if e.get('on') else 'off'
+        if t < last:
+            contra.append(f'horn edge at {round(t, 3)} goes back in time')
+        last = max(last, t)
+        if seen.setdefault(t, value) != value:
+            contra.append(f'the horn is {seen[t]} and {value} at {round(t, 3)}')
+        changes.append(dict(t_sim=t, id=HORN, value=value))
+    if part['ended'] is None:
+        partial.append('the journal has no mission_stop for this run (cut short)')
+    if part['torn']:
+        partial.append(f"{part['torn']} torn journal line(s) inside the run")
+    status = 'contradictory' if contra else 'partial' if partial else 'complete'
+    return changes, status, contra + partial
 
 
 def state_log(path, t_end, meta):
@@ -115,51 +198,87 @@ def state_log(path, t_end, meta):
     return changes, status, contra + partial
 
 
-def _files(session, time_limit_s):
-    """What every source writes the same way: truth, track, window, authority, logs."""
+def _timing(result, meta, time_limit_s):
+    """(run_start_t, time_limit_s, source text): the run record's ``result`` first (a key
+    present there decides, even null), else session.json (older sessions), else the caller's
+    rules value (None: the handbook sets no run duration)."""
+    where = 'run record' if result else 'session.json'
+    start = result.get('run_start_t', meta.get('run_start_t'))
+    limit = result['time_limit_s'] if 'time_limit_s' in result else meta.get('time_limit_s')
+    text = (f'{where} run_start_t' if start is not None else 'harness track start') + ' + ' + \
+        (f'{where} time_limit_s' if limit else 'rules time_limit_s' if time_limit_s
+         else 'track end (no time_limit_s: rows provisional)')
+    return start, limit or time_limit_s, text
+
+
+def _files(session, run, time_limit_s):
+    """What every source writes the same way: truth, track, window, authority, logs. ``run``
+    is the harness's run record (``runs/<run_id>.json``) or None for an older session."""
     truth = data.read_json(session / 'course_truth.json')
     if truth is None:
         raise Refused(f'{session.name}: no course_truth.json')
+    result = (run or {}).get('result') or {}
+    files = result.get('files') or {}
+
+    def at(key):
+        return session / files.get(key, f'{key}.jsonl')
     track = [(r['t'], r['x'], r['y'], r.get('yaw') or 0.0)
-             for r in data.read_jsonl(session / 'track.jsonl') if {'t', 'x', 'y'} <= set(r)]
+             for r in data.read_jsonl(at('track')) if {'t', 'x', 'y'} <= set(r)]
     if not track:
-        raise Refused(f'{session.name}: no track.jsonl samples')
+        raise Refused(f'{session.name}: no track samples in {at("track").name}')
     meta = data.read_json(session / 'session.json', {}) or {}
-    window = run_window(track, meta, time_limit_s)
-    authority, problem = _authority(list(data.read_jsonl(session / 'events.jsonl')), window[0])
+    start, limit, window_source = _timing(result, meta, time_limit_s)
+    window = run_window(track, {} if start is None else dict(run_start_t=start), limit)
+    warnings, approximate, offset = [], False, None
+    part = journal(session / 'events.jsonl', (run or {}).get('run_id'))
+    if part and 'run_start_t_ns' in result and 't_ns' in part['started']:
+        offset = window[0] - result['run_start_t_ns'] / 1e9
+    elif part and _seconds(part['started'], part['started']) is not None:
+        offset = window[0] - _seconds(part['started'], part['started'])
+        approximate = bool(files)
+        if approximate:
+            warnings.append('journal aligned on mission_start = run start; the launch may come '
+                            'later (no run_start_t_ns in the run record)')
+    if offset is None:
+        warnings.append('authority events not aligned to track time (no mission_start)')
+    authority = [] if offset is None else _authority(part['events'], offset, part['started'])
     changes, log, detail = state_log(session / 'states.jsonl', window[1], meta)
-    claims = (session / 'task_events.jsonl').exists() or (session / 'task_status.jsonl').exists()
-    return dict(session=session, meta=meta, truth=truth, track=track, window=window,
-                time_limit_s=meta.get('time_limit_s') or time_limit_s,
-                state_log_detail=detail,
-                window_source=('session.json run_start_t' if 'run_start_t' in meta
-                               else 'harness track start') + ' + ' +
-                ('session.json time_limit_s' if meta.get('time_limit_s')
-                 else 'track end (no time_limit_s: rows provisional)'),
-                authority=authority, authority_problem=problem, changes=changes,
-                task_events=list(data.read_jsonl(session / 'task_events.jsonl')),
-                statuses=list(data.read_jsonl(session / 'task_status.jsonl')),
+    horn = dict(missing='planned', complete='recorded').get(log, log)
+    horn_note = None
+    if files and offset is not None:      # a harness run journals the horn: it decides
+        heard, status, problems = horn_log(part, offset)
+        changes = [c for c in changes if c.get('id') != HORN] + heard
+        horn = dict(complete='recorded').get(status, status)
+        detail = detail + [f'journal: {p}' for p in problems]
+        if approximate and any(c['value'] != 'off' for c in heard):
+            horn_note = 'the horn time is aligned on mission_start, not the launch'
+    claims = at('task_events').exists() or at('task_status').exists()
+    return dict(session=session, run_id=(run or {}).get('run_id'), meta=meta, truth=truth,
+                track=track, window=window, time_limit_s=limit, state_log_detail=detail,
+                window_source=window_source, authority=authority,
+                authority_problem='; '.join(warnings) or None, horn_note=horn_note,
+                changes=changes,
+                task_events=list(data.read_jsonl(at('task_events'))),
+                statuses=list(data.read_jsonl(at('task_status'))),
                 contacts_reported=None,
-                caps=dict(truth='exact', truth_sigma_m=None, state_log=log,
-                          horn=dict(missing='planned', complete='recorded').get(log, log),
-                          claims=claims,
-                          reports=False))
+                caps=dict(truth='exact', truth_sigma_m=None, state_log=log, horn=horn,
+                          claims=claims, reports=False))
 
 
 def _sim(contacts):
-    def load(session, time_limit_s):
-        record = _files(session, time_limit_s)
+    def load(session, run, time_limit_s):
+        record = _files(session, run, time_limit_s)
         record['caps']['contacts'] = contacts
         return record
     return load
 
 
-def _real(session, time_limit_s):
+def _real(session, run, time_limit_s):
     """A real run: surveyed course truth (same format, ``survey.sigma_m``), the RTK track as
     track.jsonl, judges' contacts in judge_contacts.jsonl ({t, object, by}; absent = not
     recorded, so strikes are unscorable), and no physics. Silence of the horn is not known
     without a state log."""
-    record = _files(session, time_limit_s)
+    record = _files(session, run, time_limit_s)
     sigma = (record['truth'].get('survey') or {}).get('sigma_m') \
         or record['meta'].get('truth_sigma_m')
     if not sigma:
@@ -181,17 +300,42 @@ def source_of(meta):
     return meta.get('source') or ('kinematic' if meta.get('kind') == 'kinematic' else 'unity')
 
 
-def load(session, time_limit_s=None):
-    """The run record of a session directory, through its source's adapter."""
-    session = Path(session)
-    if not session.is_dir():
-        raise Refused(f'{session}: no such session')
+def run_of(path):
+    """(session directory, run record or None) of a session directory or a run record
+    ``<session>/runs/<run_id>.json``. A session directory means its latest judged run (one
+    whose record links its files); a session without one is an older session, read from its
+    session-level files."""
+    path = Path(path)
+    if path.suffix == '.json' and path.parent.name == 'runs':
+        run = data.read_json(path)
+        if not ((run or {}).get('result') or {}).get('files'):
+            raise Refused(f'{path.name}: the run record links no track (the run was not judged)')
+        return path.parent.parent, run
+    if not path.is_dir():
+        raise Refused(f'{path}: no such session')
+    return path, next(iter(judged_runs(path)[-1:]), None)
+
+
+def judged_runs(session):
+    """The run records under ``<session>/runs`` that link their own files, in run order."""
+    out = []
+    for target in sorted(Path(session).glob('runs/*.json')):
+        run = data.read_json(target)
+        if ((run or {}).get('result') or {}).get('files'):
+            out.append(run)
+    return out
+
+
+def load(path, time_limit_s=None):
+    """The run record of a session directory or a run record file (``run_of``), through the
+    session's source adapter."""
+    session, run = run_of(path)
     meta = data.read_json(session / 'session.json', {}) or {}
     source = source_of(meta)
     if source not in ADAPTERS:
         raise Refused(f'{session.name}: no adapter for source {source!r} '
                       f'(known: {", ".join(ADAPTERS)})')
-    record = ADAPTERS[source](session, time_limit_s)
+    record = ADAPTERS[source](session, run, time_limit_s)
     record['source'] = source
     assert set(record['caps']) == set(CAPS), 'an adapter must declare every capability'
     return record

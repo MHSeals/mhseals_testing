@@ -1,0 +1,25 @@
+{
+  "schema": "mhseals.run/1",
+  "run_id": "004-mission",
+  "procedure": "mission",
+  "status": "MEASURED",
+  "excluded": null,
+  "time": "2026-10-26T12:00:00+00:00",
+  "settings": {},
+  "schedule": [],
+  "provenance": {},
+  "result": {
+    "procedure": "mission",
+    "task": "mission",
+    "verdict": "PASS",
+    "results": [],
+    "time_limit_s": 1800.0,
+    "run_start_t": 1000.0,
+    "files": {
+      "track": "runs/004-mission/track.jsonl",
+      "task_events": "runs/004-mission/task_events.jsonl",
+      "task_status": "runs/004-mission/task_status.jsonl"
+    }
+  },
+  "history": []
+}

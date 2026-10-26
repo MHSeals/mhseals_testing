@@ -19,7 +19,7 @@ import math
 from mhseals_testing.analysis.geometry import HULL, hull_clearance
 
 SCHEMA = 'mhseals.score/1'
-VERSION = 4                    # 4: rules by source capability (state/referee.md "v4")
+VERSION = 5                    # 5: harness run record + journal (state/referee.md "v5")
 RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
 STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
 PARAMS = dict(
@@ -921,6 +921,8 @@ def judge_record(record):
     if caps['state_log'] in ('partial', 'contradictory'):
         _provisional(body, f"state log {caps['state_log']}: {record['state_log_detail']}",
                      STATE_ROWS)
+    if record.get('horn_note'):
+        _provisional(body, record['horn_note'], ('T6.zone',))
     body['run']['time_limit_s'] = record['time_limit_s']
     if record['time_limit_s'] is None:
         why = 'no time_limit_s for this run: the official duration is unset, so a row may ' \

@@ -5,8 +5,10 @@ Reads files only (no ROS), through the session's source adapter
 declared capabilities; ``--paired`` compares explicit pairs across tiers):
 ``course_truth.json``, ``track.jsonl`` (ground truth ``{t, x, y, yaw}``, captured by the
 harness from its run start), authority changes from ``events.jsonl`` and optional
-``states.jsonl`` (course state changes). The run window is the harness's: it starts at
-``session.json`` ``run_start_t`` (else the first track sample) and ends at ``time_limit_s``
+``states.jsonl`` (course state changes); a harness run is read from its run record
+``runs/<run_id>.json`` and its journal slice (``run_record``), and SESSION may name that record.
+The run window is the harness's: it starts at the run record's (else ``session.json``)
+``run_start_t`` (else the first track sample) and ends at ``time_limit_s``
 (none is guessed: without it, the track end with earned rows provisional) or the track end;
 the judge cuts it earlier at the exit, a hold, a takeover or out of bounds.
 ``task_events.jsonl`` holds the boat's claims, never used to judge or to window. Writes
@@ -102,8 +104,10 @@ def analyze(session, now=None):
     body['run']['window_source'] = rec['window_source']
     body['run']['claimed_window'] = list(_claimed_window(task_events))   # the boat's, unused
     body['run']['source'] = rec['source']           # a label: scoring reads only caps
+    if rec['run_id']:
+        body['run']['run_id'] = rec['run_id']     # a harness run record (runs/<run_id>.json)
     gen = truth.get('generator') or {}
-    body['run'].update(session=Path(session).name, course=dict(
+    body['run'].update(session=rec['session'].name, course=dict(
         name=truth.get('name'), family=truth.get('family'), seed=gen.get('seed'),
         mode=gen.get('mode'), truth_sha256=gen.get('truth_sha256')))
     body['claims'] = claims(task_events, body) if rec['caps']['claims'] else \
@@ -125,7 +129,8 @@ def analyze(session, now=None):
                               handbook_sha256=(truth.get('handbook') or {}).get('sha256')),
                   **body)
     stamp = (now or datetime.now().astimezone()).strftime('%Y%m%dT%H%M%S')
-    target = Path(session) / 'analysis' / f'score.{stamp}.json'
+    name = f"score.{rec['run_id']}.{stamp}.json" if rec['run_id'] else f'score.{stamp}.json'
+    target = rec['session'] / 'analysis' / name
     data.write_json(target, record, score.SCHEMA)
     return target, record
 
@@ -413,8 +418,19 @@ def paired(pairs_file, force=False):
 
 
 def _records(paths):
-    sessions = [p for root in paths for p in sorted(Path(root).glob('**/track.jsonl'))]
-    return [analyze(p.parent)[1] for p in sessions]
+    """Every run under ``paths``: each judged run record of a session (its session-level
+    track is a copy of the latest run, so it is not counted again), else the session."""
+    out = []
+    for root in paths:
+        for track in sorted(Path(root).glob('**/track.jsonl')):
+            session = track.parent
+            own = session.parent / f'{session.name}.json'
+            if session.parent.name == 'runs' and own.exists():
+                continue                    # a run's own copy: scored through its record
+            runs = run_record.judged_runs(session)
+            out += [analyze(session / 'runs' / f"{r['run_id']}.json")[1] for r in runs] \
+                or [analyze(session)[1]]
+    return out
 
 
 def main(argv=None, out=None):
