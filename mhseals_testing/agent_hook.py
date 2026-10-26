@@ -8,10 +8,10 @@ config/agent.yaml (about 15 ms per call); without it the built-in defaults apply
 
 * ``start`` returns a brief (the agent's boat name, the one rule, where the playbook is); the
   whole playbook (the ``boat_agent`` verbs, exit codes) in a boat session or for ``--playbook``.
-* ``pre`` denies a command that runs something matching ``hook.deny`` (raw /cmd_vel, /goal_pose,
-  mux, MAVROS arming/command/mode/params, Nav2 goals and behaviors, killing the boat's control) or,
-  over ssh to one of ``hook.hosts``, ``hook.deny_boat``: each command the shell would run is matched
-  from its start, wrappers taken off (see ``runs``), so text a command only reads is never denied.
+* ``pre`` denies a command whose text matches ``hook.deny`` (raw /cmd_vel, /goal_pose, mux,
+  MAVROS arming/command/mode/params, Nav2 goals and behaviors, pkill/killall, killing the boat's
+  control) or, when it names a boat (``boats``), ``hook.deny_boat``. A call made only of commands
+  that read or print text (``text_only``: grep, echo, git commit, pytest ...) is never denied.
   The reason names the command and the verb to use instead; the TUI gets it as ``phase: deny``. A
   boat-bound command (``hook.match``, not ``hook.skip``) becomes a channel ``note`` line
   ``{phase: pre, tool_id, cmd, agent}``.
@@ -59,27 +59,37 @@ DEFAULTS = {
              r'ros2\s+bag\s+play\b(?!.*--topics\b)',
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
-             r'ros2\s+run\s+(mavros\s+mav|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+             r'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+             r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
+             r'|\bthruster_pwm_node/estop|\bthrusters/)',
+             r'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
              r'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)'
              r'\s+(--?[\w-]+\s+)*[^\s-]*\$',
-             r'(pkill|killall|kill)\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
+             r'\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
+             r'|lifecycle\s+set|run)\b',
+             r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
+             r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
              r'|mavros\w*|boat_(trial|test)\w*)\b'],
     'hosts': ['blastoise', 'squirtle'],
-    'deny_boat': [r'(pkill|killall)\b', r'(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
-                  r'systemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
-                  r'(reboot|poweroff|halt|shutdown)\b']}
+    'deny_boat': [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
+                  r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
+                  r'\b(reboot|poweroff|halt|shutdown)\b', r'\b(tel)?init\s+[0-6sS]\b',
+                  r'\bloginctl\s+(terminate|kill)', r'sysrq']}
+NETWORK = 'config/boat-network.env'    # STATIC_LEASES "MAC=hostname=address ...": the boat computers
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
 # Why a denied command is denied and the verb that does it through the claim, first match wins.
-USE = ((r'^(pkill|killall|kill)\b', 'killing boat processes', 'stop'),
-       (r'^(docker|podman|systemctl|reboot|poweroff|halt|shutdown)\b',
+USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing processes (kill only your own, by exact PID)', 'stop'),
+       (r'^(docker|podman|systemctl|reboot|poweroff|halt|shutdown|init|telinit|loginctl)\b|sysrq',
         "stopping or restarting the boat's software or computer", None),
-       (r'\$', 'a ros2 command whose target is a shell variable the hook cannot read (spell the name out)', None),
        (r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
         'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
-       (r'cmd_vel|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control', 'raw motion',
-        'run KEY --claim ID'),
+       (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control|create_publisher',
+        'raw motion', 'run KEY --claim ID'),
+       (r'operator/heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority", None),
+       (r'estop', 'the thruster e-stop', 'stop'),
        (r'mavros', 'an FCU arming, mode or parameter change', None),
+       (r'\$', 'a ros2 command whose target is a shell variable the hook cannot read (spell the name out)', None),
        (r'ros2\s+(param|lifecycle)\b|/(set_parameters\w*|load_parameters|change_state)\b',
         'changing the thruster driver, the mux or a safety watchdog', None),
        (r'command_mux', 'commanding the mux', 'stop'),
@@ -212,49 +222,57 @@ def matches(patterns, text):
     return any(re.search(p, text, re.S) for p in patterns)
 
 
-# What a shell would run. A deny pattern is matched from the start of each command the shell runs
-# (wrappers taken off), never against text a command only reads: a grep pattern, an echo, a commit
-# message or a heredoc into a file is data. Code handed to an interpreter (python -c, a heredoc into
-# python, a script written and run in the same call) is searched line by line; so is a command the
-# parser cannot read. Variables, eval'd strings built at run time and scripts from earlier calls still
-# get through: advisory, the mux and the claim are the boundary.
+# Two tiers. Tier A: every command in the call (each part of a pipe or list, each $(...)) only reads,
+# searches or prints text (READ_ONLY, git commit/log/diff/show/status, pytest): its arguments are data,
+# so a grep pattern, an echo, a commit message or a heredoc into a file never denies. Tier B, anything
+# else: the whole command text is searched (quotes and escapes dropped, ``.`` spanning newlines), so
+# whatever wraps or hides a denied command is still denied. Variables, strings built at run time and
+# scripts from earlier calls still get through: advisory, the mux and the claim are the boundary.
 SEPARATORS = {';', '&', '&&', '||', '|', '|&', '\n', ';;', '(', ')'}
 REDIRECTS = {'<', '>', '>>', '>|', '&>', '&>>', '>&', '<&', '<>'}
 WRITES = {'>', '>>', '>|', '&>', '&>>'}
 PUNCT = re.compile(r'<<<|<<|>>|>&|<&|<>|&>>|&>|>\||\|\||&&|\|&|;;|[\s\S]')
 HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([\w.-]+)\1')
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
-KEYWORDS = {'!', '{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do', 'done', 'while', 'until', 'time',
-            'exec', 'command', 'builtin', 'nohup', 'setsid'}
-ASSIGN = re.compile(r'[A-Za-z_]\w*=')
-SHELLS = {'sh', 'bash', 'zsh', 'dash', 'ksh'}
-CODE = re.compile(r'(python[\d.]*|node|perl|ruby)$')
-# A wrapper runs its operands: (option letters that take a value, long ones, positionals before the command).
-WRAPPERS = {'sudo': ('ugpChDrtUT', (), 0), 'doas': ('uC', (), 0), 'env': ('uCS', (), 0),
-            'timeout': ('sk', ('--signal', '--kill-after'), 1), 'nice': ('n', (), 0), 'ionice': ('cnp', (), 0),
-            'stdbuf': ('ioe', (), 0), 'xargs': ('IinPLdaEs', (), 0), 'watch': ('nd', ('--interval',), 0)}
-SSH = 'BbcDEeFIiJLlmOoPpQRSWw'
-DOCKER = ('Hcl', ('--context', '--host', '--config', '--log-level'))
-COMPOSE = ('fp', ('--file', '--project-name', '--project-directory', '--profile', '--env-file', '--ansi',
-                  '--progress', '--parallel'))
-EXEC = ('eEuw', ('--env', '--env-file', '--user', '--workdir', '--detach-keys', '--index'))
+READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'sed', 'wc'}
+GIT_READ = {'commit', 'log', 'diff', 'show', 'status'}
+SED_RUNS = re.compile(r'(^|[;\n{}])[\s\d$,!~+]*(/[^/]*/[\s,!]*)*e(\s|;|$)'          # the e command
+                      r'|(?<![A-Za-z])s([^\w\s\\])(?:\\.|(?!\4).)*\4(?:\\.|(?!\4).)*\4[gpIiMmw\d]*e')   # s///e
 
 
-def operands(args, valued='', long_valued=(), positionals=0):
-    """``args`` past the options (getopt style: ``valued`` letters and ``long_valued`` take a value)
-    and past ``positionals`` leading operands."""
-    i = 0
-    while i < len(args) and args[i].startswith('-') and args[i] != '-':
-        if args[i] == '--':
-            i += 1
-            break
-        if args[i].startswith('--'):
-            i += 1 + (args[i] in long_valued)
-            continue
-        letters = args[i][1:]
-        hit = next((k for k, letter in enumerate(letters) if letter in valued), None)
-        i += 1 + (hit == len(letters) - 1)
-    return args[i + positionals:]
+def reads_only(argv):
+    """True when this command only reads, searches or prints: none of its words can run anything."""
+    if not argv:
+        return True                     # a bare redirect
+    name, args = argv[0], argv[1:]
+    if name == 'git':
+        while args[:1] == ['--no-pager'] or args[:1] == ['-C']:
+            args = args[1 + (args[0] == '-C'):]
+        return args[:1] != [] and args[0] in GIT_READ
+    if name in ('pytest', 'py.test') or (re.fullmatch(r'python[\d.]*', name) and args[:2] == ['-m', 'pytest']):
+        return True
+    if name == 'sed':                   # not -i, no e command or s///e flag (they run the shell)
+        return not any(re.match(r'-[^-]*i|--in-place', a) or SED_RUNS.search(a) for a in args)
+    if name == 'rg':
+        return not any(a.startswith('--pre') for a in args)     # --pre runs a program on each file
+    if name == 'less':
+        return not any(a.startswith('+') for a in args)         # +!cmd runs it
+    return name in READ_ONLY
+
+
+def text_only(command):
+    """Tier A: the command parses and every command it runs, $(...) included, ``reads_only``."""
+    if re.search(r'[<>]\(', command):   # process substitution runs its contents
+        return False
+    try:
+        pipelines = parse(command)
+    except ValueError:                  # an open quote: unreadable, so Tier B
+        return False
+
+    def ok(pipelines):
+        return all(reads_only(cmd['argv']) and all(ok(sub) for sub in cmd['subs'])
+                   for pipeline in pipelines for cmd in pipeline)
+    return ok(pipelines)
 
 
 def tokens_of(text):
@@ -338,131 +356,55 @@ def build(tokens, bodies):
     return pipelines
 
 
-def runs(text, hosts=(), on_boat=None, depth=0, out=None, pipelines=None):
-    """``[(kind, on_boat, text)]``: ``('cmd', ..)`` each command the shell runs from ``text``, its
-    wrappers taken off, as words joined by spaces; ``('code', ..)`` code handed to an interpreter.
-    ``on_boat`` is the boat host once an ssh names one of ``hosts`` (what runs there, its heredoc too)."""
-    out = [] if out is None else out
+def network_file():
+    """config/boat-network.env of this workspace (``src/<repo>/<package>/`` up three), else of
+    ``$ROS_WS`` or ``~/astro_dock``."""
+    ws = os.environ.get('ROS_WS')
+    for root in (Path(__file__).resolve().parents[3], ws if ws and os.path.isabs(ws) else None,
+                 Path.home() / 'astro_dock'):
+        if root and (Path(root) / NETWORK).is_file():
+            return Path(root) / NETWORK
+    return None
+
+
+def boats(config):
+    """Every name a boat computer goes by: ``hook.hosts``, a boat ``$BOAT_AGENT_TARGET``, the hostnames
+    and addresses of STATIC_LEASES in config/boat-network.env, and ~/.ssh/config aliases for any of them."""
+    names = set(config['hosts']) | {target_of(config)} - {'local'}
     try:
-        pipelines = parse(text) if pipelines is None else pipelines
-    except ValueError:
-        pipelines = None
-    if pipelines is None or depth > 8:
-        out.append(('code', on_boat, text))
-        return out
-    written = {}
-    for pipeline in pipelines:
-        feed = []                              # what earlier stages of the pipe can print
-        for cmd in pipeline:
-            for sub in cmd['subs']:
-                if sub:
-                    runs('', hosts, on_boat, depth + 1, out, sub)
-            reads, boat, script = unwrap(cmd['argv'], hosts, on_boat, depth, out, feed)
-            for text_in in (feed + cmd['stdin']) if reads else ():
-                if reads == 'shell':
-                    runs(text_in, hosts, boat, depth + 1, out)
-                else:
-                    out.append(('code', boat, text_in))
-            if script in written:
-                out.append(('code', boat, written[script]))
-            for path in cmd['writes']:
-                if cmd['stdin']:
-                    written[path] = '\n'.join(cmd['stdin'])
-            feed = feed + [' '.join(cmd['argv'][1:])] + cmd['stdin']
-    return out
-
-
-def unwrap(argv, hosts, on_boat, depth, out, feed=()):
-    """Take the wrappers off one command and add what finally runs to ``out``. Returns (how it reads
-    stdin: None, 'shell' or 'code'; on the boat?; the script file it runs, if any)."""
-    def again(text):                           # a command string a shell re-reads (ssh, sh -c, eval, watch)
-        try:
-            pipelines = parse(text)
-        except ValueError:
-            pipelines = None
-        if pipelines and len(pipelines) == 1 and len(pipelines[0]) == 1 and not any(
-                pipelines[0][0][k] for k in ('stdin', 'writes', 'subs')):
-            return pipelines[0][0]['argv']
-        runs(text, hosts, on_boat, depth + 1, out, pipelines)
-        return None
-
-    while argv:
-        name = os.path.basename(argv[0])
-        if name in KEYWORDS or ASSIGN.match(argv[0]):
-            argv = argv[1:]
-        elif name in WRAPPERS:
-            argv = operands(argv[1:], *WRAPPERS[name])
-            if name == 'xargs':
-                argv = argv + list(feed)
-            elif name == 'watch':
-                argv = again(' '.join(argv))
-        elif name == 'ssh':
-            rest = operands(argv[1:], SSH)
-            if not rest:
-                return None, on_boat, None
-            host = re.split(r'[.:]', rest[0].rsplit('@', 1)[-1])[0]
-            on_boat = on_boat or (host if host in hosts else None)
-            if len(rest) == 1:
-                return 'shell', on_boat, None
-            argv = again(' '.join(rest[1:]))
-        elif name in ('docker', 'podman'):
-            rest = operands(argv[1:], *DOCKER)
-            rest = operands(rest[1:], *COMPOSE) if rest[:1] == ['compose'] else rest
-            if rest[:1] != ['exec']:
-                break
-            argv = operands(rest[1:], *EXEC, positionals=1)
-        elif name in SHELLS:
-            flags, i = '', 1
-            while i < len(argv) and argv[i][:1] in '-+' and argv[i] not in ('-', '--'):
-                if argv[i] in ('-o', '+o', '-O', '+O', '--rcfile', '--init-file'):
-                    i += 1
-                elif not argv[i].startswith('--'):
-                    flags += argv[i][1:]
-                i += 1
-            rest = argv[i + (argv[i:i + 1] == ['--']):]
-            if 'c' in flags:
-                argv = again(rest[0] if rest else '')
-            elif rest and 's' not in flags and rest[0] != '-':
-                return None, on_boat, rest[0]
-            else:
-                return 'shell', on_boat, None
-        elif name == 'eval':
-            argv = again(' '.join(argv[1:]))
-        elif name in ('source', '.'):
-            return None, on_boat, (argv[1:] or [None])[0]
-        elif CODE.match(name):
-            args = argv[1:]
-            for k, arg in enumerate(args):
-                python_c = name[0] == 'p' and re.fullmatch(r'-[A-Za-z]*c', arg)
-                if arg in ('-c', '-e', '--eval', '-p', '--print') or python_c:
-                    out.append(('code', on_boat, args[k + 1] if k + 1 < len(args) else ''))
-                    return None, on_boat, None
-                if arg == '-m':
-                    return None, on_boat, None
-                if arg == '-' or not arg.startswith('-'):
-                    return ('code', on_boat, None) if arg == '-' else (None, on_boat, arg)
-            return 'code', on_boat, None
-        else:
-            break
-    if argv:
-        out.append(('cmd', on_boat, ' '.join([os.path.basename(argv[0])] + argv[1:])))
-        return None, on_boat, argv[0]
-    return None, on_boat, None
+        leases = re.search(r'^STATIC_LEASES="?([^"\n]*)', network_file().read_text(), re.M).group(1)
+        names |= {part for lease in leases.split() for part in lease.split('=')[1:]}
+    except (AttributeError, OSError):
+        pass
+    try:
+        aliases = []
+        for line in (Path.home() / '.ssh' / 'config').read_text().splitlines():
+            words = line.split()
+            if words[:1] and words[0].lower() == 'host':
+                aliases = words[1:]
+            elif words[:1] and words[0].lower() == 'hostname' and len(words) > 1 and (
+                    words[1] in names or words[1].split('.')[0] in names):
+                names |= {a for a in aliases if not set('*?!') & set(a)}
+    except OSError:
+        pass
+    return names
 
 
 def denied(command, config):
-    """``(the command or code line it blocks, the boat host it runs on or None)`` for the first denied
-    thing ``command`` runs, else None."""
-    hosts = set(config['hosts']) | {target_of(config)} - {'local'}
-    for kind, on_boat, text in runs(command, hosts):
-        patterns = config['deny'] + (config['deny_boat'] if on_boat else [])
-        if kind == 'cmd':
-            hit = next((text for p in patterns if re.match(p, text)), None)
-        else:
-            lines = plain(text).split('\n')
-            hit = next((m.group(0) for line in lines for p in patterns for m in [re.search(p, line)] if m), None)
-        if hit:
-            return hit, on_boat
+    """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
+    denied; anything else is denied when ``hook.deny`` is found anywhere in its text, or
+    ``hook.deny_boat`` when it names a boat (or runs on one)."""
+    if text_only(command):
+        return None
+    text, names = plain(command), boats(config)
+    found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(map(re.escape, sorted(names, key=len, reverse=True))),
+                      text) if names else None
+    host = found.group(1) if found else (hostname().split('.')[0] if hostname().split('.')[0] in names else None)
+    for pattern in config['deny'] + (config['deny_boat'] if host else []):
+        match = re.search(pattern, text, re.S)
+        if match:
+            rest = re.compile(r'[\n;|&]').search(text, match.end())
+            return ' '.join(text[match.start():rest.start() if rest else None].split()), host
     return None
 
 

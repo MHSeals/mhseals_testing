@@ -114,56 +114,49 @@ def test_reads_stay_allowed(sent, command):
     assert sent('pre', command) is None
 
 
-# The regression table: what a shell would run is checked, what a command only reads is not.
-BLOCK = [
-    # wrappers and nesting
+# The regression table. Rule: nothing the whole-text search denies becomes allowed, except a call made
+# only of commands that read or print text (Tier A). MAIN rows were denied by the whole-text hook; keep them.
+MAIN = [
     'ssh blastoise \'docker exec roboboat_dev bash -c "ros2 topic pub /cmd_vel x y"\'',
-    'docker exec -it roboboat_dev ros2 topic pub /cmd_vel x y',
-    'docker compose -f x.yml exec dev ros2 topic pub /cmd_vel x y',
-    'source /opt/ros/jazzy/setup.bash && ros2 topic pub /cmd_vel x y',
-    "bash -lc 'ros2 topic pub /cmd_vel x y'", 'eval "ros2 topic pub /cmd_vel x y"',
-    'timeout 5 ros2 topic pub -r 10 /cmd_vel x y', 'sudo -u roboboat ros2 topic pub /cmd_vel x y',
-    'env ROS_DOMAIN_ID=3 ros2 topic pub /cmd_vel x y', '/opt/ros/jazzy/bin/ros2 topic pub /cmd_vel x y',
-    'nohup ros2 topic pub /cmd_vel x y &', 'watch -n 1 ros2 topic pub --once /cmd_vel x y',
-    '(cd /tmp && ros2 topic pub /cmd_vel x y)', '{ ros2 topic pub /cmd_vel x y; }',
-    'if true; then ros2 topic pub /cmd_vel x y; fi',
-    "ssh -o BatchMode=yes -p 22 roboboat@blastoise.local 'ros2 service call /mavros/set_mode x y'",
-    # code the shell feeds to a shell or an interpreter
-    "ssh blastoise <<'EOF'\nsource x\nros2 topic pub /cmd_vel x y\nEOF",
-    "ssh blastoise bash -s <<'EOF'\npkill -f boat_test\nEOF",
-    'bash <<EOF\nros2 topic pub /cmd_vel x y\nEOF', 'bash <<< "ros2 topic pub /cmd_vel x y"',
-    'echo "ros2 topic pub /cmd_vel x y" | bash', 'echo ros2 topic pub /cmd_vel x y | ssh blastoise',
-    'echo /cmd_vel | xargs ros2 topic pub',
-    "cat > /tmp/x.sh <<'EOF'\nros2 topic pub /cmd_vel x y\nEOF\nbash /tmp/x.sh",
-    "python3 -c \"import os; os.system('ros2 topic pub /cmd_vel x y')\"",
-    "python3 - <<'EOF'\nimport subprocess\nsubprocess.run('ros2 service call /mavros/cmd/arming x y', shell=True)\nEOF",
-    'echo "$(ros2 topic pub --once /cmd_vel x y)"', 'x=`ros2 topic pub --once /cmd_vel x y`',
-    'cat <<EOF\n$(ros2 topic pub --once /cmd_vel x y)\nEOF',
-    "ros2 topic pub /cmd_vel x 'y",                                  # unreadable: searched whole
+    'docker run --rm --net host ros:humble ros2 topic pub /cmd_vel x y',
+    'setsid -f ros2 topic pub /cmd_vel x y', 'chrt 10 ros2 topic pub /cmd_vel x y',
+    'script -qc "ros2 topic pub /cmd_vel x y" /dev/null', 'tmux new -d "ros2 topic pub /cmd_vel x y"',
+    'su roboboat -c "ros2 topic pub /cmd_vel x y"', 'pixi run ros2 topic pub /cmd_vel x y',
+    "awk 'BEGIN{system(\"ros2 topic pub /cmd_vel x y\")}'", 'git -c alias.x="!ros2 topic pub /cmd_vel x y" x',
+    "uv run python -c 'import os; os.system(\"ros2 topic pub /cmd_vel x y\")'",
+    'X="ros2 topic pub /cmd_vel x y"; $X', 'alias p="ros2 topic pub"; p /cmd_vel x y',
+    'cat <(ros2 topic pub /cmd_vel x y)', '2>/dev/null ros2 topic pub /cmd_vel x y',
+    "echo 'ros2 topic pub /cmd_vel x y' > /tmp/x.sh; bash /tmp/x.sh",
+    'echo "$(ros2 topic pub --once /cmd_vel x y)"', 'grep x f && ros2 topic pub /cmd_vel x y',
+    'sed -n "1e ros2 topic pub /cmd_vel x y" f', 'less "+!ros2 topic pub /cmd_vel x y" f',
+    "ros2 topic pub /cmd_vel x 'y",                                  # unreadable
+    'pkill -f command_mux', 'pkill -P 12345', 'killall -u lunarz codex', 'kill -9 $(pgrep -f fence_watchdog)']
+# New surfaces, and the boat by name, ssh alias or STATIC_LEASES address (config/boat-network.env).
+NEW = [
+    'ros2 run mavros mavsafety arm', 'ros2 run mavros mavcmd long 400 1 0 0 0 0 0 0',
+    'ros2 topic pub /operator/heartbeat std_msgs/msg/Header "{}"',
+    'ros2 topic pub /mhseals_testing/authority std_msgs/msg/String "{}"',
+    'ros2 service call /thruster_pwm_node/estop std_srvs/srv/SetBool "{data: false}"',
+    'ros2 topic pub /thrusters/left std_msgs/msg/Float64 "{data: 1.0}"',
+    "python3 -c 'import rclpy; n = rclpy.create_node(\"x\"); n.create_publisher(T, t, 1)'",
+    'echo /cmd_vel | xargs ros2 topic pub', 'pgrep -f x | xargs kill',
     'T=/cmd_vel; ros2 topic pub $T geometry_msgs/msg/Twist {}',     # a target the hook cannot read
-    # killing the boat's control, here or anything on the boat
-    'pkill -f command_mux', 'kill -9 $(pgrep -f fence_watchdog)', 'killall mavros_node',
-    "ssh blastoise 'killall thruster_pwm_node'", 'ssh blastoise pkill -f anything',
-    'ssh blastoise docker stop roboboat_dev', "ssh blastoise 'docker compose down'",
-    'ssh blastoise systemctl --user restart mavros', 'ssh squirtle sudo reboot']
-ALLOW = [
-    'git status', 'pkill -P 12345', 'kill 12345', 'kill -TERM %1', 'killall -u lunarz codex',
-    'pkill -P 4242; kill %1', 'docker kill crane_ml_train', 'docker stop roboboat_dev', 'tmux kill-session -t x',
-    "python3 - <<'EOF'\nimport os, signal\nos.kill(pid, signal.SIGTERM)\nEOF",
-    "cat > test_x.py <<'EOF'\ndef test_kill():\n    proc.kill()  # the watchdog test\nEOF",
-    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
-    "grep -rn 'ros2 topic pub /cmd_vel' src/", 'rg "goal_pose|cmd_vel" src/mhseals_nav', "rg -n 'reboot' src/",
-    'git commit -m "deny ros2 topic pub /cmd_vel in the hook"',
-    "git commit -F - <<'EOF'\nBlock ros2 topic pub /cmd_vel and pkill on the boat\nEOF",
+    'ssh blastoise kill 4242', 'ssh squirtle sudo reboot', "ssh blastoise 'docker compose down'",
+    'ssh roboboat@192.168.0.152 sudo systemctl stop mhseals', 'H=blastoise; ssh $H reboot']
+BLOCK = MAIN + NEW
+TEXT = [            # Tier A: robot words only inside what grep, echo, git commit, cat, pytest read or print
+    "grep -rn 'ros2 topic pub /cmd_vel' src/", "rg 'pkill|killall' src", 'echo "never run ros2 topic pub /cmd_vel"',
+    'git commit -m "deny ros2 topic pub /cmd_vel and pkill in the hook"',
+    "git commit -F - <<'EOF'\nBlock ros2 topic pub /cmd_vel; ssh blastoise reboot too\nEOF",
     "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
-    "echo 'ros2 service call /mavros/cmd/arming' > notes.txt", "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv",
-    "sed -i 's/cmd_vel/cmd_vel_nav/' src/mhseals_nav/config/nav2.yaml",
-    "python3 -m pytest src/mhseals_testing/test -q -k 'kill or pkill'",
-    'ros2 topic pub /chatter std_msgs/msg/String "{data: hi}"', 'ros2 param set /my_detector threshold 0.5',
-    'ros2 node list | grep -i watchdog', 'ros2 bag info bags/run1',
-    'ssh blastoise ros2 topic echo /cmd_vel --once', "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'",
-    'ssh blastoise kill 4242', 'ssh blastoise journalctl --user -u mavros -n 50',
-    f'ssh blastoise {hook.BOAT_AGENT} stop --who x']
+    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
+    "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv", "sed -n '/pkill/p' notes.md | head -5",
+    "python3 -m pytest src/mhseals_testing/test -q -k 'kill or pkill'", 'git log --oneline --grep pkill | wc -l']
+ALLOW = TEXT + [
+    'git status', 'kill 12345', 'kill -TERM 4242', 'kill %1', 'docker stop roboboat_dev', 'tmux kill-session -t x',
+    "python3 - <<'EOF'\nimport os, signal\nos.kill(pid, signal.SIGTERM)\nEOF",
+    'ros2 topic pub /chatter std_msgs/msg/String "{data: hi}"', 'ros2 topic echo /cmd_vel --once',
+    "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'", f'ssh blastoise {hook.BOAT_AGENT} stop --who x']
 
 
 @pytest.mark.parametrize('agent', ['claude', 'codex'])
@@ -179,12 +172,29 @@ def test_regression_text_and_local_work_are_allowed(sent, agent, command):
     assert sent('pre', command, agent=agent) is None
 
 
+@pytest.mark.parametrize('command', BLOCK + ALLOW)
+def test_only_text_commands_escape_the_whole_text_search(command):
+    """Fail closed: what the whole-text search finds stays denied unless every command only reads text."""
+    if hook.matches(hook.DEFAULTS['deny'], command):
+        assert (hook.denied(command, hook.DEFAULTS) is None) == hook.text_only(command)
+    assert hook.text_only(command) == (command in TEXT or command == 'git status')
+
+
 def test_a_boat_deny_names_the_host_and_the_command():
     reason = hook.deny_reason(*hook.denied('ssh squirtle pkill -f x', hook.DEFAULTS), who='claude-3f2a',
                               config=hook.DEFAULTS)
-    assert reason.startswith('Blocked `pkill -f x` on squirtle: killing boat processes')
+    assert reason.startswith('Blocked `pkill -f x` on squirtle: killing processes')
     assert f'Use: ssh squirtle {hook.BOAT_AGENT} stop --who claude-3f2a' in reason    # the boat it aimed at
-    assert hook.denied('ssh devbox pkill -f x', hook.DEFAULTS) is None
+    assert hook.denied('ssh devbox docker stop x', hook.DEFAULTS) is None
+
+
+def test_the_boat_addresses_come_from_the_network_file(tmp_path, monkeypatch):
+    (tmp_path / 'config').mkdir()
+    (tmp_path / hook.NETWORK).write_text('STATIC_LEASES="aa:bb=boatpc=10.9.8.7 cc:dd=boatpc2=10.9.8.8"\n')
+    monkeypatch.setattr(hook, 'network_file', lambda: tmp_path / hook.NETWORK)
+    assert {'boatpc', '10.9.8.7', 'boatpc2', '10.9.8.8'} <= hook.boats(hook.DEFAULTS)
+    assert hook.denied('ssh me@10.9.8.8 reboot', hook.DEFAULTS)[1] == '10.9.8.8'
+    assert hook.denied('ssh 10.9.8.80 reboot', hook.DEFAULTS) is None
 
 
 def test_matching_is_fast():
