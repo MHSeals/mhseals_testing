@@ -217,7 +217,8 @@ def test_nothing_after_the_exit_changes_the_score():
     base = score.judge(gate_truth(), run)
     more = run + path([(-2, 0), (20, 0), (20, 10)], t0=run[-1][0] + 0.1)
     after = score.judge(gate_truth(), more)
-    assert after['total'] == base['total'] and rows(after)['T1.exit']['t'] == rows(base)['T1.exit']['t']
+    assert after['total'] == base['total']
+    assert rows(after)['T1.exit']['t'] == rows(base)['T1.exit']['t']
 
 
 def test_sprint_near_loop_that_retraces_does_not_count():
@@ -272,13 +273,15 @@ def _diag(truth, track, **kw):
 
 def test_timeline_contacts_and_near_misses():
     truth = gate_truth()
-    truth['elements'].append(dict(id='speed_challenge.rock', task='speed_challenge', role='obstacle',
+    truth['elements'].append(dict(id='speed_challenge.rock', task='speed_challenge',
+                                  role='obstacle',
                                   label='black', x=20.0, y=15.0, radius=0.2))
     truth['elements'].append(dict(id='speed_challenge.rock2', task='speed_challenge',
                                   role='obstacle', label='black', x=20.75, y=25.0, radius=0.2))
     report, diag = _diag(truth, path(loop(1)))
     line = diag['timeline']['speed_challenge']
-    assert line['outcome'] == 'completed' and line['encounter_t'] <= line['execute_t'] <= line['end_t']
+    assert line['outcome'] == 'completed'
+    assert line['encounter_t'] <= line['execute_t'] <= line['end_t']
     assert set(line['split_s']) == {'search_or_transit', 'approach', 'execution', 'recovery'}
     hits = diag['contacts']['contacts']
     assert [c['object'] for c in hits] == ['speed_challenge.rock'] * 2   # out and back

@@ -34,7 +34,7 @@ PARAMS = dict(
     start_standoff_m=1.8288,    # H p.45, L 3.2.1: start >= 6 ft before the first gate
     dock_tiers='highest',       # D, owner to confirm: 'highest' or 'additive' (S 4.2 lists rows)
     harbor_tiers='highest',     # D, owner to confirm: 'highest' or 'additive' (S 4.2 lists rows)
-    green_circles_needed=1,     # D, owner to confirm: green indicators to circle ('all' = every one)
+    green_circles_needed=1,     # D, owner to confirm: greens to circle ('all' = every one)
 )
 DOCK_PARTS = ('pier_spine', 'pier_tine', 'dock_sign', 'dock_indicator')  # docking touches these
 INTERVENING = ('rc', 'keyboard', 'hold', 'external')   # authority owners that are not autonomy
@@ -396,7 +396,7 @@ def _entry_exit(model, run, rows_for, gate_passes):
             if start['t'] <= t_entry or start['dir'] != -1:
                 continue
             back = sequence([gate_passes[g['id']] for g in reversed(gates)], -1, start['t'] - 1e-9)
-            if back and back[0] is start:     # the first exit ends the run; later moves don't count
+            if back and back[0] is start:     # the first exit ends the run
                 exits = back
                 break
         t_exit = exits[-1]['t'] if exits else None
@@ -575,8 +575,8 @@ def _marina(model, run, rows, changes, allowed):
         points = sum(TIER_POINTS[k] for k in order[:order.index(best[0]) + 1])
     else:
         points = TIER_POINTS[best[0]] if best else None
-    possible = 50 if model['legacy'] else (sum(TIER_POINTS.values())
-                                          if PARAMS['dock_tiers'] == 'additive' else 350)
+    additive = PARAMS['dock_tiers'] == 'additive'
+    possible = 50 if model['legacy'] else (sum(TIER_POINTS.values()) if additive else 350)
     rows.add('T5.dock', 'S; L 3.2.5; H pp.54-56', 'H+D', 'held in a slip; 50 unoccupied, 200 '
              'green, 350 lowest green (highest tier only, D)', possible, bool(best),
              t=best[1]['t'] if best else None, points=points,
@@ -613,7 +613,8 @@ def _harbor(model, run, rows, t_from, t_cut):
     rows.add('T6.zone', 'S; L 3.2.6; H pp.56-58', 'H+D', 'after the horn, reach a zone '
              '(150) or the commanded zone (300); zone = anchor radius (D)',
              450 if PARAMS['harbor_tiers'] == 'additive' else 300, bool(reached),
-             t=reached[1] if reached else None, points=tier or None, trigger_s=trigger, pattern=program.get('pattern'),
+             t=reached[1] if reached else None, points=tier or None, trigger_s=trigger,
+             pattern=program.get('pattern'),
              target_zone=target, reached=reached[0] if reached else None,
              correct=bool(reached) and reached[0] == target,
              response_s=round(reached[1] - trigger, 2) if reached else None)

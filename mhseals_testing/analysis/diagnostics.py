@@ -76,7 +76,8 @@ def shore_clearance(pose, hull, line):
         if any(_crosses(a, b, u, v) for u, v in edges):
             return -0.001
         best = min(best, *(_seg_dist(c, a, b) for c in box),
-                   *(_seg_dist(a, u, v) for u, v in edges), *(_seg_dist(b, u, v) for u, v in edges))
+                   *(_seg_dist(a, u, v) for u, v in edges),
+                   *(_seg_dist(b, u, v) for u, v in edges))
     return best
 
 
@@ -118,8 +119,8 @@ def contacts(run, model, p=DPARAMS):
     if shore and len(shore) >= 2:
         objects.append((dict(id='shore', role='shore'), 'shore'))
     for item, kind in objects:
-        state, episode, gap = 'clear', None, (reach + (item.get('radius') or 0.2) +
-                                             p['near_miss_exit_m']) ** 2
+        gap = (reach + (item.get('radius') or 0.2) + p['near_miss_exit_m']) ** 2
+        state, episode = 'clear', None
         for i, (t, x, y, yaw) in enumerate(run):
             if kind == 'shore':
                 clear = shore_clearance((x, y, yaw), hull, shore)
@@ -212,12 +213,12 @@ def _executing(tid, model, run, gate_passes, trigger):
         sem = (model['tasks'][tid].get('semantics') or {})
         by_id = {e['id']: e for e in model['elements']}
         marks = [by_id[i] for i in sem.get('avoid', []) + sem.get('rescue', []) if i in by_id]
-        starts += [next((t for t, x, y, _ in run if any(math.dist((x, y), (m['x'], m['y'])) <= near
-                                                       for m in marks)), None)]
+        starts.append(next((t for t, x, y, _ in run if any(
+            math.dist((x, y), (m['x'], m['y'])) <= near for m in marks)), None))
     elif tid == 'supply_drop':
         hulls = [e for e in model['elements'] if e.get('task') == tid]
-        starts += [next((t for t, x, y, _ in run if any(math.dist((x, y), (h['x'], h['y'])) <= near
-                                                       for h in hulls)), None)]
+        starts.append(next((t for t, x, y, _ in run if any(
+            math.dist((x, y), (h['x'], h['y'])) <= near for h in hulls)), None))
     elif tid == 'marina':
         for bay in model['bays']:
             entered = next((t for t, x, y, _ in run if score.docked([(t, x, y, 0)], bay, 0)[0]
@@ -237,7 +238,8 @@ def timeline(run, model, report, gate_passes, contact_list, trigger=None):
     for tid, (dist, _, how) in regs.items():
         inside = [p for p in run if dist(p[1:3]) <= 0]
         rows = (report['tasks'].get(tid) or {}).get('rows', [])
-        done = [r['t'] for r in rows if r['status'] in ('earned', 'provisional') and r['t'] is not None]
+        done = [r['t'] for r in rows
+                if r['status'] in ('earned', 'provisional') and r['t'] is not None]
         execute, failed = _executing(tid, model, run, gate_passes, trigger)
         if tid == 'harbor_alert' and trigger is not None:
             met = trigger
@@ -304,7 +306,8 @@ def claimed_phases(status, task_events, t1):
             continue
         row = stages.setdefault(stage, dict(task=STAGE_TASK.get(stage, stage)))
         phases = row.setdefault('phase_s', {})
-        phases[a['phase']] = round(phases.get(a['phase'], 0.0) + max(0.0, b['time'] - a['time']), 2)
+        span = max(0.0, b['time'] - a['time'])
+        phases[a['phase']] = round(phases.get(a['phase'], 0.0) + span, 2)
     return stages
 
 

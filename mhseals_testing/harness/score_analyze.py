@@ -129,8 +129,8 @@ def analyze(session, now=None):
     meta = data.read_json(Path(session) / 'session.json', {}) or {}
     source = meta.get('source') or ('kinematic' if meta.get('kind') == 'kinematic' else 'unity')
     body['run']['source'] = source
-    body['penalties']['contact_basis'] = 'geometry' + (' (no physics)' if source == 'kinematic'
-                                                        else '')
+    physics = ' (no physics)' if source == 'kinematic' else ''
+    body['penalties']['contact_basis'] = 'geometry' + physics
     body['run'].update(session=Path(session).name, course=dict(
         name=truth.get('name'), family=truth.get('family'), seed=gen.get('seed'),
         mode=gen.get('mode'), truth_sha256=gen.get('truth_sha256')))
@@ -169,8 +169,8 @@ def metrics(record):
         out[f'contacts.{kind}'] = n
     end = record['run']['end']['reason']
     out['exited'] = float(record['run'].get('exit_t') is not None)
-    out.update({f'end.{k}': float(k == end) for k in ('finished', 'intervention',
-                                                     'out_of_bounds', 'track_end')})
+    ends = ('finished', 'intervention', 'out_of_bounds', 'track_end')
+    out.update({f'end.{k}': float(k == end) for k in ends})
     if touch:
         out['contact_free'] = float(not touch.get('contacts'))
         out['safe_exit'] = float(out['exited'] and not touch.get('contacts')
