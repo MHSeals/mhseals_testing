@@ -9,6 +9,17 @@ confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120
 run: [square, station, nav2_bringup, controller_check, perception, mission]   # procedure keys agents may request
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
+# Sim-only auto-arm (owner decision 2026-10-26): `run KEY --sim-arm` arms for that run when every check of
+# harness/sim_arm.py proves a sim (sim profile and clock, crane player, private domain in `domains`, never 42,
+# localhost discovery, private-IPC container, no real-hardware node in `real_nodes`, the session's empty hold
+# file, no <data root>/agent/stop). It never releases a hold and disarms when the run ends, after max_s, on a
+# lapsed lease or when the stop file appears.
+sim_arm:
+  enabled: true
+  max_s: 1800
+  domains: [101, 232]
+  real_nodes: ['mavros\w*', 'zed_\w+', 'velodyne\w*', lidar_relay_publish, fcu_watchdog, host_diagnostic, 'ntrip\w*',
+               'ublox\w*', thruster_pwm_node, command_mux]
 hook:
   # local: notes go to this machine's channel (the sim/dev TUI), never over ssh. A boat session names its host
   # (BOAT_AGENT_TARGET=blastoise-odroid in the agent's environment, or here); only then do they go to path there.
@@ -39,6 +50,7 @@ hook:
          'ros2\s+bag\s+play\b(?!.*--topics\b)',
          'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
          'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+         'ros2\s+run\s+mhseals_hardware\s+(thruster_pwm_node|command_mux|calibrated_velocity_controller)\b',
          'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority|\bthruster_pwm_node/estop|\bthrusters/)',
          'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
          'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\s+(--?[\w-]+\s+)*[^\s-]*\$',

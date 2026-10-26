@@ -38,7 +38,7 @@ def load(path=None):
 def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
-    known = {'schema', 'lease', 'run', 'unclaimed_driver', 'hook', *NUMBERS}
+    known = {'schema', 'lease', 'run', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     lease = data.get('lease')
@@ -71,7 +71,32 @@ def validate(data):
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError('agent.yaml: hook.max_per_10s must be a positive integer')
     return {**data, 'lease': dict(lease), 'run': list(run),
-            'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit}}
+            'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
+            'sim_arm': sim_arm(data.get('sim_arm', {}))}
+
+
+def sim_arm(section):
+    """``sim_arm:`` over harness/sim_arm.DEFAULTS (off unless ``enabled: true``); ValueError naming the key."""
+    from mhseals_testing.harness.sim_arm import DEFAULTS
+    if not isinstance(section, dict) or (extra := sorted(set(section) - set(DEFAULTS))):
+        raise ValueError(f"agent.yaml: sim_arm keys are {', '.join(DEFAULTS)}")
+    out = {**DEFAULTS, **section}
+    if not isinstance(out['enabled'], bool):
+        raise ValueError('agent.yaml: sim_arm.enabled must be true or false')
+    if isinstance(out['max_s'], bool) or not isinstance(out['max_s'], (int, float)) or out['max_s'] <= 0:
+        raise ValueError('agent.yaml: sim_arm.max_s must be a positive number of seconds')
+    low, high = out['domains'] if isinstance(out['domains'], list) and len(out['domains']) == 2 else (None, None)
+    if not all(isinstance(d, int) and not isinstance(d, bool) for d in (low, high)) or not 1 <= low <= high <= 232:
+        raise ValueError('agent.yaml: sim_arm.domains must be [low, high] within 1..232')
+    patterns = out['real_nodes']
+    if not isinstance(patterns, list) or not patterns or not all(isinstance(p, str) for p in patterns):
+        raise ValueError('agent.yaml: sim_arm.real_nodes must be a non-empty list of regexes')
+    for pattern in patterns:
+        try:
+            re.compile(pattern)
+        except re.error as error:
+            raise ValueError(f'agent.yaml: sim_arm.real_nodes {pattern!r}: {error}') from None
+    return {**out, 'domains': [low, high], 'real_nodes': list(patterns)}
 
 
 class Watch:
