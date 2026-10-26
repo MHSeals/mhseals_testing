@@ -55,6 +55,18 @@ HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'opera
          'approach': 'approach guard hold: operator must U'}
 
 
+def operator_popup(app):
+    """Return the popup a run waits on (e.g. the procedure's "Clear the area and press Enter"), or None.
+
+    Only the operator answers it; an agent reports it and waits (no verb answers a popup).
+    """
+    modal = getattr(app, 'modal', None)
+    if not isinstance(modal, dict):
+        return None
+    title, message = modal.get('title') or '', modal.get('message') or ''
+    return f'{title}: {message}' if title and message else (title or message or None)
+
+
 class AgentDesk:
     """The desk; ``clock`` is the wall clock in seconds (deadlines are ``time_ns`` stamps)."""
 
@@ -560,7 +572,8 @@ class AgentDesk:
             elif act['started'] and self.clock() - act['progress_at'] >= PROGRESS_S:
                 act['progress_at'] = self.clock()
                 self.reply(act['req'], True, state='progress',
-                           result={'elapsed_s': round(self.clock() - act['at'], 1), 'notice': str(self.app.notice)})
+                           result={'elapsed_s': round(self.clock() - act['at'], 1), 'notice': str(self.app.notice),
+                                   'waiting_for_operator': operator_popup(self.app)})
         elif act['op'] == 'goal' and act['started']:
             self.watch_goal(act, cause)
         return cause

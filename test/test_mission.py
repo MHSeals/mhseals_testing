@@ -124,3 +124,30 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
                                       '--ros-args', '-p', 'use_sim_time:=true'])]
     assert result['outcome'] == outcome and result['verdict'] == 'FAIL'
     assert result['exit_code'] == code and recorded == [result]
+
+
+def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path):
+    # The 10-26 demo: the player kept running, the boat sat 100 m south of the course while its
+    # odometry said (0, 0), and nav_channel searched empty water for 3 min.
+    import json
+    from types import SimpleNamespace
+    from mhseals_testing.procedures import mission
+    truth = tmp_path / 'course_truth.json'
+    truth.write_text(json.dumps({'startX': -2.3, 'startY': -4.8, 'elements': [
+        {'label': 'red_pole_buoy', 'x': 4.8, 'y': -3.3}, {'label': '', 'x': 11.0, 'y': -100.0}]}))
+    profile = SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom')
+
+    def at(x, y):
+        return lambda: [(0.0, {'x': 50.0, 'y': 50.0}), (1.0, {'x': x, 'y': y})]
+    assert mission.off_course(profile, at(-2.3, -4.8)) == ''
+    assert mission.off_course(profile, at(20.0, -3.3)) == ''          # 15 m: in sight
+    reason = mission.off_course(profile, at(11.1, -102.8))
+    assert reason.startswith('the boat is 100 m from the nearest course element')
+    assert mission.off_course(profile, lambda: []) == ''               # no truth sample: no block
+    assert mission.off_course(SimpleNamespace(course_truth=None, ground_truth=None), at(1e3, 0)) == ''
+    recorded = []
+    ctx = SimpleNamespace(services={'task': 'nav_channel'}, profile=profile, record=recorded.append,
+                          history=lambda name: at(11.1, -102.8)(),
+                          prompt=lambda *a: pytest.fail('a refused mission never prompts'))
+    result = mission.run(ctx)
+    assert result == recorded[0] and result['verdict'] == 'REFUSED' and result['task'] == 'nav_channel'

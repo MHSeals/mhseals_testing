@@ -11,6 +11,7 @@ from dataclasses import replace
 import math
 import threading
 import time
+from pathlib import Path
 
 from mhseals_hardware.menu import Cancelled
 import numpy as np
@@ -315,17 +316,37 @@ def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0, fence_wa
         blocking, advisory = (app.engine.gate(found.key, app.args.bench_override, 'armed' in found.needs)
                               if app.engine is not None else ([], []))
         needs_arm = 'armed' in found.needs and not app.armed
-        return {'procedure': name, 'title': found.title, 'availability': app.availability(found) or None,
+        availability = app.availability(found) or None
+        course = mission_course(app) if name == 'mission' else ''
+        hardware = hardware_advisory(app)
+        hint = availability or course or ('ask the operator to arm (a)' if needs_arm else '')
+        return {'procedure': name, 'title': found.title, 'availability': availability,
                 'task': run_task(args) if name == 'mission' else None,
-                'gates': list(blocking), 'advisories': list(advisory),
+                'gates': list(blocking), 'advisories': list(advisory) + ([hardware] if hardware else []),
+                'course': course or None, 'hardware_config': str(getattr(app, 'config_file', '') or '') or None,
                 'arm_blockers': app.arm_blockers() if needs_arm else [],
                 'motion_blockers': app.motion_blockers() if app.armed else [],
                 'settings': vars(app.settings), 'asks': {'arm': needs_arm, 'confirm': confirm},
-                'hint': 'ask the operator to arm (a)' if needs_arm else ''}
+                'hint': hint}
     facts = goal_facts(app, lifecycle, fence_wait)
     path_m, reason = goal_preview(app, goal_args(args), facts, timeout)
     return {'goal': goal_args(args), 'gate': reason, 'path_m': path_m, 'asks': {'confirm': confirm},
             'hint': 'ask the operator to arm (a)' if reason == 'outputs are not armed' else ''}
+
+
+def mission_course(app):
+    """Return the mission's sim start check (procedures.mission.off_course) on the live ground truth."""
+    from mhseals_testing.procedures import mission
+    return mission.off_course(app.profile, lambda: app.monitor.history('ground truth'))
+
+
+def hardware_advisory(app):
+    """Return an advisory for a sim profile (topic outputs) on the boat's hardware YAML, or ''."""
+    path = getattr(app, 'config_file', None)
+    if getattr(app.profile, 'outputs', None) != 'topic' or path is None or 'sim' in Path(path).parts:
+        return ''
+    return (f'sim profile with hardware YAML {path}; start boat_test with '
+            'MHSEALS_HARDWARE_CONFIG=<mhseals_testing share>/config/sim/hardware_crane.yaml')
 
 
 GOAL_MAX_M = 1e5      # beyond any course; larger values overflow the costmap cell math

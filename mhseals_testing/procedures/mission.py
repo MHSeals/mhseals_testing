@@ -8,6 +8,7 @@ the boat really did, from the course truth and the true track.
 """
 
 import json
+import math
 from pathlib import Path
 
 import yaml
@@ -22,16 +23,56 @@ MARGIN = 30.0  # s past the rubric's time limit before the suite gives up
 # run_task's exit codes (mhseals_nav tasks/interface.py). Newer: 3, a human override stopped
 # it; 4, it refused to start while a human had control. Any other code is a FAILURE.
 TASK_EXIT = {0: 'SUCCESS', 1: 'FAILURE', 2: 'TIMEOUT', 3: 'PREEMPTED', 4: 'REFUSED'}
+# crane's camera (BoundingBox3D maxDist, sim_backend fov.range_m) sees 20 m: farther from every
+# course element, a sim mission searches empty water.
+SIM_SIGHT_M = 20.0
 
 
 def available(directory=MISSION_DIR):
     return sorted(path.stem for path in Path(directory).glob('*.yaml'))
 
 
+def off_course(profile, history):
+    """Return why a sim mission must not start where the boat is, or ''.
+
+    The simulator keeps running across stack sessions, and each session's odometry starts again at
+    (0, 0): a boat driven or drifted away in an earlier session believes it is at the start while
+    the course is out of its camera's sight. Judged in the ground-truth frame of the course truth,
+    so it applies only to a profile with both; without a ground-truth sample it does not block.
+    """
+    path = getattr(profile, 'course_truth', None)
+    if not path or not getattr(profile, 'ground_truth', None) or not Path(path).exists():
+        return ''
+    try:
+        elements = [(float(e['x']), float(e['y']))
+                    for e in json.loads(Path(path).read_text())['elements'] if e.get('label')]
+    except (OSError, ValueError, KeyError, TypeError):
+        return ''
+    samples = [v for _, v in history() if v.get('x') is not None]
+    if not elements or not samples:
+        return ''
+    x, y = samples[-1]['x'], samples[-1]['y']
+    nearest = min(math.hypot(ex - x, ey - y) for ex, ey in elements)
+    if nearest <= SIM_SIGHT_M:
+        return ''
+    return (f'the boat is {nearest:.0f} m from the nearest course element (ground truth '
+            f'{x:.1f}, {y:.1f}); restart the simulator so the boat starts on the course')
+
+
+def refuse(ctx, task, reason):
+    """Record and return the mission's refusal to start."""
+    refusal = dict(procedure='mission', task=task, verdict='REFUSED', reason=reason)
+    ctx.record(refusal)
+    return refusal
+
+
 def run(ctx):
     task = ctx.services.get('task') or ctx.choose('Mission', tuple(available()))   # an agent's run names it
     rubric = yaml.safe_load((MISSION_DIR / f'{task}.yaml').read_text())
     services = ctx.services
+    away = off_course(ctx.profile, lambda: ctx.history(name='ground truth'))
+    if away:
+        return refuse(ctx, task, away)
     watcher = services['task_watcher']()
     watcher.reset()
     ctx.prompt(f'Rehearse {task}: Nav2 drives the course from here. '

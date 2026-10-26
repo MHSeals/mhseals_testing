@@ -934,3 +934,28 @@ def test_goal_freshness_is_judged_on_the_grid_fetched_for_it(rig):
     reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
     assert reply['error'] == 'refused' and reply['hint'] == 'global costmap is stale'
     assert rig.app.nav.goal is None and rig.app.goals.active is None
+
+
+def test_dry_run_helpers_name_an_off_course_sim_boat_a_boat_yaml_and_the_operator_popup(tmp_path):
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+    from mhseals_testing.ui import agent_acts
+    from mhseals_testing.ui.feeds.agent import operator_popup
+    truth = tmp_path / 'course_truth.json'
+    truth.write_text(json.dumps({'elements': [{'label': 'red_pole_buoy', 'x': 0.0, 'y': 0.0}]}))
+    history = {'ground truth': [(0.0, {'x': 0.0, 'y': -90.0})]}
+    app = SimpleNamespace(
+        profile=SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom', outputs='topic'),
+        monitor=SimpleNamespace(history=lambda name: history.get(name, [])),
+        config_file=Path.home() / '.config/mhseals/hardware.yaml')
+    assert agent_acts.mission_course(app).startswith('the boat is 90 m from')
+    assert 'hardware_crane.yaml' in agent_acts.hardware_advisory(app)
+    app.config_file = Path('/ws/install/mhseals_testing/share/mhseals_testing/config/sim/hardware_crane.yaml')
+    assert agent_acts.hardware_advisory(app) == ''
+    app.profile.outputs, app.config_file = 'odroid', Path.home() / '.config/mhseals/hardware.yaml'
+    assert agent_acts.hardware_advisory(app) == ''                  # the boat's own YAML on the boat
+    assert operator_popup(SimpleNamespace(modal=None)) is None
+    assert operator_popup(SimpleNamespace(modal={'kind': 'message', 'title': 'Ready',
+                                                 'message': 'Clear the area and press Enter... '})) == \
+        'Ready: Clear the area and press Enter... '
