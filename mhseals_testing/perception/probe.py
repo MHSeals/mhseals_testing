@@ -98,7 +98,25 @@ class Probe:
             out.update(self._source(name, src, now))
         return out
 
+    def _fusion(self, name, src, now):
+        """``perc.<name>.fusion_*``; 0 Hz once seen and gone quiet."""
+        s, live = f'perc.{name}.', self._live(src, 'fusion', now)
+        if not live:
+            return {s + 'fusion_hz': Fact(0.0, name, {}, now)}
+        _, level, message, v = live
+        keys = ('extrinsic_deg', 'applied_deg', 'alerts')
+        data = {'reason': message, **{k: v[k] for k in keys if k in v}}
+        out = {s + 'fusion_state': Fact(HEADING.get(level, 'stale'), name,
+                                        data, now)}
+        for key, fact in (('hz', 'fusion_hz'), ('lidar_share', 'fusion_share'),
+                          ('proc_ms_p95', 'fusion_p95_ms')):
+            if number(v, key) is not None:
+                out[s + fact] = Fact(number(v, key), name, {}, now)
+        return out
+
     def _source(self, name, src, now):
+        if set(src.stages) == {'fusion'}:
+            return self._fusion(name, src, now)
         s, out = f'perc.{name}.', {}
 
         def put(key, value, label='', **data):

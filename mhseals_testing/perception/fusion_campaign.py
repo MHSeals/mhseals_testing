@@ -324,8 +324,8 @@ def horiz(p):
 def extrinsic_fit(samples):
     """Batch WLS of the node's angle model over one run's extrinsic samples.
 
-    Samples are (x, y, Z, yaw rate, r_az, r_el, s_az, s_el). Returns the angles and the
-    median |r_az - model| and |r_el - model|, in deg.
+    Samples are (x, y, Z, yaw rate, r_az, r_el, s_az, s_el). Returns the
+    angles and the median |r_az - model| and |r_el - model|, in deg.
     """
     from mhseals_nav.lidar_fusion import model_rows
     if len(samples) < 10:
@@ -338,10 +338,12 @@ def extrinsic_fit(samples):
         w += [s_az ** -2, s_el ** -2]
     A, r, w = np.array(A), np.array(r), np.array(w)
     prior = np.array([0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.1]) ** -2
-    theta = np.linalg.solve(A.T @ (A * w[:, None]) + np.diag(prior), A.T @ (w * r))
+    N = A.T @ (A * w[:, None]) + np.diag(prior)
+    theta = np.linalg.solve(N, A.T @ (w * r))
     res = np.degrees(np.abs(r - A @ theta))
     return {'n': len(S), 'deg': np.degrees(theta[:3]).round(3).tolist(),
-            'c_m': theta[3:6].round(3).tolist(), 'tau_ms': round(1e3 * theta[6], 1),
+            'c_m': theta[3:6].round(3).tolist(),
+            'tau_ms': round(1e3 * theta[6], 1),
             'med_az_res_deg': float(np.median(res[0::2])),
             'med_el_res_deg': float(np.median(res[1::2])),
             'med_abs_yaw_rate': float(np.median(np.abs(S[:, 3])))}
@@ -403,7 +405,8 @@ def metrics(out, statics, elements, cfg):
                 if kind == 'fused':
                     err.setdefault((src, b), []).append(e)
                     u = np.array(o['p'][:2]) / max(horiz(o['p']), 1e-6)
-                    s2 = float(u @ np.array(o['cov']).reshape(3, 3)[:2, :2] @ u)
+                    C = np.array(o['cov']).reshape(3, 3)[:2, :2]
+                    s2 = float(u @ C @ u)
                     if s2 > 0:
                         nees_obs.setdefault(src, []).append(e * e / s2)
                     lidar = src in ('lidar', 'split')
@@ -451,12 +454,13 @@ def metrics(out, statics, elements, cfg):
 
     def pct(k):
         v = [s[k] for s in out['sources'] if k in s]
-        return [float(np.percentile(v, 50)), float(np.percentile(v, 95))] if v else None
+        return [float(np.percentile(v, q)) for q in (50, 95)] if v else None
+    samples = [x for s in out['sources'] for x in s.get('ex', [])]
     return {'ranges': ranges,
-            'nees_obs': {k: float(np.mean(v)) for k, v in sorted(nees_obs.items())},
+            'nees_obs': {k: float(np.mean(v)) for k, v in nees_obs.items()},
             'latency_s': {'capture_to_publish_p50_p95': pct('lat'),
                           'wait_p50_p95': pct('wait')},
-            'extrinsic_fit': extrinsic_fit([x for s in out['sources'] for x in s.get('ex', [])]),
+            'extrinsic_fit': extrinsic_fit(samples),
             'lidar_share': {b: float(np.mean(v)) for b, v in sorted(share.items())},
             'assoc': {**assoc, 'rate': assoc['errors'] / assoc['lidar'] if assoc['lidar'] else 0},
             'tracks': tracks, 'skips': skips,
@@ -538,14 +542,15 @@ def report(dirs):
                 cells.append(f'{b}:{before["rms"]:.2f}->{after["rms"]:.2f}'
                              f'({m["lidar_share"].get(b, 0):.2f})')
         t = m['tracks']
+        lat, fit = m.get('latency_s') or {}, m.get('extrinsic_fit') or {}
         print(f'{Path(m["session"]).name:8s} {m["injection"]:16s} {" ".join(cells)} '
               f'assoc {m["assoc"]["errors"]}/{m["assoc"]["lidar"]} '
               f'ids {t["raw"]["id_switches"]}->{t["fused"]["id_switches"]} '
               f'mov {t["raw"]["moving_frac"]:.3f}->{t["fused"]["moving_frac"]:.3f} '
               f'nees {t["raw"]["nees_r_mean"]:.2f}->{t["fused"]["nees_r_mean"]:.2f} '
               f'warn {m["warn_s"]} err {m["error_s"]} p95 {m["proc_ms_p95_max"]} '
-              f'lat {(m.get("latency_s") or {}).get("capture_to_publish_p50_p95")} '
-              f'r_az {(m.get("extrinsic_fit") or {}).get("med_az_res_deg")}')
+              f'lat {lat.get("capture_to_publish_p50_p95")} '
+              f'r_az {fit.get("med_az_res_deg")}')
 
 
 def main():

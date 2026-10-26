@@ -139,3 +139,44 @@ checks:
     each:
       - {source: zed_native, profiles: [boat, dev_zed]}
       - {source: sim, profiles: [crane_full_stack]}
+  # lidar_fusion (mhseals_nav config/lidar_fusion.yaml): its rows skip while it is disabled.
+  - id: perc.{source}.fusion_rate
+    kind: threshold
+    fact: perc.{source}.fusion_hz
+    severity: fail
+    warn: 5
+    fail: 2
+    unit: ' Hz'
+    title: Lidar fusion rate
+    hint: 0 Hz once seen means lidar_fusion died; the tracker reads only its output and coasts until the respawn
+    each:
+      - {source: lidar, profiles: [boat, crane_full_stack]}
+  - id: perc.{source}.fusion_share
+    kind: threshold
+    fact: perc.{source}.fusion_share
+    warn: 0.1
+    title: Lidar-ranged share
+    hint: Few boxes get a lidar range; the stage's skip_* counts name the gate (sweep, TF, motion, extrinsic)
+    each:
+      - {source: lidar, profiles: [boat, crane_full_stack]}
+  - id: perc.{source}.fusion_p95
+    kind: threshold
+    fact: perc.{source}.fusion_p95_ms
+    below: false
+    warn: 10
+    fail: 20
+    unit: ' ms'
+    title: Lidar fusion time p95
+    hint: Per-frame processing on the camera host; the budget is 10 ms
+    each:
+      - {source: lidar, profiles: [boat, crane_full_stack]}
+  - id: perc.{source}.fusion_state
+    kind: state
+    fact: perc.{source}.fusion_state
+    severity: fail
+    expect: [ok]
+    warn: [warn]
+    title: Lidar-camera extrinsic
+    hint: WARN is a rotation over 0.75 deg or a translation or image-time alert; ERROR (over 1.5 deg, or no samples) keeps stereo until a restart; recalibrate the mast
+    each:
+      - {source: lidar, profiles: [boat, crane_full_stack]}
