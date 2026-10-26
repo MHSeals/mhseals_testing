@@ -28,7 +28,7 @@ def boat_network(tmp_path_factory, monkeypatch):
 def sent(tmp_path, monkeypatch):
     """``sent(event, command, ...)``: one neutral event from astro_dock's .agents/hook.py."""
     monkeypatch.delenv('BOAT_AGENT', raising=False)
-    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise')     # a boat session (the default is local)
+    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise-odroid')     # a boat session (the default is local)
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     lines = []
 
@@ -249,15 +249,15 @@ def test_a_mission_push_is_advisory_allowed_and_noted(sent):
 
 
 def test_boat_commands_become_redacted_notes_and_others_are_ignored(sent):
-    assert sent('pre', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=100.0) is None
-    assert sent('post', 'ssh blastoise ros2 topic hz /odom TOKEN=abc', now=102.5, exit=0) is None
-    for ignored in ('git status', 'ssh blastoise boat_agent status --who claude-3f2a', 'ls ~/ros2_ws'):
+    assert sent('pre', 'ssh blastoise-odroid ros2 topic hz /odom TOKEN=abc', now=100.0) is None
+    assert sent('post', 'ssh blastoise-odroid ros2 topic hz /odom TOKEN=abc', now=102.5, exit=0) is None
+    for ignored in ('git status', 'ssh blastoise-odroid boat_agent status --who claude-3f2a', 'ls ~/ros2_ws'):
         sent('pre', ignored)
     pre, post = sent.lines
     for line in (pre, post):
         assert agent_channel.invalid(line) is None and line['who'] == 'claude-3f2a' and line['agent'] == 'claude'
-        assert line['cmd'] == agent_channel.redact('ssh blastoise ros2 topic hz /odom TOKEN=abc')
-    assert pre['phase'] == 'pre' and pre['tool_id'] == 't1' and pre['target'] == 'blastoise'
+        assert line['cmd'] == agent_channel.redact('ssh blastoise-odroid ros2 topic hz /odom TOKEN=abc')
+    assert pre['phase'] == 'pre' and pre['tool_id'] == 't1' and pre['target'] == 'blastoise-odroid'
     assert post['exit'] == 0 and post['dur_s'] == 2.5
 
 
@@ -314,7 +314,7 @@ def test_hook_redaction_matches_the_channel(command):
 def test_start_gives_the_playbook_and_boat_agent_env_wins(sent, monkeypatch):
     context = sent('start', '')['context']
     assert context.startswith('RoboBoat playbook: you are boat agent claude-3f2a.')
-    assert f'ssh blastoise {hook.BOAT_AGENT} <verb> --who claude-3f2a' in context
+    assert f'ssh blastoise-odroid {hook.BOAT_AGENT} <verb> --who claude-3f2a' in context
     assert 'run_in_background' in context and not sent.lines
     monkeypatch.setenv('BOAT_AGENT', 'mapper')
     assert 'agent mapper' in sent('start', '')['context']
@@ -336,13 +336,13 @@ def test_imports_isolated_with_the_stdlib_only(tmp_path):
 
 def test_delivery_appends_locally_on_the_target_and_logs_failures(tmp_path, monkeypatch):
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
-    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise')
+    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise-odroid')
     channel = tmp_path / 'channel.jsonl'
-    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise')
+    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(channel)))
     assert json.loads(channel.read_text()) == {'kind': 'note'}
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(tmp_path / 'no' / 'dir.jsonl')))
-    assert 'deliver to blastoise' in (tmp_path / 'boat_agent_hook.log').read_text()
+    assert 'deliver to blastoise-odroid' in (tmp_path / 'boat_agent_hook.log').read_text()
 
 
 @pytest.fixture
@@ -374,18 +374,50 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
     assert f'`{hook.BOAT_AGENT} <verb>' in context and 'ssh blastoise' not in context
     assert 'hook.py --playbook' in context and len(context) < 600     # brief: no robot work, little context
     playbook = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID, 'source': 'playbook'})
-    assert 'BOAT_AGENT_TARGET=blastoise' in playbook['context']        # how a boat session reaches the boat's TUI
+    assert 'BOAT_AGENT_TARGET=blastoise-odroid ' in playbook['context']    # how a boat session reaches the boat's TUI
+    assert '`blastoise` still works for one release; it means blastoise-odroid' in playbook['context']
     deny = hook.agent_event({'agent': 'claude', 'event': 'pre', 'session_id': SID, 'tool_id': 'd',
                              'command': 'ros2 topic pub /cmd_vel x y'}, state_dir=tmp_path)['deny']
     assert 'ssh' not in deny and not no_ssh
 
 
-def test_a_boat_session_names_its_host_and_only_then_the_hook_sshes(tmp_path, monkeypatch, no_ssh):
-    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise')
+@pytest.mark.parametrize('target', ['blastoise-odroid', 'blastoise'])    # blastoise: the alias, one release
+def test_a_boat_session_names_its_host_and_only_then_the_hook_sshes(tmp_path, monkeypatch, no_ssh, target):
+    monkeypatch.setenv('BOAT_AGENT_TARGET', target)
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     config = hook.hook_config()
-    assert hook.remote(config) == 'blastoise' and hook.cli_of(config) == f'ssh blastoise {hook.BOAT_AGENT}'
+    assert hook.remote(config) == target and hook.cli_of(config) == f'ssh {target} {hook.BOAT_AGENT}'
     hook.deliver({'kind': 'note'}, config)
-    assert no_ssh and no_ssh[0][-2:] == ['blastoise', f"cat >> '{config['path']}'"]
-    assert f'ssh blastoise {hook.BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)
+    assert no_ssh and no_ssh[0][-2:] == [target, f"cat >> '{config['path']}'"]
+    assert f'ssh {target} {hook.BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)
+
+
+def test_the_hosts_are_per_computer_and_the_vessel_names_stay_boats():
+    assert hook.DEFAULTS['hosts'] == ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson']
+    names = hook.boats(hook.DEFAULTS)
+    assert {'blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson', 'blastoise', 'squirtle'} <= names
+    for host in ('blastoise', 'blastoise-odroid', 'blastoise-jetson', 'squirtle', 'squirtle-jetson'):
+        assert hook.denied(f'ssh {host} sudo reboot', hook.DEFAULTS)[1] == host
+        assert hook.matches(hook.DEFAULTS['match'], f'ssh -t {host} uptime')
+    assert not hook.matches(hook.DEFAULTS['match'][:1], 'ssh devbox uptime')
+    assert not hook.matches(hook.DEFAULTS['match'][:1], 'ssh blastoisex uptime')
+
+
+def test_the_network_file_is_the_vessel_env_first(tmp_path, monkeypatch):
+    monkeypatch.undo()      # the real network_file(), not the fixture's stand-in
+    vessel = tmp_path / 'network.env'
+    vessel.write_text('STATIC_LEASES="aa=boatpc=10.9.8.7"\n')
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(vessel))
+    assert hook.network_file() == vessel and 'boatpc' in hook.boats(hook.DEFAULTS)
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(tmp_path / 'gone.env'))
+    assert hook.network_file() is None          # set but missing: fail closed, never another file
+    assert hook.denied('ssh me@10.1.2.3 reboot', hook.DEFAULTS)
+    monkeypatch.delenv('ASTRO_NETWORK_ENV')
+    monkeypatch.setenv('ROS_WS', str(tmp_path))
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path / 'nohome')
+    legacy = tmp_path / hook.NETWORK
+    legacy.parent.mkdir()
+    legacy.write_text('STATIC_LEASES=""\n')
+    checkout = Path(hook.__file__).resolve().parents[3] / hook.NETWORK
+    assert hook.network_file() == (checkout if checkout.is_file() else legacy)    # this checkout's, else $ROS_WS's

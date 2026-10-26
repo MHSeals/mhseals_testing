@@ -11,10 +11,11 @@ run: [square, station, nav2_bringup, controller_check, perception, mission]   # 
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
 hook:
   # local: notes go to this machine's channel (the sim/dev TUI), never over ssh. A boat session names its host
-  # (BOAT_AGENT_TARGET=blastoise in the agent's environment, or here); only then do they go to path there.
+  # (BOAT_AGENT_TARGET=blastoise-odroid in the agent's environment, or here); only then do they go to path there.
+  # `blastoise` still works for one release; it means blastoise-odroid.
   target: local
   path: /var/home/roboboat/astro_dock/bags/agent/channel.jsonl
-  match: ['\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', '\bros2\b', '\bdocker\s+exec\b']
+  match: ['\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', '\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
   # Two tiers. A call whose every command only reads, searches or prints text (grep, rg, echo, printf, cat,
@@ -22,8 +23,9 @@ hook:
   # backticks, <(...) and no file written, is never denied: a grep pattern or a commit message is data (write
   # files with the agent's Write/Edit tools, not the shell). Anything else is denied when a deny pattern is
   # found anywhere in its whole text (quotes dropped, across lines), or deny_boat when the text names a boat:
-  # hosts, the STATIC_LEASES hostnames and addresses of config/boat-network.env, or an ~/.ssh/config alias for
-  # them. Names match with or without the leading slash. Advisory: run-time strings and scripts from earlier
+  # hosts (ssh host names, one per computer) and their vessel names (blastoise, squirtle: the former aliases),
+  # the STATIC_LEASES hostnames and addresses of the vessel's network env (ASTRO_NETWORK_ENV), or an
+  # ~/.ssh/config alias for them. Names match with or without the leading slash. Advisory: run-time strings and scripts from earlier
   # calls still get through, and so does /mavros/mission/push (a waypoint upload; the FCU drives nothing here):
   # noted in the TUI, not denied. ros2 bag play needs --topics without motion topics (cmd_vel*, thrusters, the
   # mux, MAVROS RC/setpoints). A ros2 write whose target is a $variable is denied: the hook cannot read it.
@@ -43,7 +45,7 @@ hook:
          '\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\b',
          '\b(pkill|killall)\b', '\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
          '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b']
-  hosts: [blastoise, squirtle]
+  hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   deny_boat: ['\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
               '\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
               '\b(reboot|poweroff|halt|shutdown)\b', '\b(tel)?init\s+[0-6sS]\b', '\bloginctl\s+(terminate|kill)', 'sysrq']

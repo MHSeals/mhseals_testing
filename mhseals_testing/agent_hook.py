@@ -46,7 +46,8 @@ SECRETS = (   # agent_channel._SECRETS, kept equal by test_agent_hook
 CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'agent.yaml'
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
-    'match': [r'\bssh\s+(-\S+\s+)*(blastoise|squirtle)\b', r'\bros2\b', r'\bdocker\s+exec\b'],
+    'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
+              r'\bdocker\s+exec\b'],
     'skip': [r'\bboat_(trial|agent)\b'], 'max_per_10s': 6,
     'deny': [r'ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints'
@@ -70,12 +71,12 @@ DEFAULTS = {
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
              r'|mavros\w*|boat_(trial|test)\w*)\b'],
-    'hosts': ['blastoise', 'squirtle'],
+    'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
                   r'\b(reboot|poweroff|halt|shutdown)\b', r'\b(tel)?init\s+[0-6sS]\b',
                   r'\bloginctl\s+(terminate|kill)', r'sysrq']}
-NETWORK = 'config/boat-network.env'    # STATIC_LEASES "MAC=hostname=address ...": the boat computers
+NETWORK = 'config/boat-network.env'    # legacy path; STATIC_LEASES "MAC=hostname=address ...": the boat computers
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
 # Why a denied command is denied and the verb that does it through the claim, first match wins.
@@ -187,7 +188,8 @@ def start_text(who, agent='claude', config=None):
         'the hook blocks them and names the verb. Run in sim first. For runs over 9 min use '
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
         + (f' ({remote(config)}).' if remote(config) else
-           ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise in your environment.')))
+           ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise-odroid in your environment '
+           '(`blastoise` still works for one release; it means blastoise-odroid).')))
 
 
 def deny_reason(hit, host=None, who='agent', config=None):
@@ -365,8 +367,13 @@ def build(tokens, bodies):
 
 
 def network_file():
-    """config/boat-network.env of this workspace (``src/<repo>/<package>/`` up three), else of
-    ``$ROS_WS`` or ``~/astro_dock``."""
+    """The vessel's network env: ``$ASTRO_NETWORK_ENV`` (None when set but missing, so ``denied``
+    fails closed), else the legacy config/boat-network.env of this workspace (``src/<repo>/<package>/``
+    up three), of ``$ROS_WS`` or of ``~/astro_dock``."""
+    explicit = os.environ.get('ASTRO_NETWORK_ENV')
+    if explicit:
+        path = Path(explicit).expanduser()
+        return path if path.is_file() else None
     ws = os.environ.get('ROS_WS')
     for root in (Path(__file__).resolve().parents[3], ws if ws and os.path.isabs(ws) else None,
                  Path.home() / 'astro_dock'):
@@ -376,11 +383,12 @@ def network_file():
 
 
 def boats(config):
-    """Every name a boat computer goes by: ``hook.hosts``, a boat ``$BOAT_AGENT_TARGET``, the hostnames
-    and addresses of STATIC_LEASES in config/boat-network.env (astro_dock's; a checkout without it, such as CI,
+    """Every name a boat computer goes by: ``hook.hosts`` and their vessel names (``blastoise-odroid`` ->
+    ``blastoise``, the former ssh aliases: blocking more is the safe side), a boat ``$BOAT_AGENT_TARGET``, the hostnames
+    and addresses of STATIC_LEASES in the vessel's network env (``network_file``; a checkout without it, such as CI,
     knows no boat addresses, so ``denied`` then treats any private-LAN address as a boat), and ~/.ssh/config
     aliases for any of them."""
-    names = set(config['hosts']) | {target_of(config)} - {'local'}
+    names = set(config['hosts']) | {host.split('-')[0] for host in config['hosts']} | {target_of(config)} - {'local'}
     try:
         leases = re.search(r'^STATIC_LEASES="?([^"\n]*)', network_file().read_text(), re.M).group(1)
         names |= {part for lease in leases.split() for part in lease.split('=')[1:]}
@@ -408,7 +416,7 @@ def denied(command, config):
         return None
     text, names = plain(command), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
-    if network_file() is None:      # no boat-network.env (a checkout without astro_dock): fail closed, any private-LAN address
+    if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
     found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(alternatives), text) if alternatives else None
     host = found.group(1) if found else (hostname().split('.')[0] if hostname().split('.')[0] in names else None)
