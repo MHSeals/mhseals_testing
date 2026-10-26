@@ -264,10 +264,9 @@ class AgentDesk:
         hint = {'busy': f"{holder.get('who')} holds {holder.get('id')}",
                 'blocked': 'operator must set Agents to allow'}.get(error, '')
         if error == 'busy' and holder.get('who') == req['who']:   # two agents sharing one id: refuse, say so
-            error = 'duplicate_who'
-            hint = (f"the id {req['who']} already holds {holder.get('id')} (pid {holder.get('pid')} on "
-                    f"{holder.get('host')}): if that is you, keep using --claim {holder.get('id')}; another agent "
-                    'needs its own --who')
+            error = 'duplicate_who'     # the claim id is not repeated: a second agent must not drive under it
+            hint = (f"the id {req['who']} already holds a claim (pid {holder.get('pid')} on {holder.get('host')}); "
+                    'every agent needs its own --who (a subagent too): claim with your own id')
         self.reply(req, ack['ok'], error, result={'claim': ack.get('id'), 'lease_s': idle}, hint=hint)
 
     def do_release(self, req):

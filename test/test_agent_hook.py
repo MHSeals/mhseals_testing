@@ -645,3 +645,88 @@ def test_the_playbook_matches_playbook_md():
     text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
     assert 'ssh only to run boat_agent' in text and '.handoff/tools/heavy' in text
     assert 'MHSEALS_SIM_ARM=1' in text and 'export BOAT_AGENT=claude-3f2a' in text and 'exact PID' in text
+
+
+# Review fixes (10-26): output-file forms of Tier A tools, shell writes matching the edit tools, symlinks, dir
+# restores, the hook's own files, subagent ids.
+SHELL_LIVE = [('/', 'printf x | uniq - {L}/config/agent.yaml'), ('/', 'uniq /tmp/in {L}/config/agent.yaml'),
+              ('/', 'pytest --junitxml={L}/config/agent.yaml'), ('/', 'sort -o {L}/config/agent.yaml /tmp/x'),
+              ('/', 'sed -i s/a/b/ {L}/launch/robot.launch.py'), ('/', 'cp /tmp/x.py {L}/launch/robot.launch.py'),
+              ('/', 'echo x | tee {L}/launch/robot.launch.py'), ('/', 'echo x > {L}/launch/x.py'),
+              ('L', 'sed -i s/a/b/ launch/robot.launch.py'), ('W', 'cd {L} && sed -i s/a/b/ launch/robot.launch.py'),
+              ('/', 'ln -s {L}/config/agent.yaml {W}/link.yaml'), ('/', 'cp {W}/config/agent.yaml {L}/config/'),
+              ('/', 'rsync -a /tmp/src/ {L}/config/'), ('/', 'tar -xf /tmp/x.tar -C {L}'),
+              ('L', 'git checkout main -- config'), ('L', 'git restore config/'),
+              ('/', 'git -C {L} checkout HEAD -- config'), ('/', 'find {L} -name agent.yaml -delete'),
+              ('L', 'find . -name agent.yaml -delete'), ('/', 'find {L} -name agent.yaml | xargs rm'),
+              ('/', 'sed -i s/a/b/ {L}/.agents/hook.py'), ('/', 'echo {{}} > {L}/.claude/settings.json'),
+              ('/', 'cp /tmp/h.py {L}/src/x/agent_hook.py'), ('/', 'git -C {L} checkout -- .codex/hooks.json'),
+              ('/', 'echo x >> {W}/linked.yaml'), ('W', 'echo x | tee -a linked.yaml')]
+SHELL_DEV = [('/', 'printf x | uniq - {W}/config/agent.yaml'), ('/', 'printf x | uniq'),
+             ('W', 'sed -i s/a/b/ launch/robot.launch.py'), ('/', 'sed -i s/a/b/ {W}/launch/robot.launch.py'),
+             ('/', 'cp {L}/launch/robot.launch.py /tmp/y.py'), ('/', 'cd {W} && sed -i s/a/b/ launch/robot.launch.py'),
+             ('/', 'cp {W}/config/agent.yaml /tmp/'), ('/', 'cp {L}/config/agent.yaml /tmp/a.yaml'),
+             ('/', 'rsync -a /tmp/src/ {W}/config/'), ('/', 'tar -xf /tmp/x.tar -C {W}'),
+             ('/', 'tar -cf /tmp/x.tar -C {L} config'), ('W', 'git restore config/'), ('L', 'git checkout -b newbr'),
+             ('W', 'find . -name agent.yaml -delete'), ('/', 'sed -i s/a/b/ {W}/.agents/hook.py'),
+             ('/', 'python3 -I {L}/.agents/hook.py --playbook'), ('L', 'python3 -I .agents/hook.py --playbook; ls'),
+             ('/', 'pytest {W}/test/test_agent_hook.py -q; ls'), ('W', 'grep -n x launch/robot.launch.py | sed -n 1p')]
+
+
+@pytest.fixture
+def live_files(trees):
+    live, wt, base = trees
+    made = [live / 'launch' / 'robot.launch.py', live / '.agents' / 'hook.py', wt / 'launch' / 'robot.launch.py']
+    for path in made:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text('')
+    link = wt / 'linked.yaml'
+    link.symlink_to(live / 'config' / 'agent.yaml')
+    yield trees
+    link.unlink()
+
+
+@pytest.mark.parametrize('cwd, command', SHELL_LIVE)
+def test_shell_writes_to_live_protected_files_are_denied(live_files, cwd, command):
+    live, wt, base = live_files
+    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
+    assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
+
+
+@pytest.mark.parametrize('cwd, command', SHELL_DEV)
+def test_worktree_development_and_reads_stay_allowed(live_files, cwd, command):
+    live, wt, base = live_files
+    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
+    assert hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
+
+
+def test_uniq_and_pytest_output_files_are_not_tier_a():
+    assert not hook.text_only('printf x | uniq - out') and hook.text_only('printf x | uniq -c -')
+    assert not hook.text_only('pytest --junitxml=x.xml') and not hook.text_only('pytest --basetemp=/x')
+    assert hook.text_only('pytest -q test/test_agent_hook.py -k uniq')
+
+
+def test_edit_tools_are_denied_on_the_live_hook_and_allowed_in_a_worktree(trees):
+    live, wt, base = trees
+    for name in ('src/r/p/agent_hook.py', '.agents/hook.py', '.claude/settings.json', '.claude/settings.local.json',
+                 '.codex/hooks.json'):
+        assert 'operator land it' in edit([['write', str(live / name)]]), name
+        assert edit([['write', str(wt / name)]]) is None, name
+    assert edit([['write', str(Path.home() / '.claude' / 'settings.json')]])                # outside git: live
+
+
+@pytest.mark.parametrize('command, says', [
+    ('ros2 run mhseals_testing operator_heartbeat', "operator's heartbeat"),
+    ("ros2 run --prefix 'gdb -ex run --args' mhseals_nav run_task --task gate", 'run mission --task NAME'),
+    ("ros2 run --prefix 'nice' mavros mavsafety arm", 'ask "..."')])
+def test_prefixed_runs_and_the_heartbeat_node_are_denied(command, says):
+    assert says in hook.deny_reason(hook.denied(command, hook.DEFAULTS)[0], config=hook.DEFAULTS)
+
+
+def test_a_subagent_gets_its_own_id_from_agent_id(monkeypatch):
+    monkeypatch.delenv('BOAT_AGENT', raising=False)
+    parent = hook.who_of({'agent': 'claude', 'session_id': SID})
+    subs = {hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': a}) for a in ('a1', 'a2', 'a3')}
+    assert parent == 'claude-3f2a' and parent not in subs and len(subs) == 3
+    assert hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': 'a1'}) in subs     # stable
+    assert 'honour-based' in hook.start_text(parent, config=hook.DEFAULTS)

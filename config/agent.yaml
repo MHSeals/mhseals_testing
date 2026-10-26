@@ -52,13 +52,14 @@ hook:
          'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)/(set_parameters\w*|load_parameters|change_state)\b',
          'ros2\s+bag\s+play\b(?!.*--topics\b)',
          'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
-         'ros2\s+run\s+(mavros\s+mav\w*|teleop_twist_\w+|mhseals_hardware\s+keyboard_control)\b',
+         'ros2\s+run\b[^;&|\n]*\b(mavros\s+(--?\S+\s+)*mav\w*|teleop_twist_\w+|mhseals_hardware\s+(--?\S+\s+)*keyboard_control)\b',
+         'ros2\s+run\b[^;&|\n]*\bmhseals_testing\s+(--?\S+\s+)*operator_heartbeat\b|\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
          # raw PWM (test_pulses), Nav2 lifecycle/params (break a claimed goal), the mission runner and procedures
          # started directly: boat_agent run / goal, or ask the operator
          'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
          'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)\b',
          'ros2\s+service\s+call\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
-         'ros2\s+run\s+(--?\S+\s+)*mhseals_nav\s+(--?\S+\s+)*run_task\b',
+         'ros2\s+run\b[^;&|\n]*\bmhseals_nav\s+(--?\S+\s+)*run_task\b',
          'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
          'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
          'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority|\bthruster_pwm_node/estop|\bthrusters/)',
@@ -68,12 +69,15 @@ hook:
          '\b(pkill|killall)\b',
          '\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
          '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b',
-         # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to a live agent.yaml (a worktree copy
-         # is fine; a cp/ln/install/rsync *from* agent.yaml to a named file is a read)
+         # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to a live agent.yaml (writers,
+         # a copy into it, a redirection, xargs; a worktree copy is fine, symlinks resolved; a copy *from* it is a read);
+         # INTO: rsync, tar -x or git checkout/restore into a dir holding a live agent.yaml
          '\bMHSEALS_SIM_ARM\b',
-         '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|python[\d.]*|git\s+(checkout|restore|apply|reset|stash))\b.*\bagent\.ya?ml\b',
-         '(?<![\w-])(cp|ln|install|rsync)\b[^;&|\n]*\bagent\.ya?ml\b(?![^;&|\n]*\s(?!\S*\bagent\.ya?ml\b)\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
-         '>\|?\s*\S*\bagent\.ya?ml\b',
+         '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm)|python[\d.]*|pytest|py\.test)(?![\w.-]).*(\bagent\.ya?ml\b)',
+         '(?<![\w-])(cp|install)\b[^;&|\n]*(\bagent\.ya?ml\b)(?![^;&|\n]*\s(?!\S*(\bagent\.ya?ml\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
+         '>\|?\s*\S*(\bagent\.ya?ml\b)',
+         '(\bagent\.ya?ml\b)[^;&\n]*\|\s*xargs\b',
+         '(?<![\w-])(rsync|tar|git\s+(-C\s+\S+\s+)?(checkout|restore))\b[^;&|\n]*',
          # agent_hook.ARMING: the thruster driver, mux or controller started by any route (run --sim-arm arms a sim);
          # reading or editing its source is development
          'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)\b',
@@ -93,13 +97,25 @@ hook:
          '(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*((?<![\w./~$}-])|(?<=\bbags/)|(?<=[}~]/)|\$\w+/)agent/?(?=\s|$|[;&|)])',
          '\b(cd|pushd)\s+(-\S+\s+)*\S*\bagent/?(?=\s|$|[;&|)]).*((?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr)\b.*|>\|?\s*)(?<![\w/.-])(\./)?(stop\b|\*|\?|\[)',
          '\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b',
+         # agent_hook.LAUNCHES and HOOKS: shell writes to a live launch file or the live agent hook and its wiring
+         # (agent_hook.py, .agents/hook.py, .claude/settings*.json, .codex/hooks.json); worktree copies are free
+         '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
+         '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
+         '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
+         '((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)[^;&\n]*\|\s*xargs\b',
+         '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
+         '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-])))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
+         '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
+         '((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))[^;&\n]*\|\s*xargs\b',
          # agent_hook.EDITS: the Edit/Write/NotebookEdit and apply_patch tools, one line per file:
          # EDIT create|change|delete live|dev <path>. dev: in a linked git worktree and not ignored (develop there);
-         # live: the main checkouts, install/, data and runtime dirs. Live agent.yaml, holds, an existing stop, launch files.
+         # live: the main checkouts, install/, data and runtime dirs. Live agent.yaml, holds, an existing stop, launch
+         # files, the agent hook and its wiring.
          '(?m)^EDIT \w+ live [^\n]*/agent\.ya?ml$',
          '(?m)^EDIT \w+ live [^\n]*(/command_mux[^/\n]*\.json$|/hold_store(/|$|\.json$)|/mhseals(/|$))',
          '(?m)^EDIT (change|delete) live [^\n]*/agent/stop$',
-         '(?m)^EDIT \w+ live [^\n]*(/launch/[^/\n]+\.(py|xml|ya?ml)|[^/\n]\.launch\.(py|xml|ya?ml))$']
+         '(?m)^EDIT \w+ live [^\n]*(/launch/[^/\n]+\.(py|xml|ya?ml)|[^/\n]\.launch\.(py|xml|ya?ml))$',
+         '(?m)^EDIT \w+ live [^\n]*/(agent_hook\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   deny_boat: ['\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
               '\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',

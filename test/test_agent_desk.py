@@ -1263,7 +1263,8 @@ def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
     rig.desk.tick()
     reply = final(req['id'])
     assert reply['error'] == 'duplicate_who' and ch.exit_code(reply) == 2
-    assert f'already holds {c}' in reply['hint'] and 'own --who' in reply['hint']
+    assert 'already holds a claim' in reply['hint'] and 'own --who' in reply['hint'] and c not in reply['hint']
+    assert '--claim' not in reply['hint']
     req = ch.request('claim', 'codex-77aa', {})
     rig.desk.tick()
     assert final(req['id'])['error'] == 'busy'
