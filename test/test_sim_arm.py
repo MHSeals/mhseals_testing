@@ -245,6 +245,9 @@ def test_agent_arm_keeps_the_panels_refusals(App):
     'ros2 launch mhseals_nav navigation.launch.py command_mux:=true',
     'ros2 launch mhseals_nav robot.launch.py use_sim_time:=true command_mux:=True',
     'ros2 launch mhseals_hardware driver.launch.py',
+    # a launch file by path starts whatever it names, with no arm panel
+    'ros2 launch ./x.launch.py', 'ros2 launch /tmp/x.launch.py', 'ros2 launch x.launch.py', 'ros2 launch -d /tmp/x.py',
+    'ros2 launch ~/x.xml', 'ros2 launch --debug ../x.launch.yaml', 'docker exec c bash -lc "ros2 launch /tmp/x.launch.py"',
     'ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"',
     'ros2 run mavros mavsafety arm'])
 def test_the_hook_blocks_direct_arming(command):
@@ -266,7 +269,24 @@ def test_the_hook_blocks_direct_arming(command):
     ('mv bags/agent/stop /tmp/s', 'stop file'), ('unlink bags/agent/stop', 'stop file'),
     (': > bags/agent/stop', 'stop file'), ('rm bags/agent/*', 'stop file'), ('rm -rf ~/astro_dock/bags/agent', 'stop file'),
     ("python3 -c 'import os; os.remove(\"bags/agent/stop\")'", 'stop file'),
-    ("python3 -c 'from mhseals_testing.harness.sim_arm import stop_path; stop_path().unlink()'", 'stop file')])
+    ("python3 -c 'from mhseals_testing.harness.sim_arm import stop_path; stop_path().unlink()'", 'stop file'),
+    # a bare stop after a cd into the agent dir
+    ('cd ~/data/agent && rm stop', 'stop file'), ('cd ~/astro_dock/bags/agent; rm -f ./stop', 'stop file'),
+    ('cd $MHSEALS_DATA/agent/ && mv stop /tmp', 'stop file'), ('cd bags/agent && : > stop', 'stop file'),
+    ('pushd bags/agent && unlink stop', 'stop file'), ('cd bags/agent && rm *', 'stop file'),
+    ("cd bags/agent && python3 -c 'import os; os.remove(\"stop\")'", 'stop file'),
+    # turning sim-arm on: the switch's env name, or a shell write to agent.yaml at any path
+    ('MHSEALS_SIM_ARM=1 ros2 run mhseals_testing tui', 'sim-arm on'), ('export MHSEALS_SIM_ARM=1; tui', 'sim-arm on'),
+    ('docker exec -e MHSEALS_SIM_ARM=1 roboboat_test bash -lc tui', 'sim-arm on'),
+    ('docker exec -it -e "MHSEALS_SIM_ARM=1" crane_autodemo tui', 'sim-arm on'),
+    ("sed -i 's/enabled: false/enabled: true/' config/agent.yaml", 'sim-arm on'),
+    ('sed -i -e s/false/true/ /ws/src/mhseals_testing/config/agent.yaml', 'sim-arm on'),
+    ('echo "sim_arm: {enabled: true}" >> ~/astro_dock/src/mhseals_testing/config/agent.yaml', 'sim-arm on'),
+    ('cp /tmp/a.yaml config/agent.yaml', 'sim-arm on'), ('tee config/agent.yaml < /tmp/a', 'sim-arm on'),
+    ('mv /tmp/a config/agent.yaml', 'sim-arm on'), ("perl -pi -e s/false/true/ agent.yaml", 'sim-arm on'),
+    ("python3 -c 'open(\"config/agent.yaml\", \"w\").write(x)'", 'sim-arm on'),
+    ('git checkout stash@{0} -- config/agent.yaml', 'sim-arm on'),
+    ('docker cp a.yaml roboboat_test:/ws/src/mhseals_testing/config/agent.yaml', 'sim-arm on')])
 def test_the_hook_blocks_changing_the_saved_holds_and_the_stop_file(command, what):
     from mhseals_testing import agent_hook as hook
     hit = hook.denied(command, hook.DEFAULTS)
@@ -280,7 +300,12 @@ def test_the_hook_blocks_changing_the_saved_holds_and_the_stop_file(command, wha
     'ros2 topic echo /command_mux/state --once', 'ros2 node info /thruster_pwm_node',
     'ros2 node list | grep -c command_mux', 'ros2 launch mhseals_nav navigation.launch.py command_mux:=false',
     'colcon build --packages-select mhseals_hardware', 'pgrep -f thruster_pwm_node', 'ls config/command_mux.yaml',
-    'cat /tmp/mhseals/command_mux_42.json', 'python3 -m pytest test/test_command_mux.py -q'])
+    'cat /tmp/mhseals/command_mux_42.json', 'python3 -m pytest test/test_command_mux.py -q',
+    'ros2 launch mhseals_nav navigation.launch.py', 'ros2 launch --show-args mhseals_nav navigation.launch.py',
+    'ros2 launch mhseals_nav robot.launch.py use_sim_time:=true map:=/tmp/m.yaml',
+    'cd ~/data/agent && touch stop', 'cd bags/agent && ls -la && cat stop', 'cd src && rm stop_test.log',
+    'grep -rn MHSEALS_SIM_ARM mhseals_testing', 'cat config/agent.yaml', 'git diff config/agent.yaml',
+    'sed -n 1,40p config/agent.yaml'])
 def test_the_hook_still_allows_reads_and_the_stop_touch(command):
     from mhseals_testing import agent_hook as hook
     assert hook.denied(command, hook.DEFAULTS) is None

@@ -54,7 +54,14 @@ ARMING = [r'ros2\s+run\b[^;&|\n]*\bmhseals_hardware\s+(--?\S+\s+)*' + DRIVER + r
           r'\bfrom\s+mhseals_hardware(\.\w+)?\s+import\b[^\n]*\b' + MODULE + r'\b',
           r'(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash'
           r'|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*' + DRIVER + r'(\.py)?(?=\s|$|[;&|)`])',
-          r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)', r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b']
+          r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)', r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
+          r'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)']   # a launch file by path
+# Turning sim-arm on: the switch's env name anywhere (MHSEALS_SIM_ARM=1 tui, docker exec -e ...), or a shell write to
+# agent.yaml at any path (sim_arm.enabled; the TUI re-reads it live). Only the owner turns sim-arm on.
+SIM_ARM = [r'\bMHSEALS_SIM_ARM\b',
+           r'(?<![\w-])(rm|mv|cp|ln|install|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink'
+           r'|shred|rsync|python[\d.]*|git\s+(checkout|restore|apply|reset|stash))\b.*\bagent\.ya?ml\b',
+           r'>\|?\s*\S*\bagent\.ya?ml\b']
 # The mux's saved holds (a sim session's command_mux_holds.json, the boat's command_mux_<domain>.json and their
 # directory) and the agent stop file: no shell write, truncation, move or delete. touch on the stop file stays.
 HOLDS = [r'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)',
@@ -62,6 +69,9 @@ HOLDS = [r'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)
 STOP = [r'(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr'
         r'|rmdir)\b.*\bagent/(stop\b|\*|\?|\[)',
         r'>\|?\s*\S*\bagent/stop\b', r'(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*\bagent/?(?=\s|$|[;&|)])',
+        # a bare stop after a cd into the agent dir: cd .../agent && rm stop
+        r'\b(cd|pushd)\s+(-\S+\s+)*\S*\bagent/?(?=\s|$|[;&|)]).*((?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install'
+        r'|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr)\b.*|>\|?\s*)(?<![\w/.-])(\./)?(stop\b|\*|\?|\[)',
         r'\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b']
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
@@ -89,7 +99,7 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'] + ARMING + HOLDS + STOP,
+             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + ARMING + HOLDS + STOP,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
@@ -104,6 +114,7 @@ USE = ((r'^(xargs\s+(-\S+\s+)*(sudo\s+)?)?(pkill|killall|kill)\b','killing proce
         "stopping or restarting the boat's software or computer", None),
        (r'ros2\s+bag\s+play', 'replaying a bag that can carry motion topics (play only --topics without '
         'cmd_vel, thruster or mux topics)', 'run KEY --claim ID'),
+       ('|'.join(SIM_ARM), 'turning sim-arm on (only the owner enables it)', None),
        ('|'.join(HOLDS), "changing the mux's saved holds (only the operator releases a hold, with U)", None),
        ('|'.join(STOP), 'removing or changing the agent stop file (touch it to stop; only the operator removes it)',
         None),
