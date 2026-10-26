@@ -212,7 +212,12 @@ def test_a_boat_deny_names_the_host_and_the_command():
     reason = hook.deny_reason(*hook.denied('ssh squirtle pkill -f x', hook.DEFAULTS), who='claude-3f2a',
                               config=hook.DEFAULTS)
     assert reason.startswith('Blocked `pkill -f x` on squirtle: killing processes')
-    assert f'Use: ssh squirtle {hook.BOAT_AGENT} stop --who claude-3f2a' in reason    # the boat it aimed at
+    # The boat it aimed at; a bare vessel name (a removed alias) is reached through its first host.
+    assert f'Use: ssh squirtle-jetson {hook.BOAT_AGENT} stop --who claude-3f2a' in reason
+    reason = hook.deny_reason(*hook.denied('ssh blastoise pkill -f x', hook.DEFAULTS), config=hook.DEFAULTS)
+    assert f'Use: ssh blastoise-odroid {hook.BOAT_AGENT} stop' in reason
+    reason = hook.deny_reason(*hook.denied('ssh blastoise-jetson pkill -f x', hook.DEFAULTS), config=hook.DEFAULTS)
+    assert f'Use: ssh blastoise-jetson {hook.BOAT_AGENT} stop' in reason
     assert hook.denied('ssh devbox docker stop x', hook.DEFAULTS) is None
 
 

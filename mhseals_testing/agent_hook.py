@@ -194,11 +194,15 @@ def start_text(who, agent='claude', config=None):
 
 def deny_reason(hit, host=None, who='agent', config=None):
     """One line: the command blocked, why, and the boat_agent verb that does it instead."""
+    config = config or hook_config()
     what, verb = next((w, v) for p, w, v in USE if re.search(p, hit))
     where = f' on {host}' if host else ''
     head = f'Blocked `{hit[:80]}`{where}: {what} from a shell bypasses the boat claim and the operator.'
     here = not host or hostname().split('.')[0] == host
-    cli = cli_of(config or hook_config()) if here else f'ssh {host} {BOAT_AGENT}'    # the boat it aimed at
+    # A bare vessel name (blastoise: a removed ssh alias) is reached through its first host.
+    target = host if host in config['hosts'] else next(
+        (h for h in config['hosts'] if h.split('-')[0] == host), host)
+    cli = cli_of(config) if here else f'ssh {target} {BOAT_AGENT}'    # the boat it aimed at
     if verb is None:
         return f'{head} Those stay with the operator; ask them: {cli} ask "..." --who {who}'
     return (f'{head} Use: {cli} {verb} --who {who}'
