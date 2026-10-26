@@ -6,3 +6,11 @@ weigh_in:
   bifilar_m: [0.05, 5.0]     # accepted string separation and length, m
 dock_noise:
   seconds: 60                # tied-tight recording; sigma per channel, then env^2 = wave_floor^2 - sigma^2
+bollard:
+  outputs: [1, 2, 3, 4]      # physical outputs, each pulled alone
+  levels: [0.03, 0.06, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0]   # |pulse - 1500| / 400 per side; the small ones find the deadband
+  hold_s: 4.0                # thrust held per level; read the steady value during it
+  rest_s: 3.0                # neutral after each level (ESC and water settle)
+  scale_unit: kgf            # kgf (a hanging or spring scale) or N (a load cell readout)
+  max_reading: 30.0          # largest accepted reading, in scale_unit
+  resolution: 0.05           # smallest reading the scale shows, in scale_unit: at or below it a level is in the deadband

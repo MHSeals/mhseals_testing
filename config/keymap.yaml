@@ -41,6 +41,7 @@ global:
 tab.drive:                      # procedure letters exist only here
   characterize: [f]
   dock_physics: [d]
+  thrust_physics: [y]
   magcal: [g]
   controller_check: [v]
   manual: [m]
@@ -111,7 +112,7 @@ panel.activity:
   exclude: [X]
 
 view.minimap:                   # Map tab, and the Drive minimap column at ≥150 cols
-  override: [interference, dock_physics]  # e centres, d detections: a focused minimap starts neither
+  override: [interference, dock_physics, thrust_physics]  # e centres, d detections, y trail: a focused minimap starts none
   layer_costmap: [c]
   costmap_source: [C]
   layer_hits: [r]

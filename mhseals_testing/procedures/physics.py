@@ -8,6 +8,7 @@ the deployed C and records it (with the driver's own report of the file it runs)
 Each step writes one record (physics_record.py) and records its summary in the session.
 """
 
+import math
 from pathlib import Path
 
 from mhseals_hardware.configuration import load_config
@@ -20,7 +21,7 @@ from mhseals_testing.analysis import physics
 from mhseals_testing.strict_yaml import load_strict
 
 DOCK_STEPS = ('weigh_in', 'dock_noise')
-THRUST_STEPS = ()
+THRUST_STEPS = ('bollard',)
 
 
 class Refused(ValueError):
@@ -192,7 +193,61 @@ def dock_noise(ctx, cfg):
     return body, samples, None
 
 
-STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise)
+def output_names(config):
+    """{physical output: (thruster name, reversed)} from the channel map (canonical FL FR RR RL -> output)."""
+    return {output: (physics_record.THRUSTERS[index], bool(config['reversed'][index]))
+            for index, output in enumerate(config['channel_map'])}
+
+
+def bollard(ctx, cfg):
+    """Per-thruster pull on a scale: each output alone through a forward and reverse sweep, read after each hold."""
+    driver = require_driver(ctx)
+    log, scale = Log(ctx), cfg['scale_unit']
+    to_newton = physics.G if scale == 'kgf' else 1.0
+    names = output_names(log.config)
+    ctx.prompt('Boat tied with the scale in the line (or the thruster on its rig). Each output pulls alone at '
+               f'each level for {cfg["hold_s"]:g} s; read the steady {scale} during the hold and type it after. '
+               'Press Enter... ', 'Bollard pull')
+    readings = []
+    try:
+        for output in cfg['outputs']:
+            name, flipped = names[output]
+            angle = ask_number(ctx, 'Bollard pull', f'Output {output} ({name}): angle between the line and the '
+                               'thruster axis, deg (0 on a rig)', 0.0, 80.0)
+            for sign in (1, -1):
+                for level in cfg['levels']:
+                    pulse = round(1500 + sign * 400 * level)
+                    pulses = [1500] * 4
+                    pulses[output - 1] = pulse
+                    with ctx.motion('physics_bollard', output=output, pulse=pulse) as runner:
+                        segment = log.pulse(runner, pulses, cfg['hold_s'], f'output {output} {pulse} us')
+                        log.pulse(runner, [1500] * 4, cfg['rest_s'], 'neutral')
+                    ctx.services['pulses'](None)
+                    if segment['overridden']:
+                        continue
+                    value = ask_number(ctx, 'Bollard pull', f'Output {output} ({name}) at {pulse} us: '
+                                       f'steady reading, {scale}', 0.0, cfg['max_reading'])
+                    force = value * to_newton / math.cos(math.radians(angle))
+                    segment.update(reading=value, angle_deg=angle, force_n=force)
+                    readings.append((output, pulse, force))
+    finally:
+        ctx.services['pulses'](None)
+    fits = physics.bollard_fit(readings, cfg['resolution'] * to_newton)
+    thrusters = {str(output): dict(fit, thruster=names[output][0], reversed=names[output][1])
+                 for output, fit in fits.items()}
+    voltages = [b for s in log.segments for _, b in s['battery'] if b is not None]
+    body = dict(thrusters=thrusters, readings=[list(r) for r in readings], scale_unit=scale,
+                resolution_n=cfg['resolution'] * to_newton,
+                pack_v=dict(min=min(voltages), max=max(voltages)) if voltages else None,
+                time_constants='not measured: a spring scale has no time series (tau_T, t_d stay prior)',
+                units=dict(force='N', K='N at full pulse (u = 1)', pulse='us', db_us='us', o_us='us', pack_v='V'),
+                counts=dict(readings=len(readings), **log.counts()),
+                summary=dict(K_f={k: round(v['forward']['K'], 2) for k, v in thrusters.items() if v['forward']},
+                             K_r={k: round(v['reverse']['K'], 2) for k, v in thrusters.items() if v['reverse']}))
+    return body, log.samples(), driver
+
+
+STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard)
 
 
 def _run(ctx, step, allowed):

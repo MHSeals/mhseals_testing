@@ -77,10 +77,10 @@ def make_ctx(tmp_path, answers=(), runner=None, status=None, **settings):
     config = tmp_path / 'hardware.yaml'
     if not config.exists():
         update_config(dict(reverse_thrust_ratio=0.78), config)
-    answers, records = list(answers), []
+    answers, records = (answers if callable(answers) else list(answers)), []
 
     def ask_text(title, message, text='', check=None):
-        answer = answers.pop(0)
+        answer = answers(message) if callable(answers) else answers.pop(0)
         if answer is not None and check:
             check(answer)
         return answer
@@ -201,3 +201,32 @@ def test_dock_noise_records_sigma_per_channel_after_removing_a_slow_swing(tmp_pa
 def test_env_floor_never_attributes_when_the_sensor_exceeds_the_floor():
     assert fits.env_floor(0.05, 0.03) == (pytest.approx(0.04), True)
     assert fits.env_floor(0.02, 0.03) == (0.0, False)
+
+
+def test_bollard_fits_forward_and_reverse_strength_deadband_and_ratio_per_output(tmp_path):
+    import re
+    strength = {1: 40.0, 2: 38.0, 3: 41.0, 4: 39.0}
+
+    def answer(message):
+        if 'angle' in message:
+            return '0'
+        output, pulse = map(int, re.search(r'Output (\d) \(\w+\) at (\d+) us', message).groups())
+        u = abs(pulse - 1500) / 400
+        k = strength[output] * (1.0 if pulse > 1500 else 0.78)
+        return f'{(k * u * u if u > 0.05 else 0.0) / 9.80665:.5f}'
+    boat = Boat()
+    ctx, records = make_ctx(tmp_path, answer, runner=boat, status='ok')
+    record = saved(physics.thrust(ctx))
+    one = record['thrusters']['1']
+    assert one['thruster'] == 'FL' and one['forward']['K'] == pytest.approx(40.0, rel=1e-3)
+    assert one['reverse']['K'] == pytest.approx(31.2, rel=1e-3) and one['reverse_ratio'] == pytest.approx(0.78, rel=1e-3)
+    assert one["forward"]["db_us"] == pytest.approx(60.0) and one["o_us"] == pytest.approx(0.0)  # 0.05 kgf hides 0.06, 0.1
+    assert one["forward"]["dof"] == 4 and one['forward']['residual_sd'] == pytest.approx(0.0, abs=1e-3)
+    assert record['counts']['readings'] == 64 and record['pack_v'] == {'min': 15.9, 'max': 15.9}
+    assert record['hardware']['driver']['pending_restart_keys'] == [] and boat.pulses is None
+    assert record['units']['K'].startswith('N')
+
+
+def test_thrust_steps_refuse_when_the_driver_runs_another_file(tmp_path):
+    ctx, records = make_ctx(tmp_path, runner=Boat(), status=dict(config_sha='0', pending_restart_keys=[]))
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'another hardware file' in records[-1]['reason']
