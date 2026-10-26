@@ -17,16 +17,21 @@ class Boat:
     """A planar boat at 20 Hz: M v' = W - D1 v - D2 v|v| per axis, W = k e|e| (efforts) or B T (pulses).
 
     ``runner`` and monitor clock in one: ``hold`` drives an effort, ``supervise`` the last raw pulses.
+    ``tied`` keeps it still. ``takeover=('hold' or 'pulse', n)`` has a human take over the n-th one
+    as the real Runner does: a hold re-runs and returns the clean window with ``overrides`` grown,
+    supervise calls ``on_pause``. ``abort=('pulse', n)`` raises Aborted (an abort key) mid-pulse.
     """
     DT = 0.05
 
     def __init__(self, k=(1.0, 1.0, 1.0), mass=(25.0, 35.0, 4.0), d1=(5.0, 9.0, 1.0), d2=(12.0, 25.0, 1.5),
-                 noise=0.0, thrust=(40.0, 40.0, 40.0, 40.0), drift=(0.0, 0.0)):
+                 noise=0.0, thrust=(40.0, 40.0, 40.0, 40.0), drift=(0.0, 0.0), tied=False, takeover=None,
+                 abort=None):
         self.k, self.mass, self.d1, self.d2, self.noise = k, mass, d1, d2, noise
-        self.thrust, self.drift = thrust, drift
+        self.thrust, self.drift, self.tied = thrust, drift, tied
         self.t, self.v, self.yaw, self.step = 0.0, [0.0, 0.0, 0.0], 0.0, 0
         self.series = dict(odometry=[], gyro=[])
         self.sent, self.pulses = [], None
+        self.takeover, self.abort, self.calls, self.overrides = takeover, abort, dict(hold=0, pulse=0), []
 
     def wrench(self, command):
         if command is not None:
@@ -41,8 +46,8 @@ class Boat:
     def advance(self, seconds, command=None, sample=None):
         for _ in range(int(round(seconds / self.DT))):
             w = self.wrench(command)
-            self.v = [v + (wi - a * v - b * v * abs(v)) / m * self.DT
-                      for v, wi, m, a, b in zip(self.v, w, self.mass, self.d1, self.d2)]
+            self.v = [0.0, 0.0, 0.0] if self.tied else [v + (wi - a * v - b * v * abs(v)) / m * self.DT
+                                                         for v, wi, m, a, b in zip(self.v, w, self.mass, self.d1, self.d2)]
             self.yaw += self.v[2] * self.DT
             self.t += self.DT
             self.step += 1
@@ -56,18 +61,31 @@ class Boat:
                 sample(self.t)
 
     def hold(self, command, seconds, label=''):
+        self.calls['hold'] += 1
+        if self.takeover == ('hold', self.calls['hold']):
+            began = self.t
+            self.advance(seconds / 2, tuple(command))
+            self.advance(5.0, (0.0, 0.0, 0.0))      # the human drives, then the settle
+            self.overrides.append(dict(by='manual', start=began, end=self.t, window=(began - 0.5, self.t)))
         start = self.t
         self.sent.append(tuple(command))
         self.advance(seconds, tuple(command))
         return start, self.t
 
-    def supervise(self, seconds, label='', sample=None, **kwargs):
+    def supervise(self, seconds, label='', sample=None, on_pause=lambda: None, **kwargs):
+        from mhseals_testing.runner import Aborted
+        self.calls['pulse'] += 1
         start = self.t
+        if ('pulse', self.calls['pulse']) in (self.takeover, self.abort):
+            self.advance(seconds / 2, None, sample)
+            if self.abort == ('pulse', self.calls['pulse']):
+                raise Aborted('motion cancelled by operator')
+            on_pause()
         self.advance(seconds, None, sample)
         return start, self.t, False
 
     def invalid(self, start, end):
-        return False
+        return any(start < o['window'][1] and end > o['window'][0] for o in self.overrides)
 
     def stop(self):
         pass
@@ -92,7 +110,8 @@ def make_ctx(tmp_path, answers=(), runner=None, status=None, **settings):
     def pulses(values):
         runner.pulses = values
 
-    status = dict(config_sha=config_sha(load_config(config)), pending_restart_keys=[]) if status == 'ok' else status
+    sha = config_sha(load_config(config))
+    status = dict(config_sha=sha, effective_config_sha=sha, pending_restart_keys=[]) if status == 'ok' else status
     services = dict(user_config=config, physics_root=tmp_path / 'char', ask_text=ask_text,
                     fit_context=lambda: dict(session='s1', run='r1', battery_v=15.9, muted=False),
                     driver_status=lambda: status, pulses=pulses)
@@ -143,9 +162,10 @@ def test_cancel_or_out_of_range_entry_refuses_and_writes_nothing(tmp_path):
 def test_driver_check_refuses_a_pending_restart_or_another_file(tmp_path):
     config = tmp_path / 'hardware.yaml'
     update_config(dict(reverse_thrust_ratio=0.78), config)
-    good = dict(config_sha=config_sha(load_config(config)), effective_config_sha='x', pending_restart_keys=[])
+    sha = config_sha(load_config(config))
+    good = dict(config_sha=sha, effective_config_sha=sha, pending_restart_keys=[])
     assert physics_record.driver_check(good, config, True) == (
-        {'config_sha': good['config_sha'], 'effective_config_sha': 'x', 'pending_restart_keys': []}, '')
+        {'config_sha': sha, 'effective_config_sha': sha, 'pending_restart_keys': []}, '')
     assert 'restart' in physics_record.driver_check(dict(good, pending_restart_keys=['decoupling']), config, True)[1]
     assert 'another hardware file' in physics_record.driver_check(dict(good, config_sha='0'), config, True)[1]
     assert physics_record.driver_check(None, config, True)[1] and not physics_record.driver_check(None, config, False)[1]
@@ -214,8 +234,8 @@ def test_bollard_fits_forward_and_reverse_strength_deadband_and_ratio_per_output
         u = abs(pulse - 1500) / 400
         k = strength[output] * (1.0 if pulse > 1500 else 0.78)
         return f'{(k * u * u if u > 0.05 else 0.0) / 9.80665:.5f}'
-    boat = Boat()
-    ctx, records = make_ctx(tmp_path, answer, runner=boat, status='ok')
+    boat = Boat(tied=True)
+    ctx, records = make_ctx(tmp_path, answer, runner=boat, status='ok', amplitude=1.0)
     record = saved(physics.thrust(ctx))
     one = record['thrusters']['1']
     assert one['thruster'] == 'FL' and one['forward']['K'] == pytest.approx(40.0, rel=1e-3)
@@ -330,3 +350,139 @@ def test_every_record_names_the_config_history_snapshot_at_fit_time(tmp_path):
     hardware = saved(physics.dock(ctx))['hardware']
     assert hardware['history'] == {'id': 'c7', 'sha': 'abc123def456'}
     assert set(hardware['keys']) == set(physics_record.KEYS) and hardware['thrusters'] == ['FL', 'FR', 'RR', 'RL']
+
+
+def test_driver_check_refuses_launch_overrides_beyond_the_output_routing(tmp_path):
+    config = tmp_path / 'hardware.yaml'
+    update_config(dict(reverse_thrust_ratio=0.78), config)
+    loaded = load_config(config)
+    sha = config_sha(loaded)
+    flipped = config_sha(dict(loaded, reversed=[True, False, False, False]))
+    reason = physics_record.driver_check(dict(config_sha=sha, effective_config_sha=flipped), config, True)[1]
+    assert 'launch overrides' in reason and 'reversed' in reason
+    assert physics_record.driver_check(dict(config_sha=sha), config, True)[1]      # no effective hash: unconfirmed
+    routed = dict(output_backend='log')
+    status = dict(config_sha=sha, effective_config_sha=config_sha(dict(loaded, **routed)), outputs=routed)
+    assert physics_record.driver_check(status, config, True)[1] == ''               # only the routing differs
+
+
+def bollard_answer(message):
+    return '0' if 'angle' in message else '1.0'
+
+
+def test_bollard_axial_pull_is_the_reading_times_the_cosine_of_the_line_angle(tmp_path):
+    ctx, _ = make_ctx(tmp_path, lambda m: '60' if 'angle' in m else '2.0', runner=Boat(tied=True), status='ok',
+                      amplitude=1.0)
+    record = saved(physics.thrust(ctx))
+    assert record['readings'][0][2] == pytest.approx(2.0 * 9.80665 * 0.5)
+    samples = json.loads((tmp_path / 'char' / record['samples_file']['path']).read_text())
+    hold = next(s for s in samples['segments'] if 'force_n' in s)
+    assert hold['angle_deg'] == 60.0 and hold['force_n'] == pytest.approx(9.80665)
+
+
+def test_bollard_scales_raw_pulses_by_the_amplitude(tmp_path):
+    boat = Boat(tied=True)
+    sent = []
+    ctx, _ = make_ctx(tmp_path, bollard_answer, runner=boat, status='ok', amplitude=0.5)
+    pulses = ctx.services['pulses']
+    ctx.services['pulses'] = lambda values: (sent.append(values), pulses(values))
+    saved(physics.thrust(ctx))
+    raw = [p for values in sent if values for p in values if p != 1500]
+    assert max(raw) == 1700 and min(raw) == 1300 and boat.pulses is None
+
+
+def test_bollard_levels_outside_the_pulse_range_are_refused_at_load():
+    cfg = physics.load_settings()
+    assert cfg['bollard']['max_speed'] > 0
+    for levels in ([0.5, 1.2], [0.0, 0.5], [-0.3]):
+        with pytest.raises(physics.Refused, match='bollard levels'):
+            physics.check_settings(dict(cfg, bollard=dict(cfg['bollard'], levels=levels)))
+
+
+def test_bollard_aborts_and_clears_pulses_when_the_boat_is_not_tied(tmp_path):
+    boat = Boat()
+    ctx, records = make_ctx(tmp_path, bollard_answer, runner=boat, status='ok', amplitude=1.0)
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'not tied' in records[-1]['reason']
+    assert boat.pulses is None and not (tmp_path / 'char').exists()
+
+
+def test_an_abort_mid_pulse_clears_the_raw_pulses(tmp_path):
+    from mhseals_testing.runner import Aborted
+    for step in ('bollard', 'pulses'):
+        boat = Boat(tied=step == 'bollard', abort=('pulse', 3))
+        ctx, _ = make_ctx(tmp_path, bollard_answer, runner=boat, status='ok', thrust_step=step, amplitude=1.0)
+        with pytest.raises(Aborted):
+            physics.thrust(ctx)
+        assert boat.pulses is None
+
+
+def test_a_takeover_during_raw_pulses_clears_them_and_aborts_the_step(tmp_path):
+    boat = Boat(takeover=('pulse', 2))
+    cleared = []
+    ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='pulses')
+    pulses = ctx.services['pulses']
+    ctx.services['pulses'] = lambda values: (cleared.append(values is None), pulses(values))
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED'
+    assert 'took over' in records[-1]['reason'] and records[-1]['invalidated'] == ['rest', 'output 1 +30%']
+    assert cleared[:3] == [False, False, True] and boat.pulses is None    # cleared in the pause, before finally
+    assert not (tmp_path / 'char').exists()
+
+
+def test_a_takeover_during_a_survey_hold_aborts_the_step_and_invalidates_its_pair(tmp_path):
+    boat = Boat(k=(30.0, 30.0, 10.0), takeover=('hold', 3))      # neutral, surge+ hold, then its coast
+    ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='survey', amplitude=1.0)
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED'
+    assert records[-1]['taken_over'] == 'coast' and records[-1]['invalidated'] == ['surge+ 1.00', 'coast']
+    assert boat.sent[-1] == (0.0, 0.0, 0.0) and not (tmp_path / 'char').exists()
+
+
+def test_a_takeover_in_a_maneuver_aborts_and_invalidates_the_whole_run(tmp_path):
+    boat = Boat(k=(30.0, 30.0, 10.0), takeover=('hold', 2))      # the first circle, after its approach
+    ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='maneuvers', amplitude=0.5)
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED'
+    assert records[-1]['invalidated'] == ['approach', 'circle+ 0.25']
+
+
+def test_log_recheck_flags_a_segment_inside_an_override_guard_window(tmp_path):
+    boat = Boat()
+    ctx, _ = make_ctx(tmp_path, runner=boat)
+    log = physics.Log(ctx)
+    log.hold(boat, (0.2, 0.0, 0.0), 1.0, 'surge+')
+    boat.overrides.append(dict(window=(boat.t - 0.5, boat.t + 3.0)))     # a takeover 0.5 s after it ended
+    with pytest.raises(physics.TakenOver):
+        log.recheck(boat)
+    assert log.segments[0]['overridden']
+
+
+def test_thrust_physics_is_unavailable_unarmed():
+    from mhseals_testing.procedures import PROCEDURES, unavailable
+    from mhseals_testing.profiles import load_profile
+    thrust = next(p for p in PROCEDURES if p.key == 'y')
+    assert 'arm' in unavailable(thrust, load_profile('boat'), armed=False)
+
+
+def test_survey_refuses_when_the_first_hold_has_no_speed(tmp_path):
+    boat = Boat(k=(30.0, 30.0, 10.0))
+    advance = boat.advance
+
+    def blank(*args, **kwargs):
+        advance(*args, **kwargs)
+        for _, v in boat.series['odometry'][-int(round(args[0] / boat.DT)):]:
+            v['vx'] = None
+    boat.advance = blank
+    ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='survey', amplitude=1.0)
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED' and 'no odometry vx' in records[-1]['reason']
+
+
+def test_a_hardware_change_during_the_step_refuses_the_record(tmp_path):
+    ctx, records = make_ctx(tmp_path, runner=Boat(noise=0.0005), status='ok', thrust_step='pulses')
+    statuses = [ctx.services['driver_status'](), dict(ctx.services['driver_status'](), config_sha='changed')]
+    ctx.services['driver_status'] = lambda: statuses.pop(0) if len(statuses) > 1 else statuses[0]
+    assert physics.thrust(ctx)['verdict'] == 'REFUSED' and not (tmp_path / 'char').exists()
+    assert 'another hardware file' in records[-1]['reason']     # the end check reads the file on disk again
+
+
+def test_survey_and_maneuvers_say_their_efforts_are_commanded(tmp_path):
+    ctx, _ = make_ctx(tmp_path, runner=Boat(k=(30.0, 30.0, 10.0)), status='ok', thrust_step='maneuvers',
+                      amplitude=0.5)
+    assert saved(physics.thrust(ctx))['effort_source'] == 'commanded'

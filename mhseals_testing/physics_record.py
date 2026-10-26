@@ -54,8 +54,18 @@ def driver_check(status, hardware_path, needs_driver):
         return block, 'the driver needs a restart for ' + ', '.join(map(str, status['pending_restart_keys']))
     if status.get('error'):
         return block, 'the driver reports: ' + str(status['error'])
-    if hardware_path and status.get('config_sha') != config_sha(load_config(hardware_path)):
-        return block, 'the driver runs another hardware file than the one on disk: wait for it to load or restart it'
+    if hardware_path:
+        # The driver runs the file plus its launch parameter overrides (effective_config_sha). Status
+        # names only the output routing among them, so the effective hash must be the file's, or the
+        # file's with that routing: any other override may change reversed, channel_map or
+        # reverse_thrust_ratio, which a hash cannot show.
+        config = load_config(hardware_path)
+        if status.get('config_sha') != config_sha(config):
+            return block, 'the driver runs another hardware file than the one on disk: wait for it to load or restart it'
+        effective = status.get('effective_config_sha')
+        if effective not in (config_sha(config), config_sha(dict(config, **(status.get('outputs') or {})))):
+            return block, ('the driver runs launch overrides over the hardware file: its reversed, channel_map and '
+                           'reverse_thrust_ratio are unconfirmed; restart it without them')
     return block, ''
 
 

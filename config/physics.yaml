@@ -8,7 +8,8 @@ dock_noise:
   seconds: 60                # tied-tight recording; sigma per channel, then env^2 = wave_floor^2 - sigma^2
 bollard:
   outputs: [1, 2, 3, 4]      # physical outputs, each pulled alone
-  levels: [0.03, 0.06, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0]   # |pulse - 1500| / 400 per side; the small ones find the deadband
+  levels: [0.03, 0.06, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0]   # in (0, 1]; times the amplitude setting = |pulse - 1500| / 400 per side; the small ones find the deadband
+  max_speed: 0.3             # m/s odometry ground speed above which a hold aborts: the boat is not tied
   hold_s: 4.0                # thrust held per level; read the steady value during it
   rest_s: 3.0                # neutral after each level (ESC and water settle)
   scale_unit: kgf            # kgf (a hanging or spring scale) or N (a load cell readout)
@@ -35,7 +36,7 @@ survey:
   floor_tail_s: 3.0          # the settled tail of each coast measures the wave floor
   heading_spread: true       # turn 360 / repeats degrees before each repeat, so drift splits into wind and current
   heading_R_max: 0.9         # mean resultant length of hold headings below which the spread counts
-  turn_effort: 0.3           # yaw effort of the turn
+  turn_effort: 0.3           # yaw effort of the turn, fraction of the amplitude
   turn_chunk_s: 0.5          # the turn is held in chunks, yaw checked after each
   turn_max_s: 30.0           # the turn stops here however far it got
 maneuvers:                   # withheld for validation: never fitted with the other steps

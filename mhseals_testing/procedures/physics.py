@@ -29,6 +29,15 @@ THRUST_STEPS = ('bollard', 'pulses', 'survey', 'maneuvers')
 
 class Refused(ValueError):
     """A step cannot run or its input cannot be used; the message says why."""
+    details = {}
+
+
+class TakenOver(Refused):
+    """A human took over mid-step: the step aborts, the unit it interrupted is invalidated."""
+
+    def __init__(self, label, invalidated):
+        super().__init__(f'a human took over during {label!r}: step aborted, its data invalidated')
+        self.details = dict(taken_over=label, invalidated=invalidated)
 
 
 def load_settings(path=None):
@@ -37,11 +46,23 @@ def load_settings(path=None):
     if not path.exists():
         from ament_index_python.packages import get_package_share_directory
         path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'physics.yaml'
-    return load_strict(path.read_text(), path)
+    return check_settings(load_strict(path.read_text(), path))
 
 
-def refuse(ctx, step, reason):
-    refusal = dict(procedure='physics', step=step, verdict='REFUSED', reason=reason)
+def check_settings(cfg):
+    """Refused unless the raw-pulse levels stay within the pulse range: they bypass the mixer and C."""
+    bollard_cfg, pulses_cfg = cfg.get('bollard') or {}, cfg.get('pulses') or {}
+    if not all(0 < level <= 1 for level in bollard_cfg.get('levels', ())):
+        raise Refused('bollard levels must be in (0, 1] (config/physics.yaml)')
+    if not all(0 < abs(level) <= 1 for level in pulses_cfg.get('levels', ())):
+        raise Refused('pulses levels must be nonzero and within [-1, 1] (config/physics.yaml)')
+    if bollard_cfg and not bollard_cfg.get('max_speed', 0) > 0:
+        raise Refused('bollard max_speed must be positive (config/physics.yaml)')
+    return cfg
+
+
+def refuse(ctx, step, reason, **details):
+    refusal = dict(procedure='physics', step=step, verdict='REFUSED', reason=reason, **details)
     ctx.record(refusal)
     return refusal
 
@@ -116,15 +137,41 @@ class Log:
     whether an override touched it. ``samples()`` adds the odometry and the raw gyro over the run,
     the gyro kept apart for the estimator-lag check. The driver publishes no pulse readback, so
     ``pulse_source`` says these are commanded pulses.
+
+    A takeover aborts the step (TakenOver): ``runner.hold`` re-runs an interrupted hold and returns
+    only its clean window, so a grown ``runner.overrides`` is the only sign; ``supervise`` would
+    pause and resume raw pulses, so its pause clears them and raises. Either way every segment
+    since ``begin()`` (a hold and its coast, a maneuver run) is marked overridden first.
     """
 
     def __init__(self, ctx, config=None):
-        self.ctx, self.segments = ctx, []
+        self.ctx, self.segments, self.unit = ctx, [], 0
         self.config = config if config is not None else load_config(ctx.services['user_config'])
 
     def battery(self):
         context = dict((self.ctx.services.get('fit_context') or dict)())
         return [self.ctx.monitor.clock(), context.get('battery_v')]
+
+    def begin(self):
+        """Start a unit whose segments are only usable together (a hold and its coast, one maneuver)."""
+        self.unit = len(self.segments)
+
+    def taken_over(self, label):
+        for segment in self.segments[self.unit:]:
+            segment['overridden'] = True
+        raise TakenOver(label, [segment['label'] for segment in self.segments[self.unit:]] or [label])
+
+    def recheck(self, runner):
+        """Recompute every flag against the runner's override windows (they reach GUARD_S back);
+        a segment newly flagged means a human took over: refuse the step."""
+        invalid = getattr(runner, 'invalid', None)
+        if invalid is None:
+            return
+        flagged = [s for s in self.segments if not s['overridden'] and invalid(s['start'], s['end'])]
+        for segment in flagged:
+            segment['overridden'] = True
+        if flagged:
+            raise TakenOver(flagged[0]['label'], [segment['label'] for segment in flagged])
 
     def _segment(self, runner, label, start, end, **sent):
         invalid = getattr(runner, 'invalid', None)
@@ -134,19 +181,31 @@ class Log:
 
     def hold(self, runner, command, seconds, label):
         """An effort hold through the driver (its deployed C applies)."""
-        battery = self.battery()
+        battery, before = self.battery(), len(getattr(runner, 'overrides', ()))
         start, end = runner.hold(command, seconds, label)
-        return self._segment(runner, label, start, end, command=list(command),
-                             pulses=commanded_pulses(command, self.config), battery=[battery, self.battery()])
+        segment = self._segment(runner, label, start, end, command=list(command),
+                                pulses=commanded_pulses(command, self.config), battery=[battery, self.battery()])
+        if len(getattr(runner, 'overrides', ())) > before:
+            self.taken_over(label)
+        return segment
 
     def pulse(self, runner, pulses, seconds, label, sample=None):
         """Raw pulses per output for ``seconds`` (~/test_pulses: no C, no mixer)."""
-        battery = self.battery()
-        self.ctx.services['pulses'](list(pulses))
+        battery, before = self.battery(), len(getattr(runner, 'overrides', ()))
         start = self.ctx.monitor.clock()
-        runner.supervise(seconds, label=label, sample=sample)
-        return self._segment(runner, label, start, self.ctx.monitor.clock(), pulses=list(pulses),
-                             battery=[battery, self.battery()])
+
+        def paused():
+            self.ctx.services['pulses'](None)
+            self.segments.append(dict(label=label, start=start, end=self.ctx.monitor.clock(), pulses=list(pulses),
+                                      battery=[battery, self.battery()], overridden=True))
+            self.taken_over(label)
+        self.ctx.services['pulses'](list(pulses))
+        runner.supervise(seconds, label=label, sample=sample, on_pause=paused)
+        segment = self._segment(runner, label, start, self.ctx.monitor.clock(), pulses=list(pulses),
+                                battery=[battery, self.battery()])
+        if len(getattr(runner, 'overrides', ())) > before:
+            self.taken_over(label)
+        return segment
 
     def samples(self, margin=1.0):
         """{segments, odometry [t, vx, vy, wz, yaw], gyro [t, wz]} over the run."""
@@ -205,13 +264,24 @@ def output_names(config):
 def bollard(ctx, cfg):
     """Per-thruster pull on a scale: each output alone through a forward and reverse sweep, read after each hold."""
     driver = require_driver(ctx)
-    log, scale = Log(ctx), cfg['scale_unit']
+    log, scale, amplitude = Log(ctx), cfg['scale_unit'], ctx.settings.amplitude
     to_newton = physics.G if scale == 'kgf' else 1.0
     names = output_names(log.config)
     ctx.prompt('Boat tied with the scale in the line (or the thruster on its rig). Each output pulls alone at '
                f'each level for {cfg["hold_s"]:g} s; read the steady {scale} during the hold and type it after. '
                'Press Enter... ', 'Bollard pull')
     readings = []
+
+    def tied(_):
+        """Abort the hold once odometry shows the boat moving: it is not tied, and one thruster pulls hard."""
+        now = ctx.monitor.clock()
+        speeds = [math.hypot(v['vx'], v['vy']) for _, v in ctx.history(now - 1.0, now)
+                  if v.get('vx') is not None and v.get('vy') is not None]
+        if not speeds:
+            raise Refused('no odometry during a bollard hold: cannot confirm the boat is tied')
+        if speeds[-1] > cfg['max_speed']:
+            raise Refused(f'the boat moves at {speeds[-1]:.2f} m/s during a bollard hold (max_speed '
+                          f'{cfg["max_speed"]:g}): it is not tied; aborted')
     try:
         for output in cfg['outputs']:
             name, flipped = names[output]
@@ -219,18 +289,19 @@ def bollard(ctx, cfg):
                                'thruster axis, deg (0 on a rig)', 0.0, 80.0)
             for sign in (1, -1):
                 for level in cfg['levels']:
-                    pulse = round(1500 + sign * 400 * level)
+                    pulse = round(1500 + sign * 400 * level * amplitude)
                     pulses = [1500] * 4
                     pulses[output - 1] = pulse
                     with ctx.motion('physics_bollard', output=output, pulse=pulse) as runner:
-                        segment = log.pulse(runner, pulses, cfg['hold_s'], f'output {output} {pulse} us')
-                        log.pulse(runner, [1500] * 4, cfg['rest_s'], 'neutral')
+                        log.begin()
+                        segment = log.pulse(runner, pulses, cfg['hold_s'], f'output {output} {pulse} us', tied)
+                        log.pulse(runner, [1500] * 4, cfg['rest_s'], 'neutral', tied)
+                        log.recheck(runner)
                     ctx.services['pulses'](None)
-                    if segment['overridden']:
-                        continue
                     value = ask_number(ctx, 'Bollard pull', f'Output {output} ({name}) at {pulse} us: '
                                        f'steady reading, {scale}', 0.0, cfg['max_reading'])
-                    force = value * to_newton / math.cos(math.radians(angle))
+                    # The scale reads the line tension; the thruster's axial pull is its component on the axis.
+                    force = value * to_newton * math.cos(math.radians(angle))
                     segment.update(reading=value, angle_deg=angle, force_n=force)
                     readings.append((output, pulse, force))
     finally:
@@ -270,10 +341,13 @@ def pulses(ctx, cfg):
                 for level in cfg['levels']:
                     pulse = [1500] * 4
                     pulse[output - 1] = round(1500 + 400 * level)
+                    log.begin()
                     log.pulse(runner, [1500] * 4, cfg['rest_s'], 'rest')
                     segment = log.pulse(runner, pulse, cfg['hold_s'], f'output {output} {level:+.0%}')
                     runs.append((output, level, segment))
+            log.begin()
             log.pulse(runner, [1500] * 4, cfg['rest_s'], 'rest')
+            log.recheck(runner)
     finally:
         ctx.services['pulses'](None)
     rows = [(t, v.get('vx'), v.get('vy'), v.get('wz'))
@@ -356,16 +430,18 @@ def survey(ctx, cfg):
                'Speed survey')
     holds = []
     with ctx.motion('physics_survey', levels=levels, repeats=cfg['repeats']) as runner:
+        log.begin()
         log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'neutral')
         for repeat in range(cfg['repeats']):
             if repeat and cfg['heading_spread']:
-                turn(ctx, log, runner, 2 * math.pi / cfg['repeats'], cfg)
+                turn(ctx, log, runner, 2 * math.pi / cfg['repeats'], cfg, amplitude)
             for level in (levels if repeat % 2 == 0 else levels[::-1]):
                 for axis in range(3):
                     for sign in (1, -1):
                         command = [0.0] * 3
                         command[axis] = sign * level
                         name = AXES[axis] + ('+' if sign > 0 else '-')
+                        log.begin()
                         segment = log.hold(runner, tuple(command), cfg['hold_s'], f'{name} {level:.2f}')
                         segment.update(axis=axis, sign=sign, level=level, repeat=repeat,
                                        applied=applied(command, log.config))
@@ -373,9 +449,15 @@ def survey(ctx, cfg):
                         holds.append((segment, coast))
                         if repeat == 0 and level == levels[0] and sign == 1:
                             moved = ctx.history(segment['start'], segment['end'])
-                            if moved and moved[-1][1].get(KEYS[axis], 0.0) * sign <= 0:
+                            value = moved[-1][1].get(KEYS[axis]) if moved else None
+                            if value is None or not math.isfinite(value):
+                                runner.stop()
+                                raise Refused(f'no odometry {KEYS[axis]} at the end of the first {name} hold: '
+                                              'cannot confirm the axis direction')
+                            if value * sign <= 0:
                                 runner.stop()
                                 raise Refused(f'{AXES[axis]} responds backwards: check wiring, run Thrusters')
+        log.recheck(runner)
     rows = ctx.history(log.segments[0]['start'], log.segments[-1]['end'])
     per_hold, curves, coasts = [], {}, {}
     for segment, coast in holds:
@@ -402,7 +484,8 @@ def survey(ctx, cfg):
            for key in KEYS if floor.get(key) is not None and f'odometry.{key}' in noise}
     headings = [h['yaw'] for h in per_hold if h['yaw'] is not None and not h['overridden']]
     spread = physics.heading_spread(headings)
-    body = dict(amplitude=amplitude, levels=levels, repeats=cfg['repeats'], speed_curves=curves, coast_down=coasts,
+    body = dict(amplitude=amplitude, levels=levels, repeats=cfg['repeats'], effort_source='commanded',
+                speed_curves=curves, coast_down=coasts,
                 holds=per_hold, wave_floor=floor, env_floor=env or None,
                 heading_spread=dict(R=spread, ok=spread is not None and spread < cfg['heading_R_max'],
                                     max=cfg['heading_R_max'], n=len(headings)),
@@ -418,8 +501,9 @@ def survey(ctx, cfg):
     return body, log.samples(), driver
 
 
-def turn(ctx, log, runner, angle, cfg):
-    """Yaw the boat by about ``angle`` rad in short effort chunks, closed on odometry yaw, then settle.
+def turn(ctx, log, runner, angle, cfg, amplitude):
+    """Yaw the boat by about ``angle`` rad in short effort chunks (turn_effort x amplitude), closed on
+    odometry yaw, then settle.
 
     Between repeats, so each level is held at another heading and drift splits into wind and current
     (design 9 step 7). Stops at ``turn_max_s`` however far it got; the R it reached is in the record.
@@ -429,8 +513,9 @@ def turn(ctx, log, runner, angle, cfg):
         return next((v['yaw'] for _, v in reversed(rows) if v.get('yaw') is not None), None)
     begin, turned, elapsed = yaw(), 0.0, 0.0
     previous = begin
+    log.begin()
     while begin is not None and turned < angle and elapsed < cfg['turn_max_s']:
-        log.hold(runner, (0.0, 0.0, cfg['turn_effort']), cfg['turn_chunk_s'], 'turn')
+        log.hold(runner, (0.0, 0.0, cfg['turn_effort'] * amplitude), cfg['turn_chunk_s'], 'turn')
         elapsed += cfg['turn_chunk_s']
         now = yaw()
         if now is not None:
@@ -461,12 +546,14 @@ def maneuvers(ctx, cfg):
         for speed in cfg['speeds']:
             surge = speed * amplitude
             for sign in (1, -1):
+                log.begin()
                 log.hold(runner, (surge, 0.0, 0.0), cfg['approach_s'], 'approach')
                 start = len(log.segments)
                 log.hold(runner, (surge, 0.0, sign * cfg['circle_yaw'] * amplitude), cfg['circle_s'],
                          f'circle{"+" if sign > 0 else "-"} {surge:.2f}')
                 runs.append(dict(kind='circle', surge=surge, sign=sign, segments=[start, len(log.segments)]))
                 log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'coast')
+            log.begin()
             log.hold(runner, (surge, 0.0, 0.0), cfg['approach_s'], 'approach')
             base, sign, switches, elapsed = yaw(), 1, 0, 0.0
             start = len(log.segments)
@@ -480,7 +567,9 @@ def maneuvers(ctx, cfg):
                     sign, switches = -sign, switches + 1
             runs.append(dict(kind='zigzag', surge=surge, switches=switches, segments=[start, len(log.segments)]))
             log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'coast')
+        log.recheck(runner)
     body = dict(withheld=True, use='validation and C_A / a26 only: never fitted with the other steps',
+                effort_source='commanded',
                 runs=runs, units=dict(surge='normalized effort', circle_yaw='normalized effort', zigzag_deg='deg',
                                       time='s, monitor clock', segments='index range into samples.segments'),
                 counts=dict(runs=len(runs),
@@ -514,12 +603,18 @@ STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard, pulses=p
 def _run(ctx, step, allowed):
     if step not in allowed:
         return refuse(ctx, step, f'{step!r} is not one of {", ".join(allowed) or "none yet"}')
-    cfg = load_settings()
     try:
+        cfg = load_settings()
         body, samples, driver = STEPS[step](ctx, cfg.get(step, {}))
+        if driver is not None:
+            # provenance() reads the hardware file now; the log and driver block are from the start.
+            after = require_driver(ctx)
+            if after is None or any(after.get(key) != driver.get(key)
+                                    for key in ('config_sha', 'effective_config_sha')):
+                raise Refused('the hardware config the driver runs changed during the step: run it again')
         header = physics_record.provenance(ctx, step, driver=driver)
     except Refused as error:
-        return refuse(ctx, step, str(error))
+        return refuse(ctx, step, str(error), **error.details)
     path = physics_record.write(header, body, samples, ctx.services.get('physics_root'))
     result = dict(procedure='physics', step=step, verdict='SAVED', path=str(path),
                   counts=body['counts'], **body.get('summary', {}))
