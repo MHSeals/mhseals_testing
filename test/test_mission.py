@@ -153,3 +153,88 @@ def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path):
                           prompt=lambda *a: pytest.fail('a refused mission never prompts'))
     result = mission.run(ctx)
     assert result == recorded[0] and result['verdict'] == 'REFUSED' and result['task'] == 'nav_channel'
+
+
+def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_truth='/crane/odom'):
+    """A mission context on a course whose truth starts at (-2.3, -4.8, yaw 0.5)."""
+    import json
+    import time
+    from types import SimpleNamespace
+    truth = tmp_path / 'course_truth.json'
+    truth.write_text(json.dumps({'startX': -2.3, 'startY': -4.8, 'startYaw': 0.5, 'elements': [
+        {'label': 'red_pole_buoy', 'x': 4.8, 'y': -3.3}]}))
+    profile = SimpleNamespace(course_truth=str(truth), ground_truth=ground_truth, use_sim_time=sim)
+    calls, recorded = [], []
+
+    def call(timeout):
+        calls.append(timeout)
+        if isinstance(reset, Exception):
+            raise reset
+        return reset == 'ok', 'x=-2.3 y=-4.8 yaw=0.5' if reset == 'ok' else 'no boat body to reset'
+
+    def history(since=float('-inf'), until=float('inf'), name='odometry'):
+        assert name == 'ground truth'
+        stale = (since - 1.0, {'x': 90.0, 'y': 40.0, 'yaw': 2.0})   # before the reset: ignored
+        return [stale] if at is None else [stale, (time.monotonic(), dict(zip('xy', at), yaw=at[2]))]
+    services = {'task': 'nav_channel'}
+    if reset is not None:
+        services['reset_to_start'] = call
+    ctx = SimpleNamespace(services=services, profile=profile, record=recorded.append,
+                          history=history, prompt=lambda *a: pytest.fail('a refused mission never prompts'))
+    return ctx, calls, recorded
+
+
+def _settle_fast(tmp_path):
+    config = tmp_path / 'start_reset.yaml'
+    config.write_text('service: /crane/reset_to_start\nposition_m: 2.0\nyaw_deg: 15.0\n'
+                      'timeout_s: 5.0\nsettle_s: 0.1\n')
+    return config
+
+
+def test_a_sim_mission_resets_the_boat_to_the_course_start_and_verifies_it(tmp_path):
+    from mhseals_testing.procedures import mission
+    ctx, calls, _ = _reset_ctx(tmp_path, at=(-1.0, -4.0, 0.6))     # 1.5 m and 6 deg: inside
+    assert mission.reset_to_start(ctx) == ''
+    assert calls == [5.0]
+
+
+@pytest.mark.parametrize('at,said', [
+    ((2.7, -4.8, 0.5), '5.0 m and 0 deg off the course start'),    # still drifted
+    ((-2.3, -4.8, 1.0), '0.0 m and 29 deg off the course start'),  # turned
+])
+def test_a_sim_mission_refuses_with_the_offset_left_after_the_reset(tmp_path, at, said):
+    from mhseals_testing.procedures import mission
+    ctx, calls, recorded = _reset_ctx(tmp_path, at=at)
+    result = mission.run(ctx)
+    assert calls and result == recorded[0] and result['verdict'] == 'REFUSED'
+    assert said in result['reason'] and 'limits 2 m and 15 deg' in result['reason']
+
+
+def test_the_reset_is_never_called_on_a_stack_that_is_not_a_verified_sim(tmp_path):
+    from mhseals_testing.procedures import mission
+    for kwargs in (dict(sim=False), dict(ground_truth=None)):
+        ctx, calls, _ = _reset_ctx(tmp_path, **kwargs)
+        assert mission.reset_to_start(ctx) == '' and calls == []
+    ctx, calls, _ = _reset_ctx(tmp_path)
+    ctx.profile.use_sim_time = 1                       # truthy is not enough: only True is a sim
+    assert mission.reset_to_start(ctx) == '' and calls == []
+
+
+@pytest.mark.parametrize('reset,said', [
+    (None, 'this session has no /crane/reset_to_start client'),
+    (TimeoutError('/crane/reset_to_start is not available'), 'is not available'),
+    ('refused', 'refused (no boat body to reset)'),
+])
+def test_a_missing_or_failed_reset_service_refuses_the_mission_clearly(tmp_path, reset, said):
+    from mhseals_testing.procedures import mission
+    ctx, _, recorded = _reset_ctx(tmp_path, reset=reset)
+    result = mission.run(ctx)
+    assert result['verdict'] == 'REFUSED' and 'cannot reset to the course start' in result['reason']
+    assert said in result['reason']
+
+
+def test_a_reset_without_fresh_ground_truth_is_not_trusted(tmp_path):
+    from mhseals_testing.procedures import mission
+    ctx, calls, _ = _reset_ctx(tmp_path, at=None)
+    reason = mission.reset_to_start(ctx, config_path=_settle_fast(tmp_path))
+    assert calls and 'no ground truth arrived' in reason

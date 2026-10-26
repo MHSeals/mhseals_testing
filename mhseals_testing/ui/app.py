@@ -2670,6 +2670,7 @@ class App:
                 mux_input=self.mux_input,
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
                 task=getattr(self, 'agent_task', None),   # mission: the task an agent's run named
+                reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             speed=lambda: self.manual_speed, clock=self.monitor.clock)))
@@ -2805,6 +2806,14 @@ class App:
         if not self.armed and (mux is None or age > STALE_MUX_S):
             return ''
         return override_cause(mux, age)
+
+    def reset_to_start(self, timeout):
+        """crane_ml's /crane/reset_to_start; mission.reset_to_start calls it on a sim stack only."""
+        if getattr(self, '_start_reset', None) is None:
+            from mhseals_testing.procedures.mission import START_RESET
+            from mhseals_testing.ros.sim_reset import StartReset
+            self._start_reset = StartReset(self.ros, yaml.safe_load(START_RESET.read_text())['service'])
+        return self._start_reset(timeout)
 
     def task_watcher(self):
         if self._watcher is None:

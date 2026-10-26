@@ -9,6 +9,7 @@ the boat really did, from the course truth and the true track.
 
 import json
 import math
+import time
 from pathlib import Path
 
 import yaml
@@ -19,6 +20,7 @@ from mhseals_testing.analysis.mission import score
 from mhseals_testing.profiles import PROFILE_DIR
 
 MISSION_DIR = PROFILE_DIR.parent / 'missions'
+START_RESET = PROFILE_DIR.parent / 'sim' / 'start_reset.yaml'
 MARGIN = 30.0  # s past the rubric's time limit before the suite gives up
 # run_task's exit codes (mhseals_nav tasks/interface.py). Newer: 3, a human override stopped
 # it; 4, it refused to start while a human had control. Any other code is a FAILURE.
@@ -59,6 +61,65 @@ def off_course(profile, history):
             f'{x:.1f}, {y:.1f}); restart the simulator so the boat starts on the course')
 
 
+def sim_stack(profile):
+    """True only for a simulator profile with ground truth and a course truth on disk: the
+    same evidence off_course needs. Anything else is treated as the real boat."""
+    path = getattr(profile, 'course_truth', None)
+    return (getattr(profile, 'use_sim_time', False) is True and bool(path)
+            and bool(getattr(profile, 'ground_truth', None)) and Path(path).exists())
+
+
+def reset_to_start(ctx, config_path=START_RESET):
+    """Put a sim boat back on the course start and verify it there; return why not, or ''.
+
+    The idle sim boat drifts with the current before a mission (one demo started 99 m off and
+    scored 0). Only a verified sim stack (sim_stack) is reset; on anything else this never
+    calls the service and returns ''. The pose is checked against the course truth's start from
+    a ground-truth sample newer than the reset, not from the simulator's own reply.
+    """
+    if not sim_stack(ctx.profile):
+        return ''
+    config = yaml.safe_load(Path(config_path).read_text())
+    service = config['service']
+    try:
+        truth = json.loads(Path(ctx.profile.course_truth).read_text())
+        sx, sy, syaw = float(truth['startX']), float(truth['startY']), float(truth['startYaw'])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return f'cannot reset to the course start: the course truth has no start ({error})'
+    reset = ctx.services.get('reset_to_start')
+    if reset is None:
+        return f'cannot reset to the course start: this session has no {service} client'
+    clock = getattr(getattr(ctx, 'monitor', None), 'clock', time.monotonic)
+    began = clock()
+    try:
+        ok, message = reset(float(config['timeout_s']))
+    except Exception as error:  # noqa: BLE001  (TimeoutError, or rclpy's own)
+        return (f'cannot reset to the course start: {service} failed ({error}); '
+                'restart the simulator with a crane_ml that has it')
+    if not ok:
+        return f'cannot reset to the course start: {service} refused ({message})'
+    deadline = time.monotonic() + float(config['settle_s'])
+    while True:
+        samples = [v for t, v in ctx.history(since=began, name='ground truth')
+                   if t > began and v.get('x') is not None]
+        if samples or time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    if not samples:
+        return (f'{service} answered ({message}) but no ground truth arrived within '
+                f'{config["settle_s"]:g}s to confirm the boat is on the start')
+    x, y, yaw = samples[-1]['x'], samples[-1]['y'], samples[-1].get('yaw')
+    distance = math.hypot(x - sx, y - sy)
+    turn = (None if yaw is None else
+            abs(math.degrees(math.atan2(math.sin(yaw - syaw), math.cos(yaw - syaw)))))
+    if distance <= float(config['position_m']) and turn is not None and turn <= float(config['yaw_deg']):
+        return ''
+    heading = 'unknown' if turn is None else f'{turn:.0f} deg'
+    return (f'after {service} the boat is {distance:.1f} m and {heading} off the course start '
+            f'(ground truth {x:.1f}, {y:.1f}; start {sx:.1f}, {sy:.1f}); limits '
+            f'{config["position_m"]:g} m and {config["yaw_deg"]:g} deg')
+
+
 def refuse(ctx, task, reason):
     """Record and return the mission's refusal to start."""
     refusal = dict(procedure='mission', task=task, verdict='REFUSED', reason=reason)
@@ -70,6 +131,9 @@ def run(ctx):
     task = ctx.services.get('task') or ctx.choose('Mission', tuple(available()))   # an agent's run names it
     rubric = yaml.safe_load((MISSION_DIR / f'{task}.yaml').read_text())
     services = ctx.services
+    unreset = reset_to_start(ctx)
+    if unreset:
+        return refuse(ctx, task, unreset)
     away = off_course(ctx.profile, lambda: ctx.history(name='ground truth'))
     if away:
         return refuse(ctx, task, away)

@@ -1,0 +1,9 @@
+# A sim mission first puts the boat back on the course start (crane_ml's /crane/reset_to_start,
+# std_srvs/Trigger): an idle sim boat drifts with the current before the mission starts.
+# The mission refuses unless a fresh ground-truth sample after the reset is this close to the
+# course truth's startX/startY/startYaw. Never called on a stack that is not a verified sim.
+service: /crane/reset_to_start
+position_m: 2.0      # distance from (startX, startY)
+yaw_deg: 15.0        # heading error from startYaw
+timeout_s: 5.0       # for the service to appear and answer
+settle_s: 3.0        # for a ground-truth sample newer than the reset
