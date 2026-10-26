@@ -185,3 +185,15 @@ def test_legacy_2025_truth_scores_entry_gates():
     truth = json.loads((Path(__file__).parent / 'data' / 'course_truth_2025.json').read_text())
     model = score.course(truth)
     assert model['legacy'] and any(g['task'] == 'entry_gates' for g in model['gates'])
+
+
+def test_batch_stats_and_compare():
+    from mhseals_testing.harness import score_analyze as sa
+    a = dict(metrics=dict(points=sa.stats([100, 120, 110, 90])))
+    b = dict(metrics=dict(points=sa.stats([300, 320, 310, 290])))
+    assert a['metrics']['points']['mean'] == 105
+    lo, hi = a['metrics']['points']['ci95']
+    assert lo < 105 < hi
+    assert sa.compare(a, b)['points']['clear'] and sa.compare(a, b)['points']['diff'] == 200
+    same = sa.compare(a, a)['points']
+    assert same['diff'] == 0 and not same['clear']

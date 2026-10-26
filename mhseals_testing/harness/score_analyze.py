@@ -120,6 +120,11 @@ def analyze(session, now=None):
     if start is None:
         body['run']['warnings'].append('no task_started event: the whole track is the run')
     gen = truth.get('generator') or {}
+    meta = data.read_json(Path(session) / 'session.json', {}) or {}
+    source = meta.get('source') or ('kinematic' if meta.get('kind') == 'kinematic' else 'unity')
+    body['run']['source'] = source
+    body['penalties']['contact_basis'] = 'geometry' + (' (no physics)' if source == 'kinematic'
+                                                        else '')
     body['run'].update(session=Path(session).name, course=dict(
         name=truth.get('name'), family=truth.get('family'), seed=gen.get('seed'),
         mode=gen.get('mode'), truth_sha256=gen.get('truth_sha256')))
@@ -135,11 +140,90 @@ def analyze(session, now=None):
     return target, record
 
 
+def metrics(record):
+    """The per-run numbers a batch aggregates."""
+    out = dict(points=record['total']['points'], provisional=record['total']['provisional'],
+               strikes=len(record['penalties']['strikes']),
+               entered=float(record['run']['entry_t'] is not None),
+               duration_s=record['run']['duration_s'])
+    out.update({f'task.{k}': v for k, v in record['total']['by_task'].items()})
+    out.update({k: v for k, v in record.get('diagnostics', {}).get('motion', {}).items()
+                if isinstance(v, (int, float))})
+    return out
+
+
+T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26,
+       10: 2.23, 15: 2.13, 20: 2.09, 30: 2.04, 60: 2.00}
+
+
+def _t95(df):
+    return T95[min((k for k in T95 if k >= df), default=60)] if df >= 1 else math.inf
+
+
+def stats(values):
+    """n, mean, sd and the 95% t interval of the mean."""
+    n = len(values)
+    mean = sum(values) / n
+    sd = math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1)) if n > 1 else 0.0
+    half = _t95(n - 1) * sd / math.sqrt(n) if n > 1 else None
+    return dict(n=n, mean=round(mean, 3), sd=round(sd, 3),
+                ci95=None if half is None else [round(mean - half, 3), round(mean + half, 3)])
+
+
+def batch(records):
+    """Aggregate per metric across runs; sources and course seeds are listed."""
+    rows = [metrics(r) for r in records]
+    keys = sorted({k for r in rows for k in r})
+    return dict(runs=len(records),
+                sources=sorted({r['run'].get('source', 'unity') for r in records}),
+                seeds=sorted({str(r['run'].get('course', {}).get('seed')) for r in records}),
+                metrics={k: stats([r[k] for r in rows if r.get(k) is not None]) for k in keys
+                         if any(r.get(k) is not None for r in rows)})
+
+
+def compare(a, b):
+    """Batch b minus batch a per metric: difference of means with a Welch 95% interval."""
+    out = {}
+    for k in sorted(set(a['metrics']) & set(b['metrics'])):
+        x, y = a['metrics'][k], b['metrics'][k]
+        diff = y['mean'] - x['mean']
+        var = x['sd'] ** 2 / x['n'] + y['sd'] ** 2 / y['n']
+        if var > 0 and x['n'] > 1 and y['n'] > 1:
+            df = var ** 2 / ((x['sd'] ** 2 / x['n']) ** 2 / (x['n'] - 1) +
+                             (y['sd'] ** 2 / y['n']) ** 2 / (y['n'] - 1))
+            half = _t95(int(df)) * math.sqrt(var)
+            ci = [round(diff - half, 3), round(diff + half, 3)]
+        else:
+            ci = None
+        out[k] = dict(diff=round(diff, 3), ci95=ci,
+                      clear=bool(ci) and (ci[0] > 0 or ci[1] < 0))
+    return out
+
+
+def _records(paths):
+    sessions = [p for root in paths for p in sorted(Path(root).glob('**/track.jsonl'))]
+    return [analyze(p.parent)[1] for p in sessions]
+
+
 def main(argv=None, out=None):
     parser = argparse.ArgumentParser(prog='boat_trial analyze score')
-    parser.add_argument('session')
+    parser.add_argument('session', help='a session, or with --batch a directory of sessions')
     parser.add_argument('--json', action='store_true', help='print the record that was written')
+    parser.add_argument('--batch', action='store_true', help='score every session under it')
+    parser.add_argument('--compare', metavar='DIR', help='with --batch: a second batch (B - A)')
     args = parser.parse_args(argv)
+    if args.batch:
+        try:
+            first = batch(_records([args.session]))
+            result = dict(schema='mhseals.score_batch/1', a=first)
+            if args.compare:
+                second = batch(_records([args.compare]))
+                result.update(b=second, b_minus_a=compare(first, second))
+        except (Refused, ZeroDivisionError) as error:
+            print(f'refused: {error or "no sessions"}', file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2), file=out or sys.stdout)
+        return 0
     try:
         target, _ = analyze(args.session)
     except Refused as error:
