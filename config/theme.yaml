@@ -31,6 +31,8 @@ tokens:
   # on 16 colours ⊘ STOP and ARMED carry the meaning with the word
   stop:      {dark: '#FC8460', light: '#A8320C', x256: [209, 166], ansi: bold red}   # soft coral at the palette's lightness
   armed:     {dark: '#FF6FA8', light: '#C2185B', x256: [205, 161], ansi: bright_magenta}
+  # the typed arm word and its field: a crimson of the armed family, apart from fail, stop and buoys
+  arm.word:  {dark: '#EB4778', light: '#A31D48', x256: [204, 125], ansi: bright_magenta}
   auth.human:     {alias: fg}
   auth.ours:      {alias: accent}
   auth.nav:       {alias: violet}
@@ -139,6 +141,7 @@ mono:
   stop: bold
   scope: italic
   armed: bold
+  arm.word: bold
   sel_bg: underline
   grid: dim
   wake: dim
