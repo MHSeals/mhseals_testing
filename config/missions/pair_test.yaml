@@ -1,5 +1,4 @@
 # Commissioning: one pole pair, out and back.
 task: pair_test
-time_limit: 180.0
 required: {gate_cleared: 1, pair_turned: 1, pair_returned: 1}
 points: {pair_returned: 1}

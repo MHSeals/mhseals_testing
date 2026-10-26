@@ -1,5 +1,4 @@
 # Commissioning: one yellow buoy, a lap, and home.
 task: circle_test
-time_limit: 240.0
 required: {buoy_circled: 1, returned_home: 1}
 points: {returned_home: 1}

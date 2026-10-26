@@ -997,7 +997,10 @@ class Watcher:
         self.events.clear()
 
 
-def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
+def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path, monkeypatch):
+    # The limit is nav's resolved budget (test_mission resolves it); here, what the record carries.
+    from mhseals_testing.procedures import mission
+    monkeypatch.setattr(mission, 'time_limit', lambda task, rubric, profile=None: 180.0)
     app, _ = nav_app(tmp_path)
     watcher, started, stopped = Watcher(), [], []
     app.watcher_factory = lambda: watcher
@@ -1031,10 +1034,8 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
     assert started[0][:6] == ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', 'nav_channel']
     assert stopped == ['task_nav_channel']
     # The run record carries what the referee needs: the config's limit and the start on the track clock.
-    import yaml
-    from mhseals_testing.procedures.mission import MISSION_DIR
     record = json.loads(next(app.paths.runs.glob('*.json')).read_text())
-    limit = yaml.safe_load((MISSION_DIR / 'nav_channel.yaml').read_text())['time_limit']
+    limit = 180.0
     assert record['result']['time_limit_s'] == limit
     assert isinstance(record['result']['run_start_t'], float)
     assert before <= record['result']['run_start_t_ns'] <= after   # wall clock, for the journal's events
@@ -1043,7 +1044,9 @@ def test_mission_rehearsal_runs_the_task_and_scores_it(tmp_path):
     assert len(stop) == 1 and stop[0]['run_id'] == record['run_id'] and stop[0]['outcome'] == 'complete'
 
 
-def test_an_aborted_mission_still_records_its_limit_start_and_end(tmp_path):
+def test_an_aborted_mission_still_records_its_limit_start_and_end(tmp_path, monkeypatch):
+    from mhseals_testing.procedures import mission
+    monkeypatch.setattr(mission, 'time_limit', lambda task, rubric, profile=None: 180.0)
     from mhseals_testing.runner import Aborted
     app, _ = nav_app(tmp_path)
     watcher, clock = Watcher(), app.clock

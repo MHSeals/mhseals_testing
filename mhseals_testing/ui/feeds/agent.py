@@ -364,6 +364,8 @@ class AgentDesk:
             task = agent_acts.run_task(req['args'])
             if task is not None and name != 'mission':
                 return 'bad_args', '--task is for run mission only'
+            if agent_acts.run_profile(req['args']) is not None and name != 'mission':
+                return 'bad_args', '--mission-profile is for run mission only'
             if task is not None and task not in agent_acts.mission_tasks():
                 return 'bad_args', f"mission tasks: {', '.join(agent_acts.mission_tasks())}"
             if req['args'].get('sim_arm') not in (None, True):
@@ -488,7 +490,7 @@ class AgentDesk:
                 return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
             # started says who picks the mission task, so 'started' is not read as the course running
             self.begin(act, {'task': task or 'the operator picks it'} if name == 'mission' else None)
-            result, error = agent_acts.run(app, found, task)
+            result, error = agent_acts.run(app, found, task, agent_acts.run_profile(act['req']['args']))
             cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
             if cause:
                 self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),

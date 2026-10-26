@@ -81,6 +81,7 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
     monkeypatch.setattr(mission, 'judge', lambda *a, **k: seen.append(a[-2:]))
     monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: {})
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
+    monkeypatch.setattr(mission, 'time_limit', lambda *a: 300.0)   # nav's config is not read here
     result = mission.run(ctx)
     assert seen == [(10.0, 20.0)] and result['paused_s'] == 3.0
 
@@ -118,6 +119,7 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
     monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
     monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: dict(RUBRIC))
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
+    monkeypatch.setattr(mission, 'time_limit', lambda *a: 300.0)   # nav's config is not read here
     result = mission.run(ctx)
     # ros2 launch exits 0 whatever its node's code, so the runner must be the child itself.
     assert started == [('task_gate', ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', 'gate',
@@ -338,13 +340,11 @@ def test_a_run_links_its_own_track_and_event_files(tmp_path):
     assert (session / 'track.jsonl').read_text() == (session / files['track']).read_text()
 
 
-def test_the_run_record_takes_the_limit_from_the_mission_config_and_the_start_from_the_track_clock(monkeypatch):
-    # mission.yaml is the whole 2026 run (1800 s): the procedure records its limit, not a constant.
-    import yaml
+def run_mission(monkeypatch, services):
     from contextlib import contextmanager
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
-    calls = []
+    calls, records = [], []
     runner = SimpleNamespace(paused=0.0, clock=lambda: calls.append('clock') or 42.5,
                              supervise=lambda *a, **k: (42.5, 50.0, True))
     # Both clocks read back to back, before the task launches: one instant on each.
@@ -354,14 +354,62 @@ def test_the_run_record_takes_the_limit_from_the_mission_config_and_the_start_fr
     @contextmanager
     def supervised(*args, **kwargs):
         yield runner
-    services = {'task': 'mission', 'task_watcher': lambda: watcher, 'start': lambda *a: calls.append('start'),
-                'stop': lambda *a: None, 'running': lambda *a: False, 'returncode': lambda name: 0}
+    services.update({'task_watcher': lambda: watcher, 'start': lambda name, cmd: calls.append(('start', cmd)),
+                     'stop': lambda *a: None, 'running': lambda *a: False, 'returncode': lambda name: 0})
     ctx = SimpleNamespace(prompt=lambda *a: None, supervise=supervised, services=services,
-                          profile=SimpleNamespace(use_sim_time=True), record=lambda r: None)
+                          profile=SimpleNamespace(use_sim_time=True), record=records.append)
     monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
-    mission.run(ctx)
-    limit = yaml.safe_load((MISSION_DIR / 'mission.yaml').read_text())['time_limit']
-    assert limit == 1800.0
+    return mission.run(ctx), calls
+
+
+def test_the_run_record_takes_the_limit_from_the_nav_run_budget_and_the_start_from_the_track_clock(monkeypatch):
+    pytest.importorskip('py_trees', reason="mhseals_nav's task loader imports py_trees")
+    # One source: the testing rubric names nav's mission YAML; nav's load_params resolves the budget
+    # (timeslot, profile), which is what task_started states. The rubric carries no limit of its own.
+    import yaml
+    from mhseals_nav.tasks.host import config_path, load_params
+    rubric = yaml.safe_load((MISSION_DIR / 'mission.yaml').read_text())
+    assert 'time_limit' not in rubric
+    services = {'task': 'mission'}
+    result, calls = run_mission(monkeypatch, services)
+    limit = load_params('mission', config_path(rubric['nav_params']))['timeout']
+    assert limit == 720.0   # the 900 s slot less the 180 s set-up reserve
     assert services['run_fields'] == dict(time_limit_s=limit, run_start_t=42.5,
                                           run_start_t_ns=1_700_000_000_000_000_000)
-    assert calls == ['clock', 'wall', 'start']
+    [_, _, (_, command)] = calls
+    # run_task runs the YAML the limit was read from, so the two cannot differ.
+    assert command[4:8] == ['--task', 'mission', '--params', config_path(rubric['nav_params'])]
+    assert '--profile' not in command
+    assert calls[:2] == ['clock', 'wall']
+
+
+def test_a_selected_profile_reaches_nav_and_its_budget(monkeypatch):
+    pytest.importorskip('py_trees', reason="mhseals_nav's task loader imports py_trees")
+    from mhseals_nav.tasks.host import load_params, config_path
+    from mhseals_testing.procedures import mission
+    seen = []
+    monkeypatch.setattr('mhseals_nav.tasks.host.load_params',
+                        lambda task, path=None, profile=None: (task == 'mission' and seen.append(profile))
+                        or load_params(task, path, profile))
+    services = {'task': 'mission', 'mission_profile': 'finals'}
+    result, calls = run_mission(monkeypatch, services)
+    assert seen == ['finals']
+    expected = load_params('mission', config_path('mission_2026.yaml'), 'finals')['timeout']
+    assert services['run_fields']['time_limit_s'] == expected
+    command = calls[-1][1]
+    assert command[command.index('--profile') + 1] == 'finals'
+    assert mission.time_limit('nav_channel', {}) == load_params('nav_channel')['timeout']
+
+
+def test_an_unresolvable_limit_refuses_the_run_with_the_reason(monkeypatch):
+    services = {'task': 'mission', 'mission_profile': 'no_such_profile'}
+    result, calls = run_mission(monkeypatch, services)
+    assert result['verdict'] == 'REFUSED' and 'no time limit' in result['reason']
+    assert calls == []   # nothing launched
+    try:
+        import py_trees  # noqa: F401  (nav's loader needs it)
+    except ImportError:
+        assert 'mhseals_nav is not importable' in result['reason']
+    else:
+        assert 'profile no_such_profile' in result['reason']
+    assert 'time_limit_s' not in services.get('run_fields', {})

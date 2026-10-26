@@ -95,26 +95,32 @@ def run_task(args):
     return str(args['task']) if args.get('task') else None
 
 
+def run_profile(args):
+    """The mission profile a ``run`` request names (``{profile}``: qualifying, finals), or None: nav's default."""
+    return str(args['profile']) if args.get('profile') else None
+
+
 def mission_tasks():
     from mhseals_testing.procedures import mission
     return mission.available()
 
 
-def run(app, found, task=None):
+def run(app, found, task=None, profile=None):
     """Run ``found`` as its key would; returns (result, error). The run file names the outcome.
 
     ``task`` is the mission task an agent named; without it the mission asks the operator.
+    ``profile`` is the mission's nav profile (qualifying, finals); without it, the nav YAML's own.
     """
     run_id = runs.next_run_id(app.paths.runs, found.title)
     error = None
-    app.agent_task = task
+    app.agent_task, app.agent_profile = task, profile
     try:
         app.run_procedure(found)
     except STOPPING as stopped:
         error = str(stopped) or type(stopped).__name__
         app.stop(error, by='error')             # what the key loop does with a stopping error
     finally:
-        app.agent_task = None
+        app.agent_task = app.agent_profile = None
     record = read_json(app.paths.runs / f'{run_id}.json') or {}
     notice = str(app.notice or '')
     result = {'run_id': run_id if record else None,

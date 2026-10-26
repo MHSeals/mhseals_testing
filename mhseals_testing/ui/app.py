@@ -2709,6 +2709,7 @@ class App:
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
                 task=getattr(self, 'agent_task', None),   # mission: the task an agent's run named
                 reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
+                mission_profile=getattr(self, 'agent_profile', None),   # and its nav profile (finals)
                 run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
                 manual=dict(plant=self.plant, blockers=self.manual_blockers,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,

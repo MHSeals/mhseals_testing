@@ -128,6 +128,39 @@ def reset_to_start(ctx, config_path=START_RESET):
             f'{config["position_m"]:g} m and {config["yaw_deg"]:g} deg')
 
 
+class LimitError(Exception):
+    """The run's time limit could not be resolved from mhseals_nav's task config."""
+
+
+def nav_params(rubric):
+    """The mhseals_nav task YAML the run uses (the rubric's ``nav_params``), or None: run_task's default."""
+    name = rubric.get('nav_params')
+    if not name:
+        return None
+    from mhseals_nav.tasks.host import config_path
+    return config_path(name)
+
+
+def time_limit(task, rubric, profile=None):
+    """The run's time limit (s): the budget mhseals_nav resolves for what run_task runs.
+
+    One source: nav's ``load_params`` on the same task YAML and profile (a mission's profile
+    overlay and ``timeslot``: slot_s less setup_reserve_s), its ``timeout``. Never a copy here.
+    """
+    try:
+        from mhseals_nav.tasks.host import load_params
+    except ImportError as exc:
+        raise LimitError(f'mhseals_nav is not importable ({exc}): the run budget is its task config') from None
+    try:
+        timeout = load_params(task, nav_params(rubric), profile).get('timeout')
+    except (OSError, KeyError, ValueError, TypeError) as exc:
+        raise LimitError(f'mhseals_nav config for {task}'
+                         f"{' (profile ' + profile + ')' if profile else ''}: {exc}") from None
+    if timeout is None:
+        raise LimitError(f'mhseals_nav config for {task} states no timeout or timeslot')
+    return float(timeout)
+
+
 def refuse(ctx, task, reason):
     """Record and return the mission's refusal to start."""
     refusal = dict(procedure='mission', task=task, verdict='REFUSED', reason=reason)
@@ -148,15 +181,23 @@ def run(ctx):
     away = off_course(ctx.profile, lambda: ctx.history(name='ground truth'))
     if away:
         return refuse(ctx, task, away)
+    profile = services.get('mission_profile')   # qualifying | finals; None: the nav YAML's own
+    try:
+        limit = time_limit(task, rubric, profile)
+    except LimitError as exc:
+        return refuse(ctx, task, f'no time limit: {exc}')
+    rubric = {**rubric, 'time_limit': limit}   # scoring and the referee read the same limit
     watcher = services['task_watcher']()
     watcher.reset()
     # Run-level fields for the run record (the App merges them into runs/<run_id>.json's
-    # ``result``, aborted runs included): the official limit from the mission config.
+    # ``result``, aborted runs included): the run budget nav resolves, as task_started states it.
     fields = services.setdefault('run_fields', {})
-    fields['time_limit_s'] = rubric.get('time_limit')
+    fields['time_limit_s'] = limit
     # run_task directly: ros2 launch exits 0 whatever its node's code.
-    command = ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', task, '--ros-args',
-               '-p', f'use_sim_time:={str(ctx.profile.use_sim_time).lower()}']
+    params = nav_params(rubric)
+    command = ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', task,
+               *(['--params', params] if params else []), *(['--profile', profile] if profile else []),
+               '--ros-args', '-p', f'use_sim_time:={str(ctx.profile.use_sim_time).lower()}']
     with ctx.supervise('mission', task=task) as runner:
         paused_before = runner.paused
         # The same instant on both clocks: the track's t and the wall clock (ns) that the
@@ -166,7 +207,7 @@ def run(ctx):
         services['start'](f'task_{task}', command)
         try:
             start, end, _ = runner.supervise(
-                rubric.get('time_limit', 300.0) + MARGIN,
+                limit + MARGIN,
                 done=lambda: not services['running'](f'task_{task}'),
                 label=lambda: f"{task}: {watcher.status.get('tip') or 'starting'}")
         finally:

@@ -54,6 +54,8 @@ def add_parsers(sub):
     run.add_argument('--task', help='mission only: the task to rehearse (else the operator picks it)')
     run.add_argument('--sim-arm', action='store_true',
                      help='sim only: arm a verified sim for this run, disarm after (harness/sim_arm.py)')
+    run.add_argument('--mission-profile', help="mission only: mhseals_nav's mission profile (qualifying, finals; "
+                     "else the nav YAML's own); it sets the run budget")
     goal = verb('goal', 'send a map-frame goal through the TUI', claim=True)
     for name in ('x', 'y'):
         goal.add_argument(name, type=float)
@@ -161,6 +163,8 @@ class Agent:
             args['task'] = self.args.task
         if getattr(self.args, 'sim_arm', False):
             args['sim_arm'] = True
+        if getattr(self.args, 'mission_profile', None):
+            args['profile'] = self.args.mission_profile
         return self.send('run', args, self.args.claim, self.args.dry_run)
 
     def goal(self):
