@@ -36,7 +36,7 @@ def sensor_rows(snapshot, specs):
                                   limit=spec.deadline)
             rate = '' if rate == 'ok' else rate
             value += MARKS.get(mark, '')
-        rows.append(dict(group='Components', source='sensor', state=state, name=spec.name,
+        rows.append(dict(group='Components', source='sensor', state=state, name=spec.name, label=spec.title,
                          value=value, rate=rate, required=spec.required,
                          detail=f'{spec.topic}{theme.SEPARATOR}{detail}' if detail != spec.topic
                          else spec.topic))
@@ -264,7 +264,7 @@ def short(detail, limit=10):
 
 def row_label(row, active):
     """The glyph and label cell; a healthy summary row keeps the glyph cell blank so labels align."""
-    name = Text(row['name'], style='bold' if row['required'] else None)
+    name = Text(row.get('label') or row['name'], style='bold' if row['required'] else None)
     plain = row.get('plain')
     return theme.row(None if plain else row['state'], name, active, prefix=' ' if plain else None)
 

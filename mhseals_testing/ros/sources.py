@@ -1,4 +1,4 @@
-"""Odometry sources beyond the profile's sensors, validated and kept for the Odometry popup.
+"""Odometry sources beyond the profile's sensors, validated and kept for the Pose popup.
 
 GPS raw and the compass are profile sensors (``gpsraw`` and ``mag`` kinds). The
 estimates below are not shown as sensors: only their latest observation is held.

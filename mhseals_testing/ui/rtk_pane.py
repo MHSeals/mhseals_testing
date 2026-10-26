@@ -1,4 +1,4 @@
-"""RTK detail pane for the Odometry popup: the fix timeline and its totals; plain text lines.
+"""RTK detail pane for the Pose popup: the fix timeline and its totals; plain text lines.
 
 ``r`` on the pane opens the base controls (``KEYS``); the host maps the action name.
 """

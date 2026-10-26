@@ -1,8 +1,8 @@
 == 28x30
 ╭─ ▸ Status · 1/8 live ────╮
 │ Components               │
-│ › ✓ odometry        once │
-│   · FCU odometry         │
+│ › ✓ pose            once │
+│   · FCU pose             │
 │   ✗ GPS                  │
 │   ! IMU            once× │
 │   · GPS raw              │
@@ -20,8 +20,8 @@
 == 28x20
 ╭─ ▸ Status · 1/8 live ────╮
 │ Components               │
-│ › ✓ odometry        once │
-│   · FCU odometry         │
+│ › ✓ pose            once │
+│   · FCU pose             │
 │   ✗ GPS                  │
 │   ! IMU            once× │
 │   · GPS raw              │
@@ -39,8 +39,8 @@
 == 28x14
 ╭─ ▸ Status · 1/8 live ────╮
 │ Components               │
-│ › ✓ odometry        once │
-│   · FCU odometry         │
+│ › ✓ pose            once │
+│   · FCU pose             │
 │   ✗ GPS                  │
 │   ! IMU            once× │
 │   · GPS raw              │

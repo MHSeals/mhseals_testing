@@ -1,7 +1,7 @@
 ╭─ ▸ Status · 1/8 live ──────────╮
 │ Components                     │
-│ › ✓ odometry              once │
-│   · FCU odometry               │
+│ › ✓ pose                  once │
+│   · FCU pose                   │
 │   ✗ GPS                        │
 │   ! IMU                  once× │
 │   · GPS raw                    │

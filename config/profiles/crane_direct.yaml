@@ -10,7 +10,7 @@ frames: {map: null, odom: odom, base: base_link}
 use_sim_time: true
 arming: {outputs: none}
 sensors:
-  - {name: odometry, topic: /crane/odom, kind: odometry, required: true}
+  - {name: odometry, label: pose, topic: /crane/odom, kind: odometry, required: true}
   - {name: LiDAR, topic: /points, kind: points}
 
 conditions: {velocity: odom:/crane/odom}

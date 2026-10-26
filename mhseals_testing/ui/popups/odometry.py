@@ -1,4 +1,4 @@
-"""The Odometry popup: estimates (the EKFs) and, below them, the sources feeding the boat.
+"""The Pose popup (`o`, Enter on the pose row): estimates (the EKFs) and, below them, the sources feeding the boat.
 
 ``rows`` is computed only while the popup is open (App.odometry), from parameters fetched at
 open, so a closed popup costs nothing.

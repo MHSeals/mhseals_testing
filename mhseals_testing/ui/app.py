@@ -169,7 +169,7 @@ HELP = [
     (f'{UPDOWN} / j k', 'Move within the focused panel'),
     ('Procedure keys', 'Run from any panel; focused-panel edit keys take precedence'),
     ('Enter', 'Run, open or show details'),
-    ('o', 'Odometry: what the EKFs fuse, and the sources'),
+    ('o', 'Pose: what the EKFs fuse, and the sources'),
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('Space', 'Stop: neutral and disarm'),
     ('m', 'Manual control'),
@@ -1462,7 +1462,7 @@ class App:
         if raw == 'X' and self.focus == 'activity' and not self.review and self.activity == 'results':
             self.exclude_result()  # panel-level Exclude run; folded 'x' still writes the report
             return
-        if key == 'o':  # odometry popup is global
+        if key == 'o':  # the Pose popup is global
             self.open('odometry')
             return
         if raw == '!' and self.engine is not None:  # keymap global health
@@ -1818,7 +1818,7 @@ class App:
             rows = [(row['name'], row['state'], row['value'])
                     for row in status_rows(self.snapshot(), profile.sensors)
                     if row.get('source') == 'sensor']
-            self.show('Odometry (review)', rows=rows, width=76)
+            self.show('Pose (review)', rows=rows, width=76)
             return
         fetch = getattr(self.ros, 'get_parameters', lambda node: None)
         params = {node: fetch(node) for node in odometry.ESTIMATES}
@@ -1833,7 +1833,7 @@ class App:
         if events or self.rtk_link is not None:
             rows += rtk.pane_rows(events, time.time(), 44, theme.ASCII)
         try:   # r opens the RTK base controls next to e (no base says so)
-            answer = self.choose('Odometry', ['Restart EKFs', 'Base controls', 'Magcal', 'Close'],
+            answer = self.choose('Pose', ['Restart EKFs', 'Base controls', 'Magcal', 'Close'],
                                  {'e': 0, 'r': 1, 'c': 2}, default=3, rows=rows, width=76)
         except Cancelled:
             return
@@ -2662,10 +2662,10 @@ class App:
         age = row.get('age', float('inf'))
         if (row.get('status') != 'LIVE' or row.get('issue')
                 or not 0 <= age <= STILL_FRESH_S):
-            return ['odometry is missing, stale or invalid']
+            return ['pose is missing, stale or invalid']
         stamp_age = row.get('stamp_age')
         if stamp_age is not None and not -.25 <= stamp_age <= STILL_FRESH_S:
-            return ['odometry timestamp is invalid']
+            return ['pose timestamp is invalid']
         values = row.get('values', {})
         return stillness(values.get('vx'), values.get('vy'), values.get('wz'))
 
@@ -3056,7 +3056,7 @@ def session_main(argv=None):
                 time.sleep(2.0)  # let discovery find an already-running stack
                 sim = profile.use_sim_time is True and profile.outputs == 'topic'
                 for line in stack.autostart(ros.nodes(), ros.publishers(profile.odometry), sim):
-                    console.print(Text(line, style='yellow'))
+                    console.print(Text(line, style=theme.WARN))
                     ros.emit('autostart', detail=line)
             registry.set_children(processes.records())
         app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,

@@ -53,9 +53,9 @@ def test_missing_required_sensor_and_tf_block_but_optional_do_not():
     for sensor in optional:
         monitor.observe(sensor.name, stamp_age=0)
     blockers = motion_blockers(monitor.snapshot(profile.required_tf), profile)
-    required = [s.name for s in profile.sensors if s.required]
+    required = [s.title for s in profile.sensors if s.required]   # blockers name the row's label
     assert all(any(b.startswith(name) for b in blockers) for name in required)
-    assert not any(b.startswith(s.name + ':') for s in optional for b in blockers)
+    assert not any(b.startswith(s.title + ':') for s in optional for b in blockers)
     assert sum(b.startswith('TF ') for b in blockers) == len(profile.required_tf)
     assert motion_blockers(monitor.snapshot(profile.required_tf), profile, bench_override=True) == []
 

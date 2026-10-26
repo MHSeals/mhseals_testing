@@ -76,9 +76,9 @@ def motion_blockers(snapshot, profile, bench_override=False):
                 continue
             row = snapshot['sensors'].get(sensor.name)
             if row is None:
-                blockers.append(f'{sensor.name}: no messages on {sensor.topic}')
+                blockers.append(f'{sensor.title}: no messages on {sensor.topic}')
             elif row['status'] != 'LIVE':
-                blockers.append(f"{sensor.name}: {row['status']} {row['issue']}".rstrip())
+                blockers.append(f"{sensor.title}: {row['status']} {row['issue']}".rstrip())
         for chain in snapshot['tf']:
             if chain['status'] != 'LIVE':
                 blockers.append(f"TF {chain['source']} -> {chain['target']}: {chain['detail']}")

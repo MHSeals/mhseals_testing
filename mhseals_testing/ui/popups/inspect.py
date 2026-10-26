@@ -580,7 +580,8 @@ def body(state, snapshot, inner=WIDTH - 4, edges=()):
 
 
 def title(row, spec):
-    return f"{row['name']}{SEP}{spec.topic}" if spec else row['name']
+    name = row.get('label') or row['name']
+    return f"{name}{SEP}{spec.topic}" if spec else name
 
 
 def open_inspect(app, row=None):

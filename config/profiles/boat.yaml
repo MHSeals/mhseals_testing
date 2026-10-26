@@ -20,7 +20,7 @@ arming: {outputs: odroid}
 # with: [watchdogs]): their row only shows them, never starts or stops a copy, and arming refuses
 # while one is off the graph (pre.*_watchdog, gates: [arm]).
 components:
-  odometry: {}
+  odometry: {title: Odom stack}           # the odom launch (MAVROS on the boat); its rate is the pose row
   ekf: {title: EKFs, needs: [odometry]}
   sensors: {}
   mapping: {needs: [odometry, ekf]}
@@ -31,8 +31,8 @@ components:
   operator_heartbeat: {title: Operator heartbeat, start: here}   # on the operator laptop; link_watchdog holds without it
   host_diagnostic: {title: Camera host diagnostic}
 sensors:
-  - {name: odometry, topic: /odom/local, kind: odometry, required: true}
-  - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
+  - {name: odometry, label: pose, topic: /odom/local, kind: odometry, required: true}
+  - {name: FCU odometry, label: FCU pose, topic: /odom/mavros, kind: odometry}
   - {name: GPS, topic: /gps/fix, kind: gps, required: true, hz: 10}   # Here4 10 Hz (nav mavros_setup '24:10')
   - {name: IMU, topic: /imu/raw, kind: imu, required: true, hz: 18}
   - {name: GPS raw, topic: /mavros/gpsstatus/gps1/raw, kind: gpsraw}

@@ -1824,7 +1824,7 @@ def test_o_on_status_opens_the_odometry_popup_without_running_perception(tmp_pat
     app.run_procedure = app.ran.append
     app.focus = 'status'
     app.dispatch('o')
-    assert shown[0][0] == 'Odometry' and shown[0][1][0] == ('Estimates', '')
+    assert shown[0][0] == 'Pose' and shown[0][1][0] == ('Estimates', '')
     assert ('ekf_local', 'parameters unavailable') in shown[0][1] and not app.ran
     app.focus = 'procedures'
     app.dispatch('p')                       # Perception moved to p (procedure groups)
@@ -2220,7 +2220,7 @@ def test_unbound_action_is_a_noop_and_odometry_opens_through_the_table(tmp_path)
     shown = []
     app.choose = lambda title, *args, **kw: shown.append(title) or 'Close'
     assert app.open('odometry') is True
-    assert shown == ['Odometry']
+    assert shown == ['Pose']
 
 
 def test_a_hand_edit_reaches_the_history_when_the_watcher_reloads_it(tmp_path):
@@ -2309,7 +2309,7 @@ def test_arming_waits_for_the_mux_and_offers_its_restored_hold_for_release(tmp_p
 
 
 @pytest.mark.parametrize('open_popup, answers', [
-    (lambda app: app.show('Odometry', message='x'), ('space', 'escape')),
+    (lambda app: app.show('Pose', message='x'), ('space', 'escape')),
     (lambda app: app.choose('Pick', ['a', 'b']), ('space', 'escape')),
     (lambda app: app.prompt('Ready?'), ('space', 'escape')),
 ])

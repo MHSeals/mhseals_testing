@@ -1,7 +1,7 @@
 """Restart the EKFs and navsat_transform as one keeper child (HR9). Pure and ROS-free.
 
 mhseals_nav's ``ekf.launch.py`` runs ekf_local, ekf_global and navsat_transform in a
-single launch, so the EKF row and the navsat row of the Odometry popup both restart
+single launch, so the EKF row and the navsat row of the Pose popup both restart
 that one child: the profiles' ``ekf`` component, with ``start_ekf:=false`` on ``odometry`` so
 only one set runs. MAVROS and Nav2 stay up. Restarting navsat_transform makes it pick a
 new map datum from the next GPS fix, which would jump the ``map`` frame; with

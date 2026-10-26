@@ -59,6 +59,12 @@ class SensorSpec:
     required: bool = False
     hz: float | None = None            # nominal rate; None leaves rate and deadline unchecked
     stale_after: float | None = None   # explicit freshness deadline, normally derived from hz
+    label: str | None = None           # what the TUI shows; name stays the key health and code use
+
+    @property
+    def title(self):
+        """The row's display name: ``label``, else ``name``."""
+        return self.label or self.name
 
     @property
     def deadline(self):
@@ -196,7 +202,10 @@ def parse_profile(data, where='profile'):
         here = f'{where}.sensors[{index}]'
         sensor = SensorSpec(_require(spec, 'name', str, here), _require(spec, 'topic', str, here),
                             _require(spec, 'kind', str, here), bool(spec.get('required', False)),
-                            _positive(spec, 'hz', here), _positive(spec, 'stale_after', here))
+                            _positive(spec, 'hz', here), _positive(spec, 'stale_after', here),
+                            spec.get('label'))
+        if sensor.label is not None and not isinstance(sensor.label, str):
+            raise ValueError(f'{here}.label: expected str')
         if sensor.kind not in SENSOR_KINDS:
             raise ValueError(f'{here}.kind: one of {SENSOR_KINDS}')
         sensors.append(sensor)

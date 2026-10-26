@@ -127,7 +127,7 @@ def motion_panel(snapshot, view, height=0, compact=False):
     measured = snapshot['sensors'].get('odometry', {})
     units = 'effort' if view['units'] == 'effort' else 'm/s'
     subtitle = units + theme.SEPARATOR + theme.labelled(
-        measured.get('status', 'MISSING'), 'odom').plain
+        measured.get('status', 'MISSING'), 'pose').plain
     subtitle = Text(subtitle, style=theme.MUTED)
     if view.get('authority'):                       # who drives, in their hue (ui U4)
         subtitle.append(theme.SEPARATOR, style=theme.MUTED)

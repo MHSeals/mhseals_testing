@@ -46,7 +46,7 @@ checks:
     unit: ' m/s'
     show: [odometry]
     title: FCU vs GPS speed
-    hint: FCU odometry disagrees with GPS ground speed; do not trust fits
+    hint: FCU pose speed disagrees with GPS ground speed; do not trust fits
   - {id: imu.free_fall, kind: threshold, fact: imu.accel_norm, warn: [5.0, 20.0], fail: [2.0, 40.0],
      unit: ' m/s²', missing: skip, title: IMU acceleration}
   - id: battery.diag                     # MAVROS 'Battery' diagnostic, WARN "Low voltage" on the 6.0-6.8 V bag

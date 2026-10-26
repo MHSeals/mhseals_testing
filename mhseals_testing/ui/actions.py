@@ -102,7 +102,7 @@ ACTIONS = {
     'neutral': Action('neutral', 7),
     'next': Action('next', 0),
     'note': Action('note', 7),
-    'odometry': Action('odometry', 7),
+    'odometry': Action('pose', 7),   # o: the Pose popup (EKF estimates and sources)
     'params': Action('params', 7),
     'perception': Action('perception', 7),
     'pin': Action('pin', 7),

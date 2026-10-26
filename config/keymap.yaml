@@ -14,7 +14,7 @@ global:
   arm: [a]
   help: ['?']
   report: [x]
-  odometry: [o]
+  odometry: [o]                 # the Pose popup: EKF estimates, sources, Restart EKFs
   health: ['!']
   history: [H]                  # config history popup
   camera: [V]                   # perception popup with View open
@@ -80,7 +80,7 @@ panel.status:
   adjust_down: [left, h]        # setting rows only
   adjust_up: [right, l]
   override: [interference]
-  params: [e]                   # Navigation → Nav2 popup, Odometry → EKF/MAVROS popup
+  params: [e]                   # Navigation → Nav2 popup
 
 panel.motion: {}
 panel.conditions: {}            # Enter → popup.conditions

@@ -24,7 +24,7 @@ def test_trust_line_only_with_two_sources():
 
 
 def test_popup_render():
-    modal = dict(kind='message', title='Odometry', rows=odometry.rows({'ekf_local': PARAMS}, []),
+    modal = dict(kind='message', title='Pose', rows=odometry.rows({'ekf_local': PARAMS}, []),
                  width=76, hint='Esc close')
     panel, width = layout.popup(modal, 100, 40)
     console = Console(width=width, file=io.StringIO(), record=True)

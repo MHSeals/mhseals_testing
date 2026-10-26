@@ -21,7 +21,7 @@ arming: {outputs: topic}
 # against the simulator); sensors with sim only starts the ROS-TCP endpoint crane_ml connects to.
 placement: {self: [sim]}
 components:
-  odometry: {start: true}
+  odometry: {title: Odom stack, start: true}
   ekf: {title: EKFs, needs: [odometry], start: true}
   sensors: {start: true}
   mapping: {needs: [odometry, ekf]}
@@ -29,8 +29,8 @@ components:
   objects: {start: true}
   watchdogs: {title: Safety watchdogs, start: true}
 sensors:
-  - {name: odometry, topic: /odom/local, kind: odometry, required: true}
-  - {name: FCU odometry, topic: /odom/mavros, kind: odometry}
+  - {name: odometry, label: pose, topic: /odom/local, kind: odometry, required: true}
+  - {name: FCU odometry, label: FCU pose, topic: /odom/mavros, kind: odometry}
   - {name: GPS, topic: /gps/fix, kind: gps, required: true}
   - {name: IMU, topic: /imu/raw, kind: imu, required: true}
   - {name: ground truth, topic: /crane/odom, kind: odometry}

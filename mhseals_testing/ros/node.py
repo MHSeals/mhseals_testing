@@ -282,7 +282,7 @@ class RosIO:
                    for service, _ in self.node.get_service_names_and_types())
 
     def get_parameters(self, name, timeout=1.0):
-        """Every parameter of node ``name`` as {name: value} (the Odometry popup), or None when it does not answer."""
+        """Every parameter of node ``name`` as {name: value} (the Pose popup), or None when it does not answer."""
         from mhseals_testing.ros.params import Params
         self._params = getattr(self, '_params', None) or Params(self)
         try:

@@ -181,7 +181,7 @@ def test_review_odometry_popup_is_read_only(tmp_path, monkeypatch):
     monkeypatch.setattr(app, 'choose', lambda *a, **kw: pytest.fail('live controls opened'))
     app.ros.get_parameters = lambda *a: pytest.fail('read live ROS parameters')
     app.odometry()
-    assert shown[0][0] == ('Odometry (review)',)
+    assert shown[0][0] == ('Pose (review)',)
 
 
 @pytest.mark.parametrize('phase', [123, None])

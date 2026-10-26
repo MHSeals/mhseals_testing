@@ -1,4 +1,4 @@
-"""Base controls for the Odometry popup (``r``, popup.odometry rtk_base; gps.md 7.5).
+"""Base controls for the Pose popup (``r``, popup.odometry rtk_base; gps.md 7.5).
 
 Survey (minimum time and accuracy), known position and settings. Each one is saved with
 ``rtk.save_config`` (atomic) and restarts the base once through ``harness.reload.rtk_restart``.
@@ -18,7 +18,7 @@ SHORTCUTS = {'s': 0, 'k': 1, 'e': 2}
 
 
 def pane_rows(events, now, width=40, ascii=False):
-    """Odometry popup rows for the RTK pane: a header, then one row per line."""
+    """Pose popup rows for the RTK pane: a header, then one row per line."""
     return [('RTK', '')] + [('', line) for line in rtk_pane.rtk_pane(events, now, width, ascii)]
 
 

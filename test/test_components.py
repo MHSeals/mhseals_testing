@@ -155,7 +155,7 @@ def test_boat_session_start_brings_up_only_sensing():
                                               'operator_heartbeat'}
     # The watchdogs run inside odometry's launch on the boat (nav's with:): a read-only row.
     watchdogs = next(item for item in components(load_profile('boat')) if item.key == 'watchdogs')
-    assert watchdogs.carried_by == 'Odometry' and watchdogs not in started
+    assert watchdogs.carried_by == 'Odom stack' and watchdogs not in started
     # MAVROS and the EKFs are the boat's own: a TUI that misses them in discovery must not start a second set.
     assert not {'odometry', 'ekf'} & {item.key for item in started}
     # Every role is on this machine here, so it is an operator host: the heartbeat comes up too.
