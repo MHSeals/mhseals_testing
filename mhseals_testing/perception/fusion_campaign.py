@@ -349,6 +349,26 @@ def extrinsic_fit(samples):
             'med_abs_yaw_rate': float(np.median(np.abs(S[:, 3])))}
 
 
+CHI2_1_95 = 3.841
+
+
+def id_changes(seq):
+    """(one-way switches, alternations) in one buoy's run-length credited-id sequence.
+
+    Over all matches: a track among same-class buoys 0.6 m apart (S4's pairs, the 19 m
+    cluster) is credited to each by turns, A,B,A,... Going back to an earlier id is an
+    alternation; going to a new id is a switch only when the id it leaves never returns, so
+    a real loss on a paired buoy (A,B,A,C) still counts while credit by turns does not.
+    """
+    switches = alternations = 0
+    for k in range(1, len(seq)):
+        if seq[k] in seq[:k - 1]:
+            alternations += 1
+        elif seq[k - 1] not in seq[k:]:
+            switches += 1
+    return switches, alternations
+
+
 def metrics(out, statics, elements, cfg):
     """Range error per bin and source, lidar share, association, ids, MOVING, NEES, alarms."""
     bins = cfg['bins_m']
@@ -439,12 +459,9 @@ def metrics(out, statics, elements, cfg):
                 i = int(np.argmin(d))
                 if d[i] > cfg['truth_match_m'] or elements[i]['label'] != tr['cls']:
                     continue
-                # Ids count unambiguous matches only: a track among same-class buoys 0.6 m
-                # apart (S4's pairs, the 19 m cluster) was credited to each by turns, so
-                # resolving a merged box read as switches while never resolving it did not.
-                if sum(elements[j]['label'] == tr['cls']
-                       for j in np.nonzero(d <= cfg['truth_match_m'])[0]) == 1:
-                    ids.setdefault(i, set()).add(tr['id'])
+                s = ids.setdefault(i, [])           # run-length credited ids, all matches
+                if not s or s[-1] != tr['id']:
+                    s.append(tr['id'])
                 if tr['cls'].endswith('_buoy'):
                     total += dt
                     moving += dt * (tr['motion'] == 2)
@@ -454,10 +471,15 @@ def metrics(out, statics, elements, cfg):
                 pr = float(u @ P @ u)
                 if pr > 0:
                     nees.append(float(((w - xy[i]) @ u) ** 2 / pr))
-        tracks[name] = {'id_switches': sum(len(v) - 1 for v in ids.values()),
+        changes = {i: id_changes(s) for i, s in ids.items()}
+        tracks[name] = {'id_switches': sum(c[0] for c in changes.values()),
+                        'id_switches_max': max((c[0] for c in changes.values()), default=0),
+                        'id_alternations': sum(c[1] for c in changes.values()),
                         'buoys_tracked': len(ids),
                         'moving_frac': moving / total if total else math.nan,
-                        'nees_r_mean': float(np.mean(nees)) if nees else math.nan}
+                        'nees_r_mean': float(np.mean(nees)) if nees else math.nan,
+                        'nees_r_in95': float(np.mean(np.array(nees) <= CHI2_1_95))
+                        if nees else math.nan}
     status = out['status']
     first = {lvl: next((s['t'] - t0 for s in status if s['level'] >= lvl), None)
              for lvl in (1, 2)}
@@ -561,6 +583,7 @@ def report(dirs):
         print(f'{Path(m["session"]).name:8s} {m["injection"]:16s} {" ".join(cells)} '
               f'assoc {m["assoc"]["errors"]}/{m["assoc"]["lidar"]} '
               f'ids {t["raw"]["id_switches"]}->{t["fused"]["id_switches"]} '
+              f'alt {t["raw"].get("id_alternations")}->{t["fused"].get("id_alternations")} '
               f'mov {t["raw"]["moving_frac"]:.3f}->{t["fused"]["moving_frac"]:.3f} '
               f'nees {t["raw"]["nees_r_mean"]:.2f}->{t["fused"]["nees_r_mean"]:.2f} '
               f'warn {m["warn_s"]} err {m["error_s"]} p95 {m["proc_ms_p95_max"]} '
