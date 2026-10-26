@@ -59,7 +59,7 @@ from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
 from mhseals_testing.report import build_report, write_report
-from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed
+from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed, session_hardware
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
@@ -824,7 +824,7 @@ class App:
         driven = self.armed and self.profile.outputs != 'none'
         if driven:
             # Complete snapshot staging before replacing the last good in-memory state.
-            save_config(dict(config, output_backend=self.profile.outputs), self.paths.hardware)
+            save_config(session_hardware(self.profile, config, self.paths.hardware), self.paths.hardware)
         previous = self.args.hardware_config or {}
         self.args.hardware_config = config
         if config.get('manual_amplitude') != previous.get('manual_amplitude'):

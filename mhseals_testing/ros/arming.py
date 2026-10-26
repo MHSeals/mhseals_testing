@@ -28,6 +28,21 @@ DRIVER_STATUS = f'/{DRIVER}/status'
 CONFIG_PLACEHOLDER = '@CONFIG@'      # ros/arm_link.CONFIG: the boat side's copy of the snapshot
 
 
+def session_hardware(profile, config, config_path, remote=None):
+    """The hardware config the TUI writes at arm time: ``config`` with the profile's output backend.
+
+    A sim session (``use_sim_time``, topic outputs, no remote boat) also gets its own mux hold
+    file beside the snapshot, ``<session>/command_mux_holds.json``, so sessions never share holds.
+    The real boat and remote arms keep ``config``'s state_file as it is.
+    """
+    out = dict(config, output_backend=profile.outputs)
+    if profile.use_sim_time and profile.outputs == 'topic' and remote is None:
+        session = Path(config_path).parent.parent
+        out['command_mux'] = dict(config.get('command_mux') or {},
+                                  state_file=str(session / 'command_mux_holds.json'))
+    return out
+
+
 def muxed(profile):
     """True when a command_mux child arbitrates the profile's command topic."""
     return profile.muxed
@@ -158,8 +173,8 @@ class Arming:
                 Plant(self.hardware_config)
             except (ValueError, KeyError, TypeError) as error:  # partial gain rows
                 raise RuntimeError(f'velocity model invalid: {error}') from error
-        save_config(dict(self.hardware_config, output_backend=self.profile.outputs),
-                    self.config_path)
+        save_config(session_hardware(self.profile, self.hardware_config, self.config_path,
+                                     self.remote), self.config_path)
         if self.remote is not None:        # the same snapshot, shipped
             self.remote.start(self.commands(), Path(self.config_path).read_text())
         else:
@@ -236,7 +251,8 @@ class Arming:
         rival = self.rival()
         if rival:
             raise RuntimeError(rival)
-        save_config(dict(config, output_backend=self.profile.outputs), self.config_path)
+        save_config(session_hardware(self.profile, config, self.config_path, self.remote),
+                    self.config_path)
         children = self.commands()
         try:
             self.processes.start('hardware', dict(children)['hardware'])

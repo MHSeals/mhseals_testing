@@ -41,7 +41,7 @@ def off_course(profile, history):
     so it applies only to a profile with both; without a ground-truth sample it does not block.
     """
     path = getattr(profile, 'course_truth', None)
-    if not path or not getattr(profile, 'ground_truth', None) or not Path(path).exists():
+    if not getattr(profile, 'use_sim_time', False) or not path or not getattr(profile, 'ground_truth', None) or not Path(path).exists():
         return ''
     try:
         elements = [(float(e['x']), float(e['y']))

@@ -282,3 +282,29 @@ def test_controller_restart_rebuilds_snapshot_and_topology_from_the_profile(tmp_
         desired['controller']['kp'] = [5., 5., 5.]
         armed.hardware_config = desired
     assert yaml.safe_load(armed.config_path.read_text())['controller']['kp'] == [5., 5., 5.]
+
+
+def test_session_hardware_gives_only_a_sim_session_its_own_mux_hold_file(tmp_path):
+    from types import SimpleNamespace
+    from mhseals_testing.ros.arming import session_hardware
+    path = tmp_path / 'snapshots' / 'hardware.yaml'
+    config = {'command_mux': {'state_file': '/run/boat.json', 'rate': 1}}
+    sim = session_hardware(load_profile('crane_full_stack'), config, path)
+    assert sim['output_backend'] == 'topic' and sim['command_mux']['rate'] == 1
+    assert sim['command_mux']['state_file'] == str(tmp_path / 'command_mux_holds.json')
+    assert config['command_mux']['state_file'] == '/run/boat.json'
+    boat = session_hardware(load_profile('boat'), config, path)
+    assert boat['command_mux'] == config['command_mux'] and boat['output_backend'] == 'odroid'
+    remote = session_hardware(load_profile('crane_full_stack'), config, path, remote=object())
+    assert remote['command_mux'] == config['command_mux']
+    assert 'command_mux' not in session_hardware(SimpleNamespace(
+        use_sim_time=False, outputs='topic'), {}, path)
+
+
+def test_all_three_arm_time_snapshots_use_the_helper():
+    import inspect
+    from mhseals_testing.ros import arming
+    from mhseals_testing.ui import app
+    for source in (inspect.getsource(arming.Arming.begin), inspect.getsource(arming.Arming.restart_driver),
+                   inspect.getsource(app.App.apply_hardware)):
+        assert 'session_hardware(' in source and 'output_backend=' not in source

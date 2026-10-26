@@ -135,7 +135,7 @@ def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path):
     truth = tmp_path / 'course_truth.json'
     truth.write_text(json.dumps({'startX': -2.3, 'startY': -4.8, 'elements': [
         {'label': 'red_pole_buoy', 'x': 4.8, 'y': -3.3}, {'label': '', 'x': 11.0, 'y': -100.0}]}))
-    profile = SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom')
+    profile = SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom', use_sim_time=True)
 
     def at(x, y):
         return lambda: [(0.0, {'x': 50.0, 'y': 50.0}), (1.0, {'x': x, 'y': y})]
@@ -144,6 +144,8 @@ def test_a_sim_mission_refuses_to_start_out_of_sight_of_the_course(tmp_path):
     reason = mission.off_course(profile, at(11.1, -102.8))
     assert reason.startswith('the boat is 100 m from the nearest course element')
     assert mission.off_course(profile, lambda: []) == ''               # no truth sample: no block
+    boat = SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom', use_sim_time=False)
+    assert mission.off_course(boat, at(11.1, -102.8)) == ''            # a boat profile never refuses
     assert mission.off_course(SimpleNamespace(course_truth=None, ground_truth=None), at(1e3, 0)) == ''
     recorded = []
     ctx = SimpleNamespace(services={'task': 'nav_channel'}, profile=profile, record=recorded.append,
