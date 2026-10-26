@@ -5,12 +5,16 @@ that parses the three mission topics into a ``ui.feeds.mission.MissionState`` fo
 """
 
 import json
+from collections import deque
 
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
 MISSION_TOPICS = (('/task/status', 'status', 1), ('/task/events', 'event', 100),
                   ('/task/hypotheses', 'hypotheses', 1))   # (topic, MissionState kind, depth)
+# Statuses a TaskWatcher keeps: the longest task's time limit (1800 s) at the 1 Hz status period,
+# four times over for paused time and change-driven statuses; the oldest go first past it.
+STATUS_KEEP = 7200
 
 
 class MissionFeed:
@@ -43,7 +47,7 @@ class TaskWatcher:
     """
 
     def __init__(self, ros):
-        self.events, self.statuses, self._latest = [], [], {}
+        self.events, self.statuses, self._latest = [], deque(maxlen=STATUS_KEEP), {}
         self.node = ros.node
         ros.node.create_subscription(  # transient local: the run's first events too
             String, '/task/events', self._event,

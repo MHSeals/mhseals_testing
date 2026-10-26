@@ -112,7 +112,8 @@ def test_the_ros_feed_drops_any_bad_message_and_logs_once():
     assert ros.drops.get('hypotheses', 0) <= 3 and len(logged) <= 1
 
 
-def test_a_runner_gone_without_a_final_status_stops_reading_running(monkeypatch):
+def _watcher_module(monkeypatch):
+    """mhseals_testing.ros.mission, its rclpy and std_msgs imports stubbed when absent."""
     import importlib
     import sys
     from types import ModuleType, SimpleNamespace
@@ -127,7 +128,13 @@ def test_a_runner_gone_without_a_final_status_stops_reading_running(monkeypatch)
             monkeypatch.setitem(sys.modules, name, module)
         monkeypatch.setitem(sys.modules, 'mhseals_testing.ros.mission', None)   # dropped on undo
         monkeypatch.delitem(sys.modules, 'mhseals_testing.ros.mission')
-    from mhseals_testing.ros.mission import TaskWatcher
+    from mhseals_testing.ros import mission
+    return mission
+
+
+def test_a_runner_gone_without_a_final_status_stops_reading_running(monkeypatch):
+    from types import SimpleNamespace
+    TaskWatcher = _watcher_module(monkeypatch).TaskWatcher
     publishers = [1]
     node = SimpleNamespace(create_subscription=lambda *a: None,
                            count_publishers=lambda topic: publishers[0] if topic == '/task/status' else 0)
@@ -141,7 +148,18 @@ def test_a_runner_gone_without_a_final_status_stops_reading_running(monkeypatch)
     assert [s['status'] for s in watcher.statuses] == ['RUNNING', 'SUCCEEDED']   # each one recorded
     assert watcher.statuses[0]['received'] == 1.0
     watcher.reset()
-    assert watcher.statuses == []
+    assert list(watcher.statuses) == []
+
+
+def test_the_watcher_keeps_a_bounded_window_of_statuses(monkeypatch):
+    from types import SimpleNamespace
+    mission = _watcher_module(monkeypatch)
+    monkeypatch.setattr(mission, 'STATUS_KEEP', 3)
+    node = SimpleNamespace(create_subscription=lambda *a: None, count_publishers=lambda topic: 1)
+    watcher = mission.TaskWatcher(SimpleNamespace(node=node, monitor=SimpleNamespace(clock=lambda: 1.0)))
+    for i in range(5):
+        watcher._status(SimpleNamespace(data=f'{{"status": "RUNNING", "phase": "p{i}"}}'))
+    assert [s['phase'] for s in watcher.statuses] == ['p2', 'p3', 'p4']   # the newest kept
 
 
 def test_the_feed_view_is_itself():
