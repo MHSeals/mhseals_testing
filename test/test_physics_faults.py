@@ -143,6 +143,10 @@ def test_corruption_refuses_to_overwrite_or_leave_a_sim_folder(good, tmp_path):
 
 
 def test_the_helper_is_not_part_of_the_installed_package():
-    import setuptools
-    assert 'physics_faults' not in setuptools.find_packages(exclude=['test'])
+    import pathlib
+    here = pathlib.Path(__file__).parent
+    setup = (here.parent / 'setup.py').read_text()
+    assert (here / 'physics_faults.py').is_file()
+    assert "find_packages(exclude=['test'])" in setup and "package_files('test')" not in setup
+    assert not list((here.parent / 'mhseals_testing').rglob('physics_faults*'))
     assert set(CASES) >= {'reference', 'weak_rr', 'angled_fr', 'hull_drag', 'combined'}
