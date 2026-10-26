@@ -136,6 +136,16 @@ def decoupled(config):
 
 # Errors that stop a procedure: the plant goes neutral and outputs disarm.
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
+
+
+def run_end(error):
+    """How a procedure run that raised ``error`` ended, for its run record: ``outcome``
+    (aborted, cancelled or error) and ``cause`` (the abort's cause, or what failed)."""
+    if isinstance(error, Aborted):
+        return dict(outcome='aborted', cause=error.cause, by=error.by)
+    if isinstance(error, Cancelled):
+        return dict(outcome='cancelled', cause=str(error) or 'cancelled')
+    return dict(outcome='error', cause=f'{type(error).__name__}: {error}')
 UPDOWN, LEFTRIGHT = theme.pick('↑↓', 'Up/Down'), theme.pick('←→', 'Left/Right')
 MICRO, PLUSMINUS = theme.pick('µ', 'u'), theme.pick('±', '+/-')
 GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm panel'), ('Space', 'Stop'), ('?', 'Help'),
@@ -2634,7 +2644,7 @@ class App:
         self.notice = f'Running {procedure.title}'
         self.health_snapshot('start', procedure)
         began = self.engine.clock() if self.engine else 0.0
-        aborted = None
+        aborted, ended = None, dict(outcome='complete', cause=None)
         try:
             try:
                 procedure.run(self.procedure_context())
@@ -2642,8 +2652,8 @@ class App:
                 self.health_window(procedure, began)   # before teardown, whatever the exit
                 raise
             invalid = self.health_window(procedure, began)
-        except STOPPING_ERRORS as error:
-            aborted = str(error)
+        except Exception as error:
+            aborted, ended = str(error), run_end(error)
             if not isinstance(error, Cancelled):
                 raise
             self.notice = f'{procedure.title} cancelled'
@@ -2651,21 +2661,23 @@ class App:
             return
         finally:
             self.running, self.tags = None, {}
-            self.write_run(procedure, results, aborted)
+            self.write_run(procedure, results, aborted, ended)
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
             self.cursors['activity'] = 0
             if not invalid:
                 self.notice = f'{procedure.title} complete'
 
-    def write_run(self, procedure, start, aborted):
-        """The one run file for a procedure run: every result it recorded since ``start``."""
+    def write_run(self, procedure, start, aborted, ended=None):
+        """The one run file for a procedure run: every result it recorded since ``start``, how the
+        run ended (``ended``: outcome and cause, see run_end) and the procedure's run fields, which
+        win (a mission's ``refused``). A run with neither results, an abort nor fields leaves none."""
         found = self.snapshot()['results'][start:]
         run_id, self.run_id = self.run_id, None
-        if not found and aborted is None:
+        fields = getattr(self, 'run_fields', None) or {}
+        if not found and aborted is None and not fields:
             return
-        record = dict(getattr(self, 'run_fields', None) or {}, procedure=procedure.title,
-                      run_id=run_id, results=found)
+        record = dict(ended or {}, **fields, procedure=procedure.title, run_id=run_id, results=found)
         if aborted is not None:
             record['reason'] = aborted
         runs.write_run(self.paths.runs, record, settings=vars(self.settings),

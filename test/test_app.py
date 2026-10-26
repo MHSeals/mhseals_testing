@@ -1864,6 +1864,81 @@ def test_error_out_of_a_procedure_leaves_one_aborted_run(tmp_path):
     assert saved['status'] == 'ABORTED' and saved['result']['reason'] == 'interlock'
 
 
+def run_record(tmp_path, body, raises=None):
+    """Run ``body`` as a procedure and return its one run record."""
+    from mhseals_testing.procedures import Procedure
+    app, _ = make_app(tmp_path)
+    if raises:
+        with pytest.raises(raises):
+            app.run_procedure(Procedure('z', 'mission', body))
+    else:
+        app.run_procedure(Procedure('z', 'mission', body))
+    [path] = (tmp_path / 'session' / 'runs').glob('*.json')
+    return json.loads(path.read_text())
+
+
+def started(ctx):
+    """A mission's run fields once its task launched, with a partial file kept."""
+    ctx.services['run_fields'].update(started=True, time_limit_s=720.0, run_start_t=4.0,
+                                      run_start_t_ns=7, files={'track': 'runs/001-mission/track.jsonl'})
+
+
+def test_a_completed_run_records_its_outcome_and_fields(tmp_path):
+    saved = run_record(tmp_path, lambda ctx: started(ctx) or ctx.record(dict(procedure='mission')))
+    result = saved['result']
+    assert (result['outcome'], result['cause'], saved['status']) == ('complete', None, 'MEASURED')
+    assert result['started'] is True and result['time_limit_s'] == 720.0
+    assert (result['run_start_t'], result['run_start_t_ns']) == (4.0, 7) and result['files']
+
+
+def test_an_aborted_run_records_its_cause_and_partial_files_without_results(tmp_path):
+    from mhseals_testing.runner import Aborted
+
+    def body(ctx):
+        started(ctx)
+        raise Aborted('guard stop', by='guard', cause='guard:hold')
+    saved = run_record(tmp_path, body, Aborted)
+    result = saved['result']
+    assert (result['outcome'], result['cause'], result['by']) == ('aborted', 'guard:hold', 'guard')
+    assert saved['status'] == 'ABORTED' and result['results'] == [] and result['started'] is True
+    assert result['files'] == {'track': 'runs/001-mission/track.jsonl'} and result['run_start_t_ns'] == 7
+
+
+def test_an_errored_run_is_recorded_as_an_error_not_a_measurement(tmp_path):
+    def body(ctx):
+        started(ctx)
+        raise TypeError('bad stream')
+    saved = run_record(tmp_path, body, TypeError)
+    result = saved['result']
+    assert (result['outcome'], result['cause']) == ('error', 'TypeError: bad stream')
+    assert saved['status'] == 'ABORTED' and result['started'] is True and result['files']
+
+
+def test_a_cancelled_run_is_recorded(tmp_path):
+    from mhseals_hardware.menu import Cancelled
+
+    def body(ctx):
+        ctx.services['run_fields'].update(started=False, files={})
+        raise Cancelled()
+    saved = run_record(tmp_path, body)
+    result = saved['result']
+    assert result['outcome'] == 'cancelled' and saved['status'] == 'ABORTED'
+    assert result['started'] is False and result['files'] == {}
+
+
+def test_a_refused_run_is_recorded_as_not_started(tmp_path):
+    from mhseals_testing.procedures import mission
+
+    def body(ctx):
+        ctx.services['run_fields'].update(started=False, files={})
+        mission.refuse(ctx, 'mission', 'no time limit: x')
+    saved = run_record(tmp_path, body)
+    result = saved['result']
+    assert (result['outcome'], result['cause']) == ('refused', 'no time limit: x')
+    assert result['started'] is False and result['files'] == {} and 'time_limit_s' not in result
+    assert result['results'][0]['verdict'] == 'REFUSED'
+
+
 def test_o_on_status_opens_the_odometry_popup_without_running_perception(tmp_path):
     app, _ = make_app(tmp_path)
     shown = []

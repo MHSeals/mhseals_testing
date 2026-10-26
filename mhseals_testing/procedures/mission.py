@@ -137,7 +137,7 @@ def nav_params(rubric):
     name = rubric.get('nav_params')
     if not name:
         return None
-    from mhseals_nav.tasks.host import config_path
+    from mhseals_nav.tasks.params import config_path
     return config_path(name)
 
 
@@ -148,7 +148,7 @@ def time_limit(task, rubric, profile=None):
     overlay and ``timeslot``: slot_s less setup_reserve_s), its ``timeout``. Never a copy here.
     """
     try:
-        from mhseals_nav.tasks.host import load_params
+        from mhseals_nav.tasks.params import load_params
     except ImportError as exc:
         raise LimitError(f'mhseals_nav is not importable ({exc}): the run budget is its task config') from None
     try:
@@ -164,6 +164,7 @@ def time_limit(task, rubric, profile=None):
 def refuse(ctx, task, reason):
     """Record and return the mission's refusal to start."""
     refusal = dict(procedure='mission', task=task, verdict='REFUSED', reason=reason)
+    ctx.services.setdefault('run_fields', {}).update(outcome='refused', cause=reason)
     ctx.record(refusal)
     return refusal
 
@@ -172,6 +173,11 @@ def run(ctx):
     task = ctx.services.get('task') or ctx.choose('Mission', tuple(available()))   # an agent's run names it
     rubric = yaml.safe_load((MISSION_DIR / f'{task}.yaml').read_text())
     services = ctx.services
+    # Run-level fields for the run record (the App merges them into runs/<run_id>.json's
+    # ``result`` with the run's outcome, whatever the exit): started once the task launches,
+    # files once anything is kept.
+    fields = services.setdefault('run_fields', {})
+    fields.update(started=False, files={})
     ctx.prompt(f'Rehearse {task}: Nav2 drives the course from here. '
                'Clear the area and press Enter... ')
     # After the prompt: the idle sim boat drifts while the operator waits.
@@ -189,10 +195,7 @@ def run(ctx):
     rubric = {**rubric, 'time_limit': limit}   # scoring and the referee read the same limit
     watcher = services['task_watcher']()
     watcher.reset()
-    # Run-level fields for the run record (the App merges them into runs/<run_id>.json's
-    # ``result``, aborted runs included): the run budget nav resolves, as task_started states it.
-    fields = services.setdefault('run_fields', {})
-    fields['time_limit_s'] = limit
+    fields['time_limit_s'] = limit   # the run budget nav resolves, as task_started states it
     # run_task directly: ros2 launch exits 0 whatever its node's code.
     params = nav_params(rubric)
     command = ['ros2', 'run', 'mhseals_nav', 'run_task', '--task', task,
@@ -204,12 +207,17 @@ def run(ctx):
         # session journal's horn, holds and takeovers carry, so the referee maps one onto the other.
         fields['run_start_t'] = runner.clock()   # the clock of ctx.history, so of track.jsonl's t
         fields['run_start_t_ns'] = time.time_ns()
+        fields['started'] = True
         services['start'](f'task_{task}', command)
         try:
             start, end, _ = runner.supervise(
                 limit + MARGIN,
                 done=lambda: not services['running'](f'task_{task}'),
                 label=lambda: f"{task}: {watcher.status.get('tip') or 'starting'}")
+        except BaseException:
+            # An aborted or failed run still links what it recorded so far.
+            keep_run(ctx, task, watcher.events, watcher.statuses, fields['run_start_t'], runner.clock())
+            raise
         finally:
             # Read before the stop: a SIGINT from here would replace the task's own code.
             code = services.get('returncode', lambda name: None)(f'task_{task}')
@@ -224,6 +232,8 @@ def run(ctx):
     if judged is not None:
         result['referee'] = judged['verdict']
         result['referee_detail'] = judged
+    if not fields['files']:   # not judged (no course truth): still link what was recorded
+        keep_run(ctx, task, watcher.events, watcher.statuses, start, end + paused)
     ctx.record(result)
     return result
 
@@ -234,15 +244,22 @@ def judge(ctx, task, rubric, events, start, end, statuses=()):
     if not path or not ctx.profile.ground_truth or not Path(path).exists():
         return dict(verdict='N/A', reason='course truth or ground-truth track is unavailable')
     truth = json.loads(Path(path).read_text())
-    samples = ctx.history(start, end, name='ground truth')
+    track, events = keep_run(ctx, task, events, statuses, start, end)
+    return referee.judge_task(task, truth, track, events, rubric)
+
+
+def keep_run(ctx, task, events, statuses, start, end):
+    """Keep the run's ground-truth track (``start``..``end``), events and statuses, a partial run's
+    too, and link them in the run record (``files``, relative to the session directory; empty
+    without one). Returns the (track, events) the referee judges."""
+    samples = ctx.history(start, end, name='ground truth') if getattr(ctx.profile, 'ground_truth', None) else []
     track = [(t, v['x'], v['y'], v.get('yaw') or 0.0) for t, v in samples
              if v.get('x') is not None]
     events = [dict(e, time=e.get('received', e.get('time', 0.0))) for e in events]
     statuses = [dict(s, time=s.get('received', 0.0)) for s in statuses]
-    # The run record links the run's own files (relative to the session directory).
     ctx.services.setdefault('run_fields', {})['files'] = keep(
         ctx.services.get('session_dir'), task, track, events, statuses, run_id=ctx.services.get('run_id'))
-    return referee.judge_task(task, truth, track, events, rubric)
+    return track, events
 
 
 def keep(session, task, track, events, statuses=(), run_id=None):

@@ -220,7 +220,7 @@ def test_the_reset_runs_after_the_operator_prompt_right_before_the_task_starts(t
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
     ctx, calls, recorded = _reset_ctx(tmp_path)
-    runner = SimpleNamespace(paused=0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
+    runner = SimpleNamespace(paused=0.0, clock=lambda: 0.0, supervise=lambda *a, **k: (0.0, 5.0, True))
 
     @contextmanager
     def supervised(*args, **kwargs):
@@ -231,6 +231,7 @@ def test_the_reset_runs_after_the_operator_prompt_right_before_the_task_starts(t
                          'start': lambda *a: ctx.order.append('start'), 'stop': lambda *a: None})
     monkeypatch.setattr(mission.reset_to_start, '__defaults__', (_settle_fast(tmp_path),))
     monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
+    monkeypatch.setattr(mission, 'time_limit', lambda *a: 300.0)   # nav's config is not read here
     result = mission.run(ctx)
     assert calls == [5.0] and result['verdict'] != 'REFUSED'
     assert ctx.order == ['prompt', 'reset', 'watch', 'start']
@@ -340,16 +341,16 @@ def test_a_run_links_its_own_track_and_event_files(tmp_path):
     assert (session / 'track.jsonl').read_text() == (session / files['track']).read_text()
 
 
-def run_mission(monkeypatch, services):
+def run_mission(monkeypatch, services, supervise=lambda *a, **k: (42.5, 50.0, True), events=()):
     from contextlib import contextmanager
     from types import SimpleNamespace
     from mhseals_testing.procedures import mission
     calls, records = [], []
     runner = SimpleNamespace(paused=0.0, clock=lambda: calls.append('clock') or 42.5,
-                             supervise=lambda *a, **k: (42.5, 50.0, True))
+                             supervise=supervise)
     # Both clocks read back to back, before the task launches: one instant on each.
     monkeypatch.setattr(mission.time, 'time_ns', lambda: calls.append('wall') or 1_700_000_000_000_000_000)
-    watcher = SimpleNamespace(events=[], statuses=[], status={}, reset=lambda: None)
+    watcher = SimpleNamespace(events=list(events), statuses=[], status={}, reset=lambda: None)
 
     @contextmanager
     def supervised(*args, **kwargs):
@@ -363,18 +364,17 @@ def run_mission(monkeypatch, services):
 
 
 def test_the_run_record_takes_the_limit_from_the_nav_run_budget_and_the_start_from_the_track_clock(monkeypatch):
-    pytest.importorskip('py_trees', reason="mhseals_nav's task loader imports py_trees")
-    # One source: the testing rubric names nav's mission YAML; nav's load_params resolves the budget
-    # (timeslot, profile), which is what task_started states. The rubric carries no limit of its own.
+    # One source: the testing rubric names nav's mission YAML; nav's load_params (tasks/params.py,
+    # no py_trees) resolves the budget (timeslot, profile), which is what task_started states.
     import yaml
-    from mhseals_nav.tasks.host import config_path, load_params
+    from mhseals_nav.tasks.params import config_path, load_params
     rubric = yaml.safe_load((MISSION_DIR / 'mission.yaml').read_text())
     assert 'time_limit' not in rubric
     services = {'task': 'mission'}
     result, calls = run_mission(monkeypatch, services)
     limit = load_params('mission', config_path(rubric['nav_params']))['timeout']
     assert limit == 720.0   # the 900 s slot less the 180 s set-up reserve
-    assert services['run_fields'] == dict(time_limit_s=limit, run_start_t=42.5,
+    assert services['run_fields'] == dict(time_limit_s=limit, run_start_t=42.5, started=True, files={},
                                           run_start_t_ns=1_700_000_000_000_000_000)
     [_, _, (_, command)] = calls
     # run_task runs the YAML the limit was read from, so the two cannot differ.
@@ -383,21 +383,20 @@ def test_the_run_record_takes_the_limit_from_the_nav_run_budget_and_the_start_fr
     assert calls[:2] == ['clock', 'wall']
 
 
-def test_a_selected_profile_reaches_nav_and_its_budget(monkeypatch):
-    pytest.importorskip('py_trees', reason="mhseals_nav's task loader imports py_trees")
-    from mhseals_nav.tasks.host import load_params, config_path
+@pytest.mark.parametrize('profile', ['qualifying', 'finals'])
+def test_a_selected_profile_reaches_nav_and_its_budget(monkeypatch, profile):
+    from mhseals_nav.tasks import params
     from mhseals_testing.procedures import mission
-    seen = []
-    monkeypatch.setattr('mhseals_nav.tasks.host.load_params',
+    seen, load_params = [], params.load_params
+    monkeypatch.setattr(params, 'load_params',
                         lambda task, path=None, profile=None: (task == 'mission' and seen.append(profile))
                         or load_params(task, path, profile))
-    services = {'task': 'mission', 'mission_profile': 'finals'}
+    services = {'task': 'mission', 'mission_profile': profile}
     result, calls = run_mission(monkeypatch, services)
-    assert seen == ['finals']
-    expected = load_params('mission', config_path('mission_2026.yaml'), 'finals')['timeout']
-    assert services['run_fields']['time_limit_s'] == expected
+    assert seen == [profile]
+    assert services['run_fields']['time_limit_s'] == 720.0   # both profiles keep the 900 s slot
     command = calls[-1][1]
-    assert command[command.index('--profile') + 1] == 'finals'
+    assert command[command.index('--profile') + 1] == profile
     assert mission.time_limit('nav_channel', {}) == load_params('nav_channel')['timeout']
 
 
@@ -405,11 +404,34 @@ def test_an_unresolvable_limit_refuses_the_run_with_the_reason(monkeypatch):
     services = {'task': 'mission', 'mission_profile': 'no_such_profile'}
     result, calls = run_mission(monkeypatch, services)
     assert result['verdict'] == 'REFUSED' and 'no time limit' in result['reason']
+    assert 'profile no_such_profile' in result['reason']
     assert calls == []   # nothing launched
-    try:
-        import py_trees  # noqa: F401  (nav's loader needs it)
-    except ImportError:
-        assert 'mhseals_nav is not importable' in result['reason']
-    else:
-        assert 'profile no_such_profile' in result['reason']
-    assert 'time_limit_s' not in services.get('run_fields', {})
+    assert services['run_fields'] == dict(started=False, files={}, outcome='refused', cause=result['reason'])
+
+
+def test_without_mhseals_nav_the_run_is_refused_not_guessed(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, 'mhseals_nav.tasks.params', None)   # not importable
+    services = {'task': 'mission'}
+    result, calls = run_mission(monkeypatch, services)
+    assert result['verdict'] == 'REFUSED' and 'mhseals_nav is not importable' in result['reason']
+    assert calls == [] and 'time_limit_s' not in services['run_fields']
+
+
+def test_an_aborted_run_links_what_it_recorded_so_far(tmp_path, monkeypatch):
+    from mhseals_testing.procedures import mission
+    from mhseals_testing.runner import Aborted
+    session = tmp_path / 'session'
+    session.mkdir()
+    services = {'task': 'mission', 'session_dir': str(session), 'run_id': '002-mission'}
+
+    def aborted(*a, **k):
+        raise Aborted('operator abort')
+    with pytest.raises(Aborted):
+        run_mission(monkeypatch, services, supervise=aborted,
+                    events=[dict(event='task_started', received=43.0)])
+    fields = services['run_fields']
+    assert fields['started'] is True and fields['time_limit_s'] == 720.0
+    assert fields['files']['task_events'] == 'runs/002-mission/task_events.jsonl'
+    assert 'task_started' in (session / fields['files']['task_events']).read_text()
+    assert (session / fields['files']['track']).read_text() == ''   # no ground truth here
