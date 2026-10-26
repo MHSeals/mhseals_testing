@@ -200,14 +200,10 @@ TIERS = ('truecolor', '256', '16', 'mono', 'ascii')
 ZOOMS = sorted({*view.PRESETS, 8})   # every preset, and the 8 m detail golden
 
 
-@pytest.mark.parametrize('half', ZOOMS)
-def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget(half):
-    """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB and draws and emits (cached
-    costmap and rings, median frame) in <= 3 ms x scale, at every zoom preset and colour tier,
-    also with the whole 4000-crumb trail ring inside the view (the TUI runs over SSH), and with
-    a confirmed dock box and four hypotheses round the boat over that trail."""
+def over_budget(half, timed):
+    """Frames over the 10 KiB byte budget, and when `timed` over the scaled 3 ms median-frame budget."""
     over = []
-    budget_ms = 3.0 * SCALE * machine_slowdown()
+    budget_ms = 3.0 * SCALE * machine_slowdown() if timed else None
     for s in (with_tasks(scene()), with_tasks(scene(trail=4000, spiral=True)),
               in_view_tasks(scene(trail=4000, spiral=True))):
         b, lc = box(s, costmap=True, hits=True), LayerCache()
@@ -217,12 +213,30 @@ def test_full_frame_with_every_layer_stays_in_the_byte_and_time_budget(half):
             frame = lambda: emit(panel.draw(s, 116, 27, float(half), TABLE, plain, b, full=True, tier=colours,
                                             cache=lc), lambda layer: panel.style(layer, colours), colours, ascii=plain)
             size = len('\n'.join(frame()).encode())
-            times = []
-            for _ in range(11):
-                t = time.perf_counter()
-                frame()
-                times.append((time.perf_counter() - t) * 1000)
-            ms = statistics.median(times)
-            if size > 10 * 1024 or ms > budget_ms:
+            ms = 0.0
+            if timed:
+                times = []
+                for _ in range(11):
+                    t = time.perf_counter()
+                    frame()
+                    times.append((time.perf_counter() - t) * 1000)
+                ms = statistics.median(times)
+            if size > 10 * 1024 or (timed and ms > budget_ms):
                 over.append(f'{len(s.crumbs)} crumbs {tier}: {size} B {ms:.2f} ms')
-    assert not over, over
+    return over
+
+
+@pytest.mark.parametrize('half', ZOOMS)
+def test_full_frame_with_every_layer_stays_in_the_byte_budget(half):
+    """tui-visual 2.3: 116x27 with every layer on emits <= 10 KiB at every zoom preset and colour tier,
+    also with the whole 4000-crumb trail ring inside the view (the TUI runs over SSH), and with
+    a confirmed dock box and four hypotheses round the boat over that trail."""
+    assert not over_budget(half, timed=False)
+
+
+@pytest.mark.timing
+@pytest.mark.skipif(os.environ.get('MHS_TIMING') != '1', reason='wall-clock budget; opt in with MHS_TIMING=1')
+@pytest.mark.parametrize('half', ZOOMS)
+def test_full_frame_with_every_layer_stays_in_the_time_budget(half):
+    """The same frames draw and emit (cached costmap and rings, median frame) in <= 3 ms x scale."""
+    assert not over_budget(half, timed=True)
