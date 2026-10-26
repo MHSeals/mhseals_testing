@@ -170,15 +170,28 @@ def test_heading_row_has_its_cardinal_sigma_and_yaw_trust():
     assert conditions.heading_row({}).plain == f'hdg {theme.DASH}'
 
 
-def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues():
+@pytest.mark.parametrize('term, colorterm, ramp', [('xterm-256color', '', 4), ('xterm-256color', 'truecolor', 4),
+                                                     ('xterm', '', 2)])
+def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues(monkeypatch, term, colorterm, ramp):
+    # The colour depth is pinned: the gauge resolves throttle.* at call time, so the ambient TERM would decide it.
+    monkeypatch.delenv('NO_COLOR', raising=False)
+    monkeypatch.setenv('TERM', term)
+    monkeypatch.setenv('COLORTERM', colorterm)
     half, fast = conditions.speed_gauge(0.5), conditions.speed_gauge(0.75)
     on, off = theme.pick('▰', '#'), theme.pick('▱', '-')
     assert half.plain.count(on) == half.plain.count(off) == 5 and fast.plain.count(on) == 8
     assert fast.plain.endswith(' 75%')
     if not theme.ASCII:
-        used = {str(span.style) for span in fast.spans} - {theme.MUTED}
-        assert len(used) >= 3                                   # a gradient, not one colour
-        assert not used & {theme.GOOD, theme.WARN, theme.BAD}   # fast is not a warning
+        style = theme.PALETTE.style
+        full = conditions.speed_gauge(1.0)
+        lit = {style_at(full, i) for i, ch in enumerate(full.plain) if ch == on} - {style('muted')}
+        assert len(lit) >= ramp            # a grey-to-white gradient, not one colour (16 colours: grey, default, bold)
+        assert not lit & {style(token) for token in ('ok', 'warn', 'fail', 'stop')}   # fast is not a warning
+
+
+def style_at(row, index):
+    """The style a rendered row gives one cell; '' when no span covers it (16 colours draw default unstyled)."""
+    return next((str(span.style) for span in row.spans if span.start <= index < span.end), '')
 
 
 def test_command_column_shows_the_speed_gauge_under_the_driver():

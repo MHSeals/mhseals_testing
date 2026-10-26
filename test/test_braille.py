@@ -54,14 +54,23 @@ def test_vertical_join_between_neighbouring_columns():
     assert len(c.dots['meas']) > 2
 
 
+def style_at(row, index):
+    """The style a rendered row gives one cell; '' when no span covers it (16 colours draw fg unstyled)."""
+    return next((str(span.style) for span in row.spans if span.start <= index < span.end), '')
+
+
 def test_two_layers_prefer_the_measurement_and_hline_only_in_empty_cells():
+    assert theme.FG != theme.MUTED   # the layers stay apart in every colour tier, by style not by span count
     c = braille.canvas(2, 2)
     c.line([(0.1, 1.0)], 0, 1, -1, 1, 'pred')
     c.line([(0.1, 1.0)], 0, 1, -1, 1, 'meas')
     c.hline(0.0, -1, 1)
     top, bottom = c.rows()
-    assert top.spans[0].style == theme.FG
+    assert style_at(top, 0) == theme.FG
     assert top.plain[0] != ' ' and bottom.plain == '┈┈'
+    alone = braille.canvas(2, 1)
+    alone.line([(0.1, 1.0)], 0, 1, -1, 1, 'pred')
+    assert style_at(alone.rows()[0], 0) == theme.MUTED
 
 
 def test_ascii_fallback_uses_dots(monkeypatch):
