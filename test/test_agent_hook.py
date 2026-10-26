@@ -130,7 +130,16 @@ MAIN = [
     'echo "$(ros2 topic pub --once /cmd_vel x y)"', 'grep x f && ros2 topic pub /cmd_vel x y',
     'sed -n "1e ros2 topic pub /cmd_vel x y" f', 'less "+!ros2 topic pub /cmd_vel x y" f',
     "ros2 topic pub /cmd_vel x 'y",                                  # unreadable
-    'pkill -f command_mux', 'pkill -P 12345', 'killall -u lunarz codex', 'kill -9 $(pgrep -f fence_watchdog)']
+    'pkill -f command_mux', 'pkill -P 12345', 'killall -u lunarz codex', 'kill -9 $(pgrep -f fence_watchdog)',
+    # Tier A is side-effect free: no substitution anywhere, no file written (second review)
+    'cat <<< "$(ros2 topic pub --once /cmd_vel x y)"',
+    "cat > conftest.py <<'EOF'\nimport os\nos.system('ros2 topic pub /cmd_vel x y')\nEOF\npytest -q",
+    "printf '[alias]\\n  lg = !ros2 topic pub /cmd_vel x y\\n' >> .git/config; git log -1",
+    "sed '\\%x%e ros2 topic pub /cmd_vel x y' f", "printf '1e ros2 topic pub /cmd_vel x y' > s.sed; sed -n -f s.sed f",
+    "echo 'ros2 topic pub /cmd_vel x y &' >> ~/.bashrc",
+    "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
+    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
+    "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv"]
 # New surfaces, and the boat by name, ssh alias or STATIC_LEASES address (config/boat-network.env).
 NEW = [
     'ros2 run mavros mavsafety arm', 'ros2 run mavros mavcmd long 400 1 0 0 0 0 0 0',
@@ -148,10 +157,18 @@ TEXT = [            # Tier A: robot words only inside what grep, echo, git commi
     "grep -rn 'ros2 topic pub /cmd_vel' src/", "rg 'pkill|killall' src", 'echo "never run ros2 topic pub /cmd_vel"',
     'git commit -m "deny ros2 topic pub /cmd_vel and pkill in the hook"',
     "git commit -F - <<'EOF'\nBlock ros2 topic pub /cmd_vel; ssh blastoise reboot too\nEOF",
-    "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
-    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
-    "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv", "sed -n '/pkill/p' notes.md | head -5",
+    "sed -n '/pkill/p' notes.md | head -5", "sed -nE 's/cmd_vel/x/p;/pkill/p' a b",
+    "grep -rn 'pkill' src 2>/dev/null", "rg -n 'cmd_vel' src 2>&1 | head",
     "python3 -m pytest src/mhseals_testing/test -q -k 'kill or pkill'", 'git log --oneline --grep pkill | wc -l']
+
+
+@pytest.mark.parametrize('command', ["sed -n '1e ros2 x' f", "sed -n '\\%x%e ros2 x' f", 'sed -n -f s.sed f',
+                                     "sed -n -e '/x/p' f", "sed -n 's/a/b/w out' f", "sed -i 's/a/b/' f", "sed '/x/p' f",
+                                     'git -c core.pager=x log', 'git log --ext-diff', 'git show --output=f',
+                                     'cat <<< "$(date)"', 'echo `date`', 'grep x <(cat f)', 'echo x > f', 'cat f | tee g',
+                                     'echo x >> ~/.bashrc'])
+def test_tier_a_runs_nothing_and_writes_nothing(command):
+    assert not hook.text_only(command)
 ALLOW = TEXT + [
     'git status', 'kill 12345', 'kill -TERM 4242', 'kill %1', 'docker stop roboboat_dev', 'tmux kill-session -t x',
     "python3 - <<'EOF'\nimport os, signal\nos.kill(pid, signal.SIGTERM)\nEOF",

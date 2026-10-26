@@ -234,45 +234,49 @@ WRITES = {'>', '>>', '>|', '&>', '&>>'}
 PUNCT = re.compile(r'<<<|<<|>>|>&|<&|<>|&>>|&>|>\||\|\||&&|\|&|;;|[\s\S]')
 HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([\w.-]+)\1')
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
-READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'sed', 'wc'}
+READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc'}
 GIT_READ = {'commit', 'log', 'diff', 'show', 'status'}
-SED_RUNS = re.compile(r'(^|[;\n{}])[\s\d$,!~+]*(/[^/]*/[\s,!]*)*e(\s|;|$)'          # the e command
-                      r'|(?<![A-Za-z])s([^\w\s\\])(?:\\.|(?!\4).)*\4(?:\\.|(?!\4).)*\4[gpIiMmw\d]*e')   # s///e
+_ADDR = r'(\d+|\$|/[^/\n]*/)(,(\d+|\$|/[^/\n]*/))?'
+_SED = rf'({_ADDR})?!?(p|s/[^/\n]*/[^/\n]*/[gpI\d]*)'
+SED_PLAIN = re.compile(rf'{_SED}(;{_SED})*;?')      # print and s/// only: no e, w, r or other delimiters
 
 
 def reads_only(argv):
-    """True when this command only reads, searches or prints: none of its words can run anything."""
+    """True when this command only reads, searches or prints: none of its words can run anything or
+    write a file."""
     if not argv:
-        return True                     # a bare redirect
+        return False
     name, args = argv[0], argv[1:]
-    if name == 'git':
+    if name == 'git':                   # no -c, --exec, --ext-diff, --textconv or --output
         while args[:1] == ['--no-pager'] or args[:1] == ['-C']:
             args = args[1 + (args[0] == '-C'):]
-        return args[:1] != [] and args[0] in GIT_READ
+        return args[:1] != [] and args[0] in GIT_READ and not any(
+            a.startswith(('-c', '--exec', '--ext-diff', '--textconv', '--output')) for a in args)
     if name in ('pytest', 'py.test') or (re.fullmatch(r'python[\d.]*', name) and args[:2] == ['-m', 'pytest']):
         return True
-    if name == 'sed':                   # not -i, no e command or s///e flag (they run the shell)
-        return not any(re.match(r'-[^-]*i|--in-place', a) or SED_RUNS.search(a) for a in args)
+    if name == 'sed':                   # sed -n [-E|-r] SCRIPT FILE...: SCRIPT only prints and substitutes
+        flags = [a for a in args if a.startswith('-')]
+        rest = [a for a in args if not a.startswith('-')]
+        return (all(re.fullmatch(r'-[nEr]+', a) for a in flags) and 'n' in ''.join(flags) and bool(rest)
+                and args.index(rest[0]) == len(flags) and bool(SED_PLAIN.fullmatch(rest[0])))
     if name == 'rg':
         return not any(a.startswith('--pre') for a in args)     # --pre runs a program on each file
-    if name == 'less':
-        return not any(a.startswith('+') for a in args)         # +!cmd runs it
+    if name == 'less':                  # +!cmd runs it; -o/-O/--log-file write a file
+        return not any(a.startswith(('+', '--log', '--LOG')) or re.match(r'-[^-]*[oO]', a) for a in args)
     return name in READ_ONLY
 
 
 def text_only(command):
-    """Tier A: the command parses and every command it runs, $(...) included, ``reads_only``."""
-    if re.search(r'[<>]\(', command):   # process substitution runs its contents
+    """Tier A, side-effect free: no $(...), backticks or <(...)/>(...) anywhere (here-strings and
+    heredocs included), no file written (only /dev/null and 2>&1), and every command ``reads_only``."""
+    if re.search(r'\$\(|`|[<>]\(', command):
         return False
     try:
         pipelines = parse(command)
     except ValueError:                  # an open quote: unreadable, so Tier B
         return False
-
-    def ok(pipelines):
-        return all(reads_only(cmd['argv']) and all(ok(sub) for sub in cmd['subs'])
-                   for pipeline in pipelines for cmd in pipeline)
-    return ok(pipelines)
+    return bool(pipelines) and all(reads_only(cmd['argv']) and not cmd['writes'] and not cmd['subs']
+                                   for pipeline in pipelines for cmd in pipeline)
 
 
 def tokens_of(text):
@@ -346,8 +350,12 @@ def build(tokens, bodies):
             if not quoted:                                               # $(...) in it runs
                 nested(body)
         elif token == '<<<' or token in REDIRECTS:
-            if i < len(tokens) and (token == '<<<' or token in WRITES):
-                cmd['stdin' if token == '<<<' else 'writes'].append(tokens[i])
+            target = tokens[i] if i < len(tokens) else ''
+            if token == '<<<':
+                cmd['stdin'].append(target)
+            elif token not in ('<', '<&') and target != '/dev/null' and not (
+                    token == '>&' and re.fullmatch(r'\d|-', target)):
+                cmd['writes'].append(target)                             # a file written (not 2>&1)
             i += 1
         else:
             cmd['argv'].append(token)

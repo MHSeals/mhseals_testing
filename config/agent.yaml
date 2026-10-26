@@ -18,8 +18,9 @@ hook:
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
   # Two tiers. A call whose every command only reads, searches or prints text (grep, rg, echo, printf, cat,
-  # head, tail, less, sed without -i, wc, git commit/log/diff/show/status, pytest) is never denied: a grep
-  # pattern, a commit message or a heredoc into a file is data. Anything else is denied when a deny pattern is
+  # head, tail, less, wc, sed -n with p and s/// only, git commit/log/diff/show/status, pytest), with no $(...),
+  # backticks, <(...) and no file written, is never denied: a grep pattern or a commit message is data (write
+  # files with the agent's Write/Edit tools, not the shell). Anything else is denied when a deny pattern is
   # found anywhere in its whole text (quotes dropped, across lines), or deny_boat when the text names a boat:
   # hosts, the STATIC_LEASES hostnames and addresses of config/boat-network.env, or an ~/.ssh/config alias for
   # them. Names match with or without the leading slash. Advisory: run-time strings and scripts from earlier
