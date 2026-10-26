@@ -5,8 +5,9 @@ the local base is not at a fixed site, otherwise the local base; either alone wh
 unavailable. ``priority: base`` or ``ntrip`` puts that one first.
 
 Only the active source reaches the sinks: two bases mixed at the FCU spoil the rover's solution.
-A switch happens at once when the active source is dead, else only after the new choice has held
-and streamed for ``switch_after`` seconds, since every switch restarts the rover's convergence.
+In ``auto`` an active source is kept until it dies, since every switch moves the RTK fix by the
+base survey error or datum offset; ``base`` or ``ntrip`` switches to that choice at once.
+``switches`` counts changes from one source to the other (the TUI raises a notice on each).
 """
 
 import threading
@@ -32,14 +33,12 @@ def choose(priority, base_ok, base_fixed, ntrip_ok, ntrip_km, near_km=15.0):
 class Corrections:
     """Gate between the sources and the sinks; ``gate(name)`` is each source's sink."""
 
-    def __init__(self, sinks, priority='auto', near_km=15.0, switch_after=30.0, dead_after=5.0,
-                 config=None, clock=time.monotonic):
+    def __init__(self, sinks, priority='auto', near_km=15.0, dead_after=5.0, config=None, clock=time.monotonic):
         self.sinks, self.priority, self.near_km = list(sinks), priority, near_km
-        self.switch_after, self.dead_after, self.clock = switch_after, dead_after, clock
+        self.dead_after, self.clock = dead_after, clock
         self.config = config or {}          # the base settings, for StatusTracker's survey terms
         self.base = self.ntrip = self.rough = None
-        self.active = self.pending = None
-        self.pending_since = None
+        self.active = self.used = None      # used: the last source that was active
         self.last, self.switches = {}, 0
         self.routes = [dict(sent=0, failed=0, error='', error_at=None) for _ in self.sinks]
         self.lock = threading.RLock()
@@ -82,33 +81,27 @@ class Corrections:
             ntrip_ok = self.ntrip is not None and self.ntrip.available
             km = self.ntrip.best_km() if ntrip_ok else None
             want = choose(self.priority, base_ok, bool(base) and base['phase'] == 'fixed', ntrip_ok, km, self.near_km)
-            if self.ntrip is not None:      # NTRIP connects only while it is, or is about to be, in use
-                if want == 'ntrip' or self.active == 'ntrip':
+            if want != self.active and (self.active is None or not self._alive(self.active, now)
+                                        or self.priority != 'auto'):
+                self._switch(want)
+            if self.ntrip is not None:      # NTRIP connects only while it is in use
+                if self.active == 'ntrip':
                     self.ntrip.wanted.set()
                 else:
                     self.ntrip.wanted.clear()
-            if want == self.active:
-                self.pending = None
-            elif self.active is None or not self._alive(self.active, now):
-                self._switch(want)
-            elif want is not None and self._alive(want, now):
-                if self.pending != want:
-                    self.pending, self.pending_since = want, now
-                elif now - self.pending_since >= self.switch_after:
-                    self._switch(want)
-            else:
-                self.pending = None
             return self.active
 
     def _switch(self, name):
-        if name != self.active and self.active is not None:
-            self.switches += 1
-        self.active, self.pending = name, None
+        if name is not None:
+            if self.used is not None and name != self.used:
+                self.switches += 1
+            self.used = name
+        self.active = name
 
     def snapshot(self):
         """The BaseSession-shaped state of the active source, plus ``source`` for the status document."""
         with self.lock:
-            active, pending, switches = self.active, self.pending, self.switches
+            active, switches = self.active, self.switches
         base = self.base.snapshot() if self.base else dict(
             phase='off', detail='no base receiver', received=0, delivered=0, errors=0, model='', survey=None,
             base_position=None, base_satellites=None, site=None, rough=None, routes=[])
@@ -120,7 +113,7 @@ class Corrections:
                          survey=None, base_position=None, base_satellites=None, site=None,
                          received=net['received'], delivered=net['received'])
         state['routes'] = [dict(r) for r in self.routes]
-        state['source'] = dict(kind=kind, priority=self.priority, pending=pending, switches=switches,
+        state['source'] = dict(kind=kind, priority=self.priority, switches=switches,
                                base_phase=base['phase'], base_model=base.get('model', ''), site=base.get('site'),
                                ntrip=None if not net else {k: net[k] for k in (
                                    'phase', 'mount', 'caster', 'km', 'vrs', 'station', 'candidates', 'failovers',

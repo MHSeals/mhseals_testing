@@ -83,6 +83,7 @@ class RtkFeed:
     def __init__(self, profile, source=None):
         self.profile, self.current, self.below_since = profile, None, None
         self.source = rtk_source() if source is None else source
+        self.switches = None                # the correction mux's source switch count last seen
 
     def tick(self, app, snapshot, now):
         status = snapshot.get('rtk')
@@ -94,9 +95,20 @@ class RtkFeed:
             self.current = build(status, snapshot, self.profile.sensors, bool(result and result.status == 'warn'),
                                  int(now * 5), self.source)
             self._count(now)
-        facts = {} if self.below_since is None else {'rtk.seconds_below_fixed': Fact(now - self.below_since)}
+            self._notice_switch(app, status)
+        facts ={} if self.below_since is None else {'rtk.seconds_below_fixed': Fact(now - self.below_since)}
         facts.update(self._link_facts(status))
         app.health.facts.publish('rtk', facts)
+
+    def _notice_switch(self, app, status):
+        """Notice on each correction source switch: the RTK fix moves by the base survey error / datum offset."""
+        switches = ((status or {}).get('source') or {}).get('switches')
+        if switches is None:
+            return
+        if self.switches is not None and switches > self.switches:
+            app.notice = (f'RTK corrections switched to {self.current.kind}: '
+                          'the fix moves by the base survey error / datum offset')
+        self.switches = switches
 
     def _link_facts(self, status):
         """rtk.correction_age (s, shown age incl. transport delay) and rtk.bytes_per_s; absent without a base."""

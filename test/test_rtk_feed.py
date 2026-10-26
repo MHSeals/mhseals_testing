@@ -256,3 +256,15 @@ def test_unreadable_rtk_yaml_falls_back_to_our_base(tmp_path, monkeypatch):
     (tmp_path / 'rtk.yaml').write_text('source: mission_planner\n')
     monkeypatch.setenv('MHSEALS_RTK_CONFIG', str(tmp_path / 'rtk.yaml'))
     assert RtkFeed(boat()).source == 'ours'
+
+
+def test_a_correction_source_switch_raises_a_notice():
+    app, _ = app_with()
+    feed = RtkFeed(boat())
+    snap = lambda kind, switches: dict(gps_snapshot(6), rtk=dict(base='streaming', age=0.4, received_age=0,
+                                                                source=dict(kind=kind, switches=switches)))
+    feed.tick(app, snap('base', 3), 1.0)            # the count already seen at start: no notice
+    feed.tick(app, snap('base', 3), 2.0)
+    assert not hasattr(app, 'notice')
+    feed.tick(app, snap('ntrip', 4), 3.0)
+    assert 'switched to ntrip' in app.notice and 'datum offset' in app.notice

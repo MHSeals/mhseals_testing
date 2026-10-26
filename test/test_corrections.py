@@ -60,7 +60,7 @@ class Rough:
 
 def make(base=None, net=None, priority='auto'):
     now, out = [0.0], []
-    mux = Corrections([lambda f, t: out.append(f)], priority, switch_after=30, dead_after=5, clock=lambda: now[0])
+    mux = Corrections([lambda f, t: out.append(f)], priority, dead_after=5, clock=lambda: now[0])
     rough = Rough()
     mux.attach(base, net, rough)
     return mux, now, out, rough
@@ -78,30 +78,49 @@ def test_only_the_active_source_reaches_the_sinks_and_ntrip_is_wanted_only_when_
     assert state['source']['kind'] == 'base' and state['source']['site'] == 'dock'
 
 
-def test_a_dead_active_source_switches_at_once_a_live_one_only_after_the_hold():
+def test_auto_keeps_a_live_source_and_switches_only_when_it_dies():
     base, net = FakeBase('ready'), FakeNtrip(30.0)
     mux, now, out, _ = make(base, net)
     mux.gate('base')(b'B', 0.0)
     assert mux.active == 'base'
     net.km = 5.0                    # the boat came near a station: NTRIP is now preferred
-    mux.evaluate()
-    assert net.wanted.is_set() and mux.active == 'base'
-    for t in range(1, 40):
+    for t in range(1, 120):
+        now[0] = float(t)
+        mux.gate('base')(b'B', now[0])
+        mux.evaluate()
+    assert mux.active == 'base' and mux.switches == 0 and not net.wanted.is_set()
+    base.phase = 'off'              # the base dies: NTRIP at once
+    now[0] += 6
+    assert mux.evaluate() == 'ntrip' and net.wanted.is_set() and mux.switches == 1
+    base.phase = 'ready'            # the base is back while NTRIP streams: NTRIP stays
+    for t in range(int(now[0]) + 1, int(now[0]) + 60):
         now[0] = float(t)
         mux.gate('base')(b'B', now[0])
         mux.gate('ntrip')(b'N', now[0])
         mux.evaluate()
-        if mux.active == 'ntrip':
-            break
-    assert mux.active == 'ntrip' and now[0] >= 30          # held 30 s while both streamed
-    assert mux.switches == 1
-    # NTRIP dies (internet lost) while the base still streams: back to the base at once
+    assert mux.active == 'ntrip' and mux.snapshot()['source']['switches'] == 1
+    net.km = None                   # NTRIP lost: back to the base once its last frame is dead_after old
+    now[0] += 6
+    mux.gate('base')(b'B', now[0])
+    assert mux.evaluate() == 'base' and not net.wanted.is_set() and mux.switches == 2
+
+
+def test_explicit_priority_switches_at_once_and_a_gap_is_not_a_switch():
+    base, net = FakeBase('ready'), FakeNtrip(30.0)
+    mux, now, out, _ = make(base, net, priority='ntrip')
+    assert mux.evaluate() == 'ntrip'
     net.km = None
-    for t in range(int(now[0]) + 1, int(now[0]) + 8):
-        now[0] = float(t)
-        mux.gate('base')(b'B', now[0])
-        mux.evaluate()
-    assert mux.active == 'base' and not net.wanted.is_set()
+    assert mux.evaluate() == 'base' and mux.switches == 1
+    net.km = 30.0
+    assert mux.evaluate() == 'ntrip' and mux.switches == 2
+    lone = FakeBase('ready')
+    mux, now, out, _ = make(lone)
+    assert mux.evaluate() == 'base'
+    lone.phase = 'off'
+    now[0] = 10.0
+    assert mux.evaluate() is None
+    lone.phase = 'ready'
+    assert mux.evaluate() == 'base' and mux.switches == 0
 
 
 def test_ntrip_snapshot_reports_the_mountpoint_in_the_base_session_shape():
