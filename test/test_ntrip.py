@@ -125,6 +125,33 @@ def test_secrets_file_feeds_credentials_and_an_unset_login_is_not_streamed(tmp_p
     assert source.snapshot()['candidates'][0]['mount'] == 'NAD_MSM4_VRS'
 
 
+def test_the_shipped_secrets_are_astros_file_else_the_package_one(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('ASTRO_SECRETS', raising=False)
+    shipped = load_settings({})['secrets']
+    assert shipped == ['~/.config/astro/secrets.env', '~/.config/mhseals_testing/secrets.env'] == ntrip.DEFAULTS['secrets']
+    astro, package = tmp_path / '.config' / 'astro' / 'secrets.env', tmp_path / '.config' / 'mhseals_testing' / 'secrets.env'
+    assert ntrip.secrets_file(shipped) == package                 # neither exists: the last, read as {}
+    package.parent.mkdir(parents=True)
+    package.write_text('FPRN_USER=old\n')
+    assert ntrip.secrets_file(shipped) == package
+    astro.parent.mkdir(parents=True)
+    astro.write_text('FPRN_USER=new\n')
+    assert ntrip.secrets_file(shipped) == astro
+    override = tmp_path / 'elsewhere.env'
+    monkeypatch.setenv('ASTRO_SECRETS', str(override))
+    assert ntrip.secrets_file(shipped) == package                 # $ASTRO_SECRETS replaces astro's path
+    override.write_text('FPRN_USER=env\n')
+    assert ntrip.secrets_file(shipped) == override
+    assert ntrip.secrets_file(str(package)) == package            # an explicit path (rtk.yaml) stays as is
+    monkeypatch.setenv('FPRN_USER', 'shell')
+    monkeypatch.delenv('FPRN_PASSWORD', raising=False)
+    source = NtripSource(dict(casters=CASTERS, secrets=shipped))
+    assert source.env['FPRN_USER'] == 'shell'                     # the environment wins over the file
+    monkeypatch.delenv('FPRN_USER')
+    assert NtripSource(dict(casters=CASTERS, secrets=shipped)).env['FPRN_USER'] == 'env'
+
+
 def test_distance_is_great_circle():
     assert distance_km(BENDERSON, ARLINGTON) == pytest.approx(1520, rel=0.02)
 

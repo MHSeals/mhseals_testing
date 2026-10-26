@@ -41,7 +41,7 @@ DEFAULTS = dict(enabled=True, max_km=30.0, near_km=15.0, refresh_s=600.0, stale_
                 mount_cooldown_s=60.0, auth_cooldown_s=600.0, timeout_s=5.0,
                 penalties=dict(msm4=3.0, msm5=2.0, legacy=15.0, unknown=8.0, single_band=40.0,
                                per_missing_system=3.0, beyond_max=200.0),
-                secrets='~/.config/mhseals_testing/secrets.env',
+                secrets=['~/.config/astro/secrets.env', '~/.config/mhseals_testing/secrets.env'],
                 position_cache='~/.cache/mhseals_testing/ntrip_position.json', fallback=None, casters=[])
 
 
@@ -96,6 +96,22 @@ class NtripError(Exception):
 
 
 # --- secrets ---------------------------------------------------------------------------------
+
+ASTRO_SECRETS = '~/.config/astro/secrets.env'     # astro_dock's secrets file; $ASTRO_SECRETS overrides it
+
+
+def secrets_file(setting):
+    """The secrets file ``secrets`` names: a path, or a list whose first existing file wins (the last
+    when none exists). ``$ASTRO_SECRETS``, when set, stands in for ~/.config/astro/secrets.env."""
+    candidates = [setting] if isinstance(setting, (str, os.PathLike)) else list(setting or ())
+    override = os.environ.get('ASTRO_SECRETS')
+    astro = os.path.expanduser(ASTRO_SECRETS)
+    paths = []
+    for candidate in candidates:
+        path = Path(os.path.expanduser(str(candidate)))
+        paths.append(Path(override).expanduser() if override and str(path) == astro else path)
+    return next((p for p in paths if p.is_file()), paths[-1] if paths else None)
+
 
 def read_env_file(path):
     """KEY=VALUE lines of a .env file (quotes stripped, # comments); {} when it does not exist."""
@@ -518,7 +534,7 @@ class NtripSource:
         self.biases = {c['name']: float(c.get('bias_km', 0.0)) for c in self.casters}
         self.groups = {c['name']: c.get('group', c['name']) for c in self.casters}
         self.emit, self.position, self.connect, self.clock = emit, position, connect, clock
-        self.env = env if env is not None else {**read_env_file(self.settings['secrets']), **os.environ}
+        self.env = env if env is not None else {**read_env_file(secrets_file(self.settings['secrets']) or ''), **os.environ}
         self.tables, self.fetched = {}, {}          # caster -> streams, caster -> clock stamp
         self.resting, self.strikes = {}, {}         # key or caster name -> until; key -> count
         self.lock = threading.RLock()
