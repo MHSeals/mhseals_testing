@@ -946,7 +946,8 @@ def test_dry_run_helpers_name_an_off_course_sim_boat_a_boat_yaml_and_the_operato
     truth.write_text(json.dumps({'elements': [{'label': 'red_pole_buoy', 'x': 0.0, 'y': 0.0}]}))
     history = {'ground truth': [(0.0, {'x': 0.0, 'y': -90.0})]}
     app = SimpleNamespace(
-        profile=SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom', outputs='topic'),
+        profile=SimpleNamespace(course_truth=str(truth), ground_truth='/crane/odom', outputs='topic',
+                               use_sim_time=True),
         monitor=SimpleNamespace(history=lambda name: history.get(name, [])),
         config_file=Path.home() / '.config/mhseals/hardware.yaml')
     assert agent_acts.mission_course(app).startswith('the boat is 90 m from')

@@ -36,7 +36,7 @@ def session_hardware(profile, config, config_path, remote=None):
     The real boat and remote arms keep ``config``'s state_file as it is.
     """
     out = dict(config, output_backend=profile.outputs)
-    if profile.use_sim_time and profile.outputs == 'topic' and remote is None:
+    if getattr(profile, 'use_sim_time', False) and profile.outputs == 'topic' and remote is None:
         session = Path(config_path).parent.parent
         out['command_mux'] = dict(config.get('command_mux') or {},
                                   state_file=str(session / 'command_mux_holds.json'))
