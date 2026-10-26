@@ -24,7 +24,7 @@ from mhseals_testing.analysis import physics
 from mhseals_testing.strict_yaml import load_strict
 
 DOCK_STEPS = ('weigh_in', 'dock_noise')
-THRUST_STEPS = ('bollard', 'pulses', 'survey')
+THRUST_STEPS = ('bollard', 'pulses', 'survey', 'maneuvers')
 
 
 class Refused(ValueError):
@@ -440,6 +440,55 @@ def turn(ctx, log, runner, angle, cfg):
     return turned
 
 
+def maneuvers(ctx, cfg):
+    """Turning circles both ways and a zigzag at each speed, withheld: saved for validation, never fitted.
+
+    They are the combined surge-yaw motion the single-axis steps never excite (C_A, a26). A zigzag
+    holds yaw effort one way until the heading is ``zigzag_deg`` off the base heading, then the other,
+    for ``zigzag_switches`` switches or ``zigzag_max_s``.
+    """
+    driver = require_driver(ctx)
+    log, amplitude = Log(ctx), ctx.settings.amplitude
+    ctx.prompt('Open water, 40 m clear all round: turning circles and zigzags at '
+               f'{len(cfg["speeds"])} speeds. Press Enter... ', 'Maneuvers (withheld)')
+    runs = []
+
+    def yaw():
+        rows = ctx.history(ctx.monitor.clock() - 1.0, ctx.monitor.clock())
+        return next((v['yaw'] for _, v in reversed(rows) if v.get('yaw') is not None), None)
+
+    with ctx.motion('physics_maneuvers', speeds=list(cfg['speeds'])) as runner:
+        for speed in cfg['speeds']:
+            surge = speed * amplitude
+            for sign in (1, -1):
+                log.hold(runner, (surge, 0.0, 0.0), cfg['approach_s'], 'approach')
+                start = len(log.segments)
+                log.hold(runner, (surge, 0.0, sign * cfg['circle_yaw'] * amplitude), cfg['circle_s'],
+                         f'circle{"+" if sign > 0 else "-"} {surge:.2f}')
+                runs.append(dict(kind='circle', surge=surge, sign=sign, segments=[start, len(log.segments)]))
+                log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'coast')
+            log.hold(runner, (surge, 0.0, 0.0), cfg['approach_s'], 'approach')
+            base, sign, switches, elapsed = yaw(), 1, 0, 0.0
+            start = len(log.segments)
+            limit = math.radians(cfg['zigzag_deg'])
+            while base is not None and switches < cfg['zigzag_switches'] and elapsed < cfg['zigzag_max_s']:
+                log.hold(runner, (surge, 0.0, sign * cfg['zigzag_yaw'] * amplitude), cfg['chunk_s'],
+                         f'zigzag{"+" if sign > 0 else "-"} {surge:.2f}')
+                elapsed += cfg['chunk_s']
+                now = yaw()
+                if now is not None and sign * math.remainder(now - base, 2 * math.pi) >= limit:
+                    sign, switches = -sign, switches + 1
+            runs.append(dict(kind='zigzag', surge=surge, switches=switches, segments=[start, len(log.segments)]))
+            log.hold(runner, (0.0, 0.0, 0.0), cfg['settle_s'], 'coast')
+    body = dict(withheld=True, use='validation and C_A / a26 only: never fitted with the other steps',
+                runs=runs, units=dict(surge='normalized effort', circle_yaw='normalized effort', zigzag_deg='deg',
+                                      time='s, monitor clock', segments='index range into samples.segments'),
+                counts=dict(runs=len(runs), samples=len(ctx.history(log.segments[0]['start'], log.segments[-1]['end'])),
+                            **log.counts()),
+                summary=dict(runs=len(runs)))
+    return body, log.samples(), driver
+
+
 def neutral_floor(rows, coasts, cfg):
     """Per-sample SD of each velocity over the settled tail of every coast, a line removed from each tail.
 
@@ -457,7 +506,8 @@ def neutral_floor(rows, coasts, cfg):
             else None for key, r in residuals.items()}
 
 
-STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard, pulses=pulses, survey=survey)
+STEPS = dict(weigh_in=weigh_in, dock_noise=dock_noise, bollard=bollard, pulses=pulses, survey=survey,
+             maneuvers=maneuvers)
 
 
 def _run(ctx, step, allowed):

@@ -295,3 +295,17 @@ def test_survey_records_the_heading_spread_it_reached(tmp_path):
     assert spread['n'] == 48 and spread['ok'] and spread['R'] < 0.9
     turns = [s for s in record['holds'] if s['repeat'] == 1]
     assert abs(math.remainder(turns[0]['yaw'] - record['holds'][23]['yaw'], 2 * math.pi)) > 2.0
+
+
+def test_maneuvers_are_saved_withheld_with_circles_both_ways_and_zigzags(tmp_path):
+    boat = Boat(k=(30.0, 30.0, 10.0))
+    ctx, _ = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='maneuvers', amplitude=0.5)
+    record = saved(physics.thrust(ctx))
+    assert record['withheld'] is True and 'never fitted' in record['use']
+    kinds = [(r['kind'], r.get('sign')) for r in record['runs']]
+    assert kinds == [('circle', 1), ('circle', -1), ('zigzag', None)] * 2
+    zigzag = record['runs'][2]
+    assert zigzag['switches'] == 6 and zigzag['segments'][1] > zigzag['segments'][0]
+    samples = json.loads((tmp_path / 'char' / record['samples_file']['path']).read_text())
+    first, last = zigzag['segments']
+    assert {s['label'].split()[0] for s in samples['segments'][first:last]} == {'zigzag+', 'zigzag-'}

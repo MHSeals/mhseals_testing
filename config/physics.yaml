@@ -38,3 +38,14 @@ survey:
   turn_effort: 0.3           # yaw effort of the turn
   turn_chunk_s: 0.5          # the turn is held in chunks, yaw checked after each
   turn_max_s: 30.0           # the turn stops here however far it got
+maneuvers:                   # withheld for validation: never fitted with the other steps
+  speeds: [0.5, 1.0]         # surge effort, fractions of the amplitude setting
+  approach_s: 8.0            # surge alone first, to reach speed
+  circle_yaw: 0.5            # yaw effort of a turning circle, fraction of the amplitude
+  circle_s: 25.0
+  zigzag_yaw: 0.5
+  zigzag_deg: 20.0           # heading off the base heading that switches the yaw effort
+  zigzag_switches: 6
+  zigzag_max_s: 60.0
+  chunk_s: 0.25              # zigzag effort is held in chunks, the heading checked after each
+  settle_s: 10.0

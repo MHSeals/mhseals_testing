@@ -92,7 +92,7 @@ def _registry():
         Procedure('d', 'Dock physics', physics.dock, frozenset(),
                   'the dock step in Physics: dock_step (weigh-in, sensor noise); nothing moves', 'Calibrate'),
         Procedure('y', 'Thrust physics', physics.thrust, trial | {'effort', 'outputs'},
-                  'the thrust step in Physics: thrust_step (bollard, pulses, survey, ...); keeps the deployed C', 'Calibrate'),
+                  'the thrust step in Physics: thrust_step (bollard, pulses, survey, maneuvers); keeps C', 'Calibrate'),
         Procedure('g', 'Compass calibration', magcal.run, frozenset(),
                   'handheld bearing -> fixed-yaw calibration (42006), sent once you type FCU',
                   'Calibrate'),
