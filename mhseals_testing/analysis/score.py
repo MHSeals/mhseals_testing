@@ -19,7 +19,7 @@ import math
 from mhseals_testing.analysis.geometry import HULL, hull_clearance
 
 SCHEMA = 'mhseals.score/1'
-VERSION = 6                    # 6: timeslot check, reliability + verdict (state/referee.md "v6")
+VERSION = 7   # 7: known = all six flags; unjudged runs, refusals (referee.md "v7")
 RULES = 'H 2025-11-11 + L/S live to 2026-02-04'
 STRIKE_POINTS, STRIKE_MAX = 25, 20                     # S: 25*S, max 20
 PARAMS = dict(

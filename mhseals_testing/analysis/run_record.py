@@ -333,6 +333,33 @@ def judged_runs(session):
     return out
 
 
+def all_runs(session):
+    """Every run record under ``<session>/runs`` in run order, with or without files (v7: an
+    aborted, cancelled, errored or refused run is still a run of the batch). Records of other
+    procedures (``procedure`` set and not ``mission``) are not mission runs and are skipped."""
+    out = []
+    for target in sorted(Path(session).glob('runs/*.json')):
+        run = data.read_json(target)
+        if isinstance(run, dict) and (has_files(run) or run.get('procedure') in (None, 'mission')):
+            out.append(run)
+    return out
+
+
+def has_files(run):
+    """The run record links its own files (a judged run)."""
+    return bool(((run or {}).get('result') or {}).get('files'))
+
+
+def harness_end(session, run):
+    """(started, mission_stop or None) of a run record from its journal slice: started when the
+    journal has its ``mission_start`` or the record a run start."""
+    part = journal(Path(session) / 'events.jsonl', run.get('run_id'))
+    result = run.get('result') or {}
+    started = part is not None or any(k in result for k in ('run_start_t', 'run_start_t_ns'))
+    stop = (part or {}).get('ended')
+    return started, None if not stop else {k: stop.get(k) for k in ('outcome', 'by', 'cause')}
+
+
 def load(path, time_limit_s=None):
     """The run record of a session directory or a run record file (``run_of``), through the
     session's source adapter."""

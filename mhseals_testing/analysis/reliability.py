@@ -17,8 +17,16 @@ this run, with ``why``):
   error). None without a journaled ``mission_stop``.
 
 ``clean`` is True when every category is False, False when any is True, else None (unknown).
-A batch counts unknown runs apart and gives the failure rate over the known ones, with the
-bounds an unknown could move it to.
+A run is *known* only when all six categories are known (v7): a failed run with an unknown
+category is left out of the rate just like a clean-looking one, so poor journaling cannot
+select failures into the rate. A batch counts the rest apart, with the best and worst case
+they could move the rate to.
+
+A harness run record without files (v7) is still a run of the batch (``unjudged``): one that
+started (``mission_start``) and ended aborted, cancelled or errored is a failure with its cause
+(``terminal``: it never reached the point where the other categories are measured, so it is
+known); one the harness refused before ``mission_start`` is "not started (harness refusal)",
+listed with its count and kept out of the rate.
 """
 
 import math
@@ -29,6 +37,8 @@ RPARAMS = dict(
     alpha=0.05,             # one-sided level of the non-inferiority test (90% two-sided interval)
     points_at_least=500,    # D, owner to set: X in the finals view P(points >= X)
 )
+FAILED_VERDICTS = {'ABORTED', 'CANCELED', 'CANCELLED', 'ERROR', 'ERRORED', 'FAIL', 'FAILED',
+                   'TIMEOUT'}
 CATEGORIES = ('did_not_finish', 'hold', 'takeover', 'contact', 'false_claim', 'mission_failure')
 Z95 = 1.959964
 
@@ -115,37 +125,108 @@ def run_flags(report, authority_known=True, mission_stop=None, mission_stop_why=
     return dict(clean=clean, failed=failed, unknown=unknown, flags=f)
 
 
+def known(rel):
+    """Counted in the failure rate: every category known, or a terminal harness failure."""
+    return bool(rel.get('terminal')) or (rel['clean'] is not None and not rel['unknown'])
+
+
+def unjudged(run, started, mission_stop=None):
+    """Reliability of a harness run record that links no files (no track to score).
+
+    ``started``: the journal has this run's ``mission_start`` (or the record a run start).
+    Returns run_flags' shape plus ``outcome``: ``failure`` (started, then aborted, cancelled or
+    errored), ``not_started`` (refused by the harness before the start) or ``unknown``."""
+    result = run.get('result') or {}
+    verdict = str(result.get('verdict') or '').upper()
+    status = str(run.get('status') or '').upper()
+    why = (result.get('reason') or result.get('error') or
+           '; '.join(map(str, result.get('reasons') or [])) or None)
+    base = dict(run_id=run.get('run_id'), verdict=verdict or None, status=status or None)
+    if not started:
+        return dict(base, outcome='not_started', clean=None, failed=[], unknown=list(CATEGORIES),
+                    flags={}, cause='not started (harness refusal)'
+                    + (f': {why}' if why else f' (verdict {verdict or "none"})'))
+    if mission_stop is not None and mission_stop.get('outcome') == 'complete':
+        bad = None
+    elif mission_stop is not None:
+        bad = f"outcome {mission_stop.get('outcome')!r} by {mission_stop.get('by')}" + (
+            f" ({mission_stop['cause']})" if mission_stop.get('cause') else '')
+    elif verdict in FAILED_VERDICTS or status == 'ABORTED':
+        bad = f'run record verdict {verdict or "none"}, status {status or "none"}' + (
+            f' ({why})' if why else '')
+    else:
+        bad = None
+    if bad is None:
+        na = 'run record links no files (no track): cannot be judged'
+        return dict(base, outcome='unknown', clean=None, failed=[], unknown=list(CATEGORIES),
+                    flags={c: _flag(None, why=na) for c in CATEGORIES}, cause=na)
+    na = 'run ended before its files were written'
+    flags = {c: _flag(None, why=na) for c in CATEGORIES}
+    flags['mission_failure'] = _flag(True, [bad])
+    flags['did_not_finish'] = _flag(True, [f'ended {bad} before the exit'])
+    return dict(base, outcome='failure', terminal=True, clean=False,
+                failed=['did_not_finish', 'mission_failure'],
+                unknown=[c for c in CATEGORIES if flags[c]['failed'] is None], flags=flags,
+                cause=bad)
+
+
 # ---------------------------------------------------------------- batch
 
-def batch(records, points_at_least=None):
-    """Failure rate (Wilson) over runs whose cleanliness is known, per-category rates, and the
-    finals view: P(clean run) and P(points >= X) for one attempt (``X`` from RPARAMS)."""
+def batch(records, points_at_least=None, unjudged_runs=()):
+    """Failure rate (Wilson) over known runs (``known``), per-category rates, the best and worst
+    case with the excluded runs, harness refusals listed apart, and the finals view: P(clean
+    run) and P(points >= X) for one attempt (``X`` from RPARAMS). ``unjudged_runs``: the
+    ``unjudged`` entries of run records without files."""
     x = RPARAMS['points_at_least'] if points_at_least is None else points_at_least
-    rels = [r['reliability'] for r in records]
-    known = [r for r in rels if r['clean'] is not None]
-    k = sum(1 for r in known if not r['clean'])
-    n, u = len(rels), len(rels) - len(known)
+    refused = [u for u in unjudged_runs if u['outcome'] == 'not_started']
+    rels = [r['reliability'] for r in records] + [u for u in unjudged_runs
+                                                  if u['outcome'] != 'not_started']
+    ok = [r for r in rels if known(r)]
+    out_ = [r for r in rels if not known(r)]
+    k = sum(1 for r in ok if not r['clean'])
+    sure = sum(1 for r in out_ if r['clean'] is False)     # failed, another category unknown
+    n, u = len(rels), len(out_)
     cats = {}
     for c in CATEGORIES:
-        seen = [r['flags'][c]['failed'] for r in rels if r['flags'][c]['failed'] is not None]
+        seen = [r['flags'][c]['failed'] for r in rels
+                if (r['flags'].get(c) or {}).get('failed') is not None]
         cats[c] = rate(sum(seen), len(seen)) or dict(n=0, note='never observable')
     pts = [r['total']['points'] for r in records]
-    out = dict(runs=n, known=len(known), unknown=u, failures=k,
-               failure_rate=rate(k, len(known)),
-               failure_rate_bounds_with_unknown=None if not n else [round(k / n, 4),
+    out = dict(runs=n, known=len(ok), unknown=u, failures=k,
+               failure_rate=rate(k, len(ok)),
+               unknown_runs=dict(n=u, failed_with_unknown=sure, clean_with_unknown=u - sure,
+                                 best_case=None if not n else rate(k + sure, n),
+                                 worst_case=None if not n else rate(k + u, n)),
+               failure_rate_bounds_with_unknown=None if not n else [round((k + sure) / n, 4),
                                                                     round((k + u) / n, 4)],
+               unjudged=dict(failures=[dict(run_id=r['run_id'], cause=r['cause'])
+                                       for r in unjudged_runs if r['outcome'] == 'failure'],
+                             unknown=[dict(run_id=r['run_id'], cause=r['cause'])
+                                      for r in unjudged_runs if r['outcome'] == 'unknown']),
+               not_started=dict(label='not started (harness refusal): not in the failure rate',
+                                n=len(refused), runs=[dict(run_id=r['run_id'], cause=r['cause'])
+                                                      for r in refused]),
                by_category=cats,
                single_attempt=dict(
-                   p_clean=rate(len(known) - k, len(known)),
+                   p_clean=rate(len(ok) - k, len(ok)),
                    points_at_least=x,
                    p_points_at_least=rate(sum(1 for p in pts if p >= x), len(pts))),
                over_timeslot=sum(1 for r in records
                                  if (r['run'].get('timeslot') or {}).get('over')),
                labels=dict(
-                   failure_rate='runs with any failure flag / runs whose every flag is known',
-                   p_points_at_least='earned points only (provisional excluded), every run'))
+                   failure_rate='runs with any failure flag / runs whose six flags are all known '
+                                '(or that ended aborted, cancelled or errored before files)',
+                   bounds='best case: excluded runs clean unless already failed; worst case: '
+                          'every excluded run failed',
+                   p_points_at_least='earned points only (provisional excluded), scored runs'))
+    notes = []
     if u:
-        out['note'] = f'{u} run(s) with an unobservable category are left out of the rate'
+        notes.append(f'{u} run(s) with an unknown category are left out of the rate '
+                     f'({sure} of them already failed)')
+    if refused:
+        notes.append(f'{len(refused)} run(s) not started (harness refusal)')
+    if notes:
+        out['note'] = '; '.join(notes)
     return out
 
 
@@ -200,24 +281,52 @@ def unpaired_ni(a, b, margin=None, alpha=None):
     alpha = RPARAMS['alpha'] if alpha is None else alpha
     fa, fb = a['failure_rate'], b['failure_rate']
     if not fa or not fb:
-        return dict(non_inferior=None, why='no run with every failure category known')
+        return dict(non_inferior=None, why='no run with every failure category known',
+                    excluded=_excluded(a, b))
     diff, ci = newcombe(fa['k'], fa['n'], fb['k'], fb['n'], _z(alpha))
     return non_inferiority(diff, ci, margin, alpha, 'Newcombe hybrid score (unpaired)',
-                           baseline=f"{fa['k']}/{fa['n']}", candidate=f"{fb['k']}/{fb['n']}")
+                           baseline=f"{fa['k']}/{fa['n']}", candidate=f"{fb['k']}/{fb['n']}",
+                           excluded=_excluded(a, b))
 
 
-def paired_ni(pairs, margin=None, alpha=None):
-    """``pairs`` [(baseline failed, candidate failed)] with both sides known."""
+def _excluded(a, b):
+    """Runs left out of each side's rate, and refusals, for the verdict line."""
+    return {side: dict(unknown=x.get('unknown', 0), runs=x.get('runs', 0),
+                       not_started=(x.get('not_started') or {}).get('n', 0))
+            for side, x in (('baseline', a), ('candidate', b))}
+
+
+def paired_ni(pairs, margin=None, alpha=None, unknown=0):
+    """``pairs`` [(baseline failed, candidate failed)] with both sides known; ``unknown``
+    pairs left out (a side with an unknown category)."""
     alpha = RPARAMS['alpha'] if alpha is None else alpha
+    excluded = dict(pairs=dict(unknown=unknown, total=len(pairs) + unknown))
     if not pairs:
-        return dict(non_inferior=None, why='no pair with every failure category known')
+        return dict(non_inferior=None, why='no pair with every failure category known',
+                    excluded=excluded)
     both = sum(1 for x, y in pairs if x and y)
     cand = sum(1 for x, y in pairs if y and not x)
     base = sum(1 for x, y in pairs if x and not y)
     diff, ci = newcombe_paired(both, cand, base, len(pairs) - both - cand - base, _z(alpha))
     return non_inferiority(diff, ci, margin, alpha, 'Newcombe paired score (method 10)',
                            n_pairs=len(pairs), both_failed=both, candidate_only=cand,
-                           baseline_only=base)
+                           baseline_only=base, excluded=excluded)
+
+
+def excluded_text(ex):
+    """'; excluded ...' for the verdict line, or '' when nothing was left out."""
+    if not ex:
+        return ''
+    if 'pairs' in ex:
+        p = ex['pairs']
+        return f"; excluded {p['unknown']}/{p['total']} pairs (a category unknown)" \
+            if p['unknown'] else ''
+    parts = [f"{side} {x['unknown']}/{x['runs']}" for side, x in ex.items() if x['unknown']]
+    refused = [f"{side} {x['not_started']}" for side, x in ex.items() if x['not_started']]
+    text = f"; excluded (a category unknown): {', '.join(parts)}" if parts else ''
+    if refused:
+        text += f"; not started (harness refusal): {', '.join(refused)}"
+    return text
 
 
 def verdict(ni, time, points):
@@ -258,8 +367,10 @@ def _gain(row, sign):
 
 
 def decision(ni, time, points):
-    """The decision block: test, gains (only after non-inferiority), verdict and line."""
+    """The decision block: test, gains (only after non-inferiority), verdict and line (with
+    how many runs or pairs were excluded)."""
     head, line, gains = verdict(ni, time, points)
+    line += excluded_text(ni.get('excluded'))
     return dict(verdict=head, line=line, non_inferiority=ni, gains=gains,
                 procedure='fixed sequence: failure non-inferiority (one-sided) first; time '
                           '(clean runs only) and points only if it holds, each clear when its '

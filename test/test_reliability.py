@@ -25,7 +25,8 @@ def report(seed=1, points=500, duration=300.0, exit_t=True, strikes=0, by=None, 
                         mode='run', source=source, course=dict(seed=seed)),
                claims=dict(by_stage=dict(docking=dict(task='marina', false_claim=True))
                            if false else {}))
-    rec['reliability'] = rel.run_flags(rec, True, dict(outcome=outcome, by='procedure'))
+    stop = outcome and dict(outcome=outcome, by='procedure')     # None: no mission_stop
+    rec['reliability'] = rel.run_flags(rec, True, stop)
     return rec
 
 
@@ -162,3 +163,88 @@ def test_paired_decision(cand_fail, verdict):
     got = sa.decide_pairs(pairs, out)
     assert got['verdict'] == verdict
     assert 'Newcombe paired score (method 10)' in got['non_inferiority']['test']
+
+
+# ---- v7: known runs, unjudged runs, refusals
+
+def test_a_failed_run_with_an_unknown_category_is_left_out_like_a_clean_one():
+    runs = [report(seed=i, strikes=int(i < 2)) for i in range(8)] + \
+        [report(seed=8, outcome=None), report(seed=9, strikes=1, outcome=None)]
+    got = sa.batch(runs)['reliability']
+    assert got['failure_rate']['k'] == 2 and got['failure_rate']['n'] == 8
+    assert got['unknown_runs']['failed_with_unknown'] == 1 and got['unknown'] == 2
+    assert got['failure_rate_bounds_with_unknown'] == [0.3, 0.4]      # best 3/10, worst 4/10
+    assert 'clean_run' not in sa.metrics(runs[9])
+
+
+def test_an_under_journaled_baseline_does_not_help_a_candidate():
+    """Baseline: 80 journaled runs with 4 failures and 20 without mission_stop (10 of which hit
+    a buoy). Counting the 10 failed unjournaled runs and dropping the 10 clean-looking ones
+    would put the baseline at 14/90 and pass a 10/100 candidate; known runs only: 4/80."""
+    base = [report(seed=i, strikes=int(i < 4)) for i in range(80)] + \
+        [report(seed=80 + i, strikes=int(i < 10), outcome=None) for i in range(20)]
+    cand = [report(seed=i, duration=240.0, strikes=int(i < 10)) for i in range(100)]
+    a, b = sa.batch(base), sa.batch(cand)
+    assert a['reliability']['failure_rate']['k'] == 4 and a['reliability']['failure_rate'][
+        'n'] == 80
+    got = sa.decide(a, b, sa.compare(a, b))
+    assert got['verdict'] == 'not non-inferior'
+    assert 'excluded (a category unknown): baseline 20/100' in got['line']
+    lenient = sa.batch(base)['reliability']
+    lenient['failure_rate'] = rel.rate(14, 90)                 # the v6 count, for contrast
+    assert rel.unpaired_ni(lenient, b['reliability'])['non_inferior'] is True
+
+
+def test_paired_pairs_with_an_unknown_side_are_excluded_and_counted():
+    pairs = [(report(seed=i, strikes=int(i < 2)), report(seed=i, strikes=int(i < 2)))
+             for i in range(100)]
+    pairs[50] = (report(seed=50, strikes=1, outcome=None), pairs[50][1])
+    got = sa.decide_pairs(pairs, {})
+    assert got['non_inferiority']['n_pairs'] == 99
+    assert 'excluded 1/100 pairs (a category unknown)' in got['line']
+
+
+def _journal(folder, *events):
+    with (folder / 'events.jsonl').open('a') as out:
+        for e in events:
+            out.write(json.dumps(dict(e, procedure='mission', node='boat_trial')) + '\n')
+
+
+def _run(folder, run_id, **result):
+    (folder / 'runs' / f'{run_id}.json').write_text(json.dumps(dict(
+        schema='mhseals.run/1', run_id=run_id, procedure='mission', status=result.pop(
+            'status', 'MEASURED'), result=dict(procedure='mission', task='mission', **result))))
+
+
+def test_an_aborted_run_without_files_is_a_failure_and_a_refusal_is_listed(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
+    _journal(folder, dict(phase='mission_start', run_id='005-mission', t_ns=1793001000000000000),
+             dict(phase='mission_stop', run_id='005-mission', outcome='abort', by='operator',
+                  cause='lost localization', t_ns=1793001010000000000))
+    _run(folder, '005-mission', verdict='ABORTED')
+    _run(folder, '006-mission', verdict='REFUSED', reason='sim not reset to the course start')
+    scored, unjudged = sa._records([tmp_path / 'batch'])
+    assert [r['run']['run_id'] for r in scored] == ['004-mission']
+    got = sa.batch(scored, unjudged=unjudged)['reliability']
+    base = int(not scored[0]['reliability']['clean'])     # the fixture run, fully known
+    assert got['runs'] == 2 and got['known'] == 2 and got['failures'] == base + 1
+    assert got['unjudged']['failures'] == [dict(
+        run_id='005-mission', cause="outcome 'abort' by operator (lost localization)")]
+    assert got['by_category']['mission_failure'] == rel.rate(1, 2)
+    refused = got['not_started']
+    assert refused['n'] == 1 and refused['runs'][0]['run_id'] == '006-mission'
+    assert 'sim not reset' in refused['runs'][0]['cause']
+    assert 'not started (harness refusal)' in got['note']
+    b = sa.batch(scored, unjudged=unjudged)
+    line = sa.decide(b, b, sa.compare(b, b))['line']
+    assert 'not started (harness refusal): baseline 1, candidate 1' in line
+
+
+def test_a_started_run_record_without_stop_or_files_reads_its_verdict():
+    started = rel.unjudged(dict(run_id='r', result=dict(verdict='CANCELED')), True)
+    assert started['outcome'] == 'failure' and rel.known(started)
+    assert 'CANCELED' in started['cause']
+    unknown = rel.unjudged(dict(run_id='r', result=dict(verdict='PASS')), True)
+    assert unknown['outcome'] == 'unknown' and not rel.known(unknown)
+    refused = rel.unjudged(dict(run_id='r', result=dict(verdict='REFUSED')), False)
+    assert refused['outcome'] == 'not_started'

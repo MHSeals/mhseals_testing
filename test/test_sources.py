@@ -516,7 +516,7 @@ def test_a_batch_scores_each_judged_run_once(tmp_path):
     from mhseals_testing.harness import score_analyze as sa
     _harness(tmp_path / 'batch')
     _copy('unity', tmp_path / 'batch')
-    got = sa._records([tmp_path / 'batch'])
+    got = sa._records([tmp_path / 'batch'])[0]
     assert sorted(str(r['run'].get('run_id')) for r in got) == ['004-mission', 'None']
     folder = tmp_path / 'batch' / 'unity_run'
     run = json.loads((folder / RUN).read_text())

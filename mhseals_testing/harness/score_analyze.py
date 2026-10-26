@@ -151,8 +151,9 @@ def metrics(record):
         out[f'contacts.{kind}'] = n
     end = record['run']['end']['reason']
     out['exited'] = float(record['run'].get('exit_t') is not None)
-    clean = (record.get('reliability') or {}).get('clean')
-    if clean is not None:
+    rel = record.get('reliability')
+    clean = rel['clean'] if rel and reliability.known(rel) else None
+    if clean is not None:                    # every category known (v7)
         out['clean_run'] = float(clean)
         if clean:                            # time to the exit, clean runs only (conditional)
             out['clean_time_s'] = record['run']['duration_s']
@@ -255,9 +256,10 @@ def stats(values, binary=False):
     return out
 
 
-def batch(records, points_at_least=None):
+def batch(records, points_at_least=None, unjudged=()):
     """Aggregate per metric across runs; sources and course seeds are listed; reliability
-    (failure rate, categories, finals view) when the reports carry it."""
+    (failure rate, categories, finals view) when the reports carry it. ``unjudged``: run
+    records without files (``reliability.unjudged``), counted in reliability only."""
     rows = [metrics(r) for r in records]
     keys = sorted({k for r in rows for k in r})
     out = dict(runs=len(records),
@@ -272,7 +274,9 @@ def batch(records, points_at_least=None):
         time_cut_s_incl_incomplete=out['metrics'].get('time_cut_s.' + k[len('completed.'):]))
         for k in out['metrics'] if k.startswith('completed.')}
     if all('reliability' in r for r in records):
-        out['reliability'] = reliability.batch(records, points_at_least)
+        out['reliability'] = reliability.batch(records, points_at_least, unjudged)
+    if unjudged:
+        out['runs_unjudged'] = len(unjudged)
     return out
 
 
@@ -378,8 +382,8 @@ def decide_pairs(recs, b_minus_a, margin=None):
     if not all('reliability' in r for pair in recs for r in pair):
         return None
     known = [(not a['reliability']['clean'], not b['reliability']['clean']) for a, b in recs
-             if a['reliability']['clean'] is not None and b['reliability']['clean'] is not None]
-    ni = reliability.paired_ni(known, margin)
+             if reliability.known(a['reliability']) and reliability.known(b['reliability'])]
+    ni = reliability.paired_ni(known, margin, unknown=len(recs) - len(known))
     ni['pairs_unknown'] = len(recs) - len(known)
     return reliability.decision(ni, b_minus_a.get('clean_time_s'), b_minus_a.get('points'))
 
@@ -448,19 +452,30 @@ def paired(pairs_file, force=False, margin=None):
 
 
 def _records(paths):
-    """Every run under ``paths``: each judged run record of a session (its session-level
-    track is a copy of the latest run, so it is not counted again), else the session."""
-    out = []
+    """(scored, unjudged): every run under ``paths``. Each run record of a session: one that
+    links its files is scored (its session-level track is a copy of the latest run, so it is
+    not counted again); one without (aborted, cancelled, errored, refused) is classified from
+    its journal and record (``reliability.unjudged``). A session without run records is
+    scored as a whole."""
+    out, unjudged, seen = [], [], set()
     for root in paths:
-        for track in sorted(Path(root).glob('**/track.jsonl')):
-            session = track.parent
+        sessions = sorted({p.parent for p in Path(root).glob('**/track.jsonl')}
+                          | {p.parent.parent for p in Path(root).glob('**/runs/*.json')})
+        for session in sessions:
             own = session.parent / f'{session.name}.json'
-            if session.parent.name == 'runs' and own.exists():
+            if session.parent.name == 'runs' and own.exists() or session in seen:
                 continue                    # a run's own copy: scored through its record
-            runs = run_record.judged_runs(session)
-            out += [analyze(session / 'runs' / f"{r['run_id']}.json")[1] for r in runs] \
-                or [analyze(session)[1]]
-    return out
+            seen.add(session)
+            runs = run_record.all_runs(session)
+            for r in runs:
+                if run_record.has_files(r):
+                    out.append(analyze(session / 'runs' / f"{r['run_id']}.json")[1])
+                else:
+                    u = reliability.unjudged(r, *run_record.harness_end(session, r))
+                    unjudged.append(dict(u, session=session.name))
+            if not runs and (session / 'track.jsonl').exists():
+                out.append(analyze(session)[1])
+    return out, unjudged
 
 
 def main(argv=None, out=None):
@@ -495,10 +510,12 @@ def main(argv=None, out=None):
         return 0
     if args.batch:
         try:
-            first = batch(_records([args.session]), args.points_at_least)
+            scored, unjudged = _records([args.session])
+            first = batch(scored, args.points_at_least, unjudged)
             result = dict(schema='mhseals.score_batch/1', a=first)
             if args.compare:
-                second = batch(_records([args.compare]), args.points_at_least)
+                scored, unjudged = _records([args.compare])
+                second = batch(scored, args.points_at_least, unjudged)
                 result.update(b=second, b_minus_a=compare(first, second, args.force))
                 decision = decide(first, second, result['b_minus_a'], args.failure_margin)
                 if decision:
