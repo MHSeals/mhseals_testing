@@ -223,12 +223,12 @@ def test_the_reset_runs_after_the_operator_prompt_right_before_the_task_starts(t
     @contextmanager
     def supervised(*args, **kwargs):
         yield runner
-    watcher = SimpleNamespace(events=[], status={}, reset=lambda: ctx.order.append('watch'))
+    watcher = SimpleNamespace(events=[], statuses=[], status={}, reset=lambda: ctx.order.append('watch'))
     ctx.supervise = supervised
     ctx.services.update({'task_watcher': lambda: watcher, 'running': lambda *a: False,
                          'start': lambda *a: ctx.order.append('start'), 'stop': lambda *a: None})
     monkeypatch.setattr(mission.reset_to_start, '__defaults__', (_settle_fast(tmp_path),))
-    monkeypatch.setattr(mission, 'judge', lambda *a: None)
+    monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
     result = mission.run(ctx)
     assert calls == [5.0] and result['verdict'] != 'REFUSED'
     assert ctx.order == ['prompt', 'reset', 'watch', 'start']
