@@ -100,9 +100,9 @@ class NtripError(Exception):
 ASTRO_SECRETS = '~/.config/astro/secrets.env'     # astro_dock's secrets file; $ASTRO_SECRETS overrides it
 
 
-def secrets_file(setting):
-    """The secrets file ``secrets`` names: a path, or a list whose first existing file wins (the last
-    when none exists). ``$ASTRO_SECRETS``, when set, stands in for ~/.config/astro/secrets.env."""
+def secrets_files(setting):
+    """The existing secrets files ``secrets`` names (a path, or a list), in its order.
+    ``$ASTRO_SECRETS``, when set, stands in for ~/.config/astro/secrets.env."""
     candidates = [setting] if isinstance(setting, (str, os.PathLike)) else list(setting or ())
     override = os.environ.get('ASTRO_SECRETS')
     astro = os.path.expanduser(ASTRO_SECRETS)
@@ -110,7 +110,19 @@ def secrets_file(setting):
     for candidate in candidates:
         path = Path(os.path.expanduser(str(candidate)))
         paths.append(Path(override).expanduser() if override and str(path) == astro else path)
-    return next((p for p in paths if p.is_file()), paths[-1] if paths else None)
+    return [p for p in paths if p.is_file()]
+
+
+def read_secrets(setting):
+    """Every secrets file merged, an earlier file's value winning (astro's before the package's).
+    A file readable by anyone but its owner (not mode 600 or 400) is refused: PermissionError."""
+    values = {}
+    for path in reversed(secrets_files(setting)):
+        mode = path.stat().st_mode & 0o777
+        if mode not in (0o600, 0o400):
+            raise PermissionError(f'{path} is mode {mode:o}; secrets must be private: chmod 600 {path}')
+        values.update(read_env_file(path))
+    return values
 
 
 def read_env_file(path):
@@ -534,7 +546,7 @@ class NtripSource:
         self.biases = {c['name']: float(c.get('bias_km', 0.0)) for c in self.casters}
         self.groups = {c['name']: c.get('group', c['name']) for c in self.casters}
         self.emit, self.position, self.connect, self.clock = emit, position, connect, clock
-        self.env = env if env is not None else {**read_env_file(secrets_file(self.settings['secrets']) or ''), **os.environ}
+        self.env = env if env is not None else {**read_secrets(self.settings['secrets']), **os.environ}
         self.tables, self.fetched = {}, {}          # caster -> streams, caster -> clock stamp
         self.resting, self.strikes = {}, {}         # key or caster name -> until; key -> count
         self.lock = threading.RLock()

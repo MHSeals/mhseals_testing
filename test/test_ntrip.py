@@ -125,25 +125,34 @@ def test_secrets_file_feeds_credentials_and_an_unset_login_is_not_streamed(tmp_p
     assert source.snapshot()['candidates'][0]['mount'] == 'NAD_MSM4_VRS'
 
 
-def test_the_shipped_secrets_are_astros_file_else_the_package_one(tmp_path, monkeypatch):
+def test_the_shipped_secrets_merge_astros_file_over_the_package_one(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.delenv('ASTRO_SECRETS', raising=False)
     shipped = load_settings({})['secrets']
     assert shipped == ['~/.config/astro/secrets.env', '~/.config/mhseals_testing/secrets.env'] == ntrip.DEFAULTS['secrets']
     astro, package = tmp_path / '.config' / 'astro' / 'secrets.env', tmp_path / '.config' / 'mhseals_testing' / 'secrets.env'
-    assert ntrip.secrets_file(shipped) == package                 # neither exists: the last, read as {}
-    package.parent.mkdir(parents=True)
-    package.write_text('FPRN_USER=old\n')
-    assert ntrip.secrets_file(shipped) == package
-    astro.parent.mkdir(parents=True)
-    astro.write_text('FPRN_USER=new\n')
-    assert ntrip.secrets_file(shipped) == astro
+
+    def write(path, text, mode=0o600):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        path.chmod(mode)
+
+    assert ntrip.read_secrets(shipped) == {}                      # neither exists
+    write(package, 'FPRN_USER=old\nFPRN_PASSWORD=pkg\n')
+    assert ntrip.read_secrets(shipped) == {'FPRN_USER': 'old', 'FPRN_PASSWORD': 'pkg'}
+    write(astro, 'FPRN_USER=new\nRTK2GO_USER=a\n')
+    assert ntrip.read_secrets(shipped) == {'FPRN_USER': 'new', 'FPRN_PASSWORD': 'pkg', 'RTK2GO_USER': 'a'}
+    for path in (astro, package):                                 # either one readable by others: refused
+        path.chmod(0o644)
+        with pytest.raises(PermissionError, match='is mode 644; secrets must be private: chmod 600'):
+            ntrip.read_secrets(shipped)
+        path.chmod(0o600)
     override = tmp_path / 'elsewhere.env'
     monkeypatch.setenv('ASTRO_SECRETS', str(override))
-    assert ntrip.secrets_file(shipped) == package                 # $ASTRO_SECRETS replaces astro's path
-    override.write_text('FPRN_USER=env\n')
-    assert ntrip.secrets_file(shipped) == override
-    assert ntrip.secrets_file(str(package)) == package            # an explicit path (rtk.yaml) stays as is
+    assert ntrip.read_secrets(shipped)['FPRN_USER'] == 'old'      # $ASTRO_SECRETS replaces astro's path
+    write(override, 'FPRN_USER=env\n')
+    assert ntrip.read_secrets(shipped)['FPRN_USER'] == 'env'
+    assert ntrip.secrets_files(str(package)) == [package]         # an explicit path (rtk.yaml) stays as is
     monkeypatch.setenv('FPRN_USER', 'shell')
     monkeypatch.delenv('FPRN_PASSWORD', raising=False)
     source = NtripSource(dict(casters=CASTERS, secrets=shipped))

@@ -21,8 +21,8 @@ repick_s: 60.0           # re-rank as the boat moves; switch only if this much c
 repick_margin_km: 5.0
 mount_cooldown_s: 60.0   # a failed mountpoint rests this long, doubling to 10 min (RTK2go: retry >= 10 s)
 auth_cooldown_s: 600.0   # a refused login rests the whole caster
-# secrets: the first file that exists. astro's ($ASTRO_SECRETS overrides its path), else the older
-# per-package file. Values are never printed.
+# secrets: every file that exists, merged; astro's ($ASTRO_SECRETS overrides its path) wins over the
+# older per-package file. Each must be mode 600. Values are never printed.
 secrets: [~/.config/astro/secrets.env, ~/.config/mhseals_testing/secrets.env]
 position_cache: ~/.cache/mhseals_testing/ntrip_position.json   # last rough fix, survives reboots
 fallback: null           # {latitude, longitude, height} when no fix was ever seen
