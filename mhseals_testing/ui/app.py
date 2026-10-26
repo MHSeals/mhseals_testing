@@ -2618,7 +2618,7 @@ class App:
                 hardware_config=self.args.hardware_config, wall_ns=self.wall_ns,
                 user_config=self.args.config,
                 history=self.history, warn=self.warn_history,
-                staging=self.staging(), fit_context=self.fit_context,
+                staging=self.staging(), fit_context=self.fit_context, ask_text=self.ask_text,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 mux_input=self.mux_input,
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,

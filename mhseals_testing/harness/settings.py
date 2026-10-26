@@ -94,6 +94,8 @@ SPECS = (
          note='agent run/goal: confirm asks Enter each time, observe refuses; confirm again at start'),
     Spec('direction', '', str, group='Trials', reset=True,
          note='characterization: re-refine only this column, e.g. sway+'),
+    Spec('dock_step', 'weigh_in', str, choices=('weigh_in',), group='Physics',
+         note='Dock physics (d) runs this step; config/physics.yaml holds its parameters'),
 )
 BY_KEY = {spec.key: spec for spec in SPECS}
 RETIRED = ('agent_view',)   # still in older settings files; read past, never an error

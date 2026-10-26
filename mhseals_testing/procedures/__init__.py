@@ -82,13 +82,15 @@ def unavailable(procedure, profile, armed, bench_override=False):
 def _registry():
     # Imported here: the procedure modules use the classes above.
     from mhseals_testing.procedures import (
-        characterize, controller, interference, magcal, manual, mission, nav, perception,
+        characterize, controller, interference, magcal, manual, mission, nav, perception, physics,
         thrusters,
     )
     trial = frozenset({'armed', 'sensors'})
     return (
         Procedure('f', 'Characterize', characterize.run, trial | {'effort', 'outputs'},
                   'survey the boat, refine the thrust correction per direction', 'Calibrate'),
+        Procedure('d', 'Dock physics', physics.dock, frozenset(),
+                  'the dock step in Physics: dock_step (weigh-in, ...); nothing moves', 'Calibrate'),
         Procedure('g', 'Compass calibration', magcal.run, frozenset(),
                   'handheld bearing -> fixed-yaw calibration (42006), sent once you type FCU',
                   'Calibrate'),

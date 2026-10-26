@@ -31,6 +31,7 @@ ACTIONS = {
     'change_down': Action('change down', 0),
     'change_up': Action('change up', 0),
     'characterize': Action('characterize', 7),
+    'dock_physics': Action('dock physics', 7),
     'clear_decoupling': Action('clear decoupling', 7),
     'close': Action('close', 0),
     'column_next': Action('column next', 0),

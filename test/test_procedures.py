@@ -113,7 +113,7 @@ def test_groups_and_keys_follow_the_spec():
     by_group = {}
     for p in PROCEDURES:
         by_group.setdefault(p.group, []).append(p.key)
-    assert by_group == {'Calibrate': ['f', 'g', 'e', 'v'], 'Drive': ['m', 'i'],
+    assert by_group == {'Calibrate': ['f', 'd', 'g', 'e', 'v'], 'Drive': ['m', 'i'],
                         'Navigate': ['n', 'w', 's'], 'Mission': ['t'], 'Perception': ['p']}
 
 

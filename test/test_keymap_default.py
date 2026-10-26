@@ -52,7 +52,7 @@ def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
     assert len(contexts) == 35
-    assert sum(len(binds(c)) for c in contexts.values()) == 227
+    assert sum(len(binds(c)) for c in contexts.values()) == 228
 
 
 def test_keys_known_and_unique_per_context(doc):

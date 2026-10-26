@@ -1,0 +1,6 @@
+# Physics characterization (procedures/physics.py): the steps that make thrust, drag and added mass
+# separable for the crane import. Each step writes <data root>/characterization/<fit>-<step>.yaml.
+weigh_in:
+  mass_kg: [5.0, 120.0]      # accepted range of the scale reading
+  cg_m: 1.0                  # |CG offset| from base_link accepted per axis, m
+  bifilar_m: [0.05, 5.0]     # accepted string separation and length, m
