@@ -547,6 +547,22 @@ def test_a_heredoc_body_is_data_unless_something_can_run_it(trees):
         assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
 
 
+def test_a_heredoc_body_is_data_only_for_a_known_reader(trees):
+    live, wt, base = trees
+    write = f'sed -i s/false/true/ {live}/config/agent.yaml'
+    for command in (f"python3.12-dbg - <<'EOF'\nimport os; os.system('{write}')\nEOF",
+                    f"ipython <<'EOF'\n!{write}\nEOF", f"bash5 <<'EOF'\n{write}\nEOF",
+                    f"gdb -batch <<'EOF'\nshell {write}\nEOF", f"sqlite3 <<'EOF'\n.shell {write}\nEOF",
+                    f"mystery-tool <<'EOF'\n{write}\nEOF",
+                    f"cat > notes.md <<'EOF'\nthen {write}\nEOF"):      # a written file's body is searched: denied
+        assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
+    prompt = f'Pin the profile, then {write}.'
+    for command in (f".handoff/tools/codex-task NAME <<'EOF'\n{prompt}\nEOF", f"codex-ideate X <<'EOF'\n{prompt}\nEOF",
+                    f"cat <<'EOF' | grep pin\n{prompt}\nEOF",
+                    "cat > notes.md <<'EOF'\n# Notes\nThe hook now reads heredocs; tests pass.\nEOF"):
+        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
+
+
 def test_every_shell_safety_deny_names_the_proper_route():
     for command, says in (('sed -i s/a/b/ /x/config/agent.yaml', 'enable sim-arm in the sim container'),
                           ('rm /run/user/1000/mhseals/command_mux_232.json', 'U in the TUI'),
@@ -853,6 +869,26 @@ def test_a_leading_cd_resolves_home_and_semicolons(home_trees, cwd, command, wan
     command = command.format(L=live, W=wt, H=HOOK_FILE)
     got = hook.denied(command, hook.DEFAULTS, cwd={'L': str(live), 'W': str(wt)}.get(cwd, cwd))
     assert bool(got) == (want == 'deny'), command
+
+
+# A failed cd before ; or a newline (no such directory, or a quoted literal ~ or $) moves nothing: the old cwd
+# resolves. After && the chain stops, so that cd is still trusted.
+@pytest.mark.parametrize('command', [
+    'cd {B}/nope ; rm config/agent.yaml', 'cd {B}/nope\nrm config/agent.yaml', 'cd ~/nope ; rm config/agent.yaml',
+    'cd {B}/nope ; sed -i s/a/b/ launch/robot.launch.py', 'cd {B}/nope\nsed -i s/a/b/ {H}',
+    "cd '~/wt' ; sed -i s/a/b/ {H}", "cd '$HOME/wt' ; rm config/agent.yaml", 'cd "~/wt"\nrm config/agent.yaml',
+    "cd '~/wt'\nsed -i s/a/b/ launch/robot.launch.py"])
+def test_a_failed_cd_before_a_semicolon_keeps_the_old_cwd(home_trees, command):
+    live, wt, base = home_trees
+    command = command.format(B=base, H=HOOK_FILE)
+    assert hook.denied(command, hook.DEFAULTS, cwd=str(live)), command
+
+
+def test_a_cd_that_works_or_stops_the_chain_still_resolves(home_trees):
+    live, wt, base = home_trees
+    for command in ("cd '~/wt' && rm config/agent.yaml",
+                    'cd ~/wt ; rm config/agent.yaml', 'cd "$HOME/wt"\nrm config/agent.yaml'):
+        assert hook.denied(command, hook.DEFAULTS, cwd=str(live)) is None, command
 
 
 @pytest.mark.parametrize('read', READS)

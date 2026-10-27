@@ -535,18 +535,17 @@ def parse(text, bodies=None):
     return build(tokens_of(text), bodies)
 
 
-# A heredoc body fed to one of these (any word of its pipeline) is code; fed to anything else it is data.
-RUNS_STDIN = re.compile(r'(?:[bdkcz]|tc|fi|a|ba)?sh|python[\d.]*|pypy\d*|perl\d*|ruby|node|deno|bun|php|lua|tclsh'
-                        r'|osascript|expect|ssh|scp|docker|podman|kubectl|nsenter|eval|source|\.|exec|xargs|parallel'
-                        r'|sudo|su|doas|env|nohup|setsid|time|timeout|nice|chrt|stdbuf|script|tmux|screen|at|batch'
-                        r'|crontab|awk|gawk|mawk|sed|ed|ex|vim?|nvim|git|make|ros2|uv|pixi|conda|tee|dd|sponge|install')
+# A heredoc body is data only when every command of its pipeline is one of these readers (an allowlist: an
+# unlisted interpreter, debugger or database shell such as ipython, gdb -batch or sqlite3 may run it).
+READS_STDIN = re.compile(r'codex-task|codex-ideate|cat|head|tail|wc|sort|uniq|cut|tr|grep|true|:')
 STDIN_SINKS = re.compile(r'\(\s*\)|\balias\b|\bfunction\b')    # a function or alias can hide the reader
 
 
 def code_of(command):
     """``command`` without the heredoc bodies that are only data: the body of ``codex-task N <<'EOF'`` is a
-    prompt, not shell. A body stays when anything could run it: a shell or interpreter (``RUNS_STDIN``)
-    anywhere in its pipeline, a file written there (``cat > f <<EOF`` may be a script run next), a pipe
+    prompt, not shell. A body stays when anything could run it: a command in its pipeline that is
+    not a known data reader (``READS_STDIN``), a file written there (``cat > f <<EOF`` may be a script run next,
+    so its body is searched: ordinary notes pass, a live write named in it denies), a pipe
     continued past the line, a ``$(...)``, backtick or ``<(...)`` on the line or (unquoted delimiter) in
     the body, a word the hook cannot read (``$X``), or a function or alias in the call."""
     text = command.replace('\\\n', '')
@@ -575,7 +574,9 @@ def code_of(command):
             pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
             data = pipe is not None and not risky and not (
                 not match.group(1) and re.search(r'\$\(|`', '\n'.join(body))) and not any(
-                c['writes'] or any('$' in w or RUNS_STDIN.fullmatch(os.path.basename(w)) for w in c['argv'])
+                c['writes'] or any('$' in w for w in c['argv'])
+                or not READS_STDIN.fullmatch(os.path.basename(next(
+                    (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
                 for c in pipe)
             out += ([] if data else body) + ([] if end is None else [end])
     return '\n'.join(out)
@@ -685,7 +686,7 @@ def denied(command, config, cwd=None):
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
     if text_only(command):
         return None
-    text, names = links(plain(code_of(command)), cwd), boats(config)
+    text, names = links(plain(failed_cd(code_of(command))), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
@@ -741,12 +742,32 @@ _HOME = r'(?:~|\$HOME\b|\$\{HOME\})(?=/|[\s;&|)]|$)'      # quotes are gone (pla
 _DIR = r'((?:[/~]|\$HOME\b|\$\{HOME\})[^\s;&|`*?\[()]*)'
 
 
+_LEAD_CD = re.compile(r'(\s*(?:cd|pushd)\s+)(\S+?)[ \t]*(?:;|\n)')
+
+
+def failed_cd(command):
+    """``command`` with a NUL before the target of a leading ``cd DIR ;`` (or newline) that fails in the shell, so
+    ``where`` keeps the old directory: a DIR that does not exist (after unquoted ``~``/``$HOME`` expansion) or one
+    quoted with a literal ``~`` or ``$`` (``cd '~/x' ;``). After ``&&`` a failed cd stops the chain, so it is left."""
+    lead = _LEAD_CD.match(command)
+    if not lead:
+        return command
+    word = lead.group(2)
+    if not re.search(r"'[^']*[~$]|\"~", word):
+        found = re.sub('^' + _HOME, lambda m: str(Path.home()), plain(word))
+        if '$' in found or not found.startswith('/') or os.path.isdir(found):
+            return command                              # a variable or relative name: where fails closed as before
+    return command[:lead.end(1)] + '\0' + command[lead.end(1):]
+
+
 def where(whole, cwd):
     """The directory relative names resolve in: the call's ``cwd``, or the literal directory of its only change
-    of directory when that is a leading ``cd DIR`` then ``&&``, ``;`` or a newline, a leading ``env -C DIR`` or a
-    python ``os.chdir(DIR)`` (``~``, ``$HOME`` and ``${HOME}`` expanded, any other ``$`` fails closed); None when it
-    changes directory otherwise (fail closed)."""
+    of directory when that is a leading ``cd DIR`` then ``&&``, ``;`` or a newline (``cwd`` when ``failed_cd`` marked
+    it), a leading ``env -C DIR`` or a python ``os.chdir(DIR)`` (``~``, ``$HOME`` and ``${HOME}`` expanded, any
+    other ``$`` fails closed); None when it changes directory otherwise (fail closed)."""
     moves = MOVES.findall(whole)
+    if len(moves) == 1 and re.match(r'\s*(?:cd|pushd)\s+\0', whole):             # failed_cd: it never moved
+        return cwd
     lead = (re.match(r'\s*(?:cd|pushd)\s+' + _DIR + r'[ \t]*(?:&&|;|\n)', whole)
             or re.match(r'\s*env\s+(?:-\S+\s+)*?(?:-C\s*|--chdir[= ])' + _DIR + r'\s', whole)
             or re.search(r'\bchdir\(\s*' + _DIR + r'\s*\)', whole))
