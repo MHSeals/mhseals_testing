@@ -256,10 +256,12 @@ def stats(values, binary=False):
     return out
 
 
-def batch(records, points_at_least=None, unjudged=()):
+def batch(records, points_at_least=None, unjudged=(), excluded=(), procedure='mission'):
     """Aggregate per metric across runs; sources and course seeds are listed; reliability
     (failure rate, categories, finals view) when the reports carry it. ``unjudged``: run
-    records without files (``reliability.unjudged``), counted in reliability only."""
+    records without files (``reliability.unjudged``), counted in reliability only.
+    ``excluded``: run records of another procedure than the batch's ({run_id, procedure_key}),
+    listed by key with their count and counted nowhere else."""
     rows = [metrics(r) for r in records]
     keys = sorted({k for r in rows for k in r})
     out = dict(runs=len(records),
@@ -277,6 +279,11 @@ def batch(records, points_at_least=None, unjudged=()):
         out['reliability'] = reliability.batch(records, points_at_least, unjudged)
     if unjudged:
         out['runs_unjudged'] = len(unjudged)
+    out['procedure'] = procedure
+    if excluded:
+        keys = [e['procedure_key'] for e in excluded]
+        out['excluded'] = [dict(procedure_key=k, count=keys.count(k))
+                           for k in sorted(set(keys), key=str)]
     return out
 
 
@@ -451,14 +458,16 @@ def paired(pairs_file, force=False, margin=None):
     return result
 
 
-def _records(paths):
-    """(scored, unjudged): every run under ``paths``. Each run record of a session: one that
+def _records(paths, procedure='mission'):
+    """(scored, unjudged, excluded): every run of ``procedure`` under ``paths``; the records of
+    other procedures are ``excluded`` ({run_id, procedure_key, session}). Each run record of
+    a session: one that
     links its files is scored (its session-level track is a copy of the latest run, so it is
     not counted again); one without (aborted, cancelled, errored, refused; or, dc042f84, a
     started run whose partial links hold nothing to score) is classified from its journal and
     record (``reliability.unjudged``). A session without run records is
     scored as a whole."""
-    out, unjudged, seen = [], [], set()
+    out, unjudged, excluded, seen = [], [], [], set()
     for root in paths:
         sessions = sorted({p.parent for p in Path(root).glob('**/track.jsonl')}
                           | {p.parent.parent for p in Path(root).glob('**/runs/*.json')})
@@ -467,7 +476,9 @@ def _records(paths):
             if session.parent.name == 'runs' and own.exists() or session in seen:
                 continue                    # a run's own copy: scored through its record
             seen.add(session)
-            runs = run_record.all_runs(session)
+            others = []
+            runs = run_record.all_runs(session, procedure, others)
+            excluded += [dict(e, session=session.name) for e in others]
             for r in runs:
                 end = run_record.record_end(r)
                 if run_record.has_files(r):
@@ -479,9 +490,9 @@ def _records(paths):
                             raise
                 u = reliability.unjudged(r, *run_record.harness_end(session, r))
                 unjudged.append(dict(u, session=session.name))
-            if not runs and (session / 'track.jsonl').exists():
+            if not runs and not others and (session / 'track.jsonl').exists():
                 out.append(analyze(session)[1])
-    return out, unjudged
+    return out, unjudged, excluded
 
 
 def main(argv=None, out=None):
@@ -490,6 +501,9 @@ def main(argv=None, out=None):
     parser.add_argument('--json', action='store_true', help='print the record that was written')
     parser.add_argument('--batch', action='store_true', help='score every session under it')
     parser.add_argument('--compare', metavar='DIR', help='with --batch: a second batch (B - A)')
+    parser.add_argument('--procedure', default='mission', metavar='KEY',
+                        help="with --batch: the procedure key whose runs count (default mission); "
+                             'runs of other keys are listed as excluded')
     parser.add_argument('--paired', action='store_true',
                         help='SESSION is a pair file (jsonl rows {a_session, b_session, seed, '
                              'order}): B - A per pair, across tiers (fast<->Unity, Unity<->real)')
@@ -516,12 +530,12 @@ def main(argv=None, out=None):
         return 0
     if args.batch:
         try:
-            scored, unjudged = _records([args.session])
-            first = batch(scored, args.points_at_least, unjudged)
+            scored, unjudged, excluded = _records([args.session], args.procedure)
+            first = batch(scored, args.points_at_least, unjudged, excluded, args.procedure)
             result = dict(schema='mhseals.score_batch/1', a=first)
             if args.compare:
-                scored, unjudged = _records([args.compare])
-                second = batch(scored, args.points_at_least, unjudged)
+                scored, unjudged, excluded = _records([args.compare], args.procedure)
+                second = batch(scored, args.points_at_least, unjudged, excluded, args.procedure)
                 result.update(b=second, b_minus_a=compare(first, second, args.force))
                 decision = decide(first, second, result['b_minus_a'], args.failure_margin)
                 if decision:

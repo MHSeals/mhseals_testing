@@ -339,19 +339,37 @@ def judged_runs(session):
     return out
 
 
-def all_runs(session):
-    """Every run record under ``<session>/runs`` in run order, with or without files (v7: an
-    aborted, cancelled, errored or refused run is still a run of the batch). A record with the
-    writer's outcome fields (``has_outcome``) is always kept, whatever its procedure title (real
-    runs are titled 'Mission rehearsal'). An older record without files is kept only with no
-    ``procedure`` or ``mission`` (v7)."""
+def all_runs(session, procedure='mission', excluded=None):
+    """Every run record of ``procedure`` under ``<session>/runs`` in run order, with or without
+    files (v7: an aborted, cancelled, errored or refused run is still a run of the batch). A
+    record that names its ``procedure_key`` (testing, the agent name: ``mission``, ``square``) is
+    kept when it is ``procedure``; another key's record is appended to ``excluded`` (when given)
+    as {run_id, procedure_key}, never silently dropped. The title (``Mission rehearsal``) is
+    display only and never matched. Older records without the key are mission runs: one with
+    the writer's outcome fields (``has_outcome``) or files is kept, one with neither only with no
+    ``procedure`` or ``mission`` (v7); in another procedure's batch they are excluded
+    (key None)."""
     out = []
     for target in sorted(Path(session).glob('runs/*.json')):
         run = data.read_json(target)
-        v7 = run.get('procedure') in (None, 'mission') if isinstance(run, dict) else False
-        if isinstance(run, dict) and (has_files(run) or has_outcome(run) or v7):
+        if not isinstance(run, dict):
+            continue
+        key = procedure_key(run)
+        v7 = has_files(run) or has_outcome(run) or run.get('procedure') in (None, 'mission')
+        if key is None and not v7:
+            continue                        # an older record v7 never counted
+        if key == procedure or key is None and procedure == 'mission':
             out.append(run)
+        elif excluded is not None:
+            excluded.append(dict(run_id=run.get('run_id', target.stem), procedure_key=key))
     return out
+
+
+def procedure_key(run):
+    """The record's stable procedure key (``procedure_key``, top level or in ``result``), or None
+    for an older record."""
+    run = run or {}
+    return run.get('procedure_key') or (run.get('result') or {}).get('procedure_key')
 
 
 def has_outcome(run):

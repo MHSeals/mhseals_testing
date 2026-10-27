@@ -223,7 +223,7 @@ def test_an_aborted_run_without_files_is_a_failure_and_a_refusal_is_listed(tmp_p
                   cause='lost localization', t_ns=1793001010000000000))
     _run(folder, '005-mission', verdict='ABORTED')
     _run(folder, '006-mission', verdict='REFUSED', reason='sim not reset to the course start')
-    scored, unjudged = sa._records([tmp_path / 'batch'])
+    scored, unjudged, _ = sa._records([tmp_path / 'batch'])
     assert [r['run']['run_id'] for r in scored] == ['004-mission']
     got = sa.batch(scored, unjudged=unjudged)['reliability']
     base = int(not scored[0]['reliability']['clean'])     # the fixture run, fully known
@@ -277,7 +277,7 @@ def test_writer_records_refusals_and_cancels_before_launch_are_not_started(tmp_p
     folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
     _writer(folder, 'refused', '005-mission')
     _writer(folder, 'cancelled', '006-mission')
-    scored, unjudged = sa._records([tmp_path / 'batch'])
+    scored, unjudged, _ = sa._records([tmp_path / 'batch'])
     assert [r['run']['run_id'] for r in scored] == ['004-mission']
     got = sa.batch(scored, unjudged=unjudged)['reliability']
     assert got['runs'] == 1 and got['not_started']['n'] == 2
@@ -291,7 +291,7 @@ def test_writer_records_started_and_failed_are_failures_scoring_their_partial_tr
     folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
     _writer(folder, 'aborted', '005-mission', track_rows=60)    # partial track, no journal
     _writer(folder, 'errored', '006-mission')                    # linked track never written
-    scored, unjudged = sa._records([tmp_path / 'batch'])
+    scored, unjudged, _ = sa._records([tmp_path / 'batch'])
     assert [r['run']['run_id'] for r in scored] == ['004-mission', '005-mission']
     aborted = scored[1]['reliability']
     assert aborted['flags']['mission_failure']['failed'] is True
@@ -349,7 +349,7 @@ def test_real_titled_refused_cancelled_and_errored_before_link_runs_are_kept(tmp
     other = dict(run_id='014-waypoints', procedure='Waypoint square',
                  result=dict(verdict='ABORTED', files={}))  # an older non-mission record
     (folder / 'runs' / '014-waypoints.json').write_text(json.dumps(other))
-    scored, unjudged = sa._records([tmp_path / 'batch'])
+    scored, unjudged, _ = sa._records([tmp_path / 'batch'])
     assert len(scored) == 4
     got = sa.batch(scored, unjudged=unjudged)['reliability']
     assert got['runs'] == 8                                 # 6 before: 010 and 011 vanished
@@ -359,3 +359,29 @@ def test_real_titled_refused_cancelled_and_errored_before_link_runs_are_kept(tmp
         "outcome 'error' by harness (TypeError: bad stream)"
     assert got['not_started']['n'] == 2
     assert [r['run_id'] for r in got['not_started']['runs']] == ['012-mission', '013-mission']
+
+
+def _keyed(folder, name, run_id, key, title, track_rows=None, **result):
+    """``_titled``'s record with the writer's ``procedure_key`` (top level and in ``result``)."""
+    run = _titled(folder, name, run_id, track_rows, **result)
+    run['procedure'] = run['result']['procedure'] = title
+    run['procedure_key'] = run['result']['procedure_key'] = key
+    (folder / 'runs' / f'{run_id}.json').write_text(json.dumps(run))
+    return run
+
+
+def test_a_mixed_session_counts_only_the_batch_procedure_and_lists_the_others(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
+    _keyed(folder, 'aborted', '005-mission', 'mission', 'Mission rehearsal', track_rows=60)
+    _keyed(folder, 'refused', '006-waypoint-square', 'square', 'Waypoint square')  # outcome
+    scored, unjudged, excluded = sa._records([tmp_path / 'batch'])
+    assert [r['run']['run_id'] for r in scored] == ['004-mission', '005-mission']  # 004: no key
+    assert unjudged == [] and excluded == [
+        dict(run_id='006-waypoint-square', procedure_key='square', session='s')]
+    got = sa.batch(scored, unjudged=unjudged, excluded=excluded)
+    assert got['runs'] == 2 and got['reliability']['runs'] == 2  # the square is no run
+    assert (got['procedure'], got['excluded']) == (
+        'mission', [dict(procedure_key='square', count=1)])
+    scored, unjudged, excluded = sa._records([tmp_path / 'batch'], procedure='square')
+    assert scored == [] and [u['run_id'] for u in unjudged] == ['006-waypoint-square']
+    assert [e['procedure_key'] for e in excluded] == [None, 'mission']  # 004: v7 mission
