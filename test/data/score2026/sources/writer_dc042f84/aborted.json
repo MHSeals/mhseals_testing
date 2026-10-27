@@ -1,0 +1,21 @@
+{
+ "schema": "mhseals.run/1",
+ "run_id": "001-mission",
+ "procedure": "mission",
+ "status": "ABORTED",
+ "result": {
+  "outcome": "aborted",
+  "cause": "guard:hold",
+  "by": "guard",
+  "started": true,
+  "time_limit_s": 720.0,
+  "run_start_t": 4.0,
+  "run_start_t_ns": 7,
+  "files": {
+   "track": "runs/001-mission/track.jsonl"
+  },
+  "procedure": "mission",
+  "results": [],
+  "reason": "guard stop"
+ }
+}

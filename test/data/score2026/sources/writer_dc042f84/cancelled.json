@@ -1,0 +1,15 @@
+{
+ "schema": "mhseals.run/1",
+ "run_id": "001-mission",
+ "procedure": "mission",
+ "status": "ABORTED",
+ "result": {
+  "outcome": "cancelled",
+  "cause": "cancelled",
+  "started": false,
+  "files": {},
+  "procedure": "mission",
+  "results": [],
+  "reason": ""
+ }
+}

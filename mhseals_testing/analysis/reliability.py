@@ -139,12 +139,14 @@ def unjudged(run, started, mission_stop=None):
     result = run.get('result') or {}
     verdict = str(result.get('verdict') or '').upper()
     status = str(run.get('status') or '').upper()
-    why = (result.get('reason') or result.get('error') or
+    why = (result.get('cause') or result.get('reason') or result.get('error') or
            '; '.join(map(str, result.get('reasons') or [])) or None)
     base = dict(run_id=run.get('run_id'), verdict=verdict or None, status=status or None)
     if not started:
+        how = result.get('outcome')             # dc042f84: a run cancelled before launch
         return dict(base, outcome='not_started', clean=None, failed=[], unknown=list(CATEGORIES),
-                    flags={}, cause='not started (harness refusal)'
+                    flags={}, cause=('not started (harness refusal)' if how in (None, 'refused')
+                                     else f'not started ({how})')
                     + (f': {why}' if why else f' (verdict {verdict or "none"})'))
     if mission_stop is not None and mission_stop.get('outcome') == 'complete':
         bad = None

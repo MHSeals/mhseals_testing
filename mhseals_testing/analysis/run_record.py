@@ -221,8 +221,10 @@ def _files(session, run, time_limit_s):
     result = (run or {}).get('result') or {}
     files = result.get('files') or {}
 
-    def at(key):
-        return session / files.get(key, f'{key}.jsonl')
+    def at(key):    # a record with outcome fields links exactly what the run wrote: no fallback
+        if key in files or not has_outcome(run):     # to the session's latest-run files
+            return session / files.get(key, f'{key}.jsonl')
+        return session / 'runs' / str(run.get('run_id')) / f'{key}.unlinked'
     track = [(r['t'], r['x'], r['y'], r.get('yaw') or 0.0)
              for r in data.read_jsonl(at('track')) if {'t', 'x', 'y'} <= set(r)]
     if not track:
@@ -254,7 +256,7 @@ def _files(session, run, time_limit_s):
         if approximate and any(c['value'] != 'off' for c in heard):
             horn_note = 'the horn time is aligned on mission_start, not the launch'
     claims = at('task_events').exists() or at('task_status').exists()
-    stop = (part or {}).get('ended')
+    stop = (part or {}).get('ended') or record_end(run)
     return dict(session=session, run_id=(run or {}).get('run_id'), meta=meta, truth=truth,
                 authority_known=offset is not None,
                 mission_stop=None if not stop else {k: stop.get(k)
@@ -315,7 +317,11 @@ def run_of(path):
     path = Path(path)
     if path.suffix == '.json' and path.parent.name == 'runs':
         run = data.read_json(path)
-        if not ((run or {}).get('result') or {}).get('files'):
+        if not has_files(run):
+            result = (run or {}).get('result') or {}
+            if result.get('started') is False:
+                raise Refused(f'{path.name}: not started ({result.get("outcome")}): '
+                              f'{result.get("cause")}')
             raise Refused(f'{path.name}: the run record links no track (the run was not judged)')
         return path.parent.parent, run
     if not path.is_dir():
@@ -328,7 +334,7 @@ def judged_runs(session):
     out = []
     for target in sorted(Path(session).glob('runs/*.json')):
         run = data.read_json(target)
-        if ((run or {}).get('result') or {}).get('files'):
+        if has_files(run):
             out.append(run)
     return out
 
@@ -345,9 +351,30 @@ def all_runs(session):
     return out
 
 
+def has_outcome(run):
+    """The record carries the writer's outcome fields (``result.outcome``, testing dc042f84)."""
+    return 'outcome' in ((run or {}).get('result') or {})
+
+
 def has_files(run):
-    """The run record links its own files (a judged run)."""
-    return bool(((run or {}).get('result') or {}).get('files'))
+    """The run can be scored from its own files. Older records: they link files (only judged
+    runs did). Records with outcome fields (``files`` always present, ``{}`` before launch,
+    partial on abort or error): the run started and links a track."""
+    result = (run or {}).get('result') or {}
+    if not has_outcome(run):
+        return bool(result.get('files'))
+    return result.get('started') is not False and bool((result.get('files') or {}).get('track'))
+
+
+def record_end(run):
+    """The record's own run end in ``mission_stop``'s shape ({outcome, by, cause}), or None
+    for an older record or one that never started. ``complete`` stays ``complete``; aborted,
+    cancelled and error keep their names and cause (the journal's stop, when present, wins)."""
+    result = (run or {}).get('result') or {}
+    if not has_outcome(run) or result.get('started') is False:
+        return None
+    return dict(outcome=result['outcome'], by=result.get('by') or 'harness',
+                cause=result.get('cause'))
 
 
 def harness_end(session, run):
@@ -355,9 +382,12 @@ def harness_end(session, run):
     journal has its ``mission_start`` or the record a run start."""
     part = journal(Path(session) / 'events.jsonl', run.get('run_id'))
     result = run.get('result') or {}
-    started = part is not None or any(k in result for k in ('run_start_t', 'run_start_t_ns'))
+    started = result['started'] if isinstance(result.get('started'), bool) else (
+        part is not None or any(k in result for k in ('run_start_t', 'run_start_t_ns')))
     stop = (part or {}).get('ended')
-    return started, None if not stop else {k: stop.get(k) for k in ('outcome', 'by', 'cause')}
+    if stop:
+        return started, {k: stop.get(k) for k in ('outcome', 'by', 'cause')}
+    return started, record_end(run)
 
 
 def load(path, time_limit_s=None):

@@ -248,3 +248,78 @@ def test_a_started_run_record_without_stop_or_files_reads_its_verdict():
     assert unknown['outcome'] == 'unknown' and not rel.known(unknown)
     refused = rel.unjudged(dict(run_id='r', result=dict(verdict='REFUSED')), False)
     assert refused['outcome'] == 'not_started'
+
+
+# ---- v8: the writer's outcome fields (testing mission-run-referee-fields dc042f84)
+
+WRITER = SOURCES / 'writer_dc042f84'     # the writer's test_app.py records, verbatim
+
+
+def _writer(folder, name, run_id, track_rows=None):
+    """The writer's own run record from its tests (test_app.py, dc042f84) as run ``run_id`` of
+    the unity fixture: links and clocks moved onto that run; ``track_rows`` of 004's track
+    are written as its partial track (None: the linked file is absent)."""
+    run = json.loads((WRITER / f'{name}.json').read_text())
+    run['run_id'] = run_id
+    result = run['result']
+    if result['files']:
+        result['files'] = {'track': f'runs/{run_id}/track.jsonl'}
+        result.update(run_start_t=1000.0, run_start_t_ns=1793001000000000000)
+    if track_rows is not None:
+        rows = (folder / 'runs' / '004-mission' / 'track.jsonl').read_text().splitlines()
+        (folder / 'runs' / run_id).mkdir()
+        (folder / 'runs' / run_id / 'track.jsonl').write_text('\n'.join(rows[:track_rows]) + '\n')
+    (folder / 'runs' / f'{run_id}.json').write_text(json.dumps(run))
+    return run
+
+
+def test_writer_records_refusals_and_cancels_before_launch_are_not_started(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
+    _writer(folder, 'refused', '005-mission')
+    _writer(folder, 'cancelled', '006-mission')
+    scored, unjudged = sa._records([tmp_path / 'batch'])
+    assert [r['run']['run_id'] for r in scored] == ['004-mission']
+    got = sa.batch(scored, unjudged=unjudged)['reliability']
+    assert got['runs'] == 1 and got['not_started']['n'] == 2
+    assert [r['cause'] for r in got['not_started']['runs']] == [
+        'not started (harness refusal): no time limit: x', 'not started (cancelled): cancelled']
+    with pytest.raises(sa.Refused, match=r'not started \(refused\): no time limit: x'):
+        sa.analyze(folder / 'runs' / '005-mission.json')
+
+
+def test_writer_records_started_and_failed_are_failures_scoring_their_partial_track(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
+    _writer(folder, 'aborted', '005-mission', track_rows=60)    # partial track, no journal
+    _writer(folder, 'errored', '006-mission')                    # linked track never written
+    scored, unjudged = sa._records([tmp_path / 'batch'])
+    assert [r['run']['run_id'] for r in scored] == ['004-mission', '005-mission']
+    aborted = scored[1]['reliability']
+    assert aborted['flags']['mission_failure']['failed'] is True
+    assert "outcome 'aborted' by guard (guard:hold)" in aborted['flags']['mission_failure'][
+        'causes'][0]
+    assert aborted['clean'] is False
+    assert [u['cause'] for u in unjudged] == ["outcome 'error' by harness (TypeError: bad stream)"]
+    got = sa.batch(scored, unjudged=unjudged)['reliability']
+    assert got['by_category']['mission_failure']['k'] == 2
+
+
+def test_partial_links_do_not_fall_back_to_the_session_latest_run_files(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 's')
+    (folder / 'task_status.jsonl').write_text('{"t": 1001.0, "task": "x", "status": "done"}\n')
+    _writer(folder, 'aborted', '005-mission', track_rows=60)
+    from mhseals_testing.analysis import run_record
+    rec = run_record.load(folder / 'runs' / '005-mission.json')
+    assert rec['statuses'] == [] and rec['task_events'] == [] and rec['caps']['claims'] is False
+
+
+def test_a_complete_writer_record_scores_like_the_v7_record(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 's')
+    before = sa.analyze(folder / 'runs' / '004-mission.json')[1]
+    path = folder / 'runs' / '004-mission.json'
+    run = json.loads(path.read_text())
+    done = json.loads((WRITER / 'completed.json').read_text())['result']
+    run['result'].update({k: done[k] for k in ('outcome', 'cause', 'started')})
+    path.write_text(json.dumps(run))
+    after = sa.analyze(path)[1]
+    for key in ('tasks', 'penalties', 'total', 'claims', 'reliability'):
+        assert after[key] == before[key], key

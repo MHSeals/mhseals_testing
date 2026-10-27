@@ -1,0 +1,22 @@
+{
+ "schema": "mhseals.run/1",
+ "run_id": "001-mission",
+ "procedure": "mission",
+ "status": "MEASURED",
+ "result": {
+  "outcome": "refused",
+  "cause": "no time limit: x",
+  "started": false,
+  "files": {},
+  "procedure": "mission",
+  "results": [
+   {
+    "procedure": "mission",
+    "task": "mission",
+    "verdict": "REFUSED",
+    "reason": "no time limit: x",
+    "run_id": "001-mission"
+   }
+  ]
+ }
+}

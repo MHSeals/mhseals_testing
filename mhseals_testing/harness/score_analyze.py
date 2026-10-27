@@ -454,8 +454,9 @@ def paired(pairs_file, force=False, margin=None):
 def _records(paths):
     """(scored, unjudged): every run under ``paths``. Each run record of a session: one that
     links its files is scored (its session-level track is a copy of the latest run, so it is
-    not counted again); one without (aborted, cancelled, errored, refused) is classified from
-    its journal and record (``reliability.unjudged``). A session without run records is
+    not counted again); one without (aborted, cancelled, errored, refused; or, dc042f84, a
+    started run whose partial links hold nothing to score) is classified from its journal and
+    record (``reliability.unjudged``). A session without run records is
     scored as a whole."""
     out, unjudged, seen = [], [], set()
     for root in paths:
@@ -468,11 +469,16 @@ def _records(paths):
             seen.add(session)
             runs = run_record.all_runs(session)
             for r in runs:
+                end = run_record.record_end(r)
                 if run_record.has_files(r):
-                    out.append(analyze(session / 'runs' / f"{r['run_id']}.json")[1])
-                else:
-                    u = reliability.unjudged(r, *run_record.harness_end(session, r))
-                    unjudged.append(dict(u, session=session.name))
+                    try:
+                        out.append(analyze(session / 'runs' / f"{r['run_id']}.json")[1])
+                        continue
+                    except Refused:     # a partial link with nothing to score: the end decides
+                        if not end or end['outcome'] == 'complete':
+                            raise
+                u = reliability.unjudged(r, *run_record.harness_end(session, r))
+                unjudged.append(dict(u, session=session.name))
             if not runs and (session / 'track.jsonl').exists():
                 out.append(analyze(session)[1])
     return out, unjudged
