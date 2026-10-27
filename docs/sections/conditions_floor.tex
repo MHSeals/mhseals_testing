@@ -1,0 +1,90 @@
+\section{The wave floor and the sea}
+\label{sec:cond-floor}
+
+The pure estimator returns the SD of an 8\,s neutral window mean, ordered
+(yaw, surge, sway), once a current drift pool exists. Per-channel spectral levels
+use all usable windows, while residuals use the current pool:
+\[
+ \sigma_{\mathrm{wave},k}^2=\max\left(\frac{S_{0,k}}{\Tw},
+             \frac{\sum_{w\in\mathrm{pool}} e_{w,k}^2}{W-1}\right).
+\]
+Yaw residuals subtract the pool's mean yaw rate. Surge and sway residuals are
+$R(\psi_w)^\top(\bm m_w-\dhat)$; they are not separately demeaned after rotation.
+The mean floor supplies readiness ceilings.
+
+\paragraph{Saved characterization noise.} The characterization record's
+\code{wave\_floor} is a per-sample neutral SD. It skips the configured
+transient/coast interval or the last driven axis's $t_{95}$, whichever is larger,
+and demeans each retained neutral window before pooling its residuals:
+\[
+ \sigma_{\mathrm{saved},k}^2=\frac{\sum_w\sum_{i\in w}(x_{i,k}-\bar x_{w,k})^2}{N-1}.
+\]
+This is distinct from the window-mean floor above.
+
+\subsection{Why the floor is measured, not predicted from the waves}
+
+It is tempting to predict the floor from the wave height. It does not work, and
+the reason is instructive. Waves on a pond are narrow-band: a period $T_p$ of 1 to
+4\,s. The mean of a sinusoid $A\sin(\omega t + \varphi)$ over a window of length
+$T$ is
+\[
+  \frac1T\int_0^T A\sin(\omega t+\varphi)\,dt = \frac{A}{\omega T}\big(\cos\varphi - \cos(\omega T + \varphi)\big),
+\]
+and since the bracket is at most 2 in size,
+\[
+  |\text{mean}| \le \frac{2A}{\omega T} = \frac{A\,T_p}{\pi T}.
+\]
+An 8\,s window removes at least 88\,\% of a 3\,s swell's amplitude, more for shorter
+periods, and the bound falls as $1/T$ (Figure~\ref{fig:cond-narrowband}). So the
+swell the eye sees contributes little to the floor. What remains is the slow part:
+gusts, weathervaning, slow yaw. Those do not show in a wave-height number, so the
+floor is always measured from window means.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.6\linewidth, height=5cm, xlabel={window length $T$ (s)},
+  ylabel={$|\text{mean}|/A$, worst phase}, xmin=0.5, xmax=10, ymin=0, ymax=1.05,
+  legend style={at={(1.03,0.5)}, anchor=west},
+  grid=major, grid style={gray!20}]
+  \addplot[blue!50, thick, dotted] table[x=T, y=w1] {figures/conditions/narrowband.dat};
+  \addlegendentry{$T_p = 1$\,s}
+  \addplot[sA, very thick] table[x=T, y=w3] {figures/conditions/narrowband.dat};
+  \addlegendentry{$T_p = 3$\,s}
+  \addplot[blue!60!black, thick, dashed] table[x=T, y=w4] {figures/conditions/narrowband.dat};
+  \addlegendentry{$T_p = 4$\,s}
+  \addplot[red, dashed] table[x=T, y=b3] {figures/conditions/narrowband.dat};
+  \addlegendentry{bound $T_p/(\pi T)$, $T_p = 3$\,s}
+  \draw[gray] (axis cs:8,0) -- (axis cs:8,1.05) node[pos=0.95, left, font=\scriptsize] {$\Tw$};
+  \fill[red] (axis cs:8,0.119) circle (1.5pt) node[above right, font=\scriptsize] {$0.12$};
+\end{axis}
+\end{tikzpicture}
+\caption{How much of a swell survives a window mean, at the worst phase. At
+$\Tw = 8$\,s the bound for a 3\,s swell is $0.12$: at least 88\,\% removed. Data:
+\code{figures/conditions/narrowband.dat}.}
+\label{fig:cond-narrowband}
+\end{figure}
+
+\subsection{Sea: shown, never gating}
+
+The service's sea display uses the standard deviation of supplied neutral
+yaw-rate samples. The pure \code{sea\_state} function instead accepts native IMU
+samples over the last 30\,s, subtracts least-squares linear trends, and reports
+RMS yaw rate, RMS combined roll/pitch rate, and RMS vertical specific-force
+residual. It requires at least four finite samples and feeds no gate.
+
+\subsection{The gyro bias}
+
+For reliable yaw and at least three finite samples spanning 20\,s, the pure
+estimator unwraps compass heading and fits its slope using all samples:
+\[
+ x_i=t_i-\bar t,\qquad
+ b_r=\bar r+\frac{\sum_i x_i(\psi_{c,i}-\bar\psi_c)}{\sum_i x_i^2},\qquad
+ \sed(b_r)^2=\frac{\sum_i(\psi_{c,i}-\bar\psi_c-\hat\beta_c x_i)^2}
+ {(n-2)\sum_i x_i^2}.
+\]
+The plus sign cancels a true turn because FLU gyro yaw is counter-clockwise
+and compass heading is clockwise. The service does not supply this bias error
+to its ceiling calculation.
+
+\file{mhseals\_testing/analysis/conditions.py (wave\_floor, sea\_state, gyro\_bias), analysis/characterization.py (neutral\_noise), harness/conditions.py (\_sea)}

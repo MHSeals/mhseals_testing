@@ -1,88 +1,70 @@
 \section{The calibrated velocity controller}
 \label{sec:controller}
 
-Nav2 asks for a body velocity $\bm v^*$. The controller turns it into effort in
-three parts: invert the model (feed-forward), cancel the day's drift (an
-observer), and correct whatever is left with feedback on the measured velocity
-$\bm v$:
+The controller clips the desired body velocity to the measured axis limits,
+subtracts the configured mechanical bias and the body-frame drift, then
+inverts each signed speed curve and adds PI feedback.
+
+\paragraph{Per-direction inversion.} For each axis, the sign of the requested
+water-relative speed $v$ selects the stored $(d_1,d_2)$:
 \[
-  \bm e = \underbrace{G_\text{eff}^{-1}\Big(\bm v^\star - \bm b_m - \begin{bmatrix}R(\psi)^\top\hat{\bm d}\\0\end{bmatrix}\Big)}_{\text{feed-forward}}
-        + K_p\,\bm\epsilon + K_i\,\bm z,\qquad
-  \bm v^\star = \operatorname{clip}(\bm v^*),\quad \bm\epsilon = \bm v^\star - \bm v,
+  w=d_1v+d_2v|v|=e|e|,\qquad F_j(v)=\sgn(w)\sqrt{|w|}.
 \]
-with $\bm e$ finally clipped to $[-1,1]$. $\operatorname{clip}$ limits the
-request to the measured velocity limits, and the error is taken against that
-limited request, so the loop never chases a speed the boat cannot reach.
-$G_\text{eff} = G\,C$ is the gain the boat shows through the driver's decoupling
-(Section~\ref{sec:mixer}).
+A direction without a stored curve uses the diagonal gain's linear fallback.
+The observer's $V_j(e_j)$ denotes the corresponding steady speed, with the
+curve selected by the effort sign.
 
-\paragraph{The drift observer.} The characterization reports the drift on the
-day it ran, but current and wind change. So the controller estimates the drift
-$\hat{\bm d}$ continuously, in the world frame where it is constant. Each
-odometry sample says how far the boat is from what the model predicts for the
-effort it is applying:
+\paragraph{The control law.} Let $\bm b_m$ be the body-fixed bias,
+$\hat{\bm d}_w$ the world drift, and $\bm\epsilon=\bm v^\star-\bm v$.
+With $F$ acting per axis,
 \[
-  \bm r = \bm v - \bm b_m - G_\text{eff}\,\bm e .
+  \bm v^\star=\operatorname{clip}(\bm v_{\rm desired},-\bm v_{\max},\bm v_{\max}),\qquad
+  \bm e_{\rm ff}=F\!\left(\bm v^\star-\bm b_m-
+       \begin{bmatrix}R(\psi)^\top\hat{\bm d}_w\\0\end{bmatrix}\right),\qquad
+  \bm e=\operatorname{clip}(\bm e_{\rm ff}+K_p\bm\epsilon+K_i\bm I,-1,1).
 \]
-Under the model the planar part of $\bm r$ is exactly $R(\psi)^\top\bm d$.
-Rotating it back into the world, $R(\psi)\bm r_{xy}$, gives one noisy
-measurement of $\bm d$, and a first-order low-pass filter averages them:
+With feedback disabled, only the clipped feed-forward effort is returned.
+
+\paragraph{Drift residual.} At an accepted odometry sample, subtract the
+bias and predicted steady speed, then rotate the translation residual to world:
 \[
-  \hat{\bm d} \leftarrow \hat{\bm d} + \frac{\Delta t}{\tau + \Delta t}\left(R(\psi)\,\bm r_{xy} - \hat{\bm d}\right).
+  \bm r_w=R(\psi)\left(\bm v-\bm b_m-
+    [V_j(e_j)]_{j=1}^3\right)_{xy},\qquad
+  \bm d_c=\hat{\bm d}_w+\frac{\Delta t}{\tau_d+\Delta t}
+                 (\bm r_w-\hat{\bm d}_w).
 \]
-$\tau$ (5\,s by default) trades noise against how fast a change in the current
-is picked up. Because $\hat{\bm d}$ is kept in the world frame and rotated into
-the body only when it is used, it stays right while the boat turns; a body-frame
-estimate would point the wrong way after a half turn.
+The default drift time constant is $\tau_d=5$\,s.
 
-\paragraph{When to learn.} Under way, $\bm r$ is mostly the model's own error:
-$G$ is a straight line through a curve (thrust grows with the square of the
-pulse), so at speed the boat is a little faster or slower than $G\bm e$ says. An
-observer learning then would take that error for current and, worse, keep it in
-the world frame and turn it with the boat. So it learns only while the boat is
-asked to hold still, $\|\bm v^\star\| \le 0.1$, which is exactly when the effort
-holding the boat in place measures the current. Under way the estimate is held,
-and the integral term covers the rest. The estimate is published on the
-controller's \code{drift} topic, and the boat test's drift line compares it with
-the live velocity.
-
-\paragraph{Integral with conditional integration (anti-windup).} The integral
+\paragraph{Drift-update gates.} Non-finite odometry is discarded. Learning
+requires positive $\tau_d$, positive $\Delta t\le0.2$\,s, every target component
+within $0.1$ of zero, and every effort magnitude below $0.999$. A world-frame
+carried displacement leaks with a 2\,s window and accumulates measured world
+velocity during eligible updates. A displacement projection greater than
+$0.02$\,m along the residual latches that direction. Growth requires a residual
+with positive projection on the latch, and is blocked when it points away from
+a fresh obstacle within $0.5$\,m of the hull (obstacle timeout $0.5$\,s).
+The candidate may shrink or turn without that growth permission:
 \[
-  z_i \leftarrow \operatorname{clip}\!\left(z_i + \epsilon_i\,\Delta t,\; -z_\text{max},\; z_\text{max}\right)
+  L=\begin{cases}d_{\max},&\text{growth permitted},\\
+       \min(\|\hat{\bm d}_w\|,d_{\max}),&\text{otherwise},\end{cases}
+  \qquad \hat{\bm d}_w^{\rm new}
+   =\bm d_c\min\!\left(1,\frac{L}{\|\bm d_c\|}\right),\qquad d_{\max}=0.5\,\text{m/s},
 \]
-removes the steady error the model and the observer leave, such as a gain that is
-slightly off.
+with zero retained when $\bm d_c=0$. Getting under way clears the carry and
+latch; reset also clears them. Drift itself survives reset and turns.
 
-\paragraph{How strong the feedback must be.} A boat that surges at $u$ while
-turning at $r$ needs a sideways force $m\,r\,u$ just to keep its body-frame sway
-at zero (the velocity vector has to turn with the hull). The steady model has no
-such term, so feedback supplies it. For this 30\,kg boat at $u=0.6$\,m/s and
-$r=0.5$\,rad/s that is 9\,N, about a quarter of full sway effort. The gains are
-therefore sized against the gain $G$: with $G\approx1.2$ (m/s per unit effort),
-$K_p=0.8$ makes the loop gain $K_pG\approx1$, so a sway error of 0.3\,m/s is
-answered with a quarter of full effort, and $z_\text{max}=0.3$ lets the integral
-hold it. With the earlier $K_p=0.1$ the boat skidded sideways in every turn.
-\emph{Windup} is what happens when the integral keeps accumulating while the
-output is pinned at its limit: when the boat finally can respond, the stored
-error makes it overshoot. Clipping $z$ bounds the damage. Conditional integration
-prevents it: an axis whose effort is already at $\pm1$ in the direction its error
-pushes stops integrating until it comes off the limit. The integral and the
-applied effort reset when commands stop. The driver goes neutral then, and
-the observer keeps learning from zero effort.
+\paragraph{Conditional integration.} Each component integrates only when its
+pre-update effort is not pinned at $+1$ with positive error or $-1$ with
+negative error. Otherwise its integral remains fixed:
+\[
+  I_j^{\rm new}=\operatorname{clip}(I_j+\epsilon_j\Delta t,-I_{\max,j},I_{\max,j}).
+\]
+The step interval is capped at $0.2$\,s. The default translational proportional gain is $0.8$ and
+$I_{\max,j}=0.3$.
+Command timeout resets the integral and effort.
 
-\paragraph{Stale odometry.} Feedback on an old velocity is worse than none. If
-odometry is older than 0.3\,s the controller outputs zero effort and resets,
-rather than integrating against a frozen measurement.
+\paragraph{Stale odometry.} Missing odometry or a sample older than $0.3$\,s
+resets the controller and returns zero effort. The observer runs in the velocity
+loop and publishes drift in the world frame.
 
-\paragraph{Why feed-forward first.} With a good model the feed-forward term does
-almost all of the work, and the feedback gains can stay small and stable. If
-the model is poor, the controller-steps procedure (Section~\ref{sec:step}) shows
-it as large steady-state error or overshoot.
-
-\paragraph{Why not Nav2, and why not the mixer?} The drift could in principle
-be handled elsewhere. The mixer is the wrong place: it is calibration, and the
-drift is not. Nav2 is too late: its controller plans with a kinematic model that
-has no current in it, so it only sees the drift as position error after the boat
-has already been pushed off the path. The velocity loop runs on measured velocity
-over the ground, at the rate the drift acts, which is why the observer lives there.
-\file{mhseals\_hardware/velocity\_law.py, velocity\_controller.py}
+\file{mhseals\_hardware/velocity\_law.py (Plant, VelocityLaw.step, VelocityLaw.observe), velocity\_controller.py; config/default.yaml}

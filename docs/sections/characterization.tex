@@ -1,62 +1,34 @@
-\section{Least-squares characterization}
+\section{Least squares and characterization}
 \label{sec:char}
 
-To command a velocity we need to know what velocity an effort produces.
+Speed curves, cross responses and magnetic interference are fitted by least
+squares. These models are linear in their unknown coefficients, even when
+their inputs include squares or sign-split efforts. Speed curves and signed
+correction columns are described in Section~\ref{sec:thrust}.
 
-\paragraph{Effort, gain and bias.} \emph{Effort} $\bm{e} = (e_x, e_y, e_\psi)$
-is the body command before the mixer, each axis in $[-1, 1]$: $1$ means as much
-of that axis as the thrusters can give (Section~\ref{sec:mixer}). It is a
-request for force, not a speed. What speed it buys depends on the boat's mass,
-drag and props, so it is measured. The model is affine:
+\subsection{Least squares and the normal equations}
+
+\paragraph{The unknowns, the data and the inputs.} For a measured cross response
+$y$, the column fitter uses an affine function of the two cross-effort ratios
+$c_1,c_2$. Stack the measured holds as rows:
 \[
-  \bm{v} = \bm{b} + G\bm{e},
-\]
-where $\bm v = (v_x, v_y, \omega_z)$ is the steady body velocity, $G\in\R^{3\times3}$
-the \emph{gain} and $\bm{b}$ the \emph{bias}. (This first form treats the bias as
-one constant; the end of this section splits it into the part that belongs to the
-boat and the part that belongs to the day's weather.) $G_{xx}$ is metres per second of
-surge per unit of surge effort; an off-diagonal entry such as $G_{\psi y}$ is
-yaw rate per unit of sway effort, i.e.\ how much asking for sway also turns the
-boat. $\bm b$ is the velocity at zero effort: current, wind, or a thruster that
-never quite stops. Once $G$ and $\bm b$ are known, the controller inverts the
-model, $\bm e = G^{-1}(\bm v^\star - \bm b)$, to turn a wanted velocity
-$\bm v^\star$ into effort (Section~\ref{sec:controller}).
-
-\paragraph{Collecting samples.} The Characterize procedure holds a schedule of
-efforts (each axis both ways at two levels, then combined directions), with
-neutral between them. Every odometry sample $\bm{v}_k$ is paired with the effort
-$\bm{e}_k$ held when it was measured, skipping the first second of each hold so
-the fit sees the response and not the switching transient.
-
-\paragraph{The unknowns, the data and the inputs.} Fit one output axis at a
-time, say $v_x$. Its model is $v_x = b_x + G_{xx}e_x + G_{xy}e_y + G_{x\psi}e_\psi$,
-one equation per sample. Stack the $n$ samples as rows:
-\[
-  \underbrace{\begin{bmatrix} v_{x,1}\\ \vdots\\ v_{x,n}\end{bmatrix}}_{\bm{y}\ \in\ \R^{n}}
+  \underbrace{\begin{bmatrix}y_1\\\vdots\\y_n\end{bmatrix}}_{\bm y}
   \approx
-  \underbrace{\begin{bmatrix} 1 & e_{x,1} & e_{y,1} & e_{\psi,1}\\
-                              \vdots & \vdots & \vdots & \vdots\\
-                              1 & e_{x,n} & e_{y,n} & e_{\psi,n}\end{bmatrix}}_{X\ \in\ \R^{n\times4}}
-  \underbrace{\begin{bmatrix} b_x\\ G_{xx}\\ G_{xy}\\ G_{x\psi}\end{bmatrix}}_{\bm\theta\ \in\ \R^{4}} .
+  \underbrace{\begin{bmatrix}1&c_{1,1}&c_{2,1}\\
+  \vdots&\vdots&\vdots\\1&c_{1,n}&c_{2,n}\end{bmatrix}}_X
+  \underbrace{\begin{bmatrix}\theta_0\\\theta_1\\\theta_2\end{bmatrix}}_{\bm\theta}.
 \]
-\begin{itemize}[nosep]
-  \item $\bm y$ is what was measured: one velocity per sample.
-  \item $X$ is what was commanded: one row per sample, the efforts held at the
-        time, with a leading $1$ so the bias has a column to live in.
-  \item $\bm\theta$ is what we want: the four numbers of this axis's model.
-\end{itemize}
-With hundreds of noisy samples and four unknowns, no $\bm\theta$ fits every row
-exactly. Each choice leaves a \emph{residual} $\bm r = \bm y - X\bm\theta$, the
-part of the measurement the model does not explain.
+Each choice leaves a residual $\bm r=\bm y-X\bm\theta$, the part of the
+measurement the model does not explain.
 
-\paragraph{What is minimized.} Not $\bm\theta$: $\bm\theta$ is what we
-\emph{choose}. We pick the $\bm\theta$ that makes the residual smallest,
+\paragraph{What is minimized.} We pick the $\bm\theta$ that makes the residual
+smallest,
 \[
   \hat{\bm\theta} = \argmin_{\bm\theta}\ J(\bm\theta),\qquad
-  J(\bm\theta) = \|\bm y - X\bm\theta\|^2 = \sum_{k=1}^{n}\big(v_{x,k} - b_x - G_{x,\cdot}\,\bm e_k\big)^2 .
+  J(\bm\theta) = \|\bm y - X\bm\theta\|^2 = \sum_{k=1}^{n}(y_k-\theta_0-\theta_1c_{1,k}-\theta_2c_{2,k})^2 .
 \]
 Squaring makes misses of either sign count, punishes large misses more than
-small ones, and makes $J$ a smooth bowl with a single bottom.
+small ones, and makes $J$ a convex quadratic; independent design columns give a unique minimum.
 
 \paragraph{Deriving the normal equations.} Expand $J$:
 \[
@@ -72,164 +44,63 @@ $\nabla_{\bm\theta}(\bm\theta^\top A\bm\theta) = 2A\bm\theta$ for symmetric $A$,
   \quad\Longrightarrow\quad
   X^\top X\,\hat{\bm\theta} = X^\top \bm{y}.
 \]
-These are the \emph{normal equations}. $X^\top X$ is only $4\times4$, however
-many samples there are, and it is the same for all three axes (they share the
-inputs), so one solve with three right-hand sides gives $\bm{b}$ and every row
-of $G$.
+These are the \emph{normal equations}. The implementation uses
+\texttt{numpy.linalg.lstsq} on $X$, with both cross responses as right-hand
+sides, rather than solving $X^\top X$ directly.
 
 \paragraph{What $X^\top$ means.} At the optimum, $X^\top\bm r = \bm 0$. Row $j$ of
 $X^\top$ is column $j$ of $X$, so this says the residual has zero dot product
 with every input column: with the column of ones (the misses average to zero),
-with the $e_x$ column (no part of the miss still moves with $e_x$), and so on.
+with the $c_1$ column (no part of the miss still moves with $c_1$), and so on.
 If any were nonzero, some input still explained part of the residual and the
 corresponding coefficient could be improved. Geometrically, $X\hat{\bm\theta}$
 is the orthogonal projection of $\bm y$ onto the span of the columns of $X$.
 Multiplying by $X^\top$ also turns an $n$-row problem that has no exact solution
-into a square $4\times4$ one that does. The entries are plain sums,
+into a square $3\times3$ one that does. With $\bm c_k=(c_{1,k},c_{2,k})^\top$, the entries are plain sums,
 \[
-  X^\top X = \sum_k \begin{bmatrix}1\\ \bm e_k\end{bmatrix}\begin{bmatrix}1 & \bm e_k^\top\end{bmatrix},
+  X^\top X = \sum_k \begin{bmatrix}1\\ \bm c_k\end{bmatrix}\begin{bmatrix}1 & \bm c_k^\top\end{bmatrix},
   \qquad
-  X^\top\bm y = \sum_k \begin{bmatrix}1\\ \bm e_k\end{bmatrix} v_{x,k},
+  X^\top\bm y = \sum_k \begin{bmatrix}1\\ \bm c_k\end{bmatrix} y_k.
 \]
-which is what the code forms (\code{rows.T @ rows}) before solving.
 
-\begin{example}[one axis]
-With one input, $v = b + g\,e$, the normal equations solve in closed form to
-\[
-  \hat g = \frac{\sum_k (e_k - \bar e)(v_k - \bar v)}{\sum_k (e_k - \bar e)^2}
-         = \frac{\operatorname{cov}(e, v)}{\operatorname{var}(e)},
-  \qquad \hat b = \bar v - \hat g\,\bar e :
-\]
-the gain is how much velocity moves together with effort, divided by how much
-effort moved. The matrix form is the same idea for all inputs at once, which
-also separates their effects when they were held together.
-\end{example}
-
-\paragraph{When the fit is not trustworthy.} $X^\top X$ is invertible only if
-the columns of $X$ are independent, i.e.\ the samples excite every input: some
-neutral, some surge, some sway, some yaw. A bag that only drove forward has an
-$e_y$ column of zeros, so nothing in the data says what sway does. The code
-checks the rank and refuses such a bag, rather than returning a
-confident-looking but meaningless $G$. A tiny ridge term $10^{-8} I$ guards
-against round-off. Holding each axis \emph{both} ways also matters: it lets
-the fit tell bias (same sign both ways) from gain (flips with effort).
-
-\begin{example}
-If $v_x = 0.6\,e_x$, $v_y = 0.4\,e_y$, $\omega_z = 0.3\,e_\psi$ exactly, the fit
-returns $G = \operatorname{diag}(0.6, 0.4, 0.3)$ and $\bm b = \bm 0$. In the
-simulator, $e_x = 0.2$ produced about $0.9$\,m/s, so $G_{xx}\approx 4.5$.
-\end{example}
-
-\paragraph{How linear is it?} Not exactly. Prop thrust grows roughly with prop
-speed squared, hull drag with speed squared, and reverse thrust is weaker than
-forward. These partly cancel, so steady speed is close to linear in effort over
-a working range, but $G$ is a \emph{secant}: a straight line through the origin
-and a curve, best near the efforts it was fitted at.
-
-\paragraph{What the fit is, and is not, used for.} The affine fit supplies the
-bias and drift below, the velocity limits, and a first estimate of the gain.
-It is \emph{not} used to build the decoupling. The off-diagonal entries of a
-secant $G$ are about twice the local slope that matters near an operating
-point, and a correction $G^{-1}\operatorname{diag}(G)$ built from them
-over-corrects by that factor. Instead:
-\begin{itemize}[nosep]
-  \item speed per axis and sign comes from a speed curve fitted at two or more
-        efforts, not a single gain (Section~\ref{sec:thrust});
-  \item the cross coupling is cancelled by one column per axis and sign of
-        $C^{\pm}$ computed from the local slope (Section~\ref{sec:mixer});
-  \item how far a column can be believed is its trust, from the wave noise
-        measured in neutral windows, not from the least-squares standard error,
-        which is too optimistic for 5\,Hz sample-and-hold GPS.
-\end{itemize}
-Fit at the speeds you will drive, and expect the velocity controller's integral
-term (Section~\ref{sec:controller}) to absorb the rest.
+\paragraph{Linear in the unknowns, not in the inputs.} Least squares needs the
+model to be linear in $\bm\theta$, nothing more. A column of $X$ may be any known
+function of the data: $\cos\psi_k$, $v_k|v_k|$, $|t_{i,k}|$. Part~I uses this
+for the speed curves (Section~\ref{sec:thrust}), with columns $V$ and
+$V|V|$, and the interference fit (Section~\ref{sec:corr-mag}), with efforts
+split by sign.
 
 \subsection{Two kinds of drift: the boat's and the weather's}
 
-The bias above lumps together two things that behave very differently.
-\begin{itemize}[nosep]
-  \item \emph{Mechanical} effects belong to the boat: an ESC whose ``stopped''
-        pulse still turns the prop a little, a bent mount, a weak motor. They
-        are fixed in the \emph{body} frame. Push the boat forward at any heading
-        and a bent mount pulls it the same way relative to the bow. They change
-        only when the hardware does.
-  \item \emph{Current} and \emph{wind} belong to the water and the air. They are
-        fixed in the \emph{world} frame: a current setting north sets north
-        whichever way the bow points. Seen from the boat, it comes from ahead,
-        then from the side, then from astern as the boat turns. And it is
-        different tomorrow.
-\end{itemize}
-A single body-frame $\bm b$ fitted at one heading is therefore right only at that
-heading and only on that day. Calibration should keep what is stable and leave
-out what is not.
+Mechanical bias is body-fixed; current and wind drift are expressed in the
+world frame. The controller reads the configured mechanical bias and estimates
+world drift online (Section~\ref{sec:controller}); the conditions estimator
+measures drift from neutral windows.
 
-\paragraph{The model with both.} Let $\bm d = (d_x, d_y)$ be the drift velocity
-in the odometry (world) frame and $\psi$ the heading. Turning a world vector into
-the body frame is the rotation by $-\psi$,
+\paragraph{The rotation.} Let $\dw = (d_x, d_y)$ be the drift velocity in the
+world frame (ENU) and $\psi$ the heading, counter-clockwise from east. A body
+vector is turned into the world by
 \[
-  R(\psi)^\top \bm d =
+  R(\psi) = \begin{bmatrix} \cos\psi & -\sin\psi\\ \sin\psi & \cos\psi \end{bmatrix},
+\]
+and a world vector into the body by its inverse, the transpose,
+\[
+  R(\psi)^\top \dw =
   \begin{bmatrix} \cos\psi & \sin\psi\\ -\sin\psi & \cos\psi \end{bmatrix}
-  \begin{bmatrix} d_x\\ d_y \end{bmatrix},
+  \begin{bmatrix} d_x\\ d_y \end{bmatrix}.
 \]
-so the model becomes
+\paragraph{Heading spread.} The physics analysis measures heading coverage by
+the length of the mean unit heading vector,
 \[
-  \bm v = \bm b_m + \begin{bmatrix} R(\psi)^\top \bm d\\ 0 \end{bmatrix} + G\bm e,
+  \bar R=\left|\frac1n\sum_k(\cos\psi_k,\sin\psi_k)\right|.
 \]
-with $\bm b_m$ the body-fixed mechanical bias. (Current and wind also turn the
-boat, but much less than they push it; the yaw row keeps only $b_{m,\psi}$.)
-
-\paragraph{Still least squares.} $\psi$ is measured, so $\cos\psi$ and $\sin\psi$
-are just numbers in each sample, and the model is still linear in the unknowns.
-The axes now share $\bm d$, so they can no longer be fitted one at a time. Instead
-each sample contributes three rows, one per measured axis, to one stacked system
-with fourteen unknowns,
-\[
-  \bm\theta = (\,b_{m,x},\, b_{m,y},\, b_{m,\psi},\; G_{xx}, \dots, G_{\psi\psi},\; d_x,\, d_y\,).
-\]
-For a sample with effort $\bm e$ and heading $\psi$ the three rows are
-\[
-\begin{array}{r@{\;}l}
-  v_x:& (1,0,0,\;\bm e^\top,\bm 0^\top,\bm 0^\top,\; \cos\psi,\ \sin\psi)\\
-  v_y:& (0,1,0,\;\bm 0^\top,\bm e^\top,\bm 0^\top,\; -\sin\psi,\ \cos\psi)\\
-  \omega_z:& (0,0,1,\;\bm 0^\top,\bm 0^\top,\bm e^\top,\; 0,\ 0)
-\end{array}
-\]
-and the normal equations $X^\top X\bm\theta = X^\top\bm y$ are solved exactly as
-before, now with a $14\times14$ matrix.
-
-\paragraph{Telling them apart needs turning.} At a single heading the drift
-columns $(\cos\psi, \sin\psi)$ are constant: they are multiples of the bias
-columns, $X$ loses rank, and no amount of data separates ``the boat pulls to
-port'' from ``the current sets to port''. Only when the samples cover different
-headings do the drift columns vary while the bias columns stay at one, and the two
-come apart. The fit measures the spread of headings by the length of their mean
-unit vector,
-\[
-  \bar R = \Big|\frac1n \sum_k (\cos\psi_k, \sin\psi_k)\Big| ,
-\]
-which is $1$ for a single heading and $0$ for headings spread evenly round the
-circle. Below $\bar R = 0.9$ (roughly a quarter turn of spread) it fits both. Above it,
-it falls back to the single body-frame bias and says so. The Characterize
-procedure ends with a steady turn so this always has the headings it needs.
-
-\begin{example}
-A boat with $\bm b_m = (0.02, -0.01, 0)$ in a current $\bm d = (0.10, 0.15)$\,m/s,
-sampled at headings all round the circle, gives back both exactly. Sampled only
-at $\psi = 0.3$\,rad, the fit returns $b_{m,x} = 0.02 + 0.10\cos 0.3$: the
-current folded into the bias at that heading, as it must be.
-\end{example}
-
-\paragraph{What gets saved.} $G$ and $\bm b_m$ are the boat, so they go into
-the hardware configuration. $\bm d$ is the day: it is reported, with its speed
-and the direction it sets toward, but never saved as calibration. The velocity
-controller estimates it live instead (Section~\ref{sec:controller}).
+It is $1$ at a single heading and $0$ for headings spread evenly around the circle.
 
 \paragraph{Limits.} The largest measured speed per axis gives the velocity
-limits. Acceleration needs care: differentiating 50\,Hz odometry sample by sample
-turns its noise into accelerations no thruster could produce (12\,m/s$^2$ from a
-boat that can manage 5). So velocity changes are taken over windows of at least
-0.5\,s, from the full odometry including the switching transients the fit leaves
-out, and the 99th percentile of them is kept rather than the single largest.
+limits. Differentiating noisy odometry sample by sample inflates acceleration.
+Velocity changes are taken over windows of at least
+0.5\,s, from the full odometry including the switching transients, and the 99th
+percentile of them is kept rather than the single largest.
 
 \paragraph{Measured limits.} Limits describe the speed, acceleration and stopping
 observed at the tested effort. A partial-throttle trial does not establish the
@@ -239,4 +110,7 @@ suitable area and review the measured limits before using them in Nav2. The
 limits file contains only characterized keys and is merged at launch with the
 current navigation profile; its reverse bound cannot exceed that profile's cap.
 
-\file{mhseals\_testing/analysis/characterization.py, procedures/characterize.py}
+\file{mhseals\_testing/analysis/column.py; analysis/characterization.py (nav2\_profile, acceleration\_limits); analysis/conditions.py; analysis/physics.py (heading\_spread); mhseals\_hardware/velocity\_law.py}
+
+\input{sections/correction_heading}
+\input{sections/correction_tracking}

@@ -1,0 +1,26 @@
+% Notation for Part II (conditions and readiness). \providecommand, so a part that
+% already defines one of these keeps its own definition; the meanings are listed in
+% the notation table of sections/conditions.tex.
+\providecommand{\Szero}{S_0}                     % spectral level at zero frequency, (m/s)^2 s; per channel S_{0,k}
+\providecommand{\Tw}{T_w}                        % neutral window length (8 s idle)
+\providecommand{\dw}{\bm d}                      % world drift, ENU, m/s
+\providecommand{\dhat}{\hat{\bm d}}              % pooled drift estimate
+\providecommand{\sigwave}{\sigma_{\mathrm{wave}}}% SD of a window mean at neutral (the floor); per channel \sigma_{\mathrm{wave},k}
+\providecommand{\sed}{\mathrm{se}}               % standard error of one drift component
+\providecommand{\Td}{T_d}                        % drift trust
+\providecommand{\Rgate}{\mathcal R}              % readiness gate value: min ceiling over planned directions
+\providecommand{\Qm}[1]{Q(#1)}                   % the reflection matrix [[cos, sin],[sin, -cos]]
+\providecommand{\Var}{\operatorname{Var}}
+\providecommand{\Cov}{\operatorname{Cov}}
+\providecommand{\E}{\operatorname{E}}
+
+% Axis style for this part's plots: left-aligned legends on a soft white box.
+\ifdefined\pgfplotsset
+  \pgfplotsset{cond axis/.style={legend cell align=left,
+    legend style={font=\small, draw=none, fill=white, fill opacity=0.85, text opacity=1}}}
+\fi
+% Figure colours shared with Parts I and III (same values there).
+\providecolor{sA}{RGB}{31,119,180}     % blue: estimate / new method
+\providecolor{sB}{RGB}{214,95,14}      % orange: alternative / old method / data points
+\providecolor{sC}{RGB}{44,140,60}      % green: accepted region / truth
+\providecolor{sD}{RGB}{150,150,150}    % grey: guides

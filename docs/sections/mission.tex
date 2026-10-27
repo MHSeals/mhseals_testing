@@ -1,41 +1,220 @@
 \section{Mission scoring}
 \label{sec:mission}
 
-A task tree reports what it does as events on \code{/task/events}. A rubric
-lists the events a good run must contain, with minimum counts $n_e$, the points
-$p_e$ each event is worth, how many of an event count, $c_e$ (one unless the rubric
-says more, so reporting the same thing twice earns nothing), and a time limit $T$. With $k_e$ the number of times event $e$ occurred:
+A task tree reports events on \code{/task/events}. Its rubric gives required
+counts $n_e$, event points $p_e$ and count caps $c_e$ (default one). For
+observed counts $k_e$ the event score is
 \[
-  \text{score} = \sum_e p_e \min(k_e, c_e),\qquad
-  \text{possible} = \sum_e p_e\,c_e .
+ S_{\rm events}=\sum_e p_e\min(k_e,c_e),\qquad
+ P_{\rm events}=\sum_e p_ec_e.
 \]
-The run passes when the task finished with SUCCESS, no required event is
-missing ($k_e \ge n_e$ for all required $e$), and the elapsed time is at most
-$T$. The report keeps the counts, missing events and points per event, so a
-failed rehearsal says exactly what was not achieved.
-\file{mhseals\_testing/analysis/mission.py, config/missions/}
+The last \code{task\_finished} supplies the outcome, falling back to the process
+outcome or INCOMPLETE. Elapsed time comes from that finish event, otherwise the
+last event, defaulting to zero. PASS requires SUCCESS, $k_e\ge n_e$ for every
+required event, and elapsed time $\le T$ when a time limit is specified.
+The procedure stores this verdict and the task referee verdict separately.
+\file{mhseals\_testing/analysis/mission.py; procedures/mission.py; config/missions/}
 
-\subsection{The referee}
+\subsection{The task referee}
 
-The score above believes the task tree. In the simulator the referee checks what
-the boat actually did, from the course the simulator placed (each object tagged
-with its task) and the boat's true track.
+The task referee uses task-tagged course truth and the boat's true track;
+absent truth or track yields an explicit N/A. Pair and circle tests also yield
+N/A when truth contains no elements tagged for that test.
 
-\paragraph{Gates.} A gate is the segment between its two buoys. The track crossed
-it between samples $\bm p$ and $\bm q$ when the segments intersect: the cross
-products $c(\bm a,\bm b,\bm p)$ and $c(\bm a,\bm b,\bm q)$ differ in sign, and so do
-$c(\bm p,\bm q,\bm a)$ and $c(\bm p,\bm q,\bm b)$, with
-$c(\bm o,\bm a,\bm b) = (a_x-o_x)(b_y-o_y) - (a_y-o_y)(b_x-o_x)$. The sign of the
-first says which way it crossed, so out and back through one gate shows as two
-opposite crossings.
+\paragraph{Gates.} Truth markers are paired greedily in increasing distance,
+each used once, with $0.5<w\le w_{\max}$ metres. The maximum is $8$\,m for
+channel and pair tests and $4$\,m otherwise; return-home gates pair black
+markers with each other. For a gate segment $(\bm a,\bm b)$ and track step
+$(\bm p,\bm q)$ define
+\[
+ c(\bm o,\bm u,\bm v)=(u_x-o_x)(v_y-o_y)-(u_y-o_y)(v_x-o_x),
+ \quad(d_1,d_2,d_3,d_4)=
+ (c(\bm a,\bm b,\bm p),c(\bm a,\bm b,\bm q),
+ c(\bm p,\bm q,\bm a),c(\bm p,\bm q,\bm b)).
+\]
+A crossing occurs exactly when
+\[
+ d_1\ne0,\qquad d_1d_2\le0,\qquad d_3d_4\le0;
+ \qquad \text{direction}=-\operatorname{sign}(d_1).
+\]
+Reaching the gate line or an endpoint counts on the arriving step, at the
+second sample's time; a step starting on the line does not count. Pair tests
+require at least two crossings of one gate with different first and last
+directions. Channel, follow-path and return-home tasks require a nonempty
+set of gates and at least one crossing of every gate. Follow-path also requires
+the last reported species count to equal the number of yellow truth buoys.
 
-\paragraph{Contact.} With the hull a rectangle of length $L$ and beam $B$, a buoy
-of radius $\rho$ at body-frame offset $(a, c)$ clears it by
-$\sqrt{\max(|a| - L/2, 0)^2 + \max(|c| - B/2, 0)^2} - \rho$; a negative clearance
-anywhere on the track is a contact.
+\paragraph{Contact.} Rotate an object's offset into hull coordinates $(a,c)$.
+For length $L=1.063$\,m, beam $B=0.895$\,m and object radius $r_b$
+(default $0.2$\,m), clearance is
+\[
+ \delta=\sqrt{\max(|a|-L/2,0)^2+\max(|c|-B/2,0)^2}-r_b.
+\]
+Only sampled poses with $\delta<0$ count as contact. Every task requires no
+contact with its labelled objects; unlabelled dock structure is excluded.
 
-\paragraph{Circling and docking.} The angle swept around the mark is the sum of
-the wrapped changes of $\operatorname{atan2}(p_y - o_y, p_x - o_x)$ while within
-$8$\,m of it; $300^\circ$ or more is a circle. Docked means the boat's centre
-inside the right bay, facing into it within $30^\circ$, for the hold time.
-\file{mhseals\_testing/analysis/referee.py}
+\paragraph{Circling.} For bearings $\theta_k$ about a mark, the swept angle is
+\[
+ A=\frac{180}{\pi}\left|\sum_{k\in\mathcal I}
+       \operatorname{remainder}(\theta_k-\theta_{k-1},2\pi)\right|.
+\]
+$\mathcal I$ includes only consecutive finite samples within $8$\,m of the
+mark. Leaving this radius breaks angle continuity but preserves the accumulated
+sum. A circle test requires $A\ge345^\circ$ about some yellow buoy and
+$\|\bm p_{\rm last}-\bm p_{\rm first}\|\le0.75$\,m. A speed challenge uses
+the first paired gate and first blue mark: first and last gate-crossing
+directions must differ, the rounded swept angle must be at least $300^\circ$,
+and the last spill count must equal the number of black truth buoys.
+Its gate-to-gate time is the last crossing time minus the first.
+
+\paragraph{Docking.} In a bay's frame, with centre offset $(a,c)$ and opening
+yaw $\psi_b$, \code{held\_in\_bay} accumulates the longest uninterrupted
+sampled hold satisfying
+\[
+ |a|\le D/2+0.3,\qquad |c|\le W/2,\qquad
+ \cos(\psi-\psi_b-\pi)>\cos30^\circ.
+\]
+An invalid sample resets the hold. The matching-banner, unoccupied bays must
+include a hold of at least \code{dock\_time} (default $5$\,s); every other bay
+must have a hold shorter than $1$\,s.
+
+\paragraph{Mission stages.} Each stage uses the track and events between its
+first start and first completion or skip, inclusively; an absent terminal event
+leaves the end open. Missing required starts fail. An optional unattempted or
+skipped stage is SKIPPED unless its stage-window track contacts a labelled
+object. The mission passes exactly when every stage is PASS or SKIPPED:
+\[
+ \text{PASS}_{\rm mission}\iff
+ \bigwedge_s\bigl(\text{verdict}_s\in\{\text{PASS},\text{SKIPPED}\}\bigr).
+\]
+\file{mhseals\_testing/analysis/referee.py, geometry.py; procedures/mission.py}
+
+\subsection{Ground-truth run points}
+
+The run scorer uses course elements, ordered gates, bay geometry, state changes,
+authority records and the true track. Task events do not establish earned
+behaviour. It keeps earned points, provisional points and possible points
+separately; report-only rows are unscorable when RoboCommand capture is absent.
+For row points $s_i$, provisional amounts $q_i$ and $N_{\rm strike}$ strikes,
+\[
+ S=\sum_i s_i-25\min(N_{\rm strike},20),\qquad Q=\sum_i q_i,\qquad
+ P=\sum_{i:\,\text{status}_i\ne\text{n/a}}P_i.
+\]
+Scorable possible points also exclude unscorable rows. The total is not floored
+at zero. Missing behaviour is missed; behaviour needing an uncaptured report
+is provisional rather than earned.
+
+\paragraph{Window and gate passes.} The scorer clips finite track samples to
+the recorded window, ending at the first intervention by \code{rc},
+\code{keyboard}, \code{hold} or \code{external}, or an earlier sampled boundary
+exit. When all headings are zero or absent it derives yaw from track motion.
+Let $s_k=(\bm p_k-\bm m)\cdot\bm n$ for gate normal $\bm n$.
+A pass requires a change between sides $s<-0.3$ and $s>0.3$\,m. The last
+zero crossing is interpolated, including yaw by the wrapped angular difference:
+\[
+ f=\frac{s_{k-1}}{s_{k-1}-s_k},\qquad
+ (t_z,\bm p_z)=(1-f)(t_{k-1},\bm p_{k-1})+f(t_k,\bm p_k).
+\]
+The centre must cross between the marker centres. With tangent
+$\bm u=(-n_y,n_x)$, the hull's projected half-width is
+\[
+ h_u=\tfrac L2|\bm e_\psi\cdot\bm u|
+       +\tfrac B2|\bm e_\psi^\perp\cdot\bm u|.
+\]
+Whole-hull fit requires the interval
+$[\bm u\cdot(\bm p_z-\bm m)-h_u,\bm u\cdot(\bm p_z-\bm m)+h_u]$
+to lie between the two buoys' inner edges. Ordered gate sequences require
+strictly increasing crossing times and whole-hull fit at every gate.
+
+Entry earns $100$ for a complete outbound entry-gate sequence without buoy
+strikes in the window from $3$\,s before its first pass to $3$\,s after its last.
+The first clean attempt sets $t_{\rm entry}$. The first subsequent complete
+reverse sequence earns $200$ for exit and cuts off all later evidence.
+Other run rows require $t_{\rm entry}<t\le t_{\rm cut}$; task-only scoring
+omits the entry prerequisite. Entry and exit reports are $100$ possible each,
+unscorable without report capture. Initial standoff $\ge1.8288$\,m before the
+first gate is recorded, and a course-start offset above $10$\,m is a warning.
+
+\paragraph{Debris clearance.} Ordered outbound and reverse channel sequences
+earn $100$ each. Red avoidance is $100$ provisional when every designated red
+is approached within $20$\,m, has strictly positive sampled minimum clearance,
+and is not fully circled. Green rescue is $200$ provisional for a full
+$360^\circ$ circle about the configured number of greens (default one).
+The angular metric differs from the task test: within each uninterrupted stay
+inside $8$\,m, form cumulative wrapped angles $z_k$ and retain the largest
+absolute signed subinterval sweep,
+\[
+ A_{\rm run}=\frac{180}{\pi}\max_{\text{one stay},\,i\le j}|z_j-z_i|.
+\]
+Nonfinite or out-of-radius positions reset the stay. Reporting all debris has
+$200$ possible, unscorable without report capture.
+
+\paragraph{Speed challenge.} The first valid loop starts with a whole-hull
+outbound gate pass and ends at the next inbound pass, also with whole-hull fit.
+The intervening sampled path, closed by a straight segment, must have nonzero
+integer winding about the turn mark:
+\[
+ w=\operatorname{round}\!\left[\frac1{2\pi}
+ \sum_{\text{closed path}}\operatorname{remainder}(\theta_{k+1}-\theta_k,2\pi)\right].
+\]
+The loop earns $200$. Direction earns $150$ when the indicator at entry calls
+for its sign: red means counter-clockwise, green clockwise. For gate-to-gate
+time $T_g$, time points are
+\[
+ s_{\rm time}=\operatorname{round}(\max(0,250-T_g),1).
+\]
+The colour/time report has $100$ possible, unscorable without capture.
+
+\paragraph{Supply, marina and harbor.} Each delivery type has possible points
+$\sum_{j=1}^{\min(n,3)}(75,125,200)_j$; without delivery sensing these rows are
+unscorable. The delivery report has $100$ possible.
+Marina docking uses centre containment $|a|\le D/2$, $|c|\le W/2$, with
+free heading. A hold reaches $2$\,s when successive inside samples are no more
+than $0.5$\,s apart. The first held slip in the allowed window decides the tier:
+occupied earns zero, unoccupied $50$, green $200$, or lowest-numbered unoccupied
+green $350$. Only the highest tier applies; ties for lowest count, and a missing
+sign ranks as $9$. The dock report has $100$ possible.
+
+After the first recorded horn, the first outside-to-inside zone entry within
+$120$\,s earns $150$, or $300$ for the commanded zone (one horn: zone 1;
+two: zone 2). Zone radius defaults to $3$\,m. Presence at the horn is not an
+entry, and task work on the way does not cancel credit. The confirmation report
+has $150$ possible. A complete silent horn log means no alert; a planned horn
+or partial recorded horn can yield only provisional zone points. Unknown or
+contradictory horn evidence makes the zone row unscorable when it cannot decide
+an alert.
+
+\paragraph{Strikes and evidence.} The clearance formula above also detects
+strike episodes, using the course's hull dimensions when supplied. An episode
+starts at $\delta<0$ and rearms only after $\delta>0.2$\,m; dock spine, tine,
+sign and indicator roles are excluded. Judge-reported contacts replace geometric
+strikes when that capability is selected; an absent judge sheet makes strikes
+unscorable. Indicator state starts from the truth program and recorded changes
+override it. Partial or contradictory state logs make earned direction and dock
+rows provisional. Surveyed truth is rescored after growing objects by
+$\sigma$, shrinking slips by $2\sigma$ and zone radii by $\sigma$, and under
+the opposite changes; a row whose result changes becomes provisional at the
+more generous points. With no recorded time limit all earned rows become
+provisional. The $900$\,s timeslot comparison is a warning, not a substitute
+scoring window.
+
+\paragraph{Run outcome.} A record carrying an outcome uses only its own file
+links, including partial links after an abort or error; missing links never
+fall back to the session's latest track or task-event files. A started run with
+a linked track is scored from the available evidence. Explicit \code{started}
+decides whether launch occurred; when absent, a journal start or a recorded
+run-start timestamp establishes it. A journal stop takes precedence over the
+record's \code{outcome}; without a stop the record supplies the terminal outcome.
+For a started run, an outcome other than \code{complete} is a mission failure.
+A run with no track and a terminal failure still counts as a failure; a run
+that did not start is excluded from the failure rate. A completed run without
+scorable evidence remains unknown. Failure flags cover missing exit, hold,
+takeover, contact, false claim and mission failure. Any observed failure makes
+a run unclean; absent failures with unknown flags leave cleanliness unknown. A run is known when all six
+flags are known or it has a terminal harness failure; the failure rate is
+\[
+ \widehat p_{\rm fail}=\frac{\#\{\text{known runs with a failure}\}}
+                              {\#\{\text{known runs}\}}.
+\]
+Unknown observations do not establish a clean run.
+\file{mhseals\_testing/analysis/score.py, run\_record.py, reliability.py, geometry.py}

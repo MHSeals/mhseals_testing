@@ -1,0 +1,137 @@
+\section{Drift, heading and the compass}
+\label{sec:corr-heading}
+
+Current and wind carry the boat over the ground. Heading enters when world
+velocity is expressed in the body frame, so heading errors affect both apparent
+cross response and the drift used by the controller.
+
+\subsection{World drift and body-frame response}
+
+The conditions estimator pools neutral-window world velocity to measure drift
+$\dw$. The controller rotates this drift into the body frame as
+$R(\psi)^\top\dw$ (Section~\ref{sec:controller}). The offline characterization
+response instead subtracts the preceding neutral's mean body velocity from the
+hold's mean body velocity; it uses the recorded odometry components directly,
+without antenna lever-arm correction or reconstructed hold heading.
+
+\subsection{What a heading error does}
+
+Let the heading used be $\psi + \delta$ instead of $\psi$. Two things go wrong
+(Figure~\ref{fig:corr-heading}).
+
+\paragraph{The drift points the wrong way.} The body-frame drift becomes
+$R(\psi+\delta)^\top\dw = R(\psi)^\top R(\delta)^\top\dw$: the right vector turned
+by $-\delta$. The error is $R(\psi)^\top(R(\delta)^\top - I)\dw$, and since a
+rotation keeps lengths, its size is $|(R(\delta) - I)\dw|$. The columns of
+$R(\delta) - I$ have length $\sqrt{(1-\cos\delta)^2 + \sin^2\delta} =
+\sqrt{2 - 2\cos\delta} = 2|\sin(\delta/2)|$, so
+\[
+  |\text{drift error}| = 2\,|\dw|\,|\sin(\delta/2)| \approx |\dw|\,|\delta| .
+\]
+A $10^\circ$ error misplaces $17\,\%$ of the drift. A constant $\delta$ turns the
+drift arrow; a heading-dependent error (compass deviation) makes it wobble as the
+boat turns.
+
+\paragraph{Straight motion looks like crab.} A boat moving straight ahead at $V$
+has world velocity $R(\psi)(V, 0)$; turned back with the wrong heading,
+\[
+  R(\psi+\delta)^\top R(\psi)\begin{bmatrix}V\\0\end{bmatrix}
+  = R(\delta)^\top\begin{bmatrix}V\\0\end{bmatrix}
+  = \begin{bmatrix}V\cos\delta\\ -V\sin\delta\end{bmatrix},
+\]
+using $R(a)^\top R(b) = R(b - a)$. The apparent crab is
+\[
+  \frac{\text{cross}}{\text{main}} = -\tan\delta ,
+\]
+approximately the negative heading error, in radians. Against the crab tolerance of $0.05$ that is
+large: $1.5^\circ$ already uses half of it, and a compass is good to a few degrees
+at best. This rotation can therefore dominate a small measured cross response.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=2.4, >=Stealth]
+  \begin{scope}
+    % d at 30 degrees, turned by -20 degrees
+    \draw[->, thick, sC] (0,0) -- ({1.5*cos(30)},{1.5*sin(30)}) node[above, font=\small] {$\dw$};
+    \draw[->, thick, sB] (0,0) -- ({1.5*cos(10)},{1.5*sin(10)}) node[below right, font=\small] {$R(\delta)^\top\dw$};
+    \draw[sD] ({0.55*cos(30)},{0.55*sin(30)}) arc (30:10:0.55);
+    \node[font=\scriptsize] at ({0.68*cos(20)},{0.68*sin(20)}) {$\delta$};
+    \draw[sA, very thick] ({1.5*cos(30)},{1.5*sin(30)}) -- ({1.5*cos(10)},{1.5*sin(10)});
+    \node[sA, font=\scriptsize, anchor=west] at ({1.5*cos(20)+0.08},{1.5*sin(20)+0.05}) {$2|\dw|\sin\frac{\delta}{2}$};
+    \node[font=\small] at (0.75,-0.45) {drift turned by $\delta$};
+  \end{scope}
+  \begin{scope}[xshift=2.7cm]
+    \draw[->, thick, sC] (0,0) -- (1.5,0) node[above right, font=\small] {true $(V,0)$};
+    \draw[->, thick, sB] (0,0) -- ({1.5*cos(-20)},{1.5*sin(-20)}) node[right, font=\small] {seen};
+    \draw[sA, very thick, dashed] ({1.5*cos(-20)},0) -- ({1.5*cos(-20)},{1.5*sin(-20)});
+    \node[sA, font=\scriptsize, anchor=east] at ({1.5*cos(-20)-0.03},{0.75*sin(-20)}) {$V\sin\delta$};
+    \node[font=\small] at (0.75,-0.75) {straight motion seen as crab};
+  \end{scope}
+\end{tikzpicture}
+\caption{A heading error $\delta$ (here $20^\circ$) turns the body-frame drift
+(left) and turns straight motion into an apparent sideways velocity (right). The
+drift error does not grow with speed; the fake crab does.}
+\label{fig:corr-heading}
+\end{figure}
+
+\paragraph{When heading is unreliable.} The diagnostic flags compass--gyro
+change disagreement above $5^\circ$ over rolling 10\,s windows, magnetometer
+calibration residual above $10^\circ$, yaw standard deviation at least $0.5$\,rad,
+or field magnitude outside $0.7$--$1.3$ times the expected field.
+
+\subsection{The thrusters' magnetic field}
+\label{sec:corr-mag}
+
+\paragraph{The sequence.} With the props off or the boat tied up, pulse each thruster
+alone to $\pm25$, $\pm50$ and $\pm75\,\%$ for 2\,s, with 2\,s of neutral between
+pulses and neutral before and after. Record the magnetometer's field in the body
+frame (back in mG from the FCU's raw readings).
+
+\paragraph{The model.} The disturbance $\Delta\bm B = (\Delta B_x, \Delta B_y)$ is
+the field during a pulse minus the neutral baseline (the mean of the neutral before
+and after, which removes slow drift linearly). It is modelled per field axis as
+\[
+  \Delta B_b = \sum_{i}\Big(\mu^+_{i,b}\,\max(t_i, 0) + \mu^-_{i,b}\,\max(-t_i, 0)\Big),
+  \qquad b\in\{x, y\},
+\]
+eight coefficients per axis: each thruster, each direction, because the current path
+and the motor's own field need not be symmetric. It is linear in the $\mu$'s, so it
+is least squares once more (Section~\ref{sec:char}), and because each pulse drives one
+thruster in one direction, each column of the design matrix is nonzero only during
+its own pulses: the columns are orthogonal when both signs of every thruster are sampled. The
+coefficients are reported in mG per full effort.
+
+\paragraph{From field to heading error.} The diagnostic uses the horizontal
+reference field $B_h=235$\,mG and reports
+\[
+  \epsilon=\operatorname{atan2}(D,B_h),\qquad
+  D=\begin{cases}|\Delta B_\perp|,&\text{with a measured field direction},\\
+                |\Delta\bm B|,&\text{without one}.\end{cases}
+\]
+The latter is the reported heading-independent estimate, not an exact maximum
+of the vector-sum angle. It gives $2.4^\circ$ for $10$\,mG and $9.7^\circ$ for
+$40$\,mG. Under $3^\circ$ the fit is accepted; $3$--$10^\circ$ requests rerouting
+the leads; above $10^\circ$ requests moving the compass.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[corr axis, width=0.62\linewidth, height=5cm, xlabel={thruster effort $t_i$},
+  ylabel={$\Delta B_\perp$ (mG)}, xmin=-1, xmax=1, ymin=-30, ymax=40,
+  legend pos=north west, legend style={font=\scriptsize}, legend cell align=left]
+  \addplot[only marks, mark=*, mark size=1.3pt, sD] table[corr, x index=0, y index=1] {\corrdata{mag}};
+  \addlegendentry{pulses}
+  \addplot[sA, thick, domain=0:1] {35.3*x};
+  \addlegendentry{$\mu^+ = 35$\,mG ($8.5^\circ$ at full)}
+  \addplot[sB, thick, domain=-1:0] {22.5*x};
+  \addlegendentry{$\mu^- = 22$\,mG ($5.5^\circ$)}
+\end{axis}
+\end{tikzpicture}
+\caption{The interference fit for one thruster on synthetic pulses: the field
+change is fitted separately for each direction, and converted to a heading error
+with $\arctan(\Delta B_\perp/235\,\text{mG})$. Data:
+\texttt{figures/correction/correction\_tracking.py}.}
+\label{fig:corr-mag}
+\end{figure}
+
+\file{mhseals\_testing/procedures/characterize.py (response); analysis/conditions.py; analysis/thrust.py (body\_drift); procedures/interference.py; analysis/interference.py (fit, heading\_error); analysis/magnetic.py (compass\_gyro, yaw\_quality)}

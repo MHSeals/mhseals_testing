@@ -1,0 +1,134 @@
+\section{Is the calibration still right? Tracking score and staleness}
+\label{sec:corr-track}
+
+The live tracking score compares predicted and measured motion per axis.
+A staleness judgement uses the scores accumulated across sessions on the same
+calibration version.
+
+\subsection{The forward model}
+
+For each axis the TUI runs a small model alongside the boat, fed with the effort
+from the plotted command samples, without applying $C^\pm$ in the feed:
+\[
+  \tau\,\dot{\hat V} = V_{ss}(e) - \hat V ,
+\]
+a first-order lag towards the steady speed $V_{ss}(e)$ of the speed curve
+(Section~\ref{sec:thrust}), plus the live world drift rotated into the body for
+the translation axes. The implementation sets $\tau=\tnf/3$, using the measured settling time
+($\ln20\approx3$ for a first-order lag). The prediction is compared with the measurement of the
+same axis: the gyro for yaw, and for surge and sway the GPS velocity rotated into
+the body by the FCU heading, falling back to odometry.
+
+\subsection{The score}
+
+Over a sliding window of about 10\,s, with RMS taken over the samples that count,
+\[
+  \score = 1 - \frac{\operatorname{RMS}(V - \hat V)}{\operatorname{RMS}(\hat V) + k\,\sigma_{s}},
+  \qquad k = 2,
+\]
+clipped at $0$. It reads as ``the fraction of the predicted motion the boat
+followed''. Here $\sigma_s$ is the noise parameter supplied to the score. The live
+feed supplies the stored characterization \texttt{wave\_floor}, reordered by
+axis; it does not measure a fresh sample-level neutral SD for this score.
+
+The denominator's second term is the reason a perfect model does not score $0$ in
+a swell. If the supplied noise parameter matches the measurement SD, noise alone gives $\operatorname{RMS}(V - \hat V) \approx \sigma_{s}$, so
+a perfect model scores
+\[
+  \score_{\text{perfect}} \approx 1 - \frac{\sigma_{s}}{\operatorname{RMS}(\hat V) + 2\sigma_{s}},
+\]
+which is $0.5$ when the boat is asked for nothing and $0.75$ when the prediction is
+$2\sigma_{s}$. That is the reason for the gates:
+\begin{itemize}[nosep]
+  \item \emph{Too little motion predicted}: a sample counts only while
+        $|\hat V| \ge 2\sigma_{s}$, and the window needs at least half its samples
+        counting, else it shows ``--''. With
+        the gate in the same units as the score, every counted sample has
+        $|\hat V| \ge 2\sigma_{s}$, so $\operatorname{RMS}(\hat V) \ge 2\sigma_{s}$
+        and the noise-only estimate is at least $0.75$. The colour scale is
+        green from 80, yellow 60--80 and red below 60.
+  \item \emph{Poor conditions}: the live feed ignores the window when the
+        conditions verdict is poor.
+\end{itemize}
+The Motion graphs draw $\hat V$ as a dim ``ghost'' under the measured line, with
+$\score$ in the title (Figure~\ref{fig:corr-ghost}).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[corr axis, width=0.8\linewidth, height=5cm, xlabel={time (s)},
+  ylabel={surge speed (m/s)}, xmin=0, xmax=60, ymin=-0.1, ymax=1.4,
+  legend pos=north east, legend style={font=\scriptsize}, legend cell align=left]
+  \addplot[sD!70, line width=2.2pt] table[corr, x index=0, y index=2] {\corrdata{ghost}};
+  \addlegendentry{ghost $\hat V$ (speed curve + lag)}
+  \addplot[sA, thin] table[corr, x index=0, y index=1] {\corrdata{ghost}};
+  \addlegendentry{measured}
+  \node[font=\scriptsize, anchor=south] at (axis cs:17,1.18) {$\score = 85\,\%$};
+  \node[font=\scriptsize, anchor=south] at (axis cs:33,0.7) {$\score = 84\,\%$};
+\end{axis}
+\end{tikzpicture}
+\caption{Synthetic surge steps of 0.5 then 0.3 effort on a boat that has lost 25\,\% of its
+thrust since its curves were fitted: the measured speed sits below the ghost, and
+the 10\,s score drops to the mid-80s. Data: \texttt{figures/correction/correction\_tracking.py}.}
+\label{fig:corr-ghost}
+\end{figure}
+
+\subsection{Staleness across sessions}
+
+Each session stores, per axis and calibration version, the mean score, the number of
+windows $n$ and the conditions' trust. Staleness is judged only across sessions that
+drove the \emph{same} calibration version, so a new characterization starts a fresh
+series.
+
+\paragraph{Why Theil--Sen.} The trend of the session means against session number is
+estimated by the \emph{Theil--Sen} slope: the median of the slopes of all pairs,
+\[
+  \hat m_{\mathrm{TS}} = \operatorname{median}_{a < b}\ \frac{y_b - y_a}{x_b - x_a}.
+\]
+A least-squares slope is pulled by every point in proportion to its squared miss, so
+one bad day can tilt it arbitrarily. The median ignores a minority of wild pairs:
+the Theil--Sen slope survives until about 29\,\% of the points are bad (its
+\emph{breakdown point}, $1 - 1/\sqrt2$), while one bad point can ruin least squares.
+Sessions are not equally informative, so each pair gets the weight $w_aw_b$, with
+$w = n \times$ conditions trust, and the median becomes a weighted median: sort the
+pair slopes and take the one where the cumulative weight passes half the total.
+
+\paragraph{When to flag.} ``Recharacterize suggested'' is raised only if either
+\begin{itemize}[nosep]
+  \item the slope is significantly negative: with at least 6 sessions, the upper end
+        of its 99\,\% bootstrap interval (resampling sessions with replacement) is
+        below zero, \emph{and} that is still true with the newest session left out,
+        so a single new bad run cannot create a trend; or
+  \item the session mean score is below 70\,\% for two sessions in a row.
+\end{itemize}
+Nothing is judged before 3 sessions on a version. One bad run never triggers the
+flag. It appears as a health \texttt{info} check on the calibration indicator and in
+the session file, where agents can read the trend.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[corr axis, width=0.62\linewidth, height=5cm, xlabel={session on this calibration},
+  ylabel={mean tracking score}, xmin=-0.5, xmax=8.5, ymin=0.35, ymax=0.95,
+  legend pos=south east, legend style={font=\scriptsize}, legend cell align=left]
+  \addplot[only marks, mark=*, scatter, point meta=explicit,
+    scatter/use mapped color={draw=sA, fill=sA!60},
+    visualization depends on={\thisrowno{2}/5 \as \wsize},
+    scatter/@pre marker code/.append style={/tikz/mark size=0.8pt+\wsize pt}]
+    table[corr, x index=0, y index=1, meta index=2] {\corrdata{stale}};
+  \addlegendentry{sessions (size $\propto$ weight)}
+  \addplot[sA, thick] table[corr, x index=0, y index=1] {\corrdata{stale_lines}};
+  \addlegendentry{weighted Theil--Sen}
+  \addplot[sB, thick, dashed] table[corr, x index=0, y index=2] {\corrdata{stale_lines}};
+  \addlegendentry{least squares}
+\end{axis}
+\end{tikzpicture}
+\caption{Nine sessions on one calibration with a slow decline of 0.012 per session
+and one rough day (session 3, low conditions trust). Least squares is dragged flat
+by the early outlier ($-0.003$ per session); weighted Theil--Sen finds $-0.009$.
+With nine sessions the bootstrap interval still reaches above zero, so no flag yet.
+Data: \texttt{figures/correction/correction\_tracking.py}.}
+\label{fig:corr-stale}
+\end{figure}
+
+\file{mhseals\_testing/analysis/predictor.py, analysis/tracking.py (tracking\_score, theil\_sen, staleness), ui/feeds/tracking.py; config/tracking.yaml; figures/correction/correction\_tracking.py}

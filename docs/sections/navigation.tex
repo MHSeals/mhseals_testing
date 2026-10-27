@@ -13,62 +13,58 @@ the goal, turning), and blends them with weights
   w_k = \frac{e^{-(S_k - S_{\min})/\lambda}}{\sum_j e^{-(S_j - S_{\min})/\lambda}},
   \qquad \bm u = \sum_k w_k\,\bm u_k .
 \]
-The temperature $\lambda$ sets how much it averages: a high $\lambda$ blends many
-samples, a low one commits to the best few. A floating boat's odometry is noisy
-(waves) and its response lags, and averaging over many samples then washes out
-the corrections; $\lambda = 0.1$ commits.
+The configured Omni controller uses $K=600$, $N=48$, $\Delta t=0.1$\,s
+and $\lambda=0.3$, with one iteration and $\gamma=0.015$. Command perturbation
+standard deviations are $(0.10,0.07,0.15)$ in surge, sway and yaw rate.
+A rotation shim wraps MPPI, with heading threshold $1.8$\,rad and rotation
+speed $0.3$\,rad/s; it also turns to the goal heading.
 
-\paragraph{Timing.} After each cycle MPPI shifts its best sequence one step,
-assuming a cycle lasts $\Delta t$. So $\Delta t$ must equal the control period:
-$\Delta t = 1/f$. At $f = 20$\,Hz on a loaded computer the loop slipped to 11--17\,Hz,
-the shifted plan fell out of step with the boat, and it drove in circles; at
-$f = 10$\,Hz with $\Delta t = 0.1$\,s and $N=28$ (the same 2.8\,s horizon) it holds
-its rate and drives straight.
-
-\paragraph{Path horizon.} MPPI scores rollouts against the part of the path
-within the prune distance $D$. A rollout runs up to $v_{\max} N\Delta t$; if that
-exceeds $D$ the rollouts run off the end of the path, where only weak critics
-apply, and near the end of a path the boat circles instead of arriving. Hence
-$D \ge 1.2\, v_{\max} N \Delta t$.
+\paragraph{Timing and path horizon.} The configuration derives the model period
+from the controller frequency and preserves the configured prune-distance floor:
+\[
+ \Delta t=\operatorname{round}(1/f,6),\qquad
+ D=\max\!\left(D_0,\operatorname{round}(1.2v_{x,\max}N\Delta t,2)\right).
+\]
+At $f=10$\,Hz the horizon is $4.8$\,s and $D_0=3$\,m. Default velocity
+limits are $v_x\in[-0.1,0.4]$\,m/s, $|v_y|\le0.15$\,m/s and
+$|\omega|\le0.3$\,rad/s. A characterization overlay can replace the limits.
 
 \subsection{The costmap over open water}
 
-A LiDAR over water returns almost nothing: the surface does not reflect the beam
-back and there is nothing behind it. An obstacle grid clears a cell only when a
-ray passes through it to a return, so a mark made once (a buoy, a gust-tilted
-ring of points) would never be cleared. The obstacle layer therefore uses voxels
-that decay: each mark lives a few seconds ($3$\,s in the local map, $15$\,s in the
-global one, which must remember a buoy behind the boat) unless seen again. And a
-VLP-16's rings are $2^\circ$ apart: a buoy $0.15$\,m above the water, $2$\,m away,
-fits between them. The camera keeps such buoys in view, so the tracker's objects
-are marked as small rings of points as a second source.
+The perception costmap is a rolling $24\times24$\,m grid in \code{odom},
+with $0.15$\,m cells and $5$\,Hz updates. Its LiDAR spatio-temporal voxel
+layer has a $3$\,s decay. A second layer consumes the object tracker's
+\code{/perception/track\_grid}, combining costs by maximum. Both Nav2 maps
+consume \code{/perception/costmap} with graded costs preserved, then inflate it.
 
-\paragraph{Inflation and the footprint.} The hull is a $1.06\times0.90$\,m
-rectangle, padded by $0.1$\,m for tracking error at speed and for the scatter in
-where a buoy is seen. Its padded corners lie
-$r_c = \sqrt{0.63^2 + 0.55^2} \approx 0.84$\,m from the centre. MPPI scores
-most trajectory points by the cost under the centre alone, and checks the whole
-rectangle only where that cost says a corner could reach something, which is
-the cost found at $r_c$. If the inflation ends short of $r_c$ that test can never
-fire, and a corner can swing across a buoy the centre keeps clear of.
+Static and unknown tracks produce lethal discs. The static disc uses the last
+seen position and covariance; its class radius $R$ is expanded by
+\[
+ R_{\rm disc}=R+\min\!\left(2\sqrt{\max(\lambda_{\max}(P_{xy}),0)},\ 0.1\,\mathrm m\right).
+\]
+A moving track's hull disc is lethal, its current uncertainty ring costs $99$,
+and future discs follow constant velocity in $0.25$\,s steps over a $3$\,s
+horizon. At future offset $t>0$, the integer occupancy cost is
+\[
+ C(t)=\min\!\left(99,\max\!\left(40,\left\lfloor100(1-t/3)\right\rfloor\right)\right).
+\]
+Prediction includes measurement latency; the remaining horizon shrinks by that
+latency. Each predicted disc uses the propagated position covariance and the
+same $0.1$\,m expansion cap.
 
-The inflation reaches further, to $1.5$\,m, and falls off gently, as
-$252\,e^{-3(d - r_i)}$ beyond the inscribed radius $r_i = 0.55$\,m. Had it ended
-at half a gate, the middle of any gap between two buoys a little wider than a
-gate would cost nothing, and the planner, going from one task to the next, would
-take the shortest line through the buoy field, sliding past a buoy with only the
-footprint check's few centimetres to spare. Where a buoy is seen moves by
-$0.1$ to $0.3$\,m while the boat turns, which is more than that. With the wider
-inflation the gap costs something, and open water around the field is cheaper.
-A gate's middle still has to be passable: in a 6\,ft ($1.83$\,m) gate it is
-$0.91$\,m from each buoy and costs $252\,e^{-3(0.91-0.55)} \approx 84$, well
-short of the inscribed cost, so the boat goes through when its goal lies beyond.
+\paragraph{Inflation and the footprint.} The hull is a $1.063\times0.895$\,m
+rectangle, padded by
+$0.1$\,m. Its padded corner radius is
+$r_c=\sqrt{0.6315^2+0.5475^2}\approx0.84$\,m. MPPI's CostCritic enables
+footprint checking and samples every second trajectory point.
 
-\paragraph{The planner.} The global path comes from Smac 2D, an A* search over the
-costmap that charges for cost as well as distance, so its path keeps to the middle
-of a gap. Navfn, which walks down the gradient of a potential it spreads from the
-goal, can stall on a short leg between two inflated buoys, as when the boat
-doubles back through the speed-challenge gate.
+The Nav2 inflation layer uses radius $1.5$\,m and cost scaling factor $3$.
+Beyond the padded inscribed radius $r_i\approx0.55$\,m, its exponential cost
+is $252e^{-3(d-r_i)}$ within the inflation radius. The midpoint of a
+$1.83$\,m gate is about $0.91$\,m from either buoy, giving cost about $84$.
+
+\paragraph{The planner.} SmacPlanner2D supplies the global path through the
+costmap, accounting for cell costs as well as distance.
 
 \subsection{Measuring a run}
 
@@ -79,16 +75,27 @@ to $\bm b$ and a position $\bm p$, project onto the segment and clamp to its end
   \lambda = \operatorname{clip}\!\left(\frac{(\bm p-\bm a)\cdot(\bm b-\bm a)}{\|\bm b-\bm a\|^2},\,0,\,1\right),\qquad
   d = \left\|\bm p - (\bm a + \lambda(\bm b-\bm a))\right\|.
 \]
+For a zero-length segment take $\lambda=0$; a singleton route uses distance
+to its only point. Fewer than two track samples are INCONCLUSIVE.
 The cross-track error of $\bm p$ is the smallest $d$ over all segments. Clamping
 matters at corners: without it the distance would be to the infinite line, which
 can be small far beyond the end of a leg. The procedure reports the mean, RMS and
 maximum, the closest approach to each waypoint, and the travelled path length
-against the route length.
+against the route length. The reported final error is the closest-ever approach
+to the last waypoint $\bm w_{\rm last}$:
+\[e_{\rm final}=\min_k\|\bm p_k-\bm w_{\rm last}\|.\]
 
 \paragraph{Station keeping.} With samples $\bm p_k$ at times $t_k$ around a
 centre $\bm c$, the radii $\rho_k = \|\bm p_k - \bm c\|$ give the RMS and maximum
 radius, and the fraction of time inside the tolerance (each sample weighted by its
-interval). A slow steady push that the controller does not cancel can stay inside
+following interval; the last sample has zero weight). Fewer than three points
+or a nonpositive time span are INCONCLUSIVE. For tolerance $\epsilon$,
+\[
+ F_{\rm inside}=\frac{\sum_{k=0}^{m-2}(t_{k+1}-t_k)\,\mathbf1_{\rho_k\le\epsilon}}{t_{m-1}-t_0},
+ \qquad \text{HELD}\iff\max_k\rho_k\le\epsilon.
+\]
+Otherwise the verdict is LEFT TOLERANCE. A slow steady push that the controller
+does not cancel can stay inside
 the tolerance for a long time, so the drift is measured directly as the
 least-squares slope of each coordinate:
 \[
@@ -96,4 +103,6 @@ least-squares slope of each coordinate:
 \]
 and likewise for $y$. The drift speed is $\sqrt{v_x^2+v_y^2}$ and its heading
 $\operatorname{atan2}(v_y, v_x)$.
-\file{mhseals\_testing/analysis/nav\_metrics.py}
+\file{mhseals\_nav/config/nav2\_params.yaml, perception\_costmap.yaml, tracker.yaml;
+ navigation\_config.py, object\_tracker.py, track\_grid.py;
+ mhseals\_testing/analysis/nav\_metrics.py}

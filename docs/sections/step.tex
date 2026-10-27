@@ -3,20 +3,33 @@
 
 The controller-steps procedure asks for a velocity step of size $r$ at time $0$
 and records $y(t)$. Flip the sign for negative steps so that $r>0$.
+Only non-\code{None} samples in the inclusive driven window $[t_s,t_e]$
+are used; times below are relative to $t_s$, with no baseline subtraction.
+For $m$ retained samples the validity gate is
+\[
+  m<5\quad\text{or}\quad r=0\quad\Longrightarrow\quad\text{INCONCLUSIVE}.
+\]
 \begin{description}[nosep]
-  \item[Rise time] $t_{90} - t_{10}$, where $t_{p}$ is the first time $y\ge p\,r$.
+  \item[Rise time] $t_{90} - t_{10}$, where $t_{p}$ is the first sampled time $y\ge p\,r$
+        (no interpolation); unavailable if either crossing is absent.
   \item[Overshoot] $\max\!\left(0, \frac{\max_t y(t) - r}{r}\right)$.
-  \item[Settling time] the first time after which $|y - r|$ stays within
-        $\max(0.05\,r,\ 0.02)$. The floor keeps small steps from demanding
-        precision below sensor noise.
-  \item[Steady-state error] $r$ minus the mean of the last 20\% of the step;
+  \item[Settling time] the first sample after the last violation of the band
+        $|y-r|\le\max(0.05\,r,\ 0.02)$. It is zero if every sample is inside, and
+        unavailable if the last sample is outside.
+  \item[Steady-state error] $r$ minus the mean of samples $\lfloor0.8m\rfloor,\ldots,m-1$;
         positive means the boat falls short.
-  \item[IAE] the integral of absolute error, by the trapezoid rule:
+  \item[IAE] the integral of absolute error over the available samples, by the trapezoid rule:
         $\sum_k \tfrac12\left(|r-y_k| + |r-y_{k+1}|\right)(t_{k+1}-t_k)$.
 \end{description}
 
+A valid window is SETTLED exactly when a settling time exists:
+\[
+ \text{verdict}=\begin{cases}\text{SETTLED},&t_{\rm settle}\ne\text{None},\\
+ \text{NOT SETTLED},&t_{\rm settle}=\text{None}.\end{cases}
+\]
+
 \paragraph{Checking against theory.} For a first-order response
-$y = r(1-e^{-t/\tau})$: no overshoot, rise time $\tau\ln 9$, and IAE exactly
+$y = r(1-e^{-t/\tau})$: no overshoot, rise time $\tau\ln 9$, and infinite-horizon IAE
 $r\tau$. For an underdamped second-order system with damping ratio $\zeta$, the
 overshoot is $e^{-\pi\zeta/\sqrt{1-\zeta^2}}$ and the 5\% settling time is about
 $3/(\zeta\omega_n)$. The unit tests generate these curves and require the

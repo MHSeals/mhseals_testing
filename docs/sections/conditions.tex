@@ -1,0 +1,30 @@
+\section{Why measure the water before measuring the boat}
+\label{sec:cond}
+
+The conditions analysis estimates neutral drift, the noise of a window mean,
+and stationarity from supplied samples. Readiness combines these estimates with
+planned speeds to compute trust ceilings and a water verdict. These are pure
+estimators; the production console has no connected sensor ingestion into the
+conditions service, so its verdict remains unknown without supplied samples.
+Characterization measures its own local neutral baseline for each hold.
+
+\paragraph{Notation.} The world frame is ENU and $\psi$ is counter-clockwise
+from east. The conditions code retains compass heading $\psi_c$, clockwise from
+north, with $\psi=\pi/2-\psi_c$. Its world-to-body rotation is
+\[
+ \begin{bmatrix}v_x\\v_y\end{bmatrix}
+ =\begin{bmatrix}\sin\psi_c&\cos\psi_c\\-\cos\psi_c&\sin\psi_c\end{bmatrix}
+ \begin{bmatrix}v_E\\v_N\end{bmatrix}.
+\]
+The formulas use $\psi$ unless marked otherwise. $R(\psi)$ is the body-to-world
+rotation; $\Rgate$ denotes readiness.
+
+\file{mhseals\_testing/analysis/conditions.py, analysis/readiness.py, harness/conditions.py; procedures/characterize.py}
+
+\input{sections/conditions_windows}
+\input{sections/conditions_noise}
+\input{sections/conditions_drift}
+\input{sections/conditions_observability}
+\input{sections/conditions_stationarity}
+\input{sections/conditions_floor}
+\input{sections/readiness}

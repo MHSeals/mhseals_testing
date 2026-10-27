@@ -1,0 +1,134 @@
+\section{Neutral samples and windows}
+\label{sec:cond-windows}
+
+The estimator accepts supplied neutral samples. Its boolean eligibility input
+represents zero command, neutral PWM readback, afloat, non-bench operation and a
+3D fix. The pure mask additionally requires median velocity accuracy at most
+$0.3$\,m/s over the surrounding 8\,s and time beyond the coast cutoff.
+These components do not provide production sensor ingestion.
+
+\subsection{The coast: why a time constant from the spin-up is not enough}
+\label{sec:cond-coast}
+
+After a hold the boat keeps moving. How long must we wait before the velocity is
+the water's again? The first guess comes from the spin-up. A first-order lag
+reaches 95\,\% in $t_{95} = 3\tau$ (since $e^{-3}\approx 0.05$), so the spin-up's
+measured $t_{95}$ gives $\tau = t_{95}/3$. Waiting $4\tau$ leaves
+$e^{-4}\approx 1.8\,\%$ of the speed:
+\[
+  t_\text{coast} = t_\text{cut}+\max\big(2\,\text{s},\ 1.33\,t_{95}\big).
+\]
+
+\paragraph{Why that underestimates.} The lag is not first order. With the
+coast curve $D_c(v) = d_{c1} v + d_{c2} v|v|$ and lumped inertia $M$, the coast obeys
+$M\dot v = -(d_{c1} v + d_{c2} v^2)$ for $v>0$, with $\tilde d_1 = d_{c1}/M$, $\tilde d_2 = d_{c2}/M$.
+Two limits explain the shape. Early on, at speed, the quadratic term dominates
+and the decay is the pure-quadratic $v_0/(1 + t\,d_{c2} v_0/M)$, a $1/t$ tail, not an
+exponential. Late, at low speed, only $d_{c1}$ is left and the decay is exponential
+with time constant $M/d_{c1}$. A spin-up measures neither: it measures the slope
+linearized at the hold speed, $\tau_\text{lin} = M/(d_{c1} + 2d_{c2}v_0)$, which is much
+shorter than $M/d_{c1}$. Figure~\ref{fig:cond-coast} uses the simulator's hull drag with an
+illustrative lumped surge inertia $M = 35.5$\,kg (the 30\,kg body plus a typical
+added mass of about 5.5\,kg): after $4\tau_\text{lin}$ the exponential promises
+$0.007$\,m/s, the nonlinear coast still has $0.047$\,m/s, more than twice the
+$0.02$\,m/s drift tolerance.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.78\linewidth, height=5.2cm, xlabel={time after cut (s)},
+  ylabel={surge speed (m/s)}, xmin=0, xmax=12, ymin=0, ymax=0.4,
+  legend style={font=\small, draw=none, fill=white, fill opacity=0.85, text opacity=1,
+    at={(0.97,0.97)}, anchor=north east},
+  grid=major, grid style={gray!20}]
+  \addplot[sA, thick] table[x=t, y=vtrue] {figures/conditions/coast.dat};
+  \addlegendentry{true coast, $d_{c1} v + d_{c2} v^2$}
+  \addplot[red, dashed, thick] table[x=t, y=vexp] {figures/conditions/coast.dat};
+  \addlegendentry{exponential with $\tau_\text{lin}$ from the spin-up}
+  \addplot[black!60, densely dotted, domain=0:12] {0.02};
+  \addlegendentry{drift tolerance $0.02$}
+  \draw[gray] (axis cs:5.739,0) -- (axis cs:5.739,0.4) node[pos=0.4, right, font=\scriptsize] {$4\tau_\text{lin}$};
+  \fill[sA] (axis cs:5.739,0.0474) circle (1.5pt);
+\end{axis}
+\end{tikzpicture}
+\caption{The coast after a $0.38$\,m/s surge hold with linear-plus-quadratic drag
+(illustrative lumped surge inertia $M = 35.5$\,kg with the simulator's hull drag
+$d_{c1} = 10$\,N\,s/m, $d_{c2} = 19.4$\,N\,s$^2$/m$^2$). The exponential with
+the spin-up's time constant is done at $4\tau_\text{lin}$; the nonlinear coast is not.
+Data: \code{figures/conditions/coast.dat}.}
+\label{fig:cond-coast}
+\end{figure}
+
+\paragraph{The settle check.} We could fit the coast, but that needs $d_1$, $d_2$
+and $M$, which is the boat model the conditions are meant to stay independent
+of. Instead the data are asked directly whether the coast is over. Split the
+neutral run after $t_\text{coast}$ into 4\,s sub-batches and project each batch
+mean onto the direction of the last hold. While the boat still coasts, each batch
+is faster than the next by a consistent amount; once settled, they differ only by
+noise. So drop leading batches while
+\[
+  \big|\,\bar v_i - \bar v_{i+1}\,\big| > 2\,\sigma_\text{sub},
+\]
+at most two of them (8\,s), where $\sigma_\text{sub}$ is the sub-batch noise SD.
+A window that still fails is flagged \code{coast} and left out of the pool. The optional hold argument enables this settle check in the window builder.
+Characterize itself uses its fixed configured settle interval before each hold.
+
+\subsection{Windows, and samples used once}
+
+\paragraph{Windows.} The supplied neutral runs are cut into back-to-back
+$\Tw=8$\,s windows, retaining a tail of at least 4\,s. Coverage must reach
+80\,\% at the timestamp-derived source rate, gaps above 0.5\,s split runs,
+and $|\bar r|\ge0.05$\,rad/s flags a window as spinning.
+
+\paragraph{Samples used once.} The offline builder sorts timestamps and retains
+the first sample at each timestamp. The source adapter consumes each
+(count, receipt time) pair once, including invalid receipts; it selects GPS
+velocity or simulator-only odometry. Component velocities are averaged rather
+than their magnitudes. A held copy contributes no independent information.
+
+\paragraph{One window, three numbers.} Each window keeps its mean world velocity
+$\bm m_w$, its yaw-rate mean, and its heading $\psi_w$ as the \emph{circular} mean
+of the compass, $\psi_w = \operatorname{atan2}\big(\sum\sin\psi_i, \sum\cos\psi_i\big)$
+(an arithmetic mean of $359^\circ$ and $1^\circ$ would say $180^\circ$). Each window also keeps its 4\,s
+sub-batch means, used next. Figure~\ref{fig:cond-series} shows the three time
+scales on one record.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.9\linewidth, height=5cm, xlabel={time (s)},
+  ylabel={$v_E$ (m/s)}, xmin=0, xmax=32, ymin=0, ymax=0.18,
+  yticklabel style={/pgf/number format/fixed}, scaled y ticks=false,
+  legend style={font=\small, draw=none, fill=none}, legend columns=3,
+  legend pos=north west, grid=major, grid style={gray!20}]
+  \addplot[const plot, gray, thin] table[x=t, y=v] {figures/conditions/series.dat};
+  \addlegendentry{5\,Hz samples (truncated to 1\,cm/s)}
+  \addplot[sB, very thick, mark=none] coordinates {(0,-1)};
+  \addlegendentry{4\,s batch means}
+  \addplot[sA, ultra thick, mark=none] coordinates {(0,-1)};
+  \addlegendentry{8\,s window means}
+  \pgfplotstableread{figures/conditions/batches.dat}\batches
+  \pgfplotstableread{figures/conditions/windows.dat}\windows
+  \pgfplotstablegetrowsof{\batches}\let\nb\pgfplotsretval
+  \pgfplotsforeachungrouped \i in {0,...,7} {
+    \pgfplotstablegetelem{\i}{t0}\of\batches \let\ta\pgfplotsretval
+    \pgfplotstablegetelem{\i}{t1}\of\batches \let\tb\pgfplotsretval
+    \pgfplotstablegetelem{\i}{m}\of\batches  \let\mm\pgfplotsretval
+    \edef\cmd{\noexpand\draw[sB, very thick] (axis cs:\ta,\mm) -- (axis cs:\tb,\mm);}\cmd
+  }
+  \pgfplotsforeachungrouped \i in {0,...,3} {
+    \pgfplotstablegetelem{\i}{t0}\of\windows \let\ta\pgfplotsretval
+    \pgfplotstablegetelem{\i}{t1}\of\windows \let\tb\pgfplotsretval
+    \pgfplotstablegetelem{\i}{m}\of\windows  \let\mm\pgfplotsretval
+    \edef\cmd{\noexpand\draw[sA, ultra thick, opacity=0.6] (axis cs:\ta,\mm) -- (axis cs:\tb,\mm);}\cmd
+  }
+\end{axis}
+\end{tikzpicture}
+\caption{A synthetic neutral record: drift $0.08$\,m/s plus correlated noise
+($\tau_c = 1.1$\,s) and a small wave, sampled at 5\,Hz and truncated to cm/s.
+Samples, 4\,s sub-batch means and 8\,s window means each average away more of the
+noise. Data: \code{figures/conditions/\{series,batches,windows\}.dat}.}
+\label{fig:cond-series}
+\end{figure}
+
+\file{mhseals\_testing/analysis/conditions.py (neutral\_mask, settle\_coast, build\_windows), config/conditions.yaml}

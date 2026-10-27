@@ -1,0 +1,83 @@
+\section{Notation}
+\label{app:notation}
+
+One table for the whole document. The last column names the part where a symbol
+is introduced (F: frames and Part~IV, I, II, III). A few letters are reused with
+different meanings in different parts; where that happens the row says so, and
+within one section a letter has one meaning only. Conventions that hold
+everywhere: the body frame is FLU (Section~\ref{sec:frames}); the world frame is
+ENU with the heading $\psi$ counter-clockwise from east; compass, GPS course and
+the flight controller report $\psi_c = \pi/2 - \psi$, clockwise from north, and
+the conditions estimator retains compass headings internally and rotates
+velocities using their sine and cosine. Every $\pm$ is one standard deviation.
+
+\small
+\setlength{\LTpre}{4pt}\setlength{\LTpost}{0pt}
+\begin{longtable}{@{}>{\raggedright}p{0.24\linewidth}>{\raggedright}p{0.62\linewidth}c@{}}
+  \toprule
+  symbol & meaning & part\tabularnewline
+  \midrule
+  \endfirsthead
+  \toprule
+  symbol & meaning & part\tabularnewline
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \multicolumn{3}{@{}l}{\emph{Frames, commands and the boat}}\tabularnewline
+  $\bm e$, $e_j$ & effort, $j\in\{x, y, \psi\}$ (surge, sway, yaw), each in $[-1,1]$ & I\tabularnewline
+  $\nuv = (u, v, r)$ & body velocity: surge, sway (m/s), yaw rate (rad/s); the same as $\bm v = (v_x, v_y, \omega_z)$ of Section~\ref{sec:frames} & F, I\tabularnewline
+  $\nur$ & water-relative body velocity $(u_r, v_r, r)$ & III\tabularnewline
+  $\psi$, $\psi_c$ & heading (ENU, from east); compass heading (from north, clockwise) & II, III\tabularnewline
+  $R(\psi)$ & 2-D rotation, body to world (written $\Rot$ in Part~III) & I\tabularnewline
+  $\bm t$, $t_i$ & thruster command, $i\in\{\text{FL},\text{FR},\text{RR},\text{RL}\}$; $\bm t = M\bm e'$ & I\tabularnewline
+  $M$ & the $4\times3$ mixer of signs (Section~\ref{sec:mixer}) & I\tabularnewline
+  $B$, $\bm b_i$ & allocation matrix and its column for thruster $i$ & I, III\tabularnewline
+  $x_i$, $y_i$, $\alpha_i$ & thruster position and positive-thrust direction (counter-clockwise from $+x$) & I, III\tabularnewline
+  $\mathcal M=M_{RB}+M_A$ & lumped inertia, with sway--yaw coupling $a_{26}$ (written $\Min$ in Part~III) & I, III\tabularnewline
+  $m$, $a_u$, $a_v$, $a_r$ & rigid mass; added masses and added yaw inertia & III\tabularnewline
+  $\Cor$ & Coriolis--centripetal matrix & III\tabularnewline
+  \midrule
+  \multicolumn{3}{@{}l}{\emph{Thrust and correction}}\tabularnewline
+  $\varphi$, $\rho$, $n$ & thrust curve ($t^2$ forward, $-\rho t^2$ reverse); reverse ratio $\rho$ (default $1$); degree $n = 2$. Bare $\rho$ is always the reverse ratio & I\tabularnewline
+  $\rho_a$ & density of air & III, F\tabularnewline
+  $k_i^\pm$, $K_f$, $K_r$ & full-effort thrust magnitudes per sign at the reference voltage, in newtons & III\tabularnewline
+  $\eta_i^\pm$ & relative strength $k_i^\pm/k_{\mathrm{nom}}^\pm$ (dimensionless, nominal $1$) & I\tabularnewline
+  $\Vbus$, $n_V$ & supplied thruster-bus voltage; scalar voltage exponent & III\tabularnewline
+  $\Wn(\bm e)$, $S$ & normalized wrench $\tfrac14 M^\top\varphi(M\bm e)$; physical scale, wrench $= S\Wn$ & I\tabularnewline
+  $(j, s)$ & a \emph{direction}: axis $j$ and sign $s = \pm1$; there are six & I\tabularnewline
+  $C^+$, $C^-$, $\bm c_j^s$ & correction matrices; column $j$ of $C^s$ serves direction $(j, s)$ & I\tabularnewline
+  $a$ & amplitude of a one-axis hold & I\tabularnewline
+  $V$ & main-axis speed in a hold or coast ($u$, $v$ or $r$); never a voltage & I, II, III\tabularnewline
+  $\tilde d_1$, $\tilde d_2$ & $d_{c1}/\mathcal M_{jj}$, $d_{c2}/\mathcal M_{jj}$: coast drag per unit inertia & I\tabularnewline
+  $\tnf$ & 95\,\% settling time & I\tabularnewline
+  \midrule
+  \multicolumn{3}{@{}l}{\emph{Water, noise and trust}}\tabularnewline
+  $\dw$, $\dhat$, $\sed$ & world drift (ENU, m/s); its pooled estimate; standard error per component & I, II\tabularnewline
+  $\delta$, $\sigma_\delta$ & heading error and its SD & I, II\tabularnewline
+  $\Delta t$ & sample interval of the velocity source (0.2\,s for 5\,Hz GPS) & II\tabularnewline
+  $\Tw$, $b$, $k$ & neutral window length; sub-batch length; sub-batches per window & II\tabularnewline
+  $W$ & number of pooled windows (bold $\Wn$ is the wrench) & II\tabularnewline
+  $\Szero$ & spectral level at zero frequency: $\Var(\text{mean over }T)\approx \Szero/T$ & II, III\tabularnewline
+  $\tau_c$, $\rho_1$ & noise correlation time; lag-1 autocorrelation of samples & II\tabularnewline
+  $f$ & batch-mean correction factor, $\Var(\text{batch mean}) = f\Szero/b$ & II\tabularnewline
+  $D_{\mathrm{od}}$, $r$ & overdispersion $\chi^2/\mathrm{df}$ of window means; correlation between windows & II\tabularnewline
+  $\bm a$, $\bm q$ & observable drift (current plus mean leeway); heading-dependent windage term (plain $a$ is an amplitude) & II\tabularnewline
+  $k_x$, $k_y$, $\bar k$, $\Delta k$ & leeway coefficients along and across the hull; their mean and difference; in the one-axis derivation $c_a$, $c_h$ lump the air and hull drag & II\tabularnewline
+  $\bm c$, $\bm w$ & water current over ground; wind over the water & II\tabularnewline
+  $\bm\beta$ & trend of the window means (m/s per s) & II\tabularnewline
+  $\sigwave$, $\sigma_{\mathrm{wave},k}$ & wave floor: SD of a window mean at neutral; per channel $k$ & I, II\tabularnewline
+  $\tau_k$, $\sigma_k$ & tolerance and noise SD of ceiling entry $k$ & I, II\tabularnewline
+  $\score$ & live tracking score of an axis & I\tabularnewline
+  $\sigma_s$ & sample-level noise SD of a channel at neutral (the tracking score's allowance; not $\sigwave$) & I\tabularnewline
+  $\hat m_{\mathrm{TS}}$ & Theil--Sen slope of session scores & I\tabularnewline
+  $p_k$, $C_d$, $\Rgate$ & entry ceiling; direction ceiling; readiness gate $\min_d C_d$ & II\tabularnewline
+  $\sigma_e$, $\tau_d$, $\Td$ & drift error now; drift tolerance (0.02\,m/s); drift trust & II\tabularnewline
+  $\Phi$ & standard normal cumulative distribution & II\tabularnewline
+  \midrule
+  \multicolumn{3}{@{}l}{\emph{Statistics}}\tabularnewline
+  $\E$, $\Var$, $\Cov$ & expectation, variance, covariance & all\tabularnewline
+\end{longtable}
+\normalsize
+
+\file{mhseals\_testing/analysis/conditions.py, analysis/readiness.py; crane\_ml: MarinePlanarModel.cs, ThrusterModel.cs}

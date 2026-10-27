@@ -1,0 +1,249 @@
+\section{The simulator's plant}
+\label{sec:s2r}
+\label{sec:s2r-plant}
+
+The horizontal plant describes surge, sway and yaw at the center of gravity.
+Its continuous dynamics and the force passed to Unity are distinguished below.
+
+\subsection{State and frames}
+
+The body frame is FLU at the center of gravity (CG). The body velocity is
+\[
+  \nuv = \begin{bmatrix} u & v & r\end{bmatrix}^\top
+       \equiv \begin{bmatrix} v_x & v_y & \omega_z\end{bmatrix}^\top ,
+\]
+surge, sway and yaw rate: the frames section's $\bm v$ under the names used in
+ship hydrodynamics. The world frame is ENU with heading
+$\psi$ counter-clockwise from east, and
+$\Rot(\psi) = \left[\begin{smallmatrix}\cos\psi & -\sin\psi\\ \sin\psi & \cos\psi\end{smallmatrix}\right]$
+turns a body vector into the world.
+
+\paragraph{Water-relative velocity.} Drag and added mass act on the motion
+\emph{through the water}. With a constant, uniform world current $\bm c$ (ENU),
+\[
+  \nur = \begin{bmatrix} u_r\\ v_r\\ r\end{bmatrix}
+       = \nuv - \begin{bmatrix} \Rot(\psi)^\top \bm c\\ 0\end{bmatrix}.
+\]
+The current does not turn the boat, so $r$ is unchanged.
+
+\subsection{The rigid body in a turning frame}
+\label{sec:s2r-rigid}
+
+Newton's law holds in the world frame: $m\,\tfrac{d}{dt}\bm V = \bm F$, with
+$\bm V = \Rot(\psi)\,(u, v)^\top$ the world velocity. The body frame turns, so
+differentiating brings in the rate of turn. With $\dot\psi = r$ and
+$\dot \Rot = r\,\Rot S$, $S = \left[\begin{smallmatrix}0&-1\\1&0\end{smallmatrix}\right]$,
+\[
+  \frac{d}{dt}\bm V = \Rot\left(\begin{bmatrix}\dot u\\ \dot v\end{bmatrix}
+                     + r S \begin{bmatrix}u\\ v\end{bmatrix}\right)
+                  = \Rot\begin{bmatrix}\dot u - r v\\ \dot v + r u\end{bmatrix}.
+\]
+In body coordinates, then,
+\begin{equation}
+  m(\dot u - v r) = X,\qquad m(\dot v + u r) = Y,\qquad I_z \dot r = N,
+  \label{eq:s2r-rigid}
+\end{equation}
+where $(X, Y, N)$ is the total force and moment in the body frame. The extra
+terms $-vr$ and $+ur$ are not forces; they are the price of describing a
+straight-line motion in a turning frame. A boat sliding sideways at $v$ while
+turning sees its ``forward'' direction swing into its velocity.
+
+\subsection{Added mass and the Munk moment}
+
+To accelerate a hull, the thrusters must also accelerate some of the water
+around it. That water has kinetic energy, and for a hull symmetric port to
+starboard and with zero sway--yaw added-mass coupling ($a_{26}=0$), it is a quadratic form in the velocity,
+\[
+  T_A = \tfrac12\left(a_u u_r^2 + a_v v_r^2 + a_r r^2\right),\qquad a_u, a_v, a_r \ge 0 .
+\]
+The $a$'s are the \emph{added masses}: the masses of water that ``come along''
+in each direction. Sideways a thin hull pushes a lot of water ($a_v$ large);
+end-on it slips through ($a_u$ small).
+
+\paragraph{The lumped inertia.} The water's energy adds to the body's, so the
+total is $\tfrac12\nur^\top\Min\nur$ with
+\[
+  \Min = \operatorname{diag}(\Min_{11}, \Min_{22}, \Min_{33}),\qquad
+  \Min_{11} = m + a_u,\quad \Min_{22} = m + a_v,\quad \Min_{33} = I_z + a_r .
+\]
+\paragraph{Equations of motion from the energy.} The idea behind Kirchhoff's
+equations is Newton's second law applied to the momentum of the body \emph{plus}
+the water it carries along. That momentum is the gradient of the total kinetic
+energy $T$ with respect to the velocity (for $T = \tfrac12 mv^2$ it is $mv$), so with
+added mass it is $(\Min_{11}u_r, \Min_{22}v_r)$, not $m$ times the velocity. And
+because the equations are written in the body frame, which turns at rate $r$, the
+time derivative of any vector expressed in it picks up the rotation term
+$\bm\omega\times(\cdot)$, the same correction that turns $\dot u$ into $\dot u - vr$
+for the rigid body. For a body in an ideal fluid this gives the motion from the
+kinetic energy $T$ alone (here $T$ is the kinetic energy, not a thrust). With
+$\bm p = \partial T/\partial(u_r, v_r) = (\Min_{11}u_r, \Min_{22}v_r)$ the momentum
+and $h = \partial T/\partial r = \Min_{33} r$ the angular momentum, they read
+\[
+  \dot{\bm p} + r S\bm p = (X, Y)^\top,\qquad
+  \dot h + (u_r, v_r)\times\bm p = N .
+\]
+The first is the turning-frame correction of Section~\ref{sec:s2r-rigid} applied
+to the momentum instead of the velocity. The second has a new term, the 2-D cross
+product of velocity and momentum:
+\[
+  (u_r, v_r)\times(\Min_{11}u_r, \Min_{22}v_r) = u_r\Min_{22}v_r - v_r\Min_{11}u_r
+  = (\Min_{22} - \Min_{11})\,u_r v_r .
+\]
+This is the \emph{Munk moment}. Figure~\ref{fig:s2r-munk} shows where it comes
+from: when the hull moves at an angle, $\Min_{22} > \Min_{11}$ makes the momentum
+point more sideways than the velocity, and a momentum that is not parallel to the
+velocity carries an angular momentum about the moving centre that the hull must
+balance with a yawing moment, turning it broadside to the flow.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\footnotesize]
+  \begin{scope}[rotate=20]
+    \draw[fill=gray!15, rounded corners=6pt] (-1.8,-0.32) rectangle (1.8,0.32);
+    \draw[dashed, gray] (-2.6,0) node[left, black] {hull axis $x$} -- (2.5,0);
+    \draw[->, very thick, sA] (0,0) -- (2.2,0.62) node[below right] {velocity $(u_r, v_r)$};
+    \draw[->, very thick, sB] (0,0) -- (1.8,1.3) node[above] {momentum $(\Min_{11}u_r, \Min_{22}v_r)$};
+  \end{scope}
+  \draw[->, thick, sC] (4.0,1.0) arc[start angle=40, end angle=-40, radius=1.3]
+    node[below right, align=left] {Munk moment (clockwise here)\\ $-(\Min_{22}-\Min_{11})u_rv_r$};
+\end{tikzpicture}
+\caption{The Munk moment. The water is heavier to push sideways than lengthwise
+($\Min_{22} > \Min_{11}$), so at an angle of attack the momentum of hull plus water
+(orange) points further across the hull than the velocity (blue). The two are not
+parallel, and the resulting moment turns the hull away from the flow: it is
+destabilizing, and the hull's yaw damping has to beat it
+in a powered hold.}
+\label{fig:s2r-munk}
+\end{figure}
+
+Written out,
+\begin{equation}
+\begin{aligned}
+  \Min_{11}\dot u_r - \Min_{22}\, v_r r &= X,\\
+  \Min_{22}\dot v_r + \Min_{11}\, u_r r &= Y,\\
+  \Min_{33}\dot r + (\Min_{22} - \Min_{11})\,u_r v_r &= N,
+\end{aligned}
+\qquad\text{i.e.}\qquad
+\Min\dot\nuv_r + \Cor(\nur)\,\nur = \bm\tau,
+\label{eq:s2r-fossen}
+\end{equation}
+where $\bm\tau = (X, Y, N)$ holds every other force (drag, thrust, wind), and
+\[
+  \Cor(\nur) = \begin{bmatrix}
+    0 & 0 & -\Min_{22} v_r\\
+    0 & 0 & \Min_{11} u_r\\
+    \Min_{22} v_r & -\Min_{11} u_r & 0
+  \end{bmatrix}.
+\]
+If there were no water ($a = 0$), $\Min_{11} = \Min_{22} = m$ and this is exactly
+\eqref{eq:s2r-rigid}: the cross term vanishes because a rigid body has the same
+mass in every direction.
+
+\paragraph{The Munk moment.} The yaw equation has the moment
+$-(\Min_{22} - \Min_{11})\,u_r v_r = -(a_v - a_u)\,u_r v_r$ with no external cause.
+For a boat going forward ($u_r > 0$) with a little leeway to port ($v_r > 0$) it is
+negative: it turns the bow to starboard, away from the flow, which makes the leeway
+angle larger. Any elongated body in a flow feels it; it is why a hull with too
+little keel or skeg is directionally unstable, and why the yaw damping of the hull
+matters as much as its drag.
+
+\paragraph{A check: $\Cor$ does no work.} The power of the $\Cor$ terms is
+$\nur^\top\Cor(\nur)\nur
+= -\Min_{22}u_r v_r r + \Min_{11} u_r v_r r + \Min_{22} u_r v_r r - \Min_{11} u_r v_r r = 0$.
+They only redirect momentum, as they must: water without friction cannot drain
+energy. The discrete step is checked for non-growing energy; it does not exactly
+conserve the continuous kinetic energy.
+
+\paragraph{From ground to water velocity, exactly.} The rigid-body part can be
+written with either velocity, because for a constant current
+\[
+  m(\dot u - v r) = m(\dot u_r - v_r r),\qquad m(\dot v + u r) = m(\dot v_r + u_r r).
+\]
+Proof: the current in body coordinates is $\nuv_c = \Rot(\psi)^\top\bm c$, and
+$\tfrac{d}{dt}\Rot^\top = -r S\Rot^\top$, so $\dot u_c = r v_c$ and
+$\dot v_c = -r u_c$. Then
+$\dot u_r - v_r r = \dot u - r v_c - (v - v_c)r = \dot u - v r$, and likewise for
+sway. A simulator can therefore integrate the rigid body on ground velocity, as a
+physics engine does, and apply added mass, Coriolis and damping on $\nur$
+with the force mapping below.
+
+\paragraph{Sway--yaw coupling.} The implemented model also supports $a_{26}$.
+Writing $a_u=a_{11}$, $a_v=a_{22}$ and $a_r=a_{66}$, its mass and added
+Coriolis terms are
+\[
+ M_A=\begin{bmatrix}a_u&0&0\\0&a_v&a_{26}\\0&a_{26}&a_r\end{bmatrix},
+ \quad M_{RB}=\operatorname{diag}(m,m,I_z),\quad \Min=M_{RB}+M_A,
+ \quad C_A(\nur)\nur=\begin{bmatrix}
+ -(a_vv_r+a_{26}r)r\\a_uu_rr\\(a_v-a_u)u_rv_r+a_{26}u_rr
+ \end{bmatrix}.
+\]
+The continuous ground-velocity equation is
+$\Min\dot\nuv=\bm\tau+M_A\dot\nuv_c-C_A(\nur)\nur-\bm D(\nur)-C_{RB}(\nuv)\nuv$,
+where $\nuv_c=(R^\top\bm c,0)$ and
+$C_{RB}(\nuv)\nuv=(-mvr,mur,0)^\top$.
+The sway--yaw solve uses the coupled $2\times2$ block. The displayed diagonal
+Kirchhoff equations specialize this model to $a_{26}=0$.
+
+\subsection{Hull damping}
+
+Each horizontal axis $s\in\{u_r,v_r,r\}$ has sign-specific nonnegative linear
+and quadratic coefficients. The hull feels the negative of
+\[
+ D_j(s)=(D_{1,j}^{\operatorname{sgn}s}+D_{2,j}^{\operatorname{sgn}s}|s|)s.
+\]
+Heave, roll and pitch use symmetric linear-plus-quadratic body-frame damping.
+
+The damping derivative used by the implicit mapping takes the stronger linear
+coefficient at zero:
+\[
+ J_j(s)=\begin{cases}D_{1,j}^{\operatorname{sgn}s}+2D_{2,j}^{\operatorname{sgn}s}|s|,&s\ne0,\\
+ \max(D_{1,j}^+,D_{1,j}^-),&s=0.\end{cases}
+\]
+
+\subsection{The force applied by Unity}
+
+For step $\Delta t$, the damping correction uses the diagonal effective inertias
+$M_{\mathrm{eff},j}=\Min_{jj}$. Its exponential term is
+\[
+ x_j=\frac{\Delta t J_j}{M_{\mathrm{eff},j}},\qquad
+ h_j=M_{\mathrm{eff},j}\left(\frac{x_j}{1-e^{-x_j}}-1\right),
+ \qquad h_j\simeq M_{\mathrm{eff},j}(x_j/2+x_j^2/12)\quad(x_j<10^{-4}).
+\]
+The implementation returns zero for nonpositive $x_j$ and uses the displayed
+series for positive small $x_j$.
+
+Let $H=\operatorname{diag}(h_j)$ and collect the actuator and hydrodynamic terms
+into $\bm\tau_h$. The force correction includes $H$ in both matrices:
+\[
+ \bm\tau_h=\bm\tau+M_A\dot\nuv_c-C_A(\nur)\nur-\bm D(\nur),\qquad
+ \widetilde M=\Min+H,\qquad
+ \bm F_U=\bm\tau_h-(M_A+H)\widetilde M^{-1}
+          (\bm\tau_h-C_{RB}(\nuv)\nuv).
+\]
+Unity applies $\bm F_U$ to its rigid mass and inertia. The pure step updates
+world velocity and yaw rate before position and heading (symplectic Euler).
+
+\subsection{Thrusters}
+
+For clamped pulse $p\in[1100,1900]$\,$\mu$s, neutral offset $o$ and deadband
+$d_b$, the effort is zero when $|p-1500-o|\le d_b$ and otherwise is
+$q=\operatorname{clip}((p-1500-o)/400,-1,1)$. The range outside the deadband
+is not rescaled. After the command delay the static target is
+\[
+ f_{\mathrm{ss}}=\begin{cases}K_fq^2,&q>0,\\-K_rq^2,&q<0,\\0,&q=0,\end{cases}
+ \qquad f_{\mathrm{ss}}\leftarrow f_{\mathrm{ss}}(\Vbus/V_{\mathrm{ref}})^{n_V}.
+\]
+Voltage scaling applies only for nonzero $n_V$ and finite positive supplied
+voltage. Nonfinite pulse input is replaced with neutral.
+
+The delay is rounded to whole ticks and the first-order lag uses its exact
+sampled gain:
+\[
+ N_d=\max(0,\operatorname{round}(t_d/\Delta t)),\qquad
+ f_{k+1}=f_k+(1-e^{-\Delta t/\tau_T})(f_{\mathrm{ss},k-N_d}-f_k).
+\]
+For $\tau_T\le0$ the gain is one. A step-size change resizes and clears the
+delay buffer. Mount directions and lever arms turn individual thrusts into a
+body force and moment.
+
+\file{crane\_ml: Assets/Scripts/Physics/Water/Dynamics/MarinePlanarModel.cs, MarineHydrodynamics.cs; Assets/Scripts/Actuators/Motors/ThrusterModel.cs}

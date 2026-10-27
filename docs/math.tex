@@ -1,16 +1,9 @@
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amssymb,amsthm,bm}
-\usepackage{booktabs}
-\usepackage{enumitem}
-\usepackage[hidelinks]{hyperref}
-\usepackage{xcolor}
-
-\newtheorem*{example}{Example}
-\newcommand{\code}[1]{\texttt{\small #1}}
-\newcommand{\file}[1]{\par\noindent{\small\raggedright\color{gray} Implemented in \texttt{#1}.\par}}
-\newcommand{\R}{\mathbb{R}}
-\DeclareMathOperator*{\argmin}{arg\,min}
+\input{preamble}
+\input{sections/correction_macros}
+\input{sections/conditions_macros}
+\input{sections/sim2real_macros}
 
 \title{The math behind the MHSeals boat tests}
 \author{\texttt{mhseals\_testing}, \texttt{mhseals\_hardware}, \texttt{mhseals\_nav}}
@@ -20,14 +13,26 @@
 \maketitle
 
 \noindent This is a short course on every calculation the test suite and the
-thruster chain make, in the order you meet them on the boat: from how a
-command becomes four pulse widths, through fitting a model of the boat, to
-scoring a navigation run. Each section ends with the file that implements it,
-so you can read the math and the code side by side. Nothing here needs more
-than vectors, matrices and a little calculus.
+thruster chain make: how a command becomes four pulse widths, how the boat's
+thrust is characterized, how the water is measured before the boat, how the
+simulator's plant is built, and how a navigation run is scored. Each section
+ends with the file that implements it, so you can read the math and the code
+side by side. The prerequisites are basic linear algebra, ordinary differential
+equations and multivariable calculus; every step that is not obvious from those
+is written out. The notation is collected in one table in
+Appendix~\ref{app:notation}.
 
 \tableofcontents
 \bigskip
+
+\clearpage
+\part{Thrust: allocation, characterization and speed}
+\label{part:thrust}
+\noindent Part~I follows a command from the effort the driver receives to the
+motion it produces: the frames, the mixer that spreads an effort over four
+thrusters, the ESC that turns thrust into a pulse width, the characterization
+that measures the boat's response, the decoupling columns, and the velocity
+controller that inverts the measured speed curves.
 
 \input{sections/frames}
 \input{sections/mixer}
@@ -35,12 +40,40 @@ than vectors, matrices and a little calculus.
 \input{sections/characterization}
 \input{sections/thrust}
 \input{sections/controller}
-\input{sections/trial}
+
+\clearpage
+\part{Conditions and readiness}
+\label{part:conditions}
+\noindent Part~II measures the water before the boat: the drift, how noisy a
+time average is, what wind and current can be told apart, whether the water is
+steady, and from those a prediction of the trust a fit can reach today.
+
+\input{sections/conditions}
+
+\clearpage
+\part{The simulator's plant}
+\label{part:s2r}
+\noindent Part~III describes the simulator as it is (Section~\ref{sec:sim}) and
+the plant model its boat implements.
+
+\input{sections/sim}
+\input{sections/sim2real}
+
+\clearpage
+\part{Scoring the tests}
+\label{part:scoring}
+\noindent The remaining calculations score individual tests: the TF tree, step
+responses, navigation runs, task geometry and missions. They use the frames of
+Section~\ref{sec:frames} and nothing else from Parts~I--III.
+
 \input{sections/tf}
 \input{sections/step}
 \input{sections/navigation}
 \input{sections/tasks}
 \input{sections/mission}
-\input{sections/sim}
+
+\appendix
+\input{sections/notation}
+\input{sections/figures_appendix}
 
 \end{document}

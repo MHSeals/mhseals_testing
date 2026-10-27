@@ -1,24 +1,22 @@
 \section{Task geometry}
 \label{sec:tasks}
 
-\paragraph{Gates.} Red and green markers are paired greedily by distance: the
-closest pair first, each marker used once, pairs wider than the maximum gate width
-ignored. The gate is the midpoint $\bm m = \tfrac12(\bm r + \bm g)$. Its heading
-is normal to the line $\bm r\to\bm g$; of the two normals, the one pointing away
-from the boat is kept:
+\paragraph{Gates.} Marker pairs are sorted by distance and accepted greedily,
+using each marker once, with $w_{\min}\le\|\bm g-\bm r\|\le w_{\max}$
+(defaults $1$ and $8$\,m). Same-colour pairing also uses each marker once.
+The gate midpoint and port-red normal are
 \[
-  \phi = \operatorname{atan2}(g_y - r_y, g_x - r_x) + \tfrac\pi2,\qquad
-  \text{if } \cos(\phi - \operatorname{atan2}(m_y - p_y, m_x - p_x)) < 0:\ \phi \leftarrow \phi + \pi,
+ \bm m=\tfrac12(\bm r+\bm g),\qquad
+ \phi=\operatorname{atan2}(g_y-r_y,g_x-r_x)+\tfrac\pi2.
 \]
-so the boat passes straight through instead of along the line of markers.
+For starboard-red add $\pi$; for \code{any}, add $\pi$ only if
+$\cos(\phi-\operatorname{atan2}(m_y-p_y,m_x-p_x))<0$, facing away from the boat.
+The channel and follow-path configurations use red to port. Gates are returned
+in increasing distance from the origin.
 
-\paragraph{Waiting.} A task that waits to see something (the first gate of a
-channel) holds where it began waiting. Under wind and current an idle boat does
-not stay put: at the $0.5$\,m/s drift of an $8$\,m/s wind over a $0.15$\,m/s
-current it is $15$\,m off in
-half a minute, and soon out of sight of what it waits for. Once it is $1.5$\,m
-from its anchor, Nav2 brings it back. The stage's deadline still bounds
-the wait, but the boat spends it where the task is, not drifting away from it.
+\paragraph{Search.} The channel searches for both marker colours before driving
+the gates. GateRun explores ahead when the next gate is not visible, bounded
+by its configured search distance and the stage deadline.
 
 \paragraph{Circling.} To circle an object at $\bm o$ with radius $R$ in $n$ steps,
 start on the side facing the boat, $\beta = \operatorname{atan2}(p_y - o_y, p_x - o_x)$,
@@ -29,31 +27,41 @@ circle, angle $+\,s\,\pi/2$, so Nav2 drives around the object rather than at it.
 \paragraph{Relative routes.} A route given as (forward, left) offsets
 $(f, l)$ from a pose $(x, y, \psi)$ maps to the world by the rotation
 $\left(x + f\cos\psi - l\sin\psi,\ y + f\sin\psi + l\cos\psi\right)$.
+Each pose faces along the leg from its preceding point.
 \paragraph{Passing a gate.} A gate at $\bm m$ with heading $\phi$ is driven
 through two poses, $\bm m - 1.5\,\bm f$ and $\bm m + 1.1\,\bm f$ with
 $\bm f = (\cos\phi, \sin\phi)$: the second is half a hull ($0.53$\,m) and a margin
 past the line, so the whole boat crosses it but the goal does not land on what
-lies beyond. Whether a gate was cleared is judged by the boat's own pose, not by
-whether Nav2 reached that last pose: with $\bm d = \bm p - \bm m$, the gate is
-cleared once $\bm d\cdot\bm f \ge 0.6$ and $|\bm d\times\bm f| \le 2.5$.
-The next gate is the nearest uncleared one ahead, ahead meaning along the last
-cleared gate's heading, so a wobble of the boat's own heading never counts a
-gate behind it.
+lies beyond. GateRun records a near-side approach before accepting a crossing. Write the
+current gate-frame coordinates as $a=(\bm p-\bm m)\cdot\bm f$ and
+$b=-(p_x-m_x)\sin\phi+(p_y-m_y)\cos\phi$, and the previous coordinates
+as $(a_0,b_0)$. The crossing predicate is
+\[
+ a\ge0.6\quad\land\quad\left[|b|\le2.5\quad\lor\quad
+ \left(a_0<0\ \land\ \left|b_0+(b-b_0)\frac{-a_0}{a-a_0}\right|\le2.5\right)\right].
+\]
+The second branch uses the interpolated intersection when the current sample
+is laterally outside. The next gate is the nearest uncleared one ahead along
+the last cleared gate's heading (or the boat heading if none is supplied),
+within $25$\,m and more than $2$\,m from every cleared gate. The first planned
+gate is selected by proximity within the configured first-gate radius.
 
-\paragraph{Docking bays.} Banners stand along the dock's spine. With two or
-more in view, the spine's direction is the principal axis of their positions,
+\paragraph{Docking bays.} Banners stand along the dock's spine. With another banner more than $0.3$\,m away, the spine's direction is the principal axis of their positions,
 $\theta = \tfrac12\operatorname{atan2}(2s_{xy}, s_{xx} - s_{yy})$ from their
-covariances, and the bays open along its normal on the boat's side. A bay is
+covariances, and the bays open along its normal on the boat's side. With no such neighbour,
+the opening faces the boat. A bay is
 taken as empty when no vessel is tracked within $1$\,m of its centre. The boat
 berths $1.2$\,m out from the banner: the bow clears the spine's costmap margin and
-the stern stays inside a bay at least $2$\,m deep.
+the configured bay depth is $1.5$\,m.
 
-\paragraph{Counting.} Tracked positions closer than $1.5$\,m are one object, so a
-track that is lost and found again is not counted twice.
+\paragraph{Counting.} Positions are retained sequentially only if at least $1.5$\,m
+from every retained position. This deduplicates nearby reports without merging
+transitive chains of positions.
 
 \paragraph{What Nav2 takes literally.} Nav2 judges a route done by the distance to
 its last pose, and drops waypoints within a metre of the boat. A full circle, or
 a turn-in-place sweep back to the starting heading, ends where the boat already
 is and would finish at once. So circles are sent as two halves and sweeps as two
 single turns, each ending away from where it began.
-\file{mhseals\_nav/tasks/geometry.py, behaviours.py}
+\file{mhseals\_nav/tasks/geometry.py, behaviours.py, trees/nav\_channel.py;
+ config/tasks/nav\_channel.yaml, follow\_path.yaml, docking.yaml}

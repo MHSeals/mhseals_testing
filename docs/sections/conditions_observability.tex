@@ -1,0 +1,106 @@
+\section{Wind versus current: what GPS and a compass can separate}
+\label{sec:cond-observe}
+
+The pure windage estimator fits heading-dependent neutral drift. It determines
+a constant vector and a double-angle term, without separating wind and current.
+
+\subsection{A model of a drifting boat}
+
+The following leeway model motivates the harmonic fit; the estimator does not
+solve an air--water drag balance. Let $\bm c$ be the current over the ground and $\bm w$ the wind \emph{over the
+water}, the air's velocity relative to the surface the hull sits in. With dead
+thrusters the steady boat velocity over the water is set by a balance between air
+drag on the topsides and water drag on the hull.
+
+\paragraph{One axis first.} Along a single body axis, with both drags quadratic,
+$c_a\,|w-u|(w-u) = c_h\,|u|\,u$ where $u$ is the boat's speed over the water and $c_a$,
+$c_h$ (air, hull) lump density, area and drag coefficient for air and water. With $u$ between 0
+and $w$ both sides have the same sign, so taking square roots,
+\[
+  \sqrt{c_a}\,(w-u) = \sqrt{c_h}\,u \quad\Longrightarrow\quad
+  u = \frac{\sqrt{c_a/c_h}}{1 + \sqrt{c_a/c_h}}\;w \equiv k\,w .
+\]
+The leeway is \emph{linear} in the wind, with a coefficient $k$ that depends only
+on the ratio of areas and coefficients (a few per cent for a small boat). That
+linearity needs both drags to have the same power law, which is why it holds for
+quadratic air drag on quadratic water drag. (Had we written the wind over the
+ground, the leeway would be $k(\bm w_\text{ground} - \bm c)$: the difference is $k\bm c$,
+about $0.003$\,m/s for $k = 0.03$ and a $0.1$\,m/s current, and it does not change
+anything below.)
+
+\paragraph{Two axes.} A catamaran presents far more area abeam than ahead, so the
+leeway coefficient differs by body axis. Linearized, with a symmetric hull, the
+body-frame leeway matrix is $K_b = \operatorname{diag}(k_x, k_y)$. To use it, rotate
+the wind into the body, apply $K_b$, and rotate back:
+\[
+  \bm d(\psi) = \bm c + R(\psi)\,K_b\,R(\psi)^\top\,\bm w .
+\]
+
+\paragraph{The key identity.} Write $\bar k = (k_x+k_y)/2$ and
+$\Delta k = (k_x - k_y)/2$, so $K_b = \bar k I + \Delta k\,\operatorname{diag}(1,-1)$.
+The isotropic part commutes with the rotation, $R\,\bar kI\,R^\top = \bar k I$. The
+other part needs a short calculation with $c = \cos\psi$, $s = \sin\psi$:
+\[
+  R\begin{bmatrix}1&0\\0&-1\end{bmatrix}R^\top
+  = \begin{bmatrix}c&-s\\s&c\end{bmatrix}\begin{bmatrix}c&s\\s&-c\end{bmatrix}
+  = \begin{bmatrix}c^2-s^2 & 2cs\\ 2cs & s^2-c^2\end{bmatrix}
+  = \begin{bmatrix}\cos2\psi & \sin2\psi\\ \sin2\psi & -\cos2\psi\end{bmatrix}
+  \equiv \Qm{2\psi}.
+\]
+$\Qm{2\psi}$ is a reflection across the line at angle $\psi$; it depends on the
+\emph{double} angle because a reflection axis at $\psi$ and at $\psi+180^\circ$ is
+the same line. So
+\[
+  \boxed{\ \bm d(\psi) = \underbrace{(\bm c + \bar k\,\bm w)}_{\bm a}
+                        + \Qm{2\psi}\,\underbrace{\Delta k\,\bm w}_{\bm q}\ }
+\]
+As the boat swings round, the drift traces a circle of radius $|\bm q|$ about
+$\bm a$, \emph{twice} per revolution (Figure~\ref{fig:cond-windage}). A bow-on
+and a stern-on boat drift alike; a beam-on boat drifts more downwind.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.45\linewidth, height=0.45\linewidth, axis equal image, scaled ticks=false, tick label style={/pgf/number format/fixed},
+  xlabel={$d_E$ (m/s)}, ylabel={$d_N$ (m/s)},
+  xmin=-0.005, xmax=0.1, ymin=-0.005, ymax=0.11,
+  legend style={font=\small, draw=none, fill=none}, legend pos=south east,
+  grid=major, grid style={gray!20}]
+  \addplot[sA, thick] table[x=dE, y=dN] {figures/conditions/windage.dat};
+  \addlegendentry{$\bm d(\psi)$, $\psi$ one turn}
+  \addplot[only marks, mark=*, mark size=2pt, sB] table[x=dE, y=dN] {figures/conditions/windage_pts.dat};
+  \addlegendentry{six survey windows}
+  \draw[->, thick, black] (axis cs:0,0) -- (axis cs:0.06,0.08);
+  \fill (axis cs:0.06,0.08) circle (1.5pt) node[left, font=\small] {$\bm a$};
+  \draw[->, thick, red] (axis cs:0.06,0.08) -- (axis cs:0.0699,0.0899) node[above right, font=\small] {$\bm q$};
+\end{axis}
+\end{tikzpicture}
+\caption{Drift as a function of heading for $\bm a = (0.06, 0.08)$\,m/s and a
+3.5\,m/s wind toward the south-west with $\Delta k = -0.004$. The circle has
+radius $|\bm q| = 0.014$\,m/s and is traversed twice per turn. Six windows at
+headings $60^\circ$ apart sample it at only three distinct values of $2\psi$,
+because headings $180^\circ$ apart coincide. Data:
+\code{figures/conditions/windage*.dat}.}
+\label{fig:cond-windage}
+\end{figure}
+
+\subsection{What is observable}
+
+The measurements are window means $\bm m_w \approx \bm a + \Qm{2\psi_w}\bm q$ at known
+headings. The unknowns of the physics are six numbers, $\bm c$, $\bm w$ and the
+two leeway coefficients; the data determine four.
+At one heading only the total $\bm d(\psi)$ is measured; $\bm a$ and
+$\bm q$ cannot be separated. With sufficient heading spread the weighted
+four-parameter linear fit uses rows $[I_2\ \Qm{2\psi_w}]$ and weights $T_w/\Szero$.
+Wind and current remain inseparable without leeway coefficients.
+
+\paragraph{The fit's gates.} At least three usable windows and a spectral level
+are required. The code checks rank three of $[1,\cos2\psi_c,\sin2\psi_c]$,
+then a smallest singular value of at least 0.1 for the centred sine/cosine
+columns divided by $\sqrt W$. A nonfinite or nonpositive fitted standard error
+abstains. The covariance uses inverse weighted information, overdispersion
+and residual-correlation inflation. The fit is heading-dependent when
+$|\bm q|/\sigma_q>3$; otherwise it returns the constant pooled drift.
+\code{drift\_at} evaluates the harmonic term only for a heading-dependent fit.
+
+\file{mhseals\_testing/analysis/conditions.py (windage, Windage.drift\_at)}

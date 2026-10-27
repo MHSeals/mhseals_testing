@@ -1,0 +1,107 @@
+\section{Is the water steady? Trend and change}
+\label{sec:cond-stationary}
+
+A pooled drift is only meaningful if the drift was one number while it was being
+pooled. Two things break that: a slow \emph{trend} (the tide turning, the wind
+building) and a sudden \emph{change} (a gust front, the boat drifting out of a
+current line). Each has its own test, and these two are the stationarity gates.
+
+Before either test, a significant windage fit removes the heading-dependent
+term from every usable mean. The original windows remain in the returned pool:
+\[
+ \bm m'_w=\bm m_w-\Qm{2\psi_w}\bm q
+ \quad\text{for a heading-dependent fit; otherwise }\bm m'_w=\bm m_w.
+\]
+The means below denote these corrected means.
+
+\subsection{Trend: a weighted slope}
+
+Fit the window means against time, $\bm m_w \approx \bm d_0 + \bm\beta\,(t_w - \bar t)$,
+with $t_w$ the window's midpoint and weights $\omega_w = T_w/\Szero$ (inverse
+variance, as before). For one component the weighted least-squares slope and its
+variance are
+\[
+  \hat\beta = \frac{\sum_w \omega_w (t_w - \bar t)\,m_w}{\sum_w \omega_w (t_w - \bar t)^2},\qquad
+  \sigma_\beta^2 = \frac{1}{\sum_w \omega_w (t_w-\bar t)^2},\qquad
+  \bar t = \frac{\sum_w\omega_w t_w}{\sum_w\omega_w}.
+\]
+These are the one-input normal equations of Section~\ref{sec:char} with weights:
+centring the time at its weighted mean makes the slope's column orthogonal to the
+intercept's, which is why the slope decouples into a single ratio. The variance
+follows because $\hat\beta$ is a linear combination of independent $m_w$, each with
+variance $1/\omega_w$:
+$\Var\hat\beta = \sum_w \omega_w^2 (t_w-\bar t)^2\cdot\omega_w^{-1}/\big(\sum_w\omega_w(t_w-\bar t)^2\big)^2$,
+which simplifies to the expression above.
+
+The state becomes \code{trending} when the larger of the two component $z$-scores,
+$|\hat\beta|/\sigma_\beta$, exceeds 3. Because $\Szero$ is itself estimated from a
+few windows, $z$ is really Student-$t$ distributed and has heavier tails than a
+normal. The limit 3 is therefore raised to its $t$ equivalent with the
+Cornish--Fisher expansion,
+\[
+  z_t = z + \frac{z^3+z}{4\nu} + \frac{5z^5 + 16z^3 + 3z}{96\nu^2},\qquad \nu = 2W,
+\]
+the first three terms of the series that turns a normal quantile into a $t$
+quantile. The degrees of freedom are those of $\hat S_0$, by which $z$ is
+studentized: $\hat S_0$ pools the squared deviations of sub-batch means about
+their own window's mean (Section~\ref{sec:cond-noise}), $k - 1$ per component per
+window. With $\Tw = 8$\,s and $b = 4$\,s there are $k = 2$ sub-batches, so each
+window contributes one degree of freedom per component, and two components give
+$\nu = 2W(k-1) = 2W$. With 4 windows ($\nu = 8$) the limit is about 4.2 (the exact
+$t_8$ quantile at the same tail probability is about 4.27, so the truncated series
+is slightly low); with 30 it is 3.1.
+
+\subsection{Change: one window against the pool}
+
+Each new window is compared with the pool before it. Under a steady drift, each
+component of $\bm m_w - \dhat$ is normal with variance $\Szero/T_w$ (the pool's own
+uncertainty is smaller and ignored), so
+\[
+  \chi^2_w = \frac{T_w\,\|\bm m_w - \dhat\|^2}{\Szero} \sim \chi^2_2 .
+\]
+A $\chi^2_2$ variable is exponential with mean 2, so its tail has a closed form,
+$P(\chi^2_2 > x) = e^{-x/2}$, and the 0.999 quantile is $-2\ln 0.001 = 13.8$. The
+state becomes \code{changed} when \emph{two consecutive} windows exceed 13.8
+and each gap is at least $0.02$\,m/s. At a change the older windows retire from the pool and the pool restarts at the first outlying
+window. Figure~\ref{fig:cond-change} shows one.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[cond axis, group style={group size=1 by 2, vertical sep=6mm, xticklabels at=edge bottom},
+  width=0.85\linewidth, xmin=0, xmax=112, grid=major, grid style={gray!20},
+  ]
+\nextgroupplot[height=4.4cm, ylabel={$m_{w,E}$ (m/s)}, ymin=0.07, ymax=0.18,
+  legend columns=3, legend style={at={(0.5,1.03)}, anchor=south}]
+  \addplot[only marks, mark=*, sA] table[x=t, y=m] {figures/conditions/stationarity.dat};
+  \addlegendentry{window means}
+  \addplot[const plot mark mid, gray, dashed] table[x=t, y=truth] {figures/conditions/stationarity.dat};
+  \addlegendentry{true drift}
+  \addplot[sB, thick, unbounded coords=jump] table[x=t, y=pooled] {figures/conditions/stationarity.dat};
+  \addlegendentry{pool before window}
+\nextgroupplot[height=3.6cm, xlabel={time (s)}, ylabel={$\chi^2_w$}, ymode=log, ymin=0.03, ymax=100]
+  \addplot[ycomb, thick, sA, mark=*, unbounded coords=discard] table[x=t, y=chi] {figures/conditions/stationarity.dat};
+  \addplot[red, thick, domain=0:112] {13.8};
+  \node[red, font=\scriptsize, anchor=south west] at (axis cs:2,13.8) {13.8 = $\chi^2_2$ at 0.999};
+\end{groupplot}
+\end{tikzpicture}
+\caption{A drift step of $0.045$\,m/s at 70\,s, 8\,s windows, $\Szero$ such that a
+window mean has SD $0.01$\,m/s. The windows at 76\,s and 84\,s both exceed 13.8 and
+both are at least $0.02$\,m/s from the pool, so the pool restarts at 76\,s; the
+next window has no pool of three yet. Data:
+\code{figures/conditions/stationarity.dat}.}
+\label{fig:cond-change}
+\end{figure}
+
+\subsection{Significant is not the same as large}
+
+Both tests ask whether a difference is \emph{detectable}. With little noise, a
+millimetre per second is detectable; in the noise-free simulator, any step at
+all is. A step of $2$\,mm/s does not matter to anyone, so a window counts as an
+outlier only when it is \emph{both} significant and at least $\tau_d = 0.02$\,m/s
+(the drift tolerance of Section~\ref{sec:ready-dtrust}) from the pool, and a trend
+or change counts against the verdict only when its size reaches $\tau_d$: the
+step itself, or the slope times the pool's span. Below that, the pool and its
+drift stand.
+
+\file{mhseals\_testing/analysis/conditions.py (\_heading\_free, \_trend, \_trend\_limit, estimate)}

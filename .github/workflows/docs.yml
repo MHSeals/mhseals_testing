@@ -13,6 +13,7 @@ jobs:
     container: texlive/texlive:latest-medium
     steps:
       - uses: actions/checkout@v4
+      - run: tlmgr update --self && tlmgr install pgfplots
       - run: make -C docs pdf
       - uses: actions/upload-artifact@v4
         with:

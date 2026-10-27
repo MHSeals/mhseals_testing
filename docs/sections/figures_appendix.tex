@@ -1,0 +1,20 @@
+\section{Reproducing the figures}
+\label{app:figures}
+
+Committed data support the illustrative plots. From \texttt{docs/}, run the
+corresponding generator with Python; these scripts use fixed seeds and NumPy.
+They illustrate the equations and are separate from the production estimators.
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+ \toprule
+ script & figures\\
+ \midrule
+ \texttt{figures/correction/correction\_*.py} & thrust, noise and tracking illustrations\\
+ \texttt{figures/conditions/make\_conditions\_data.py} & windows, noise, drift, windage, stationarity and ceilings\\
+ \bottomrule
+\end{tabular}
+\end{center}
+The simulator plant's Munk-moment diagram is drawn directly in TikZ.
+
+\file{figures/correction/correction\_*.py, figures/conditions/make\_conditions\_data.py}

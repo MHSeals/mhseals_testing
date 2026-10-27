@@ -1,0 +1,61 @@
+% Shared preamble for math.tex and bench.tex. Each document sets its own geometry
+% before \input{preamble}. Notation that more than one part uses is defined here,
+% once, with \newcommand, so a clash is a build error instead of a silent override;
+% the per-part macro files only \providecommand their own symbols.
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning,decorations.pathreplacing,
+  decorations.pathmorphing,patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots}
+\usepackage{caption}
+\captionsetup{justification=raggedright, singlelinecheck=true}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem*{example}{Example}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\file}[1]{\par\noindent{\small\raggedright\color{gray} Implemented in \texttt{#1}.\par}}
+\newcommand{\R}{\mathbb{R}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% --- operators -----------------------------------------------------------------
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\cond}{\operatorname{cond}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\SD}{\operatorname{SD}}
+\newcommand{\Normal}{\mathcal{N}}
+\newcommand{\dd}{\mathrm{d}}
+
+% --- symbols shared by several parts (meanings: notation table, Appendix) -------
+\newcommand{\nuv}{\bm{\nu}}                      % body velocity (u, v, r)
+\newcommand{\dw}{\bm d}                          % world drift, ENU, m/s
+\newcommand{\dhat}{\hat{\bm d}}                  % pooled drift estimate
+\newcommand{\sigwave}{\sigma_{\mathrm{wave}}}    % SD of a window mean at neutral (the floor)
+\newcommand{\Gs}{G^{s}}                          % T200 datasheet thrust table for sign s
+% Thruster-bus voltage (V alone is a speed). \Vbus_1 typesets as V_{bus,1}.
+\makeatletter
+\newcommand{\Vbus}{\@ifnextchar_{\Vbus@sub}{V_{\mathrm{bus}}}}
+\def\Vbus@sub_#1{V_{\mathrm{bus},#1}}
+\makeatother
+\newcommand{\epsV}{\varepsilon_V}                % voltage-law correction exponent
+\newcommand{\grav}{g_0}                          % gravity (g is the thrust shape)
+\newcommand{\card}[1]{\texttt{\small #1}}        % a plant-card key, e.g. \card{rigid.m}
+\newcommand{\status}[1]{\textsf{#1}}             % card status: \status{validated}
+\newcommand{\flag}[1]{\texttt{\small #1}}        % card flag: \flag{lumped}
+
+% --- figure colours (one palette for every part) --------------------------------
+\definecolor{sA}{RGB}{31,119,180}     % blue: model / estimate / new method
+\definecolor{sB}{RGB}{214,95,14}      % orange: alternative / old method / data
+\definecolor{sC}{RGB}{44,140,60}      % green: accepted region / truth
+\definecolor{sD}{RGB}{150,150,150}    % grey: guides

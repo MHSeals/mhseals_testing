@@ -64,7 +64,8 @@ Agents drive the boat only through the owner TUI: `boat_trial claim | status | f
 ```bash
 python -m pip install pytest rich PyYAML numpy
 PYTHONPATH=.:../mhseals_hardware python -m pytest -q test
-make -C docs docker-pdf   # docs/math.pdf: the math behind every analysis
+make -C docs pdf          # docs/math.pdf: mixer, characterization, conditions, sim plant, scoring
+make -C docs tuning       # docs/tuning.pdf: tuning Nav2 and the velocity loop
 ```
 
 Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`. `make -C docs screens` redraws the images above (the kitty/sixel image tiles, and the braille text fallback) and their table from synthetic data, per `docs/screens/screens.yaml`; a test fails when they are stale. Parameter inventory: `boat_trial config catalog` (`--json -`) or TUI **Config → Catalog**.

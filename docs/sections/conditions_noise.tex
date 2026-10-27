@@ -1,0 +1,209 @@
+\section{How noisy is an average? The spectral level \texorpdfstring{$S_0$}{S0}}
+\label{sec:cond-noise}
+
+Every later number (the drift's error bar, the stationarity tests, the floor, the
+trust ceilings) needs one thing: how much the \emph{mean} of the velocity over a
+window scatters. This section derives the quantity that answers it, $\Szero$, and
+how to estimate it honestly from a few minutes of neutral water.
+
+\subsection{The variance of a time average}
+
+Let $x(t)$ be the velocity noise, stationary with mean zero and autocovariance
+$R(u) = \E[x(t)\,x(t+u)]$. The mean over a window of length $T$ is
+$\bar x_T = \frac1T\int_0^T x(t)\,dt$, and its variance is a double integral,
+\[
+  \Var(\bar x_T) = \frac{1}{T^2}\int_0^T\!\!\int_0^T R(t-s)\,ds\,dt
+                 = \frac{1}{T^2}\int_{-T}^{T}(T-|u|)\,R(u)\,du .
+\]
+The second form is the non-obvious step. The integrand depends only on the
+difference $u = t-s$, so slice the square $[0,T]^2$ along its diagonals: the set
+of points with $t-s = u$ is a diagonal segment of length proportional to $T-|u|$.
+Integrating over the square is integrating $R(u)$ weighted by how much of the
+square sits at that lag. Dividing by $T$,
+\[
+  T\,\Var(\bar x_T) = \int_{-T}^{T}\Big(1-\frac{|u|}{T}\Big)R(u)\,du
+  \;\xrightarrow[T\to\infty]{}\; \int_{-\infty}^{\infty}R(u)\,du \;\equiv\; \Szero .
+\]
+So for windows much longer than the noise's memory,
+\[
+  \boxed{\ \Var(\bar x_T) \approx \frac{\Szero}{T}\ }
+\]
+$\Szero$ is the \emph{spectral level at zero frequency}: by the Wiener--Khinchin
+theorem the power spectrum is the Fourier transform of $R$, and evaluating a
+Fourier transform at $\omega = 0$ is just integrating. That is the intuition: a
+long average is a low-pass filter, so only the lowest frequencies of the noise
+survive it, and $\Szero$ is how much power sits there. Its units are
+(m/s)$^2\cdot$s $=$ m$^2$/s.
+
+\paragraph{Two special cases.}
+\begin{itemize}[nosep]
+  \item \emph{White samples.} If the samples every $\Delta t$ are independent with
+        variance $\sigma^2$, the sum of covariances over lags is $\sigma^2$ and
+        $\Szero = \sigma^2\Delta t$; then $\Szero/T = \sigma^2/n$, the textbook
+        result. The cm/s quantization of GPS speed alone is white with
+        $\sigma^2 = 0.01^2/12$, which gives $\Szero \approx 2\times10^{-6}$\,m$^2$/s
+        at 5\,Hz. The estimator never reports less, so a noise-free simulator
+        cannot produce $\Szero = 0$ and divide every test by zero.
+  \item \emph{Correlated noise, AR(1).} Gusts, weathervaning and the receiver's
+        own filtering make neighbouring samples alike. The simplest model with a
+        memory is an exponential correlation, $R(u) = \sigma^2 e^{-|u|/\tau_c}$, the
+        continuous version of the AR(1) recursion $x_{i+1} = \rho_1 x_i + \varepsilon_i$
+        with $\rho_1 = e^{-\Delta t/\tau_c}$. Then $\Szero = 2\sigma^2\tau_c$: each
+        sample counts for $2\tau_c/\Delta t$ samples' worth of variance.
+\end{itemize}
+Figure~\ref{fig:cond-acf} shows the AR(1) correlation and the meaning of
+$\tau_c$.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.62\linewidth, height=4.6cm, xlabel={lag $u$ (s)},
+  ylabel={autocorrelation}, xmin=0, xmax=3, ymin=-0.05, ymax=1.05,
+  legend style={font=\small, draw=none, fill=none}, legend pos=north east,
+  grid=major, grid style={gray!20}]
+  \addplot[only marks, mark=*, mark size=1.4pt, sA] table[x=lag, y=rho] {figures/conditions/acf.dat};
+  \addlegendentry{sample ACF, 5\,Hz}
+  \addplot[red, thick, domain=0:3, samples=80] {exp(-x/1.1)};
+  \addlegendentry{$e^{-u/\tau_c}$, $\tau_c = 1.1$\,s}
+  \draw[gray, dashed] (axis cs:1.1,0) -- (axis cs:1.1,0.368) -- (axis cs:0,0.368);
+  \node[font=\scriptsize, anchor=south west] at (axis cs:1.1,0.37) {$1/e$ at $\tau_c$};
+\end{axis}
+\end{tikzpicture}
+\caption{Autocorrelation of an AR(1) velocity noise sampled at 5\,Hz. The lag-1
+value $\rho_1 = e^{-0.2/1.1} = 0.83$ is what the estimator measures; $\tau_c$
+follows as $-\Delta t/\ln\rho_1$. Data: \code{figures/conditions/acf.dat}.}
+\label{fig:cond-acf}
+\end{figure}
+
+\subsection{Batch means, and why they are biased}
+
+$\Szero$ is not observed directly. The natural estimator chops the record into
+batches of length $b$ and uses $\Szero \approx b\,\Var(\text{batch mean})$, which
+is right when $b \gg \tau_c$. On the water $b$ is a few seconds and $\tau_c$ about
+one, so the limit has not been reached. For the AR(1) model the finite-$b$ formula
+can be done exactly. Using the single-integral form above with $T=b$,
+\[
+  \int_0^b (b-u)\,e^{-u/\tau_c}\,du
+  = b\tau_c\big(1-e^{-b/\tau_c}\big) - \Big[\tau_c^2\big(1-e^{-b/\tau_c}\big) - b\tau_c e^{-b/\tau_c}\Big]
+  = b\tau_c - \tau_c^2\big(1-e^{-b/\tau_c}\big),
+\]
+(the bracket is $\int_0^b u e^{-u/\tau_c}du$, by parts), so
+\[
+  \Var(\text{batch mean}) = \frac{2\sigma^2}{b^2}\Big[b\tau_c - \tau_c^2\big(1-e^{-b/\tau_c}\big)\Big]
+  = \frac{\Szero}{b}\,f,\qquad
+  \boxed{\ f = 1 - \frac{\tau_c}{b}\big(1 - e^{-b/\tau_c}\big)\ }
+\]
+$f < 1$ always: the samples near a batch's edges are correlated with samples in
+the next batch, and that part of their variance is not inside this batch's
+mean. Uncorrected, $b\,\Var(\text{batch mean})$ reports only $f\,\Szero$.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.62\linewidth, height=5cm, xlabel={batch length $b$ (s)},
+  ylabel={$f$}, xmin=0, xmax=10, ymin=0, ymax=1,
+  legend style={font=\small, draw=none, fill=none}, legend pos=south east,
+  grid=major, grid style={gray!20}]
+  \addplot[blue!50, thick] table[x=b, y=f05] {figures/conditions/ffactor.dat};
+  \addlegendentry{$\tau_c = 0.5$\,s}
+  \addplot[sA, very thick] table[x=b, y=f11] {figures/conditions/ffactor.dat};
+  \addlegendentry{$\tau_c = 1.1$\,s}
+  \addplot[blue!60!black, thick, dashed] table[x=b, y=f20] {figures/conditions/ffactor.dat};
+  \addlegendentry{$\tau_c = 2$\,s}
+  \draw[red] (axis cs:2,0) -- (axis cs:2,0.539) -- (axis cs:0,0.539);
+  \fill[red] (axis cs:2,0.539) circle (1.6pt) node[above left, font=\scriptsize] {$0.54$};
+  \draw[green!50!black] (axis cs:4,0) -- (axis cs:4,0.732) -- (axis cs:0,0.732);
+  \fill[green!50!black] (axis cs:4,0.732) circle (1.6pt) node[above left, font=\scriptsize] {$0.73$};
+\end{axis}
+\end{tikzpicture}
+\caption{The fraction $f$ of $\Szero$ that a batch of length $b$ sees. At the
+water's typical $\tau_c\approx1.1$\,s a 2\,s batch sees 54\,\%, a 4\,s batch
+73\,\%. Data: \code{figures/conditions/ffactor.dat}.}
+\label{fig:cond-f}
+\end{figure}
+
+\paragraph{Deviations about the window's own mean.} One more step separates the
+formula from the estimator. A batch mean contains the drift, and the drift may
+move from window to window, so batch means are compared not with a global mean but
+with \emph{their own window's mean}. That removes the drift and anything slower
+than a window, at a price: with $k$ batches per window the squared deviations have
+only $k-1$ degrees of freedom, and neighbouring batches are themselves correlated,
+which pulls them together. For two batches $d$ apart the covariance of their means
+follows from the same integrals,
+\[
+  \Cov(m_i, m_{i+d}) = \frac{\Szero}{b}\cdot\frac{\tau_c}{2b}\big(1-e^{-b/\tau_c}\big)^2 e^{-(d-1)b/\tau_c},
+\]
+and with $v = f\,\Szero/b$ and $c_d$ these covariances,
+\[
+  \E\Big[\sum_{i=1}^k (m_i-\bar m)^2\Big] = \sum_i\Var(m_i) - k\Var(\bar m)
+  = k v - \frac{1}{k}\Big(k v + 2\sum_{d=1}^{k-1}(k-d)\,c_d\Big).
+\]
+With $\Tw = 8$\,s and $b = 4$\,s there are two batches and this collapses to
+something one can check by hand:
+$\E[(m_1-m_2)^2/2] = v - c_1 = (\Szero/b)\,(f - \tfrac{\tau_c}{2b}(1-e^{-b/\tau_c})^2)$.
+The estimator divides the pooled scatter by exactly this expectation:
+\[
+  \hat S_0 = \max\left(2\times10^{-6},\ \frac{b\sum_w\sum_{j\in J}\sum_i (m_{w,i,j}-\bar m_{w,j})^2}{|J|\sum_w (k_w-1)\,g_{k_w}(\tau_c)}\right),\qquad
+  g_k = \frac{\E[\sum_i (m_i-\bar m)^2]}{(k-1)\,\Szero/b}.
+\]
+Here $J$ is the set of pooled channels; windows with fewer than two batches
+contribute nothing. Figure~\ref{fig:cond-s0} shows what each step buys on synthetic AR(1) data.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.62\linewidth, height=5.4cm, xlabel={noise correlation time $\tau_c$ (s)},
+  ylabel={$\hat S_0 / S_0$ (median)}, xmin=0.2, xmax=3, ymin=0, ymax=1.2,
+  legend style={font=\small, draw=none, fill=none, at={(1.02,0.5)}, anchor=west},
+  grid=major, grid style={gray!20}]
+  \addplot[black, thick, mark=x] table[x=tau, y=naive] {figures/conditions/s0recovery.dat};
+  \addlegendentry{samples as independent}
+  \addplot[red, thick, mark=o, dashed] table[x=tau, y=b2] {figures/conditions/s0recovery.dat};
+  \addlegendentry{2\,s batches, raw}
+  \addplot[orange, thick, mark=o, dashed] table[x=tau, y=b4] {figures/conditions/s0recovery.dat};
+  \addlegendentry{4\,s batches, raw}
+  \addplot[red, thick, mark=*] table[x=tau, y=b2f] {figures/conditions/s0recovery.dat};
+  \addlegendentry{2\,s, corrected}
+  \addplot[sA, very thick, mark=*] table[x=tau, y=b4f] {figures/conditions/s0recovery.dat};
+  \addlegendentry{4\,s, corrected}
+  \addplot[gray, dotted, domain=0.2:3] {1};
+\end{axis}
+\end{tikzpicture}
+\caption{Recovering $\Szero$ from 40 windows of 8\,s of AR(1) noise at 5\,Hz
+(median over 60 seeds, true $\tau_c$ given to the correction). Treating samples as
+independent misses by a factor $2\tau_c/\Delta t$; raw batch means miss by $g_k$;
+the correction recovers $\Szero$ at either batch length when $\tau_c$ is known.
+Data: \code{figures/conditions/s0recovery.dat}.}
+\label{fig:cond-s0}
+\end{figure}
+
+\subsection{Measuring \texorpdfstring{$\tau_c$}{the correlation time}, and where it stops}
+
+The correction needs $\tau_c$, which is read from the lag-1 autocorrelation of the
+samples, $\tau_c = -\Delta t/\ln\rho_1$. Two refinements make that honest.
+\begin{itemize}[nosep]
+  \item \emph{Short-window bias.} $\rho_1$ is computed from each window's own
+        deviations (again so that a drift step between windows is not read as
+        correlation). Subtracting a 40-sample mean biases the lag-1 estimate low:
+        for white noise, its expectation is about $-1/n$ instead of $0$. The
+        bias for AR(1) is a known function of $\rho_1$ and $n$: with
+        $C = I - \bm 1\bm 1^\top/n$ the matrix that subtracts the mean, $R_0$ the
+        AR(1) correlation matrix ($(R_0)_{ij} = \rho_1^{|i-j|}$) and $R_1$ its
+        lag-one counterpart, the expected numerator and denominator of the
+        estimate are traces, and
+        $\E[\hat\rho_1]\approx\operatorname{tr}(CR_1)/\operatorname{tr}(CR_0)$.
+        The estimator tabulates that expectation once and inverts it.
+  \item \emph{A cap at one batch.} With two batches per window, a $\tau_c$
+        longer than a batch cannot be told apart from a slow drift change: the
+        data have no lags long enough to see it. Letting the estimate run makes
+        $f$ tiny and $\Szero$ explode on a few unlucky windows, so $\tau_c$ is
+        capped at $b$. The cost is stated, not hidden: at a true $\tau_c$ of
+        6\,s, $\Szero$ reads low. The drift's error bar recovers it from the
+        scatter between windows (Section~\ref{sec:cond-drift}).
+\end{itemize}
+
+\paragraph{Scope of the correction.} The AR(1) form corrects within-window
+batch scatter at the configured 4\,s scale. The noise floor and the separate
+between-window scatter bound the reported mean uncertainty.
+
+\file{mhseals\_testing/analysis/conditions.py (spectral\_level, \_autocorrelation, \_scatter\_ratio), figures/conditions/make\_conditions\_data.py}

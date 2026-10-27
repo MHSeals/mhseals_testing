@@ -1,0 +1,128 @@
+\section{Readiness: predicting the trust a fit can reach}
+\label{sec:ready}
+
+The pure readiness calculation combines a supplied conditions estimate and
+planned direction speeds. It computes the zero-response ceiling independently
+of characterization's measured cross-response score.
+
+\subsection{Errors and ceilings}
+\label{sec:ready-sigma}
+
+Drift error grows from the pool's unweighted mean midpoint to evaluation time;
+an optional additional floor $f_e$ enters in quadrature:
+\[
+ \sigma_e^2=\sed^2+\bigl(\|\bm\beta\|\max(0,t_{\mathrm{now}}-
+ W^{-1}\sum_w(t_{0,w}+T_w/2))\bigr)^2+f_e^2.
+\]
+For translation the gating error is
+$\sigma_\psi=\sqrt{\sigma_{\mathrm{wave},r}^2+\sed(b_r)^2}$.
+For yaw each translation channel uses
+$\sigma_k=\sqrt{\sigma_{\mathrm{wave},k}^2+\sigma_e^2}$.
+The service calls the ceiling calculation with zero additional gyro-bias error.
+For tolerance $\tau_k$ and main speed $V$, the entry ceiling is
+\[
+ p_k=\operatorname{erf}\left(\frac{\tau_k|V|}{\sqrt2\sigma_k}\right)
+     =2\Phi(\tau_k|V|/\sigma_k)-1,\qquad
+ C_d=\prod_{k\ \mathrm{gating}}p_k,\qquad \Rgate=\min_{d\ \mathrm{planned}}C_d.
+\]
+A nonpositive $\sigma_k$ gives $p_k=1$. Translation has one gyro entry with
+$\tau_\psi=0.015$; yaw has surge and sway entries with $\tau_\ell=0.10$.
+\code{planned\_directions} uses every valid existing speed curve at the supplied
+high effort, skipping missing or invalid curves. The console uses that complete
+list of existing curves.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.8\linewidth, height=5.6cm,
+  xlabel={signal-to-noise $x = \tau_k|V|/\sigma_k$}, ylabel={trust},
+  xmin=0, xmax=3.5, ymin=0, ymax=1.02, clip=false,
+  legend style={at={(0.5,-0.25)}, anchor=north, legend columns=3, font=\scriptsize, draw=none},
+  grid=major, grid style={gray!20}]
+  \fill[red!8] (axis cs:0,0) rectangle (axis cs:0.84,1.02);
+  \fill[yellow!12] (axis cs:0.84,0) rectangle (axis cs:1.645,1.02);
+  \fill[green!8] (axis cs:1.645,0) rectangle (axis cs:3.5,1.02);
+  \addplot[sA, very thick] table[x=x, y=p] {figures/conditions/ceiling.dat};
+  \addlegendentry{ceiling $2\Phi(x)-1$}
+  \addplot[only marks, mark=*, mark size=2.2pt, sB] table[x=x, y=p] {figures/conditions/ceiling_pts.dat};
+  \addlegendentry{worked numbers}
+  \node[font=\scriptsize, anchor=west] at (axis cs:2.28,0.92) {surge $a_\text{hi}$ 98\,\%};
+  \node[font=\scriptsize, anchor=west] at (axis cs:1.30,0.76) {surge $a_\text{lo}$ 79\,\%};
+  \node[font=\scriptsize, anchor=west] at (axis cs:1.00,0.62) {sway $a_\text{hi}$ 66\,\%};
+  \node[font=\scriptsize, anchor=west] at (axis cs:0.58,0.37) {sway $a_\text{lo}$ 41\,\%};
+  \node[font=\scriptsize, red!70!black] at (axis cs:0.42,0.95) {poor};
+  \node[font=\scriptsize, orange!70!black] at (axis cs:1.24,0.95) {marginal};
+  \node[font=\scriptsize, green!40!black] at (axis cs:3.0,0.75) {good};
+\end{axis}
+\end{tikzpicture}
+\caption{The entry ceiling as a function of signal-to-noise, with the verdict
+bands of a single gating entry (poor below 60\,\%, good from 90\,\%). Points: $\sigma_\psi = 0.0025$\,rad/s, $\tau_\psi = 0.015$ per m/s.
+Data: \code{figures/conditions/ceiling*.dat}.}
+\label{fig:ready-ceiling}
+\end{figure}
+
+\subsection{Drift trust}
+\label{sec:ready-dtrust}
+
+With isotropic per-component drift error $\sigma_e$, the probability of a drift
+error inside radius $\tau_d=0.02$\,m/s is
+\[
+ \Td=1-\exp\left(-\frac{\tau_d^2}{2\sigma_e^2}\right).
+\]
+A missing drift error returns no trust; a nonpositive error gives trust one.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[cond axis, width=0.6\linewidth, height=4.6cm, xlabel={$\sigma_e$ (m/s)},
+  ylabel={drift trust $\Td$}, xmin=0, xmax=0.03, ymin=0, ymax=1.02,
+  xticklabel style={/pgf/number format/fixed, /pgf/number format/precision=3},
+  scaled x ticks=false, grid=major, grid style={gray!20}]
+  \addplot[sA, very thick] table[x=se, y=td] {figures/conditions/drifttrust.dat};
+  \draw[green!50!black, dashed] (axis cs:0,0.8) -- (axis cs:0.03,0.8) node[pos=0.85, above, font=\scriptsize] {good 80\,\%};
+  \draw[red, dashed] (axis cs:0,0.5) -- (axis cs:0.03,0.5) node[pos=0.85, above, font=\scriptsize] {poor 50\,\%};
+  \fill[sB] (axis cs:0.010,0.865) circle (1.8pt);
+  \fill[sB] (axis cs:0.015,0.589) circle (1.8pt);
+\end{axis}
+\end{tikzpicture}
+\caption{Drift trust against the drift error, $\tau_d = 0.02$\,m/s. Data:
+\code{figures/conditions/drifttrust.dat}.}
+\label{fig:ready-dtrust}
+\end{figure}
+
+\subsection{The verdict}
+
+For measured ceiling and drift trust, grading follows the configured thresholds:
+\[
+ \mathrm{grade}(\Rgate,\Td)=
+ \begin{cases}
+ \mathrm{unknown},&\text{either measure is missing},\\
+ \mathrm{poor},&\Rgate<0.60\text{ or }\Td<0.50,\\
+ \mathrm{good},&\Rgate\ge0.90\text{ and }\Td\ge0.80,\\
+ \mathrm{marginal},&\text{otherwise}.
+ \end{cases}
+\]
+The pure \code{rate} checks materially trending or changed conditions first and
+returns poor, even without a drift. It returns unknown without a floor or plan.
+The service checks for a drift first; after a change with too few windows it
+returns unknown. With a drift it checks material change before grading, and
+substitutes ceiling one when no ceiling is available:
+\[
+ \mathrm{service}=\begin{cases}
+ \mathrm{unknown},&\dhat\text{ unavailable},\\
+ \mathrm{poor},&\text{material trend or change},\\
+ \mathrm{grade}(C,\Td),&\text{otherwise},
+ \end{cases}
+ \qquad C=\begin{cases}\Rgate,&\text{ceiling available},\\1,&\text{otherwise}.\end{cases}
+\]
+Yaw unreliability does not reduce drift trust.
+
+\paragraph{Procedure gates.} Health checks gate both Characterize and Physics:
+poor fails, marginal warns. A health session mute skips health checks, but the
+procedures also refuse a supplied poor summary directly. Characterize evaluates
+after its configured initial neutral hold and records an aborted run before
+holds if poor; unknown permits the run. A supplied poor verdict suppresses the
+tracking score. Production conditions ingestion is unwired, so these rules
+require supplied conditions evidence.
+
+\file{mhseals\_testing/analysis/readiness.py, analysis/verdict.py, harness/conditions.py; config/conditions.yaml, config/health/conditions.yaml; procedures/characterize.py, procedures/physics.py, ui/feeds/tracking.py}

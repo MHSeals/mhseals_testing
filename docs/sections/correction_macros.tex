@@ -1,0 +1,38 @@
+\providecommand{\sgn}{\operatorname{sgn}}
+\providecommand{\diag}{\operatorname{diag}}
+\providecommand{\E}{\operatorname{E}}
+\providecommand{\Var}{\operatorname{Var}}
+\providecommand{\Cov}{\operatorname{Cov}}
+\providecommand{\SD}{\operatorname{SD}}
+
+\providecommand{\nuv}{\bm{\nu}}                 % body velocity (u, v, r)
+\providecommand{\Wn}{\bm{W}}                    % normalized wrench M^T phi(t) / 4
+\providecommand{\JA}{J_{\!A}}                   % local-slope (tangent) Jacobian of the cross wrench
+\providecommand{\Jv}{J_{\nu}}                   % the same in velocity space
+\providecommand{\ahi}{a_{\mathrm{hi}}}          % survey amplitudes
+\providecommand{\alo}{a_{\mathrm{lo}}}
+\providecommand{\tnf}{t_{95}}                   % 95 % settling time
+\providecommand{\sigwave}{\sigma_{\mathrm{wave}}}% SD of a window mean at neutral (the floor)
+\providecommand{\dw}{\bm d}                     % world drift, ENU, m/s
+\providecommand{\trust}{\mathcal{T}}            % trust of a direction
+\providecommand{\score}{\mathcal{S}}            % live tracking score
+
+\providecommand{\corrdata}[1]{figures/correction/data/correction_#1.dat}
+\providecolor{sA}{RGB}{31,119,180}     % blue: model / estimate
+\providecolor{sB}{RGB}{214,95,14}      % orange: comparison
+\providecolor{sC}{RGB}{44,140,60}      % green: accepted region / truth
+\providecolor{sD}{RGB}{150,150,150}    % grey: guides
+\ifdefined\tikzset
+  \tikzset{
+    corr note/.style={font=\scriptsize, align=center},
+  }
+\fi
+\ifdefined\pgfplotsset
+  \pgfplotsset{
+    table/corr/.style={header=false, comment chars={\#}},
+    corr axis/.style={width=0.62\linewidth, height=5cm,
+      legend style={font=\small, draw=none, fill=none},
+      grid=major, grid style={gray!20}, tick label style={font=\small},
+      label style={font=\small}},
+  }
+\fi

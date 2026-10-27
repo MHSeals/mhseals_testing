@@ -4,18 +4,73 @@
 The mixer turns a body command (surge, sway, yaw) into one command per
 thruster. It looks like a table of signs, but it comes straight out of where
 the thrusters are and which way they push. This section derives it, explains
-why it is only $\pm1$ for this boat, and what changes when the geometry is not
-ideal.
+why it is only $\pm1$ for this boat, what changes when the geometry is not
+ideal, and what the thrusters do to a command on its way to the water. The
+correction columns are defined in Section~\ref{sec:thrust}.
+
+\subsection{The vessel and its thrusters}
+
+All of Part~I works in the body frame of Section~1 (FLU: $x$ forward, $y$ to
+port, yaw counter-clockwise seen from above), with the origin at the
+\emph{center of mass}. Figure~\ref{fig:corr-geometry} shows the ideal simulator fixture from
+above: two hulls, and four thrusters near the corners of a rectangle, each
+turned $45^\circ$ off the hull axis. Describe thruster $i$ by
+\begin{itemize}[nosep]
+  \item its position $(x_i, y_i)$ in the body frame,
+  \item the direction its positive thrust pushes the boat, an angle $\alpha_i$
+        measured from $+x$ toward $+y$,
+  \item its thrust command $t_i\in[-1,1]$ (negative pushes the other way).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=5.2, >=Stealth]
+  % hulls (body x up the page, body y to the left)
+  \foreach \s in {1,-1}
+    \draw[fill=sD!12, draw=sD] (-\s*0.33-0.05,-0.53) rectangle (-\s*0.33+0.05,0.53);
+  \draw[sD, fill=sD!6] (-0.25,-0.25) rectangle (0.25,0.25);
+  % body axes at the center of mass
+  \draw[->, thick] (0,0) -- (0,0.42) node[above] {$x$ (surge)};
+  \draw[->, thick] (0,0) -- (-0.42,0) node[left] {$y$};
+  \draw[->] (0.06,0) arc (0:300:0.06);
+  \node[font=\scriptsize] at (0.1,0.07) {$r$};
+  \fill (0,0) circle (0.012);
+  \node[font=\scriptsize, anchor=north west] at (0.03,-0.06) {CM};
+  % thrusters: name, page position (-y, x), page direction of +thrust (-sin a, cos a)
+  \foreach \n/\px/\py/\dx/\dy/\al in {FL/-0.34/0.27/-0.707/-0.707/135,
+                                      FR/0.34/0.27/0.707/-0.707/-135,
+                                      RR/0.34/-0.27/0.707/0.707/-45,
+                                      RL/-0.34/-0.27/-0.707/0.707/45} {
+    \draw[thick, fill=white] (\px,\py) circle (0.03);
+    \draw[->, sA, very thick] (\px,\py) -- ++(0.16*\dx,0.16*\dy);
+    \node[font=\footnotesize] at (\px+0.09*\dx*-1.4,\py+0.09*\dy*-1.4) {\n};
+  }
+  % line of action of RL and its lever arm (foot of the perpendicular at (-0.305,-0.305))
+  \draw[sB, dashed] (-0.34-0.25*-0.707,-0.27-0.25*0.707) -- (-0.34+0.55*-0.707,-0.27+0.55*0.707);
+  \draw[sB, thick] (0,0) -- (-0.305,-0.305);
+  \node[sB, font=\scriptsize, anchor=north west] at (-0.2,-0.17) {$\ell = \tfrac{a+b}{\sqrt2}$};
+  \draw[sB] (-0.305,-0.305) ++(0.028,0.028) -- ++(-0.028,0.028) -- ++(-0.028,-0.028);
+  % dimensions
+  \draw[|<->|, sD] (0.45,0) -- (0.45,0.27) node[midway, right, font=\scriptsize] {$a$};
+  \draw[|<->|, sD] (0,-0.6) -- (-0.34,-0.6) node[midway, below, font=\scriptsize] {$b$};
+  \draw[sD, very thin] (-0.34,-0.3) -- (-0.34,-0.62);
+  \node[corr note, sA] at (0.0,-0.75) {blue: direction of positive thrust $(\cos\alpha_i,\sin\alpha_i)$};
+\end{tikzpicture}
+\caption{The ideal fixture from above, bow up. Body $x$ points forward and $y$ to port, so
+yaw $r$ is counter-clockwise. Each thruster pushes along a diagonal. The dashed line
+is the line of action of RL; its distance $\ell$ from the center of mass is the
+lever arm with which RL turns the boat.}
+\label{fig:corr-geometry}
+\end{figure}
 
 \subsection{From thrusts to a body force}
 
-Describe thruster $i$ by its position $(x_i, y_i)$ relative to the boat's
-\emph{center of mass}, in the body frame ($x$ forward, $y$ to port), the
-direction its positive thrust pushes the boat, an angle $\alpha_i$ from $+x$,
-and its thrust $t_i$ (negative means it pushes the other way). Its force is
-$t_i(\cos\alpha_i, \sin\alpha_i)$, and its turning moment is the 2-D cross
-product of lever arm and force, $\tau_i = x_i F_{y,i} - y_i F_{x,i}$. Adding
-the four thrusters,
+Thruster $i$ with thrust $T_i$ (newtons) produces the force
+$T_i(\cos\alpha_i, \sin\alpha_i)$. Its turning moment about the center of mass
+is the 2-D cross product of lever arm and force,
+$\tau_i = x_i F_{y,i} - y_i F_{x,i}$: a force to port ($F_y>0$) applied ahead
+of the center ($x_i>0$) turns the bow to port, which is positive yaw. Adding the
+four thrusters,
 \[
   \underbrace{\begin{bmatrix} F_x\\ F_y\\ \tau \end{bmatrix}}_{\bm{w}}
   = \underbrace{\begin{bmatrix}
@@ -23,34 +78,16 @@ the four thrusters,
       \sin\alpha_1 & \cdots & \sin\alpha_4\\
       x_1\sin\alpha_1 - y_1\cos\alpha_1 & \cdots & x_4\sin\alpha_4 - y_4\cos\alpha_4
     \end{bmatrix}}_{B\ \in\ \R^{3\times4}}
-  \underbrace{\begin{bmatrix} t_1\\ \vdots\\ t_4 \end{bmatrix}}_{\bm{t}} .
+  \underbrace{\begin{bmatrix} T_1\\ \vdots\\ T_4 \end{bmatrix}}_{\bm{T}} .
 \]
-Column $i$ of $B$ is what one unit of thrust from thruster $i$ does to the
-boat. $B$ is the boat's \emph{allocation} matrix: kinematics, no tuning.
-
-\subsection{From a body command to thrusts: the pseudo-inverse}
-
-The mixer runs the other way: given a wanted $\bm{w}$, find $\bm{t}$. With four
-thrusters and three axes, $B\bm{t} = \bm{w}$ has infinitely many solutions; any
-$\bm{t}$ in the null space of $B$ (thrusts that cancel exactly) can be added
-for free. The natural choice is the one that spends the least thrust,
-\[
-  \min_{\bm t}\ \sum_i t_i^2 \quad\text{subject to}\quad B\bm{t} = \bm{w}.
-\]
-The answer must lie in the row space of $B$, $\bm{t} = B^\top\bm{\lambda}$:
-any component outside it lies in the null space, adds nothing to $\bm{w}$, and
-only costs thrust. Substituting, $BB^\top\bm\lambda = \bm w$, so
-\[
-  \bm{t} = B^\top (BB^\top)^{-1}\bm{w} = B^{+}\bm{w},
-\]
-the Moore--Penrose pseudo-inverse. The transpose appears for the same reason
-as in least squares (Section~\ref{sec:char}): the best solution is a
-combination of the rows. $BB^\top$ is $3\times3$ and invertible whenever the
-thrusters can produce every force and moment.
+Column $i$ of $B$ is what one newton from thruster $i$ does to the
+boat. $B$ is the boat's \emph{allocation} matrix: kinematics, no tuning. The
+three numbers $\bm w = (F_x, F_y, \tau)$ are called a \emph{wrench}: a force and
+a moment together.
 
 \subsection{Why this boat's mixer is only signs}
 
-The boat is a symmetric ``X'': thrusters at $(\pm a, \pm b)$, each pushing
+The ideal fixture is a symmetric ``X'': thrusters at $(\pm a, \pm b)$, each pushing
 along a diagonal. Matching the code's sign convention,
 \begin{center}
 \begin{tabular}{lcccc}
@@ -71,13 +108,9 @@ lever arm works out to $\pm\frac{a+b}{\sqrt2}$, so
     (a{+}b) & -(a{+}b) & (a{+}b) & -(a{+}b)
   \end{bmatrix}.
 \]
-Its rows are orthogonal, so $BB^\top = \operatorname{diag}\!\left(2,\,2,\,2(a{+}b)^2\right)$
-and $B^{+} = B^\top(BB^\top)^{-1}$ is just $B^\top$ with each column scaled.
-Effort is normalized per axis anyway ($e=1$ means ``as much of this axis as one
-saturated thruster allows''), so those scales drop out and the mixer is the
-sign pattern of $B^\top$:
+Its rows are orthogonal. The configured mixer uses the corresponding sign
+pattern, with one normalized effort column per axis:
 \[
-  \bm{t} = M\bm{e},\qquad
   M = \begin{bmatrix}
     -1 & +1 & +1\\
     -1 & -1 & -1\\
@@ -86,25 +119,74 @@ sign pattern of $B^\top$:
   \end{bmatrix}
   \begin{matrix}\text{FL}\\ \text{FR}\\ \text{RR}\\ \text{RL}\end{matrix}
 \]
-Read a column to see how an axis is made: pure surge, $\bm e = (1,0,0)$, gives
-$\bm t = (-1,-1,+1,+1)$; each of those thrusts points forward with a sideways
-part, and the sideways parts cancel in pairs. Pure yaw drives diagonal pairs
-against each other, so the forces cancel and only a moment remains. The
-orthogonal rows are why $M^\top M = 4I$: asking for surge never adds sway or
-yaw.
+With identity correction, read a column to see how a single axis is made (Figure~\ref{fig:corr-columns}): pure
+surge, $\bm e = (1,0,0)$, gives $\bm t = (-1,-1,+1,+1)$; each of those thrusts
+points forward with a sideways part, and the sideways parts cancel in pairs.
+Pure yaw drives diagonal pairs against each other, so the forces cancel and only
+a moment remains. The orthogonal columns are why $M^\top M = 4I$: asking for
+surge never adds sway or yaw. Two more facts about $M$ are used again and again
+in Part~I:
+\begin{enumerate}[nosep]
+  \item \emph{Every column sums to zero}, $\sum_i M_{ij} = 0$: every axis is made
+        by two thrusters running forward and two running in reverse.
+  \item \emph{The product of any two columns is minus the third}, entry by entry:
+        $M_{i1}M_{i2} = -M_{i3}$ and its permutations. Check it on FL:
+        $(-1)(+1) = -(+1)$.
+\end{enumerate}
 
-\paragraph{Desaturation.} A combined command can ask for more than one
-thruster can give, e.g.\ $\bm{e} = (1,1,1)$ gives $t_\text{FR} = -3$.
-Clipping that one thruster would change the \emph{direction} of the force.
-Instead all four are scaled by the same factor,
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=2.3, >=Stealth]
+  \foreach \col/\name/\shift/\mFL/\mFR/\mRR/\mRL in {1/surge $+$/0/-1/-1/1/1,
+                                                      2/sway $+$/1.35/1/-1/-1/1,
+                                                      3/yaw $+$/2.7/1/-1/1/-1} {
+    \begin{scope}[xshift=\shift cm]
+      \foreach \s in {1,-1}
+        \draw[fill=sD!12, draw=sD] (-\s*0.33-0.05,-0.53) rectangle (-\s*0.33+0.05,0.53);
+      \fill (0,0) circle (0.02);
+      \draw[->, sA, very thick] (-0.34,0.27) -- ++(\mFL*-0.18,\mFL*-0.18);
+      \draw[->, sA, very thick] (0.34,0.27) -- ++(\mFR*0.18,\mFR*-0.18);
+      \draw[->, sA, very thick] (0.34,-0.27) -- ++(\mRR*0.18,\mRR*0.18);
+      \draw[->, sA, very thick] (-0.34,-0.27) -- ++(\mRL*-0.18,\mRL*0.18);
+      \node[font=\small] at (0,-0.7) {\name};
+      \node[font=\scriptsize, sD] at (0,-0.85) {$(\mFL,\mFR,\mRR,\mRL)$};
+    \end{scope}
+  }
+  \draw[->, sB, very thick] (0,0) -- (0,0.3);
+  \draw[->, sB, very thick] (1.35,0) -- (1.05,0);
+  \draw[->, sB, very thick] (2.7+0.15,0) arc (0:270:0.15);
+\end{tikzpicture}
+\caption{The three columns of $M$ drawn as thrusts (blue) on the boat of
+Figure~\ref{fig:corr-geometry}, with the resulting body motion (orange). Sideways
+parts cancel in surge, fore-aft parts cancel in sway, and in yaw all forces cancel
+and only the moment of the four equal lever arms remains.}
+\label{fig:corr-columns}
+\end{figure}
+
+\paragraph{Combined axes.} Each axis is corrected separately with its signed
+column $\bm c_j^{s_j}$ from Section~\ref{sec:thrust}, where $s_j$ is the sign
+of $e_j$ (zero selects the positive column). For thruster $i$, the mixer sums
+these single-axis thrusts and inverts the thrust curve:
 \[
-  \bm{t}' = \frac{\bm{t}}{\max\!\left(1, \max_i |t_i|\right)},
+  q_{ij}=\sum_k M_{ik}c^{s_j}_{kj}e_j,\qquad
+  t_i=\varphi_i^{-1}\!\left(\sum_j\varphi_i(q_{ij})\right),\qquad
+  \varphi_i(t)=\begin{cases}t^2,&t\ge0,\\-\rho_i t^2,&t<0.\end{cases}
 \]
-which keeps the direction and gives up only magnitude.
+Thus combined commands superpose the corrected single-axis wrenches before
+saturation. The configured reverse ratio is $1$ by default.
+
+\paragraph{Desaturation.} When any effort exceeds full scale, all four are
+scaled together:
+\[
+  \bm t'=\frac{\bm t}{\max(1,\max_i|t_i|)}.
+\]
+The quadratic model scales every thrust by the square of the same factor,
+keeping the wrench direction.
 \begin{example}
-$\bm{e} = (1,1,1)$: $\bm{t} = (1,-3,1,1)$, peak $3$, so
-$\bm{t}' = (\tfrac13, -1, \tfrac13, \tfrac13)$. The boat still moves forward,
-to port and turns left, in the same proportions, at a third of the request.
+With identity correction and $\rho_i=1$, $\bm e=(1,1,1)$ gives
+$\bm t=(1,-\sqrt3,1,1)$ and
+$\bm t'=(1/\sqrt3,-1,1/\sqrt3,1/\sqrt3)$. The delivered wrench is one third
+of the unsaturated sum.
 \end{example}
 
 \subsection{Other angles and rectangles}
@@ -115,81 +197,88 @@ sit at any angle $\alpha$ from the long axis and at any rectangle $(\pm a,
 and every lever arm $\pm(a\sin\alpha + b\cos\alpha)$. The rows stay
 orthogonal, so the $\pm1$ mixer still decouples the axes exactly; only the
 \emph{strength} of each axis changes: surge capacity scales with $\cos\alpha$,
-sway with $\sin\alpha$, yaw with the lever arm. This boat is already such a
+sway with $\sin\alpha$, yaw with the lever arm. The ideal fixture uses such a
 rectangle: about $a \approx 0.27$\,m fore and aft and $b \approx 0.34$\,m to
 the sides (hull offset plus mount), a yaw lever arm of
 $(a+b)/\sqrt2 \approx 0.43$\,m. Unequal axis strengths need no new mixer:
-the characterization (Section~\ref{sec:char}) measures them as the diagonal of
-the gain $G$, and the velocity controller divides them out.
+they are measured as the speed curves of Section~\ref{sec:thrust}, and the
+velocity controller divides them out.
 
 \paragraph{Asymmetric.} Symmetry breaks when the angles differ between
-thrusters, the thrusters are not mirrored, or, most often, the center of mass
-is not at the geometric center (batteries, a camera mast). Positions are
-measured from the center of mass, so moving it by $(x_c, y_c)$ changes every
-lever arm to $(x_i - x_c)\sin\alpha_i - (y_i - y_c)\cos\alpha_i$. The yaw row is
-then no longer orthogonal to the surge and sway rows, and the $\pm1$ mixer
-leaks: a pure sway command produces the moment
+thrusters, the thrusters are not mirrored, the thrusters are not equally strong,
+or, most often, the center of mass is not at the geometric center (batteries, a
+camera mast). Positions are measured from the center of mass, so moving it by
+$(x_c, y_c)$ changes every lever arm to
+$(x_i - x_c)\sin\alpha_i - (y_i - y_c)\cos\alpha_i$. The yaw row is then no
+longer orthogonal to the surge and sway rows, and the $\pm1$ mixer leaks: a pure
+sway command produces the moment
 \[
-  \tau = \sum_i t_i\,\big[(x_i - x_c)\sin\alpha_i - (y_i - y_c)\cos\alpha_i\big]
+  \tau = \sum_i T_i\,\big[(x_i - x_c)\sin\alpha_i - (y_i - y_c)\cos\alpha_i\big]
   \neq 0 \quad\text{for } \bm t = M(0,1,0)^\top,
 \]
-and the boat turns while sliding sideways. There are two ways to fix it:
-\begin{enumerate}[nosep]
-  \item \emph{From geometry:} measure $(x_i, y_i, \alpha_i)$ about the center of
-        mass, build $B$, and use $M = B^{+}$, each column scaled so a full
-        command just saturates the busiest thruster. Thrusters of unequal
-        strength call for a weighted pseudo-inverse: minimizing
-        $\sum_i w_i t_i^2$ gives
-        $\bm t = W^{-1}B^\top(BW^{-1}B^\top)^{-1}\bm w$ with $W = \operatorname{diag}(w_i)$.
-  \item \emph{From data:} keep $M$ as the geometry and put a small $3\times3$
-        correction in front of it, measured by the characterization. This is
-        what the driver does.
-\end{enumerate}
+so a longitudinal center-of-mass shift can make sway turn the boat. The driver
+accepts configured mixer rows and measured correction columns (Section~\ref{sec:thrust}).
+\subsection{Thrust is not linear in the command}
+\label{sec:corr-phi}
 
-\subsection{The decoupling columns}
-
-The characterization (Section~\ref{sec:char}) shows that some efforts leak:
-sway effort that also turns the boat, surge that drifts sideways. The driver
-cancels the leak with a correction applied to the command before the mixer,
-one column per axis and sign,
+The motor effort $t_i$ becomes a pulse width (Section~\ref{sec:esc}). The
+mixer models normalized thrust by $\varphi_i$ above; its inverse is
 \[
-  \bm e' = C^{+}\max(\bm e, 0) + C^{-}\min(\bm e, 0),\qquad
-  \bm t = M\,\bm e',\qquad c^{\pm}_{jj} = 1 .
+  \varphi_i^{-1}(f)=\sgn(f)\sqrt{\frac{|f|}{\rho_i\ \text{if }f<0\text{, else }1}}.
 \]
-With $C^{+} = C^{-}$ this is one matrix and $\bm t = M\,(C\bm e)$. The unit
-diagonal keeps the main axis as it was: $e_x = 1$ still means full surge, and
-the correction only adds small cross efforts that cancel the leak. $C$ maps
-effort to effort, so it never changes units.
+This model is homogeneous of degree two:
+$\varphi_i(\lambda t)=\lambda^2\varphi_i(t)$ for $\lambda>0$.
+Physical thrust also depends on the motor model and its configurable pulse deadband.
 
-\paragraph{Local slope, not the secant gain.} A column is found by asking how
-the cross response changes for a small change of the cross efforts while the
-main axis is held. That is the \emph{local slope} of the response, taken at the
-measured state (Section~\ref{sec:thrust}). The fitted gain $G$ of the affine
-model is a \emph{secant}: it divides the response at one effort by that effort.
-Thrust grows as $e|e|$, whose slope is twice its secant, so a matrix built from
-secants, $C = G^{-1}\operatorname{diag}(G)$, corrects twice as much as needed
-and is often worse than no correction. It is not used. The columns are computed
-from the local slope and refined hold by hold, each update accepted only when
-the mismatch exceeds three standard deviations.
+\paragraph{The normalized wrench.} Feeding the mixer output through the curve
+and back through the geometry gives the wrench the boat actually feels. Because
+$B$ is $M^\top$ up to a fixed scale per row, it is convenient to drop the
+newtons and the lever arm and define the \emph{normalized wrench}
+\[
+  \Wn(\bm e)=\tfrac14 M^\top\sum_j\varphi(M\bm c_j^{s_j}e_j),
+\]
+where $\varphi$ acts on each entry, before desaturation. For the ideal
+geometry with a common forward scale $T_{\max}=51.5$\,N, the physical wrench is $S\,\Wn$ with
+\[
+  S = \diag\big(4T_{\max}/\sqrt2,\ 4T_{\max}/\sqrt2,\ 4T_{\max}\ell\big)
+  \approx \diag(146\,\text{N},\ 146\,\text{N},\ 89\,\text{N\,m}),
+\]
+and the $\tfrac14$ makes $\Wn_j = 1$ the wrench of four thrusters at full forward thrust each
+contributing to axis $j$.
 
-\begin{example}
-If surge turns the boat, the surge column of $C^{+}$ has a yaw entry that adds
-counter-yaw effort in proportion to surge, so pure surge comes out straight.
-Whether the entry is good enough is not a matter of one fitted number but of
-its \emph{trust}: the probability that the remaining yaw rate per m/s of
-surge lies inside its tolerance given the wave noise
-(Section~\ref{sec:thrust}). A direction below $80\%$ is rerun.
+\begin{example}[one axis]
+With identity correction and uniform $\rho$, command $\bm e = s\,a\,\bm e_j$: axis $j$ only, amplitude $a > 0$, sign
+$s = \pm1$. Thruster $i$ gets $t_i = s a M_{ij}$, so two thrusters run forward
+at $a$ and two in reverse at $a$ (fact 1 above). The forward ones contribute
+$a^2 M_{ij}$ each and the reverse ones $-\rho a^2 M_{ij}$, and every term has the
+sign of $s$:
+\[
+  \Wn_j = \tfrac14\big(2a^2 + 2\rho a^2\big)s = s\,\frac{1+\rho}{2}\,a^2 .
+\]
+At the default $\rho=1$, full surge is $\Wn_x=1$, about $146$\,N
+for this ideal scale.
 \end{example}
 
-\paragraph{Speed comes from curves.} How fast an effort drives the boat is a
-per-axis, per-sign speed curve (Section~\ref{sec:thrust}), not a gain. Because
-$c_{jj}=1$, the main speed is unchanged by $C$ to first order, so the curves
-stay valid when a column changes and no old matrix has to be divided out on a
-refit.
+\paragraph{What the column sums buy.} Two consequences of the structure of $M$
+are worth stating before any data, because they say which faults can and cannot
+couple the axes.
+\begin{itemize}
+  \item \emph{A uniform reverse weakness couples nothing.} If every thruster has
+        the same $\rho$, the cross wrench of a one-axis command is, for $k\ne j$,
+        $\Wn_k = \tfrac14\sum_i M_{ik}\varphi(saM_{ij})$. Each $\varphi$ term is
+        $a^2$ times $1$ or $-\rho$, depending only on the sign of $sM_{ij}$, so
+        the sum splits into $\tfrac{a^2}{4}(\sum_{\text{fwd}}M_{ik} -
+        \rho\sum_{\text{rev}} M_{ik})$. Writing the forward set as the $i$ with
+        $sM_{ij} = +1$, $\sum_{\text{fwd}} M_{ik} = \tfrac12\sum_i (1 + sM_{ij})M_{ik}
+        = \tfrac12(\sum_i M_{ik} + s\sum_i M_{ij}M_{ik}) = 0$ by fact 1 and the
+        orthogonality of the columns; the reverse set the same. So the main
+        gains are equal for both signs and there is no leak.
+  \item \emph{A single weak reverse leaks with a fingerprint.} If only thruster
+        $i$ is weak in reverse, say by a relative-strength factor $\eta_i^-=k_i^-/k_{\rm nominal}^- < 1$, its thrust changes by
+        $(1-\eta_i^-)\rho a^2$ in exactly the directions where it runs reversed,
+        $sM_{ij} = -1$: one sign of each axis, so three of the six directions.
+        There the cross wrench is $\tfrac14(1-\eta_i^-)\rho a^2\,M_{ik}$, the row of
+        $M$ for that thruster. This is the ideal one-axis fault pattern for that thruster.
+\end{itemize}
 
-\paragraph{The controller sees the decoupled boat.} The velocity controller
-inverts the speed curves on the main axis, and the driver's columns cancel the
-cross terms. The two never correct the same coupling twice, and because the
-columns live in the driver they also straighten manual driving and open-loop
-trials.
-\file{mhseals\_hardware/thruster\_mixer.py (decouple, mix\_thrusters)}
+\file{mhseals\_hardware/thruster\_mixer.py (mix\_thrusters, decouple); crane\_ml MarineSurfaceProfile.cs, ThrusterActuator.cs}

@@ -1,25 +1,20 @@
 \section{The simulated boat and water}
 \label{sec:sim}
 
-The suite is only as honest as the simulator, so its boat is built from the real
-one's numbers, and where the simulator and the water disagree, the simulator is
-changed.
+The marine surface profile supplies the boat's rigid inertia, added mass,
+damping and individual thruster specifications. The Ideal profile uses the
+following defaults; the equations are developed in Section~\ref{sec:s2r}.
 
-\paragraph{Thrust.} Four Blue Robotics T200 at 16\,V give $51.5$\,N forward and
-$40.2$\,N reverse at full throttle. Thrust grows with the square of the command,
-$T = T_{\max}\,u\,|u|$ for an ESC command $u\in[-1,1]$, reached through a
-first-order spin-up of about $0.1$\,s. At $45^\circ$ the four together push
-$4 \cdot 51.5 \cdot \cos 45^\circ \approx 146$\,N along the bow.
+\paragraph{Thrust.} Four thrusters have symmetric full-effort magnitudes of
+$51.5$\,N at the reference voltage, zero command delay and zero lag. Their
+signed quadratic law gives $4\cdot51.5\cos45^\circ\approx146$\,N at full surge.
 
-\paragraph{Hull drag.} On the velocity $\bm v_r$ relative to the water, in the
-body frame, each axis feels Fossen's linear plus quadratic drag,
-$X = -(X_u + X_{u|u|}\,|u_r|)\,u_r$, and likewise for sway, yaw, heave, roll and
-pitch. Surge is set by the boat's top speed: $146$\,N balances
-$10u + 19.4u^2$ at $u = 2.5$\,m/s. At that speed form drag dominates, so the
-linear terms are small. Sway ($15v + 41.7v^2$) and yaw ($10r + 19.3r^2$) keep the
-same ratios to surge, a catamaran being draggier abeam, which puts them near
-$1.7$\,m/s and $1.9$\,rad/s flat out. Because the drag is on the relative velocity, a
-current carries the boat as real water does.
+\paragraph{Hull drag.} On water-relative body velocity, each horizontal axis
+has linear-plus-quadratic damping. Ideal coefficients $(D_1,D_2)$ are
+$(10,19.4)$ for surge, $(15,41.7)$ for sway and $(10,19.3)$ for yaw, in the
+corresponding SI units, symmetric in sign. Added masses are $1.5$\,kg in surge,
+$15$\,kg in sway and $1.23$\,kg\,m$^2$ in yaw, with zero sway--yaw coupling.
+The profile step is $0.02$\,s.
 
 \paragraph{Mass and inertia.} 30\,kg loaded. Two hulls carry about 60\,\% of
 it as slender $1.06$\,m bodies $0.33$\,m either side of the centre line, the deck,
@@ -29,14 +24,14 @@ the centre of mass
   I_\text{pitch} \approx 2\cdot 9\,\tfrac{1.06^2}{12} + 12\,\tfrac{0.5^2+0.25^2}{12} = 2.0,\qquad
   I_\text{yaw} \approx 2\cdot 9\left(\tfrac{1.06^2}{12} + 0.33^2\right) + 12\,\tfrac{0.5^2+0.4^2}{12} = 4.1
 \]
-kg\,m$^2$. The boat's links keep their CAD positions and masses (scaled to
-30\,kg); the composite is computed with the parallel-axis theorem,
-$I = \sum_i I_i + m_i(\lVert\bm d_i\rVert^2 - (\bm d_i\cdot\bm a)^2)$ about axis $\bm a$, and the
-root link supplies what pitch and yaw lack. Roll comes out at $3.2$ from the hulls'
-own spread, sideways and down, and is left so. The scene's placeholders had made
-all three 17--22.
+kg\,m$^2$. These motivate the profile's pitch and yaw inertia priors.
+The profile's roll inertia is $2.2$\,kg\,m$^2$. Rotor links retain their authored
+masses; fixed and root links share the remainder of the 30\,kg total. Composite
+inertia uses the parallel-axis theorem,
+$I=\sum_i[I_i+m_i(\|\bm d_i\|^2-(\bm d_i\cdot\bm a)^2)]$ about axis $\bm a$.
+The root supplies the remaining inertia after the other links' contributions.
 
-\paragraph{Wind.} Air at velocity $\bm w$ pushes the hull's above-water area with
+\paragraph{Wind.} With the wind option enabled, air at velocity $\bm w$ pushes the hull's above-water area with
 $\bm F = \tfrac12 \rho_a C_d A(\beta)\,|\bm w_r|\,\bm w_r$, $\bm w_r = \bm w - \bm v$,
 where $A(\beta) = A_f|\cos\beta| + A_s|\sin\beta|$ is the area facing the relative
 wind at $\beta$ from the bow ($A_f = 0.30$, $A_s = 0.40$\,m$^2$, $C_d = 1$). An
@@ -50,4 +45,4 @@ $2^\circ$ apart over $\pm 15^\circ$, $0.2^\circ$ steps, 10\,Hz), publishing only
 returns, and none from below the water surface. Detections are in the camera's
 REP-103 frame. Both must line up with the boat description's mounts: a sensor
 $0.47$\,m off moves every buoy by as much, about the clearance in a gate.
-\file{crane\_ml: RoboBoatPhysics.cs, RoboBoatCourse.cs, Lidar3D.cs}
+\file{crane\_ml: MarineSurfaceProfile.cs, RoboBoatPhysics.cs, MarineHydrodynamics.cs, ThrusterModel.cs, RoboBoatWind.cs, RoboBoatCourse.cs, Lidar3D.cs}

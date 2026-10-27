@@ -1,4 +1,5 @@
 \section{Frames and notation}
+\label{sec:frames}
 
 \paragraph{Body frame.} Commands and velocities are in the boat's body frame,
 \code{base\_link}, which follows ROS REP 103 (FLU):
@@ -14,9 +15,9 @@ measured counter-clockwise from east.
 \paragraph{Effort versus velocity.} There are two kinds of command, and
 confusing them is the most common mistake:
 \begin{itemize}[nosep]
-  \item \emph{Effort} $\bm{e}\in[-1,1]^3$ is normalized thrust, what the
-        thruster driver accepts. $e_x = 0.25$ means ``a quarter of full forward
-        thrust'', not any particular speed.
+  \item \emph{Effort} $\bm{e}\in[-1,1]^3$ is normalized motor effort, what the
+        thruster driver accepts. $e_x = 0.25$ means quarter effort, giving $0.25^2=0.0625$ of
+        full thrust under the quadratic model, not any particular speed.
   \item \emph{Velocity} $\bm{v}$ in m/s and rad/s is what Nav2 asks for. Turning
         velocity into effort needs a model of the boat (Section~\ref{sec:char})
         and a controller (Section~\ref{sec:controller}).
