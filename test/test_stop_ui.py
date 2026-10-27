@@ -120,6 +120,19 @@ def test_stopped_wins_the_eye_over_the_agent_claim_on_its_row():
     assert claim == theme.PALETTE.style('auth.agent')        # unreversed agent hue, not the solid banner
 
 
+@pytest.mark.parametrize('ascii_', [False, True])
+@pytest.mark.parametrize('width', [56, 60, 64, 70])
+def test_a_narrow_stopped_row_drops_disarmed_before_the_agent_claim(monkeypatch, ascii_, width):
+    """Under a claim, a narrow row keeps the claim (``◆ c… · c7``, never a bare ellipsis) over
+    ``disarmed``; armed and wide rows keep the state word."""
+    monkeypatch.setattr(theme, 'ASCII', ascii_)
+    row = layout.chrome.stop_banner(False, width, agent=agent_banner()).plain
+    assert 'disarmed' not in row and 'c7' in row and len(row) <= width
+    assert row.rstrip().endswith(layout.chrome.AGENT_STOP_KEYS)
+    assert 'disarmed' in layout.chrome.stop_banner(False, 80, agent=agent_banner()).plain
+    assert 'armed' in layout.chrome.stop_banner(True, width, agent=agent_banner()).plain
+
+
 def test_without_a_stop_the_agent_banner_keeps_the_row():
     lines = text(layout.render(monitor().snapshot(), view(load_profile('boat'), authority=('agent', 'AGENT c'),
                                                           agent=agent_banner('active')), 120, 40), 120).splitlines()

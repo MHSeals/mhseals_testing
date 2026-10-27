@@ -158,14 +158,21 @@ def stop_banner(armed, width, agent=None):
     Only the glyph and STOPPED wear ``stop``; the rest is muted and nothing is reversed, so it
     does not shout over the page. The keys are never cut. With an agent claim (``agent`` is its
     banner text) the row keeps STOPPED first and adds the claim in the agent hue, unreversed, so
-    stopped still wins the eye; E revoke joins the keys.
+    stopped still wins the eye; E revoke joins the keys. Under a claim the row omits ``neutral
+    sent`` (the claim takes its cells) and drops ``disarmed`` rather than cut or hide the claim;
+    ``armed`` always stays.
     """
     keys = AGENT_STOP_KEYS if agent else STOP_KEYS
     glyph = theme.pick(theme.PALETTE.glyph('stop', ascii=False), '(/)')
     head = f' {glyph} STOPPED'
     room = max(width - len(head) - len(keys) - 2, 0)
     sent = '' if agent else f'{theme.SEPARATOR}neutral sent'    # the claim takes its cells
-    rest = middle_cut(f"{sent}{theme.SEPARATOR}{'armed' if armed else 'disarmed'}", room)
+    state = f"{theme.SEPARATOR}{'armed' if armed else 'disarmed'}"
+    if agent and not armed:                                     # the claim outranks disarmed
+        left = room - len(state) - len(theme.SEPARATOR)
+        if left <= 2 or theme.pick('…', '...') in stop_claim(agent, left + 1):
+            state = ''
+    rest = middle_cut(f'{sent}{state}', room)
     left = room - len(rest) - len(theme.SEPARATOR)
     claim = theme.SEPARATOR + stop_claim(agent, left + 1) if agent and left > 2 else ''
     gap = max(width - len(head) - len(rest) - len(claim) - len(keys) - 1, 1)
