@@ -1914,6 +1914,17 @@ def test_an_errored_run_is_recorded_as_an_error_not_a_measurement(tmp_path):
     assert saved['status'] == 'ABORTED' and result['started'] is True and result['files']
 
 
+def test_an_interrupted_run_is_recorded_as_aborted_and_the_interrupt_propagates(tmp_path):
+    def body(ctx):
+        started(ctx)
+        raise KeyboardInterrupt
+    saved = run_record(tmp_path, body, KeyboardInterrupt)
+    result = saved['result']
+    ended = (result['outcome'], result['cause'], result['by'])
+    assert ended == ('aborted', 'interrupted', 'operator')
+    assert saved['status'] == 'ABORTED' and result['started'] is True and result['files']
+
+
 def test_a_cancelled_run_is_recorded(tmp_path):
     from mhseals_hardware.menu import Cancelled
 

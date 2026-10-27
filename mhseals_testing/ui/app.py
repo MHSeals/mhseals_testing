@@ -140,7 +140,10 @@ STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyErr
 
 def run_end(error):
     """How a procedure run that raised ``error`` ended, for its run record: ``outcome``
-    (aborted, cancelled or error) and ``cause`` (the abort's cause, or what failed)."""
+    (aborted, cancelled or error) and ``cause`` (the abort's cause, or what failed). A
+    KeyboardInterrupt (Ctrl-C) aborts the run with cause ``interrupted``."""
+    if isinstance(error, KeyboardInterrupt):
+        return dict(outcome='aborted', cause='interrupted', by='operator')
     if isinstance(error, Aborted):
         return dict(outcome='aborted', cause=error.cause, by=error.by)
     if isinstance(error, Cancelled):
@@ -2652,7 +2655,7 @@ class App:
                 self.health_window(procedure, began)   # before teardown, whatever the exit
                 raise
             invalid = self.health_window(procedure, began)
-        except Exception as error:
+        except BaseException as error:    # a KeyboardInterrupt is recorded too, then re-raised
             aborted, ended = str(error), run_end(error)
             if not isinstance(error, Cancelled):
                 raise
