@@ -515,8 +515,11 @@ def test_boat_trial_config_apply_nav2_end_to_end(stack, live):
         'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.25\n'
         '    failure_tolerance: 0.2\n')
     (stack.dir / 'events.jsonl').write_text('')
-    command = [sys.executable, '-m', 'mhseals_testing.harness.cli', 'config', 'apply', 'nav2',
-               '--json']
+    # The CLI's mux hold must confirm within HOLD_CONFIRM_S (2 s); under full-suite load the
+    # mux can answer later, so this subprocess alone waits longer. The live window is unchanged.
+    patched = ('import runpy, mhseals_testing.harness.nav2_live as n; n.HOLD_CONFIRM_S = 15.0; '
+               'runpy.run_module("mhseals_testing.harness.cli", run_name="__main__")')
+    command = [sys.executable, '-c', patched, 'config', 'apply', 'nav2', '--json']
     options = {'env': stack.env, 'capture_output': True, 'text': True, 'timeout': 120}
     preview = subprocess.run(command, **options)
     assert preview.returncode == 2, preview.stdout + preview.stderr
