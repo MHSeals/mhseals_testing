@@ -126,7 +126,7 @@ def test_reads_stay_allowed(sent, command):
 
 
 # The regression table. Rule: nothing the whole-text search denies becomes allowed, except a call made
-# only of commands that read or print text (Tier A). MAIN rows were denied by the whole-text hook; keep them.
+# only of commands that read or print text (Tier A), or a heredoc body nothing can run (``code_of``). MAIN rows were denied by the whole-text hook; keep them.
 MAIN = [
     'ssh blastoise \'docker exec roboboat_dev bash -c "ros2 topic pub /cmd_vel x y"\'',
     'docker run --rm --net host ros:humble ros2 topic pub /cmd_vel x y',
@@ -523,6 +523,28 @@ def test_shell_writes_to_agent_yaml_are_denied_only_on_live_copies(trees):
                          (f'rm {base}/bags/agent/stop', '/'), (f'rm {base}/mhseals/command_mux_232.json', '/'),
                          ('MHSEALS_SIM_ARM=1 tui', str(wt))):
         assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
+
+
+def test_a_heredoc_body_is_data_unless_something_can_run_it(trees):
+    live, wt, base = trees
+    writes = (f'git -C {live} checkout abc1234 -- .', f'sed -i s/false/true/ {live}/config/agent.yaml')
+    for line in writes:
+        assert hook.denied(line, hook.DEFAULTS, cwd='/'), line                  # run, each is denied
+    prompt = f'Check out the pinned profiles commit with {writes[0]},\nthen {writes[1]}; pkill -f command_mux'
+    for command in (f"cd /home/lunarz/astro_dock && .handoff/tools/codex-task NAME <<'EOF'\n{prompt}\nEOF",
+                    f'.handoff/tools/codex-task NAME <<"EOF"\n{prompt}\nEOF\necho sent',
+                    f'.handoff/tools/codex-task NAME <<-EOF\n{prompt}\n\tEOF',
+                    f'codex-task A <<EOF && codex-task B <<\'END\'\n{prompt}\nEOF\n{prompt}\nEND'):
+        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command   # a prompt, not shell
+    for command in (f'bash <<EOF\n{writes[1]}\nEOF', f"sh -s <<-'EOF'\n\t{writes[0]}\n\tEOF",
+                    f"python3 - <<'EOF'\nopen('{live}/config/agent.yaml', 'w').write('x')\nEOF",
+                    f"cat > {live}/config/agent.yaml <<'EOF'\nhook: {{}}\nEOF",
+                    f"cat <<'EOF' | bash\n{writes[1]}\nEOF", f"ssh blastoise <<'EOF'\npkill -f command_mux\nEOF",
+                    f"env -C /tmp sh <<'EOF'\n{writes[1]}\nEOF", f"docker exec -i c sh <<'EOF'\n{writes[1]}\nEOF",
+                    f'codex-task N <<EOF\n$({writes[1]})\nEOF',                       # unquoted: $(...) runs
+                    f"cat > run.sh <<'EOF'\n{writes[1]}\nEOF\nbash run.sh",            # a script run next
+                    f"f() {{ bash; }}; f <<'EOF'\n{writes[1]}\nEOF", f"$X <<'EOF'\n{writes[1]}\nEOF"):
+        assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
 
 
 def test_every_shell_safety_deny_names_the_proper_route():

@@ -436,7 +436,8 @@ def matches(patterns, text):
 # git commit/log/diff/show/status, pytest): its arguments are data,
 # so a grep pattern, an echo, a commit message or a heredoc into a file never denies. Tier B, anything
 # else: the whole command text is searched (quotes and escapes dropped, ``.`` spanning newlines), so
-# whatever wraps or hides a denied command is still denied. Variables, strings built at run time and
+# whatever wraps or hides a denied command is still denied, except a heredoc body nothing can run (a codex-task
+# prompt, ``code_of``). Variables, strings built at run time and
 # scripts from earlier calls still get through: advisory, the mux and the claim are the boundary.
 SEPARATORS = {';', '&', '&&', '||', '|', '|&', '\n', ';;', '(', ')'}
 REDIRECTS = {'<', '>', '>>', '>|', '&>', '&>>', '>&', '<&', '<>'}
@@ -532,6 +533,52 @@ def parse(text, bodies=None):
                 found.append(('\n'.join(body), bool(match.group(1))))
         bodies, text = iter(found), '\n'.join(kept)
     return build(tokens_of(text), bodies)
+
+
+# A heredoc body fed to one of these (any word of its pipeline) is code; fed to anything else it is data.
+RUNS_STDIN = re.compile(r'(?:[bdkcz]|tc|fi|a|ba)?sh|python[\d.]*|pypy\d*|perl\d*|ruby|node|deno|bun|php|lua|tclsh'
+                        r'|osascript|expect|ssh|scp|docker|podman|kubectl|nsenter|eval|source|\.|exec|xargs|parallel'
+                        r'|sudo|su|doas|env|nohup|setsid|time|timeout|nice|chrt|stdbuf|script|tmux|screen|at|batch'
+                        r'|crontab|awk|gawk|mawk|sed|ed|ex|vim?|nvim|git|make|ros2|uv|pixi|conda|tee|dd|sponge|install')
+STDIN_SINKS = re.compile(r'\(\s*\)|\balias\b|\bfunction\b')    # a function or alias can hide the reader
+
+
+def code_of(command):
+    """``command`` without the heredoc bodies that are only data: the body of ``codex-task N <<'EOF'`` is a
+    prompt, not shell. A body stays when anything could run it: a shell or interpreter (``RUNS_STDIN``)
+    anywhere in its pipeline, a file written there (``cat > f <<EOF`` may be a script run next), a pipe
+    continued past the line, a ``$(...)``, backtick or ``<(...)`` on the line or (unquoted delimiter) in
+    the body, a word the hook cannot read (``$X``), or a function or alias in the call."""
+    text = command.replace('\\\n', '')
+    if STDIN_SINKS.search(text):
+        return command
+    lines, out, i = text.split('\n'), [], 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        found = list(HEREDOC.finditer(line))
+        if not found:
+            continue
+        try:
+            pipelines = parse(line, iter([(f'\0{k}', True) for k in range(len(found))]))
+        except ValueError:
+            pipelines = []
+        risky = bool(re.search(r'\$\(|`|[<>]\(', line) or re.search(r'\|\s*$', line))
+        for k, match in enumerate(found):
+            dash, body = '<<-' in match.group(0), []
+            while i < len(lines) and (lines[i].lstrip('\t') if dash else lines[i]) != match.group(2):
+                body.append(lines[i])
+                i += 1
+            end = lines[i] if i < len(lines) else None
+            i += 1
+            pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
+            data = pipe is not None and not risky and not (
+                not match.group(1) and re.search(r'\$\(|`', '\n'.join(body))) and not any(
+                c['writes'] or any('$' in w or RUNS_STDIN.fullmatch(os.path.basename(w)) for w in c['argv'])
+                for c in pipe)
+            out += ([] if data else body) + ([] if end is None else [end])
+    return '\n'.join(out)
 
 
 def build(tokens, bodies):
@@ -633,11 +680,12 @@ def boats(config):
 
 def denied(command, config, cwd=None):
     """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
-    denied; anything else is denied when ``hook.deny`` is found anywhere in its text, or
+    denied, and a heredoc body that is only data (``code_of``) is not searched;
+    anything else is denied when ``hook.deny`` is found anywhere in its text, or
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
     if text_only(command):
         return None
-    text, names = links(plain(command), cwd), boats(config)
+    text, names = links(plain(code_of(command)), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
