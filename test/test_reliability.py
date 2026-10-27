@@ -323,3 +323,39 @@ def test_a_complete_writer_record_scores_like_the_v7_record(tmp_path):
     after = sa.analyze(path)[1]
     for key in ('tasks', 'penalties', 'total', 'claims', 'reliability'):
         assert after[key] == before[key], key
+
+
+# ---- the real procedure title: run records are titled 'Mission rehearsal' (procedures registry)
+
+def _titled(folder, name, run_id, track_rows=None, **result):
+    """``_writer``'s record retitled as a real run ('Mission rehearsal'), ``result`` merged."""
+    run = _writer(folder, name, run_id, track_rows)
+    run['procedure'] = run['result']['procedure'] = 'Mission rehearsal'
+    run['result'].update(result)
+    (folder / 'runs' / f'{run_id}.json').write_text(json.dumps(run))
+    return run
+
+
+def test_real_titled_refused_cancelled_and_errored_before_link_runs_are_kept(tmp_path):
+    folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
+    for run_id in ('005', '006', '007'):                   # started, partial track: scored
+        _titled(folder, 'aborted', f'{run_id}-mission', track_rows=60)
+    for run_id in ('008', '009'):                          # linked track never written
+        _titled(folder, 'errored', f'{run_id}-mission')
+    _titled(folder, 'errored', '010-mission', files={})     # errored before its track was linked
+    _titled(folder, 'cancelled', '011-mission', started=True, run_start_t=4.0)  # after launch
+    _titled(folder, 'refused', '012-mission')
+    _titled(folder, 'cancelled', '013-mission')             # cancelled before launch
+    other = dict(run_id='014-waypoints', procedure='Waypoint square',
+                 result=dict(verdict='ABORTED', files={}))  # an older non-mission record
+    (folder / 'runs' / '014-waypoints.json').write_text(json.dumps(other))
+    scored, unjudged = sa._records([tmp_path / 'batch'])
+    assert len(scored) == 4
+    got = sa.batch(scored, unjudged=unjudged)['reliability']
+    assert got['runs'] == 8                                 # 6 before: 010 and 011 vanished
+    assert [r['run_id'] for r in got['unjudged']['failures']] == [
+        '008-mission', '009-mission', '010-mission', '011-mission']
+    assert got['unjudged']['failures'][2]['cause'] == \
+        "outcome 'error' by harness (TypeError: bad stream)"
+    assert got['not_started']['n'] == 2
+    assert [r['run_id'] for r in got['not_started']['runs']] == ['012-mission', '013-mission']

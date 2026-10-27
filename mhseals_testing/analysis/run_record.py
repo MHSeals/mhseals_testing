@@ -341,12 +341,15 @@ def judged_runs(session):
 
 def all_runs(session):
     """Every run record under ``<session>/runs`` in run order, with or without files (v7: an
-    aborted, cancelled, errored or refused run is still a run of the batch). Records of other
-    procedures (``procedure`` set and not ``mission``) are not mission runs and are skipped."""
+    aborted, cancelled, errored or refused run is still a run of the batch). A record with the
+    writer's outcome fields (``has_outcome``) is always kept, whatever its procedure title (real
+    runs are titled 'Mission rehearsal'). An older record without files is kept only with no
+    ``procedure`` or ``mission`` (v7)."""
     out = []
     for target in sorted(Path(session).glob('runs/*.json')):
         run = data.read_json(target)
-        if isinstance(run, dict) and (has_files(run) or run.get('procedure') in (None, 'mission')):
+        v7 = run.get('procedure') in (None, 'mission') if isinstance(run, dict) else False
+        if isinstance(run, dict) and (has_files(run) or has_outcome(run) or v7):
             out.append(run)
     return out
 
