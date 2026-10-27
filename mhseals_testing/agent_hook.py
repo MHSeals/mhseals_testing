@@ -83,7 +83,7 @@ WRITERS = (r'rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|
 
 
 # A python one-liner (-c or stdin) that writes, moves or deletes a file: open(..., w|a|x), write_*, unlink, ...
-PY_WRITE = (r'\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move'
+PY_WRITE = (r'\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move'
             r'|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax]))')
 
 
@@ -433,7 +433,7 @@ def matches(patterns, text):
 
 # Two tiers. Tier A: every command in the call (each part of a pipe or list, each $(...)) only reads,
 # searches or prints text (READ_ONLY, find without -exec/-delete, sort/uniq without an output file,
-# git commit/log/diff/show/status, pytest): its arguments are data,
+# git commit/log/diff/show/status, pytest, cd): its arguments are data,
 # so a grep pattern, an echo, a commit message or a heredoc into a file never denies. Tier B, anything
 # else: the whole command text is searched (quotes and escapes dropped, ``.`` spanning newlines), so
 # whatever wraps or hides a denied command is still denied, except a heredoc body nothing can run (a codex-task
@@ -447,7 +447,7 @@ HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([\w.-]+)\1')
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
 READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc', 'cut', 'nl',
              'tr', 'column', 'ls', 'stat', 'diff', 'jq', 'basename', 'dirname', 'realpath', 'readlink', 'pwd', 'du',
-             'comm', 'true'}
+             'comm', 'true', 'cd', 'pushd', 'popd'}       # a cd alone changes nothing: the rest must still only read
 FIND_RUNS = ('-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls')
 PYTEST_WRITES = ('--junit', '--basetemp', '--result-log', '--report-log', '--debug', '--html', '--json', '--cov',
                  '--log-file', '-o', '--override-ini', '--lf', '--last-failed', '--ff', '--failed-first', '--sw',
@@ -695,7 +695,9 @@ def denied(command, config, cwd=None):
     for pattern in config['deny'] + (config['deny_boat'] if host else []):
         for match in re.finditer(pattern, text, re.S):
             one_liner = re.match(r'python[\d.]*\s', text[match.start():])    # its ; are python's: to the line end
-            rest = re.compile(r'\n' if one_liner else r'[\n;|&]').search(text, match.end())
+            body = one_liner and HEREDOC.search(text[match.start():].split('\n', 1)[0])     # python - <<EOF: its body
+            rest = re.compile(r'\n%s(?=\n|$)' % re.escape(body.group(2)) if body else r'\n' if one_liner
+                              else r'[\n;|&]').search(text, match.end())
             hit = ' '.join(text[match.start():rest.start() if rest else None].split())
             if pattern in INTO and not into_live(hit, cwd, text):
                 continue
@@ -735,19 +737,22 @@ def place(path):
 
 
 MOVES = re.compile(r'(?<![\w-])(?:cd|pushd)\b|\benv\b[^;&|\n]*\s(?:-[A-Za-z]*C|--chdir\b)|\bchdir\(')
-_DIR = r'([/~][^\s;&|$`*?\[{()]*)'
+_HOME = r'(?:~|\$HOME\b|\$\{HOME\})(?=/|[\s;&|)]|$)'      # quotes are gone (plain): "$HOME/x", '~'/x
+_DIR = r'((?:[/~]|\$HOME\b|\$\{HOME\})[^\s;&|`*?\[()]*)'
 
 
 def where(whole, cwd):
     """The directory relative names resolve in: the call's ``cwd``, or the literal directory of its only change
-    of directory when that is a leading ``cd DIR &&``, a leading ``env -C DIR`` or a python ``os.chdir(DIR)``; None
-    when it changes directory otherwise (fail closed)."""
+    of directory when that is a leading ``cd DIR`` then ``&&``, ``;`` or a newline, a leading ``env -C DIR`` or a
+    python ``os.chdir(DIR)`` (``~``, ``$HOME`` and ``${HOME}`` expanded, any other ``$`` fails closed); None when it
+    changes directory otherwise (fail closed)."""
     moves = MOVES.findall(whole)
-    lead = (re.match(r'\s*(?:cd|pushd)\s+' + _DIR + r'\s*&&', whole)
+    lead = (re.match(r'\s*(?:cd|pushd)\s+' + _DIR + r'[ \t]*(?:&&|;|\n)', whole)
             or re.match(r'\s*env\s+(?:-\S+\s+)*?(?:-C\s*|--chdir[= ])' + _DIR + r'\s', whole)
             or re.search(r'\bchdir\(\s*' + _DIR + r'\s*\)', whole))
     if lead and len(moves) == 1:
-        return os.path.expanduser(lead.group(1))
+        found = re.sub('^' + _HOME, lambda m: str(Path.home()), lead.group(1))
+        return None if re.search(r'[${}~]', found) else found
     return None if moves else cwd
 
 
@@ -757,6 +762,8 @@ def resolve(name, base):
     if re.search(r'[$*?\[{`]', name) or (not name.startswith(('/', '~')) and not base):
         return None
     path = Path(os.path.expanduser(name))
+    if not path.is_absolute() and not base:                         # ~other/x with no such user
+        return None
     path = os.path.abspath(path if path.is_absolute() else Path(base) / path)
     return list(dict.fromkeys([path, os.path.realpath(path)]))
 

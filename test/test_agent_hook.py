@@ -813,3 +813,52 @@ def test_the_heartbeat_by_path_and_flags_after_the_package_are_denied(command, s
     'cat src/mhseals_nav/mhseals_nav/tasks/run_task.py | head'])
 def test_editing_and_testing_the_heartbeat_stays_allowed(command):
     assert hook.denied(command, hook.DEFAULTS) is None
+
+
+# Leading cd (10-27): ~, $HOME and ${HOME} expand (quoted or not, as plain() reads them) and ; or a newline ends
+# the cd like &&; later cds, $(...), ../ escapes and env -C still void it. A read of a live file is never denied,
+# and a python heredoc writes as a -c one-liner does: a worktree copy is fine, a live one is denied.
+HOOK_FILE = 'src/r/p/agent_hook.py'
+PY_HEREDOC = "python3 - <<EOF\nopen('{f}', 'w').write('x')\nEOF"
+CD_DEV = [('L', 'cd ~/wt ; sed -n 4,5p {H}'), ('L', 'cd ~/wt && sed -n 4,5p {H}'), ('L', 'cd ~/wt; sed -i s/a/b/ {H}'),
+          ('L', 'cd $HOME/wt ; sed -i s/a/b/ {H}'), ('L', 'cd "$HOME/wt"\nsed -i s/a/b/ {H}'),
+          ('L', 'cd "${{HOME}}"/wt; sed -i s/a/b/ launch/robot.launch.py'), ('L', "cd '~/wt' && sed -i s/a/b/ {H}"),
+          ('L', 'cd ~/wt && ' + PY_HEREDOC.format(f='{H}')), ('L', 'cd ~/wt\n' + PY_HEREDOC.format(f='{H}')),
+          ('/', PY_HEREDOC.format(f='{W}/{H}'))]
+CD_LIVE = [('/', 'cd ~/live ; sed -i s/a/b/ {H}'), ('/', 'cd ~/wt ; sed -i s/a/b/ ../live/{H}'),
+           ('/', 'cd ~/wt ; cd ~/live ; sed -i s/a/b/ {H}'), ('/', 'cd ~/wt && env -C ~/live sed -i s/a/b/ {H}'),
+           ('/', 'cd ~/wt && echo $(cd ~/live) ; sed -i s/a/b/ {H}'), ('/', 'cd $HOME/$X ; sed -i s/a/b/ {H}'),
+           ('/', 'cd ~/wt ; pushd ~/live ; sed -i s/a/b/ {H}'), ('/', 'cd ~other/wt ; sed -i s/a/b/ {H}'),
+           ('/', 'cd ~/live && ' + PY_HEREDOC.format(f='{H}')), ('/', PY_HEREDOC.format(f='{L}/{H}')),
+           ('L', "python3 <<'EOF'\nopen('{H}', 'a')\nEOF"), ('L', 'python3 -I - <<EOF\nimport os; os.remove("{H}")\nEOF'),
+           ('W', 'cd ~/wt ; ' + PY_HEREDOC.format(f='{L}/config/agent.yaml'))]
+READS = ['sed -n 1,3p {p}', 'sed -n -E 1p {p}', 'cat {p}', 'grep -n x {p}', 'head -3 {p}', 'less {p}', 'diff {p} {w}',
+         'git show HEAD:{f}', 'git diff -- {p}', 'git log -p -- {p}', 'git -C {l} show HEAD:{f}', 'cat {p} | grep x | head',
+         'cd {l} ; sed -n 1p {f}', 'cd {l} && cat {f}', 'cd ~/live\ngrep x {f}', 'cd {l}; git diff {f}', 'tail -2 {p} 2>&1']
+
+
+@pytest.fixture
+def home_trees(live_files, monkeypatch):
+    live, wt, base = live_files
+    for tree in (live, wt):
+        (tree / HOOK_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (tree / HOOK_FILE).write_text('')
+    monkeypatch.setenv('HOME', str(base))
+    yield live_files
+
+
+@pytest.mark.parametrize('cwd, command, want', [c + (None,) for c in CD_DEV] + [c + ('deny',) for c in CD_LIVE])
+def test_a_leading_cd_resolves_home_and_semicolons(home_trees, cwd, command, want):
+    live, wt, base = home_trees
+    command = command.format(L=live, W=wt, H=HOOK_FILE)
+    got = hook.denied(command, hook.DEFAULTS, cwd={'L': str(live), 'W': str(wt)}.get(cwd, cwd))
+    assert bool(got) == (want == 'deny'), command
+
+
+@pytest.mark.parametrize('read', READS)
+@pytest.mark.parametrize('name', ['config/agent.yaml', 'launch/robot.launch.py', '.agents/hook.py', HOOK_FILE])
+def test_reading_a_live_safety_file_is_never_denied(home_trees, read, name):
+    live, wt, base = home_trees
+    for cwd in (str(live), '/'):
+        command = read.format(p=name if cwd != '/' else live / name, w=wt / name, f=name, l=live)
+        assert hook.text_only(command) and hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command

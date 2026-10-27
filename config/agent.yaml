@@ -79,7 +79,7 @@ hook:
          # holds a live config, launch or hook dir; a python one-liner writing a file is a writer too
          '\bMHSEALS_SIM_ARM\b',
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm)|python[\d.]*|pytest|py\.test)(?![\w.-]).*(\bagent\.ya?ml\b)',
-         '\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*(\bagent\.ya?ml\b)',
+         '\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*(\bagent\.ya?ml\b)',
          '(?<![\w-])(cp|install)\b[^;&|\n]*(\bagent\.ya?ml\b)(?![^;&|\n]*\s(?!\S*(\bagent\.ya?ml\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*(\bagent\.ya?ml\b)',
          '(\bagent\.ya?ml\b)[^;&\n]*\|\s*xargs\b',
@@ -106,12 +106,12 @@ hook:
          # agent_hook.LAUNCHES and HOOKS: shell writes to a live launch file or the live agent hook and its wiring
          # (agent_hook.py, .agents/hook.py, .claude/settings*.json, .codex/hooks.json); worktree copies are free
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
-         '\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
+         '\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
          '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
          '((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)[^;&\n]*\|\s*xargs\b',
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
-         '\bpython[\d.]*\s+(-\S+\s+)*-[A-Za-z]*c\s(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
+         '\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
          '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-])))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
          '((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))[^;&\n]*\|\s*xargs\b',
