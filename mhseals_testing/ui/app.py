@@ -63,8 +63,8 @@ from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed, sessi
 from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
-    authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette, parts,
-    perception, pixels, popups, theme)
+    agent_acts, authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette,
+    parts, perception, pixels, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -2680,7 +2680,9 @@ class App:
         fields = getattr(self, 'run_fields', None) or {}
         if not found and aborted is None and not fields:
             return
-        record = dict(ended or {}, **fields, procedure=procedure.title, run_id=run_id, results=found)
+        key = agent_acts.procedure(procedure.key)[1]   # its agent name (mission); title: display
+        record = dict(ended or {}, **fields, procedure=procedure.title, procedure_key=key,
+                      run_id=run_id, results=found)
         if aborted is not None:
             record['reason'] = aborted
         runs.write_run(self.paths.runs, record, settings=vars(self.settings),

@@ -42,7 +42,9 @@ def write_run(directory, result, settings=None, schedule=None, now=None, status=
     target = directory / f'{run_id}.json'
     if target.exists():
         return data.read_json(target)
-    record = dict(run_id=run_id, procedure=result.get('procedure'), status=status or status_of(result),
+    record = dict(run_id=run_id, procedure=result.get('procedure'),
+                  procedure_key=result.get('procedure_key'),
+                  status=status or status_of(result),
                   excluded=None, time=(now or datetime.now().astimezone()).isoformat(),
                   settings=settings or {}, schedule=schedule or [], provenance=provenance or {},
                   result={k: v for k, v in result.items() if k != 'run_id'}, history=[])

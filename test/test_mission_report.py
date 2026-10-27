@@ -27,6 +27,7 @@ def test_write_run_is_a_run_file_with_mission_block(tmp_path):
     assert target == tmp_path / 'runs' / 'r1.json'
     record = json.loads(target.read_text())
     assert record['schema'] == 'mhseals.run/1' and record['mission']['summary'] == block['summary']
+    assert record['procedure_key'] == 'mission'
     assert list(record['mission'])[0] == 'summary'
 
 

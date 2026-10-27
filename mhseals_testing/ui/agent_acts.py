@@ -25,10 +25,11 @@ from mhseals_testing.ui import theme
 
 # The key loop's stopping errors (ui/app.py STOPPING_ERRORS).
 STOPPING = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
-# Agent names for procedure keys; config/agent.yaml ``run`` lists the ones agents may request.
+# Agent names for procedure keys, one per procedure: each run record's procedure_key.
+# config/agent.yaml ``run`` lists the ones agents may request.
 NAMES = {'square': 'w', 'station': 's', 'nav2_bringup': 'n', 'controller_check': 'v', 'perception': 'p',
          'mission': 't', 'characterize': 'f', 'compass_calibration': 'g', 'interference': 'e',
-         'manual': 'm', 'thruster_set': 'i'}
+         'manual': 'm', 'thruster_set': 'i', 'dock_physics': 'd', 'thrust_physics': 'y'}
 NAV_NODES = ('bt_navigator', 'planner_server')
 ABORT_JOIN_S = 1.0     # Ctrl+C during a background Nav2 step: how long to let a send land (then cancelled)
 

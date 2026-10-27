@@ -62,7 +62,8 @@ def write_run(session, run_id, mission, status='MEASURED', started=None):
     target = Path(session) / 'runs' / f'{run_id}.json'
     if target.exists():
         raise FileExistsError(f'run {run_id} already exists in {session}')
-    record = {'run_id': run_id, 'procedure': 'mission', 'status': status,
+    record = {'run_id': run_id, 'procedure': 'mission', 'procedure_key': 'mission',
+              'status': status,
               'started': started, 'mission': mission}
     data.write_json(target, record, RUN_SCHEMA)
     return target
