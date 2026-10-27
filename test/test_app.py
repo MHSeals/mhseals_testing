@@ -3081,7 +3081,7 @@ def test_failed_hardware_snapshot_retains_memory_and_draft(tmp_path, monkeypatch
     assert not app.watcher.reload('hardware').report
 
 
-def test_a_run_record_carries_its_procedure_key_not_only_its_title(tmp_path):
+def test_a_run_record_carries_its_run_key_not_only_its_title(tmp_path):
     from mhseals_testing.procedures import PROCEDURES, Procedure
     from mhseals_testing.ui import agent_acts
     assert all(agent_acts.procedure(p.key)[1] for p in PROCEDURES)   # every procedure has its key
@@ -3090,6 +3090,6 @@ def test_a_run_record_carries_its_procedure_key_not_only_its_title(tmp_path):
         app.run_procedure(Procedure(key, title, lambda ctx: ctx.record(dict(procedure=title))))
     paths = sorted((tmp_path / 'session' / 'runs').glob('*.json'))
     saved = [json.loads(p.read_text()) for p in paths]
-    assert [(r['procedure'], r['procedure_key']) for r in saved] == [
+    assert [(r['procedure'], r['run_key']) for r in saved] == [
         ('Mission rehearsal', 'mission'), ('Waypoint square', 'square')]
-    assert saved[0]['result']['procedure_key'] == 'mission'
+    assert saved[0]['result']['run_key'] == 'mission'

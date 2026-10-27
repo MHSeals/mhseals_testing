@@ -361,27 +361,29 @@ def test_real_titled_refused_cancelled_and_errored_before_link_runs_are_kept(tmp
     assert [r['run_id'] for r in got['not_started']['runs']] == ['012-mission', '013-mission']
 
 
-def _keyed(folder, name, run_id, key, title, track_rows=None, **result):
-    """``_titled``'s record with the writer's ``procedure_key`` (top level and in ``result``)."""
+def _keyed(folder, name, run_id, key, title, track_rows=None, field='run_key', **result):
+    """``_titled``'s record with the writer's ``run_key`` (top level and in ``result``);
+    ``field='procedure_key'`` writes an older record's name for it."""
     run = _titled(folder, name, run_id, track_rows, **result)
     run['procedure'] = run['result']['procedure'] = title
-    run['procedure_key'] = run['result']['procedure_key'] = key
+    run[field] = run['result'][field] = key
     (folder / 'runs' / f'{run_id}.json').write_text(json.dumps(run))
     return run
 
 
 def test_a_mixed_session_counts_only_the_batch_procedure_and_lists_the_others(tmp_path):
     folder = shutil.copytree(SOURCES / 'unity_run', tmp_path / 'batch' / 's')
-    _keyed(folder, 'aborted', '005-mission', 'mission', 'Mission rehearsal', track_rows=60)
+    _keyed(folder, 'aborted', '005-mission', 'mission', 'Mission rehearsal', track_rows=60,
+           field='procedure_key')   # an older record's name for the key
     _keyed(folder, 'refused', '006-waypoint-square', 'square', 'Waypoint square')  # outcome
     scored, unjudged, excluded = sa._records([tmp_path / 'batch'])
     assert [r['run']['run_id'] for r in scored] == ['004-mission', '005-mission']  # 004: no key
     assert unjudged == [] and excluded == [
-        dict(run_id='006-waypoint-square', procedure_key='square', session='s')]
+        dict(run_id='006-waypoint-square', run_key='square', session='s')]
     got = sa.batch(scored, unjudged=unjudged, excluded=excluded)
     assert got['runs'] == 2 and got['reliability']['runs'] == 2  # the square is no run
     assert (got['procedure'], got['excluded']) == (
-        'mission', [dict(procedure_key='square', count=1)])
+        'mission', [dict(run_key='square', count=1)])
     scored, unjudged, excluded = sa._records([tmp_path / 'batch'], procedure='square')
     assert scored == [] and [u['run_id'] for u in unjudged] == ['006-waypoint-square']
-    assert [e['procedure_key'] for e in excluded] == [None, 'mission']  # 004: v7 mission
+    assert [e['run_key'] for e in excluded] == [None, 'mission']  # 004: v7 mission

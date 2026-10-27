@@ -2690,7 +2690,7 @@ class App:
         if not found and aborted is None and not fields:
             return
         key = agent_acts.procedure(procedure.key)[1]   # its agent name (mission); title: display
-        record = dict(ended or {}, **fields, procedure=procedure.title, procedure_key=key,
+        record = dict(ended or {}, **fields, procedure=procedure.title, run_key=key,
                       run_id=run_id, results=found)
         if aborted is not None:
             record['reason'] = aborted

@@ -260,7 +260,7 @@ def batch(records, points_at_least=None, unjudged=(), excluded=(), procedure='mi
     """Aggregate per metric across runs; sources and course seeds are listed; reliability
     (failure rate, categories, finals view) when the reports carry it. ``unjudged``: run
     records without files (``reliability.unjudged``), counted in reliability only.
-    ``excluded``: run records of another procedure than the batch's ({run_id, procedure_key}),
+    ``excluded``: run records of another procedure than the batch's ({run_id, run_key}),
     listed by key with their count and counted nowhere else."""
     rows = [metrics(r) for r in records]
     keys = sorted({k for r in rows for k in r})
@@ -281,8 +281,8 @@ def batch(records, points_at_least=None, unjudged=(), excluded=(), procedure='mi
         out['runs_unjudged'] = len(unjudged)
     out['procedure'] = procedure
     if excluded:
-        keys = [e['procedure_key'] for e in excluded]
-        out['excluded'] = [dict(procedure_key=k, count=keys.count(k))
+        keys = [e['run_key'] for e in excluded]
+        out['excluded'] = [dict(run_key=k, count=keys.count(k))
                            for k in sorted(set(keys), key=str)]
     return out
 
@@ -460,7 +460,7 @@ def paired(pairs_file, force=False, margin=None):
 
 def _records(paths, procedure='mission'):
     """(scored, unjudged, excluded): every run of ``procedure`` under ``paths``; the records of
-    other procedures are ``excluded`` ({run_id, procedure_key, session}). Each run record of
+    other procedures are ``excluded`` ({run_id, run_key, session}). Each run record of
     a session: one that
     links its files is scored (its session-level track is a copy of the latest run, so it is
     not counted again); one without (aborted, cancelled, errored, refused; or, dc042f84, a
