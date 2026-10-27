@@ -480,9 +480,11 @@ class AgentDesk:
         app = self.app
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
         task = agent_acts.run_task(act['req']['args'])
-        if not self.confirm(act, f"Agent {act['who']}: run {name}{' ' + task if task else ''} · allow?"):
+        sim = 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm')
+        if not self.confirm(act, f"Agent {act['who']}: run {name}{' ' + task if task else ''}"
+                                 f"{' · sim-arm' if sim else ''} · allow?"):   # Allow arms the sim too
             return False
-        if 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm'):
+        if sim:
             if not self.arm_sim(act):
                 return False
             app.agent_ready = act['who']         # this run's checks passed: its Ready prompts are the agent's

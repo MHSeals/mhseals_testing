@@ -1116,6 +1116,18 @@ def test_a_sim_arm_dry_run_lists_the_checks_and_arms_nothing(sim):
     assert reply['hint'].startswith('sim-arm refused: domain') and not armed_by_agent(sim.app)
 
 
+def test_the_allow_popup_names_the_sim_arm_it_will_do(sim, monkeypatch):
+    from mhseals_testing.ui import agent_acts
+    titles = []
+    monkeypatch.setattr(agent_acts, 'choose', lambda app, title, *a, **k: titles.append(title) or ('Refuse', None))
+    sim.app.settings.agent_motion = 'confirm'
+    c = claim(sim)
+    assert final(ask(sim, 'run', c, key='square', sim_arm=True)['id'])['error'] == 'refused'
+    assert final(ask(sim, 'run', c, key='square')['id'])['error'] == 'refused'
+    assert titles == ['Agent claude-3f2a: run square · sim-arm · allow?', 'Agent claude-3f2a: run square · allow?']
+    assert not armed_by_agent(sim.app)
+
+
 def test_without_sim_arm_a_run_still_waits_for_the_human_arm_panel(sim):
     sim.app.arm_answer = False
     reply = final(ask(sim, 'run', claim(sim), key='square')['id'])

@@ -211,6 +211,24 @@ def test_agent_arm_starts_the_driver_and_journals_who(App):
     assert fields['sim_arm'] == ['profile', 'domain']
 
 
+def test_a_sim_arm_marks_the_armed_chip_with_the_agent_and_disarm_clears_it(App):
+    from mhseals_testing.ui import chrome, theme
+    app = ArmApp()
+    app.armed_by = None
+    assert App.agent_arm(app, 'claude-autoarm', ['profile', 'domain']) == ''
+    assert app.armed_by == {'who': 'claude-autoarm', 'sim': True}
+    view = {'authority': ('agent', 'AGENT'), 'armed': app.armed, 'armed_by': app.armed_by}
+    *_, chip, mark = chrome.chips(view)
+    assert chip.plain.strip() == 'ARMED' and mark.plain == f'{theme.AGENT_GLYPH} claude-autoarm sim-arm'
+    assert chrome.chips(view, short=True)[-1].plain == f'{theme.AGENT_GLYPH} sim-arm'
+    app.plant = SimpleNamespace(neutral=lambda: None, release=lambda: None)
+    app.arming = SimpleNamespace(disarm=lambda: None)
+    app.watcher = SimpleNamespace(watches={'hardware': SimpleNamespace(warning=None)})
+    app.clear_pulses = lambda: None
+    App.disarm(app, 'sim auto-arm: run ended', by='agent')
+    assert app.armed_by is None
+
+
 def test_agent_arm_never_releases_a_restored_hold(App):
     app = ArmApp(mux={'input': 'hold', 'holds': [{'cause': 'costmap_stale', 'by': 'costmap_watchdog'}]})
     why = App.agent_arm(app, 'claude-autoarm', [])

@@ -2445,6 +2445,7 @@ class App:
             return str(error) or 'arming cancelled'
         if self.plant is not None:
             self.plant.engage()
+        self.armed_by = {'who': who, 'sim': True}   # the ARMED chip reads ◆ who sim-arm; disarm clears it
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware), by='agent', who=who, sim_arm=list(checks))
         self.notice = f'Armed for agent {who} (sim auto-arm)'
