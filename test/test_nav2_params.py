@@ -125,7 +125,8 @@ def test_preview_matches_actual_domain_compiler(plugin, name, smoother):
         current[prefix + 'primary_controller'] = 'nav2_mppi_controller::MPPIController'
     changes = {prefix + 'vx_max': 0.1, 'controller_server.controller_frequency': 20.0}
     # Full launch's validated_merge_limits delegates to this exact domain compiler.
-    expected = n2._flat(domain.validated_merge_limits(n2._nested(current), n2._nested(changes)))
+    expected = n2._flat(domain.validated_merge_limits(n2._nested(current), n2._nested(changes),
+                                                      n2._ceilings()))
     result = n2.plan(changes, current)
     assert _compiled_plan_values(current, changes, result) == expected
     assert n2.derived({**current, **changes}, 3.0) == n2._flat(
@@ -202,7 +203,7 @@ def test_complete_preview_emits_canonical_caps_and_numeric_types(changes, monkey
     current = {**CURRENT, 'controller_server.controller_plugins': ['FollowPath'],
                FOLLOW + 'plugin': 'nav2_mppi_controller::MPPIController',
                FOLLOW + 'vx_std': 0.2, FOLLOW + 'vy_std': 0.1, FOLLOW + 'wz_std': 0.2}
-    expected = n2._flat(domain.validated_merge_limits(n2._nested(current), n2._nested(changes)))
+    expected = n2._flat(domain.validated_merge_limits(n2._nested(current), n2._nested(changes), {}))
     result = n2.plan(changes, current)
     actual = _compiled_plan_values(current, changes, result)
     assert actual == expected
