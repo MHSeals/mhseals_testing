@@ -103,7 +103,9 @@ pair slopes and take the one where the cumulative weight passes half the total.
 \end{itemize}
 Nothing is judged before 3 sessions on a version. One bad run never triggers the
 flag. It appears as a health \texttt{info} check on the calibration indicator and in
-the session file, where agents can read the trend.
+the calibration file (\texttt{calibration/current.json}, under
+\texttt{provenance.tracking}, with the session summaries), where agents can read the
+trend; the session report does not carry it.
 
 \begin{figure}[htbp]
 \centering

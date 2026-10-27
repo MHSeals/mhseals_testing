@@ -119,9 +119,11 @@ Yaw unreliability does not reduce drift trust.
 
 \paragraph{Procedure gates.} Health checks gate both Characterize and Physics:
 poor fails, marginal warns. A health session mute skips health checks, but the
-procedures also refuse a supplied poor summary directly. Characterize evaluates
-after its configured initial neutral hold and records an aborted run before
-holds if poor; unknown permits the run. A supplied poor verdict suppresses the
+procedures also refuse a supplied poor summary directly. Characterize's
+operational run is currently refused before any hold (Section~\ref{sec:thrust}),
+so its conditions gate runs only in the offline path: it evaluates after the
+configured initial neutral hold and records an aborted run before the holds if
+poor; unknown lets that path continue. A supplied poor verdict suppresses the
 tracking score. Production conditions ingestion is unwired, so these rules
 require supplied conditions evidence.
 

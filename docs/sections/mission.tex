@@ -18,7 +18,9 @@ The procedure stores this verdict and the task referee verdict separately.
 \subsection{The task referee}
 
 The task referee uses task-tagged course truth and the boat's true track;
-absent truth or track yields an explicit N/A. Pair and circle tests also yield
+an unconfigured truth or track source, or a missing truth file, yields an
+explicit N/A. An empty captured track is not N/A: it is judged, so tests that need
+the boat's path (such as a gate crossing) fail. Pair and circle tests also yield
 N/A when truth contains no elements tagged for that test.
 
 \paragraph{Gates.} Truth markers are paired greedily in increasing distance,

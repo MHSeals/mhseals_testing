@@ -125,7 +125,9 @@ water's typical $\tau_c\approx1.1$\,s a 2\,s batch sees 54\,\%, a 4\,s batch
 \paragraph{Deviations about the window's own mean.} One more step separates the
 formula from the estimator. A batch mean contains the drift, and the drift may
 move from window to window, so batch means are compared not with a global mean but
-with \emph{their own window's mean}. That removes the drift and anything slower
+with \emph{their own window's centre}: the unweighted mean $\bar m$ of that
+window's batch means (the window's sample mean when every batch holds the same
+number of samples; a sparse or bursty batch counts the same as a full one). That removes the drift and anything slower
 than a window, at a price: with $k$ batches per window the squared deviations have
 only $k-1$ degrees of freedom, and neighbouring batches are themselves correlated,
 which pulls them together. For two batches $d$ apart the covariance of their means
@@ -146,7 +148,7 @@ The estimator divides the pooled scatter by exactly this expectation:
   \hat S_0 = \max\left(2\times10^{-6},\ \frac{b\sum_w\sum_{j\in J}\sum_i (m_{w,i,j}-\bar m_{w,j})^2}{|J|\sum_w (k_w-1)\,g_{k_w}(\tau_c)}\right),\qquad
   g_k = \frac{\E[\sum_i (m_i-\bar m)^2]}{(k-1)\,\Szero/b}.
 \]
-Here $J$ is the set of pooled channels; windows with fewer than two batches
+Here $\bar m_{w,j}=\frac1{k_w}\sum_i m_{w,i,j}$ is the batch-mean centre of window $w$, $J$ is the set of pooled channels; windows with fewer than two batches
 contribute nothing. Figure~\ref{fig:cond-s0} shows what each step buys on synthetic AR(1) data.
 
 \begin{figure}[ht]

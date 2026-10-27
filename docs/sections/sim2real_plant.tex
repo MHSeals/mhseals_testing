@@ -127,7 +127,7 @@ Written out,
 \Min\dot\nuv_r + \Cor(\nur)\,\nur = \bm\tau,
 \label{eq:s2r-fossen}
 \end{equation}
-where $\bm\tau = (X, Y, N)$ holds every other force (drag, thrust, wind), and
+where $\bm\tau = (X, Y, N)$ holds every other force (drag, thrust), and
 \[
   \Cor(\nur) = \begin{bmatrix}
     0 & 0 & -\Min_{22} v_r\\
@@ -220,7 +220,9 @@ into $\bm\tau_h$. The force correction includes $H$ in both matrices:
  \bm F_U=\bm\tau_h-(M_A+H)\widetilde M^{-1}
           (\bm\tau_h-C_{RB}(\nuv)\nuv).
 \]
-Unity applies $\bm F_U$ to its rigid mass and inertia. The pure step updates
+Unity applies $\bm F_U$ to its rigid mass and inertia. Wind, when enabled, is a
+separate force Unity applies directly at its point of application; it does not
+enter $\bm\tau$ or this correction. The pure step updates
 world velocity and yaw rate before position and heading (symplectic Euler).
 
 \subsection{Thrusters}

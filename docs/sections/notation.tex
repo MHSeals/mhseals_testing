@@ -30,7 +30,7 @@ velocities using their sine and cosine. Every $\pm$ is one standard deviation.
   $\nur$ & water-relative body velocity $(u_r, v_r, r)$ & III\tabularnewline
   $\psi$, $\psi_c$ & heading (ENU, from east); compass heading (from north, clockwise) & II, III\tabularnewline
   $R(\psi)$ & 2-D rotation, body to world (written $\Rot$ in Part~III) & I\tabularnewline
-  $\bm t$, $t_i$ & thruster command, $i\in\{\text{FL},\text{FR},\text{RR},\text{RL}\}$; $\bm t = M\bm e'$ & I\tabularnewline
+  $\bm t$, $t_i$ & thruster command, $i\in\{\text{FL},\text{FR},\text{RR},\text{RL}\}$; $t_i=\varphi_i^{-1}\bigl(\sum_j\varphi_i((M\bm c_j^{s_j})_i e_j)\bigr)$, then desaturated (Section~\ref{sec:mixer}) & I\tabularnewline
   $M$ & the $4\times3$ mixer of signs (Section~\ref{sec:mixer}) & I\tabularnewline
   $B$, $\bm b_i$ & allocation matrix and its column for thruster $i$ & I, III\tabularnewline
   $x_i$, $y_i$, $\alpha_i$ & thruster position and positive-thrust direction (counter-clockwise from $+x$) & I, III\tabularnewline
@@ -44,7 +44,7 @@ velocities using their sine and cosine. Every $\pm$ is one standard deviation.
   $k_i^\pm$, $K_f$, $K_r$ & full-effort thrust magnitudes per sign at the reference voltage, in newtons & III\tabularnewline
   $\eta_i^\pm$ & relative strength $k_i^\pm/k_{\mathrm{nom}}^\pm$ (dimensionless, nominal $1$) & I\tabularnewline
   $\Vbus$, $n_V$ & supplied thruster-bus voltage; scalar voltage exponent & III\tabularnewline
-  $\Wn(\bm e)$, $S$ & normalized wrench $\tfrac14 M^\top\varphi(M\bm e)$; physical scale, wrench $= S\Wn$ & I\tabularnewline
+  $\Wn(\bm e)$, $S$ & normalized wrench $\tfrac14 M^\top\sum_j\varphi(M\bm c_j^{s_j}e_j)$ before desaturation; physical scale, wrench $= S\Wn$ & I\tabularnewline
   $(j, s)$ & a \emph{direction}: axis $j$ and sign $s = \pm1$; there are six & I\tabularnewline
   $C^+$, $C^-$, $\bm c_j^s$ & correction matrices; column $j$ of $C^s$ serves direction $(j, s)$ & I\tabularnewline
   $a$ & amplitude of a one-axis hold & I\tabularnewline

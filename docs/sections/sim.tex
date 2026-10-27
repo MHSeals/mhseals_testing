@@ -41,8 +41,10 @@ about $8$\,s, direction by $10^\circ$ over $30$\,s. The force acts above and
 slightly ahead of the centre of mass, so the boat weathervanes.
 
 \paragraph{Sensors.} The LiDAR is a VLP-16 in its own REP-103 frame (16 rings,
-$2^\circ$ apart over $\pm 15^\circ$, $0.2^\circ$ steps, 10\,Hz), publishing only
-returns, and none from below the water surface. Detections are in the camera's
+$2^\circ$ apart over $\pm 15^\circ$, $0.2^\circ$ steps, 10\,Hz). By default its cloud
+keeps misses as NaN points and does not cut at the water surface; returns-only
+output and an underwater cut-off are opt-in (\texttt{-{}-crane-lidar-returns-only},
+\texttt{-{}-crane-lidar-water-level}). Detections are in the camera's
 REP-103 frame. Both must line up with the boat description's mounts: a sensor
 $0.47$\,m off moves every buoy by as much, about the clearance in a gate.
 \file{crane\_ml: MarineSurfaceProfile.cs, RoboBoatPhysics.cs, MarineHydrodynamics.cs, ThrusterModel.cs, RoboBoatWind.cs, RoboBoatCourse.cs, Lidar3D.cs}

@@ -36,7 +36,8 @@ bias and predicted steady speed, then rotate the translation residual to world:
 The default drift time constant is $\tau_d=5$\,s.
 
 \paragraph{Drift-update gates.} Non-finite odometry is discarded. Learning
-requires positive $\tau_d$, positive $\Delta t\le0.2$\,s, every target component
+requires positive $\tau_d$, a positive odometry interval (capped at $\Delta t=0.2$\,s,
+so a longer gap still learns as one 0.2\,s step), every target component
 within $0.1$ of zero, and every effort magnitude below $0.999$. A world-frame
 carried displacement leaks with a 2\,s window and accumulates measured world
 velocity during eligible updates. A displacement projection greater than
