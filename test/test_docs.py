@@ -3,21 +3,25 @@ import re
 from pathlib import Path
 
 SECTIONS = Path(__file__).resolve().parents[1] / 'docs' / 'sections'
+SECANT = re.compile(r'C\s*=\s*G\^\{?-1\}?|GC\s*=\s*D|C_\\text\{old\}')
 
 
 def _text(name):
     return (SECTIONS / name).read_text()
 
 
-def test_mixer_decoupling_is_local_slope_columns():
-    s = _text('mixer.tex')
-    assert 'C^{+}' in s and 'C^{-}' in s
-    assert 'local slope' in s and 'trust' in s
-    assert not re.search(r'C\s*=\s*G\^\{-1\}\s*D\b', s)
-    assert 'GC = D' not in s
+def test_no_section_teaches_the_secant_decoupling():
+    for path in SECTIONS.glob('*.tex'):
+        assert not SECANT.search(path.read_text()), path.name
+
+
+def test_mixer_decoupling_is_signed_columns_found_as_a_root():
+    thrust = _text('thrust.tex')
+    assert re.search(r'C\^\{?\+\}?\\max\(\\bm e,\s*0\)\s*\+\s*C\^\{?-\}?\\min\(\\bm e,\s*0\)', thrust)
+    assert 'affine map' in thrust and 'solves for its zero' in thrust
+    assert re.search(r'c\^\{s_j\}_\{kj\}', _text('mixer.tex'))
 
 
 def test_characterization_does_not_build_decoupling_from_g():
-    s = _text('characterization.tex')
-    assert 'speed curve' in s and 'trust' in s
-    assert 'C_\\text{old}' not in s
+    s = ' '.join(_text('characterization.tex').lower().split())
+    assert 'speed curves and signed correction columns' in s
