@@ -68,8 +68,9 @@ def test_parse_before_da1_is_not_done_and_an_error_reply_is_no_kitty():
     ('sixel', dict(cell=(9, 18)), {}, 'sixel'),
     ('sixel', {}, {}, 'text'),                                            # forced, still no guessed cell
     ('kitty', {}, {}, 'kitty'),
-    # a forced tier keeps the guards: tmux, screen, a dumb terminal
-    ('sixel', dict(sixel=True, cell=(9, 18), xtversion='tmux 3.8'), {}, 'text'),
+    # a forced tier keeps the guards: tmux, screen, a dumb terminal; a tmux it can't ask is the
+    # user's word for a forced sixel (repainted each TMUX_REPAINT_S)
+    ('sixel', dict(sixel=True, cell=(9, 18), xtversion='tmux 3.8'), {}, 'sixel'),
     ('sixel', dict(sixel=True, cell=(9, 18)), {'TMUX': '/tmp/t'}, 'text'),
     ('kitty', dict(kitty=True), {'STY': '1.pts-0'}, 'text'),
     ('kitty', dict(kitty=True), {'TERM': 'dumb'}, 'text'),
@@ -541,6 +542,7 @@ def test_under_tmux_only_what_tmux_reports_for_every_client_picks_an_image(setti
 
 def test_tmux_without_a_view_and_screen_stay_text():
     assert pixels.choose('auto', TMUX_CAPS, {}) == 'text'           # tmux over ssh: XTVERSION only
+    assert pixels.choose('kitty', TMUX_CAPS, {}) == 'text'
     assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='screen'), {}, view=view(FOOT)) == 'text'
     assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='foot'), dict(TMUX_ENV, NO_COLOR='1'),
                          view=view(FOOT)) == 'text'
@@ -636,6 +638,25 @@ def test_watch_never_waits_on_tmux(monkeypatch):
     release.set()
     _time.sleep(0.05)
     assert 'answer' not in pixels._mux and pixels.watch() is False
+
+
+def test_forced_sixel_through_a_tmux_it_cannot_ask_trusts_tmux_and_repaints(monkeypatch):
+    """docker exec from a cx pane: XTVERSION says tmux, $TMUX is gone; only graphics: sixel draws."""
+    assert pixels.choose('sixel', TMUX_CAPS, {}) == 'sixel'
+    assert pixels.choose('sixel', dict(TMUX_CAPS, sixel=False), {}) == 'text'     # tmux built without sixel
+    assert pixels.choose('sixel', dict(TMUX_CAPS, cell=None), {}) == 'text'
+    assert pixels.choose('sixel', TMUX_CAPS, TMUX_ENV, view=None) == 'text'       # its own tmux didn't answer
+    monkeypatch.setattr(pixels, 'tmux_view', lambda env: pytest.fail('asked tmux'))
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(TMUX_CAPS), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    now = [100.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    assert pixels.start(SimpleNamespace(fd=5, buffer=bytearray()), None, lambda t: None, 'sixel', env={}) == 'sixel'
+    assert pixels.CELL == (12, 24)
+    pixels._drawn[(0, 0)] = 1
+    assert pixels.watch() is False and pixels._drawn
+    now[0] += pixels.TMUX_REPAINT_S
+    assert pixels.watch() is True and not pixels._drawn
 
 
 def test_outside_tmux_watch_asks_nothing(monkeypatch):

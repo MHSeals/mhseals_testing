@@ -18,6 +18,9 @@ cells to print. Labels stay terminal text: a widget passes them as holes.
 Detection (`start`) asks the terminal once: XTVERSION, the cell size and DA1 (``4`` = sixel),
 then the kitty graphics query only if XTVERSION names kitty or ghostty; each round ends at the
 DA1 reply or ``PROBE_S``. theme.yaml ``graphics`` forces a tier; NO_COLOR and ASCII force text.
+A tmux seen only in XTVERSION (the TUI ran through docker exec or ssh from a tmux pane, so it can't
+ask that tmux) stays text, unless ``graphics: sixel`` forces it: then tmux's DA1 decides and every
+image is repainted each TMUX_REPAINT_S.
 
 Under tmux (docs/tmux-graphics.md) the tier needs tmux itself to vouch for every client viewing
 the pane's window (`tmux_view`): sixel when tmux has sixel (its DA1) and each client has the sixel
@@ -223,6 +226,10 @@ def choose(setting, caps, env=None, colours='truecolor', view=None):
             or env.get('STY') or name.startswith('screen')):
         return 'text'
     if _tmux(env, caps):
+        if setting == 'sixel' and view is None and not env.get('TMUX'):
+            # A tmux the TUI can't ask (docker exec or ssh from a tmux pane): forced sixel trusts
+            # tmux's own DA1 (built with sixel) and cell size; the viewers are the user's word.
+            return 'sixel' if caps.get('sixel') and caps.get('cell') else 'text'
         return _tmux_tier(setting, caps, view, colours)
     if setting == 'kitty' or (setting == 'auto' and caps.get('kitty')
                               and colours in ('256', 'truecolor', 'eight_bit')
@@ -271,6 +278,8 @@ def start(keys, console, write, setting='off', env=None):
     _mux.clear()
     if view is not None:
         _mux.update(env=env, view=view, next=clock() + TMUX_POLL_S, painted=clock(), token=object())
+    elif TIER != 'text' and _tmux(env, caps):    # forced sixel through a tmux it can't ask: repaint only
+        _mux.update(blind=True, painted=clock())
     K = 1 if TIER == 'text' else max(1, min(4, round(CELL[0] / 3.5)))
     if TIER == 'sixel' and console is not None and not isinstance(console.file, _Stream):
         _stream = console.file = _Stream(console.file)
@@ -320,6 +329,12 @@ def watch():
     if not _mux:
         return False
     now = clock()
+    if _mux.get('blind'):
+        if now - _mux['painted'] < TMUX_REPAINT_S:
+            return False
+        _mux['painted'] = now
+        repaint()
+        return True
     if now >= _mux['next'] and not _mux.get('busy'):
         _mux.update(next=now + TMUX_POLL_S, busy=True)
         _spawn(lambda env=_mux['env'], token=_mux['token']: _ask_tmux(env, token))
