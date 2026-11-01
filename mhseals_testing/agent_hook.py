@@ -365,9 +365,12 @@ def local_channel():
 
 
 def cli_of(config):
-    """How the agent calls boat_agent: over ssh to a remote target, else this machine's checkout."""
+    """How the agent calls boat_agent: this machine's checkout, which makes the ssh hop to a remote target itself
+    (``$BOAT_AGENT_TARGET``) and so can say a boat is unreachable with the last operator state it saw."""
     host = remote(config)
-    return f'ssh {host} {BOAT_AGENT}' if host else BOAT_AGENT
+    if host and os.environ.get('BOAT_AGENT_TARGET', '').strip() != host:
+        return f'BOAT_AGENT_TARGET={host} {BOAT_AGENT}'
+    return BOAT_AGENT
 
 
 def who_of(event):
@@ -476,7 +479,15 @@ def start_text(who, agent='claude', config=None):
         '  `stop` any time: the operator and the agent it interrupts see your id. `ask "..."` instead of guessing. '
         '`note "..."` writes a line in the TUI log.',
         'Exit codes: 0 ok, 2 refused (read hint), 3 revoked or overridden (the hint says who: '
-        'the operator or another agent; claim again only if asked), 4 no TUI, 5 agents blocked, 6 timeout.',
+        'the operator or another agent; claim again only if asked), 4 no TUI (`unreachable`: the boat is off or '
+        'out of reach), 5 agents blocked, 6 timeout, 7 paused by the operator.',
+        'Operator state (`status` .operator; the operator sets it with S, manual control sets manual): '
+        '`manual` (the operator drives) or `battery_swap`/`power_cycle` (the boat goes down; ETA in the hint): '
+        'changing verbs exit 7 and your claim lease is suspended, not lapsed. Pause: no retry loop, one '
+        '`follow --claim ID --until operator_state:state=normal` keeps the claim and returns on `normal`, then '
+        'carry on (a claim not kept alive during the pause ends cleanly: claim again). Exit 4 with a down state or '
+        '`unreachable`: the boat is down; check `status` every few minutes. When status shows `restarted_after`, '
+        're-check the stack, FCU params and RTK before anything else, and claim again (old claims are gone).',
         'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, change Nav2 lifecycles or params, send raw '
         'test_pulses, start the mission runner or a procedure directly, never arm (but --sim-arm) or release a hold: '
         'the hook blocks them and names the verb; kill only your own processes by exact PID; never answer a '

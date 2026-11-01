@@ -40,12 +40,14 @@ TEXT_MAX = 1000
 # Reply errors (``overridden: <who>`` carries its cause) and the CLI exit codes they map to (spec
 # section 3): 2 refused/busy/blocked (the hint
 # names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI owner,
-# 5 agents blocked, 6 timeout. Anything else is 1.
+# 5 agents blocked, 6 timeout, 7 paused (the operator declared manual, battery swap or power cycle: wait for
+# normal). Anything else is 1.
 EXIT_CODES = {**dict.fromkeys(('refused', 'busy', 'busy_ui', 'not_holder', 'unknown_claim', 'no_mux',
                                'not_allowed', 'not_armed', 'motion_observe', 'bad_args', 'bad_op',
                                'duplicate_who', 'unknown_component'), 2),
-              **dict.fromkeys(('revoked', 'overridden', 'cancelled', 'expired', 'released', 'handover'), 3),
-              'no_owner': 4, 'blocked': 5, 'timeout': 6}
+              **dict.fromkeys(('revoked', 'overridden', 'cancelled', 'expired', 'released', 'handover',
+                               'paused_end'), 3),
+              'no_owner': 4, 'unreachable': 4, 'blocked': 5, 'timeout': 6, 'paused': 7}
 ROTATE_BYTES = 20 * 1024 * 1024
 _VALUE = r'''("[^"]*"|'[^']*'|[^\s'"]+)'''
 _SECRETS = (   # (pattern, kept group): the value after the kept text becomes …

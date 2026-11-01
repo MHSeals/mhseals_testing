@@ -16,6 +16,7 @@ import time
 
 from rich.text import Text
 
+from mhseals_testing.harness import operator_state
 from mhseals_testing.ui import authority_chip, control_tracker, theme
 
 BANNER_KEYS = 'E revoke' + theme.SEPARATOR + 'Space stop'
@@ -69,7 +70,9 @@ def chips(view, short=False):
     if view.get('review'):
         return [theme.chip('REVIEW', 'hold')]
     kind, word = view.get('authority') or (None, None)
-    out = [theme.chip(word, kind)] if word else [Text('idle', style=theme.MUTED)]
+    operator = (view.get('operator') or {}).get('state')
+    out = [theme.chip(operator_state.CHIPS[operator], 'hold')] if operator in operator_state.CHIPS else []
+    out.append(theme.chip(word, kind) if word else Text('idle', style=theme.MUTED))
     out.append(theme.chip('ARMED', 'armed') if view['armed']
                else Text('disarmed', style=theme.MUTED))
     if view['armed'] and view.get('armed_by'):
@@ -197,6 +200,16 @@ def stop_banner(armed, width, agent=None):
                         no_wrap=True)
     out.truncate(width)
     return out
+
+
+def operator_banner(record, width):
+    """`` ⏸ battery swap since 11:30 (ETA 11:40) · agents paused, leases suspended`` with S at the right."""
+    keys = 'S state'
+    words = operator_state.text(record).removeprefix('operator: ')
+    left = middle_cut(f" {theme.pick('⏸', '||')} {words}{theme.SEPARATOR}agents paused, leases suspended",
+                      max(width - len(keys) - 2, 0))
+    return Text((left.ljust(max(width - len(keys) - 1, 0)) + keys + ' ')[:width], style=f'bold {theme.WARN}',
+                no_wrap=True)
 
 
 def stop_claim(agent, room):

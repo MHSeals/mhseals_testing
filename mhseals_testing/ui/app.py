@@ -36,6 +36,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITION
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness import control, host, index, journal, runs, session as session_module, settings
+from mhseals_testing.harness import operator_state
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
@@ -193,6 +194,7 @@ HELP = [   # '[Screen ]keys', as test_help_keys reads them against config/keymap
     ('U', 'Release the hold (confirm names who resumes)'),
     ('E', "Revoke the agent's claim (stops first, no confirm)"),
     ('O', 'Take control (viewer; confirm: the owner stops at neutral, disarms, revokes the agent)'),
+    ('S', 'Operator state: normal, manual, battery swap, power cycle (agents pause; m sets manual)'),
     ('o', 'Pose: what the EKFs fuse, and the sources'),
     ('!', 'Health checks: mute, recheck, acknowledge'),
     ('H', 'Config history: hardware, Nav2, FCU, RTK, health, keymap'),
@@ -1061,7 +1063,7 @@ class App:
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
-            authority=self.driving(shared),
+            authority=self.driving(shared), operator=None if self.review else operator_state.current(),
             agent=authority_chip.banner(shared.get('authority_record'), time.time(), desk=shared.get('agent_desk')),
             armed=self.armed, armed_by=self.armed_by if self.armed else None,
             arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
@@ -1308,6 +1310,67 @@ class App:
     def client_name(self):
         """This client as the tracker names it (``boat-v1@host``)."""
         return control.name(dict(control.identity(), host=socket.gethostname(), pid=os.getpid()))
+
+    # --- operator state (harness/operator_state.py) ---------------------------------
+
+    def operator_start(self):
+        """The owner TUI's start: a battery swap or power cycle declared on an earlier boot is reported once."""
+        record = operator_state.start()
+        after = record.get('restarted_after')
+        if after:
+            self.notice = (f"Restarted after {operator_state.LABELS.get(after.get('state'), '?')} at "
+                           f"{operator_state.clock(after.get('since_ns'))}: agents re-check the stack, FCU and RTK")
+            self.emit('operator_restart', restarted_after=after, operator=operator_state.summary(record))
+        self.operator_sync(record)
+
+    def set_operator_state(self, state, eta_s=None, reason='', by='operator', notice=True):
+        """Declare ``state``: saved (it survives a reboot), journaled, agents paused or resumed."""
+        record = operator_state.save(operator_state.change(state, eta_s, reason, by, prev=operator_state.load()))
+        self.emit('operator_state', state=state, operator=operator_state.summary(record))
+        if notice:
+            self.notice = 'O' + operator_state.text(record)[1:]
+        self.operator_sync(record)
+        return record
+
+    def operator_sync(self, record):
+        """Tell the arbiter (leases suspend or resume, never a hold) and the desk (an act in flight ends)."""
+        arbiter, desk = getattr(self, 'arbiter', None), getattr(self, 'desk', None)
+        if operator_state.paused(record):
+            if arbiter is not None:
+                arbiter.pause(record)
+            if desk is not None:
+                desk.operator_paused()
+        elif arbiter is not None:
+            for claim in arbiter.resume():
+                self.notice = (f"Agent {claim['who']} {claim['id']} ended: not heard from while paused "
+                               f"(no hold){theme.SEPARATOR}it claims again")
+
+    def operator_menu(self):
+        """S: declare manual, battery swap, power cycle (optional ETA) or normal."""
+        if self.review or self.watching:
+            self.notice = 'Review: no operator state' if self.review else 'viewer: O takes control'
+            return
+        now = operator_state.load()
+        options = ('Normal', 'Manual', 'Battery swap', 'Power cycle', 'Cancel')
+        rows = [('Now', operator_state.text(now)),
+                ('Normal', 'agents resume; a claim kept alive resumes, others end cleanly'),
+                ('Manual', 'you drive or reposition: agent verbs paused, leases suspended'),
+                ('Battery swap', 'the boat goes down; the next TUI reports the restart'),
+                ('Power cycle', 'the same, for a restart')]
+        try:
+            picked = self.choose('Operator state', options, {'n': 0, 'm': 1, 'b': 2, 'p': 3, 'c': 4}, rows=rows,
+                                 default=0 if operator_state.paused(now) else 1, width=72)
+            if picked in (None, 'Cancel'):
+                return
+            state = picked.lower().replace(' ', '_')
+            eta_s = None
+            if state in operator_state.DOWN:
+                etas = ('No ETA', '5 min', '10 min', '15 min', '30 min')
+                eta = self.choose('ETA', etas, {'0': 0, '5': 1, '1': 2, '2': 3, '3': 4}, default=2)
+                eta_s = None if eta in (None, 'No ETA') else float(eta.split()[0]) * 60
+        except Cancelled:
+            return
+        self.set_operator_state(state, eta_s)
 
     def take_control(self):
         """O: a viewer takes control after a confirm; it restarts as the owner (``--take``, same pid and
@@ -1635,11 +1698,13 @@ class App:
         if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
             self.open('history')
             return
-        if key in ('E', 'U', 'O'):  # Shift bindings of the global scope; never the lowercase procedure letters
+        if key in ('E', 'U', 'O', 'S'):  # Shift bindings of the global scope; never the lowercase procedure letters
             if key == 'E':
                 self.revoke_agent()
             elif key == 'O':
                 self.take_control()
+            elif key == 'S':
+                self.operator_menu()
             else:
                 self.release_hold()
             return
@@ -2836,6 +2901,8 @@ class App:
         desk = getattr(self, 'desk', None)
         if desk is not None and procedure.key == 'm':
             desk.take_over()             # manual cancels an agent goal at once, as Space and E do
+        if procedure.key == 'm' and not operator_state.paused(operator_state.load()):
+            self.set_operator_state('manual', reason='manual control (m)', notice=False)
         # Only jump to Map once it has a body; otherwise the operator lands on a placeholder.
         if (self.settings.auto_tab and 'Map' in layout.BODIES
                 and getattr(procedure, 'group', '') in ('Navigate', 'Mission')):
@@ -2865,6 +2932,8 @@ class App:
             return
         finally:
             self.running, self.tags = None, {}
+            if procedure.key == 'm' and operator_state.load()['reason'] == 'manual control (m)':
+                self.set_operator_state('normal', reason='manual control ended', notice=False)
             self.write_run(procedure, results, aborted, ended)
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
@@ -3422,6 +3491,8 @@ def session_main(argv=None):
         authority = None if watching else authority_feed.start(
             app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
         desk = None if watching else agent_feed.start(app, ros, registry=registry)
+        if not watching and not app.review:
+            app.operator_start()                   # after the arbiter and desk: they pause with it
         authority_feed.viewer(app, ros)            # a viewer shows the owner's record; None for the owner
         control_feed.start(app, registry, emit=None if watching else ros.emit)
         if os.environ.get('BOAT_TUI_NOTICE'):      # why this client restarted (a takeover), once

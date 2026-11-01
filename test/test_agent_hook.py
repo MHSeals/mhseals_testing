@@ -323,7 +323,7 @@ def test_hook_redaction_matches_the_channel(command):
 def test_start_gives_the_playbook_and_boat_agent_env_wins(sent, monkeypatch):
     context = sent('start', '')['context']
     assert context.startswith('RoboBoat playbook: you are boat agent claude-3f2a.')
-    assert f'ssh blastoise-odroid {hook.BOAT_AGENT} <verb> --who claude-3f2a' in context
+    assert f'Act on the boat or its sim only through `{hook.BOAT_AGENT} <verb> --who claude-3f2a`' in context
     assert 'run_in_background' in context and not sent.lines
     monkeypatch.setenv('BOAT_AGENT', 'mapper')
     assert 'agent mapper' in sent('start', '')['context']
@@ -396,10 +396,22 @@ def test_a_boat_session_names_its_host_and_only_then_the_hook_sshes(tmp_path, mo
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     config = hook.hook_config()
-    assert hook.remote(config) == target and hook.cli_of(config) == f'ssh {target} {hook.BOAT_AGENT}'
+    # the checkout makes the hop itself (tools/boat_agent, harness/agent_relay.py): it can say "unreachable"
+    assert hook.remote(config) == target and hook.cli_of(config) == hook.BOAT_AGENT
     hook.deliver({'kind': 'note'}, config)
     assert no_ssh and no_ssh[0][-2:] == [target, f"cat >> '{config['path']}'"]
-    assert f'ssh {target} {hook.BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)
+    assert f'`{hook.BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)
+    monkeypatch.delenv('BOAT_AGENT_TARGET')       # a target from the hook config only: the call names it
+    assert hook.cli_of(dict(config, target=target)) == f'BOAT_AGENT_TARGET={target} {hook.BOAT_AGENT}'
+
+
+def test_the_playbook_says_what_to_do_in_each_operator_state():
+    text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
+    assert '7 paused by the operator' in text and '`unreachable`' in text
+    for words in ('`manual`', '`battery_swap`/`power_cycle`', 'no retry loop',
+                  '`follow --claim ID --until operator_state:state=normal`', 'ends cleanly',
+                  '`restarted_after`', 're-check the stack, FCU params and RTK'):
+        assert words in text, words
 
 
 def test_the_hosts_are_per_computer_and_the_vessel_names_stay_boats():

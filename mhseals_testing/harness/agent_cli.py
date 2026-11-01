@@ -5,7 +5,9 @@ line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI
 (an owner with no agent desk, a review, is exit 4 once the request goes unanswered). Output is one JSON document, or
 JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/busy/blocked (the
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
-owner, 5 agents blocked, 6 timeout. No verb releases a hold, and none arms a boat: only ``run --sim-arm``
+owner (``unreachable``: the boat host did not answer; tools/boat_agent says so with the last operator state it
+saw), 5 agents blocked, 6 timeout, 7 paused (the operator declared manual, battery swap or power cycle; the hint
+says since when and the ETA: wait for normal). No verb releases a hold, and none arms a boat: only ``run --sim-arm``
 arms, and only a stack every harness/sim_arm.py check proves a simulator. ``start COMPONENT`` and
 ``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:`` lists, as its Status row does.
 """
@@ -19,14 +21,14 @@ import time
 from pathlib import Path
 
 from mhseals_testing import data
-from mhseals_testing.harness import agent_channel as channel
+from mhseals_testing.harness import agent_channel as channel, operator_state
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
 VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'fcu', 'mark', 'note', 'ask')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
-ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s')
+ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
 DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': {'idle_s': 120.0, 'motion_s': 10.0}}
 STATUS_STALE_S = 3.0
 STOP_WAIT_S = 1.0
@@ -126,8 +128,15 @@ class Agent:
         tail.seek_end()
         req = channel.request(op, self.who, args, claim, dry, self.cfg['request_s'], path=self.path)
         if self.owner() is None:
-            return self.local(req, 'no_owner', 'start boat_test on the boat; agents act only through it')
+            return self.no_tui(req, 'start boat_test on the boat; agents act only through it')
         return self.wait(req, tail, wait)
+
+    def no_tui(self, req, hint):
+        """``no_owner`` with the last operator state: a declared battery swap or power cycle explains it."""
+        record = operator_state.load()
+        if operator_state.paused(record):
+            hint = f'TUI not running: last {operator_state.text(record)}; wait for the operator (no retries)'
+        return self.local(req, 'no_owner', hint, operator=operator_state.summary(record))
 
     def wait(self, req, tail, limit=None):
         inode = tail.inode or os.stat(self.path).st_ino
@@ -147,7 +156,7 @@ class Agent:
                 channel.renew(self.who, req['claim'], req['id'], path=self.path)
                 renewed = now
             if self.owner() is None:
-                return self.local(req, 'no_owner', 'the TUI quit; the act ended with it')
+                return self.no_tui(req, 'the TUI quit; the act ended with it')
             try:
                 moved = os.stat(self.path).st_ino != inode
             except FileNotFoundError:
@@ -314,7 +323,8 @@ def status(registry, sections=(), now_ns=None):
             host = {'error': repr(error)}
         doc = {'schema': 'mhseals.status/1', 't_ns': now_ns, 'owner': owner if alive else None,
                'stale': True, 'registry': registry.state(), 'host_facts': host,
-               'session': data.read_json(session / 'session.json') if session else None}
+               'session': data.read_json(session / 'session.json') if session else None,
+               'tui': 'not running', 'operator': operator_state.summary(operator_state.load())}
     if sections:
         doc = {k: v for k, v in doc.items() if k in ALWAYS or k in sections or k == 'registry'}
     return doc
@@ -371,6 +381,7 @@ def follow(agent, until=None, timeout=None, claim=None):
         session = last_session(agent.registry)
         for event in data.read_jsonl(session / 'events.jsonl')[-50:] if session else []:
             agent.emit(event)
+        agent.emit({'tui': 'not running', 'operator': operator_state.summary(operator_state.load())})
         return 4 if until else 0
     session = last_session(agent.registry)
     events = Lines(session / 'events.jsonl') if session else None
@@ -390,7 +401,8 @@ def follow(agent, until=None, timeout=None, claim=None):
                 agent.emit(record)
         now = agent.clock()
         if agent.owner() is None:
-            agent.emit({'ok': until == 'owner:none', 'error': '' if until == 'owner:none' else 'no_owner'})
+            agent.emit({'ok': until == 'owner:none', 'error': '' if until == 'owner:none' else 'no_owner',
+                        'operator': operator_state.summary(operator_state.load())})
             return 0 if until == 'owner:none' else 4
         if timeout is not None and now - start > timeout:
             agent.emit({'ok': False, 'error': 'timeout', 'until': until})

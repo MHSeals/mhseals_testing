@@ -11,6 +11,7 @@ import socket
 import time
 
 from mhseals_testing import data
+from mhseals_testing.harness import operator_state
 from mhseals_testing.harness.registry import runtime_dir
 from mhseals_testing.ui import feeds as feeds_module
 
@@ -105,6 +106,10 @@ def _agent(app, desk):
     return desk.summary()
 
 
+def _operator(app, desk):
+    return operator_state.summary(operator_state.current())
+
+
 SECTIONS = {'session': _session, 'authority': _authority, 'run': _run, 'health': _health,
             'odometry': _odometry, 'perception': _perception, 'nav2': _nav2, 'agent': _agent,
-            'control': _control}
+            'control': _control, 'operator': _operator}

@@ -1323,6 +1323,9 @@ def test_manual_control_takes_over_from_the_agent_desk_and_keeps_it_ticking(tmp_
 
         def tick(self):
             seen.append(('tick', app.manual))
+
+        def operator_paused(self):
+            seen.append(('operator_paused', app.manual))
     app.desk = Desk()
     app.open_events = lambda: Events(app.clock, ['press:w', None, 'release:w', None, None, None, 'press:x'])
     with app.attached():
@@ -1331,6 +1334,21 @@ def test_manual_control_takes_over_from_the_agent_desk_and_keeps_it_ticking(tmp_
     assert seen[0] == ('take_over', False)                  # before manual drives
     assert ('tick', True) in seen                           # the desk ticks from inside manual
     app.desk = None
+
+
+def test_manual_control_declares_operator_manual_and_its_end_normal(tmp_path):
+    from mhseals_testing.harness import operator_state
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    states = []
+    original = app.manual_show
+    app.manual_show = lambda *a, **k: (states.append(operator_state.load()['state']), original(*a, **k))
+    app.open_events = lambda: Events(app.clock, ['press:w', None, 'release:w', 'press:x'])
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    assert 'manual' in states and operator_state.load()['state'] == 'normal'
+    assert app.notice == 'Manual control ended' and app.ros.events.count('operator_state') == 2
 
 
 def test_manual_notice_labels_the_chord_modes_like_keyboard_control(tmp_path):

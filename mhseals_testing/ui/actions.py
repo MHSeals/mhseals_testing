@@ -35,6 +35,7 @@ ACTIONS = {
     'dock_physics': Action('dock physics', 7),
     'thrust_physics': Action('thrust physics', 7),
     'take_control': Action('take control', 0),
+    'operator_state': Action('operator state', 0),
     'clear_decoupling': Action('clear decoupling', 7),
     'close': Action('close', 0),
     'column_next': Action('column next', 0),

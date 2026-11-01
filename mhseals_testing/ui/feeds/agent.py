@@ -31,7 +31,7 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, control, journal, sim_arm
+from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, control, journal, operator_state, sim_arm
 from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
@@ -53,6 +53,9 @@ PART_OPS = {'start': 'start', 'stop_part': 'stop'}   # boat_agent start / stop C
 # boat_agent fcu ACTION: reads need no claim; writes and the restart need the agent's claim and a disarmed boat
 FCU_OPS = ('fcu_get', 'fcu_rates', 'fcu_set', 'fcu_revert', 'fcu_restart')
 FCU_CLAIMED = ('fcu_set', 'fcu_revert', 'fcu_restart')
+# refused while the operator has declared manual, battery swap or power cycle (``paused``, exit 7); the reads,
+# ask, note, mark, release and stop keep working
+CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', *FCU_CLAIMED)
 # Never an agent's to start or stop, whatever agent.yaml lists: the thruster driver, the mux and the velocity
 # controller (they arm), the operator's heartbeat and the safety watchdogs; nor a commander part (Nav2, the
 # mission runner), checked by kind.
@@ -241,6 +244,10 @@ class AgentDesk:
             return self.reply(req, False, 'expired', hint='sent before this TUI started; nothing was done')
         if time.time_ns() > req['deadline_ns']:
             return self.reply(req, False, 'expired', hint='request deadline passed; nothing was done')
+        state = operator_state.current()
+        if req['op'] in CHANGING and operator_state.paused(state):
+            return self.reply(req, False, 'paused', hint=operator_state.refusal(state),
+                              result={'operator': operator_state.summary(state)})
         handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop, 'revoke': self.do_revoke,
                    'mark': self.do_mark, 'run': self.enqueue, 'goal': self.enqueue,
                    'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part,
@@ -333,7 +340,7 @@ class AgentDesk:
             return 'unknown_claim', f'{verb} needs your claim: claim --reason "..." --who {req["who"]}, then --claim ID'
         found = self.claim_state(req['claim'], req['who'])
         if found:
-            return found, 'claim again' if found != 'not_holder' else 'use your own claim'
+            return found, self.claim_hint(found, req['claim'])
         key, stack = req['args'].get('component'), getattr(app, 'stack', None)
         items = stack.items if stack is not None else {}
         if not isinstance(key, str) or key not in items:
@@ -399,7 +406,7 @@ class AgentDesk:
                                   hint=f'fcu needs your claim: claim --reason "..." --who {who}, then --claim ID')
             found = self.claim_state(req['claim'], who)
             if found:
-                return self.reply(req, False, found, hint='claim again' if found != 'not_holder' else 'use your own claim')
+                return self.reply(req, False, found, hint=self.claim_hint(found, req['claim']))
             if app.armed:
                 return self.reply(req, False, 'refused', hint='armed: FCU writes and restarts only while disarmed')
         work, claim = self.fcu_work(), req.get('claim')
@@ -519,7 +526,7 @@ class AgentDesk:
             return 'agents_block', 'operator sets Agents to allow'
         found = self.claim_state(req['claim'], req['who'])
         if found:
-            return found, 'claim again' if found != 'not_holder' else 'use your own claim'
+            return found, self.claim_hint(found, req['claim'])
         if not (muxed(app.profile) or app.profile.use_sim_time):
             return 'no_mux', 'agent motion needs a muxed profile or a sim'
         cause = self.human()
@@ -555,6 +562,30 @@ class AgentDesk:
         if claim['who'] != who:
             return 'not_holder'
         return None if claim['state'] == 'active' else arbiter.ended.get(claim_id, 'revoked')
+
+    def claim_hint(self, found, claim_id):
+        """What an agent does about ``claim_state``'s answer; an unknown claim names this TUI session's start."""
+        if found == 'not_holder':
+            return 'use your own claim'
+        if found == 'paused_end':
+            return (f'claim {claim_id} ended cleanly when the operator returned to normal: it was not kept alive '
+                    'while paused (no hold was made); claim again')
+        if found == 'unknown_claim' and claim_id:
+            record = operator_state.current()
+            started = time.strftime('%H:%M', time.localtime(self.started_ns / 1e9))
+            after = record.get('restarted_after')
+            why = (f", restarted after {operator_state.LABELS.get(after.get('state'), '?')} at "
+                   f"{operator_state.clock(after.get('since_ns'))}: re-check the stack, FCU params and RTK"
+                   if after else '')
+            return f'claim {claim_id} is not in this TUI session (started {started}{why}); claim again'
+        return 'claim again'
+
+    def operator_paused(self):
+        """The operator declared manual, battery swap or power cycle: an act in flight ends now (a run through
+        the runner's interlock path, neutral first; a goal is cancelled), with no lease hold."""
+        if self.act is not None and self.act['op'] in MOTION:
+            self.cancel('paused')
+            self.watch()
 
     def override(self):
         """The human or fault in control right now, or ''."""
@@ -826,6 +857,8 @@ class AgentDesk:
     def hint_of(cause, default=''):
         """The hint for a cancel or refusal cause; ``agent W`` says another agent stopped the boat."""
         key = cause.split(': ')[-1]
+        if key == 'paused':
+            return operator_state.refusal(operator_state.current())
         if key.startswith('agent '):
             return (f'{key} stopped the boat (boat_agent stop), not the operator; the operator must re-arm and '
                     'release the hold (U)')
@@ -834,7 +867,7 @@ class AgentDesk:
     @staticmethod
     def error_of(cause):
         """The reply error for a cancel cause: revoked, expired, released, overridden: <who>, handover, cancelled."""
-        if cause in ('revoked', 'expired', 'released', 'handover') or cause.startswith('overridden: '):
+        if cause in ('revoked', 'expired', 'released', 'handover', 'paused') or cause.startswith('overridden: '):
             return cause
         return 'cancelled'
 
@@ -874,6 +907,8 @@ class AgentDesk:
         state = self.claim_state(act['claim'], act['who'])
         if state:
             return state
+        if operator_state.paused(operator_state.current()):
+            return 'paused'                         # before the lease: a paused claim never lapses
         setting = self.operator_setting()
         if setting:                                 # switched mid-act: stop as E does, the claim stays
             self.arbiter.halt(setting.replace(' ', '_'))
@@ -987,7 +1022,8 @@ class AgentDesk:
 
 def ended(error):
     """A running act's end the operator caused or already sees (E, Space, a lapsed lease): no refusal notice."""
-    return error in ('revoked', 'expired', 'released', 'handover', 'cancelled') or error.startswith('overridden: ')
+    return error in ('revoked', 'expired', 'released', 'handover', 'cancelled', 'paused') \
+        or error.startswith('overridden: ')
 
 
 def blockers(app):

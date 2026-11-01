@@ -43,6 +43,8 @@ class Arbiter:
     is False for a headless run, which refuses agent claims. ``config`` is the
     hot-reloaded config/agent.yaml (``agent_config.Watch``): its lease bounds
     agent claims. An expired lease stops the boat exactly as ``revoke`` does.
+    While the operator has declared a state other than normal (``pause``), agent
+    leases are suspended, not lapsed: nothing expires and no lease hold is made.
     Renew and release over the topic must name the claim's ``who``.
     """
 
@@ -55,7 +57,8 @@ class Arbiter:
         saved = (registry.read().get('authority') or {}) if registry else {}
         self.table = ClaimTable(saved.get('claims', ()), saved.get('seq', 0))
         self.config = config or agent_config.Watch()
-        self.ended = {}          # claim id -> 'revoked' | 'expired', so the agent's next call learns why
+        self.ended = {}          # claim id -> 'revoked' | 'expired' | 'paused_end', so the agent's next call learns why
+        self.paused = None       # the operator state record while it is not normal (harness/operator_state.py)
         self.mux, self.mux_at = None, None
         self.record, self.ack, self.sent_at, self.sent = None, None, None, None
         self.saved = None
@@ -146,6 +149,34 @@ class Arbiter:
             self.tick(force=True)
             return True
 
+    def pause(self, record):
+        """The operator declared manual, battery swap or power cycle: leases stop counting."""
+        with self.lock:
+            self.paused = record
+            self.tick(force=True)
+
+    def resume(self):
+        """The operator is back to normal. An agent claim kept alive during the pause (any verb, renew or
+        ``follow --claim``) resumes with a fresh lease; one not heard from for a whole idle lease (or past
+        ``max_claim_s``) ends cleanly
+        (``paused_end``), with no stop and no hold: it could not drive while paused. Returns the ended claims."""
+        with self.lock:
+            if self.paused is None:
+                return []
+            self.paused, now, ended = None, self.clock(), []
+            for claim in list(self.table.claims):
+                if claim['state'] != 'active' or claim['owner'] != 'agent':
+                    continue
+                lease = claim['lease_s'] if claim['lease_s'] is not None else self.table.idle_s
+                if now - claim['seen_ns'] / 1e9 > lease or now - claim['since_ns'] / 1e9 > self.table.max_claim_s:
+                    self.table.release(claim['id'], now, 'claim_release')
+                    self.ended[claim['id']] = 'paused_end'
+                    ended.append(claim)
+                else:
+                    self.table.renew(claim['id'], now)
+            self.tick(force=True)
+            return ended
+
     def tick(self, force=False):
         """Derive, journal edges, and publish on change or once per HEARTBEAT_S."""
         with self.lock:
@@ -153,7 +184,7 @@ class Arbiter:
             lease = (self.config.get() or {}).get('lease') or {}
             self.table.idle_s = lease.get('idle_s', self.table.idle_s)
             self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
-            for claim in self.table.expire(now):
+            for claim in self.table.expire(now) if self.paused is None else ():
                 self._stop('lease')
                 self.ended[claim['id']] = 'expired'
             found = self.sources()
