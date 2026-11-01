@@ -7,6 +7,7 @@ import signal
 import socket
 from types import SimpleNamespace
 
+import pytest
 from rich.console import Console
 
 from mhseals_testing.harness import agent_channel as ch, control
@@ -378,3 +379,62 @@ def test_boat_tui_only_talks_to_its_own_socket_with_tmux_cleared(tmp_path):
     assert not any('kill-server' in c for c in calls)
     assert '-L boat-test set-option -g allow-passthrough on' in (tmp_path / 'tmux.log.args').read_text().splitlines()
     assert up.stdout.strip() == 'tmux -L boat-test attach -t boat'
+
+
+def test_boat_tui_replaces_a_dead_pane_on_a_private_tmux_server():
+    """alive() asked display-message for =boat, which prints nothing on tmux 3.8, so a dead pane counted as running:
+    up said "already runs" and view attached to it (11-01). A private server: its own TMUX_TMPDIR and socket."""
+    import shutil
+    import subprocess
+    import tempfile
+    import time
+    from pathlib import Path
+    if shutil.which('tmux') is None:
+        pytest.skip('no tmux')
+    root = Path(tempfile.mkdtemp(prefix='bt', dir='/tmp'))     # short: tmux sockets cap the path length
+    shim = root / 'bin'
+    shim.mkdir()
+    (shim / 'boat_test').write_text('#!/bin/sh\nexec sleep 300\n')
+    (shim / 'boat_test').chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ('TMUX', 'TMUX_PANE')}
+    env.update(PATH=f"{shim}:{os.environ['PATH']}", HOME=str(root), XDG_CONFIG_HOME=str(root), SHELL='/bin/sh',
+               TMUX_TMPDIR=str(root), BOAT_TUI_SOCKET='bt', BOAT_TUI_START_S='0.5')
+    script = Path(__file__).resolve().parents[1] / 'tools' / 'boat_tui'
+
+    def tmux(*args):
+        return subprocess.run(['tmux', '-L', 'bt', *args], env=env, capture_output=True, text=True, timeout=10)
+
+    def boat_tui(*args):
+        return subprocess.run(['sh', str(script), '--container', '', *args], env=env, capture_output=True,
+                              text=True, timeout=30, stdin=subprocess.DEVNULL)
+
+    def dead(name):
+        return tmux('display-message', '-p', '-t', f'={name}:', '#{pane_dead}').stdout.strip()
+
+    def end_pane(name):             # the pane exits and stays, as remain-on-exit keeps a failed boat_test
+        tmux('respawn-pane', '-k', '-t', f'={name}:', 'true')
+        for _ in range(50):
+            if dead(name) == '1':
+                return
+            time.sleep(0.1)
+        raise AssertionError(f'{name} pane never exited')
+
+    try:
+        tmux('new-session', '-d', '-s', 'boat', '-x', '80', '-y', '20')
+        tmux('set-option', '-t', '=boat:', 'remain-on-exit', 'on')
+        end_pane('boat')
+        view = boat_tui('view')
+        assert view.returncode == 4 and 'no boat session' in view.stderr, view
+        up = boat_tui('up')
+        assert up.returncode == 0 and 'boat_test runs in tmux session boat' in up.stderr, up
+        assert dead('boat') == '0'
+        view = boat_tui('view')
+        assert view.returncode == 0 and 'viewer boat-v1' in view.stderr, view
+        end_pane('boat-v1')
+        view = boat_tui('view')                     # the dead viewer is replaced, not reused
+        assert view.returncode == 0 and 'viewer boat-v1' in view.stderr and dead('boat-v1') == '0', view
+        again = boat_tui('up')
+        assert 'boat already runs' in again.stderr, again
+    finally:
+        tmux('kill-server')                         # this test's private server only
+        shutil.rmtree(root, ignore_errors=True)

@@ -3172,3 +3172,23 @@ def test_help_lists_panel_keys_under_their_panel_once(tmp_path):
     space = labels.index('Space')
     assert space < labels.index(widgets.SECTION, 2)   # Space is listed with the keys that work anywhere
     assert help_width(80) == 76 and help_width(160) == 104 and help_width(None) == 76
+
+
+def test_the_closing_summary_reads_no_ros_after_it_closed(tmp_path):
+    """session_main prints the summary after ros.close(): with Stack items the live snapshot asked the destroyed
+    node for its nodes, rclpy raised InvalidHandle and the pane died with status 1 (11-01)."""
+    from types import SimpleNamespace
+    app, _ = make_app(tmp_path)
+    app.monitor.record_result({'verdict': 'PASS'})
+    app.monitor.record_result({'verdict': 'FAIL'})
+    open_rows = app.summary()
+
+    class Closed(Ros):
+        def nodes(self):
+            raise RuntimeError('InvalidHandle: destruction was requested')
+    app.ros = Closed()
+    app.stack = SimpleNamespace(items=['camera'], units=None, advance=lambda nodes: [])     # Stack row items
+    with pytest.raises(RuntimeError):
+        app.snapshot()                                             # the live path still needs ROS
+    assert app.summary() == open_rows
+    assert dict(open_rows)['Results'] == f"{sum(theme.kind(v) == 'good' for v in ('PASS', 'FAIL'))}/2 good"

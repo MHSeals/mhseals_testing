@@ -70,7 +70,9 @@ start() {
     fi
 }
 
-alive() { t has-session -t "=$1" 2>/dev/null && [ "$(t display-message -p -t "=$1" '#{pane_dead}')" != 1 ]; }
+# =NAME: matches only NAME (never NAME-v1); the trailing : makes it a pane target, without which display-message prints
+# nothing and a dead pane counted as running.
+alive() { t has-session -t "=$1" 2>/dev/null && [ "$(t display-message -p -t "=$1:" '#{pane_dead}')" != 1 ]; }
 
 case $verb in
     up)

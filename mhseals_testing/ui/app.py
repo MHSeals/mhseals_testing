@@ -1453,8 +1453,9 @@ class App:
         return 'INDEX.json rebuilt'
 
     def summary(self):
-        """What the session left behind, printed once the page is gone."""
-        results = self.snapshot()['results']
+        """What the session left behind, printed once the page is gone (and ROS is closed, so it reads only
+        the source: the live snapshot's Stack rows ask ROS for its nodes)."""
+        results = self.source.snapshot()['results']
         passed = sum(1 for r in results if theme.kind(r.get('verdict', '')) == 'good')
         minutes = (self.clock() - self.started) / 60
         return [('Duration', f'{minutes:.1f} min'), ('Results', f'{passed}/{len(results)} good'),
