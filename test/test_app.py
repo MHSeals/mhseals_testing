@@ -1304,6 +1304,14 @@ class Events:
         return self.keys.pop(0) if self.keys else 'x'
 
 
+
+@pytest.fixture(autouse=True)
+def inline_manual_checks(monkeypatch):
+    """The app's clock is fake: a real checker thread would race it, so manual's evaluations run inline here
+    (test_manual_interlocks covers the thread)."""
+    from mhseals_testing.procedures import manual
+    monkeypatch.setattr(manual, 'start_thread', lambda work: work())
+
 def test_manual_control_drives_held_keys_on_the_page_and_ends_neutral(tmp_path):
     app, boat = make_app(tmp_path)
     app.console.size = (120, 40)
@@ -1398,9 +1406,7 @@ def test_manual_control_stops_on_an_interlock(tmp_path):
     assert not app.armed and boat.sent[-1] == 'neutral'
 
 
-def test_manual_interlock_trip_is_journaled_as_a_guard_stop(tmp_path, monkeypatch):
-    from mhseals_testing.procedures import manual
-    monkeypatch.setattr(manual, 'start_thread', lambda work: work())   # each evaluation inline, in order
+def test_manual_interlock_trip_is_journaled_as_a_guard_stop(tmp_path):
     app, boat = make_app(tmp_path)
 
     class Tripping(Events):

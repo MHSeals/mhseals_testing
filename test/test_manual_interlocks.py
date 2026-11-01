@@ -31,7 +31,7 @@ class Blockers:
     """Counts evaluations (each one asks the graph in the app); answers ``reasons``."""
 
     def __init__(self, reasons=()):
-        self.reasons, self.calls = list(reasons), 0
+        self.reasons, self.calls = reasons if isinstance(reasons, Exception) else list(reasons), 0
 
     def __call__(self):
         self.calls += 1
