@@ -190,3 +190,147 @@ def test_odom_up_without_the_watchdogs_says_so_with_the_fix():
     assert 'started outside the TUI or without them' in rows['Problem']
     assert rows['Fix'].startswith('restart Odometry from the TUI')
     assert app.stack.processes.started == started                    # nothing more started
+
+
+def stacked_app(answer='Start', clock=None):
+    from test_components import JETSON, ME, WATCHED_PARTS, Profile, part
+    from mhseals_testing.harness.components import components
+
+    class Stacked(Profile):
+        components = {'odometry': {'title': 'Odom stack', 'stack': True},
+                      'ekf': {'title': 'EKFs', 'needs': ['odometry'], 'stack': True},
+                      'navigation': {'needs': ['odometry', 'ekf'], 'limits': True},
+                      'camera': {'stack': True},
+                      'objects': {'needs': ['camera']},
+                      'watchdogs': {'title': 'Safety watchdogs'}}
+    placed = dict(WATCHED_PARTS, ekf=part('ekf', 'ekf.launch.py', nodes=['ekf_global']))
+    app = App(answer=answer)
+    clock = clock if clock is not None else [0.0]
+    app.stack = Stack(components(Stacked, None, (ME, placed)), FakeProcesses(), lambda: clock[0],
+                      app.stack.units)
+    app.stack.units.records['camera'] = {'state': 'off'}
+    assert app.stack.items['camera'].host == JETSON
+    return app
+
+
+def test_the_stack_row_starts_exactly_its_parts_in_needs_order_and_never_a_watchdog_copy():
+    app = stacked_app()
+    row = parts.feed(app)[0]
+    assert (row['source'], row['name'], row['value'], row['state']) == ('stack', 'Stack', '0/3 up', 'OFF')
+    assert 'Odom stack, EKFs, Camera' in row['detail'] and 'Safety watchdogs with them' in row['detail']
+    parts.toggle_stack(app)
+    title, options, rows, danger = app.asked[0]
+    assert options == ['Start', 'Cancel'] and app.default == 'Cancel' and not danger
+    assert rows['Odom stack'] == 'off on this computer' and rows['Safety watchdogs'] == 'with Odom stack'
+    assert [name for name, _ in app.stack.processes.started] == ['odometry']   # EKFs wait for it
+    assert app.stack.state('ekf', set()) == ('starting', 'waits for Odom stack')
+    assert app.stack.units.calls == [('start', 'camera', False)]
+    assert app.notice == 'Stack: starting Odom stack, EKFs, Camera'
+    assert [k['component'] for _, k in app.events] == ['odometry', 'ekf', 'camera']
+    app.ros.nodes = lambda: ['/ekf_local']                          # the Odom stack reports running
+    parts.feed(app)
+    assert [name for name, _ in app.stack.processes.started] == ['odometry', 'ekf']   # no watchdogs, no Nav2
+    parts.start_stack(app)                                          # all up: nothing twice
+    assert len(app.stack.processes.started) == 2 and len(app.stack.units.calls) == 1
+    assert app.notice == 'Stack: nothing to start'
+
+
+def test_cancel_on_the_stack_row_starts_nothing():
+    app = stacked_app(answer=None)
+    parts.toggle_stack(app)
+    assert app.stack.processes.started == [] and app.stack.units.calls == []
+
+
+def test_a_stack_part_that_does_not_start_skips_the_ones_that_need_it():
+    app = stacked_app()
+    app.stack.processes.codes['odometry'] = 1                      # exited: a start still goes out
+    app.stack.units.records['camera'] = {'state': 'unknown', 'probe_error': 'x'}
+    app.stack.items['odometry'] = replace_enabled(app.stack.items['odometry'])
+    started, failed = parts.start_stack(app)
+    assert started == [] and set(failed) == {'odometry', 'ekf', 'camera'}
+    assert failed['ekf'] == 'Odom stack did not start' and 'try again shortly' in failed['camera']
+    assert app.stack.processes.started == [] and app.stack.units.calls == []
+
+
+def replace_enabled(item):
+    from dataclasses import replace
+    return replace(item, carried_by='Somewhere')                    # its start refuses
+
+
+def test_stop_stack_stops_the_up_parts_and_names_what_else_stops():
+    app = stacked_app(answer='Stop')
+    parts.start_stack(app)
+    app.ros.nodes = lambda: ['/ekf_local']
+    parts.feed(app)
+    app.stack.processes.live.add('navigation')                     # ours, needs the Odom stack
+    parts.toggle_stack(app)
+    title, options, rows, _ = app.asked[0]
+    assert options == ['Stop', 'Cancel'] and rows['Stop also stops'] == 'Navigation'
+    assert app.stack.units.calls[-1] == ('stop', 'camera')
+    assert app.stack.processes.stopped == ['navigation', 'ekf', 'odometry']
+    assert app.notice.startswith('Stack: stopping Camera, Navigation, EKFs, Odom stack')
+
+
+def test_the_stack_row_never_holds_a_part_that_can_command_motion():
+    import pytest
+    from test_components import ME, PARTS, Profile
+    from mhseals_testing.harness.components import components
+
+    class Moving(Profile):
+        components = {'odometry': {}, 'navigation': {'needs': ['odometry'], 'stack': True}}
+    with pytest.raises(ValueError, match='navigation.stack: navigation can command motion'):
+        components(Moving, None, (ME, PARTS))
+
+
+def test_the_boat_profile_stack_is_the_sensing_start_set():
+    from pathlib import Path
+    import yaml
+    data = yaml.safe_load((Path(__file__).parents[1] / 'config/profiles/boat.yaml').read_text())
+    assert [key for key, spec in data['components'].items() if (spec or {}).get('stack')] == \
+        ['odometry', 'ekf', 'sensors', 'camera', 'objects']
+
+
+def test_a_start_brings_up_its_needs_first_and_the_confirm_names_them():
+    clock = [0.0]
+    app = stacked_app(clock=clock)
+    parts.toggle(app, 'navigation')
+    title, options, rows, danger = app.asked[0]
+    assert title == 'Navigation needs Odom stack, EKFs: start all 3?' and danger
+    assert rows['Also starts'] == 'Odom stack, EKFs'
+    assert [name for name, _ in app.stack.processes.started] == ['odometry']
+    app.ros.nodes = lambda: ['/ekf_local']
+    parts.feed(app)
+    assert [name for name, _ in app.stack.processes.started] == ['odometry', 'ekf']
+    app.ros.nodes = lambda: ['/ekf_local', '/ekf_global']
+    parts.feed(app)
+    assert [name for name, _ in app.stack.processes.started] == ['odometry', 'ekf', 'navigation']
+
+
+def test_a_need_that_never_reports_running_gives_up_with_its_dependants():
+    clock = [0.0]
+    app = stacked_app(clock=clock)
+    parts.start(app, 'objects')                                     # needs the Camera on the Jetson
+    assert app.stack.units.calls == [('start', 'camera', False)] and 'objects' in app.stack.waiting
+    app.stack.units.records['camera'] = {'state': 'unknown', 'probe_error': 'no ps'}
+    clock[0] = 61.0                                                  # past NEED_WAIT_S
+    parts.feed(app)
+    assert app.notice == 'Objects not started: Camera not running within 60 s'
+    assert app.stack.processes.started == [] and app.stack.waiting == {}
+
+
+def test_a_need_that_exits_gives_up_its_waiting_dependants():
+    app = stacked_app()
+    parts.start(app, 'navigation')
+    app.stack.processes.live.discard('odometry')
+    app.stack.processes.codes['odometry'] = 1
+    parts.feed(app)
+    assert app.notice == 'EKFs, Navigation not started: Odom stack is exited'
+    assert app.stack.waiting == {}
+
+
+def test_stopping_a_part_never_stops_what_it_needs_and_calls_off_a_waiting_start():
+    app = stacked_app()
+    parts.start(app, 'ekf')                                         # brings the Odom stack; EKFs wait
+    assert parts.stop(app, 'ekf') == ['ekf']
+    assert app.stack.processes.stopped == [] and app.stack.waiting == {}
+    assert app.stack.processes.running('odometry')

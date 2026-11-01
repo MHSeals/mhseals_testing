@@ -173,3 +173,28 @@ def test_a_local_dev_launch_is_not_blocked_and_the_playbook_names_the_verb(monke
                                                      hook.DEFAULTS), who='claude-3f2a', config=hook.DEFAULTS)
     text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
     assert '`start COMPONENT --claim ID`' in text and "arming stays the operator's" in text
+
+
+class Needy(Profile):
+    components = {
+        'odometry': {'title': 'Odom stack'},
+        'ekf': {'title': 'EKFs', 'needs': ['odometry']},
+        'mapping': {'needs': ['odometry']},
+        'objects': {'needs': ['mapping']},
+    }
+
+
+def test_an_agent_start_brings_its_allowed_needs_and_refuses_one_not_the_agents(desk):
+    from test_components import PARTS, part
+    placed = dict(PARTS, ekf=part('ekf', 'ekf.launch.py', nodes=['ekf_global']),
+                  mapping=part('mapping', 'mapping.launch.py', nodes=['rtabmap']))
+    desk.app.stack = stack = Stack(components(Needy, None, (ME, placed)), FakeProcesses(),
+                                   lambda: desk.clock[0], FakeUnits())
+    c = claim(desk)
+    reply = final(ask(desk, 'start', c, component='ekf')['id'])
+    assert reply['ok'] and reply['result']['components'] == ['odometry', 'ekf']
+    assert [name for name, _ in stack.processes.started] == ['odometry']   # EKFs wait for it to run
+    assert desk.app.notice == 'Agent claude-3f2a: starting EKFs on this computer after Odom stack'
+    reply = final(ask(desk, 'start', c, component='objects')['id'])        # needs Mapping, not an agent's
+    assert reply['error'] == 'not_allowed' and 'also starts Mapping' in reply['hint']
+    assert [name for name, _ in stack.processes.started] == ['odometry']

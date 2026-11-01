@@ -69,6 +69,7 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
         stack = Stack(tuple(children.values()), processes, lambda: 0.0)
         for key in ('odometry', 'ekf'):
             stack.start(key, ())
+        stack.advance({'/' + node for node in stack.items['odometry'].nodes})   # EKFs wait for it
         assert ('ekf', children['ekf'].argv) in processes.started
         partial = FakeProcesses()
         Stack(tuple(children.values()), partial, lambda: 0.0).start(

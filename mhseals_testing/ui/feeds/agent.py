@@ -344,6 +344,15 @@ class AgentDesk:
                 or NEVER_PARTS.search(item.part):
             return 'not_allowed', (f"agent.yaml start: lists {', '.join(allowed)}; {item.title} stays the "
                                    "operator's (its Status row)")
+        if verb == 'start':      # the parts it needs start first (Stack.plan): each must be an agent's too
+            try:
+                needs = stack.plan(key, app.ros.nodes())[:-1]
+            except ComponentError as error:
+                return 'refused', str(error)
+            others = [name for name in needs if name not in allowed]
+            if others:
+                return 'not_allowed', (f"starting {item.title} also starts {', '.join(items[n].title for n in others)}, "
+                                       "which is not an agent's: ask the operator")
         if verb == 'stop':
             if app.armed:
                 return 'refused', f'armed: the operator stops {item.title} from its Status row (or disarms first)'

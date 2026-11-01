@@ -1,7 +1,7 @@
 """Stack components (odometry, sensors, navigation, ...) a profile can start and stop.
 
-A profile's ``components:`` mapping keeps only TUI behaviour (title, needs, start, limits, topic,
-nodes): each entry is one device part (``part:``, default the key) of mhseals_nav's device profiles, and
+A profile's ``components:`` mapping keeps only TUI behaviour (title, needs, start, stack, limits,
+topic, nodes): each entry is one device part (``part:``, default the key) of mhseals_nav's device profiles, and
 the registry (mhseals_testing.devices) says which computer runs it. The launch file, its args,
 the proof nodes and the host all come from there; ``nodes:`` replaces the proof nodes when the
 part's own are not discoverable from another computer (the lidar driver runs on the large-data
@@ -24,7 +24,8 @@ from mhseals_testing import nav2_limits
 from mhseals_testing.harness.remote import probe_specs
 
 STARTING_LIMIT = 20.0   # s before a started component without its proof nodes warns
-KEYS = {'title', 'part', 'needs', 'limits', 'topic', 'start', 'nodes'}   # nodes: proof seen from the TUI
+NEED_WAIT_S = 60.0      # s a start waits for the parts it needs to report running
+KEYS = {'title', 'part', 'needs', 'limits', 'topic', 'start', 'stack', 'nodes'}   # nodes: proof seen from the TUI
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class Component:
     arguments: dict = field(default_factory=dict, compare=False, hash=False)  # the include's, final
     brings: tuple = ()        # the part's ``with``: parts device.launch.py starts beside it
     carried_by: str | None = None   # title of the component that brings this part: read-only row
+    stack: bool = False       # one of the parts the Status panel's Stack row starts and stops together
 
     @property
     def remote(self):
@@ -87,6 +89,8 @@ def parse_components(data, where='components'):
             raise ValueError(f'{here}.nodes: list of node names')
         if spec.get('start', False) not in (True, False, 'here'):
             raise ValueError(f'{here}.start: true, false or here (only when this computer runs it)')
+        if spec.get('stack', False) not in (True, False):
+            raise ValueError(f'{here}.stack: true or false')
         for need in spec.get('needs', []):
             if need not in data or need == key:
                 raise ValueError(f'{here}.needs: unknown component {need!r}')
@@ -238,6 +242,8 @@ def components(profile, overlay=None, placed=None):
         # start: here comes up with the session only on the computer that runs the part (the
         # operator heartbeat, from an operator's TUI); from another computer it stays a Status row.
         start = spec.get('start') is True or (spec.get('start') == 'here' and here)
+        if spec.get('stack') and carried:
+            raise ValueError(f'components.{key}.stack: {part.name} starts with {carried}')
         if spec.get('start') and kind == 'commander' and profile.use_sim_time is not True:
             raise ValueError(f'components.{key}.start: {part.name} can command motion; only a '
                              'simulator profile (use_sim_time) starts it with the session')
@@ -251,7 +257,11 @@ def components(profile, overlay=None, placed=None):
             None if here else part.host, spec.get('topic'),
             bool(spec.get('limits', False)), start, part.name,
             part.profile, kind, part.enabled, launches[key], final,
-            tuple(part.spec.get('with', ())), carried))
+            tuple(part.spec.get('with', ())), carried, bool(spec.get('stack', False))))
+    for item in result:     # the Stack row never starts what can command the boat
+        if item.stack and moves(item):
+            raise ValueError(f'components.{item.key}.stack: {item.part} can command motion; '
+                             'start it from its own Status row')
     return tuple(result)
 
 
@@ -380,6 +390,7 @@ class Stack:
         self.started = {}
         self.stopped = {}        # key -> when this TUI stopped it (its names may linger GHOST_S)
         self.by = {}             # key -> the agent id that started it (boat_agent start); the operator's: absent
+        self.waiting = {}        # key -> (deadline, commander, by): asked to start, its needs not running yet
         self.scan, self.scanned = scan, (float('-inf'), None)
         self.local = probe_specs([item for item in items if item.host is None])
 
@@ -396,6 +407,8 @@ class Stack:
         return self.scanned[1]
 
     def state(self, key, nodes):
+        if key in self.waiting:
+            return 'starting', 'waits for ' + ', '.join(self.items[need].title for need in self.items[key].needs)
         return state(self.items[key], nodes, self.processes, self.clock(), self.started.get(key),
                      self.units, self.here())
 
@@ -425,13 +438,30 @@ class Stack:
         return {node for item in self.items.values() if stopped_recently(item, self.processes, now)
                 for node in item.nodes}
 
-    def start(self, key, nodes, commander=False, by=None):
-        """Start an off component; refuses (naming them) while its needs are off.
+    def plan(self, key, nodes):
+        """What a start of ``key`` brings up, needs first and ``key`` last: the needs (each with its
+        own, from the profile's ``needs:``) not running or starting; a carried need is its carrier."""
+        order = []
 
-        A commander part (Nav2, the mission runner) on another computer starts only with
-        ``commander``, which the TUI passes after the operator's keypress and confirm.
-        ``by`` names the agent that asked (boat_agent start); its row shows it until stopped.
-        """
+        def visit(name, path):
+            if name != key and self.state(name, nodes)[0] in ('running', 'starting'):
+                return
+            if self.items[name].carried_by:
+                name = next(other for other, item in self.items.items()
+                            if item.title == self.items[name].carried_by)
+                if self.state(name, nodes)[0] in ('running', 'starting'):
+                    return       # up without them: its own row says so (never a second copy)
+            if name in path:
+                raise ComponentError(f'needs cycle through {self.items[name].title}', [name])
+            for need in self.items[name].needs:
+                visit(need, path + (name,))
+            if name not in order:
+                order.append(name)
+        visit(key, ())
+        return order
+
+    def _check(self, key, nodes):
+        """Refuse (ComponentError) a start of ``key`` alone, its needs aside."""
         item = self.items[key]
         if item.carried_by:
             raise ComponentError(f'{item.title} start with {item.carried_by}: start that', [key])
@@ -450,10 +480,79 @@ class Stack:
             raise ComponentError(f'{item.title}: {where} reports it {status}, but '
                                  f'{", ".join(item.nodes)} in the graph: another copy runs; not '
                                  'starting a second (stop that copy first)', [key])
-        off = [need for need in item.needs
-               if self.state(need, nodes)[0] in ('off', 'exited', 'disabled')]
-        if off:
-            raise ComponentError(f'Start {self.items[off[0]].title} first', off)
+
+    def start(self, key, nodes, commander=False, by=None):
+        """Start an off component, and first the components it needs (``plan``) that are not up.
+
+        Each starts once every part it needs reports running; until then it waits (``advance``, at
+        most NEED_WAIT_S). Refuses (ComponentError, nothing started) when one of them cannot start
+        or a need can command motion. A commander part (Nav2, the mission runner) on another
+        computer starts only with ``commander``, which the TUI passes after the operator's
+        keypress and confirm. ``by`` names the agent that asked (boat_agent start); its row shows
+        it until stopped.
+        """
+        item = self.items[key]
+        self._check(key, nodes)
+        plan = self.plan(key, nodes)
+        for need in plan[:-1]:
+            if moves(self.items[need]):
+                raise ComponentError(f'{item.title} needs {self.items[need].title}, which can command '
+                                     'motion: start it from its own Status row first', [need])
+            self._check(need, nodes)
+        deadline = self.clock() + NEED_WAIT_S
+        for name in plan:
+            self.waiting[name] = (deadline, commander, by)
+        try:
+            for name in plan:
+                if all(self.state(need, nodes)[0] == 'running' for need in self.items[name].needs):
+                    del self.waiting[name]
+                    self._launch(name, commander, by)
+        except ComponentError:
+            for name in plan:
+                self.waiting.pop(name, None)
+            raise
+        return plan
+
+    def advance(self, nodes):
+        """Start each waiting component whose needs now report running; returns lines for the ones
+        given up (a need off or exited, or not running within NEED_WAIT_S), with their dependants."""
+        lines, now = [], self.clock()
+        for key in list(self.waiting):
+            if key not in self.waiting:
+                continue
+            deadline, commander, by = self.waiting[key]
+            item = self.items[key]
+            states = {need: self.state(need, nodes)[0] for need in item.needs}
+            down = [need for need, status in states.items()
+                    if status in ('off', 'exited', 'disabled') and not self._coming(need, nodes)]
+            late = [need for need, status in states.items() if status != 'running']
+            why = None
+            if down:
+                why = f'{self.items[down[0]].title} is {states[down[0]]}'
+            elif not late:
+                del self.waiting[key]
+                try:
+                    self._launch(key, commander, by)
+                except ComponentError as error:
+                    why = str(error)
+            elif now > deadline:
+                why = (f'{", ".join(self.items[need].title for need in late)} not running within '
+                       f'{NEED_WAIT_S:.0f} s')
+            if why:
+                self.waiting.pop(key, None)
+                dropped = [key, *(name for name in self._dependants(key) if self.waiting.pop(name, None))]
+                lines.append(f'{", ".join(self.items[name].title for name in dropped)} not started: {why}')
+        return lines
+
+    def _coming(self, key, nodes):
+        """True while ``key`` (or the carrier that brings it) waits to start or is starting."""
+        carrier = next((other for other, item in self.items.items()
+                        if item.title == self.items[key].carried_by), None)
+        return key in self.waiting or (carrier is not None and (
+            carrier in self.waiting or self.state(carrier, nodes)[0] == 'starting'))
+
+    def _launch(self, key, commander, by):
+        item = self.items[key]
         if item.host is None:
             self.processes.start(key, item.argv)
         elif self.units is None:
@@ -463,7 +562,9 @@ class Stack:
                                  'from its Status row, with a confirm', [key])
         else:
             self.units.start(item, commander=item.kind == 'commander')
-        self.started[key] = self.clock()
+        self.started[key] = now = self.clock()
+        for name, (deadline, *rest) in self.waiting.items():   # each need gets its own wait once started
+            self.waiting[name] = (max(deadline, now + NEED_WAIT_S), *rest)
         if by:
             self.by[key] = by
         else:
@@ -502,6 +603,9 @@ class Stack:
                                  'was started', [key])
         if item.host is not None and self.units is None:
             raise ComponentError(f'{item.title} runs on {item.remote}; stop it there', [key])
+        # A start still waiting for its needs is called off (with whatever waits on it); the parts
+        # ``key`` needs keep running.
+        waited = [name for name in [*self._dependants(key), key] if self.waiting.pop(name, None)]
         order = [other for other in self._dependants(key) if self.running(other)]
         if self.running(key) or item.host is not None:
             order.append(key)
@@ -513,7 +617,7 @@ class Stack:
             self.started.pop(name, None)
             self.by.pop(name, None)
             self.stopped[name] = self.clock()
-        return order
+        return list(dict.fromkeys(waited + order))
 
     def _dependants(self, key):
         """Components that need ``key``, directly or not, deepest first."""
@@ -576,8 +680,8 @@ class Stack:
                 lines.append(f'could not start {item.title}: {error}')
         return lines
 
-    def start_order(self):
-        """Enabled keys marked ``start``, each after its needs."""
+    def start_order(self, mark='start'):
+        """Enabled keys marked ``mark`` (``start``, or ``stack``: the Stack row's), each after its needs."""
         order = []
 
         def visit(key):
@@ -586,6 +690,6 @@ class Stack:
             if key not in order:
                 order.append(key)
         for item in self.items.values():
-            if item.start:
+            if getattr(item, mark):
                 visit(item.key)
         return [key for key in order if self.items[key].enabled]

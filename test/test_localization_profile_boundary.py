@@ -30,6 +30,7 @@ def test_shipped_full_and_partial_starts_keep_clock_and_selectors(name):
     stack = Stack(children, processes, lambda: 0.)
     for key in ('odometry', 'ekf'):     # the boat starts them from Status rows, not the session
         stack.start(key, ())
+    stack.advance({'/' + node for node in stack.items['odometry'].nodes})   # EKFs wait for it
     assert any(key == 'ekf' for key, _ in processes.started)
     partial = FakeProcesses()
     odometry = next(item for item in children if item.key == 'odometry')

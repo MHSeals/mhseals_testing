@@ -239,14 +239,17 @@ def test_this_computers_process_table_decides_a_local_part_not_the_graph():
     assert stack.state('odometry', {'/ekf_local'})[0] == 'off'     # a lingering name is not a part
 
 
-def test_start_needs_prompt_and_order():
-    stack, processes, _ = make()
-    with pytest.raises(ComponentError, match='Start Odometry first') as error:
-        stack.start('navigation', set())
-    assert error.value.keys == ('odometry',) and not processes.started
+def test_a_start_brings_its_needs_first_and_waits_for_them_to_run():
+    stack, processes, clock = make()
+    assert stack.plan('navigation', set()) == ['odometry', 'navigation']
+    assert stack.start('navigation', set(), commander=True) == ['odometry', 'navigation']
+    assert [name for name, _ in processes.started] == ['odometry']
+    assert stack.state('navigation', set()) == ('starting', 'waits for Odometry')
+    assert stack.advance(set()) == [] and len(processes.started) == 1     # Odometry still starting
+    assert stack.advance({'/ekf_local'}) == []
+    assert [name for name, _ in processes.started] == ['odometry', 'navigation']
+    assert stack.plan('navigation', {'/ekf_local'}) == ['navigation']        # already-running needs skipped
     assert stack.start_order() == ['odometry']
-    stack.start('odometry', set())
-    stack.start('navigation', set())
     with pytest.raises(ComponentError, match='already running'):
         stack.start('navigation', set())
 
@@ -368,6 +371,8 @@ def test_autostart_never_moves_the_real_boat_even_through_needs():
     assert lines[1].startswith('skipped Objects: Navigation')
     stack = Stack(items(Tracked), FakeProcesses(), lambda: 0.0)
     assert stack.autostart(set(), [], sim=True) == []                     # the simulator may
+    assert [name for name, _ in stack.processes.started] == ['odometry']   # the rest wait for it
+    assert stack.advance({'/ekf_local'}) == [] and stack.advance({'/ekf_local', '/bt_navigator'}) == []
     assert [name for name, _ in stack.processes.started] == ['odometry', 'navigation', 'objects']
 
 
@@ -591,3 +596,25 @@ def test_conflicting_localization_files_refuse_during_planning(selector):
     with pytest.raises(ValueError, match=f'conflicting odometry selection: {selector}'):
         components(load_profile('boat'), {'odometry': {selector: '/selected/a.yaml'},
                                           'ekf': {selector: '/selected/b.yaml'}})
+
+
+def test_a_need_that_can_command_motion_is_never_started_for_another_part():
+    class Behind(Profile):
+        components = dict(Profile.components, objects={'needs': ['navigation']})
+    processes = FakeProcesses()
+    stack = Stack(items(Behind), processes, lambda: 0.0)
+    with pytest.raises(ComponentError, match='Objects needs Navigation, which can command motion'):
+        stack.start('objects', set())
+    assert processes.started == [] and stack.waiting == {}
+
+
+def test_a_carried_need_starts_its_carrier_once():
+    class Guarded(Watched):
+        components = dict(Watched.components, objects={'needs': ['watchdogs']})
+    stack = Stack(components(Guarded, None, (ME, WATCHED_PARTS)), FakeProcesses(), lambda: 0.0)
+    assert stack.plan('objects', set()) == ['odometry', 'objects']         # the carrier, never a copy
+    assert stack.plan('objects', DOGS) == ['objects']
+    stack.start('objects', set())
+    assert stack.advance(set()) == [] and 'objects' in stack.waiting       # Odometry still bringing them
+    stack.advance(DOGS | {'/ekf_local'})
+    assert [name for name, _ in stack.processes.started] == ['odometry', 'objects']

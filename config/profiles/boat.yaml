@@ -19,14 +19,17 @@ arming: {outputs: odroid}
 # The safety watchdogs run inside odometry's launch on the boat (the odroid device profile's
 # with: [watchdogs]): their row only shows them, never starts or stops a copy, and arming refuses
 # while one is off the graph (pre.*_watchdog, gates: [arm]).
+# needs: start first, each once the one before reports running (a part's start brings them up).
+# stack: true parts are the Status panel's Stack row: Enter starts (or stops) them together, each
+# through its own row's start path, after one confirm; never a part that can command motion.
 components:
-  odometry: {title: Odom stack}           # the odom launch (MAVROS on the boat); its rate is the pose row
-  ekf: {title: EKFs, needs: [odometry]}
-  sensors: {}
-  mapping: {needs: [odometry, ekf]}
-  navigation: {limits: true, needs: [odometry, ekf]}
-  camera: {}
-  objects: {topic: /perception/tracks}
+  odometry: {title: Odom stack, stack: true}   # the odom launch (MAVROS on the boat); its rate is the pose row
+  ekf: {title: EKFs, needs: [odometry], stack: true}
+  sensors: {stack: true}
+  mapping: {needs: [odometry, ekf, sensors]}
+  navigation: {limits: true, needs: [odometry, ekf, sensors]}
+  camera: {stack: true}
+  objects: {topic: /perception/tracks, stack: true}
   watchdogs: {title: Safety watchdogs}    # hold-only: operator link, fence, FCU, EKF inputs
   operator_heartbeat: {title: Operator heartbeat, start: here}   # on the operator laptop; link_watchdog holds without it
   host_diagnostic: {title: Camera host diagnostic}

@@ -1959,6 +1959,8 @@ class App:
                     return self.open('odometry')
                 if row.get('source') == 'part' and not self.watching:
                     return parts.toggle(self, row['key'])
+                if row.get('source') == 'stack' and not self.watching:
+                    return parts.toggle_stack(self)
                 if row['name'] == 'Driving':
                     return self.open('authority')
                 if row['name'] == 'Hold':
@@ -3137,6 +3139,12 @@ def nav2_params():
     return path if path.exists() else None
 
 
+class RemovedStartStack(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.error('--start-stack was removed: start the stack in the TUI, Status panel, '
+                     'Components, Enter on the Stack row')
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     parser.add_argument('--profile', default='boat',
@@ -3152,6 +3160,8 @@ def build_parser():
                              'default the newest) with no ROS node and no outputs')
     parser.add_argument('--output', type=Path, default=None,
                         help='session directory (default a new sessions/<time>_<host>_<profile> under the data root)')
+    # Removed 10-25: the Status panel's Stack row starts the stack; the flag only says where it went.
+    parser.add_argument('--start-stack', nargs=0, action=RemovedStartStack, help=argparse.SUPPRESS)
     seat = parser.add_mutually_exclusive_group()
     seat.add_argument('--view', action='store_true',
                       help='start as a viewer of the live session: no commands but Space and E; O takes control')

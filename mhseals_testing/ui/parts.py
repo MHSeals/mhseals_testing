@@ -9,6 +9,9 @@ never a different state. Every start and stop asks a confirm naming the computer
 the operator's go-ahead a commander part (Nav2, the mission runner) needs to start remotely. Stop
 is never refused, armed or not, except for a process no TUI started.
 
+The Stack row (the profile's ``stack: true`` parts) starts or stops them together after one confirm,
+each through that same ``start``/``stop`` in needs order; their own rows show the progress.
+
 ``start`` and ``stop`` are that path after the confirm; the agent desk (ui/feeds/agent.py, boat_agent
 start/stop COMPONENT) calls them too, with the agent's id, so an agent-started part's row says
 ``by agent W`` until it stops, and the notice and the journal name the agent.
@@ -16,7 +19,7 @@ start/stop COMPONENT) calls them too, with the agent's id, so an agent-started p
 
 from mhseals_hardware.menu import Cancelled
 
-from mhseals_testing.harness.components import ComponentError
+from mhseals_testing.harness.components import ComponentError, moves
 from mhseals_testing.ui import theme
 
 LEVELS = {'running': 'OK', 'starting': 'CHECKING', 'exited': 'FAIL', 'off': 'OFF',
@@ -26,9 +29,35 @@ UP = {'running', 'starting'}
 WHY_DOWN = {'operator_heartbeat': 'link watchdog holds autonomy until started'}
 
 
+def stack_keys(stack):
+    """The Stack row's parts in start order (needs first); never one that can command motion."""
+    return [key for key in stack.start_order('stack') if not moves(stack.items[key])]
+
+
+def stack_row(stack, nodes):
+    """The Stack row (``source='stack'``): how many of its parts are up; None without any."""
+    keys = stack_keys(stack)
+    if not keys:
+        return None
+    states = [stack.state(key, nodes)[0] for key in keys]
+    up = sum(status in UP for status in states)
+    level = ('OK' if all(status == 'running' for status in states) else
+             'CHECKING' if any(status in ('starting', 'unknown') for status in states) else
+             'OFF' if up == 0 else 'WARN')
+    titles = [stack.items[key].title for key in keys]
+    carried = [item.title for item in stack.items.values()
+               if item.carried_by in titles]
+    return dict(group='Components', source='stack', key='stack', state=level, name='Stack',
+                value=f'{up}/{len(keys)} up', required=False,
+                detail=theme.SEPARATOR.join(filter(None, [
+                    'Enter starts or stops ' + ', '.join(titles),
+                    f'{", ".join(carried)} with them' if carried else ''])))
+
+
 def rows(stack, nodes, issues=None):
-    """One Components row per part (``source='part'``); ``issues`` (feeds.issues.Issues) marks rows."""
-    out = []
+    """One Components row per part (``source='part'``), after the Stack row; ``issues``
+    (feeds.issues.Issues) marks rows."""
+    out = list(filter(None, [stack_row(stack, nodes)]))
     for item in stack.items.values():
         status, detail = stack.state(item.key, nodes)
         if status not in UP and item.part in WHY_DOWN:
@@ -57,6 +86,9 @@ def feed(app):
     for line in stack.units.take_notices() if stack.units is not None else ():
         app.notice = line
         app.ros.emit('unit', detail=line)
+    for line in stack.advance(app.ros.nodes()):     # the starts waiting for their needs
+        app.notice = line
+        app.ros.emit('component', action='start_failed', detail=line)
     return rows(stack, app.ros.nodes(), getattr(app, 'issues', None))
 
 
@@ -87,9 +119,19 @@ def toggle(app, key):
         info.append(('Motion', 'can command the boat once armed with the mux in auto'))
     if item.kind == 'commander' and stopping and app.armed:
         info.append(('Armed', 'stopping it leaves the mux holding'))
+    title = f'{item.title} on {where}: {verb}?'
+    if not stopping:      # the parts it needs that are not up start first, each once the one before runs
+        try:
+            needs = [stack.items[name].title for name in stack.plan(key, nodes)[:-1]]
+        except ComponentError as error:
+            app.notice = str(error)
+            return
+        if needs:
+            title = f"{item.title} needs {', '.join(needs)}: start all {len(needs) + 1}?"
+            info.append(('Also starts', ', '.join(needs)))
     # Cancel is focused, so Enter alone never starts or stops a part.
     try:
-        choice = app.choose(f'{item.title} on {where}: {verb}?', [verb, 'Cancel'], {'y': 0, 'n': 1},
+        choice = app.choose(title, [verb, 'Cancel'], {'y': 0, 'n': 1},
                             rows=info, danger=item.kind == 'commander' and not stopping, default=1)
     except Cancelled:
         return
@@ -145,6 +187,81 @@ def toggle_carried(app, key, status):
         app.notice = str(error)
 
 
+def toggle_stack(app):
+    """Enter on the Stack row: one confirm listing each part, then start the off ones or stop the up ones."""
+    stack = app.stack
+    keys = stack_keys(stack)
+    nodes = app.ros.nodes()
+    states = {key: stack.state(key, nodes) for key in keys}
+    off = [key for key in keys if states[key][0] not in UP and states[key][0] != 'disabled']
+    up = [key for key in keys if states[key][0] in UP
+          or (states[key][0] == 'unknown' and stack.running(key))]
+    info = [(stack.items[key].title, f'{states[key][0]} on {stack.items[key].remote or "this computer"}')
+            for key in keys]
+    info += [(item.title, f'with {item.carried_by}') for item in stack.items.values()
+             if item.carried_by in {stack.items[key].title for key in keys}]
+    others = [stack.items[other].title for key in up for other in stack._dependants(key)
+              if other not in keys and stack.running(other)]
+    if others:
+        info.append(('Stop also stops', ', '.join(dict.fromkeys(others))))
+    options = [*(['Start'] if off else []), *(['Stop'] if up else []), 'Cancel']
+    shortcuts = {{'Start': 's', 'Stop': 'x', 'Cancel': 'n'}[name]: index for index, name in enumerate(options)}
+    try:
+        choice = app.choose('Stack: ' + ' or '.join(options[:-1]) + '?' if len(options) > 1 else 'Stack',
+                            options, shortcuts, rows=info, default=len(options) - 1)
+    except Cancelled:
+        return
+    if choice == 'Start':
+        start_stack(app)
+    elif choice == 'Stop':
+        stop_stack(app)
+
+
+def start_stack(app):
+    """Start the Stack row's parts that are off, needs first, each as its own row starts it; a part
+    that does not start skips the ones that need it. Returns (started keys, {key: why not})."""
+    stack = app.stack
+    started, failed = [], {}
+    for key in stack_keys(stack):
+        item = stack.items[key]
+        need = next((need for need in item.needs if need in failed), None)
+        if need is not None:
+            failed[key] = f'{stack.items[need].title} did not start'
+            continue
+        if stack.state(key, app.ros.nodes())[0] in UP | {'disabled'}:
+            continue
+        try:
+            start(app, key)
+            started.append(key)
+        except ComponentError as error:
+            failed[key] = str(error)
+    app.notice = '; '.join(filter(None, [
+        f"Stack: starting {', '.join(stack.items[key].title for key in started)}" if started else
+        'Stack: nothing to start' if not failed else '',
+        *(f'{stack.items[key].title} not started: {why}' for key, why in failed.items())]))
+    return started, failed
+
+
+def stop_stack(app):
+    """Stop the Stack row's parts that are up, last started first (each with its dependants, as its own
+    row stops it). Returns (stopped keys, {key: why not})."""
+    stack = app.stack
+    stopped, failed = [], {}
+    for key in reversed(stack_keys(stack)):
+        status = stack.state(key, app.ros.nodes())[0]
+        if key in stopped or not (status in UP or (status == 'unknown' and stack.running(key))):
+            continue
+        try:
+            stopped += stop(app, key)
+        except ComponentError as error:
+            failed[key] = str(error)
+    app.notice = '; '.join(filter(None, [
+        f"Stack: stopping {', '.join(stack.items[key].title for key in dict.fromkeys(stopped))}"
+        if stopped else 'Stack: nothing to stop' if not failed else '',
+        *(f'{stack.items[key].title} not stopped: {why}' for key, why in failed.items())]))
+    return stopped, failed
+
+
 def start(app, key, who=None):
     """Start ``key`` where it runs (the operator's confirmed Enter, or agent ``who``); ComponentError refuses.
 
@@ -152,11 +269,13 @@ def start(app, key, who=None):
     (the desk refuses commanders before this)."""
     stack, item = app.stack, app.stack.items[key]
     where = item.remote or 'this computer'
-    stack.start(key, app.ros.nodes(), commander=who is None, by=who)
-    app.notice = f"{f'Agent {who}: s' if who else 'S'}tarting {item.title} on {where}"
+    plan = stack.start(key, app.ros.nodes(), commander=who is None, by=who)
+    needs = [stack.items[name].title for name in plan[:-1]]
+    app.notice = (f"{f'Agent {who}: s' if who else 'S'}tarting {item.title} on {where}"
+                  + (f" after {', '.join(needs)}" if needs else ''))
     app.ros.emit('component', action='start', component=key, host=where,
-                 **({'by': 'agent', 'who': who} if who else {}))
-    return [key]
+                 **({'needs': plan[:-1]} if needs else {}), **({'by': 'agent', 'who': who} if who else {}))
+    return plan
 
 
 def stop(app, key, who=None):

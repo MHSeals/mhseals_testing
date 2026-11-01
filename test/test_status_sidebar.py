@@ -23,7 +23,7 @@ items = {f'p{i}': SimpleNamespace(key=f'p{i}', title=f'Part {i}', part=f'p{i}', 
                                   remote='blastoise-jetson' if i % 2 else 'blastoise-odroid') for i in range(12)}
 items['odometry'] = SimpleNamespace(key='odometry', title='Odometry', part='odometry', profile='boat',
                                     remote='blastoise-jetson')
-stack = SimpleNamespace(items=items, by={},
+stack = SimpleNamespace(items=items, by={}, start_order=lambda mark: [],
                         state=lambda key, nodes: ('off', '') if key == 'odometry' else ('unknown', ''))
 issues = SimpleNamespace(on_row=lambda item: [] if item.key == 'odometry' else [f'{item.remote} does not answer'])
 profile = load_profile('boat')
