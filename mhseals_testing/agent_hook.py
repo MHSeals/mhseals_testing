@@ -212,7 +212,7 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
         tuple(BOAT_START)),
        (None, 'stopping a stack component on a boat (its unit)', 'stop COMPONENT --claim ID', tuple(BOAT_STOP_PART)),
        (None, 'killing processes on a boat computer (a stack component: stop COMPONENT --claim ID; your own tmux '
-        'session: tmux kill-session -t boatops... or agent-...)', 'stop',
+        'session: tmux kill-session -t agent-<your id>...)', 'stop',
         (BOAT_KILL,)),
        (None, "stopping or restarting the boat's software or computer (the FCU: boat_agent fcu restart --claim ID)",
         None,
@@ -376,7 +376,8 @@ def start_text(who, agent='claude', config=None):
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
         '(claim, run, start, fcu, ask, note, release, stop); nothing else there. You may end your own tmux sessions '
-        'there (`tmux kill-session -t boatops...` or `-t agent-...`), never `boat` or `-L boat`.',
+        f'there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
+        "another agent's session or `-L boat`.",
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
@@ -706,26 +707,34 @@ def boats(config):
     return names
 
 
-# An agent's own tmux session on a boat host (default server, a boatops*/agent-* name, nothing after the target):
-# ending it is not stopping the boat's software. Never `boat` (the TUI's session), -L/-S sockets or -a.
-OWN_TMUX = re.compile(r"""\btmux\s+kill-session\s+-t\s*(['"]?)=?(boatops|agent-)[\w.-]*\1(?=[ \t]*($|[;&|)\n'"]))""")
-# The free text of boat_agent ask/note (the question or note) is data, unless it could expand ($, backticks).
-AGENT_TEXT = re.compile(r"""(\bboat_agent\s+(?:ask|note)\s+)("[^"$`\\]*"|'[^']*')""")
+# An agent's own tmux session on a boat host (default server, a boatops-<who>*/agent-<who>* name: it carries the
+# calling agent's id; nothing after the target): ending it is not stopping the boat's software. Never `boat` (the TUI's
+# session), another agent's session, -L/-S sockets or -a.
+OWN_TMUX = r"""\btmux\s+kill-session\s+-t\s*(['"]?)=?(?:boatops|agent)-%s(?:[-_.][\w.-]*)?\1(?=[ \t]*($|[;&|)\n'"]))"""
+# The free text of boat_agent ask/note (the question or note) is data. Shell commands nest (ssh "...", bash -c "..."),
+# so its quotes may be literal at one level and quotes at the next: the text counts as data only when it holds nothing
+# any level could act on (no quote of either kind, $, backtick, backslash, operator or newline), and only when the
+# whole command has no command or parameter substitution anywhere ($(, backticks, ${): otherwise it is checked as code.
+AGENT_TEXT = re.compile(r"""(\bboat_agent[ \t]+(?:ask|note)[ \t]+)("[^"'$`\\;&|<>()\n]*"|'[^"'$`\\;&|<>()\n]*')""")
+EXPANDS = re.compile(r'\$\(|`|\$\{')
 
 
-def own_text(command):
-    """``command`` with an agent's own boat tmux session ends and its boat_agent ask/note text blanked."""
-    return AGENT_TEXT.sub(r'\1TEXT', OWN_TMUX.sub('tmux-end-own-session', command))
+def own_text(command, who=None):
+    """``command`` with the calling agent's (``who``) own boat tmux session ends and its boat_agent ask/note text
+    blanked (``AGENT_TEXT``)."""
+    if who:
+        command = re.sub(OWN_TMUX % re.escape(who), 'tmux-end-own-session', command)
+    return command if EXPANDS.search(command) else AGENT_TEXT.sub(r'\1TEXT', command)
 
 
-def denied(command, config, cwd=None):
+def denied(command, config, cwd=None, who=None):
     """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
     denied, and a heredoc body that is only data (``code_of``) is not searched;
     anything else is denied when ``hook.deny`` is found anywhere in its text, or
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
     if text_only(command):
         return None
-    text, names = links(plain(failed_cd(own_text(code_of(command)))), cwd), boats(config)
+    text, names = links(plain(failed_cd(own_text(code_of(command), who))), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
@@ -1091,7 +1100,7 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
         if reason:
             return {'deny': reason}
     if phase == 'pre':
-        blocked = denied(command, config, event.get('cwd'))
+        blocked = denied(command, config, event.get('cwd'), who)
     if blocked:
         answer, phase = {'deny': deny_reason(*blocked, who=who, config=config)}, 'deny'
     elif not matches(config['match'], command) or matches(config['skip'], command):

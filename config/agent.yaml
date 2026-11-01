@@ -20,7 +20,8 @@ fcu:
   store: ~/.claude/plans/boat
   set: [SCHED_LOOP_RATE, 'SR0_*', 'SR1_*', INS_GYRO_FILTER, INS_ACCEL_FILTER, INS_GYRO_RATE, INS_FAST_SAMPLE]
   values: {SCHED_LOOP_RATE: [50, 100, 200, 400]}
-  # SCHED_LOOP_RATE above `after` only once the last `fcu rates` check ran at `after` with the FCU load below this
+  # SCHED_LOOP_RATE above `after` only once a `fcu rates` check by this TUI, after an FCU restart that followed the
+  # last SCHED_LOOP_RATE write, ran at `after` (IMU above half of it) with the FCU load below this
   loop_400: {after: 200, max_load_pct: 60}
   rates:
     window_s: 10

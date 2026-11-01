@@ -392,10 +392,15 @@ class AgentDesk:
             if app.armed:
                 return self.reply(req, False, 'refused', hint='armed: FCU writes and restarts only while disarmed')
         work, claim = self.fcu_work(), req.get('claim')
+
+        def wrote(name, old, new):       # each write as it lands: a partial set stays visible
+            app.notice = f'Agent {who} {claim}: FCU {name} {old}->{new}'
+            app.emit('fcu', action='write', ok=True, by='agent', who=who, claim=claim, changes={name: [old, new]},
+                     snapshot=work.snapshot.name if work.snapshot else None)
         jobs = {'fcu_get': lambda: work.get(list(args.get('params') or [])),
                 'fcu_rates': lambda: work.rates(args.get('window_s'), who),
-                'fcu_set': lambda: work.set(dict(args.get('changes') or {}), who, claim),
-                'fcu_revert': lambda: work.revert(str(args.get('to') or ''), who, claim),
+                'fcu_set': lambda: work.set(dict(args.get('changes') or {}), who, claim, on_write=wrote),
+                'fcu_revert': lambda: work.revert(str(args.get('to') or ''), who, claim, on_write=wrote),
                 'fcu_restart': lambda: work.restart(who, claim)}
         if op == 'fcu_set' and not args.get('changes'):
             return self.reply(req, False, 'bad_args', hint='fcu set PARAM VALUE [PARAM VALUE ...]')
