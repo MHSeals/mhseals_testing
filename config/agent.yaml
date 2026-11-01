@@ -7,9 +7,9 @@ lease: {idle_s: 120, motion_s: 10, max_claim_s: 3600}
 request_s: 5            # a request past this is answered expired; never replayed after a restart
 confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120
-# characterize: owner decision 2026-11-01, an agent runs characterization after the operator positions the boat
+# thrust_physics: owner decision 2026-11-01, an agent runs characterization (B3: pulses, survey, maneuvers) after the operator positions the boat; characterize (f) stays refused
 # (the operator still arms and answers Ready; holds and gates unchanged)
-run: [square, station, nav2_bringup, controller_check, perception, mission, characterize]   # procedure keys agents may request
+run: [square, station, nav2_bringup, controller_check, perception, mission, thrust_physics]   # procedure keys agents may request
 # component keys agents may start and stop (boat_agent start/stop COMPONENT --claim ID), through the Status row's
 # own path, no popup, the row saying "by agent W" (owner decision 2026-10-31). Never the thruster driver, the mux,
 # the controller, the operator heartbeat, the watchdogs or a commander part (Nav2, the mission runner), listed or not.
