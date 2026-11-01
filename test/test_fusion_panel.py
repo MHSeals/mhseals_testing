@@ -1,6 +1,7 @@
 """Fusion tab: the feed (subscriptions only while shown, projection, pairing) and the panel in every tier."""
 
 import io
+import json
 import math
 from types import SimpleNamespace as NS
 
@@ -185,6 +186,17 @@ def test_fused_boxes_pair_with_stereo_by_box_and_take_source_labels():
     assert [r['source'] for r in stereo_only] == ['stereo', 'stereo']
 
 
+def test_ranges_are_horizontal_as_lidar_fusion_grades_rho():
+    box = (0.1, 0.4, 0.2, 0.6)
+    cov = (1.0, 0, 0, 0, 9.0, 0, 0, 0, 1.0)                       # the vertical (optical y) variance is ignored
+    raw = (10.0, CAMERA, [{'cls': 'red_buoy', 'box': box, 'pos': (3.0, 2.0, 4.0), 'cov': cov, 'id': 'a'}])
+    body = (10.0, 'base_link', [{'cls': 'red_buoy', 'box': box, 'pos': (4.0, 3.0, -2.0), 'cov': (0,) * 9, 'id': 'a'}])
+    row, = detections(raw, None, None)
+    assert row['range'] == pytest.approx(5.0) and row['sigma'] == pytest.approx(1.0) and row['id'] == 'a'
+    row, = detections(raw, body, (10.0, ['lidar']))                 # body frame: z is the vertical
+    assert (row['range'], row['stereo']) == pytest.approx((5.0, 5.0))
+
+
 def test_sources_become_pixel_residuals():
     now = [100.0]
     f, cb = ready_feed(lambda: now[0])
@@ -235,7 +247,10 @@ def model(du=1.0, sources=('lidar', 'lidar_ray', 'stereo'), fused=True, n=12, dv
     xz = np.column_stack([(uv[:, 0] - 0.5) * ranges * SIZE[0] / K[0], ranges]).astype(np.float32)
     return {'version': 1, 'size': SIZE, 'K': K, 'dets': dets, 'fused': fused, 'frame': None,
             'points': (10.0, uv, ranges, xz),
-            'residuals': [(-60 + 5 * i, du + 0.3 * (i % 3), dv) for i in range(n)]}
+            'residuals': [(-60 + 5 * i, du + 0.3 * (i % 3), dv) for i in range(n)],
+            'grades': [(-60 + 5 * i, d['cls'], d['source'] in fusion_feed.LIDAR_SOURCES,
+                        d['range'] / d['stereo'] if d['source'] in fusion_feed.LIDAR_SOURCES else None)
+                       for i in range(n) for d in dets if d['stereo'] and d['stereo'] < 10 and d['source'] != 'held']}
 
 
 def facts(applied='0.10 -0.30 0.02', state='ok'):
@@ -270,6 +285,51 @@ def test_live_check_fails_past_range_fail_tol(ls, level):
     assert f'L/S {ls:.2f}' in why
 
 
+def frame_of(cb, f, boxes, t, skip=''):
+    """One lidar_fusion frame: stereo array, fused array and its sources JSON. boxes: (id, stereo m, fused m, source)."""
+    stereo = [ob('red_buoy', (0.1 * i, 0.4, 0.1 * i + 0.05, 0.6), (0, 0, s), oid=k) for i, (k, s, _, _) in enumerate(boxes)]
+    fused = [ob('red_buoy', (0.1 * i, 0.4, 0.1 * i + 0.05, 0.6), (0, 0, r), oid=k) for i, (k, _, r, _) in enumerate(boxes)]
+    cb[f.cfg['topics']['observations']](array(stereo, t=t))
+    cb[f.cfg['topics']['fused']](array(fused, t=t))
+    cb[f.cfg['topics']['sources']](NS(data=json.dumps({'t': t, 'sources': [b[3] for b in boxes], 'skip': skip,
+                                                        'ex': [[0, 0, 7, 0, 0.0005, 0.0003, 0, 0]] * 2})))
+
+
+def graded(boxes_per_frame):
+    now = [100.0]
+    f, cb = ready_feed(lambda: now[0])
+    for i, (boxes, skip) in enumerate(boxes_per_frame):
+        now[0] += 0.1
+        frame_of(cb, f, boxes, 10.0 + 0.1 * i, skip)
+    snap = f.snapshot()
+    return snap['grades'], fusion.check({**snap, 'dets': snap['dets']}, f.cfg)
+
+
+def test_held_and_skipped_frames_are_neither_hit_nor_miss():
+    """Clean residuals with a held box at 6 m read near 0/1 FAIL before; skipped frames ('motion') are left out."""
+    grades, (level, why) = graded([([('a', 6.0, 6.0, 'held')], '')] * 3 + [([('a', 6.0, 6.0, 'stereo')], 'motion')] * 3)
+    assert grades == [] and level == 'PASS', why
+    grades, (level, why) = graded([([('a', 6.0, 6.1, 'lidar')], '')] + [([('a', 6.0, 6.0, 'stereo')], 'no_scan')] * 4)
+    assert len(grades) == 1 and level == 'PASS' and 'near 1/1' in why, why
+
+
+def test_far_box_with_an_off_ratio_is_not_graded():
+    """27 m lidar against 24 m stereo is normal stereo error at range (L/S 1.12 failed before)."""
+    grades, (level, why) = graded([([('far', 24.0, 27.0, 'lidar'), ('near', 6.0, 6.1, 'lidar')], '')] * 3)
+    assert {g[1] for g in grades} == {'near'} and level == 'PASS' and 'L/S 1.02' in why, why
+
+
+def test_hits_pool_per_object_over_the_window():
+    """An object that misses some frames but hits others passes (hit rate over the window); one never hit fails."""
+    frames = [([('a', 6.0, 6.1, 'lidar')], ''), ([('a', 6.0, 6.0, 'stereo')], '')] * 3
+    _, (level, why) = graded(frames)
+    assert level == 'PASS' and 'near 1/1' in why, why
+    _, (level, why) = graded([([('a', 6.0, 6.1, 'lidar'), ('b', 8.0, 8.0, 'stereo')], '')] * 3)
+    assert level == 'FAIL' and 'near 1/2' in why, why
+    _, (level, why) = graded([([('a', 6.0, 6.1, 'lidar')], '')] + [([('a', 6.0, 6.0, 'stereo')], '')] * 3)
+    assert level == 'WARN' and 'near 1/1' in why, why        # hit rate 25% < hit_rate_min
+
+
 def test_panel_check_keys_match_fusion_calib():
     c = fusion_feed.load_config()['check']
     assert {'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'range_tol', 'range_fail_tol'} <= set(c)
@@ -281,7 +341,7 @@ def test_readout_keeps_the_estimate_and_the_ratio_when_narrow():
     cfg, status = fusion_feed.load_config(), fusion.fusion_status(facts())
     wide = [line.plain for line in fusion.readout(model(), cfg, status)]
     assert wide[0].endswith('L/S 0.96 · live') and 'du +1.3' in wide[0]
-    assert wide[1] == 'corr  p +0.10 y -0.30 r +0.02° · est +0.12 -0.33 +0.01'
+    assert wide[1] == 'corr  ox +0.10 oy -0.30 oz +0.02° · est +0.12 -0.33 +0.01'
     assert wide[2].endswith('px raw')                    # lidar_fusion's samples, before the applied correction
     narrow = [line.plain for line in fusion.readout(model(), cfg, status, 48)]
     assert narrow[0] == 'check PASS near 1/1 · L/S 0.96'
@@ -289,6 +349,21 @@ def test_readout_keeps_the_estimate_and_the_ratio_when_narrow():
     tight = [line.plain for line in fusion.readout(model(), cfg, status, 40)]
     assert tight[1:3] == ['corr  +0.10 -0.30 +0.02°', '      est +0.12 -0.33 +0.01']
     assert all(len(line) <= 40 for line in tight[:3])
+
+def test_readout_marks_a_kept_correction_stale():
+    cfg = fusion_feed.load_config()
+    line = fusion.readout({**model(), 'applied': (0.1, -0.3, 0.02)}, cfg, {})[1].plain
+    assert line == 'corr  ox +0.10 oy -0.30 oz +0.02° stale'
+    assert fusion.readout({**model(), 'applied': (0.0, 0.0, 0.0)}, cfg, {})[1].plain == 'corr  none applied'
+
+
+def test_budgeted_link_slows_the_drawings(monkeypatch):
+    cfg = fusion_feed.load_config()
+    assert fusion.draw_rate(cfg) == cfg['draw_hz'] and fusion.draw_rate(cfg, 0.5) == cfg['draw_hz']
+    monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
+    assert fusion.draw_rate(cfg) == min(cfg['draw_hz'], pixels.THROTTLE_HZ)
+    assert fusion.draw_rate(cfg, 0.5) == fusion.draw_rate(cfg) / 2
+
 
 def render(view, width, height=34):
     import test_dashboard
@@ -325,7 +400,7 @@ def test_tab_fits_every_width_in_text(width, text_tier, monkeypatch):
     text = '\n'.join(''.join(s.text for s in line) for line in lines)
     assert 'Camera' in text and 'Around' in text and 'Alignment' in text
     assert '7.0L/7.3S' in text and '12.0R' in text and 'PASS' in text
-    assert 'p +0.10 y -0.30 r +0.02' in text or '+0.10 -0.30 +0.02° · est +0.12 -0.33 +0.01' in text
+    assert 'ox +0.10 oy -0.30 oz +0.02' in text or '+0.10 -0.30 +0.02° · est +0.12 -0.33 +0.01' in text
     assert any(0x2800 < ord(ch) <= 0x28FF for ch in text)          # the braille drawing
 
 
@@ -386,7 +461,13 @@ def test_app_feed_is_off_when_the_tab_is_not_shown(monkeypatch):
     assert fake.applied is None                  # hidden: not even the status is read
     app.tab = 'Fusion'
     assert App.fusion_view(app)['fusion'] == {'x': 1} and wants == [False, True]
-    assert fake.applied == (0.0, 0.0, 0.0)
+    assert fake.applied is None                  # no fusion_state yet: nothing to keep
+    app.facts = facts()
+    App.fusion_view(app)
+    assert fake.applied == (0.10, -0.30, 0.02)
+    app.facts = {}                               # the fact went stale: the last correction stays for the scan
+    App.fusion_view(app)
+    assert fake.applied == (0.10, -0.30, 0.02)
     app.review = object()                        # review: live only, and the feed closes
     assert App.fusion_view(app) == {'fusion': None, 'fusion_review': True} and wants[-1] is False
     app.fusion_feed = None
@@ -427,9 +508,10 @@ def test_safety_rows_stay_text_over_the_tab(width, tier):
         assert any(ord(ch) in MARKERS for text, _ in rows[2:-3] for ch in text)
 
 
-def test_tiles_dim_under_a_popup_like_the_text():
+@pytest.mark.parametrize('tier', ['sixel', 'kitty'])
+def test_tiles_dim_under_a_popup_like_the_text(tier):
     view = tab_view(modal={'kind': 'message', 'title': 'Ready', 'message': 'Clear the area'})
-    rows = lines_of(view, 120, 40, 'sixel')
+    rows = lines_of(view, 120, 40, tier)
     tiles = [seg for _, row in rows for seg in row if any(ord(ch) in MARKERS for ch in seg.text)]
     assert tiles and all(seg.style is not None and seg.style.dim for seg in tiles)
 

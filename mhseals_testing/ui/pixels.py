@@ -398,7 +398,7 @@ def rate(now=None):
 
 # Kitty placeholders are text Rich rewrites every frame (about 4-10 B a cell): for the large,
 # boat-centred minimap that is 2-3x its braille, so under kitty it stays braille (sixel draws it).
-KITTY_TEXT = ('minimap',)
+KITTY_TEXT = ('minimap', 'fusion.around')
 
 
 def images(widget):

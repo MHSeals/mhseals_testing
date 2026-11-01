@@ -1095,7 +1095,9 @@ class App:
         if not feed:
             return {'fusion': None} if shown else review
         if shown:
-            feed.applied = fusion_panel.fusion_status(self.facts).get('applied_deg') or (0.0, 0.0, 0.0)
+            # a stale or missing fusion_state keeps the last correction (the readout marks it stale), so the scan
+            # is not drawn uncorrected under boxes a corrected fusion still ranges
+            feed.applied = fusion_panel.fusion_status(self.facts).get('applied_deg') or feed.applied
         # the frame only as image tiles on an unbudgeted link: over SSH or the radio the points and boxes suffice
         feed.want(shown, camera=pixels.active() and pixels.BUDGET is None and pixels.images('fusion.camera'))
         return {'fusion': feed.snapshot(), 'fusion_facts': self.facts} if shown else review

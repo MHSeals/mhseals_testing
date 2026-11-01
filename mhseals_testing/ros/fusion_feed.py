@@ -28,6 +28,7 @@ KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
         'check': {'near_m', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
                   'range_tol', 'range_fail_tol', 'min_samples'}}
 TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the transforms before the tab opened
+LIDAR_SOURCES = ('lidar', 'split', 'lidar_ray')   # fused rows ranged by the lidar (a hit)
 SCANS = 3            # projected scans held, so boxes pair with the scan nearest their capture
 
 
@@ -138,6 +139,7 @@ class FusionFeed:
         self.sources = None                   # (t, [label]) of the newest fused array
         self.scans = deque(maxlen=SCANS)      # (t, uv Nx2 normalised, range N, optical x/z Mx2 of all in front)
         self.residuals = deque()              # (received, du_px, dv_px)
+        self.grades = deque()                 # (received, id, hit, L/S or None): near boxes of fused, unskipped frames
         self.frame = None                     # (grey HxW, received)
         self._points_at = self._frame_at = None
         self.version = 0
@@ -251,6 +253,7 @@ class FusionFeed:
         try:
             doc = json.loads(message.data)
             labels = [str(s) for s in doc.get('sources', [])]
+            skipped = bool(doc.get('skip'))
             samples = [(float(e[0]), float(e[1]), float(e[4]), float(e[5])) for e in doc.get('ex') or []]
         except Exception:
             return
@@ -261,8 +264,25 @@ class FusionFeed:
                 for x, y, r_az, r_el in samples:
                     self.residuals.append((now, self.K[0] * (math.tan(math.atan(x) + r_az) - x),
                                            self.K[4] * (math.tan(math.atan(y) + r_el) - y)))
-            while self.residuals and self.residuals[0][0] < now - self.cfg['feed']['residual_s']:
-                self.residuals.popleft()
+            if not skipped:
+                self._grade(now)
+            for held in (self.residuals, self.grades):
+                while held and held[0][0] < now - self.cfg['feed']['residual_s']:
+                    held.popleft()
+
+    def _grade(self, now):
+        """Hits and L/S of this fused frame's near boxes (stereo < near_m, as lidar_fusion samples them).
+
+        Only frames the fusion processed (no ``skip``) and labelled; ``held`` rows are neither a hit nor a miss."""
+        if self.fused is None or not self.sources or abs(self.sources[0] - self.fused[0]) > 1e-6:
+            return
+        for det in detections(self.raw, self.fused, self.sources):
+            if det['box'] is None or det['stereo'] is None or det['stereo'] >= self.cfg['check']['near_m'] \
+                    or det['source'] in ('held', 'fused'):
+                continue
+            hit = det['source'] in LIDAR_SOURCES
+            ratio = det['range'] / det['stereo'] if hit and det['range'] else None
+            self.grades.append((now, det['id'], hit, ratio))
 
     # -- the panel's view ------------------------------------------------------------------------
 
@@ -292,22 +312,30 @@ class FusionFeed:
             return {'version': self.version, 'size': self.size, 'K': self.K, 'dets': dets,
                     'fused': self.fused is not None, 'points': scan if fresh else None,
                     'frame': None if self.frame is None else self.frame[0],
-                    'residuals': [(t - now, du, dv) for t, du, dv in self.residuals]}
+                    'residuals': [(t - now, du, dv) for t, du, dv in self.residuals],
+                    'grades': [(t - now, i, hit, ratio) for t, i, hit, ratio in self.grades],
+                    'applied': self.applied}
 
 
-def _range(pos):
-    r = math.sqrt(sum(v * v for v in pos))
+def _flat(pos, frame):
+    """``pos`` with its vertical axis zeroed (optical y down, body z up): lidar_fusion ranges the horizontal rho."""
+    x, y, z = pos
+    return (x, 0.0, z) if 'optical' in frame else (x, y, 0.0)
+
+
+def _range(pos, frame=''):
+    r = math.sqrt(sum(v * v for v in _flat(pos, frame)))
     return r if math.isfinite(r) and r > 0 else None
 
 
-def _sigma(pos, cov):
-    """Range SD along the ray from a 3x3 covariance (None when the backend gave none)."""
+def _sigma(pos, cov, frame=''):
+    """Horizontal range SD from a 3x3 covariance (lidar_fusion's radial one); None when the backend gave none."""
     if not any(cov):
         return None
-    r = _range(pos)
+    r = _range(pos, frame)
     if r is None:
         return None
-    u = np.asarray(pos) / r
+    u = np.asarray(_flat(pos, frame)) / r
     var = float(u @ np.asarray(cov, float).reshape(3, 3) @ u)
     return math.sqrt(var) if var > 0 else None
 
@@ -326,18 +354,20 @@ def detections(raw, fused, sources):
     if fused is None:
         rows = [(ob, 'stereo') for ob in (raw[2] if raw else ())]
         frame = raw[1] if raw else ''
+        sframe = frame
     else:
         # labels belong to the fused array of the same stamp; another frame's, even with as many boxes, would mislabel
         same = sources and abs(sources[0] - fused[0]) < 1e-6 and len(sources[1]) == len(fused[2])
         labels = sources[1] if same else []
         rows = [(ob, labels[i] if labels else 'fused') for i, ob in enumerate(fused[2])]
         frame = fused[1]
+        sframe = raw[1] if raw else frame
     out = []
     for ob, source in rows:
         s = stereo.get(ob['box'])
         out.append({'cls': ob['cls'], 'box': ob['box'], 'source': source, 'frame': frame,
-                    'range': _range(ob['pos']), 'stereo': _range(s['pos']) if s else None,
-                    'sigma': _sigma(ob['pos'], ob['cov']), 'pos': ob['pos'],
+                    'range': _range(ob['pos'], frame), 'stereo': _range(s['pos'], sframe) if s else None,
+                    'sigma': _sigma(ob['pos'], ob['cov'], frame), 'pos': ob['pos'], 'id': ob['id'],
                     'stereo_pos': s['pos'] if s else None})
     return out
 

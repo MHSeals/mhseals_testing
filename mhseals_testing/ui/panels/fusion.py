@@ -30,7 +30,6 @@ RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to
 GREYS = 6              # grey levels of the frame behind the points
 CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
-LIDAR_SOURCES = ('lidar', 'split', 'lidar_ray')
 READOUT_ROWS = 8       # Alignment's six lines and its border
 AROUND_MIN = 24        # Around's least width beside the camera column
 AROUND_SHARE = 0.3     # and its least share of the width
@@ -137,6 +136,12 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
     return out
 
 
+def draw_rate(cfg, budgeted=1.0):
+    """Repaints per second: draw_hz, and over a link budget THROTTLE_HZ at most times ``budgeted`` (two big surfaces
+    share the link, so Around takes half the camera's rate)."""
+    return min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted if pixels.BUDGET else cfg['draw_hz']
+
+
 def label_cells(text, col, row, cols, rows, style):
     """Hole cells for ``text`` starting at (col, row), shifted left to stay inside ``cols``."""
     col = max(0, min(col, cols - len(text)))
@@ -182,7 +187,9 @@ def paint_camera(model, cfg):
                 continue
             u0, v0, u1, v1 = det['box']
             x0, y0, x1, y1 = (min(u0, u1) * r.w, min(v0, v1) * r.h, max(u0, u1) * r.w - 1, max(v0, v1) * r.h - 1)
-            ink, dash = inks[f"box.{class_token(det['cls'])}"], (3 * width if det['source'] == 'lidar_ray' else 0)
+            # ray mode dashed in images; text keeps a solid outline (a dash leaves a braille box a few dots)
+            ray = det['source'] == 'lidar_ray' and r.cw > TEXT_CELL[0]
+            ink, dash = inks[f"box.{class_token(det['cls'])}"], (3 * width if ray else 0)
             for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
                 r.line(*a, *b, ink, width, dash)
     return paint
@@ -203,7 +210,7 @@ def camera_rows(model, cfg, cols, rows):
                 break
     layers = camera_layers(model['dets'])
     return draw('fusion.camera', paint_camera(model, cfg), layers, cols, rows,
-                (model['version'], model.get('frame') is not None), labels, cfg['draw_hz'])
+                (model['version'], model.get('frame') is not None), labels, draw_rate(cfg))
 
 
 # --- Around (top-down) ----------------------------------------------------------------------------
@@ -297,7 +304,7 @@ def around_rows(model, cfg, cols, rows):
               + [(f'det.{t}', t) for t in tokens] + [('boat', 'boat')])
     cell = pixels.CELL if pixels.active() and pixels.images('fusion.around') else TEXT_CELL
     return draw('fusion.around', paint_around(model, cfg, span), layers, cols, rows,
-                (model['version'], span), around_labels(model, span, cols, rows, cell), cfg['draw_hz'])
+                (model['version'], span), around_labels(model, span, cols, rows, cell), draw_rate(cfg, 0.5))
 
 
 # --- Alignment ------------------------------------------------------------------------------------
@@ -308,7 +315,10 @@ def median(values):
 
 
 def check(model, cfg):
-    """``(level, reason)``: fusion_calib's check rule over the live samples; level None while collecting."""
+    """``(level, reason)``: fusion_calib's check rule over the live samples; level None while collecting.
+
+    Hits and L/S come from the feed's ``grades``: near boxes (stereo < near_m) of the frames the fusion processed,
+    pooled per object over the residual window; an object fails only if it never got a hit."""
     c = cfg['check']
     res = model['residuals']
     if len(res) < c['min_samples']:
@@ -326,16 +336,20 @@ def check(model, cfg):
         elif abs(off) > c[name + '_pass_px']:
             worse('WARN')
     why = [f'du {du:+.1f} dv {dv:+.1f} px']
-    near = [d for d in model['dets'] if d['box'] is not None and (d['stereo'] or d['range'] or 1e9) < c['near_m']]
-    if near and model['fused']:
-        hits = sum(d['source'] in LIDAR_SOURCES for d in near)
-        why.append(f'near {hits}/{len(near)}')
-        if not hits:
-            worse('FAIL')
-        elif hits / len(near) < c['hit_rate_min']:
+    objects = {}                  # backend id -> ([hit], [L/S]) over the window, as fusion_calib's per-object medians
+    for _, key, hit, ratio in model.get('grades', ()):
+        hits, ratios = objects.setdefault(key, ([], []))
+        hits.append(hit)
+        if ratio is not None:
+            ratios.append(ratio)
+    if objects:
+        hit = [o for o in objects.values() if any(o[0])]
+        why.append(f'near {len(hit)}/{len(objects)}')
+        if len(hit) < len(objects):
+            worse('FAIL')         # an object that never got a hit
+        elif any(sum(h) / len(h) < c['hit_rate_min'] for h, _ in hit):
             worse('WARN')
-    ratio = median([d['range'] / d['stereo'] for d in model['dets']
-                    if d['source'] in LIDAR_SOURCES and d['range'] and d['stereo']])
+    ratio = max((median(r) for _, r in objects.values() if r), key=lambda v: abs(v - 1), default=None)
     if ratio is not None:
         why.append(f'L/S {ratio:.2f}')
         if abs(ratio - 1) > c['range_fail_tol']:
@@ -367,7 +381,21 @@ def trend(res, index, buckets=SPARK_COLUMNS):
 
 def readout(model, cfg, status, width=None):
     """Alignment's lines; at ``width`` the check drops ``live`` then its du/dv (the rows below show them), and the
-    correction drops its p/y/r letters, then puts the estimate on its own line."""
+    correction drops its axis letters, then puts the estimate on its own line. Memoised on the data it reads."""
+    res, grades = model['residuals'], model.get('grades') or [()]
+    key = (model['version'], len(res), res[-1][1:] if res else None, len(grades), grades[-1][1:], model.get('applied'),
+           width, tuple(sorted(status.items())), theme.ASCII)
+    if _READOUT and _READOUT[0] == key:
+        return _READOUT[1]
+    lines = _readout(model, cfg, status, width)
+    _READOUT[:] = [key, lines]
+    return lines
+
+
+_READOUT = []
+
+
+def _readout(model, cfg, status, width):
     width = width or 1 << 30
     level, why = check(model, cfg)
     style = {'PASS': theme.GOOD, 'WARN': theme.WARN, 'FAIL': theme.BAD}.get(level, theme.MUTED)
@@ -378,11 +406,15 @@ def readout(model, cfg, status, width=None):
             break
     lines = [Text.assemble(head, (tail, theme.MUTED))]
     applied, est = status.get('applied_deg'), status.get('extrinsic_deg')
+    stale = not applied and any(model.get('applied') or ())     # the feed keeps the last one for the points
+    applied = applied or (model.get('applied') if stale else None)
     if applied:
         est_text = f'est {" ".join(f"{v:+.2f}" for v in est)}' if est else ''
-        for names in ('pyr', '   '):
+        for names in (('ox', 'oy', 'oz'), ('', '', '')):      # optical axes: +oy is down, so +oy turns starboard
             corr = Text('corr  ', style=theme.MUTED)
             corr.append(' '.join(f'{n} {v:+.2f}'.strip() for n, v in zip(names, applied)) + DEG)
+            if stale:
+                corr.append(' stale', style=theme.WARN)
             if len(corr) + len(theme.SEPARATOR) + len(est_text) <= width:
                 break
         if est_text and len(corr) + len(theme.SEPARATOR) + len(est_text) <= width:
