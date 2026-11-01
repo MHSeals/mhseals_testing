@@ -238,7 +238,7 @@ def frame_shown(model):
     it joins after the tile's first repaint, so the link does not take both at once."""
     return (model.get('frame') is not None and model.get('frame_aspect') is not False
             and pixels.active() and pixels.images('fusion.camera')
-            and (not pixels.BUDGET or _STARTED.get('fusion.camera') == pixels.GENERATION))
+            and (not pixels.BUDGET or not model.get('image') or _STARTED.get('fusion.camera') == pixels.GENERATION))
 
 
 def camera_model(model):
@@ -292,7 +292,8 @@ def paint_camera(model, cfg):
                 _JOINED['fusion.camera'] = (link_block(), steps)
                 share = min(1.0, steps / JOIN_STEPS)
             paint_frame(r, model['frame'], share)
-        if pixels.BUDGET and pixels.active() and pixels.images('fusion.camera') and _STARTED.get('fusion.camera') != pixels.GENERATION:
+        if (pixels.BUDGET and model.get('image') and pixels.active() and pixels.images('fusion.camera')
+                and _STARTED.get('fusion.camera') != pixels.GENERATION):
             _STARTED['fusion.camera'] = pixels.GENERATION
             return          # the tile's first repaint over a link is empty: its neighbours' first ones are all new tiles too
         scan = model.get('points')
@@ -665,7 +666,7 @@ def camera_subtitle(model, cfg):
 
 def image_note(model, cfg):
     """``(text, style)`` of the image toggle's state for the Camera title, or None while the frame is drawn in time
-    with its boxes: off, needs graphics (the text tiers), no frame yet, another aspect than camera_info, or the
+    with its boxes: off, needs graphics (the text tiers), no frame yet, loading (over a link), another aspect than camera_info, or the
     frame's boxes ``frame +0.40s`` from it (no array of its own stamp)."""
     if not model.get('image'):
         return 'image off', theme.MUTED
@@ -675,6 +676,10 @@ def image_note(model, cfg):
         return 'no frame', theme.MUTED
     if model.get('frame_aspect') is False:
         return 'frame aspect != camera_info', theme.WARN
+    if pixels.BUDGET:       # over a link the frame starts after an empty repaint and comes in by rows
+        block, steps = _JOINED.get('fusion.camera', (None, 0))
+        if _STARTED.get('fusion.camera') != pixels.GENERATION or block != link_block() or steps < JOIN_STEPS:
+            return 'image loading', theme.MUTED
     dt = model.get('frame_dt')
     if dt is not None and abs(dt) > STAMP_MATCH_S:
         return f'frame {dt:+.2f}s', theme.WARN if abs(dt) > cfg['feed']['scan_dt_max_s'] else theme.MUTED

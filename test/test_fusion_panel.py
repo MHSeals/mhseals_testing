@@ -1003,6 +1003,39 @@ def test_frame_waits_for_the_tiles_first_repaint_and_comes_in_by_rows(monkeypatc
         pixels.use('text')
 
 
+def test_image_off_draws_the_points_at_once_over_a_link(monkeypatch):
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        monkeypatch.setattr(pixels, 'BUDGET', 25000)
+        monkeypatch.setattr(fusion, '_STARTED', {})
+        monkeypatch.setattr(fusion, '_JOINED', {})
+        m = model()
+        m['points'] = (0.0, np.array([[0.5, 0.5]], np.float32), np.array([5.0], np.float32), np.array([[0, 5]], np.float32))
+        m['image'] = False
+        assert camera_raster(m).px.any()                         # points on the first repaint, no image to wait for
+        assert fusion.image_note(m, fusion_feed.load_config())[0] == 'image off'
+    finally:
+        pixels.use('text')
+
+
+def test_title_says_loading_until_the_frame_is_complete(monkeypatch):
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        cfg = fusion_feed.load_config()
+        monkeypatch.setattr(pixels, 'BUDGET', 25000)
+        monkeypatch.setattr(fusion, '_STARTED', {})
+        monkeypatch.setattr(fusion, '_JOINED', {})
+        m = framed()
+        notes = []
+        for _ in range(fusion.JOIN_STEPS + 2):
+            notes.append((fusion.image_note(m, cfg) or ('',))[0])
+            camera_raster(m)
+        assert notes[:fusion.JOIN_STEPS + 1] == ['image loading'] * (fusion.JOIN_STEPS + 1)
+        assert notes[-1] == ''
+    finally:
+        pixels.use('text')
+
+
 def test_frame_blocks_follow_the_size_of_a_repaint(monkeypatch):
     cfg = fusion_feed.load_config()
     now = [100.0]
