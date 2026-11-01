@@ -62,7 +62,7 @@ def test_rosio_callbacks_and_ingest_give_equal_snapshots():
     direct = snapshot_of(lambda m: [ingest(m, PROFILE, t, k, msg, T) for t, k, msg in MESSAGES])
 
     def via_rosio(monitor):
-        io = NS(monitor=monitor, profile=PROFILE, stale_after=2.0, now=lambda: T)
+        io = NS(monitor=monitor, profile=PROFILE, stale_after=2.0, now=lambda: T, taps={})
         io._ingest = lambda *a, **k: RosIO._ingest(io, *a, **k)
         for topic, kind, msg in MESSAGES:
             if kind in ('tf',):
