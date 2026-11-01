@@ -1,0 +1,21 @@
+# fusion_calib: offline lidar-camera calibration and pre-run check (perception-calibration.md 2b, 2c).
+# Association and the fit are mhseals_nav lidar_fusion's, configured by its lidar_fusion.yaml
+# (and tracker.yaml for class radii). Topics, frames and the cloud match come from there too:
+# observations_topic, points_topic, camera_info_topic, camera_frame, camera_axes, odom_frame,
+# base_frame, image_time_offset_s, scan_max_dt_s (nearest cloud), r_min_m, water_z_m,
+# water_range_m, tf_max_gap_s. Keys under lidar_fusion override its top level and keys under
+# extrinsic its extrinsic block; an unknown key is an error.
+lidar_fusion:
+  sample_max_range_m: 20.0      # buoys at 5-15 m separate rotation from translation (1/Z)
+extrinsic: {}
+bearing_gate_deg: 3.0           # key-less detections join the nearest object of their class
+bootstrap: {reps: 200, block_s: 5.0, seed: 1, min_units: 5}   # units: object x time block
+constrained_se_ratio: 0.5       # posterior SE below this x prior SE counts as measured
+check:
+  near_m: 10.0                  # median stereo range under which a box must get lidar hits
+  du_pass_px: 5.0               # |median du| per object
+  du_warn_px: 9.0
+  hit_rate_min: 0.5             # near boxes; below it WARN, no hit at all FAIL
+  range_tol: 0.05               # |lidar/stereo - 1| and |lidar/truth - 1| beyond it WARN
+  domega_pass_deg: 0.5          # vs --baseline, axes constrained in both records
+  domega_warn_deg: 1.0
