@@ -286,9 +286,13 @@ def test_live_check_fails_past_range_fail_tol(ls, level):
 
 
 def frame_of(cb, f, boxes, t, skip=''):
-    """One lidar_fusion frame: stereo array, fused array and its sources JSON. boxes: (id, stereo m, fused m, source)."""
-    stereo = [ob('red_buoy', (0.1 * i, 0.4, 0.1 * i + 0.05, 0.6), (0, 0, s), oid=k) for i, (k, s, _, _) in enumerate(boxes)]
-    fused = [ob('red_buoy', (0.1 * i, 0.4, 0.1 * i + 0.05, 0.6), (0, 0, r), oid=k) for i, (k, _, r, _) in enumerate(boxes)]
+    """One lidar_fusion frame: stereo array, fused array and its sources JSON.
+
+    boxes: (id, stereo m, fused m, source[, class[, normalised box]]); by default red buoys spaced apart."""
+    def spec(i, b):
+        return (b[4] if len(b) > 4 else 'red_buoy'), (b[5] if len(b) > 5 else (0.1 * i + 0.1, 0.4, 0.1 * i + 0.15, 0.6))
+    stereo = [ob(*spec(i, b), (0, 0, b[1]), oid=b[0]) for i, b in enumerate(boxes)]
+    fused = [ob(*spec(i, b), (0, 0, b[2]), oid=b[0]) for i, b in enumerate(boxes)]
     cb[f.cfg['topics']['observations']](array(stereo, t=t))
     cb[f.cfg['topics']['fused']](array(fused, t=t))
     cb[f.cfg['topics']['sources']](NS(data=json.dumps({'t': t, 'sources': [b[3] for b in boxes], 'skip': skip,
@@ -317,6 +321,33 @@ def test_far_box_with_an_off_ratio_is_not_graded():
     """27 m lidar against 24 m stereo is normal stereo error at range (L/S 1.12 failed before)."""
     grades, (level, why) = graded([([('far', 24.0, 27.0, 'lidar'), ('near', 6.0, 6.1, 'lidar')], '')] * 3)
     assert {g[1] for g in grades} == {'near'} and level == 'PASS' and 'L/S 1.02' in why, why
+
+
+def test_near_box_lidar_fusion_would_not_sample_is_not_graded():
+    """A near dock or boat box that stays stereo read near 1/2 FAIL with clean residuals; lidar_fusion samples
+    only sample_classes (buoys), so fusion_calib never grades it. Nor a buoy box clipped at the image edge."""
+    for other in (('dock', 5.0, 5.0, 'stereo', 'dock'), ('boat', 7.0, 7.0, 'stereo', 'target_boat'),
+                  ('clip', 6.0, 6.0, 'stereo', 'red_buoy', (0.0, 0.4, 0.05, 0.6))):
+        grades, (level, why) = graded([([('a', 6.0, 6.06, 'lidar'), other], '')] * 3)
+        assert {g[1] for g in grades} == {'a'} and level == 'PASS' and 'near 1/1' in why, (other, why)
+
+
+def test_overlapped_boxes_are_not_graded():
+    """A buoy behind another (boxes within isolation_deg in u) gives lidar_fusion no sample; neither is graded."""
+    grades, (level, why) = graded([([('a', 6.0, 6.06, 'lidar', 'red_buoy', (0.40, 0.4, 0.45, 0.6)),
+                                     ('b', 8.0, 8.0, 'stereo', 'green_buoy', (0.44, 0.42, 0.48, 0.58)),
+                                     ('c', 7.0, 7.07, 'lidar', 'green_buoy', (0.70, 0.4, 0.74, 0.6))], '')] * 3)
+    assert {g[1] for g in grades} == {'c'} and level == 'PASS' and 'near 1/1' in why, why
+    # just clear of each other: fx tan(2 deg) apart in u, both graded
+    gap = K[0] * math.tan(math.radians(2.0)) / SIZE[0] + 0.002
+    grades, _ = graded([([('a', 6.0, 6.06, 'lidar', 'red_buoy', (0.40, 0.4, 0.45, 0.6)),
+                          ('b', 8.0, 8.08, 'lidar', 'green_buoy', (0.45 + gap, 0.4, 0.50 + gap, 0.6))], '')] * 3)
+    assert {g[1] for g in grades} == {'a', 'b'}
+
+
+def test_sample_rule_is_lidar_fusions():
+    rule = fusion_feed.sample_rule()
+    assert rule['sample_classes'] and rule['border_px'] >= 0 and rule['isolation_deg'] > 0
 
 
 def test_hits_pool_per_object_over_the_window():

@@ -43,6 +43,26 @@ def load_config(path=CONFIG):
     return doc
 
 
+def sample_rule(path=None):
+    """lidar_fusion.yaml's sample filter (sample_classes, border_px, isolation_deg): the boxes it samples and
+    fusion_calib grades. Installed share first, else the config beside the imported mhseals_nav source."""
+    import yaml
+    if path is None:
+        candidates = []
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            candidates.append(Path(get_package_share_directory('mhseals_nav')) / 'config')
+        except Exception:
+            pass
+        import mhseals_nav
+        candidates += [Path(d).parent / 'config' for d in mhseals_nav.__path__]
+        path = next((c / 'lidar_fusion.yaml' for c in candidates if (c / 'lidar_fusion.yaml').is_file()), None)
+        if path is None:
+            raise FileNotFoundError(f'lidar_fusion.yaml not in {[str(c) for c in candidates]}')
+    cfg = yaml.safe_load(Path(path).read_text())['/**']['ros__parameters']
+    return {k: cfg[k] for k in ('sample_classes', 'border_px', 'isolation_deg')}
+
+
 def fusion_math():
     """lidar_fusion's frame helpers, imported on first use (mhseals_nav)."""
     from mhseals_nav.lidar_fusion import axes_matrix, small_rotation
@@ -124,8 +144,9 @@ class FusionFeed:
     the executor thread, so each one guards against a malformed message.
     """
 
-    def __init__(self, subscribe, unsubscribe, camera=None, cfg=None, clock=time.monotonic):
+    def __init__(self, subscribe, unsubscribe, camera=None, cfg=None, clock=time.monotonic, rule=None):
         self.cfg = cfg or load_config()
+        self.rule = rule or sample_rule()   # which near boxes lidar_fusion samples (and the check grades)
         self._subscribe, self._unsubscribe, self.camera, self._clock = subscribe, unsubscribe, camera, clock
         self._lock = threading.Lock()
         self.tf = StaticTF()          # kept while closed; /tf_static is redelivered on each open
@@ -271,14 +292,22 @@ class FusionFeed:
                     held.popleft()
 
     def _grade(self, now):
-        """Hits and L/S of this fused frame's near boxes (stereo < near_m, as lidar_fusion samples them).
+        """Hits and L/S of this fused frame's near boxes that lidar_fusion would sample (extrinsic_samples):
+        stereo < near_m, a sample class, border_px clear of the image edge, no other box within isolation_deg in u.
 
         Only frames the fusion processed (no ``skip``) and labelled; ``held`` rows are neither a hit nor a miss."""
-        if self.fused is None or not self.sources or abs(self.sources[0] - self.fused[0]) > 1e-6:
+        if self.fused is None or not self.sources or abs(self.sources[0] - self.fused[0]) > 1e-6 or self.K is None:
             return
-        for det in detections(self.raw, self.fused, self.sources):
-            if det['box'] is None or det['stereo'] is None or det['stereo'] >= self.cfg['check']['near_m'] \
-                    or det['source'] in ('held', 'fused'):
+        rule, (W, H) = self.rule, self.size
+        dets = [d for d in detections(self.raw, self.fused, self.sources) if d['box'] is not None]
+        px = [(d['box'][0] * W, d['box'][1] * H, d['box'][2] * W, d['box'][3] * H) for d in dets]
+        iso, edge = self.K[0] * math.tan(math.radians(rule['isolation_deg'])), rule['border_px']
+        for i, det in enumerate(dets):
+            u0, v0, u1, v1 = px[i]
+            if det['stereo'] is None or det['stereo'] >= self.cfg['check']['near_m'] \
+                    or det['source'] in ('held', 'fused') or not det['cls'].endswith(tuple(rule['sample_classes'])) \
+                    or u0 < edge or v0 < edge or u1 > W - edge or v1 > H - edge \
+                    or any(j != i and min(o[2], u1 + iso) - max(o[0], u0 - iso) > 0 for j, o in enumerate(px)):
                 continue
             hit = det['source'] in LIDAR_SOURCES
             ratio = det['range'] / det['stereo'] if hit and det['range'] else None
