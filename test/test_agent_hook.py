@@ -1212,8 +1212,19 @@ PY_NOT_INERT = [
     "import os, string\nstring.Formatter().get_field('0.system', [os], {})[0]('true')",
     "import os, sys\nos.environ['PYTHONBREAKPOINT'] = 'os.system'\nsys.breakpointhook('true')",
     "import os\nos.environ['PAGER'] = 'true'\nhelp(len)", "import subprocess\nsubprocess.run(['true'])",
-    "import os\nos.system('true')", "import socket\nsocket.socket()", "import importlib\nimportlib.import_module('os')"]
+    "import os\nos.system('true')", "import socket\nsocket.socket()", "import importlib\nimportlib.import_module('os')",
+    # a top-level path or a builtin the check reads, shadowed by a parameter, except/match name, def or class
+    "P = '/tmp/a.md'\ndef f(P):\n    open(P, 'w').write('x')\nf('/home/x/.bashrc')",
+    "P = '/tmp/a.md'\n(lambda P: open(P, 'w'))('/home/x/.bashrc')",
+    "P = '/tmp/a.md'\ntry:\n    1 / 0\nexcept Exception as P:\n    open(str(P), 'w')",
+    "P = '/tmp/a.md'\nmatch '/home/x/.bashrc':\n    case P:\n        open(P, 'w')",
+    "def Path(x):\n    return '/home/x/.bashrc'\nopen(Path('/tmp/a.md'), 'w')",
+    "str = lambda x: '/home/x/.bashrc'\nopen(str('/tmp/a.md'), 'w')",
+    # open's mode hidden in **kw or *args
+    "open('/home/x/.bashrc', **{'mode': 'w'})", "open(*['/home/x/.bashrc', 'w'])",
+    "from pathlib import Path\nPath('/home/x/.bashrc').open(**{'mode': 'w'})"]
 PY_INERT = ["import os\nopen(os.path.join('/tmp', 'a.md'), 'w').write('x')", "import os.path\nprint(os.path.exists('/tmp'))",
+            "def save(text):\n    open('/tmp/a.md', 'w').write(text)\nsave('x')", "with open('/home/x/.bashrc') as f:\n    f.read()",
             "import collections.abc\nprint(isinstance({}, collections.abc.Mapping))",
             "from datetime import datetime, timezone\nprint(datetime.now(timezone.utc))",
             "import shutil\nshutil.copy('/tmp/a.md', '/tmp/b.md')", "import yaml, sys\nprint(yaml.safe_load('a: 1'), file=sys.stderr)",
@@ -1232,6 +1243,35 @@ def test_plain_reports_stay_inert(code):
 
 def test_an_aliased_system_call_is_searched():
     assert hook.denied(f"python3 - <<'PY'\nfrom os import system as s\ns('{WR}')\nPY", hook.DEFAULTS, cwd='/tmp')
+
+
+# Python that is not inert is searched with its string literals joined (py_text): a list argv is the command it runs.
+PY_ARGV_DENY = [
+    "cat > /tmp/w/x.py <<'PY'\nimport subprocess\nsubprocess.run(['ros2','topic','pub','/cmd_vel','x','y'])\nPY",
+    "python3 - <<'PY'\nimport os\nos.environ['X'] = '1'\nos.execvp('ros2', ['ros2', 'topic', 'pub', '/cmd_vel', 'x', 'y'])\nPY",
+    "cat > /tmp/w/x.py <<'PY'\nimport subprocess\nsubprocess.run(['ros2', 'action', 'send_goal', '/navigate_to_pose', 'x'])\n"
+    "PY\npython3 /tmp/w/x.py",
+    "python3 - <<'PY'\nimport subprocess\nsubprocess.call(['ros2', 'service', 'call', '/mavros/cmd/arming', 'x'])\nPY",
+    "python3 -c \"import subprocess; subprocess.run(['ros2','topic','pub','/goal_pose','x'])\"",
+    "sudo python3 -u -c \"import os; os.execvp('ros2', ['ros2', 'param', 'set', '/command_mux', 'x', '1'])\""]
+PY_ARGV_ALLOW = [
+    "python3 - <<'PY'\nfrom pathlib import Path\nt = ['ros2', 'topic', 'pub', '/cmd_vel', '/mavros/cmd/arming', 'arming']\n"
+    "Path('/tmp/report.md').write_text(' '.join(t))\nPY",
+    "cat > /tmp/w/report.py <<'PY'\n# ros2 topic pub /cmd_vel is what the boat_agent run does\nimport json\n"
+    "print(json.dumps({'cmd': 'ros2', 'verb': 'topic', 'what': 'pub', 'topic': '/cmd_vel'}))\nPY",
+    "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['git', 'status'])\nPY",
+    "python3 -c \"import subprocess; subprocess.run(['ros2', 'topic', 'echo', '/cmd_vel'])\""]
+
+
+@pytest.mark.parametrize('command', PY_ARGV_DENY)
+def test_a_python_list_argv_that_drives_the_boat_is_denied(command):
+    found = hook.denied(command, hook.DEFAULTS, cwd='/tmp')
+    assert found and 'boat_agent' in hook.deny_reason(*found, config=hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('command', PY_ARGV_ALLOW)
+def test_python_naming_the_boat_in_data_or_a_read_is_allowed(command):
+    assert not hook.denied(command, hook.DEFAULTS, cwd='/tmp')
 
 
 @pytest.mark.parametrize('command', [

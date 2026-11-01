@@ -726,7 +726,35 @@ def code_of(command, cwd=None):
                     (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
                 for c in pipe)) or (py_script(pipe, where(text, cwd), text)
                                     and (quoted or not re.search(r'[$`\\]', body)) and py_inert(body, where(text, cwd))))
-            out += ([] if data else body.split('\n')) + [end]
+            out += ([] if data else body.split('\n') + list(filter(None, [py_text(body)]))) + [end]
+    return '\n'.join(out)
+
+
+def py_text(code):
+    """The string literals of python ``code`` joined on one line ('' unless it parses), so the deny rules see a list
+    argv (``subprocess.run(['ros2', 'topic', 'pub', ...])``, ``os.execvp('ros2', [...])``) as the command it runs."""
+    import ast
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return ''
+    return ' '.join(' '.join(n.value.split()) for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str))
+
+
+def py_inline(command):
+    """``py_text`` of each ``python -c CODE`` in the call, one line each."""
+    try:
+        pipelines = parse(command)
+    except ValueError:
+        return ''
+    out, todo = [], [c for p in pipelines for c in p]
+    while todo:
+        cmd = todo.pop()
+        todo += [c for sub in cmd['subs'] for p in sub for c in p]
+        words = cmd['argv']
+        if any(re.fullmatch(r'(\S*/)?python[\d.]*', w) for w in words):     # sudo, env -i, /usr/bin/python3 ...
+            out += [py_text(words[i + 1]) for i, w in enumerate(words[:-1]) if re.fullmatch(r'-[A-Za-z]*c', w)]
     return '\n'.join(out)
 
 
@@ -944,6 +972,15 @@ def py_inert(code, cwd=None):
             return False
         elif isinstance(node, ast.Name) and (node.id in PY_OPAQUE or node.id.startswith('__') and node.id != '__name__'):
             return False
+        # every other binding: a parameter, except/match name or def/class shadows a top-level name (def f(P): ...)
+        name = (node.arg if isinstance(node, ast.arg) else node.rest if isinstance(node, ast.MatchMapping)
+                else getattr(node, 'name', None) if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar,
+                                                                    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                else None)
+        if name:
+            stores[name] = stores.get(name, 0) + 1
+    if any(stores.get(name) for name in ('Path', 'PurePath', 'str', 'open')):    # what py_path and open read as builtins
+        return False
     env = {}
     for node in tree.body:              # names bound once, at the top, to a value the hook can read
         if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
@@ -961,6 +998,8 @@ def py_inert(code, cwd=None):
             method = isinstance(func, ast.Attribute) and not mod            # Path.open(mode)
             args = node.args[0:] if method else node.args[1:]
             mode = next((k.value for k in node.keywords if k.arg in ('mode', 'flags')), args[0] if args else None)
+            if any(k.arg is None for k in node.keywords) or any(isinstance(a, ast.Starred) for a in node.args):
+                mode = ast.Name('flags')                                    # open(p, **kw), open(*a): a write
             if isinstance(func, ast.Attribute) and ast.unparse(func.value) == 'os':
                 mode = None if mode is None else ast.Name('flags')       # os.open(path, flags): always a write
             if mode is None or (isinstance(mode, ast.Constant) and isinstance(mode.value, str)
@@ -1171,7 +1210,8 @@ def denied(command, config, cwd=None, who=None):
     command = BENIGN_GIT.sub('', command)
     if text_only(command, cwd):
         return None
-    text, names = links(plain(failed_cd(own_text(code_of(command, cwd), who))), cwd), boats(config)
+    text = '\n'.join(filter(None, [code_of(command, cwd), py_inline(command)]))    # python list argv as words
+    text, names = links(plain(failed_cd(own_text(text, who))), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
