@@ -967,7 +967,7 @@ def test_a_heredoc_is_data_only_for_a_lone_write_of_a_data_file_in_notes_scratch
     dock, tmp = data_home / 'astro_dock', hook.SCRATCH + '/'
     body = f"<<EOF\nkill the stale run_task; {WR}; {WK}\nEOF"
     for command in (f'cat > .handoff/state/x.md {body}', f'cat >> ~/astro_dock/.handoff/brief.txt {body}',
-                    f'cat > /tmp/plan.yaml {body}', f'cat >> /tmp/x.log {body}', f'cat {body} > /tmp/x.json',
+                    f'cat > /tmp/plan.yaml {body}', f'cat >> /tmp/x.log {body}', f'cat {body[:5]} > /tmp/x.json{body[5:]}',
                     f'cat > ~/.cache/wt/w/docs/notes.md {body}', f"cat > /tmp/a.patch <<'EOF'\n+{WK}\nEOF",
                     f".handoff/tools/codex-task NAME <<'EOF'\nThen {WK} and {WR}.\nEOF",
                     'git add x && git commit -m "kill the stale run_task; pkill -f command_mux is denied"'):
@@ -979,6 +979,29 @@ def test_a_heredoc_is_data_only_for_a_lone_write_of_a_data_file_in_notes_scratch
     (data_home / 'scratch').symlink_to(hook.SCRATCH)
     assert hook.denied(f'cat > ~/scratch/x.md {body}', hook.DEFAULTS, cwd='/') is None      # resolves into /tmp
     assert hook.denied(f'cat > .handoff/state/x.md {body}', hook.DEFAULTS)                  # no cwd: unreadable
+
+
+# Bash ends a heredoc at the exact terminator line as it reads it: a quoted delimiter keeps a trailing backslash
+# literal (it joins nothing), and quotes or backslashes anywhere in the word (E\OF, 'E'OF, "E"OF) are removed and
+# make the body literal. Any doubt (an unterminated body, an odd delimiter) searches the whole call (re-check, 10-31).
+HEREDOC_BYPASS = [f"cat > /tmp/n.md <<'EOF'\nx\\\nEOF\n{k}\nEOF" for k in (WK, WR)] + [
+    f"cat > /tmp/n.md <<{d}\nx\nEOF\n{WK}\nEOF" for d in ('E\\OF', "'E'OF", '"E"OF', "E'O'F", '\\EOF', '"EOF"')] + [
+    f"cat > /tmp/n.md <<EOF\nx\\\nEOF\n{WK}\nEOF", f"cat > /tmp/n.md <<'EOF'\n{WK}", f"cat > /tmp/n.md <<EOF\n{WK}",
+    f"cat > /tmp/n.md <<'EOF\n{WK}\nEOF", f"cat > /tmp/n.md <<$X\nx\n$X\n{WK}\n$X",
+    f"cat > /tmp/n.md <<A <<B\nx\nA\nx\nB\n{WK}", f"cat > /tmp/n.md <<'A'\nx\nA\n{WK}"]
+
+
+@pytest.mark.parametrize('command', HEREDOC_BYPASS)
+def test_a_heredoc_ends_where_bash_ends_it(data_home, command):
+    assert hook.denied(command.replace('/tmp/', hook.SCRATCH + '/'), hook.DEFAULTS, cwd='/'), command
+
+
+@pytest.mark.parametrize('delim', ["'EOF'", '"EOF"', 'E\\OF', "'E'OF", '"E"OF', '\\EOF', 'EOF'])
+def test_a_heredoc_written_as_data_still_ends_where_bash_ends_it(data_home, delim):
+    body = f"x\\\ny {WK}" if delim != 'EOF' else f"y {WK}"     # a quoted body keeps its trailing backslash
+    command = f"cat > {hook.SCRATCH}/n.md <<{delim}\n{body}\nEOF"
+    assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
+    assert [f[1:3] for f in hook.heredocs(command)[1]] == [['EOF', delim != 'EOF']]
 
 
 @pytest.mark.parametrize('command', ['git -c user.name=t -c commit.gpgsign=false commit -qm "hook note"',

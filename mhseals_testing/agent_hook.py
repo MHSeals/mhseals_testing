@@ -526,6 +526,8 @@ REDIRECTS = {'<', '>', '>>', '>|', '&>', '&>>', '>&', '<&', '<>'}
 WRITES = {'>', '>>', '>|', '&>', '&>>'}
 PUNCT = re.compile(r'<<<|<<|>>|>&|<&|<>|&>>|&>|>\||\|\||&&|\|&|;;|[\s\S]')
 HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([\w.-]+)\1')
+HEREDOC_OP = re.compile(r'(?<!<)<<(?!<)(-?)[ \t]*')
+
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
 READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc', 'cut', 'nl',
              'tr', 'column', 'ls', 'stat', 'diff', 'jq', 'basename', 'dirname', 'realpath', 'readlink', 'pwd', 'du',
@@ -539,6 +541,57 @@ GIT_READ = {'add', 'commit', 'log', 'diff', 'show', 'status'}      # add only st
 _ADDR = r'(\d+|\$|/[^/\n]*/)(,(\d+|\$|/[^/\n]*/))?'
 _SED = rf'({_ADDR})?!?(p|s/[^/\n]*/[^/\n]*/[gpI\d]*)'
 SED_PLAIN = re.compile(rf'{_SED}(;{_SED})*;?')      # print and s/// only: no e, w, r or other delimiters
+
+
+def delimiter(line, start):
+    """The heredoc word at ``line[start:]`` as bash reduces it: quotes and backslashes removed, and any of them
+    makes the body literal. ``(word, quoted)``; ValueError for a word the hook will not guess at ($, `, an
+    empty or open-quoted word, a backslash inside double quotes)."""
+    word, quoted, i = '', False, start
+    while i < len(line) and line[i] not in ' \t;&|()<>':
+        c = line[i]
+        if c in '\'"':
+            end = line.find(c, i + 1)
+            if end < 0 or (c == '"' and '\\' in line[i + 1:end]):
+                raise ValueError('heredoc delimiter')
+            word, quoted, i = word + line[i + 1:end], True, end + 1
+        elif c == '\\':
+            if i + 1 >= len(line):
+                raise ValueError('heredoc delimiter')
+            word, quoted, i = word + line[i + 1], True, i + 2
+        else:
+            word, i = word + c, i + 1
+    if not word or re.search(r'[$`]', word):
+        raise ValueError('heredoc delimiter')
+    return word, quoted
+
+
+def heredocs(text):
+    """``(lines, bodies)``: the command lines of ``text`` (backslash-newline joined, as bash reads them) with
+    each heredoc body taken out after its line, and ``bodies`` ``[[dash, word, quoted, body, line index, terminator]]``.
+    Bodies follow bash: a quoted delimiter keeps the body literal (a trailing backslash joins nothing), the
+    terminator is the exact line. Any doubt raises ValueError so the caller treats the whole call as code: an
+    odd delimiter, an unterminated body, or a line ending in a backslash inside an unquoted body."""
+    raw, lines, found, i = text.split('\n'), [], [], 0
+    while i < len(raw):
+        line = raw[i]
+        i += 1
+        while line.endswith('\\') and i < len(raw):
+            line, i = line[:-1] + raw[i], i + 1
+        lines.append(line)
+        for op in HEREDOC_OP.finditer(line):
+            word, quoted = delimiter(line, op.end())
+            dash, body = bool(op.group(1)), []
+            while i < len(raw) and (raw[i].lstrip('\t') if dash else raw[i]) != word:
+                if not quoted and raw[i].endswith('\\'):
+                    raise ValueError('heredoc continuation')
+                body.append(raw[i])
+                i += 1
+            if i >= len(raw):
+                raise ValueError('unterminated heredoc')
+            found.append([dash, word, quoted, '\n'.join(body), len(lines) - 1, raw[i]])
+            i += 1
+    return lines, found
 
 
 def reads_only(argv):
@@ -601,19 +654,8 @@ def parse(text, bodies=None):
     """``[pipeline [command {argv, stdin, writes, subs}]]`` of ``text``. Heredoc bodies come out of the
     text first (``bodies`` shared with nested substitutions); ``subs`` are ``$(...)`` and backticks."""
     if bodies is None:
-        lines, kept, found = text.replace('\\\n', '').split('\n'), [], []
-        i = 0
-        while i < len(lines):
-            kept.append(lines[i])
-            i += 1
-            for match in HEREDOC.finditer(kept[-1]):
-                dash, body = '<<-' in match.group(0), []
-                while i < len(lines) and (lines[i].lstrip('\t') if dash else lines[i]) != match.group(2):
-                    body.append(lines[i])
-                    i += 1
-                i += 1
-                found.append(('\n'.join(body), bool(match.group(1))))
-        bodies, text = iter(found), '\n'.join(kept)
+        lines, found = heredocs(text)
+        bodies, text = iter([(f[3], f[2]) for f in found]), '\n'.join(lines)
     return build(tokens_of(text), bodies)
 
 
@@ -634,34 +676,30 @@ def code_of(command, cwd=None):
     text = command.replace('\\\n', '')
     if STDIN_SINKS.search(text):
         return command
-    lines, out, i = text.split('\n'), [], 0
-    while i < len(lines):
-        line = lines[i]
+    try:
+        lines, found = heredocs(command)
+    except ValueError:                  # a heredoc the hook cannot read as bash would: all of it is code
+        return command
+    out = []
+    for n, line in enumerate(lines):
         out.append(line)
-        i += 1
-        found = list(HEREDOC.finditer(line))
-        if not found:
+        mine = [f for f in found if f[4] == n]
+        if not mine:
             continue
         try:
-            pipelines = parse(line, iter([(f'\0{k}', True) for k in range(len(found))]))
+            pipelines = parse(line, iter([(f'\0{k}', True) for k in range(len(mine))]))
         except ValueError:
             pipelines = []
         risky = bool(re.search(r'\$\(|`|[<>]\(', line) or re.search(r'\|\s*$', line))
-        for k, match in enumerate(found):
-            dash, body = '<<-' in match.group(0), []
-            while i < len(lines) and (lines[i].lstrip('\t') if dash else lines[i]) != match.group(2):
-                body.append(lines[i])
-                i += 1
-            end = lines[i] if i < len(lines) else None
-            i += 1
+        for k, (dash, word, quoted, body, _, end) in enumerate(mine):
             pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
             data = pipe is not None and not risky and not (
-                not match.group(1) and re.search(r'\$\(|`', '\n'.join(body))) and not any(
+                not quoted and re.search(r'\$\(|`', body)) and not any(
                 (c['writes'] and not data_file(c, text, cwd)) or any('$' in w for w in c['argv'])
                 or not READS_STDIN.fullmatch(os.path.basename(next(
                     (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
                 for c in pipe)
-            out += ([] if data else body) + ([] if end is None else [end])
+            out += ([] if data else body.split('\n')) + [end]
     return '\n'.join(out)
 
 
