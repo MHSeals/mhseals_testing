@@ -59,7 +59,7 @@ def load_config(path=CONFIG):
     """fusion_calib.yaml plus the merged lidar_fusion params ('nav') and tracker ('tracker')."""
     cfg = load_strict(Path(path).read_text(), path)
     extra = set(cfg) - {'lidar_fusion', 'extrinsic', 'bearing_gate_deg', 'bootstrap',
-                        'constrained_se_ratio', 'check'}
+                        'constrained_se_ratio', 'check', 'dupes'}
     base = nav_params('lidar_fusion.yaml')
     extra |= {f'lidar_fusion.{k}' for k in set(cfg['lidar_fusion']) - set(base)}
     extra |= {f'extrinsic.{k}' for k in set(cfg['extrinsic']) - set(base['extrinsic'])}

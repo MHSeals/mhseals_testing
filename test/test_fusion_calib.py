@@ -281,3 +281,38 @@ def test_the_suggested_delta_undoes_a_camera_yaw_error_in_the_static_tf(cfg, bag
     rows, est, sample_t = fc.measure(fc.frames_from_bag('bag', cfg)[0], cfg)
     delta = fc.camera_delta(fc.calibrate(est, sample_t, cfg))
     assert delta['rpy_deg'][2] == pytest.approx(-0.8, abs=0.1)
+
+
+def spin_frames(dup_from=None, dup_to=None, seconds=20.0, hz=5.0):
+    """Two buoys seen while yawing 360 deg; a second id on buoy 1 between dup_from/dup_to
+    (confirmed only when it lasts 1 s or more)."""
+    frames, yaw = [], []
+    for i in range(int(seconds * hz)):
+        t = i / hz
+        tr = [(1, 'red_buoy', 5.0, 1.0, 10), (2, 'green_buoy', 5.0, -1.0, 10)]
+        if dup_from is not None and dup_from <= t <= dup_to:
+            tr.append((7, 'red_buoy', 5.4, 1.2, 2 if dup_to - dup_from < 1 else 4))
+        frames.append((t, tr))
+        yaw.append((t, (2 * math.pi * t / seconds + math.pi) % (2 * math.pi) - math.pi))
+    return frames, yaw
+
+
+@pytest.mark.parametrize('dup, level', [(None, fc.PASS), ((5.0, 5.4), fc.WARN),
+                                        ((5.0, 8.0), fc.FAIL)])
+def test_track_dupes_verdicts_on_a_spin(cfg, dup, level):
+    from mhseals_testing.perception import track_dupes as td
+    fr, yaw = spin_frames(*(dup or (None, None)))
+    got, reasons, rows, sweep = td.analyze(fr, yaw, cfg, buoys=2)
+    assert got == level, reasons
+    assert sweep > 340
+    red = next(r for r in rows if r['class'] == 'red_buoy')
+    assert red['ids'] == (1 if dup is None else 2)
+    if level == fc.FAIL:
+        assert any('ids 1/7' in r for r in reasons) and red['max_live'] == 2
+
+
+def test_track_dupes_without_a_spin_is_insufficient_evidence(cfg):
+    from mhseals_testing.perception import track_dupes as td
+    fr, _ = spin_frames()
+    got, reasons, *_ = td.analyze(fr, [(0.0, 0.0), (20.0, 0.1)], cfg, buoys=2)
+    assert got == fc.WARN and 'insufficient evidence' in reasons[0]

@@ -22,3 +22,9 @@ check:
   range_fail_tol: 0.10          # and beyond this FAIL
   domega_pass_deg: 0.5          # vs --baseline, axes constrained in both records
   domega_warn_deg: 1.0
+dupes:                          # track_dupes: one buoy tracked twice during a spin in place
+  tracks_topic: /perception/tracks
+  radius_m: 1.0                 # same-class live tracks closer than this are one object
+  persist_s: 1.0                # a pair lasting this long FAILs (shorter: WARN)
+  min_hits: 3                   # a track counts as confirmed (max live) from this many hits
+  min_sweep_deg: 300.0          # less yaw sweep is insufficient evidence (WARN)
