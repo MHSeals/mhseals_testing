@@ -592,13 +592,20 @@ class App:
     def manual_blockers(self):
         """Manual driving needs armed outputs and no other command source, not odometry or TF:
         the operator is watching the boat, and a localization fault must not take it away."""
+        return self.manual_now() + self.manual_checks()
+
+    def manual_now(self):
+        """The manual interlocks read from memory, cheap enough for every manual publish."""
         if not self.armed:
             return ['outputs are not armed']
+        return ['ROS fault: ' + self.ros.fault] if self.ros.fault else []
+
+    def manual_checks(self):
+        """The manual interlocks that ask the graph or read files: manual evaluates them beside its key loop."""
+        if not self.armed:
+            return []                # manual_now says so
         fault = self.arming.fault()
-        reasons = [fault] if fault else []
-        if self.ros.fault:
-            reasons.append('ROS fault: ' + self.ros.fault)
-        return reasons + self.plant.conflicts() + self.staging().blockers()
+        return ([fault] if fault else []) + self.plant.conflicts() + self.staging().blockers()
 
     def motion_blockers(self):
         """When the suite commands, nothing else may publish the command topic."""
@@ -3006,7 +3013,7 @@ class App:
                 reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
                 mission_profile=getattr(self, 'agent_profile', None),   # and its nav profile (finals)
                 run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
-                manual=dict(plant=self.plant, blockers=self.manual_blockers,
+                manual=dict(plant=self.plant, blockers=self.manual_now, checks=self.manual_checks,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             speed=lambda: self.manual_speed, clock=self.monitor.clock)))
 

@@ -16,7 +16,7 @@ EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
 STOP_KEYS = ('space', 'press:space', 'focus-out')
 
 
-CHECK_S = 0.2        # s between interlock evaluations while manual runs
+CHECK_S = 0.2        # s between the starts of two evaluations of the slow interlocks
 CHECK_STALE_S = 0.6  # s; an older evaluation (a stuck or dead check) blocks like a tripped interlock
 
 
@@ -25,57 +25,50 @@ def start_thread(work):
 
 
 class Interlocks:
-    """The manual interlocks, evaluated off the key loop at most every CHECK_S.
+    """Manual's interlocks: ``now`` read on every call, ``checks`` evaluated beside the key loop.
 
-    The blockers ask the ROS graph and read files, too slow to run inside every publish on a loaded
-    computer: the command would go stale at the mux. Calling this answers from the last evaluation
-    and starts the next one (``spawn``, a thread by default) once it is CHECK_S old. An evaluation
-    that raised, or one older than CHECK_STALE_S, is a blocker, never clear.
+    ``now`` (armed, a ROS fault) is read from memory, so a disarm or a stop blocks the very next
+    press. ``checks`` ask the ROS graph and read files, too slow for every publish on a loaded
+    computer (the command would go stale at the mux): a thread (``spawn``) evaluates them every
+    CHECK_S from manual's start to its end, and a call answers from the last evaluation. One that
+    raised, or one older than CHECK_STALE_S (``clock``, wall time), is a blocker, never clear.
     """
 
-    def __init__(self, blockers, clock=time.monotonic, spawn=None):
-        self.blockers, self.clock, self.spawn = blockers, clock, spawn or start_thread
-        self.lock = threading.Lock()
-        self.busy = False
+    def __init__(self, now, checks, clock=time.monotonic, spawn=None):
+        self.now, self.checks, self.clock = now, checks, clock
+        self.spawn = spawn or start_thread
+        self.done = threading.Event()
         self.result = (float('-inf'), ['interlocks not checked yet'])
-        self.check()     # the first press finds a current answer
 
     def check(self):
         begun = self.clock()         # the answer is as old as its start
         try:
-            reasons = list(self.blockers())
+            reasons = list(self.checks())
         except Exception as error:   # a check that cannot answer blocks
             reasons = [f'interlock check failed: {error}']
         self.result = (begun, reasons)
 
-    def _work(self):
-        try:
+    def loop(self):
+        """Evaluate every CHECK_S, counted from each start, so a slow evaluation is followed at once."""
+        while not self.done.wait(max(0.0, CHECK_S - (self.clock() - self.result[0]))):
             self.check()
-        finally:
-            with self.lock:
-                self.busy = False
 
-    def refresh(self):
-        """Start the next evaluation when the last one is CHECK_S old and none runs."""
-        if self.clock() - self.result[0] < CHECK_S:
-            return
-        with self.lock:
-            if self.busy:
-                return
-            self.busy = True
-        try:
-            self.spawn(self._work)
-        except BaseException:
-            with self.lock:
-                self.busy = False
-            raise
+    def __enter__(self):
+        self.check()                 # the first press finds a current answer
+        self.spawn(self.loop)
+        return self
+
+    def __exit__(self, *exc):
+        self.done.set()              # an evaluation under way finishes; nothing reads it
+        return False
 
     def __call__(self):
-        when, reasons = self.result
+        reasons = list(self.now())
+        when, checked = self.result
         age = self.clock() - when
         if not age <= CHECK_STALE_S:
-            return [f'interlock check stale: {age:.1f} s old'] + list(reasons)
-        return list(reasons)
+            reasons.append(f'interlock check stale: {age:.1f} s old')
+        return reasons + list(checked)
 
 
 class GuardedPublisher:
@@ -95,9 +88,6 @@ class GuardedPublisher:
 
     def publish(self, command):
         command = tuple(float(value) for value in command)
-        refresh = getattr(self.blockers, 'refresh', None)
-        if refresh is not None:
-            refresh()            # every loop pass, so the answer stays current while neutral too
         if any(command):
             reasons = self.blockers()
             if reasons:
@@ -146,12 +136,13 @@ def run(ctx):
     state = ManualState(config['manual_amplitude'] if kept is None else kept, config['manual_repeat_timeout'],
                         config['manual_initial_timeout'], config['manual_yaw_scale'])
     clock = manual.get('clock', time.monotonic)
-    publisher = GuardedPublisher(manual['plant'], Interlocks(manual['blockers'], clock, manual.get('spawn')))
+    interlocks = Interlocks(manual['blockers'], manual.get('checks', list), spawn=manual.get('spawn'))
+    publisher = GuardedPublisher(manual['plant'], interlocks)
     emit = manual.get('emit', lambda *args, **details: None)
     emit('manual_start')
     outcome = dict(outcome='complete', by='operator', cause='exit')
     try:
-        with manual['open_events']() as keys:
+        with interlocks, manual['open_events']() as keys:
             drive(keys, state, publisher, manual['show'], clock)
     except Aborted as error:
         outcome = dict(outcome=str(error), by=error.by, cause=error.cause)
