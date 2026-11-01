@@ -22,6 +22,7 @@ Safety, in one place:
 """
 
 from collections import deque
+import re
 from dataclasses import replace
 import os
 import threading
@@ -31,12 +32,14 @@ from mhseals_hardware import hold_store
 
 from mhseals_testing.harness import agent_channel, agent_config, journal, sim_arm
 from mhseals_testing.harness.authority import HUMAN
+from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.ros.arming import muxed
-from mhseals_testing.ui import agent_acts, theme
+from mhseals_testing.ui import agent_acts, parts, theme
 
 MOTION = ('run', 'goal')
-NOTICED = ('claim', 'run', 'goal')   # a refusal of these is a footer notice too, not only an agent-log row
+# a refusal of these is a footer notice too, not only an agent-log row
+NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
@@ -44,6 +47,11 @@ DRY_TIMEOUT_S = 0.5            # costmap and plan waits of a goal dry run (on it
 FENCE_WAIT_S = 1.0             # off the tick only: the first wait for fence_watchdog's latched fence
 DRY_CLOSE_S = 0.2              # closing the desk waits this long for a dry run before answering it cancelled
 NOTES = 200
+PART_OPS = {'start': 'start', 'stop_part': 'stop'}   # boat_agent start / stop COMPONENT
+# Never an agent's to start or stop, whatever agent.yaml lists: the thruster driver, the mux and the velocity
+# controller (they arm), the operator's heartbeat and the safety watchdogs; nor a commander part (Nav2, the
+# mission runner), checked by kind.
+NEVER_PARTS = re.compile(r'thruster|command_mux|controller|operator_heartbeat|watchdog')
 PROGRESS_S = 5.0
 STATUS_S = 1.0
 HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U',
@@ -229,7 +237,7 @@ class AgentDesk:
             return self.reply(req, False, 'expired', hint='request deadline passed; nothing was done')
         handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop,
                    'mark': self.do_mark, 'run': self.enqueue, 'goal': self.enqueue,
-                   'ask': self.enqueue}.get(req['op'])
+                   'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part}.get(req['op'])
         if handler is None:
             return self.reply(req, False, 'bad_op', hint=f"unknown op {req['op']!r}")
         handler(req)
@@ -294,6 +302,49 @@ class AgentDesk:
             self.cancel('stop' if self.act['who'] == req['who'] else f"overridden: agent {req['who']}")
         self.app.operator_stop(agent=req['who'])
         self.reply(req, True, result={'stopped': True})
+
+    def do_part(self, req):
+        """boat_agent start / stop COMPONENT: an allowed stack part through the Status row's own path (ui/parts.py)
+        under the agent's claim, with no popup; the row, the notice and the journal name the agent. Never arms."""
+        verb = PART_OPS[req['op']]
+        found = self.part_refusal(req, verb)
+        if found:
+            return self.reply(req, False, found[0], hint=found[1])
+        key = req['args']['component']
+        try:
+            done = (parts.start if verb == 'start' else parts.stop)(self.app, key, who=req['who'])
+        except ComponentError as error:
+            return self.reply(req, False, 'refused', hint=str(error))
+        self.reply(req, True, result={'component': key, 'action': verb, 'components': done})
+
+    def part_refusal(self, req, verb):
+        """(error, hint) when ``req`` may not start or stop its component now, else None."""
+        app, allowed = self.app, self.config.get().get('start', [])
+        if app.settings.agents == 'block':
+            return 'blocked', 'operator must set Agents to allow'
+        if not req.get('claim'):
+            return 'unknown_claim', f'{verb} needs your claim: claim --reason "..." --who {req["who"]}, then --claim ID'
+        found = self.claim_state(req['claim'], req['who'])
+        if found:
+            return found, 'claim again' if found != 'not_holder' else 'use your own claim'
+        key, stack = req['args'].get('component'), getattr(app, 'stack', None)
+        items = stack.items if stack is not None else {}
+        if not isinstance(key, str) or key not in items:
+            return 'unknown_component', (f"this profile's components: {', '.join(items)}" if items
+                                         else "this TUI's profile has no components")
+        item = items[key]
+        if key not in allowed or item.kind == 'commander' or NEVER_PARTS.search(item.key) \
+                or NEVER_PARTS.search(item.part):
+            return 'not_allowed', (f"agent.yaml start: lists {', '.join(allowed)}; {item.title} stays the "
+                                   "operator's (its Status row)")
+        if verb == 'stop':
+            if app.armed:
+                return 'refused', f'armed: the operator stops {item.title} from its Status row (or disarms first)'
+            others = [name for name in stack._dependants(key) if stack.running(name) and name not in allowed]
+            if others:
+                return 'not_allowed', (f"stopping {item.title} also stops {', '.join(items[n].title for n in others)}, "
+                                       "which is not an agent's: ask the operator")
+        return None
 
     def do_mark(self, req):
         number = journal.next_marker_id(journal.read(self.app.paths.journal))

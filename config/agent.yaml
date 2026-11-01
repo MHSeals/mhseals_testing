@@ -8,6 +8,10 @@ request_s: 5            # a request past this is answered expired; never replaye
 confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120
 run: [square, station, nav2_bringup, controller_check, perception, mission]   # procedure keys agents may request
+# component keys agents may start and stop (boat_agent start/stop COMPONENT --claim ID), through the Status row's
+# own path, no popup, the row saying "by agent W" (owner decision 2026-10-31). Never the thruster driver, the mux,
+# the controller, the operator heartbeat, the watchdogs or a commander part (Nav2, the mission runner), listed or not.
+start: [odometry, ekf, sensors, camera, objects]
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
 # Sim-only auto-arm (owner decision 2026-10-26): `run KEY --sim-arm` arms for that run when every check of
 # harness/sim_arm.py proves a sim (sim profile and clock, crane player, private domain in `domains`, never 42,
@@ -125,6 +129,11 @@ hook:
          '(?m)^EDIT \w+ live [^\n]*(/launch/[^/\n]+\.(py|xml|ya?ml)|[^/\n]\.launch\.(py|xml|ya?ml))$',
          '(?m)^EDIT \w+ live [^\n]*/(agent_hook\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
-  deny_boat: ['\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
+  # deny_boat starts with agent_hook.BOAT_START and BOAT_STOP_PART: a stack part's device launch or mhseals-<part>
+  # unit started or stopped by hand on a boat; boat_agent start/stop COMPONENT --claim ID does it through the TUI.
+  deny_boat: ['\bros2\s+launch\s+(--?\S+\s+)*mhseals_nav\s+device\.launch\.py\b',
+              '\bsystemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-',
+              '\bsystemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-',
+              '\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
               '\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
               '\b(reboot|poweroff|halt|shutdown)\b', '\b(tel)?init\s+[0-6sS]\b', '\bloginctl\s+(terminate|kill)', 'sysrq']

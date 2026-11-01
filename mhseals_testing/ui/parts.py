@@ -8,6 +8,10 @@ the host not answering, the nodes not discovered here, an exit) adds the issue g
 never a different state. Every start and stop asks a confirm naming the computer; that confirm is
 the operator's go-ahead a commander part (Nav2, the mission runner) needs to start remotely. Stop
 is never refused, armed or not, except for a process no TUI started.
+
+``start`` and ``stop`` are that path after the confirm; the agent desk (ui/feeds/agent.py, boat_agent
+start/stop COMPONENT) calls them too, with the agent's id, so an agent-started part's row says
+``by agent W`` until it stops, and the notice and the journal name the agent.
 """
 
 from mhseals_hardware.menu import Cancelled
@@ -31,12 +35,16 @@ def rows(stack, nodes, issues=None):
             detail = theme.SEPARATOR.join(filter(None, [WHY_DOWN[item.part], detail]))
         where = item.remote or 'here'
         value = status if item.remote is None else f'{status} on {where}'
+        by = getattr(stack, 'by', {}).get(item.key)
+        if by:
+            value += f' by agent {by}'
         found = issues.on_row(item) if issues is not None else []
         if found:
             value += ' ' + theme.PALETTE.glyph('issue')
         out.append(dict(group='Components', source='part', key=item.key, state=LEVELS[status],
                         name=item.title, value=value,
                         detail=theme.SEPARATOR.join(filter(None, [f'{item.part} ({item.profile}) on {where}',
+                                                                  f'started by agent {by}' if by else '',
                                                                   detail, *found])),
                         required=False))
     return out
@@ -69,6 +77,8 @@ def toggle(app, key):
     info = [('Computer', where), ('Part', f'{item.part} ({item.profile}, {item.kind})')]
     if status in UP and detail:
         info.append(('Owner', detail))          # ownership is a detail, never the state
+    if getattr(stack, 'by', {}).get(key):
+        info.append(('Started by', f'agent {stack.by[key]}'))
     issues = getattr(app, 'issues', None)
     for text in issues.on_row(item) if issues is not None else ():
         info.append(('Issue', text))
@@ -85,15 +95,35 @@ def toggle(app, key):
     if choice != verb:
         return
     try:
-        if stopping:
-            done = stack.stop(key, nodes)
-            app.notice = f'Stopping {", ".join(stack.items[name].title for name in done)}'
-        else:
-            stack.start(key, nodes, commander=True)
-            app.notice = f'Starting {item.title} on {where}'
-        app.ros.emit('component', action=verb.lower(), component=key, host=where)
+        stop(app, key) if stopping else start(app, key)
     except ComponentError as error:
         app.notice = str(error)
+
+
+def start(app, key, who=None):
+    """Start ``key`` where it runs (the operator's confirmed Enter, or agent ``who``); ComponentError refuses.
+
+    The operator's confirm is the go-ahead a remote commander part needs; an agent never starts one
+    (the desk refuses commanders before this)."""
+    stack, item = app.stack, app.stack.items[key]
+    where = item.remote or 'this computer'
+    stack.start(key, app.ros.nodes(), commander=who is None, by=who)
+    app.notice = f"{f'Agent {who}: s' if who else 'S'}tarting {item.title} on {where}"
+    app.ros.emit('component', action='start', component=key, host=where,
+                 **({'by': 'agent', 'who': who} if who else {}))
+    return [key]
+
+
+def stop(app, key, who=None):
+    """Stop ``key`` and its running dependants (the operator's, or agent ``who``); returns the keys stopped."""
+    stack, item = app.stack, app.stack.items[key]
+    where = item.remote or 'this computer'
+    done = stack.stop(key, app.ros.nodes())
+    app.notice = (f"{f'Agent {who}: s' if who else 'S'}topping "
+                  f"{', '.join(stack.items[name].title for name in done)}")
+    app.ros.emit('component', action='stop', component=key, host=where,
+                 **({'by': 'agent', 'who': who} if who else {}))
+    return done
 
 
 def quit_rows(app):

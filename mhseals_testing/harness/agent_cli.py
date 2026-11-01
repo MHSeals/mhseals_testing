@@ -1,4 +1,4 @@
-"""boat_trial agent verbs: claim, release, status, follow, run, goal, stop, mark, note, ask.
+"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, mark, note, ask.
 
 Spec agent-control section 3. ROS-free except ``stop``'s backup path. A verb appends a ``req``
 line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI runs the act
@@ -6,7 +6,8 @@ line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI
 JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/busy/blocked (the
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
 owner, 5 agents blocked, 6 timeout. No verb releases a hold, and none arms a boat: only ``run --sim-arm``
-arms, and only a stack every harness/sim_arm.py check proves a simulator.
+arms, and only a stack every harness/sim_arm.py check proves a simulator. ``start COMPONENT`` and
+``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:`` lists, as its Status row does.
 """
 
 import json
@@ -21,7 +22,7 @@ from mhseals_testing import data
 from mhseals_testing.harness import agent_channel as channel
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
-VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'stop', 'mark', 'note', 'ask')
+VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'mark', 'note', 'ask')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s')
@@ -61,7 +62,12 @@ def add_parsers(sub):
         goal.add_argument(name, type=float)
     goal.add_argument('yaw', type=float, nargs='?')
     goal.add_argument('--dry-run', action='store_true', help='evaluate the gates only')
-    verb('stop', 'Space: hold, neutral and disarm (mux hold over ROS if the TUI is silent)')
+    start = verb('start', 'start a stack component (agent.yaml start:) as its Status row does', claim=True)
+    start.add_argument('component', metavar='COMPONENT', help='a component key: odometry, ekf, sensors, ...')
+    stop = verb('stop', 'Space: hold, neutral and disarm (mux hold over ROS if the TUI is silent); '
+                'with COMPONENT and --claim, stop that stack component instead', claim=False)
+    stop.add_argument('component', nargs='?', metavar='COMPONENT',
+                      help='stop this stack component (needs --claim), not the boat')
     verb('mark', 'put an agent marker in the session').add_argument('note', nargs='?', default='')
     verb('note', 'a text line in the TUI agent log').add_argument('text')
     ask = verb('ask', 'ask the operator a question')
@@ -174,6 +180,17 @@ class Agent:
             return channel.EXIT_CODES['bad_args']
         return self.send('goal', args, self.args.claim, self.args.dry_run)
 
+    def start(self):
+        return self.send('start', {'component': self.args.component}, self.args.claim)
+
+    def stop_part(self):
+        if not getattr(self.args, 'claim', None):
+            self.emit({'ok': False, 'error': 'bad_args',
+                       'hint': f'stop {self.args.component} needs --claim ID '
+                               '(plain stop, no COMPONENT, stops the boat)'})
+            return channel.EXIT_CODES['bad_args']
+        return self.send('stop_part', {'component': self.args.component}, self.args.claim)
+
     def ask(self):
         args = {'question': self.args.question, 'options': self.args.options}
         return self.send('ask', args, wait=self.cfg['ask_s'] + self.cfg['request_s'] + SLACK_S)
@@ -199,7 +216,10 @@ class Agent:
         return 0
 
     def stop(self):
-        """Ask the TUI (Space); with no reply in STOP_WAIT_S, publish the mux hold over ROS too."""
+        """Ask the TUI (Space); with no reply in STOP_WAIT_S, publish the mux hold over ROS too.
+        With COMPONENT, stop that stack component instead (``stop_part``): never the ROS backup."""
+        if getattr(self.args, 'component', None):
+            return self.stop_part()
         if self.owner() is not None:
             tail = channel.Tail(self.path)
             tail.seek_end()
@@ -359,7 +379,7 @@ def who_of(args):
     who = (args.who or '').strip()
     if who not in SHARED_WHO:
         return who, None
-    if args.command == 'stop':
+    if args.command == 'stop' and not getattr(args, 'component', None):
         return f'agent@{socket.gethostname().split(".")[0]}:{os.getppid()}', None
     if args.command == 'status':
         return who or 'agent', None

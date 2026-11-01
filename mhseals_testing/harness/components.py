@@ -378,6 +378,7 @@ class Stack:
         self.units = units
         self.started = {}
         self.stopped = {}        # key -> when this TUI stopped it (its names may linger GHOST_S)
+        self.by = {}             # key -> the agent id that started it (boat_agent start); the operator's: absent
         self.scan, self.scanned = scan, (float('-inf'), None)
         self.local = probe_specs([item for item in items if item.host is None])
 
@@ -423,11 +424,12 @@ class Stack:
         return {node for item in self.items.values() if stopped_recently(item, self.processes, now)
                 for node in item.nodes}
 
-    def start(self, key, nodes, commander=False):
+    def start(self, key, nodes, commander=False, by=None):
         """Start an off component; refuses (naming them) while its needs are off.
 
         A commander part (Nav2, the mission runner) on another computer starts only with
         ``commander``, which the TUI passes after the operator's keypress and confirm.
+        ``by`` names the agent that asked (boat_agent start); its row shows it until stopped.
         """
         item = self.items[key]
         if item.carried_by:
@@ -461,6 +463,10 @@ class Stack:
         else:
             self.units.start(item, commander=item.kind == 'commander')
         self.started[key] = self.clock()
+        if by:
+            self.by[key] = by
+        else:
+            self.by.pop(key, None)
 
     def _record(self, item):
         record = self.units.status(item)[0] if self.units is not None else None
@@ -504,6 +510,7 @@ class Stack:
             else:
                 self.units.stop(self.items[name])
             self.started.pop(name, None)
+            self.by.pop(name, None)
             self.stopped[name] = self.clock()
         return order
 

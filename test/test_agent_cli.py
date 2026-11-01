@@ -277,6 +277,7 @@ def test_cli_registers_every_verb():
     parser = cli.build_parser()
     for verb in agent_cli.VERBS:
         assert parser.parse_args([verb, *{'release': ['--claim', 'c'], 'run': ['k', '--claim', 'c'],
+                                          'start': ['odometry', '--claim', 'c'],
                                           'goal': ['1', '2', '--claim', 'c'], 'note': ['t'],
                                           'ask': ['q']}.get(verb, [])]).command == verb
 

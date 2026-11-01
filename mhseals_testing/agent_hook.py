@@ -144,6 +144,12 @@ FILES = re.compile(r'[^\s;&|<>()=]*(agent\.ya?ml|command_mux[^\s;&|<>()/]*\.json
 # Nav2's servers: a lifecycle or parameter change breaks a claimed goal that is running.
 NAV2 = (r'(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother'
         r'|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)')
+# On a boat: a stack component started or stopped from a shell (its device launch, or its mhseals-<part> unit)
+# instead of boat_agent start/stop COMPONENT, which goes through the TUI's Status row path under the claim.
+BOAT_START = [r'\bros2\s+launch\s+(--?\S+\s+)*mhseals_nav\s+device\.launch\.py\b',
+              r'\bsystemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-']
+BOAT_STOP_PART = [r'\bsystemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-']
+BOAT_KILL = r'\b(pkill|killall|kill)\b'
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -182,7 +188,8 @@ DEFAULTS = {
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
              r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
-    'deny_boat': [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
+    'deny_boat': BOAT_START + BOAT_STOP_PART +
+                 [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
                   r'\b(reboot|poweroff|halt|shutdown)\b', r'\b(tel)?init\s+[0-6sS]\b',
                   r'\bloginctl\s+(terminate|kill)', r'sysrq']}
@@ -200,8 +207,13 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
         'driver, MAVROS or a trial)', 'stop', (r'\bkill\b.*' + _KILL_CONTROL,)),
        (None, 'pkill, killall and xargs kill (they can hit processes that are not yours)', 'PID',
         (r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b')),
-       (None, 'killing processes on a boat computer', 'stop', (DEFAULTS['deny_boat'][0],)),
-       (None, "stopping or restarting the boat's software or computer", None, tuple(DEFAULTS['deny_boat'][1:])),
+       (None, 'starting a stack component on a boat (its device launch or unit)', 'start COMPONENT --claim ID',
+        tuple(BOAT_START)),
+       (None, 'stopping a stack component on a boat (its unit)', 'stop COMPONENT --claim ID', tuple(BOAT_STOP_PART)),
+       (None, 'killing processes on a boat computer (a stack component: stop COMPONENT --claim ID)', 'stop',
+        (BOAT_KILL,)),
+       (None, "stopping or restarting the boat's software or computer", None,
+        tuple(p for p in DEFAULTS['deny_boat'] if p not in BOAT_START + BOAT_STOP_PART + [BOAT_KILL])),
        (None, 'replaying a bag that can carry motion topics (play only --topics without cmd_vel, thruster or mux '
         'topics)', 'run KEY --claim ID', tuple(p for p in _DENY if p.startswith(r'ros2\s+bag\s+play'))),
        (None, 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git worktree; sim-arm is '
@@ -357,13 +369,16 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, run, ask, note, release, stop); nothing else there.',
+        '(claim, run, start, ask, note, release, stop); nothing else there.',
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
         '     Sim only: `run KEY --sim-arm` arms a verified sim for that run and disarms after; it needs the sim '
         'container started with MHSEALS_SIM_ARM=1 (the owner turns it on; ask), and a real boat refuses it '
         '(the operator arms).',
+        '     `start COMPONENT --claim ID` / `stop COMPONENT --claim ID` starts or stops a stack part agent.yaml '
+        '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id. '
+        'Never the driver, mux, Nav2 or watchdogs; arming stays the operator\'s.',
         '     Start sims and heavy runs through the host guard: `.handoff/tools/heavy sim ...` (Unity headless).',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
         '  `stop` any time: the operator and the agent it interrupts see your id. `ask "..."` instead of guessing. '

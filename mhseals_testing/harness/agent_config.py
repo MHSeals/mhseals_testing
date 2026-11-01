@@ -38,7 +38,7 @@ def load(path=None):
 def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
-    known = {'schema', 'lease', 'run', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
+    known = {'schema', 'lease', 'run', 'start', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     lease = data.get('lease')
@@ -52,6 +52,9 @@ def validate(data):
     run = data.get('run')
     if not isinstance(run, list) or not all(isinstance(k, str) and k for k in run):
         raise ValueError('agent.yaml: run must be a list of procedure keys')
+    start = data.get('start', [])      # absent: agents start no component
+    if not isinstance(start, list) or not all(isinstance(k, str) and k for k in start):
+        raise ValueError('agent.yaml: start must be a list of component keys')
     if data.get('unclaimed_driver') not in DRIVERS:
         raise ValueError(f"agent.yaml: unclaimed_driver must be one of {'/'.join(DRIVERS)}")
     hook = data.get('hook')
@@ -70,7 +73,7 @@ def validate(data):
     limit = hook.get('max_per_10s', 6)
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError('agent.yaml: hook.max_per_10s must be a positive integer')
-    return {**data, 'lease': dict(lease), 'run': list(run),
+    return {**data, 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
             'sim_arm': sim_arm(data.get('sim_arm', {}))}
 
