@@ -4,6 +4,7 @@ import base64
 import io
 import os
 import pty
+import re
 import tty
 import zlib
 from types import SimpleNamespace
@@ -479,3 +480,130 @@ def test_the_text_tier_draws_the_braille_rose_as_before():
     rows = rose()
     assert braille_chars(rows) and not image_chars(rows)
     assert pixels.frame(['x'], (1, 1)) == ['x'] and pixels.STATS['tiles'] == 0
+
+
+# --- under tmux --------------------------------------------------------------------------------
+
+TMUX_ENV = {'TMUX': '/tmp/tmux-1/default,1,0', 'TMUX_PANE': '%3'}
+FOOT = ('1', 'foot(1.28.0)', frozenset({'RGB', 'sixel'}), (12, 24))
+KITTY = ('2', 'kitty(0.42.0)', frozenset({'RGB'}), (12, 24))
+XTERM = ('3', 'xterm(390)', frozenset({'RGB'}), (12, 24))
+TMUX_IN = ('4', 'tmux 3.7c', frozenset({'RGB', 'sixel'}), (12, 24))   # a nested tmux: its client is a tmux
+TMUX_CAPS = dict(done=True, sixel=True, kitty=False, cell=(12, 24), xtversion='tmux 3.8')
+
+
+def view(*clients, passthrough=False):
+    return dict(window='@1', passthrough=passthrough, clients=tuple(sorted(clients)))
+
+
+def test_tmux_view_reads_the_clients_viewing_the_panes_window():
+    out = ('@1\ton\n'
+           '@1\t17\tfoot(1.28.0)\t256,RGB,sixel\t12\t24\n'
+           '@2\t18\txterm(390)\tRGB\t9\t18\n'           # on another window: tmux does not draw the pane there
+           '@1\t19\tkitty(0.42.0)\tRGB\t0\t0\n')
+    calls = []
+    run = lambda cmd, **kw: calls.append(cmd) or SimpleNamespace(stdout=out)
+    got = pixels.tmux_view(TMUX_ENV, run)
+    assert calls[0][:5] == ['tmux', 'display', '-p', '-t', '%3'] and 'list-clients' in calls[0]
+    assert got == dict(window='@1', passthrough=True, clients=(
+        ('17', 'foot(1.28.0)', frozenset({'256', 'RGB', 'sixel'}), (12, 24)),
+        ('19', 'kitty(0.42.0)', frozenset({'RGB'}), (0, 0))))
+    assert pixels.tmux_view({'TMUX': '/x'}, run) is None                       # no pane to ask about
+    assert pixels.tmux_view(TMUX_ENV, lambda cmd, **kw: SimpleNamespace(stdout='')) is None
+
+    def gone(cmd, **kw):
+        raise FileNotFoundError('tmux')                # $TMUX inside a container without tmux
+    assert pixels.tmux_view(TMUX_ENV, gone) is None
+
+
+@pytest.mark.parametrize('setting, caps, seen, want', [
+    ('auto', TMUX_CAPS, view(FOOT), 'sixel'),
+    ('sixel', TMUX_CAPS, view(FOOT), 'sixel'),
+    ('auto', TMUX_CAPS, view(FOOT, XTERM), 'text'),               # tmux draws 'SIXEL IMAGE' text for xterm
+    ('auto', dict(TMUX_CAPS, sixel=False), view(FOOT), 'text'),   # tmux built without sixel
+    ('auto', TMUX_CAPS, view(FOOT, ('5', 'foot', FOOT[2], (10, 20))), 'text'),   # two cell sizes
+    ('auto', TMUX_CAPS, view(('1', 'foot', FOOT[2], (0, 0))), 'text'),           # no pixel size
+    ('auto', TMUX_CAPS, view(TMUX_IN), 'text'),                   # nested: the outer clients are unknown
+    ('auto', TMUX_CAPS, view(), 'text'),                          # detached
+    ('auto', TMUX_CAPS, None, 'text'),                            # tmux did not answer
+    ('off', TMUX_CAPS, view(FOOT), 'text'),
+    ('auto', TMUX_CAPS, view(KITTY, passthrough=True), 'kitty'),
+    ('kitty', TMUX_CAPS, view(KITTY, passthrough=True), 'kitty'),
+    ('auto', TMUX_CAPS, view(KITTY), 'text'),                     # allow-passthrough off
+    ('kitty', TMUX_CAPS, view(KITTY), 'text'),
+    ('kitty', TMUX_CAPS, view(KITTY, XTERM, passthrough=True), 'text'),   # placeholders would show on xterm
+    ('kitty', TMUX_CAPS, view(FOOT, passthrough=True), 'text'),   # a forced tier needs a capable chain
+    ('sixel', TMUX_CAPS, view(KITTY, passthrough=True), 'text'),
+])
+def test_under_tmux_only_what_tmux_reports_for_every_client_picks_an_image(setting, caps, seen, want):
+    assert pixels.choose(setting, caps, TMUX_ENV, view=seen) == want
+
+
+def test_tmux_without_a_view_and_screen_stay_text():
+    assert pixels.choose('auto', TMUX_CAPS, {}) == 'text'           # tmux over ssh: XTVERSION only
+    assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='screen'), {}, view=view(FOOT)) == 'text'
+    assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='foot'), dict(TMUX_ENV, NO_COLOR='1'),
+                         view=view(FOOT)) == 'text'
+
+
+def test_kitty_escapes_under_tmux_go_out_only_inside_passthrough():
+    pixels.use('kitty')
+    pixels.PASSTHROUGH = True
+    pixels.surface('s', paint_box((200, 0, 0)), 8, 4, key=1)
+    sent = []
+    pixels.before(sent.append)
+    data = ''.join(sent)
+    wrapped = re.findall(r'\x1bPtmux;((?:[^\x1b]|\x1b\x1b)*)\x1b\\', data)
+    assert wrapped and re.sub(r'\x1bPtmux;(?:[^\x1b]|\x1b\x1b)*\x1b\\', '', data) == ''
+    assert all(w.replace('\x1b\x1b', '\x1b').startswith('\x1b_G') for w in wrapped)
+    pixels.PASSTHROUGH = False
+    pixels.repaint()
+    sent.clear()
+    pixels.before(sent.append)
+    assert ''.join(sent).startswith('\x1b_G') and 'tmux;' not in ''.join(sent)
+
+
+def test_watch_follows_tmux_clients_and_repaints(monkeypatch):
+    now, seen = [100.0], [view()]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    monkeypatch.setattr(pixels, 'tmux_view', lambda env: seen[0])
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(TMUX_CAPS, cell=(10, 20)), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    keys, sent = SimpleNamespace(fd=5, buffer=bytearray()), []
+    console = Console(file=io.StringIO(), color_system='truecolor')
+    assert pixels.start(keys, console, sent.append, 'auto', env=TMUX_ENV) == 'text'   # started detached
+    seen[0] = view(FOOT)
+    assert pixels.watch() is False and pixels.TIER == 'text'      # polls at most every TMUX_POLL_S
+    now[0] += pixels.TMUX_POLL_S
+    assert pixels.watch() is True and pixels.TIER == 'sixel'
+    assert pixels.CELL == (12, 24)                                # the client's cell, not a stale 16t
+    pixels._drawn[(0, 0)] = (1, (0, 0, 1, 1))
+    now[0] += pixels.TMUX_POLL_S
+    assert pixels.watch() is False and pixels._drawn                # nothing changed
+    seen[0] = view(FOOT, ('9', FOOT[1], FOOT[2], FOOT[3]))           # a second sixel client attached
+    now[0] += pixels.TMUX_POLL_S
+    assert pixels.watch() is True and pixels.TIER == 'sixel' and not pixels._drawn
+    pixels._drawn[(0, 0)] = (1, (0, 0, 1, 1))
+    now[0] += pixels.TMUX_REPAINT_S
+    assert pixels.watch() is True and not pixels._drawn             # the periodic repaint
+    seen[0] = view(FOOT, XTERM)                                    # a viewer without sixel
+    now[0] += pixels.TMUX_POLL_S
+    sent.clear()
+    assert pixels.watch() is True and pixels.TIER == 'text' and sent == ['\x1b[2J']
+    assert not isinstance(console.file, pixels._Stream)
+    seen[0] = None                                                 # tmux stopped answering
+    now[0] += pixels.TMUX_POLL_S
+    assert pixels.watch() is False and pixels.TIER == 'text'
+    pixels.stop(console, sent.append)
+    now[0] += pixels.TMUX_POLL_S
+    assert pixels.watch() is False
+
+
+def test_outside_tmux_watch_asks_nothing(monkeypatch):
+    monkeypatch.setattr(pixels, 'tmux_view', lambda env: pytest.fail('asked tmux'))
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (
+        dict(done=True, sixel=True, kitty=False, cell=(9, 18), xtversion='foot(1.28)'), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    assert pixels.start(SimpleNamespace(fd=5, buffer=bytearray()), None, lambda t: None, 'auto', env={}) == 'sixel'
+    monkeypatch.setattr(pixels, 'clock', lambda: 1e9)
+    assert pixels.watch() is False

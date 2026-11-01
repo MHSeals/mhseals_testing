@@ -1104,6 +1104,8 @@ class App:
         if not force and now - self.last_frame < FRAME:
             return
         self.last_frame = now
+        if pixels.watch():          # tmux: a client came or went, or its images need repainting
+            self.last_drawn = None
         frame = self.render()
         images = pixels.active()
         if not force or images:
