@@ -216,7 +216,7 @@ def test_over_the_link_budget_images_repaint_at_the_throttle_rate(monkeypatch):
     pixels._meter(5000)                                    # 2500 B/s over the last METER_S
     now[0] += 0.1
     assert pixels.surface('s', paint(20), 4, 2, key=2) is first     # held: over budget
-    now[0] += 1.0 / pixels.THROTTLE_HZ
+    now[0] += 1.0                                          # the throttle's 0.5 s, and the second's bytes aged
     assert pixels.surface('s', paint(30), 4, 2, key=3) is not first
     now[0] += pixels.METER_S + 1                           # the burst ages out: back to every change
     held = pixels.surface('s', paint(40), 4, 2, key=4)
@@ -649,8 +649,7 @@ def test_outside_tmux_watch_asks_nothing(monkeypatch):
 
 
 def test_over_the_link_budget_repaints_are_spaced_so_a_second_stays_in_it(monkeypatch):
-    """A repaint of 60% of the budget is followed by none for a second, whichever surface is due; a first repaint
-    waits behind one just made."""
+    """A repaint of 60% of the budget is followed by none for a second."""
     now = [10.0]
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     pixels.use('sixel', budget=1000)
@@ -660,6 +659,29 @@ def test_over_the_link_budget_repaints_are_spaced_so_a_second_stays_in_it(monkey
     pixels._meter(600)
     now[0] += 0.1
     assert pixels.surface('a', paint(20), 4, 2, key=2) is a             # 600 + 600 would pass the budget
-    assert pixels.surface('b', paint(10), 4, 2, key=1) != a             # a blank cell grid until its turn
     now[0] += 1.0
     assert pixels.surface('a', paint(30), 4, 2, key=3) is not a
+
+
+def test_budget_spacing_never_starves_a_surface(monkeypatch):
+    """An oversize repaint is only spaced (it draws again once the last second is quiet), a fresh surface always draws,
+    and a small surface is not charged another's big repaint as its own size."""
+    now = [10.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    pixels.use('sixel', budget=1000)
+    paint = lambda colour: paint_box((colour, 0, 0))
+    a = pixels.surface('a', paint(10), 4, 2, key=1)
+    pixels.STATS['sixel'] += 900                           # 90% of the budget in one repaint
+    pixels._meter(900)
+    now[0] += 0.1
+    assert pixels.surface('a', paint(20), 4, 2, key=2) is a             # spaced
+    assert pixels.surface('fresh', paint(10), 4, 2, key=1) != [[pixels.BLANK] * 4] * 2   # a new tile draws at once
+    now[0] += 1.0
+    assert pixels.surface('a', paint(30), 4, 2, key=3) is not a         # the second is quiet: repaints
+    pixels.STATS['sixel'] += 100                           # b's own small repaint
+    b = pixels.surface('b', paint(10), 4, 2, key=1)
+    pixels.STATS['sixel'] += 50
+    pixels._meter(50)
+    now[0] += 0.3
+    pixels.surface('a', paint(40), 4, 2, key=4)
+    assert pixels._sizes.get('b', 0) <= 150                # not a's bytes
