@@ -223,13 +223,16 @@ class Player:
         lag, hz = lid.get('tf_lag_s', 0.0), lid.get('attitude_hz', 0.0)
         held, last_imu = None, -math.inf
         T_bl = None
-        statics = {}
-        for child, xyz in self.cfg['static_tf'].items():
+        from mhseals_nav.robot_geometry import matrix_quaternion, RobotGeometry
+        geometry, statics = RobotGeometry.load(), {}
+        for child in self.cfg['static_tf']:
+            R, xyz = geometry.pose(child)
             tf = TransformStamped()
             tf.header.frame_id, tf.child_frame_id = 'base_link', child
             tf.transform.translation.x, tf.transform.translation.y, \
                 tf.transform.translation.z = map(float, xyz)
-            tf.transform.rotation.w = 1.0
+            q = tf.transform.rotation
+            q.x, q.y, q.z, q.w = map(float, matrix_quaternion(R))
             statics[child] = tf
         self.pubs['/tf_static'].publish(self.TF(transforms=list(statics.values())))
         T_bl = self.chain(statics, 'lidar_link')

@@ -55,5 +55,5 @@ injections:
 # Scenario -> injections (S1, S3, S6 get the short list; S2, S4, S5 everything).
 short: [E0, Ew, Es, Ex]
 # Published first; a bag's own /tf_static overrides them. Rig bags can miss the latched
-# /tf_static: these are the blastoise URDF values (base_link <- child, xyz m, identity rotation).
-static_tf: {lidar_link: [0.28981, 0.0, 0.27775], front_camera_link: [0.32701, 0.0, 0.12519]}
+# /tf_static: these frames then come from the blastoise URDF (mhseals_nav robot_geometry).
+static_tf: [lidar_link, front_camera_link]
