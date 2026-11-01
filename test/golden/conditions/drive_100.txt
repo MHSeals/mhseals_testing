@@ -12,7 +12,7 @@
 │   · tracks               ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠈ ││ ⤵︎⠀⠀⠀⠀⠀⠀⠄⠀⠀S⠀⠀⠀⠄⠀⠀⠀⠀⠀⤷︎ │ hdg 030° NNE   │
 │ Localization             ││ -0.3                       ││ drift .12 m/s →045° ±.02 · trust 88%   │
 │   ✓ map → odom           ││ Yaw  +20% → —              ││ floor .14°/s · sea .9°/s               │
-│   ✗ odom → base_li…      ││ +0.5                       │╰────────────────────────────────────────╯
+│   ✗ odom → base_l…       ││ +0.5                       │╰────────────────────────────────────────╯
 │ System                   ││                            │╭─ Thrusters · odroid · defaults ────────╮
 │   ! compute         78°C ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ ││    Thr    Pin    Out   Rev      µs  Rb │
 │                          ││ -0.5                       ││   · FL    p7     1     ·      1500  —  │
