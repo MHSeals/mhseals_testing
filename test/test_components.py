@@ -643,3 +643,20 @@ def test_a_fresh_view_within_scan_s_is_not_read_again():
     clock[0] = Stack.SCAN_S / 2
     stack.here(fresh=True)
     assert scans == [0.0]
+
+
+def test_a_start_whose_own_scan_fails_starts_nothing():
+    """Inline, only an unreadable table (OSError) is no view; anything else fails the decision."""
+    clock, processes, fail = [0.0], FakeProcesses(), []
+
+    def scan(specs):
+        if fail:
+            raise ValueError('bad cmdline')
+        return {}
+    stack = Stack(items(Profile), processes, lambda: clock[0], scan=scan, spawn=lambda work: None)
+    stack.here()
+    fail.append(1)
+    clock[0] = Stack.SCAN_S
+    with pytest.raises(ValueError):
+        stack.start('odometry', set())
+    assert processes.started == []

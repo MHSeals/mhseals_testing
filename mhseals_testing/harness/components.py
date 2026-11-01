@@ -400,18 +400,23 @@ class Stack:
         self.scan_lock, self.scanning = threading.Lock(), False
         self.local = probe_specs([item for item in items if item.host is None])
 
-    def _scan(self):
+    def _scan(self, behind=False):
         begun = self.clock()          # the view is as old as its start
         try:
             seen = self.scan(self.local)
-        except Exception:             # an unreadable table is no view, as before
+        except OSError:               # an unreadable table is no view, as before
             seen = None
-        if begun >= self.scanned[0]:  # a slower, older scan never replaces a newer view
-            self.scanned = (begun, seen)
+        except Exception:
+            if not behind:
+                raise                 # inline (a start, stop or arm): the decision fails, as before
+            seen = None               # in the background: no view, and the next decision scans itself
+        with self.scan_lock:
+            if begun >= self.scanned[0]:   # a slower, older scan never replaces a newer view
+                self.scanned = (begun, seen)
 
     def _scan_behind(self):
         try:
-            self._scan()
+            self._scan(behind=True)
         finally:
             with self.scan_lock:
                 self.scanning = False

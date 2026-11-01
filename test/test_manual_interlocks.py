@@ -304,3 +304,19 @@ def test_a_failing_stack_scan_is_no_view_and_frees_the_next():
     spawned.pop()()
     assert stack.here() is None and not stack.scanning
 
+
+
+def test_a_slow_evaluation_is_as_old_as_its_start():
+    """A check that took 0.9 s answers for what it read at its start: 0.11 s later it is stale."""
+    clock = [0.0]
+
+    def slow():
+        clock[0] += 0.9
+        return []
+    publisher, plant, _ = guarded(slow, clock=clock)
+    assert publisher.blockers.result[0] == 0.0 and clock[0] == pytest.approx(0.9)
+    publisher.publish(MOVE)
+    clock[0] = CHECK_STALE_S + 0.01
+    with pytest.raises(Aborted, match='interlock check stale'):
+        publisher.publish(MOVE)
+    assert CHECK_STALE_S == 1.0

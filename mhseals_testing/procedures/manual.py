@@ -17,7 +17,7 @@ STOP_KEYS = ('space', 'press:space', 'focus-out')
 
 
 CHECK_S = 0.2        # s between the starts of two evaluations of the slow interlocks
-CHECK_STALE_S = 0.6  # s; an older evaluation (a stuck or dead check) blocks like a tripped interlock
+CHECK_STALE_S = 1.0  # s from an evaluation's start; older (a stuck, dead or > 0.5 s check) blocks like a tripped interlock
 
 
 def start_thread(work):
@@ -136,7 +136,7 @@ def run(ctx):
     state = ManualState(config['manual_amplitude'] if kept is None else kept, config['manual_repeat_timeout'],
                         config['manual_initial_timeout'], config['manual_yaw_scale'])
     clock = manual.get('clock', time.monotonic)
-    interlocks = Interlocks(manual['blockers'], manual.get('checks', list), spawn=manual.get('spawn'))
+    interlocks = Interlocks(manual['blockers'], manual['checks'], spawn=manual.get('spawn'))
     publisher = GuardedPublisher(manual['plant'], interlocks)
     emit = manual.get('emit', lambda *args, **details: None)
     emit('manual_start')
