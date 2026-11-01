@@ -12,6 +12,19 @@ run: [square, station, nav2_bringup, controller_check, perception, mission]   # 
 # own path, no popup, the row saying "by agent W" (owner decision 2026-10-31). Never the thruster driver, the mux,
 # the controller, the operator heartbeat, the watchdogs or a commander part (Nav2, the mission runner), listed or not.
 start: [odometry, ekf, sensors, camera, objects]
+# boat_agent fcu (owner decision 2026-10-31): agents read FCU parameters, set the ones `set:` lists (globs) and restart
+# the FCU, claimed and disarmed, through the TUI's MAVROS link. Never the yaw source, compass, servos, RC, arming,
+# failsafes, fences or safety switch (agent_fcu.NEVER), listed or not. The first write of a TUI session snapshots
+# every parameter to `store`; each write is read back and logged there (fcu_changes.md, fcu_agent_changes.jsonl).
+fcu:
+  store: ~/.claude/plans/boat
+  set: [SCHED_LOOP_RATE, 'SR0_*', 'SR1_*', INS_GYRO_FILTER, INS_ACCEL_FILTER, INS_GYRO_RATE, INS_FAST_SAMPLE]
+  values: {SCHED_LOOP_RATE: [50, 100, 200, 400]}
+  # SCHED_LOOP_RATE above `after` only once the last `fcu rates` check ran at `after` with the FCU load below this
+  loop_400: {after: 200, max_load_pct: 60}
+  rates:
+    window_s: 10
+    topics: {/imu/raw: sensor_msgs/msg/Imu, /odom/local: nav_msgs/msg/Odometry}
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
 # Sim-only auto-arm (owner decision 2026-10-26): `run KEY --sim-arm` arms for that run when every check of
 # harness/sim_arm.py proves a sim (sim profile and clock, crane player, private domain in `domains`, never 42,

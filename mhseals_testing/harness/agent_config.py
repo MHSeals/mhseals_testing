@@ -38,7 +38,7 @@ def load(path=None):
 def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
-    known = {'schema', 'lease', 'run', 'start', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
+    known = {'schema', 'lease', 'run', 'start', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     lease = data.get('lease')
@@ -55,6 +55,9 @@ def validate(data):
     start = data.get('start', [])      # absent: agents start no component
     if not isinstance(start, list) or not all(isinstance(k, str) and k for k in start):
         raise ValueError('agent.yaml: start must be a list of component keys')
+    if 'fcu' in data:                  # absent: agents set no FCU parameter
+        from mhseals_testing.harness.agent_fcu import validate as validate_fcu
+        validate_fcu(data['fcu'])
     if data.get('unclaimed_driver') not in DRIVERS:
         raise ValueError(f"agent.yaml: unclaimed_driver must be one of {'/'.join(DRIVERS)}")
     hook = data.get('hook')

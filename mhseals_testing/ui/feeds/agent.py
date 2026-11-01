@@ -30,7 +30,7 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_channel, agent_config, journal, sim_arm
+from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, journal, sim_arm
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
@@ -39,7 +39,7 @@ from mhseals_testing.ui import agent_acts, parts, theme
 
 MOTION = ('run', 'goal')
 # a refusal of these is a footer notice too, not only an agent-log row
-NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part')
+NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'fcu_set', 'fcu_restart', 'fcu_revert')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
@@ -48,6 +48,9 @@ FENCE_WAIT_S = 1.0             # off the tick only: the first wait for fence_wat
 DRY_CLOSE_S = 0.2              # closing the desk waits this long for a dry run before answering it cancelled
 NOTES = 200
 PART_OPS = {'start': 'start', 'stop_part': 'stop'}   # boat_agent start / stop COMPONENT
+# boat_agent fcu ACTION: reads need no claim; writes and the restart need the agent's claim and a disarmed boat
+FCU_OPS = ('fcu_get', 'fcu_rates', 'fcu_set', 'fcu_revert', 'fcu_restart')
+FCU_CLAIMED = ('fcu_set', 'fcu_revert', 'fcu_restart')
 # Never an agent's to start or stop, whatever agent.yaml lists: the thruster driver, the mux and the velocity
 # controller (they arm), the operator's heartbeat and the safety watchdogs; nor a commander part (Nav2, the
 # mission runner), checked by kind.
@@ -109,6 +112,7 @@ class AgentDesk:
         self.active_claim = None
         self.claim_who, self.expired_seen = {}, set()   # agent claim id -> who; lapsed leases already told
         self.dry = None                     # (req, thread, box) of the goal dry run in flight
+        self.fcu = None                     # harness.agent_fcu.AgentFcu, made on the first fcu op
 
     # --- the feed --------------------------------------------------------------------------
 
@@ -237,7 +241,8 @@ class AgentDesk:
             return self.reply(req, False, 'expired', hint='request deadline passed; nothing was done')
         handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop,
                    'mark': self.do_mark, 'run': self.enqueue, 'goal': self.enqueue,
-                   'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part}.get(req['op'])
+                   'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part,
+                   **dict.fromkeys(FCU_OPS, self.do_fcu)}.get(req['op'])
         if handler is None:
             return self.reply(req, False, 'bad_op', hint=f"unknown op {req['op']!r}")
         handler(req)
@@ -351,6 +356,67 @@ class AgentDesk:
                 return 'not_allowed', (f"stopping {item.title} also stops {', '.join(items[n].title for n in others)}, "
                                        "which is not an agent's: ask the operator")
         return None
+
+    def fcu_work(self):
+        """The AgentFcu over this TUI's MavrosLink (ros/fcu.py, the one MAVROS path) and node."""
+        if self.fcu is None:
+            from mhseals_testing.ros import rates
+            from mhseals_testing.ros.fcu import FcuParams, MavrosLink
+            node, made = self.app.ros.node, {}
+
+            def params():
+                if 'params' not in made:
+                    made['params'] = FcuParams(MavrosLink(node))
+                return made['params']
+            fcu = agent_fcu.settings(self.config.get())
+            vessel = getattr(getattr(self.app, 'profile', None), 'name', None) or 'fcu'
+            self.fcu = agent_fcu.AgentFcu(
+                params, agent_fcu.Store(fcu['store'], vessel), self.config.get,
+                lambda window: rates.measure(node, agent_fcu.settings(self.config.get())['rates']['topics'], window))
+        return self.fcu
+
+    def do_fcu(self, req):
+        """boat_agent fcu get/rates (read-only) and set/revert/restart (claimed, disarmed): owner decision 10-31.
+        The work runs off the key loop (its popup keeps Space and E); a write or restart is a notice and a journal
+        ``fcu`` event naming the agent. Never arms; the never list (agent_fcu.NEVER) holds whatever agent.yaml says."""
+        op, args, who, app = req['op'], req['args'], req['who'], self.app
+        if op in FCU_CLAIMED:
+            if app.settings.agents == 'block':
+                return self.reply(req, False, 'blocked', hint='operator must set Agents to allow')
+            if not req.get('claim'):
+                return self.reply(req, False, 'unknown_claim',
+                                  hint=f'fcu needs your claim: claim --reason "..." --who {who}, then --claim ID')
+            found = self.claim_state(req['claim'], who)
+            if found:
+                return self.reply(req, False, found, hint='claim again' if found != 'not_holder' else 'use your own claim')
+            if app.armed:
+                return self.reply(req, False, 'refused', hint='armed: FCU writes and restarts only while disarmed')
+        work, claim = self.fcu_work(), req.get('claim')
+        jobs = {'fcu_get': lambda: work.get(list(args.get('params') or [])),
+                'fcu_rates': lambda: work.rates(args.get('window_s'), who),
+                'fcu_set': lambda: work.set(dict(args.get('changes') or {}), who, claim),
+                'fcu_revert': lambda: work.revert(str(args.get('to') or ''), who, claim),
+                'fcu_restart': lambda: work.restart(who, claim)}
+        if op == 'fcu_set' and not args.get('changes'):
+            return self.reply(req, False, 'bad_args', hint='fcu set PARAM VALUE [PARAM VALUE ...]')
+        titles = {'fcu_get': 'reading FCU parameters', 'fcu_rates': 'measuring rates',
+                  'fcu_set': 'setting FCU parameters', 'fcu_revert': f"reverting the FCU to {args.get('to')}",
+                  'fcu_restart': 'restarting the FCU'}
+        title = f'Agent {who}: {titles[op]}'
+        if op in FCU_CLAIMED:
+            app.notice = title
+        self.reply(req, True, state='started')
+        try:
+            ok, error, hint, result = agent_acts.in_background(app, title, jobs[op], message=title)
+        except Exception as fault:      # noqa: BLE001 - a MAVROS timeout or a missing service: told, not raised
+            ok, error, hint, result = False, 'refused', f'{type(fault).__name__}: {fault}', None
+        if op in FCU_CLAIMED and result is not None:
+            app.notice = (f"Agent {who} {claim}: {titles[op]}"
+                          + (f": {', '.join(f'{n} {o}->{v}' for n, (o, v) in result.get('changes', {}).items())}"
+                             if result.get('changes') else '') + ('' if ok else f' failed ({hint})'))
+            app.emit('fcu', action=op[4:], ok=ok, by='agent', who=who, claim=claim,
+                     **{k: result[k] for k in ('changes', 'snapshot') if k in result})
+        self.reply(req, ok, error, result=result, hint=hint)
 
     def do_mark(self, req):
         number = journal.next_marker_id(journal.read(self.app.paths.journal))

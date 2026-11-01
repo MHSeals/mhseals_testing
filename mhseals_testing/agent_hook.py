@@ -211,9 +211,11 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
        (None, 'starting a stack component on a boat (its device launch or unit)', 'start COMPONENT --claim ID',
         tuple(BOAT_START)),
        (None, 'stopping a stack component on a boat (its unit)', 'stop COMPONENT --claim ID', tuple(BOAT_STOP_PART)),
-       (None, 'killing processes on a boat computer (a stack component: stop COMPONENT --claim ID)', 'stop',
+       (None, 'killing processes on a boat computer (a stack component: stop COMPONENT --claim ID; your own tmux '
+        'session: tmux kill-session -t boatops... or agent-...)', 'stop',
         (BOAT_KILL,)),
-       (None, "stopping or restarting the boat's software or computer", None,
+       (None, "stopping or restarting the boat's software or computer (the FCU: boat_agent fcu restart --claim ID)",
+        None,
         tuple(p for p in DEFAULTS['deny_boat'] if p not in BOAT_START + BOAT_STOP_PART + [BOAT_KILL])),
        (None, 'replaying a bag that can carry motion topics (play only --topics without cmd_vel, thruster or mux '
         'topics)', 'run KEY --claim ID', tuple(p for p in _DENY if p.startswith(r'ros2\s+bag\s+play'))),
@@ -245,7 +247,10 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
        (r'operator/heartbeat|operator_heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority",
         None, ()),
        (r'estop', 'the thruster e-stop', 'stop', ()),
-       (r'mavros', 'an FCU arming, mode or parameter change', None, ()),
+       (r'mavros/param/set\b|param\s+set\b.*\bmavros', 'an FCU parameter change',
+        'fcu set PARAM VALUE --claim ID', ()),
+       (r'mavros', 'an FCU arming or mode change (parameters: boat_agent fcu set; an FCU restart: boat_agent fcu '
+        'restart)', None, ()),
        (r'\$', 'a ros2 command whose target is a shell variable the hook cannot read (spell the name out)', None, ()),
        (r'ros2\s+(param|lifecycle)\b|/(set_parameters\w*|load_parameters|change_state)\b',
         'changing the thruster driver, the mux or a safety watchdog', None, ()),
@@ -370,7 +375,8 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, run, start, ask, note, release, stop); nothing else there.',
+        '(claim, run, start, fcu, ask, note, release, stop); nothing else there. You may end your own tmux sessions '
+        'there (`tmux kill-session -t boatops...` or `-t agent-...`), never `boat` or `-L boat`.',
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
@@ -380,6 +386,11 @@ def start_text(who, agent='claude', config=None):
         '     `start COMPONENT --claim ID` / `stop COMPONENT --claim ID` starts or stops a stack part agent.yaml '
         '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id. '
         'Never the driver, mux, Nav2 or watchdogs; arming stays the operator\'s.',
+        '     `fcu get PARAM...` and `fcu rates` (IMU/odom rates, gap p99, FCU load, "Main loop slow") read only; '
+        '`fcu set PARAM VALUE... --claim ID` (agent.yaml `fcu.set`: loop rate, SR0_/SR1_ stream rates, IMU filters; '
+        'never yaw source, compass, servos, arming or failsafes), `fcu revert --to SNAPSHOT --claim ID` and '
+        '`fcu restart --claim ID` (disarmed) go through the TUI\'s MAVROS link: snapshot, read-back and '
+        'fcu_changes.md name you. SCHED_LOOP_RATE 400 only after `fcu rates` at 200 shows the FCU load low.',
         '     Start sims and heavy runs through the host guard: `.handoff/tools/heavy sim ...` (Unity headless).',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
         '  `stop` any time: the operator and the agent it interrupts see your id. `ask "..."` instead of guessing. '
@@ -695,6 +706,18 @@ def boats(config):
     return names
 
 
+# An agent's own tmux session on a boat host (default server, a boatops*/agent-* name, nothing after the target):
+# ending it is not stopping the boat's software. Never `boat` (the TUI's session), -L/-S sockets or -a.
+OWN_TMUX = re.compile(r"""\btmux\s+kill-session\s+-t\s*(['"]?)=?(boatops|agent-)[\w.-]*\1(?=[ \t]*($|[;&|)\n'"]))""")
+# The free text of boat_agent ask/note (the question or note) is data, unless it could expand ($, backticks).
+AGENT_TEXT = re.compile(r"""(\bboat_agent\s+(?:ask|note)\s+)("[^"$`\\]*"|'[^']*')""")
+
+
+def own_text(command):
+    """``command`` with an agent's own boat tmux session ends and its boat_agent ask/note text blanked."""
+    return AGENT_TEXT.sub(r'\1TEXT', OWN_TMUX.sub('tmux-end-own-session', command))
+
+
 def denied(command, config, cwd=None):
     """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
     denied, and a heredoc body that is only data (``code_of``) is not searched;
@@ -702,7 +725,7 @@ def denied(command, config, cwd=None):
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
     if text_only(command):
         return None
-    text, names = links(plain(failed_cd(code_of(command))), cwd), boats(config)
+    text, names = links(plain(failed_cd(own_text(code_of(command)))), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')

@@ -99,7 +99,7 @@ def test_the_private_dir_is_user_only_and_not_shared_tmp(tmp_path, monkeypatch):
     ('ros2 action send_goal dock_robot nav2_msgs/action/DockRobot "{}"', 'goal X Y'),
     ('ros2 service call mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"', 'ask'),
     ('ros2 run mavros mav safety arm', 'ask'),
-    ('ros2 param set --no-daemon /mavros/param COMPASS_USE 0', 'ask'),
+    ('ros2 param set --no-daemon /mavros/param COMPASS_USE 0', 'fcu set'),   # fcu set refuses COMPASS_* (never list)
     ('ros2 param load /mavros/param fcu.yaml', 'ask'),
     ('ros2 param set /command_mux cmd_timeout 30.0', 'ask'),
     ('ros2 lifecycle set /fence_watchdog deactivate', 'ask'),

@@ -22,7 +22,8 @@ from mhseals_testing import data
 from mhseals_testing.harness import agent_channel as channel
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
-VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'mark', 'note', 'ask')
+FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
+VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'fcu', 'mark', 'note', 'ask')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s')
@@ -64,6 +65,12 @@ def add_parsers(sub):
     goal.add_argument('--dry-run', action='store_true', help='evaluate the gates only')
     start = verb('start', 'start a stack component (agent.yaml start:) as its Status row does', claim=True)
     start.add_argument('component', metavar='COMPONENT', help='a component key: odometry, ekf, sensors, ...')
+    fcu = verb('fcu', 'FCU parameters through the TUI: get PARAM..., rates [--window S] (read-only); '
+               'set PARAM VALUE..., revert --to SNAPSHOT, restart (--claim, disarmed)', claim=False)
+    fcu.add_argument('action', choices=FCU_ACTIONS)
+    fcu.add_argument('params', nargs='*', metavar='PARAM [VALUE]')
+    fcu.add_argument('--to', metavar='SNAPSHOT', help='revert: the snapshot file (fcu_<vessel>_<stamp>.param)')
+    fcu.add_argument('--window', type=float, metavar='S', help='rates: seconds to measure (default agent.yaml)')
     stop = verb('stop', 'Space: hold, neutral and disarm (mux hold over ROS if the TUI is silent); '
                 'with COMPONENT and --claim, stop that stack component instead', claim=False)
     stop.add_argument('component', nargs='?', metavar='COMPONENT',
@@ -182,6 +189,31 @@ class Agent:
 
     def start(self):
         return self.send('start', {'component': self.args.component}, self.args.claim)
+
+    def fcu(self):
+        """boat_agent fcu ACTION: the TUI does it over its MAVROS link (ui/feeds/agent.py do_fcu)."""
+        action, words, claim = self.args.action, self.args.params, getattr(self.args, 'claim', None)
+
+        def bad(hint):
+            self.emit({'ok': False, 'error': 'bad_args', 'hint': hint})
+            return channel.EXIT_CODES['bad_args']
+        if action in ('set', 'revert', 'restart') and not claim:
+            return bad(f'fcu {action} needs --claim ID (claim --reason "..." first)')
+        if action == 'get':
+            return self.send('fcu_get', {'params': words}) if words else bad('fcu get PARAM [PARAM ...]')
+        if action == 'rates':
+            return self.send('fcu_rates', {'window_s': self.args.window})
+        if action == 'restart':
+            return self.send('fcu_restart', {}, claim)
+        if action == 'revert':
+            return self.send('fcu_revert', {'to': self.args.to}, claim) if self.args.to else bad('fcu revert --to SNAPSHOT')
+        if not words or len(words) % 2:
+            return bad('fcu set PARAM VALUE [PARAM VALUE ...]')
+        try:
+            changes = {name: float(value) for name, value in zip(words[::2], words[1::2])}
+        except ValueError:
+            return bad('fcu set: every VALUE must be a number')
+        return self.send('fcu_set', {'changes': changes}, claim)
 
     def stop_part(self):
         if not getattr(self.args, 'claim', None):
