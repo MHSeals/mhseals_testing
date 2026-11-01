@@ -1035,3 +1035,48 @@ def test_a_block_names_the_id_the_agent_claimed_with(sent):
     sent('pre', 'BOAT_AGENT=pre-2 nice -n 19 boat_agent status', agent_id='a2')
     assert '--who remote-1' in sent('pre', 'pkill -f command_mux')['deny']
     assert '--who pre-2' in sent('pre', 'pkill -f command_mux', agent_id='a2')['deny']
+
+
+# --- typing into the boat's boat_test TUI (tools/boat_tui: tmux -L boat on a boat host) -----------------------------
+
+TUI_TYPED = [
+    "tmux -L boat send-keys -t boat q",
+    "tmux -L boat send-keys -t %3 Enter",                  # a pane id
+    "tmux -L boat send-keys y",                            # no target: the current pane
+    "tmux -L boat select-pane -t boat-v1 \\; send-keys a",  # chained after \;
+    "tmux -Lboat paste-buffer -t '=boat'",
+    "tmux -S /tmp/tmux-1000/boat send -t boat:0.0 U",
+]
+
+
+@pytest.mark.parametrize('command', TUI_TYPED)
+def test_keys_into_the_boats_tui_are_denied_over_ssh_and_on_a_boat_host(command, monkeypatch):
+    found = hook.denied(f'ssh blastoise-odroid "{command}"', hook.DEFAULTS)
+    assert found and found[1] == 'blastoise-odroid'
+    assert "typing into the operator's boat_test TUI" in hook.deny_reason(*found, config=hook.DEFAULTS)
+    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-jetson.local')
+    assert hook.denied(command, hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('command', TUI_TYPED + [
+    'env -u TMUX tmux -L simtui send-keys -t boat q',      # an agent's own sim TUI on a private socket
+    'tmux -S /tmp/bt-tmux/tmux-1000/default send-keys -t %1 Space',
+    'tmux send-keys -t boat q',                            # the dev box's own server
+])
+def test_keys_into_a_private_or_dev_tmux_server_are_allowed(command, monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    assert hook.denied(command, hook.DEFAULTS) is None
+
+
+@pytest.mark.parametrize('command', [
+    'tmux -S /tmp/sim/tmux-1000/default send-keys -t boat q', 'tmux -L simtui send-keys -t %2 Enter',
+    'tmux -L simtui select-pane -t x \\; send-keys a'])
+def test_private_sockets_stay_free_even_on_a_boat_host(command, monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')
+    assert hook.denied(command, hook.DEFAULTS) is None
+
+
+@pytest.mark.parametrize('command', ['tmux -L boat capture-pane -p -t boat', 'tmux -L boat ls',
+                                     'tmux -L boat attach -t boat'])
+def test_watching_the_boats_tui_stays_allowed(command):
+    assert hook.denied(f'ssh blastoise-odroid "{command}"', hook.DEFAULTS) is None

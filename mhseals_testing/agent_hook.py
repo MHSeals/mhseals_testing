@@ -159,10 +159,13 @@ GIT_RUNS = [r'(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\'"]?(user\.(name|email)|col
             r'(?<![\w-])GIT_(?!(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)=|TERMINAL_PROMPT=|PAGER=([\'"]?(cat|less)?[\'"]?)(\s|$))\w+=',
             r'(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.'
             r'|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)']
-# Typing into a boat_test TUI (tools/boat_tui runs it in tmux sessions boat, boat-v1, ...): keys sent to its pane
-# would answer the operator's popups, arm or release a hold. Watching it (capture-pane, list, status) stays allowed.
-TUI_KEYS = [r'\btmux\b[^;&|\n]*\b(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)\b'
-            r'''[^;&|\n]*-t\s*['"]?=?boat\b''']
+# Typing into the boat's boat_test TUI: tools/boat_tui runs it on its own tmux server (tmux -L boat) on a boat host;
+# keys sent to any of its panes (-t boat, -t %3, no -t, or chained after \;, which the shell hands tmux as ;) would
+# answer the operator's popups, arm or release a hold. A deny_boat rule: only on a boat host or via ssh to one;
+# private sockets (-L/-S) for sim and dev stay free. Watching it (capture-pane, list, status) stays allowed.
+TUI_KEYS = [r'\btmux\b(?:(?!\btmux\b)[^&|\n])*?' + r'''(-L\s*['"]?boat\b|-S\s*['"]?\S*/tmux-\d+/boat\b)'''
+            r'(?:(?!\btmux\b)[^&|\n])*?(?<![\w-])(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)'
+            r'(?![\w-])']
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -199,14 +202,13 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS
-            + TUI_KEYS,
+             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
                  [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
                   r'\b(reboot|poweroff|halt|shutdown)\b', r'\b(tel)?init\s+[0-6sS]\b',
-                  r'\bloginctl\s+(terminate|kill)', r'sysrq']}
+                  r'\bloginctl\s+(terminate|kill)', r'sysrq'] + TUI_KEYS}
 NETWORK = 'config/boat-network.env'    # legacy path; STATIC_LEASES "MAC=hostname=address ...": the boat computers
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
@@ -229,7 +231,7 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
         (BOAT_KILL,)),
        (None, "stopping or restarting the boat's software or computer (the FCU: boat_agent fcu restart --claim ID)",
         None,
-        tuple(p for p in DEFAULTS['deny_boat'] if p not in BOAT_START + BOAT_STOP_PART + [BOAT_KILL])),
+        tuple(p for p in DEFAULTS['deny_boat'] if p not in BOAT_START + BOAT_STOP_PART + [BOAT_KILL] + TUI_KEYS)),
        (None, 'replaying a bag that can carry motion topics (play only --topics without cmd_vel, thruster or mux '
         'topics)', 'run KEY --claim ID', tuple(p for p in _DENY if p.startswith(r'ros2\s+bag\s+play'))),
        (None, 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git worktree; sim-arm is '

@@ -144,9 +144,7 @@ hook:
          '(?m)^EDIT \w+ live [^\n]*/(agent_hook\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$',
          '(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\''"]?(user\.(name|email)|color\.\S+|advice\.\S+|commit\.gpgsign)=)\S|--config-env\b|--exec-path\b)',
          '(?<![\w-])GIT_(?!(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)=|TERMINAL_PROMPT=|PAGER=([\''"]?(cat|less)?[\''"]?)(\s|$))\w+=',
-         '(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)',
-         # agent_hook.TUI_KEYS: keys typed into a boat_test TUI's tmux session (boat, boat-v1, ...)
-         '\btmux\b[^;&|\n]*\b(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)\b[^;&|\n]*-t\s*[''"]?=?boat\b']
+         '(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   # deny_boat starts with agent_hook.BOAT_START and BOAT_STOP_PART: any mhseals_nav/hardware launch or mhseals-<part>
   # unit started or stopped by hand on a boat; boat_agent start/stop COMPONENT --claim ID does it through the TUI.
@@ -155,4 +153,6 @@ hook:
               '\bsystemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-',
               '\b(pkill|killall|kill)\b', '\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
               '\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
-              '\b(reboot|poweroff|halt|shutdown)\b', '\b(tel)?init\s+[0-6sS]\b', '\bloginctl\s+(terminate|kill)', 'sysrq']
+              '\b(reboot|poweroff|halt|shutdown)\b', '\b(tel)?init\s+[0-6sS]\b', '\bloginctl\s+(terminate|kill)', 'sysrq',
+              # agent_hook.TUI_KEYS: keys typed into the boat's boat_test TUI (its tmux -L boat server), any pane
+              '\btmux\b(?:(?!\btmux\b)[^&|\n])*?(-L\s*[''"]?boat\b|-S\s*[''"]?\S*/tmux-\d+/boat\b)(?:(?!\btmux\b)[^&|\n])*?(?<![\w-])(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)(?![\w-])']
