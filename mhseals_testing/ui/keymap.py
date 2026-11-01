@@ -42,6 +42,7 @@ STACKS = {                               # outermost first
     'correction': ['global', 'tab.correction'],
     'map': ['global', 'tab.map', 'view.minimap'],
     'bags': ['global', 'tab.bags'],
+    'fusion': ['global', 'tab.fusion'],
     'review/drive': ['global', 'review', 'review.activity'],
     'review/map': ['global', 'review', 'tab.map', 'view.minimap'],
 }

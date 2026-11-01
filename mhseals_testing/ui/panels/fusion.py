@@ -2,7 +2,8 @@
 
 Three panels from ``ros.fusion_feed.FusionFeed.snapshot()`` plus the fusion status facts:
 - **Camera**: the scan projected into the image (with lidar_fusion's applied correction) coloured by
-  range on the spd ramp, over the frame in grey when an image tier has one, with each box in its class
+  range on the spd ramp, over the camera frame in grey while the image is on (``i``; image tiers only: the
+  frame is drawn with the boxes and scan of its own stamp, so all three are what the camera saw), with each box in its class
   colour and its range label (``L`` lidar, ``R`` ray mode, ``H`` held, ``S`` stereo, then the stereo
   range when it differs). A misaligned extrinsic shows as points sitting off their boxes.
 - **Around**: top-down in camera axes (x right, z ahead): FOV, range rings, the scan, each box at its
@@ -33,6 +34,7 @@ RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to
 RAMP16 = dict(zip(RAMP, ('bright_magenta', 'bright_cyan', 'cyan', 'blue', 'white', 'bright_black')))
 STALE = 'warn'         # the whole scan in one ink no band uses while it cannot be read against the boxes
 GREYS = 6              # grey levels of the frame behind the points
+LINK_BLOCK = 4         # px: over a link budget the frame is drawn in blocks this size (runs that sixel/kitty pack)
 CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
 READOUT_ROWS = 8       # Alignment's six lines and its border
@@ -44,6 +46,7 @@ ASCII = {'point': '.', 'stale': ':', 'ring': '.', 'fov': '.', 'stereo': 'o', 'ba
 DEG = theme.pick('°', 'deg')
 PM = theme.pick('±', '+-')
 SPARK_COLUMNS = 12
+STAMP_MATCH_S = 0.005  # frame and boxes this close count as one capture (no note)
 
 
 def class_token(label):
@@ -214,18 +217,40 @@ def camera_layers(dets):
     return ramp + boxes if theme.ASCII else boxes + ramp
 
 
+def frame_shown(model):
+    """Whether the Camera tile draws the frame: the image on, an image tier for the tile, a frame with camera_info's
+    aspect (the points and boxes are normalised by that size, so another crop would not line up)."""
+    return (model.get('frame') is not None and model.get('frame_aspect') is not False
+            and pixels.active() and pixels.images('fusion.camera'))
+
+
+def camera_model(model):
+    """The model the Camera tile draws: with the frame, its own stamp's boxes and scan (the feed's ``at_frame``)."""
+    view = model.get('at_frame') if frame_shown(model) else None
+    return {**model, **view} if view else model
+
+
+def paint_frame(r, frame):
+    """The frame in GREYS levels from bg towards muted, stretched to the raster (the camera_info aspect); over a link
+    budget in LINK_BLOCK px blocks."""
+    bg, mid = np.asarray(pixels.token('bg'), float), np.asarray(pixels.token('muted'), float)
+    greys = [r.ink(tuple(int(v) for v in bg + (mid - bg) * (i / (GREYS - 1)) * 0.8)) for i in range(GREYS)]
+    block = LINK_BLOCK if pixels.BUDGET else 1
+    h, w = -(-r.h // block), -(-r.w // block)
+    ys = np.minimum(((np.arange(h) + 0.5) * block * frame.shape[0] / r.h).astype(int), frame.shape[0] - 1)
+    xs = np.minimum(((np.arange(w) + 0.5) * block * frame.shape[1] / r.w).astype(int), frame.shape[1] - 1)
+    level = (frame[ys][:, xs].astype(np.uint16) * GREYS // 256).astype(np.uint8)
+    if block > 1:
+        level = np.repeat(np.repeat(level, block, axis=0), block, axis=1)[:r.h, :r.w]
+    r.px[:] = np.asarray(greys, np.uint8)[level]
+
+
 def paint_camera(model, cfg):
     breaks = np.asarray(cfg['ramp_m'], float)
 
     def paint(r, inks):
-        frame = model.get('frame')
-        if frame is not None and r.cw > TEXT_CELL[0]:
-            bg, mid = np.asarray(pixels.token('bg'), float), np.asarray(pixels.token('muted'), float)
-            greys = [r.ink(tuple(int(v) for v in bg + (mid - bg) * (i / (GREYS - 1)) * 0.8)) for i in range(GREYS)]
-            ys = np.minimum(np.arange(r.h) * frame.shape[0] // r.h, frame.shape[0] - 1)
-            xs = np.minimum(np.arange(r.w) * frame.shape[1] // r.w, frame.shape[1] - 1)
-            level = (frame[ys][:, xs].astype(np.uint16) * GREYS // 256).astype(np.uint8)
-            r.px[:] = np.asarray(greys, np.uint8)[level]
+        if r.cw > TEXT_CELL[0] and frame_shown(model):
+            paint_frame(r, model['frame'])
         scan = model.get('points')
         if scan is not None and len(scan[1]):
             step = link_stride(len(scan[1]), cfg)
@@ -255,6 +280,7 @@ def paint_camera(model, cfg):
 
 
 def camera_rows(model, cfg, cols, rows):
+    model = camera_model(model)
     labels = {}
     for det in sorted((d for d in model['dets'] if d['box'] is not None), key=lambda d: d['range'] or 1e9):
         u0, v0, u1, v1 = det['box']
@@ -269,7 +295,7 @@ def camera_rows(model, cfg, cols, rows):
                 break
     layers = camera_layers(model['dets'])
     return draw('fusion.camera', paint_camera(model, cfg), layers, cols, rows,
-                (model['version'], model.get('frame') is not None, scan_stale(model, cfg)), labels, draw_rate(cfg, 'fusion.camera'))
+                (model['version'], frame_shown(model), scan_stale(model, cfg)), labels, draw_rate(cfg, 'fusion.camera'))
 
 
 # --- Around (top-down) ----------------------------------------------------------------------------
@@ -568,12 +594,17 @@ def camera_subtitle(model, cfg):
     """The range legend (in the points' own styles), the point count, the scan's offset from the boxes and ``no frame``
     in an image tier without one. A stale scan leads with ``TURNING``/``STALE`` and its offset (the title row cuts
     the tail at 80 columns; the word carries it without colour)."""
+    model = camera_model(model)
     dt, stale = model.get('scan_dt'), scan_stale(model, cfg)
     offset = f'scan {dt:+.2f}s' if dt is not None else ''
     sub = Text()
     if stale:
         sub.append('TURNING' if model.get('motion') else 'STALE', style=f'bold {ink_style(STALE)}'.strip())
         sub.append(f' {offset}{theme.SEPARATOR}' if offset else theme.SEPARATOR, style=theme.MUTED)
+    note = image_note(model, cfg)
+    if note:
+        sub.append(note[0], style=note[1])
+        sub.append(theme.SEPARATOR, style=theme.MUTED)
     ramp = Text()
     for i, token in enumerate(RAMP[:-1]):
         ramp.append(theme.pick('⣿', '#'), style=ink_style(token))
@@ -583,9 +614,25 @@ def camera_subtitle(model, cfg):
                                                style=theme.MUTED)]))
     if offset and not stale:
         sub.append(f'{theme.SEPARATOR}{offset}', style=theme.MUTED)
-    if pixels.active() and model.get('frame') is None:
-        sub.append(f"{theme.SEPARATOR}no frame", style=theme.MUTED)
     return sub
+
+
+def image_note(model, cfg):
+    """``(text, style)`` of the image toggle's state for the Camera title, or None while the frame is drawn in time
+    with its boxes: off, needs graphics (the text tiers), no frame yet, another aspect than camera_info, or the
+    frame's boxes ``frame +0.40s`` from it (no array of its own stamp)."""
+    if not model.get('image'):
+        return 'image off', theme.MUTED
+    if not (pixels.active() and pixels.images('fusion.camera')):
+        return 'image needs graphics', theme.MUTED
+    if model.get('frame') is None:
+        return 'no frame', theme.MUTED
+    if model.get('frame_aspect') is False:
+        return 'frame aspect != camera_info', theme.WARN
+    dt = model.get('frame_dt')
+    if dt is not None and abs(dt) > STAMP_MATCH_S:
+        return f'frame {dt:+.2f}s', theme.WARN if abs(dt) > cfg['feed']['scan_dt_max_s'] else theme.MUTED
+    return None
 
 
 def body(view, width, height, cfg=None):

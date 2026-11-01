@@ -17,6 +17,7 @@ SCREENS = {   # label prefix -> keymap stack (outermost first); no prefix is glo
     'Map': keymap.STACKS['map'],
     'Correction': keymap.STACKS['correction'],
     'Bags': keymap.STACKS['bags'],
+    'Fusion': keymap.STACKS['fusion'],
     'Review': keymap.STACKS['review/drive'],
     'Manual': ['manual'],
     'Run': ['tab.drive', 'runner'],   # m (Manual) takes over a run
@@ -27,7 +28,7 @@ UNHANDLED = {('panel.procedures', 'fold'), ('panel.procedures', 'unfold'),
              ('panel.activity', 'view_prev'), ('panel.activity', 'view_next'), ('panel.activity', 'zoom'),
              ('view.minimap', 'course'), ('view.minimap', 'centre'), ('view.minimap', 'goal_mode'),
              ('view.minimap', 'cancel_goal'), ('tab.bags', 'send'), ('review', 'goto')}
-COVERED = ('global', 'tab.drive', 'tab.correction', 'tab.map', 'tab.bags', 'panel.status',
+COVERED = ('global', 'tab.drive', 'tab.correction', 'tab.map', 'tab.bags', 'tab.fusion', 'panel.status',
            'panel.thrusters', 'panel.procedures', 'panel.activity', 'view.minimap', 'review',
            'review.activity', 'manual', 'runner')
 

@@ -35,6 +35,14 @@ def raw_to_jpeg(message):
     return out.getvalue()
 
 
+def _stamp(message):
+    """The header stamp in seconds, or None (a message without one)."""
+    try:
+        return message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+    except Exception:
+        return None
+
+
 class CameraFeed:
     """Holds the latest preview frame, accepting at most ``hz`` frames per second.
 
@@ -52,7 +60,7 @@ class CameraFeed:
         self._encode = encode
         self._lock = threading.Lock()
         self._handle = None
-        self._frame = None
+        self._frame = self._stamp = None
         self._last = None
         self.hz = self._valid(hz)
 
@@ -97,6 +105,11 @@ class CameraFeed:
         with self._lock:
             return self._frame
 
+    def stamped(self):
+        """The newest accepted frame (or None) as ``(data, received_at, header stamp s or None)``."""
+        with self._lock:
+            return None if self._frame is None else (*self._frame, self._stamp)
+
     def _on_message(self, message):
         now = self._clock()
         with self._lock:
@@ -106,6 +119,7 @@ class CameraFeed:
                 return
             self._last = now
             self._frame = (self._jpeg(message), now)
+            self._stamp = _stamp(message)
 
     def _jpeg(self, message):
         """The frame's JPEG bytes; an undecodable message becomes b'' so the view shows 'bad frame'.

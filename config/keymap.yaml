@@ -1,7 +1,7 @@
 # boat_test keymap (prototype of mhseals_testing/config/keymap.yaml).  One file for every spec.
 #
 # Contexts
-#   layered:  global → tab.<drive|correction|map|bags> → panel.<name> | view.minimap
+#   layered:  global → tab.<drive|correction|map|bags|fusion> → panel.<name> | view.minimap
 #             review: global → review → review.activity (Drive) | tab.map → view.minimap (Map)
 #   modal:    manual, runner, minimap.goal, popup.<name>: own bindings + `passthrough` actions only
 # `override:` in a layered child lists the ancestor actions it shadows on purpose.
@@ -75,6 +75,9 @@ tab.bags:
   prune: [P]
   send: [y]
   finalize: [F]
+
+tab.fusion:
+  camera_image: [i]             # the camera frame under the points and boxes (image tiers)
 
 # -- panels (Drive) ------------------------------------------------------------------
 panel.status:

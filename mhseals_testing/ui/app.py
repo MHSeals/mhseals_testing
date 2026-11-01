@@ -170,6 +170,7 @@ PANEL_HINTS = {
             ('F', 'Fov'), ('w', 'Wake'), ('g', 'Rings'), ('T', 'Tasks')],
     'list': [(UPDOWN, 'Select'), ('p', 'Pin'), ('n', 'Title'), ('d', 'Delete'), ('P', 'Prune'), ('F', 'Finalize')],
 }
+FUSION_HINTS = [('i', 'Image')]
 CORRECTION_HINTS = [(LEFTRIGHT, 'Direction'), ('Enter', 'Holds'), ('r', 'Rerun direction'),
                     ('R', 'Run all'), ('A', 'Apply pending'), ('I', 'Hardware changed')]
 REVIEW_HINTS = [('p', 'Play/pause'), (f'{LEFTRIGHT} {{ }}', 'Seek 5 s / 30 s'),
@@ -182,7 +183,7 @@ MANUAL_HINTS = [(f'W/S {UPDOWN}', 'Surge'), ('A/D', 'Sway'), (LEFTRIGHT, 'Yaw'),
 HELP = [   # '[Screen ]keys', as test_help_keys reads them against config/keymap.yaml
     ('Ctrl h j k l / arrows', 'Focus the panel to the left, below, above, right'),
     ('Tab / Shift Tab', 'Cycle focus through the panels'),
-    ('[ / ]', 'Previous / next tab: Drive, Correction, Map, Bags'),
+    ('[ / ]', 'Previous / next tab: Drive, Correction, Map, Bags, Fusion'),
     (f'{UPDOWN} / j k', 'Move within the focused panel'),
     ('Enter', 'Run, open or show details'),
     ('Esc', 'Back out (drops a picked-up thruster); never quits'),
@@ -235,6 +236,8 @@ HELP = [   # '[Screen ]keys', as test_help_keys reads them against config/keymap
     ('Bags p / n', 'Pin / title the session'),
     ('Bags d / P', 'Delete the session / prune old ones'),
     ('Bags F', 'Finalize the session'),
+    ('Fusion i', 'Camera image under the points and boxes, on or off (kitty/sixel graphics; on by default '
+                 'locally, off over SSH)'),
     ('Review p', 'Play / pause (arming, procedures and edits are off)'),
     (f'Review {LEFTRIGHT} / {{ }}', 'Seek 5 s / 30 s'),
     ('Review , .', 'Previous / next marker'),
@@ -381,6 +384,8 @@ class App:
         self.minimap = minimap_panel.MiniMap(self.map_state)
         self.layerbox = LayerBox(getattr(self.ros, 'map', None), self.map_state, live=True)
         self.map_keys, self.map_tab_keys = map_key_maps(keymap_module.load()[0].doc)
+        self.fusion_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('tab.fusion'))
+        self.fusion_image = None   # the Fusion camera image: None until toggled (on locally, off over a link budget)
         self.bag_recording_key = None
         self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
         self.focus = 'status'
@@ -867,6 +872,7 @@ class App:
 
         def apply_keymap(keymap):
             self.map_keys, self.map_tab_keys = map_key_maps(keymap.doc)
+            self.fusion_keys = keymap_module.key_map(keymap.doc.get('tab.fusion'))
 
         def apply_theme(new):
             theme.use_palette(new)
@@ -1041,6 +1047,8 @@ class App:
                  else PANEL_HINTS.get(self.focus, []) + GLOBAL_HINTS)
         if self.tab == 'Correction' and not self.review:
             hints = CORRECTION_HINTS
+        elif self.tab == 'Fusion' and not (self.review or self.manual):
+            hints = FUSION_HINTS + GLOBAL_HINTS
         if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         shared = {} if self.review else feeds_module.merged(self.feeds)
@@ -1098,9 +1106,14 @@ class App:
             # a stale or missing fusion_state keeps the last correction (the readout marks it stale), so the scan
             # is not drawn uncorrected under boxes a corrected fusion still ranges
             feed.applied = fusion_panel.fusion_status(self.facts).get('applied_deg') or feed.applied
-        # the frame only as image tiles on an unbudgeted link: over SSH or the radio the points and boxes suffice
-        feed.want(shown, camera=pixels.active() and pixels.BUDGET is None and pixels.images('fusion.camera'))
-        return {'fusion': feed.snapshot(), 'fusion_facts': self.facts} if shown else review
+        # the frame only as image tiles; over a link budget only once turned on (i), drawn in blocks within the budget
+        image = self.fusion_on()
+        feed.want(shown, camera=image and pixels.active() and pixels.images('fusion.camera'))
+        return {'fusion': {**feed.snapshot(), 'image': image}, 'fusion_facts': self.facts} if shown else review
+
+    def fusion_on(self):
+        """Whether the Fusion camera image is on: as toggled (i), else on locally and off over a link budget."""
+        return self.fusion_image if self.fusion_image is not None else pixels.BUDGET is None
 
     def driving(self, shared=None):
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
@@ -1646,6 +1659,10 @@ class App:
             self.open('health')
             return
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
+            return
+        if self.tab == 'Fusion' and not self.review and self.fusion_keys.get(raw) == 'camera_image':
+            self.fusion_image = not self.fusion_on()
+            self.notice = f"camera image {'on' if self.fusion_image else 'off'}"
             return
         panels = self.panels()
         if key in ('[', ']'):

@@ -138,7 +138,7 @@ def sea_frame(w=320, h=180):
 
 def fusion():
     monitor, _ = test_inspect_popup.scene()
-    model = test_fusion_panel.model()
+    model = {**test_fusion_panel.model(), 'frame_aspect': True, 'image': True}
     model['frame'] = sea_frame()
     return monitor.snapshot(PROFILE.required_tf), base_view(tab='Fusion', focus='fusion', fusion=model,
                                                             fusion_facts=test_fusion_panel.facts())

@@ -32,6 +32,8 @@ TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the
 LIDAR_SOURCES = ('lidar', 'split', 'lidar_ray')   # fused rows ranged by the lidar (a hit)
 SCANS = 3            # projected scans held, so boxes pair with the scan nearest their capture
 RAW_S = 0.5          # stereo arrays held (s of stamps), so a fused array pairs with the stereo array of its stamp
+STAMP_EPS = 1e-3     # s: a box array of the camera frame's own stamp (the backend ran on that image)
+ASPECT_TOL = 0.02    # a frame whose aspect differs from camera_info's by more is not drawn (another crop)
 
 
 def load_config(path=CONFIG):
@@ -166,7 +168,10 @@ class FusionFeed:
         self.scans = deque(maxlen=SCANS)      # (t, uv Nx2 normalised, range N, optical x/z Mx2 of all in front)
         self.residuals = deque()              # (received, du_px, dv_px)
         self.grades = deque()                 # (received, id, hit, L/S or None): near boxes of fused, unskipped frames
-        self.frame = None                     # (grey HxW, received)
+        self.fuseds = deque()                 # fused arrays within RAW_S, as raws, so a camera frame finds its own
+        self.labelled = deque()               # (t, [label]) sources within RAW_S
+        self.frame = None                     # (grey HxW, received, stamp, view at the frame's stamp or None)
+        self.pending = None                   # (grey, received, stamp): a frame waiting for its boxes
         self._points_at = self._frame_at = None
         self.version = 0
 
@@ -181,7 +186,8 @@ class FusionFeed:
             for kind, topic, callback in (('observations', topics['observations'], self._on_raw),
                                           ('observations', topics['fused'], self._on_fused),
                                           ('sources', topics['sources'], self._on_sources),
-                                          ('camera_info', topics['camera_info'], self._on_camera_info),
+                                          *(('camera_info', topic, self._on_camera_info)
+                                            for topic in topics['camera_info']),
                                           ('tf_static', TF_STATIC, self.on_tf_static)):
                 self._handles[topic] = self._subscribe(kind, topic, callback)
             if self.tap:
@@ -200,7 +206,8 @@ class FusionFeed:
             self._camera_on = camera
             if not camera:
                 with self._lock:
-                    self.frame = None
+                    self.frame = self.pending = None
+                    self._frame_at = None
 
     # -- callbacks (executor thread) -------------------------------------------------------------
 
@@ -282,6 +289,9 @@ class FusionFeed:
             return
         with self._lock:
             self.fused, self.version = array, self.version + 1
+            self.fuseds.append(array)
+            while self.fuseds and abs(self.fuseds[0][0] - array[0]) > RAW_S:
+                self.fuseds.popleft()
 
     def _on_sources(self, message):
         """Source labels per fused box, and the extrinsic samples as pixel residuals.
@@ -300,6 +310,9 @@ class FusionFeed:
         now = self._clock()
         with self._lock:
             self.sources = (float(doc.get('t', 0.0)), labels)
+            self.labelled.append(self.sources)
+            while self.labelled and abs(self.labelled[0][0] - self.sources[0]) > RAW_S:
+                self.labelled.popleft()
             self.skip = (now, str(doc.get('skip') or ''))
             if self.K is not None:
                 for x, y, r_az, r_el in samples:
@@ -345,14 +358,15 @@ class FusionFeed:
         now = self._clock()
         stale = self.cfg['feed']['stale_s']
         if self._camera_on and self.camera is not None:
-            latest = self.camera.latest()
-            if latest is not None and (self.frame is None or latest[1] != self._frame_at):
+            latest = self.camera.stamped()
+            if latest is not None and latest[1] != self._frame_at and self.pending is None:
                 self._frame_at = latest[1]
                 grey = grey_frame(latest[0], self.cfg['feed']['camera_width'])
-                with self._lock:
-                    self.frame = None if grey is None else (grey, latest[1])
-                    self.version += 1
+                if grey is not None:
+                    self.pending = (grey, latest[1], latest[2])
         with self._lock:
+            if self.pending is not None:
+                self._settle(now)
             fresh = self._points_at is not None and now - self._points_at < stale + 1.0 / self.cfg['feed']['points_hz']
             dets = detections(self._stereo_for(self.fused), self.fused, self.sources)
             t = (self.fused or self.raw or (None,))[0]
@@ -364,9 +378,44 @@ class FusionFeed:
                     'fused': self.fused is not None, 'points': scan if fresh else None,
                     'scan_dt': scan[0] - t if fresh and scan is not None and t is not None else None, 'motion': motion,
                     'frame': None if self.frame is None else self.frame[0],
+                    'at_frame': None if self.frame is None else self.frame[3],
+                    'frame_aspect': self._aspect_ok(),
                     'residuals': [(t - now, du, dv) for t, du, dv in self.residuals],
                     'grades': [(t - now, i, hit, ratio) for t, i, hit, ratio in self.grades],
                     'applied': self.applied}
+
+
+    def _settle(self, now):
+        """Show the pending frame once the boxes of its own stamp have come (the fusion publishes a sweep later),
+        or after RAW_S with the array nearest its stamp: the Camera tile then draws the frame with the boxes and
+        scan of its stamp, so what is under the points is what the camera saw when they were measured."""
+        grey, received, t = self.pending
+        if t is None:
+            self.frame, self.pending, self.version = (grey, received, None, None), None, self.version + 1
+            return
+        arrays = self.fuseds if self.fused is not None else self.raws
+        exact = next((a for a in arrays if abs(a[0] - t) < STAMP_EPS), None)
+        if exact is None and now - received < RAW_S:
+            return
+        array = exact or min(arrays, key=lambda a: abs(a[0] - t), default=None)
+        view = None
+        if array is not None:
+            if self.fused is not None:
+                labels = next((s for s in self.labelled if abs(s[0] - array[0]) < 1e-6), None)
+                dets = detections(self._stereo_for(array), array, labels)
+            else:
+                dets = detections(array, None, None)
+            scan = min(self.scans, key=lambda s: abs(s[0] - array[0]), default=None)
+            view = {'dets': dets, 'points': scan, 'scan_dt': None if scan is None else scan[0] - array[0],
+                    'frame_dt': array[0] - t}
+        self.frame, self.pending, self.version = (grey, received, t, view), None, self.version + 1
+
+    def _aspect_ok(self):
+        """Whether the frame has camera_info's aspect (the points are normalised by its size), or None."""
+        if self.frame is None or self.size is None:
+            return None
+        h, w = self.frame[0].shape[:2]
+        return abs((w / h) / (self.size[0] / self.size[1]) - 1.0) <= ASPECT_TOL
 
 
 def _flat(pos, frame):

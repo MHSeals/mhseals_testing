@@ -74,13 +74,15 @@ def test_subscriptions_exist_only_while_wanted_and_closing_forgets():
     f.on_tf_static(statics())
     assert not subs and not f.is_open
     f.want(True)
-    assert {t for _, t, _ in subs} == {*f.cfg['topics'].values(), '/tf_static'}
+    topics = f.cfg['topics']
+    assert {t for _, t, _ in subs} == {*(v for k, v in topics.items() if k != 'camera_info'), *topics['camera_info'],
+                                       '/tf_static'}
     by_topic(subs)['/perception/observations'](array([ob('red_buoy', (0.4, 0.4, 0.5, 0.6), (0, 0, 7))]))
     assert f.snapshot()['dets']
     f.want(True)
-    assert len(subs) == 5                       # idempotent
+    assert len(subs) == 6                       # idempotent (two camera_info topics)
     f.want(False)
-    assert len(gone) == 5 and not f.is_open and not f.snapshot()['dets']
+    assert len(gone) == 6 and not f.is_open and not f.snapshot()['dets']
     assert f.tf.edges                            # latched /tf_static survives a closed tab
     assert not f.points_due()                    # closed: scans are dropped before decoding
 
@@ -102,7 +104,7 @@ def test_tf_static_published_before_the_feed_exists_still_reaches_it():
     f.want(True)
     assert ('tf_static', '/tf_static') in {(k, t) for k, t, _ in subs}
     cb = by_topic(subs)
-    cb[f.cfg['topics']['camera_info']](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    cb[f.cfg['topics']['camera_info'][0]](NS(k=K, width=SIZE[0], height=SIZE[1]))
     cb[f.cfg['topics']['observations']](array([ob('red_buoy', (0.45, 0.4, 0.55, 0.6), (0, 0, 7))]))
     f.on_points(cloud([(10.1, 0, -0.1)]))
     assert f.snapshot()['points'][1][0] == pytest.approx((0.5, 0.5), abs=1e-4)
@@ -126,7 +128,7 @@ def ready_feed(clock):
     f.on_tf_static(statics())
     f.want(True)
     cb = by_topic(subs)
-    cb[f.cfg['topics']['camera_info']](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    cb[f.cfg['topics']['camera_info'][0]](NS(k=K, width=SIZE[0], height=SIZE[1]))
     cb[f.cfg['topics']['observations']](array([ob('red_buoy', (0.45, 0.4, 0.55, 0.6), (0, 0, 7))]))
     return f, cb
 
@@ -690,11 +692,12 @@ def test_app_feed_is_off_when_the_tab_is_not_shown(monkeypatch):
     from mhseals_testing.ui.app import App
     wants = []
     fake = NS(want=lambda on, camera=False: wants.append(on), snapshot=lambda: {'x': 1}, applied=None)
-    app = NS(tab='Drive', review=None, fusion_feed=fake, facts={}, ros=None, profile=None)
+    app = NS(tab='Drive', review=None, fusion_feed=fake, facts={}, ros=None, profile=None, fusion_image=None)
+    app.fusion_on = lambda: App.fusion_on(app)
     assert App.fusion_view(app) == {} and wants == [False]
     assert fake.applied is None                  # hidden: not even the status is read
     app.tab = 'Fusion'
-    assert App.fusion_view(app)['fusion'] == {'x': 1} and wants == [False, True]
+    assert App.fusion_view(app)['fusion'] == {'x': 1, 'image': True} and wants == [False, True]
     assert fake.applied is None                  # no fusion_state yet: nothing to keep
     app.facts = facts()
     App.fusion_view(app)
@@ -825,3 +828,146 @@ def test_tab_reads_in_16_colours_no_color_and_ascii(env, braille, colour):
     assert ('\x1b[3' in out or '\x1b[9' in out or '\x1b[38' in out) == colour
     if not braille:
         assert all(ord(ch) < 128 for ch in out.replace('\x1b', ''))
+
+
+# --- the camera image (i) ----------------------------------------------------------------------------
+
+def jpeg(size=(128, 72), level=200):
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new('L', size, level).save(out, 'JPEG')
+    return out.getvalue()
+
+
+def camera_with(frame):
+    camera = NS(frame=frame, opened=0)
+    camera.open, camera.close = (lambda: setattr(camera, 'opened', 1)), (lambda: setattr(camera, 'opened', 0))
+    camera.stamped = lambda: camera.frame
+    return camera
+
+
+def test_frame_waits_for_the_boxes_of_its_own_stamp():
+    """The fusion publishes a frame's boxes a sweep after the camera: the frame is held until they come, then drawn
+    with them (not the newest boxes), so the image, boxes and scan are one capture."""
+    now = [0.0]
+    camera = camera_with(None)
+    f, subs, _ = feed(clock=lambda: now[0], camera=camera)
+    f.on_tf_static(statics())
+    f.want(True, camera=True)
+    cb = by_topic(subs)
+    cb[f.cfg['topics']['camera_info'][0]](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    frame_of(cb, f, [('a', 7.0, 7.1, 'lidar')], 9.9)
+    camera.frame = (jpeg(), 0.0, 10.0)
+    snap = f.snapshot()
+    assert snap['frame'] is None                     # its boxes (stamp 10.0) have not come yet
+    frame_of(cb, f, [('a', 6.0, 6.1, 'lidar', 'green_buoy')], 10.0)
+    frame_of(cb, f, [('a', 5.0, 5.1, 'lidar')], 10.1)  # newer boxes: the live view's, not the frame's
+    snap = f.snapshot()
+    assert snap['frame'].shape == (72, 128) and snap['frame_aspect']
+    assert [d['cls'] for d in snap['at_frame']['dets']] == ['green_buoy']
+    assert snap['at_frame']['dets'][0]['source'] == 'lidar' and snap['at_frame']['frame_dt'] == 0.0
+    assert snap['dets'][0]['range'] == pytest.approx(5.1)
+
+
+def test_frame_without_boxes_of_its_stamp_takes_the_nearest_after_a_wait():
+    now = [0.0]
+    camera = camera_with((jpeg(), 0.0, 10.0))
+    f, subs, _ = feed(clock=lambda: now[0], camera=camera)
+    f.want(True, camera=True)
+    cb = by_topic(subs)
+    cb[f.cfg['topics']['camera_info'][0]](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    cb[f.cfg['topics']['observations']](array([ob('red_buoy', (0.45, 0.4, 0.55, 0.6), (0, 0, 7))], t=10.2))
+    assert f.snapshot()['frame'] is None
+    now[0] = fusion_feed.RAW_S
+    snap = f.snapshot()
+    assert snap['frame'] is not None and snap['at_frame']['frame_dt'] == pytest.approx(0.2)
+
+
+def test_frame_of_another_aspect_is_not_drawn():
+    camera = camera_with((jpeg(size=(128, 128)), 0.0, None))
+    f, subs, _ = feed(camera=camera)
+    f.want(True, camera=True)
+    by_topic(subs)[f.cfg['topics']['camera_info'][0]](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    snap = f.snapshot()
+    assert snap['frame'] is not None and snap['frame_aspect'] is False
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        assert not fusion.frame_shown(snap)
+        assert fusion.image_note({**snap, 'image': True}, f.cfg)[0].startswith('frame aspect')
+    finally:
+        pixels.use('text')
+
+
+def framed(**extra):
+    m = model()
+    frame = np.full((72, 128), 200, np.uint8)
+    frame[:, :64] = 40
+    at = {'dets': [dict(m['dets'][1], box=(0.1, 0.1, 0.2, 0.3))], 'points': None, 'scan_dt': None, 'frame_dt': 0.0}
+    return {**m, 'frame': frame, 'frame_aspect': True, 'at_frame': at, 'image': True, **extra}
+
+
+def camera_raster(m, cols=48, rows=12):
+    r = pixels.Raster(cols, rows)
+    fusion.paint_camera(fusion.camera_model(m), fusion_feed.load_config())(r, fusion.Inks(r, fusion.camera_layers(m['dets'])))
+    return r
+
+
+def test_image_draws_the_frame_under_its_own_boxes_and_turns_off():
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        m = framed()
+        r = camera_raster(m)
+        left, right = r.px[5, 5], r.px[5, r.w - 5]
+        assert left and right and left != right                        # two grey levels of the frame
+        assert fusion.image_note(m, fusion_feed.load_config()) is None
+        text = ''.join(row.plain for row in fusion.camera_rows(m, fusion_feed.load_config(), 48, 12))
+        assert '12.0R' in text and '7.0L' not in text                   # the frame's boxes, not the live ones
+        off = {**m, 'frame': None, 'at_frame': None, 'image': False}      # the feed drops the frame when off
+        assert not camera_raster(off).px[5, 5]
+        assert fusion.image_note(off, fusion_feed.load_config())[0] == 'image off'
+    finally:
+        pixels.use('text')
+
+
+def test_text_tier_says_the_image_needs_graphics(text_tier):
+    cfg = fusion_feed.load_config()
+    assert fusion.image_note(framed(), cfg)[0] == 'image needs graphics'
+    assert 'image needs graphics' in fusion.camera_subtitle(framed(), cfg).plain
+    assert not fusion.frame_shown(framed())
+    assert fusion.image_note(framed(image=False), cfg)[0] == 'image off'
+
+
+def test_frame_is_drawn_in_blocks_over_a_link_budget(monkeypatch):
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        m = framed()
+        rng = np.random.default_rng(1)
+        m['frame'] = rng.integers(0, 256, (72, 128)).astype(np.uint8)
+        m['at_frame'] = dict(m['at_frame'], dets=[])
+        monkeypatch.setattr(pixels, 'BUDGET', 25000)
+        px = camera_raster(m).px
+        b = fusion.LINK_BLOCK
+        blocks = px[:px.shape[0] // b * b, :px.shape[1] // b * b].reshape(px.shape[0] // b, b, px.shape[1] // b, b)
+        assert (blocks == blocks[:, :1, :, :1]).all()
+        monkeypatch.setattr(pixels, 'BUDGET', None)
+        px = camera_raster(m).px
+        blocks = px[:px.shape[0] // b * b, :px.shape[1] // b * b].reshape(px.shape[0] // b, b, px.shape[1] // b, b)
+        assert not (blocks == blocks[:, :1, :, :1]).all()
+    finally:
+        pixels.use('text')
+
+
+def test_i_toggles_the_image_and_the_feed_follows(monkeypatch):
+    from mhseals_testing.ui.app import App
+    camera = []
+    fake = NS(want=lambda on, camera_=False, **kw: camera.append(kw.get('camera')), snapshot=lambda: {}, applied=None)
+    app = NS(tab='Fusion', review=None, fusion_feed=fake, facts={}, ros=None, profile=None, fusion_image=None)
+    app.fusion_on = lambda: App.fusion_on(app)
+    monkeypatch.setattr(pixels, 'active', lambda: True)
+    monkeypatch.setattr(pixels, 'images', lambda name: True)
+    monkeypatch.setattr(pixels, 'BUDGET', None)
+    assert App.fusion_view(app)['fusion']['image'] is True and camera[-1] is True     # on by default locally
+    monkeypatch.setattr(pixels, 'BUDGET', 25000)
+    assert App.fusion_view(app)['fusion']['image'] is False and camera[-1] is False   # off by default over SSH
+    app.fusion_image = True                                                            # turned on: kept
+    assert App.fusion_view(app)['fusion']['image'] is True and camera[-1] is True

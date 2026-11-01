@@ -25,6 +25,7 @@ ACTIONS = {
     'boxes': Action('boxes', 7),
     'calibration': Action('calibration', 7),
     'camera': Action('camera', 7),
+    'camera_image': Action('image', 7),
     'cancel': Action('cancel', 0),
     'cancel_goal': Action('cancel goal', 6),
     'centre': Action('centre', 7),

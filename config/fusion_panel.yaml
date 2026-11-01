@@ -4,13 +4,15 @@ topics:
   observations: /perception/observations          # stereo boxes (the backend's ranges)
   fused: /perception/observations_fused           # lidar_fusion output; absent while fusion is off
   sources: /perception/fusion_sources             # JSON: source label per fused box, extrinsic samples
-  camera_info: /front/zed_node/rgb/color/rect/camera_info
+  # the drawn camera's intrinsics, any of these: the rect info beside lidar_fusion, and its /front_camera relay
+  # (the boat's preview frame, the sim's camera); the frame is drawn only with this info's aspect
+  camera_info: [/front/zed_node/rgb/color/rect/camera_info, /front_camera/camera_info]
 feed:
   points_hz: 2.0            # scans projected per second; the rest are dropped before decoding
   points_max: 3000          # projected points kept per scan (stride decimation)
   points_link: 600          # points drawn per paint over a budgeted link (the radio: images sent 1.4-2x the budget)
   scan_dt_max_s: 0.3        # a scan further than this from the boxes' stamp is drawn grey (not motion compensated)
-  camera_hz: 1              # camera frames per second (1, 2 or 4); never over a budgeted link
+  camera_hz: 1              # camera frames per second (1, 2 or 4) under the points while the image is on (i)
   camera_width: 320         # px the frame is cut to on arrival (greyscale)
   max_range_m: 60.0         # points beyond this are not drawn
   residual_s: 120.0         # residual trend window
