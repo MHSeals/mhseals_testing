@@ -52,7 +52,7 @@ BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
         (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 # Rose layers, highest first: a cell takes the hue of its strongest dot.
 BOW, BOAT, COMMAND, YAW, DRIFT, TICK = range(6)
-ASCII_DOTS = '##.(:.'       # the ASCII cell per layer
+ASCII_DOTS = '#o.(:.'       # the ASCII cell per layer
 BOW_SHARE = 0.25            # the hull's foremost quarter wears the bow hue (both tiers)
 
 

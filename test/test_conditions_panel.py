@@ -146,6 +146,16 @@ CORNER = {'tl': (0, 0), 'tr': (LAST_COL, 0), 'bl': (0, LAST_ROW), 'br': (LAST_CO
 SPINS = '⤴⤵⤶⤷'
 
 
+def test_ascii_hull_has_a_bow_and_a_body_character():
+    if not theme.ASCII:
+        pytest.skip('ASCII only')
+    fore, aft = (''.join(plain(conditions.rose(heading=h))[3:6]) for h in (0, 180))
+    assert fore.count('#') and fore.count('o') and aft.count('#') and aft.count('o')
+    assert fore != aft
+    rows = plain(conditions.rose(heading=0))
+    assert min(r for r, row in enumerate(rows) if '#' in row) < min(r for r, row in enumerate(rows) if 'o' in row)
+
+
 def test_yaw_ascii_spells_the_turn_in_the_top_right_corner():
     if not theme.ASCII:
         pytest.skip('ASCII only')
