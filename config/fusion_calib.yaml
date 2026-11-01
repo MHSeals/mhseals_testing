@@ -15,7 +15,10 @@ check:
   near_m: 10.0                  # median stereo range under which a box must get lidar hits
   du_pass_px: 5.0               # |median du| per object
   du_warn_px: 9.0
+  dv_pass_px: 5.0               # |median dv| per object (pitch, or a box height bias)
+  dv_warn_px: 9.0
   hit_rate_min: 0.5             # near boxes; below it WARN, no hit at all FAIL
   range_tol: 0.05               # |lidar/stereo - 1| and |lidar/truth - 1| beyond it WARN
+  range_fail_tol: 0.10          # and beyond this FAIL
   domega_pass_deg: 0.5          # vs --baseline, axes constrained in both records
   domega_warn_deg: 1.0

@@ -206,6 +206,7 @@ def record(rows, objects, est, params, source):
             'n_objects': len({k for *_, k in est.samples}),
             'params': params,
             'suggested_camera_delta': camera_delta(params) if params else None,
+            'caveats': caveats(params, objects),
             'objects': [{k: v for k, v in o.items()} for o in objects]}
 
 
@@ -224,17 +225,24 @@ def verdict(objects, params, cfg, baseline=None, truth=None):
             if o['near']:
                 worse(FAIL, f'no lidar hit at {o["rho_stereo"]:.1f} m')
         else:
-            du = abs(o['du_med'])
-            if du > c['du_warn_px']:
-                worse(FAIL, f'du {o["du_med"]:+.1f} px')
-            elif du > c['du_pass_px']:
-                worse(WARN, f'du {o["du_med"]:+.1f} px')
+            for d in ('du', 'dv'):          # dv: vertical (pitch) offset, same limits
+                off = abs(o[d + '_med'])
+                if off > c[d + '_warn_px']:
+                    worse(FAIL, f'{d} {o[d + "_med"]:+.1f} px')
+                elif off > c[d + '_pass_px']:
+                    worse(WARN, f'{d} {o[d + "_med"]:+.1f} px')
             if o['near'] and o['hit_rate'] < c['hit_rate_min']:
                 worse(WARN, f'hit rate {o["hit_rate"]:.0%}')
-            if abs(o['ratio'] - 1) > c['range_tol']:
-                worse(WARN, f'lidar/stereo {o["ratio"]:.3f}')
-            if o['key'] in truth and abs(o['rho_lidar'] / truth[o['key']] - 1) > c['range_tol']:
-                worse(WARN, f'lidar {o["rho_lidar"]:.2f} m vs tape {truth[o["key"]]:.2f} m')
+
+            def ranged(err, text):          # WARN past range_tol, FAIL past range_fail_tol
+                if abs(err) > c['range_fail_tol']:
+                    worse(FAIL, text)
+                elif abs(err) > c['range_tol']:
+                    worse(WARN, text)
+            ranged(o['ratio'] - 1, f'lidar/stereo {o["ratio"]:.3f}')
+            if o['key'] in truth:
+                ranged(o['rho_lidar'] / truth[o['key']] - 1,
+                       f'lidar {o["rho_lidar"]:.2f} m vs tape {truth[o["key"]]:.2f} m')
         levels[o['key']] = lv
         reasons += [(lv, f'{o["key"]}: {w}') for w in why]
     if not objects:
@@ -268,7 +276,23 @@ def table(objects, levels=None, truth=None):
     return '\n'.join(lines)
 
 
-def fit_lines(params):
+BOOT_CAVEAT = ('bootstrap 95% CIs miss the bias all buoys share and are optimistic: the GLS SE '
+               'is the bound')
+ALIAS_CAVEAT = ('one range only: yaw and sideways offset (cx), and pitch and height (cy), are '
+                'aliased; translations are the prior (tape), rotations assume it')
+
+
+def caveats(params, objects):
+    """Report notes: always the bootstrap caveat; the aliasing one when the buoys ranged
+    span under 1.25x (du = fx (yaw + cx / Z) separates only across ranges)."""
+    out = [BOOT_CAVEAT]
+    rs = [o['rho_stereo'] for o in objects if o['hits'] and math.isfinite(o['rho_stereo'])]
+    if params and (len(rs) < 2 or max(rs) < 1.25 * min(rs)):
+        out.append(ALIAS_CAVEAT)
+    return out
+
+
+def fit_lines(params, objects=()):
     if not params:
         return ['fit: no samples']
     out = []
@@ -277,7 +301,7 @@ def fit_lines(params):
         mark = '' if p['constrained'] else '  (not constrained: prior)'
         ci = '95% [{:+.3f}, {:+.3f}]'.format(*p['ci95']) if p['ci95'] else 'no bootstrap'
         out.append(f'{name:<10}{p["value"]:+8.3f} ± {p["se"]:.3f}  {ci}{mark}')
-    return out
+    return out + ['note: ' + c for c in caveats(params, objects)]
 
 
 # ------------------------------------------------------------------ bag front end
@@ -419,7 +443,7 @@ def run(args):
     params = calibrate(est, sample_t, cfg) if args.cmd != 'analyze' else None
     if args.cmd == 'calibrate':
         rec = record(rows, objects, est, params, args.bag)
-        print('\n'.join(fit_lines(params)))
+        print('\n'.join(fit_lines(params, objects)))
         print('suggested camera delta (not applied):', rec['suggested_camera_delta'])
         (out / 'calibration.yaml').write_text(yaml.safe_dump(rec, sort_keys=False))
         print(f'wrote {out}/calibration.yaml')
@@ -435,7 +459,7 @@ def run(args):
     baseline = yaml.safe_load(Path(args.baseline).read_text()) if args.baseline else None
     level, reasons, levels = verdict(objects, params, cfg, baseline, truth)
     print(table(objects, levels, truth))
-    print('\n'.join(fit_lines(params)))
+    print('\n'.join(fit_lines(params, objects)))
     print(f'VERDICT {LEVELS[level]}' + (f': {"; ".join(reasons)}' if reasons else ''))
     return level
 

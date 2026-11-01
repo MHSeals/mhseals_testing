@@ -111,11 +111,26 @@ def test_injected_rotation_is_recovered_within_two_se_and_the_se_is_honest(cfg):
 
 
 def test_one_centred_buoy_at_one_range_leaves_roll_unconstrained(cfg):
-    _, params, est = fit(cfg, frames([place(8, 0)]))
+    rows, params, est = fit(cfg, frames([place(8, 0)]))
     assert not params['roll_deg']['constrained']
     assert params['roll_deg']['se'] > 0.5 * params['roll_deg']['prior_se']
     assert fc.camera_delta(params)['rpy_deg'][0] is None
     assert len(est.samples) > 30
+    for name in ('cx_m', 'cy_m', 'cz_m'):         # one range cannot separate translation
+        assert not params[name]['constrained'], name
+    assert fc.camera_delta(params)['xyz_m'] == [None, None, None]
+    objects = fc.summarize(rows, cfg['check']['near_m'])
+    lines = fc.fit_lines(params, objects)
+    assert any('aliased' in x and 'yaw' in x for x in lines)
+    assert any('GLS SE is the bound' in x for x in lines)
+    assert fc.ALIAS_CAVEAT in fc.record(rows, objects, est, params, 'b')['caveats']
+
+
+def test_spread_ranges_drop_the_aliasing_note_but_keep_the_bootstrap_caveat(cfg):
+    rows, params, _ = fit(cfg, frames(SPREAD, seconds=6))
+    lines = fc.fit_lines(params, fc.summarize(rows, cfg['check']['near_m']))
+    assert not any('aliased' in x for x in lines)
+    assert any('GLS SE is the bound' in x for x in lines)
 
 
 @pytest.mark.parametrize('yaw, level', [(0.0, fc.PASS), (0.7, fc.WARN), (2.0, fc.FAIL)])
@@ -149,10 +164,24 @@ def test_range_ratio_uses_the_near_face_offset_and_tape(cfg):
         pytest.approx(0.67 * R_BUOY)          # red_buoy: near_face_k buoy 0.67
     assert fc.verdict([o], None, cfg, truth={'b1': 6.0})[0] == fc.PASS
     level, reasons, _ = fc.verdict([o], None, cfg, truth={'b1': 6.6})
-    assert level == fc.WARN and 'tape' in reasons[0]
+    assert level == fc.WARN and 'tape' in reasons[0]          # 9% off: WARN
+    level, reasons, _ = fc.verdict([o], None, cfg, truth={'b1': 7.0})
+    assert level == fc.FAIL and 'tape' in reasons[0]          # 14% off: FAIL
     long_rows, _, _ = fit(cfg, frames([(X, Z)], seconds=4, bid='b1', rho_scale=1.08))
     level, reasons, _ = fc.verdict(fc.summarize(long_rows, 10.0), None, cfg)
     assert level == fc.WARN and 'lidar/stereo 0.9' in reasons[0]
+    far_rows, _, _ = fit(cfg, frames([(X, Z)], seconds=4, bid='b1', rho_scale=1.15))
+    level, reasons, _ = fc.verdict(fc.summarize(far_rows, 10.0), None, cfg)
+    assert level == fc.FAIL and 'lidar/stereo 0.8' in reasons[0]
+
+
+@pytest.mark.parametrize('pitch, level', [(0.0, fc.PASS), (0.6, fc.WARN), (1.5, fc.FAIL)])
+def test_check_reads_the_vertical_offset_dv(cfg, pitch, level):
+    rows, _, _ = fit(cfg, frames(NEAR, (pitch, 0.0, 0.0), seconds=4, seed=7))
+    objects = fc.summarize(rows, cfg['check']['near_m'])
+    got, reasons, _ = fc.verdict(objects, None, cfg)
+    assert got == level, (reasons, [round(o['dv_med'], 1) for o in objects])
+    assert level == fc.PASS or all(r.split(': ')[1].startswith('dv') for r in reasons)
 
 
 def test_key_less_detections_group_by_class_and_bearing():
