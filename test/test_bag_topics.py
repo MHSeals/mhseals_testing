@@ -108,6 +108,7 @@ def test_both_modes_record_the_task_streams():
 
 
 def test_lean_profile_records_the_gps_velocity_input_and_its_quality():
-    # /odom/mavros is ekf_local's only velocity source and gps1/raw holds the fix_type and vel_acc behind it.
+    # /odom/mavros is ekf_local's only velocity source; gps1/raw holds the fix_type and vel_acc
+    # behind it.
     for needed in ('/odom/mavros', '/mavros/gpsstatus/gps1/raw'):
         assert needed in lean_topics()
