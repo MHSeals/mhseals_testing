@@ -20,6 +20,7 @@ import sys
 import textwrap
 import threading
 import time
+import traceback
 
 import yaml
 from rich.console import Console, Group
@@ -2524,7 +2525,41 @@ class App:
                               'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72, quiet=True)
 
     def arm_panel(self):
-        """One popup for both directions; Space still stops without it."""
+        """One popup for both directions; Space still stops without it.
+
+        An unexpected error never ends the TUI: outputs go neutral (disarmed if it got that far) and the
+        error shows as a fail toast, its traceback in logs/tui-errors.log. The usual stopping errors
+        (a driver that fails to start) still reach the caller, which stops as before."""
+        try:
+            self._arm_panel()
+        except STOPPING_ERRORS:
+            raise
+        except Exception as error:  # noqa: BLE001 - a bug in arming refuses and stays up, never exits
+            self.arm_failed(error)
+
+    def arm_failed(self, error):
+        """Neutral outputs after an unexpected arming error, and say so in a toast."""
+        text = f'Arming failed: {type(error).__name__}: {error}'
+        try:
+            self.paths.logs.mkdir(parents=True, exist_ok=True)
+            with open(self.paths.logs / 'tui-errors.log', 'a') as log:
+                log.write(traceback.format_exc())
+        except OSError:
+            pass
+        try:
+            if self.armed:
+                self.disarm(text)
+            else:
+                if getattr(self.arming, 'pending', None) is not None:
+                    self.arming.cancel()
+                if self.plant is not None:
+                    self.plant.neutral()
+                    self.plant.release()
+        finally:
+            self.toasts.push('arm.error', 'fail', text, self.monitor.clock())
+            self.notice = f'{text}; outputs neutral'
+
+    def _arm_panel(self):
         if self.review:
             self.notice = 'Review: arming is off'
             return

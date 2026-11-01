@@ -44,7 +44,7 @@ def pin_hash(config):
 
 def marker_path(app):
     """The verified-pins marker, beside the operator hardware.yaml so it outlives the TUI."""
-    return Path(app.args.config).with_name('pins-verified.json')
+    return Path(app.config_file).with_name('pins-verified.json')   # args.config is None by default
 
 
 def verified_hash(app):

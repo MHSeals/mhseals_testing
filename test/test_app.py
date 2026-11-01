@@ -1176,6 +1176,38 @@ def test_arm_panel_lists_interlocks_before_arming(tmp_path):
     assert rows['Interlocks'].startswith('✗')
 
 
+def test_arm_panel_on_the_default_config_path_reads_the_pin_marker_beside_it(tmp_path, monkeypatch):
+    """boat_tui up runs boat_test without --config: args.config is None and arming crashed (11-01)."""
+    from mhseals_testing.ui.popups import pins
+    app, _, _ = pins_app(tmp_path, monkeypatch, [('enabled', '')])
+    app.args.config = None                     # the default path, resolved into app.config_file
+    assert app.pin_refusal() == ''
+    pins.write_marker(app, 'stale')
+    assert (app.config_file.parent / 'pins-verified.json').exists()
+    assert 'differ from the last readback' in app.pin_refusal()
+    app.dispatch('a')                          # refused with a notice, never an exception
+    assert app.notice.startswith('Arming refused') and not app.armed
+
+
+def test_an_unexpected_arming_error_is_a_toast_with_outputs_neutral(tmp_path):
+    app, boat = make_app(tmp_path)
+    app.pin_refusal = lambda: None + 1         # any bug on the arm path, before the driver
+    app.dispatch('a')
+    assert not app.armed and app.notice.startswith('Arming failed: TypeError')
+    assert [t.kind for t in app.toasts.visible(app.monitor.clock())] == ['fail']
+    del app.pin_refusal
+    app.ros.nodes = lambda: list(WATCHDOGS)
+    calls = []
+    boat.engage = lambda: (_ for _ in ()).throw(AttributeError('engage'))   # after the driver started
+    boat.neutral = lambda: calls.append('neutral')
+    with app.attached():
+        press(app, 'a', 'r', 'm', 'enter')      # the typed word of an odroid arm
+        app.dispatch('a')
+    assert not app.armed and app.arming.calls[-1] == 'disarm' and 'neutral' in calls
+    assert 'Arming failed: AttributeError' in app.notice
+    assert 'AttributeError' in (app.paths.logs / 'tui-errors.log').read_text()
+
+
 def test_arm_panel_shows_the_driver_check_and_wraps_long_reasons(tmp_path):
     app, boat = make_app(tmp_path)
     assert dict(app.arm_rows())['Interlocks'] == theme.icon('ok').plain + ' clear'
