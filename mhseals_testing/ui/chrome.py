@@ -123,8 +123,10 @@ def top_row(view, width):
     ctls = [ctl, control_tracker.item(tracked, short=True)] if ctl else []
     rights = [(deploy, work, host_item(view)), (deploy, work, host_item(view, True)),
               (None, work, host_item(view, True)), (None, work, None), (None, None, None)]
-    # the deploy item (code drift) outranks the profile name, which outranks the full host item
-    ranked = [(left, items) for part in (rights[:2], rights[2:]) for left in lefts for items in part]
+    # the deploy item (code drift) outranks the profile name, which outranks the full host item; with no
+    # deploy item the profile outranks the host
+    tiers = (rights[:2], rights[2:]) if deploy else (rights,)
+    ranked = [(left, items) for part in tiers for left in lefts for items in part]
     # The profile, the tab strip, deploy, host and the arming agent's name all go before the tracker
     # shortens, and it shortens before it goes; the authority and arm chips never go.
     for tracker in [*ctls, None]:
