@@ -151,6 +151,14 @@ BOAT_START = [r'\bros2\s+launch\s+(--?\S+\s+)*mhseals_(nav|hardware)\b',
               r'\bsystemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-']
 BOAT_STOP_PART = [r'\bsystemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-']
 BOAT_KILL = r'\b(pkill|killall|kill)\b'
+# git that runs a program of the caller's choosing: a config or environment set for the call (-c with any key but
+# identity, colour or advice; --config-env, --exec-path; GIT_* other than identity, GIT_PAGER=cat|less or
+# GIT_TERMINAL_PROMPT), or a hooks, fsmonitor, alias, filter, diff or merge driver setting (git config included).
+GIT_RUNS = [r'(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\'"]?(user\.(name|email)|color\.\S+|advice\.\S+|commit\.gpgsign)=)\S'
+            r'|--config-env\b|--exec-path\b)',
+            r'(?<![\w-])GIT_(?!(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)=|TERMINAL_PROMPT=|PAGER=([\'"]?(cat|less)?[\'"]?)(\s|$))\w+=',
+            r'(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.'
+            r'|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)']
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -187,7 +195,7 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS,
+             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
                  [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
@@ -233,6 +241,8 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
         'develop it in a git worktree, and to run the stack use run KEY --claim ID)', None, tuple(LAUNCHES)),
        (None, 'changing the live agent hook or its wiring (it keeps agents on boat_agent; develop it in a git worktree '
         'and have the operator land it)', None, tuple(HOOKS)),
+       (None, 'git with a config, environment, hook, alias or filter that runs a program (plain git add, commit, diff, '
+        'log, show and status are fine)', None, tuple(GIT_RUNS)),
        (None, 'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID', tuple(ARMING)),
        (None, "changing Nav2's servers (a lifecycle or parameter change breaks a running claimed goal)", None,
         tuple(p for p in _DENY if NAV2 in p)),
@@ -357,7 +367,45 @@ def who_of(event):
 # The id an agent calls boat_agent with (``--who X``, ``BOAT_AGENT=X``) is its own choice: the playbook from a shell
 # gets 4 random digits, and a subagent's payload id differs from its parent's. The hook remembers the last one each
 # agent used (``agent_event``), so a block names the id that holds its claim, not the one ``who_of`` derives.
-NAMED = re.compile(r'(?:--who(?:=|\s+)|\bBOAT_AGENT=)[\'"]?([\w.@:-]+)')
+# Only a boat_agent command that runs counts (``claimed_ids``): an echo, a grep or a commit message naming --who X
+# does not, so text cannot pick the id a block names.
+
+
+def claimed_ids(command):
+    """The ids ``command`` calls boat_agent with: ``--who X``/``--who=X`` or a ``BOAT_AGENT=X`` prefix on a command
+    whose program is boat_agent (after ``env``, ``nice`` or ``sudo``, or the remote command of ``ssh HOST ...``).
+    A word the hook cannot read (``$X``) names nothing."""
+    try:
+        pipelines = parse(command)
+    except ValueError:
+        return []
+    found = []
+
+    def scan(argv):
+        words, wrapped = list(argv), False
+        while words and (re.fullmatch(r'\w+=\S*', words[0]) or words[0] in ('env', 'nice', 'sudo', 'exec')
+                         or (wrapped and re.fullmatch(r'-\S*|\d+', words[0]))):
+            wrapped = wrapped or words[0] in ('env', 'nice', 'sudo', 'exec')
+            words = words[1:]
+        if words[:1] == ['ssh']:
+            rest = [w for w in words[1:] if not w.startswith('-')][1:]
+            for pipeline in (parse(' '.join(rest)) if rest else []):
+                for cmd in pipeline:
+                    scan(cmd['argv'])
+            return
+        if not words or os.path.basename(words[0]) != 'boat_agent':
+            return
+        prefix = [w.split('=', 1)[1] for w in argv[:len(argv) - len(words)] if w.startswith('BOAT_AGENT=')]
+        given = [w.split('=', 1)[1] for w in words if w.startswith('--who=')]
+        given += [b for a, b in zip(words, words[1:]) if a == '--who']
+        found.extend(w for w in prefix + given if re.fullmatch(r'[\w.@:-]+', w))
+    for pipeline in pipelines:
+        for cmd in pipeline:
+            try:
+                scan(cmd['argv'])
+            except ValueError:
+                pass
+    return found
 
 
 def brief_text(who, config=None):
@@ -579,7 +627,8 @@ def code_of(command, cwd=None):
     """``command`` without the heredoc bodies that are only data: the body of ``codex-task N <<'EOF'`` is a
     prompt, not shell, and ``cat > notes.md <<EOF`` writes a file. A body stays when anything could run it: a
     command in its pipeline that is not a known data reader (``READS_STDIN``), a file written there that is not
-    plain data (``data_file``: a live protected file, a name the hook cannot read, or one this call uses again), a pipe
+    plain data (``data_file``: an allowlist of data files in notes, scratch and worktree dirs, written by a call that
+    does nothing else), a pipe
     continued past the line, a ``$(...)``, backtick or ``<(...)`` on the line or (unquoted delimiter) in
     the body, a word the hook cannot read (``$X``), or a function or alias in the call."""
     text = command.replace('\\\n', '')
@@ -608,7 +657,7 @@ def code_of(command, cwd=None):
             pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
             data = pipe is not None and not risky and not (
                 not match.group(1) and re.search(r'\$\(|`', '\n'.join(body))) and not any(
-                not all(data_file(w, text, cwd) for w in c['writes']) or any('$' in w for w in c['argv'])
+                (c['writes'] and not data_file(c, text, cwd)) or any('$' in w for w in c['argv'])
                 or not READS_STDIN.fullmatch(os.path.basename(next(
                     (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
                 for c in pipe)
@@ -616,41 +665,49 @@ def code_of(command, cwd=None):
     return '\n'.join(out)
 
 
-def data_file(target, command, cwd=None):
-    """``cat > target <<EOF`` in ``command`` only stores its body: ``target`` is a literal name, not a live protected
-    file (``FILES`` unless ``all_dev``), and nothing else in the call names it unless only reading it (``bash f``,
-    ``. f``, ``chmod +x f``, ``cat f | sh`` or ``sh < f`` may run it). A file loaded without being named
-    (``IMPLICIT``: pytest's conftest.py, make's Makefile) is data only when the rest of the call only reads."""
-    if not target or re.search(r'[$`*?\[{]', target) or re.match(r'~(?!/)', target):
+def data_file(cmd, command, cwd=None):
+    """``cat > T <<EOF`` only stores its body, an allowlist that fails closed: the whole
+    call is that one command (nothing else can name, copy, glob, chmod or run T), T is a plain literal name with a data
+    extension (``DATA_EXT``), not a protected file (``FILES``), and it resolves (realpath, after ``~`` and ``cwd``)
+    under ``data_roots`` and outside any ``/.git/``. Anything else keeps its body, searched as shell."""
+    if cmd['argv'] not in (['cat'], ['cat', '-']) or len(cmd['writes']) != 1 or cmd['subs'] or re.search(
+            r'\$\(|`|[<>]\(', command):
         return False
-    if FILES.search(target) and not all_dev(target, cwd, command):
+    try:
+        pipelines = parse(command)
+    except ValueError:
         return False
-    base = os.path.basename(target.rstrip('/')) or target
-    word = re.compile(r'(?<![\w.-])(\S*/)?%s(?![\w.-])' % re.escape(base))
-    for part in re.split(r'&&|\|\||[;&\n()]', parse_text(command)):
-        part = re.sub(r'(&?>>?\|?)\s*' + re.escape(target) + r'(?![\w./-])', ' ', part)    # its own write
-        implicit = IMPLICIT.fullmatch(base) and re.search(r'py\.?test', part)        # pytest loads conftest.py
-        if part.strip() and (IMPLICIT.fullmatch(base) or word.search(part)) and (implicit or not text_only(part)):
+    target = cmd['writes'][0]
+    if len(pipelines) != 1 or len(pipelines[0]) != 1 or not re.fullmatch(r'~?[\w./+-]+', target):
+        return False
+    if target.startswith('~'):
+        if not target.startswith('~/'):
             return False
-    return True
+        target = str(Path.home()) + target[1:]
+    if not os.path.isabs(target) and not cwd:
+        return False
+    real = os.path.realpath(os.path.join(cwd or '/', target))
+    if '/.git/' in real + '/' or '/.git/' in target or FILES.search(real) or FILES.search(target):
+        return False
+    if os.path.splitext(real)[1].lower() not in DATA_EXT:
+        return False
+    return any(real.startswith(root) for root in data_roots())
 
 
-IMPLICIT = re.compile(r'conftest\.py|(site|user)customize\.py|[^/]*\.pth|(GNU)?[Mm]akefile|\.bashrc|\.profile'
-                      r'|\.envrc|pytest\.ini|tox\.ini|setup\.(py|cfg)|pyproject\.toml|noxfile\.py|justfile')
+SCRATCH = '/tmp'
+DATA_EXT = {'.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.log', '.tex', '.patch', '.diff'}
 
 
-def parse_text(command):
-    """``command`` with every heredoc body taken out (the delimiter lines too)."""
-    lines, kept, i = command.replace('\\\n', '').split('\n'), [], 0
-    while i < len(lines):
-        kept.append(lines[i])
-        i += 1
-        for match in HEREDOC.finditer(kept[-1]):
-            dash = '<<-' in match.group(0)
-            while i < len(lines) and (lines[i].lstrip('\t') if dash else lines[i]) != match.group(2):
-                i += 1
-            i += 1
-    return '\n'.join(kept)
+def data_roots():
+    """Where a heredoc may write data: astro_dock's .handoff (notes and briefs), /tmp (scratch) and each linked git
+    worktree in ~/.cache/wt (its .git is a file), each as its realpath with a trailing /."""
+    home = Path.home()
+    roots = [home / 'astro_dock' / '.handoff', Path(SCRATCH)]
+    try:
+        roots += [d for d in (home / '.cache' / 'wt').iterdir() if (d / '.git').is_file()]
+    except OSError:
+        pass
+    return [os.path.realpath(r).rstrip('/') + '/' for r in roots]
 
 
 def build(tokens, bodies):
@@ -1144,7 +1201,7 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
             return {'deny': reason}
     if phase == 'pre':
         blocked = denied(command, config, event.get('cwd'), who)
-    named = NAMED.findall(command) if phase == 'pre' and re.search(r'boat_agent|hook\.py', command) else []
+    named = claimed_ids(command) if phase == 'pre' else []
     if named or blocked:
         with State(str(event.get('session_id') or 'none'), state_dir) as state:
             ids = state.data.setdefault('who', {})

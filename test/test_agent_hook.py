@@ -149,6 +149,7 @@ MAIN = [
     "sed '\\%x%e ros2 topic pub /cmd_vel x y' f", "printf '1e ros2 topic pub /cmd_vel x y' > s.sed; sed -n -f s.sed f",
     "echo 'ros2 topic pub /cmd_vel x y &' >> ~/.bashrc",
     "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
+    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
     "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv"]
 # New surfaces, and the boat by name, ssh alias or STATIC_LEASES address (config/boat-network.env).
 NEW = [
@@ -559,8 +560,8 @@ def test_a_heredoc_body_is_data_only_for_a_known_reader(trees):
     prompt = f'Pin the profile, then {write}.'
     for command in (f".handoff/tools/codex-task NAME <<'EOF'\n{prompt}\nEOF", f"codex-ideate X <<'EOF'\n{prompt}\nEOF",
                     f"cat <<'EOF' | grep pin\n{prompt}\nEOF",
-                    "cat > notes.md <<'EOF'\n# Notes\nThe hook now reads heredocs; tests pass.\nEOF",
-                    f"cat > notes.md <<'EOF'\nthen {write}\nEOF"):          # a file written: data
+                    "cat > /tmp/notes.md <<'EOF'\n# Notes\nThe hook now reads heredocs; tests pass.\nEOF",
+                    f"cat > /tmp/notes.md <<'EOF'\nthen {write}\nEOF"):          # scratch data
         assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
 
 
@@ -901,23 +902,98 @@ def test_reading_a_live_safety_file_is_never_denied(home_trees, read, name):
         assert hook.text_only(command) and hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
 
 
-def test_a_heredoc_written_to_a_file_is_data_unless_live_or_run(trees):
-    live, wt, base = trees
-    write = f'sed -i s/false/true/ {live}/config/agent.yaml'
-    body = f"<<'EOF'\nkill 1; pkill -f command_mux; {write}\nEOF"
-    for command in (f'cat > {wt}/notes.md {body}', f'cat >> /tmp/x.txt {body}\nwc -l /tmp/x.txt',
-                    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
-                    f'cat > /tmp/notes.md {body}\ncat /tmp/notes.md',
-                    f'cat {body} > plan.md && git add plan.md && git commit -m "kill the stale run_task"',
-                    f"cat > {wt}/config/agent.yaml <<'EOF'\nhook: {{}}\nEOF"):      # a dev copy
-        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
-    for command in (f"cat > {live}/config/agent.yaml <<'EOF'\nhook: {{}}\nEOF",          # live: protected
-                    f'cat > run.sh {body}\nbash run.sh', f'cat > run.sh {body}\n. ./run.sh',
-                    f'cat > /tmp/r.sh {body}\nchmod +x /tmp/r.sh && /tmp/r.sh', f'cat > r {body}\nsh < r',
-                    f'cat > r {body}\ncat r | sh', f'cat > r {body}\npython3 r',
-                    f'cat > conftest.py {body}\npytest -q', f'cat > Makefile {body}\nmake',
-                    f'cat > $F {body}'):
-        assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
+WR = 'ros2 topic ' + 'pub /cmd_vel geometry_msgs/Twist x'
+WK = 'pk' + 'ill -f command_' + 'mux'
+WB = f"<<'EOF'\n{WR}; {WK}\nEOF"
+# Each one reopened a hole main closes when "a heredoc written to a file is data" (adversarial check, 10-31).
+WRITE_BYPASS = [
+    f"cat > x.sh {WB}", f"cat >> ~/.bashrc {WB}", f"cat >> /home/lunarz/.bashrc {WB}", f"cat >> ~/.zshrc {WB}",
+    f"cat >> ~/.bash_profile {WB}", f"cat > ~/.config/systemd/user/x.service {WB}", f"cat > /etc/cron.d/x {WB}",
+    f"cat > /var/spool/cron/lunarz {WB}", f"cat > .git/hooks/post-checkout {WB}",
+    f"cat > /home/lunarz/astro_dock/.git/hooks/pre-commit {WB}", f"cat > ~/.local/lib/python3.12/site-packages/x.pth {WB}",
+    f"cat > sitecustomize.py {WB}", f"cat > usercustomize.py {WB}",
+    f"cat > /home/lunarz/.cache/wt/foo/src/mhseals_nav/launch/x.launch.py {WB}",
+    f"cat > /home/lunarz/astro_dock/src/mhseals_nav/launch/x.launch.py {WB}",
+    f"cat > /home/lunarz/astro_dock/install/mhseals_nav/lib/python3.12/site-packages/mhseals_nav/__init__.py {WB}",
+    f"cat > /home/lunarz/astro_dock/src/mhseals_nav/mhseals_nav/__init__.py {WB}",
+    f"cat > ~/.config/autostart/x.desktop {WB}", f"cat > .envrc {WB}", f"tee x.sh {WB}",
+    f"cat > x.sh {WB}\nsource x.sh", f"cat > x.sh {WB}\nexec ./x.sh", f"cat > x.sh {WB}\nenv ./x.sh",
+    f"cat > x {WB} && cp x ~/.bashrc", f"cat > x {WB} && mv x .git/hooks/pre-commit",
+    f"cat > x {WB}; ln -s x .git/hooks/pre-commit",
+    f"cat > x.py {WB}\npython3 -m x", f"cat > x.sh {WB}\nsh x.s?", f"cat > x.sh {WB}\nsh x*",
+    f"cat > x.sh {WB}\nfor f in *.sh; do sh $f; done", f"cat > x.sh {WB}\nsh \"x.sh\"", f"cat > x.sh {WB}\nsh 'x'.sh",
+    f"cat > x.sh {WB}\nsh x\\.sh", f"cat > x.sh {WB}\nsh x''.sh",
+    f"cat > .git/config {WB}", f"cat > ~/.gitconfig {WB}", f"cat > ~/.ssh/rc {WB}",
+    f"cat > /tmp/x.sh <<EOF\n{WR}\nEOF", f"cat > x.sh {WB}\ncrontab x.sh",
+    "git -c alias.add='!" + WR + "' add .", "git -c core.hooksPath=h add . && git commit -m x",
+    "git add . && " + WR, "git add $(" + WR + ")", "git add `" + WK + "`",
+    "git -c core.fsmonitor='" + WK + "' add .", "git -c filter.a.clean='" + WK + "' add .",
+    "git -c core.fsmonitor='" + WK + "' status", "git add -A && git commit -m x; " + WK,
+    "GIT_EXTERNAL_DIFF='" + WK + "' git diff"]
+# The same files written as data (the allowlist's dirs and extensions), then reused or reached: still searched.
+DATA_THEN_USED = ['cat > /tmp/x.md {b}\ncat /tmp/x.md', 'cat > /tmp/x.md <<EOF && chmod +x /tmp/x.md{t}',
+                  'cat > /tmp/x.md {b}\nwc -l /tmp/x.md', 'cat > /tmp/x.md <<EOF; true{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x.m?',
+                  'cat > /tmp/x.md <<EOF && cp /tmp/x.md ~/.bashrc{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x*',
+                  'cat > /tmp/x.md {b}\nsh "/tmp/x".md', 'cat > /tmp/x.md {b}\n. /tmp/x.md',
+                  'cat > notes.md {b}',                                   # cwd is the live checkout
+                  'cat > ~/.cache/wt/live/notes.md {b}',                  # a symlink to the live checkout
+                  'cat > ~/.cache/wt/w/.git/x.md {b}', 'cat > /tmp/x.md/../../home/.bashrc {b}',
+                  'cat > /tmp/$X.md {b}', 'cat > /tmp/x*.md {b}', 'cat > /tmp/x.sh {b}',
+                  'cat > /tmp/x {b}', 'cat > ~/astro_dock/.handoff/tools/x {b}', 'cat /tmp/x.md > /tmp/y.md {b}', 'tee /tmp/x.md {b}']
+
+
+@pytest.fixture
+def data_home(tmp_path, monkeypatch):
+    """HOME with astro_dock (the live checkout: a .git dir) and its .handoff, a linked worktree ~/.cache/wt/w and
+    ~/.cache/wt/live, a symlink to the live checkout."""
+    home = tmp_path / 'home'
+    (home / 'astro_dock' / '.git').mkdir(parents=True)
+    (home / 'astro_dock' / '.handoff' / 'state').mkdir(parents=True)
+    (home / '.cache' / 'wt' / 'w').mkdir(parents=True)
+    (home / '.cache' / 'wt' / 'w' / '.git').write_text('gitdir: /x/.git/worktrees/w\n')
+    (home / '.cache' / 'wt' / 'live').symlink_to(home / 'astro_dock')
+    monkeypatch.setenv('HOME', str(home))
+    (tmp_path / 'scratch').mkdir()
+    monkeypatch.setattr(hook, 'SCRATCH', str(tmp_path / 'scratch'))     # HOME is itself under /tmp here
+    return home
+
+
+@pytest.mark.parametrize('command', WRITE_BYPASS)
+def test_a_written_heredoc_that_could_run_or_load_is_searched(data_home, command):
+    assert hook.denied(command, hook.DEFAULTS, cwd=str(data_home / 'astro_dock')), command
+
+
+def test_a_heredoc_is_data_only_for_a_lone_write_of_a_data_file_in_notes_scratch_or_a_worktree(data_home):
+    dock, tmp = data_home / 'astro_dock', hook.SCRATCH + '/'
+    body = f"<<EOF\nkill the stale run_task; {WR}; {WK}\nEOF"
+    for command in (f'cat > .handoff/state/x.md {body}', f'cat >> ~/astro_dock/.handoff/brief.txt {body}',
+                    f'cat > /tmp/plan.yaml {body}', f'cat >> /tmp/x.log {body}', f'cat {body} > /tmp/x.json',
+                    f'cat > ~/.cache/wt/w/docs/notes.md {body}', f"cat > /tmp/a.patch <<'EOF'\n+{WK}\nEOF",
+                    f".handoff/tools/codex-task NAME <<'EOF'\nThen {WK} and {WR}.\nEOF",
+                    'git add x && git commit -m "kill the stale run_task; pkill -f command_mux is denied"'):
+        command = command.replace('/tmp/', tmp)
+        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)) is None, command
+    for command in DATA_THEN_USED:
+        command = command.format(b=body, t=body[5:]).replace('/tmp/', tmp)
+        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)), command
+    (data_home / 'scratch').symlink_to(hook.SCRATCH)
+    assert hook.denied(f'cat > ~/scratch/x.md {body}', hook.DEFAULTS, cwd='/') is None      # resolves into /tmp
+    assert hook.denied(f'cat > .handoff/state/x.md {body}', hook.DEFAULTS)                  # no cwd: unreadable
+
+
+@pytest.mark.parametrize('command', ['git -c user.name=t -c commit.gpgsign=false commit -qm "hook note"',
+                                     'GIT_PAGER=cat git log -3', 'git -C /tmp/r status',
+                                     'GIT_AUTHOR_NAME=t git commit -m x'])
+def test_plain_git_settings_are_not_denied(command):
+    assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
+
+
+@pytest.mark.parametrize('command', ['git -c core.editor=vim commit', 'git --exec-path=/tmp/x status',
+                                     'git --config-env=core.pager=X log', 'GIT_DIR=/tmp/r/.git git status',
+                                     'git config core.hooksPath /tmp/h', 'git config alias.st "!sh x"',
+                                     'GIT_PAGER=./x git log', "git -c 'core.hooksPath=h' commit -m x"])
+def test_git_that_runs_a_chosen_program_is_denied(command):
+    assert not hook.text_only(command) and hook.denied(command, hook.DEFAULTS, cwd='/'), command
 
 
 def test_a_block_names_the_id_the_agent_claimed_with(sent):
@@ -925,6 +1001,14 @@ def test_a_block_names_the_id_the_agent_claimed_with(sent):
     sent('pre', f'{hook.BOAT_AGENT} claim --reason "test" --who claude-fcda')
     sent('pre', f'{hook.BOAT_AGENT} claim --reason "sub" --who sub-1', agent_id='a1')
     sent('pre', f'{hook.BOAT_AGENT} status --who $BOAT_AGENT')               # unreadable: keeps the last
+    for text in ('echo "--who spoof-1"', f'echo {hook.BOAT_AGENT} claim --who spoof-2',
+                 'grep -n "boat_agent claim --who spoof-3" notes.md', 'git commit -m "boat_agent --who spoof-4"',
+                 "cat > /tmp/n.md <<'EOF'\nboat_agent claim --who spoof-5\nEOF"):
+        sent('pre', text)                                                    # text: names nothing
     reason = sent('pre', 'pkill -f command_mux')['deny']
     assert '--who claude-fcda' in reason and 'claude-3f2a' not in reason
     assert '--who sub-1' in sent('pre', 'pkill -f command_mux', agent_id='a1')['deny']     # each agent its own
+    sent('pre', 'ssh blastoise-odroid "~/astro_dock/src/mhseals_testing/tools/boat_agent claim --who remote-1"')
+    sent('pre', 'BOAT_AGENT=pre-2 nice -n 19 boat_agent status', agent_id='a2')
+    assert '--who remote-1' in sent('pre', 'pkill -f command_mux')['deny']
+    assert '--who pre-2' in sent('pre', 'pkill -f command_mux', agent_id='a2')['deny']
