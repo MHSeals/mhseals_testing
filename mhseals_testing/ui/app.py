@@ -304,9 +304,10 @@ def help_rows(profile, entries):
     return rows
 
 
-def help_width(columns):
-    """Wider help on a wide terminal, so fewer lines wrap and less of it scrolls."""
-    return max(76, min(104, columns - 12))
+def help_width(columns=None):
+    """Wider help on a wide terminal, so fewer lines wrap and less of it scrolls; 76 without a width (no console)."""
+    return max(76, min(104, columns - 12)) if columns else 76
+
 
 class App:
     """The page, its key handling and the procedure context.
@@ -1608,7 +1609,7 @@ class App:
                 self.grabbed = None
                 self.notice = 'Dropped'
         elif key == '?':
-            self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(self.console.size.width))
+            self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(getattr(getattr(self, 'console', None), 'width', None)))
         elif key == 'a':
             self.arm_panel()
         elif key == 'x' and raw == 'x':

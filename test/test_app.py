@@ -3108,4 +3108,4 @@ def test_help_lists_panel_keys_under_their_panel_once(tmp_path):
     assert sorted(texts[1:]) == sorted(text for _, text in HELP)   # every entry, as written
     space = labels.index('Space')
     assert space < labels.index(widgets.SECTION, 2)   # Space is listed with the keys that work anywhere
-    assert help_width(80) == 76 and help_width(160) == 104
+    assert help_width(80) == 76 and help_width(160) == 104 and help_width(None) == 76
