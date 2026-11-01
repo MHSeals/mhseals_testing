@@ -35,9 +35,14 @@ GCS_SYSTEM, GCS_COMPONENT = 255, 190
 
 
 def config_path():
+    """~/.config/mhseals/rtk.yaml: the operator config the dev container mounts from the host, so a
+    station's base config and surveys survive recreating it. The old container-home
+    mhseals_testing/rtk.yaml is read while it is the only one (one release)."""
     if os.environ.get('MHSEALS_RTK_CONFIG'):
         return Path(os.environ['MHSEALS_RTK_CONFIG']).expanduser()
-    return Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'mhseals_testing/rtk.yaml'
+    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
+    path, old = config / 'mhseals/rtk.yaml', config / 'mhseals_testing/rtk.yaml'
+    return old if old.is_file() and not path.exists() else path
 
 
 def load_config(path=None):
@@ -615,7 +620,7 @@ def parse(argv):
     """argv -> (config, survey, position); ValueError on a bad config or an unknown position name."""
     ap = argparse.ArgumentParser(prog='rtk_base', description='USB RTK base station: RTCM3 to MAVROS (and radio)')
     ap.add_argument('port', nargs='?', help='serial device of the base receiver (default: config device)')
-    ap.add_argument('--config', help='settings YAML (default: $MHSEALS_RTK_CONFIG or ~/.config/mhseals_testing/rtk.yaml)')
+    ap.add_argument('--config', help='settings YAML (default: $MHSEALS_RTK_CONFIG or ~/.config/mhseals/rtk.yaml)')
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument('--survey', action='store_true', help='start a new survey-in')
     mode.add_argument('--known', metavar='NAME', help='fix the base at a named position from the config')

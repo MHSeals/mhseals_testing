@@ -452,3 +452,4 @@ def test_source_defaults_to_ours_and_is_validated(tmp_path):
     (tmp_path / 'bad.yaml').write_text('source: mp\n')
     with pytest.raises(ValueError, match='source must be one of ours, external, none'):
         load_config(tmp_path / 'bad.yaml')
+

@@ -65,7 +65,7 @@ def test_r_in_the_odometry_popup_opens_the_controls(tmp_path, home, monkeypatch)
     app.odometry()
     assert opened == [app]
     monkeypatch.undo()
-    assert not (home / '.config/mhseals_testing/rtk.yaml').exists()
+    assert not (home / '.config/mhseals/rtk.yaml').exists()
     app.rtk_link = None
     press(app, 'r')
     app.odometry()
@@ -75,7 +75,7 @@ def test_r_in_the_odometry_popup_opens_the_controls(tmp_path, home, monkeypatch)
 def test_r_saves_atomically_and_restarts_once(home):
     app, calls = FakeApp(link(), ['Start survey', 'Start'], ['300 1.5']), []
     done = ui_rtk.open_controls(app, restart=lambda *args: calls.append(args) or True)
-    saved = yaml.safe_load((home / '.config/mhseals_testing/rtk.yaml').read_text())
+    saved = yaml.safe_load((home / '.config/mhseals/rtk.yaml').read_text())
     assert done and saved['survey_seconds'] == 300 and saved['survey_accuracy'] == 1.5
     assert len(calls) == 1 and calls[0][1].position is None and calls[0][3] == {}
     assert not list((home / '.config/mhseals_testing').glob('*.tmp*')) and 'survey' in app.notice
@@ -97,16 +97,16 @@ def test_no_base_says_so_and_writes_nothing(home):
 def test_bad_input_and_cancel_write_nothing(home):
     app = FakeApp(link(), ['Start survey'], ['300 500'])
     assert not ui_rtk.open_controls(app, restart=lambda *args: pytest.fail('restarted'))
-    assert 'accuracy' in app.notice and not (home / '.config/mhseals_testing/rtk.yaml').exists()
+    assert 'accuracy' in app.notice and not (home / '.config/mhseals/rtk.yaml').exists()
     assert not ui_rtk.open_controls(FakeApp(link(), ['Start survey'], ['300 1.5']))   # no confirm: cancelled
-    assert not (home / '.config/mhseals_testing/rtk.yaml').exists()
+    assert not (home / '.config/mhseals/rtk.yaml').exists()
 
 
 @pytest.mark.parametrize('choice, text', [('Start survey', 'inf 1'), ('Settings', '- inf'), ('Start survey', 'nan 1')])
 def test_non_finite_numbers_are_refused_not_a_crash(home, choice, text):
     app = FakeApp(link(), [choice, 'Start'], [text])
     assert not ui_rtk.open_controls(app, restart=lambda *args: pytest.fail('restarted'))
-    assert 'numbers only' in app.notice and not (home / '.config/mhseals_testing/rtk.yaml').exists()
+    assert 'numbers only' in app.notice and not (home / '.config/mhseals/rtk.yaml').exists()
 
 
 def test_odometry_pane_uses_wall_time_for_journal_events(tmp_path, monkeypatch):

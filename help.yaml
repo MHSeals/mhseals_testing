@@ -67,4 +67,4 @@ commands:
       - {name: port, required: false, type: path, description: Serial device of the base receiver (default from the config).}
       - {name: --survey, type: bool, description: Start a new survey-in.}
       - {name: --known, description: Fix the base at a named position from the config.}
-      - {name: --config, type: path, description: Settings YAML (default ~/.config/mhseals_testing/rtk.yaml).}
+      - {name: --config, type: path, description: Settings YAML (default ~/.config/mhseals/rtk.yaml).}
