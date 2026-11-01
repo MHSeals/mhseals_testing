@@ -309,3 +309,18 @@ def test_agent_hues_stay_apart_from_status_class_and_trail_colours():
                 gap = sum((a - b) ** 2 for a, b in zip(rgb(agent, mode), rgb(other, mode))) ** .5
                 assert gap >= 30, (agent, other, mode)
                 assert tokens.resolve(agent, mode, '256') != tokens.resolve(other, mode, '256'), (agent, other)
+
+
+@pytest.mark.parametrize('width', [80, 100, 120])
+def test_an_agent_sim_arm_keeps_the_header_on_one_row_and_the_banner_below(width):
+    from mhseals_testing.ui import layout
+    import test_dashboard
+    profile = test_dashboard.load_profile('boat')
+    rec, desk_ = record(claim()), desk()
+    view = test_dashboard.view(profile, armed=True, authority=('agent', f'AGENT {WHO} 4m'), activity='agent',
+                               agent_desk=desk_, authority_record=rec, armed_by={'who': 'codex-7', 'sim': True},
+                               agent=authority_chip.banner(rec, NOW, desk=desk_))
+    head = test_dashboard.text(layout.header(test_dashboard.monitor().snapshot(profile.required_tf), view, width),
+                               width, 4).splitlines()
+    assert len(head) == 2 and 'ARMED' in head[0] and 'sim-arm' in head[0]
+    assert 'AGENT DRIVING' in head[1] and 'E revoke' in head[1]

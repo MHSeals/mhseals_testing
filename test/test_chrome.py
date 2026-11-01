@@ -114,7 +114,8 @@ def test_an_agents_arm_is_marked_after_the_armed_chip_and_the_operators_is_not(w
     profile = load_profile('boat')
     agent = view(profile, armed=True, authority=('agent', 'AGENT claude'), armed_by={'who': 'claude', 'sim': True})
     row = text(layout.header(monitor().snapshot(), agent, width), width, 3).splitlines()[0]
-    mark = f'{theme.AGENT_GLYPH} claude sim-arm' if width >= 100 else f'{theme.AGENT_GLYPH} sim-arm'
+    # From 80 columns the title keeps only the current tab when it must, so the agent's name fits.
+    mark = f'{theme.AGENT_GLYPH} claude sim-arm' if width >= 80 else f'{theme.AGENT_GLYPH} sim-arm'
     flat = ' '.join(row.split()).replace('[', '').replace(']', '')     # ASCII brackets its chips
     assert len(row) <= width and flat.endswith(f'ARMED {mark}')
     own = text(layout.header(monitor().snapshot(), view(profile, armed=True), width), width, 3).splitlines()[0]

@@ -11,7 +11,7 @@
 │   · tracks               │
 │ Localization             │
 │   ✓ map → odom           │
-│   ✗ odom → base_li…      │
+│   ✗ odom → base_l…       │
 │ System                   │
 │   ! compute         78°C │
 │                          │
@@ -30,7 +30,7 @@
 │   · tracks               │
 │ Localization             │
 │   ✓ map → odom           │
-│   ✗ odom → base_li…      │
+│   ✗ odom → base_l…       │
 │ System                   │
 │   ! compute         78°C │
 │                          │

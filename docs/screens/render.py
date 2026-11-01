@@ -118,7 +118,13 @@ def agent_stopped():
     return monitor.snapshot(PROFILE.required_tf), base_view(tab='Drive', **extra)
 
 
-SCENES = {'drive': drive, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
+def agent_sim_arm():
+    """An agent's sim-arm on a narrow terminal: the arm mark keeps row one, the banner row two."""
+    snapshot, view = agent()
+    return snapshot, dict(view, armed_by={'who': test_agent_view.WHO, 'sim': True})
+
+
+SCENES = {'drive': drive, 'agent-sim-arm': agent_sim_arm, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
 
 
 # The scene's `graphics`: `text` draws the braille, `image` the tiles a sixel or kitty terminal shows

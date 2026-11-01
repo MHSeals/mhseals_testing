@@ -10,6 +10,8 @@
    caption: '<b>Agent</b>: banner, revoke keys and the agent log'}
 - {name: agent-stopped, scene: agent-stopped, size: [120, 40], graphics: text, alt: Agent claim stopped,
    caption: '<b>Stopped</b>: Space under an agent claim keeps STOPPED first and names the paused claim'}
+- {name: agent-sim-arm, scene: agent-sim-arm, size: [80, 24], graphics: text, alt: Agent sim-arm at 80 columns,
+   caption: '<b>Sim-arm</b>: at 80 columns an agent''s arm keeps the ARMED chip and banner in view'}
 - {name: drive-text, scene: drive, size: [120, 40], graphics: text, alt: Drive tab in text,
    caption: '<b>Text</b>: the Drive tab in braille (graphics off, tmux, SSH without images)'}
 - {name: map-text, scene: map, size: [120, 40], graphics: text, alt: Map tab in text,

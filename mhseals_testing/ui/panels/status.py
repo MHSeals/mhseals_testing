@@ -323,8 +323,10 @@ def status_panel(snapshot, view, height):
                 draw = row.get('draw', RtkCell)
                 table.add_row(draw(row['cell'], theme.ASCII, theme.CURSOR if focused and key == cursor else None), '')
                 continue
+            # A value keeps a one-cell gutter, so a cut label never runs into it; an empty one gives its cell back.
             table.add_row(row_label(row, focused and key == cursor),
-                          Text(row['value'], style=row['style'] if row.get('style') is not None
+                          Text(f" {row['value']}" if row['value'] else '',
+                               style=row['style'] if row.get('style') is not None
                                else getattr(theme, RATE_STYLE.get(row.get('rate'), 'MUTED'))))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=theme.MUTED, no_wrap=True, overflow=theme.OVERFLOW)

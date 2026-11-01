@@ -116,7 +116,8 @@ def top_row(view, width):
     profile = Text.assemble((f'  {name}', theme.MUTED))
     deploy, tails = deploy_item(view.get('deploy')), (chips(view), chips(view, short=True))
     work = None if view.get('review') else working_item(view)
-    lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title]
+    narrow = Text.assemble((' boat_test ', f'bold {theme.ACCENT}'), tab_strip(view.get('tab'), 0))
+    lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title, narrow]
     rights = [(deploy, work, host_item(view)), (deploy, work, host_item(view, True)),
               (None, work, host_item(view, True)), (None, work, None), (None, None, None)]
     for tail in tails:
@@ -126,7 +127,12 @@ def top_row(view, width):
                 gap = width - len(left) - len(right)
                 if gap >= 1:
                     return Text.assemble(left, ' ' * gap, right)
-    return Text.assemble(title, ' ', join(tails[-1]))
+    # Nothing fits: the chips keep the right edge and the title gives way, so the row never wraps
+    # into row two (the agent banner or STOPPED row).
+    right = join(tails[-1])
+    right.truncate(width)
+    left = narrow[:max(width - len(right) - 1, 0)]
+    return Text.assemble(left, ' ' * max(width - len(left) - len(right), 0), right)
 
 
 def middle_cut(text, width):

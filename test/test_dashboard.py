@@ -396,3 +396,15 @@ def test_procedure_headings_are_drawn_and_the_cursor_row_is_a_procedure():
     assert any('Thrust' in line for line in lines)
     assert any('Drive' in line and 'Manual' not in line for line in lines)
     assert page.index('Characterize') < page.index('Drive') < page.index('Manual control')
+
+
+def test_status_labels_keep_a_gutter_before_their_value(monkeypatch):
+    from mhseals_testing.ui.panels import status
+    row = dict(group='Control', state='LIVE', name='agent_motion', label='Agent motion', required=False,
+               value='‹ confirm ›', detail='')
+    monkeypatch.setattr(status, 'status_rows', lambda snapshot, specs: [row, dict(row, value='')])
+    profile = load_profile('boat')
+    panel = status.status_panel(monitor().snapshot(profile.required_tf), view(profile), 12)
+    panel.width = 26                                               # 80 columns give Status about this
+    out = text(panel, 26, 12)
+    assert '… ‹ confirm ›' in out and '…‹' not in out              # a space parts a cut label from its value
