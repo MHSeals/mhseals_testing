@@ -433,8 +433,30 @@ def test_budgeted_link_slows_the_drawings(monkeypatch):
     monkeypatch.setattr(fusion, '_HZ', {})
     assert fusion.draw_rate(cfg, 'a') == cfg['draw_hz'] and fusion.draw_rate(cfg, 'b', 0.5) == cfg['draw_hz']
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
-    assert fusion.draw_rate(cfg, 'a') == min(cfg['draw_hz'], pixels.THROTTLE_HZ)
+    assert fusion.draw_rate(cfg, 'a') == min(cfg['draw_hz'], pixels.THROTTLE_HZ) * fusion.START
     assert fusion.draw_rate(cfg, 'b', 0.5) == fusion.draw_rate(cfg, 'a') / 2
+
+
+def test_drawing_rate_ramps_up_and_drops_at_once_over_the_budget(monkeypatch):
+    """A drawing starts at START of the top rate and rises by at most STEP per update; the link going over its budget
+    resizes the rate at once instead of after RATE_S."""
+    cfg = fusion_feed.load_config()
+    now = [100.0]
+    top = min(cfg['draw_hz'], pixels.THROTTLE_HZ)
+    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
+    monkeypatch.setattr(pixels, 'STATS', {'upload': 0, 'sixel': 0, 'tiles': 0})
+    first = fusion.draw_rate(cfg, 'cam')
+    assert first == top * fusion.START
+    now[0] += fusion.RATE_S
+    pixels.STATS['sixel'] += 1                                         # a nearly silent link: the rate steps up
+    assert fusion.draw_rate(cfg, 'cam') == pytest.approx(first * fusion.STEP)
+    held = fusion._HZ['cam'][0]
+    now[0] += 0.5
+    pixels.STATS['sixel'] += 10 * pixels.SSH_BUDGET                    # a burst over the budget: no 5 s wait
+    monkeypatch.setattr(pixels, 'rate', lambda now=None: 2 * pixels.SSH_BUDGET)
+    assert fusion.draw_rate(cfg, 'cam') < held / 4
 
 
 def test_drawing_rate_settles_under_the_budget(monkeypatch):

@@ -220,7 +220,7 @@ def test_over_the_link_budget_images_repaint_at_the_throttle_rate(monkeypatch):
     assert pixels.surface('s', paint(30), 4, 2, key=3) is not first
     now[0] += pixels.METER_S + 1                           # the burst ages out: back to every change
     held = pixels.surface('s', paint(40), 4, 2, key=4)
-    now[0] += 0.01
+    now[0] += 0.1
     assert pixels.surface('s', paint(50), 4, 2, key=5) is not held
 
 
@@ -646,3 +646,20 @@ def test_outside_tmux_watch_asks_nothing(monkeypatch):
     assert pixels.start(SimpleNamespace(fd=5, buffer=bytearray()), None, lambda t: None, 'auto', env={}) == 'sixel'
     monkeypatch.setattr(pixels, 'clock', lambda: 1e9)
     assert pixels.watch() is False
+
+
+def test_over_the_link_budget_repaints_are_spaced_so_a_second_stays_in_it(monkeypatch):
+    """A repaint of 60% of the budget is followed by none for a second, whichever surface is due; a first repaint
+    waits behind one just made."""
+    now = [10.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    pixels.use('sixel', budget=1000)
+    paint = lambda colour: paint_box((colour, 0, 0))
+    a = pixels.surface('a', paint(10), 4, 2, key=1)
+    pixels.STATS['sixel'] += 600                           # what the repaint sent
+    pixels._meter(600)
+    now[0] += 0.1
+    assert pixels.surface('a', paint(20), 4, 2, key=2) is a             # 600 + 600 would pass the budget
+    assert pixels.surface('b', paint(10), 4, 2, key=1) != a             # a blank cell grid until its turn
+    now[0] += 1.0
+    assert pixels.surface('a', paint(30), 4, 2, key=3) is not a

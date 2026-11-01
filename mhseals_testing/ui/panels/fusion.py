@@ -28,8 +28,9 @@ from mhseals_testing.ui import palette, pixels, theme
 
 RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to far; spd.0 past the last break
 # 16 colours: spd.5/spd.4 are both magenta (near a red buoy's box) and spd.3/spd.2 both yellow, so one hue per band;
-# yellow is left to the stale scan (warn)
-RAMP16 = dict(zip(RAMP, ('bright_magenta', 'green', 'cyan', 'blue', 'white', 'bright_black')))
+# yellow is left to the stale scan (warn) and green to the buoys; every ANSI hue is taken, so the 5-10 m band is the
+# bright cyan beside the plain cyan 10-20 m band
+RAMP16 = dict(zip(RAMP, ('bright_magenta', 'bright_cyan', 'cyan', 'blue', 'white', 'bright_black')))
 STALE = 'warn'         # the whole scan in one ink no band uses while it cannot be read against the boxes
 GREYS = 6              # grey levels of the frame behind the points
 CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
@@ -154,23 +155,28 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
 
 LINK_SHARE = 0.9      # of the link budget the drawings aim at
 RATE_S = 5.0          # s between rate updates over a link budget: a few repaints of ~10 kB each, so one is not noise
+START = 0.25          # of the top rate a drawing starts at, then steps up by at most STEP each update
+STEP = 1.5
 _HZ = {}              # drawing name -> (repaints per second, set at, image bytes sent by then)
 
 
 def draw_rate(cfg, name, budgeted=1.0):
     """Repaints per second: draw_hz, and over a link budget at most THROTTLE_HZ times ``budgeted`` (two big surfaces
     share the link, so Around takes half the camera's rate), resized every RATE_S from the image bytes the held rate
-    sent: ``hz * LINK_SHARE * BUDGET / sent``. A map from the rate alone (rate / BUDGET, or its square) settles above
-    the budget; this settles near LINK_SHARE of it (a dense scan left 1.1-2 times the budget)."""
+    sent (at once when the link is over its budget; a drawing starts at START of the top rate and rises at most STEP
+    times per update): ``hz * LINK_SHARE * BUDGET / sent``. A map from the rate alone (rate / BUDGET, or its square)
+    settles above the budget; this settles near LINK_SHARE of it (a dense scan left 1.1-2 times the budget)."""
     if not pixels.BUDGET:
         return cfg['draw_hz']
     top, now, total = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted, pixels.clock(), pixels.STATS['upload'] + pixels.STATS['sixel']
     held = _HZ.get(name)
-    if held is not None and now - held[1] < RATE_S and total >= held[2]:
+    over = pixels.rate(now) > pixels.BUDGET
+    if held is not None and now - held[1] < RATE_S and total >= held[2] and not over:
         return held[0]
-    hz = top
+    hz = top * START
     if held is not None and total >= held[2]:
         hz = held[0] * LINK_SHARE * pixels.BUDGET * (now - held[1]) / max(total - held[2], 1.0)
+        hz = min(hz, held[0] * STEP)
     hz = min(top, max(top / 16, hz))
     _HZ[name] = (hz, now, total)
     return hz

@@ -78,6 +78,8 @@ clock = time.monotonic      # s; surface()'s repaint rate (tests run a simulated
 # it every image repaints at THROTTLE_HZ at most. Text costs more than sixel, so never fall back to it.
 SSH_BUDGET = 25_000         # B/s
 THROTTLE_HZ = 2.0
+SAME_FRAME_S = 0.05         # s within which two surfaces are painted in one frame
+PAINT_SHARE = 0.8           # of the budget the repaints in any one second may add up to
 METER_S = 2.0               # s of image bytes the rate is measured over
 BUDGET = None               # B/s, or None: no budget (a local terminal)
 _sent = deque()             # (time, bytes) of image writes within METER_S
@@ -89,6 +91,8 @@ _pool = OrderedDict()       # digest -> Tile, least recently used first
 _by_id = {}
 _free = []
 _pending = []               # kitty escapes to send before the next frame
+_painted = [0.0, 0, None, 0]  # under a budget: when a surface repainted last, the bytes sent by then, its name and size
+_sizes = {}                 # surface name -> the bytes its last repaint sent
 _surfaces = {}              # name -> (key, time, cells)
 _live = {}                  # sixel: (row, col) -> (id, crop) of the tile parts visible this frame
 _drawn = {}                 # sixel: (row, col) -> id painted there
@@ -370,6 +374,8 @@ def _reset():
     _free[:] = list(range(POOL, 0, -1))
     _pending.clear()
     _surfaces.clear()
+    _painted[:] = [0.0, 0, None, 0]
+    _sizes.clear()
     _live.clear()
     _drawn.clear()
     _sent.clear()
@@ -588,6 +594,18 @@ def cell(tile, r, c):
     return chr(MARK0 + tile.id * 128 + r * 16 + c), ''
 
 
+def paint_waits(name, now):
+    """Whether a repaint must wait under a budget: the image bytes of the last second plus one more repaint of this
+    surface (its last size, else the last repaint's) would pass PAINT_SHARE of the budget, so no 1 s window goes over."""
+    size = STATS['upload'] + STATS['sixel'] - _painted[1]
+    if size > 0 and _painted[2]:
+        _sizes[_painted[2]] = _painted[3] = size         # the bytes sent since a repaint are its own
+    if _painted[3] == 0:
+        return now - _painted[0] < SAME_FRAME_S         # the last repaint is not sent yet: this frame's
+    recent = sum(n for t, n in _sent if t > now - 0.95)
+    return recent + _sizes.get(name, _painted[3]) > PAINT_SHARE * BUDGET
+
+
 def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile=TILE):
     """Cells of an image widget: ``rows`` lists of ``cols`` ``(text, style)``, None at ``holes``.
 
@@ -602,6 +620,11 @@ def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile
     if (held is not None and BUDGET and now - held[1] < 1.0 / THROTTLE_HZ
             and held[0][1:] == (cols, rows, GENERATION) and rate(now) > BUDGET):
         return held[2]        # over the link budget: every image repaints at THROTTLE_HZ at most
+    if BUDGET and _painted[0] and paint_waits(name, now):     # a repaint just went out: any image waits
+        if held is None:                                                # so no second holds more than the budget
+            return [[BLANK] * cols for _ in range(rows)]
+        if held[0][1:] == (cols, rows, GENERATION):
+            return held[2]
     raster = raster_or_paint
     if callable(raster_or_paint):
         raster = Raster(cols, rows)
@@ -624,6 +647,8 @@ def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile
                     if (c0 + c, r0 + r) not in holes:
                         grid[r0 + r][c0 + c] = cell(t, r, c) if t is not None else BLANK
     _surfaces[name] = ((key, cols, rows, GENERATION), now, grid)
+    if BUDGET:
+        _painted[:] = [now, STATS['upload'] + STATS['sixel'], name, 0]
     return grid
 
 
