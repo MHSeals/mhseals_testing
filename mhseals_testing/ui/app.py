@@ -67,6 +67,7 @@ from mhseals_testing.ui import (
     agent_acts, authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette,
     parts, perception, pixels, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
+from mhseals_testing.ui.panels import fusion as fusion_panel
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, control as control_feed, \
     health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
@@ -1078,7 +1079,25 @@ class App:
                        plot_scale=self.source.profile.plot_scale, now=self.source.now,
                        host=self.review.host, deploy={}, recording=False, rec=None,
                        pwm_readback=[theme.DASH] * 4, toasts=[], toasts_more=0)
+        own.update(self.fusion_view())
         return {**shared, **own}  # App's own keys win a collision
+
+    def fusion_view(self):
+        """The Fusion tab's feed snapshot while the tab is shown (live only); its subscriptions end when it is not."""
+        shown = self.tab == 'Fusion' and not self.review
+        feed = getattr(self, 'fusion_feed', None)
+        if feed is None and shown and getattr(self.ros, 'node', None) is not None:
+            from mhseals_testing.ros import fusion_feed
+            cfg = fusion_feed.load_config()
+            camera = camera_feed.profile_feed(self.ros.node, self.profile.sensors, hz=cfg['feed']['camera_hz'])
+            feed = self.fusion_feed = fusion_feed.node_feed(self.ros, camera, cfg) or False
+        if not feed:
+            return {'fusion': None} if shown else {}
+        status = fusion_panel.fusion_status(self.facts)
+        feed.applied = status.get('applied_deg') or (0.0, 0.0, 0.0)
+        # the frame only as image tiles on an unbudgeted link: over SSH or the radio the points and boxes suffice
+        feed.want(shown, camera=pixels.active() and pixels.BUDGET is None and pixels.images('fusion.camera'))
+        return {'fusion': feed.snapshot(), 'fusion_facts': self.facts} if shown else {}
 
     def driving(self, shared=None):
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""

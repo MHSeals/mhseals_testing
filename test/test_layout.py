@@ -76,6 +76,8 @@ def test_focus_and_cursors_are_restored_per_tab(tmp_path):
     app.dispatch('[')
     assert app.tab == 'Drive' and app.focus == focus and app.cursors == cursor
     app.dispatch('[')
+    assert app.tab == 'Fusion' and app.focus == 'fusion'
+    app.dispatch('[')
     assert app.tab == 'Bags' and app.focus == 'list'
 
 

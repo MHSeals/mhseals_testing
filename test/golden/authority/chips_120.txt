@@ -1,18 +1,18 @@
 == idle
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                                   boat · ROS 42  idle   ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort                           boat · ROS 42  idle   ARMED
 == keys
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                                 boat · ROS 42   KEYS    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort                         boat · ROS 42   KEYS    ARMED
 == rc
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                             boat · ROS 42   RC 46 ms    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort                     boat · ROS 42   RC 46 ms    ARMED
 == hold
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                       boat · ROS 42   HOLD keys 40 s    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort               boat · ROS 42   HOLD keys 40 s    ARMED
 == agent
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                   boat · ROS 42   AGENT tune_mppi 4m    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort           boat · ROS 42   AGENT tune_mppi 4m    ARMED
 == procedure
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                    boat · ROS 42   CHARACTERIZE 7/14    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort            boat · ROS 42   CHARACTERIZE 7/14    ARMED
 == goal
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                            boat · ROS 42   GOAL 12 m    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort                    boat · ROS 42   GOAL 12 m    ARMED
 == task
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                       boat · ROS 42   TASK pair_test    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort               boat · ROS 42   TASK pair_test    ARMED
 == unclaimed
- boat_test  [Drive]  Correction  Map  Bags  boat · effort                     boat · ROS 42   ? UNCLAIMED goal    ARMED
+ boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort             boat · ROS 42   ? UNCLAIMED goal    ARMED

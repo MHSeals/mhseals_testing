@@ -16,3 +16,7 @@
    caption: '<b>Text</b>: the Drive tab in braille (graphics off, tmux, SSH without images)'}
 - {name: map-text, scene: map, size: [120, 40], graphics: text, alt: Map tab in text,
    caption: '<b>Text</b>: the Map tab in braille'}
+- {name: fusion, scene: fusion, size: [120, 40], graphics: image, alt: Fusion tab,
+   caption: '<b>Fusion</b>: lidar points over the camera, boxes with fused ranges, top-down and the alignment check'}
+- {name: fusion-text, scene: fusion, size: [80, 30], graphics: text, alt: Fusion tab in text,
+   caption: '<b>Text</b>: the Fusion tab in braille at 80 columns'}

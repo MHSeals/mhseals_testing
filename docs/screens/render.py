@@ -44,6 +44,7 @@ from mhseals_testing.ui.popups import inspect  # noqa: E402
 
 import test_agent_view  # noqa: E402
 import test_dashboard  # noqa: E402
+import test_fusion_panel  # noqa: E402
 import test_inspect_popup  # noqa: E402
 
 PROFILE = load_profile('boat')
@@ -124,7 +125,26 @@ def agent_sim_arm():
     return snapshot, dict(view, armed_by={'who': test_agent_view.WHO, 'sim': True})
 
 
-SCENES = {'drive': drive, 'agent-sim-arm': agent_sim_arm, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
+def sea_frame(w=320, h=180):
+    """A grey camera frame: sky over a horizon at 45 %, water darkening to the bottom, three buoys."""
+    y, x = np.mgrid[0:h, 0:w] / np.array([h, w])[:, None, None]
+    grey = np.where(y < 0.45, 200 - 60 * y, 110 - 60 * (y - 0.45) + 6 * np.sin(x * 40) * np.sin(y * 120))
+    for (u0, v0, u1, v1), level in (((0.42, 0.45, 0.47, 0.6), 235), ((0.62, 0.48, 0.65, 0.56), 60),
+                                    ((0.2, 0.5, 0.22, 0.54), 220)):
+        inside = (x > u0 + 0.004) & (x < u1 - 0.004) & (y > v0 + 0.01) & (y < v1)
+        grey[inside] = level
+    return grey.clip(0, 255).astype(np.uint8)
+
+
+def fusion():
+    monitor, _ = test_inspect_popup.scene()
+    model = test_fusion_panel.model()
+    model['frame'] = sea_frame()
+    return monitor.snapshot(PROFILE.required_tf), base_view(tab='Fusion', focus='fusion', fusion=model,
+                                                            fusion_facts=test_fusion_panel.facts())
+
+
+SCENES = {'agent-sim-arm': agent_sim_arm, 'fusion': fusion, 'drive': drive, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
 
 
 # The scene's `graphics`: `text` draws the braille, `image` the tiles a sixel or kitty terminal shows

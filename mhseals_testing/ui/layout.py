@@ -29,6 +29,7 @@ from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels import bags as bags_panel
+from mhseals_testing.ui.panels import fusion as fusion_panel
 from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels import mission as mission_panel
@@ -587,7 +588,13 @@ def bags_body(snapshot, view, width, height):
     return page
 
 
-BODIES = {'Drive': drive_body, 'Correction': correction_body, 'Map': map_body, 'Bags': bags_body}
+def fusion_body(snapshot, view, width, height):
+    """The Fusion tab: camera-lidar alignment (panels/fusion.py)."""
+    return fusion_panel.body(view, width, height)
+
+
+BODIES = {'Drive': drive_body, 'Correction': correction_body, 'Map': map_body, 'Bags': bags_body,
+          'Fusion': fusion_body}
 
 
 def _with_modal(layout, view, width, height):
@@ -604,8 +611,8 @@ def _with_modal(layout, view, width, height):
 
 # --- density tiers and per-tab memory (no Rich) -----------------------------------
 
-TABS = ('Drive', 'Correction', 'Map', 'Bags')
-DEFAULT_FOCUS = {'Drive': 'status', 'Correction': 'table', 'Map': 'map', 'Bags': 'list'}
+TABS = ('Drive', 'Correction', 'Map', 'Bags', 'Fusion')
+DEFAULT_FOCUS = {'Drive': 'status', 'Correction': 'table', 'Map': 'map', 'Bags': 'list', 'Fusion': 'fusion'}
 
 # (minimum width, tier name, Status column width on Drive); Status is hidden in 'single'.
 TIERS = ((150, 'wide', 34), (110, 'standard', 34), (90, 'compact', 28),

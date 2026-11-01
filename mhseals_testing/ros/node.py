@@ -90,6 +90,7 @@ class RosIO:
         self.ghosts = set    # () -> node names to list once (the App sets Stack.ghosts)
         self.power_facts = None   # analysis.power facts of /mavros/battery; None without a voltage source
         self.journal_path = journal_path
+        self.taps = {}         # kind -> callable(message): views that read a session subscription (Fusion tab)
         self.recording = True  # stamped on each event as ``rec``
         self._prefix = None
         self.beat_at, self.beat_runs, self._beat_subs = {}, {}, {}   # watchdog ~/status (watch_beats)
@@ -175,6 +176,9 @@ class RosIO:
             self.emit('marker', kind='system', note='sim reset')
 
     def _ingest(self, topic, kind, message, authority=''):
+        tap = self.taps.get(kind)
+        if tap is not None:
+            tap(message)
         ingest(self.monitor, self.profile, topic, kind, message, self.now(),
                self.stale_after, authority)
 
