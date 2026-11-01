@@ -567,6 +567,7 @@ def test_watch_follows_tmux_clients_and_repaints(monkeypatch):
     now, seen = [100.0], [view()]
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     monkeypatch.setattr(pixels, 'tmux_view', lambda env: seen[0])
+    monkeypatch.setattr(pixels, '_spawn', lambda run: run())      # the background query, inline
     monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(TMUX_CAPS, cell=(10, 20)), b''))
     monkeypatch.setattr(os, 'isatty', lambda fd: True)
     keys, sent = SimpleNamespace(fd=5, buffer=bytearray()), []
@@ -597,6 +598,44 @@ def test_watch_follows_tmux_clients_and_repaints(monkeypatch):
     pixels.stop(console, sent.append)
     now[0] += pixels.TMUX_POLL_S
     assert pixels.watch() is False
+
+
+def test_watch_never_waits_on_tmux(monkeypatch):
+    """tmux answers on a background thread: watch() returns at once while it is asked, asks once at a
+    time, and applies the answer on a later frame; an answer for a stopped session is dropped."""
+    import threading
+    import time as _time
+    now, asked, release = [100.0], [], threading.Event()
+
+    def slow(env):
+        asked.append(env)
+        release.wait(5)
+        return view(FOOT)
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    monkeypatch.setattr(pixels, 'tmux_view', lambda env: view())
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(TMUX_CAPS, cell=(10, 20)), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    keys, sent = SimpleNamespace(fd=5, buffer=bytearray()), []
+    console = Console(file=io.StringIO(), color_system='truecolor')
+    assert pixels.start(keys, console, sent.append, 'auto', env=TMUX_ENV) == 'text'
+    monkeypatch.setattr(pixels, 'tmux_view', slow)
+    now[0] += pixels.TMUX_POLL_S
+    began = _time.monotonic()
+    assert pixels.watch() is False and _time.monotonic() - began < 0.1      # did not wait on tmux
+    now[0] += pixels.TMUX_POLL_S
+    assert pixels.watch() is False and len(asked) == 1                      # one query in flight
+    release.set()
+    deadline = _time.monotonic() + 5
+    while pixels._mux.get('busy') and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert pixels.watch() is True and pixels.TIER == 'sixel'               # its answer, on the next frame
+    release.clear()
+    now[0] += pixels.TMUX_POLL_S
+    pixels.watch()
+    pixels.stop(console, sent.append)                                      # the session ends mid-query
+    release.set()
+    _time.sleep(0.05)
+    assert 'answer' not in pixels._mux and pixels.watch() is False
 
 
 def test_outside_tmux_watch_asks_nothing(monkeypatch):

@@ -34,6 +34,7 @@ import os
 import re
 import select
 import subprocess
+import threading
 import time
 import zlib
 from collections import OrderedDict, deque
@@ -99,7 +100,7 @@ TMUX_REPAINT_S = 10.0       # s; every image repainted at least this often under
 TMUX_FORMAT = ('#{window_id}\t#{allow-passthrough}', '#{window_id}\t#{client_created}\t#{client_termtype}\t'
                '#{client_termfeatures}\t#{client_cell_width}\t#{client_cell_height}')
 PASSTHROUGH = False         # kitty escapes wrapped for tmux
-_mux = {}                   # under tmux: env, view, next poll, last repaint
+_mux = {}                   # under tmux: env, view, next poll, last repaint, token, busy, answer
 _session = {}               # keys, console, write of the last start()
 _APC = re.compile('\x1b_G[^\x1b]*\x1b\\\\')
 
@@ -263,7 +264,7 @@ def start(keys, console, write, setting='off', env=None):
     PASSTHROUGH = TIER == 'kitty' and _tmux(env, caps)
     _mux.clear()
     if view is not None:
-        _mux.update(env=env, view=view, next=clock() + TMUX_POLL_S, painted=clock())
+        _mux.update(env=env, view=view, next=clock() + TMUX_POLL_S, painted=clock(), token=object())
     K = 1 if TIER == 'text' else max(1, min(4, round(CELL[0] / 3.5)))
     if TIER == 'sixel' and console is not None and not isinstance(console.file, _Stream):
         _stream = console.file = _Stream(console.file)
@@ -293,15 +294,32 @@ def restart(keys, console, write, setting, env=None):
     return tier
 
 
+def _spawn(run):
+    """Run ``run`` off the UI thread (tests swap in a synchronous call)."""
+    threading.Thread(target=run, name='pixels-tmux', daemon=True).start()
+
+
+def _ask_tmux(env, token):
+    """The background tmux query: its answer lands in ``_mux`` only if the session that asked still runs."""
+    view = tmux_view(env)
+    if _mux.get('token') is token:
+        _mux.update(answer=view, busy=False)
+
+
 def watch():
-    """Under tmux, at most every TMUX_POLL_S: ask tmux about the clients again (before laying out a
-    frame). A new tier restarts; any other change, or TMUX_REPAINT_S, repaints every image. True
-    when the next frame must be written even if its text did not change."""
-    if not _mux or clock() < _mux['next']:
+    """Under tmux, at most every TMUX_POLL_S: ask tmux about the clients again, on a background thread
+    (tmux can take up to its 0.5 s timeout, and a key must never wait on it), and apply its last answer
+    before laying out a frame. A new tier restarts; any other change, or TMUX_REPAINT_S, repaints every
+    image. True when the next frame must be written even if its text did not change."""
+    if not _mux:
         return False
     now = clock()
-    _mux['next'] = now + TMUX_POLL_S
-    env, view = _mux['env'], tmux_view(_mux['env'])
+    if now >= _mux['next'] and not _mux.get('busy'):
+        _mux.update(next=now + TMUX_POLL_S, busy=True)
+        _spawn(lambda env=_mux['env'], token=_mux['token']: _ask_tmux(env, token))
+    if 'answer' not in _mux:
+        return False
+    env, view = _mux['env'], _mux.pop('answer')
     console = _session.get('console')
     system = getattr(console, 'color_system', None) or 'truecolor'
     if choose(SETTING, _caps, env, system, view) != TIER or (TIER != 'text' and view['clients'][0][3] != CELL):
