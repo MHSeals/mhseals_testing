@@ -87,13 +87,18 @@ PY_WRITE = (r'\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write
             r'|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax]))')
 
 
+# xargs running a reader (wc, grep, cat, head ...) on the files a list names reads them; any other program may write.
+XARGS_READS = (r'(?!(\s+(-[nPLsI]\s*\S+|-\S+))*\s+(wc|grep|egrep|fgrep|rg|cat|head|tail|ls|stat|file|md5sum|sha\d*sum'
+               r'|du|nl|less)(?=[\s;&|)]|$))')
+
+
 def writes(name, more=''):
     """Shell writes to a file ``name`` (a regex): a writer naming it, a copy into it (a copy *from* it to a named
     file is a read), a redirection onto it, a list naming it fed to xargs, a python one-liner writing it."""
     span = '.*' if more else r'[^;&|\n]*'
     return [rf'(?<![\w-])({WRITERS}{more})(?![\w.-]){span}({name})', PY_WRITE + rf'.*({name})',
             rf'(?<![\w-])(cp|install)\b[^;&|\n]*({name})(?![^;&|\n]*\s(?!\S*({name}))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
-            rf'>\|?\s*\S*({name})', rf'({name})[^;&\n]*\|\s*xargs\b']
+            rf'>\|?\s*\S*({name})', rf'({name})[^;&\n]*\|\s*xargs\b' + XARGS_READS]
 
 
 AGENT_YAML = r'\bagent\.ya?ml\b'
@@ -166,6 +171,14 @@ GIT_RUNS = [r'(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\'"]?(user\.(name|email)|col
 TUI_KEYS = [r'\btmux\b(?:(?!\btmux\b)[^&|\n])*?' + r'''(-L\s*['"]?boat\b|-S\s*['"]?\S*/tmux-\d+/boat\b)'''
             r'(?:(?!\btmux\b)[^&|\n])*?(?<![\w-])(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)'
             r'(?![\w-])']
+# Killing the boat's control: a kill whose own arguments (with their $(...) and backticks) name it, or a kill of a
+# $variable in a call that names it anywhere (pid=$(pgrep mavros); kill $pid). A kill of a literal PID is not, whatever
+# else the call says (kill 4242; echo stopped the mavros sim).
+_CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
+            r'|boat_(trial|test)\w*)\b')
+_KILL_ARGS = r'(?<![\w-])kill\b(?:[^;&|\n$`]|\$\([^)]*\)|`[^`]*`)*?(?:\$\([^)]*?|`[^`]*?)?'
+_KILL_VAR = r'(?<![\w-])kill\b[^;&|\n]*\$(?!\()'
+KILL_CONTROL = f'{_KILL_ARGS}{_CONTROL}|{_KILL_VAR}.*{_CONTROL}|{_CONTROL}.*{_KILL_VAR}'
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -200,9 +213,8 @@ DEFAULTS = {
              r'\s+(--?[\w-]+\s+)*[^\s-]*\$',
              r'\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
              r'|lifecycle\s+set|run)\b',
-             r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
-             r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
+             r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b', KILL_CONTROL]
+            + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
                  [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
@@ -217,10 +229,8 @@ BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat ho
 # it owns). The deny pattern that matched picks its entry (``use_entry``); patterns no entry owns fall back to the
 # regex, searched in the matched text's last line, so a heredoc can't borrow a later line's reason.
 _DENY = DEFAULTS['deny']
-_KILL_CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
-                 r'|boat_(trial|test)\w*)\b')
-USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's control (the mux, a watchdog, the "
-        'driver, MAVROS or a trial)', 'stop', (r'\bkill\b.*' + _KILL_CONTROL,)),
+USE = ((r'\b(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the mux, a watchdog, the "
+        'driver, MAVROS or a trial)', 'stop', (KILL_CONTROL,)),
        (None, 'pkill, killall and xargs kill (they can hit processes that are not yours)', 'PID',
         (r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b')),
        (None, 'starting a stack component on a boat (its device launch or unit)', 'start COMPONENT --claim ID',
@@ -396,6 +406,10 @@ def claimed_ids(command):
                          or (wrapped and re.fullmatch(r'-\S*|\d+', words[0]))):
             wrapped = wrapped or words[0] in ('env', 'nice', 'sudo', 'exec')
             words = words[1:]
+        if words[:1] == ['export'] or (words == [] and argv):        # export BOAT_AGENT=X, or BOAT_AGENT=X alone
+            found.extend(w.split('=', 1)[1] for w in argv if w.startswith('BOAT_AGENT=')
+                         and re.fullmatch(r'[\w.@:-]+', w.split('=', 1)[1]))
+            return
         if words[:1] == ['ssh']:
             rest = [w for w in words[1:] if not w.startswith('-')][1:]
             for pipeline in (parse(' '.join(rest)) if rest else []):
@@ -542,7 +556,7 @@ HEREDOC_OP = re.compile(r'(?<!<)<<(?!<)(-?)[ \t]*')
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
 READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc', 'cut', 'nl',
              'tr', 'column', 'ls', 'stat', 'diff', 'jq', 'basename', 'dirname', 'realpath', 'readlink', 'pwd', 'du',
-             'comm', 'true', 'cd', 'pushd', 'popd'}       # a cd alone changes nothing: the rest must still only read
+             'comm', 'true', 'cd', 'pushd', 'popd', 'mkdir'}    # cd or mkdir changes nothing: the rest must only read
 FIND_RUNS = ('-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls')
 PYTEST_WRITES = ('--junit', '--basetemp', '--result-log', '--report-log', '--debug', '--html', '--json', '--cov',
                  '--log-file', '-o', '--override-ini', '--lf', '--last-failed', '--ff', '--failed-first', '--sw',
@@ -638,16 +652,18 @@ def reads_only(argv):
     return name in READ_ONLY
 
 
-def text_only(command):
+def text_only(command, cwd=None):
     """Tier A, side-effect free: no $(...), backticks or <(...)/>(...) anywhere (here-strings and
-    heredocs included), no file written (only /dev/null and 2>&1), and every command ``reads_only``."""
+    heredocs included), no file written but data files (``data_target``: notes, reports, logs; /dev/null and 2>&1),
+    and every command ``reads_only``: nothing in the call can run what it writes."""
     if re.search(r'\$\(|`|[<>]\(', command):
         return False
     try:
         pipelines = parse(command)
     except ValueError:                  # an open quote: unreadable, so Tier B
         return False
-    return bool(pipelines) and all(reads_only(cmd['argv']) and not cmd['writes'] and not cmd['subs']
+    return bool(pipelines) and all(reads_only(cmd['argv']) and not cmd['subs']
+                                   and all(data_target(t, where(command, cwd)) for t in cmd['writes'])
                                    for pipeline in pipelines for cmd in pipeline)
 
 
@@ -685,11 +701,11 @@ def code_of(command, cwd=None):
     continued past the line, a ``$(...)``, backtick or ``<(...)`` on the line or (unquoted delimiter) in
     the body, a word the hook cannot read (``$X``), or a function or alias in the call."""
     text = command.replace('\\\n', '')
-    if STDIN_SINKS.search(text):
-        return command
     try:
         lines, found = heredocs(command)
     except ValueError:                  # a heredoc the hook cannot read as bash would: all of it is code
+        return command
+    if STDIN_SINKS.search('\n'.join(lines)):     # a function or alias defined in the call (bodies are text)
         return command
     out = []
     for n, line in enumerate(lines):
@@ -704,30 +720,66 @@ def code_of(command, cwd=None):
         risky = bool(re.search(r'\$\(|`|[<>]\(', line) or re.search(r'\|\s*$', line))
         for k, (dash, word, quoted, body, _, end) in enumerate(mine):
             pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
-            data = pipe is not None and not risky and not (
-                not quoted and re.search(r'\$\(|`', body)) and not any(
+            data = pipe is not None and not risky and ((not (not quoted and re.search(r'\$\(|`', body)) and not any(
                 (c['writes'] and not data_file(c, text, cwd)) or any('$' in w for w in c['argv'])
                 or not READS_STDIN.fullmatch(os.path.basename(next(
                     (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
-                for c in pipe)
+                for c in pipe)) or (py_script(pipe, where(text, cwd), text)
+                                    and (quoted or not re.search(r'[$`\\]', body)) and py_inert(body, where(text, cwd))))
             out += ([] if data else body.split('\n')) + [end]
     return '\n'.join(out)
 
 
+WRAPPERS = {'nohup', 'setsid', 'nice', 'env', 'timeout', 'stdbuf', 'time', 'exec'}
+
+
+def program(argv):
+    """The program a command runs: its first word after ``VAR=x`` prefixes, wrappers (nohup, env, nice ...) and their
+    flags."""
+    words = list(argv)
+    while words and (re.fullmatch(r'\w+=\S*', words[0]) or words[0] in WRAPPERS
+                     or (len(words) < len(argv) and re.fullmatch(r'-\S*|\d+\w*', words[0]))):
+        words = words[1:]
+    return os.path.basename(words[0]) if words else ''
+
+
 def data_file(cmd, command, cwd=None):
-    """``cat > T <<EOF`` only stores its body, an allowlist that fails closed: the whole
-    call is that one command (nothing else can name, copy, glob, chmod or run T), T is a plain literal name with a data
-    extension (``DATA_EXT``), not a protected file (``FILES``), and it resolves (realpath, after ``~`` and ``cwd``)
-    under ``data_roots`` and outside any ``/.git/``. Anything else keeps its body, searched as shell."""
-    if cmd['argv'] not in (['cat'], ['cat', '-']) or len(cmd['writes']) != 1 or cmd['subs'] or re.search(
-            r'\$\(|`|[<>]\(', command):
-        return False
+    """``cat > T <<EOF`` only stores its body, an allowlist that fails closed: T is a data file (``data_target``) that
+    nothing else in the call touches (``alone``; a reader such as codex-task may take it on stdin). Anything else keeps
+    its body, searched as shell."""
+    return alone(cmd, command) and data_target(cmd['writes'][0], cwd)
+
+
+def alone(cmd, command, readers=True):
+    """``cmd`` is ``cat > T`` and nothing else in the call can name, copy, glob, chmod or run T: no other command,
+    heredoc or redirection names it (with ``readers``, a reader in READS_STDIN taking it on stdin aside), and no word
+    holds a ``$``, a glob or a substitution."""
     try:
-        pipelines = parse(command)
+        pipelines, lines = parse(command), heredocs(command)[0]
     except ValueError:
         return False
+    if cmd['argv'] not in (['cat'], ['cat', '-']) or len(cmd['writes']) != 1 or cmd['subs'] or re.search(
+            r'\$\(|`|[<>]\(', '\n'.join(lines)):          # a substitution on a command line (bodies: code_of)
+        return False
     target = cmd['writes'][0]
-    if len(pipelines) != 1 or len(pipelines[0]) != 1 or not re.fullmatch(r'~?[\w./+-]+', target):
+    name = os.path.basename(target)
+    others = [c for p in pipelines for c in p if c['writes'] != cmd['writes'] or c['argv'] != cmd['argv']]
+    for c in [c for p in pipelines for c in p]:
+        if any(re.search(r'[$*?\[]', w) for w in c['argv'] + c['writes'] + c['reads']):
+            return False
+    for c in others:
+        if any(name in w for w in c['argv'] + c['writes'] + c['stdin']) or (
+                any(name in w for w in c['reads']) and not (readers and READS_STDIN.fullmatch(program(c['argv'])))):
+            return False
+    return True
+
+
+def data_target(target, cwd=None):
+    """A file a call may write as data: a plain literal name with a data extension (``DATA_EXT``), not a protected file
+    (``FILES``), resolving (realpath, after ``~`` and ``cwd``) under ``data_roots`` and outside any ``/.git/``."""
+    if target == '/dev/null':
+        return True
+    if not re.fullmatch(r'~?[\w./+-]+', target):
         return False
     if target.startswith('~'):
         if not target.startswith('~/'):
@@ -736,11 +788,141 @@ def data_file(cmd, command, cwd=None):
     if not os.path.isabs(target) and not cwd:
         return False
     real = os.path.realpath(os.path.join(cwd or '/', target))
-    if '/.git/' in real + '/' or '/.git/' in target or FILES.search(real) or FILES.search(target):
+    if '/.git/' in real + '/' or '/.git/' in target or any(
+            FILES.search(p) or re.search(r'\bhold_store\b|command_mux|/mhseals(/|$)', p) for p in (real, target)):
         return False
     if os.path.splitext(real)[1].lower() not in DATA_EXT:
         return False
     return any(real.startswith(root) for root in data_roots())
+
+
+# A python script (``python3 - <<EOF``, or ``cat > x.py <<EOF``: what it does when run) is data when nothing in it can
+# act on the boat or a protected file (``py_inert``): it parses, imports only PY_SAFE modules, calls nothing that runs a
+# program, signals a process, changes directory or reaches past the names it shows (PY_OPAQUE), and every file it
+# writes, moves or deletes is a literal path (constants, Path(...) / ..., os.path.join, f-strings of constants) that is
+# a data file (``data_target``). Anything else keeps its body, searched as shell.
+PY_SAFE = {'json', 're', 'os', 'sys', 'pathlib', 'collections', 'itertools', 'math', 'statistics', 'csv',
+           'glob', 'fnmatch', 'datetime', 'time', 'textwrap', 'hashlib', 'yaml', 'typing', 'dataclasses', 'shutil',
+           'difflib', 'pprint', 'string', 'bisect', 'heapq', 'decimal', 'fractions', 'enum', 'copy',
+           'tomllib', 'configparser', 'argparse', 'ast', 'unicodedata', 'statistics', '__future__'}
+PY_OPAQUE = {'exec', 'eval', 'compile', '__import__', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars',
+             'breakpoint', 'system', 'popen', 'kill', 'killpg', 'fork', 'forkpty', 'chdir', 'fchdir', 'startfile',
+             'putenv', 'pidfd_send_signal', 'modules', 'unsafe_load', 'full_load', 'Loader', 'UnsafeLoader', 'FullLoader',
+             'unpack_archive', 'make_archive'}
+PY_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', 'lchmod', 'chown', 'lchown', 'symlink_to',
+             'hardlink_to', 'link_to', 'rename', 'renames', 'replace', 'truncate', 'rmtree', 'remove', 'removedirs',
+             'copy', 'copy2', 'copyfile', 'copytree', 'copymode', 'copystat', 'move', 'utime', 'symlink', 'link',
+             'mkfifo', 'mknod'}
+# A Path's (or a handle's) own writes: the receiver and, for a link or move, its argument.
+PY_PATH_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', 'lchmod', 'symlink_to', 'hardlink_to',
+                  'link_to', 'rename', 'copy_into', 'move_into'}
+PY_MODULES = {'os', 'shutil', 'io', 'codecs', 'path', 'os.path'}
+
+
+def py_script(pipe, cwd=None, command=''):
+    """The heredoc of this pipeline is a python program: ``python3 -`` (or no script; flags -u -B -I -E -s -S only, stdout
+    only into data files), or ``cat > NAME.py`` (a literal name, not a protected file) that nothing else in the call
+    names (``alone``: a shell cannot run it as shell)."""
+    if len(pipe) != 1:
+        return False
+    cmd = pipe[0]
+    words = [w for w in cmd['argv'] if not re.fullmatch(r'\w+=\S*', w)]
+    if words and re.fullmatch(r'python3?(\.\d+)?', os.path.basename(words[0])):
+        return (all(w in ('-', '-u', '-B', '-I', '-E', '-s', '-S') for w in words[1:]) and not cmd['reads']
+                and all(data_target(t, cwd) for t in cmd['writes']))
+    return (words in (['cat'], ['cat', '-']) and len(cmd['writes']) == 1 and cmd['writes'][0].endswith('.py')
+            and bool(re.fullmatch(r'~?[\w./+-]+', cmd['writes'][0])) and not FILES.search(cmd['writes'][0])
+            and '.git/' not in cmd['writes'][0] and alone(cmd, command, readers=False))
+
+
+def py_inert(code, cwd=None):
+    """True when the python ``code`` can only read and write data files (see PY_SAFE above); any doubt is False."""
+    import ast
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return False
+    stores, called = {}, {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    for node in ast.walk(tree):
+        if id(node) not in called and (isinstance(node, ast.Name) and node.id == 'open' or isinstance(
+                node, ast.Attribute) and (node.attr in PY_WRITES | {'open'} or ast.unparse(node) == 'sys.path')):
+            return False
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '']
+            if node.__class__ is ast.ImportFrom and node.level or any(n.split('.')[0] not in PY_SAFE for n in names):
+                return False
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            stores[node.id] = stores.get(node.id, 0) + 1
+        elif isinstance(node, ast.Attribute) and (node.attr in PY_OPAQUE or node.attr.startswith(('__', 'exec', 'spawn',
+                                                                                                    'posix_spawn'))):
+            return False
+        elif isinstance(node, ast.Name) and (node.id in PY_OPAQUE or node.id.startswith('__') and node.id != '__name__'):
+            return False
+    env = {}
+    for node in tree.body:              # names bound once, at the top, to a value the hook can read
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                and stores.get(node.targets[0].id) == 1):
+            value = py_path(node.value, env)
+            if value is not None:
+                env[node.targets[0].id] = value
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func, targets = node.func, None
+        mod = isinstance(func, ast.Attribute) and ast.unparse(func.value) in PY_MODULES
+        if isinstance(func, (ast.Name, ast.Attribute)) and (func.id if isinstance(func, ast.Name) else func.attr) == 'open':
+            method = isinstance(func, ast.Attribute) and not mod            # Path.open(mode)
+            args = node.args[0:] if method else node.args[1:]
+            mode = next((k.value for k in node.keywords if k.arg in ('mode', 'flags')), args[0] if args else None)
+            if isinstance(func, ast.Attribute) and ast.unparse(func.value) == 'os':
+                mode = None if mode is None else ast.Name('flags')       # os.open(path, flags): always a write
+            if mode is None or (isinstance(mode, ast.Constant) and isinstance(mode.value, str)
+                                and not set(mode.value) & set('wax+')):
+                continue
+            targets = [func.value] if method else node.args[:1]
+        elif isinstance(func, ast.Attribute) and mod and func.attr in PY_WRITES:      # os.remove, shutil.copy ...
+            targets = node.args[1:2] if func.attr.startswith('copy') else node.args
+        elif isinstance(func, ast.Attribute) and (func.attr in PY_PATH_WRITES or (      # a Path's own writes
+                func.attr in ('replace', 'copy', 'move') and len(node.args) == 1)):   # not str.replace(a, b), dict.copy()
+            targets = [func.value] + (node.args if func.attr in PY_PATH_WRITES - {'write_text', 'write_bytes'}
+                                      or func.attr in ('replace', 'copy', 'move') else [])
+        if targets is not None:
+            for target in targets or [None]:
+                path = py_path(target, env) if target is not None else None
+                if path is None or not data_target(path, cwd):
+                    return False
+    return True
+
+
+def py_path(node, env):
+    """The literal path a python expression names, or None: str constants, f-strings of them, names bound once to one,
+    ``+``, ``Path(...)``/``PurePath``, ``/``, ``os.path.join``, ``str()`` and ``.expanduser()``/``.resolve()``."""
+    import ast
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return env.get(node.id)
+    if isinstance(node, ast.JoinedStr):
+        parts = [py_path(v.value if isinstance(v, ast.FormattedValue) else v, env) for v in node.values]
+        return None if None in parts else ''.join(parts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Div)):
+        left, right = py_path(node.left, env), py_path(node.right, env)
+        if left is None or right is None:
+            return None
+        return left + right if isinstance(node.op, ast.Add) else os.path.join(left, right)
+    if isinstance(node, ast.Call) and not node.keywords:
+        name = ast.unparse(node.func)
+        args = [py_path(a, env) for a in node.args]
+        if None in args:
+            return None
+        if name in ('Path', 'PurePath', 'pathlib.Path', 'os.path.join', 'str') and args:
+            return os.path.join(*args)
+        if isinstance(node.func, ast.Attribute) and node.func.attr in ('expanduser', 'resolve', 'absolute') and not args:
+            inner = py_path(node.func.value, env)
+            return None if inner is None else os.path.expanduser(inner)
+        if name in ('Path.home', 'pathlib.Path.home') and not args:
+            return str(Path.home())
+    return None
 
 
 SCRATCH = '/tmp'
@@ -748,10 +930,10 @@ DATA_EXT = {'.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.log', '.tex', '.p
 
 
 def data_roots():
-    """Where a heredoc may write data: astro_dock's .handoff (notes and briefs), /tmp (scratch) and each linked git
-    worktree in ~/.cache/wt (its .git is a file), each as its realpath with a trailing /."""
+    """Where a call may write data: astro_dock's .handoff (notes and briefs), /tmp and ~/.cache (scratch, its linked git
+    worktrees included; protected names stay out by ``FILES``), each as its realpath with a trailing /."""
     home = Path.home()
-    roots = [home / 'astro_dock' / '.handoff', Path(SCRATCH)]
+    roots = [home / 'astro_dock' / '.handoff', Path(SCRATCH), home / '.cache']
     try:
         roots += [d for d in (home / '.cache' / 'wt').iterdir() if (d / '.git').is_file()]
     except OSError:
@@ -761,13 +943,13 @@ def data_roots():
 
 def build(tokens, bodies):
     pipelines, pipe = [], []
-    cmd = {'argv': [], 'stdin': [], 'writes': [], 'subs': []}
+    cmd = {'argv': [], 'stdin': [], 'writes': [], 'subs': [], 'reads': []}
 
     def end(piped):
         nonlocal cmd, pipe
         if any(cmd.values()):
             pipe.append(cmd)
-        cmd = {'argv': [], 'stdin': [], 'writes': [], 'subs': []}
+        cmd = {'argv': [], 'stdin': [], 'writes': [], 'subs': [], 'reads': []}
         if not piped and pipe:
             pipelines.append(pipe)
             pipe = []
@@ -803,6 +985,8 @@ def build(tokens, bodies):
             target = tokens[i] if i < len(tokens) else ''
             if token == '<<<':
                 cmd['stdin'].append(target)
+            elif token == '<':
+                cmd['reads'].append(target)
             elif token not in ('<', '<&') and target != '/dev/null' and not (
                     token == '>&' and re.fullmatch(r'\d|-', target)):
                 cmd['writes'].append(target)                             # a file written (not 2>&1)
@@ -876,19 +1060,36 @@ def own_text(command, who=None):
     return command if EXPANDS.search(command) else AGENT_TEXT.sub(r'\1TEXT', command)
 
 
+# ``-c core.editor=true`` or ``GIT_EDITOR=true`` (sequence.editor, GIT_SEQUENCE_EDITOR; ``true`` or ``:``), its value one
+# whole shell word: the non-interactive continue of a cherry-pick, rebase or merge. Any other value (true;x, "true $(x)")
+# stays a program of the caller's choosing (GIT_RUNS).
+BENIGN_GIT = re.compile(r'''(?<![\w$-])(?:-c[ \t]*(['"]?)(?:core|sequence)\.editor=(['"]?)(?:true|:)\2\1'''
+                        r'''|GIT_(?:SEQUENCE_)?EDITOR=(['"]?)(?:true|:)\3)(?=[ \t])''')
+# A command runs on a boat computer when this is one, or when the call reaches one: a boat named in a call with a
+# remote shell or transfer (ssh and kin, a remote docker or podman). A boat name in a path, a profile or a container's
+# arguments (docker exec crane_autodemo ... blastoise) does not move the command off this machine.
+REMOTE = re.compile(r'(?<![\w.-])(ssh|mosh|autossh|sshpass|dbclient|plink|pdsh|pssh|parallel-ssh|clush|ansible[\w-]*'
+                    r'|salt[\w-]*|telnet|nc|ncat|socat|curl|wget|scp|sftp|rsync|rsh|rexec|rlogin|paramiko|fabric'
+                    r'|asyncssh|pexpect|pxssh|netmiko|telnetlib|socket)(?![\w.-])|ssh://'
+                    r'|\b(DOCKER_HOST|DOCKER_CONTEXT|CONTAINER_HOST|CONTAINER_CONNECTION)='
+                    r'|\b(docker|podman)\b[^;&|\n]*\s(-H|--host|--context|-c|--url|--connection|--remote)\b')
+
+
 def denied(command, config, cwd=None, who=None):
     """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
     denied, and a heredoc body that is only data (``code_of``) is not searched;
     anything else is denied when ``hook.deny`` is found anywhere in its text, or
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
-    if text_only(command):
+    command = BENIGN_GIT.sub('', command)
+    if text_only(command, cwd):
         return None
     text, names = links(plain(failed_cd(own_text(code_of(command, cwd), who))), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
     found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(alternatives), text) if alternatives else None
-    host = found.group(1) if found else (hostname().split('.')[0] if hostname().split('.')[0] in names else None)
+    here = hostname().split('.')[0]
+    host = found.group(1) if found and REMOTE.search(text) else here if here in names else None
     live_only = set(SIM_ARM[1:] + HOLDS + STOP + LAUNCHES + HOOKS)   # file rules: a dev copy (a worktree) is development
     for pattern in config['deny'] + (config['deny_boat'] if host else []):
         for match in re.finditer(pattern, text, re.S):

@@ -149,7 +149,7 @@ MAIN = [
     "sed '\\%x%e ros2 topic pub /cmd_vel x y' f", "printf '1e ros2 topic pub /cmd_vel x y' > s.sed; sed -n -f s.sed f",
     "echo 'ros2 topic pub /cmd_vel x y &' >> ~/.bashrc",
     "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
-    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
+    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF\nbash src/x/test_hook.py",
     "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv"]
 # New surfaces, and the boat by name, ssh alias or STATIC_LEASES address (config/boat-network.env).
 NEW = [
@@ -182,7 +182,9 @@ TEXT = [            # Tier A: robot words only inside what grep, echo, git commi
                                      'echo x >> ~/.bashrc'])
 def test_tier_a_runs_nothing_and_writes_nothing(command):
     assert not hook.text_only(command)
-ALLOW = TEXT + [
+# A python file whose code only holds strings: running it does nothing (py_inert), so its body is data, not Tier A.
+PY_DATA = ["cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF"]
+ALLOW = TEXT + PY_DATA + [
     'git status', 'kill 12345', 'kill -TERM 4242', 'kill %1', 'docker stop roboboat_dev', 'tmux kill-session -t x',
     "python3 - <<'EOF'\nimport os, signal\nos.kill(pid, signal.SIGTERM)\nEOF",
     'ros2 topic pub /chatter std_msgs/msg/String "{data: hi}"', 'ros2 topic echo /cmd_vel --once',
@@ -205,7 +207,7 @@ def test_regression_text_and_local_work_are_allowed(sent, agent, command):
 @pytest.mark.parametrize('command', BLOCK + ALLOW)
 def test_only_text_commands_escape_the_whole_text_search(command):
     """Fail closed: what the whole-text search finds stays denied unless every command only reads text."""
-    if hook.matches(hook.DEFAULTS['deny'], command):
+    if hook.matches(hook.DEFAULTS['deny'], command) and command not in PY_DATA:
         assert (hook.denied(command, hook.DEFAULTS) is None) == hook.text_only(command)
     assert hook.text_only(command) == (command in TEXT or command == 'git status')
 
@@ -931,15 +933,18 @@ WRITE_BYPASS = [
     "git -c core.fsmonitor='" + WK + "' status", "git add -A && git commit -m x; " + WK,
     "GIT_EXTERNAL_DIFF='" + WK + "' git diff"]
 # The same files written as data (the allowlist's dirs and extensions), then reused or reached: still searched.
-DATA_THEN_USED = ['cat > /tmp/x.md {b}\ncat /tmp/x.md', 'cat > /tmp/x.md <<EOF && chmod +x /tmp/x.md{t}',
-                  'cat > /tmp/x.md {b}\nwc -l /tmp/x.md', 'cat > /tmp/x.md <<EOF; true{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x.m?',
+# A call of readers only (Tier A) runs nothing, so a data file it writes and reads back is still data.
+DATA_THEN_READ = ['cat > /tmp/x.md {b}\ncat /tmp/x.md', 'cat > /tmp/x.md {b}\nwc -l /tmp/x.md', 'cat > /tmp/x.md <<EOF; true{t}',
+                  'cat /tmp/x.md > /tmp/y.md {b}']
+DATA_THEN_USED = ['cat > /tmp/x.md <<EOF && chmod +x /tmp/x.md{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x.m?',
                   'cat > /tmp/x.md <<EOF && cp /tmp/x.md ~/.bashrc{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x*',
                   'cat > /tmp/x.md {b}\nsh "/tmp/x".md', 'cat > /tmp/x.md {b}\n. /tmp/x.md',
                   'cat > notes.md {b}',                                   # cwd is the live checkout
                   'cat > ~/.cache/wt/live/notes.md {b}',                  # a symlink to the live checkout
                   'cat > ~/.cache/wt/w/.git/x.md {b}', 'cat > /tmp/x.md/../../home/.bashrc {b}',
                   'cat > /tmp/$X.md {b}', 'cat > /tmp/x*.md {b}', 'cat > /tmp/x.sh {b}',
-                  'cat > /tmp/x {b}', 'cat > ~/astro_dock/.handoff/tools/x {b}', 'cat /tmp/x.md > /tmp/y.md {b}', 'tee /tmp/x.md {b}']
+                  'cat > /tmp/x {b}', 'cat > ~/astro_dock/.handoff/tools/x {b}', 'tee /tmp/x.md {b}',
+                  'cat > /tmp/x.md {b}\ncat /tmp/x.md | sh', 'cat > /tmp/x.md {b}\nbash < /tmp/x.md']
 
 
 @pytest.fixture
@@ -976,6 +981,9 @@ def test_a_heredoc_is_data_only_for_a_lone_write_of_a_data_file_in_notes_scratch
     for command in DATA_THEN_USED:
         command = command.format(b=body, t=body[5:]).replace('/tmp/', tmp)
         assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)), command
+    for command in DATA_THEN_READ:
+        command = command.format(b=body, t=body[5:]).replace('/tmp/', tmp)
+        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)) is None, command
     (data_home / 'scratch').symlink_to(hook.SCRATCH)
     assert hook.denied(f'cat > ~/scratch/x.md {body}', hook.DEFAULTS, cwd='/') is None      # resolves into /tmp
     assert hook.denied(f'cat > .handoff/state/x.md {body}', hook.DEFAULTS)                  # no cwd: unreadable
@@ -1080,3 +1088,104 @@ def test_private_sockets_stay_free_even_on_a_boat_host(command, monkeypatch):
                                      'tmux -L boat attach -t boat'])
 def test_watching_the_boats_tui_stays_allowed(command):
     assert hook.denied(f'ssh blastoise-odroid "{command}"', hook.DEFAULTS) is None
+
+
+# --- false positives of 10-31/11-01 (set 2): what runs, what is written and where --------------------------------------
+
+def _fp_allow(dock):
+    holds = '~/.cache/crane-autodemo/data/sessions'
+    return [
+        # a list of launch or hook files fed to a reader
+        'find src -name agent_hook.py | xargs wc -l', 'git ls-files | grep launch/ | xargs -n 1 grep -l mux',
+        # a report written by a python script whose text names launch files, holds and agent.yaml
+        f"mkdir -p {dock}/.handoff/research && python3 - <<'PY'\nfrom pathlib import Path\n"
+        f"p = Path('{dock}/.handoff/research/geom.md')\n"
+        "p.write_text('reads launch/robot.launch.py; command_mux_holds.json; agent.yaml; patch unchanged')\nPY",
+        f"python3 - <<'PY'\nfrom pathlib import Path\nwith Path('{dock}/.handoff/state/merge-queue.md').open('a') as f:\n"
+        "    f.write('range-diff: patch unchanged\\n')\nPY",
+        f"python3 - <<'PY'\nfrom pathlib import Path\nt = Path('{dock}/.handoff/research/x.md')\n"
+        "t.write_text('kill mavros on blastoise'.replace('kill', 'stop'))\nPY",
+        # a report heredoc after a mkdir, a brief then the codex-task that reads it
+        "mkdir -p .handoff/research; cat > .handoff/research/f.md <<'EOF'\n`command_mux_holds.json` records `stale`\nEOF",
+        "mkdir -p .handoff/state/briefs; cat > .handoff/state/briefs/b.txt <<'EOF'\nDo not use `git -c ...`. " + WK
+        + "\nEOF\nCODEX_AFTER=x nohup .handoff/tools/codex-task b < .handoff/state/briefs/b.txt > /dev/null 2>&1 &",
+        # a scratch script whose strings name launch files and agent.yaml (running it reads only)
+        "mkdir -p ~/.cache/params-work; cat > ~/.cache/params-work/x.py <<'PY'\nimport json\n"
+        "X = [dict(file='src/' + 'launch/odom.launch.py', line=18), 'config/agent.yaml']\nprint(json.dumps(X))\nPY",
+        # archived holds read (and summarised into a report)
+        f"python3 - <<'PY'\nimport json\nfrom pathlib import Path\nfor d in Path('{holds}').expanduser().iterdir():\n"
+        "    print(json.loads((d / 'command_mux_holds.json').read_text()))\nPY",
+        f"python3 - <<'PY'\nimport json\nfrom pathlib import Path\nout = Path('{dock}/.handoff/research/g')\n"
+        "out.mkdir(parents=True, exist_ok=True)\nrows = []\n"
+        f"for d in sorted(Path('{holds}').expanduser().iterdir()):\n"
+        "    rows.append(json.loads((d / 'command_mux_holds.json').read_text()))\n"
+        "(out / 'holds.json').write_text(json.dumps(rows))\nPY",
+        # text naming the FCU link and a stop word appended to a local log; a kill of a literal PID
+        "printf '%s\\n' 'blastoise: mavros link down, kill it then restart' >> .handoff/state/notes.md",
+        "echo 'ssh blastoise-odroid: mavros needs a kill and restart' >> ~/.cache/s.log",
+        'kill 4242; echo stopped the local mavros sim', 'kill -INT 4242 && grep mavros ~/.cache/x.log',
+        # the local sim container is this machine
+        "docker exec crane_autodemo bash -lc 'MHSEALS_PROFILE=blastoise ros2 topic echo --once /odom/local'",
+        'docker exec crane_autodemo kill -INT 812  # blastoise profile sim',
+        # git's editor set to true or :
+        'git -c core.editor=true cherry-pick --continue', 'GIT_EDITOR=true git rebase --continue',
+        "GIT_SEQUENCE_EDITOR=: git -c 'core.editor=true' rebase -i HEAD~2"]
+
+
+def _fp_deny(dock):
+    agent_yaml, launch = f'{dock}/config/agent.yaml', f'{dock}/launch/robot.launch.py'
+    return [
+        'kill $(pgrep -f command_mux)', "kill $(ps aux | grep mavros | awk '{print $2}')", 'pid=$(pgrep mavros); kill $pid',
+        'kill -9 `pgrep thruster_pwm_node`', 'kill -9 $(cat /run/mavros.pid)',
+        'find . -name robot.launch.py | xargs rm', 'find . -name robot.launch.py | xargs grep -l x | xargs rm',
+        "echo '{}' > ~/.cache/crane-autodemo/data/s/command_mux_holds.json", "echo '{}' > ~/.cache/x/hold_store.json",
+        f'printf x >> {agent_yaml}',
+        "python3 - <<'PY'\nfrom pathlib import Path\nPath('~/.cache/a/command_mux_holds.json').expanduser().write_text('{}')\nPY",
+        "python3 - <<'PY'\nfrom pathlib import Path\np = Path('/x/s') / 'command_mux_holds.json'\np.write_text('{}')\nPY",
+        "python3 - <<'PY'\nfrom pathlib import Path\nfor d in Path('/x').iterdir():\n    (d / 'command_mux_holds.json').unlink()\nPY",
+        f"python3 - <<'PY'\nimport shutil\nshutil.copy('/tmp/a', '{launch}')\nPY",
+        f"python3 - <<'PY'\nf = '{launch}'\ndef w(p):\n    open(p, 'w').write('')\nw(f)\nPY",
+        f"python3 - <<'PY'\nf = open\nf('{agent_yaml}', 'w').write('x')\nPY",
+        f"python3 - <<'PY'\nimport operator\nfrom pathlib import Path\n"
+        f"operator.methodcaller('write_text', 'x')(Path('{agent_yaml}'))\nPY",
+        "python3 - <<'PY'\nimport os\nos.system('" + WR + "')\nPY",
+        "python3 - <<'PY'\nimport rclpy\nn = rclpy.create_node('x'); n.create_publisher(T, '/cmd_vel', 1)\nPY",
+        "python3 - <<PY\nfrom pathlib import Path\nPath('/tmp/a.md').write_text('$(" + WR + ")')\nPY",
+        "cat > ~/.cache/r.py <<'PY'\n'ros2' 'topic' 'pub' '/cmd_vel' 'x'\nPY\nbash ~/.cache/r.py",
+        "printf '" + WR + "\\n' > ~/.cache/x.md; bash ~/.cache/x.md",
+        "python3 - <<'PY'\nimport paramiko\nc = paramiko.SSHClient(); c.connect('blastoise-odroid')\n"
+        "c.exec_command('sudo reboot')\nPY",
+        'DOCKER_HOST=ssh://blastoise-odroid docker restart mavros', 'ssh blastoise-odroid kill 1234',
+        "git -c core.editor='true; rm -rf x' commit", 'git -c "core.editor=true;rm x" commit',
+        'git -c core.editor="true $(id)" commit', 'GIT_EDITOR=true\\;x git commit', "GIT_EDITOR='sh -c x' git commit"]
+
+
+def test_false_positives_set_2_are_allowed(data_home, monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    dock = data_home / 'astro_dock'
+    for command in _fp_allow(dock):
+        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)) is None, command
+
+
+def test_real_control_and_live_writes_stay_denied_next_to_set_2(data_home, monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    dock = data_home / 'astro_dock'
+    (dock / 'config').mkdir()
+    (dock / 'config' / 'agent.yaml').write_text('hook: {}\n')
+    (dock / 'launch').mkdir()
+    (dock / 'launch' / 'robot.launch.py').write_text('')
+    for command in _fp_deny(dock):
+        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)), command
+
+
+def test_a_boat_named_without_a_remote_shell_is_this_machine(monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    assert hook.denied('docker exec crane_autodemo kill 812  # blastoise', hook.DEFAULTS) is None
+    found = hook.denied('docker exec crane_autodemo ' + WK + '  # blastoise', hook.DEFAULTS)
+    assert found[1] is None and ' on blastoise' not in hook.deny_reason(*found, config=hook.DEFAULTS)
+    assert hook.denied('ssh blastoise-odroid kill 812', hook.DEFAULTS)[1] == 'blastoise-odroid'
+
+
+def test_a_block_names_the_id_the_agent_exported(sent):
+    sent('pre', f'export BOAT_AGENT=claude-fcu; {hook.BOAT_AGENT} status')
+    assert '--who claude-fcu' in sent('pre', WK)['deny']

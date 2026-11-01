@@ -52,9 +52,11 @@ hook:
   max_per_10s: 6
   # Two tiers. A call whose every command only reads, searches or prints text (grep, rg, echo, printf, cat,
   # head, tail, less, wc, sed -n with p and s/// only, git commit/log/diff/show/status, pytest), with no $(...),
-  # backticks, <(...) and no file written, is never denied: a grep pattern or a commit message is data (write
-  # files with the agent's Write/Edit tools, not the shell). Anything else is denied when a deny pattern is
-  # found anywhere in its whole text (quotes dropped, across lines), or deny_boat when the text names a boat:
+  # backticks, <(...) and no file written but data files (.md, .txt, .json, .log ... under .handoff, /tmp, ~/.cache),
+  # is never denied: a grep pattern or a commit message is data. Heredocs that only store data and python scripts
+  # that only read and write data files (agent_hook.py_inert) are data too. Anything else is denied when a deny
+  # pattern is found anywhere in its whole text (quotes dropped, across lines), or deny_boat when it runs on a boat
+  # (this host is one, or the call has a remote shell such as ssh and names a boat by any of these):
   # hosts (ssh host names, one per computer) and their vessel names (blastoise, squirtle: the former aliases),
   # the STATIC_LEASES hostnames and addresses of the vessel's network env (ASTRO_NETWORK_ENV), or an
   # ~/.ssh/config alias for them. Names match with or without the leading slash. Advisory: run-time strings and scripts from earlier
@@ -90,7 +92,7 @@ hook:
          '\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\b',
          '\b(pkill|killall)\b',
          '\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
-         '\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b',
+         '(?<![\w-])kill\b(?:[^;&|\n$`]|\$\([^)]*\)|`[^`]*`)*?(?:\$\([^)]*?|`[^`]*?)?\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b|(?<![\w-])kill\b[^;&|\n]*\$(?!\().*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b|\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b.*(?<![\w-])kill\b[^;&|\n]*\$(?!\()',
          # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to a live agent.yaml (writers,
          # a copy into it, a redirection, xargs; a worktree copy is fine, symlinks resolved; a copy *from* it is a read);
          # INTO: rsync, tar -x, git checkout/restore/apply, patch, cp -r/-a or find -delete/-exec rm into a dir that is or
@@ -100,7 +102,7 @@ hook:
          '\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*(\bagent\.ya?ml\b)',
          '(?<![\w-])(cp|install)\b[^;&|\n]*(\bagent\.ya?ml\b)(?![^;&|\n]*\s(?!\S*(\bagent\.ya?ml\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*(\bagent\.ya?ml\b)',
-         '(\bagent\.ya?ml\b)[^;&\n]*\|\s*xargs\b',
+         '(\bagent\.ya?ml\b)[^;&\n]*\|\s*xargs\b(?!(\s+(-[nPLsI]\s*\S+|-\S+))*\s+(wc|grep|egrep|fgrep|rg|cat|head|tail|ls|stat|file|md5sum|sha\d*sum|du|nl|less)(?=[\s;&|)]|$))',
          '(?<![\w-])(rsync|tar|patch|git\s+(-C\s+\S+\s+)?(checkout|restore|apply)|cp(?=[^;&|\n]*\s(-[A-Za-z]*[raR][A-Za-z]*|--recursive|--archive)(?=\s))|find(?=[^;&|\n]*\s(-delete|-fprint\w*|-fls|-(exec|execdir|ok|okdir)\s+(\S*/)?(rm|rmdir|mv|sed|perl|cp|tee|truncate|chmod|shred|unlink|ln|dd|install|rsync|sh|bash)\b)))\b[^;&|\n]*',
          # agent_hook.ARMING: the thruster driver, mux or controller started by any route (run --sim-arm arms a sim);
          # reading or editing its source is development
@@ -127,12 +129,12 @@ hook:
          '\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
          '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)',
-         '((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)[^;&\n]*\|\s*xargs\b',
+         '((?:(?<=/)|(?<![^\s;&|<>()=]))launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b)[^;&\n]*\|\s*xargs\b(?!(\s+(-[nPLsI]\s*\S+|-\S+))*\s+(wc|grep|egrep|fgrep|rg|cat|head|tail|ls|stat|file|md5sum|sha\d*sum|du|nl|less)(?=[\s;&|)]|$))',
          '(?<![\w-])(rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm))(?![\w.-])[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
          '\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax])).*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
          '(?<![\w-])(cp|install)\b[^;&|\n]*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))(?![^;&|\n]*\s(?!\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-])))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
          '>\|?\s*\S*((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))',
-         '((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))[^;&\n]*\|\s*xargs\b',
+         '((?:(?<=/)|(?<![^\s;&|<>()=]))(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)(?![\w.-]))[^;&\n]*\|\s*xargs\b(?!(\s+(-[nPLsI]\s*\S+|-\S+))*\s+(wc|grep|egrep|fgrep|rg|cat|head|tail|ls|stat|file|md5sum|sha\d*sum|du|nl|less)(?=[\s;&|)]|$))',
          # agent_hook.EDITS: the Edit/Write/NotebookEdit and apply_patch tools, one line per file:
          # EDIT create|change|delete live|dev <path>. dev: in a linked git worktree and not ignored (develop there);
          # live: the main checkouts, install/, data and runtime dirs. Live agent.yaml, holds, an existing stop, launch
