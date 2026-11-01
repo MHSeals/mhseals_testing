@@ -348,6 +348,7 @@ def test_a_viewer_reads_the_owners_record_and_goes_stale_without_it():
 
 FAKE_TMUX = """#!/bin/sh
 printf '%s %s %s|TMUX=%s\\n' "$1" "$2" "$3" "${TMUX:-}" >> "$LOG"
+echo "$*" >> "$LOG.args"
 case " $* " in
     *" has-session "*) exit 1 ;;
     *" display-message "*) echo 0 ;;
@@ -375,4 +376,5 @@ def test_boat_tui_only_talks_to_its_own_socket_with_tmux_cleared(tmp_path):
     calls = log.read_text().splitlines()
     assert calls and all(c.startswith('-L boat-test ') and c.endswith('|TMUX=') for c in calls), calls
     assert not any('kill-server' in c for c in calls)
+    assert '-L boat-test set-option -g allow-passthrough on' in (tmp_path / 'tmux.log.args').read_text().splitlines()
     assert up.stdout.strip() == 'tmux -L boat-test attach -t boat'

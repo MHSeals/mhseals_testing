@@ -542,7 +542,7 @@ def test_under_tmux_only_what_tmux_reports_for_every_client_picks_an_image(setti
 
 def test_tmux_without_a_view_and_screen_stay_text():
     assert pixels.choose('auto', TMUX_CAPS, {}) == 'text'           # tmux over ssh: XTVERSION only
-    assert pixels.choose('kitty', TMUX_CAPS, {}) == 'text'
+    assert pixels.choose('kitty', TMUX_CAPS, TMUX_ENV) == 'text'    # its own tmux didn't answer
     assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='screen'), {}, view=view(FOOT)) == 'text'
     assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='foot'), dict(TMUX_ENV, NO_COLOR='1'),
                          view=view(FOOT)) == 'text'
@@ -657,6 +657,31 @@ def test_forced_sixel_through_a_tmux_it_cannot_ask_trusts_tmux_and_repaints(monk
     assert pixels.watch() is False and pixels._drawn
     now[0] += pixels.TMUX_REPAINT_S
     assert pixels.watch() is True and not pixels._drawn
+
+
+def test_forced_kitty_through_a_tmux_it_cannot_ask_wraps_and_repaints(monkeypatch):
+    """The boat: tmux on the host, boat_test in docker exec ($TMUX gone, XTVERSION says tmux)."""
+    assert pixels.choose('kitty', TMUX_CAPS, {}) == 'kitty'
+    assert pixels.choose('kitty', TMUX_CAPS, {}, 'standard') == 'text'
+    assert pixels.choose('kitty', TMUX_CAPS, {'NO_COLOR': '1'}) == 'text'
+    assert pixels.choose('auto', dict(TMUX_CAPS, kitty=True), {}) == 'text'       # nothing vouches for kitty
+    monkeypatch.setattr(pixels, 'tmux_view', lambda env: pytest.fail('asked tmux'))
+    monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(TMUX_CAPS), b''))
+    monkeypatch.setattr(os, 'isatty', lambda fd: True)
+    now = [100.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    assert pixels.start(SimpleNamespace(fd=5, buffer=bytearray()), None, lambda t: None, 'kitty', env={}) == 'kitty'
+    assert pixels.PASSTHROUGH
+    pixels.surface('s', paint_box((200, 0, 0)), 8, 4, key=1)
+    sent = []
+    pixels.before(sent.append)
+    assert ''.join(sent).startswith('\x1bPtmux;\x1b\x1b_G')
+    sent.clear()
+    assert pixels.watch() is False
+    now[0] += pixels.TMUX_REPAINT_S
+    assert pixels.watch() is True
+    pixels.before(sent.append)
+    assert ''.join(sent).startswith('\x1bPtmux;')       # the tiles go out again after tmux's redraws
 
 
 def test_outside_tmux_watch_asks_nothing(monkeypatch):

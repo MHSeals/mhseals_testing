@@ -226,9 +226,12 @@ def choose(setting, caps, env=None, colours='truecolor', view=None):
             or env.get('STY') or name.startswith('screen')):
         return 'text'
     if _tmux(env, caps):
-        if setting == 'sixel' and view is None and not env.get('TMUX'):
-            # A tmux the TUI can't ask (docker exec or ssh from a tmux pane): forced sixel trusts
-            # tmux's own DA1 (built with sixel) and cell size; the viewers are the user's word.
+        if setting in ('sixel', 'kitty') and view is None and not env.get('TMUX'):
+            # A tmux the TUI can't ask (docker exec or ssh from a tmux pane): a forced tier is the
+            # user's word for the viewers. Sixel trusts tmux's own DA1 (built with sixel) and cell
+            # size; kitty trusts allow-passthrough (tools/boat_tui sets it on its own server).
+            if setting == 'kitty':
+                return 'kitty' if colours in ('256', 'truecolor', 'eight_bit') else 'text'
             return 'sixel' if caps.get('sixel') and caps.get('cell') else 'text'
         return _tmux_tier(setting, caps, view, colours)
     if setting == 'kitty' or (setting == 'auto' and caps.get('kitty')

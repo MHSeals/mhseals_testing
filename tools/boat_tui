@@ -52,10 +52,14 @@ attach_line() {
     fi
 }
 
+# Kitty's images reach the operator's terminal through tmux's passthrough: on for this server only.
+passthrough() { t set-option -g allow-passthrough on >/dev/null 2>&1 || true; }     # tmux before 3.3 has no such option
+
 # start NAME CMD: a detached session that keeps a failed pane, so a startup error stays readable.
 start() {
     t new-session -d -s "$1" -x 200 -y 50
     t set-option -t "$1" remain-on-exit on >/dev/null
+    passthrough
     t respawn-pane -k -t "$1" "$2"
     sleep "${BOAT_TUI_START_S:-3}"
     if [ "$(t display-message -p -t "$1" '#{pane_dead}')" = 1 ]; then
@@ -72,6 +76,7 @@ case $verb in
     up)
         [ "${1:-}" = -- ] && shift
         if alive "$session"; then
+            passthrough
             echo "boat_tui: $session already runs on $host; attach:" >&2
         else
             t kill-session -t "=$session" 2>/dev/null || true      # a pane left dead by an earlier exit
