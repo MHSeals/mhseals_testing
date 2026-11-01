@@ -1,0 +1,112 @@
+#!/bin/sh
+# boat_tui [--session S] [--container C] [--jump J] up|view|status ...: boat_test in tmux, for the operator and agents.
+#   up [-- ARGS]   start the stack and TUI in tmux session S (default boat), or reuse it; prints the one attach line
+#   view [NAME]    a viewer (boat_test --view) in session S-NAME (first free v1..v9); attaches on a tty
+#   status         tmux sessions and who controls (harness/control.py)
+# Run it on the TUI host (the boat host, or the sim host): from the dev machine,
+#   ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_tui up
+# C is the container boat_test runs in (roboboat_dev; roboboat_test in sim; '' runs it here). J adds -J J to the
+# printed ssh line (the owner's ssh config already routes blastoise-* through tranquility). Quit with q in the TUI:
+# killing tmux skips the session's close (neutral, disarm, bag flush). Arming stays the operator's.
+# Every tmux call goes to its own server (socket BOAT_TUI_SOCKET, default boat: tmux -L boat), never the caller's
+# ($TMUX is cleared), so nothing here can reach another tmux server on the host.
+set -eu
+session=boat container=${BOAT_TUI_CONTAINER-roboboat_dev} jump=${BOAT_TUI_JUMP-} socket=${BOAT_TUI_SOCKET:-boat}
+while [ $# -gt 0 ]; do
+    case $1 in
+        --session) session=$2; shift 2 ;;
+        --container) container=$2; shift 2 ;;
+        --jump) jump=$2; shift 2 ;;
+        *) break ;;
+    esac
+done
+verb=${1:-}; [ $# -gt 0 ] && shift
+command -v tmux >/dev/null || { echo "boat_tui: tmux is not installed on $(uname -n)" >&2; exit 1; }
+outer=${TMUX:-}     # attaching from inside a tmux client would nest
+unset TMUX TMUX_PANE
+t() { command tmux -L "$socket" "$@"; }
+
+q() { printf "'%s'" "$(printf %s "$1" | sed "s/'/'\\\\''/g")"; }
+host=$(uname -n); host=${host%%.*}
+ssh_client=${SSH_CLIENT:-}; from=${ssh_client%% *}; from=${from:-$host}; from=${BOAT_AGENT:+$BOAT_AGENT@}$from
+
+# The command line that runs boat_test with ARGS in the container (or here), as client $1.
+run() {
+    client=$1; shift
+    args=''; for arg in "$@"; do args="$args $(q "$arg")"; done
+    if [ -n "$container" ]; then
+        inner=". /opt/ros/jazzy/setup.bash && . install/setup.bash && exec ros2 run mhseals_testing boat_test$args"
+        printf 'docker exec -it -e BOAT_TUI_CLIENT=%s -e BOAT_TUI_FROM=%s %s bash -c %s' \
+            "$(q "$client")" "$(q "$from")" "$(q "$container")" "$(q "$inner")"
+    else
+        printf 'BOAT_TUI_CLIENT=%s BOAT_TUI_FROM=%s exec boat_test%s' "$(q "$client")" "$(q "$from")" "$args"
+    fi
+}
+
+attach_line() {
+    if [ -n "${SSH_CONNECTION:-}" ] || [ -n "$jump" ]; then
+        echo "ssh -t ${jump:+-J $jump }$host tmux -L $socket attach -t $1"
+    else
+        echo "tmux -L $socket attach -t $1"
+    fi
+}
+
+# start NAME CMD: a detached session that keeps a failed pane, so a startup error stays readable.
+start() {
+    t new-session -d -s "$1" -x 200 -y 50
+    t set-option -t "$1" remain-on-exit on >/dev/null
+    t respawn-pane -k -t "$1" "$2"
+    sleep "${BOAT_TUI_START_S:-3}"
+    if [ "$(t display-message -p -t "$1" '#{pane_dead}')" = 1 ]; then
+        echo "boat_tui: boat_test in $1 exited at start:" >&2
+        t capture-pane -p -t "$1" | grep -v '^$' | tail -n 15 >&2
+        t kill-session -t "$1"
+        exit 1
+    fi
+}
+
+alive() { t has-session -t "=$1" 2>/dev/null && [ "$(t display-message -p -t "=$1" '#{pane_dead}')" != 1 ]; }
+
+case $verb in
+    up)
+        [ "${1:-}" = -- ] && shift
+        if alive "$session"; then
+            echo "boat_tui: $session already runs on $host; attach:" >&2
+        else
+            t kill-session -t "=$session" 2>/dev/null || true      # a pane left dead by an earlier exit
+            start "$session" "$(run "$session" "$@")"
+            saved=''; for arg in "$@"; do saved="$saved $(q "$arg")"; done
+            t set-environment -t "$session" BOAT_TUI_ARGS "$saved"     # the viewers' boat_test args, quoted
+            echo "boat_tui: boat_test runs in tmux session $session on $host; attach:" >&2
+        fi
+        attach_line "$session"
+        ;;
+    view)
+        alive "$session" || { echo "boat_tui: no $session session on $host (boat_tui up starts one)" >&2; exit 4; }
+        name=${1:-}
+        if [ -z "$name" ]; then
+            for n in 1 2 3 4 5 6 7 8 9; do alive "$session-v$n" || { name=v$n; break; }; done
+        fi
+        view="$session-$name"
+        if ! alive "$view"; then
+            t kill-session -t "=$view" 2>/dev/null || true
+            saved=$(t show-environment -t "$session" BOAT_TUI_ARGS 2>/dev/null | sed -n 's/^BOAT_TUI_ARGS=//p')
+            eval "set -- $saved"                                       # our own quoting, from up
+            start "$view" "$(run "$view" "$@" --view)"
+        fi
+        if [ -t 0 ] && [ -t 1 ] && [ -z "$outer" ]; then exec tmux -L "$socket" attach -t "$view"; fi
+        echo "boat_tui: viewer $view on $host; attach:" >&2
+        attach_line "$view"
+        ;;
+    status)
+        t list-sessions -F '#{session_name}  #{?pane_dead,exited,running}  #{session_attached} attached' 2>/dev/null \
+            | grep -E "^$session(-|  )" || echo "no $session sessions on $host"
+        if [ -n "$container" ]; then
+            docker exec -i "$container" bash -c \
+                '. /opt/ros/jazzy/setup.bash && . install/setup.bash && exec python3 -m mhseals_testing.harness.control'
+        else
+            python3 -m mhseals_testing.harness.control
+        fi
+        ;;
+    *) sed -n '2,10s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
+esac

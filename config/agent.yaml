@@ -144,7 +144,9 @@ hook:
          '(?m)^EDIT \w+ live [^\n]*/(agent_hook\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$',
          '(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\''"]?(user\.(name|email)|color\.\S+|advice\.\S+|commit\.gpgsign)=)\S|--config-env\b|--exec-path\b)',
          '(?<![\w-])GIT_(?!(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)=|TERMINAL_PROMPT=|PAGER=([\''"]?(cat|less)?[\''"]?)(\s|$))\w+=',
-         '(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)']
+         '(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)',
+         # agent_hook.TUI_KEYS: keys typed into a boat_test TUI's tmux session (boat, boat-v1, ...)
+         '\btmux\b[^;&|\n]*\b(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)\b[^;&|\n]*-t\s*[''"]?=?boat\b']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   # deny_boat starts with agent_hook.BOAT_START and BOAT_STOP_PART: any mhseals_nav/hardware launch or mhseals-<part>
   # unit started or stopped by hand on a boat; boat_agent start/stop COMPONENT --claim ID does it through the TUI.

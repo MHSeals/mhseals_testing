@@ -159,6 +159,10 @@ GIT_RUNS = [r'(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\'"]?(user\.(name|email)|col
             r'(?<![\w-])GIT_(?!(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)=|TERMINAL_PROMPT=|PAGER=([\'"]?(cat|less)?[\'"]?)(\s|$))\w+=',
             r'(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.'
             r'|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)']
+# Typing into a boat_test TUI (tools/boat_tui runs it in tmux sessions boat, boat-v1, ...): keys sent to its pane
+# would answer the operator's popups, arm or release a hold. Watching it (capture-pane, list, status) stays allowed.
+TUI_KEYS = [r'\btmux\b[^;&|\n]*\b(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)\b'
+            r'''[^;&|\n]*-t\s*['"]?=?boat\b''']
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -195,7 +199,8 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
              r'\bkill\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller'
-             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
+             r'|mavros\w*|boat_(trial|test)\w*)\b'] + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS
+            + TUI_KEYS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
                  [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
@@ -243,6 +248,8 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _KILL_CONTROL, "killing the boat's contr
         'and have the operator land it)', None, tuple(HOOKS)),
        (None, 'git with a config, environment, hook, alias or filter that runs a program (plain git add, commit, diff, '
         'log, show and status are fine)', None, tuple(GIT_RUNS)),
+       (None, "typing into the operator's boat_test TUI (its tmux session): popups, arming and holds are the "
+        "operator's; ask with ask \"...\", watch with status or tmux capture-pane", None, tuple(TUI_KEYS)),
        (None, 'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID', tuple(ARMING)),
        (None, "changing Nav2's servers (a lifecycle or parameter change breaks a running claimed goal)", None,
         tuple(p for p in _DENY if NAV2 in p)),
@@ -429,8 +436,8 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, run, start, fcu, ask, note, release, stop); nothing else there. You may end your own tmux sessions '
-        f'there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
+        '(claim, run, start, fcu, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
+        f'tmux sessions there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
         "another agent's session or `-L boat`.",
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
@@ -447,6 +454,8 @@ def start_text(who, agent='claude', config=None):
         '`fcu restart --claim ID` (disarmed) go through the TUI\'s MAVROS link: snapshot, read-back and '
         'fcu_changes.md name you. SCHED_LOOP_RATE 400 only after `fcu rates` at 200 shows the FCU load low.',
         '     Start sims and heavy runs through the host guard: `.handoff/tools/heavy sim ...` (Unity headless).',
+        '     No TUI (exit 4): `boat_tui up` (beside boat_agent) starts the stack and TUI in tmux and prints the line '
+        'the operator attaches with; `boat_tui status` says who controls. Never type into its tmux session.',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
         '  `stop` any time: the operator and the agent it interrupts see your id. `ask "..."` instead of guessing. '
         '`note "..."` writes a line in the TUI log.',
