@@ -565,7 +565,8 @@ def test_odometry_yaml_selectors_reach_both_actual_children(profile_name, contex
               'navsat_transform_config_file': '/deployment/navsat.yaml',
               'ekf_local_config_file': '/deployment/local.yaml',
               'ekf_global_config_file': '/deployment/global.yaml',
-              'ekf_overlay_file': '/operator/ekf.yaml'}
+              'ekf_overlay_file': '/operator/ekf.yaml',
+              'mavros_velocity_min_fix_type': '5', 'mavros_velocity_max_acc': '0.5'}
     found = {item.key: item for item in components(profile, {'odometry': chosen})}
     for key in ('odometry', 'ekf'):
         arguments = found[key].arguments
