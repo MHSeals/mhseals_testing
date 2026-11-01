@@ -602,6 +602,11 @@ def _paint_sized(now):
         _sizes[_painted[2]] = _painted[3] = size         # the bytes sent right after a repaint are its own
 
 
+def paint_size(name):
+    """Bytes the surface's last repaint sent (measured under a budget), or None before one has."""
+    return _sizes.get(name)
+
+
 def paint_waits(name, now):
     """Whether a repaint must wait under a budget: the last second sent something and that plus one more repaint of this
     surface (its last size, else the last repaint's) would pass PAINT_SHARE of the budget, so no 1 s window goes over.

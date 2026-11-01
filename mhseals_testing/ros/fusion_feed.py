@@ -15,6 +15,7 @@ import math
 import threading
 import time
 from collections import deque
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +24,7 @@ from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_panel.yaml'
 KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
-        'feed': {'points_hz', 'points_max', 'points_link', 'scan_dt_max_s', 'camera_hz', 'camera_width',
+        'feed': {'points_hz', 'points_max', 'points_link', 'points_link_framed', 'scan_dt_max_s', 'camera_hz', 'camera_width',
                  'max_range_m', 'residual_s', 'stale_s'},
         'ramp_m': None, 'rings_m': None, 'draw_hz': None,
         'check': {'near_m', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
@@ -173,6 +174,7 @@ class FusionFeed:
         self.frame = None                     # (grey HxW, received, stamp, view at the frame's stamp or None)
         self.pending = None                   # (grey, received, stamp): a frame waiting for its boxes
         self._points_at = self._frame_at = None
+        self._info_rank = 0         # of the camera_info topic K and size came from (want() resets it)
         self.version = 0
 
     @property
@@ -183,11 +185,12 @@ class FusionFeed:
         """Subscribe while ``on`` (the tab shown); ``camera`` adds the frame (image tier, no link budget)."""
         if on and not self._handles:
             topics = self.cfg['topics']
+            self._info_rank = len(topics['camera_info'])
             for kind, topic, callback in (('observations', topics['observations'], self._on_raw),
                                           ('observations', topics['fused'], self._on_fused),
                                           ('sources', topics['sources'], self._on_sources),
-                                          *(('camera_info', topic, self._on_camera_info)
-                                            for topic in topics['camera_info']),
+                                          *(('camera_info', topic, partial(self._on_camera_info, rank=rank))
+                                            for rank, topic in enumerate(topics['camera_info'])),
                                           ('tf_static', TF_STATIC, self.on_tf_static)):
                 self._handles[topic] = self._subscribe(kind, topic, callback)
             if self.tap:
@@ -251,9 +254,14 @@ class FusionFeed:
         except Exception:
             pass
 
-    def _on_camera_info(self, message):
+    def _on_camera_info(self, message, rank=0):
+        """The config's order is the priority: the first-listed topic wins once it has published, a later one counts
+        only until a better one has (the sim's relay beside the ZED's own info would otherwise alternate)."""
         try:
             with self._lock:
+                if rank > self._info_rank:
+                    return
+                self._info_rank = rank
                 self.K, self.size = [float(v) for v in message.k], (int(message.width), int(message.height))
         except Exception:
             pass

@@ -34,7 +34,8 @@ RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to
 RAMP16 = dict(zip(RAMP, ('bright_magenta', 'bright_cyan', 'cyan', 'blue', 'white', 'bright_black')))
 STALE = 'warn'         # the whole scan in one ink no band uses while it cannot be read against the boxes
 GREYS = 6              # grey levels of the frame behind the points
-LINK_BLOCK = 4         # px: over a link budget the frame is drawn in blocks this size (runs that sixel/kitty pack)
+LINK_BLOCKS = (64, 32, 16, 8, 4)   # px: over a link budget the frame is drawn in blocks this size (runs that sixel/kitty pack),
+#                                coarsest first: it starts coarse and refines while the budget has room
 CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
 READOUT_ROWS = 8       # Alignment's six lines and its border
@@ -160,7 +161,8 @@ LINK_SHARE = 0.9      # of the link budget the drawings aim at
 RATE_S = 5.0          # s between rate updates over a link budget: a few repaints of ~10 kB each, so one is not noise
 START = 0.25          # of the top rate a drawing starts at, then steps up by at most STEP each update
 STEP = 1.5
-_HZ = {}              # drawing name -> (repaints per second, set at, image bytes sent by then)
+OVER_S = 0.5          # s between rate updates while the link is over its budget (a burst is answered at once, not each tick)
+_HZ = {}              # drawing name -> (repaints per second, set at, image bytes sent by then, index in LINK_BLOCKS)
 
 
 def draw_rate(cfg, name, budgeted=1.0):
@@ -174,20 +176,33 @@ def draw_rate(cfg, name, budgeted=1.0):
     top, now, total = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted, pixels.clock(), pixels.STATS['upload'] + pixels.STATS['sixel']
     held = _HZ.get(name)
     over = pixels.rate(now) > pixels.BUDGET
-    if held is not None and now - held[1] < RATE_S and total >= held[2] and not over:
+    if held is not None and total >= held[2] and now - held[1] < (OVER_S if over else RATE_S):
         return held[0]
-    hz = top * START
+    hz, level = top * START, 0
     if held is not None and total >= held[2]:
-        hz = held[0] * LINK_SHARE * pixels.BUDGET * (now - held[1]) / max(total - held[2], 1.0)
-        hz = min(hz, held[0] * STEP)
+        raw = held[0] * LINK_SHARE * pixels.BUDGET * (now - held[1]) / max(total - held[2], 1.0)
+        hz, level = min(raw, held[0] * STEP, held[0] if over else top), held[3]
+        # the frame's blocks follow the size of a repaint, which no 1 s window may go over: a repaint over its share
+        # coarsens them, one that fits four times refines them (every tile of a finer frame is new: a step sends several repaints' worth)
+        size = pixels.paint_size(name)
+        if size is not None and size > pixels.PAINT_SHARE * pixels.BUDGET:
+            level = max(0, level - 1)
+        elif size is not None and 4 * size <= pixels.PAINT_SHARE * pixels.BUDGET and not over:
+            level = min(len(LINK_BLOCKS) - 1, level + 1)
     hz = min(top, max(top / 16, hz))
-    _HZ[name] = (hz, now, total)
+    _HZ[name] = (hz, now, total, level)
     return hz
 
 
-def link_stride(n, cfg):
-    """Every k-th point so at most ``points_link`` are drawn per paint over a link budget (all of them locally)."""
-    return max(1, -(-n // cfg['feed']['points_link'])) if pixels.BUDGET else 1
+def link_block(name='fusion.camera'):
+    """px of a block of the frame: 1 locally; over a link budget the drawing's level in LINK_BLOCKS."""
+    return LINK_BLOCKS[_HZ[name][3] if name in _HZ else 0] if pixels.BUDGET else 1
+
+
+def link_stride(n, cfg, framed=False):
+    """Every k-th point so at most ``points_link`` (``points_link_framed`` over the camera image) are drawn per paint
+    over a link budget (all of them locally)."""
+    return max(1, -(-n // cfg['feed']['points_link_framed' if framed else 'points_link'])) if pixels.BUDGET else 1
 
 
 def scan_stale(model, cfg):
@@ -219,9 +234,11 @@ def camera_layers(dets):
 
 def frame_shown(model):
     """Whether the Camera tile draws the frame: the image on, an image tier for the tile, a frame with camera_info's
-    aspect (the points and boxes are normalised by that size, so another crop would not line up)."""
+    aspect (the points and boxes are normalised by that size, so another crop would not line up). Over a link budget
+    it joins after the tile's first repaint, so the link does not take both at once."""
     return (model.get('frame') is not None and model.get('frame_aspect') is not False
-            and pixels.active() and pixels.images('fusion.camera'))
+            and pixels.active() and pixels.images('fusion.camera')
+            and (not pixels.BUDGET or _STARTED.get('fusion.camera') == pixels.GENERATION))
 
 
 def camera_model(model):
@@ -230,19 +247,37 @@ def camera_model(model):
     return {**model, **view} if view else model
 
 
-def paint_frame(r, frame):
+def block_mean(frame, h, w, fy, fx):
+    """``frame`` as h x w means, the block (i, j) covering rows i*fy.. of the frame's height and columns j*fx.. of its width
+    (fy, fx: the block's share of the raster)."""
+    edges = [np.minimum((np.arange(n) * f * size).astype(int), size - 1)
+             for n, f, size in ((h, fy, frame.shape[0]), (w, fx, frame.shape[1]))]
+    total = np.add.reduceat(np.add.reduceat(frame.astype(np.float32), edges[0], axis=0), edges[1], axis=1)
+    return total / (np.maximum(np.diff(edges[0], append=frame.shape[0]), 1)[:, None]
+                    * np.maximum(np.diff(edges[1], append=frame.shape[1]), 1)[None, :])
+
+
+def paint_frame(r, frame, share=1.0):
     """The frame in GREYS levels from bg towards muted, stretched to the raster (the camera_info aspect); over a link
-    budget in LINK_BLOCK px blocks."""
+    budget in blocks of link_block() px; ``share`` of its height from the top (the rest is left clear)."""
     bg, mid = np.asarray(pixels.token('bg'), float), np.asarray(pixels.token('muted'), float)
     greys = [r.ink(tuple(int(v) for v in bg + (mid - bg) * (i / (GREYS - 1)) * 0.8)) for i in range(GREYS)]
-    block = LINK_BLOCK if pixels.BUDGET else 1
+    block = link_block()
     h, w = -(-r.h // block), -(-r.w // block)
-    ys = np.minimum(((np.arange(h) + 0.5) * block * frame.shape[0] / r.h).astype(int), frame.shape[0] - 1)
-    xs = np.minimum(((np.arange(w) + 0.5) * block * frame.shape[1] / r.w).astype(int), frame.shape[1] - 1)
-    level = (frame[ys][:, xs].astype(np.uint16) * GREYS // 256).astype(np.uint8)
-    if block > 1:
+    if block > 1:       # each block takes its mean, so sensor noise does not flip a block's level (a repaint resends it)
+        level = (block_mean(frame, h, w, block / r.h, block / r.w).astype(np.uint16) * GREYS // 256).astype(np.uint8)
         level = np.repeat(np.repeat(level, block, axis=0), block, axis=1)[:r.h, :r.w]
-    r.px[:] = np.asarray(greys, np.uint8)[level]
+    else:
+        ys = np.minimum(((np.arange(r.h) + 0.5) * frame.shape[0] / r.h).astype(int), frame.shape[0] - 1)
+        xs = np.minimum(((np.arange(r.w) + 0.5) * frame.shape[1] / r.w).astype(int), frame.shape[1] - 1)
+        level = (frame[ys][:, xs].astype(np.uint16) * GREYS // 256).astype(np.uint8)
+    rows = -(-int(r.h * share) // block) * block if share < 1 else r.h
+    r.px[:rows] = np.asarray(greys, np.uint8)[level][:rows]
+
+
+_STARTED = {}    # drawing name -> pixels.GENERATION it first painted in (an image tile, over a link budget)
+JOIN_STEPS = 4   # over a link budget a frame at a new block size comes in this many repaints, top rows first
+_JOINED = {}     # drawing name -> (block size of its frame, repaints of it so far)
 
 
 def paint_camera(model, cfg):
@@ -250,10 +285,19 @@ def paint_camera(model, cfg):
 
     def paint(r, inks):
         if r.cw > TEXT_CELL[0] and frame_shown(model):
-            paint_frame(r, model['frame'])
+            share = 1.0
+            if pixels.BUDGET:       # all of a frame's tiles are new at once (a repaint of 1-1.5 x the budget)
+                block, steps = _JOINED.get('fusion.camera', (None, 0))
+                steps = steps + 1 if block == link_block() else 1
+                _JOINED['fusion.camera'] = (link_block(), steps)
+                share = min(1.0, steps / JOIN_STEPS)
+            paint_frame(r, model['frame'], share)
+        if pixels.BUDGET and pixels.active() and pixels.images('fusion.camera') and _STARTED.get('fusion.camera') != pixels.GENERATION:
+            _STARTED['fusion.camera'] = pixels.GENERATION
+            return          # the tile's first repaint over a link is empty: its neighbours' first ones are all new tiles too
         scan = model.get('points')
         if scan is not None and len(scan[1]):
-            step = link_stride(len(scan[1]), cfg)
+            step = link_stride(len(scan[1]), cfg, frame_shown(model))
             uv, rng = scan[1][::step], scan[2][::step]
             size = max(1, r.cw // 4)
             if scan_stale(model, cfg):
@@ -294,8 +338,10 @@ def camera_rows(model, cfg, cols, rows):
                 labels.update(label_cells(label, col, row, cols, rows, style))
                 break
     layers = camera_layers(model['dets'])
+    hz = draw_rate(cfg, 'fusion.camera')
+    block = link_block()
     return draw('fusion.camera', paint_camera(model, cfg), layers, cols, rows,
-                (model['version'], frame_shown(model), scan_stale(model, cfg)), labels, draw_rate(cfg, 'fusion.camera'))
+                (model['version'], frame_shown(model), scan_stale(model, cfg), block), labels, hz)
 
 
 # --- Around (top-down) ----------------------------------------------------------------------------

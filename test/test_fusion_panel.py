@@ -109,6 +109,27 @@ def test_tf_static_published_before_the_feed_exists_still_reaches_it():
     f.on_points(cloud([(10.1, 0, -0.1)]))
     assert f.snapshot()['points'][1][0] == pytest.approx((0.5, 0.5), abs=1e-4)
 
+def test_the_first_listed_camera_info_wins_once_it_has_published():
+    f, subs, _ = feed()
+    f.want(True)
+    cb = by_topic(subs)
+    zed, relay = f.cfg['topics']['camera_info']
+    other_k = [350.0, 0, 320.0, 0, 350.0, 180.0, 0, 0, 1]
+    cb[relay](NS(k=other_k, width=640, height=360))               # alone, the lower priority one is used
+    assert f.size == (640, 360)
+    cb[zed](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    assert f.K == K and f.size == SIZE
+    cb[relay](NS(k=other_k, width=640, height=360))               # and no longer once the ZED's has arrived
+    assert f.K == K and f.size == SIZE
+    cb[zed](NS(k=[v * 1.0 for v in K], width=SIZE[0], height=SIZE[1]))
+    assert f.size == SIZE
+    f.want(False)
+    f.want(True)                                                   # a reopened feed starts over
+    cb = by_topic(subs)
+    cb[relay](NS(k=other_k, width=640, height=360))
+    assert f.size == (640, 360)
+
+
 def test_camera_opens_only_when_asked():
     camera = NS(opened=0, closed=0, latest=lambda: None)
     camera.open = lambda: setattr(camera, 'opened', camera.opened + 1)
@@ -945,8 +966,12 @@ def test_frame_is_drawn_in_blocks_over_a_link_budget(monkeypatch):
         m['frame'] = rng.integers(0, 256, (72, 128)).astype(np.uint8)
         m['at_frame'] = dict(m['at_frame'], dets=[])
         monkeypatch.setattr(pixels, 'BUDGET', 25000)
+        monkeypatch.setattr(fusion, '_STARTED', {'fusion.camera': pixels.GENERATION})
+        monkeypatch.setattr(fusion, '_JOINED', {'fusion.camera': (fusion.link_block(), fusion.JOIN_STEPS)})
+        monkeypatch.setattr(fusion, '_HZ', {})
         px = camera_raster(m).px
-        b = fusion.LINK_BLOCK
+        b = fusion.link_block()
+        assert b == fusion.LINK_BLOCKS[0] > 4                       # a link starts at the coarsest blocks
         blocks = px[:px.shape[0] // b * b, :px.shape[1] // b * b].reshape(px.shape[0] // b, b, px.shape[1] // b, b)
         assert (blocks == blocks[:, :1, :, :1]).all()
         monkeypatch.setattr(pixels, 'BUDGET', None)
@@ -955,6 +980,48 @@ def test_frame_is_drawn_in_blocks_over_a_link_budget(monkeypatch):
         assert not (blocks == blocks[:, :1, :, :1]).all()
     finally:
         pixels.use('text')
+
+
+def test_frame_waits_for_the_tiles_first_repaint_and_comes_in_by_rows(monkeypatch):
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        monkeypatch.setattr(pixels, 'BUDGET', 25000)
+        monkeypatch.setattr(fusion, '_STARTED', {})
+        monkeypatch.setattr(fusion, '_JOINED', {})
+        m = framed()
+        m['frame'] = np.full((72, 128), 255, np.uint8)
+        assert not fusion.frame_shown(m)                         # the first repaint over a link: no frame yet
+        assert not camera_raster(m).px.any()                     # and an empty tile
+        assert fusion.frame_shown(m)
+        rows = []
+        for _ in range(fusion.JOIN_STEPS):
+            px = camera_raster(m).px
+            rows.append(int(px.any(axis=1).sum()))
+        assert rows == sorted(rows) and 0 < rows[0] < rows[-1] and rows[-1] == px.shape[0]    # top rows first
+        assert camera_raster(m).px.any(axis=1).all()
+    finally:
+        pixels.use('text')
+
+
+def test_frame_blocks_follow_the_size_of_a_repaint(monkeypatch):
+    cfg = fusion_feed.load_config()
+    now = [100.0]
+    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
+    monkeypatch.setattr(pixels, 'STATS', {'upload': 0, 'sixel': 0, 'tiles': 0})
+    monkeypatch.setattr(pixels, '_sizes', {})
+    assert fusion.link_block() == fusion.LINK_BLOCKS[0]
+    fusion.draw_rate(cfg, 'fusion.camera')
+    for size, level in ((0.1 * pixels.SSH_BUDGET, 1), (0.1 * pixels.SSH_BUDGET, 2),          # fits four times: finer
+                        (0.9 * pixels.SSH_BUDGET, 1), (0.9 * pixels.SSH_BUDGET, 0), (0.9 * pixels.SSH_BUDGET, 0)):  # too big
+        now[0] += fusion.RATE_S
+        pixels.STATS['sixel'] += pixels.SSH_BUDGET
+        pixels._sizes['fusion.camera'] = size
+        fusion.draw_rate(cfg, 'fusion.camera')
+        assert fusion._HZ['fusion.camera'][3] == level
+    monkeypatch.setattr(pixels, 'BUDGET', None)
+    assert fusion.link_block() == 1
 
 
 def test_i_toggles_the_image_and_the_feed_follows(monkeypatch):
