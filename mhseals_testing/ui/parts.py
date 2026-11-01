@@ -69,6 +69,8 @@ def toggle(app, key):
     if status == 'disabled':
         app.notice = f'{item.title}: {detail or status}'
         return
+    if item.carried_by:
+        return toggle_carried(app, key, status)
     # Not read yet may still be a unit we hold: Stop goes out anyway (harmless if absent).
     stopping = status in UP or (status == 'unknown' and stack.running(key))
     verb = 'Stop' if stopping else 'Start'
@@ -95,6 +97,50 @@ def toggle(app, key):
         return
     try:
         stop(app, key) if stopping else start(app, key)
+    except ComponentError as error:
+        app.notice = str(error)
+
+
+def carrier(stack, key):
+    """The key of the component whose launch brings ``key`` (the Odom stack for the safety watchdogs), or None."""
+    title = stack.items[key].carried_by
+    return next((other for other, item in stack.items.items() if item.title == title and other != key), None)
+
+
+def toggle_carried(app, key, status):
+    """Enter on a part another component's launch brings: never a second copy, so starting it starts that
+    carrier (the same confirm as its own row); a carrier up without it says so with the fix."""
+    stack, item = app.stack, app.stack.items[key]
+    host = carrier(stack, key)
+    if host is None or status in UP:
+        app.notice = f'{item.title} run with {item.carried_by}: start or stop that from its row'
+        return
+    lead = stack.items[host]
+    lead_status, _ = stack.state(host, app.ros.nodes())
+    where = lead.remote or 'this computer'
+    info = [('State', f'{status} ({item.title} start with {lead.title})'), ('Computer', where)]
+    if lead_status == 'unknown':
+        app.notice = f'{lead.title} on {where} not read yet; try again shortly'
+        return
+    if lead_status in UP:
+        info += [('Problem', f'{lead.title} is {lead_status} but {item.title} are not up: it was started '
+                             'outside the TUI or without them'),
+                 ('Fix', f'restart {lead.title} from the TUI: Enter on its row stops it, Enter again starts '
+                         f'it with {item.title} (one started outside the TUI stops where it was started)')]
+        try:
+            app.choose(f'{item.title}: not running', ['Close'], {'c': 0}, rows=info)
+        except Cancelled:
+            pass
+        return
+    try:
+        choice = app.choose(f'{item.title} start with {lead.title}: start {lead.title}?', ['Start', 'Cancel'],
+                            {'y': 0, 'n': 1}, rows=info, default=1)
+    except Cancelled:
+        return
+    if choice != 'Start':
+        return
+    try:
+        start(app, host)
     except ComponentError as error:
         app.notice = str(error)
 

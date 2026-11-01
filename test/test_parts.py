@@ -153,3 +153,40 @@ def test_u_releases_only_from_a_release_modal_whatever_the_title():
     keys = iter(['U', 'x'])
     popups.popup(app, dict(kind='message', title='Hold', release=True), lambda key: key)
     assert released == [1]
+
+
+def watched_app(answer='Start'):
+    from test_components import ME, WATCHED_PARTS, Watched
+    from mhseals_testing.harness.components import components
+    from test_components import FakeProcesses as Processes
+    app = App(answer=answer)
+    app.stack = Stack(components(Watched, None, (ME, WATCHED_PARTS)), Processes(), lambda: 0.0)
+    return app
+
+
+def test_enter_on_the_watchdogs_starts_their_odom_stack_after_a_confirm():
+    app = watched_app()
+    parts.toggle(app, 'watchdogs')
+    title, options, rows, danger = app.asked[0]
+    assert title == 'Safety watchdogs start with Odometry: start Odometry?' and options == ['Start', 'Cancel']
+    assert app.default == 'Cancel' and not danger                    # Enter alone never starts it
+    assert [name for name, _ in app.stack.processes.started] == ['odometry']   # the carrier, never a second copy
+    assert app.notice == 'Starting Odometry on this computer'
+
+
+def test_cancel_on_the_watchdogs_starts_nothing():
+    app = watched_app(answer='Cancel')
+    parts.toggle(app, 'watchdogs')
+    assert app.stack.processes.started == []
+
+
+def test_odom_up_without_the_watchdogs_says_so_with_the_fix():
+    app = watched_app(answer='Close')
+    app.stack.start('odometry', set())                               # running, but no watchdog nodes
+    started = list(app.stack.processes.started)
+    parts.toggle(app, 'watchdogs')
+    title, options, rows, _ = app.asked[0]
+    assert title == 'Safety watchdogs: not running' and options == ['Close']
+    assert 'started outside the TUI or without them' in rows['Problem']
+    assert rows['Fix'].startswith('restart Odometry from the TUI')
+    assert app.stack.processes.started == started                    # nothing more started
