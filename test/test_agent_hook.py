@@ -1189,3 +1189,61 @@ def test_a_boat_named_without_a_remote_shell_is_this_machine(monkeypatch):
 def test_a_block_names_the_id_the_agent_exported(sent):
     sent('pre', f'export BOAT_AGENT=claude-fcu; {hook.BOAT_AGENT} status')
     assert '--who claude-fcu' in sent('pre', WK)['deny']
+
+
+# A python script reaching a process, a signal, a module past PY_ATTRS or an unchecked path is not inert: its body goes
+# back to the search (from-imports and aliases, module values, hops, keyword paths, eval paths in safe modules).
+PY_NOT_INERT = [
+    "from os import system as s\ns('true')", "from os import execvp\nexecvp('true', ['true'])",
+    "from os import spawnlp, P_WAIT\nspawnlp(P_WAIT, 'true', 'true')", "from os import posix_spawnp as p\np('true', ['true'], {})",
+    "from os import kill as k\nk(1, 0)", "from os import fork as f\nf()", "from os import *\nexecvp('true', ['true'])",
+    "import os as o\no.remove('/home/x/.bashrc')", "import shutil as s\ns.copy('/tmp/a.md', '/home/x/.bashrc')",
+    "import shutil\nm = shutil\nm.move('/tmp/a.md', '/home/x/.bashrc')", "from shutil import rmtree\nrmtree('/home/x/src')",
+    "import os\nos.path.os.remove('/home/x/.bashrc')", "import shutil\nshutil.move('/tmp/a.md', dst='/home/x/.bashrc')",
+    "import os\nos.replace('/tmp/a.md', dst='/home/x/.bashrc')",
+    "from pathlib import Path\nPath('/tmp/a.md').rename(target='/home/x/.bashrc')",
+    "from pathlib import Path\nPath('/tmp/a.md').replace(target='/home/x/.bashrc')",
+    "import argparse\nargparse.FileType('w')('/home/x/.bashrc')",
+    "import yaml\nyaml.load('!!python/object/apply:os.system [true]', yaml.CLoader)",
+    "import yaml\nlist(yaml.unsafe_load_all('!!python/object/apply:os.system [true]'))",
+    "import typing\ndef f(x: \"__import__('os').system('true')\"): pass\ntyping.get_type_hints(f)",
+    "import os, typing\ntyping.operator.methodcaller('system', 'true')(os)",
+    "import dataclasses\ndataclasses.inspect.importlib.import_module('subprocess').run(['true'])",
+    "import os, string\nstring.Formatter().get_field('0.system', [os], {})[0]('true')",
+    "import os, sys\nos.environ['PYTHONBREAKPOINT'] = 'os.system'\nsys.breakpointhook('true')",
+    "import os\nos.environ['PAGER'] = 'true'\nhelp(len)", "import subprocess\nsubprocess.run(['true'])",
+    "import os\nos.system('true')", "import socket\nsocket.socket()", "import importlib\nimportlib.import_module('os')"]
+PY_INERT = ["import os\nopen(os.path.join('/tmp', 'a.md'), 'w').write('x')", "import os.path\nprint(os.path.exists('/tmp'))",
+            "import collections.abc\nprint(isinstance({}, collections.abc.Mapping))",
+            "from datetime import datetime, timezone\nprint(datetime.now(timezone.utc))",
+            "import shutil\nshutil.copy('/tmp/a.md', '/tmp/b.md')", "import yaml, sys\nprint(yaml.safe_load('a: 1'), file=sys.stderr)",
+            "from pathlib import Path\nPath('/tmp/a.md').rename('/tmp/c.md')", "s = 'a'.replace('a', 'b')"]
+
+
+@pytest.mark.parametrize('code', PY_NOT_INERT)
+def test_a_script_that_can_run_signal_or_write_past_the_allowlist_is_not_inert(code):
+    assert not hook.py_inert(code, '/tmp')
+
+
+@pytest.mark.parametrize('code', PY_INERT)
+def test_plain_reports_stay_inert(code):
+    assert hook.py_inert(code, '/tmp')
+
+
+def test_an_aliased_system_call_is_searched():
+    assert hook.denied(f"python3 - <<'PY'\nfrom os import system as s\ns('{WR}')\nPY", hook.DEFAULTS, cwd='/tmp')
+
+
+@pytest.mark.parametrize('command', [
+    'pgrep mavros > /tmp/p; kill $(cat /tmp/p)', 'pgrep mavros | xargs -I {} kill {}',
+    "python3 - <<'PY'\nimport os, subprocess\npid = int(subprocess.check_output(['pgrep', 'mavros']))\nos.kill(pid, 9)\nPY"])
+def test_a_kill_of_a_pid_found_by_the_controls_name_is_denied(command, monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    assert hook.denied(command, hook.DEFAULTS)
+
+
+@pytest.mark.parametrize('command', ['et blastoise-odroid -c reboot', 'kubectl --context blastoise exec x -- reboot',
+                                     'docker context use blastoise; docker restart x'])
+def test_other_remote_shells_reach_the_boat(command, monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    assert hook.denied(command, hook.DEFAULTS)[1] in ('blastoise', 'blastoise-odroid')

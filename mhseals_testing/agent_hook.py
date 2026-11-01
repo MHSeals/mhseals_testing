@@ -177,7 +177,7 @@ TUI_KEYS = [r'\btmux\b(?:(?!\btmux\b)[^&|\n])*?' + r'''(-L\s*['"]?boat\b|-S\s*['
 _CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
             r'|boat_(trial|test)\w*)\b')
 _KILL_ARGS = r'(?<![\w-])kill\b(?:[^;&|\n$`]|\$\([^)]*\)|`[^`]*`)*?(?:\$\([^)]*?|`[^`]*?)?'
-_KILL_VAR = r'(?<![\w-])kill\b[^;&|\n]*\$(?!\()'
+_KILL_VAR = r'(?<![\w-])kill\b(?:[^;&|\n]*[$`]|\(\s*(?!\d)\w)'      # kill $pid, kill $(cat f), os.kill(pid, 9)
 KILL_CONTROL = f'{_KILL_ARGS}{_CONTROL}|{_KILL_VAR}.*{_CONTROL}|{_CONTROL}.*{_KILL_VAR}'
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
@@ -213,7 +213,7 @@ DEFAULTS = {
              r'\s+(--?[\w-]+\s+)*[^\s-]*\$',
              r'\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
              r'|lifecycle\s+set|run)\b',
-             r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b', KILL_CONTROL]
+             r'\b(pkill|killall)\b', r'\bxargs\s+((-[nPLsIdEa]\s*\S+|-\S+)\s+)*(sudo\s+)?kill\b', KILL_CONTROL]
             + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
@@ -232,7 +232,7 @@ _DENY = DEFAULTS['deny']
 USE = ((r'\b(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the mux, a watchdog, the "
         'driver, MAVROS or a trial)', 'stop', (KILL_CONTROL,)),
        (None, 'pkill, killall and xargs kill (they can hit processes that are not yours)', 'PID',
-        (r'\b(pkill|killall)\b', r'\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b')),
+        (r'\b(pkill|killall)\b', r'\bxargs\s+((-[nPLsIdEa]\s*\S+|-\S+)\s+)*(sudo\s+)?kill\b')),
        (None, 'starting a stack component on a boat (its device launch or unit)', 'start COMPONENT --claim ID',
         tuple(BOAT_START)),
        (None, 'stopping a stack component on a boat (its unit)', 'stop COMPONENT --claim ID', tuple(BOAT_STOP_PART)),
@@ -808,7 +808,7 @@ PY_SAFE = {'json', 're', 'os', 'sys', 'pathlib', 'collections', 'itertools', 'ma
 PY_OPAQUE = {'exec', 'eval', 'compile', '__import__', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars',
              'breakpoint', 'system', 'popen', 'kill', 'killpg', 'fork', 'forkpty', 'chdir', 'fchdir', 'startfile',
              'putenv', 'pidfd_send_signal', 'modules', 'unsafe_load', 'full_load', 'Loader', 'UnsafeLoader', 'FullLoader',
-             'unpack_archive', 'make_archive'}
+             'unpack_archive', 'make_archive', 'help'}
 PY_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', 'lchmod', 'chown', 'lchown', 'symlink_to',
              'hardlink_to', 'link_to', 'rename', 'renames', 'replace', 'truncate', 'rmtree', 'remove', 'removedirs',
              'copy', 'copy2', 'copyfile', 'copytree', 'copymode', 'copystat', 'move', 'utime', 'symlink', 'link',
@@ -816,7 +816,76 @@ PY_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', '
 # A Path's (or a handle's) own writes: the receiver and, for a link or move, its argument.
 PY_PATH_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', 'lchmod', 'symlink_to', 'hardlink_to',
                   'link_to', 'rename', 'copy_into', 'move_into'}
-PY_MODULES = {'os', 'shutil', 'io', 'codecs', 'path', 'os.path'}
+# What a script may take from a module, an allowlist: a module named here gives only these names (its writes and open
+# only as path-checked ``module.name(...)`` calls, never from-imported); any other PY_SAFE module gives its public names
+# that are not modules. A module is only ever an attribute's receiver (no alias, no bare value), and the only hops to
+# another module are PY_SUBMODULES, so no other module, and none of its calls, is reachable.
+PY_ATTRS = {
+    'os': PY_WRITES | {'open', 'path', 'environ', 'getenv', 'getcwd', 'listdir', 'scandir', 'walk', 'stat', 'lstat', 'sep',
+                       'linesep', 'pathsep', 'curdir', 'pardir', 'devnull', 'name', 'getpid', 'cpu_count', 'fspath',
+                       'fsencode', 'fsdecode', 'makedirs', 'mkdir', 'access', 'F_OK', 'R_OK', 'W_OK', 'X_OK', 'PathLike',
+                       'get_terminal_size', 'O_RDONLY', 'O_WRONLY', 'O_RDWR', 'O_CREAT', 'O_APPEND', 'O_TRUNC', 'O_EXCL'},
+    'shutil': PY_WRITES | {'which', 'disk_usage', 'get_terminal_size', 'copyfileobj', 'Error', 'SameFileError'},
+    'sys': {'argv', 'stdin', 'stdout', 'stderr', 'exit', 'version', 'version_info', 'platform', 'executable', 'maxsize',
+            'byteorder', 'getsizeof', 'getrecursionlimit', 'setrecursionlimit', 'getdefaultencoding', 'float_info'},
+    'yaml': {'safe_load', 'safe_load_all', 'safe_dump', 'safe_dump_all', 'dump', 'dump_all', 'SafeLoader', 'CSafeLoader',
+             'SafeDumper', 'CSafeDumper', 'Dumper', 'YAMLError'},
+    'pathlib': {'Path', 'PurePath', 'PosixPath', 'PurePosixPath'},
+    'string': {'ascii_letters', 'ascii_lowercase', 'ascii_uppercase', 'digits', 'hexdigits', 'octdigits', 'punctuation',
+               'printable', 'whitespace', 'Template', 'capwords'},
+    'argparse': {'ArgumentParser', 'Namespace', 'SUPPRESS', 'ArgumentError', 'ArgumentTypeError', 'HelpFormatter',
+                 'RawDescriptionHelpFormatter', 'RawTextHelpFormatter', 'ArgumentDefaultsHelpFormatter',
+                 'BooleanOptionalAction'},
+    'typing': {'Any', 'Optional', 'Union', 'List', 'Dict', 'Tuple', 'Set', 'FrozenSet', 'Iterable', 'Iterator', 'Sequence',
+               'Mapping', 'MutableMapping', 'Callable', 'NamedTuple', 'TypedDict', 'Literal', 'TYPE_CHECKING', 'cast',
+               'TypeVar', 'Generic', 'Protocol', 'ClassVar', 'Final', 'IO', 'TextIO', 'overload', 'Annotated', 'Type',
+               'DefaultDict', 'Counter', 'Deque', 'Generator', 'Self', 'NoReturn', 'Never'}}
+PY_SUBMODULES = {'os.path', 'collections.abc'}
+# A write call's keywords that name no path; any other keyword (dst=, target=, **kw) is a path, checked.
+PY_KW_OK = {'encoding', 'errors', 'newline', 'exist_ok', 'missing_ok', 'parents', 'follow_symlinks', 'dirs_exist_ok',
+            'ignore_errors', 'mode'}
+# Attributes that reach a module from an object that is not one (Path('x').parser.os): never.
+PY_HOPS = {'os', 'posix', 'sys', 'builtins', 'bltns', 'subprocess', 'shutil', 'importlib', 'inspect', 'operator',
+           'functools', 'types', 'signal', 'socket', 'ctypes', 'pty', 'annotationlib', 'io', 'codecs', 'parser'}
+
+
+def py_attr(module, name):
+    """``module.name`` is one a script may use (PY_ATTRS above)."""
+    import inspect
+    if f'{module.__name__}.{name}' in PY_SUBMODULES:
+        return True
+    if module.__name__ in PY_ATTRS:
+        return name in PY_ATTRS[module.__name__]
+    return not name.startswith('_') and hasattr(module, name) and not inspect.ismodule(getattr(module, name))
+
+
+def py_modules(tree):
+    """``{name: module}`` the script's imports bind, or None unless each is plain: a PY_SAFE module or PY_SUBMODULES,
+    no alias of a module, no ``*``, from-imports only of names ``py_attr`` allows, writes and open aside."""
+    import ast
+    import importlib
+    import inspect
+    mods = {}
+    try:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.asname or alias.name not in PY_SAFE | PY_SUBMODULES:
+                        return None
+                    importlib.import_module(alias.name)
+                    mods[alias.name.split('.')[0]] = importlib.import_module(alias.name.split('.')[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.level or node.module not in PY_SAFE | PY_SUBMODULES:
+                    return None
+                module = importlib.import_module(node.module)
+                for alias in node.names:
+                    if alias.name == '*' or alias.name in PY_WRITES | {'open'} or not py_attr(module, alias.name):
+                        return None
+                    if inspect.ismodule(getattr(module, alias.name)):
+                        mods[alias.asname or alias.name] = getattr(module, alias.name)
+    except ImportError:
+        return None
+    return mods
 
 
 def py_script(pipe, cwd=None, command=''):
@@ -842,8 +911,25 @@ def py_inert(code, cwd=None):
         tree = ast.parse(code)
     except (SyntaxError, ValueError):
         return False
+    mods = py_modules(tree)
+    if mods is None:
+        return False
+
+    def module_of(node):            # the module an expression names (os, os.path), else None
+        if isinstance(node, ast.Name):
+            return mods.get(node.id)
+        base = module_of(node.value) if isinstance(node, ast.Attribute) else None
+        value = getattr(base, node.attr, None) if base is not None else None
+        return value if type(value) is type(os) else None
     stores, called = {}, {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    receivers = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
     for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            base = module_of(node.value)
+            if not py_attr(base, node.attr) if base is not None else node.attr in PY_HOPS:
+                return False
+        if module_of(node) is not None and id(node) not in receivers:     # a module as a value: m = os; f(shutil)
+            return False
         if id(node) not in called and (isinstance(node, ast.Name) and node.id == 'open' or isinstance(
                 node, ast.Attribute) and (node.attr in PY_WRITES | {'open'} or ast.unparse(node) == 'sys.path')):
             return False
@@ -869,7 +955,8 @@ def py_inert(code, cwd=None):
         if not isinstance(node, ast.Call):
             continue
         func, targets = node.func, None
-        mod = isinstance(func, ast.Attribute) and ast.unparse(func.value) in PY_MODULES
+        mod = isinstance(func, ast.Attribute) and module_of(func.value) is not None
+        keywords = [k.value for k in node.keywords if k.arg not in PY_KW_OK]           # dst=, target=, **kw
         if isinstance(func, (ast.Name, ast.Attribute)) and (func.id if isinstance(func, ast.Name) else func.attr) == 'open':
             method = isinstance(func, ast.Attribute) and not mod            # Path.open(mode)
             args = node.args[0:] if method else node.args[1:]
@@ -881,11 +968,11 @@ def py_inert(code, cwd=None):
                 continue
             targets = [func.value] if method else node.args[:1]
         elif isinstance(func, ast.Attribute) and mod and func.attr in PY_WRITES:      # os.remove, shutil.copy ...
-            targets = node.args[1:2] if func.attr.startswith('copy') else node.args
+            targets = (node.args[1:2] if func.attr.startswith('copy') else node.args) + keywords
         elif isinstance(func, ast.Attribute) and (func.attr in PY_PATH_WRITES or (      # a Path's own writes
-                func.attr in ('replace', 'copy', 'move') and len(node.args) == 1)):   # not str.replace(a, b), dict.copy()
+                func.attr in ('replace', 'copy', 'move') and len(node.args) + len(node.keywords) == 1)):   # not str.replace(a, b), dict.copy()
             targets = [func.value] + (node.args if func.attr in PY_PATH_WRITES - {'write_text', 'write_bytes'}
-                                      or func.attr in ('replace', 'copy', 'move') else [])
+                                      or func.attr in ('replace', 'copy', 'move') else []) + keywords
         if targets is not None:
             for target in targets or [None]:
                 path = py_path(target, env) if target is not None else None
@@ -1070,7 +1157,8 @@ BENIGN_GIT = re.compile(r'''(?<![\w$-])(?:-c[ \t]*(['"]?)(?:core|sequence)\.edit
 # arguments (docker exec crane_autodemo ... blastoise) does not move the command off this machine.
 REMOTE = re.compile(r'(?<![\w.-])(ssh|mosh|autossh|sshpass|dbclient|plink|pdsh|pssh|parallel-ssh|clush|ansible[\w-]*'
                     r'|salt[\w-]*|telnet|nc|ncat|socat|curl|wget|scp|sftp|rsync|rsh|rexec|rlogin|paramiko|fabric'
-                    r'|asyncssh|pexpect|pxssh|netmiko|telnetlib|socket)(?![\w.-])|ssh://'
+                    r'|asyncssh|pexpect|pxssh|netmiko|telnetlib|socket|sshfs|et|kubectl|tsh)(?![\w.-])|ssh://'
+                    r'|\b(docker\s+context\s+use|podman\s+system\s+connection\s+default)\b'
                     r'|\b(DOCKER_HOST|DOCKER_CONTEXT|CONTAINER_HOST|CONTAINER_CONNECTION)='
                     r'|\b(docker|podman)\b[^;&|\n]*\s(-H|--host|--context|-c|--url|--connection|--remote)\b')
 

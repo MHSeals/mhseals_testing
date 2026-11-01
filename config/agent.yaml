@@ -91,8 +91,8 @@ hook:
          'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\s+(--?[\w-]+\s+)*[^\s-]*\$',
          '\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\b',
          '\b(pkill|killall)\b',
-         '\bxargs\s+(-\S+\s+)*(sudo\s+)?kill\b',
-         '(?<![\w-])kill\b(?:[^;&|\n$`]|\$\([^)]*\)|`[^`]*`)*?(?:\$\([^)]*?|`[^`]*?)?\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b|(?<![\w-])kill\b[^;&|\n]*\$(?!\().*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b|\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b.*(?<![\w-])kill\b[^;&|\n]*\$(?!\()',
+         '\bxargs\s+((-[nPLsIdEa]\s*\S+|-\S+)\s+)*(sudo\s+)?kill\b',
+         '(?<![\w-])kill\b(?:[^;&|\n$`]|\$\([^)]*\)|`[^`]*`)*?(?:\$\([^)]*?|`[^`]*?)?\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b|(?<![\w-])kill\b(?:[^;&|\n]*[$`]|\(\s*(?!\d)\w).*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b|\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b.*(?<![\w-])kill\b(?:[^;&|\n]*[$`]|\(\s*(?!\d)\w)',
          # agent_hook.SIM_ARM: the switch's env name anywhere, or a shell write to a live agent.yaml (writers,
          # a copy into it, a redirection, xargs; a worktree copy is fine, symlinks resolved; a copy *from* it is a read);
          # INTO: rsync, tar -x, git checkout/restore/apply, patch, cp -r/-a or find -delete/-exec rm into a dir that is or
