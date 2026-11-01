@@ -3093,3 +3093,19 @@ def test_a_run_record_carries_its_run_key_not_only_its_title(tmp_path):
     assert [(r['procedure'], r['run_key']) for r in saved] == [
         ('Mission rehearsal', 'mission'), ('Waypoint square', 'square')]
     assert saved[0]['result']['run_key'] == 'mission'
+
+
+def test_help_lists_panel_keys_under_their_panel_once(tmp_path):
+    from mhseals_testing.ui import widgets
+    from mhseals_testing.ui.app import HELP, help_rows, help_width
+    app, _ = make_app(tmp_path)
+    rows = help_rows(app.profile, HELP)
+    assert rows[0] == (app.profile.name, app.profile.description)
+    labels = [label for label, _ in rows]
+    assert labels.count(widgets.SECTION) >= 3 and ('§', 'Thrusters') in rows
+    assert not any(str(label).startswith('Thrusters ') for label in labels)   # the panel is read once
+    texts = [text for label, text in rows if label != widgets.SECTION]
+    assert sorted(texts[1:]) == sorted(text for _, text in HELP)   # every entry, as written
+    space = labels.index('Space')
+    assert space < labels.index(widgets.SECTION, 2)   # Space is listed with the keys that work anywhere
+    assert help_width(80) == 76 and help_width(160) == 104

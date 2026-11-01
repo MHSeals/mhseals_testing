@@ -78,7 +78,7 @@ from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
 from mhseals_testing.ui import keymap as keymap_module, rtk, rtk_icon, widgets
 from mhseals_testing.harness import bags as bags_module
-from mhseals_testing.ui.panels import PANELS, activity, agent_log, correction, scrubber
+from mhseals_testing.ui.panels import PANELS, TITLES, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.popups import magcal as magcal_popup, stop as stop_popup
@@ -283,6 +283,30 @@ def map_key_maps(doc):
     view = keymap_module.key_map(doc.get('view.minimap'))
     return view, {**keymap_module.key_map(doc.get('tab.map')), **view}
 
+
+
+def help_rows(profile, entries):
+    """Help as popup rows: the profile, the keys that work anywhere, then one section per panel.
+
+    A ``Thrusters 0`` entry lists under a Thrusters rule as ``0``, so the panel is read once and the
+    key column stays narrow. The entries' text is used as written.
+    """
+    panels = set(TITLES.values())
+    rows, sections = [(profile.name, profile.description), (widgets.SECTION, 'Anywhere')], {}
+    for key, text in entries:
+        head, _, rest = key.partition(' ')
+        if head in panels and rest:
+            sections.setdefault(head, []).append((rest, text))
+        else:
+            rows.append((key, text))
+    for panel, items in sections.items():
+        rows += [(widgets.SECTION, panel), *items]
+    return rows
+
+
+def help_width(columns):
+    """Wider help on a wide terminal, so fewer lines wrap and less of it scrolls."""
+    return max(76, min(104, columns - 12))
 
 class App:
     """The page, its key handling and the procedure context.
@@ -1584,7 +1608,7 @@ class App:
                 self.grabbed = None
                 self.notice = 'Dropped'
         elif key == '?':
-            self.show('Help', rows=[(self.profile.name, self.profile.description), *HELP], width=76)
+            self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(self.console.size.width))
         elif key == 'a':
             self.arm_panel()
         elif key == 'x' and raw == 'x':
