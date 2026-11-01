@@ -3205,3 +3205,10 @@ def test_the_closing_summary_reads_no_ros_after_it_closed(tmp_path):
         app.snapshot()                                             # the live path still needs ROS
     assert app.summary() == open_rows
     assert dict(open_rows)['Results'] == f"{sum(theme.kind(v) == 'good' for v in ('PASS', 'FAIL'))}/2 good"
+
+
+def test_manual_never_caches_a_clear_for_unarmed_outputs(tmp_path):
+    app, _ = make_app(tmp_path)
+    assert app.manual_now() == ['outputs are not armed']
+    assert app.manual_checks() == ['outputs are not armed']
+    assert app.manual_blockers() == ['outputs are not armed']

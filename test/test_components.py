@@ -619,3 +619,27 @@ def test_a_carried_need_starts_its_carrier_once():
     assert stack.advance(set()) == [] and 'objects' in stack.waiting       # Odometry still bringing them
     stack.advance(DOGS | {'/ekf_local'})
     assert [name for name, _ in stack.processes.started] == ['odometry', 'objects']
+
+
+def test_a_start_never_decides_on_an_old_view_while_a_background_scan_hangs():
+    """A shell starts odometry after the last scan and the background scan hangs: start scans itself."""
+    table, processes, clock = {}, FakeProcesses(), [0.0]
+    stack = Stack(items(Profile), processes, lambda: clock[0], scan=lambda specs: dict(table),
+                  spawn=lambda work: None)       # the background scan never finishes
+    assert stack.state('odometry', set())[0] == 'off'
+    table['mhseals-odometry'] = {'running': True, 'pid': 42, 'how': 'launch'}
+    clock[0] = Stack.SCAN_S + 1.0                # the started copy is in the table now
+    assert stack.state('odometry', set())[0] == 'off'     # the page may show the old view
+    with pytest.raises(ComponentError):
+        stack.start('odometry', set())
+    assert processes.started == []
+
+
+def test_a_fresh_view_within_scan_s_is_not_read_again():
+    scans, clock = [], [0.0]
+    stack = Stack(items(Profile), FakeProcesses(), lambda: clock[0],
+                  scan=lambda specs: scans.append(clock[0]) or {}, spawn=lambda work: None)
+    stack.here()
+    clock[0] = Stack.SCAN_S / 2
+    stack.here(fresh=True)
+    assert scans == [0.0]

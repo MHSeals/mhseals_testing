@@ -520,6 +520,9 @@ class App:
         pre.*_watchdog), read live; a mute does not lift them. Off the simulator an unreadable
         health config refuses too, since it may be what names them.
         """
+        here = getattr(getattr(self, 'stack', None), 'here', None)
+        if here is not None:
+            here(fresh=True)                # arming decides on a current process view
         return '; '.join(filter(None, self.watchdog_reasons()))
 
     def watchdog_reasons(self):
@@ -592,7 +595,8 @@ class App:
     def manual_blockers(self):
         """Manual driving needs armed outputs and no other command source, not odometry or TF:
         the operator is watching the boat, and a localization fault must not take it away."""
-        return self.manual_now() + self.manual_checks()
+        now = self.manual_now()
+        return now + self.manual_checks() if self.armed else now
 
     def manual_now(self):
         """The manual interlocks read from memory, cheap enough for every manual publish."""
@@ -603,7 +607,7 @@ class App:
     def manual_checks(self):
         """The manual interlocks that ask the graph or read files: manual evaluates them beside its key loop."""
         if not self.armed:
-            return []                # manual_now says so
+            return ['outputs are not armed']   # never a cached clear for an unarmed boat
         fault = self.arming.fault()
         return ([fault] if fault else []) + self.plant.conflicts() + self.staging().blockers()
 

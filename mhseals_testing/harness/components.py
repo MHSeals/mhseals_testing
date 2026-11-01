@@ -416,12 +416,15 @@ class Stack:
             with self.scan_lock:
                 self.scanning = False
 
-    def here(self):
-        """This computer's process view of the local parts (cached), or None without a scan."""
+    def here(self, fresh=False):
+        """This computer's process view of the local parts (cached), or None without a scan.
+
+        ``fresh``: a decision (start, stop, arm) reads one at most SCAN_S old, scanning here if need be,
+        as every read did before the scans moved to the background."""
         if self.scan is None:
             return None
-        if self.scanned[0] == float('-inf'):
-            self._scan()              # the first view is read here, so no start decides without one
+        if self.scanned[0] == float('-inf') or (fresh and self.clock() - self.scanned[0] >= self.SCAN_S):
+            self._scan()              # no start decides on an old view, or none
         elif self.clock() - self.scanned[0] >= self.SCAN_S:
             with self.scan_lock:
                 start, self.scanning = not self.scanning, True
@@ -520,6 +523,7 @@ class Stack:
         keypress and confirm. ``by`` names the agent that asked (boat_agent start); its row shows
         it until stopped.
         """
+        self.here(fresh=True)
         item = self.items[key]
         self._check(key, nodes)
         plan = self.plan(key, nodes)
@@ -620,6 +624,7 @@ class Stack:
         Otherwise a remote part's stop always goes out: ``unit stop`` of a unit that is not
         running is harmless, and ssh may be down or not yet read.
         """
+        self.here(fresh=True)
         item = self.items[key]
         if item.carried_by:
             raise ComponentError(f'{item.title} run with {item.carried_by}: stopping that stops '
@@ -665,6 +670,7 @@ class Stack:
         is never auto-started: slow discovery is not proof it is off. ``publishers`` are the
         odometry topic's nodes: one no component claims (a bag play, another stack) starts nothing.
         """
+        self.here(fresh=True)
         order = self.start_order()
         known = {node for item in self.items.values() for node in item.nodes}
         foreign = sorted({node for node in publishers if node.rsplit('/', 1)[-1] not in known})

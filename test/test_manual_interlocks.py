@@ -303,3 +303,4 @@ def test_a_failing_stack_scan_is_no_view_and_frees_the_next():
     stack.here()
     spawned.pop()()
     assert stack.here() is None and not stack.scanning
+
