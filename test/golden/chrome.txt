@@ -5,7 +5,7 @@
  Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
                                                                                                                         
 == running 120
- boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort              blastoise-odroid   CHARACTERIZE    ARMED 
+ boat_test  [Drive]  Correction  Map  Bags  Fusion      ↑5 ↓39 ±2 ?7  blastoise-odroid · ROS 42   CHARACTERIZE    ARMED 
  ✗ rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                             ✗ 2  ! 3 · compass innovation
  Focus Status · 1/9                                                                                                Ready
  Tab Focus               a Arm                   Space Stop              ? Help                  q Quit                 
@@ -41,7 +41,7 @@
  Tab Focus                         a Arm                            Space Stop                      
  ? Help                            q Quit                                                           
 == diverged 100
- boat_test  [Drive]  Correction  Map  Bags  Fusion  boat · effort   blastoise-odroid   RC   disarmed
+ boat_test  [Drive]  Correction  Map  Bags  Fusion    ↕ code newer  blastoise-odroid   RC   disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                        
  Focus Status · 1/9                                                                            Ready
  Tab Focus                         a Arm                            Space Stop                      

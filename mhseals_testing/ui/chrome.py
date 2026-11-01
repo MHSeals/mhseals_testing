@@ -123,17 +123,18 @@ def top_row(view, width):
     ctls = [ctl, control_tracker.item(tracked, short=True)] if ctl else []
     rights = [(deploy, work, host_item(view)), (deploy, work, host_item(view, True)),
               (None, work, host_item(view, True)), (None, work, None), (None, None, None)]
+    # the deploy item (code drift) outranks the profile name, which outranks the full host item
+    ranked = [(left, items) for part in (rights[:2], rights[2:]) for left in lefts for items in part]
     # The profile, the tab strip, deploy, host and the arming agent's name all go before the tracker
     # shortens, and it shortens before it goes; the authority and arm chips never go.
     for tracker in [*ctls, None]:
-        for group in (lefts, [narrow]):
+        for group in (ranked, [(narrow, items) for items in rights]):
             for tail in tails:
-                for left in group:
-                    for items in rights:
-                        right = join([*items, tracker, *tail])
-                        gap = width - len(left) - len(right)
-                        if gap >= 1:
-                            return Text.assemble(left, ' ' * gap, right)
+                for left, items in group:
+                    right = join([*items, tracker, *tail])
+                    gap = width - len(left) - len(right)
+                    if gap >= 1:
+                        return Text.assemble(left, ' ' * gap, right)
     # Nothing fits: the chips keep the right edge and the title gives way, so the row never wraps
     # into row two (the agent banner or STOPPED row).
     right = join(tails[-1])

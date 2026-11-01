@@ -20,6 +20,9 @@ check:                      # same keys as fusion_calib.yaml check (perception-c
   near_m: 10.0
   du_pass_px: 5.0
   du_warn_px: 9.0
+  dv_pass_px: 5.0           # vertical (pitch) offset, same limits
+  dv_warn_px: 9.0
   hit_rate_min: 0.5
-  range_tol: 0.05
+  range_tol: 0.05           # |lidar/stereo - 1| beyond it WARN
+  range_fail_tol: 0.10      # and beyond this FAIL
   min_samples: 5            # extrinsic samples before the live check gives a verdict

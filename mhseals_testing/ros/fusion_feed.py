@@ -25,7 +25,9 @@ CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_panel.yaml'
 KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
         'feed': {'points_hz', 'points_max', 'camera_hz', 'camera_width', 'max_range_m', 'residual_s', 'stale_s'},
         'ramp_m': None, 'rings_m': None, 'draw_hz': None,
-        'check': {'near_m', 'du_pass_px', 'du_warn_px', 'hit_rate_min', 'range_tol', 'min_samples'}}
+        'check': {'near_m', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
+                  'range_tol', 'range_fail_tol', 'min_samples'}}
+TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the transforms before the tab opened
 SCANS = 3            # projected scans held, so boxes pair with the scan nearest their capture
 
 
@@ -117,7 +119,7 @@ class FusionFeed:
     """Holds the newest boxes, projected scans, extrinsic samples and camera frame for the Fusion tab.
 
     ``subscribe(kind, topic, callback)`` returns a handle, ``unsubscribe(handle)`` destroys it; kinds are
-    ``observations``, ``sources``, ``camera_info``. ``camera`` is a CameraFeed (or None). Callbacks run in
+    ``observations``, ``sources``, ``camera_info``, ``tf_static`` (latched: it redelivers on subscribe). ``camera`` is a CameraFeed (or None). Callbacks run in
     the executor thread, so each one guards against a malformed message.
     """
 
@@ -125,7 +127,7 @@ class FusionFeed:
         self.cfg = cfg or load_config()
         self._subscribe, self._unsubscribe, self.camera, self._clock = subscribe, unsubscribe, camera, clock
         self._lock = threading.Lock()
-        self.tf = StaticTF()          # kept while closed: /tf_static is latched and arrives once
+        self.tf = StaticTF()          # kept while closed; /tf_static is redelivered on each open
         self._handles = {}
         self._camera_on = False
         self._reset()
@@ -151,7 +153,8 @@ class FusionFeed:
             for kind, topic, callback in (('observations', topics['observations'], self._on_raw),
                                           ('observations', topics['fused'], self._on_fused),
                                           ('sources', topics['sources'], self._on_sources),
-                                          ('camera_info', topics['camera_info'], self._on_camera_info)):
+                                          ('camera_info', topics['camera_info'], self._on_camera_info),
+                                          ('tf_static', TF_STATIC, self.on_tf_static)):
                 self._handles[topic] = self._subscribe(kind, topic, callback)
         elif not on and self._handles:
             for handle in self._handles.values():
@@ -239,19 +242,25 @@ class FusionFeed:
             self.fused, self.version = array, self.version + 1
 
     def _on_sources(self, message):
-        """Source labels per fused box, and the extrinsic samples as pixel residuals (r_az, r_el x fx, fy)."""
+        """Source labels per fused box, and the extrinsic samples as pixel residuals.
+
+        A sample is lidar_fusion's ``(x, y, z, b, r_az, r_el, ...)``: the box centre's normalised image coordinates
+        and the cluster's angular offset from it, so the pixel offset (fusion_calib's du/dv, cluster centre minus
+        box centre) is ``fx (tan(atan x + r_az) - x)``, not ``r_az fx``, which shrinks off-centre boxes.
+        """
         try:
             doc = json.loads(message.data)
             labels = [str(s) for s in doc.get('sources', [])]
-            samples = [(float(e[4]), float(e[5])) for e in doc.get('ex') or []]
+            samples = [(float(e[0]), float(e[1]), float(e[4]), float(e[5])) for e in doc.get('ex') or []]
         except Exception:
             return
         now = self._clock()
         with self._lock:
             self.sources = (float(doc.get('t', 0.0)), labels)
             if self.K is not None:
-                for r_az, r_el in samples:
-                    self.residuals.append((now, r_az * self.K[0], r_el * self.K[4]))
+                for x, y, r_az, r_el in samples:
+                    self.residuals.append((now, self.K[0] * (math.tan(math.atan(x) + r_az) - x),
+                                           self.K[4] * (math.tan(math.atan(y) + r_el) - y)))
             while self.residuals and self.residuals[0][0] < now - self.cfg['feed']['residual_s']:
                 self.residuals.popleft()
 
@@ -318,7 +327,9 @@ def detections(raw, fused, sources):
         rows = [(ob, 'stereo') for ob in (raw[2] if raw else ())]
         frame = raw[1] if raw else ''
     else:
-        labels = sources[1] if sources and len(sources[1]) == len(fused[2]) else []
+        # labels belong to the fused array of the same stamp; another frame's, even with as many boxes, would mislabel
+        same = sources and abs(sources[0] - fused[0]) < 1e-6 and len(sources[1]) == len(fused[2])
+        labels = sources[1] if same else []
         rows = [(ob, labels[i] if labels else 'fused') for i, ob in enumerate(fused[2])]
         frame = fused[1]
     out = []
@@ -332,20 +343,24 @@ def detections(raw, fused, sources):
 
 
 def node_feed(ros, camera=None, cfg=None):
-    """A FusionFeed on RosIO ``ros``: its node subscribes, its /points and /tf_static taps feed it.
+    """A FusionFeed on RosIO ``ros``: its node subscribes (/tf_static latched, so a late tab still gets it),
+    the session's /points tap feeds it.
 
     None without the mhseals_nav messages."""
-    from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
+    from rclpy.qos import (DurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy,
+                           qos_profile_sensor_data)
     from rclpy.serialization import deserialize_message
     from sensor_msgs.msg import CameraInfo, PointCloud2
     from std_msgs.msg import String
+    from tf2_msgs.msg import TFMessage
     from mhseals_testing.ros.minimap_feeds import perception_msgs
     msgs = perception_msgs()
     if msgs is None:
         return None
     node = ros.node
     lossy = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, history=QoSHistoryPolicy.KEEP_LAST, depth=1)
-    kinds = {'observations': (msgs.ObservationArray, lossy), 'sources': (String, 10),
+    latched = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    kinds = {'observations': (msgs.ObservationArray, lossy), 'sources': (String, 10), 'tf_static': (TFMessage, latched),
              'camera_info': (CameraInfo, qos_profile_sensor_data)}
 
     def subscribe(kind, topic, callback):
@@ -361,5 +376,4 @@ def node_feed(ros, camera=None, cfg=None):
             except Exception:
                 pass
     ros.taps['points'] = points
-    ros.taps['tf_static'] = feed.on_tf_static
     return feed

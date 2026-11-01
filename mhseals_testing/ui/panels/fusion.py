@@ -314,22 +314,34 @@ def check(model, cfg):
     if len(res) < c['min_samples']:
         return None, f'collecting {len(res)}/{c["min_samples"]} samples'
     du, dv = median([r[1] for r in res]), median([r[2] for r in res])
-    level = 'PASS' if abs(du) <= c['du_pass_px'] else 'WARN' if abs(du) <= c['du_warn_px'] else 'FAIL'
+    rank = ['PASS', 'WARN', 'FAIL']
+    level = 'PASS'
+
+    def worse(lv):
+        nonlocal level
+        level = max(level, lv, key=rank.index)
+    for name, off in (('du', du), ('dv', dv)):     # dv: vertical (pitch) offset, same limits
+        if abs(off) > c[name + '_warn_px']:
+            worse('FAIL')
+        elif abs(off) > c[name + '_pass_px']:
+            worse('WARN')
     why = [f'du {du:+.1f} dv {dv:+.1f} px']
     near = [d for d in model['dets'] if d['box'] is not None and (d['stereo'] or d['range'] or 1e9) < c['near_m']]
     if near and model['fused']:
         hits = sum(d['source'] in LIDAR_SOURCES for d in near)
         why.append(f'near {hits}/{len(near)}')
         if not hits:
-            level = 'FAIL'
-        elif hits / len(near) < c['hit_rate_min'] and level == 'PASS':
-            level = 'WARN'
+            worse('FAIL')
+        elif hits / len(near) < c['hit_rate_min']:
+            worse('WARN')
     ratio = median([d['range'] / d['stereo'] for d in model['dets']
                     if d['source'] in LIDAR_SOURCES and d['range'] and d['stereo']])
     if ratio is not None:
         why.append(f'L/S {ratio:.2f}')
-        if abs(ratio - 1) > c['range_tol'] and level == 'PASS':
-            level = 'WARN'
+        if abs(ratio - 1) > c['range_fail_tol']:
+            worse('FAIL')
+        elif abs(ratio - 1) > c['range_tol']:
+            worse('WARN')
     return level, theme.SEPARATOR.join(why)
 
 
@@ -353,28 +365,42 @@ def trend(res, index, buckets=SPARK_COLUMNS):
     return [median(g) for g in groups if g]
 
 
-def readout(model, cfg, status):
+def readout(model, cfg, status, width=None):
+    """Alignment's lines; at ``width`` the check drops ``live`` then its du/dv (the rows below show them), and the
+    correction drops its p/y/r letters, then puts the estimate on its own line."""
+    width = width or 1 << 30
     level, why = check(model, cfg)
     style = {'PASS': theme.GOOD, 'WARN': theme.WARN, 'FAIL': theme.BAD}.get(level, theme.MUTED)
-    lines = [Text.assemble(('check ', theme.MUTED), (level or theme.MIDDOT, f'bold {style}'.strip()), ' ', (why, theme.MUTED))]
-    lines[0].append(f'{theme.SEPARATOR}live', style=theme.MUTED)
+    head = Text.assemble(('check ', theme.MUTED), (level or theme.MIDDOT, f'bold {style}'.strip()), ' ')
+    short = why.split(theme.SEPARATOR, 1)[1] if level and theme.SEPARATOR in why else why
+    for tail in (f'{why}{theme.SEPARATOR}live', why, short):
+        if len(head) + len(tail) <= width:
+            break
+    lines = [Text.assemble(head, (tail, theme.MUTED))]
     applied, est = status.get('applied_deg'), status.get('extrinsic_deg')
-    corr = Text('corr  ', style=theme.MUTED)
     if applied:
-        corr.append(' '.join(f'{n} {v:+.2f}' for n, v in zip('pyr', applied)) + DEG)
-        if est:
-            corr.append(f'{theme.SEPARATOR}est {" ".join(f"{v:+.2f}" for v in est)}', style=theme.MUTED)
+        est_text = f'est {" ".join(f"{v:+.2f}" for v in est)}' if est else ''
+        for names in ('pyr', '   '):
+            corr = Text('corr  ', style=theme.MUTED)
+            corr.append(' '.join(f'{n} {v:+.2f}'.strip() for n, v in zip(names, applied)) + DEG)
+            if len(corr) + len(theme.SEPARATOR) + len(est_text) <= width:
+                break
+        if est_text and len(corr) + len(theme.SEPARATOR) + len(est_text) <= width:
+            corr.append(f'{theme.SEPARATOR}{est_text}', style=theme.MUTED)
+            lines.append(corr)
+        else:
+            lines += [corr, Text(f'      {est_text}', style=theme.MUTED)] if est_text else [corr]
     else:
-        corr.append('none applied', style=theme.MUTED)
-    lines.append(corr)
+        lines.append(Text('corr  none applied', style=theme.MUTED))
     res = model['residuals']
     scale = cfg['check']['du_warn_px']
     for name, index in (('du', 1), ('dv', 2)):
         values = trend(res, index)
         mid = median([r[index] for r in res])
-        hot = mid is not None and abs(mid) > cfg['check']['du_pass_px'] and name == 'du'
+        hot = mid is not None and abs(mid) > cfg['check'][name + '_pass_px']
         lines.append(Text.assemble((f'{name}    ', theme.MUTED), (spark(values, scale), theme.WARN if hot else theme.FG),
-                                   f' {mid:+5.1f} px' if mid is not None else f' {theme.MIDDOT}'))
+                                   f' {mid:+5.1f} px' if mid is not None else f' {theme.MIDDOT}',
+                                   (' raw' if mid is not None else '', theme.MUTED)))   # before the applied corr
     counts = {}
     for det in model['dets']:
         counts[det['source']] = counts.get(det['source'], 0) + 1
@@ -445,7 +471,9 @@ def body(view, width, height, cfg=None):
     model = view.get('fusion')
     focused = view.get('focus') == 'fusion'
     if model is None:
-        return theme.block(Text('Fusion needs a ROS node (none in this session)', style=theme.MUTED), 'Camera', focused)
+        why = ('Fusion is live only (not in review)' if view.get('fusion_review')
+               else 'Fusion needs a ROS node (none in this session)')
+        return theme.block(Text(why, style=theme.MUTED), 'Camera', focused)
     status = fusion_status(view.get('fusion_facts'))
     readout_rows = READOUT_ROWS
     side = max(AROUND_MIN, int(width * AROUND_SHARE))
@@ -461,7 +489,7 @@ def body(view, width, height, cfg=None):
         sub.append(f"{theme.SEPARATOR}no frame", style=theme.MUTED)
     camera = theme.block(Text('\n').join(camera_rows(model, cfg, cam_cols, cam_rows)), 'Camera', focused, sub)
     around_panel = theme.block(Text('\n').join(around_rows(model, cfg, *around)), 'Around', False)
-    align = theme.block(Group(*readout(model, cfg, status)), 'Alignment', False)
+    align = theme.block(Group(*readout(model, cfg, status, cam_cols)), 'Alignment', False)
     left = Layout(size=cam_cols + 4)
     left.split_column(Layout(camera, size=cam_rows + 2), Layout(align))
     page = Layout()

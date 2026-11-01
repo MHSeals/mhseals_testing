@@ -73,16 +73,38 @@ def test_subscriptions_exist_only_while_wanted_and_closing_forgets():
     f.on_tf_static(statics())
     assert not subs and not f.is_open
     f.want(True)
-    assert {t for _, t, _ in subs} == set(f.cfg['topics'].values())
+    assert {t for _, t, _ in subs} == {*f.cfg['topics'].values(), '/tf_static'}
     by_topic(subs)['/perception/observations'](array([ob('red_buoy', (0.4, 0.4, 0.5, 0.6), (0, 0, 7))]))
     assert f.snapshot()['dets']
     f.want(True)
-    assert len(subs) == 4                       # idempotent
+    assert len(subs) == 5                       # idempotent
     f.want(False)
-    assert len(gone) == 4 and not f.is_open and not f.snapshot()['dets']
+    assert len(gone) == 5 and not f.is_open and not f.snapshot()['dets']
     assert f.tf.edges                            # latched /tf_static survives a closed tab
     assert not f.points_due()                    # closed: scans are dropped before decoding
 
+
+
+def test_tf_static_published_before_the_feed_exists_still_reaches_it():
+    """The session latched /tf_static long before the tab opened; the feed's own latched subscription
+    gets it again on open (a TRANSIENT_LOCAL subscriber is handed the stored message), and the scan projects."""
+    latched = statics()                          # published at startup, before any FusionFeed
+    subs = []
+
+    def subscribe(kind, topic, callback):
+        subs.append((kind, topic, callback))
+        if kind == 'tf_static':
+            callback(latched)
+        return len(subs)
+    f = FusionFeed(subscribe, lambda handle: None, clock=lambda: 0.0)
+    assert f.tf.between(CAMERA, 'lidar_link') is None
+    f.want(True)
+    assert ('tf_static', '/tf_static') in {(k, t) for k, t, _ in subs}
+    cb = by_topic(subs)
+    cb[f.cfg['topics']['camera_info']](NS(k=K, width=SIZE[0], height=SIZE[1]))
+    cb[f.cfg['topics']['observations']](array([ob('red_buoy', (0.45, 0.4, 0.55, 0.6), (0, 0, 7))]))
+    f.on_points(cloud([(10.1, 0, -0.1)]))
+    assert f.snapshot()['points'][1][0] == pytest.approx((0.5, 0.5), abs=1e-4)
 
 def test_camera_opens_only_when_asked():
     camera = NS(opened=0, closed=0, latest=lambda: None)
@@ -157,6 +179,8 @@ def test_fused_boxes_pair_with_stereo_by_box_and_take_source_labels():
     assert [(r['source'], r['range'], r['stereo']) for r in rows] == [('lidar', 7.0, 7.4), ('lidar_ray', 12.0, None)]
     assert rows[0]['sigma'] == pytest.approx(0.2)
     assert fusion.range_label(rows[0]) == '7.0L/7.4S' and fusion.range_label(rows[1]) == '12.0R'
+    other = detections(raw, fused, (10.1, ['stereo', 'lidar']))   # another frame's labels, as many boxes
+    assert [r['source'] for r in other] == ['fused', 'fused']
     stereo_only = detections(raw, None, None)
     assert [r['source'] for r in stereo_only] == ['stereo', 'stereo']
 
@@ -167,17 +191,31 @@ def test_sources_become_pixel_residuals():
     cb[f.cfg['topics']['sources']](NS(data='{"t": 10, "sources": ["lidar"], "ex": [[0, 0, 7, 0, 0.002, -0.001, 0, 0]]}'))
     cb[f.cfg['topics']['sources']](NS(data='not json'))
     (age, du, dv), = f.snapshot()['residuals']
-    assert (age, du, dv) == pytest.approx((0.0, 1.4, -0.7))
+    assert (age, du, dv) == pytest.approx((0.0, 1.4, -0.7), abs=1e-5)
     now[0] += f.cfg['feed']['residual_s'] + 1
     cb[f.cfg['topics']['sources']](NS(data='{"t": 11, "sources": []}'))
     assert f.snapshot()['residuals'] == []
 
 
-def model(du=1.0, sources=('lidar', 'lidar_ray', 'stereo'), fused=True, n=12):
+
+def test_off_centre_residuals_are_true_pixel_offsets():
+    """As lidar_fusion forms them: r = atan((uc - cx) / fx) - atan(x). An 8 px offset at x = 0.8 stays 8 px."""
+    now = [100.0]
+    f, cb = ready_feed(lambda: now[0])
+    x, y, fx, fy = 0.8, -0.3, K[0], K[4]
+    r_az = math.atan(x + 8.0 / fx) - math.atan(x)
+    r_el = math.atan(y - 6.0 / fy) - math.atan(y)
+    cb[f.cfg['topics']['sources']](NS(data=f'{{"t": 10, "sources": ["lidar"], "ex": [[{x}, {y}, 7, 0, {r_az}, {r_el}, 0, 0]]}}'))
+    (_, du, dv), = f.snapshot()['residuals']
+    assert (du, dv) == pytest.approx((8.0, -6.0), abs=1e-6)
+    assert r_az * fx < 5.0                      # the old r_az * fx would have read under du_pass_px
+
+def model(du=1.0, sources=('lidar', 'lidar_ray', 'stereo'), fused=True, n=12, dv=-0.5, ls=None):
     dets = []
     for (cls, box, rng, stereo), source in zip(
             (('red_buoy', (0.42, 0.45, 0.47, 0.6), 7.0, 7.3), ('green_buoy', (0.62, 0.48, 0.65, 0.56), 12.0, None),
              ('yellow_buoy', (0.2, 0.5, 0.22, 0.54), 22.0, 22.0)), sources):
+        stereo = stereo if ls is None or stereo is None else rng / ls      # ls: every lidar/stereo ratio
         x = (box[0] + box[2] - 1) / 2 * rng * SIZE[0] / K[0]
         z = math.sqrt(rng * rng - x * x)
         dets.append({'cls': cls, 'box': box, 'source': source, 'frame': CAMERA, 'range': rng, 'stereo': stereo,
@@ -197,7 +235,7 @@ def model(du=1.0, sources=('lidar', 'lidar_ray', 'stereo'), fused=True, n=12):
     xz = np.column_stack([(uv[:, 0] - 0.5) * ranges * SIZE[0] / K[0], ranges]).astype(np.float32)
     return {'version': 1, 'size': SIZE, 'K': K, 'dets': dets, 'fused': fused, 'frame': None,
             'points': (10.0, uv, ranges, xz),
-            'residuals': [(-60 + 5 * i, du + 0.3 * (i % 3), -0.5) for i in range(n)]}
+            'residuals': [(-60 + 5 * i, du + 0.3 * (i % 3), dv) for i in range(n)]}
 
 
 def facts(applied='0.10 -0.30 0.02', state='ok'):
@@ -216,6 +254,41 @@ def test_live_check_follows_fusion_calib_rule(du, sources, fused, n, level):
     got, why = fusion.check(model(du, sources, fused, n), fusion_feed.load_config())
     assert got == level, why
 
+
+@pytest.mark.parametrize('dv, level', [(0.5, 'PASS'), (-4.9, 'PASS'), (7.0, 'WARN'), (-7.0, 'WARN'),
+                                       (15.0, 'FAIL'), (-9.5, 'FAIL')])
+def test_live_check_grades_dv_like_du(dv, level):
+    got, why = fusion.check(model(du=0.5, dv=dv), fusion_feed.load_config())
+    assert got == level, why
+
+
+@pytest.mark.parametrize('ls, level', [(1.02, 'PASS'), (0.97, 'PASS'), (1.07, 'WARN'), (0.92, 'WARN'),
+                                       (1.18, 'FAIL'), (0.85, 'FAIL')])
+def test_live_check_fails_past_range_fail_tol(ls, level):
+    got, why = fusion.check(model(du=0.5, dv=0.5, ls=ls), fusion_feed.load_config())
+    assert got == level, why
+    assert f'L/S {ls:.2f}' in why
+
+
+def test_panel_check_keys_match_fusion_calib():
+    c = fusion_feed.load_config()['check']
+    assert {'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'range_tol', 'range_fail_tol'} <= set(c)
+    assert (c['dv_pass_px'], c['dv_warn_px'], c['range_fail_tol']) == (c['du_pass_px'], c['du_warn_px'], 0.10)
+
+
+
+def test_readout_keeps_the_estimate_and_the_ratio_when_narrow():
+    cfg, status = fusion_feed.load_config(), fusion.fusion_status(facts())
+    wide = [line.plain for line in fusion.readout(model(), cfg, status)]
+    assert wide[0].endswith('L/S 0.96 · live') and 'du +1.3' in wide[0]
+    assert wide[1] == 'corr  p +0.10 y -0.30 r +0.02° · est +0.12 -0.33 +0.01'
+    assert wide[2].endswith('px raw')                    # lidar_fusion's samples, before the applied correction
+    narrow = [line.plain for line in fusion.readout(model(), cfg, status, 48)]
+    assert narrow[0] == 'check PASS near 1/1 · L/S 0.96'
+    assert narrow[1] == 'corr  +0.10 -0.30 +0.02° · est +0.12 -0.33 +0.01'
+    tight = [line.plain for line in fusion.readout(model(), cfg, status, 40)]
+    assert tight[1:3] == ['corr  +0.10 -0.30 +0.02°', '      est +0.12 -0.33 +0.01']
+    assert all(len(line) <= 40 for line in tight[:3])
 
 def render(view, width, height=34):
     import test_dashboard
@@ -252,7 +325,7 @@ def test_tab_fits_every_width_in_text(width, text_tier, monkeypatch):
     text = '\n'.join(''.join(s.text for s in line) for line in lines)
     assert 'Camera' in text and 'Around' in text and 'Alignment' in text
     assert '7.0L/7.3S' in text and '12.0R' in text and 'PASS' in text
-    assert 'p +0.10 y -0.30 r +0.02' in text
+    assert 'p +0.10 y -0.30 r +0.02' in text or '+0.10 -0.30 +0.02° · est +0.12 -0.33 +0.01' in text
     assert any(0x2800 < ord(ch) <= 0x28FF for ch in text)          # the braille drawing
 
 
@@ -295,6 +368,8 @@ def test_no_node_and_tab_registration(text_tier):
     assert 'Fusion' in layout.TABS and layout.DEFAULT_FOCUS['Fusion'] == 'fusion'
     out = '\n'.join(''.join(s.text for s in line) for line in render(tab_view(fusion=None), 100))
     assert 'Fusion needs a ROS node' in out
+    out = '\n'.join(''.join(s.text for s in line) for line in render(tab_view(fusion=None, fusion_review=True), 100))
+    assert 'Fusion is live only' in out and 'ROS node' not in out
 
 
 def test_stereo_only_says_fusion_is_off(text_tier):
@@ -308,8 +383,14 @@ def test_app_feed_is_off_when_the_tab_is_not_shown(monkeypatch):
     fake = NS(want=lambda on, camera=False: wants.append(on), snapshot=lambda: {'x': 1}, applied=None)
     app = NS(tab='Drive', review=None, fusion_feed=fake, facts={}, ros=None, profile=None)
     assert App.fusion_view(app) == {} and wants == [False]
+    assert fake.applied is None                  # hidden: not even the status is read
     app.tab = 'Fusion'
     assert App.fusion_view(app)['fusion'] == {'x': 1} and wants == [False, True]
+    assert fake.applied == (0.0, 0.0, 0.0)
+    app.review = object()                        # review: live only, and the feed closes
+    assert App.fusion_view(app) == {'fusion': None, 'fusion_review': True} and wants[-1] is False
+    app.fusion_feed = None
+    assert App.fusion_view(app) == {'fusion': None, 'fusion_review': True}
 
 
 MARKERS = {*range(0xF0000, 0xFFFFE), ord(pixels.PLACEHOLDER)}   # sixel markers and kitty placeholders (tiles)

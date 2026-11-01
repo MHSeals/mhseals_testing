@@ -1091,13 +1091,14 @@ class App:
             cfg = fusion_feed.load_config()
             camera = camera_feed.profile_feed(self.ros.node, self.profile.sensors, hz=cfg['feed']['camera_hz'])
             feed = self.fusion_feed = fusion_feed.node_feed(self.ros, camera, cfg) or False
+        review = {'fusion': None, 'fusion_review': True} if self.tab == 'Fusion' and self.review else {}
         if not feed:
-            return {'fusion': None} if shown else {}
-        status = fusion_panel.fusion_status(self.facts)
-        feed.applied = status.get('applied_deg') or (0.0, 0.0, 0.0)
+            return {'fusion': None} if shown else review
+        if shown:
+            feed.applied = fusion_panel.fusion_status(self.facts).get('applied_deg') or (0.0, 0.0, 0.0)
         # the frame only as image tiles on an unbudgeted link: over SSH or the radio the points and boxes suffice
         feed.want(shown, camera=pixels.active() and pixels.BUDGET is None and pixels.images('fusion.camera'))
-        return {'fusion': feed.snapshot(), 'fusion_facts': self.facts} if shown else {}
+        return {'fusion': feed.snapshot(), 'fusion_facts': self.facts} if shown else review
 
     def driving(self, shared=None):
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
