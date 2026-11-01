@@ -19,6 +19,7 @@ neither we nor a unit started is never stopped from here.
 
 from dataclasses import dataclass, field
 import json
+import threading
 
 from mhseals_testing import nav2_limits
 from mhseals_testing.harness.remote import probe_specs
@@ -377,12 +378,15 @@ class Stack:
     ``units`` (harness/remote.Units) starts and stops the parts other computers run; without it
     those parts cannot be started from here. ``scan`` (``unit.probe``) reads this computer's
     process table for the local parts, at most every ``SCAN_S``; None leaves them to our children
-    and the graph.
+    and the graph. After the first, each scan runs in the background (``spawn``, a thread by default),
+    so the key loop and the page never wait on the process table; a view older than SCAN_STALE_S
+    (a scan that stopped answering) is none.
     """
 
     SCAN_S = 2.0
+    SCAN_STALE_S = 3 * SCAN_S
 
-    def __init__(self, items, processes, clock, units=None, scan=None):
+    def __init__(self, items, processes, clock, units=None, scan=None, spawn=None):
         self.items = {item.key: item for item in items}
         self.processes = processes
         self.clock = clock
@@ -392,19 +396,44 @@ class Stack:
         self.by = {}             # key -> the agent id that started it (boat_agent start); the operator's: absent
         self.waiting = {}        # key -> (deadline, commander, by): asked to start, its needs not running yet
         self.scan, self.scanned = scan, (float('-inf'), None)
+        self.spawn = spawn or (lambda work: threading.Thread(target=work, name='stack-scan', daemon=True).start())
+        self.scan_lock, self.scanning = threading.Lock(), False
         self.local = probe_specs([item for item in items if item.host is None])
+
+    def _scan(self):
+        begun = self.clock()          # the view is as old as its start
+        try:
+            seen = self.scan(self.local)
+        except Exception:             # an unreadable table is no view, as before
+            seen = None
+        if begun >= self.scanned[0]:  # a slower, older scan never replaces a newer view
+            self.scanned = (begun, seen)
+
+    def _scan_behind(self):
+        try:
+            self._scan()
+        finally:
+            with self.scan_lock:
+                self.scanning = False
 
     def here(self):
         """This computer's process view of the local parts (cached), or None without a scan."""
         if self.scan is None:
             return None
-        now = self.clock()
-        if now - self.scanned[0] >= self.SCAN_S:
-            try:
-                self.scanned = (now, self.scan(self.local))
-            except OSError:
-                self.scanned = (now, None)
-        return self.scanned[1]
+        if self.scanned[0] == float('-inf'):
+            self._scan()              # the first view is read here, so no start decides without one
+        elif self.clock() - self.scanned[0] >= self.SCAN_S:
+            with self.scan_lock:
+                start, self.scanning = not self.scanning, True
+            if start:
+                try:
+                    self.spawn(self._scan_behind)
+                except BaseException:
+                    with self.scan_lock:
+                        self.scanning = False
+                    raise
+        when, seen = self.scanned
+        return seen if self.clock() - when <= self.SCAN_STALE_S else None
 
     def state(self, key, nodes):
         if key in self.waiting:

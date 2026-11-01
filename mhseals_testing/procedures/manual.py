@@ -6,6 +6,7 @@ stops, Space clears everything, x / m / Esc leaves. It runs inside the page with
 key reader that reports key releases, so the dashboard stays on screen.
 """
 
+import threading
 import time
 
 from mhseals_hardware.manual_state import ManualState
@@ -13,6 +14,68 @@ from mhseals_testing.runner import Aborted, fold, interlock_abort
 
 EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
 STOP_KEYS = ('space', 'press:space', 'focus-out')
+
+
+CHECK_S = 0.2        # s between interlock evaluations while manual runs
+CHECK_STALE_S = 0.6  # s; an older evaluation (a stuck or dead check) blocks like a tripped interlock
+
+
+def start_thread(work):
+    threading.Thread(target=work, name='manual-interlocks', daemon=True).start()
+
+
+class Interlocks:
+    """The manual interlocks, evaluated off the key loop at most every CHECK_S.
+
+    The blockers ask the ROS graph and read files, too slow to run inside every publish on a loaded
+    computer: the command would go stale at the mux. Calling this answers from the last evaluation
+    and starts the next one (``spawn``, a thread by default) once it is CHECK_S old. An evaluation
+    that raised, or one older than CHECK_STALE_S, is a blocker, never clear.
+    """
+
+    def __init__(self, blockers, clock=time.monotonic, spawn=None):
+        self.blockers, self.clock, self.spawn = blockers, clock, spawn or start_thread
+        self.lock = threading.Lock()
+        self.busy = False
+        self.result = (float('-inf'), ['interlocks not checked yet'])
+        self.check()     # the first press finds a current answer
+
+    def check(self):
+        begun = self.clock()         # the answer is as old as its start
+        try:
+            reasons = list(self.blockers())
+        except Exception as error:   # a check that cannot answer blocks
+            reasons = [f'interlock check failed: {error}']
+        self.result = (begun, reasons)
+
+    def _work(self):
+        try:
+            self.check()
+        finally:
+            with self.lock:
+                self.busy = False
+
+    def refresh(self):
+        """Start the next evaluation when the last one is CHECK_S old and none runs."""
+        if self.clock() - self.result[0] < CHECK_S:
+            return
+        with self.lock:
+            if self.busy:
+                return
+            self.busy = True
+        try:
+            self.spawn(self._work)
+        except BaseException:
+            with self.lock:
+                self.busy = False
+            raise
+
+    def __call__(self):
+        when, reasons = self.result
+        age = self.clock() - when
+        if not age <= CHECK_STALE_S:
+            return [f'interlock check stale: {age:.1f} s old'] + list(reasons)
+        return list(reasons)
 
 
 class GuardedPublisher:
@@ -32,6 +95,9 @@ class GuardedPublisher:
 
     def publish(self, command):
         command = tuple(float(value) for value in command)
+        refresh = getattr(self.blockers, 'refresh', None)
+        if refresh is not None:
+            refresh()            # every loop pass, so the answer stays current while neutral too
         if any(command):
             reasons = self.blockers()
             if reasons:
@@ -79,13 +145,14 @@ def run(ctx):
     kept = manual.get('speed', lambda: None)()   # the speed from the last manual session, if any
     state = ManualState(config['manual_amplitude'] if kept is None else kept, config['manual_repeat_timeout'],
                         config['manual_initial_timeout'], config['manual_yaw_scale'])
-    publisher = GuardedPublisher(manual['plant'], manual['blockers'])
+    clock = manual.get('clock', time.monotonic)
+    publisher = GuardedPublisher(manual['plant'], Interlocks(manual['blockers'], clock, manual.get('spawn')))
     emit = manual.get('emit', lambda *args, **details: None)
     emit('manual_start')
     outcome = dict(outcome='complete', by='operator', cause='exit')
     try:
         with manual['open_events']() as keys:
-            drive(keys, state, publisher, manual['show'], manual.get('clock', time.monotonic))
+            drive(keys, state, publisher, manual['show'], clock)
     except Aborted as error:
         outcome = dict(outcome=str(error), by=error.by, cause=error.cause)
         raise

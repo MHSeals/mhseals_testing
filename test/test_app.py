@@ -1398,16 +1398,19 @@ def test_manual_control_stops_on_an_interlock(tmp_path):
     assert not app.armed and boat.sent[-1] == 'neutral'
 
 
-def test_manual_interlock_trip_is_journaled_as_a_guard_stop(tmp_path):
+def test_manual_interlock_trip_is_journaled_as_a_guard_stop(tmp_path, monkeypatch):
+    from mhseals_testing.procedures import manual
+    monkeypatch.setattr(manual, 'start_thread', lambda work: work())   # each evaluation inline, in order
     app, boat = make_app(tmp_path)
 
     class Tripping(Events):
         def read(self, timeout=None):
-            if len(self.keys) < 4:
+            if len(self.keys) < 10:
                 app.ros.fault = 'executor stopped'  # trips between two drive ticks
             return super().read(timeout)
 
-    app.open_events = lambda: Tripping(app.clock, ['press:w', None, 'repeat:w', None, 'repeat:w', None])
+    # The trip is seen at the next evaluation, CHECK_S after the last: well before the repeats run out.
+    app.open_events = lambda: Tripping(app.clock, ['press:w', None] + ['repeat:w', None] * 8)
     with app.attached():
         arm(app)
         try:

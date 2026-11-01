@@ -227,7 +227,8 @@ def test_state_running_starting_exited_whoever_started_it():
 def test_this_computers_process_table_decides_a_local_part_not_the_graph():
     table = {'mhseals-odometry': {'running': True, 'pid': 42, 'how': 'launch'}}
     processes, clock = FakeProcesses(), [0.0]
-    stack = Stack(items(Profile), processes, lambda: clock[0], scan=lambda specs: dict(table))
+    stack = Stack(items(Profile), processes, lambda: clock[0], scan=lambda specs: dict(table),
+                  spawn=lambda work: work())
     assert stack.state('odometry', set()) == ('running', 'pid 42, not started by this TUI')
     with pytest.raises(ComponentError, match='Odometry runs outside the TUI'):
         stack.stop('odometry', set())          # a shell's process is never stopped from here
