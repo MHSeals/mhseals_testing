@@ -152,6 +152,7 @@ class FusionFeed:
         self.tf = StaticTF()          # kept while closed; /tf_static is redelivered on each open
         self._handles = {}
         self._camera_on = False
+        self.tap = None               # tap(on): node_feed's /points tap, installed only while open
         self._reset()
 
     def _reset(self):
@@ -179,10 +180,14 @@ class FusionFeed:
                                           ('camera_info', topics['camera_info'], self._on_camera_info),
                                           ('tf_static', TF_STATIC, self.on_tf_static)):
                 self._handles[topic] = self._subscribe(kind, topic, callback)
+            if self.tap:
+                self.tap(True)
         elif not on and self._handles:
             for handle in self._handles.values():
                 self._unsubscribe(handle)
             self._handles = {}
+            if self.tap:
+                self.tap(False)
             with self._lock:
                 self._reset()
         camera = bool(on and camera and self.camera is not None)
@@ -221,7 +226,7 @@ class FusionFeed:
             optical = axes_matrix(frame, 'auto')
             p = (cloud_xyz(message, self.cfg['feed']['points_max']) @ R.T + t) @ optical.T
             p = p @ small_rotation(-np.radians(self.applied_deg())).T     # as lidar_fusion associates them
-            rng = np.linalg.norm(p, axis=1)
+            rng = np.hypot(p[:, 0], p[:, 2])          # horizontal rho, as the box labels and lidar_fusion
             front = (p[:, 2] > 0.1) & (rng < self.cfg['feed']['max_range_m'])
             p, rng = p[front], rng[front]
             k = np.asarray(K, float).reshape(3, 3)
@@ -434,5 +439,5 @@ def node_feed(ros, camera=None, cfg=None):
                 feed.on_points(deserialize_message(message, PointCloud2) if isinstance(message, bytes) else message)
             except Exception:
                 pass
-    ros.taps['points'] = points
+    feed.tap = lambda on: ros.taps.update(points=points) if on else ros.taps.pop('points', None)
     return feed

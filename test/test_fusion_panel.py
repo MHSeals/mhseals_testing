@@ -146,6 +146,23 @@ def test_scan_projects_through_static_tf_and_is_rate_limited():
     assert f.points_due()
 
 
+def test_point_range_is_horizontal_as_the_box_labels():
+    """A point 10 m ahead and 3 m up is coloured at 10 m (lidar_fusion's rho), not its 10.44 m ray."""
+    f, _ = ready_feed(lambda: 0.0)
+    f.on_points(cloud([(10.1, 0, 2.9)]))
+    assert f.snapshot()['points'][2][0] == pytest.approx(10.0, abs=1e-3)
+
+
+def test_points_tap_is_installed_only_while_open():
+    f, _, _ = feed()
+    taps = {}
+    f.tap = lambda on: taps.update(points=1) if on else taps.pop('points', None)
+    f.want(True)
+    assert 'points' in taps
+    f.want(False)
+    assert taps == {}
+
+
 def test_applied_correction_moves_points_as_lidar_fusion_does():
     now = [0.0]
     f, _ = ready_feed(lambda: now[0])
@@ -396,6 +413,25 @@ def test_budgeted_link_slows_the_drawings(monkeypatch):
     assert fusion.draw_rate(cfg, 0.5) == fusion.draw_rate(cfg) / 2
 
 
+def test_drawings_slow_further_while_images_exceed_the_budget(monkeypatch):
+    """A dense scan sent 2-4 times the budget at THROTTLE_HZ: over it the drawings halve again."""
+    cfg = fusion_feed.load_config()
+    monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
+    monkeypatch.setattr(pixels, 'rate', lambda now=None: 2 * pixels.SSH_BUDGET)
+    assert fusion.draw_rate(cfg) == min(cfg['draw_hz'], pixels.THROTTLE_HZ) / 2
+    assert fusion.draw_rate(cfg, 0.5) == pixels.THROTTLE_HZ / 4
+
+
+def test_16_colour_ramp_gives_each_band_its_own_hue(monkeypatch):
+    """spd.5/spd.4 are both magenta in 16 colours (beside a red buoy's box); the panel's own ramp is not."""
+    monkeypatch.setattr(fusion.palette, 'detect_tier', lambda env=None: '16')
+    layers = fusion.camera_layers(model()['dets'])
+    styles = fusion.Inks(pixels.Raster(4, 2, cell=fusion.TEXT_CELL), layers).styles
+    ramp = [styles[f'ramp{i}'] for i in range(len(fusion.RAMP))]
+    assert len(set(ramp)) == len(ramp)
+    assert theme.PALETTE.style('obj.red', tier='16') not in ramp
+
+
 def render(view, width, height=34):
     import test_dashboard
     from mhseals_testing.profiles import load_profile
@@ -457,6 +493,26 @@ def test_ascii_uses_layer_characters(text_tier, monkeypatch):
     rows = fusion.camera_rows(model(), fusion_feed.load_config(), 60, 14)
     text = ''.join(r.plain for r in rows)
     assert '#' in text and '.' in text and all(ord(ch) < 128 for ch in text)
+
+
+def test_ascii_boxes_draw_over_points(text_tier, monkeypatch):
+    """At 80 columns a box is a few '#'; points on its corners hid it, so ASCII draws boxes last."""
+    monkeypatch.setattr(theme, 'ASCII', True)
+    m = model()
+    box = m['dets'][0]['box']
+    corners = np.array([(u, v) for u in (box[0], box[2] - 0.001) for v in (box[1], box[3] - 0.001)], np.float32)
+    m['points'] = (10.0, corners, np.full(4, 7.0, np.float32), np.zeros((4, 2), np.float32))
+    rows = fusion.camera_rows(m, fusion_feed.load_config(), 80, 20)
+    for u, v in corners:
+        assert rows[int(v * 20)].plain[int(u * 80)] == '#'
+
+
+def test_ascii_around_labels_keep_a_gap(text_tier, monkeypatch):
+    monkeypatch.setattr(theme, 'ASCII', True)
+    rows = [r.plain for r in fusion.around_rows(model(), fusion_feed.load_config(), 40, 16)]
+    line = next(r for r in rows if '7.0' in r)
+    i = line.index('7.0')
+    assert line[i - 1] == ' ' and line[i - 2] != ' ', line
 
 
 def test_image_tier_draws_tiles_with_label_holes():

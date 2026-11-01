@@ -24,9 +24,11 @@ from rich.console import Group
 from rich.layout import Layout
 from rich.text import Text
 
-from mhseals_testing.ui import pixels, theme
+from mhseals_testing.ui import palette, pixels, theme
 
 RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to far; spd.0 past the last break
+# 16 colours: spd.5/spd.4 are both magenta (near a red buoy's box) and spd.3/spd.2 both yellow, so one hue per band
+RAMP16 = dict(zip(RAMP, ('bright_magenta', 'yellow', 'cyan', 'blue', 'white', 'bright_black')))
 GREYS = 6              # grey levels of the frame behind the points
 CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
@@ -76,7 +78,8 @@ class Inks:
         self.ids = {}
         for name, token in layers:
             self.ids[name] = raster.ink(pixels.token(token))
-        self.styles = {name: theme.PALETTE.style(token) for name, token in layers}
+        ramp16 = RAMP16 if palette.detect_tier() == '16' else {}
+        self.styles = {name: ramp16.get(token) or theme.PALETTE.style(token) for name, token in layers}
         self.order = [name for name, _ in layers]
 
     def __getitem__(self, name):
@@ -120,8 +123,8 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
             paint(r, Inks(r, layers))
         grid = pixels.surface(name, image, cols, rows, key=key, hz=hz, holes=labels)
         return pixels.text_rows(grid, lambda col, row: labels.get((col, row), (' ', None)))
-    held, now = _TEXT.get(name), pixels.clock()
-    if held is not None and held[0][1:] == (cols, rows, theme.ASCII) and (
+    held, now, tier = _TEXT.get(name), pixels.clock(), palette.detect_tier()
+    if held is not None and held[0][1:] == (cols, rows, theme.ASCII, tier) and (
             held[0][0] == key or (hz and now - held[1] < 1.0 / hz)):
         return held[2]
     raster = pixels.Raster(cols, rows, cell=TEXT_CELL)
@@ -132,14 +135,18 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
         if 0 <= row < rows and 0 <= col < cols:
             grid[row][col] = cell
     out = pixels.text_rows(grid)
-    _TEXT[name] = ((key, cols, rows, theme.ASCII), now, out)
+    _TEXT[name] = ((key, cols, rows, theme.ASCII, tier), now, out)
     return out
 
 
 def draw_rate(cfg, budgeted=1.0):
     """Repaints per second: draw_hz, and over a link budget THROTTLE_HZ at most times ``budgeted`` (two big surfaces
-    share the link, so Around takes half the camera's rate)."""
-    return min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted if pixels.BUDGET else cfg['draw_hz']
+    share the link, so Around takes half the camera's rate), halved again while the images send more than the budget
+    (a dense scan: the cap on repaints alone left 2-4 times the budget)."""
+    if not pixels.BUDGET:
+        return cfg['draw_hz']
+    hz = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted
+    return hz / 2 if pixels.rate() > pixels.BUDGET else hz
 
 
 def label_cells(text, col, row, cols, rows, style):
@@ -153,10 +160,12 @@ def label_cells(text, col, row, cols, rows, style):
 # --- Camera ---------------------------------------------------------------------------------------
 
 def camera_layers(dets):
-    """Boxes under the points in text (a braille cell takes its highest layer), so a cluster beside its
-    box stays in range colours; images draw boxes over the points either way."""
-    layers = [(f'box.{token}', token) for token in sorted({class_token(d['cls']) for d in dets})]
-    return layers + [(f'ramp{i}', token) for i, token in enumerate(reversed(RAMP))]
+    """Boxes under the points in braille (a cell takes its highest layer), so a cluster beside its box stays in
+    range colours; in ASCII over them, since a box there is a few '#' and points on its corners hide it. Images
+    draw boxes over the points either way."""
+    boxes = [(f'box.{token}', token) for token in sorted({class_token(d['cls']) for d in dets})]
+    ramp = [(f'ramp{i}', token) for i, token in enumerate(reversed(RAMP))]
+    return ramp + boxes if theme.ASCII else boxes + ramp
 
 
 def paint_camera(model, cfg):
@@ -289,6 +298,8 @@ def around_labels(model, span, cols, rows, cell):
         px, pz = at(*optical_xz(det, det['pos']))
         text = f"{det['range']:.1f}" + (f"{PM}{2 * det['sigma']:.1f}" if det['sigma'] else '')
         col, row = int(px / cell[0]) + 2, int(pz / cell[1])
+        if theme.ASCII:     # the mark spans to the cell of px + 1; one blank cell after it, as braille leaves
+            col, text = int((px + 1) / cell[0]) + 1, ' ' + text
         if col + len(text) > cols:
             col = int(px / cell[0]) - 1 - len(text)
         cells = label_cells(text, col, row, cols, rows, theme.PALETTE.style(class_token(det['cls'])))
@@ -382,10 +393,12 @@ def trend(res, index, buckets=SPARK_COLUMNS):
 
 def readout(model, cfg, status, width=None):
     """Alignment's lines; at ``width`` the check drops ``live`` then its du/dv (the rows below show them), and the
-    correction drops its axis letters, then puts the estimate on its own line. Memoised on the data it reads."""
+    correction drops its axis letters, then puts the estimate on its own line. Memoised on the data it reads (the
+    window's ends, not the version, which every scan bumps) and recomputed each second for the trend's buckets."""
     res, grades = model['residuals'], model.get('grades') or [()]
-    key = (model['version'], len(res), res[-1][1:] if res else None, len(grades), grades[-1][1:], model.get('applied'),
-           width, tuple(sorted(status.items())), theme.ASCII)
+    key = (len(res), res[-1][1:] if res else None, res[0][1:] if res else None, len(grades), grades[-1][1:],
+           grades[0][1:], model.get('applied'), width, tuple(sorted(status.items())), theme.ASCII,
+           palette.detect_tier(), int(pixels.clock()))
     if _READOUT and _READOUT[0] == key:
         return _READOUT[1]
     lines = _readout(model, cfg, status, width)
