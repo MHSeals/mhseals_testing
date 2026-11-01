@@ -149,7 +149,6 @@ MAIN = [
     "sed '\\%x%e ros2 topic pub /cmd_vel x y' f", "printf '1e ros2 topic pub /cmd_vel x y' > s.sed; sed -n -f s.sed f",
     "echo 'ros2 topic pub /cmd_vel x y &' >> ~/.bashrc",
     "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
-    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
     "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv"]
 # New surfaces, and the boat by name, ssh alias or STATIC_LEASES address (config/boat-network.env).
 NEW = [
@@ -167,6 +166,8 @@ BLOCK = MAIN + NEW
 TEXT = [            # Tier A: robot words only inside what grep, echo, git commit, cat, pytest read or print
     "grep -rn 'ros2 topic pub /cmd_vel' src/", "rg 'pkill|killall' src", 'echo "never run ros2 topic pub /cmd_vel"',
     'git commit -m "deny ros2 topic pub /cmd_vel and pkill in the hook"',
+    'git add -A && git commit -m "kill the stale run_task; ros2 topic pub /cmd_vel is denied"',
+    "git add mhseals_testing/agent_hook.py test && git commit -qm 'pkill -f command_mux and ros2 run mhseals_nav run_task blocked'",
     "git commit -F - <<'EOF'\nBlock ros2 topic pub /cmd_vel; ssh blastoise reboot too\nEOF",
     "sed -n '/pkill/p' notes.md | head -5", "sed -nE 's/cmd_vel/x/p;/pkill/p' a b",
     "grep -rn 'pkill' src 2>/dev/null", "rg -n 'cmd_vel' src 2>&1 | head",
@@ -553,13 +554,13 @@ def test_a_heredoc_body_is_data_only_for_a_known_reader(trees):
     for command in (f"python3.12-dbg - <<'EOF'\nimport os; os.system('{write}')\nEOF",
                     f"ipython <<'EOF'\n!{write}\nEOF", f"bash5 <<'EOF'\n{write}\nEOF",
                     f"gdb -batch <<'EOF'\nshell {write}\nEOF", f"sqlite3 <<'EOF'\n.shell {write}\nEOF",
-                    f"mystery-tool <<'EOF'\n{write}\nEOF",
-                    f"cat > notes.md <<'EOF'\nthen {write}\nEOF"):      # a written file's body is searched: denied
+                    f"mystery-tool <<'EOF'\n{write}\nEOF"):
         assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
     prompt = f'Pin the profile, then {write}.'
     for command in (f".handoff/tools/codex-task NAME <<'EOF'\n{prompt}\nEOF", f"codex-ideate X <<'EOF'\n{prompt}\nEOF",
                     f"cat <<'EOF' | grep pin\n{prompt}\nEOF",
-                    "cat > notes.md <<'EOF'\n# Notes\nThe hook now reads heredocs; tests pass.\nEOF"):
+                    "cat > notes.md <<'EOF'\n# Notes\nThe hook now reads heredocs; tests pass.\nEOF",
+                    f"cat > notes.md <<'EOF'\nthen {write}\nEOF"):          # a file written: data
         assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
 
 
@@ -898,3 +899,32 @@ def test_reading_a_live_safety_file_is_never_denied(home_trees, read, name):
     for cwd in (str(live), '/'):
         command = read.format(p=name if cwd != '/' else live / name, w=wt / name, f=name, l=live)
         assert hook.text_only(command) and hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
+
+
+def test_a_heredoc_written_to_a_file_is_data_unless_live_or_run(trees):
+    live, wt, base = trees
+    write = f'sed -i s/false/true/ {live}/config/agent.yaml'
+    body = f"<<'EOF'\nkill 1; pkill -f command_mux; {write}\nEOF"
+    for command in (f'cat > {wt}/notes.md {body}', f'cat >> /tmp/x.txt {body}\nwc -l /tmp/x.txt',
+                    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
+                    f'cat > /tmp/notes.md {body}\ncat /tmp/notes.md',
+                    f'cat {body} > plan.md && git add plan.md && git commit -m "kill the stale run_task"',
+                    f"cat > {wt}/config/agent.yaml <<'EOF'\nhook: {{}}\nEOF"):      # a dev copy
+        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
+    for command in (f"cat > {live}/config/agent.yaml <<'EOF'\nhook: {{}}\nEOF",          # live: protected
+                    f'cat > run.sh {body}\nbash run.sh', f'cat > run.sh {body}\n. ./run.sh',
+                    f'cat > /tmp/r.sh {body}\nchmod +x /tmp/r.sh && /tmp/r.sh', f'cat > r {body}\nsh < r',
+                    f'cat > r {body}\ncat r | sh', f'cat > r {body}\npython3 r',
+                    f'cat > conftest.py {body}\npytest -q', f'cat > Makefile {body}\nmake',
+                    f'cat > $F {body}'):
+        assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
+
+
+def test_a_block_names_the_id_the_agent_claimed_with(sent):
+    assert '--who claude-3f2a' in sent('pre', 'pkill -f command_mux')['deny']     # nothing claimed: the derived id
+    sent('pre', f'{hook.BOAT_AGENT} claim --reason "test" --who claude-fcda')
+    sent('pre', f'{hook.BOAT_AGENT} claim --reason "sub" --who sub-1', agent_id='a1')
+    sent('pre', f'{hook.BOAT_AGENT} status --who $BOAT_AGENT')               # unreadable: keeps the last
+    reason = sent('pre', 'pkill -f command_mux')['deny']
+    assert '--who claude-fcda' in reason and 'claude-3f2a' not in reason
+    assert '--who sub-1' in sent('pre', 'pkill -f command_mux', agent_id='a1')['deny']     # each agent its own

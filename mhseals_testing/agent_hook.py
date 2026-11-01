@@ -354,6 +354,12 @@ def who_of(event):
     return f'{event.get("agent") or "agent"}-{digits or secrets.token_hex(2)}'
 
 
+# The id an agent calls boat_agent with (``--who X``, ``BOAT_AGENT=X``) is its own choice: the playbook from a shell
+# gets 4 random digits, and a subagent's payload id differs from its parent's. The hook remembers the last one each
+# agent used (``agent_event``), so a block names the id that holds its claim, not the one ``who_of`` derives.
+NAMED = re.compile(r'(?:--who(?:=|\s+)|\bBOAT_AGENT=)[\'"]?([\w.@:-]+)')
+
+
 def brief_text(who, config=None):
     """What every session gets at start (and after a compaction or /clear) unless it works on the
     boat: the one rule and where the playbook is, about 100 tokens instead of the playbook's 350."""
@@ -481,7 +487,7 @@ PYTEST_WRITES = ('--junit', '--basetemp', '--result-log', '--report-log', '--deb
                  '--log-file', '-o', '--override-ini', '--lf', '--last-failed', '--ff', '--failed-first', '--sw',
                  '--stepwise', '--cache-clear', '--pastebin', '--rootdir', '--confcutdir', '-p', '-c', '--inifile',
                  '--config-file')
-GIT_READ = {'commit', 'log', 'diff', 'show', 'status'}
+GIT_READ = {'add', 'commit', 'log', 'diff', 'show', 'status'}      # add only stages: git add && git commit -m is text
 _ADDR = r'(\d+|\$|/[^/\n]*/)(,(\d+|\$|/[^/\n]*/))?'
 _SED = rf'({_ADDR})?!?(p|s/[^/\n]*/[^/\n]*/[gpI\d]*)'
 SED_PLAIN = re.compile(rf'{_SED}(;{_SED})*;?')      # print and s/// only: no e, w, r or other delimiters
@@ -569,11 +575,11 @@ READS_STDIN = re.compile(r'codex-task|codex-ideate|cat|head|tail|wc|sort|uniq|cu
 STDIN_SINKS = re.compile(r'\(\s*\)|\balias\b|\bfunction\b')    # a function or alias can hide the reader
 
 
-def code_of(command):
+def code_of(command, cwd=None):
     """``command`` without the heredoc bodies that are only data: the body of ``codex-task N <<'EOF'`` is a
-    prompt, not shell. A body stays when anything could run it: a command in its pipeline that is
-    not a known data reader (``READS_STDIN``), a file written there (``cat > f <<EOF`` may be a script run next,
-    so its body is searched: ordinary notes pass, a live write named in it denies), a pipe
+    prompt, not shell, and ``cat > notes.md <<EOF`` writes a file. A body stays when anything could run it: a
+    command in its pipeline that is not a known data reader (``READS_STDIN``), a file written there that is not
+    plain data (``data_file``: a live protected file, a name the hook cannot read, or one this call uses again), a pipe
     continued past the line, a ``$(...)``, backtick or ``<(...)`` on the line or (unquoted delimiter) in
     the body, a word the hook cannot read (``$X``), or a function or alias in the call."""
     text = command.replace('\\\n', '')
@@ -602,12 +608,49 @@ def code_of(command):
             pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
             data = pipe is not None and not risky and not (
                 not match.group(1) and re.search(r'\$\(|`', '\n'.join(body))) and not any(
-                c['writes'] or any('$' in w for w in c['argv'])
+                not all(data_file(w, text, cwd) for w in c['writes']) or any('$' in w for w in c['argv'])
                 or not READS_STDIN.fullmatch(os.path.basename(next(
                     (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
                 for c in pipe)
             out += ([] if data else body) + ([] if end is None else [end])
     return '\n'.join(out)
+
+
+def data_file(target, command, cwd=None):
+    """``cat > target <<EOF`` in ``command`` only stores its body: ``target`` is a literal name, not a live protected
+    file (``FILES`` unless ``all_dev``), and nothing else in the call names it unless only reading it (``bash f``,
+    ``. f``, ``chmod +x f``, ``cat f | sh`` or ``sh < f`` may run it). A file loaded without being named
+    (``IMPLICIT``: pytest's conftest.py, make's Makefile) is data only when the rest of the call only reads."""
+    if not target or re.search(r'[$`*?\[{]', target) or re.match(r'~(?!/)', target):
+        return False
+    if FILES.search(target) and not all_dev(target, cwd, command):
+        return False
+    base = os.path.basename(target.rstrip('/')) or target
+    word = re.compile(r'(?<![\w.-])(\S*/)?%s(?![\w.-])' % re.escape(base))
+    for part in re.split(r'&&|\|\||[;&\n()]', parse_text(command)):
+        part = re.sub(r'(&?>>?\|?)\s*' + re.escape(target) + r'(?![\w./-])', ' ', part)    # its own write
+        implicit = IMPLICIT.fullmatch(base) and re.search(r'py\.?test', part)        # pytest loads conftest.py
+        if part.strip() and (IMPLICIT.fullmatch(base) or word.search(part)) and (implicit or not text_only(part)):
+            return False
+    return True
+
+
+IMPLICIT = re.compile(r'conftest\.py|(site|user)customize\.py|[^/]*\.pth|(GNU)?[Mm]akefile|\.bashrc|\.profile'
+                      r'|\.envrc|pytest\.ini|tox\.ini|setup\.(py|cfg)|pyproject\.toml|noxfile\.py|justfile')
+
+
+def parse_text(command):
+    """``command`` with every heredoc body taken out (the delimiter lines too)."""
+    lines, kept, i = command.replace('\\\n', '').split('\n'), [], 0
+    while i < len(lines):
+        kept.append(lines[i])
+        i += 1
+        for match in HEREDOC.finditer(kept[-1]):
+            dash = '<<-' in match.group(0)
+            while i < len(lines) and (lines[i].lstrip('\t') if dash else lines[i]) != match.group(2):
+                i += 1
+            i += 1
+    return '\n'.join(kept)
 
 
 def build(tokens, bodies):
@@ -734,7 +777,7 @@ def denied(command, config, cwd=None, who=None):
     ``hook.deny_boat`` when it names a boat (or runs on one)."""
     if text_only(command):
         return None
-    text, names = links(plain(failed_cd(own_text(code_of(command), who))), cwd), boats(config)
+    text, names = links(plain(failed_cd(own_text(code_of(command, cwd), who))), cwd), boats(config)
     alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
     if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
         alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
@@ -1101,6 +1144,14 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
             return {'deny': reason}
     if phase == 'pre':
         blocked = denied(command, config, event.get('cwd'), who)
+    named = NAMED.findall(command) if phase == 'pre' and re.search(r'boat_agent|hook\.py', command) else []
+    if named or blocked:
+        with State(str(event.get('session_id') or 'none'), state_dir) as state:
+            ids = state.data.setdefault('who', {})
+            key = str(event.get('agent_id') or '')
+            if named:
+                ids[key] = named[-1]
+            who = ids.get(key, who)
     if blocked:
         answer, phase = {'deny': deny_reason(*blocked, who=who, config=config)}, 'deny'
     elif not matches(config['match'], command) or matches(config['skip'], command):
