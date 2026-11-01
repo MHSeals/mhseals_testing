@@ -105,3 +105,9 @@ def test_both_modes_record_the_task_streams():
     assert set(task) <= set(lean_topics())
     regex = re.compile(yaml.safe_load((PROFILE.parents[1] / 'bags.yaml').read_text())['exclude_regex'])
     assert [t for t in task if regex.fullmatch(t)] == []
+
+
+def test_lean_profile_records_the_gps_velocity_input_and_its_quality():
+    # /odom/mavros is ekf_local's only velocity source and gps1/raw holds the fix_type and vel_acc behind it.
+    for needed in ('/odom/mavros', '/mavros/gpsstatus/gps1/raw'):
+        assert needed in lean_topics()
