@@ -30,28 +30,21 @@ def test_rose_is_9_by_21_north_up_with_the_hull_at_the_centre():
     rows = plain(conditions.rose(heading=0))
     assert len(rows) == 9 and all(len(row) == 21 for row in rows)
     assert rows[0][10] == 'N' and rows[8][10] == 'S' and rows[4][2] == 'W' and rows[4][19] == 'E'
-    assert rows[4][10:12] == '██' and rows[3][10] in conditions.QUAD   # the solid hull, not a cross
+    assert all('⠀' < ch <= '⣿' for ch in rows[4][9:12])   # the hull in braille dots, not blocks
 
 
-@pytest.mark.skipif(theme.ASCII, reason='the Unicode rose')
 @pytest.mark.parametrize('k', range(16))
-def test_hull_is_solid_with_the_bow_and_bowsprit_ahead(k):
-    """Every 22.5 deg: quadrant cells about the centre, the bow cells foremost, a bowsprit beyond."""
-    cells = conditions.hull_cells(k)
-    assert 4 <= len(cells) <= 12 and {char for char, _ in cells.values()} <= set(conditions.QUAD[1:])
+def test_hull_is_dots_with_its_foremost_quarter_the_bow(k):
+    """Every 22.5 deg: the map's pentagon, the bow dots all ahead of the body's, worn in the bow token,
+    and no block glyph anywhere (the image tier's solid hull, in dots)."""
+    dots = conditions.hull_dots(k * 22.5)
     fx, fy = conditions._polar(k * 22.5, 1.0)
-
-    def ahead(pos):     # dots forward of the centre, from the cell's middle
-        return (pos[0] * 2 + 1 - conditions.CENTRE[0]) * fx + (pos[1] * 4 + 2 - conditions.CENTRE[1]) * fy
-
-    bow = [ahead(pos) for pos, (_, layer) in cells.items() if layer == conditions.BOW]
-    body = [ahead(pos) for pos, (_, layer) in cells.items() if layer == conditions.BOAT]
-    assert bow and body and min(bow) >= max(body) - 2 and max(bow) >= max(body) - 1e-9
-    rows = plain(conditions.rose(heading=k * 22.5))
-    sprit = [(c, r) for r, row in enumerate(rows) for c, ch in enumerate(row)
-             if '⠀' < ch <= '⣿' and (c, r) not in cells and ahead((c, r)) > 0
-             and abs(c - 10) <= 3 and abs(r - 4) <= 2]
-    assert sprit                                                    # the bowsprit's braille dots, ahead
+    bow = [x * fx + y * fy for x, y, layer in dots if layer == conditions.BOW]
+    body = [x * fx + y * fy for x, y, layer in dots if layer == conditions.BOAT]
+    assert bow and len(body) > len(bow) and min(bow) > max(body) - 1
+    rows = conditions.rose(heading=k * 22.5)
+    assert not set(''.join(plain(rows))) & set('▘▝▀▖▌▞▛▗▚▐▜▄▙▟█')
+    assert not theme.MUTED or styles(rows) >= {conditions._token('bow', theme.ACCENT)}
     assert plain(conditions.rose(heading=0)) != plain(conditions.rose(heading=90))   # it turns
 
 
@@ -116,7 +109,7 @@ def test_every_icon_stays_inside_the_ring_clear_of_letters_and_hull(k):
     hull = {(x, y) for x, y, _ in conditions.hull.mask(90.0 - k * 22.5, minimum=conditions.HULL_DOTS)}
     assert not hull & {(ox + x, oy + y) for x, y in shape}
 
-    for j in range(16 if not theme.ASCII else 0):     # any heading: a block cell the icon reaches goes back to dots, so the icon stays whole
+    for j in range(16 if not theme.ASCII else 0):     # any heading: the icon stays whole in braille
         rose = conditions.rose(heading=j * 22.5, command=(math.cos(math.radians((k - j) * 22.5)),
                                                           -math.sin(math.radians((k - j) * 22.5)), 0.0), hue='magenta')
         assert all('⠀' <= rose[row].plain[col] <= '⣿' for col, row in cells)
