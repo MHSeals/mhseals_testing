@@ -143,7 +143,7 @@ def header(snapshot, view, width=120):
     if stopped:      # a stop wins the row; an agent claim on it is named there, never hidden
         return Group(top, chrome.stop_banner(view.get('armed'), width, agent=view.get('agent')))
     if (view.get('operator') or {}).get('state', 'normal') != 'normal' and not view.get('review'):
-        return Group(top, chrome.operator_banner(view['operator'], width))   # outranks the agent banner
+        return Group(top, chrome.operator_banner(view['operator'], width, view.get('agent')))   # names the claim
     if view.get('agent'):
         return Group(top, chrome.banner(view['agent'], width))
     total = health_total(reconcile(view.get('health'), status_rows(snapshot, view['specs'])))

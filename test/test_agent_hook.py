@@ -225,6 +225,16 @@ def test_a_boat_deny_names_the_host_and_the_command():
     assert hook.denied('ssh devbox docker stop x', hook.DEFAULTS) is None
 
 
+def test_the_local_relay_form_is_a_boat_call_like_ssh(monkeypatch):
+    """BOAT_AGENT_TARGET=HOST boat_agent makes the ssh hop itself: the boat rules apply as to ssh HOST boat_agent."""
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    for form in (f'ssh blastoise-odroid {hook.BOAT_AGENT}', f'BOAT_AGENT_TARGET=blastoise-odroid {hook.BOAT_AGENT}'):
+        found = hook.denied(f'{form} status --who x; sudo reboot', hook.DEFAULTS)
+        assert found and found[1] == 'blastoise-odroid', form
+        assert hook.denied(f'{form} status --who x', hook.DEFAULTS) is None
+    assert hook.denied(f'BOAT_AGENT_TARGET=local {hook.BOAT_AGENT} status; sudo reboot', hook.DEFAULTS) is None
+
+
 def test_the_boat_addresses_come_from_the_network_file(tmp_path, monkeypatch):
     (tmp_path / 'config').mkdir()
     (tmp_path / hook.NETWORK).write_text('STATIC_LEASES="aa:bb=boatpc=10.9.8.7 cc:dd=boatpc2=10.9.8.8"\n')

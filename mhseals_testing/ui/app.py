@@ -2903,18 +2903,23 @@ class App:
             desk.take_over()             # manual cancels an agent goal at once, as Space and E do
         if procedure.key == 'm' and not operator_state.paused(operator_state.load()):
             self.set_operator_state('manual', reason='manual control (m)', notice=False)
-        # Only jump to Map once it has a body; otherwise the operator lands on a placeholder.
-        if (self.settings.auto_tab and 'Map' in layout.BODIES
-                and getattr(procedure, 'group', '') in ('Navigate', 'Mission')):
-            self.show_tab('Map')
-        self.running = procedure.title
-        results = len(self.snapshot()['results'])
-        self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
-        self.run_fields = {}   # run-level fields a procedure adds to its run record (mission)
-        self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
-        self.notice = f'Running {procedure.title}'
-        self.health_snapshot('start', procedure)
-        began = self.engine.clock() if self.engine else 0.0
+        try:
+            # Only jump to Map once it has a body; otherwise the operator lands on a placeholder.
+            if (self.settings.auto_tab and 'Map' in layout.BODIES
+                    and getattr(procedure, 'group', '') in ('Navigate', 'Mission')):
+                self.show_tab('Map')
+            self.running = procedure.title
+            results = len(self.snapshot()['results'])
+            self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
+            self.run_fields = {}   # run-level fields a procedure adds to its run record (mission)
+            self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
+            self.notice = f'Running {procedure.title}'
+            self.health_snapshot('start', procedure)
+            began = self.engine.clock() if self.engine else 0.0
+        except BaseException:              # manual never outlives the drive it was set for
+            self.running, self.tags = None, {}
+            self.end_manual(procedure)
+            raise
         aborted, ended = None, dict(outcome='complete', cause=None)
         try:
             try:
@@ -2932,14 +2937,18 @@ class App:
             return
         finally:
             self.running, self.tags = None, {}
-            if procedure.key == 'm' and operator_state.load()['reason'] == 'manual control (m)':
-                self.set_operator_state('normal', reason='manual control ended', notice=False)
+            self.end_manual(procedure)
             self.write_run(procedure, results, aborted, ended)
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
             self.cursors['activity'] = 0
             if not invalid:
                 self.notice = f'{procedure.title} complete'
+
+    def end_manual(self, procedure):
+        """Back to normal when manual control (m) ends, if manual is still the one m set."""
+        if procedure.key == 'm' and operator_state.load()['reason'] == 'manual control (m)':
+            self.set_operator_state('normal', reason='manual control ended', notice=False)
 
     def write_run(self, procedure, start, aborted, ended=None):
         """The one run file for a procedure run: every result it recorded since ``start``, how the

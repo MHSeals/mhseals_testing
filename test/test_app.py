@@ -1351,6 +1351,18 @@ def test_manual_control_declares_operator_manual_and_its_end_normal(tmp_path):
     assert app.notice == 'Manual control ended' and app.ros.events.count('operator_state') == 2
 
 
+def test_a_failure_before_manual_control_starts_leaves_the_operator_state_normal(tmp_path, monkeypatch):
+    from mhseals_testing.harness import operator_state
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    monkeypatch.setattr(app, 'health_snapshot', lambda *a: (_ for _ in ()).throw(RuntimeError('snapshot')))
+    with app.attached():
+        arm(app)
+        with pytest.raises(RuntimeError):
+            app.dispatch('m')
+    assert operator_state.load()['state'] == 'normal' and app.running is None
+
+
 def test_manual_notice_labels_the_chord_modes_like_keyboard_control(tmp_path):
     app, _ = make_app(tmp_path)
     app.console.size = (120, 40)

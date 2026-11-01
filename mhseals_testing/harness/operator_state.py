@@ -20,7 +20,6 @@ DOWN = ('battery_swap', 'power_cycle')       # the boat goes down: the restart m
 LABELS = {'normal': 'normal', 'manual': 'manual', 'battery_swap': 'battery swap', 'power_cycle': 'power cycle'}
 CHIPS = {'manual': 'MANUAL', 'battery_swap': 'BATTERY SWAP', 'power_cycle': 'POWER CYCLE'}
 BOOT_ID = '/proc/sys/kernel/random/boot_id'
-_cache = {}
 
 
 def path():
@@ -48,15 +47,9 @@ def load(target=None):
 
 
 def current(target=None):
-    """``load`` cached by the file's mtime: the header asks every frame."""
-    target = target or path()
-    try:
-        mtime = os.stat(target).st_mtime_ns
-    except OSError:
-        return normal()
-    if _cache.get('key') != (str(target), mtime):
-        _cache.update(key=(str(target), mtime), doc=load(target))
-    return dict(_cache['doc'])
+    """``load``, read each time: the header asks every frame, but the file is small, and a cache keyed on its stat
+    could keep a state two saves in one clock tick replaced."""
+    return load(target)
 
 
 def change(state, eta_s=None, reason='', by='', prev=None, now_ns=None):

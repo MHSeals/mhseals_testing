@@ -202,12 +202,19 @@ def stop_banner(armed, width, agent=None):
     return out
 
 
-def operator_banner(record, width):
-    """`` ⏸ battery swap since 11:30 (ETA 11:40) · agents paused, leases suspended`` with S at the right."""
+def operator_banner(record, width, agent=None):
+    """`` ⏸ battery swap since 11:30 (ETA 11:40) · agents paused, leases suspended`` with S at the right.
+
+    With an agent claim (``agent`` is its banner text) the row names it, ``◆ claude-3f2a · c7 suspended``, ahead of
+    the state's words, so a claim held through the pause is never hidden and its resume on normal is no surprise."""
     keys = 'S state'
     words = operator_state.text(record).removeprefix('operator: ')
-    left = middle_cut(f" {theme.pick('⏸', '||')} {words}{theme.SEPARATOR}agents paused, leases suspended",
-                      max(width - len(keys) - 2, 0))
+    named = [t for t, _ in getattr(agent, 'parts', ())[1:] if t != 'RC override'][:2]     # who, claim id
+    held = f"{theme.AGENT_GLYPH} {theme.SEPARATOR.join(named) or agent} suspended{theme.SEPARATOR}" if agent else ''
+    room = max(width - len(keys) - 2, 0)
+    tail = middle_cut(f"{words}{theme.SEPARATOR}agents paused, leases suspended",
+                      max(room - len(held) - 3, 0)) if room > len(held) + 3 else ''
+    left = middle_cut(f" {theme.pick('⏸', '||')} {held}{tail}", room)
     return Text((left.ljust(max(width - len(keys) - 1, 0)) + keys + ' ')[:width], style=f'bold {theme.WARN}',
                 no_wrap=True)
 

@@ -471,7 +471,7 @@ class AgentDesk:
         if req['op'] in MOTION:
             refusal = self.refusal(req)
             if refusal:
-                return self.reply(req, False, refusal[0], hint=refusal[1])
+                return self.refuse(req, refusal)
             if req.get('dry'):
                 if self.act is not None or self.busy or self.app.running:
                     return self.reply(req, False, 'busy', hint='an act or procedure is running; dry-run after it')
@@ -520,6 +520,9 @@ class AgentDesk:
     def refusal(self, req):
         """(error, hint) when a motion request cannot run now, else None."""
         app, setting = self.app, self.app.settings.agent_motion
+        state = operator_state.current()
+        if operator_state.paused(state):         # a request queued before the pause is refused as it starts too
+            return 'paused', operator_state.refusal(state)
         if setting == 'observe':
             return 'motion_observe', 'operator sets Agent motion to confirm or allow'
         if app.settings.agents == 'block':
@@ -550,6 +553,12 @@ class AgentDesk:
         else:
             agent_acts.goal_args(req['args'])
         return None
+
+    def refuse(self, req, refusal):
+        """Answer ``refusal``'s (error, hint); a paused one carries the operator state, as on_req's does."""
+        paused = refusal[0] == 'paused'
+        return self.reply(req, False, refusal[0], hint=refusal[1],
+                          result={'operator': operator_state.summary(operator_state.current())} if paused else None)
 
     def claim_state(self, claim_id, who):
         """None for ``who``'s active claim, else why not: revoked, expired, released, not_holder."""
@@ -622,7 +631,7 @@ class AgentDesk:
             return
         req = self.queue.pop(0)
         if req['op'] in MOTION and (refusal := self.refusal(req)):
-            return self.reply(req, False, refusal[0], hint=refusal[1])
+            return self.refuse(req, refusal)
         args = req['args']
         label = {'run': ' '.join(filter(None, ('run', agent_acts.procedure(agent_acts.run_key(args))[1],
                                                 agent_acts.run_task(args)))), 'ask': 'ask',

@@ -16,7 +16,7 @@ import json
 import threading
 import time
 
-from mhseals_testing.harness import agent_config
+from mhseals_testing.harness import agent_config, operator_state
 from mhseals_testing.harness.authority import ClaimTable, derive, events
 
 AUTHORITY_TOPIC = '/mhseals_testing/authority'
@@ -25,7 +25,7 @@ MUX_STATE_TOPIC = '/command_mux/state'
 HEARTBEAT_S = 1.0
 TICK_S = 0.25
 # Ack errors and the exit codes the CLI maps them to (spec section 6, agent-control section 3).
-EXIT_CODES = {'busy': 2, 'not_holder': 2, 'revoked': 3, 'expired': 3, 'no_owner': 4, 'blocked': 5}
+EXIT_CODES = {'busy': 2, 'not_holder': 2, 'revoked': 3, 'expired': 3, 'no_owner': 4, 'blocked': 5, 'paused': 7}
 
 
 def exit_code(ack):
@@ -44,7 +44,7 @@ class Arbiter:
     hot-reloaded config/agent.yaml (``agent_config.Watch``): its lease bounds
     agent claims. An expired lease stops the boat exactly as ``revoke`` does.
     While the operator has declared a state other than normal (``pause``), agent
-    leases are suspended, not lapsed: nothing expires and no lease hold is made.
+    leases are suspended, not lapsed: nothing expires and no lease hold is made, and a new claim is refused.
     Renew and release over the topic must name the claim's ``who``.
     """
 
@@ -89,6 +89,8 @@ class Arbiter:
             ack.update(ok=False, error='no_owner')  # no TUI means no banner to show the claim
         elif not self.allow_agents:
             ack.update(ok=False, error='blocked')
+        elif self.paused is not None:            # the desk's paused refusal, for a claim sent on the topic
+            ack.update(ok=False, error='paused', hint=operator_state.refusal(self.paused))
         else:
             claim, holder = self.table.claim(
                 request.get('owner', 'agent'), request.get('who') or 'agent', now,

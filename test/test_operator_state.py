@@ -7,11 +7,13 @@ survives the reboot as ``restarted_after``, and boat_agent names the last state 
 import io
 import json
 import subprocess
+import os
 import time
-from types import MethodType
+from types import MethodType, SimpleNamespace
 
 from mhseals_testing.harness import agent_channel as ch, agent_relay, operator_state as op
-from mhseals_testing.ui import chrome, status_file
+from mhseals_testing.ros.authority import Arbiter
+from mhseals_testing.ui import authority_chip, chrome, layout, status_file
 from mhseals_testing.ui.app import App as RealApp
 
 from test_agent_cli import Reg, call, agent_id  # noqa: F401 (agent_id: fixture)
@@ -177,7 +179,8 @@ def test_the_relay_caches_the_last_state_and_says_unreachable_with_it(tmp_path, 
     out = io.StringIO()
     assert agent_relay.run('blastoise-odroid', ['ask', 'two words'], out=out, popen=popen) == 7
     assert json.loads(out.getvalue())['error'] == 'paused'                # streamed through unchanged
-    assert sent[0][-2] == 'blastoise-odroid' and sent[0][-1].startswith('BOAT_AGENT_TARGET=local ~/astro_dock/')
+    assert sent[0][-3:-1] == ['--', 'blastoise-odroid']
+    assert sent[0][-1].startswith('BOAT_AGENT_TARGET=local ~/astro_dock/')
     assert sent[0][-1].endswith("ask 'two words'")
     out = io.StringIO()
     code = agent_relay.run('blastoise-odroid', ['status'], out=out,
@@ -207,7 +210,7 @@ def test_tools_boat_agent_relays_only_to_another_host(tmp_path):
     assert local.startswith('docker exec -i roboboat_dev')
     remote = subprocess.run([script, 'status'], env=dict(env, BOAT_AGENT_TARGET='blastoise'),
                             capture_output=True, text=True).stdout
-    assert remote.startswith('ssh -o ConnectTimeout=8 -o BatchMode=yes blastoise-odroid BOAT_AGENT_TARGET=local')
+    assert remote.startswith('ssh -o ConnectTimeout=8 -o BatchMode=yes -- blastoise-odroid BOAT_AGENT_TARGET=local')
 
 
 # --- what the operator sees ---------------------------------------------------------------------
@@ -223,3 +226,95 @@ def test_the_header_shows_the_state_chip_and_the_banner_outranks_the_agent_banne
 
 def test_exit_codes_for_pause_and_reach():
     assert [ch.exit_code({'ok': False, 'error': e}) for e in ('paused', 'paused_end', 'unreachable')] == [7, 3, 4]
+
+
+# --- review fixes -------------------------------------------------------------------------------
+
+def test_a_run_queued_before_the_pause_is_refused_paused_when_it_would_start(rig):
+    app = operator(rig)
+    c = claim(rig)
+    app.settings.agent_motion = 'allow'
+    app.modal = 'Operator state'                                            # the S menu is open: the run queues
+    req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c)
+    rig.desk.tick()
+    assert [r['state'] for r in replies(req['id'])] == ['queued']
+    app.set_operator_state('manual')                                        # the operator picks Manual
+    app.modal = None
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['error'] == 'paused' and ch.exit_code(reply) == 7 and reply['result']['operator']['state'] == 'manual'
+    assert [r['state'] for r in replies(req['id'])] == ['queued', 'done'] and rig.desk.act is None
+
+
+def test_a_claim_over_the_claim_topic_is_refused_while_paused():
+    arbiter = Arbiter(lambda record: None, lambda *a, **k: None, tui_owner=True)
+    arbiter.pause(op.change('battery_swap', eta_s=600))
+    ack = arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'claude-3f2a'})
+    assert not ack['ok'] and ack['error'] == 'paused' and 'battery swap' in ack['hint'] and not arbiter.table.claims
+    arbiter.resume()
+    assert arbiter.handle({'op': 'claim', 'request': 'r2', 'who': 'claude-3f2a'})['ok']
+
+
+def test_the_operator_banner_names_a_held_claim_and_stopped_still_wins():
+    claims = [{'id': 'c7', 'who': 'claude-3f2a', 'owner': 'agent', 'state': 'active', 'since_ns': T0,
+               'seen_ns': T0, 'lease_s': 120}]
+    agent = authority_chip.banner({'claims': claims}, T0 / 1e9)
+    line = chrome.operator_banner(op.change('manual'), 120, agent).plain
+    assert 'claude-3f2a · c7 suspended' in line and 'manual since' in line and line.rstrip().endswith('S state')
+    assert len(line) == 120
+    import test_dashboard
+    profile = test_dashboard.load_profile('boat')
+    snapshot = test_dashboard.monitor().snapshot(profile.required_tf)
+
+    def row(**fields):
+        view = test_dashboard.view(profile, armed=False, operator=op.change('manual'), agent=agent, **fields)
+        return test_dashboard.text(layout.header(snapshot, view, 120), 120, 4).splitlines()[1]
+    assert 'claude-3f2a · c7 suspended' in row(authority=('hold', 'HOLD'))
+    stopped = row(authority=('stop', 'STOP'))
+    assert 'STOPPED' in stopped and 'claude-3f2a' in stopped and 'suspended' not in stopped
+
+
+def test_the_relay_takes_only_a_host_name(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'cache'))
+    for bad in ('-oProxyCommand=sh', '../x', 'a b', 'host;id', '', 'h\u00f6st'):
+        out = io.StringIO()
+        assert agent_relay.run(bad, ['status'], out=out, popen=lambda *a, **k: 1 / 0) == 2, bad
+        assert json.loads(out.getvalue())['error'] == 'bad_args'
+    assert agent_relay.HOST.fullmatch('roboboat@blastoise-odroid.local') and agent_relay.HOST.fullmatch('10.0.0.5')
+
+
+def test_a_corrupt_cache_answers_unreachable_with_no_last_state(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'cache'))
+    path = agent_relay.cache_path('blastoise-odroid')
+    path.parent.mkdir(parents=True)
+    good = op.summary(op.change('battery_swap', now_ns=T0))
+    for doc in ('{', '[1]', {'operator': 'x', 'seen_ns': T0}, {'operator': dict(good, since_ns='11:30'), 'seen_ns': T0},
+                {'operator': good, 'seen_ns': 'now'}, {'operator': dict(good, since_ns=10 ** 30), 'seen_ns': T0},
+                {'operator': dict(good, state='normal', restarted_after='x'), 'seen_ns': T0},
+                {'operator': dict(good, reason=['x']), 'seen_ns': T0}):
+        path.write_text(doc if isinstance(doc, str) else json.dumps(doc))
+        reply = agent_relay.unreachable('blastoise-odroid', 'timeout')
+        assert reply['error'] == 'unreachable' and reply['operator'] is None and reply['seen_ns'] is None, doc
+        assert 'no operator state seen yet' in reply['hint']
+    path.write_text(json.dumps({'operator': good, 'seen_ns': T0}))
+    assert agent_relay.unreachable('blastoise-odroid', 'timeout')['operator']['state'] == 'battery_swap'
+
+
+def test_two_saves_in_one_clock_tick_are_both_seen():
+    op.save(op.change('manual', now_ns=T0))
+    assert op.current()['state'] == 'manual'
+    stamp = os.stat(op.path()).st_mtime_ns
+    op.save(op.change('normal', now_ns=T0))
+    os.utime(op.path(), ns=(stamp, stamp))                                  # the same tick
+    assert op.current()['state'] == 'normal'
+
+
+def test_status_names_a_part_start_under_way_while_paused():
+    items = {'ekf': SimpleNamespace(title='EKF'), 'sensors': SimpleNamespace(title='Sensors')}
+    stack = SimpleNamespace(items=items, state=lambda key, nodes: ('starting' if key == 'ekf' else 'running', ''))
+    app = SimpleNamespace(stack=stack, ros=SimpleNamespace(nodes=lambda: []))
+    op.save(op.change('manual'))
+    found = status_file._operator(app, None)
+    assert found['starting_while_paused'] == ['ekf'] and found['text'].endswith('starting while paused: EKF')
+    op.save(op.change('normal'))
+    assert 'starting_while_paused' not in status_file._operator(app, None)

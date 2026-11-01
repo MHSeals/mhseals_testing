@@ -107,7 +107,16 @@ def _agent(app, desk):
 
 
 def _operator(app, desk):
-    return operator_state.summary(operator_state.current())
+    """The operator state; while paused, a part start already under way (not stopped) is named, not hidden."""
+    record = operator_state.current()
+    out, stack = operator_state.summary(record), getattr(app, 'stack', None)
+    if operator_state.paused(record) and stack is not None:
+        nodes = app.ros.nodes()
+        starting = [key for key in stack.items if stack.state(key, nodes)[0] == 'starting']
+        if starting:
+            out['starting_while_paused'] = starting
+            out['text'] += f"; starting while paused: {', '.join(stack.items[key].title for key in starting)}"
+    return out
 
 
 SECTIONS = {'session': _session, 'authority': _authority, 'run': _run, 'health': _health,

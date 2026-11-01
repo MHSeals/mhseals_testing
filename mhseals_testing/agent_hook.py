@@ -1203,11 +1203,13 @@ def own_text(command, who=None):
 BENIGN_GIT = re.compile(r'''(?<![\w$-])(?:-c[ \t]*(['"]?)(?:core|sequence)\.editor=(['"]?)(?:true|:)\2\1'''
                         r'''|GIT_(?:SEQUENCE_)?EDITOR=(['"]?)(?:true|:)\3)(?=[ \t])''')
 # A command runs on a boat computer when this is one, or when the call reaches one: a boat named in a call with a
-# remote shell or transfer (ssh and kin, a remote docker or podman). A boat name in a path, a profile or a container's
-# arguments (docker exec crane_autodemo ... blastoise) does not move the command off this machine.
+# remote shell or transfer (ssh and kin, a remote docker or podman; BOAT_AGENT_TARGET=HOST boat_agent, which makes the
+# ssh hop itself, as ssh HOST boat_agent). A boat name in a path, a profile or a container's arguments (docker exec
+# crane_autodemo ... blastoise) does not move the command off this machine.
 REMOTE = re.compile(r'(?<![\w.-])(ssh|mosh|autossh|sshpass|dbclient|plink|pdsh|pssh|parallel-ssh|clush|ansible[\w-]*'
                     r'|salt[\w-]*|telnet|nc|ncat|socat|curl|wget|scp|sftp|rsync|rsh|rexec|rlogin|paramiko|fabric'
                     r'|asyncssh|pexpect|pxssh|netmiko|telnetlib|socket|sshfs|et|kubectl|tsh)(?![\w.-])|ssh://'
+                    r'|\bBOAT_AGENT_TARGET='
                     r'|\b(docker\s+context\s+use|podman\s+system\s+connection\s+default)\b'
                     r'|\b(DOCKER_HOST|DOCKER_CONTEXT|CONTAINER_HOST|CONTAINER_CONNECTION)='
                     r'|\b(docker|podman)\b[^;&|\n]*\s(-H|--host|--context|-c|--url|--connection|--remote)\b')
