@@ -286,20 +286,58 @@ def row_label(row, active):
     return theme.row(None if plain else row['state'], name, active, prefix=' ' if plain else None)
 
 
-def status_panel(snapshot, view, height):
-    rows = status_rows(snapshot, view['specs'])
-    focused = view['focus'] == 'status'
-    cursor = min(view['cursors'].get('status', 0), max(0, len(rows) - 1))
-    table = theme.grid({'header': '', 'ratio': 1}, {'header': '', 'justify': 'right'},
-                       padding=(0, 0))
-    table.show_header = False
-    budget = max(1, height - 4)
-    groups = {}
-    for row in rows:
-        groups.setdefault(row['group'], []).append(row['state'])
-    cursor_group = rows[cursor]['group'] if rows else None
-    folded = fold_groups(groups, budget, cursor_group)
-    # Entries are heading lines, folded-group lines and rows; the window keeps the cursor row in view.
+LABEL_MIN = 16   # cells a label keeps with its glyph (up to half a narrow column) however long the values: they are cut, not the labels
+VALUE_MIN = 12   # ... but a value this short (a setting's ‹ confirm ›) is never cut for it
+
+
+def net_row(rows, net):
+    """The one line that stands for the collapsed part rows ``net`` (unknown on another computer)."""
+    issue = any(rows[index].get('issue') for index in net)
+    return dict(state='WARN' if issue else 'CHECKING', name='net', required=False,
+                value=f"{len(net)} {'unreachable' if issue else 'unknown'}", short=f'{len(net)} down' if issue else f'{len(net)} ?')
+
+
+class StatusTable:
+    """The Status rows at the column's width: labels keep LABEL_MIN cells (up to half a narrow column) and a
+    longer value is cut, so no long value squeezes the labels out."""
+
+    def __init__(self, rows, visible, net, cursor):
+        self.rows, self.visible, self.net, self.cursor = rows, visible, net, cursor
+
+    def __rich_console__(self, console, options):
+        width = options.max_width
+        room = min(width, max(VALUE_MIN, width - min(LABEL_MIN, width // 2)))
+        table = theme.grid({'header': '', 'ratio': 1}, {'header': '', 'justify': 'right', 'max_width': room},
+                           padding=(0, 0))
+        table.show_header = False
+        for kind, key, count in self.visible:
+            if kind == 'head':
+                table.add_row(Text(key, style=f'{theme.MUTED} bold'), '')
+            elif kind == 'fold':
+                table.add_row(Text(f'{key}  {theme.FOCUS}', style=f'{theme.MUTED} bold'),
+                              Text(f'{count} ok', style=theme.MUTED))
+            elif kind == 'net':
+                row = net_row(self.rows, self.net)
+                value = row['value'] if len(row['value']) < room else row['short']
+                table.add_row(row_label(row, False), Text(f' {value}', style=theme.MUTED))
+            else:
+                row = self.rows[key]
+                active = key == self.cursor
+                if row.get('cell') is not None:     # a row that draws itself at the column width
+                    draw = row.get('draw', RtkCell)
+                    table.add_row(draw(row['cell'], theme.ASCII, theme.CURSOR if active else None), '')
+                    continue
+                value = row['value']
+                # A value keeps a one-cell gutter, so a cut label never runs into it; an empty one gives its cell back.
+                table.add_row(row_label(row, active),
+                              Text(f' {value}' if value else '',
+                                   style=row['style'] if row.get('style') is not None
+                                   else getattr(theme, RATE_STYLE.get(row.get('rate'), 'MUTED'))))
+        yield table
+
+
+def status_entries(groups, folded, net):
+    """Heading lines, folded-group lines and rows in order; the ``net`` rows give one 'net' line in their place."""
     entries, at = [], 0
     for group, states in groups.items():
         if group in folded:
@@ -307,27 +345,38 @@ def status_panel(snapshot, view, height):
         else:
             if group not in HEADERLESS:
                 entries.append(('head', group, 0))
-            entries += [('row', index, 0) for index in range(at, at + len(states))]
+            for index in range(at, at + len(states)):
+                if index not in net:
+                    entries.append(('row', index, 0))
+                elif index == min(net):
+                    entries.append(('net', index, len(net)))
         at += len(states)
+    return entries
+
+
+def status_panel(snapshot, view, height):
+    rows = status_rows(snapshot, view['specs'])
+    focused = view['focus'] == 'status'
+    cursor = min(view['cursors'].get('status', 0), max(0, len(rows) - 1))
+    budget = max(1, height - 4)
+    groups = {}
+    for row in rows:
+        groups.setdefault(row['group'], []).append(row['state'])
+    cursor_group = rows[cursor]['group'] if rows else None
+    folded = fold_groups(groups, budget, cursor_group)
+    # Short of lines, the parts no other computer reports on collapse into one 'net' line, so they
+    # never push the rest of Components out of view; the cursor on one of them shows them all.
+    entries, net = status_entries(groups, folded, set()), set()
+    if len(entries) > budget:
+        net = {index for index, row in enumerate(rows) if row.get('unreached') and row['group'] not in folded}
+        if len(net) < 2 or cursor in net:
+            net = set()
+        elif net:
+            entries = status_entries(groups, folded, net)
+    # The window keeps the cursor row in view.
     place = next((i for i, e in enumerate(entries) if e[0] == 'row' and e[1] == cursor), 0)
     start, visible = window(entries, place, budget)
-    for kind, key, count in visible:
-        if kind == 'head':
-            table.add_row(Text(key, style=f'{theme.MUTED} bold'), '')
-        elif kind == 'fold':
-            table.add_row(Text(f'{key}  {theme.FOCUS}', style=f'{theme.MUTED} bold'),
-                          Text(f'{count} ok', style=theme.MUTED))
-        else:
-            row = rows[key]
-            if row.get('cell') is not None:     # a row that draws itself at the column width
-                draw = row.get('draw', RtkCell)
-                table.add_row(draw(row['cell'], theme.ASCII, theme.CURSOR if focused and key == cursor else None), '')
-                continue
-            # A value keeps a one-cell gutter, so a cut label never runs into it; an empty one gives its cell back.
-            table.add_row(row_label(row, focused and key == cursor),
-                          Text(f" {row['value']}" if row['value'] else '',
-                               style=row['style'] if row.get('style') is not None
-                               else getattr(theme, RATE_STYLE.get(row.get('rate'), 'MUTED'))))
+    table = StatusTable(rows, visible, net, cursor if focused else None)
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=theme.MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row.get('source') == 'sensor' and row['state'] == 'LIVE')

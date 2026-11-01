@@ -1,7 +1,7 @@
 """The device parts as Status rows: host and state, and Enter to start or stop one (with a confirm).
 
-Each row is one Stack component (harness/components.py): ``title  state [on host]``, the state as
-the part's own computer reports it: running whoever started it (who did is in the detail and the
+Each row is one Stack component (harness/components.py): its title and state glyph, the state as
+the part's own computer reports it (``state on host`` is the detail line and Enter's popup): running whoever started it (who did is in the detail and the
 popup), off, starting, exited, or unknown before the first report. A part on another computer
 starts and stops as a unit there (harness/remote.py). A problem past its grace (ui/feeds/issues.py:
 the host not answering, the nodes not discovered here, an exit) adds the issue glyph to the row,
@@ -33,17 +33,16 @@ def rows(stack, nodes, issues=None):
         status, detail = stack.state(item.key, nodes)
         if status not in UP and item.part in WHY_DOWN:
             detail = theme.SEPARATOR.join(filter(None, [WHY_DOWN[item.part], detail]))
-        where = item.remote or 'here'
-        value = status if item.remote is None else f'{status} on {where}'
+        # The row is the name, the state glyph and at most an agent's id and the issue glyph: the
+        # state and its computer are the detail line and Enter's popup, so no host name crowds the column.
         by = getattr(stack, 'by', {}).get(item.key)
-        if by:
-            value += f' by agent {by}'
         found = issues.on_row(item) if issues is not None else []
-        if found:
-            value += ' ' + theme.PALETTE.glyph('issue')
+        value = ' '.join(filter(None, [f'by agent {by}' if by else '', theme.PALETTE.glyph('issue') if found else '']))
         out.append(dict(group='Components', source='part', key=item.key, state=LEVELS[status],
                         name=item.title, value=value,
-                        detail=theme.SEPARATOR.join(filter(None, [f'{item.part} ({item.profile}) on {where}',
+                        unreached=item.remote is not None and status == 'unknown', issue=bool(found),
+                        detail=theme.SEPARATOR.join(filter(None, [f'{status} on {item.remote or "this computer"}',
+                                                                  f'{item.part} ({item.profile})',
                                                                   f'started by agent {by}' if by else '',
                                                                   detail, *found])),
                         required=False))
@@ -74,7 +73,7 @@ def toggle(app, key):
     stopping = status in UP or (status == 'unknown' and stack.running(key))
     verb = 'Stop' if stopping else 'Start'
     where = item.remote or 'this computer'
-    info = [('Computer', where), ('Part', f'{item.part} ({item.profile}, {item.kind})')]
+    info = [('State', status), ('Computer', where), ('Part', f'{item.part} ({item.profile}, {item.kind})')]
     if status in UP and detail:
         info.append(('Owner', detail))          # ownership is a detail, never the state
     if getattr(stack, 'by', {}).get(key):

@@ -283,7 +283,7 @@ def test_a_running_carried_part_is_a_running_row_never_external():
     from mhseals_testing.ui import parts
     stack = Stack(components(Watched, None, (ME, WATCHED_PARTS)), FakeProcesses(), lambda: 0.0)
     rows = {row['key']: row for row in parts.rows(stack, DOGS)}
-    assert rows['watchdogs']['state'] == 'OK' and rows['watchdogs']['value'] == 'running'
+    assert rows['watchdogs']['state'] == 'OK' and rows['watchdogs']['detail'].startswith('running')
     assert all(stack.state(key, DOGS)[0] in parts.LEVELS for key in stack.items)
 
 
