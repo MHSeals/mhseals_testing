@@ -7,6 +7,7 @@ survives the reboot as ``restarted_after``, and boat_agent names the last state 
 import io
 import json
 import subprocess
+import time
 from types import MethodType
 
 from mhseals_testing.harness import agent_channel as ch, agent_relay, operator_state as op
@@ -32,7 +33,7 @@ def test_a_declared_state_saves_reads_back_and_says_since_and_eta():
     record = op.save(op.change('battery_swap', eta_s=600, reason='pack 2', by='operator', now_ns=T0))
     loaded = op.load()
     assert loaded['state'] == 'battery_swap' and loaded['eta_ns'] == T0 + 600 * 10 ** 9 and op.paused(loaded)
-    assert op.text(record) == f'operator: battery swap since {op.clock(T0)} (ETA {op.clock(T0 + 600e9)}) — pack 2'
+    assert op.text(record) == f'operator: battery swap since {op.clock(T0)} {time.strftime("%Z")} (ETA {op.clock(T0 + 600e9)}) — pack 2'
     assert op.summary(loaded)['text'] == op.text(record) and op.current()['state'] == 'battery_swap'
     assert op.text(op.change('normal', eta_s=600)) == 'operator: normal' and not op.change('normal', eta_s=9)['eta_ns']
 

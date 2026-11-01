@@ -100,13 +100,14 @@ def clock(ns):
 
 
 def text(record):
-    """``operator: battery swap since 11:30 (ETA 11:40)`` (and the reason); ``operator: normal``."""
+    """``operator: battery swap since 11:30 CST (ETA 11:40)`` (and the reason; the zone: the boat's containers
+    may run UTC); ``operator: normal``."""
     record = record or normal()
     if not paused(record):
         after = record.get('restarted_after')
         return (f"operator: normal; restarted after {LABELS.get(after.get('state'), '?')} at "
                 f"{clock(after.get('since_ns'))}" if after else 'operator: normal')
-    out = f"operator: {LABELS[record['state']]} since {clock(record.get('since_ns'))}"
+    out = f"operator: {LABELS[record['state']]} since {clock(record.get('since_ns'))} {time.strftime('%Z')}"
     if record.get('eta_ns'):
         out += f" (ETA {clock(record['eta_ns'])})"
     return out + (f" — {record['reason']}" if record.get('reason') else '')
