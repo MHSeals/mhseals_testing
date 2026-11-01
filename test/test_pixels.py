@@ -685,3 +685,24 @@ def test_budget_spacing_never_starves_a_surface(monkeypatch):
     now[0] += 0.3
     pixels.surface('a', paint(40), 4, 2, key=4)
     assert pixels._sizes.get('b', 0) <= 150                # not a's bytes
+
+
+def test_budget_spacing_lets_a_big_surface_through_beside_a_busy_small_one(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    pixels.use('sixel', budget=1000)
+    paint = lambda colour: paint_box((colour, 0, 0))
+    big = pixels.surface('big', paint(1), 4, 2, key=1)
+    pixels.STATS['sixel'] += 850
+    pixels._meter(850)
+    repainted = None
+    for i in range(1, 60):                                 # a small surface keeps the last second from going quiet
+        now[0] += 0.1
+        if i % 5 == 0:
+            pixels.surface('small', paint(i), 4, 2, key=i)
+            pixels.STATS['sixel'] += 20
+            pixels._meter(20)
+        if pixels.surface('big', paint(100 + i), 4, 2, key=100 + i) is not big:
+            repainted = now[0] - 10.0
+            break
+    assert repainted is not None and repainted <= pixels.PAINT_MAX_WAIT_S + 0.2

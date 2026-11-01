@@ -79,6 +79,7 @@ clock = time.monotonic      # s; surface()'s repaint rate (tests run a simulated
 SSH_BUDGET = 25_000         # B/s
 THROTTLE_HZ = 2.0
 PAINT_SIZED_S = 0.5         # s after a repaint the bytes sent still count as its own
+PAINT_MAX_WAIT_S = 1.0 + 1.0 / THROTTLE_HZ   # s since a surface's last repaint after which the spacing lets it through
 SAME_FRAME_S = 0.05         # s within which two surfaces are painted in one frame
 PAINT_SHARE = 0.8           # of the budget the repaints in any one second may add up to
 METER_S = 2.0               # s of image bytes the rate is measured over
@@ -627,9 +628,9 @@ def surface(name, raster_or_paint, cols, rows, key=None, hz=None, holes=(), tile
     if (held is not None and BUDGET and now - held[1] < 1.0 / THROTTLE_HZ
             and held[0][1:] == (cols, rows, GENERATION) and rate(now) > BUDGET):
         return held[2]        # over the link budget: every image repaints at THROTTLE_HZ at most
-    if BUDGET and _painted[0] and paint_waits(name, now):     # a repaint just went out: any image waits
-        if held is not None and held[0][1:] == (cols, rows, GENERATION):    # so no second holds more than the budget
-            return held[2]
+    if (BUDGET and _painted[0] and held is not None and now - held[1] < PAINT_MAX_WAIT_S   # a repaint just went out: an
+            and held[0][1:] == (cols, rows, GENERATION) and paint_waits(name, now)):      # image waits, but never past
+        return held[2]            # PAINT_MAX_WAIT_S, so busy neighbours cannot starve it
     raster = raster_or_paint
     if callable(raster_or_paint):
         raster = Raster(cols, rows)
