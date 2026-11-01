@@ -25,12 +25,14 @@ from collections import deque
 import re
 from dataclasses import replace
 import os
+import socket
 import threading
 import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, journal, sim_arm
+from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, control, journal, sim_arm
+from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
@@ -239,7 +241,7 @@ class AgentDesk:
             return self.reply(req, False, 'expired', hint='sent before this TUI started; nothing was done')
         if time.time_ns() > req['deadline_ns']:
             return self.reply(req, False, 'expired', hint='request deadline passed; nothing was done')
-        handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop,
+        handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop, 'revoke': self.do_revoke,
                    'mark': self.do_mark, 'run': self.enqueue, 'goal': self.enqueue,
                    'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part,
                    **dict.fromkeys(FCU_OPS, self.do_fcu)}.get(req['op'])
@@ -423,6 +425,24 @@ class AgentDesk:
                      **{k: result[k] for k in ('changes', 'snapshot') if k in result})
         self.reply(req, ok, error, result=result, hint=hint)
 
+    def do_revoke(self, req):
+        """A viewer's E (harness/control.py): revoke the active agent claim as the owner's E does. Only a live
+        viewer of this session may: an agent has no revoke verb and its pid is no registered viewer."""
+        entry = (self.registry.read() or {}) if self.registry is not None else {}
+        if not (str(req['who']).startswith('view:') and req.get('host') == socket.gethostname()
+                and control.is_viewer(entry, req.get('pid'), registry_alive)):
+            return self.reply(req, False, 'refused', hint='only a viewer of this session revokes (E)')
+        arbiter = self.arbiter
+        holder = arbiter.table.holder() if arbiter is not None else None
+        if holder is None or holder.get('owner') != 'agent':
+            return self.reply(req, True, result={'revoked': None})
+        viewer = req['who'][len('view:'):]
+        self.cancel('revoked')
+        arbiter.revoke(holder['id'])
+        self.app.emit('viewer_revoke', viewer=viewer, claim=holder['id'], who=holder['who'])
+        self.app.notice = f"Agent {holder['who']} revoked from viewer {viewer}"
+        self.reply(req, True, result={'revoked': holder['id']})
+
     def do_mark(self, req):
         number = journal.next_marker_id(journal.read(self.app.paths.journal))
         self.app.emit('marker', kind='agent', id=number, who=req['who'], note=str(req['args'].get('note', '')),
@@ -587,7 +607,7 @@ class AgentDesk:
             self.busy = False
             act, self.act = self.act, (self.act if keep else None)
             if not keep and act is not None and not act['replied']:   # the TUI is closing or handing over
-                self.finish(act, False, 'handover' if app.detaching else 'cancelled', hint='TUI closed')
+                self.finish(act, False, 'handover' if app.detaching else 'cancelled', hint=self.closed_hint())
 
     def confirm(self, act, title):
         """Under agent_motion confirm, Allow from the human (Refuse is focused); returns True to go on."""
@@ -934,18 +954,24 @@ class AgentDesk:
         self.status_at = self.clock()
         self.status(self.app, self)
 
+    def closed_hint(self):
+        taker = getattr(self.app, 'handed_by', None)
+        return (f'control taken over by {control.name(taker)}; the claim is revoked, claim again only if asked'
+                if taker else 'TUI closed')
+
     def close(self):
-        """Cancel whatever runs: a takeover never inherits an act (S3)."""
+        """Cancel whatever runs: a takeover never inherits an act (S3). A human takeover's hints name the taker."""
+        closed = self.closed_hint()
         if self.act is not None:
             self.cancel('handover' if self.app.detaching else 'cancelled: TUI closed')
             if self.act['op'] == 'goal' and self.act['started']:
                 self.watch_goal(self.act, self.act['cause'])
         self.answer_dry(DRY_CLOSE_S)               # a dry run moves nothing: answer it if it ends now
         if self.dry is not None:
-            self.reply(self.dry[0], False, 'handover' if self.app.detaching else 'cancelled', hint='TUI closed')
+            self.reply(self.dry[0], False, 'handover' if self.app.detaching else 'cancelled', hint=closed)
             self.dry = None
         for req in self.queue:
-            self.reply(req, False, 'handover' if self.app.detaching else 'cancelled', hint='TUI closed')
+            self.reply(req, False, 'handover' if self.app.detaching else 'cancelled', hint=closed)
         self.queue = []
         self.persist()
 

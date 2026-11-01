@@ -104,14 +104,19 @@ class Registry:
     def children(self):
         return self.state().get('children', {})
 
-    def request_handover(self, to_pid, timeout=HANDOVER_TIMEOUT):
-        """Ask the owner to detach (SIGUSR1) and wait for the seat to empty. True if it let go."""
+    def request_handover(self, to_pid, timeout=HANDOVER_TIMEOUT, by=None, revoke=False):
+        """Ask the owner to detach (SIGUSR1) and wait for the seat to empty. True if it let go.
+
+        ``by`` (the taker's registry record) and ``revoke`` (end the agent claim too) are a human
+        takeover's (harness/control.py): the leaving owner names the taker and revokes the claim.
+        """
         owner = self.owner()
         if owner is None:
             return True
         deadline = self.clock() + timeout
         # The keepers read the deadline: an unexpired handover keeps the children alive.
-        self.update(handover={'to': to_pid, 'deadline': deadline})
+        self.update(handover={'to': to_pid, 'deadline': deadline, **({'by': by} if by else {}),
+                              **({'revoke': True} if revoke else {})})
         if self.alive(owner['pid']):
             self.kill(owner['pid'], signal.SIGUSR1)
         while self.clock() < deadline:
@@ -130,9 +135,9 @@ class Registry:
                 entry.update(children={}, handover=None)
         self._locked(change)
 
-    def add_guest(self, pid, node, procedure):
+    def add_guest(self, pid, node, procedure, **info):
         self._locked(lambda entry: entry.setdefault('guests', {}).update(
-            {str(pid): {'node': node, 'procedure': procedure}}))
+            {str(pid): {'node': node, 'procedure': procedure, **info}}))
 
     def remove_guest(self, pid):
         self._locked(lambda entry: entry.setdefault('guests', {}).pop(str(pid), None))

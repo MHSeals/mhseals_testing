@@ -60,7 +60,7 @@ class Boat:
     def neutral(self):
         self.sent.append('neutral')
 
-    def hold(self, cause='keys'):
+    def hold(self, cause='keys', by='tui'):   # Plant.hold's signature: a viewer names itself in by
         self.holds = getattr(self, 'holds', []) + [cause]
 
     def conflicts(self):
@@ -2683,7 +2683,7 @@ def test_operator_space_never_engages_watchers_auto_topic(tmp_path, popup, fails
     app.command = (0.3, 0, 0)
     calls = []
 
-    def hold(cause):
+    def hold(cause, by='tui'):
         calls.append(cause)
         if fails:
             raise RuntimeError('hold failed')
@@ -2819,7 +2819,7 @@ def test_watch_space_stays_held_after_rc_returns_guided(tmp_path, popup):
     mux = Arbitration.from_config(load_defaults()['command_mux'])
     manual = []
 
-    def hold(cause):
+    def hold(cause, by='tui'):
         now = app.clock()
         manual.append((0, 0, 0))
         mux.update_manual(manual[-1], now)
@@ -2850,7 +2850,7 @@ def test_actual_app_manual_space_ends_at_zero_even_on_hold_error(tmp_path, fails
     app.open_events = lambda: events
     stopped = []
 
-    def hold(cause):
+    def hold(cause, by='tui'):
         stopped.append(len(boat.sent))
         assert cause == 'keys'
         if fails:

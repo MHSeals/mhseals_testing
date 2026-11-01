@@ -12,6 +12,7 @@ import signal
 from mhseals_testing.harness.registry import Busy
 
 STOP_WAIT = 40.0   # s: a stopping owner flushes the bag before it exits
+VIEW_WAIT = 15.0   # s: a viewer started during a handover waits this long for the next owner
 
 
 @dataclass
@@ -32,15 +33,32 @@ def describe(state, alive, now):
             f'  Children  {children}', f"  Session   {state.get('session') or '-'}"]
 
 
-def decide(registry, console, me, ask=None):
-    """Claim the seat or let the operator choose; returns a Choice. ``me`` is the owner record."""
+def decide(registry, console, me, ask=None, mode=None):
+    """Claim the seat or let the operator choose; returns a Choice. ``me`` is the owner record.
+
+    ``mode`` skips the menu: ``view`` watches the live owner (waiting VIEW_WAIT for one, as after a
+    takeover the next owner is still starting); ``take`` takes control (harness/control.py): a live owner
+    is asked to hand over and its agent claim is revoked, a stale one's children are adopted. A take
+    that fails falls back to the menu.
+    """
     ask = ask or console.input
+    if mode == 'view':
+        return watch(registry, console)
+    if mode == 'take':
+        state = registry.state()
+        owner = state.get('owner')
+        if owner and owner['pid'] != me['pid'] and registry.alive(owner['pid']):
+            console.print(f"Taking control from pid {owner['pid']}: it stops at neutral and disarms.")
+            if not registry.request_handover(me['pid'], by=me, revoke=True):
+                console.print('It did not let go within 5 s.')
     while True:
         state = registry.state()
         owner = state.get('owner')
         if owner is None or owner['pid'] == me['pid']:
             return claimed(registry, me, state, 'adopt' if state.get('children') else 'own')
         stale = not registry.alive(owner['pid'])
+        if stale and mode == 'take':
+            return claimed(registry, me, state, 'adopt')
         console.print('Session in use' if not stale else 'Stale session (owner gone)')
         for line in describe(state, registry.alive, registry.clock()):
             console.print(line)
@@ -69,6 +87,19 @@ def decide(registry, console, me, ask=None):
             return Choice('watch', watching=owner['pid'], session=state.get('session', ''))
         elif answer == '4':
             return Choice('quit')
+
+
+def watch(registry, console, wait=VIEW_WAIT):
+    end = registry.clock() + wait
+    while True:
+        state = registry.state()
+        owner = state.get('owner')
+        if owner and registry.alive(owner['pid']):
+            return Choice('watch', watching=owner['pid'], session=state.get('session', ''))
+        if registry.clock() >= end:
+            console.print('No live boat_test controls this host: nothing to view (tools/boat_tui up starts one).')
+            return Choice('quit')
+        registry.sleep(0.2)
 
 
 def claimed(registry, me, state, mode):

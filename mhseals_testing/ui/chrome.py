@@ -16,7 +16,7 @@ import time
 
 from rich.text import Text
 
-from mhseals_testing.ui import authority_chip, theme
+from mhseals_testing.ui import authority_chip, control_tracker, theme
 
 BANNER_KEYS = 'E revoke' + theme.SEPARATOR + 'Space stop'
 PROFILE_AT = 100   # the profile shows from this width
@@ -118,8 +118,12 @@ def top_row(view, width):
     work = None if view.get('review') else working_item(view)
     narrow = Text.assemble((' boat_test ', f'bold {theme.ACCENT}'), tab_strip(view.get('tab'), 0))
     lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title, narrow]
-    rights = [(deploy, work, host_item(view)), (deploy, work, host_item(view, True)),
-              (None, work, host_item(view, True)), (None, work, None), (None, None, None)]
+    tracked = view.get('control_tracker')       # the control tracker drops last (ui/control_tracker.py)
+    ctl = control_tracker.item(tracked) if tracked and not view.get('review') else None
+    short = control_tracker.item(tracked, short=True) if ctl else None
+    rights = [(deploy, work, host_item(view), ctl), (deploy, work, host_item(view, True), ctl),
+              (None, work, host_item(view, True), ctl), (None, work, None, ctl), (None, None, None, ctl),
+              (None, None, None, short), (None, None, None, None)]
     for tail in tails:
         for left in lefts:
             for items in rights:

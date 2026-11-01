@@ -20,6 +20,7 @@ global:
   camera: [V]                   # perception popup with View open
   release_hold: [U]             # confirm names who resumes; refused while the RC switch is HOLD/MANUAL
   revoke_agent: [E]             # no confirm; locked while Agents = allow
+  take_control: [O]             # a viewer takes control (confirm); the owner keeps it
   mark: [b]
   mark_note: [B]
   tab_prev: ['[']

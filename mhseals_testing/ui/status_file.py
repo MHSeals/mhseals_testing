@@ -66,6 +66,11 @@ def _authority(app, desk):
             'agents': app.settings.agents, 'agent_motion': app.settings.agent_motion}
 
 
+def _control(app, desk):
+    """The control tracker (harness/control.py): who controls, since when, how many view."""
+    return feeds_module.merged(app.feeds).get('control_tracker')
+
+
 def _run(app, desk):
     return {'running': app.running, 'run_id': app.run_id, 'notice': str(app.notice or ''),
             'notices': list(desk.notices)}
@@ -101,4 +106,5 @@ def _agent(app, desk):
 
 
 SECTIONS = {'session': _session, 'authority': _authority, 'run': _run, 'health': _health,
-            'odometry': _odometry, 'perception': _perception, 'nav2': _nav2, 'agent': _agent}
+            'odometry': _odometry, 'perception': _perception, 'nav2': _nav2, 'agent': _agent,
+            'control': _control}

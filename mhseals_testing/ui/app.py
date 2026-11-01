@@ -16,6 +16,7 @@ from pathlib import Path
 import signal
 import socket
 import subprocess
+import sys
 import textwrap
 import threading
 import time
@@ -33,7 +34,7 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
-from mhseals_testing.harness import host, index, journal, runs, session as session_module, settings
+from mhseals_testing.harness import control, host, index, journal, runs, session as session_module, settings
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, RuntimeStaging
 from mhseals_testing.harness.components import Stack, components
@@ -66,7 +67,8 @@ from mhseals_testing.ui import (
     agent_acts, authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette,
     parts, perception, pixels, popups, theme)
 from mhseals_testing.ui.camera_view import CameraView
-from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, health as health_feed
+from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, control as control_feed, \
+    health as health_feed
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
 from mhseals_testing.ui.feeds.issues import IssuesFeed, settings as issue_settings
 from mhseals_testing.ui.feeds.rtk import RtkFeed
@@ -333,6 +335,7 @@ class App:
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
+        self.handed_by = self.restart_as = None   # the takeover's taker; 'take' or 'view' to restart as one
         self.foreign_seen, self.guests_seen = {}, set()
         self._review_live = None
         self.review = review     # a ui.review.Review while a past session plays; live work is off
@@ -1079,7 +1082,8 @@ class App:
     def driving(self, shared=None):
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
         return authority_chip.driving(shared if shared is not None else feeds_module.merged(self.feeds),
-                                      getattr(self, 'arbiter', None), self.manual, self.running, time.time())
+                                      getattr(self, 'arbiter', None) or getattr(self, 'authority_view', None),
+                                      self.manual, self.running, time.time())
 
     def control(self):
         """``snapshot['control']`` for the Status Control rows."""
@@ -1262,10 +1266,42 @@ class App:
         self.stop('session ended')
         return 'neutral and disarmed' if was_armed else 'were disarmed'
 
+    def client_name(self):
+        """This client as the tracker names it (``boat-v1@host``)."""
+        return control.name(dict(control.identity(), host=socket.gethostname(), pid=os.getpid()))
+
+    def take_control(self):
+        """O: a viewer takes control after a confirm; it restarts as the owner (``--take``, same pid and
+        terminal). The owner stops at neutral, disarms and hands its children over; its agent claim ends."""
+        if not self.watching:
+            self.notice = 'You control this session' if not self.review else 'Review: nothing to control'
+            return
+        tracked = feeds_module.merged(self.feeds).get('control_tracker') or {}
+        ctl = tracked.get('controller') or {}
+        holder = (f"agent {ctl.get('who')} {ctl.get('claim')} via {ctl.get('name')}" if ctl.get('kind') == 'agent'
+                  else ctl.get('name') or f'pid {self.watching}')
+        rows = [('Controller', holder), ('Boat', 'stops at neutral and disarms; you arm it yourself'),
+                ('Agent claim', 'revoked (the agent claims again only if you allow it)'),
+                ('Children', 'keep running; you adopt them'), ('Old client', 'becomes a viewer, told who took over')]
+        try:
+            if self.choose('Take control', ('Cancel', 'Take control'), {'n': 0, 'y': 1}, rows=rows,
+                           danger=True, width=72) != 'Take control':
+                return
+        except Cancelled:
+            return
+        self.restart_as = 'take'
+        self.quit = True
+
     def close_handover(self):
         """Leave the children running, recorded for the successor, and give up the seat."""
         children = self.processes.records()
         handover = (self.registry.state().get('handover') or {}) if self.registry else {}
+        self.handed_by = handover.get('by')
+        if handover.get('revoke'):       # a human takeover: no agent claim passes to the next controller
+            arbiter = getattr(self, 'arbiter', None)
+            holder = arbiter.table.holder() if arbiter is not None else None
+            if holder is not None and holder.get('owner') == 'agent':
+                arbiter.revoke(holder['id'])
         self.ros.emit('handover', to=handover.get('to'))
         self.export()
         if self.registry is not None:
@@ -1559,9 +1595,11 @@ class App:
         if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
             self.open('history')
             return
-        if key in ('E', 'U'):  # Shift bindings of the global scope; never the lowercase procedure letters
+        if key in ('E', 'U', 'O'):  # Shift bindings of the global scope; never the lowercase procedure letters
             if key == 'E':
                 self.revoke_agent()
+            elif key == 'O':
+                self.take_control()
             else:
                 self.release_hold()
             return
@@ -1637,7 +1675,15 @@ class App:
             getattr(self, f'on_{self.focus}', lambda key: None)(key)
 
     def revoke_agent(self):
-        """E: revoke the agent's active claim (stops the boat first); no confirm."""
+        """E: revoke the agent's active claim (stops the boat first); no confirm.
+
+        A viewer has no arbiter: it holds the boat itself at once, then asks the owner's desk to revoke.
+        """
+        if self.watching:
+            self.operator_stop()
+            control.request_revoke(self.client_name())
+            self.notice = 'Stopped; revoke sent to the controller'
+            return
         arbiter = getattr(self, 'arbiter', None)
         holder = arbiter.table.holder() if arbiter is not None else None
         if holder is None or holder.get('owner') != 'agent':
@@ -2630,10 +2676,11 @@ class App:
         """Space requests a sticky manual hold, then always neutralizes and disarms. ``agent`` is the id of an
         agent whose ``stop`` this is (None: the operator's Space); ``stopped_by`` keeps it for the desk's hints."""
         self.command = (0.0, 0.0, 0.0)
-        self.stopped_by = f'agent {agent}' if agent else 'operator'
+        self.stopped_by = f'agent {agent}' if agent else f'viewer {self.client_name()}' if self.watching \
+            else 'operator'
         try:
             if self.plant is not None:
-                self.plant.hold('keys')
+                self.plant.hold('keys', f'view {self.client_name()}') if self.watching else self.plant.hold('keys')
         finally:
             self.stop(f'stopped by {self.stopped_by}')
 
@@ -3027,6 +3074,11 @@ def build_parser():
                              'default the newest) with no ROS node and no outputs')
     parser.add_argument('--output', type=Path, default=None,
                         help='session directory (default a new sessions/<time>_<host>_<profile> under the data root)')
+    seat = parser.add_mutually_exclusive_group()
+    seat.add_argument('--view', action='store_true',
+                      help='start as a viewer of the live session: no commands but Space and E; O takes control')
+    seat.add_argument('--take', action='store_true',
+                      help='take control of the live session: it stops at neutral, disarms and hands over')
     return parser
 
 
@@ -3083,6 +3135,22 @@ def terminal_gone(error):
 def hang_up(*_):
     """SIGHUP and SIGTERM stop like Ctrl+C: neutral, disarm, flush, then exit."""
     raise KeyboardInterrupt
+
+
+def restart_as(app):
+    """(argv, notice) to exec after this session: O in a viewer restarts it as the owner (``--take``); a
+    human takeover restarts the old owner as a viewer, told who took over. None otherwise."""
+    if app is None:
+        return None
+    if app.restart_as == 'take':
+        mode, notice = '--take', 'Taking control'
+    elif app.detaching and app.handed_by:
+        mode, notice = '--view', f'Control taken by {control.name(app.handed_by)}' + (
+            f" ({app.handed_by['from']})" if app.handed_by.get('from') else '') + '; you are viewing'
+    else:
+        return None
+    argv = [arg for arg in sys.orig_argv if arg not in ('--view', '--take')]
+    return [*argv, mode], notice
 
 
 def detach(*_):
@@ -3160,8 +3228,8 @@ def session_main(argv=None):
     console = Console()
     registry = Registry()
     me = dict(pid=os.getpid(), node=node_name(), host=socket.gethostname(), started=time.time(),
-              profile=profile.name, tty=os.ttyname(0) if os.isatty(0) else '')
-    choice = decide(registry, console, me)
+              profile=profile.name, tty=os.ttyname(0) if os.isatty(0) else '', **control.identity())
+    choice = decide(registry, console, me, mode='view' if args.view else 'take' if args.take else None)
     if choice.mode == 'quit':
         return
     watching = choice.watching if choice.mode == 'watch' else 0
@@ -3231,7 +3299,8 @@ def session_main(argv=None):
             subscribe_fcu(ros, monitor, facts, profile.battery)
         subscribe_preflight(ros, facts, profile, lambda: args.hardware_config, registry)
         if watching:   # known to the owner, so it is not flagged as a foreign instance
-            registry.add_guest(os.getpid(), me['node'], 'watch')
+            registry.add_guest(os.getpid(), me['node'], control.VIEW,
+                               **{k: me[k] for k in ('host', 'started', 'tty', 'client', 'from')})
         else:
             registry.update(lambda state: state.update(session=str(paths.directory)))
             start_session(profile, paths.session, paths.truth)
@@ -3265,6 +3334,10 @@ def session_main(argv=None):
         authority = None if watching else authority_feed.start(
             app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
         desk = None if watching else agent_feed.start(app, ros, registry=registry)
+        authority_feed.viewer(app, ros)            # a viewer shows the owner's record; None for the owner
+        control_feed.start(app, registry, emit=None if watching else ros.emit)
+        if os.environ.get('BOAT_TUI_NOTICE'):      # why this client restarted (a takeover), once
+            app.notice = os.environ.pop('BOAT_TUI_NOTICE')
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
@@ -3290,6 +3363,11 @@ def session_main(argv=None):
             rclpy.try_shutdown()
     if app is not None and app.detaching:
         console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
+    restart = restart_as(app)
+    if restart:
+        console.print(restart[1])
+        os.environ['BOAT_TUI_NOTICE'] = restart[1]
+        os.execv(sys.executable, restart[0])
     if app is not None:
         table = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}'},
                                      {'header': '', 'ratio': 1}, padding=(0, 2))

@@ -122,3 +122,48 @@ def subscribe_cmd_vel(ros, feed):
         feed.on_cmd(any(abs(v) > 1e-3 for v in values))
 
     ros.node.create_subscription(TwistStamped if stamped else Twist, topic, on_cmd, 10)
+
+
+class ViewerFeed:
+    """A viewer's authority record: the owner's, as published (latched), with the owner feed's staleness rule.
+
+    The viewer derives nothing (one arbiter, in the owner); ``view`` has the same keys as AuthorityFeed's.
+    """
+
+    def __init__(self, clock=time.time):
+        self.clock = clock
+        self.record, self.at = None, None
+
+    def on_record(self, record):
+        if isinstance(record, dict) and 'owner' in record:
+            self.record, self.at = record, self.clock()
+
+    def tick(self, app, snapshot, now):
+        pass
+
+    def view(self):
+        age = None if self.at is None else self.clock() - self.at
+        stale = is_unknown(self.record, self.clock(), age)
+        return {'authority_record': None if stale else self.record, 'authority_paused': stale}
+
+
+def viewer(app, ros):
+    """A watch guest's feed, subscribed to the owner's record; None for the owner or a review."""
+    if not app.watching or app.review:
+        return None
+    import json
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+    from std_msgs.msg import String
+    feed = ViewerFeed()
+
+    def on_record(message):
+        try:
+            feed.on_record(json.loads(message.data))
+        except ValueError:
+            pass
+    latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    ros.node.create_subscription(String, arbiter_module.AUTHORITY_TOPIC, on_record, latched)
+    app.authority_view = feed                   # the chip reads the record, as the owner's does
+    app.feeds.append(feed)
+    return feed
