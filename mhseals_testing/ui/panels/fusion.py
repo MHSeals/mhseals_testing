@@ -71,6 +71,11 @@ def optical_xz(det, pos):
 
 # --- one paint for every tier ---------------------------------------------------------------------
 
+def ink_style(token):
+    """The text style of a layer token: the panel's own ramp in 16 colours (points and legend alike)."""
+    return (RAMP16.get(token) if palette.detect_tier() == '16' else None) or theme.PALETTE.style(token)
+
+
 class Inks:
     """Layer name -> ink index, allocated in priority order so a text cell takes its highest layer."""
 
@@ -78,8 +83,7 @@ class Inks:
         self.ids = {}
         for name, token in layers:
             self.ids[name] = raster.ink(pixels.token(token))
-        ramp16 = RAMP16 if palette.detect_tier() == '16' else {}
-        self.styles = {name: ramp16.get(token) or theme.PALETTE.style(token) for name, token in layers}
+        self.styles = {name: ink_style(token) for name, token in layers}
         self.order = [name for name, _ in layers]
 
     def __getitem__(self, name):
@@ -112,16 +116,23 @@ def text_cells(raster, inks, chars):
 
 
 _TEXT = {}    # drawing name -> (key, painted at, rows): the text tier repaints only when its data changes
+_LABELS = {}  # drawing name -> (surface grid, labels): an image tile's labels, held until the tile repaints
 
 
 def draw(name, paint, layers, cols, rows, key, labels, hz=None):
     """Text rows of a drawing: image tiles (labels as holes) or braille/ASCII with the labels written in.
 
-    A changed ``key`` repaints at ``hz`` at most (the boxes change every frame); a new size at once."""
+    A changed ``key`` repaints at ``hz`` at most (the boxes change every frame); a new size at once. Labels go with
+    the drawing they were made for: between repaints the held tile keeps its own (its holes are where they were)."""
     if pixels.active() and pixels.images(name):
         def image(r):
             paint(r, Inks(r, layers))
         grid = pixels.surface(name, image, cols, rows, key=key, hz=hz, holes=labels)
+        held = _LABELS.get(name)
+        if held is not None and held[0] is grid:
+            labels = held[1]
+        else:
+            _LABELS[name] = (grid, labels)
         return pixels.text_rows(grid, lambda col, row: labels.get((col, row), (' ', None)))
     held, now, tier = _TEXT.get(name), pixels.clock(), palette.detect_tier()
     if held is not None and held[0][1:] == (cols, rows, theme.ASCII, tier) and (
@@ -141,12 +152,25 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
 
 def draw_rate(cfg, budgeted=1.0):
     """Repaints per second: draw_hz, and over a link budget THROTTLE_HZ at most times ``budgeted`` (two big surfaces
-    share the link, so Around takes half the camera's rate), halved again while the images send more than the budget
+    share the link, so Around takes half the camera's rate), divided by how far the images send over the budget
     (a dense scan: the cap on repaints alone left 2-4 times the budget)."""
     if not pixels.BUDGET:
         return cfg['draw_hz']
     hz = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted
-    return hz / 2 if pixels.rate() > pixels.BUDGET else hz
+    return hz / max(1.0, pixels.rate() / pixels.BUDGET)
+
+
+def link_stride(n, cfg):
+    """Every k-th point so at most ``points_link`` are drawn per paint over a link budget (all of them locally)."""
+    return max(1, -(-n // cfg['feed']['points_link'])) if pixels.BUDGET else 1
+
+
+def scan_stale(model, cfg):
+    """Whether the drawn scan cannot be read against the boxes: the boat is turning (lidar_fusion skipped its frame
+    for motion) or the scan is more than scan_dt_max_s from the boxes' stamp. Not motion compensated, a lagged scan
+    sits off its boxes like an extrinsic error, so it is drawn grey."""
+    dt = model.get('scan_dt')
+    return bool(model.get('motion')) or (dt is not None and abs(dt) > cfg['feed']['scan_dt_max_s'])
 
 
 def label_cells(text, col, row, cols, rows, style):
@@ -164,7 +188,7 @@ def camera_layers(dets):
     range colours; in ASCII over them, since a box there is a few '#' and points on its corners hide it. Images
     draw boxes over the points either way."""
     boxes = [(f'box.{token}', token) for token in sorted({class_token(d['cls']) for d in dets})]
-    ramp = [(f'ramp{i}', token) for i, token in enumerate(reversed(RAMP))]
+    ramp = [('point', 'muted')] + [(f'ramp{i}', token) for i, token in enumerate(reversed(RAMP))]   # point: stale
     return ramp + boxes if theme.ASCII else boxes + ramp
 
 
@@ -182,14 +206,18 @@ def paint_camera(model, cfg):
             r.px[:] = np.asarray(greys, np.uint8)[level]
         scan = model.get('points')
         if scan is not None and len(scan[1]):
-            uv, rng = scan[1], scan[2]
+            step = link_stride(len(scan[1]), cfg)
+            uv, rng = scan[1][::step], scan[2][::step]
             size = max(1, r.cw // 4)
-            bucket = np.searchsorted(breaks, rng, side='right')     # 0: nearer than the first break
-            for b in reversed(range(len(RAMP))):                     # far first, so near points draw on top
-                sel = bucket == b
-                if sel.any():
-                    r.squares(uv[sel, 0] * r.w - size // 2, uv[sel, 1] * r.h - size // 2, size,
-                              inks[f'ramp{len(RAMP) - 1 - b}'])
+            if scan_stale(model, cfg):
+                r.squares(uv[:, 0] * r.w - size // 2, uv[:, 1] * r.h - size // 2, size, inks['point'])
+            else:
+                bucket = np.searchsorted(breaks, rng, side='right')     # 0: nearer than the first break
+                for b in reversed(range(len(RAMP))):                     # far first, so near points draw on top
+                    sel = bucket == b
+                    if sel.any():
+                        r.squares(uv[sel, 0] * r.w - size // 2, uv[sel, 1] * r.h - size // 2, size,
+                                  inks[f'ramp{len(RAMP) - 1 - b}'])
         width = max(1, r.cw // 5)
         for det in model['dets']:
             if det['box'] is None:
@@ -219,7 +247,7 @@ def camera_rows(model, cfg, cols, rows):
                 break
     layers = camera_layers(model['dets'])
     return draw('fusion.camera', paint_camera(model, cfg), layers, cols, rows,
-                (model['version'], model.get('frame') is not None), labels, draw_rate(cfg))
+                (model['version'], model.get('frame') is not None, scan_stale(model, cfg)), labels, draw_rate(cfg))
 
 
 # --- Around (top-down) ----------------------------------------------------------------------------
@@ -262,7 +290,7 @@ def paint_around(model, cfg, span):
             r.squares(cx + ring * scale * np.sin(a), base - ring * scale * np.cos(a), 1, inks['ring'])
         scan = model.get('points')
         if scan is not None and len(scan[3]):
-            xz = scan[3][::max(1, len(scan[3]) // 1500)]
+            xz = scan[3][::max(1, len(scan[3]) // 1500, link_stride(len(scan[3]), cfg))]
             xz = xz[np.hypot(xz[:, 0], xz[:, 1]) <= span]
             r.squares(cx + xz[:, 0] * scale, base - xz[:, 1] * scale, 1, inks['point'])
         dot = max(2, r.cw // 2)
@@ -511,6 +539,24 @@ def config():
     return _CFG[0]
 
 
+def camera_subtitle(model, cfg):
+    """The range legend (in the points' own styles), the point count, the scan's offset from the boxes (grey and
+    ``stale``/``turning`` when scan_stale) and ``no frame`` in an image tier without one."""
+    ramp = Text()
+    for i, token in enumerate(RAMP[:-1]):
+        ramp.append(theme.pick('⣿', '#'), style=ink_style(token))
+        ramp.append(f"{cfg['ramp_m'][i]:g} ", style=theme.MUTED)
+    ramp.append('m', style=theme.MUTED)
+    sub = Text(' ').join([ramp, Text(f"{len(model['points'][1]) if model.get('points') else 0} pts", style=theme.MUTED)])
+    dt, stale = model.get('scan_dt'), scan_stale(model, cfg)
+    tail = ([f'scan {dt:+.2f}s'] if dt is not None else []) + (['turning' if model.get('motion') else 'stale'] * stale)
+    if tail:
+        sub.append(f"{theme.SEPARATOR}{' '.join(tail)}", style=theme.WARN if stale else theme.MUTED)
+    if pixels.active() and model.get('frame') is None:
+        sub.append(f"{theme.SEPARATOR}no frame", style=theme.MUTED)
+    return sub
+
+
 def body(view, width, height, cfg=None):
     """The tab's body; ``view['fusion']`` is the feed snapshot (None: no ROS node in this session)."""
     cfg = cfg or config()
@@ -525,14 +571,7 @@ def body(view, width, height, cfg=None):
     side = max(AROUND_MIN, int(width * AROUND_SHARE))
     cam_cols, cam_rows = camera_size(model, width - side - 8, max(3, height - readout_rows - 2))
     around = (width - cam_cols - 8, height - 2)
-    ramp = Text()
-    for i, token in enumerate(RAMP[:-1]):
-        ramp.append(theme.pick('⣿', '#'), style=theme.PALETTE.style(token))
-        ramp.append(f"{cfg['ramp_m'][i]:g} ", style=theme.MUTED)
-    ramp.append('m', style=theme.MUTED)
-    sub = Text(' ').join([ramp, Text(f"{len(model['points'][1]) if model.get('points') else 0} pts", style=theme.MUTED)])
-    if pixels.active() and model.get('frame') is None:
-        sub.append(f"{theme.SEPARATOR}no frame", style=theme.MUTED)
+    sub = camera_subtitle(model, cfg)
     camera = theme.block(Text('\n').join(camera_rows(model, cfg, cam_cols, cam_rows)), 'Camera', focused, sub)
     around_panel = theme.block(Text('\n').join(around_rows(model, cfg, *around)), 'Around', False)
     align = theme.block(Group(*readout(model, cfg, status, cam_cols)), 'Alignment', False)

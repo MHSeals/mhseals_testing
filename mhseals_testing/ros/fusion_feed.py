@@ -23,13 +23,15 @@ from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_panel.yaml'
 KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
-        'feed': {'points_hz', 'points_max', 'camera_hz', 'camera_width', 'max_range_m', 'residual_s', 'stale_s'},
+        'feed': {'points_hz', 'points_max', 'points_link', 'scan_dt_max_s', 'camera_hz', 'camera_width',
+                 'max_range_m', 'residual_s', 'stale_s'},
         'ramp_m': None, 'rings_m': None, 'draw_hz': None,
         'check': {'near_m', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
                   'range_tol', 'range_fail_tol', 'min_samples'}}
 TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the transforms before the tab opened
 LIDAR_SOURCES = ('lidar', 'split', 'lidar_ray')   # fused rows ranged by the lidar (a hit)
 SCANS = 3            # projected scans held, so boxes pair with the scan nearest their capture
+RAW_S = 0.5          # stereo arrays held (s of stamps), so a fused array pairs with the stereo array of its stamp
 
 
 def load_config(path=CONFIG):
@@ -158,7 +160,9 @@ class FusionFeed:
     def _reset(self):
         self.K = self.size = None
         self.raw = self.fused = None          # (t, frame, [obs]) newest arrays
+        self.raws = deque()                   # stereo arrays within RAW_S of the newest stamp, oldest first
         self.sources = None                   # (t, [label]) of the newest fused array
+        self.skip = None                      # (received, skip cause) of the newest sources JSON
         self.scans = deque(maxlen=SCANS)      # (t, uv Nx2 normalised, range N, optical x/z Mx2 of all in front)
         self.residuals = deque()              # (received, du_px, dv_px)
         self.grades = deque()                 # (received, id, hit, L/S or None): near boxes of fused, unskipped frames
@@ -260,6 +264,16 @@ class FusionFeed:
             return
         with self._lock:
             self.raw, self.version = array, self.version + 1
+            self.raws.append(array)
+            while self.raws and abs(self.raws[0][0] - array[0]) > RAW_S:     # also a stamp jump back (bag loop)
+                self.raws.popleft()
+
+    def _stereo_for(self, fused):
+        """The stereo array a fused array came from (the same stamp; lidar_fusion publishes it a sweep later, when
+        newer stereo arrays have arrived), the newest one without a fused array, else None."""
+        if fused is None:
+            return self.raw
+        return next((a for a in reversed(self.raws) if abs(a[0] - fused[0]) < 1e-6), None)
 
     def _on_fused(self, message):
         try:
@@ -286,6 +300,7 @@ class FusionFeed:
         now = self._clock()
         with self._lock:
             self.sources = (float(doc.get('t', 0.0)), labels)
+            self.skip = (now, str(doc.get('skip') or ''))
             if self.K is not None:
                 for x, y, r_az, r_el in samples:
                     self.residuals.append((now, self.K[0] * (math.tan(math.atan(x) + r_az) - x),
@@ -304,7 +319,7 @@ class FusionFeed:
         if self.fused is None or not self.sources or abs(self.sources[0] - self.fused[0]) > 1e-6 or self.K is None:
             return
         rule, (W, H) = self.rule, self.size
-        dets = [d for d in detections(self.raw, self.fused, self.sources) if d['box'] is not None]
+        dets = [d for d in detections(self._stereo_for(self.fused), self.fused, self.sources) if d['box'] is not None]
         px = [(d['box'][0] * W, d['box'][1] * H, d['box'][2] * W, d['box'][3] * H) for d in dets]
         iso, edge = self.K[0] * math.tan(math.radians(rule['isolation_deg'])), rule['border_px']
         for i, det in enumerate(dets):
@@ -339,12 +354,15 @@ class FusionFeed:
                     self.version += 1
         with self._lock:
             fresh = self._points_at is not None and now - self._points_at < stale + 1.0 / self.cfg['feed']['points_hz']
-            dets = detections(self.raw, self.fused, self.sources)
+            dets = detections(self._stereo_for(self.fused), self.fused, self.sources)
             t = (self.fused or self.raw or (None,))[0]
             scan = min(self.scans, key=lambda s: abs(s[0] - t)) if self.scans and t is not None else (
                 self.scans[-1] if self.scans else None)
+            # lidar_fusion skipped its newest frame for motion (the boat turning): the unmotion-compensated scan is off
+            motion = self.skip is not None and self.skip[1] == 'motion' and now - self.skip[0] < stale
             return {'version': self.version, 'size': self.size, 'K': self.K, 'dets': dets,
                     'fused': self.fused is not None, 'points': scan if fresh else None,
+                    'scan_dt': scan[0] - t if fresh and scan is not None and t is not None else None, 'motion': motion,
                     'frame': None if self.frame is None else self.frame[0],
                     'residuals': [(t - now, du, dv) for t, du, dv in self.residuals],
                     'grades': [(t - now, i, hit, ratio) for t, i, hit, ratio in self.grades],

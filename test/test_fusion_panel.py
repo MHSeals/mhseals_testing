@@ -378,6 +378,29 @@ def test_hits_pool_per_object_over_the_window():
     assert level == 'WARN' and 'near 1/1' in why, why        # hit rate 25% < hit_rate_min
 
 
+def test_fused_array_pairs_with_the_stereo_array_of_its_stamp():
+    """lidar_fusion publishes frame t after the sweep and TF wait, when stereo t + 1/30 (boxes jittered) has arrived.
+    Paired with the newest stereo array, the near box lost its stereo range: no grade, PASS while L/S was 1.14."""
+    now = [100.0]
+    f, cb = ready_feed(lambda: now[0])
+    box, moved = (0.4, 0.4, 0.45, 0.6), (0.401, 0.4, 0.451, 0.6)
+    for t in (10.0, 10.1, 10.2):
+        now[0] += 0.1
+        cb[f.cfg['topics']['observations']](array([ob('red_buoy', box, (0, 0, 7.0), oid='a')], t=t))
+        cb[f.cfg['topics']['observations']](array([ob('red_buoy', moved, (0, 0, 7.05), oid='a')], t=t + 1 / 30))
+        cb[f.cfg['topics']['fused']](array([ob('red_buoy', box, (0, 0, 8.0), oid='a')], t=t))
+        cb[f.cfg['topics']['sources']](NS(data=json.dumps({'t': t, 'sources': ['lidar'], 'skip': '',
+                                                            'ex': [[0, 0, 7, 0, 0.0005, 0.0003, 0, 0]] * 2})))
+    snap = f.snapshot()
+    det, = snap['dets']
+    assert det['stereo'] == pytest.approx(7.0) and det['range'] == pytest.approx(8.0)
+    assert [g[1:] for g in snap['grades']] == [('a', True, pytest.approx(8 / 7))] * 3
+    level, why = fusion.check(snap, f.cfg)
+    assert level == 'FAIL' and 'L/S 1.14' in why, why
+    cb[f.cfg['topics']['fused']](array([ob('red_buoy', box, (0, 0, 8.0), oid='a')], t=9.0))   # older than RAW_S
+    assert f.snapshot()['dets'][0]['stereo'] is None
+
+
 def test_panel_check_keys_match_fusion_calib():
     c = fusion_feed.load_config()['check']
     assert {'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'range_tol', 'range_fail_tol'} <= set(c)
@@ -430,6 +453,68 @@ def test_16_colour_ramp_gives_each_band_its_own_hue(monkeypatch):
     ramp = [styles[f'ramp{i}'] for i in range(len(fusion.RAMP))]
     assert len(set(ramp)) == len(ramp)
     assert theme.PALETTE.style('obj.red', tier='16') not in ramp
+
+
+def test_16_colour_legend_matches_the_points(monkeypatch, text_tier):
+    """The legend took the shared spd tokens (magenta, magenta, yellow, yellow, blue) while the points took RAMP16."""
+    monkeypatch.setattr(fusion.palette, 'detect_tier', lambda env=None: '16')
+    layers = fusion.camera_layers(model()['dets'])
+    styles = fusion.Inks(pixels.Raster(4, 2, cell=fusion.TEXT_CELL), layers).styles
+    points = [str(styles[f'ramp{len(fusion.RAMP) - 1 - i}']) for i in range(len(fusion.RAMP) - 1)]
+    sub = fusion.camera_subtitle(model(), fusion_feed.load_config())
+    legend = [str(span.style) for span in sub.spans if sub.plain[span.start:span.end] == theme.pick('⣿', '#')]
+    assert legend == points and len(set(points)) == len(points)
+
+
+def test_scan_far_from_the_boxes_or_while_turning_is_grey(text_tier):
+    """No motion compensation here: a lagged scan sits off its boxes like an extrinsic error, so it is drawn grey
+    and the subtitle says how far it is from the boxes."""
+    cfg = fusion_feed.load_config()
+    fresh = {**model(), 'scan_dt': 0.1, 'motion': False}
+    assert not fusion.scan_stale(fresh, cfg)
+    assert fusion.scan_stale({**fresh, 'scan_dt': -0.4}, cfg) and fusion.scan_stale({**fresh, 'motion': True}, cfg)
+
+    def look(m):
+        fusion._TEXT.clear()
+        rows = fusion.camera_rows(m, cfg, 60, 14)
+        return {str(span.style) for r in rows for span in r.spans}
+    grey, ramp = str(theme.PALETTE.style('muted')), str(theme.PALETTE.style('spd.5'))
+    assert ramp in look(fresh)
+    stale = look({**fresh, 'motion': True})
+    assert grey in stale and ramp not in stale
+
+    def subtitle(m):
+        return fusion.camera_subtitle(m, cfg).plain
+    assert subtitle(fresh).endswith('scan +0.10s')
+    assert subtitle({**fresh, 'scan_dt': -0.4}).endswith('scan -0.40s stale')
+    assert subtitle({**fresh, 'motion': True}).endswith('scan +0.10s turning')
+
+
+def test_feed_reports_scan_dt_and_motion():
+    now = [0.0]
+    f, cb = ready_feed(lambda: now[0])
+    f.on_points(cloud([(10.1, 0, -0.1)], t=9.8))
+    assert f.snapshot()['scan_dt'] == pytest.approx(-0.2) and not f.snapshot()['motion']
+    cb[f.cfg['topics']['sources']](NS(data='{"t": 10, "sources": [], "skip": "motion"}'))
+    assert f.snapshot()['motion']
+
+
+def test_points_per_paint_are_capped_over_a_link_budget(monkeypatch):
+    cfg = fusion_feed.load_config()
+    assert fusion.link_stride(3000, cfg) == 1
+    monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
+    assert -(-3000 // fusion.link_stride(3000, cfg)) <= cfg['feed']['points_link']
+    drawn = []
+    raster = pixels.Raster(40, 10, cell=fusion.TEXT_CELL)
+    monkeypatch.setattr(raster, 'squares', lambda xs, ys, size, ink: drawn.append((ink, len(xs))))
+    m = model()
+    n = 3000
+    m['points'] = (10.0, np.random.default_rng(1).uniform(0, 1, (n, 2)).astype(np.float32),
+                   np.full(n, 7.0, np.float32), np.zeros((n, 2), np.float32))
+    inks = fusion.Inks(raster, fusion.camera_layers(m['dets']))
+    fusion.paint_camera(m, cfg)(raster, inks)
+    points = {inks[name] for name in inks.order if name.startswith(('ramp', 'point'))}
+    assert 0 < sum(n for ink, n in drawn if ink in points) <= cfg['feed']['points_link']
 
 
 def render(view, width, height=34):
@@ -522,6 +607,27 @@ def test_image_tier_draws_tiles_with_label_holes():
         text = ''.join(r.plain for r in rows)
         assert any(0xF0000 <= ord(ch) <= 0xFFFFD for ch in text)     # sixel marker cells
         assert '7.0L/7.3S' in text                                    # the label stays terminal text
+    finally:
+        pixels.use('text')
+
+
+def test_image_labels_stay_with_their_tile_until_it_repaints(monkeypatch):
+    """Between repaints the old tile's holes were filled with the new frame's labels: '22.0S' read ' 22.0'."""
+    now = [100.0]
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
+    cfg = fusion_feed.load_config()
+    pixels.use('sixel', cell=(10, 20))
+    try:
+        m = model()
+        first = ''.join(r.plain for r in fusion.camera_rows(m, cfg, 48, 12))
+        moved = model()
+        moved['version'] = 2
+        moved['dets'][0] = {**moved['dets'][0], 'box': (0.12, 0.1, 0.17, 0.25), 'range': 4.0}
+        held = ''.join(r.plain for r in fusion.camera_rows(moved, cfg, 48, 12))   # within 1/draw_hz: the old tile
+        assert held == first and '7.0L/7.3S' in held and '4.0L' not in held
+        now[0] += 1.0 / cfg['draw_hz']
+        fresh = ''.join(r.plain for r in fusion.camera_rows(moved, cfg, 48, 12))
+        assert '4.0L' in fresh and '7.0L' not in fresh
     finally:
         pixels.use('text')
 
