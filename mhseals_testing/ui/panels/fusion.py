@@ -27,8 +27,10 @@ from rich.text import Text
 from mhseals_testing.ui import palette, pixels, theme
 
 RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to far; spd.0 past the last break
-# 16 colours: spd.5/spd.4 are both magenta (near a red buoy's box) and spd.3/spd.2 both yellow, so one hue per band
-RAMP16 = dict(zip(RAMP, ('bright_magenta', 'yellow', 'cyan', 'blue', 'white', 'bright_black')))
+# 16 colours: spd.5/spd.4 are both magenta (near a red buoy's box) and spd.3/spd.2 both yellow, so one hue per band;
+# yellow is left to the stale scan (warn)
+RAMP16 = dict(zip(RAMP, ('bright_magenta', 'green', 'cyan', 'blue', 'white', 'bright_black')))
+STALE = 'warn'         # the whole scan in one ink no band uses while it cannot be read against the boxes
 GREYS = 6              # grey levels of the frame behind the points
 CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
@@ -37,7 +39,7 @@ AROUND_MIN = 24        # Around's least width beside the camera column
 AROUND_SHARE = 0.3     # and its least share of the width
 TEXT_CELL = (2, 4)     # braille dots per cell
 BITS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))
-ASCII = {'point': '.', 'ring': '.', 'fov': '.', 'stereo': 'o', 'bar': '|', 'box': '#', 'ray': '*', 'det': '@', 'boat': '^'}
+ASCII = {'point': '.', 'stale': ':', 'ring': '.', 'fov': '.', 'stereo': 'o', 'bar': '|', 'box': '#', 'ray': '*', 'det': '@', 'boat': '^'}
 DEG = theme.pick('°', 'deg')
 PM = theme.pick('±', '+-')
 SPARK_COLUMNS = 12
@@ -150,14 +152,28 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
     return out
 
 
-def draw_rate(cfg, budgeted=1.0):
-    """Repaints per second: draw_hz, and over a link budget THROTTLE_HZ at most times ``budgeted`` (two big surfaces
-    share the link, so Around takes half the camera's rate), divided by how far the images send over the budget
-    (a dense scan: the cap on repaints alone left 2-4 times the budget)."""
+LINK_SHARE = 0.9      # of the link budget the drawings aim at
+RATE_S = 5.0          # s between rate updates over a link budget: a few repaints of ~10 kB each, so one is not noise
+_HZ = {}              # drawing name -> (repaints per second, set at, image bytes sent by then)
+
+
+def draw_rate(cfg, name, budgeted=1.0):
+    """Repaints per second: draw_hz, and over a link budget at most THROTTLE_HZ times ``budgeted`` (two big surfaces
+    share the link, so Around takes half the camera's rate), resized every RATE_S from the image bytes the held rate
+    sent: ``hz * LINK_SHARE * BUDGET / sent``. A map from the rate alone (rate / BUDGET, or its square) settles above
+    the budget; this settles near LINK_SHARE of it (a dense scan left 1.1-2 times the budget)."""
     if not pixels.BUDGET:
         return cfg['draw_hz']
-    hz = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted
-    return hz / max(1.0, pixels.rate() / pixels.BUDGET)
+    top, now, total = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted, pixels.clock(), pixels.STATS['upload'] + pixels.STATS['sixel']
+    held = _HZ.get(name)
+    if held is not None and now - held[1] < RATE_S and total >= held[2]:
+        return held[0]
+    hz = top
+    if held is not None and total >= held[2]:
+        hz = held[0] * LINK_SHARE * pixels.BUDGET * (now - held[1]) / max(total - held[2], 1.0)
+    hz = min(top, max(top / 16, hz))
+    _HZ[name] = (hz, now, total)
+    return hz
 
 
 def link_stride(n, cfg):
@@ -168,7 +184,7 @@ def link_stride(n, cfg):
 def scan_stale(model, cfg):
     """Whether the drawn scan cannot be read against the boxes: the boat is turning (lidar_fusion skipped its frame
     for motion) or the scan is more than scan_dt_max_s from the boxes' stamp. Not motion compensated, a lagged scan
-    sits off its boxes like an extrinsic error, so it is drawn grey."""
+    sits off its boxes like an extrinsic error, so it is drawn in the STALE ink and the subtitle leads with it."""
     dt = model.get('scan_dt')
     return bool(model.get('motion')) or (dt is not None and abs(dt) > cfg['feed']['scan_dt_max_s'])
 
@@ -188,7 +204,7 @@ def camera_layers(dets):
     range colours; in ASCII over them, since a box there is a few '#' and points on its corners hide it. Images
     draw boxes over the points either way."""
     boxes = [(f'box.{token}', token) for token in sorted({class_token(d['cls']) for d in dets})]
-    ramp = [('point', 'muted')] + [(f'ramp{i}', token) for i, token in enumerate(reversed(RAMP))]   # point: stale
+    ramp = [('stale', STALE)] + [(f'ramp{i}', token) for i, token in enumerate(reversed(RAMP))]
     return ramp + boxes if theme.ASCII else boxes + ramp
 
 
@@ -210,7 +226,7 @@ def paint_camera(model, cfg):
             uv, rng = scan[1][::step], scan[2][::step]
             size = max(1, r.cw // 4)
             if scan_stale(model, cfg):
-                r.squares(uv[:, 0] * r.w - size // 2, uv[:, 1] * r.h - size // 2, size, inks['point'])
+                r.squares(uv[:, 0] * r.w - size // 2, uv[:, 1] * r.h - size // 2, size, inks['stale'])
             else:
                 bucket = np.searchsorted(breaks, rng, side='right')     # 0: nearer than the first break
                 for b in reversed(range(len(RAMP))):                     # far first, so near points draw on top
@@ -247,7 +263,7 @@ def camera_rows(model, cfg, cols, rows):
                 break
     layers = camera_layers(model['dets'])
     return draw('fusion.camera', paint_camera(model, cfg), layers, cols, rows,
-                (model['version'], model.get('frame') is not None, scan_stale(model, cfg)), labels, draw_rate(cfg))
+                (model['version'], model.get('frame') is not None, scan_stale(model, cfg)), labels, draw_rate(cfg, 'fusion.camera'))
 
 
 # --- Around (top-down) ----------------------------------------------------------------------------
@@ -343,7 +359,7 @@ def around_rows(model, cfg, cols, rows):
               + [(f'det.{t}', t) for t in tokens] + [('boat', 'boat')])
     cell = pixels.CELL if pixels.active() and pixels.images('fusion.around') else TEXT_CELL
     return draw('fusion.around', paint_around(model, cfg, span), layers, cols, rows,
-                (model['version'], span), around_labels(model, span, cols, rows, cell), draw_rate(cfg, 0.5))
+                (model['version'], span), around_labels(model, span, cols, rows, cell), draw_rate(cfg, 'fusion.around', 0.5))
 
 
 # --- Alignment ------------------------------------------------------------------------------------
@@ -358,7 +374,7 @@ def check(model, cfg):
 
     Hits and L/S come from the feed's ``grades``: the near boxes lidar_fusion samples (stereo < near_m, a sample
     class, clear of the edge, isolated) of the frames the fusion processed, pooled per object over the residual
-    window; an object fails only if it never got a hit."""
+    window; an object fails only if it never got a hit. With no graded box at all the check WARNs (``near 0``)."""
     c = cfg['check']
     res = model['residuals']
     if len(res) < c['min_samples']:
@@ -382,7 +398,10 @@ def check(model, cfg):
         hits.append(hit)
         if ratio is not None:
             ratios.append(ratio)
-    if objects:
+    if not objects:               # no near box paired with its stereo array: du/dv alone is not fusion_calib's check
+        why.append('near 0')
+        worse('WARN')
+    else:
         hit = [o for o in objects.values() if any(o[0])]
         why.append(f'near {len(hit)}/{len(objects)}')
         if len(hit) < len(objects):
@@ -540,18 +559,24 @@ def config():
 
 
 def camera_subtitle(model, cfg):
-    """The range legend (in the points' own styles), the point count, the scan's offset from the boxes (grey and
-    ``stale``/``turning`` when scan_stale) and ``no frame`` in an image tier without one."""
+    """The range legend (in the points' own styles), the point count, the scan's offset from the boxes and ``no frame``
+    in an image tier without one. A stale scan leads with ``TURNING``/``STALE`` and its offset (the title row cuts
+    the tail at 80 columns; the word carries it without colour)."""
+    dt, stale = model.get('scan_dt'), scan_stale(model, cfg)
+    offset = f'scan {dt:+.2f}s' if dt is not None else ''
+    sub = Text()
+    if stale:
+        sub.append('TURNING' if model.get('motion') else 'STALE', style=f'bold {ink_style(STALE)}'.strip())
+        sub.append(f' {offset}{theme.SEPARATOR}' if offset else theme.SEPARATOR, style=theme.MUTED)
     ramp = Text()
     for i, token in enumerate(RAMP[:-1]):
         ramp.append(theme.pick('⣿', '#'), style=ink_style(token))
         ramp.append(f"{cfg['ramp_m'][i]:g} ", style=theme.MUTED)
     ramp.append('m', style=theme.MUTED)
-    sub = Text(' ').join([ramp, Text(f"{len(model['points'][1]) if model.get('points') else 0} pts", style=theme.MUTED)])
-    dt, stale = model.get('scan_dt'), scan_stale(model, cfg)
-    tail = ([f'scan {dt:+.2f}s'] if dt is not None else []) + (['turning' if model.get('motion') else 'stale'] * stale)
-    if tail:
-        sub.append(f"{theme.SEPARATOR}{' '.join(tail)}", style=theme.WARN if stale else theme.MUTED)
+    sub.append_text(Text(' ').join([ramp, Text(f"{len(model['points'][1]) if model.get('points') else 0} pts",
+                                               style=theme.MUTED)]))
+    if offset and not stale:
+        sub.append(f'{theme.SEPARATOR}{offset}', style=theme.MUTED)
     if pixels.active() and model.get('frame') is None:
         sub.append(f"{theme.SEPARATOR}no frame", style=theme.MUTED)
     return sub

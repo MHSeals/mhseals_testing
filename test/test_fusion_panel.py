@@ -329,7 +329,7 @@ def graded(boxes_per_frame):
 def test_held_and_skipped_frames_are_neither_hit_nor_miss():
     """Clean residuals with a held box at 6 m read near 0/1 FAIL before; skipped frames ('motion') are left out."""
     grades, (level, why) = graded([([('a', 6.0, 6.0, 'held')], '')] * 3 + [([('a', 6.0, 6.0, 'stereo')], 'motion')] * 3)
-    assert grades == [] and level == 'PASS', why
+    assert grades == [] and level == 'WARN' and 'near 0' in why, why         # nothing graded: not a PASS
     grades, (level, why) = graded([([('a', 6.0, 6.1, 'lidar')], '')] + [([('a', 6.0, 6.0, 'stereo')], 'no_scan')] * 4)
     assert len(grades) == 1 and level == 'PASS' and 'near 1/1' in why, why
 
@@ -430,19 +430,36 @@ def test_readout_marks_a_kept_correction_stale():
 
 def test_budgeted_link_slows_the_drawings(monkeypatch):
     cfg = fusion_feed.load_config()
-    assert fusion.draw_rate(cfg) == cfg['draw_hz'] and fusion.draw_rate(cfg, 0.5) == cfg['draw_hz']
+    monkeypatch.setattr(fusion, '_HZ', {})
+    assert fusion.draw_rate(cfg, 'a') == cfg['draw_hz'] and fusion.draw_rate(cfg, 'b', 0.5) == cfg['draw_hz']
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
-    assert fusion.draw_rate(cfg) == min(cfg['draw_hz'], pixels.THROTTLE_HZ)
-    assert fusion.draw_rate(cfg, 0.5) == fusion.draw_rate(cfg) / 2
+    assert fusion.draw_rate(cfg, 'a') == min(cfg['draw_hz'], pixels.THROTTLE_HZ)
+    assert fusion.draw_rate(cfg, 'b', 0.5) == fusion.draw_rate(cfg, 'a') / 2
 
 
-def test_drawings_slow_further_while_images_exceed_the_budget(monkeypatch):
-    """A dense scan sent 2-4 times the budget at THROTTLE_HZ: over it the drawings halve again."""
+def test_drawing_rate_settles_under_the_budget(monkeypatch):
+    """rate / BUDGET (or its square) settles above the budget: a drawing that sends a fixed number of bytes a repaint
+    settles at LINK_SHARE of the budget, and the rate comes back once the scan thins."""
     cfg = fusion_feed.load_config()
+    now = [100.0]
+    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
-    monkeypatch.setattr(pixels, 'rate', lambda now=None: 2 * pixels.SSH_BUDGET)
-    assert fusion.draw_rate(cfg) == min(cfg['draw_hz'], pixels.THROTTLE_HZ) / 2
-    assert fusion.draw_rate(cfg, 0.5) == pixels.THROTTLE_HZ / 4
+    monkeypatch.setattr(pixels, 'STATS', {'upload': 0, 'sixel': 0, 'tiles': 0})
+    per_paint = 3 * pixels.SSH_BUDGET / pixels.THROTTLE_HZ             # 3 x the budget at THROTTLE_HZ
+
+    def run(seconds):
+        for _ in range(int(seconds * 10)):
+            now[0] += 0.1
+            hz = fusion.draw_rate(cfg, 'cam')
+            pixels.STATS['sixel'] += per_paint * hz * 0.1                  # the bytes that rate sends
+        return hz
+    run(4 * fusion.RATE_S)
+    t0, b0 = now[0], pixels.STATS['sixel']
+    run(4 * fusion.RATE_S)
+    assert (pixels.STATS['sixel'] - b0) / (now[0] - t0) == pytest.approx(fusion.LINK_SHARE * pixels.SSH_BUDGET, rel=0.02)
+    per_paint /= 10
+    assert run(4 * fusion.RATE_S) == min(cfg['draw_hz'], pixels.THROTTLE_HZ)
 
 
 def test_16_colour_ramp_gives_each_band_its_own_hue(monkeypatch):
@@ -478,7 +495,7 @@ def test_scan_far_from_the_boxes_or_while_turning_is_grey(text_tier):
         fusion._TEXT.clear()
         rows = fusion.camera_rows(m, cfg, 60, 14)
         return {str(span.style) for r in rows for span in r.spans}
-    grey, ramp = str(theme.PALETTE.style('muted')), str(theme.PALETTE.style('spd.5'))
+    grey, ramp = str(theme.PALETTE.style(fusion.STALE)), str(theme.PALETTE.style('spd.5'))
     assert ramp in look(fresh)
     stale = look({**fresh, 'motion': True})
     assert grey in stale and ramp not in stale
@@ -486,8 +503,10 @@ def test_scan_far_from_the_boxes_or_while_turning_is_grey(text_tier):
     def subtitle(m):
         return fusion.camera_subtitle(m, cfg).plain
     assert subtitle(fresh).endswith('scan +0.10s')
-    assert subtitle({**fresh, 'scan_dt': -0.4}).endswith('scan -0.40s stale')
-    assert subtitle({**fresh, 'motion': True}).endswith('scan +0.10s turning')
+    assert subtitle({**fresh, 'scan_dt': -0.4}).startswith('STALE scan -0.40s')
+    assert subtitle({**fresh, 'motion': True}).startswith('TURNING scan +0.10s')
+    stale_ink = fusion.ink_style(fusion.STALE)
+    assert stale_ink not in {fusion.ink_style(t) for t in fusion.RAMP}
 
 
 def test_feed_reports_scan_dt_and_motion():
@@ -722,6 +741,46 @@ c = Console(width=100, height=30, file=io.StringIO(), force_terminal=True,
 c.print(fusion.body(T.tab_view(), 100, 30), height=30)
 sys.stdout.write(c.file.getvalue())
 '''
+
+
+STALE_SNIPPET = '''
+import io, sys
+sys.path.insert(0, "test")
+from rich.console import Console
+from mhseals_testing.ui import palette, pixels, theme
+from mhseals_testing.ui.panels import fusion
+import test_fusion_panel as T
+pixels.use("text")
+w, h = int(sys.argv[1]), int(sys.argv[2])
+m = {**T.model(), "scan_dt": 0.12, "motion": True}
+c = Console(width=w, height=h, file=io.StringIO(), force_terminal=True,
+            color_system={"mono": None, "16": "standard", "256": "256", "truecolor": "truecolor"}[palette.detect_tier()])
+c.print(fusion.body({**T.tab_view(), "fusion": m}, w, h), height=h)
+styles = {fusion.ink_style(t) for t in fusion.RAMP}
+sys.stdout.write(f"{palette.detect_tier()}|{fusion.ink_style(fusion.STALE) in styles}|" + c.file.getvalue())
+'''
+
+
+@pytest.mark.parametrize('env, tier', [({'TERM': 'xterm'}, '16'), ({'TERM': 'xterm-256color', 'NO_COLOR': '1'}, 'mono'),
+                                       ({'TERM': 'xterm-256color', 'MHS_ASCII': '1'}, None)])
+@pytest.mark.parametrize('size', [(80, 24), (80, 30), (100, 30)])
+def test_turning_scan_is_said_at_80_columns(env, tier, size):
+    """The word came last in the title row and was cut at 80 and 100 columns; in 16 colours the grey scan was the
+    >50 m band's bright_black, and NO_COLOR had no cue. It now leads the title, in an ink no band uses."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    base = {k: v for k, v in os.environ.items() if k not in ('NO_COLOR', 'MHS_ASCII', 'CX_ASCII', 'COLORTERM', 'TERM')}
+    base['PYTHONPATH'] = os.pathsep.join([str(root), base.get('PYTHONPATH', '')])
+    out = subprocess.run([sys.executable, '-c', STALE_SNIPPET, *map(str, size)], env={**base, **env}, cwd=root,
+                         capture_output=True, text=True, timeout=60, check=True).stdout
+    got_tier, shared, screen = out.split('|', 2)
+    assert tier is None or got_tier == tier
+    assert shared == 'False' or got_tier == 'mono'                    # mono: no hue, the word carries it
+    title = next(line for line in screen.splitlines() if 'Camera' in line)
+    assert 'TURNING' in title, title
 
 
 @pytest.mark.parametrize('env, braille, colour', [
