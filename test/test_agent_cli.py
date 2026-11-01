@@ -126,6 +126,20 @@ def test_run_sim_arm_asks_the_desk_to_sim_arm():
     assert [r['args'] for r in lines('req')] == [{'key': 'square', 'sim_arm': True}, {'key': 'square'}]
 
 
+def test_run_set_and_set_send_the_settings_and_a_malformed_one_sends_nothing():
+    desk = Desk(lambda req: [dict(state='done', result={})])
+    call(['run', 'thrust_physics', '--set', 'thrust_step=survey', '--set', 'auto_tab=off', '--claim', 'c4'], desk)
+    call(['set', 'thrust_step=pulses', '--claim', 'c4'], desk)
+    assert [(r['op'], r['args']) for r in lines('req')] == [
+        ('run', {'key': 'thrust_physics', 'settings': {'thrust_step': 'survey', 'auto_tab': 'off'}}),
+        ('set', {'settings': {'thrust_step': 'pulses'}})]
+    for argv in (['run', 'thrust_physics', '--set', 'survey', '--claim', 'c4'],
+                 ['set', 'thrust_step=a', 'thrust_step=b', '--claim', 'c4']):
+        code, out = call(argv, desk)
+        assert code == 2 and out[-1]['error'] == 'bad_args' and 'KEY=VALUE' in out[-1]['hint']
+    assert len(lines('req')) == 2
+
+
 def test_dry_run_sends_dry_and_does_not_renew():
     desk = Desk(lambda req: [dict(state='done', result={'blockers': []})])
     code, _ = call(['goal', '3', '-4.5', '0.5', '--claim', 'c4', '--dry-run'], desk)
@@ -279,6 +293,7 @@ def test_cli_registers_every_verb():
         assert parser.parse_args([verb, *{'release': ['--claim', 'c'], 'run': ['k', '--claim', 'c'],
                                           'start': ['odometry', '--claim', 'c'], 'fcu': ['get', 'SCHED_LOOP_RATE'],
                                           'goal': ['1', '2', '--claim', 'c'], 'note': ['t'],
+                                          'set': ['thrust_step=survey', '--claim', 'c'],
                                           'ask': ['q']}.get(verb, [])]).command == verb
 
 

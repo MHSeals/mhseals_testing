@@ -1,4 +1,4 @@
-"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, mark, note, ask.
+"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, set, fcu, mark, note, ask.
 
 Spec agent-control section 3. ROS-free except ``stop``'s backup path. A verb appends a ``req``
 line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI runs the act
@@ -10,6 +10,7 @@ saw), 5 agents blocked, 6 timeout, 7 paused (the operator declared manual, batte
 says since when and the ETA: wait for normal). No verb releases a hold, and none arms a boat: only ``run --sim-arm``
 arms, and only a stack every harness/sim_arm.py check proves a simulator. ``start COMPONENT`` and
 ``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:`` lists, as its Status row does.
+``run KEY --set K=V`` and ``set K=V`` (claimed) change a setting agent.yaml ``settings:`` lists, as the operator does.
 """
 
 import json
@@ -25,7 +26,7 @@ from mhseals_testing.harness import agent_channel as channel, operator_state
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
-VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'fcu', 'mark', 'note', 'ask')
+VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'set', 'fcu', 'mark', 'note', 'ask')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
@@ -60,6 +61,12 @@ def add_parsers(sub):
                      help='sim only: arm a verified sim for this run, disarm after (harness/sim_arm.py)')
     run.add_argument('--mission-profile', help="mission only: mhseals_nav's mission profile (qualifying, finals; "
                      "else the nav YAML's own); it sets the run budget")
+    run.add_argument('--set', action='append', default=[], metavar='KEY=VALUE', dest='settings',
+                     help="a setting agent.yaml settings: lists for this procedure (e.g. thrust_step=survey), "
+                          'applied before the run starts; repeatable')
+    setting = verb('set', "change settings agent.yaml settings: lists, as the operator's Settings change "
+                   '(disarmed and idle)', claim=True)
+    setting.add_argument('settings', nargs='+', metavar='KEY=VALUE')
     goal = verb('goal', 'send a map-frame goal through the TUI', claim=True)
     for name in ('x', 'y'):
         goal.add_argument(name, type=float)
@@ -187,7 +194,19 @@ class Agent:
             args['sim_arm'] = True
         if getattr(self.args, 'mission_profile', None):
             args['profile'] = self.args.mission_profile
+        if getattr(self.args, 'settings', None):
+            args['settings'], hint = assignments(self.args.settings)
+            if hint:
+                return self.bad(hint)
         return self.send('run', args, self.args.claim, self.args.dry_run)
+
+    def set(self):
+        settings, hint = assignments(self.args.settings)
+        return self.bad(hint) if hint else self.send('set', {'settings': settings}, self.args.claim)
+
+    def bad(self, hint):
+        self.emit({'ok': False, 'error': 'bad_args', 'hint': hint})
+        return channel.EXIT_CODES['bad_args']
 
     def goal(self):
         args = {'x': self.args.x, 'y': self.args.y, 'yaw': self.args.yaw}
@@ -411,6 +430,17 @@ def follow(agent, until=None, timeout=None, claim=None):
             channel.renew(agent.who, claim, None, path=agent.path)
             renewed = now
         agent.sleep(POLL_S)
+
+
+def assignments(words):
+    """(``{key: value}``, None) from ``KEY=VALUE`` words, or (None, hint)."""
+    out = {}
+    for word in words:
+        key, separator, value = word.partition('=')
+        if not separator or not key.strip() or key.strip() in out:
+            return None, f'{word!r}: expected KEY=VALUE, each key once'
+        out[key.strip()] = value.strip()
+    return out, None
 
 
 SHARED_WHO = {'', 'agent', 'agent-0000'}     # the old defaults: every agent that copied them was one principal

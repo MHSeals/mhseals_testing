@@ -306,6 +306,19 @@ def test_focus_moves_and_keys_act_on_the_focused_panel(tmp_path):
     assert app.quit and app.live is None
 
 
+def test_an_agent_setting_takes_the_settings_path_with_a_notice_toast_and_journal_line(tmp_path):
+    from mhseals_testing.harness import settings
+    app, _ = make_app(tmp_path)
+    app.set_setting('thrust_step', 'survey', who='claude-3f2a')
+    assert app.settings.thrust_step == 'survey' and settings.load().thrust_step == 'survey'   # saved, as a row change
+    assert app.notice == 'agent claude-3f2a set thrust_step=survey'
+    assert any(t.text == app.notice for t in app.toasts.visible(app.monitor.clock(), False))
+    assert ('setting', {'key': 'thrust_step', 'old': 'bollard', 'value': 'survey', 'by': 'agent',
+                        'who': 'claude-3f2a'}) in [(p, {k: d[k] for k in ('key', 'old', 'value', 'by', 'who')})
+                                                   for p, d in app.ros.lines]
+    assert app.watcher.watches['settings'].warning is None          # our own save, not a hand edit
+
+
 @pytest.mark.parametrize('up', ['up', 'k'])
 def test_status_cursor_walks_sensors_frames_and_system(tmp_path, up):
     app, _ = make_app(tmp_path)

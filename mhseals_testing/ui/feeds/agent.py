@@ -41,7 +41,7 @@ from mhseals_testing.ui import agent_acts, parts, theme
 
 MOTION = ('run', 'goal')
 # a refusal of these is a footer notice too, not only an agent-log row
-NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'fcu_set', 'fcu_restart', 'fcu_revert')
+NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'fcu_set', 'fcu_restart', 'fcu_revert')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
@@ -250,7 +250,7 @@ class AgentDesk:
                               result={'operator': operator_state.summary(state)})
         handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop, 'revoke': self.do_revoke,
                    'mark': self.do_mark, 'run': self.enqueue, 'goal': self.enqueue,
-                   'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part,
+                   'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part, 'set': self.do_set,
                    **dict.fromkeys(FCU_OPS, self.do_fcu)}.get(req['op'])
         if handler is None:
             return self.reply(req, False, 'bad_op', hint=f"unknown op {req['op']!r}")
@@ -375,6 +375,47 @@ class AgentDesk:
                                        "which is not an agent's: ask the operator")
         return None
 
+    def do_set(self, req):
+        """boat_agent set KEY=VALUE: settings agent.yaml ``settings:`` lists, as the operator's Settings change, under
+        the agent's claim, while disarmed and idle (the TUI's held-settings rule); a notice, toast and journal line."""
+        app = self.app
+        if app.settings.agents == 'block':
+            return self.reply(req, False, 'blocked', hint='operator must set Agents to allow')
+        if not req.get('claim'):
+            return self.reply(req, False, 'unknown_claim', hint='set needs your claim: --claim ID')
+        found = self.claim_state(req['claim'], req['who'])
+        if found:
+            return self.reply(req, False, found, hint='claim again' if found != 'not_holder' else 'use your own claim')
+        values, refusal = self.settings_of(req, agent_config.settable(self.config.get()))
+        if refusal is None and not values:
+            refusal = 'bad_args', 'set KEY=VALUE [KEY=VALUE ...]'
+        if refusal is None and app.armed:
+            refusal = 'refused', 'armed: set only while disarmed and idle (run KEY --set K=V applies before a run)'
+        if refusal:
+            return self.reply(req, False, refusal[0], hint=refusal[1])
+        self.apply_settings(values, req['who'])
+        self.reply(req, True, result={'set': values})
+
+    def settings_of(self, req, allowed, idle=True):
+        """(``{key: parsed value}``, None) for the request's ``settings``, or (None, (error, hint)): an unknown,
+        unlisted, never or out-of-choices key, or with ``idle`` any while a procedure, act or manual drive runs."""
+        asked = req['args'].get('settings') or {}
+        if not isinstance(asked, dict):
+            return None, ('bad_args', 'settings is {key: value}')
+        values = {}
+        for key, value in asked.items():
+            values[key], refusal = agent_config.setting_refusal(str(key), value, allowed)
+            if refusal:
+                return None, refusal
+        app = self.app
+        if idle and values and (app.running or app.manual or self.act is not None or self.busy):
+            return None, ('busy', 'a procedure or act is running: settings change between runs, never mid-segment')
+        return values, None
+
+    def apply_settings(self, values, who):
+        for key, value in values.items():
+            self.app.set_setting(key, value, who=who)
+
     def fcu_work(self):
         """The AgentFcu over this TUI's MavrosLink (ros/fcu.py, the one MAVROS path) and node."""
         if self.fcu is None:
@@ -478,6 +519,9 @@ class AgentDesk:
                 if req['op'] == 'goal':
                     return self.start_dry(req)
                 result = agent_acts.dry_run(self.app, req['op'], req['args'], self.app.settings.agent_motion)
+                if req['args'].get('settings'):
+                    result = dict(result, set=self.settings_of(req, agent_config.settable(
+                        self.config.get(), result['procedure']))[0])
                 if req['args'].get('sim_arm') and not self.app.armed:
                     _, checks = self.sim_checks()
                     why = sim_arm.refusal(checks)
@@ -550,6 +594,9 @@ class AgentDesk:
                 return 'bad_args', 'sim_arm is true or absent'
             if req['args'].get('sim_arm') and not sim_arm.enabled(self.config.get()['sim_arm']):
                 return 'not_allowed', f'sim-arm is off (agent.yaml sim_arm.enabled, {sim_arm.ENABLE_ENV}=1 in the sim)'
+            refusal = self.settings_of(req, agent_config.settable(self.config.get(), name))[1]
+            if refusal:
+                return refusal
         else:
             agent_acts.goal_args(req['args'])
         return None
@@ -678,9 +725,14 @@ class AgentDesk:
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
         task = agent_acts.run_task(act['req']['args'])
         sim = 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm')
+        values, refusal = self.settings_of(act['req'], agent_config.settable(self.config.get(), name), idle=False)
+        if refusal:                              # agent.yaml changed since the request was read: never a wrong step
+            return self.finish(act, False, refusal[0], hint=refusal[1])
         if not self.confirm(act, f"Agent {act['who']}: run {name}{' ' + task if task else ''}"
-                                 f"{' · sim-arm' if sim else ''} · allow?"):   # Allow arms the sim too
+                                 + ''.join(f' {k}={v}' for k, v in values.items())
+                                 + f"{' · sim-arm' if sim else ''} · allow?"):   # Allow arms the sim too
             return False
+        self.apply_settings(values, act['who'])  # before the run starts (and before any arming)
         if sim:
             if not self.arm_sim(act):
                 return False

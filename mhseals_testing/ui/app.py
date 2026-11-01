@@ -1767,10 +1767,8 @@ class App:
             self.mark_note() if raw == 'B' else self.mark()
         elif key in ('+', '=', '-', '_'):
             step = 0.05 if key in ('+', '=') else -0.05
-            self.settings.amplitude = round(min(1.0, max(0.05, self.settings.amplitude + step)), 2)
+            self.set_setting('amplitude', round(min(1.0, max(0.05, self.settings.amplitude + step)), 2))
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
-            settings.save(self.settings)
-            self.watcher.reload('settings')   # our own save is not a hand edit
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
               and not (self.focus == 'activity' and key == 'v')
@@ -3178,6 +3176,18 @@ class App:
     def emit(self, phase, **details):
         """Journal an event stamped with the running procedure; explicit details win."""
         self.ros.emit(phase, **{**self.tags, **details})
+
+    def set_setting(self, key, value, who=None):
+        """Change one setting as the operator's Settings change does: the value, the saved file (our own save, not
+        a hand edit) and a journal line; an agent's (``who``) is a notice and a toast naming it too."""
+        old = getattr(self.settings, key)
+        setattr(self.settings, key, value)
+        settings.save(self.settings)
+        self.watcher.reload('settings')
+        self.emit('setting', key=key, old=old, value=value, by='agent' if who else 'operator', who=who)
+        if who:
+            self.notice = f'agent {who} set {key}={value}'
+            self.toasts.push(f'agent.setting.{key}', 'warn', self.notice, self.monitor.clock())
 
     def record(self, result):
         if self.run_id:

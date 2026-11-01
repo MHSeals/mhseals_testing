@@ -161,6 +161,11 @@ class App:
         self.is_armed = self.arm_answer and not self.agent_arm_why
         return self.agent_arm_why
 
+    def set_setting(self, key, value, who=None):
+        self.calls.append(('set', key, value))
+        setattr(self.settings, key, value)
+        self.emit('setting', key=key, value=value, by='agent' if who else 'operator', who=who)
+
     def disarm(self, reason='disarmed', by='operator'):
         self.calls.append(('disarm', reason, by))
         self.is_armed = False
@@ -1372,3 +1377,95 @@ def test_the_status_rows_switches_reach_the_desk():
                           desk=SimpleNamespace(setting_changed=lambda: seen.append('desk')))
     BoatApp.toggle_agents(app)
     assert app.settings.agents == 'block' and seen == ['desk'] and app.notice == 'Agents block'
+
+
+# --- settings: run KEY --set K=V and set K=V (agent.yaml settings:) ------------------------------
+
+def test_run_set_applies_the_setting_before_the_run_starts_and_journals_it(rig):
+    c = claim(rig)
+    seen, titles, popup = [], [], rig.app.popup
+    rig.app.on_step = {0: lambda: seen.append(rig.app.settings.thrust_step)}
+    rig.app.popup = lambda modal, *a, **k: (titles.append(modal.get('title')), popup(modal, *a, **k))[1]
+    rig.app.is_armed = False                                 # the human still arms: no verb does
+    rig.app.answers = [['left', 'enter']]
+    req = ask(rig, 'run', c, key='thrust_physics', settings={'thrust_step': 'survey'})
+    reply = final(req['id'])
+    assert reply['ok'] and seen == ['survey'] and rig.app.settings.thrust_step == 'survey'
+    assert any('thrust_step=survey' in str(t) for t in titles)          # the Allow popup names it
+    assert rig.app.calls.index(('set', 'thrust_step', 'survey')) < rig.app.calls.index('arm_panel')
+    assert ('setting', {'key': 'thrust_step', 'value': 'survey', 'by': 'agent', 'who': 'claude-3f2a'}) \
+        in rig.app.events
+    assert not any(c[0] == 'agent_arm' for c in rig.app.calls if isinstance(c, tuple))
+
+
+def test_run_set_refused_by_operator_changes_nothing(rig):
+    c = claim(rig)
+    rig.app.answers = [['enter']]                            # Refuse is focused
+    reply = final(ask(rig, 'run', c, key='thrust_physics', settings={'thrust_step': 'survey'})['id'])
+    assert reply['error'] == 'refused' and rig.app.settings.thrust_step == 'bollard'
+
+
+@pytest.mark.parametrize('settings,error', [
+    ({'dock_step': 'dock_noise'}, 'not_allowed'),            # listed, but not for thrust_physics
+    ({'direction': 'sway+'}, 'not_allowed'),                 # not listed
+    ({'thrust_step': 'full_send'}, 'bad_args'),              # outside the Spec's choices
+    ({'nonsense': '1'}, 'bad_args'),
+    ({'amplitude': '1.0'}, 'not_allowed')])                  # never
+def test_run_set_refuses_a_disallowed_key_or_value_and_runs_nothing(rig, settings, error):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    reply = final(ask(rig, 'run', c, key='thrust_physics', settings=settings)['id'])
+    assert reply['error'] == error and ch.exit_code(reply) == 2 and reply['hint']
+    assert rig.app.settings.thrust_step == 'bollard' and not list(rig.app.paths.runs.iterdir())
+    assert not any(isinstance(c, tuple) and c[0] == 'set' for c in rig.app.calls)
+
+
+@pytest.mark.parametrize('key,value', [('amplitude', '1.0'), ('command_mode', 'velocity'),
+                                       ('bench_override', 'on'), ('agent_motion', 'allow'), ('stale_after', '5'),
+                                       ('station_hold', '600'), ('repeats', '5')])
+def test_a_never_setting_is_refused_even_when_agent_yaml_lists_it(rig, key, value):
+    from mhseals_testing.harness import agent_config
+    config = agent_config.load()
+    listed = dict(config, settings={'thrust_physics': ['thrust_step', key], 'any': [key]})
+    rig.desk.config = SimpleNamespace(get=lambda: listed, error=None)
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    before = getattr(rig.app.settings, key)
+    reply = final(ask(rig, 'run', c, key='thrust_physics', settings={key: value})['id'])
+    assert reply['error'] == 'not_allowed' and 'never' in reply['hint']
+    rig.app.is_armed = False
+    reply = final(ask(rig, 'set', c, settings={key: value})['id'])
+    assert reply['error'] == 'not_allowed' and 'never' in reply['hint']
+    assert getattr(rig.app.settings, key) == before and not list(rig.app.paths.runs.iterdir())
+
+
+def test_settings_are_refused_while_a_procedure_runs(rig):
+    c = claim(rig)
+    rig.app.running = 'Thrust physics'                       # mid-segment
+    reply = final(ask(rig, 'run', c, key='thrust_physics', settings={'thrust_step': 'survey'})['id'])
+    assert reply['error'] == 'busy' and 'mid-segment' in reply['hint']
+    rig.app.is_armed = False
+    reply = final(ask(rig, 'set', c, settings={'thrust_step': 'survey'})['id'])
+    assert reply['error'] == 'busy' and rig.app.settings.thrust_step == 'bollard'
+
+
+def test_set_between_runs_applies_while_disarmed_and_idle_only(rig):
+    c = claim(rig)
+    reply = final(ask(rig, 'set', c, settings={'thrust_step': 'survey'})['id'])     # armed: held, as the TUI
+    assert reply['error'] == 'refused' and 'armed' in reply['hint'] and rig.app.settings.thrust_step == 'bollard'
+    rig.app.is_armed = False
+    reply = final(ask(rig, 'set', c, settings={'thrust_step': 'survey', 'dock_step': 'dock_noise'})['id'])
+    assert reply['ok'] and reply['result']['set'] == {'thrust_step': 'survey', 'dock_step': 'dock_noise'}
+    assert (rig.app.settings.thrust_step, rig.app.settings.dock_step) == ('survey', 'dock_noise')
+    assert [f['key'] for p, f in rig.app.events if p == 'setting'] == ['thrust_step', 'dock_step']
+    assert final(ask(rig, 'set', c, who='codex-b', settings={'thrust_step': 'pulses'})['id'])['error'] \
+        == 'not_holder'
+    assert final(ask(rig, 'set', None, settings={'thrust_step': 'pulses'})['id'])['error'] == 'unknown_claim'
+    assert not rig.app.armed and rig.app.settings.thrust_step == 'survey'
+
+
+def test_a_dry_run_names_the_settings_and_applies_nothing(rig):
+    c = claim(rig)
+    reply = final(ask(rig, 'run', c, dry=True, key='thrust_physics', settings={'thrust_step': 'survey'})['id'])
+    assert reply['ok'] and reply['result']['set'] == {'thrust_step': 'survey'}
+    assert rig.app.settings.thrust_step == 'bollard'

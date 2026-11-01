@@ -18,6 +18,14 @@ LEASE_KEYS = ('idle_s', 'motion_s', 'max_claim_s')
 NUMBERS = ('request_s', 'confirm_s', 'ask_s')
 DRIVERS = ('warn', 'hold')
 HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
+ANY = 'any'            # settings: the keys an agent may set outside a run and with any run
+# Never an agent's to set, whatever agent.yaml lists: how hard, fast, far or long the boat drives (amplitude, the
+# command hold, repeats, the navigation extents), the command mode, the bench override, staleness and the agent
+# controls themselves; and any later setting named like one of those.
+SETTINGS_NEVER = frozenset(('amplitude', 'command_mode', 'bench_override', 'stale_after', 'agents', 'agent_motion',
+                            'command', 'repeats', 'nav_distance', 'station_hold', 'station_tolerance'))
+SETTINGS_NEVER_NAMES = re.compile(r'amplitude|limit|max|speed|ceiling|mode|bench|override|safe|stale|agent|arm|hold'
+                                  r'|ready|fence|watchdog|gain|power|effort|velocity')
 
 
 def config_path():
@@ -38,7 +46,7 @@ def load(path=None):
 def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
-    known = {'schema', 'lease', 'run', 'start', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
+    known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     lease = data.get('lease')
@@ -55,6 +63,11 @@ def validate(data):
     start = data.get('start', [])      # absent: agents start no component
     if not isinstance(start, list) or not all(isinstance(k, str) and k for k in start):
         raise ValueError('agent.yaml: start must be a list of component keys')
+    settings = data.get('settings', {})   # absent: agents set no setting
+    if not isinstance(settings, dict) or not all(
+            isinstance(k, str) and isinstance(v, list) and all(isinstance(n, str) and n for n in v)
+            for k, v in settings.items()):
+        raise ValueError(f'agent.yaml: settings maps a procedure key (or {ANY}) to a list of setting keys')
     if 'fcu' in data:                  # absent: agents set no FCU parameter
         from mhseals_testing.harness.agent_fcu import validate as validate_fcu
         validate_fcu(data['fcu'])
@@ -77,8 +90,38 @@ def validate(data):
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError('agent.yaml: hook.max_per_10s must be a positive integer')
     return {**data, 'lease': dict(lease), 'run': list(run), 'start': list(start),
+            'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
             'sim_arm': sim_arm(data.get('sim_arm', {}))}
+
+
+def settable(config, procedure=None):
+    """The setting keys agent.yaml ``settings:`` lets an agent set: with ``run procedure`` its list and ``any``;
+    with no procedure (``boat_agent set``) every listed key."""
+    table = config.get('settings', {})
+    keys = [*table.get(procedure, []), *table.get(ANY, [])] if procedure else [k for v in table.values() for k in v]
+    return list(dict.fromkeys(keys))
+
+
+def setting_refusal(key, value, allowed):
+    """``(value, None)`` with the parsed value when an agent may set ``key`` to ``value``, else ``(None, (error,
+    hint))``. Only a setting with fixed choices (or on/off), within them; never SETTINGS_NEVER, listed or not."""
+    from mhseals_testing.harness.settings import BY_KEY
+    spec = BY_KEY.get(key)
+    if spec is None:
+        return None, ('bad_args', f'unknown setting {key!r}')
+    if key in SETTINGS_NEVER or SETTINGS_NEVER_NAMES.search(key):
+        return None, ('not_allowed', f"{key} is never an agent's (it sets how hard, fast or far the boat drives, the "
+                                     'command mode, the bench override or a safety or agent control): the operator '
+                                     'sets it')
+    if key not in allowed:
+        return None, ('not_allowed', f"agent.yaml settings: lists {', '.join(allowed) or 'nothing'} here")
+    if not spec.choices and spec.kind is not bool:
+        return None, ('not_allowed', f'{key} has no fixed choices: the operator sets it')
+    try:
+        return spec.parse(value), None
+    except ValueError as error:
+        return None, ('bad_args', str(error))
 
 
 def sim_arm(section):

@@ -455,7 +455,7 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, run, start, fcu, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
+        '(claim, run, start, set, fcu, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
         f'tmux sessions there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
         "another agent's session or `-L boat`.",
         '  1. `status`: what runs and who drives.',
@@ -464,6 +464,12 @@ def start_text(who, agent='claude', config=None):
         '     Sim only: `run KEY --sim-arm` arms a verified sim for that run and disarms after; it needs the sim '
         'container started with MHSEALS_SIM_ARM=1 (the owner turns it on; ask), and a real boat refuses it '
         '(the operator arms).',
+        '     `run KEY --set K=V [--set K=V]` sets what the procedure measures before it starts (e.g. '
+        '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets one between runs (disarmed and '
+        'idle). Only agent.yaml `settings:` keys, within their choices (thrust_step bollard/pulses/survey/maneuvers, '
+        'dock_step, auto_tab); never amplitude, timings, speed or limits, command mode, bench override or agent '
+        'controls. The TUI shows and journals "agent ID set K=V". Exit 2: not_allowed (key not yours), bad_args '
+        '(unknown key or value), busy (a procedure runs: never mid-segment), refused (set while armed).',
         '     `start COMPONENT --claim ID` / `stop COMPONENT --claim ID` starts or stops a stack part agent.yaml '
         '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id. '
         'Never the driver, mux, Nav2 or watchdogs; arming stays the operator\'s.',
