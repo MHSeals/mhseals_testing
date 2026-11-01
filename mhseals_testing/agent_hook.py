@@ -144,9 +144,10 @@ FILES = re.compile(r'[^\s;&|<>()=]*(agent\.ya?ml|command_mux[^\s;&|<>()/]*\.json
 # Nav2's servers: a lifecycle or parameter change breaks a claimed goal that is running.
 NAV2 = (r'(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother'
         r'|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)')
-# On a boat: a stack component started or stopped from a shell (its device launch, or its mhseals-<part> unit)
+# On a boat: a stack component started or stopped from a shell (any mhseals_nav/mhseals_hardware launch: the
+# umbrella device launch or one part's, e.g. odom.launch.py; or its mhseals-<part> unit)
 # instead of boat_agent start/stop COMPONENT, which goes through the TUI's Status row path under the claim.
-BOAT_START = [r'\bros2\s+launch\s+(--?\S+\s+)*mhseals_nav\s+device\.launch\.py\b',
+BOAT_START = [r'\bros2\s+launch\s+(--?\S+\s+)*mhseals_(nav|hardware)\b',
               r'\bsystemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-']
 BOAT_STOP_PART = [r'\bsystemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-']
 BOAT_KILL = r'\b(pkill|killall|kill)\b'

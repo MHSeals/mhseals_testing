@@ -10,7 +10,8 @@ from mhseals_testing.harness.components import Stack
 from mhseals_testing.ui import parts
 from test_agent_cli import Desk, agent_id, call, lines  # noqa: F401 (agent_id: fixture)
 from test_agent_desk import ask, claim, fence_topic, final, rig  # noqa: F401 (fixtures)
-from test_components import FakeProcesses, FakeUnits, Profile, items
+from test_components import ME, WATCHED_PARTS, FakeProcesses, FakeUnits, Profile, items
+from mhseals_testing.harness.components import components
 
 
 class Boatish(Profile):
@@ -117,6 +118,22 @@ def test_the_operators_start_is_not_attributed(desk):
 
 # --- CLI ------------------------------------------------------------------------------------
 
+class Watched(Profile):
+    components = {'odometry': {'title': 'Odom stack'}, 'watchdogs': {'title': 'Safety watchdogs'}}
+
+
+def test_stop_is_refused_while_the_part_carries_the_watchdogs(desk):
+    """On the boat odometry's launch brings the watchdogs (with:): stopping it would silently stop them."""
+    stack = Stack(components(Watched, None, (ME, WATCHED_PARTS)), FakeProcesses(), lambda: desk.clock[0], FakeUnits())
+    desk.app.stack = stack
+    assert stack.items['watchdogs'].carried_by == 'Odom stack'
+    c = claim(desk)
+    assert final(ask(desk, 'start', c, component='odometry')['id'])['ok']
+    reply = final(ask(desk, 'stop_part', c, component='odometry')['id'])
+    assert reply['error'] == 'not_allowed' and 'also stops Safety watchdogs' in reply['hint']
+    assert stack.processes.stopped == [] and stack.by == {'odometry': 'claude-3f2a'}
+
+
 def test_cli_start_and_stop_component_send_their_ops_and_plain_stop_stays_the_boat_stop():
     desk = Desk(lambda req: [dict(state='done', result={})])
     assert call(['start', 'odometry', '--claim', 'c4'], desk)[0] == 0
@@ -133,6 +150,8 @@ def test_cli_start_and_stop_component_send_their_ops_and_plain_stop_stays_the_bo
 
 @pytest.mark.parametrize('command, verb', [
     ('ssh blastoise-odroid ros2 launch mhseals_nav device.launch.py device:=odometry', 'start COMPONENT --claim ID'),
+    ('ssh blastoise-odroid ros2 launch mhseals_nav odom.launch.py', 'start COMPONENT --claim ID'),   # one part's
+    ('ssh blastoise-jetson "ros2 launch mhseals_nav camera.launch.py"', 'start COMPONENT --claim ID'),
     ('ssh blastoise-odroid systemctl --user start mhseals-odometry', 'start COMPONENT --claim ID'),
     ('ssh blastoise-jetson systemctl --user stop mhseals-camera', 'stop COMPONENT --claim ID'),
 ])
@@ -148,5 +167,9 @@ def test_the_shipped_agent_yaml_mirrors_the_boat_denies():
 def test_a_local_dev_launch_is_not_blocked_and_the_playbook_names_the_verb(monkeypatch):
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     assert hook.denied('ros2 launch mhseals_nav device.launch.py device:=odometry', hook.DEFAULTS) is None
+    assert hook.denied('ros2 launch mhseals_nav odom.launch.py', hook.DEFAULTS) is None
+    # an mhseals_hardware launch starts the driver: the arming rule blocks it on every host
+    assert 'arming' in hook.deny_reason(*hook.denied('ros2 launch --debug mhseals_hardware sensors.launch.py',
+                                                     hook.DEFAULTS), who='claude-3f2a', config=hook.DEFAULTS)
     text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
     assert '`start COMPONENT --claim ID`' in text and "arming stays the operator's" in text

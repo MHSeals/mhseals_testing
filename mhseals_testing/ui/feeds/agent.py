@@ -340,7 +340,13 @@ class AgentDesk:
         if verb == 'stop':
             if app.armed:
                 return 'refused', f'armed: the operator stops {item.title} from its Status row (or disarms first)'
-            others = [name for name in stack._dependants(key) if stack.running(name) and name not in allowed]
+            # Dependants stop first, and each stopped part takes the parts its launch brings (the
+            # boat's watchdogs ride odometry's launch): none of those may be a part not on the list.
+            stopped = [name for name in stack._dependants(key) if stack.running(name)] + [key]
+            carried = [name for name, other in items.items() for carrier in stopped
+                       if stack.running(carrier) and (other.carried_by == items[carrier].title
+                                                      or other.part in items[carrier].brings)]
+            others = [name for name in dict.fromkeys(stopped + carried) if name != key and name not in allowed]
             if others:
                 return 'not_allowed', (f"stopping {item.title} also stops {', '.join(items[n].title for n in others)}, "
                                        "which is not an agent's: ask the operator")
