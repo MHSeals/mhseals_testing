@@ -37,6 +37,9 @@ def entry(owner=None, viewers=()):
     return {'owner': owner, 'guests': {str(v['pid']): dict(v, procedure='watch') for v in viewers}}
 
 
+HUMAN_RECORD = {'owner': 'human', 'claims': []}
+
+
 def agent_record(who='claude-3f2a', claim_id='c4', state='active'):
     return {'owner': 'agent', 'claims': [{'id': claim_id, 'owner': 'agent', 'who': who, 'state': state,
                                           'since_ns': int(200e9), 'host': 'dev', 'pid': 77}]}
@@ -56,11 +59,11 @@ def console():
 def test_the_tracker_names_the_seat_as_the_one_human_controller_and_counts_live_viewers():
     alive = {1, 2, 3}.__contains__
     state = entry(seat(1, 'boat'), [seat(2, 'boat-v1'), seat(3, 'boat-v2'), seat(4, 'boat-v3')])
-    view = control.tracker(state, None, 2, alive, 160.0)
+    view = control.tracker(state, HUMAN_RECORD, 2, alive, 160.0)
     assert view['controller']['kind'] == 'human' and view['controller']['name'] == 'boat@boat-host'
     assert view['controller']['since'] == 100.0 and view['controller']['from'] == '10.0.0.5'
     assert view['viewers'] == 2                       # pid 4 is gone: a stale viewer is not counted
-    assert view['role'] == 'view' and control.tracker(state, None, 1, alive, 160.0)['role'] == 'control'
+    assert view['role'] == 'view' and control.tracker(state, HUMAN_RECORD, 1, alive, 160.0)['role'] == 'control'
 
 
 def test_an_active_agent_claim_controls_via_the_seat_and_a_suspended_or_revoked_one_does_not():
@@ -119,7 +122,7 @@ def test_the_owner_journals_each_controller_change_once_and_a_viewer_never():
 
 
 def test_the_tracker_item_shows_role_controller_age_and_viewers():
-    view = control.tracker(entry(seat(1, 'boat'), [seat(2, 'boat-v1')]), None, 2, {1, 2}.__contains__, 0)
+    view = control.tracker(entry(seat(1, 'boat'), [seat(2, 'boat-v1')]), HUMAN_RECORD, 2, {1, 2}.__contains__, 0)
     text = control_tracker.item(view, now=340.0).plain
     assert text.startswith('VIEW') and 'CTRL boat@boat-host' in text and '4m' in text
     assert '1 viewing' in text and 'O take' in text
@@ -127,6 +130,39 @@ def test_the_tracker_item_shows_role_controller_age_and_viewers():
     text = control_tracker.item(agent, now=230.0).plain
     assert 'claude-3f2a c4 via boat@boat-host' in text and 'VIEW' not in text
     assert len(control_tracker.item(agent, now=230.0, short=True)) < len(text)
+
+
+def test_a_viewer_sees_view_and_the_controller_at_80_and_100_columns():
+    import time
+    from mhseals_testing.ui import chrome
+    owner = seat(1, 'boat', started=time.time() - 240)
+    tracker = control.tracker(entry(owner, [seat(2, 'boat-v1')]), HUMAN_RECORD, 2, {1, 2}.__contains__, 0)
+    view = {'profile': 'blastoise-full-course', 'units': 'metric', 'tab': 'Drive', 'host': 'blastoise-orin',
+            'domain': 42, 'deploy': None, 'authority': ('human', 'HUMAN'), 'armed': True,
+            'armed_by': {'who': 'claude-3f2a', 'sim': True}, 'control_tracker': tracker}
+    for width in (80, 100):
+        row = chrome.top_row(view, width).plain
+        assert len(row) <= width
+        assert 'VIEW' in row and 'boat' in row.split('VIEW', 1)[1], (width, row)
+        assert 'HUMAN' in row and 'ARMED' in row, (width, row)       # the safety marks stay
+        assert 'blastoise-full-course' not in row and 'Correction' not in row, (width, row)
+    wide = chrome.top_row(view, 200).plain
+    assert 'blastoise-full-course' in wide and 'Correction' in wide and 'VIEW' in wide
+
+
+def test_a_missing_or_stale_authority_record_shows_an_unknown_controller_never_a_human():
+    alive = {1, 2}.__contains__
+    state = entry(seat(1, 'boat'), [seat(2, 'boat-v1')])
+    stale = ViewerFeed(clock=lambda: 100.0)
+    stale.on_record(agent_record())
+    stale.clock = lambda: 1000.0                     # the owner stopped publishing
+    for record in (None, stale.view()['authority_record']):
+        view = control.tracker(state, record, 2, alive, 160.0)
+        assert view['controller']['kind'] == 'unknown' and view['controller']['name'] == 'boat@boat-host'
+        text = control_tracker.item(view, now=160.0).plain
+        assert 'unknown' in text and '● CTRL' not in text
+        assert 'unknown' in control_tracker.item(view, short=True).plain
+        assert control.summary(view).startswith('controller unknown') and 'human' not in control.summary(view)
 
 
 # --- launching a viewer and taking control (takeover.decide) -----------------------------------

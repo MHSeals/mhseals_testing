@@ -44,7 +44,9 @@ def tracker(entry, record, me, alive, now):
     """The tracker for the client ``me`` (its pid) at wall time ``now``.
 
     ``controller``: kind ``human`` (the owner seat), ``agent`` (an active agent claim, ``via`` the seat),
-    ``stale`` (the seat's process is gone: nobody controls, its children wait to be adopted) or ``none``;
+    ``stale`` (the seat's process is gone: nobody controls, its children wait to be adopted), ``unknown``
+    (a live seat but no fresh authority record, ``record`` None: an agent may hold it, so never claim a
+    human) or ``none``;
     ``client``, ``host``, ``from``, ``pid``, ``since`` (wall s) and for an agent ``who`` and ``claim``.
     ``viewers`` counts live viewers, ``role`` is ``control``, ``view`` or ``none`` for ``me``.
     """
@@ -59,7 +61,9 @@ def tracker(entry, record, me, alive, now):
     seat['name'] = name(owner)
     if not alive(owner['pid']):
         return dict(out, controller=dict(seat, kind='stale', since=owner.get('started')))
-    claim = next((c for c in (record or {}).get('claims', ())
+    if record is None:          # missing or stale (ViewerFeed pauses it): who drives is not known
+        return dict(out, controller=dict(seat, kind='unknown', since=None))
+    claim = next((c for c in record.get('claims', ())
                   if c.get('owner') == 'agent' and c.get('state', 'active') == 'active'), None)
     if claim:
         return dict(out, controller=dict(seat, kind='agent', who=claim.get('who'), claim=claim.get('id'),
@@ -71,7 +75,8 @@ def tracker(entry, record, me, alive, now):
 def summary(view):
     """One line for a log or ``boat_trial status``: ``agent agent-12 c4 via boat@host · 2 viewing``."""
     ctl = view['controller']
-    text = {'none': 'nobody controls', 'stale': f"stale seat {ctl.get('name')} (process gone)",
+    text = {'none': 'nobody controls',
+            'unknown': f"controller unknown (no fresh authority record) via {ctl.get('name')}", 'stale': f"stale seat {ctl.get('name')} (process gone)",
             'human': f"human {ctl.get('name')}" + (f" from {ctl['from']}" if ctl.get('from') else ''),
             'agent': f"agent {ctl.get('who')} {ctl.get('claim')} via {ctl.get('via')}"}[ctl['kind']]
     return f"{text} · {view['viewers']} viewing"

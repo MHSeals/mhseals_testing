@@ -120,17 +120,19 @@ def top_row(view, width):
     lefts = ([Text.assemble(title, profile)] if width >= PROFILE_AT else []) + [title, narrow]
     tracked = view.get('control_tracker')       # the control tracker drops last (ui/control_tracker.py)
     ctl = control_tracker.item(tracked) if tracked and not view.get('review') else None
-    short = control_tracker.item(tracked, short=True) if ctl else None
-    rights = [(deploy, work, host_item(view), ctl), (deploy, work, host_item(view, True), ctl),
-              (None, work, host_item(view, True), ctl), (None, work, None, ctl), (None, None, None, ctl),
-              (None, None, None, short), (None, None, None, None)]
-    for tail in tails:
-        for left in lefts:
-            for items in rights:
-                right = join([*items, *tail])
-                gap = width - len(left) - len(right)
-                if gap >= 1:
-                    return Text.assemble(left, ' ' * gap, right)
+    ctls = [ctl, control_tracker.item(tracked, short=True)] if ctl else []
+    rights = [(deploy, work, host_item(view)), (deploy, work, host_item(view, True)),
+              (None, work, host_item(view, True)), (None, work, None), (None, None, None)]
+    # The profile, the tab strip, deploy, host and the arming agent's name all go before the tracker
+    # shortens, and it shortens before it goes; the authority and arm chips never go.
+    for tracker in [*ctls, None]:
+        for tail in tails:
+            for left in lefts:
+                for items in rights:
+                    right = join([*items, tracker, *tail])
+                    gap = width - len(left) - len(right)
+                    if gap >= 1:
+                        return Text.assemble(left, ' ' * gap, right)
     # Nothing fits: the chips keep the right edge and the title gives way, so the row never wraps
     # into row two (the agent banner or STOPPED row).
     right = join(tails[-1])

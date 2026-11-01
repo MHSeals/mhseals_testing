@@ -37,6 +37,10 @@ def item(tracker, now=None, short=False):
                    style=f"bold {theme.auth_style('human')}".strip())
         if ctl.get('from') and not short:
             out.append(f" ({ctl['from']})", style=theme.MUTED)
+    elif kind == 'unknown':     # a live seat without a fresh authority record: an agent may drive
+        out.append('? CTRL unknown', style=theme.auth_style('unclaimed'))
+        if not short:
+            out.append(f" via {ctl.get('name')}", style=theme.MUTED)
     elif kind == 'stale':
         out.append(f"? CTRL {ctl.get('name')} gone", style=theme.auth_style('unclaimed'))
     else:

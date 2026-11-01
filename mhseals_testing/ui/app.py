@@ -189,6 +189,7 @@ HELP = [   # '[Screen ]keys', as test_help_keys reads them against config/keymap
     ('a', 'Arm panel: outputs, interlocks, arm or disarm'),
     ('U', 'Release the hold (confirm names who resumes)'),
     ('E', "Revoke the agent's claim (stops first, no confirm)"),
+    ('O', 'Take control (viewer; confirm: the owner stops at neutral, disarms, revokes the agent)'),
     ('o', 'Pose: what the EKFs fuse, and the sources'),
     ('!', 'Health checks: mute, recheck, acknowledge'),
     ('H', 'Config history: hardware, Nav2, FCU, RTK, health, keymap'),
@@ -1279,6 +1280,7 @@ class App:
         tracked = feeds_module.merged(self.feeds).get('control_tracker') or {}
         ctl = tracked.get('controller') or {}
         holder = (f"agent {ctl.get('who')} {ctl.get('claim')} via {ctl.get('name')}" if ctl.get('kind') == 'agent'
+                  else f"{ctl.get('name')} (agent claim unknown)" if ctl.get('kind') == 'unknown'
                   else ctl.get('name') or f'pid {self.watching}')
         rows = [('Controller', holder), ('Boat', 'stops at neutral and disarms; you arm it yourself'),
                 ('Agent claim', 'revoked (the agent claims again only if you allow it)'),
