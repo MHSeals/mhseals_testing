@@ -2780,7 +2780,7 @@ def test_override_is_empty_without_a_mux_state_when_unmuxed_or_disarmed(tmp_path
     with app.observe('x') as runner:
         assert runner.override() == ''           # disarmed: the mux is not running yet
         app.arming.armed = True
-        monkeypatch.setattr('mhseals_testing.ui.app.core.muxed', lambda profile: False)
+        monkeypatch.setattr('mhseals_testing.ui.app.actions.procedures.muxed', lambda profile: False)
         assert runner.override() == ''           # unmuxed profile: no mux at all
         monkeypatch.undo()
         assert runner.override() == 'unknown'    # armed and muxed: a missing state is unknown
