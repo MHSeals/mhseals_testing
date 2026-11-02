@@ -7,7 +7,8 @@ JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/bus
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
 owner (``unreachable``: the boat host did not answer; tools/boat_agent says so with the last operator state it
 saw), 5 agents blocked, 6 timeout, 7 paused (the operator declared manual, battery swap or power cycle; the hint
-says since when and the ETA: wait for normal). No verb releases a hold. ``arm --claim ID`` arms through the TUI
+says since when and the ETA: wait for normal). ``release HOLD --why`` releases a hold harness/agent_grants.py
+allows (never the e-stop). Acting verbs need ``--why``. ``arm --claim ID`` arms through the TUI
 after a visible countdown the operator cancels (the e-stop always refuses); ``run --sim-arm`` arms a verified sim
 for one run. ``start COMPONENT`` and ``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:``
 lists, as its Status row does; ``reload config [NAME]`` re-reads the TUI's YAML, ``reload COMPONENT`` respawns one.
@@ -27,12 +28,14 @@ from mhseals_testing.harness import agent_channel as channel, operator_state
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
+# acting verbs: each needs --why (owner decision 2026-11-01); stop takes one but never needs it, fcu only to write
+WHY = ('claim', 'release', 'run', 'goal', 'start', 'arm', 'reload', 'set', 'fcu')
 VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
          'mark', 'note', 'ask')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
-DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': {'idle_s': 120.0, 'motion_s': 10.0}}
+DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': {'idle_s': 600.0, 'motion_s': 10.0}}
 STATUS_STALE_S = 3.0
 STOP_WAIT_S = 1.0
 POLL_S = 0.1
@@ -47,9 +50,14 @@ def add_parsers(sub):
                             help='your own agent id (default $BOAT_AGENT; required: no shared default)')
         if claim is not None:
             parser.add_argument('--claim', required=claim, metavar='ID')
+        if name in WHY or name == 'stop':
+            parser.add_argument('--why', metavar='TEXT', help='why you act: the TUI agent panel shows it'
+                                + ('' if name == 'stop' else ' (required)'))
         return parser
     verb('claim', 'ask the TUI for driving authority').add_argument('--reason', default='')
-    verb('release', 'end a claim (the TUI cancels its act first)', claim=True)
+    verb('release', 'end a claim (--claim ID, the TUI cancels its act first), or release HOLD: a lease or watchdog '
+         'hold once its fault cleared, an operator hold with a grant (agent_grants.yaml); never the e-stop',
+         claim=False).add_argument('hold', nargs='?', metavar='HOLD')
     verb('status', 'one snapshot of what the TUI shows').add_argument(
         '--section', type=lambda s: s.split(','), default=[], metavar=','.join(SECTIONS))
     follow = verb('follow', 'stream session events and agent replies', claim=False)
@@ -94,7 +102,9 @@ def add_parsers(sub):
     reload.add_argument('target', metavar='config|COMPONENT')
     reload.add_argument('name', nargs='?', metavar='NAME', help='config: one watched file (hardware, settings, ...)')
     verb('mark', 'put an agent marker in the session').add_argument('note', nargs='?', default='')
-    verb('note', 'a text line in the TUI agent log').add_argument('text')
+    note = verb('note', 'a text line in the TUI agent log; --doing TEXT sets your "doing:" line there')
+    note.add_argument('text', nargs='?', default='')
+    note.add_argument('--doing', metavar='TEXT')
     ask = verb('ask', 'ask the operator a question')
     ask.add_argument('question')
     ask.add_argument('--options', type=lambda s: s.split(','), default=['yes', 'no'])
@@ -142,7 +152,8 @@ class Agent:
         """Append a req and wait for its final reply; returns the exit code."""
         tail = channel.Tail(self.path)
         tail.seek_end()
-        req = channel.request(op, self.who, args, claim, dry, self.cfg['request_s'], path=self.path)
+        req = channel.request(op, self.who, args, claim, dry, self.cfg['request_s'], path=self.path,
+                              why=getattr(self.args, 'why', None))
         if self.owner() is None:
             return self.no_tui(req, 'start boat_test on the boat; agents act only through it')
         return self.wait(req, tail, wait)
@@ -193,6 +204,11 @@ class Agent:
         return self.send('claim', {'reason': self.args.reason})
 
     def release(self):
+        hold = getattr(self.args, 'hold', None)
+        if hold:
+            return self.send('release_hold', {'hold': hold}, self.args.claim)
+        if not self.args.claim:
+            return self.bad('release --claim ID ends your claim; release HOLD --why "..." releases a hold')
         return self.send('release', claim=self.args.claim)
 
     def run(self):
@@ -237,7 +253,9 @@ class Agent:
         if action in ('set', 'revert', 'restart') and not claim:
             return bad(f'fcu {action} needs --claim ID (claim --reason "..." first)')
         if action == 'get':
-            return self.send('fcu_get', {'params': words}) if words else bad('fcu get PARAM [PARAM ...]')
+            if not words:
+                return bad('fcu get PARAM [PARAM ...]')
+            return self.send('fcu_get', {'params': words}) if self.owner() is not None else self.fcu_saved(words)
         if action == 'rates':
             return self.send('fcu_rates', {'window_s': self.args.window})
         if action == 'restart':
@@ -251,6 +269,21 @@ class Agent:
         except ValueError:
             return bad('fcu set: every VALUE must be a number')
         return self.send('fcu_set', {'changes': changes}, claim)
+
+    def fcu_saved(self, names):
+        """fcu get with no TUI controller: the newest snapshot in agent.yaml ``fcu.store``, marked as such (owner
+        decision 2026-11-01: reads work without a controller)."""
+        from mhseals_testing.harness.agent_fcu import Store
+        store = Store((self.cfg.get('fcu') or {}).get('store') or '~/.claude/plans/boat')
+        found = sorted(store.dir.glob('fcu_*.param'), key=lambda p: p.stat().st_mtime) if store.dir.is_dir() else []
+        if not found:
+            self.emit({'ok': False, 'error': 'no_owner', 'hint': 'no TUI and no FCU snapshot yet: boat_tui up'})
+            return channel.EXIT_CODES['no_owner']
+        values = store.read_snapshot(found[-1])
+        self.emit({'ok': True, 'source': 'snapshot', 'snapshot': found[-1].name, 'stale': True,
+                   'params': {n: values.get(n) for n in names},
+                   'hint': 'no TUI: values from the newest snapshot, not the FCU; boat_tui up for live values'})
+        return 0
 
     def arm(self):
         countdown = getattr(self.args, 'countdown', None)
@@ -280,7 +313,10 @@ class Agent:
         return self.send('ask', args, wait=self.cfg['ask_s'] + self.cfg['request_s'] + SLACK_S)
 
     def note(self):
-        self.emit(channel.note(self.who, 'text', self.args.text, path=self.path))
+        doing = getattr(self.args, 'doing', None)
+        if not (doing or self.args.text):
+            return self.bad('note "TEXT" or note --doing "TEXT"')
+        self.emit(channel.note(self.who, 'doing' if doing else 'text', doing or self.args.text, path=self.path))
         return 0
 
     def mark(self):
@@ -467,6 +503,13 @@ def assignments(words):
     return out, None
 
 
+def needs_why(args):
+    """An acting verb with no ``--why``: fcu only to write, stop never."""
+    if args.command not in WHY or (getattr(args, 'why', None) or '').strip():
+        return False
+    return args.command != 'fcu' or getattr(args, 'action', None) in ('set', 'revert', 'restart')
+
+
 SHARED_WHO = {'', 'agent', 'agent-0000'}     # the old defaults: every agent that copied them was one principal
 
 
@@ -488,6 +531,8 @@ def who_of(args):
 def main(args, **seams):
     """Run verb ``args.command``; returns its exit code."""
     args.who, hint = who_of(args)
+    if not hint and needs_why(args):
+        hint = f'{args.command} acts: say why with --why "..." (the TUI agent panel shows it)'
     if hint:
         print(json.dumps({'ok': False, 'error': 'bad_args', 'hint': hint}),
               file=seams.get('out') or sys.stdout, flush=True)

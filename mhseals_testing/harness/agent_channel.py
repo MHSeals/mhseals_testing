@@ -46,7 +46,7 @@ EXIT_CODES = {**dict.fromkeys(('refused', 'busy', 'busy_ui', 'not_holder', 'unkn
                                'not_allowed', 'not_armed', 'motion_observe', 'bad_args', 'bad_op',
                                'duplicate_who', 'unknown_component'), 2),
               **dict.fromkeys(('revoked', 'overridden', 'cancelled', 'expired', 'released', 'handover',
-                               'paused_end'), 3),
+                               'paused_end', 'lapsed'), 3),
               'no_owner': 4, 'unreachable': 4, 'blocked': 5, 'timeout': 6, 'paused': 7}
 ROTATE_BYTES = 20 * 1024 * 1024
 _VALUE = r'''("[^"]*"|'[^']*'|[^\s'"]+)'''
@@ -91,12 +91,13 @@ def append(record, path=None):
     return record
 
 
-def request(op, who, args=None, claim=None, dry=False, request_s=5.0, path=None):
-    """Append a ``req``; its ``id`` is what the reply's ``re`` names. Free text is redacted."""
+def request(op, who, args=None, claim=None, dry=False, request_s=5.0, path=None, why=None):
+    """Append a ``req``; its ``id`` is what the reply's ``re`` names. Free text (``why`` too) is redacted."""
     deadline = time.time_ns() + int(request_s * 1e9)
     args = {k: redact(v, TEXT_MAX) if k in TEXT_ARGS and isinstance(v, str) else v for k, v in dict(args or {}).items()}
+    extra = {'why': redact(why, TEXT_MAX)} if why else {}
     return append(line('req', who, id=uuid.uuid4().hex, op=op, args=args, claim=claim,
-                       dry=bool(dry), deadline_ns=deadline), path)
+                       dry=bool(dry), deadline_ns=deadline, **extra), path)
 
 
 def renew(who, claim, act, path=None):
