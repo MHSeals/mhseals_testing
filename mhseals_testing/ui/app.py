@@ -3303,11 +3303,11 @@ class App:
         if arbiter is None or not muxed(self.profile):
             return ''
         with arbiter.lock:
-            mux, at = arbiter.mux, arbiter.mux_at
+            mux, at, pause = arbiter.mux, arbiter.mux_at, arbiter.pause
         age = float('inf') if at is None else arbiter.clock() - at
         if not self.armed and (mux is None or age > STALE_MUX_S):
             return ''
-        return override_cause(mux, age)
+        return override_cause(mux, age, pause)
 
     def reset_to_start(self, timeout):
         """crane_ml's /crane/reset_to_start; mission.reset_to_start calls it on a sim stack only."""

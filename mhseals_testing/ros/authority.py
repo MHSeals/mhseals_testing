@@ -22,6 +22,7 @@ from mhseals_testing.harness.authority import ClaimTable, derive, events
 AUTHORITY_TOPIC = '/mhseals_testing/authority'
 CLAIM_TOPIC = '/mhseals_testing/authority/claim'
 MUX_STATE_TOPIC = '/command_mux/state'
+PAUSE_TOPIC = '/autonomy/pause'      # nav's latched pause requests (the fence's return)
 HEARTBEAT_S = 1.0
 TICK_S = 0.25
 # Ack errors and the exit codes the CLI maps them to (spec section 6, agent-control section 3).
@@ -64,6 +65,7 @@ class Arbiter:
         self.ended = {}          # claim id -> 'revoked' | 'expired' | 'lapsed' | 'paused_end': the agent's next call learns why
         self.paused = None       # the operator state record while it is not normal (harness/operator_state.py)
         self.mux, self.mux_at = None, None
+        self.pause = None        # the latest pause request (runner.override_cause)
         self.record, self.ack, self.sent_at, self.sent = None, None, None, None
         self.saved = None
         self.lock = threading.RLock()
@@ -71,6 +73,10 @@ class Arbiter:
     def on_mux(self, state):
         with self.lock:
             self.mux, self.mux_at = state, self.clock()
+
+    def on_pause(self, request):
+        with self.lock:
+            self.pause = request
 
     def handle(self, request):
         """Answer one claim-topic request; the ack rides in the next record."""
@@ -232,7 +238,7 @@ class Arbiter:
 
 
 def bind(ros, arbiter):
-    """Subscribe the arbiter to the mux state and claim requests and run its timer on ``ros``."""
+    """Subscribe the arbiter to the mux state, pause and claim requests and run its timer on ``ros``."""
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import String
     node = ros.node
@@ -258,5 +264,6 @@ def bind(ros, arbiter):
 
     node.create_subscription(String, CLAIM_TOPIC, on_claim, 10)
     node.create_subscription(String, MUX_STATE_TOPIC, on_mux, latched)
+    node.create_subscription(String, PAUSE_TOPIC, lambda m: arbiter.on_pause(parsed(m)), latched)
     node.create_timer(TICK_S, arbiter.tick)
     return arbiter

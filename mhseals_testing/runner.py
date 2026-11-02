@@ -52,8 +52,15 @@ PAUSE_LIMIT_S = 600.0
 GUARD_S = 0.5  # holds this close before the override edge are invalid too
 
 
-def override_cause(mux, age_s=0.0):
-    """Why the mux is not under automation ('' when it is): rc/manual/hold, or unknown."""
+def override_cause(mux, age_s=0.0, pause=None):
+    """Why the mux is not under automation ('' when it is): rc/manual/hold, or unknown.
+
+    ``pause`` is the latest pause request (nav's /autonomy/pause, JSON {paused, cause, why}):
+    while it asks, its cause pauses too (the fence returning the boat inside drives through
+    auto, so the procedure yields its goal instead of fighting it).
+    """
+    if isinstance(pause, dict) and pause.get('paused') is True:
+        return f"{pause.get('cause') or 'pause'}: {pause.get('why') or 'paused'}"
     if mux is None or not 0 <= age_s <= STALE_MUX_S:
         return 'unknown'
     return '' if mux.get('input') in ('auto', 'idle') else str(mux.get('input'))

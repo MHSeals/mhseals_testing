@@ -187,6 +187,14 @@ def test_override_cause_reads_the_mux_state():
     assert override_cause({'input': 'auto'}, age_s=3.5) == 'unknown' and override_cause(None) == 'unknown'
 
 
+def test_a_pause_request_overrides_like_a_takeover():
+    from mhseals_testing.runner import override_cause
+    fence = {'paused': True, 'cause': 'geofence', 'by': 'fence_watchdog', 'why': 'returning inside the fence'}
+    assert override_cause({'input': 'auto'}, pause=fence) == 'geofence: returning inside the fence'
+    assert override_cause({'input': 'auto'}, pause=dict(fence, paused=False, why='')) == ''
+    assert override_cause({'input': 'hold'}, pause=None) == 'hold'
+
+
 def test_supervise_pauses_while_overridden_and_drops_the_paused_time():
     run, plant, events, clock = runner(rate=4.0)
     run.override = lambda: 'rc' if 2.0 <= clock[0] < 5.0 else ''
