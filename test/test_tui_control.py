@@ -5,6 +5,7 @@ import io
 import os
 import signal
 import socket
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -250,7 +251,7 @@ def test_a_plain_handover_keeps_the_claim_for_the_successor(tmp_path):
 
 
 def test_restart_as_takes_from_a_viewer_and_views_after_a_human_takeover(monkeypatch):
-    monkeypatch.setattr(app_module.sys, 'orig_argv', ['python3', '/x/boat_test', '--profile', 'sim', '--view'])
+    monkeypatch.setattr(sys, 'orig_argv', ['python3', '/x/boat_test', '--profile', 'sim', '--view'])
     viewer = SimpleNamespace(restart_as='take', detaching=False, handed_by=None)
     assert app_module.restart_as(viewer)[0] == ['python3', '/x/boat_test', '--profile', 'sim', '--take']
     old = SimpleNamespace(restart_as=None, detaching=True, handed_by=seat(2, 'boat-v1'))

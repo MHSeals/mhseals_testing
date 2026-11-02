@@ -157,12 +157,11 @@ def test_c_in_the_odometry_popup_runs_the_compass_calibration(tmp_path):
 
 
 def test_enter_on_the_status_rtk_row_opens_the_odometry_popup(tmp_path, monkeypatch):
-    from mhseals_testing.ui import app as app_module
     from test_app import make_app
     app, _ = make_app(tmp_path)
     rows = [dict(group='Localization', state='OK', name='GPS', value='3D', detail=''),
             dict(group='Localization', state='OK', name='RTK', value='FIXED', detail='')]
-    monkeypatch.setattr(app_module, 'status_rows', lambda snapshot, sensors: rows)
+    monkeypatch.setattr('mhseals_testing.ui.app.core.status_rows', lambda snapshot, sensors: rows)
     opened, shown = [], []
     monkeypatch.setattr(app, 'odometry', lambda: opened.append(True))
     monkeypatch.setattr(app, 'popup', lambda *a, **k: shown.append(a))   # Enter on GPS opens inspect

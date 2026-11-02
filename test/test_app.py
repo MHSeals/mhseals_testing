@@ -281,7 +281,7 @@ def test_a_boat_without_a_deployment_registry_is_refused_before_any_session(tmp_
 
     def late(argv):
         raise devices.DeviceError('role camera_host needs exactly one host')
-    monkeypatch.setattr(app_module, 'session_main', late)
+    monkeypatch.setattr('mhseals_testing.ui.app.core.session_main', late)
     with pytest.raises(SystemExit, match='boat_test: role camera_host'):
         app_module.main([])
 
@@ -2723,7 +2723,7 @@ def test_a_still_screen_renders_only_on_change(tmp_path, monkeypatch):
     renders, render = [], app.render
     app.render = lambda: renders.append(1) or render()
     now = [1000.2]
-    monkeypatch.setattr(app_module.time, 'monotonic', lambda: now[0])
+    monkeypatch.setattr('time.monotonic', lambda: now[0])
 
     def idle(step=0.1):
         now[0] += step
@@ -2780,7 +2780,7 @@ def test_override_is_empty_without_a_mux_state_when_unmuxed_or_disarmed(tmp_path
     with app.observe('x') as runner:
         assert runner.override() == ''           # disarmed: the mux is not running yet
         app.arming.armed = True
-        monkeypatch.setattr('mhseals_testing.ui.app.muxed', lambda profile: False)
+        monkeypatch.setattr('mhseals_testing.ui.app.core.muxed', lambda profile: False)
         assert runner.override() == ''           # unmuxed profile: no mux at all
         monkeypatch.undo()
         assert runner.override() == 'unknown'    # armed and muxed: a missing state is unknown
@@ -3205,7 +3205,6 @@ def test_actual_authority_untrusted_records_render_safely(tmp_path, state):
 
 
 def test_failed_hardware_snapshot_retains_memory_and_draft(tmp_path, monkeypatch):
-    import mhseals_testing.ui.app as module
     app, _ = make_app(tmp_path)
     app.arming = Arming()
     app.arming.armed = True
@@ -3215,7 +3214,7 @@ def test_failed_hardware_snapshot_retains_memory_and_draft(tmp_path, monkeypatch
     app.draft = draft = {'channel_map': [2, 1, 3, 4]}
     def fail(*args):
         raise OSError('snapshot write failed')
-    monkeypatch.setattr(module, 'save_config', fail)
+    monkeypatch.setattr('mhseals_testing.ui.app.core.save_config', fail)
     assert not app.save_hardware(channel_map=[2, 1, 3, 4])
     assert app.args.hardware_config is old and app.arming.hardware_config is old
     assert app.draft is draft

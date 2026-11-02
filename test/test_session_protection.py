@@ -1,6 +1,8 @@
 """Session operations use scratch data and the real key dispatcher."""
+import threading
+
 from mhseals_testing import data
-from mhseals_testing.harness import bags
+from mhseals_testing.harness import bags, index
 from mhseals_testing.ui.app import SessionPaths
 from test_app import make_app
 
@@ -96,7 +98,6 @@ def test_delete_and_prune_respect_finalizer(tmp_path, monkeypatch):
 
 def test_prune_mixed_legacy_and_partial_failure_rebuild_once(tmp_path, monkeypatch):
     import os
-    from mhseals_testing.ui import app as app_module
 
     app, _, path = setup_app(tmp_path)
     data.write_json(path / 'session.json', {'created': 2}, bags.SCHEMA)
@@ -111,7 +112,7 @@ def test_prune_mixed_legacy_and_partial_failure_rebuild_once(tmp_path, monkeypat
     os.utime(legacy, (1, 1))
     app.invalidate_bags()
     real_delete = bags.delete
-    real_rebuild = app_module.index.rebuild
+    real_rebuild = index.rebuild
     attempts, rebuilds = [], []
     def delete(bag):
         attempts.append(bag.path)
@@ -122,7 +123,7 @@ def test_prune_mixed_legacy_and_partial_failure_rebuild_once(tmp_path, monkeypat
         rebuilds.append(root)
         return real_rebuild(root)
     monkeypatch.setattr(bags, 'delete', delete)
-    monkeypatch.setattr(app_module.index, 'rebuild', rebuild)
+    monkeypatch.setattr(index, 'rebuild', rebuild)
     monkeypatch.setattr(app, 'choose', lambda *a, **kw: 'Delete')
     app.dispatch('P')
     assert attempts == [legacy, path]
@@ -142,9 +143,8 @@ def test_legacy_only_prune_rebuilds_actual_root(tmp_path, monkeypatch):
     legacy.mkdir()
     (legacy / 'empty.mcap').touch()
     monkeypatch.setattr(app, 'choose', lambda *a, **kw: 'Delete')
-    from mhseals_testing.ui import app as app_module
     rebuilds = []
-    monkeypatch.setattr(app_module.index, 'rebuild', lambda root: rebuilds.append(root))
+    monkeypatch.setattr(index, 'rebuild', lambda root: rebuilds.append(root))
     app.dispatch('P')
     assert rebuilds == [tmp_path] and not legacy.exists()
 
@@ -168,7 +168,6 @@ def test_delete_legacy_glob_characters_are_literal(tmp_path, monkeypatch):
 
 
 def test_partial_subtree_delete_rebuilds_index_once(tmp_path, monkeypatch):
-    from mhseals_testing.ui import app as module
     for key in ('d', 'P'):
         root = tmp_path / key
         root.mkdir()
@@ -178,7 +177,7 @@ def test_partial_subtree_delete_rebuilds_index_once(tmp_path, monkeypatch):
         folder.mkdir(parents=True)
         mcap = folder / 'data.mcap'
         mcap.write_bytes(b'recorded data')
-        original = module.index.rebuild
+        original = index.rebuild
         original(root)
         before = data.read_json(root / 'INDEX.json')['sessions'][0]['bytes']
         rebuilds = []
@@ -189,7 +188,7 @@ def test_partial_subtree_delete_rebuilds_index_once(tmp_path, monkeypatch):
             mcap.unlink()
             raise OSError('partial subtree failure')
         with monkeypatch.context() as patch:
-            patch.setattr(module.index, 'rebuild', rebuild)
+            patch.setattr(index, 'rebuild', rebuild)
             patch.setattr(bags, 'delete', partial)
             patch.setattr(bags, 'budget_bytes', lambda: 0)
             patch.setattr(app, 'choose', lambda *a, **kw: 'Delete')
@@ -228,14 +227,13 @@ def test_finalize_active_mcaps_untouched(tmp_path, monkeypatch):
 def test_finalize_worker_rechecks_writer_started_after_click(tmp_path, monkeypatch):
     app, _, path = setup_app(tmp_path)
     folder, mcap = segment(path)
-    from mhseals_testing.ui import app as module
     pending = []
     class DeferredThread:
         def __init__(self, target, args, **kw):
             pending.append(lambda: target(*args))
         def start(self):
             pass
-    monkeypatch.setattr(module.threading, 'Thread', DeferredThread)
+    monkeypatch.setattr(threading, 'Thread', DeferredThread)
     app.dispatch('F')
     assert app.finalizing == path.resolve()
     monkeypatch.setattr(app.processes, 'running', lambda key: True)
@@ -309,12 +307,11 @@ def test_mixed_prune_success_rebuild_once(tmp_path, monkeypatch):
     app.bags_view()
     app.bag_scan = (app.clock(), sorted(app.bag_scan[1], key=lambda b: not b.legacy), (0, 0, 0))
     rebuilds = []
-    from mhseals_testing.ui import app as module
-    original = module.index.rebuild
+    original = index.rebuild
     def rebuild(root):
         rebuilds.append(root)
         return original(root)
-    monkeypatch.setattr(module.index, 'rebuild', rebuild)
+    monkeypatch.setattr(index, 'rebuild', rebuild)
     monkeypatch.setattr(app, 'choose', lambda *a, **kw: 'Delete')
     app.dispatch('P')
     assert rebuilds == [tmp_path]

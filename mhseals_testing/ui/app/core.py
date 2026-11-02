@@ -1,11 +1,5 @@
-"""boat_test: the interactive test suite, one page after cx.
-
-Starts passive: it watches sensors, TF and advisories and records the whole
-session to one bag. Five panels take focus (Tab): Status, Motion, Thrusters,
-Procedures, Activity. Motion needs an explicit arm (a, confirmed in a popup)
-and passes the interlocks in readiness.py on every tick; any error or Space
-stops at neutral and disarms. Prompts are popups on the same screen.
-"""
+"""App: the page's state and the coordinator of its parts. Behaviour lives in the mixins
+(loop, view, actions/), each one area; App holds the state they share."""
 
 import argparse
 from contextlib import contextmanager
@@ -35,8 +29,9 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS, validate_mixer
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
-from mhseals_testing.harness import control, host, index, journal, runs, session as session_module, settings
-from mhseals_testing.harness import agent_grants, course_area, operator_state
+from mhseals_testing.harness import (
+    agent_grants, bags as bags_module, control, course_area, host, index, journal, nav2_edit, operator_state, runs,
+    session as session_module, settings)
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import LiveStaging
 from mhseals_testing.harness.components import Stack, components
@@ -44,13 +39,12 @@ from mhseals_testing.harness.remote import Units
 from mhseals_testing.harness.unit import probe as unit_probe
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.harness.conditions import Conditions, STILL_FRESH_S, stillness
-from mhseals_testing.runner import STALE_MUX_S, override_cause
-from mhseals_testing.harness import nav2_edit
+from mhseals_testing.runner import Aborted, Runner, STALE_MUX_S, fold, override_cause
 from mhseals_testing.harness.nav2_edit import Nav2File
 from mhseals_testing.harness.recwatch import DISK_MARKER, RecWatch
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.harness.watch import Watched, Watcher
-from mhseals_testing.health import config as health_config, legacy as health
+from mhseals_testing.health import legacy as health, config as health_config
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.journal import Journal
@@ -63,15 +57,15 @@ from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, muxed, session_hardware
-from mhseals_testing.runner import Aborted, Runner, fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import (
-    agent_acts, authority_chip, camera_view, feeds as feeds_module, graphics, layout, palette,
-    parts, perception, pixels, popups, theme)
+    agent_acts, authority_chip, camera_view, feeds as feeds_module, graphics, keymap as keymap_module, layout,
+    palette, parts, perception, pixels, popups, progress, rtk, rtk_icon, theme, widgets)
 from mhseals_testing.ui.camera_view import CameraView
-from mhseals_testing.ui.panels import fusion as fusion_panel
-from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, control as control_feed, \
-    health as health_feed
+from mhseals_testing.ui.panels import (
+    PANELS, TITLES, activity, agent_log, correction, fusion as fusion_panel, scrubber)
+from mhseals_testing.ui.feeds import (
+    agent as agent_feed, authority as authority_feed, control as control_feed, health as health_feed)
 from mhseals_testing.ui.feeds.conditions import ConditionsFeed
 from mhseals_testing.ui.feeds.issues import IssuesFeed, settings as issue_settings
 from mhseals_testing.ui.feeds.rtk import RtkFeed
@@ -81,18 +75,14 @@ from mhseals_testing.ui.toasts import Toasts
 from mhseals_testing.ui.layout import MINIMAP, ROW, TabMemory, body_rows, motion_shown
 from mhseals_testing.ui.minimap import panel as minimap_panel
 from mhseals_testing.ui.minimap.layerbox import LayerBox
-from mhseals_testing.ui import keymap as keymap_module, progress, rtk, rtk_icon, widgets
-from mhseals_testing.harness import bags as bags_module
-from mhseals_testing.ui.panels import PANELS, TITLES, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.panels.checklist import Checklist
-from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
-from mhseals_testing.ui.popups import magcal as magcal_popup, stop as stop_popup
-from mhseals_testing.ui.popups import course
-from mhseals_testing.ui.review import (
-    BIG, find_session, load_session, Offline, review_metadata, SMALL)
+from mhseals_testing.ui.popups import (
+    config as config_popup, course, magcal as magcal_popup, odometry, pins, run as run_popup, stop as stop_popup)
+from mhseals_testing.ui.review import BIG, Offline, SMALL, find_session, load_session, review_metadata
 from mhseals_testing.ui.source import LiveSource, ReviewSource
 from mhseals_testing.ui.takeover import decide
+
 
 # Ctrl+h/j/k/l and Ctrl+arrows move focus to the panel in that direction, by layout:
 #   row (>= 90 columns): Status | Motion     | Conditions, Thrusters      stack: Status | Motion, Conditions,
@@ -304,7 +294,6 @@ def map_key_maps(doc):
     return view, {**keymap_module.key_map(doc.get('tab.map')), **view}
 
 
-
 def help_rows(profile, entries):
     """Help as popup rows: the profile, the keys that work anywhere, then one section per panel.
 
@@ -327,6 +316,357 @@ def help_rows(profile, entries):
 def help_width(columns=None):
     """Wider help on a wide terminal, so fewer lines wrap and less of it scrolls; 76 without a width (no console)."""
     return max(76, min(104, columns - 12)) if columns else 76
+
+
+def nav2_params():
+    """mhseals_nav's checked-in Nav2 parameters, or None outside a ROS install."""
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'nav2_params.yaml'
+    except (ImportError, KeyError):
+        return None
+    return path if path.exists() else None
+
+
+class RemovedStartStack(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.error('--start-stack was removed: start the stack in the TUI, Status panel, '
+                     'Components, Enter on the Stack row')
+
+
+def settle_discovery(nodes, least=0.5, most=2.0, step=0.25, clock=time.monotonic, sleep=time.sleep):
+    """Wait until the ROS graph stops growing (two equal reads ``step`` apart, after ``least``), at most ``most``
+    seconds; returns the nodes seen last. A quiet graph costs ``least``, not the old fixed 2 s."""
+    start, seen = clock(), set(nodes())
+    while clock() - start < most:
+        sleep(step)
+        now = set(nodes())
+        if now == seen and clock() - start >= least:
+            return now
+        seen = now
+    return seen
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
+    parser.add_argument('--profile', default='boat',
+                        help=f'plant profile name ({", ".join(available_profiles())}) or YAML path; '
+                             'boat_trial profiles explains each path; ? shows the active profile')
+    parser.add_argument('--fcu-url', default='',
+                        help='explicit MAVROS FCU URL override (default: inherit endpoint YAML)')
+    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+                        help='override a setting for this run (see harness/settings.py), e.g. '
+                             'amplitude=0.4, command_mode=velocity, bench_override=on')
+    parser.add_argument('--review', nargs='?', const='', default=None, metavar='SESSION',
+                        help='play back a past session (path or name under the data root; '
+                             'default the newest) with no ROS node and no outputs')
+    parser.add_argument('--output', type=Path, default=None,
+                        help='session directory (default a new sessions/<time>_<host>_<profile> under the data root)')
+    # Removed 10-25: the Status panel's Stack row starts the stack; the flag only says where it went.
+    parser.add_argument('--start-stack', nargs=0, action=RemovedStartStack, help=argparse.SUPPRESS)
+    seat = parser.add_mutually_exclusive_group()
+    seat.add_argument('--view', action='store_true',
+                      help='start as a viewer of the live session: no commands but Space and E; O takes control')
+    seat.add_argument('--take', action='store_true',
+                      help='take control of the live session: it stops at neutral, disarms and hands over')
+    return parser
+
+
+def parse_args(argv=None, *, defer_hardware=False):
+    parser = build_parser()
+    try:
+        if defer_hardware:
+            parser.add_argument('--config', help='hardware YAML (or MHSEALS_HARDWARE_CONFIG)')
+            parser.add_argument('--save-config', action='store_true')
+            args = parser.parse_args(argv)
+            args.hardware_config = None
+        else:
+            args = configure_args(parser, argv)  # explicit unmanaged/parser callers
+    except (OSError, ValueError, TypeError, yaml.YAMLError) as error:
+        # Refuse to start on a broken hardware YAML, naming the file instead of a traceback.
+        probe = argparse.ArgumentParser(add_help=False)
+        probe.add_argument('--config')
+        path = config_path(probe.parse_known_args(argv)[0].config)
+        parser.error(f'{path}: {error}')
+    args.settings = settings.load()
+    try:
+        for assignment in args.set:
+            args.settings.set(assignment)
+    except ValueError as error:
+        parser.error(f'--set {error}')
+    args.stale_after, args.bench_override = args.settings.stale_after, args.settings.bench_override
+    profile = load_profile(args.profile)
+    if args.settings.command_mode == 'velocity':
+        profile = profile.with_velocity_control()
+    if profile.components and args.review is None:
+        try:            # where each part runs: refused here, before a session directory exists
+            profile.placed
+        except DeviceError as error:
+            raise SystemExit(f'boat_test: {error}') from None
+    return args, profile
+
+
+def stack_overlay(profile, args):
+    """Launch arguments the command line adds to the profile's components."""
+    if not profile.uses_fcu or not args.fcu_url:
+        return {}
+    from mhseals_testing.harness.components import ENDPOINT_LAUNCHES
+    placed = profile.placed[1]
+    return {key: {'fcu_url': args.fcu_url}
+            for key, spec in (profile.components or {}).items()
+            if placed[spec.get('part', key)].spec.get('launch') in ENDPOINT_LAUNCHES}
+
+
+def terminal_gone(error):
+    """True for the key reader's EOF or EIO: the terminal is gone, not a stopping error."""
+    return isinstance(error, EOFError) or error.errno == errno.EIO
+
+
+def hang_up(*_):
+    """SIGHUP and SIGTERM stop like Ctrl+C: neutral, disarm, flush, then exit."""
+    raise KeyboardInterrupt
+
+
+def restart_as(app):
+    """(argv, notice) to exec after this session: O in a viewer restarts it as the owner (``--take``); a
+    human takeover restarts the old owner as a viewer, told who took over. None otherwise."""
+    if app is None:
+        return None
+    if app.restart_as == 'take':
+        mode, notice = '--take', 'Taking control'
+    elif app.detaching and app.handed_by:
+        mode, notice = '--view', f'Control taken by {control.name(app.handed_by)}' + (
+            f" ({app.handed_by['from']})" if app.handed_by.get('from') else '') + '; you are viewing'
+    else:
+        return None
+    argv = [arg for arg in sys.orig_argv if arg not in ('--view', '--take')]
+    return [*argv, mode], notice
+
+
+def detach(*_):
+    """SIGUSR1: the next instance is taking over."""
+    raise Detach
+
+
+def nav2_recorder(app):
+    """Return the history writer for a live apply: the content Nav2File handed to it.
+
+    Not the file as it is now, so an edit saved during the apply is not recorded as applied.
+    """
+    def record():
+        applying = getattr(app().nav2_file, 'applying', None)
+        if applying:
+            adapters.record_value(app().history, 'nav2', 'tui:nav2-live', *applying,
+                                  app().warn_history, applied='live-session')
+    return record
+
+
+def build_nav2_live(ros, registry, profile, app):
+    """Build the live Nav2 applier for this session owner (``app``: a callable, built later)."""
+    from mhseals_testing.harness.nav2_live import Nav2Live
+    from mhseals_testing.ros.nav2_live import RosPorts
+    ports = RosPorts(ros.node, registry, lambda phase, **fields: ros.emit(phase, **fields),
+                     lambda: bool(app().armed) and muxed(profile))
+    return Nav2Live(ports, me=os.getpid(), record=nav2_recorder(app))
+
+
+def review_main(args, profile):
+    """--review: the dashboard over a past session, with no ROS, bag recorder or outputs."""
+    try:
+        found = find_session(args.review)
+        review = load_session(found)
+    except ValueError as error:
+        raise SystemExit(f'boat_test --review: {error}')
+    console = Console()
+    offline = Offline()
+    app = App(args, profile, BoatMonitor(args.stale_after), offline, offline,
+              SessionPaths.from_output(found), console, review=review)
+    app.run()
+
+
+def main(argv=None):
+    """boat_test: a device registry the harness refuses ends with its message, not a traceback."""
+    try:
+        return session_main(argv)
+    except DeviceError as error:
+        raise SystemExit(f'boat_test: {error}') from None
+
+
+def session_main(argv=None):
+    args, profile = parse_args(argv, defer_hardware=True)
+    if args.review is not None:
+        args.hardware_config = load_config(args.config)
+        return review_main(args, profile)
+    # ROS imports stay here so the App (and its tests) never need rclpy.
+    import rclpy
+
+    from mhseals_testing.harness.simsession import start_session
+    from mhseals_testing.ros import arm_link
+    from mhseals_testing.ros.arming import Arming
+    from mhseals_testing.ros.health import subscribe_fcu
+    from mhseals_testing.ros.perception import subscribe_detections
+    from mhseals_testing.ros.preflight import subscribe_tui as subscribe_preflight
+    from mhseals_testing.ros.mission import TaskWatcher
+    from mhseals_testing.ros.nav2 import Nav2
+    from mhseals_testing.ros.node import RosIO, node_name
+    from mhseals_testing.ros.plant import Plant
+    from mhseals_testing.harness.processes import ProcessManager
+
+    from rclpy.signals import SignalHandlerOptions
+
+    settings.save(args.settings)  # the last used values (not command mode or bench override)
+    console = Console()
+    registry = Registry()
+    me = dict(pid=os.getpid(), node=node_name(), host=socket.gethostname(), started=time.time(),
+              profile=profile.name, tty=os.ttyname(0) if os.isatty(0) else '', **control.identity())
+    choice = decide(registry, console, me, mode='view' if args.view else 'take' if args.take else None)
+    if choice.mode == 'quit':
+        return
+    watching = choice.watching if choice.mode == 'watch' else 0
+    # Adopted sessions keep the recording's directory, so the report and bag stay together.
+    if choice.session and choice.mode != 'own':
+        paths = SessionPaths.from_output(choice.session)
+    else:
+        paths = SessionPaths.from_output(session_module.create(
+            profile.name, directory=args.output,
+            clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
+            git=session_module.running_sources(),
+            kind='sim' if profile.use_sim_time else 'boat').directory)
+    overlay = stack_overlay(profile, args)
+    if args.save_config:
+        if choice.mode != 'own':
+            raise ValueError('--save-config requires a fresh owner session')
+        save_config(load_config(args.config), args.config)
+    args.hardware_config = load_config(args.config)
+    # rclpy's own SIGINT handler would shut ROS down before the graceful close could
+    # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    for hangup in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(hangup, hang_up)
+    signal.signal(signal.SIGUSR1, detach)
+    gyros = [sensor.name for sensor in profile.sensors if sensor.kind == 'imu']
+    monitor = BoatMonitor(args.stale_after, gyro_sensor=gyros[0] if gyros else None,
+                          history_sensors=tuple(
+                              sensor.name for sensor in profile.sensors
+                              if sensor.kind == 'odometry' or sensor.name == (gyros or [None])[0]),
+                          deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
+                                     if sensor.deadline is not None},
+                          future=profile.stamp_future)
+    facts = Facts()
+    ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
+    # The keepers follow the registry owner, so a handover keeps the children for the adopter.
+    stack_items = components(profile, overlay)
+    processes = ProcessManager(paths.logs, registry=None if watching else registry)
+    plant = Plant(ros, profile)
+    # Parts on other computers run as units there; a watcher reads them but keeps none alive.
+    # Every computer reports its own parts (its process table), so DDS discovery never sets a state.
+    status = issue_settings()
+    units = Units(stack_items, by=dict(host=profile.placed[0].name if stack_items else '',
+                                       pid=os.getpid(), session=str(paths.directory)),
+                  renew=not watching, period=float(status.get('period', 5.0))).begin()
+    stack = Stack(stack_items, processes, time.monotonic, units, scan=unit_probe)
+    ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
+    # Off the thrusters host, arming targets it over DDS + ssh (ros/arm_link.py); a watcher never arms.
+    driver_host = None if watching else arm_link.target(profile)
+    remote_driver = None if driver_host is None else arm_link.RemoteDriver(
+        driver_host[0], arm_link.RosLink(ros.node), driver_host[1],
+        by=dict(host=profile.placed[0].name, pid=os.getpid(), session=str(paths.directory)))
+    if remote_driver is not None:   # one hardware.yaml: the boat's, read now and again at each arm
+        args.hardware_config = remote_driver.fetch_config() or args.hardware_config   # shown only if unread
+
+        def adopt(config):
+            args.hardware_config = config
+        remote_driver.adopt = adopt
+    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, remote=remote_driver)
+    app = authority = desk = None
+    try:
+        for name, child in choice.children.items():
+            processes.adopt(name, child)
+        if choice.mode == 'own':               # a stale owner's leftovers: stop, start fresh
+            processes.stop_all()
+        subscribe_detections(ros, facts, profile)
+        if profile.uses_fcu:
+            subscribe_fcu(ros, monitor, facts, profile.battery)
+        subscribe_preflight(ros, facts, profile, lambda: args.hardware_config, registry)
+        if watching:   # known to the owner, so it is not flagged as a foreign instance
+            registry.add_guest(os.getpid(), me['node'], control.VIEW,
+                               **{k: me[k] for k in ('host', 'started', 'tty', 'client', 'from')})
+        else:
+            registry.update(lambda state: state.update(session=str(paths.directory)))
+            start_session(profile, paths.session, paths.truth)
+            # The profile's components marked start come up with the session; whatever of
+            # them already runs is attached to (Stack.autostart). Off the simulator nothing
+            # that moves the boat auto-starts.
+            if stack.start_order():
+                settle_discovery(ros.nodes)   # let discovery find an already-running stack
+                sim = profile.use_sim_time is True and profile.outputs == 'topic'
+                for line in stack.autostart(ros.nodes(), ros.publishers(profile.odometry), sim):
+                    console.print(Text(line, style=theme.WARN))
+                    ros.emit('autostart', detail=line)
+            registry.set_children(processes.records())
+        app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
+                  nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
+                                    profile.base_frame),
+                  task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
+                  registry=registry, watching=watching, facts=facts,
+                  nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
+                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack,
+                  issues=IssuesFeed(status.get('grace_s', 15.0), status.get('discovery_grace_s', 20.0)))
+        if not watching:
+            ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
+                     profile=profile.name, bag=str(paths.bag))
+            app.observe_config()
+            if processes.running('bag'):               # adopted: the recorder keeps going
+                app.recorder.mode = 'lean'
+            else:
+                app.set_recording('lean')              # lean is the default at session start
+            registry.set_children(processes.records())
+        authority = None if watching else authority_feed.start(
+            app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
+        desk = None if watching else agent_feed.start(app, ros, registry=registry)
+        if not watching and not app.review:
+            app.operator_start()                   # after the arbiter and desk: they pause with it
+        authority_feed.viewer(app, ros)            # a viewer shows the owner's record; None for the owner
+        control_feed.start(app, registry, emit=None if watching else ros.emit)
+        if os.environ.get('BOAT_TUI_NOTICE'):      # why this client restarted (a takeover), once
+            app.notice = os.environ.pop('BOAT_TUI_NOTICE')
+        app.run()
+    except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
+        console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
+    finally:
+        try:
+            if app is not None:
+                app.close()  # already done by run() unless the page never opened
+            else:
+                plant.neutral()
+                arming.disarm()
+        finally:
+            if desk is not None:        # an act never outlives its TUI, nor passes to a successor
+                desk.close()
+            if authority is not None:   # claims end with the session unless a successor adopts them
+                authority.arbiter.close(keep_claims=app.detaching)
+            plant.close()
+            processes.stop_all()   # a detach already released the children it hands on
+            if watching:
+                registry.remove_guest(os.getpid())
+            else:
+                registry.release(os.getpid(), keep_children=False)
+            ros.close()
+            rclpy.try_shutdown()
+    if app is not None and app.detaching:
+        console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
+    restart = restart_as(app)
+    if restart:
+        console.print(restart[1])
+        os.environ['BOAT_TUI_NOTICE'] = restart[1]
+        os.execv(sys.executable, restart[0])
+    if app is not None:
+        table = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}'},
+                                     {'header': '', 'ratio': 1}, padding=(0, 2))
+        table.show_header = False
+        for label, value in app.summary():
+            table.add_row(label, value)
+        console.print(theme.block(table, 'Session closed', expand=False))
 
 
 class App:
@@ -489,8 +829,6 @@ class App:
             snapshot['rtk_view'] = self.rtk.current
         return snapshot
 
-    # --- interlocks ------------------------------------------------------------
-
     def blockers(self):
         reasons = motion_blockers(self.snapshot(), self.profile, self.args.bench_override)
         if self.ros.fault:
@@ -636,8 +974,6 @@ class App:
     def motion_blockers(self):
         """When the suite commands, nothing else may publish the command topic."""
         return self.supervision_blockers() + (self.plant.conflicts() if self.armed else [])
-
-    # --- background work, every tick ---------------------------------------------
 
     def tick(self):
         if getattr(self, '_runner_paused', False):
@@ -859,8 +1195,6 @@ class App:
             return
         self.notice = f'Graphics {theme.PALETTE.graphics}{theme.SEPARATOR}{pixels.TIER}'
 
-    # --- hardware config: edits from the panel or any editor, pins restart the driver ---
-
     def watch_config(self):
         """Poll every watched file once; announce what changed (harness/watch.py)."""
         for change in self.watcher.poll():
@@ -1037,8 +1371,6 @@ class App:
             return False
         self.draft = self.grabbed = None
         return True
-
-    # --- rendering ---------------------------------------------------------------
 
     @property
     def tab(self):
@@ -1230,8 +1562,6 @@ class App:
         self.notice = f'Report saved: {path}'
         return path
 
-    # --- the loop ----------------------------------------------------------------
-
     def sync_guests(self):
         """Emit guest_attach / guest_detach as boat_trial guests join and leave the registry."""
         if self.registry is None or self.watching:
@@ -1296,8 +1626,6 @@ class App:
                         self.notice = 'Terminal closed'
             finally:
                 self.close()  # on q and on Ctrl+C alike, while the page is still up
-
-    # --- quitting ------------------------------------------------------------------
 
     def confirm_quit(self):
         """Say what quitting does, and offer to keep an unsaved mapping."""
@@ -1372,8 +1700,6 @@ class App:
     def client_name(self):
         """This client as the tracker names it (``boat-v1@host``)."""
         return control.name(dict(control.identity(), host=socket.gethostname(), pid=os.getpid()))
-
-    # --- operator state (harness/operator_state.py) ---------------------------------
 
     def operator_start(self):
         """The owner TUI's start: a battery swap or power cycle declared on an earlier boot is reported once."""
@@ -1933,8 +2259,6 @@ class App:
             self._releasing = False
         return requested
 
-    # --- markers -----------------------------------------------------------------
-
     def moving(self):
         return bool(self.running or self.manual)
 
@@ -1974,8 +2298,6 @@ class App:
                 return ''
             modal['text'] = popups.edit(modal['text'], key)
         return self.popup(modal, handle) or None
-
-    # --- review ---------------------------------------------------------------------
 
     def dispatch_review(self, key):
         """Review's own keys (context global -> review). True when the key was consumed.
@@ -2064,8 +2386,6 @@ class App:
             self.review = None
             self.last_tick = self.clock()
             self.notice = 'Left review'
-
-    # --- panel keys --------------------------------------------------------------
 
     def on_status(self, key):
         rows = status_rows(self.snapshot(), self.profile.sensors)
@@ -2564,8 +2884,6 @@ class App:
         if notice:
             self.notice = notice
 
-    # --- popups (see ui/popups) ------------------------------------------------------
-
     def popup(self, modal, handle, refresh=None):
         return popups.popup(self, modal, handle, refresh)
 
@@ -2702,8 +3020,6 @@ class App:
 
     def type_word(self, title, message, word, rows=None, width=64, quiet=False):
         return popups.type_word(self, title, message, word, rows, width, quiet)
-
-    # --- arming --------------------------------------------------------------------
 
     def arm_rows(self):
         """What arming means right now: outputs, driver, config and every interlock."""
@@ -2987,8 +3303,6 @@ class App:
             self.disarm(reason, by)
         finally:
             self.monitor.event('STOP: ' + reason)
-
-    # --- procedures ---------------------------------------------------------------
 
     def availability(self, procedure):
         if self.watching:
@@ -3383,358 +3697,3 @@ class App:
                        f"Manual {amplitude:.0%}{theme.SEPARATOR}{active}{theme.SEPARATOR}"
                        + ('Chords' if chords else 'Single key'))
         self.refresh(force=done)
-
-
-def nav2_params():
-    """mhseals_nav's checked-in Nav2 parameters, or None outside a ROS install."""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'nav2_params.yaml'
-    except (ImportError, KeyError):
-        return None
-    return path if path.exists() else None
-
-
-class RemovedStartStack(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        parser.error('--start-stack was removed: start the stack in the TUI, Status panel, '
-                     'Components, Enter on the Stack row')
-
-
-def settle_discovery(nodes, least=0.5, most=2.0, step=0.25, clock=time.monotonic, sleep=time.sleep):
-    """Wait until the ROS graph stops growing (two equal reads ``step`` apart, after ``least``), at most ``most``
-    seconds; returns the nodes seen last. A quiet graph costs ``least``, not the old fixed 2 s."""
-    start, seen = clock(), set(nodes())
-    while clock() - start < most:
-        sleep(step)
-        now = set(nodes())
-        if now == seen and clock() - start >= least:
-            return now
-        seen = now
-    return seen
-
-
-def build_parser():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
-    parser.add_argument('--profile', default='boat',
-                        help=f'plant profile name ({", ".join(available_profiles())}) or YAML path; '
-                             'boat_trial profiles explains each path; ? shows the active profile')
-    parser.add_argument('--fcu-url', default='',
-                        help='explicit MAVROS FCU URL override (default: inherit endpoint YAML)')
-    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
-                        help='override a setting for this run (see harness/settings.py), e.g. '
-                             'amplitude=0.4, command_mode=velocity, bench_override=on')
-    parser.add_argument('--review', nargs='?', const='', default=None, metavar='SESSION',
-                        help='play back a past session (path or name under the data root; '
-                             'default the newest) with no ROS node and no outputs')
-    parser.add_argument('--output', type=Path, default=None,
-                        help='session directory (default a new sessions/<time>_<host>_<profile> under the data root)')
-    # Removed 10-25: the Status panel's Stack row starts the stack; the flag only says where it went.
-    parser.add_argument('--start-stack', nargs=0, action=RemovedStartStack, help=argparse.SUPPRESS)
-    seat = parser.add_mutually_exclusive_group()
-    seat.add_argument('--view', action='store_true',
-                      help='start as a viewer of the live session: no commands but Space and E; O takes control')
-    seat.add_argument('--take', action='store_true',
-                      help='take control of the live session: it stops at neutral, disarms and hands over')
-    return parser
-
-
-def parse_args(argv=None, *, defer_hardware=False):
-    parser = build_parser()
-    try:
-        if defer_hardware:
-            parser.add_argument('--config', help='hardware YAML (or MHSEALS_HARDWARE_CONFIG)')
-            parser.add_argument('--save-config', action='store_true')
-            args = parser.parse_args(argv)
-            args.hardware_config = None
-        else:
-            args = configure_args(parser, argv)  # explicit unmanaged/parser callers
-    except (OSError, ValueError, TypeError, yaml.YAMLError) as error:
-        # Refuse to start on a broken hardware YAML, naming the file instead of a traceback.
-        probe = argparse.ArgumentParser(add_help=False)
-        probe.add_argument('--config')
-        path = config_path(probe.parse_known_args(argv)[0].config)
-        parser.error(f'{path}: {error}')
-    args.settings = settings.load()
-    try:
-        for assignment in args.set:
-            args.settings.set(assignment)
-    except ValueError as error:
-        parser.error(f'--set {error}')
-    args.stale_after, args.bench_override = args.settings.stale_after, args.settings.bench_override
-    profile = load_profile(args.profile)
-    if args.settings.command_mode == 'velocity':
-        profile = profile.with_velocity_control()
-    if profile.components and args.review is None:
-        try:            # where each part runs: refused here, before a session directory exists
-            profile.placed
-        except DeviceError as error:
-            raise SystemExit(f'boat_test: {error}') from None
-    return args, profile
-
-
-def stack_overlay(profile, args):
-    """Launch arguments the command line adds to the profile's components."""
-    if not profile.uses_fcu or not args.fcu_url:
-        return {}
-    from mhseals_testing.harness.components import ENDPOINT_LAUNCHES
-    placed = profile.placed[1]
-    return {key: {'fcu_url': args.fcu_url}
-            for key, spec in (profile.components or {}).items()
-            if placed[spec.get('part', key)].spec.get('launch') in ENDPOINT_LAUNCHES}
-
-
-def terminal_gone(error):
-    """True for the key reader's EOF or EIO: the terminal is gone, not a stopping error."""
-    return isinstance(error, EOFError) or error.errno == errno.EIO
-
-
-def hang_up(*_):
-    """SIGHUP and SIGTERM stop like Ctrl+C: neutral, disarm, flush, then exit."""
-    raise KeyboardInterrupt
-
-
-def restart_as(app):
-    """(argv, notice) to exec after this session: O in a viewer restarts it as the owner (``--take``); a
-    human takeover restarts the old owner as a viewer, told who took over. None otherwise."""
-    if app is None:
-        return None
-    if app.restart_as == 'take':
-        mode, notice = '--take', 'Taking control'
-    elif app.detaching and app.handed_by:
-        mode, notice = '--view', f'Control taken by {control.name(app.handed_by)}' + (
-            f" ({app.handed_by['from']})" if app.handed_by.get('from') else '') + '; you are viewing'
-    else:
-        return None
-    argv = [arg for arg in sys.orig_argv if arg not in ('--view', '--take')]
-    return [*argv, mode], notice
-
-
-def detach(*_):
-    """SIGUSR1: the next instance is taking over."""
-    raise Detach
-
-
-def nav2_recorder(app):
-    """Return the history writer for a live apply: the content Nav2File handed to it.
-
-    Not the file as it is now, so an edit saved during the apply is not recorded as applied.
-    """
-    def record():
-        applying = getattr(app().nav2_file, 'applying', None)
-        if applying:
-            adapters.record_value(app().history, 'nav2', 'tui:nav2-live', *applying,
-                                  app().warn_history, applied='live-session')
-    return record
-
-
-def build_nav2_live(ros, registry, profile, app):
-    """Build the live Nav2 applier for this session owner (``app``: a callable, built later)."""
-    from mhseals_testing.harness.nav2_live import Nav2Live
-    from mhseals_testing.ros.nav2_live import RosPorts
-    ports = RosPorts(ros.node, registry, lambda phase, **fields: ros.emit(phase, **fields),
-                     lambda: bool(app().armed) and muxed(profile))
-    return Nav2Live(ports, me=os.getpid(), record=nav2_recorder(app))
-
-
-def review_main(args, profile):
-    """--review: the dashboard over a past session, with no ROS, bag recorder or outputs."""
-    try:
-        found = find_session(args.review)
-        review = load_session(found)
-    except ValueError as error:
-        raise SystemExit(f'boat_test --review: {error}')
-    console = Console()
-    offline = Offline()
-    app = App(args, profile, BoatMonitor(args.stale_after), offline, offline,
-              SessionPaths.from_output(found), console, review=review)
-    app.run()
-
-
-def main(argv=None):
-    """boat_test: a device registry the harness refuses ends with its message, not a traceback."""
-    try:
-        return session_main(argv)
-    except DeviceError as error:
-        raise SystemExit(f'boat_test: {error}') from None
-
-
-def session_main(argv=None):
-    args, profile = parse_args(argv, defer_hardware=True)
-    if args.review is not None:
-        args.hardware_config = load_config(args.config)
-        return review_main(args, profile)
-    # ROS imports stay here so the App (and its tests) never need rclpy.
-    import rclpy
-
-    from mhseals_testing.harness.simsession import start_session
-    from mhseals_testing.ros import arm_link
-    from mhseals_testing.ros.arming import Arming
-    from mhseals_testing.ros.health import subscribe_fcu
-    from mhseals_testing.ros.perception import subscribe_detections
-    from mhseals_testing.ros.preflight import subscribe_tui as subscribe_preflight
-    from mhseals_testing.ros.mission import TaskWatcher
-    from mhseals_testing.ros.nav2 import Nav2
-    from mhseals_testing.ros.node import RosIO, node_name
-    from mhseals_testing.ros.plant import Plant
-    from mhseals_testing.harness.processes import ProcessManager
-
-    from rclpy.signals import SignalHandlerOptions
-
-    settings.save(args.settings)  # the last used values (not command mode or bench override)
-    console = Console()
-    registry = Registry()
-    me = dict(pid=os.getpid(), node=node_name(), host=socket.gethostname(), started=time.time(),
-              profile=profile.name, tty=os.ttyname(0) if os.isatty(0) else '', **control.identity())
-    choice = decide(registry, console, me, mode='view' if args.view else 'take' if args.take else None)
-    if choice.mode == 'quit':
-        return
-    watching = choice.watching if choice.mode == 'watch' else 0
-    # Adopted sessions keep the recording's directory, so the report and bag stay together.
-    if choice.session and choice.mode != 'own':
-        paths = SessionPaths.from_output(choice.session)
-    else:
-        paths = SessionPaths.from_output(session_module.create(
-            profile.name, directory=args.output,
-            clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
-            git=session_module.running_sources(),
-            kind='sim' if profile.use_sim_time else 'boat').directory)
-    overlay = stack_overlay(profile, args)
-    if args.save_config:
-        if choice.mode != 'own':
-            raise ValueError('--save-config requires a fresh owner session')
-        save_config(load_config(args.config), args.config)
-    args.hardware_config = load_config(args.config)
-    # rclpy's own SIGINT handler would shut ROS down before the graceful close could
-    # send neutral and the final events; without it Ctrl+C is a KeyboardInterrupt.
-    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-    for hangup in (signal.SIGHUP, signal.SIGTERM):
-        signal.signal(hangup, hang_up)
-    signal.signal(signal.SIGUSR1, detach)
-    gyros = [sensor.name for sensor in profile.sensors if sensor.kind == 'imu']
-    monitor = BoatMonitor(args.stale_after, gyro_sensor=gyros[0] if gyros else None,
-                          history_sensors=tuple(
-                              sensor.name for sensor in profile.sensors
-                              if sensor.kind == 'odometry' or sensor.name == (gyros or [None])[0]),
-                          deadlines={sensor.name: sensor.deadline for sensor in profile.sensors
-                                     if sensor.deadline is not None},
-                          future=profile.stamp_future)
-    facts = Facts()
-    ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
-    # The keepers follow the registry owner, so a handover keeps the children for the adopter.
-    stack_items = components(profile, overlay)
-    processes = ProcessManager(paths.logs, registry=None if watching else registry)
-    plant = Plant(ros, profile)
-    # Parts on other computers run as units there; a watcher reads them but keeps none alive.
-    # Every computer reports its own parts (its process table), so DDS discovery never sets a state.
-    status = issue_settings()
-    units = Units(stack_items, by=dict(host=profile.placed[0].name if stack_items else '',
-                                       pid=os.getpid(), session=str(paths.directory)),
-                  renew=not watching, period=float(status.get('period', 5.0))).begin()
-    stack = Stack(stack_items, processes, time.monotonic, units, scan=unit_probe)
-    ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
-    # Off the thrusters host, arming targets it over DDS + ssh (ros/arm_link.py); a watcher never arms.
-    driver_host = None if watching else arm_link.target(profile)
-    remote_driver = None if driver_host is None else arm_link.RemoteDriver(
-        driver_host[0], arm_link.RosLink(ros.node), driver_host[1],
-        by=dict(host=profile.placed[0].name, pid=os.getpid(), session=str(paths.directory)))
-    if remote_driver is not None:   # one hardware.yaml: the boat's, read now and again at each arm
-        args.hardware_config = remote_driver.fetch_config() or args.hardware_config   # shown only if unread
-
-        def adopt(config):
-            args.hardware_config = config
-        remote_driver.adopt = adopt
-    arming = Arming(profile, ros, processes, args.hardware_config, paths.hardware, remote=remote_driver)
-    app = authority = desk = None
-    try:
-        for name, child in choice.children.items():
-            processes.adopt(name, child)
-        if choice.mode == 'own':               # a stale owner's leftovers: stop, start fresh
-            processes.stop_all()
-        subscribe_detections(ros, facts, profile)
-        if profile.uses_fcu:
-            subscribe_fcu(ros, monitor, facts, profile.battery)
-        subscribe_preflight(ros, facts, profile, lambda: args.hardware_config, registry)
-        if watching:   # known to the owner, so it is not flagged as a foreign instance
-            registry.add_guest(os.getpid(), me['node'], control.VIEW,
-                               **{k: me[k] for k in ('host', 'started', 'tty', 'client', 'from')})
-        else:
-            registry.update(lambda state: state.update(session=str(paths.directory)))
-            start_session(profile, paths.session, paths.truth)
-            # The profile's components marked start come up with the session; whatever of
-            # them already runs is attached to (Stack.autostart). Off the simulator nothing
-            # that moves the boat auto-starts.
-            if stack.start_order():
-                settle_discovery(ros.nodes)   # let discovery find an already-running stack
-                sim = profile.use_sim_time is True and profile.outputs == 'topic'
-                for line in stack.autostart(ros.nodes(), ros.publishers(profile.odometry), sim):
-                    console.print(Text(line, style=theme.WARN))
-                    ros.emit('autostart', detail=line)
-            registry.set_children(processes.records())
-        app = App(args, profile, monitor, ros, processes, paths, console, arming, plant,
-                  nav2=lambda: Nav2(ros, profile.map_frame or profile.odom_frame,
-                                    profile.base_frame),
-                  task_watcher=lambda: TaskWatcher(ros), pulses=plant.test_pulses,
-                  registry=registry, watching=watching, facts=facts,
-                  nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
-                  nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack,
-                  issues=IssuesFeed(status.get('grace_s', 15.0), status.get('discovery_grace_s', 20.0)))
-        if not watching:
-            ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
-                     profile=profile.name, bag=str(paths.bag))
-            app.observe_config()
-            if processes.running('bag'):               # adopted: the recorder keeps going
-                app.recorder.mode = 'lean'
-            else:
-                app.set_recording('lean')              # lean is the default at session start
-            registry.set_children(processes.records())
-        authority = None if watching else authority_feed.start(
-            app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
-        desk = None if watching else agent_feed.start(app, ros, registry=registry)
-        if not watching and not app.review:
-            app.operator_start()                   # after the arbiter and desk: they pause with it
-        authority_feed.viewer(app, ros)            # a viewer shows the owner's record; None for the owner
-        control_feed.start(app, registry, emit=None if watching else ros.emit)
-        if os.environ.get('BOAT_TUI_NOTICE'):      # why this client restarted (a takeover), once
-            app.notice = os.environ.pop('BOAT_TUI_NOTICE')
-        app.run()
-    except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
-        console.print('\n[yellow]Interrupted; stopping at neutral.[/]')
-    finally:
-        try:
-            if app is not None:
-                app.close()  # already done by run() unless the page never opened
-            else:
-                plant.neutral()
-                arming.disarm()
-        finally:
-            if desk is not None:        # an act never outlives its TUI, nor passes to a successor
-                desk.close()
-            if authority is not None:   # claims end with the session unless a successor adopts them
-                authority.arbiter.close(keep_claims=app.detaching)
-            plant.close()
-            processes.stop_all()   # a detach already released the children it hands on
-            if watching:
-                registry.remove_guest(os.getpid())
-            else:
-                registry.release(os.getpid(), keep_children=False)
-            ros.close()
-            rclpy.try_shutdown()
-    if app is not None and app.detaching:
-        console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
-    restart = restart_as(app)
-    if restart:
-        console.print(restart[1])
-        os.environ['BOAT_TUI_NOTICE'] = restart[1]
-        os.execv(sys.executable, restart[0])
-    if app is not None:
-        table = theme.grid({'header': '', 'style': f'bold {theme.ACCENT}'},
-                                     {'header': '', 'ratio': 1}, padding=(0, 2))
-        table.show_header = False
-        for label, value in app.summary():
-            table.add_row(label, value)
-        console.print(theme.block(table, 'Session closed', expand=False))
-
-
-if __name__ == '__main__':
-    main()

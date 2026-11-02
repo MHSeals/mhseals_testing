@@ -101,7 +101,9 @@ def test_direct_unity_bypasses_managed_graph_contract():
 
 def test_app_preflights_components_before_process_manager():
     """The actual application entry evaluates the boundary before keeper creation."""
-    source = (ROOT / 'mhseals_testing/ui/app.py').read_text()
+    import inspect
+    from mhseals_testing.ui.app import session_main
+    source = Path(inspect.getsourcefile(session_main)).read_text()
     tree = ast.parse(source)
     function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
                     and node.name == 'session_main')

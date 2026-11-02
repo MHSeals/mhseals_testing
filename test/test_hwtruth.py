@@ -39,7 +39,7 @@ def rig(tmp_path, monkeypatch):
     app.ros = Ros(app.paths.hardware)
     app.arming = SimpleNamespace(armed=False, hardware_config=None,
                                  disarm=lambda: setattr(app.arming, 'armed', False))
-    monkeypatch.setattr('mhseals_testing.ui.app.time.sleep', lambda s: None)
+    monkeypatch.setattr('time.sleep', lambda s: None)
     return app, operator
 
 

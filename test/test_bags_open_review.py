@@ -33,7 +33,7 @@ def selected_app(tmp_path, monkeypatch):
             rows.append(('/odom/local', message, stamp * S))
         return FakeReader(rows), {'/odom/local': 'nav_msgs/msg/Odometry'}
 
-    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+    monkeypatch.setattr('mhseals_testing.ui.app.core.ReviewSource', partial(
         ReviewSource, opener=opener, decode=lambda kind, message: message))
     app.show_tab('Bags')
     app.cursors['list'] = next(i for i, b in enumerate(app.bags_view()[0]) if b.id == 'selected')
@@ -223,7 +223,7 @@ def test_initial_reader_evidence_distinguishes_failure_from_empty_window(
         return FakeReader([('/mhseals_testing/events', {'phase': 'marker'}, 25 * S)]), {
             '/mhseals_testing/events': 'inert'}
 
-    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+    monkeypatch.setattr('mhseals_testing.ui.app.core.ReviewSource', partial(
         ReviewSource, opener=opener, decode=lambda kind, message: message))
     app.dispatch('enter')
     if mode == 'all-bad':
@@ -245,7 +245,7 @@ def test_reader_programming_error_is_not_hidden(tmp_path, monkeypatch):
     def broken_opener(segment):
         raise AssertionError('reader programming failure')
 
-    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+    monkeypatch.setattr('mhseals_testing.ui.app.core.ReviewSource', partial(
         ReviewSource, opener=broken_opener, decode=lambda kind, message: message))
     with pytest.raises(AssertionError, match='programming failure'):
         app.dispatch('enter')
@@ -282,7 +282,7 @@ def test_playback_reader_error_during_tick_restores_live(tmp_path, monkeypatch):
         return BadLater([('/mhseals_testing/events', {'phase': 'marker'}, t * S)
                          for t in stamps]), {'/mhseals_testing/events': 'inert'}
 
-    monkeypatch.setattr('mhseals_testing.ui.app.ReviewSource', partial(
+    monkeypatch.setattr('mhseals_testing.ui.app.core.ReviewSource', partial(
         ReviewSource, opener=opener, decode=lambda kind, message: message))
     live = (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths)
     app.dispatch('enter')

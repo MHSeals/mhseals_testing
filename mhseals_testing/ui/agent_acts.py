@@ -24,7 +24,7 @@ from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.runner import Aborted, fold
 from mhseals_testing.ui import theme
 
-# The key loop's stopping errors (ui/app.py STOPPING_ERRORS).
+# The key loop's stopping errors (ui/app STOPPING_ERRORS).
 STOPPING = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
 # Agent names for procedure keys, one per procedure: each run record's run_key.
 # config/agent.yaml ``run`` lists the ones agents may request.
