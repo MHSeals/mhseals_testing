@@ -14,6 +14,7 @@ from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui import input as key_input
+from mhseals_testing.ui.app.model import Frame, Snapshot, ViewState
 from mhseals_testing.ui.panels import PANELS, agent_log, fusion as fusion_panel
 from mhseals_testing.ui.feeds import health as health_feed
 from mhseals_testing.ui.layout import MINIMAP, body_rows, motion_shown
@@ -30,7 +31,8 @@ IDLE_S = 1.0             # s; a still screen redraws only on a change, and this 
 class View:
     """Rendering, mixed into App."""
 
-    def snapshot(self):
+    def snapshot(self) -> Snapshot:
+        """The boat's state for rendering (model.Snapshot): what a wave-2 backend would serve."""
         snapshot = self.source.snapshot()
         if not self.source.live:
             return snapshot
@@ -122,7 +124,7 @@ class View:
         i = next(k for k, h in enumerate(REVIEW_HINTS) if h[0] == 'Esc')
         return REVIEW_HINTS[:i] + ([('z', 'Loupe')] if self.focus == 'activity' else []) + REVIEW_HINTS[i:]
 
-    def view(self):
+    def view(self) -> ViewState:
         config = self.args.hardware_config
         blockers = ([] if self.review else
                     self.motion_blockers() if self.armed else self.blockers())
@@ -215,9 +217,12 @@ class View:
         return authority_chip.control(record, self.driving(), time.time(), self.settings.agents,
                                       agent_motion=self.settings.agent_motion)
 
+    def frame(self):
+        """One draw's input (ui/app/model.py): the boat's snapshot and this station's view at the console's size."""
+        return Frame(self.snapshot(), self.view(), self.console.size.width, self.console.size.height)
+
     def render(self):
-        return layout.render(self.snapshot(), self.view(),
-                                self.console.size.width, self.console.size.height)
+        return self.frame().render()
 
     def lively(self):
         """Something moves on screen (driving, a run, an act, a popup, a replay, the Fusion tab): idle ticks draw at
