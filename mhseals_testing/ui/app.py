@@ -1176,7 +1176,7 @@ class App:
         return (int(now / IDLE_S), str(self.notice or ''), self.tab, getattr(self, 'focus', None),
                 tuple((t.id, t.kind, t.text) for t in getattr(self.toasts, '_items', {}).values()),
                 len(events), events[-1] if events else None, id(getattr(self.engine, 'last', None)),
-                id(getattr(getattr(self, 'arbiter', None), 'record', None)),
+                getattr(getattr(self, 'arbiter', None), 'sent', None),   # the record's content (its timer is 4 Hz)
                 (len(desk.recent), len(desk.notes), len(desk.queue), len(desk.notices)) if desk is not None else None,
                 getattr(self.map_state(), 'fence_status_at', None) if hasattr(self, 'map_state') else None)
 
