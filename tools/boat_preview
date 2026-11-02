@@ -69,6 +69,7 @@ endpoint_port() {   # the snapshot's endpoint on the preview's port, so an agent
 container_up() {
   local results=$IN/run
   docker rm -f "$PV_CONTAINER" >/dev/null 2>&1 || true
+  rm -rf "$RUN/xdg"     # a runtime dir lives as long as its container: no session left from the last one
   mkdir -p "$ROOT/home/.config" "$ROOT/data" "$RUN/xdg"; chmod 700 "$RUN/xdg"
   # its own copy of the station config: the TUI saves settings there, never into the owner's
   [ -d "$HOME/.config/mhseals" ] && rsync -a "$HOME/.config/mhseals/" "$ROOT/home/.config/mhseals/"

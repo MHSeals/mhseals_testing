@@ -115,8 +115,10 @@ class Checklist:
                 continue
             item = self.items[value]
             mark = self.marks.get(item['id'], (None, ''))[0]
-            label = Text(item['text'], no_wrap=True, overflow=theme.OVERFLOW)
-            lines.append(theme.row(STATE[mark], label, self.active and value == self.cursor))
+            label = Text(item['text'])
+            line = theme.row(STATE[mark], label, self.active and value == self.cursor)
+            line.no_wrap, line.overflow = True, theme.OVERFLOW
+            lines.append(line)
         current = self.items[self.cursor] if self.items else {}
         detail = current.get('detail') or (self.marks.get(current.get('id'), (None, ''))[1]) or current.get('text', '')
         counts = self.counts()
