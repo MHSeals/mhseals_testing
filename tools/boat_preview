@@ -33,6 +33,7 @@ eval "$settings"
 HEAVY=${BOAT_PREVIEW_HEAVY:-$PV_SRC/mhseals_agents/tools/heavy}   # the workspace heavy-job guard
 mkdir -p "$PV_CACHE"
 CURRENT=$PV_CACHE/current      # the running preview's root and ref
+QUEUED=$PV_CACHE/queued.pid    # the heavy guard of a session still waiting for its slot
 if [ "$verb" = up ] || [ "$verb" = _run ]; then
   REF=${REF:-$PV_REF}; ROOT=$PV_CACHE/$(python3 -m mhseals_testing.harness.preview slug "$REF")
 else
@@ -131,7 +132,7 @@ down() {
 
 session() {
   trap down EXIT; trap 'exit 143' INT TERM
-  rm -f "$RUN/stop" "$RUN/failed"; echo $$ > "$RUN/session.pid"
+  rm -f "$RUN/stop" "$RUN/failed" "$QUEUED"; echo $$ > "$RUN/session.pid"
   printf '%s\n%s\n' "$ROOT" "$REF" > "$CURRENT"
   echo "boat_preview: snapshot of $REF"
   stamp=$(snapshot); echo "boat_preview: $stamp"
@@ -183,7 +184,7 @@ case $verb in
     mkdir -p "$RUN"; rm -f "$RUN/ready" "$RUN/session.pid"
     : > "$RUN/session.log"
     ( setsid "$HEAVY" "$slot" "$0" _run "$REF" $([ "$headless" = 1 ] && echo --headless) $([ "$test" = 1 ] && echo --test) \
-        >>"$RUN/session.log" 2>&1 & )
+        >>"$RUN/session.log" 2>&1 & echo $! > "$QUEUED" )
     shown=0 waited=0
     until [ -e "$RUN/ready" ]; do
       lines=$(wc -l < "$RUN/session.log"); [ "$lines" -gt "$shown" ] && { sed -n "$((shown + 1)),${lines}p" "$RUN/session.log"; shown=$lines; }
@@ -195,7 +196,11 @@ case $verb in
     attach
     ;;
   _run) session ;;
-  down) [ -n "$ROOT" ] || { echo 'boat_preview: no preview'; exit 0; }; down ;;
+  down)
+    # a session still queued for its heavy slot (it clears $QUEUED when it starts) is cancelled, or it would start
+    # unattended once the slot frees: setsid made the guard its group's leader
+    if [ -s "$QUEUED" ]; then kill -TERM -- "-$(cat "$QUEUED")" 2>/dev/null || true; rm -f "$QUEUED"; echo 'boat_preview: queued session cancelled'; fi
+    [ -n "$ROOT" ] || { echo 'boat_preview: no preview'; exit 0; }; down ;;
   attach) alive || { echo 'boat_preview: no preview TUI (boat_tui preview starts one)' >&2; exit 4; }; attach ;;
   restart) tui restart ;;
   status)
