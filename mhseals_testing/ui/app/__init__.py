@@ -12,6 +12,7 @@ startup.py parses arguments and runs a session; help.py holds the key tables.
 
 from mhseals_testing.ui.app.core import (  # noqa: F401
     App, main, session_main, review_main, parse_args, build_parser, stack_overlay, settle_discovery,
-    nav2_recorder, build_nav2_live, restart_as, SessionPaths, HELP, GLOBAL_HINTS, PANEL_HINTS, MANUAL_HINTS,
-    CORRECTION_HINTS, help_rows, help_width, UPDOWN, LEFTRIGHT, WATCHDOG_GRACE, HOLD_CONFIRM_S, IDLE_S,
-    Detach, decoupled, STOPPING_ERRORS)
+    nav2_recorder, build_nav2_live, restart_as, SessionPaths, WATCHDOG_GRACE, HOLD_CONFIRM_S, IDLE_S, Detach,
+    decoupled, STOPPING_ERRORS)
+from mhseals_testing.ui.app.help import (  # noqa: F401
+    HELP, GLOBAL_HINTS, PANEL_HINTS, MANUAL_HINTS, CORRECTION_HINTS, help_rows, help_width, UPDOWN, LEFTRIGHT)
