@@ -432,7 +432,7 @@ def start_text(who, agent='claude', config=None):
         '`--why "..."`: the TUI agent panel shows who, verb, why and result. `note --doing "..."` sets your "doing:" '
         'line there; `ask "..."` instead of guessing. `stop` any time: the operator and the agent it interrupts see '
         'your id. `status` and `fcu get` work with no TUI controller.',
-        '  `release HOLD --why "..."` (hold names in `status` .holds) releases a lease or watchdog hold once its fault '
+        '  `release HOLD --why "..."` (hold names in `status` .authority.record.holds) releases a lease or watchdog hold once its fault '
         'has cleared, at once; an operator hold (Space, stop, manual) only when ~/.config/mhseals/agent_grants.yaml '
         'grants it to you (then at once, e.g. a known bug the owner told you to clear). The e-stop is never '
         'releasable. When it is the best course of action and allowed, act yourself; say why.',

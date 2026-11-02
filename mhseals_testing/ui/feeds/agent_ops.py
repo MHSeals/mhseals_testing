@@ -185,7 +185,7 @@ def do_release_hold(desk, req):
     if app.settings.agents == 'block':
         return desk.reply(req, False, 'blocked', hint='operator must set Agents to allow')
     if not name or not why:
-        return desk.reply(req, False, 'bad_args', hint='release HOLD --why "..." (hold causes: status .authority.holds)')
+        return desk.reply(req, False, 'bad_args', hint='release HOLD --why "..." (hold causes: status .authority.record.holds)')
     arbiter = desk.arbiter
     if arbiter is None:
         return desk.reply(req, False, 'no_owner')
