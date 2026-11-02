@@ -172,7 +172,7 @@ def test_a_local_dev_launch_is_not_blocked_and_the_playbook_names_the_verb(monke
     assert 'arming' in hook.deny_reason(*hook.denied('ros2 launch --debug mhseals_hardware sensors.launch.py',
                                                      hook.DEFAULTS), who='claude-3f2a', config=hook.DEFAULTS)
     text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
-    assert '`start COMPONENT --claim ID`' in text and "arming stays the operator's" in text
+    assert '`start COMPONENT --claim ID`' in text and '`arm --claim ID' in text
 
 
 class Needy(Profile):

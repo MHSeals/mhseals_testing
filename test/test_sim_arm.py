@@ -273,7 +273,7 @@ def test_the_hook_blocks_direct_arming(command):
     hit = hook.denied(command, hook.DEFAULTS)
     assert hit is not None
     if 'mavros' not in command:
-        assert 'run KEY --sim-arm --claim ID' in hook.deny_reason(*hit, config=hook.DEFAULTS)
+        assert 'arm --claim ID' in hook.deny_reason(*hit, config=hook.DEFAULTS)
 
 
 @pytest.mark.parametrize('command, what', [

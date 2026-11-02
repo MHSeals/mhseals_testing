@@ -649,21 +649,21 @@ def test_pkill_routes_to_kill_by_pid_not_to_stopping_the_boat():
     assert "the boat's control" in reason and 'boat_agent stop --who' in reason
 
 
-def test_arming_on_a_boat_routes_to_run_and_the_operators_arm_panel():
+def test_arming_routes_to_boat_agent_arm_on_a_boat_and_here():
     hit = hook.denied('ssh blastoise-odroid ros2 run mhseals_hardware command_mux', hook.DEFAULTS)
     reason = hook.deny_reason(*hit, config=hook.DEFAULTS)
-    assert 'run KEY --claim ID' in reason and '--sim-arm --claim' not in reason and 'arm panel' in reason
+    assert 'arm --claim ID' in reason and 'countdown' in reason and 'e-stop' in reason
+    assert hook.use_of(hit[0]) == 'boat_agent arm'
     reason = hook.deny_reason(*hook.denied('ros2 run mhseals_hardware command_mux', hook.DEFAULTS),
                               config=hook.DEFAULTS)
-    assert 'run KEY --sim-arm --claim ID' in reason and 'MHSEALS_SIM_ARM=1' in reason
+    assert 'arm --claim ID' in reason and '--sim-arm' not in reason
 
 
-def test_a_boat_session_target_also_drops_sim_arm(monkeypatch):
-    monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise-odroid')
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    hit = hook.denied('python3 -m mhseals_hardware.command_mux', hook.DEFAULTS)
-    reason = hook.deny_reason(*hit, config=hook.DEFAULTS)
-    assert 'run KEY --claim ID' in reason and '--sim-arm --claim' not in reason
+def test_the_playbook_lists_arm_reload_and_set():
+    text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
+    for verb in ('`arm --claim ID', '`reload config [NAME]`', '`set K=V --claim ID`', '`run f --claim ID`'):
+        assert verb in text
+    assert "arming stays the operator's" not in text
 
 
 @pytest.mark.parametrize('command, says', [

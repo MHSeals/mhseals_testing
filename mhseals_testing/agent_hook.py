@@ -262,7 +262,7 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (t
         'log, show and status are fine)', None, tuple(GIT_RUNS)),
        (None, "typing into the operator's boat_test TUI (its tmux session): popups, arming and holds are the "
         "operator's; ask with ask \"...\", watch with status or tmux capture-pane", None, tuple(TUI_KEYS)),
-       (None, 'arming (starting the thruster driver or the mux)', 'run KEY --sim-arm --claim ID', tuple(ARMING)),
+       (None, 'arming (starting the thruster driver or the mux)', 'arm --claim ID', tuple(ARMING)),
        (None, "changing Nav2's servers (a lifecycle or parameter change breaks a running claimed goal)", None,
         tuple(p for p in _DENY if NAV2 in p)),
        (None, 'starting the mission runner directly (outside the claim)', 'run mission --task NAME --claim ID',
@@ -455,15 +455,16 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, run, start, set, fcu, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
+        '(claim, arm, run, start, reload, set, fcu, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
         f'tmux sessions there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
         "another agent's session or `-L boat`.",
         '  1. `status`: what runs and who drives.',
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
-        '     Sim only: `run KEY --sim-arm` arms a verified sim for that run and disarms after; it needs the sim '
-        'container started with MHSEALS_SIM_ARM=1 (the owner turns it on; ask), and a real boat refuses it '
-        '(the operator arms).',
+        '     `arm --claim ID [--countdown S]` arms through the TUI: a banner counts down (agent.yaml arm.countdown, '
+        '5 s) and the operator may cancel it; the e-stop refuses it and no verb releases a hold. Sim only: '
+        '`run KEY --sim-arm` arms a verified sim (its container sets MHSEALS_SIM_ARM=1) for that run and disarms '
+        'after.',
         '     `run KEY --set K=V [--set K=V]` sets what the procedure measures before it starts (e.g. '
         '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets one between runs (disarmed and '
         'idle). Only agent.yaml `settings:` keys, within their choices (thrust_step bollard/pulses/survey/maneuvers, '
@@ -471,8 +472,10 @@ def start_text(who, agent='claude', config=None):
         'controls. The TUI shows and journals "agent ID set K=V". Exit 2: not_allowed (key not yours), bad_args '
         '(unknown key or value), busy (a procedure runs: never mid-segment), refused (set while armed).',
         '     `start COMPONENT --claim ID` / `stop COMPONENT --claim ID` starts or stops a stack part agent.yaml '
-        '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id. '
-        'Never the driver, mux, Nav2 or watchdogs; arming stays the operator\'s.',
+        '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id; '
+        '`reload COMPONENT --claim ID` respawns one. Never the driver, mux, Nav2 or watchdogs.',
+        '     `reload config [NAME]` re-reads the TUI\'s YAML (hardware, settings, keymap, ...) as a hand edit does. '
+        '`run f --claim ID` runs characterization (C applied live, read back).',
         '     `fcu get PARAM...` and `fcu rates` (IMU/odom rates, gap p99, FCU load, "Main loop slow") read only; '
         '`fcu set PARAM VALUE... --claim ID` (agent.yaml `fcu.set`: loop rate, SR0_/SR1_ stream rates, IMU filters; '
         'never yaw source, compass, servos, arming or failsafes), `fcu revert --to SNAPSHOT --claim ID` and '
@@ -495,7 +498,7 @@ def start_text(who, agent='claude', config=None):
         '`unreachable`: the boat is down; check `status` every few minutes. When status shows `restarted_after`, '
         're-check the stack, FCU params and RTK before anything else, and claim again (old claims are gone).',
         'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, change Nav2 lifecycles or params, send raw '
-        'test_pulses, start the mission runner or a procedure directly, never arm (but --sim-arm) or release a hold: '
+        'test_pulses, start the mission runner or a procedure directly, never arm but through `arm`, never release a hold: '
         'the hook blocks them and names the verb; kill only your own processes by exact PID; never answer a '
         'TUI popup. Run in sim first. For runs over 9 min use '
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
@@ -523,11 +526,9 @@ def deny_reason(hit, host=None, who='agent', config=None):
     if verb is None:
         return f'{head} Those stay with the operator; ask them: {cli} ask "..." --who {who}'
     arms = ''
-    if '--sim-arm' in verb and (host or remote(config)):   # a real boat refuses --sim-arm
-        verb = verb.replace(' --sim-arm', '')
-        arms = ' On a real boat the operator arms from the arm panel; --sim-arm is sim only.'
-    elif '--sim-arm' in verb:
-        arms = ' --sim-arm needs a verified sim whose container sets MHSEALS_SIM_ARM=1; a real boat is armed by the operator.'
+    if verb.startswith('arm '):
+        arms = (' The TUI shows a countdown the operator can cancel; the e-stop refuses it. '
+                'Then run KEY --claim ID.')
     return (f'{head} Use: {cli} {verb} --who {who}'
             + ('' if verb == 'stop' else f' (claim first: claim --reason "..." --who {who})')
             + f'.{arms} Verbs and exit codes: BOAT_AGENT={who} python3 .agents/hook.py --playbook')
