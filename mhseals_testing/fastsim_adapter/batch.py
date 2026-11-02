@@ -17,16 +17,12 @@ from pathlib import Path
 import sys
 import time
 
-from fastsim import identity
-from fastsim.batch import adapter_source, parse_seeds, run_batch
-from fastsim.pairs import flat_numbers
-from fastsim.scenario import ScenarioSource
-
 from mhseals_testing.fastsim_adapter import config as fsconfig
 
 
 def numbers(run_dir):
     """The run's flat numbers: core (outcome as ``succeeded``, flags, contacts, clearance) and referee."""
+    from fastsim.pairs import flat_numbers
     from mhseals_testing.fastsim_adapter.adapter import referee
     run = json.loads((Path(run_dir) / 'run.json').read_text())
     out = flat_numbers({'run': {'sim_s': run['sim_s'], 'contacts': len(run['contacts']),
@@ -45,6 +41,9 @@ def score(run_dir):
 
 def run(config=None, tune=None, seeds=(), out='.', variant='base', workers=None, allow_dirty=False):
     """Generate missing courses, run every seed, score each run; returns [(run_dir, metrics)]."""
+    from fastsim import identity
+    from fastsim.batch import adapter_source, run_batch
+    from fastsim.scenario import ScenarioSource
     cfg, base = fsconfig.load(config, tune)
     ScenarioSource(**cfg['scenarios'], base=base).generate(list(seeds))
     where = adapter_source(cfg, base)
@@ -69,6 +68,7 @@ def run(config=None, tune=None, seeds=(), out='.', variant='base', workers=None,
 def main(argv=None):
     p = argparse.ArgumentParser(prog='fastsim_adapter.batch', description=__doc__.split('\n')[0])
     p.add_argument('--config', type=Path, help='default: config/fastsim_roboboat.yaml')
+    from fastsim.batch import parse_seeds
     p.add_argument('--seeds', required=True, type=parse_seeds, help='N, FROM:TO or a,b,c')
     p.add_argument('--out', required=True, type=Path)
     p.add_argument('--variant', default='base')

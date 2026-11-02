@@ -9,6 +9,9 @@ harness session (``finalize``), so the referee (``harness.score_analyze``) score
   runs/<run_id>.json the run record; runs/<run_id>/ the track, task events and statuses
   events.jsonl       the journal on the sim clock: mission_start, horn edges, mission_stop
   fastsim.json       mhseals.fastsim/1 (the old readers' names) beside the core's run.json
+
+The classes follow the core's DomainAdapter and Controller contracts (fastsim/controller.py) by
+duck typing, so this module imports without crane on the path; the core loads it by reference.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -18,10 +21,6 @@ import json
 import math
 import os
 from pathlib import Path
-
-from fastsim.controller import Controller, DomainAdapter
-from fastsim.identity import git_state
-from fastsim.plant import Limits
 
 from mhseals_testing import data, events as journal_events
 from mhseals_testing.harness import journal, runs
@@ -64,6 +63,7 @@ def boat_limits(overlay=None, camera_frame=None):
     hold-over (config/tracker.yaml) and the camera: {limits, perception, tracker, sources}."""
     import mhseals_nav
     from mhseals_nav.startup_projection import effective_limits
+    from fastsim.plant import Limits
     root = Path(mhseals_nav.__file__).resolve().parents[1]
     e = effective_limits(limits_file=overlay or '')
     checkers = e['goal_checkers']
@@ -120,7 +120,7 @@ def _vx_max(controller):
     return vx
 
 
-class MissionController(Controller):
+class MissionController:
     """mhseals_nav's MissionHost on the core's navigator, its events and statuses kept."""
 
     def __init__(self, ctx, adapter):
@@ -143,6 +143,9 @@ class MissionController(Controller):
                   for t in obs.tracks]
         return self.host.tick(obs.pose, tracks, obs.fov)
 
+    def close(self):
+        pass
+
 
 class Journal:
     """The session journal as the harness writes it, on the sim clock (deterministic)."""
@@ -159,7 +162,7 @@ class Journal:
         journal.append(self.path, event)
 
 
-class RoboBoatAdapter(DomainAdapter):
+class RoboBoatAdapter:
     """Options: ``task``, ``mission`` (a task YAML, default the boat's own), ``profile``,
     ``params`` (mission overrides merged key by key: what a sweep varies), ``limits_overlay``
     (a nav2 limits overlay, as the launch takes it), ``camera_frame``, ``unknown_static``
@@ -169,10 +172,11 @@ class RoboBoatAdapter(DomainAdapter):
                  limits_overlay=None, camera_frame='front_camera_link', unknown_static=None,
                  crane='$CRANE_DIR'):
         promote = unknown_static or {'within': 8.0, 'after': 2.0}
-        super().__init__(base, task=task, mission=mission, profile=profile, params=params or {},
-                         limits_overlay=limits_overlay, camera_frame=camera_frame,
-                         unknown_static={'within_m': promote['within'], 'after_s': promote['after']},
-                         crane=crane)
+        self.base = base
+        self.options = dict(task=task, mission=mission, profile=profile, params=params or {},
+                            limits_overlay=limits_overlay, camera_frame=camera_frame,
+                            unknown_static={'within_m': promote['within'], 'after_s': promote['after']},
+                            crane=crane)
         from mhseals_nav.tasks.params import load_params, overlay, timeslot
         loaded = load_params(task, mission, profile)
         self.params = timeslot(overlay(loaded, params, 'adapter.params')) if params else loaded
@@ -189,6 +193,7 @@ class RoboBoatAdapter(DomainAdapter):
 
     def identity(self):
         import mhseals_nav
+        from fastsim.identity import git_state
         o = self.options
         return {'mhseals_nav': git_state(mhseals_nav.__file__), 'params_sha256': digest(self.params),
                 'params': o['params'], 'limits_sources': self.boat['sources'], 'task': o['task'],
