@@ -100,6 +100,7 @@ Health checks are YAML (`config/health/`); `~/.config/mhseals/health.yaml` disab
 
 ```bash
 tools/smoke                 # the landing gate (< 60 s); the full suite (pytest -q test) runs in CI and never blocks
+tools/smoke --impact        # only the tests timpact selects against origin/main (ALL: the full smoke)
 make -C docs pdf screens    # docs/math.pdf, docs/tuning.pdf, and the images above
 ```
 
