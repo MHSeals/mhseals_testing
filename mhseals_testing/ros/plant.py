@@ -98,11 +98,11 @@ class Plant:
         self.request_publisher.publish(String(data=json.dumps(
             {'op': 'hold', 'cause': cause, 'by': by})))
 
-    def release_hold(self):
-        """U: ask the mux to drop its sticky hold. False when this profile has no mux."""
+    def release_hold(self, by='tui'):
+        """U (or an agent's release): ask the mux to drop its sticky holds. False when this profile has no mux."""
         if self.request_publisher is None:
             return False
-        self.request_publisher.publish(String(data=json.dumps({'op': 'release', 'by': 'tui'})))
+        self.request_publisher.publish(String(data=json.dumps({'op': 'release', 'by': by})))
         return True
 
     def test_pulses(self, pulses):

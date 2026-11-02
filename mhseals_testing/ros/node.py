@@ -94,6 +94,7 @@ class RosIO:
         self.recording = True  # stamped on each event as ``rec``
         self._prefix = None
         self.beat_at, self.beat_runs, self._beat_subs = {}, {}, {}   # watchdog ~/status (watch_beats)
+        self.beat_state = {}
         self.node = Node(node_name(), parameter_overrides=[
             Parameter('use_sim_time', value=profile.use_sim_time)])
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
@@ -266,6 +267,15 @@ class RosIO:
         if last is None or now - last > BEAT_STALE_S:
             self.beat_runs[node] = now             # a gap: its unbroken run starts again
         self.beat_at[node] = now
+        try:                                       # a hold watchdog's {ok, reason}: whether its fault cleared
+            payload = json.loads(message.data)
+        except (TypeError, ValueError):
+            payload = None
+        self.beat_state[node] = payload if isinstance(payload, dict) else None
+
+    def beat_status(self):
+        """``{node: its last ~/status payload}`` (a hold watchdog's ``{ok, reason}``), for the beats ever heard."""
+        return dict(self.beat_state)
 
     def beats(self):
         """``{node: when its ~/status was last received}`` (monotonic), for the beats ever heard."""

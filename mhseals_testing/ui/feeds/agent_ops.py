@@ -9,7 +9,7 @@ through the same path a hand edit takes; ``reload COMPONENT`` stops and starts o
 
 import time
 
-from mhseals_testing.harness import operator_state
+from mhseals_testing.harness import agent_config, agent_grants, operator_state
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.ui import agent_acts, parts, theme
 
@@ -148,4 +148,56 @@ def do_reload(desk, req):
     desk.reply(req, True, result={'component': key, 'stopped': stopped}, label=f'reload {key}')
 
 
-HANDLERS = {'arm': do_arm, 'reload': do_reload}
+def cleared(app, hold):
+    """``(True, '')`` once a lease or watchdog hold's fault has cleared, else ``(False, why)``: a lease is no fault;
+    the TUI's own watchdog hold needs every required watchdog alive; a watchdog node's needs its ~/status ok."""
+    which = agent_grants.kind(hold)
+    if which == 'lease':
+        return True, ''
+    if which == 'watchdog':
+        why = '; '.join(filter(None, app.watchdog_reasons()))
+        return not why, why
+    ros, by = app.ros, str(hold.get('by'))
+    nodes = [n for n in ros.nodes() if n.rsplit('/', 1)[-1] == by]
+    if not nodes:
+        return False, f'{by} is not running'
+    getattr(ros, 'watch_beats', lambda nodes: None)(nodes)
+    status = getattr(ros, 'beat_status', dict)().get(nodes[0])
+    at = ros.beats().get(nodes[0]) if hasattr(ros, 'beats') else None
+    if status is None or at is None or time.monotonic() - at > BEAT_FRESH_S:
+        return False, f'no fresh ~/status from {by} yet: ask again in a few seconds'
+    return bool(status.get('ok')), str(status.get('reason') or '')
+
+
+def do_release_hold(desk, req):
+    """boat_agent release HOLD --why: the mux's release (U's path) when every hold is the agent's to release now
+    (harness/agent_grants.py); no claim needed. The footer, the agent log and the journal name the agent and why."""
+    app, who, name = desk.app, req['who'], str(req['args'].get('hold') or '')
+    why = str(req.get('why') or '').strip()
+    if app.settings.agents == 'block':
+        return desk.reply(req, False, 'blocked', hint='operator must set Agents to allow')
+    if not name or not why:
+        return desk.reply(req, False, 'bad_args', hint='release HOLD --why "..." (hold causes: status .authority.holds)')
+    arbiter = desk.arbiter
+    if arbiter is None:
+        return desk.reply(req, False, 'no_owner')
+    with arbiter.lock:
+        holds = [dict(h) for h in (arbiter.mux or {}).get('holds') or ([arbiter.mux['hold']] if (arbiter.mux or {})
+                                                                        .get('hold') else [])]
+    grants, error = agent_grants.load(desk.config.get().get('grants', agent_config.GRANTS))
+    refusal = agent_grants.verdict(holds, name, who, grants, lambda hold: cleared(app, hold), time.time())
+    if refusal is None:
+        why_not = app.release_refusal()
+        refusal = ('refused', why_not) if why_not else None
+    if refusal:
+        return desk.reply(req, False, refusal[0], hint=refusal[1] + (f' (grant file: {error})' if error else ''))
+    release = getattr(app.plant, 'release_hold', None)
+    if release is None or not release(by=f'agent {who}'):
+        return desk.reply(req, False, 'refused', hint='this profile has no mux to release')
+    causes = [str(h.get('cause')) for h in holds]      # the panel row and the header's attention show it
+    app.emit('agent_release', who=who, holds=causes, why=why)
+    desk.reply(req, True, result={'released': causes, 'why': why}, label=f"release {', '.join(causes)}")
+
+
+BEAT_FRESH_S = 2.0       # a watchdog's ~/status older than this does not prove its fault cleared
+HANDLERS = {'arm': do_arm, 'reload': do_reload, 'release_hold': do_release_hold}
