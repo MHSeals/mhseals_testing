@@ -802,6 +802,91 @@ def written(argv):
     return []
 
 
+PYTHON = re.compile(r'python[\d.]*$')
+# Python calls that run a command (a literal string or list) and that write or remove a file (a literal path).
+PY_RUNS = {'system', 'popen', 'run', 'call', 'check_call', 'check_output', 'Popen', 'getoutput', 'getstatusoutput',
+           'create_subprocess_exec', 'create_subprocess_shell'}
+PY_DELETES = {'remove', 'unlink', 'rmdir', 'rmtree', 'removedirs'}
+PY_WRITES = {'write_text', 'write_bytes', 'truncate', 'touch', 'chmod'}
+PY_MOVES = {'rename', 'replace', 'move', 'copy', 'copyfile', 'copy2', 'symlink', 'link'}
+
+
+def python_runs(code):
+    """``(argvs, texts, files)``: what Python ``code`` (``-c`` or on stdin) runs and writes, from its obvious
+    literals only: ``subprocess.run([...])`` an argv, ``os.system('...')`` a command string, ``os.remove('...')``,
+    ``Path('...').write_text`` or ``open('...', 'w')`` a ``(write|delete, path)``. A variable names nothing."""
+    import ast
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return [], [], []
+
+    def text(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Call) and name(node.func) in ('Path', 'PosixPath', 'PurePath') and node.args:
+            return text(node.args[0])
+        return None
+
+    def name(func):
+        return func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ''
+
+    argvs, texts, files = [], [], []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called, args = name(node.func), node.args
+        own = text(node.func.value) if isinstance(node.func, ast.Attribute) else None   # Path('x').unlink()
+        paths = [p for p in [own] + [text(a) for a in args] if p is not None]
+        if called in PY_RUNS and args:
+            if isinstance(args[0], (ast.List, ast.Tuple)) and all(text(a) is not None for a in args[0].elts):
+                argvs.append([text(a) for a in args[0].elts])
+            elif called == 'create_subprocess_exec' and all(text(a) is not None for a in args):
+                argvs.append([text(a) for a in args])
+            elif text(args[0]) is not None:
+                texts.append(text(args[0]))
+        elif re.fullmatch(r'exec[lv]p?e?|spawn[lv]p?e?', called):
+            lists = [[text(e) for e in a.elts] for a in args
+                     if isinstance(a, (ast.List, ast.Tuple)) and all(text(e) is not None for e in a.elts)]
+            words = [text(a) for a in args if text(a) is not None]       # execlp('ros2', 'ros2', 'topic', ...)
+            argvs += lists[:1] or ([words[1:]] if len(words) > 1 else [])
+        elif called in PY_DELETES:
+            files += [('delete', p) for p in paths[:1]]
+        elif called in PY_WRITES:
+            files += [('write', p) for p in paths[:1]]
+        elif called in PY_MOVES:
+            files += [('delete', p) for p in paths[:1] if called in ('rename', 'replace', 'move')]
+            files += [('write', p) for p in paths[1:2]]
+        elif called == 'open' and paths:
+            mode = next((text(k.value) for k in node.keywords if k.arg == 'mode'), None)
+            mode = mode if mode is not None else (text(args[1]) if len(args) > 1 else 'r')
+            files += [('write', paths[0])] if mode is None or set(mode) & set('wax+') else []
+    return argvs, texts, files
+
+
+def reads_stdin(argv):
+    """``argv`` (a shell or python) takes its program from stdin: no ``-c``, no script, no ``-m``."""
+    for word in argv[1:]:
+        if word in ('-', '--', '-s') or not word.startswith('-'):
+            return word in ('-', '-s')
+        if re.fullmatch(r'-[A-Za-z]*[cm]', word):
+            return False
+    return True
+
+
+def core(argv):
+    """The program ``argv`` runs once its wrappers (sudo, env, timeout, ...) and VAR=x words are taken off."""
+    words = list(argv)
+    for _ in range(8):
+        while words and ASSIGN.fullmatch(words[0]):
+            words = words[1:]
+        inner = runs(words)[0] if words else None
+        if not inner:
+            return words
+        words = inner
+    return words
+
+
 # A file is protected only by name (the deny rules), so only these names need a place (a git call for a worktree).
 PROTECTED = re.compile(r'agent/stop|command_mux[^/]*\.json|hold_store|agent_hook\.py|/hook\.py|\.claude/settings'
                        r'|\.codex/hooks\.json|agent\.ya?ml|launch|sysrq')
@@ -842,8 +927,10 @@ class Scan:
         self.pipelines(pipelines, host, remote, depth, self.cwd)
 
     def pipelines(self, pipelines, host, remote, depth, base):
-        for cmd in (c for p in pipelines for c in p):
+        for cmd, before in ((c, p[k - 1] if k else None) for p in pipelines for k, c in enumerate(p)):
             argv = cmd['argv']
+            if argv and depth <= 8:
+                self.stdin(cmd, before, host, remote, depth, base)
             if argv[:1] in (['cd'], ['pushd']) and not remote:     # an unknown base stays a relative name
                 to = os.path.expanduser(argv[1] if len(argv) > 1 else '~')
                 known = base is not None and os.path.isabs(base) and '$' not in base
@@ -856,6 +943,41 @@ class Scan:
                 self.argv(argv, text, host, remote, depth, base)
             for target in cmd.get('writes', []):
                 self.out += [(text, line, host, None) for line in edit_lines('write', target, base, remote)]
+
+    def stdin(self, cmd, before, host, remote, depth, base):
+        """A program a shell, python or ssh reads on stdin runs too: a heredoc or ``<<<`` body, or what an echo,
+        printf or ``cat <<EOF`` before it in the pipeline prints."""
+        bodies = list(cmd.get('stdin', []))
+        feeder = core(before['argv']) if before else []
+        if feeder[:1] in (['echo'], ['printf']):
+            bodies.append(' '.join(w for w in feeder[1:] if not re.fullmatch(r'-[neE]+', w)).replace('\\n', '\n'))
+        elif feeder[:1] == ['cat'] and before.get('stdin'):
+            bodies += before['stdin']
+        program = core(cmd['argv'])
+        if not bodies or not program:
+            return
+        name, text = os.path.basename(program[0]), ' '.join(cmd['argv'])
+        if name in SSH:
+            _, command, target = runs(program)
+            there = core(command.split()) if command else []
+            if target is not None and (not there or os.path.basename(there[0]) in SHELLS and reads_stdin(there)):
+                for body in bodies:
+                    self.text(body, is_boat(target, self.names) or host, True, depth + 1)
+        elif name in SHELLS and reads_stdin(program):
+            for body in bodies:
+                self.text(body, host, remote, depth + 1)
+        elif PYTHON.match(name) and reads_stdin(program):
+            for body in bodies:
+                self.python(body, text, host, remote, depth, base)
+
+    def python(self, code, text, host, remote, depth, base, claim=None):
+        argvs, texts, files = python_runs(code)
+        for argv in argvs:
+            self.argv(argv, text, host, remote, depth + 1, base, claim)
+        for command in texts:
+            self.text(command, host, remote, depth + 1)
+        for kind, path in files:
+            self.out += [(text, line, host, claim) for line in edit_lines(kind, path, base, remote)]
 
     def argv(self, argv, text, host, remote, depth, base, claim=None):
         if depth > 8 or not argv:
@@ -874,6 +996,10 @@ class Scan:
             self.out.append((text, ' '.join([os.path.basename(words[0])] + words[1:]), host, claim))
         for kind, path in written(words):
             self.out += [(text, line, host, claim) for line in edit_lines(kind, path, base, remote)]
+        if PYTHON.match(os.path.basename(words[0])):
+            flag = next((i for i, w in enumerate(words[1:], 1) if re.fullmatch(r'-[A-Za-z]*[cm]', w)), None)
+            if flag is not None and words[flag].endswith('c') and flag + 1 < len(words):
+                self.python(words[flag + 1], text, host, remote, depth, base, claim)
         inner, command, target = runs(words)
         if target is not None:
             host, remote = is_boat(target, self.names) or host, True

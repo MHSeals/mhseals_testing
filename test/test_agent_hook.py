@@ -205,6 +205,37 @@ def test_lines_are_what_runs():
         'rm -f a', 'EDIT delete live /x/a']
 
 
+@pytest.mark.parametrize('command', [
+    "python3 -c \"import os; os.system('ros2 topic pub /cmd_vel x')\"",
+    "python3 -Ic 'import subprocess as s; s.check_call((\"ros2\", \"service\", \"call\", \"/mavros/cmd/arming\", \"x\"))'",
+    "sudo python3 -c \"import os; os.execvp('ros2', ['ros2', 'topic', 'pub', '/cmd_vel', 'x'])\"",
+    "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['ros2', 'topic', 'pub', '/cmd_vel', 'x'])\nPY",
+    "ssh blastoise python3 -c \"'import os; os.system(\\\"sudo reboot\\\")'\"",
+    "cat <<'EOF' | bash\nros2 topic pub /cmd_vel x\nEOF", 'bash <<< "ros2 topic pub /cmd_vel x"',
+    'echo "ros2 topic pub /operator/heartbeat x" | sh', 'echo "sudo reboot" | ssh blastoise',
+    "ssh blastoise-odroid bash -s <<'EOF'\nsudo systemctl reboot\nEOF"])
+def test_python_and_shells_on_stdin_run_their_obvious_literals(command):
+    assert hook.denied(command, hook.DEFAULTS, cwd='/tmp')
+
+
+@pytest.mark.parametrize('command', [
+    "python3 -c \"print('pkill is a word')\"", "python3 -c \"print(open('{stop}').read())\"",
+    "cat <<'EOF' > /tmp/x.sh\nros2 topic pub /cmd_vel x\nEOF", 'echo "ros2 topic pub /cmd_vel x" | grep cmd',
+    'python3 -m pytest -q <<< "ros2 topic pub /cmd_vel"', 'bash /tmp/x.sh <<< "sudo reboot"'])
+def test_python_and_stdin_text_that_does_not_run_is_allowed(command, tmp_path):
+    stop = tmp_path / 'agent' / 'stop'
+    assert not hook.denied(command.format(stop=stop), hook.DEFAULTS, cwd='/tmp')
+
+
+def test_python_writes_to_the_stop_and_hold_files_are_denied(tmp_path):
+    (tmp_path / 'agent').mkdir()
+    for name in ('agent/stop', 'hold_store.json'):
+        (tmp_path / name).touch()
+    for code in (f"import os; os.remove('{tmp_path}/agent/stop')", f"open('{tmp_path}/hold_store.json', 'w')",
+                 f"from pathlib import Path; Path('{tmp_path}/hold_store.json').unlink()"):
+        assert hook.denied(f'python3 -c "{code}"', hook.DEFAULTS, cwd='/tmp'), code
+
+
 def test_a_boat_deny_names_the_host_and_the_command():
     reason = hook.deny_reason(*hook.denied('ssh squirtle pkill -f x', hook.DEFAULTS), who='claude-3f2a',
                               config=hook.DEFAULTS)
