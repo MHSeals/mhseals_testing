@@ -125,6 +125,19 @@ def test_a_stopped_mux_lists_its_saved_holds():
     assert fresh['holds'] == saved
 
 
+def test_a_sim_session_reads_the_saved_holds_from_its_own_hold_file(tmp_path):
+    from mhseals_hardware import hold_store
+    from mhseals_testing.ui.feeds import authority as authority_feed
+    session = tmp_path / 'session'
+    (session / 'arm').mkdir(parents=True)
+    hold_store.save(session / 'command_mux_holds.json',
+                    {'geofence': {'cause': 'geofence', 'by': 'fence_watchdog', 'since': 1.0, 'token': None}})
+    profile = SimpleNamespace(use_sim_time=True, outputs='topic')
+    app = SimpleNamespace(profile=profile, args=SimpleNamespace(hardware_config={}),
+                          arming=SimpleNamespace(config_path=str(session / 'arm' / 'hardware.yaml'), remote=None))
+    assert authority_feed.saved_holds(app) == [{'cause': 'geofence', 'by': 'fence_watchdog', 'has_token': False}]
+
+
 def test_a_request_read_while_a_handler_works_waits_and_expires(rig):  # noqa: F811
     rig.desk.working = 'set'
     req = ch.request('mark', 'claude-3f2a', {'note': 'x'}, request_s=0.05)

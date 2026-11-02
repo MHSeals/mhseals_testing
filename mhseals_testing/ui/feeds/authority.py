@@ -99,9 +99,15 @@ class AuthorityFeed:
 
 
 def saved_holds(app):
-    """The holds the stopped mux saved (hold_store, the session's state_file): ``[{cause, by, has_token}]``."""
+    """The holds the stopped mux saved (hold_store, the state_file arming gives it: a sim session's own file):
+    ``[{cause, by, has_token}]``."""
     from mhseals_hardware import hold_store
-    section = (getattr(getattr(app, 'args', None), 'hardware_config', None) or {}).get('command_mux') or {}
+    from mhseals_testing.ros.arming import session_hardware
+    config = getattr(getattr(app, 'args', None), 'hardware_config', None) or {}
+    arming = getattr(app, 'arming', None)
+    if arming is not None and getattr(arming, 'config_path', None):
+        config = session_hardware(app.profile, config, arming.config_path, getattr(arming, 'remote', None))
+    section = config.get('command_mux') or {}
     holds = hold_store.load(section.get('state_file') or hold_store.default_path())
     return [{'cause': h['cause'], 'by': h['by'], 'has_token': h['token'] is not None}
             for h in sorted(holds.values(), key=lambda h: h['since'])]
