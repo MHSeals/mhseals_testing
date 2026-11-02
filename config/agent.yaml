@@ -6,7 +6,7 @@
 schema: mhseals.agent_config/1
 lease: {idle_s: 600, motion_s: 10, max_claim_s: 3600}
 # boat_agent release HOLD --why (owner decision 2026-11-01): a lease or watchdog hold once its fault cleared; an
-# operator hold (Space, stop, manual, an agent's own stop) only with a grant in this file (harness/agent_grants.py);
+# operator hold (Space, stop, manual, an agent's own stop) only with a grant in this file (agent/grants.py);
 # the e-stop never.
 grants: ~/.config/mhseals/agent_grants.yaml
 # The agent panel's one line "background: N questions · M proposals" (D-20261101-31) reads mhseals_agents
@@ -27,7 +27,7 @@ start: [odometry, ekf, sensors, camera, objects]
 # "agent W set KEY=VALUE": `run KEY --set K=V` (that procedure's list and `any`, applied before the run starts,
 # refused while a procedure runs; only settings with fixed choices, never agent_config.SETTINGS_NEVER, listed or not).
 # `set K=V --claim ID` (owner decision 2026-11-01) takes any tunable setting (harness/settings.py) between runs, and
-# nav2.NODE.PARAM=V live through harness/nav2_live.py; while armed it refuses reload.yaml's armed-unsafe settings,
+# nav2.NODE.PARAM=V live through nav2/live.py; while armed it refuses reload.yaml's armed-unsafe settings,
 # and amplitude and command_mode always.
 settings:
   thrust_physics: [thrust_step]

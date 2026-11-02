@@ -20,8 +20,8 @@ from nav_msgs.msg import OccupancyGrid  # noqa: E402
 from rclpy.task import Future  # noqa: E402
 
 from mhseals_testing.harness import goals  # noqa: E402
-from mhseals_testing.ros import nav2 as nav2_module  # noqa: E402
-from mhseals_testing.ros.nav2 import Nav2  # noqa: E402
+from mhseals_testing.nav2 import ros_client as nav2_module  # noqa: E402
+from mhseals_testing.nav2.ros_client import Nav2  # noqa: E402
 from mhseals_testing.ui import agent_acts  # noqa: E402
 
 NOW_S = 400.0      # the node's (sim) clock

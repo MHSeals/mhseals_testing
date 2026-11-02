@@ -10,8 +10,8 @@ import pytest
 from rich.console import Console
 
 from mhseals_testing.health.model import Fact
-from mhseals_testing.ros import fusion_feed
-from mhseals_testing.ros.fusion_feed import FusionFeed, StaticTF, detections
+from mhseals_testing.fusion import ros_feed as fusion_feed
+from mhseals_testing.fusion.ros_feed import FusionFeed, StaticTF, detections
 from mhseals_testing.ui import layout, pixels, theme
 from mhseals_testing.ui.panels import fusion
 

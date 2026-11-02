@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from test_app import make_app
-from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.conditions.segments import Conditions
 from mhseals_testing.ros.authority import Arbiter
 from mhseals_testing.runner import Aborted
 

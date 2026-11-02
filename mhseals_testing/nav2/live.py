@@ -1,7 +1,7 @@
 """Live Nav2 apply (CFG-NAV-LIVE1).
 
 One path behind the TUI popup and ``boat_trial config apply nav2``. ROS-free:
-``Nav2Live`` is driven through a ``Ports`` object (ros/nav2_live.py is the ROS
+``Nav2Live`` is driven through a ``Ports`` object (nav2/ros_live.py is the ROS
 one), so the sequence is tested with plain fakes. The owner accepted the
 tradeoff of applying before T02-O1 owner fencing: the ownership check is the
 session registry owner plus the authority state, both rechecked right before
@@ -43,7 +43,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from mhseals_testing.harness import nav2_params as n2
+from mhseals_testing.nav2 import params as n2
 
 # Hosted by the Navigation servers, but not served while Navigation is reset.
 COSTMAPS = ('global_costmap', 'local_costmap')

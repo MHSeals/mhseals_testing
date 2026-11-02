@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from mhseals_testing.health.pwm import Output, Readback
-from mhseals_testing.harness.conditions_evidence import CommandObservation, EvidenceGate
+from mhseals_testing.conditions.evidence import CommandObservation, EvidenceGate
 
 
 def inputs():

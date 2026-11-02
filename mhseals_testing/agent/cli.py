@@ -8,7 +8,7 @@ JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/bus
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
 owner (``unreachable``: the boat host did not answer; tools/boat_agent says so with the last operator state it
 saw), 5 agents blocked, 6 timeout, 7 paused (the operator declared manual, battery swap or power cycle; the hint
-says since when and the ETA: wait for normal). ``release HOLD --why`` releases a hold harness/agent_grants.py
+says since when and the ETA: wait for normal). ``release HOLD --why`` releases a hold agent/grants.py
 allows (never the e-stop). Acting verbs need ``--why``. ``arm --claim ID`` arms through the TUI
 after a visible countdown the operator cancels (the e-stop always refuses); ``run --sim-arm`` arms a verified sim
 for one run. ``start COMPONENT`` and ``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:``
@@ -27,7 +27,8 @@ import time
 from pathlib import Path
 
 from mhseals_testing import data
-from mhseals_testing.harness import agent_channel as channel, operator_state
+from mhseals_testing.harness import operator_state
+from mhseals_testing.agent import channel
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
@@ -119,7 +120,7 @@ def add_parsers(sub):
 
 
 def config():
-    from mhseals_testing.harness import agent_config
+    from mhseals_testing.agent import config as agent_config
     try:
         return agent_config.load()
     except Exception:          # an uninstalled or broken agent.yaml must not stop stop or status
@@ -281,7 +282,7 @@ class Agent:
     def fcu_saved(self, names):
         """fcu get with no TUI controller: the newest snapshot in agent.yaml ``fcu.store``, marked as such (owner
         decision 2026-11-01: reads work without a controller)."""
-        from mhseals_testing.harness.agent_fcu import Store
+        from mhseals_testing.agent.fcu import Store
         store = Store((self.cfg.get('fcu') or {}).get('store') or '~/.claude/plans/boat')
         found = sorted(store.dir.glob('fcu_*.param'), key=lambda p: p.stat().st_mtime) if store.dir.is_dir() else []
         if not found:
@@ -378,7 +379,7 @@ class Agent:
             req = channel.request('stop', self.who, path=self.path, request_s=self.cfg['request_s'])
         backup = self.backup
         if backup is None:
-            from mhseals_testing.ros.agent_stop import hold as backup
+            from mhseals_testing.agent.ros_stop import hold as backup
         try:
             held = backup(self.who)
         except Exception as error:      # no rclpy, no domain: say so, never raise

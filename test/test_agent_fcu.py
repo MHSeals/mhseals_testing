@@ -7,8 +7,8 @@ import json
 import pytest
 
 from mhseals_testing import agent_hook as hook
-from mhseals_testing.harness import agent_config
-from mhseals_testing.harness import agent_fcu as af
+from mhseals_testing.agent import config as agent_config
+from mhseals_testing.agent import fcu as af
 from mhseals_testing.ros.fcu import FcuParams
 from test_agent_cli import Desk, agent_id, call, lines  # noqa: F401 (agent_id: fixture)
 from test_agent_desk import ask, claim, final, rig  # noqa: F401 (fixtures)

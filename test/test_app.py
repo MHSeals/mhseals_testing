@@ -2192,7 +2192,7 @@ def test_config_row_and_popup_list_the_watched_files(tmp_path):
 
 
 def nav2_app(tmp_path, applier=None, **kwargs):
-    from mhseals_testing.harness.nav2_edit import Nav2File
+    from mhseals_testing.nav2.edit import Nav2File
     path = tmp_path / 'nav2.yaml'
     path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      vx_max: 0.5\n')
     app, boat = make_app(tmp_path, **kwargs)
@@ -2312,7 +2312,7 @@ def test_navigation_row_and_popup_render_at_120_and_80(tmp_path, size):
 
 
 def test_nav2_file_diff_and_apply_refusal(tmp_path):
-    from mhseals_testing.harness.nav2_edit import diff
+    from mhseals_testing.nav2.edit import diff
     assert diff({'a': {'b': 1, 'c': 2}}, {'a': {'b': 1, 'c': 3}, 'd': 4}) == [('a.c', 2, 3), ('d', None, 4)]
     app, path = nav2_app(tmp_path, applier=lambda changes: {'refused': 'goal active'})
     edit_nav2(app, path, 'a: 1\n')

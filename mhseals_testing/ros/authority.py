@@ -16,7 +16,8 @@ import json
 import threading
 import time
 
-from mhseals_testing.harness import agent_config, operator_state
+from mhseals_testing.harness import operator_state
+from mhseals_testing.agent import config as agent_config
 from mhseals_testing.harness.authority import ClaimTable, derive, events
 
 AUTHORITY_TOPIC = '/mhseals_testing/authority'

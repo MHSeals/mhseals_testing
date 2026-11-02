@@ -3,7 +3,8 @@
 import time
 
 from mhseals_hardware.menu import Cancelled
-from mhseals_testing.harness import agent_grants, control, course_area
+from mhseals_testing.harness import control, course_area
+from mhseals_testing.agent import grants as agent_grants
 from mhseals_testing.runner import STALE_MUX_S
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, feeds as feeds_module

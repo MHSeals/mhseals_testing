@@ -113,7 +113,7 @@ def test_rotation_fact_reports_degrees_once_there_is_baseline():
 
 def test_second_fetch_waits_for_a_fresh_costmap():
     pytest.importorskip('rclpy')
-    from mhseals_testing.ros.nav2 import Nav2
+    from mhseals_testing.nav2.ros_client import Nav2
 
     node = FakeNode()
     nav = types.SimpleNamespace(costmap=None, costmap_time=None)

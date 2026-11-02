@@ -632,7 +632,7 @@ _CFG = []
 def config():
     """fusion_panel.yaml, loaded once."""
     if not _CFG:
-        from mhseals_testing.ros.fusion_feed import load_config
+        from mhseals_testing.fusion import load_config
         _CFG.append(load_config())
     return _CFG[0]
 

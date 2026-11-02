@@ -151,7 +151,7 @@ def journal_reader(path):
 def show_config(app):
     """config/agent.yaml, read-only, with the path to edit (it hot reloads)."""
     try:
-        from mhseals_testing.harness import agent_config
+        from mhseals_testing.agent import config as agent_config
         path = agent_config.config_path()
         body = path.read_text()
     except (ImportError, OSError) as error:

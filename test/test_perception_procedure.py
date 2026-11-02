@@ -60,7 +60,7 @@ def test_a_graph_only_image_row_has_no_rate_to_fail():
 
 def test_nav2_fetches_another_topic_once_without_its_lease():
     pytest.importorskip('rclpy')
-    from mhseals_testing.ros.nav2 import Nav2
+    from mhseals_testing.nav2.ros_client import Nav2
 
     class Node:
         def __init__(self):

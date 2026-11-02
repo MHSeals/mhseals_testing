@@ -11,7 +11,8 @@ from types import SimpleNamespace
 import pytest
 from rich.console import Console
 
-from mhseals_testing.harness import agent_channel as ch, control
+from mhseals_testing.harness import control
+from mhseals_testing.agent import channel as ch
 from mhseals_testing.harness.authority import ClaimTable
 from mhseals_testing.ros.authority import Arbiter
 from mhseals_testing.ui import app as app_module, control_tracker

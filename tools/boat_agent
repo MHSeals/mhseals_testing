@@ -3,7 +3,7 @@
 # machine, called from the boat host's checkout: ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_agent status
 # With $BOAT_AGENT_TARGET naming another host (a boat session sets it), this checkout makes that hop itself and
 # remembers the last operator state, so a boat that is off or out of reach answers `unreachable` with it
-# (harness/agent_relay.py, host python3, no container).
+# (agent/relay.py, host python3, no container).
 # BOAT_AGENT_TARGET=sim reaches the TUI of tools/boat_tui sim in its container, domain and data root.
 # File verbs load no rclpy; stop's backup path does.
 target=${BOAT_AGENT_TARGET:-local}
@@ -21,7 +21,7 @@ fi
 here=$(uname -n)
 if [ "$target" != local ] && [ "$target" != "$here" ] && [ "$target" != "${here%%.*}" ]; then
   PYTHONPATH="$(cd "$(dirname "$0")/.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" \
-    exec python3 -m mhseals_testing.harness.agent_relay "$target" "$@"
+    exec python3 -m mhseals_testing.agent.relay "$target" "$@"
 fi
 exec docker exec -i roboboat_dev bash -c \
   '. /opt/ros/jazzy/setup.bash && . install/setup.bash && exec python3 -m mhseals_testing.harness.cli "$@"' \

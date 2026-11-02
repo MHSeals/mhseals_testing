@@ -20,7 +20,7 @@ import sys
 import numpy as np
 
 from mhseals_testing.harness import bagread
-from mhseals_testing.perception import fusion_calib as fc
+from mhseals_testing.fusion import calib as fc
 
 PASS, WARN, FAIL = fc.PASS, fc.WARN, fc.FAIL
 

@@ -9,8 +9,9 @@ import json
 import pytest
 
 from mhseals_testing import data
-from mhseals_testing.harness import agent_channel as ch
-from mhseals_testing.harness import agent_cli, cli
+from mhseals_testing.agent import channel as ch
+from mhseals_testing.harness import cli
+from mhseals_testing.agent import cli as agent_cli
 from mhseals_testing.harness.registry import runtime_dir
 
 SETTINGS = {'request_s': 5.0, 'ask_s': 1.0, 'lease': {'idle_s': 3.0, 'motion_s': 0.3}}

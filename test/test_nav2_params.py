@@ -2,7 +2,7 @@
 
 import pytest
 
-from mhseals_testing.harness import nav2_params as n2
+from mhseals_testing.nav2 import params as n2
 
 FOLLOW = n2.FOLLOW
 CURRENT = {FOLLOW + 'vx_max': 0.4, FOLLOW + 'vy_max': 0.15, FOLLOW + 'wz_max': 0.3, FOLLOW + 'vx_min': -0.1, FOLLOW + 'time_steps': 48,

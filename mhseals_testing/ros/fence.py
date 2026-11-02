@@ -42,7 +42,7 @@ class FenceClient:
     def anchor(self, timeout=3.0):
         """/fence/anchor: ``(success, message)``; a lat/lon course area answers "course area fixed"."""
         from std_srvs.srv import Trigger
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         if self._anchor is None:
             self._anchor = self.node.create_client(Trigger, ANCHOR)
         if not self._anchor.wait_for_service(timeout_sec=timeout):

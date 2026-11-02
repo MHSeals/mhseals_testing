@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from mhseals_testing.analysis import conditions as c
+from mhseals_testing.conditions import estimator as c
 from simrig import read_odometry, truth_current, world_arrays
 
 SETTLE_S = 5.0     # the scene current moves the boat before the filters settle

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness.nav2_live import Nav2Live, Ports
+from mhseals_testing.nav2.live import Nav2Live, Ports
 from mhseals_testing.ros.params import coerce
 
 FOLLOW = 'controller_server.FollowPath.'
@@ -748,7 +748,7 @@ FILE = 'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0
 
 def run_cli(world, tmp_path, *flags, text=FILE):
     from mhseals_testing.harness import cli
-    from mhseals_testing import nav2_limits
+    from mhseals_testing.nav2 import limits as nav2_limits
     path = nav2_limits.path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
@@ -829,7 +829,7 @@ def test_cli_now_flag_lets_a_limits_change_run_during_a_goal(world, tmp_path):
 # ---- the TUI seam
 
 def test_nav2_file_applies_through_the_live_path_and_reads_live_until_restart(world, tmp_path):
-    from mhseals_testing.harness.nav2_edit import Nav2File
+    from mhseals_testing.nav2.edit import Nav2File
     path = tmp_path / 'nav2.yaml'
     path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.4\n')
     live = make(world)
@@ -842,7 +842,7 @@ def test_nav2_file_applies_through_the_live_path_and_reads_live_until_restart(wo
 
 
 def test_nav2_file_shows_refusals_and_failures(world, tmp_path):
-    from mhseals_testing.harness.nav2_edit import Nav2File
+    from mhseals_testing.nav2.edit import Nav2File
     path = tmp_path / 'nav2.yaml'
     path.write_text('controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max: 0.4\n')
     nav = Nav2File(path, make(world).applier)
@@ -878,7 +878,7 @@ EDITED = 'controller_server:\n  ros__parameters:\n    FollowPath:\n      wz_max:
 
 
 def test_cli_records_the_content_it_applied_not_an_edit_saved_meanwhile(world, tmp_path):
-    from mhseals_testing import nav2_limits
+    from mhseals_testing.nav2 import limits as nav2_limits
     from mhseals_testing.history import History
     original = world.put
 
@@ -933,7 +933,7 @@ def test_the_popup_offers_only_close_when_refused_and_a_watcher_never_applies(tm
 # ---- /rosout filter
 
 def test_rosout_keeps_failure_lines_about_what_was_set_and_skips_mppi_noise():
-    from mhseals_testing.ros.nav2_live import Rosout
+    from mhseals_testing.nav2.ros_live import Rosout
     lines = [(1.0, 'controller_server', 'Parameter FollowPath.max_angular_accel not found', 30),
              # ^ earlier than the window
              # MPPI listing a shim key it does not own:
@@ -954,7 +954,7 @@ def test_rosout_keeps_failure_lines_about_what_was_set_and_skips_mppi_noise():
 
 
 def test_a_missing_domain_package_refuses_instead_of_crashing(world, monkeypatch):
-    from mhseals_testing.harness import nav2_params
+    from mhseals_testing.nav2 import params as nav2_params
 
     def missing(*args, **kwargs):
         raise ImportError('No module named mhseals_nav')

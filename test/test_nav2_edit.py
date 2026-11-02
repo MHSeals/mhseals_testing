@@ -2,7 +2,7 @@
 
 import pytest
 
-from mhseals_testing.harness.nav2_edit import Nav2File
+from mhseals_testing.nav2.edit import Nav2File
 
 
 def surface(tmp_path, applier=None):

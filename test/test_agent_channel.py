@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from mhseals_testing.harness import agent_channel as ch
-from mhseals_testing.harness import agent_config
+from mhseals_testing.agent import channel as ch
+from mhseals_testing.agent import config as agent_config
 
 
 def test_lines_carry_the_common_fields_and_land_under_the_data_root(data_root):

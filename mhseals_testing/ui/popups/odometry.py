@@ -3,7 +3,7 @@
 ``rows`` is computed only while the popup is open (App.odometry), from parameters fetched at
 open, so a closed popup costs nothing.
 """
-from mhseals_testing.analysis import fusion
+from mhseals_testing.fusion import ekf_params as fusion
 
 ESTIMATES = ('ekf_local', 'ekf_global')
 

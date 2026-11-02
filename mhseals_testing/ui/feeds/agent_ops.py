@@ -11,7 +11,8 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_config, agent_grants, operator_state
+from mhseals_testing.harness import operator_state
+from mhseals_testing.agent import config as agent_config, grants as agent_grants
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.runner import STALE_MUX_S
@@ -197,7 +198,7 @@ def stopped_mux_file(app, arbiter):
 
 def do_release_hold(desk, req):
     """boat_agent release HOLD --why: the mux's release (U's path) when every hold is the agent's to release now
-    (harness/agent_grants.py); no claim needed. The footer, the agent log and the journal name the agent and why."""
+    (agent/grants.py); no claim needed. The footer, the agent log and the journal name the agent and why."""
     app, who, name = desk.app, req['who'], str(req['args'].get('hold') or '')
     why = str(req.get('why') or '').strip()
     if app.settings.agents == 'block':

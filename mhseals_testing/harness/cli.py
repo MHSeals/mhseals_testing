@@ -21,7 +21,7 @@ import time
 from fnmatch import fnmatchcase
 from pathlib import Path
 
-from mhseals_testing.harness import agent_cli
+from mhseals_testing.agent import cli as agent_cli
 from mhseals_testing.health import config as health_config
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.profiles import load_profile
@@ -243,8 +243,8 @@ def cli_mux_expected(registry, record):
 
 def apply_nav2(args, ports=None, **timing):
     """Preview ``config apply nav2``; with --yes set the running Nav2 from nav2.yaml."""
-    from mhseals_testing import nav2_limits
-    from mhseals_testing.harness import nav2_edit, nav2_live
+    from mhseals_testing.nav2 import limits as nav2_limits
+    from mhseals_testing.nav2 import edit as nav2_edit, live as nav2_live
     from mhseals_testing.harness.registry import Registry
     from mhseals_testing.history import History, adapters
     path = nav2_limits.path()
@@ -257,7 +257,7 @@ def apply_nav2(args, ports=None, **timing):
         return nav2_live.REFUSED
     shutdown = lambda: None  # noqa: E731
     if ports is None:
-        from mhseals_testing.ros.nav2_live import RosPorts, cli_node, session_journal
+        from mhseals_testing.nav2 import RosPorts, cli_node, session_journal
         registry = Registry()
         node, shutdown = cli_node()
         box = []

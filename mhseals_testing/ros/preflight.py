@@ -172,7 +172,7 @@ def cli_collector(profile, config, specs, host_collect):
     from mhseals_testing.harness.registry import Registry
     from mhseals_testing.health.advisories import Health
     from mhseals_testing.ros.health import subscribe_fcu
-    from mhseals_testing.ros.nav2_live import cli_node
+    from mhseals_testing.nav2 import cli_node
     from mhseals_testing.ros.perception import subscribe_detections
 
     hardware = load_config()

@@ -16,7 +16,8 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from mhseals_testing.analysis import conditions, predictor, verdict as grading
+from mhseals_testing.analysis import predictor, verdict as grading
+from mhseals_testing.conditions import estimator as conditions
 
 
 @dataclass(frozen=True)

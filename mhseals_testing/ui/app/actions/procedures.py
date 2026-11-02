@@ -6,9 +6,9 @@ from pathlib import Path
 import yaml
 
 from mhseals_hardware.menu import Cancelled
-from mhseals_testing import nav2_limits
+from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.harness import host, operator_state, runs, session as session_module
-from mhseals_testing.harness.conditions import STILL_FRESH_S, stillness
+from mhseals_testing.conditions import STILL_FRESH_S, stillness
 from mhseals_testing.runner import Aborted, Runner, STALE_MUX_S, fold, override_cause
 from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.readiness import motion_blockers

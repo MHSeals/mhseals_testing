@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from mhseals_hardware.configuration import update_config
-from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.conditions.segments import Conditions
 from mhseals_testing.procedures import Context, Settings, characterize
 from mhseals_testing.runner import NEUTRAL
 

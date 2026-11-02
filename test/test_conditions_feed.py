@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from mhseals_testing.harness.conditions_feed import ConditionsFeed
+from mhseals_testing.conditions.feed import ConditionsFeed
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.profiles import load_profile
 

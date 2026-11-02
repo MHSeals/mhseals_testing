@@ -80,7 +80,7 @@ def validate(data):
             for k, v in settings.items()):
         raise ValueError(f'agent.yaml: settings maps a procedure key (or {ANY}) to a list of setting keys')
     if 'fcu' in data:                  # absent: agents set no FCU parameter
-        from mhseals_testing.harness.agent_fcu import validate as validate_fcu
+        from mhseals_testing.agent.fcu import validate as validate_fcu
         validate_fcu(data['fcu'])
     if data.get('unclaimed_driver') not in DRIVERS:
         raise ValueError(f"agent.yaml: unclaimed_driver must be one of {'/'.join(DRIVERS)}")

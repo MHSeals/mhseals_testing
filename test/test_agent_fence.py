@@ -10,7 +10,8 @@ import pytest
 import yaml
 
 from mhseals_testing import agent_hook as hook
-from mhseals_testing.harness import agent_channel as ch, agent_cli, authority, course_area
+from mhseals_testing.harness import authority, course_area
+from mhseals_testing.agent import channel as ch, cli as agent_cli
 from mhseals_testing.harness.cli import build_parser
 from mhseals_testing.ros.fence import FenceClient
 from mhseals_testing.ui import agent_acts

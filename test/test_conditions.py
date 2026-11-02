@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import pytest
 
-from mhseals_testing.analysis import conditions as c
+from mhseals_testing.conditions import estimator as c
 
 S = c.load_settings()
 HZ = 5          # the rate the helpers generate at; the estimator measures it from the timestamps

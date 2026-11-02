@@ -13,7 +13,7 @@ Safety, in one place:
   ``app._runner_cancelled``. A goal is cancelled. A desk popup closes.
 * The motion lease: the act's blocking CLI renews every ``motion_s``/3; a lapse expires the claim
   through the arbiter, which stops exactly as ``E`` does.
-* Only ``release HOLD --why`` (ui/feeds/agent_ops.py, harness/agent_grants.py) releases a hold: a lease or
+* Only ``release HOLD --why`` (ui/feeds/agent_ops.py, agent/grants.py) releases a hold: a lease or
   watchdog hold once its fault cleared, an operator hold with a grant, never the e-stop. ``arm`` arms after a countdown banner the
   operator cancels; the e-stop refuses it. ``run`` of an armed procedure raises the human arm panel, except
   ``run --sim-arm``: it arms (``app.agent_arm``) only when every harness/sim_arm.py check proves a
@@ -33,7 +33,8 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, agent_grants, control, journal, operator_state, sim_arm
+from mhseals_testing.harness import control, journal, operator_state, sim_arm
+from mhseals_testing.agent import channel as agent_channel, config as agent_config, fcu as agent_fcu, grants as agent_grants
 from mhseals_testing.harness import background
 from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
@@ -67,7 +68,7 @@ CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'arm', 'reload'
 NEVER_PARTS = re.compile(r'thruster|command_mux|controller|operator_heartbeat|watchdog')
 PROGRESS_S = 5.0
 STATUS_S = 1.0
-NAV2_PREFIX = 'nav2.'          # boat_agent set nav2.NODE.PARAM=V: a live Nav2 key (harness/nav2_live.py)
+NAV2_PREFIX = 'nav2.'          # boat_agent set nav2.NODE.PARAM=V: a live Nav2 key (nav2/live.py)
 ATTENTION_S = 30.0            # a refusal or a hold release keeps the header's "agent wants attention" this long
 HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U',
          # Space's hold puts the mux on manual too, so 'keyboard' is Space or manual driving
@@ -466,7 +467,7 @@ class AgentDesk:
         self.reply(req, True, result=result)
 
     def set_nav2(self, req, requested):
-        """Live Nav2 keys (``nav2.NODE.PARAM``) through harness/nav2_live.py, the TUI's own apply path: preview,
+        """Live Nav2 keys (``nav2.NODE.PARAM``) through nav2/live.py, the TUI's own apply path: preview,
         fences, a tokened hold, set, read back, roll back on any doubt. Off the key loop. ``(ok, error, hint,
         result)``."""
         import yaml

@@ -118,7 +118,7 @@ def overrides(argv):
 
 def test_argv_runs_one_part_through_device_launch_with_session_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv('HOME', str(tmp_path))
-    from mhseals_testing import nav2_limits
+    from mhseals_testing.nav2 import limits as nav2_limits
     odometry, navigation, camera = items(Profile, {'odometry': {'fcu_url': 'serial:///inert-fcu'}})
     assert odometry.argv[:6] == ('ros2', 'launch', 'mhseals_nav', 'device.launch.py',
                                  'device:=odroid', 'only:=odometry')

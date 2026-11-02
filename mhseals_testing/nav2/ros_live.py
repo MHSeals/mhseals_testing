@@ -1,4 +1,4 @@
-"""The ROS side of the live Nav2 apply (harness/nav2_live.py).
+"""The ROS side of the live Nav2 apply (nav2/live.py).
 
 Parameter clients, mux and authority state. ``RosPorts`` works on any spinning
 rclpy node: the TUI passes its RosIO node, ``boat_trial config apply nav2``
@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 from mhseals_testing.harness import journal as journal_file
 from mhseals_testing.harness.authority import is_unknown
-from mhseals_testing.harness.nav2_live import Ports
+from mhseals_testing.nav2.live import Ports
 from mhseals_testing.ros.authority import AUTHORITY_TOPIC, MUX_STATE_TOPIC
 from mhseals_testing.ros.params import Params
 

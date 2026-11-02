@@ -40,5 +40,5 @@ def test_bad_yaml_names_the_file(tmp_path):
 
 
 def test_conditions_settings_still_load_with_the_verdict_group():
-    from mhseals_testing.analysis import conditions
+    from mhseals_testing.conditions import estimator as conditions
     assert conditions.load_settings().window_s == 8

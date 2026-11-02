@@ -18,9 +18,10 @@ import time
 
 import numpy as np
 
-from mhseals_testing.analysis import conditions as est, readiness
+from mhseals_testing.analysis import readiness
+from mhseals_testing.conditions import estimator as est
 from mhseals_testing.analysis.verdict import load_thresholds, verdict
-from mhseals_testing.harness.conditions_evidence import EvidenceState, finite
+from mhseals_testing.conditions.evidence import EvidenceState, finite
 from mhseals_testing.health.model import Fact
 
 REFRESH_S = 1.0         # the estimate is recomputed at most this often

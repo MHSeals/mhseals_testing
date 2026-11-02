@@ -3,7 +3,7 @@
 Keys are flat ``<node>.<param>`` strings (``controller_server.FollowPath.vx_max``); the two
 costmaps are ``local_costmap`` / ``global_costmap`` and may repeat the name as in the YAML
 (``local_costmap.local_costmap.footprint``). The live keys are listed in config/nav2_classes.yaml;
-every other key needs a Navigation reset. Applying a plan is harness/nav2_live.py.
+every other key needs a Navigation reset. Applying a plan is nav2/live.py.
 """
 
 from fnmatch import fnmatchcase

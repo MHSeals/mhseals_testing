@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 lf = pytest.importorskip('mhseals_nav.lidar_fusion')
-from mhseals_testing.perception import fusion_calib as fc  # noqa: E402
+from mhseals_testing.fusion import calib as fc  # noqa: E402
 
 K = (640.0, 640.0, 640.0, 360.0)
 IMAGE = (1280, 720)

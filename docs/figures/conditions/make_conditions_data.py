@@ -9,7 +9,7 @@ on every run:
 
 These are illustrations of the math in sections/conditions*.tex on synthetic
 data. They are not boat measurements and not the production estimator
-(mhseals_testing/analysis/conditions.py), which they re-implement only as far
+(mhseals_testing/conditions/estimator.py), which they re-implement only as far
 as each figure needs.
 """
 from __future__ import annotations

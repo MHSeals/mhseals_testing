@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 import json
 import threading
 
-from mhseals_testing import nav2_limits
+from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.harness.remote import probe_specs
 
 STARTING_LIMIT = 20.0   # s before a started component without its proof nodes warns

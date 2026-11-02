@@ -1,6 +1,6 @@
 """The agent desk end to end on fakes: every takeover case of spec agent-control section 4.2.
 
-The CLI side is the channel (harness/agent_channel.py); the TUI side is a fake app with the real
+The CLI side is the channel (agent/channel.py); the TUI side is a fake app with the real
 arbiter, the real AuthorityFeed sources, the real Goals and the real desk. A fake procedure loops
 like the runner: each step checks the runner blockers, and a pause ticks the feeds.
 """
@@ -12,7 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness import agent_channel as ch, goals as goals_module, runs
+from mhseals_testing.harness import goals as goals_module, runs
+from mhseals_testing.agent import channel as ch
 from mhseals_testing.harness.settings import Settings, load as load_settings, save as save_settings
 from mhseals_testing.runner import Aborted, interlock_abort
 from mhseals_testing.ui import agent_acts, status_file
@@ -1141,7 +1142,7 @@ def test_without_sim_arm_a_run_still_waits_for_the_human_arm_panel(sim):
 
 def test_agent_yaml_ships_sim_arm_off_and_only_the_sim_env_turns_it_on(sim, monkeypatch):
     from mhseals_testing.harness import sim_arm
-    from mhseals_testing.harness import agent_config
+    from mhseals_testing.agent import config as agent_config
     assert agent_config.load()['sim_arm']['enabled'] is False
     monkeypatch.delenv('MHSEALS_SIM_ARM')
     reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
@@ -1425,7 +1426,7 @@ def test_run_set_refuses_a_disallowed_key_or_value_and_runs_nothing(rig, setting
                                        ('bench_override', 'on'), ('agent_motion', 'allow'), ('stale_after', '5'),
                                        ('station_hold', '600'), ('repeats', '5')])
 def test_a_never_setting_is_refused_even_when_agent_yaml_lists_it(rig, key, value):
-    from mhseals_testing.harness import agent_config
+    from mhseals_testing.agent import config as agent_config
     config = agent_config.load()
     listed = dict(config, settings={'thrust_physics': ['thrust_step', key], 'any': [key]})
     rig.desk.config = SimpleNamespace(get=lambda: listed, error=None)

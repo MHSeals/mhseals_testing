@@ -6,7 +6,7 @@ Read-only, on the TUI's own node: subscriptions live only for the window. The FC
 
 import time
 
-from mhseals_testing.harness.agent_fcu import stats
+from mhseals_testing.agent.fcu import stats
 
 SYS_STATUS = ('/mavros/sys_status', 'mavros_msgs/msg/SysStatus')
 STATUSTEXT = ('/mavros/statustext/recv', 'mavros_msgs/msg/StatusText')

@@ -17,7 +17,8 @@ import yaml
 
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.thruster_mixer import AXES
-from mhseals_testing import calibration, nav2_limits
+from mhseals_testing import calibration
+from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.analysis.characterization import (
     audit_holds, hold_t95, motion_limits, nav2_profile, neutral_noise, samples_from_windows,
 )

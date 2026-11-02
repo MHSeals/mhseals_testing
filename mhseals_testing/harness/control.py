@@ -90,7 +90,7 @@ def viewer_who(client):
 def request_revoke(client, path=None):
     """A viewer's E: ask the owner's desk to revoke the active agent claim (the viewer already held the boat).
     Best effort: a missing channel only loses the revoke, never the stop."""
-    from mhseals_testing.harness import agent_channel
+    from mhseals_testing.agent import channel as agent_channel
     try:
         return agent_channel.request('revoke', viewer_who(client), path=path)
     except OSError:

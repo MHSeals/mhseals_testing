@@ -1,4 +1,4 @@
-# Thresholds for the neutral-water estimator (analysis/conditions.py).
+# Thresholds for the neutral-water estimator (conditions/estimator.py).
 window_s: 8             # back-to-back window length while idle
 min_window_s: 4         # shortest window kept after a coast
 batch_s: 4              # sub-batch length for the spectral level

@@ -8,8 +8,10 @@ import pytest
 PACKAGE = Path(__file__).resolve().parent.parent / 'mhseals_testing'
 ROS_MODULES = {'rclpy', 'rosbag2_py', 'launch', 'launch_ros', 'tf2_ros', 'geometry_msgs',
                'nav_msgs', 'sensor_msgs', 'std_msgs', 'tf2_msgs', 'vision_msgs', 'nav2_msgs'}
-# Only ros/ talks to ROS. characterization.read_rosbag imports lazily inside the function.
-PURE = [path for path in PACKAGE.rglob('*.py') if 'ros' not in path.relative_to(PACKAGE).parts]
+# Only ros/ and a feature package's ros_*.py talk to ROS. characterization.read_rosbag imports lazily inside
+# the function.
+PURE = [path for path in PACKAGE.rglob('*.py')
+        if 'ros' not in path.relative_to(PACKAGE).parts and not path.name.startswith('ros_')]
 
 
 def top_level_imports(path):

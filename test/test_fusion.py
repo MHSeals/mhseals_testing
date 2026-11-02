@@ -1,7 +1,7 @@
 """Fusion inputs come from EKF parameters; the measurement weight needs two sources."""
 import pytest
 
-from mhseals_testing.analysis import fusion
+from mhseals_testing.fusion import ekf_params as fusion
 
 
 def mask(*states):

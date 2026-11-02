@@ -180,7 +180,7 @@ class View:
         shown = self.tab == 'Fusion' and not self.review
         feed = getattr(self, 'fusion_feed', None)
         if feed is None and shown and getattr(self.ros, 'node', None) is not None:
-            from mhseals_testing.ros import fusion_feed
+            from mhseals_testing.fusion import ros_feed as fusion_feed
             cfg = fusion_feed.load_config()
             camera = camera_feed.profile_feed(self.ros.node, self.profile.sensors, hz=cfg['feed']['camera_hz'])
             feed = self.fusion_feed = fusion_feed.node_feed(self.ros, camera, cfg) or False

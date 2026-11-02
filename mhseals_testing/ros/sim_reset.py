@@ -9,7 +9,7 @@ class StartReset:
 
     def __call__(self, timeout):
         from std_srvs.srv import Trigger
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         if self.client is None:
             self.client = self.node.create_client(Trigger, self.service)
         if not self.client.wait_for_service(timeout_sec=timeout):

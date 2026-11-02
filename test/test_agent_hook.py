@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from mhseals_testing import agent_hook as hook
-from mhseals_testing.harness import agent_channel, agent_config
+from mhseals_testing.agent import channel as agent_channel, config as agent_config
 
 SID = '3f2a9c1e-0000-4000-8000-000000000000'
 
@@ -394,7 +394,7 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'data'))
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    from mhseals_testing.harness import agent_channel as ch
+    from mhseals_testing.agent import channel as ch
     ch.channel_path().parent.mkdir(parents=True)
     assert hook.local_channel() == ch.channel_path()
     config = hook.hook_config()
@@ -421,7 +421,7 @@ def test_a_boat_session_names_its_host_and_only_then_the_hook_sshes(tmp_path, mo
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     config = hook.hook_config()
-    # the checkout makes the hop itself (tools/boat_agent, harness/agent_relay.py): it can say "unreachable"
+    # the checkout makes the hop itself (tools/boat_agent, agent/relay.py): it can say "unreachable"
     assert hook.remote(config) == target and hook.cli_of(config) == hook.BOAT_AGENT
     hook.deliver({'kind': 'note'}, config)
     assert no_ssh and no_ssh[0][-2:] == [target, f"cat >> '{config['path']}'"]

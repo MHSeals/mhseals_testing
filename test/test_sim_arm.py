@@ -11,7 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness import agent_config, sim_arm
+from mhseals_testing.harness import sim_arm
+from mhseals_testing.agent import config as agent_config
 
 ENV = {'ROS_DOMAIN_ID': '177', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST'}
 ON = dict(sim_arm.DEFAULTS, enabled=True)

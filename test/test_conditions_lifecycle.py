@@ -1,5 +1,5 @@
 """Pure lifecycle regressions: polling time and explicit admission boundaries."""
-from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.conditions.segments import Conditions
 from test_harness_conditions import Clock, feed
 
 
@@ -28,7 +28,7 @@ def test_later_cut_does_not_retroactively_remove_admitted_windows():
 
 def test_expiry_bypasses_refresh_and_clears_derived_direction_state():
     from dataclasses import replace
-    from mhseals_testing.analysis.conditions import load_settings
+    from mhseals_testing.conditions.estimator import load_settings
     from mhseals_testing.analysis.readiness import Direction
     clock = Clock()
     conditions = Conditions(clock=clock, settings=replace(load_settings(), drift_stale_s=40),
@@ -108,7 +108,7 @@ def test_diagnostics_age_receipts_and_details_on_polling_time():
 
 def test_short_explicit_boundary_cannot_join_windows_or_accuracy_medians():
     from dataclasses import replace
-    from mhseals_testing.analysis.conditions import load_settings
+    from mhseals_testing.conditions.estimator import load_settings
     # Remove coast only in this test so a 0.1s explicit gap, shorter than the
     # normal permitted jitter gap, is the sole reason these spans cannot join.
     settings = replace(load_settings(), coast_min_s=0)
@@ -153,8 +153,8 @@ class Orchestrator:
     """Exercise the unwired contract using actual source/status and evidence seams."""
 
     def __init__(self):
-        from mhseals_testing.harness.conditions_feed import ConditionsFeed
-        from mhseals_testing.harness.conditions_evidence import EvidenceGate
+        from mhseals_testing.conditions.feed import ConditionsFeed
+        from mhseals_testing.conditions.evidence import EvidenceGate
         from mhseals_testing.monitor import BoatMonitor
         from mhseals_testing.profiles import load_profile
         self.clock = Clock()
@@ -167,7 +167,7 @@ class Orchestrator:
     def tick(self, now, *, message=True, valid=True, command_known=True, snapshot=None):
         from dataclasses import replace
         from mhseals_testing.health.pwm import Output, Readback
-        from mhseals_testing.harness.conditions_evidence import CommandObservation
+        from mhseals_testing.conditions.evidence import CommandObservation
         self.clock.now = now
         if message:
             self.monitor.observe('odometry', {'yaw': 0, 'wz': 0}, stamp_age=0)
@@ -280,7 +280,7 @@ def test_omitted_epoch_is_not_an_explicit_none_epoch_or_admission_reset():
 
 
 def test_repeated_cut_event_is_bounded_and_same_coast_event_is_not_reapplied():
-    from mhseals_testing.harness.conditions_evidence import EvidenceState
+    from mhseals_testing.conditions.evidence import EvidenceState
     conditions = Conditions()
     quiet = EvidenceState(True, True, True, True, 10., 1)
     conditions.advance(10, epoch=1, eligibility=quiet, t95=3)

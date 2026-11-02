@@ -1,4 +1,4 @@
-# Water conditions. The `snapshot` probe publishes conditions.* from the live estimator (harness/conditions.py).
+# Water conditions. The `snapshot` probe publishes conditions.* from the live estimator (conditions/segments.py).
 # Thresholds live only in config/conditions.yaml; these checks gate the start of Characterize and
 # Thrust physics, never a run in progress.
 group: Conditions

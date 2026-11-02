@@ -8,7 +8,8 @@ from mhseals_hardware.configuration import config_sha, load_config, save_config,
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing import calibration, data
 from mhseals_testing.analysis import classes as classes_module
-from mhseals_testing.harness import journal, nav2_edit, settings
+from mhseals_testing.harness import journal, settings
+from mhseals_testing.nav2 import edit as nav2_edit
 from mhseals_testing.harness.watch import Watched
 from mhseals_testing.health import legacy as health, config as health_config
 from mhseals_testing.history import adapters, revert

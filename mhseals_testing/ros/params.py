@@ -2,7 +2,7 @@
 
 ``get_parameters`` is synchronous and safe to call while the suite's executor spins on its
 own thread: the reply is awaited on an event, never by spinning here. ``Params`` calls run on
-the RosIO executor thread and wait on futures, like ros/nav2.py. Atomic sets matter: plain
+the RosIO executor thread and wait on futures, like nav2/ros_client.py. Atomic sets matter: plain
 SetParameters applies key by key, so MPPI would reset once per key. ROS message types are
 imported where they are used, so ``collect`` stays importable without ROS.
 """
@@ -88,7 +88,7 @@ class Params:
         from rcl_interfaces.msg import ParameterType
         from rcl_interfaces.srv import GetParameters
         from rclpy.parameter import Parameter
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         client = self._client(GetParameters, f'{node}/get_parameters', timeout)
         reply = wait(client.call_async(GetParameters.Request(names=list(names))), timeout, f'{node} get')
         return {name: plain(Parameter.from_parameter_msg(_msg(name, value)).value)
@@ -97,7 +97,7 @@ class Params:
     def declared_types(self, node, names, timeout=3.0):
         """Return {name: KINDS name} from describe_parameters; undeclared names are left out."""
         from rcl_interfaces.srv import DescribeParameters
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         client = self._client(DescribeParameters, f'{node}/describe_parameters', timeout)
         request = DescribeParameters.Request(names=list(names))
         reply = wait(client.call_async(request), timeout, f'{node} describe')
@@ -107,7 +107,7 @@ class Params:
     def list_parameters(self, node, timeout=3.0):
         """Every parameter name the node declares."""
         from rcl_interfaces.srv import ListParameters
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         client = self._client(ListParameters, f'{node}/list_parameters', timeout)
         request = ListParameters.Request(prefixes=[], depth=ListParameters.Request.DEPTH_RECURSIVE)
         return set(wait(client.call_async(request), timeout, f'{node} list').result.names)
@@ -120,7 +120,7 @@ class Params:
         """
         from rcl_interfaces.srv import SetParametersAtomically
         from rclpy.parameter import Parameter
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         kinds = self.declared_types(node, list(values), timeout)
         missing = [name for name in values if name not in kinds]
         if missing:
@@ -136,7 +136,7 @@ class Params:
     def manage_nodes(self, command, timeout=60.0):
         """Run 'reset' or 'startup' on every managed server; True when the manager reports success."""
         from nav2_msgs.srv import ManageLifecycleNodes
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         if command not in COMMANDS:
             raise ValueError(f'unknown lifecycle command {command!r}')
         code = getattr(ManageLifecycleNodes.Request, command.upper())
@@ -147,7 +147,7 @@ class Params:
     def is_active(self, timeout=3.0):
         """Whether the lifecycle manager reports all servers active."""
         from std_srvs.srv import Trigger
-        from mhseals_testing.ros.nav2 import wait
+        from mhseals_testing.nav2 import wait
         client = self._client(Trigger, f'/{self.manager}/is_active', timeout)
         return wait(client.call_async(Trigger.Request()), timeout, 'is_active').success
 

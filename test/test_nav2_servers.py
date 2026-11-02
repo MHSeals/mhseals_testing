@@ -69,7 +69,7 @@ def test_selected_servers_and_overlay_handling(nav_root, tmp_path, monkeypatch, 
         'limits_file': '~/limits.yaml', 'sim': 'true', 'use_lidar': 'true'})
     launched = [node['executable'] for node in nodes if 'package' in node
                 and node['package'] != 'nav2_lifecycle_manager']
-    assert list(assigned_list(PACKAGE / 'ros/nav2.py', 'SERVERS')) == launched
+    assert list(assigned_list(PACKAGE / 'nav2/ros_client.py', 'SERVERS')) == launched
     assert 'smoother_server' not in launched
     offered = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     lifecycle = offered['lifecycle_manager_navigation']['ros__parameters']

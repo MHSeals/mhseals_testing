@@ -56,7 +56,7 @@ def _health_path():
 
 
 def _nav2_path():
-    from mhseals_testing import nav2_limits
+    from mhseals_testing.nav2 import limits as nav2_limits
     return nav2_limits.path()
 
 

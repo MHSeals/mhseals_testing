@@ -12,7 +12,7 @@ from mhseals_hardware.configuration import config_path
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_testing.harness.bags import Recorder
 from mhseals_testing.analysis.readiness import planned_directions
-from mhseals_testing.harness.conditions import Conditions
+from mhseals_testing.conditions import Conditions
 from mhseals_testing.harness.recwatch import RecWatch
 from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health.advisories import Health

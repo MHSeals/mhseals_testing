@@ -43,7 +43,8 @@ def test_shipped_yaml_parses(path):
 
 
 def test_shipped_config_validates():
-    from mhseals_testing.harness import agent_config, settings
+    from mhseals_testing.harness import settings
+    from mhseals_testing.agent import config as agent_config
     from mhseals_testing.procedures import characterize
     from mhseals_testing.ui import keymap
     agent_config.load()

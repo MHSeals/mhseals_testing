@@ -55,7 +55,7 @@ def test_unmeasured_summary_reads_dashes():
 
 def test_conditions_detail_feeds_the_table():
     from test_harness_conditions import Clock, feed
-    from mhseals_testing.harness.conditions import Conditions
+    from mhseals_testing.conditions.segments import Conditions
     clock = Clock()
     cond = Conditions(clock=clock)
     assert cond.detail() is None

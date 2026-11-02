@@ -5,7 +5,7 @@ import sys
 import pytest
 import yaml
 
-from mhseals_testing import nav2_limits
+from mhseals_testing.nav2 import limits as nav2_limits
 
 
 def test_path_follows_override_then_xdg(monkeypatch, tmp_path):

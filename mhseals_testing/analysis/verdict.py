@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from mhseals_testing.analysis.conditions import _config_path
+from mhseals_testing.conditions.estimator import _config_path
 
 MEASURES = ('ceiling', 'drift_trust')       # fractions in 0..1; None while not yet measured
 

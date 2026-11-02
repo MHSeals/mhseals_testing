@@ -14,12 +14,12 @@ from rich.console import Console
 from rich.text import Text
 
 from mhseals_hardware.configuration import config_path, configure_args, load_config, save_config
-from mhseals_testing import nav2_limits
+from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.harness import control, session as session_module, settings
 from mhseals_testing.harness.components import Stack, components
 from mhseals_testing.harness.remote import Units
 from mhseals_testing.harness.unit import probe as unit_probe
-from mhseals_testing.harness.nav2_edit import Nav2File
+from mhseals_testing.nav2 import Nav2File
 from mhseals_testing.harness.registry import Registry
 from mhseals_testing.health.probes import Facts
 from mhseals_testing.health.network import NetworkRow
@@ -191,8 +191,8 @@ def nav2_recorder(app):
 
 def build_nav2_live(ros, registry, profile, app):
     """Build the live Nav2 applier for this session owner (``app``: a callable, built later)."""
-    from mhseals_testing.harness.nav2_live import Nav2Live
-    from mhseals_testing.ros.nav2_live import RosPorts
+    from mhseals_testing.nav2 import Nav2Live
+    from mhseals_testing.nav2 import RosPorts
     ports = RosPorts(ros.node, registry, lambda phase, **fields: ros.emit(phase, **fields),
                      lambda: bool(app().armed) and muxed(profile))
     return Nav2Live(ports, me=os.getpid(), record=nav2_recorder(app))
@@ -235,7 +235,7 @@ def session_main(argv=None):
     from mhseals_testing.ros.perception import subscribe_detections
     from mhseals_testing.ros.preflight import subscribe_tui as subscribe_preflight
     from mhseals_testing.ros.mission import TaskWatcher
-    from mhseals_testing.ros.nav2 import Nav2
+    from mhseals_testing.nav2 import Nav2
     from mhseals_testing.ros.node import RosIO, node_name
     from mhseals_testing.ros.plant import Plant
     from mhseals_testing.harness.processes import ProcessManager

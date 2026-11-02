@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness import agent_channel as ch, agent_cli, agent_grants
+from mhseals_testing.agent import channel as ch, cli as agent_cli, grants as agent_grants
 from mhseals_testing.harness.cli import build_parser
 from mhseals_testing.ros.authority import Arbiter
 

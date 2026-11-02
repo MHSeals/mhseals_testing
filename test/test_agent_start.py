@@ -4,8 +4,8 @@
 import pytest
 
 from mhseals_testing import agent_hook as hook
-from mhseals_testing.harness import agent_channel as ch
-from mhseals_testing.harness import agent_config
+from mhseals_testing.agent import channel as ch
+from mhseals_testing.agent import config as agent_config
 from mhseals_testing.harness.components import Stack
 from mhseals_testing.ui import parts
 from test_agent_cli import Desk, agent_id, call, lines  # noqa: F401 (agent_id: fixture)

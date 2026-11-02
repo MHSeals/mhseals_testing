@@ -11,7 +11,8 @@ import os
 import time
 from types import MethodType, SimpleNamespace
 
-from mhseals_testing.harness import agent_channel as ch, agent_relay, operator_state as op
+from mhseals_testing.harness import operator_state as op
+from mhseals_testing.agent import channel as ch, relay as agent_relay
 from mhseals_testing.ros.authority import Arbiter
 from mhseals_testing.ui import authority_chip, chrome, layout, status_file
 from mhseals_testing.ui.app import App as RealApp

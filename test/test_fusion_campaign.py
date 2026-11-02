@@ -1,5 +1,5 @@
 """fusion_campaign id metric: one-way switches over all matches, alternation apart."""
-from mhseals_testing.perception.fusion_campaign import id_changes
+from mhseals_testing.fusion.campaign import id_changes
 import pytest
 
 

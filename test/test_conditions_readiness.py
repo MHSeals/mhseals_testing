@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mhseals_testing.analysis import conditions as cond
+from mhseals_testing.conditions import estimator as cond
 from mhseals_testing.analysis import readiness as r
 
 TOL = r.load_tolerances()
@@ -84,7 +84,7 @@ def test_material_change_without_a_drift_estimate_is_poor():
 
 def test_feed_keeps_every_jittered_gps_sample():
     import random
-    from mhseals_testing.harness.conditions import Conditions
+    from mhseals_testing.conditions.segments import Conditions
     rng = random.Random(1)
     c = Conditions()
     for i in range(1000):                                   # 5 Hz with up to 20 ms of tick jitter
@@ -93,7 +93,7 @@ def test_feed_keeps_every_jittered_gps_sample():
 
 
 def test_feed_decimates_a_fast_feed_but_keeps_state_changes():
-    from mhseals_testing.harness.conditions import Conditions, MAX_HZ
+    from mhseals_testing.conditions.segments import Conditions, MAX_HZ
     c = Conditions()
     for i in range(1000):                                   # 50 Hz for 20 s
         c.feed(i * 0.02, (0.1, 0.0), 0.0, 0.0, i != 503, 0.0)

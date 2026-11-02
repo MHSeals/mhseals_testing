@@ -27,8 +27,8 @@ pytest.importorskip('rclpy')
 pytest.importorskip('nav2_msgs')
 pytest.importorskip('mhseals_hardware.command_mux')
 
-from mhseals_testing.harness.nav2_live import Nav2Live  # noqa: E402
-from mhseals_testing.ros.nav2_live import RosPorts  # noqa: E402
+from mhseals_testing.nav2.live import Nav2Live  # noqa: E402
+from mhseals_testing.nav2.ros_live import RosPorts  # noqa: E402
 
 from nav_paths import find_nav  # noqa: E402
 
@@ -517,7 +517,7 @@ def test_boat_trial_config_apply_nav2_end_to_end(stack, live):
     (stack.dir / 'events.jsonl').write_text('')
     # The CLI's mux hold must confirm within HOLD_CONFIRM_S (2 s); under full-suite load the
     # mux can answer later, so this subprocess alone waits longer. The live window is unchanged.
-    patched = ('import runpy, mhseals_testing.harness.nav2_live as n; n.HOLD_CONFIRM_S = 15.0; '
+    patched = ('import runpy, mhseals_testing.nav2.live as n; n.HOLD_CONFIRM_S = 15.0; '
                'runpy.run_module("mhseals_testing.harness.cli", run_name="__main__")')
     command = [sys.executable, '-c', patched, 'config', 'apply', 'nav2', '--json']
     options = {'env': stack.env, 'capture_output': True, 'text': True, 'timeout': 120}
@@ -625,8 +625,8 @@ def test_a_reset_is_refused_while_a_goal_runs_even_with_now(stack, live):
 
 
 def test_the_tui_wiring_applies_only_as_the_session_owner(stack, live, tmp_path):
-    from mhseals_testing import nav2_limits
-    from mhseals_testing.harness.nav2_edit import Nav2File
+    from mhseals_testing.nav2 import limits as nav2_limits
+    from mhseals_testing.nav2.edit import Nav2File
     from mhseals_testing.history import History
     from mhseals_testing.profiles import load_profile
     from mhseals_testing.ui.app import build_nav2_live
