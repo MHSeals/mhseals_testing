@@ -7,6 +7,7 @@ image: vsc-astro_dock-95a55aed170fd9a82efa9f2b7064cb62047b76aa0d602aff3240d6f630
 overlay: ~/.cache/crane-autodemo                      # the container's workspace overlay (src/, install/), built there
 base: ~/.cache/crane-fusion/ctest/base                # the base workspace the overlay builds on (read-only)
 profile: crane_full_stack
+command_mode: velocity                               # boat_test --set command_mode: effort for characterization (f)
 port: 6767                                            # mhseals_nav endpoint_startup.yaml unity.port
 domains: [101, 199]                                   # a free ROS_DOMAIN_ID from this range, localhost discovery
 course_family: roboboat_2026

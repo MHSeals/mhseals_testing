@@ -48,7 +48,7 @@ overlay() { # --build: the workspace mains of the three packages, colcon-built i
 tui() {    # boat_test in the boat tmux server; it starts the profile's components (the endpoint among them)
   t kill-session -t "=$SIM_TMUX_SESSION" 2>/dev/null || true
   t new-session -d -s "$SIM_TMUX_SESSION" -x 200 -y 55 \
-    "docker exec -it $SIM_CONTAINER bash -c '$(cenv); exec ros2 run mhseals_testing boat_test --profile $SIM_PROFILE --set command_mode=velocity'; sleep 600"
+    "docker exec -it $SIM_CONTAINER bash -c '$(cenv); exec ros2 run mhseals_testing boat_test --profile $SIM_PROFILE --set command_mode=$SIM_COMMAND_MODE'; sleep 600"
 }
 
 player() { # headless (xvfb, never -nographics), the course of SEED; its truth beside the run
