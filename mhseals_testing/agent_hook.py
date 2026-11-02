@@ -482,7 +482,6 @@ SEPARATORS = {';', '&', '&&', '||', '|', '|&', '\n', ';;', '(', ')'}
 REDIRECTS = {'<', '>', '>>', '>|', '&>', '&>>', '>&', '<&', '<>'}
 PUNCT = re.compile(r'<<<|<<|>>|>&|<&|<>|&>>|&>|>\||\|\||&&|\|&|;;|[\s\S]')
 HEREDOC_OP = re.compile(r'(?<!<)<<(?!<)(-?)[ \t]*')
-SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
 FIND_RUNS = ('-exec', '-execdir', '-ok', '-okdir', '-delete')
 
 

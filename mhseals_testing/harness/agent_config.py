@@ -133,6 +133,40 @@ def setting_refusal(key, value, allowed):
         return None, ('bad_args', str(error))
 
 
+ARMED_NEVER = ('amplitude', 'command_mode')     # never set while armed, whatever reload.yaml says
+
+
+def armed_unsafe(key, rules=None):
+    """``key`` is one reload.yaml's ``settings`` surface puts in the ``disarmed`` class, or ARMED_NEVER."""
+    from mhseals_testing.harness import reload
+    if key in ARMED_NEVER:
+        return True
+    try:
+        rules = rules or reload.load_rules()
+        return reload.DISARMED in reload.classify(rules, 'settings', {key: 0}, {key: 1})
+    except (OSError, KeyError, ValueError):
+        return True            # unreadable rules: the safe side
+
+
+def tunable_refusal(key, value, armed=False, rules=None):
+    """``(value, None)`` with the parsed value when ``boat_agent set`` may set ``key`` now, else ``(None, (error,
+    hint))``: any setting marked tunable (harness/settings.py), within its range or choices; an armed-unsafe one
+    only while disarmed (owner decision 2026-11-01)."""
+    from mhseals_testing.harness.settings import BY_KEY
+    spec = BY_KEY.get(key)
+    if spec is None:
+        return None, ('bad_args', f'unknown setting {key!r} (nav2.NODE.PARAM for a live Nav2 key)')
+    if not spec.tunable:
+        return None, ('not_allowed', f"{key} is not tunable (an agent or safety control): the operator sets it")
+    try:
+        parsed = spec.parse(value)
+    except ValueError as error:
+        return None, ('bad_args', str(error))
+    if armed and armed_unsafe(key, rules):
+        return None, ('refused', f'armed: {key} is set only while disarmed')
+    return parsed, None
+
+
 def sim_arm(section):
     """``sim_arm:`` over harness/sim_arm.DEFAULTS (off unless ``enabled: true``); ValueError naming the key."""
     from mhseals_testing.harness.sim_arm import DEFAULTS

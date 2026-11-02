@@ -66,7 +66,8 @@ CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'arm', 'reload'
 NEVER_PARTS = re.compile(r'thruster|command_mux|controller|operator_heartbeat|watchdog')
 PROGRESS_S = 5.0
 STATUS_S = 1.0
-ATTENTION_S = 30.0             # a refusal or a hold release keeps the header's "agent wants attention" this long
+NAV2_PREFIX = 'nav2.'          # boat_agent set nav2.NODE.PARAM=V: a live Nav2 key (harness/nav2_live.py)
+ATTENTION_S = 30.0            # a refusal or a hold release keeps the header's "agent wants attention" this long
 HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U',
          # Space's hold puts the mux on manual too, so 'keyboard' is Space or manual driving
          'keyboard': 'operator took over (Space or manual): wait until they re-arm and release the hold (U)',
@@ -403,8 +404,9 @@ class AgentDesk:
         return None
 
     def do_set(self, req):
-        """boat_agent set KEY=VALUE: settings agent.yaml ``settings:`` lists, as the operator's Settings change, under
-        the agent's claim, while disarmed and idle (the TUI's held-settings rule); a notice, toast and journal line."""
+        """boat_agent set KEY=VALUE: any tunable setting (harness/settings.py, owner decision 2026-11-01), as the
+        operator's Settings change, under the agent's claim and between runs; armed-unsafe keys (reload.yaml, and
+        never amplitude or command_mode) only while disarmed. ``nav2.NODE.PARAM=V`` sets a live Nav2 key."""
         app = self.app
         if app.settings.agents == 'block':
             return self.reply(req, False, 'blocked', hint='operator must set Agents to allow')
@@ -413,15 +415,53 @@ class AgentDesk:
         found = self.claim_state(req['claim'], req['who'])
         if found:
             return self.reply(req, False, found, hint='claim again' if found != 'not_holder' else 'use your own claim')
-        values, refusal = self.settings_of(req, agent_config.settable(self.config.get()))
-        if refusal is None and not values:
-            refusal = 'bad_args', 'set KEY=VALUE [KEY=VALUE ...]'
-        if refusal is None and app.armed:
-            refusal = 'refused', 'armed: set only while disarmed and idle (run KEY --set K=V applies before a run)'
-        if refusal:
-            return self.reply(req, False, refusal[0], hint=refusal[1])
-        self.apply_settings(values, req['who'])
-        self.reply(req, True, result={'set': values})
+        asked = req['args'].get('settings') or {}
+        if not isinstance(asked, dict) or not asked:
+            return self.reply(req, False, 'bad_args', hint='set KEY=VALUE [KEY=VALUE ...]')
+        nav2 = {str(k)[len(NAV2_PREFIX):]: v for k, v in asked.items() if str(k).startswith(NAV2_PREFIX)}
+        values = {}
+        for key, value in asked.items():
+            if str(key).startswith(NAV2_PREFIX):
+                continue
+            values[key], refusal = agent_config.tunable_refusal(str(key), value, app.armed)
+            if refusal:
+                return self.reply(req, False, refusal[0], hint=refusal[1])
+        if app.running or app.manual or self.act is not None or self.busy:
+            return self.reply(req, False, 'busy', hint='a procedure or act is running: set between runs, '
+                                                       'never mid-segment')
+        result = {}
+        if nav2:
+            ok, error, hint, applied = self.set_nav2(req, nav2)
+            if not ok:
+                return self.reply(req, False, error, hint=hint, result=applied)
+            result['nav2'] = applied
+        if values:
+            self.apply_settings(values, req['who'])
+            result['set'] = values
+        self.reply(req, True, result=result)
+
+    def set_nav2(self, req, requested):
+        """Live Nav2 keys (``nav2.NODE.PARAM``) through harness/nav2_live.py, the TUI's own apply path: preview,
+        fences, a tokened hold, set, read back, roll back on any doubt. Off the key loop. ``(ok, error, hint,
+        result)``."""
+        import yaml
+        live = self.app.live_nav2() if hasattr(self.app, 'live_nav2') else None
+        if live is None:
+            return False, 'refused', 'no live Nav2 here (a watcher, a review or no Nav2 profile)', None
+        values = {k: yaml.safe_load(v) if isinstance(v, str) else v for k, v in requested.items()}
+        live.claim = req.get('claim')
+        title = f"Agent {req['who']}: setting Nav2 {', '.join(values)}"
+        try:
+            receipt = agent_acts.in_background(self.app, title, lambda: live.apply(values), message=title)
+        except Exception as fault:      # noqa: BLE001 - a Nav2 timeout: told, never raised
+            return False, 'refused', f'{type(fault).__name__}: {fault}', None
+        status = receipt.get('status')
+        self.app.emit('agent_nav2', who=req['who'], keys=sorted(values), status=status)
+        rows = [{'key': r['key'], 'old': r['old'], 'new': r['new']} for r in receipt.get('rows', ())]
+        if status != 'verified':
+            why = receipt.get('error') or '; '.join(receipt.get('reasons') or []) or str(receipt.get('refused'))
+            return False, 'refused', f'nav2 {status}: {why}', {'rows': rows}
+        return True, '', '', {'rows': rows, 'reset': receipt.get('reset')}
 
     def settings_of(self, req, allowed, idle=True):
         """(``{key: parsed value}``, None) for the request's ``settings``, or (None, (error, hint)): an unknown,

@@ -30,6 +30,7 @@ class Spec:
     group: str = 'Session'      # row group: Session or the procedure family
     reset: bool = False         # never persisted; back to default at start
     note: str = ''
+    tunable: bool = True        # boat_agent set may change it (owner decision 2026-11-01); reload.yaml says when
 
     def parse(self, value):
         """The validated value for ``value`` (text or typed); ValueError names the key."""
@@ -74,8 +75,8 @@ def _timing(key, default, note=''):
 SPECS = (
     Spec('command_mode', 'effort', str, choices=('effort', 'velocity'), reset=True,
          note='disarmed only'),
-    Spec('bench_override', False, bool, reset=True, note='motion without sensors; scoring off'),
-    Spec('stale_after', 2.0, low=0, high=5, step=0.25, lower_open=True),
+    Spec('bench_override', False, bool, reset=True, note='motion without sensors; scoring off', tunable=False),
+    Spec('stale_after', 2.0, low=0, high=5, step=0.25, lower_open=True, tunable=False),
     Spec('amplitude', 0.25, low=0, high=1, step=0.05, lower_open=True, group='Trials',
          note="in the profile's command units"),
     _timing('baseline', 5.0, 'neutral s before a trial'),
@@ -89,9 +90,9 @@ SPECS = (
     _timing('neutral', 20.0, 'characterization: neutral s to rate the water first'),
     Spec('auto_tab', True, bool, group='Navigation', note='switch to Map when Navigate or Mission starts'),
     Spec('agents', 'allow', str, choices=('allow', 'block'), group='Control', reset=True,
-         note='block refuses new agent claims; allow again at start'),
+         note='block refuses new agent claims; allow again at start', tunable=False),
     Spec('agent_motion', 'allow', str, choices=('confirm', 'allow', 'observe'), group='Control', reset=True,
-         note='agent run/goal: confirm asks Enter each time, observe refuses; allow again at start'),
+         note='agent run/goal: confirm asks Enter each time, observe refuses; allow again at start', tunable=False),
     Spec('direction', '', str, group='Trials', reset=True,
          note='characterization: re-refine only this column, e.g. sway+'),
     Spec('dock_step', 'weigh_in', str, choices=('weigh_in', 'dock_noise'), group='Physics',

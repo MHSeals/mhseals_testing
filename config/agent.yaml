@@ -22,9 +22,10 @@ run: [square, station, nav2_bringup, controller_check, perception, mission, char
 start: [odometry, ekf, sensors, camera, objects]
 # settings agents may set (owner decision 2026-11-01), as the operator's Settings change does, shown and journaled
 # "agent W set KEY=VALUE": `run KEY --set K=V` (that procedure's list and `any`, applied before the run starts,
-# refused while a procedure runs) and `set K=V --claim ID` (every key listed here, refused while armed or running).
-# Only settings with fixed choices (or on/off), within them. Never amplitude, timings, repeats, navigation extents,
-# the command mode, the bench override, staleness or the agent controls (agent_config.SETTINGS_NEVER), listed or not.
+# refused while a procedure runs; only settings with fixed choices, never agent_config.SETTINGS_NEVER, listed or not).
+# `set K=V --claim ID` (owner decision 2026-11-01) takes any tunable setting (harness/settings.py) between runs, and
+# nav2.NODE.PARAM=V live through harness/nav2_live.py; while armed it refuses reload.yaml's armed-unsafe settings,
+# and amplitude and command_mode always.
 settings:
   thrust_physics: [thrust_step]
   dock_physics: [dock_step]
