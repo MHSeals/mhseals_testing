@@ -4,7 +4,7 @@
 # runs in CI and never blocks. Sibling checkouts of mhseals_hardware and mhseals_nav are used when
 # present, else those beside the main clone (a worktree; MHSEALS_HARDWARE / MHSEALS_NAV override). Extra
 # arguments go to pytest.
-#   tools/smoke --impact   only the test files timpact selects against origin/main (ALL: the full smoke)
+#   tools/smoke --impact   only the smoke tests of the files timpact selects against origin/main (ALL: the full smoke)
 # With the workspace agent tools (MHSEALS_AGENTS, else mhseals_agents beside the main checkout), a tree that
 # already passed is not run again (tcache, tier smoke or smoke-impact; not with extra pytest arguments);
 # MHSEALS_SMOKE_UNCACHED=1 skips that. Their quarantine plugin rides along (the root conftest.py).
@@ -31,8 +31,10 @@ if [ -n "$impact" ]; then
     if ! printf '%s\n' "$selected" | grep -qx ALL; then
         tests=$(printf '%s\n' "$selected" | grep '^test/.*\.py$')
         [ -z "$tests" ] && echo 'no affected tests' && exit 0
+        # the smoke tests of those files (the full suite is CI's); none selected (exit 5) is a pass
         # shellcheck disable=SC2086 - one repo-relative test file per line, no spaces
-        exec python3 -m pytest -q -p no:cacheprovider $tests "$@"
+        python3 -m pytest -q -m smoke -p no:cacheprovider $tests "$@"
+        rc=$?; [ "$rc" = 5 ] && rc=0; exit "$rc"
     fi
 fi
 exec python3 -m pytest -q -m smoke -p no:cacheprovider test "$@"
