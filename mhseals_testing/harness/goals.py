@@ -83,7 +83,7 @@ def gate(facts, auto=False):
         return 'yaw quality is failing'
     limit = costmap_limit_s()
     if limit is None:
-        return "costmap freshness limit unreadable (mhseals_nav costmap_watchdog.yaml max_age_s)"
+        return "costmap freshness limit unreadable (mhseals_nav watchdogs.yaml costmap_watchdog max_age)"
     if facts.costmap_age_s > limit:
         return 'global costmap is stale'
     return None
@@ -92,14 +92,26 @@ def gate(facts, auto=False):
 _LIMIT = []  # the first good read; a failed read is retried on the next goal
 
 
+def nav_watchdog(name):
+    """mhseals_nav's settings of the watchdog ``name``: config/watchdogs.yaml's defaults, its section
+    and tune.<name>; before that file, the old config/<name>.yaml. Raises OSError, KeyError, TypeError
+    or yaml.YAMLError when unreadable."""
+    from mhseals_testing.health.config import share_dir
+    config = share_dir('mhseals_nav') / 'config'
+    try:
+        doc = yaml.safe_load((config / 'watchdogs.yaml').read_text())
+    except FileNotFoundError:
+        return yaml.safe_load((config / f'{name}.yaml').read_text())['/**']['ros__parameters']
+    return {**(doc.get('defaults') or {}), **doc[name], **((doc.get('tune') or {}).get(name) or {})}
+
+
 def costmap_limit_s():
-    """mhseals_nav's costmap_watchdog ``max_age_s``, the one costmap freshness limit; None when unreadable."""
+    """mhseals_nav's costmap_watchdog ``max_age``, the one costmap freshness limit; None when unreadable."""
     if _LIMIT:
         return _LIMIT[0]
-    from mhseals_testing.health.config import share_dir
     try:
-        params = yaml.safe_load((share_dir('mhseals_nav') / 'config' / 'costmap_watchdog.yaml').read_text())
-        limit = float(params['/**']['ros__parameters']['max_age_s'])
+        params = nav_watchdog('costmap_watchdog')
+        limit = float(params['max_age'] if 'max_age' in params else params['max_age_s'])
     except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError):
         return None
     if not math.isfinite(limit) or limit < 0:
@@ -140,11 +152,10 @@ def fence_config():
     when unreadable."""
     if _FENCE:
         return _FENCE[0]
-    from mhseals_testing.health.config import share_dir
     try:
-        params = yaml.safe_load((share_dir('mhseals_nav') / 'config' / 'fence_watchdog.yaml').read_text())
-        params = params['/**']['ros__parameters']
-        found = str(params['fence_topic']), 3.0 / float(params['fence_rate_hz'])
+        params = nav_watchdog('fence_watchdog')
+        rate = params['fence_rate'] if 'fence_rate' in params else params['fence_rate_hz']
+        found = str(params['fence_topic']), 3.0 / float(rate)
     except (OSError, KeyError, TypeError, ValueError, ZeroDivisionError, yaml.YAMLError):
         return None
     if not found[0] or not math.isfinite(found[1]) or found[1] <= 0:
@@ -209,7 +220,7 @@ def check_fence(goal, boat, fence, age_s, to_ll=None):
     from mhseals_nav.fence_watchdog import inside
     found = fence_config()
     if found is None:
-        return 'fence unknown: mhseals_nav fence_watchdog.yaml has no fence_topic/fence_rate_hz'
+        return 'fence unknown: mhseals_nav watchdogs.yaml fence_watchdog has no fence_topic/fence_rate'
     if not isinstance(fence, dict) or age_s > found[1]:
         return f'no fence from fence_watchdog ({found[0]}): goals are refused without one'
     if not fence.get('valid'):

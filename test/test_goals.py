@@ -153,13 +153,17 @@ def test_an_unreadable_costmap_limit_is_read_again_on_the_next_goal(monkeypatch,
     monkeypatch.setattr(goals, '_LIMIT', [])
     monkeypatch.setattr(config, 'share_dir', lambda package: tmp_path / package)
     assert goals.costmap_limit_s() is None and 'unreadable' in gate(ready(costmap_age_s=0.0))
-    path = tmp_path / 'mhseals_nav' / 'config' / 'costmap_watchdog.yaml'
+    path = tmp_path / 'mhseals_nav' / 'config' / 'watchdogs.yaml'
     path.parent.mkdir(parents=True)
-    path.write_text("/**:\n  ros__parameters:\n    max_age_s: .nan\n")
+    path.write_text("defaults: {rate: 10.0}\ncostmap_watchdog: {max_age: .nan}\n")
     assert goals.costmap_limit_s() is None
-    path.write_text("/**:\n  ros__parameters:\n    max_age_s: 1.0\n")
+    path.write_text("tune: {costmap_watchdog: {max_age: 1.0}}\ncostmap_watchdog: {max_age: 9.0}\n")
     assert goals.costmap_limit_s() == 1.0 and gate(ready(costmap_age_s=1.0)) is None
     assert 'stale' in gate(ready(costmap_age_s=1.1))
+    monkeypatch.setattr(goals, '_LIMIT', [])         # before watchdogs.yaml: the old file
+    path.unlink()
+    (path.parent / 'costmap_watchdog.yaml').write_text("/**:\n  ros__parameters:\n    max_age_s: 2.0\n")
+    assert goals.costmap_limit_s() == 2.0
 
 
 # --- the fence: fence_watchdog's own fence and margin rules (C9, C11) --------------------------
@@ -205,11 +209,11 @@ def test_the_fence_topic_is_the_nav_watchdogs_and_unreadable_refuses(monkeypatch
     monkeypatch.setattr(config, 'share_dir', lambda package: tmp_path / package)
     assert goals_module.fence_config() is None
     assert 'fence unknown' in check_fence((5.0, 0.0), (0.0, 0.0, 0.0), FENCE, 0.5)
-    path = tmp_path / 'mhseals_nav' / 'config' / 'fence_watchdog.yaml'
+    path = tmp_path / 'mhseals_nav' / 'config' / 'watchdogs.yaml'
     path.parent.mkdir(parents=True)
-    path.write_text("/**:\n  ros__parameters:\n    fence_topic: /f\n    fence_rate_hz: 0.0\n")
+    path.write_text("fence_watchdog: {fence_topic: /f, fence_rate: 0.0}\n")
     assert goals_module.fence_config() is None
-    path.write_text("/**:\n  ros__parameters:\n    fence_topic: /f\n    fence_rate_hz: 2.0\n")
+    path.write_text("fence_watchdog: {fence_topic: /f, fence_rate: 2.0}\n")
     assert goals_module.fence_config() == ('/f', 1.5)
 
 
