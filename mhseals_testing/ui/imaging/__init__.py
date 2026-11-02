@@ -102,7 +102,8 @@ _session = {}               # keys, console, write of the last start()
 def start(keys, console, write, setting='off', env=None):
     """Probe the terminal on the key reader's fd (once a session) and pick the tier; returns it.
 
-    ``off`` probes nothing. Bytes that were not probe replies (keys typed meanwhile) go back to the
+    ``off`` still probes (the camera view's kitty reads it, `kitty_camera`); NO_COLOR and MHS_ASCII
+    probe nothing unless a tier is wanted. Bytes that were not probe replies (keys typed meanwhile) go back to the
     reader's buffer. In sixel the console's stream is wrapped so markers become cursor-forward.
     Without a tty on the reader's fd every setting is text."""
     global TIER, CELL, K, GENERATION, SETTING, BUDGET, PASSTHROUGH, _stream

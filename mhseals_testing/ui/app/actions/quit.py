@@ -38,7 +38,7 @@ class Quit:
         # No refresh thread: the loop draws right after each key, and nothing else writes
         # to the terminal between frames, so mode switches such as Kitty's reach it intact.
         # The image tier is probed on the key reader's fd before the screen switches (ui/imaging/);
-        # graphics: off (the default) probes nothing and draws the text as before.
+        # graphics: off (the default) draws the text tier but still probes, for the camera view's kitty.
         with self.open_keys() as keys:
             pixels.forget()
             pixels.start(keys, self.console, self.write_terminal, theme.PALETTE.graphics)
