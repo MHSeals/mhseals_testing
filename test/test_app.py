@@ -281,7 +281,7 @@ def test_a_boat_without_a_deployment_registry_is_refused_before_any_session(tmp_
 
     def late(argv):
         raise devices.DeviceError('role camera_host needs exactly one host')
-    monkeypatch.setattr('mhseals_testing.ui.app.core.session_main', late)
+    monkeypatch.setattr('mhseals_testing.ui.app.startup.session_main', late)
     with pytest.raises(SystemExit, match='boat_test: role camera_host'):
         app_module.main([])
 

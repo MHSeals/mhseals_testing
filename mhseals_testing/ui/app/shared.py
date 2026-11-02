@@ -4,3 +4,7 @@
 
 
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
+
+
+class Detach(KeyboardInterrupt):
+    """SIGUSR1: another instance is taking over. Unwinds like Ctrl+C, then hands the children on."""
