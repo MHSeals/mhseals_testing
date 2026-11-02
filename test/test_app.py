@@ -2678,6 +2678,36 @@ def test_idle_refresh_skips_identical_frames(tmp_path):
     assert isinstance(app.live.last, Segments)  # the rendered segments, not laid out again
 
 
+def test_a_still_screen_renders_only_on_change(tmp_path, monkeypatch):
+    """D-20261101-26: no render() while no key, fact or animation changed; ages still tick each IDLE_S."""
+    from mhseals_testing.ui import app as app_module
+    app, _ = make_app(tmp_path)
+    app.console.size = (120, 40)
+    app.live = Live(None)
+    renders, render = [], app.render
+    app.render = lambda: renders.append(1) or render()
+    now = [1000.2]
+    monkeypatch.setattr(app_module.time, 'monotonic', lambda: now[0])
+
+    def idle(step=0.1):
+        now[0] += step
+        app.refresh(force=False)
+    idle()
+    idle()
+    assert len(renders) == 1
+    app.notice = 'changed'
+    idle()
+    assert len(renders) == 2
+    idle(app_module.IDLE_S)                        # the ages and clocks move
+    assert len(renders) == 3
+    app.refresh()                                  # a key always draws
+    assert len(renders) == 4
+    app.running = 'Square'                         # something moves: every capped tick lays out again
+    idle()
+    idle()
+    assert len(renders) == 6
+
+
 def test_rec_hours_are_coarse():
     from mhseals_testing.harness import recwatch as r
     mk = lambda m: r.RecSample('lean', 2e5, 50.0, m, False)

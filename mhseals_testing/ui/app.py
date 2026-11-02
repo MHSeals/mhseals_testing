@@ -120,6 +120,7 @@ FOREIGN_GRACE = 30.0     # s: a dead DDS participant lingers until its lease exp
 HOLD_CONFIRM_S = 2.0      # s the mux state may take to show a requested watchdog hold
 WATCHDOG_GRACE = 2.0     # s a required safety watchdog may be missing from the graph while armed (graph lag)
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
+IDLE_S = 1.0             # s; a still screen redraws only on a change, and this often for its ages and clocks
 MANUAL_DESK_S = 0.2      # s; the agent desk's tick from inside manual control
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
 PULSE_STEP = 10          # µs per ←/→ in the Thrusters panel
@@ -422,6 +423,7 @@ class App:
         self.keys = self.live = None
         self.last_frame = 0.0
         self.last_drawn = None   # segments of the last idle frame, to skip identical ones
+        self.last_key = None     # still_key() of the last frame (render only on change, D-20261101-26)
         self.last_tick = clock()
         self.quit = False
         self.closed = False
@@ -1158,15 +1160,41 @@ class App:
         return layout.render(self.snapshot(), self.view(),
                                 self.console.size.width, self.console.size.height)
 
+    def lively(self):
+        """Something moves on screen (driving, a run, an act, a popup, a replay, the Fusion tab): idle ticks draw at
+        the FRAME cap, as ever."""
+        goals = getattr(self, 'goals', None)
+        return bool(self.armed or self.running or self.manual or self.modal is not None or self.review
+                    or getattr(getattr(self, 'desk', None), 'act', None) or getattr(goals, 'active', None)
+                    or self.tab == 'Fusion')
+
+    def still_key(self, now):
+        """A cheap signature of a still screen: the notice, toasts, events, health, authority, the agent desk and the
+        IDLE_S tick (ages); equal means no render. Anything it misses still shows within IDLE_S."""
+        desk = getattr(self, 'desk', None)
+        events = getattr(self.monitor, 'events', ())
+        return (int(now / IDLE_S), str(self.notice or ''), self.tab, getattr(self, 'focus', None),
+                tuple((t.id, t.kind, t.text) for t in getattr(self.toasts, '_items', {}).values()),
+                len(events), events[-1] if events else None, id(getattr(self.engine, 'last', None)),
+                id(getattr(getattr(self, 'arbiter', None), 'record', None)),
+                (len(desk.recent), len(desk.notes), len(desk.queue), len(desk.notices)) if desk is not None else None,
+                getattr(self.map_state(), 'fence_status_at', None) if hasattr(self, 'map_state') else None)
+
     def refresh(self, force=True):
-        """Draw now. Continuous callers pass force=False to cap redraws at 1/FRAME."""
+        """Draw now. Continuous callers pass force=False to cap redraws at 1/FRAME; a still screen draws only when
+        ``still_key`` changed (D-20261101-26)."""
         if self.live is None:
             return
         now = time.monotonic()
         if not force and now - self.last_frame < FRAME:
             return
+        repaint = pixels.watch()    # tmux: a client came or went, or its images need repainting
+        key = None if force or self.lively() else self.still_key(now)
+        if key is not None and key == self.last_key and not repaint:
+            return
+        self.last_key = key
         self.last_frame = now
-        if pixels.watch():          # tmux: a client came or went, or its images need repainting
+        if repaint:
             self.last_drawn = None
         frame = self.render()
         images = pixels.active()
@@ -1239,8 +1267,9 @@ class App:
                                 self.dispatch(key)
                             except STOPPING_ERRORS as error:
                                 self.stop(str(error) or type(error).__name__, by='error')
+                            self.refresh()               # the key's frame first, before the tick's work
                         self.tick()
-                        self.refresh(force=key is not None)  # idle ticks redraw only on change
+                        self.refresh(force=False)        # idle ticks render only on change
                     except KeyboardInterrupt as error:
                         self.detaching = isinstance(error, Detach)
                         # Ctrl+C quits like q, minus the question: anything moving has
