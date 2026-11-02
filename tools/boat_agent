@@ -7,7 +7,7 @@
 # File verbs load no rclpy; stop's backup path does.
 target=${BOAT_AGENT_TARGET:-local}
 [ "$target" = blastoise ] && target=blastoise-odroid
-here=$(hostname)
+here=$(uname -n)
 if [ "$target" != local ] && [ "$target" != "$here" ] && [ "$target" != "${here%%.*}" ]; then
   PYTHONPATH="$(cd "$(dirname "$0")/.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" \
     exec python3 -m mhseals_testing.harness.agent_relay "$target" "$@"
