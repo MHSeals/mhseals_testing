@@ -1,8 +1,8 @@
 """Import path for the crane judge core (crane_ml ``judge/``) and fastsim.
 
-judge_pack is a namespace directory (no ``__init__.py``): the boat install (find_packages) and
-the import-all smoke test skip it, because it needs a crane checkout (CRANE_ROOT, default
-~/crane_ml) that the boat does not have.
+``judge_pack/roboboat`` is a namespace directory (no ``__init__.py``): the boat install
+(find_packages) and the import-all smoke test skip it, because it needs a crane checkout
+(CRANE_ROOT, default ~/crane_ml) that the boat does not have.
 """
 
 import os

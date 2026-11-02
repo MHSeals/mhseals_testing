@@ -13,30 +13,31 @@ import argparse
 from pathlib import Path
 import sys
 
-from mhseals_testing.judge_pack._core import core
-
-if not core():
-    sys.exit('judge core not importable: set CRANE_ROOT to a crane checkout with judge/')
-
-from judge import render  # noqa: E402
-from judge.insight.divergence import Replayer  # noqa: E402
-from judge.run import judge_runs, judge_tiers  # noqa: E402
+# Everything below imports the crane judge lazily: the import-all smoke test imports this module
+# on hosts without crane, and the boat never runs it.
 
 
-class ByPair(Replayer):
+def _core():
+    from mhseals_testing.judge_pack.roboboat._core import core
+    if not core():
+        sys.exit('judge core not importable: set CRANE_ROOT to a crane checkout with judge/')
+
+
+def _by_pair(by_high):
     """Each pair replays through its own fast session's plant (limits and calibration epoch)."""
-    horizon_s = None
+    from judge.insight.divergence import Replayer
 
-    def __init__(self, by_high):
-        self.by_high = by_high
+    class ByPair(Replayer):
+        horizon_s = None
 
-    def reset_closed_loop(self, high, t0, t1):
-        r = self.by_high.get(high.run_id)
-        return r.reset_closed_loop(high, t0, t1) if r else None
+        def reset_closed_loop(self, high, t0, t1):
+            r = by_high.get(high.run_id)
+            return r.reset_closed_loop(high, t0, t1) if r else None
+    return ByPair()
 
 
 def cmd_pairs(a):
-    from mhseals_testing.judge_pack import packs, pairs, replay
+    from mhseals_testing.judge_pack.roboboat import packs, pairs, replay
     P, refused, by = pairs.load(Path(a.path or pairs.ROOT).expanduser(), a.task)
     reps = {}
     try:
@@ -46,7 +47,8 @@ def cmd_pairs(a):
                 reps[unity.run_id] = replay.FastPlantReplayer(*spec)
     except ImportError as e:      # fastsim not importable: the split degrades, the report says so
         print(f'replay unavailable: {e}', file=sys.stderr)
-    rep = judge_tiers(P, packs.TASK, packs.PACKS, replayer=ByPair(reps) if reps else None,
+    from judge.run import judge_tiers
+    rep = judge_tiers(P, packs.TASK, packs.PACKS, replayer=_by_pair(reps) if reps else None,
                       decision_kinds=('task.decision', 'task.goal'), segmenter=replay.goal_segments)
     rep['refused'] = refused
     rep['archive'] = {'root': str(a.path or pairs.ROOT), 'n_index': len(by),
@@ -55,24 +57,25 @@ def cmd_pairs(a):
 
 
 def cmd_session(a):
-    from mhseals_testing.judge_pack import packs
-    from mhseals_testing.judge_pack.sources import SessionSource
+    from mhseals_testing.judge_pack.roboboat import packs
+    from mhseals_testing.judge_pack.roboboat.sources import SessionSource
     src, refused, recs = SessionSource(), [], []
     for p in a.paths:
         recs += src.load_all(p, refused)
+    from judge.run import judge_runs
     rep = judge_runs(recs, packs.TASK, packs.PACKS)
     rep['refused'] = refused
     _emit(rep, a.out, 'sessions')
 
 
 def cmd_real(a):
-    from mhseals_testing.judge_pack import real
+    from mhseals_testing.judge_pack.roboboat import real
     rep = real.judge_bag(Path(a.path))
     _emit(rep, a.out, f'real boat: {Path(a.path).name}')
 
 
 def cmd_nlc(a):
-    from mhseals_testing.judge_pack import nlc
+    from mhseals_testing.judge_pack.roboboat import nlc
     rep = nlc.judge_outputs(Path(a.path))
     _emit(rep, a.out, 'NLC pilot')
 
@@ -85,6 +88,7 @@ def _count(xs):
 
 
 def _emit(rep, out, title):
+    from judge import render
     print(render.oneline(rep))
     if out:
         render.write(rep, out, title)
@@ -113,6 +117,7 @@ def main(argv=None):
     p.add_argument('--out')
     p.set_defaults(fn=cmd_nlc)
     a = ap.parse_args(argv)
+    _core()
     a.fn(a)
 
 

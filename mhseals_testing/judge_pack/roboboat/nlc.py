@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mhseals_testing.judge_pack._core import core
+from mhseals_testing.judge_pack.roboboat._core import core
 
 core()
 

@@ -8,7 +8,7 @@ import random
 import numpy as np
 import pytest
 
-from mhseals_testing.judge_pack._core import core
+from mhseals_testing.judge_pack.roboboat._core import core
 
 if not core():
     pytest.skip('crane judge core not importable (set CRANE_ROOT)', allow_module_level=True)
@@ -18,9 +18,9 @@ from judge.metric import Status  # noqa: E402
 from judge.run import judge_tiers  # noqa: E402
 
 from mhseals_testing.analysis import reliability, run_record, score  # noqa: E402
-from mhseals_testing.judge_pack import nlc, packs, real, sources  # noqa: E402
+from mhseals_testing.judge_pack.roboboat import nlc, packs, real, sources  # noqa: E402
 
-DATA = Path(__file__).resolve().parents[3] / 'test' / 'data' / 'score2026'
+DATA = Path(__file__).resolve().parents[3] / "test" / "data" / "score2026"
 CASES = sorted(p for p in DATA.iterdir() if p.is_dir() and (p / 'truth').exists()) if DATA.exists() else []
 
 

@@ -3,14 +3,14 @@ judge pairs: [(pair_id, fast RunRecord, unity RunRecord)], with refusals counted
 
 from pathlib import Path
 
-from mhseals_testing.judge_pack._core import core
+from mhseals_testing.judge_pack.roboboat._core import core
 
 core()
 
 from judge.record import Scenario  # noqa: E402
 from judge.source import Refused  # noqa: E402
 
-from mhseals_testing.judge_pack.sources import SessionSource, json_load, provenance_of  # noqa: E402
+from mhseals_testing.judge_pack.roboboat.sources import SessionSource, json_load, provenance_of  # noqa: E402
 
 ROOT = Path('~/.cache/fastsim-pairs').expanduser()
 
