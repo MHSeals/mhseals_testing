@@ -35,6 +35,8 @@ from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.readiness import BEAT_STALE_S
 from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.ros.ingest import RTK_TOPIC, ingest
+from mhseals_testing.health.model import Fact
+from mhseals_testing.ros import nearby
 from mhseals_testing.ros.minimap_feeds import MapFeeds
 from mhseals_testing.ros.mission import MissionFeed
 from mhseals_testing.ui.feeds.mission import MissionState
@@ -60,6 +62,7 @@ def message_type(kind):
 
 
 EVENTS_TOPIC = '/mhseals_testing/events'
+GRAPH_S = 1.0          # raw image sensors: how often the graph is asked whether they publish
 FAULT_LOG = os.path.join(tempfile.gettempdir(), 'boat_test_faults.log')  # callback tracebacks
 MAVLINK_TOPIC = '/uas1/mavlink_source'   # MAVROS's every received frame (mavros_msgs/Mavlink)
 AUTOPILOT = 1                            # MAV_COMP_ID_AUTOPILOT1, the FCU's component id
@@ -104,16 +107,24 @@ class RosIO:
             if message is None:
                 monitor.advise(sensor.name, 'N/A', 'mavros_msgs not installed')
                 continue
-            raw = sensor.kind in RAW_KINDS
+            if sensor.kind in RAW_KINDS:      # never always-on (D-20261101-26): a summary, the graph, or tap()
+                continue
             self.node.create_subscription(
-                message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind),
-                qos_profile_sensor_data, raw=raw)
+                message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind), qos_profile_sensor_data)
             if sensor.kind == 'gpsraw':
                 from mavros_msgs.msg import Mavlink
                 self.node.create_subscription(Mavlink, MAVLINK_TOPIC, partial(self._gps_raw_int, sensor.topic),
                                               qos_profile_sensor_data)
         self.node.create_subscription(
             Vector3Stamped, DRIFT_TOPIC, partial(self._ingest, DRIFT_TOPIC, 'drift'), 10)
+        self.facts, self.nearby, self._tap_subs = facts, None, {}
+        clouds = [s.name for s in profile.sensors if s.kind == 'points']
+        if clouds:
+            self.node.create_subscription(String, nearby.TOPIC, partial(self._nearby, clouds), 10)
+        images = [s for s in profile.sensors if s.kind in RAW_KINDS and s.kind != 'points']
+        if images:
+            self.node.create_timer(GRAPH_S, lambda: [nearby.published(
+                monitor, s.name, self.node.count_publishers(s.topic)) for s in images])
         if profile.use_sim_time:
             self.clock_watch = ClockWatch()
             self.node.create_subscription(Clock, '/clock', self._clock, qos_profile_sensor_data)
@@ -182,6 +193,33 @@ class RosIO:
             tap(message)
         ingest(self.monitor, self.profile, topic, kind, message, self.now(),
                self.stale_after, authority)
+
+    def _nearby(self, clouds, message):
+        found = nearby.parse(message.data)
+        if found is None:
+            return
+        self.nearby = (time.monotonic(), found)
+        publish = getattr(self.facts, 'publish', None)
+        nearby.observe(self.monitor, clouds, found, publish, lambda value, label: Fact(value, label))
+
+    def tap(self, kind, callback):
+        """A view's raw ``kind`` messages (points, image) while it is open: the subscription lives only as long as
+        the tap; None ends it."""
+        if callback is None:
+            self.taps.pop(kind, None)
+            for sub in self._tap_subs.pop(kind, ()):
+                self.node.destroy_subscription(sub)
+            return
+        self.taps[kind] = callback
+        if kind not in self._tap_subs:
+            self._tap_subs[kind] = [self.node.create_subscription(
+                MESSAGE_TYPES[kind], s.topic, partial(self._tapped, kind), qos_profile_sensor_data, raw=True)
+                for s in self.profile.sensors if s.kind == kind]
+
+    def _tapped(self, kind, message):
+        tap = self.taps.get(kind)      # the view only: the sensor row keeps reading the summary
+        if tap is not None:
+            tap(message)
 
     def _gps_raw_int(self, topic, message):
         """GPS_RAW_INT from MAVROS's raw MAVLink stream as the gpsraw sensor, only while nothing

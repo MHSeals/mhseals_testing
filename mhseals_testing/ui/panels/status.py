@@ -22,16 +22,18 @@ def sensor_rows(snapshot, specs):
     rows = []
     for spec in specs:
         row = snapshot['sensors'].get(spec.name)
+        graph = False
         if row is None:
             state, value, detail = ('MISSING' if spec.required else 'OFF'), '', spec.topic
         else:
             state = row['status']
+            graph = row['values'].get('graph')       # a raw image: on the graph, never subscribed (ros/nearby.py)
             # A silent sensor reads stale, not 'once': its rate window has simply emptied.
-            value = ('stale' if row['status'] == 'STALE' else
+            value = ('stale' if row['status'] == 'STALE' else 'up' if graph else
                      f"{row['hz']:.0f} Hz" if row['hz'] else 'once')
             detail = row['issue'] or row['values'].get('summary', '') or spec.topic
         rate = ''
-        if row is not None and spec.hz and state != 'STALE':
+        if row is not None and spec.hz and state != 'STALE' and not graph:
             rate, mark = classify(spec.hz, row['hz'], row['max_gap'], row['stamp_age'],
                                   limit=spec.deadline)
             rate = '' if rate == 'ok' else rate

@@ -1,8 +1,8 @@
 """The Fusion tab's data: lidar points, boxes and the extrinsic correction, only while the tab is shown.
 
 The tab (ui/panels/fusion.py) wants it through ``want(on, camera=...)``. Off, every subscription this
-feed made is destroyed and its data forgotten; /points and /tf_static are the session's own
-subscriptions (RosIO taps), so the tab adds no lidar traffic and drops scans before decoding them.
+feed made is destroyed and its data forgotten; /points comes through RosIO.tap, a raw subscription that lives only
+while the tab shows, and scans are dropped before decoding.
 Scans are decimated and projected into the camera at ``points_hz``; the camera frame (only in an
 image tier on an unbudgeted link) is cut to a small greyscale on arrival. ``snapshot()`` is a plain
 dict the panel paints from; nothing here draws. Projection and the correction are lidar_fusion's
@@ -483,7 +483,7 @@ def detections(raw, fused, sources):
 
 def node_feed(ros, camera=None, cfg=None):
     """A FusionFeed on RosIO ``ros``: its node subscribes (/tf_static latched, so a late tab still gets it),
-    the session's /points tap feeds it.
+    RosIO.tap's /points subscription feeds it while the tab shows.
 
     None without the mhseals_nav messages."""
     from rclpy.qos import (DurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy,
@@ -514,5 +514,5 @@ def node_feed(ros, camera=None, cfg=None):
                 feed.on_points(deserialize_message(message, PointCloud2) if isinstance(message, bytes) else message)
             except Exception:
                 pass
-    feed.tap = lambda on: ros.taps.update(points=points) if on else ros.taps.pop('points', None)
+    feed.tap = lambda on: ros.tap('points', points if on else None)    # subscribed only while the tab shows
     return feed

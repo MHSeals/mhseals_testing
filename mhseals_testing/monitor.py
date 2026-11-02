@@ -42,8 +42,9 @@ class BoatMonitor:
         self.results = deque(maxlen=100)
         self.drift = None  # (x, y) the velocity controller estimates, odom frame, with time
 
-    def observe(self, name, values=None, issue='', stamp_age=None):
-        """Record one received message (already validated) for ``name``."""
+    def observe(self, name, values=None, issue='', stamp_age=None, rate=None):
+        """Record one received message (already validated) for ``name``; ``rate`` (Hz) is the source's own
+        measure when the TUI reads a summary instead of the stream (ros/nearby.py)."""
         now = self.clock()
         values = dict(values or {})
         for key, value in values.items():
@@ -54,7 +55,7 @@ class BoatMonitor:
             entry = self.sensors.setdefault(name, {'times': deque(maxlen=300), 'count': 0})
             entry['times'].append(now)
             entry['count'] += 1
-            entry.update(values=values, issue=issue, stamp_age=stamp_age)
+            entry.update(values=values, issue=issue, stamp_age=stamp_age, rate=rate)
             if name in self.histories:
                 self.histories[name].append((now, deepcopy(values), issue))
 
@@ -148,6 +149,8 @@ class BoatMonitor:
             status = 'STALE' if age > stale_after else ('WARN' if issue else 'LIVE')
             hz = ((len(times) - 1) / (times[-1] - times[0])
                   if len(times) > 1 and times[-1] > times[0] else 0)
+            if entry.get('rate') is not None:
+                hz = entry['rate']
             sensors[name] = dict(age=age, received=entry['times'][-1], status=status,
                                  issue=issue, stamp_age=stamp_age,
                                  count=entry['count'], hz=hz, max_gap=max_gap,
