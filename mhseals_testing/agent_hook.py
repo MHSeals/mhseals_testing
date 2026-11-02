@@ -12,7 +12,8 @@ config/agent.yaml (about 15 ms per call); without it the built-in defaults apply
   wrappers such as sudo or timeout, and the remote command of ``ssh HOST ...`` included) becomes one line, its
   argv joined (``commands``), and each file it writes one ``EDIT op live|dev path`` line. ``hook.deny`` patterns
   match a line from its start; ``hook.deny_boat`` too when the line runs on a boat (this host is one, or ssh to
-  one). Heredoc bodies, quoted text and the arguments of grep, echo or git commit are never commands.
+  one). Heredoc bodies, quoted text and the arguments of grep, echo or git commit are never commands, unless a
+  shell, python or ssh reads them on stdin; ``python -c`` counts its obvious literals (``python_runs``).
   The reason names the command and the verb to use instead; the TUI gets it as ``phase: deny``. A
   boat-bound command (``hook.match``, not ``hook.skip``) becomes a channel ``note`` line
   ``{phase: pre, tool_id, cmd, agent}``.
