@@ -1980,6 +1980,42 @@ def test_an_aborted_run_records_its_cause_and_partial_files_without_results(tmp_
     assert result['files'] == {'track': 'runs/001-mission/track.jsonl'} and result['run_start_t_ns'] == 7
 
 
+def geofence_run(tmp_path, body, raises=None, holds=(), outside=False):
+    """``run_record`` with the fence watchdog's mux hold (``holds``) or the boat outside the course area."""
+    from mhseals_testing.procedures import Procedure
+    tmp_path.mkdir()
+    app, _ = make_app(tmp_path)
+    app.mux_holds = lambda: list(holds)
+    app._fence_out = outside
+    if raises:
+        with pytest.raises(raises):
+            app.run_procedure(Procedure('z', 'Waypoint square', body))
+    else:
+        app.run_procedure(Procedure('z', 'Waypoint square', body))
+    [path] = (tmp_path / 'session' / 'runs').glob('*.json')
+    return app, json.loads(path.read_text())
+
+
+def test_a_geofence_stop_is_aborted_by_the_geofence_never_complete_or_an_operator_cancel(tmp_path):
+    from mhseals_testing.runner import Aborted
+    fence = [{'cause': 'geofence', 'by': 'fence_watchdog'}]
+
+    def paused(ctx):       # held by the fence, then stopped while paused: the runner's operator cancel
+        raise Aborted('motion cancelled by operator')
+    _, saved = geofence_run(tmp_path / 'a', paused, Aborted, holds=fence)
+    result = saved['result']
+    assert (saved['status'], result['outcome'], result['cause'], result['by']) == ('ABORTED', 'aborted', 'geofence',
+                                                                                     'guard')
+    assert 'cancelled by operator' not in result['reason'] and result['stopped_by'] == 'operator'
+
+    def preempted(ctx):    # on_exit return: the fence's own goal ends the run's goal before any hold
+        ctx.record(dict(procedure='waypoints', status='ABORTED', verdict='ABORTED'))
+    app, saved = geofence_run(tmp_path / 'b', preempted, outside=True)
+    result = saved['result']
+    assert (saved['status'], result['outcome'], result['cause']) == ('ABORTED', 'aborted', 'geofence')
+    assert app.notice == 'Waypoint square ABORTED: geofence' and 'complete' not in app.notice
+
+
 def test_an_errored_run_is_recorded_as_an_error_not_a_measurement(tmp_path):
     def body(ctx):
         started(ctx)

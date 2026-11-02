@@ -36,7 +36,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITION
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness import control, host, index, journal, runs, session as session_module, settings
-from mhseals_testing.harness import course_area, operator_state
+from mhseals_testing.harness import agent_grants, course_area, operator_state
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import LiveStaging
 from mhseals_testing.harness.components import Stack, components
@@ -157,6 +157,12 @@ def run_end(error):
     if isinstance(error, Cancelled):
         return dict(outcome='cancelled', cause=str(error) or 'cancelled')
     return dict(outcome='error', cause=f'{type(error).__name__}: {error}')
+
+
+def guard_end(cause, stopped_by):
+    """``(reason, ended)`` for a run a watchdog ended (``cause``: the fence's ``geofence``), whoever stopped it."""
+    return f'{cause}: the {cause} watchdog stopped the run', dict(outcome='aborted', cause=cause, by='guard',
+                                                                   stopped_by=stopped_by)
 UPDOWN, LEFTRIGHT = theme.pick('↑↓', 'Up/Down'), theme.pick('←→', 'Left/Right')
 MICRO, PLUSMINUS = theme.pick('µ', 'u'), theme.pick('±', '+/-')
 GLOBAL_HINTS = [('Ctrl hjkl', 'Focus'), ('a', 'Arm panel'), ('Space', 'Stop'), ('?', 'Help'),
@@ -2624,6 +2630,12 @@ class App:
         record = feeds_module.merged(self.feeds).get('authority_record') if getattr(self, 'feeds', None) else None
         return list((record or {}).get('holds') or [])
 
+    def guard_cause(self):
+        """The watchdog holding the boat now ('' when none): a watchdog node's mux hold (the fence's ``geofence``),
+        or ``geofence`` while the boat is outside the course area (on_exit return: the fence's goal preempts first)."""
+        found = next((str(h.get('cause')) for h in self.mux_holds() if agent_grants.kind(h) == 'node'), '')
+        return found or ('geofence' if getattr(self, '_fence_out', False) else '')
+
     def live_nav2(self):
         """Return the live Nav2 applier, built when first needed (it subscribes to ROS state)."""
         if self._nav2_live is None and self.nav2_live_factory is not None:
@@ -3060,8 +3072,18 @@ class App:
                 self.health_window(procedure, began)   # before teardown, whatever the exit
                 raise
             invalid = self.health_window(procedure, began)
+            stopped = next((r.get('verdict') for r in self.snapshot()['results'][results:]
+                            if r.get('verdict') in runs.ABORT_VERDICTS), None)
+            if stopped:      # its goal ended early (the fence's return goal preempts it): aborted, never complete
+                guard = self.guard_cause()
+                aborted, ended = guard_end(guard, 'guard') if guard else (
+                    f'{procedure.title} {stopped.lower()}', dict(outcome='aborted', cause=stopped.lower(),
+                                                                 by='procedure'))
         except BaseException as error:    # a KeyboardInterrupt is recorded too, then re-raised
             aborted, ended = str(error), run_end(error)
+            guard = self.guard_cause() if isinstance(error, Aborted) else ''
+            if guard and ended.get('cause') != guard:  # the stop came while the watchdog held: its cause, not a cancel
+                aborted, ended = guard_end(guard, ended.get('by'))
             if not isinstance(error, Cancelled):
                 raise
             self.notice = f'{procedure.title} cancelled'
@@ -3074,7 +3096,9 @@ class App:
         if len(self.snapshot()['results']) > results:  # show what it found
             self.focus, self.activity = 'activity', 'results'
             self.cursors['activity'] = 0
-            if not invalid:
+            if aborted is not None:
+                self.notice = f"{procedure.title} ABORTED: {ended.get('cause')}"
+            elif not invalid:
                 self.notice = f'{procedure.title} complete'
 
     def end_manual(self, procedure):
