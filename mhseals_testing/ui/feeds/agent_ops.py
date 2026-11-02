@@ -9,9 +9,14 @@ through the same path a hand edit takes; ``reload COMPONENT`` stops and starts o
 
 import time
 
+from mhseals_hardware import hold_store
+
 from mhseals_testing.harness import agent_config, agent_grants, operator_state
 from mhseals_testing.harness.components import ComponentError
+from mhseals_testing.ros.arming import muxed
+from mhseals_testing.runner import STALE_MUX_S
 from mhseals_testing.ui import agent_acts, parts, theme
+from mhseals_testing.ui.feeds import authority as authority_feed
 
 COUNTDOWN = 5.0           # arm banner seconds when agent.yaml has no arm.countdown
 RESPAWN_WAIT = 15.0       # reload COMPONENT: how long its stop may take before the start
@@ -177,6 +182,18 @@ def cleared(app, hold):
     return bool(status.get('ok')), str(status.get('reason') or '')
 
 
+def stopped_mux_file(app, arbiter):
+    """The stopped mux's saved hold file when the boat is disarmed and the mux state is stale or unknown (the mux
+    runs only while armed, so its holds live in that file until the next arm), else None."""
+    if app.armed or not muxed(app.profile):
+        return None
+    with arbiter.lock:
+        mux, at = arbiter.mux, arbiter.mux_at
+    if mux is not None and at is not None and 0 <= arbiter.clock() - at <= STALE_MUX_S:
+        return None
+    return authority_feed.hold_file(app)
+
+
 def do_release_hold(desk, req):
     """boat_agent release HOLD --why: the mux's release (U's path) when every hold is the agent's to release now
     (harness/agent_grants.py); no claim needed. The footer, the agent log and the journal name the agent and why."""
@@ -189,21 +206,30 @@ def do_release_hold(desk, req):
     arbiter = desk.arbiter
     if arbiter is None:
         return desk.reply(req, False, 'no_owner')
-    with arbiter.lock:
-        holds = [dict(h) for h in (arbiter.mux or {}).get('holds') or ([arbiter.mux['hold']] if (arbiter.mux or {})
-                                                                        .get('hold') else [])]
+    stored = stopped_mux_file(app, arbiter)
+    if stored is not None:      # disarmed: the stopped mux's saved holds, which the next arm restores
+        holds = [{'cause': h['cause'], 'by': h['by'], 'since': h['since']} for h in hold_store.load(stored).values()]
+    else:
+        with arbiter.lock:
+            holds = [dict(h) for h in (arbiter.mux or {}).get('holds') or ([arbiter.mux['hold']] if (arbiter.mux or {})
+                                                                            .get('hold') else [])]
     grants, error = agent_grants.load(desk.config.get().get('grants', agent_config.GRANTS))
     refusal = agent_grants.verdict(holds, name, who, grants, lambda hold: cleared(app, hold), time.time())
-    if refusal is None:
+    if refusal is None and stored is None:
         why_not = app.release_refusal()
         refusal = ('refused', why_not) if why_not else None
     if refusal:
         return desk.reply(req, False, refusal[0], hint=refusal[1] + (f' (grant file: {error})' if error else ''))
-    release = getattr(app.plant, 'release_hold', None)
-    if release is None or not release(by=f'agent {who}'):
-        return desk.reply(req, False, 'refused', hint='this profile has no mux to release')
+    if stored is not None:      # U's tokenless release clears every hold: drop exactly the ones judged above
+        judged = {(h['cause'], h['since']) for h in holds}
+        hold_store.save(stored, {cause: h for cause, h in hold_store.load(stored).items()
+                                 if (cause, h['since']) not in judged})
+    else:
+        release = getattr(app.plant, 'release_hold', None)
+        if release is None or not release(by=f'agent {who}'):
+            return desk.reply(req, False, 'refused', hint='this profile has no mux to release')
     causes = [str(h.get('cause')) for h in holds]      # the panel row and the header's attention show it
-    app.emit('agent_release', who=who, holds=causes, why=why)
+    app.emit('agent_release', who=who, holds=causes, why=why, **({'saved': str(stored)} if stored is not None else {}))
     desk.reply(req, True, result={'released': causes, 'why': why}, label=f"release {', '.join(causes)}")
 
 

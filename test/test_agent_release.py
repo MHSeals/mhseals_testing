@@ -112,6 +112,31 @@ def test_an_operator_hold_needs_a_grant_and_the_e_stop_never_goes(held):
     assert release(held, 'estop')['error'] == 'not_allowed'
 
 
+def test_disarmed_a_stale_mux_releases_from_its_saved_hold_record(held, tmp_path):
+    from mhseals_hardware import hold_store
+    path = tmp_path / 'command_mux_holds.json'
+    held.app.args.hardware_config = {'command_mux': {'state_file': str(path)}}
+    held.app.release_refusal = lambda: 'Release refused: mux state is stale or unknown'
+    held.app.is_armed = False
+    held.clock[0] += 60                                   # the mux stopped at disarm: its state went stale
+    fence = {'cause': 'geofence', 'by': 'fence_watchdog', 'since': 5.0, 'token': None}
+    keys = {'cause': 'keys', 'by': 'tui', 'since': 6.0, 'token': None}
+    hold_store.save(path, {'geofence': fence})
+    reply = release(held, 'geofence')                     # the fault must still have cleared
+    assert reply['error'] == 'refused' and 'outside' in reply['hint'] and hold_store.load(path) == {'geofence': fence}
+    held.fence = {'ok': True, 'reason': ''}
+    reply = release(held, 'geofence')
+    assert reply['ok'] and reply['result']['released'] == ['geofence'] and hold_store.load(path) == {}
+    assert not held.released                              # no mux to publish to: the record is the release
+    hold_store.save(path, {'geofence': fence, 'keys': keys})
+    reply = release(held, 'geofence')                     # an operator hold still needs a grant
+    assert reply['error'] == 'not_allowed' and 'keys' in reply['hint'] and len(hold_store.load(path)) == 2
+    held.app.is_armed = True                              # armed, a stale mux still refuses
+    held.holds(('lease', 'tui'))
+    held.clock[0] += 60
+    assert release(held, 'lease')['hint'] == 'Release refused: mux state is stale or unknown' and not held.released
+
+
 def test_a_release_needs_why_and_refuses_while_agents_are_blocked(held):
     held.holds(('lease', 'tui'))
     assert release(held, 'lease', why='')['error'] == 'bad_args'
