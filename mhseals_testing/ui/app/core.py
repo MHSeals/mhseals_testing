@@ -10,6 +10,7 @@ from rich.live import Live
 
 from mhseals_hardware.configuration import config_path
 from mhseals_hardware.keyboard import KeyReader
+from mhseals_testing.ui import input as key_input
 from mhseals_testing.harness.bags import Recorder
 from mhseals_testing.analysis.readiness import planned_directions
 from mhseals_testing.conditions import Conditions
@@ -100,8 +101,9 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Bags, Op
         self.recording_lock = threading.RLock()
         self.publish_pulses = pulses
         self.journal = Journal()
-        # Manual control needs key releases (Kitty protocol) to tell held keys from taps.
-        self.open_events = open_events or (lambda: KeyReader(report_events=True))
+        # Manual control needs key releases (Kitty protocol) to tell held keys from taps: the
+        # session's reader turns them on (ui/input.py), keeping its queue across manual mode.
+        self.open_events = open_events or (lambda: key_input.events(self.keys))
         self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
         self.nav2_file = nav2_file  # harness.nav2_edit.Nav2File, or None

@@ -6,6 +6,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITION
 from mhseals_testing.harness import operator_state
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import theme
+from mhseals_testing.ui import input as key_input
 from mhseals_testing.ui.popups import pins
 
 from mhseals_testing.ui.app.help import MICRO, UPDOWN
@@ -179,5 +180,6 @@ class Manual:
                           zip(('surge', 'sway', 'yaw'), command) if value) or 'neutral'
         self.notice = ('Manual control ended' if done else
                        f"Manual {amplitude:.0%}{theme.SEPARATOR}{active}{theme.SEPARATOR}"
-                       + ('Chords' if chords else 'Single key'))
+                       + ('Chords' if chords else 'Single key' + (
+                           f' (chords unavailable: {why})' if (why := key_input.chords_unavailable(self.keys)) else '')))
         self.refresh(force=done)

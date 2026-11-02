@@ -783,6 +783,11 @@ class _Stream:
         return getattr(self.inner, name)
 
 
+def caps():
+    """The session probe's replies (empty before `start` or without a probe), for the input layer."""
+    return dict(_caps)
+
+
 def kitty_camera():
     """True when the session's probe saw kitty graphics answer OK from kitty or ghostty (the camera view's
     whole-image kitty, whatever the ``graphics`` tier)."""

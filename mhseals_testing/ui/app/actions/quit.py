@@ -8,6 +8,7 @@ from mhseals_testing.harness import journal, session as session_module
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ui import parts, theme
 from mhseals_testing.ui import imaging as pixels
+from mhseals_testing.ui import input as key_input
 
 
 class Quit:
@@ -42,6 +43,7 @@ class Quit:
         with self.open_keys() as keys:
             pixels.forget()
             pixels.start(keys, self.console, self.write_terminal, theme.PALETTE.graphics)
+            key_input.attach(keys, pixels.caps())
             try:
                 with self.live_factory(self.render(), console=self.console, screen=True,
                                        auto_refresh=False) as live:

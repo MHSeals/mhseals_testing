@@ -1,6 +1,7 @@
 """The one capability probe and the tier it selects.
 
-`probe` asks the terminal once a session (XTVERSION, the cell size and DA1, ``4`` = sixel; then the
+`probe` asks the terminal once a session (XTVERSION, the cell size, the kitty keyboard flags for the
+input layer's Terminal and DA1, ``4`` = sixel; then the
 kitty graphics query only if XTVERSION names kitty or ghostty), each round ending at the DA1 reply
 or PROBE_S. `choose` turns the replies, theme.yaml ``graphics`` and the environment into a tier:
 under tmux what tmux.py says it carries, else the first backend (protocol.py) that accepts.
@@ -20,6 +21,7 @@ PROBE_ID = 4242
 
 PROBE = ('\x1b[>0q'                                              # XTVERSION
          '\x1b[16t'                                              # cell size in pixels
+         '\x1b[?u'                                               # kitty keyboard flags (key events)
          '\x1b[c')                                               # DA1: everyone answers, so it ends the probe
 
 
@@ -32,15 +34,17 @@ PROBE_S = 0.5               # s; the probe normally ends at the DA1 reply, one r
 
 
 
-_REPLY = re.compile(rb'\x1b_G([^\x1b]*)\x1b\\|\x1bP>\|([^\x1b]*)\x1b\\|\x1b\[6;(\d+);(\d+)t|\x1b\[\?([\d;]*)c')
+_REPLY = re.compile(rb'\x1b_G([^\x1b]*)\x1b\\|\x1bP>\|([^\x1b]*)\x1b\\|\x1b\[6;(\d+);(\d+)t|\x1b\[\?([\d;]*)c|\x1b\[\?(\d+)u')
 
 
 def parse(data):
     """``(caps, rest)`` from probe reply bytes: caps has ``done`` (DA1 seen), ``kitty``, ``sixel``,
-    ``cell`` (w, h px or None) and ``xtversion``; ``rest`` is what was not a reply (typed keys)."""
-    caps = dict(done=False, kitty=False, sixel=False, cell=None, xtversion=None)
+    ``cell`` (w, h px or None), ``xtversion`` and ``keyboard`` (kitty keyboard flags or None); ``rest`` is what was not a reply (typed keys)."""
+    caps = dict(done=False, kitty=False, sixel=False, cell=None, xtversion=None, keyboard=None)
     for m in _REPLY.finditer(data):
-        if m[1] is not None:
+        if m[6] is not None:
+            caps['keyboard'] = int(m[6])
+        elif m[1] is not None:
             caps['kitty'] = caps['kitty'] or m[1].startswith(b'i=%d;OK' % PROBE_ID)
         elif m[2] is not None:
             caps['xtversion'] = m[2].decode('utf-8', 'replace')

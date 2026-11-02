@@ -1,0 +1,14 @@
+# The TUI's input layer (ui/input.py): hold timing per terminal kind (mhseals_hardware keyboard.Terminal).
+#   kitty   key events: a hold ends at its release
+#   legacy  tmux and cx: plain keys, a hold is the key-repeat stream
+#   plain   a terminal without the kitty keyboard protocol
+#   unknown not probed (NO_COLOR, MHS_ASCII, no tty)
+# confirm_hold: seconds a key (or mouse button) is held to confirm. first_gap: the longest wait for
+# the first auto-repeat (the OS's initial delay); gap: between later repeats. Manual driving's
+# deadman stays mhseals_hardware's manual_repeat_timeout / manual_initial_timeout.
+schema: mhseals.input/1
+terminals:
+  kitty: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
+  legacy: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
+  plain: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
+  unknown: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}

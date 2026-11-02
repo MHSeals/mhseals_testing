@@ -42,9 +42,10 @@ def render(rows, width=80):
 # --- detection ---------------------------------------------------------------------------------
 
 def test_parse_reads_every_reply_and_keeps_typed_keys():
-    caps, rest = pixels.parse(b'j' + OK + XT + CELL + b'k' + DA1_SIXEL)
-    assert caps == dict(done=True, kitty=True, sixel=True, cell=(10, 20), xtversion='kitty(0.39.1)')
+    caps, rest = pixels.parse(b'j' + OK + XT + CELL + b'k' + b'\x1b[?1u' + DA1_SIXEL)
+    assert caps == dict(done=True, kitty=True, sixel=True, cell=(10, 20), xtversion='kitty(0.39.1)', keyboard=1)
     assert rest == b'jk'
+    assert pixels.parse(DA1_SIXEL)[0]['keyboard'] is None    # no kitty keyboard protocol
 
 
 def test_parse_before_da1_is_not_done_and_an_error_reply_is_no_kitty():

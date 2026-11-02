@@ -13,6 +13,7 @@ from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, theme
 from mhseals_testing.ui import imaging as pixels
+from mhseals_testing.ui import input as key_input
 from mhseals_testing.ui.panels import PANELS, agent_log, fusion as fusion_panel
 from mhseals_testing.ui.feeds import health as health_feed
 from mhseals_testing.ui.layout import MINIMAP, body_rows, motion_shown
@@ -151,6 +152,7 @@ class View:
             armed=self.armed, armed_by=self.armed_by if self.armed else None,
             arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command, chords=self.chords,
+            chords_unavailable=key_input.chords_unavailable(self.keys),
             speed=self.manual_speed if self.manual_speed is not None
             else (self.args.hardware_config or {}).get('manual_amplitude'),
             profile=self.profile.name, units=self.profile.command_units,

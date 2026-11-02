@@ -293,12 +293,15 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
 
 # --- the command column -----------------------------------------------------------------------
 
-def mode_label(chords, tmux=None, mode=None):
-    """How the keyboard drives: ``mode`` (``proc · C=I``, ``rc · mux``) wins outside manual."""
+def mode_label(chords, tmux=None, mode=None, unavailable=None):
+    """How the keyboard drives: ``mode`` (``proc · C=I``, ``rc · mux``) wins outside manual;
+    ``unavailable`` (why the terminal cannot chord, ui/input.py) shows ``no chords (tmux)``."""
     if mode:
         return mode
     if chords:
         return 'chords'
+    if unavailable:
+        return f'no chords ({unavailable})'
     tmux = bool(os.environ.get('TMUX')) if tmux is None else tmux
     return 'single key (tmux)' if tmux else 'single key'
 
@@ -436,7 +439,8 @@ def driver(view):
     owner = OWNERS.get(kind)
     hue = theme.auth_style(kind) if owner else theme.MUTED
     mode = view.get('command_mode')
-    label = mode_label(view.get('chords', False), mode=mode).split(' (')[0]
+    label = mode_label(view.get('chords', False), mode=mode,
+                       unavailable=view.get('chords_unavailable')).split(' (')[0]
     if owner == 'keyboard' and not mode:
         label = f'keyboard{theme.MIDDOT}{label}'
     elif owner and not mode:
