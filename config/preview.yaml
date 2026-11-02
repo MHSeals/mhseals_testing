@@ -1,9 +1,9 @@
 # boat_tui preview (tools/boat_preview): the owner's look at a ref's sim stack and TUI before a boat test, isolated
-# from agents' work. Player, image, base, profile, command_mode, course_family, seed, ready_s and max_s come from
+# from agents' work. Player, image, profile, command_mode, course_family, seed, ready_s and max_s come from
 # config/sim/stack.yaml unless set here. Each key may be overridden by BOAT_PREVIEW_<KEY>; paths may start with ~.
 ref: origin/main                     # the default REF
 src: ~/astro_dock/src                # the checkouts the snapshot's worktrees come from
-repos: [mhseals_hardware, mhseals_nav, mhseals_testing]   # REF where a repo has it, else origin/main
+repos: [mhseals_hardware, mhseals_nav, mhseals_testing, ros_tcp_endpoint]   # REF where a repo has it, else origin/main
 cache: ~/.cache/boat-preview         # <ref>/ws (worktrees, build, install), home, data, run
 container: roboboat_preview          # its own container from the sim image; mounts only <ref>, config and results
 socket: preview                      # tmux -L preview

@@ -25,7 +25,7 @@ from mhseals_testing.harness import sim_stack
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'preview.yaml'
 PATHS = ('src', 'cache', 'runbook', 'results')
-SHARED = ('player', 'image', 'base', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')
+SHARED = ('player', 'image', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}$')
 MARKS = ('pass', 'fail', 'note')
 BOAT_DOMAINS = (42, 142)   # the fleet's (harness/mission.py), never a preview's

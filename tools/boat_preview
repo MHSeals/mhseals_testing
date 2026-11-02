@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # boat_preview [up [REF] [--headless] [--test] [--dry-run] | down | attach | restart | status]: the owner's preview.
 #   up       REF (default origin/main; a branch, field branch or hypothesis ref) of the three packages, snapshot as
-#            git worktrees in ~/.cache/boat-preview/<ref>/ws and built there (symlink-install, again only when a sha
-#            changed) in its own container roboboat_preview from the sim image; its own ROS_DOMAIN_ID, localhost
+#            git worktrees in ~/.cache/boat-preview/<ref>/ws and built there on /opt/ros alone (symlink-install, again
+#            only when a sha changed) in its own container roboboat_preview from the sim image; its own ROS_DOMAIN_ID, localhost
 #            discovery, endpoint port, tmux -L preview, home, data and run dirs. boat_test crane_full_stack with the
 #            checklist panel (W), then the Unity player WINDOWED on this display (--headless: xvfb). Runs as the
 #            reserved heavy preview slot, which agent Unity sims queue behind. Attaches when this is a terminal.
@@ -14,7 +14,6 @@
 # Settings: config/preview.yaml (BOAT_PREVIEW_<KEY>), over config/sim/stack.yaml. tools/boat_tui preview runs this.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-HEAVY=${BOAT_PREVIEW_HEAVY:-$HOME/astro_dock/.handoff/tools/heavy}
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
 IN=/home/roboboat/preview      # the snapshot root inside the container
 
@@ -31,6 +30,7 @@ done
 [ "$test" = 1 ] && [ "$verb" = up ] && [ "$headless" = 0 ] && { echo 'boat_preview: --test runs only --headless' >&2; exit 2; }
 settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test)) || exit 2
 eval "$settings"
+HEAVY=${BOAT_PREVIEW_HEAVY:-$PV_SRC/mhseals_agents/tools/heavy}   # the workspace heavy-job guard
 mkdir -p "$PV_CACHE"
 CURRENT=$PV_CACHE/current      # the running preview's root and ref
 if [ "$verb" = up ] || [ "$verb" = _run ]; then
@@ -74,7 +74,7 @@ container_up() {
   mkdir -p "$ROOT/home/.config" "$ROOT/data" "$RUN/xdg"; chmod 700 "$RUN/xdg"
   # its own copy of the station config: the TUI saves settings there, never into the owner's
   [ -d "$HOME/.config/mhseals" ] && rsync -a "$HOME/.config/mhseals/" "$ROOT/home/.config/mhseals/"
-  local mounts=(-v "$ROOT:$IN" -v "$PV_BASE:/home/roboboat/.cache/ctest/base:ro")
+  local mounts=(-v "$ROOT:$IN")
   if [ -n "$PV_RESULTS" ]; then mkdir -p "$PV_RESULTS"; mounts+=(-v "$PV_RESULTS:/home/roboboat/preview-results"); results=/home/roboboat/preview-results; fi
   docker run -d --name "$PV_CONTAINER" --label boat.preview=1 --init --ipc private --network host --user roboboat \
     -e BASH_ENV= -e HOME="$IN/home" -e XDG_RUNTIME_DIR="$IN/run/xdg" -e ROS_DOMAIN_ID="$PV_DOMAIN" \
@@ -92,7 +92,8 @@ build() {   # colcon in the container, only when a sha changed since the last go
   fi
   echo "boat_preview: building $REF (a few minutes the first time)"
   rm -f "$ROOT/built"
-  docker exec "$PV_CONTAINER" bash -c ". /opt/ros/jazzy/setup.bash; . /home/roboboat/.cache/ctest/base/install/setup.bash;
+  # only /opt/ros under the snapshot: no other workspace leaks stale packages into its install chain
+  docker exec "$PV_CONTAINER" bash -c ". /opt/ros/jazzy/setup.bash;
     colcon build --symlink-install --base-paths src --cmake-args -DBUILD_TESTING=OFF" > "$RUN/build.log" 2>&1 \
     || { echo "boat_preview: build failed, see $RUN/build.log" >&2; tail -n 15 "$RUN/build.log" >&2; exit 1; }
   echo "$stamp" > "$ROOT/built"
