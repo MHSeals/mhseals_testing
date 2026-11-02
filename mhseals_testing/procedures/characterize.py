@@ -1,6 +1,6 @@
 """Characterization: one combined survey, then per-direction refinement of the correction columns.
 
-The correction C+/C- is staged to identity first (harness/apply.py), so every hold drives raw
+The correction C+/C- is staged to identity first (harness/apply.py: live on the driver, read back), so every hold drives raw
 efforts and the driver adds nothing; the survey sends each direction's deployed column itself. The survey holds each axis both ways at two amplitudes: it
 gives the speed curves, the Nav2 limits and each direction's uncorrected cross response. Every
 direction outside tolerance then gets its column refined (analysis/column.py). The result is
@@ -23,7 +23,7 @@ from mhseals_testing.analysis.characterization import (
 )
 from mhseals_testing.analysis.column import _within, refine, worst
 from mhseals_testing.analysis.thrust import speed_curve
-from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED, IDENTITY, Staging
+from mhseals_testing.harness.apply import IDENTITY, Staging
 from mhseals_testing.history import adapters
 from mhseals_testing.runner import NEUTRAL
 from mhseals_testing.strict_yaml import load_strict
@@ -125,12 +125,7 @@ def slices(wall, windows, end):
 
 
 def run(ctx):
-    """Refuse operational execution until actual runtime C transitions are supported."""
-    return refuse(ctx, CORRECTION_ACK_REQUIRED)
-
-
-def _run_offline(ctx):
-    """Exercise fitting with explicit offline fixtures; never an operational entry."""
+    """The survey and refinement under staged identity C (the TUI's LiveStaging applies it on the driver)."""
     cfg, settings = load_settings(), ctx.settings
     only = parse_direction(settings.direction)
     if settings.direction and only is None:
@@ -140,12 +135,12 @@ def _run_offline(ctx):
     if cfg['refine']['headroom'] / hi - 1.0 < cfg['refine']['min_room']:
         return refuse(ctx, f'amplitude {settings.amplitude:g} leaves no room for the correction '
                            f'(a(1 + sum|c|) <= {cfg["refine"]["headroom"]:g}): use a smaller one')
-    ctx.prompt(f'Characterization drives {"one direction" if only else "every direction"} for '
-               f'{settings.command:g}s holds. Clear all sides and press Enter... ')
     history, warn = ctx.services.get('history'), ctx.services.get('warn')
     if history:     # a hand edit is logged before staging rewrites the file
         adapters.observe_file(history, 'hardware', staging.config, warn)
-    with staging.staged():
+    with staging.staged():      # first: a driver that refuses C stops the run before the operator is asked
+        ctx.prompt(f'Characterization drives {"one direction" if only else "every direction"} for '
+                   f'{settings.command:g}s holds. Clear all sides and press Enter... ')
         try:
             return _characterize(ctx, cfg, staging, only, hi, lo)
         except UnusableResponse as error:
@@ -160,11 +155,20 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     base = {1: deployed.get('decoupling') or IDENTITY,
             -1: deployed.get('decoupling_negative') or deployed.get('decoupling') or IDENTITY}
 
+    # Progress: one step per survey hold, one per direction refined (its refine holds vary).
+    steps = {'done': 0, 'total': (0 if only else 2 * len(DIRECTIONS)) + (1 if only else len(DIRECTIONS))}
+
+    def progress(runner, name, advance=0):
+        steps['done'] += advance
+        if hasattr(runner, 'progress'):
+            runner.progress(steps['done'], steps['total'], name)
+
     def drive(runner, command, seconds, name):
         """Neutral then ``command``; returns the velocity change. The applied effort is logged."""
         if not all(math.isfinite(value) for value in command):
             runner.stop()
             raise UnusableResponse('nonfinite characterization command')
+        progress(runner, name)
         settle = runner.hold(NEUTRAL, settings.settle, 'settle')
         hold = runner.hold(command, seconds, name)
         windows.extend([(NEUTRAL, *settle), (command, *hold)])
@@ -203,6 +207,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                         runner.stop()
                         return refuse(ctx, f'{AXES[axis]} responds backwards: check wiring, run Thrusters')
                     survey[(axis, sign, level)] = (windows[-1], *cross_response(delta, axis, sign))
+                    progress(runner, label(axis, sign), 1)
         columns, refined = {}, {}
         # Dead-response gate: a direction whose a_hi hold moved the boat less than the floor is
         # neither refined nor fitted; its response is noise and its cross ratios are meaningless.
@@ -219,6 +224,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             if (axis, sign) in dead:
                 columns[(axis, sign)] = begin
                 refined[label(axis, sign)] = dict(column=begin, converged=False, dead=True)
+                progress(runner, label(axis, sign) + ' dead', 1)
                 continue
             known = [(begin, ratios if only else survey[(axis, sign, hi)][2])]
 
@@ -241,6 +247,7 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
             found['low_response'] = low
             found['low_ok'] = worst(low, tolerance[AXES[axis]]) <= 1.0
             columns[(axis, sign)], refined[label(axis, sign)] = found['column'], found
+            progress(runner, label(axis, sign) + ' done', 1)
         end = runner.hold(NEUTRAL, settings.settle, 'settle')[1]
 
     plus, minus = matrices(columns, base if only else None)

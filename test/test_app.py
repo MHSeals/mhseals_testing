@@ -662,14 +662,14 @@ def test_controller_steps_need_velocity_control_and_report_metrics(tmp_path):
     assert results[0]['steady_state_error'] == pytest.approx(-0.04, abs=0.005)
 
 
-def test_characterization_refuses_before_arm_or_configuration_write(tmp_path, nav2_user_file):
-    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
+def test_characterization_disarmed_offers_the_arm_panel_and_writes_nothing(tmp_path, nav2_user_file):
     app, _ = make_app(tmp_path)
     before = Path(app.args.config).read_bytes()
-    app.arm_panel = lambda: pytest.fail('characterization offered to arm without runtime C proof')
-    app.procedure_context = lambda: pytest.fail('characterization reached staging/context')
+    offered = []
+    app.arm_panel = lambda: offered.append(True)
+    app.procedure_context = lambda: pytest.fail('characterization ran disarmed')
     app.dispatch('f')
-    assert CORRECTION_ACK_REQUIRED in app.notice
+    assert offered and 'arm first' in app.notice
     assert Path(app.args.config).read_bytes() == before
     assert not nav2_user_file.exists()
 
@@ -1602,15 +1602,14 @@ def test_characterization_never_offers_to_install_the_secant_decoupling(tmp_path
     app, _ = make_app(tmp_path, ['--set', 'amplitude=0.4', '--set', 'command=3'])
 
 
-def test_characterization_refuses_while_already_armed(tmp_path):
-    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
+def test_characterization_armed_without_a_driver_link_moves_nothing(tmp_path):
     app, _ = make_app(tmp_path)
     with app.attached():
         arm(app)
         before = len(app.plant.sent)
         app.dispatch('f')
-        assert CORRECTION_ACK_REQUIRED in app.notice
-        assert len(app.plant.sent) == before
+        assert 'no ROS link' in app.notice or 'cancelled' in app.notice
+        assert not any(c != 'neutral' and any(c) for c in app.plant.sent[before:])
 
 
 def test_mid_write_operator_config_never_reaches_the_armed_snapshot(tmp_path):

@@ -1,8 +1,8 @@
-"""Offline hardware file staging; ROS-free.
+"""Staging the thruster correction C for a characterization; ROS-free.
 
-Staging backs up C+/C- and changes files for offline workflows; it cannot
-establish the running driver's correction/model. RuntimeStaging refuses these
-transitions until an owner-controlled runtime application can be acknowledged.
+``Staging`` backs up C+/C- and changes the hardware YAML (offline workflows and tests).
+``LiveStaging`` is the TUI's: it applies C to the running driver over SetParameters and
+verifies the readback (the driver's live C, mhseals_hardware contract C4).
 """
 
 from contextlib import contextmanager
@@ -79,33 +79,117 @@ class Staging:
             self.restore()
 
 
-CORRECTION_ACK_REQUIRED = (
-    'Characterization unavailable: the driver correction C/C- is restart-only; '
-    'runtime correction application/readback is unsupported. No correction transition was applied.')
+DRIVER = '/thruster_pwm_node'
+TOLERANCE = 1e-9
 
 
-class RuntimeStaging(Staging):
-    """Fail closed until an owner-controlled runtime C transition can be acknowledged.
+class LiveStaging(Staging):
+    """C+/C- on the running driver: SetParameters (``decoupling``, ``decoupling_negative``), then GetParameters
+    must read the same values back, else Cancelled and nothing is assumed applied.
 
-    Staging remains an offline file API. A file save or parameter echo cannot
-    establish the immutable selected driver's active correction/model.
+    ``params()`` returns the parameter client (ros/params.py ``Params``: ``set_atomically`` and ``get``).
+    Identity is staged live only; the hardware YAML keeps the deployed C until ``commit``, so a driver that
+    restarts after a crash runs the deployed C again. ``active`` is True while this TUI's own run stages C;
+    a backup left by any other (an interrupted run) blocks motion until ``recover`` or A restores it.
     """
 
-    def _refuse(self):
+    def __init__(self, config=None, state=None, params=None, node=DRIVER):
+        super().__init__(config, state)
+        self.params, self.node, self.active, self.error = params, node, False, ''
+
+    def apply_live(self, plus, minus=None):
+        """Set C+/C- on the driver and verify the readback; Cancelled says why not."""
         from mhseals_hardware.menu import Cancelled
-        raise Cancelled(CORRECTION_ACK_REQUIRED)
+        values = {'decoupling': [float(v) for v in plus],
+                  'decoupling_negative': [float(v) for v in (minus or plus)]}
+        client = self.params() if self.params else None
+        if client is None:
+            raise Cancelled('no ROS link to the thruster driver: C cannot be applied live')
+        try:
+            ok, reason = client.set_atomically(self.node, values)
+            back = client.get(self.node, list(values)) if ok else {}
+        except (TimeoutError, ValueError, RuntimeError) as error:
+            raise Cancelled(f'driver C not applied: {error}') from None
+        if not ok:
+            raise Cancelled(f'driver refused C: {reason or "no reason"}')
+        for key, want in values.items():
+            got = list(back.get(key) or [])
+            if len(got) != len(want) or any(abs(a - b) > TOLERANCE for a, b in zip(got, want)):
+                raise Cancelled(f'driver {key} reads back {got or "nothing"}, not {want}')
 
     def raw_correction(self):
-        self._refuse()
+        """Back up C+/C- (once) and stage identity on the driver; a refused stage leaves no new backup."""
+        fresh = self.pending() is None
+        if fresh:
+            current = load_config(self.config)
+            self._write(correction_backup={key: current.get(key) for key in KEYS})
+        self.active = True
+        try:
+            self.apply_live(IDENTITY)
+        except Exception:
+            self.active = False
+            if fresh:
+                self._clear()
+            raise
 
-    def commit(self, decoupling, decoupling_negative=None, **changes):
-        self._refuse()
+    @contextmanager
+    def staged(self):
+        """Identity inside the block; any exit but ``commit`` restores. A restore the driver did not take
+        stays pending (a motion blocker naming why) instead of masking how the block ended."""
+        from mhseals_hardware.menu import Cancelled
+        self.raw_correction()
+        try:
+            yield self
+        finally:
+            try:
+                self.restore()
+            except Cancelled as error:
+                self.active, self.error = False, str(error)
+
+    def suspend(self):
+        """The deployed C back on the driver while a human drives (a pause); the backup stays."""
+        backup = self.pending()
+        if backup is not None:
+            self.apply_live(backup['decoupling'], backup.get('decoupling_negative'))
+
+    def resume(self):
+        """Identity again after a pause."""
+        if self.pending() is not None:
+            self.apply_live(IDENTITY)
 
     def restore(self):
-        if self.pending() is None:
+        backup = self.pending()
+        if backup is None:
+            self.active = False
             return False
-        self._refuse()
+        self.apply_live(backup['decoupling'], backup.get('decoupling_negative'))
+        self._clear()
+        self.active = False
+        return True
+
+    def commit(self, decoupling, decoupling_negative=None, **changes):
+        """Save the survey's C+/C- to the YAML, then put them on the driver and verify."""
+        update_config(dict(changes, decoupling=decoupling, decoupling_negative=decoupling_negative),
+                      self.config)
+        self.apply_live(decoupling, decoupling_negative)
+        self._clear()
+        self.active = False
+
+    def recover(self):
+        """Disarmed (no driver runs): the backup goes back to the YAML, which the next driver starts from, and is
+        cleared. Returns whether a backup was pending."""
+        backup = self.pending()
+        if backup is None:
+            return False
+        current = load_config(self.config)
+        if any(current.get(key) != backup.get(key) for key in KEYS):   # an offline stage wrote the YAML
+            update_config({key: backup.get(key) for key in KEYS}, self.config)
+        self._clear()
+        self.error = ''
+        return True
 
     def blockers(self):
-        return (["Pending correction backup: runtime C is unverified; " + CORRECTION_ACK_REQUIRED]
-                if self.pending() is not None else [])
+        if self.pending() is None or self.active:
+            return []
+        why = f' ({self.error})' if self.error else ''
+        return [f'an interrupted characterization left C staged{why}: A on the Correction tab restores it']

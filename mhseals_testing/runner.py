@@ -97,6 +97,11 @@ class Runner:
         self.overrides = []   # {by, start, end, paused_s, window, holds_invalidated}
         self.done = []        # (start, end) of completed holds
         self.paused = 0.0     # s spent overridden inside supervise, summed over the session
+        self.place = None     # (done, total, label) of a long procedure, set by ``progress``
+
+    def progress(self, done, total, label=''):
+        """Where a long procedure is (characterization): ``show`` reads ``place`` on the next repaint."""
+        self.place = (int(done), max(int(total), 1), str(label))
 
     def invalid(self, start, end):
         """True when [start, end] overlaps an override window (the pause plus its settle)."""

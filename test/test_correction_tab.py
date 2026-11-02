@@ -17,7 +17,7 @@ from mhseals_testing.ui.layout import render
 from mhseals_testing.ui.panels import correction
 
 from mhseals_testing.ui.app import CORRECTION_HINTS
-from test_app import make_app, press
+from test_app import arm, make_app, press
 from test_dashboard import monitor, view
 
 C = [1, 0, 0, .031, 1, .02, -.042, .084, 1]
@@ -78,13 +78,13 @@ def test_right_moves_the_stripe_from_the_worst_column(tmp_path):
     assert app.column == 2
 
 
-def test_r_and_capital_r_refuse_without_changing_direction(tmp_path):
-    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
+def test_r_runs_the_cursor_direction_and_r_capital_the_survey_keeping_the_setting(tmp_path):
     app = tab_app(tmp_path)
-    before = app.settings.direction
-    for key in ('r', 'right', 'r', 'R'):
-        app.dispatch(key)
-    assert CORRECTION_ACK_REQUIRED in app.notice
+    before, seen = app.settings.direction, []
+    app.run_procedure = lambda procedure: seen.append((procedure.key, app.settings.direction))
+    app.dispatch('r')
+    app.dispatch('R')
+    assert seen[0][0] == 'f' and seen[0][1] and seen[1] == ('f', '')
     assert app.settings.direction == before
 
 
@@ -112,26 +112,26 @@ def test_a_without_a_backup_says_nothing_pending(tmp_path):
     assert app.notice == 'Nothing pending'
 
 
-def test_a_keeps_pending_backup_without_runtime_restoration_proof(tmp_path):
-    from mhseals_testing.harness.apply import CORRECTION_ACK_REQUIRED
+def test_a_disarmed_puts_the_backup_back_in_the_yaml(tmp_path):
     app, _ = make_app(tmp_path)
+    from mhseals_hardware.configuration import load_config, update_config
     app.dispatch(']')
+    update_config({'decoupling': C}, app.args.config)
     stage(app)
-    before = Path(app.args.config).read_bytes(), app.staging().state.read_bytes()
+    assert app.blockers()                       # an interrupted stage blocks motion
     app.dispatch('A')
-    assert CORRECTION_ACK_REQUIRED in app.notice
-    assert app.staging().pending() is not None
-    assert (Path(app.args.config).read_bytes(), app.staging().state.read_bytes()) == before
+    assert app.notice.startswith('C restored') and app.staging().pending() is None
+    assert load_config(app.args.config)['decoupling'] == C
 
 
-def test_a_cancelled_confirm_keeps_the_backup(tmp_path):
+def test_a_armed_without_a_driver_link_keeps_the_backup(tmp_path):
     app, _ = make_app(tmp_path)
     app.dispatch(']')
     stage(app)
-    press(app, 'escape')
     with app.attached():
+        arm(app)
         app.dispatch('A')
-    assert app.staging().pending() is not None
+    assert 'not restored' in app.notice and app.staging().pending() is not None
 
 
 def test_i_cancel_leaves_the_epoch(tmp_path):

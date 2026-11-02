@@ -12,7 +12,7 @@ from mhseals_hardware.thruster_mixer import decouple, validate_decoupling
 from mhseals_testing.harness.apply import Staging
 from mhseals_testing.procedures import Settings
 # Offline algorithm fixtures deliberately do not exercise the disabled operational entry.
-from mhseals_testing.procedures.characterize import _run_offline as run
+from mhseals_testing.procedures.characterize import run
 from mhseals_testing.runner import Aborted
 
 GAIN = (1.2, 0.8, 1.5)
