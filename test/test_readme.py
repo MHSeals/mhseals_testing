@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-README_LINES_TODAY = 70
+README_LINES_TODAY = 110   # the 11-01 revamp (D-20261101-26): scannable sections; detail lives in docs/
 
 
 def test_readme_not_longer_than_before():

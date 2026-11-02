@@ -1,84 +1,105 @@
 # mhseals_testing
 
-### The sim, one command
+The ASV test console and suite: sensor and TF checks, thruster trials, characterization, controller, navigation and
+perception tests, and scored mission rehearsals, on the boat or the [`crane_ml`](https://github.com/1unarzDev/crane_ml)
+simulator. It drives [`mhseals_hardware`](https://github.com/mhseals/mhseals_hardware) and
+[`mhseals_nav`](https://github.com/mhseals/mhseals_nav) only through their public topics and launch files.
+
+| Command | Purpose |
+| --- | --- |
+| `tools/boat_tui up` / `view` / `restart` / `status` | The boat's TUI in `tmux -L boat`: start it, watch it, swap in new TUI code (the stack keeps running), who controls |
+| `tools/boat_tui sim [--seed N]` / `sim down` | Headless Unity sim and the TUI on it, for agents and quick checks |
+| `tools/boat_tui preview [REF] [--headless]` / `preview down` | The owner's preview of REF before a boat test: its own build, container and checklist |
+| `ros2 run mhseals_testing boat_test [--profile P]` | The TUI itself (`boat`, `crane_full_stack`, `crane_direct`) |
+| `ros2 run mhseals_testing boat_trial ...` | Headless: `check`, `profiles`, `analyze`, `index`, `config`, and the agent verbs |
+| `tools/boat_agent <verb> --who ID` | Agents act on the boat or sim only through this ([Agents](#agents)) |
+| `tools/smoke` | The landing gate, under a minute |
+
+## Where to run it
+
+- **Tomorrow (11-02):** the TUI runs on the odroid in `tmux -L boat`; the station attaches over ssh:
+  `ssh -t blastoise-odroid tmux -L boat attach -t boat` (`boat_tui up` prints this line).
+- The operator heartbeat is a station service: `./hw.sh station take` installs and starts it, wherever the TUI runs.
+- **Target design:** a lean boat backend (ROS, recorder, stack, agent desk; survives link loss) and a station client
+  that renders and reads keys locally; the link carries summarized state and throttled frames. Raw `/points` stays for rviz.
+
+## Quick start
 
 ```bash
-tools/boat_tui sim [--seed N] [--build]     # headless Unity player + boat_test crane_full_stack (tmux -L boat, session sim)
-tools/boat_tui sim status                   # its domain, player and TUI session
-tools/boat_tui sim down                     # TUI, player and container down, the heavy slot given back
-tmux -L boat attach -t sim                  # the TUI, once the log says ready
+tools/boat_tui sim [--seed N] [--build]   # agents' sim: one heavy unity job, headless; attach: tmux -L boat attach -t sim
+tools/boat_tui preview                    # the owner: origin/main windowed, TUI attached; preview attach | restart | down
+tools/boat_tui preview field/x --headless # any branch, field branch or hypothesis ref; xvfb instead of a window
 ```
 
-It runs as one `heavy unity` job: a fresh private-IPC container, a free `ROS_DOMAIN_ID` (101-199, localhost discovery),
-boat_test with the `crane_full_stack` profile, then the player under `xvfb-run` (never a window) with the 2026 course of
-the seed. Settings are in `config/sim/stack.yaml`; each is overridable as `BOAT_SIM_<KEY>`, the player path as
-`BOAT_SIM_PLAYER`. `--build` refreshes the container's overlay from the workspace mains first; `--dry-run` prints the plan.
+- **sim:** a private-IPC container, a free `ROS_DOMAIN_ID` (101-199, localhost), `crane_full_stack`, the 2026 course of
+  the seed. Settings: `config/sim/stack.yaml` (`BOAT_SIM_<KEY>`); `--dry-run` prints the plan.
+- **preview:** REF of the three packages as worktrees in `~/.cache/boat-preview/<ref>`, rebuilt only when a sha changes,
+  in `roboboat_preview` (domain 100, port 6768, `tmux -L preview`). It holds the reserved heavy `preview` slot, which
+  agent Unity jobs queue behind. Settings: `config/preview.yaml`. Agents never start or stop it (the hook denies it).
+- **Checklist:** the preview's side panel lists the checks, the field runbook's "before a test" items and the commits
+  since 2026-11-01 by feature. `W` checks, `p` pass, `f` fail, `n` note; results append to `mhseals_agents/state/preview-<date>.md`.
 
-The ASV test suite: sensor and TF checks, thruster trials, characterization, controller, navigation and perception tests, and scored mission rehearsals, on the boat or the [`crane_ml`](https://github.com/1unarzDev/crane_ml) simulator. It drives [`mhseals_hardware`](https://github.com/mhseals/mhseals_hardware) (thruster driver, velocity controller) and [`mhseals_nav`](https://github.com/mhseals/mhseals_nav) (localization, Nav2, task trees) through their public topics and launch files only.
+## Screens
 
-### Screens
 <!-- screens: docs/screens/screens.yaml --><table><tr><td width="50%"><img src="docs/screens/drive.svg" alt="Drive tab"><br><sub><b>Drive</b>: status, motion, thrusters, procedures</sub></td><td width="50%"><img src="docs/screens/map.svg" alt="Map tab"><br><sub><b>Map</b>: track, plan, camera FOV, GPS accuracy, mission goal</sub></td></tr><tr><td width="50%"><img src="docs/screens/compass.svg" alt="Compass inspect popup"><br><sub><b>Inspect</b>: compass popup with field, yaw and rate</sub></td><td width="50%"><img src="docs/screens/agent.svg" alt="Agent control"><br><sub><b>Agent</b>: banner, revoke keys and the agent log</sub></td></tr><tr><td width="50%"><img src="docs/screens/agent-stopped.svg" alt="Agent claim stopped"><br><sub><b>Stopped</b>: Space under an agent claim keeps STOPPED first and names the paused claim</sub></td><td width="50%"><img src="docs/screens/agent-sim-arm.svg" alt="Agent sim-arm at 80 columns"><br><sub><b>Sim-arm</b>: at 80 columns an agent's arm keeps the ARMED chip and banner in view</sub></td></tr><tr><td width="50%"><img src="docs/screens/drive-text.svg" alt="Drive tab in text"><br><sub><b>Text</b>: the Drive tab in braille (graphics off, tmux, SSH without images)</sub></td><td width="50%"><img src="docs/screens/map-text.svg" alt="Map tab in text"><br><sub><b>Text</b>: the Map tab in braille</sub></td></tr><tr><td width="50%"><img src="docs/screens/fusion.svg" alt="Fusion tab"><br><sub><b>Fusion</b>: lidar points over the camera, boxes with fused ranges, top-down and the alignment check</sub></td><td width="50%"><img src="docs/screens/fusion-text.svg" alt="Fusion tab in text"><br><sub><b>Text</b>: the Fusion tab in braille at 80 columns</sub></td></tr></table><!-- /screens -->
 
-### Usage
+## TUI
 
-```bash
-ros2 run mhseals_testing boat_test                                   # start the profile's components marked start
-ros2 run mhseals_testing boat_test --profile crane_full_stack        # (or attach when the stack already runs)
-```
+Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Activity), **Correction**, **Map**, **Bags**,
+**Fusion**. `?` lists every key and is the reference. The ones to know:
 
-`boat_test`, `boat_trial` and `rtk_base` install under `lib/mhseals_testing`, not on `PATH`: source `install/setup.bash` and use `ros2 run mhseals_testing <name>`.
+| Key | Does |
+| --- | --- |
+| `Space` | Stop: hold, neutral, disarm; aborts a run |
+| `a` | Arm panel (typed `ARM` on real pins) |
+| `q` | Quit: neutral, disarm, report, bag flush (never kill the tmux session) |
+| `U` / `E` / `O` / `S` | Release the hold / revoke the agent / take control / operator state |
+| `m` | Manual: hold W/S, A/D, ←/→ together; `+`/`-` speed; `x` leaves |
+| `Tab`, `Ctrl h j k l` | Move focus; `Enter` runs or opens the row |
+| `o`, `!`, `H`, `V` | Pose, health checks, config history, camera |
 
-`boat_test` starts passive and commands nothing until the outputs are armed. One page, five panels: Status (sensors, TF, health), Motion, Thrusters, Procedures, Activity (results or log). `?` lists every key and is the reference; the ones to know:
+Held-key chords need the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm). Glyphs carry every state
+(✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.
 
-- **a** arm panel (typed `ARM` on real pins); **Space** stop (neutral and disarm); **q** quit (neutral, disarm, stop children, write the report, flush the bag).
-- **m** manual control: hold W/S, A/D and ←/→ together; +/- speed; x leaves.
-- Thrusters: ←→ and 0 test-pulse ±10 µs / neutral; Enter, 1-4, r edit a draft mapping; s/u save or undo; i thruster set; c clear the decoupling.
-
-Held-key chords need the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm); other terminals fall back to tap-repeat. Pin, matrix and reversal edits are restart-only; a mapping save applies at the next session. Every state has a glyph (✓ ok, ! warn, × fail, ◌ busy, ○ off), so the page reads without color (`NO_COLOR`); `TERM=dumb` or `MHS_ASCII=1` draws ASCII. Status shows **PWM driver** and **PWM readback** (kernel configuration, not measured voltage or thruster movement), so run on the ODROID for pin readback.
-
-### Procedures
+## Procedures
 
 | Key | Procedure | Needs |
 | --- | --- | --- |
-| f | Characterize (unavailable until the driver supports runtime correction; refuses before arming) | - |
-| v | Controller steps: rise, overshoot, settling, error, IAE | armed, sensors, velocity |
-| g, e | Compass calibration from a handheld bearing (42006, sent once you type `FCU`); compass interference against thruster effort | -; armed, outputs |
-| m, i | Manual control; thruster set | armed |
-| n | Nav2 bring-up | - |
-| p | Perception rates and costmap | - |
+| f | Characterize: C staged live, read back, progress bar | armed |
+| v | Controller steps: rise, overshoot, settling, IAE | armed, sensors, velocity |
+| g, e | Compass calibration; compass interference | -; armed |
+| m, i | Manual; thruster set | armed |
+| n, p | Nav2 bring-up; perception rates and costmap | - |
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
-| t | Mission rehearsal: run an `mhseals_nav` task, score its events (`config/missions/`) and, in crane_ml, have the referee judge the true track | armed, sensors, velocity, Nav2 |
+| t | Mission rehearsal, scored (`config/missions/`), judged by the referee in crane_ml | armed, sensors, velocity, Nav2 |
 
-Procedures that need arming open the arm panel first. Open-loop procedures refuse while another node publishes the command topic; use `--set command_mode=velocity` and Nav2 for navigation procedures. Sizes and timings are settings (`harness/settings.py`; last values persist in `~/.config/mhseals/boat_test.yaml`): `--set amplitude=0.4`, `baseline`, `command`, `settle`, `repeats`, `nav_distance`, `station_hold`, `station_tolerance`, `observe`, `stale_after`.
+Only sensors and TF block motion; power, clock, links and compute advise. Settings: `--set K=V` (`harness/settings.py`,
+saved in `~/.config/mhseals/boat_test.yaml`). Profiles: `boat` (ODROID pins), `crane_full_stack` (`/thrusters/pwm` into
+the sim), `crane_direct` (no navigation); `boat_trial profiles` explains each.
 
-Only sensors and TF block motion (required sensors live and fresh; `map → odom → base_link` fresh, acyclic, single publisher). Power, clock, links and compute are advisories. `--set bench_override=on` skips the blocking checks; procedures that score motion still refuse.
+## Agents
 
-### Profiles and courses
+Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); `python3 .agents/hook.py --playbook` is the guide.
 
-| Profile | Command | Outputs |
-| --- | --- | --- |
-| `boat` | `/cmd_vel`, effort | ODROID PWM pins |
-| `crane_full_stack` | `/cmd_vel`, effort | `/thrusters/pwm` into the simulator |
-| `crane_direct` | `/crane/cmd_vel_stamped`, m/s | none (bypasses navigation) |
+- **Verbs:** `status`, `claim`, `run KEY`, `goal X Y`, `arm` (a countdown the operator cancels), `start`/`stop`/`reload`
+  COMPONENT, `set K=V`, `fcu get|set|rates|revert|restart`, `follow`, `note`, `ask`, `stop`. Every acting verb takes `--why`.
+- **Release and grants:** `release HOLD --why` frees a lease or watchdog hold once its fault cleared; an operator hold only
+  with a grant in `~/.config/mhseals/agent_grants.yaml`; the e-stop never.
+- **Fence:** agents may edit the course fence (corners, on exit alert or return) any time, with `--why`, logged.
+- **Exit codes:** 0 ok, 2 refused (read `hint`), 3 revoked, 4 no TUI, 5 blocked, 6 timeout, 7 paused by the operator.
+- **Hook:** `mhseals_testing/agent_hook.py` blocks raw motion, FCU and hold changes and names the verb instead. Details: [docs/agents.md](docs/agents.md).
 
-`boat_trial profiles` describes each; `--profile <file.yaml>` loads your own. For `crane_full_stack`, start crane_ml with `--crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-roboboat-course Tools/RoboBoat/courses/roboboat_2025.json --crane-roboboat-course-truth <bags>/course_truth.json --crane-lidar-returns-only --crane-lidar-water-level 0.02`. For `pair_test` or `circle_test`, edit `config/courses/<task>.yaml` and pass `--crane-roboboat-course "$(ros2 run mhseals_testing boat_trial course circle_test)"`.
+## Data
 
-### Data
+Sessions record under `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`: one bag per session (all topics
+but images, clouds and costmaps, `config/bags.yaml`), `<session>.report.json`, the driver's hardware YAML and logs.
+Health checks are YAML (`config/health/`); `~/.config/mhseals/health.yaml` disables or overrides them.
 
-Records go under `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`, never the working directory. Each session records one bag (`<root>/<profile>_<time>`, `--output`) of every topic except images, point clouds and costmaps (`config/bags.yaml`), with procedure events on `/mhseals_testing/events`, plus `<session>.report.json`, the driver's `<session>.hardware.yaml` and logs in `<root>/logs/<session>/`. Children stop with the suite, even if it is killed. The layout is described in `mhseals_testing/data.py`.
-
-### Health
-
-Checks are YAML (`config/health/*.yaml`) over facts that probes publish. A `fail` blocks a procedure from starting, a `warn` shows its reason, and nothing interrupts a run. `~/.config/mhseals/health.yaml` can `disable` or `override` checks. Adding a fact, kind or check is described in `mhseals_testing/health/__init__.py`.
-
-Agents drive the boat only through the owner TUI: `boat_trial claim | status | follow | run | goal | start | stop | arm | reload | set | fcu | mark | note | ask | release` (remotely `ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_agent <verb> --who NAME`) runs each request through the same gates, arm panel and runner as a key and prints JSON (exit 0 ok, 2 refused with a `hint`, 3 revoked or overridden, 4 no TUI, 5 blocked, 6 timeout, 7 paused). The operator's `S` declares manual, battery swap or power cycle (`m` manual control sets manual): agents' changing verbs exit 7 with since and ETA, claim leases suspend (no lease hold), `status` carries `operator` and, after a swap or power cycle, `restarted_after`; with `BOAT_AGENT_TARGET` set, `tools/boat_agent` makes the ssh hop itself and an unreachable boat answers `unreachable` (exit 4) with the last operator state it saw. No verb releases a hold. `arm --claim ID` arms through the arm panel's path after a countdown banner (`config/agent.yaml` `arm.countdown`, 5 s, which an agent may lengthen but never shorten) the operator cancels with Esc or Enter; a latched e-stop refuses it, and the ARMED chip and journal name the agent. `reload config [NAME]` re-reads the TUI's watched YAML as a hand edit does; `reload COMPONENT --claim ID` stops and starts one part under the `start`/`stop` rules. Each shows in the agent log. Characterize (`f`, `r`/`R` on Correction, `run characterize`) stages identity C on the running driver over SetParameters and reads it back, puts the deployed C back while a human drives a pause, and shows a progress bar with the command against measured velocity. `run KEY --sim-arm` arms only a stack every check of `harness/sim_arm.py` proves a simulator (sim profile and `/clock`, the crane player, a private domain never 42, localhost discovery, a private-IPC container, no MAVROS or other hardware node, the session's empty hold file, no `<data root>/agent/stop`), re-checks the graph every 5 s and disarms when the run ends or the re-check fails; it is off as shipped (`config/agent.yaml` is the boat's too) and the sim container turns it on with `docker run -e MHSEALS_SIM_ARM=1`. A brand-new sim session clears holds a previous session left in its own hold file (logged), and a `--sim-arm` run's Ready prompts are confirmed by the agent; real-boat and other runs keep the human's. The hook blocks starting the driver or mux by any route and changing the mux's saved holds or the stop file. `start COMPONENT --claim ID` and `stop COMPONENT --claim ID` start and stop a stack part that `config/agent.yaml` `start:` lists (the odometry stack, EKFs, sensors, camera and objects) through its Status row's own start path, without the popup; the row reads `by agent W` until it stops, and the notice and journal name the agent. They never start a commander part (Nav2, the mission runner), the driver, mux, controller, heartbeat or watchdogs, refuse a stop while armed or one that would stop a part not on the list, and on a boat the hook routes a hand-started device launch or `mhseals-*` unit to them. `fcu get PARAM...` and `fcu rates` (IMU and odometry rates, gap p99, FCU load, "Main loop slow") read only; `fcu set PARAM VALUE... --claim ID`, `fcu revert --to SNAPSHOT --claim ID` and `fcu restart --claim ID` (disarmed) go through the TUI's MAVROS link and write only what `config/agent.yaml` `fcu.set` lists, never the yaw source, compass, servos, RC, arming or failsafes; the first write snapshots every parameter (its sha256 in the ledger), the FCU is re-checked disarmed before each write, and each is read back and logged to `fcu_changes.md` with the agent's id as it lands, so a partial set is on record; revert takes only a store snapshot whose checksum matches and checks every value like a set, and SCHED_LOOP_RATE 400 needs a rates check this TUI ran after a restart that followed the last loop-rate write. Space, RC and `E` always win. Leases, allowed procedures and the agent hook are in `config/agent.yaml`. astro_dock's `.agents/hook.py` runs this package's hook, `mhseals_testing/agent_hook.py`, for Claude Code and Codex. It gives the agent this playbook, blocks raw motion and FCU commands with the verb to use instead, and shows the agent's boat commands in the TUI: this machine's TUI, unless `BOAT_AGENT_TARGET=blastoise-odroid` in the agent's environment names a boat session's host (only then does the hook ssh there), so sim and dev work never touches the boat (`blastoise` still works for one release; it means blastoise-odroid). `boat_trial analyze referee <session>`, `index` (`--json`) and `check --require GROUP` re-judge, index and gate finished sessions. Agents drive the boat only through the owner TUI: `boat_trial claim | status | follow | run | goal | start | stop | set | fcu | mark | note | ask | release` (remotely `ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_agent <verb> --who NAME`) runs each request through the same gates, arm panel and runner as a key and prints JSON (exit 0 ok, 2 refused with a `hint`, 3 revoked or overridden, 4 no TUI, 5 blocked, 6 timeout). `run KEY --set K=V` (applied before the run starts, named in the Allow popup, refused while a procedure runs) and `set K=V --claim ID` (disarmed and idle) change a setting that `config/agent.yaml` `settings:` lists for that procedure (`thrust_step`, `dock_step`, `auto_tab`), within its choices, as the operator's change does; the notice, a toast and the journal say `agent W set K=V`, and amplitude, timings, repeats, navigation extents, the command mode, the bench override, staleness and the agent controls are never an agent's, listed or not.
-
-### Development
+## Development
 
 ```bash
-python -m pip install pytest rich PyYAML numpy
-tools/smoke   # the landing gate, under a minute; the full suite (pytest -q test) runs in CI, informational
-make -C docs pdf tuning   # docs/math.pdf (mixer, characterization, conditions, sim plant, scoring), docs/tuning.pdf (Nav2, velocity loop)
+tools/smoke                 # the landing gate (< 60 s); the full suite (pytest -q test) runs in CI and never blocks
+make -C docs pdf screens    # docs/math.pdf, docs/tuning.pdf, and the images above
 ```
 
-Everything outside `mhseals_testing/ros/` imports without ROS (enforced by `test/test_import_boundaries.py`). CI runs the tests on Python 3.10, 3.12 and 3.13 and builds `math.pdf`. `make -C docs screens` redraws the images above (the kitty/sixel image tiles, and the braille text fallback) and their table from synthetic data, per `docs/screens/screens.yaml`; a test fails when they are stale. Parameter inventory: `boat_trial config catalog` (`--json -`) or TUI **Config → Catalog**.
+Everything outside `mhseals_testing/ros/` imports without ROS. Sims and full suites go through `.handoff/tools/heavy`.
