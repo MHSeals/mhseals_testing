@@ -24,7 +24,7 @@ def install(monkeypatch, bad_at, payload):
         rows = [(topic, payload() if t == bad_at else {'phase': 'marker'}, t * S)
                 for t in stamps]
         return FakeReader(rows), {'/mhseals_testing/events': 'inert'}
-    monkeypatch.setattr('mhseals_testing.ui.app.core.ReviewSource', partial(
+    monkeypatch.setattr('mhseals_testing.ui.app.actions.bags.ReviewSource', partial(
         ReviewSource, opener=opener, decode=lambda kind, message: message))
 
 
