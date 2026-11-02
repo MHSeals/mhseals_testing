@@ -1,4 +1,4 @@
-"""Image tiers (ui/pixels.py): probe parsing, tier choice, tile ids, kitty placeholders and upload,
+"""Image tiers (ui/imaging/): probe parsing, tier choice, tile ids, kitty placeholders and upload,
 the sixel encoder and frame flow, the widgets in each tier, and the text tier left as it was."""
 import base64
 import io
@@ -15,7 +15,8 @@ from rich.cells import cell_len
 from rich.console import Console, Group
 from rich.text import Text
 
-from mhseals_testing.ui import palette, pixels, theme
+from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import conditions
 
 OK = b'\x1b_Gi=4242;OK\x1b\\'
@@ -167,13 +168,17 @@ def test_save_graphics_sets_one_line_and_keeps_the_rest_of_the_overlay(tmp_path)
         palette.save_graphics('text', overlay)
 
 
-def test_off_probes_nothing_and_a_session_probes_once(monkeypatch):
+def test_a_session_probes_once_even_with_graphics_off_and_plain_never(monkeypatch):
+    # the one capability probe: off still asks (the camera view's kitty reads it), NO_COLOR or ASCII never
     asked = []
     monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: asked.append(fd) or (
         dict(done=True, sixel=True, kitty=False, cell=(9, 18), xtversion='foot(1.28)'), b''))
     monkeypatch.setattr(os, 'isatty', lambda fd: True)
     keys = SimpleNamespace(fd=5, buffer=bytearray())
-    assert pixels.start(keys, None, lambda text: None, 'off', env={}) == 'text' and asked == []
+    for plain in ({'NO_COLOR': '1'}, {'MHS_ASCII': '1'}):
+        assert pixels.start(keys, None, lambda text: None, 'off', env=plain) == 'text' and asked == []
+    assert pixels.start(keys, None, lambda text: None, 'off', env={}) == 'text' and asked == [5]
+    assert not pixels.kitty_camera()
     assert pixels.start(keys, None, lambda text: None, 'auto', env={}) == 'sixel' and asked == [5]
     sent = []
     assert pixels.restart(keys, None, sent.append, 'off', env={}) == 'text' and sent == ['\x1b[2J']

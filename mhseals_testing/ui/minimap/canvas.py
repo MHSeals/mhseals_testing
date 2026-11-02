@@ -8,7 +8,7 @@ palette (and the colourless tiers) are applied later by the emitter.
 from collections import namedtuple
 from functools import lru_cache
 
-from mhseals_testing.ui import pixels
+from mhseals_testing.ui import imaging as pixels
 
 # Layer priority, highest first (map.md 4.1, tui-visual 2.3). A layer not listed ranks below all of these.
 PRIORITY = (
@@ -41,7 +41,7 @@ def rank(layer):
 
 class Canvas:
     """A ``cols`` x ``rows`` grid of cells, each 2 x 4 braille dots; or, in an image tier
-    (ui/pixels.py), ``k`` times finer each way: 2k x 4k dots a cell, drawn as pixels."""
+    (ui/imaging/), ``k`` times finer each way: 2k x 4k dots a cell, drawn as pixels."""
 
     def __init__(self, cols, rows, k=None):
         self.cols, self.rows = max(cols, 0), max(rows, 0)

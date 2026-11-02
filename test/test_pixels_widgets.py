@@ -1,10 +1,11 @@
-"""The other dot widgets through ui/pixels.py: Motion plot, popup spark and dial, and the minimap
+"""The other dot widgets through ui/imaging/: Motion plot, popup spark and dial, and the minimap
 draw as image cells with labels as text in kitty and sixel, and as braille in the text tier."""
 import pytest
 from rich.cells import cell_len
 from rich.text import Text
 
-from mhseals_testing.ui import braille, pixels, sparks, theme
+from mhseals_testing.ui import braille, sparks, theme
+from mhseals_testing.ui import imaging as pixels
 from test_pixels import braille_chars, image_chars
 
 

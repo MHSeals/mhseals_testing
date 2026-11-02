@@ -31,15 +31,10 @@ tier or repaints every image (tmux redraws only its last 19 sixel images, kitty 
 the window was hidden are lost), and TMUX_REPAINT_S repaints anyway. numpy and stdlib only.
 """
 
-import base64
 import hashlib
 import os
-import re
-import select
-import subprocess
 import threading
 import time
-import zlib
 from collections import OrderedDict, deque
 
 import numpy as np
@@ -47,31 +42,21 @@ from rich.cells import cell_len
 from rich.segment import Segment
 from rich.style import Style
 
+from mhseals_testing.ui.imaging import tmux
+from mhseals_testing.ui.imaging.kitty import (DIACRITICS, ESC, KITTY_NAMES, PLACEHOLDER, ST, _delete,  # noqa: F401
+                                              _kitty_id, kitty_enabled, kitty_upload)
+from mhseals_testing.ui.imaging.probe import (PROBE, PROBE_ID, PROBE_KITTY, PROBE_S, _ask, _tmux,  # noqa: F401
+                                              choose, parse, probe)
+from mhseals_testing.ui.imaging.protocol import by_name, rgba as _rgba
+from mhseals_testing.ui.imaging.sixel import MARK0, _MARKS, sixel  # noqa: F401
+from mhseals_testing.ui.imaging.tmux import TMUX_FORMAT, _tmux_tier, tmux_view  # noqa: F401
+
 SETTINGS = ('off', 'auto', 'kitty', 'sixel')   # theme.yaml ``graphics``; off (the default) is the text
-PROBE_ID = 4242
-PROBE = ('\x1b[>0q'                                              # XTVERSION
-         '\x1b[16t'                                              # cell size in pixels
-         '\x1b[c')                                               # DA1: everyone answers, so it ends the probe
-# Asked only of a terminal that named itself kitty or ghostty: tmux takes an unknown APC for a
-# window title, so the query never goes out blind.
-PROBE_KITTY = f'\x1b_Gi={PROBE_ID},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c'
-PROBE_S = 0.5               # s; the probe normally ends at the DA1 reply, one round trip
 DEFAULT_CELL = (10, 20)     # px per cell when the terminal does not say (kitty; sixel then stays text)
 POOL = 480                  # tile ids alive at once (sixel markers have room for 511)
 TILE = (8, 4)               # cells per tile, at most 16 x 8 (the marker code)
-KITTY_NAMES = ('kitty', 'ghostty')
-_REPLY = re.compile(rb'\x1b_G([^\x1b]*)\x1b\\|\x1bP>\|([^\x1b]*)\x1b\\|\x1b\[6;(\d+);(\d+)t|\x1b\[\?([\d;]*)c')
 
-ESC, ST = '\x1b', '\x1b\\'
-PLACEHOLDER = '\U0010EEEE'
-# kitty's row/column diacritics (the first 32 of its table)
-DIACRITICS = tuple(chr(c) for c in (
-    0x305, 0x30D, 0x30E, 0x310, 0x312, 0x33D, 0x33E, 0x33F, 0x346, 0x34A, 0x34B, 0x34C, 0x350, 0x351, 0x352,
-    0x357, 0x35B, 0x363, 0x364, 0x365, 0x366, 0x367, 0x368, 0x369, 0x36A, 0x36B, 0x36C, 0x36D, 0x36E, 0x36F,
-    0x483, 0x484))
 BLANK = (' ', None)         # the cell of an empty tile
-MARK0 = 0xF0000            # sixel marker: MARK0 + id * 128 + row * 16 + col (Supplementary PUA-A)
-_MARKS = re.compile('[\U000F0000-\U000FFFFD]+')
 
 TIER = 'text'
 SETTING = 'off'             # the setting start() was given
@@ -106,139 +91,12 @@ _stream = None
 # tmux: polled client view (watch); _session holds what restart needs
 TMUX_POLL_S = 1.0           # s between tmux client checks
 TMUX_REPAINT_S = 10.0       # s; every image repainted at least this often under tmux
-TMUX_FORMAT = ('#{window_id}\t#{allow-passthrough}', '#{window_id}\t#{client_created}\t#{client_termtype}\t'
-               '#{client_termfeatures}\t#{client_cell_width}\t#{client_cell_height}')
 PASSTHROUGH = False         # kitty escapes wrapped for tmux
 _mux = {}                   # under tmux: env, view, next poll, last repaint, token, busy, answer
 _session = {}               # keys, console, write of the last start()
-_APC = re.compile('\x1b_G[^\x1b]*\x1b\\\\')
 
 
 # --- detection ---------------------------------------------------------------------------------
-
-def parse(data):
-    """``(caps, rest)`` from probe reply bytes: caps has ``done`` (DA1 seen), ``kitty``, ``sixel``,
-    ``cell`` (w, h px or None) and ``xtversion``; ``rest`` is what was not a reply (typed keys)."""
-    caps = dict(done=False, kitty=False, sixel=False, cell=None, xtversion=None)
-    for m in _REPLY.finditer(data):
-        if m[1] is not None:
-            caps['kitty'] = caps['kitty'] or m[1].startswith(b'i=%d;OK' % PROBE_ID)
-        elif m[2] is not None:
-            caps['xtversion'] = m[2].decode('utf-8', 'replace')
-        elif m[3] is not None:
-            if int(m[3]) > 0 and int(m[4]) > 0:
-                caps['cell'] = (int(m[4]), int(m[3]))
-        else:
-            caps['done'] = True
-            caps['sixel'] = '4' in m[5].decode().split(';')[1:]
-    return caps, _REPLY.sub(b'', data)
-
-
-def _ask(fd, write, query, timeout):
-    write(query)
-    data, deadline = b'', time.monotonic() + timeout
-    while True:
-        caps, rest = parse(data)
-        left = deadline - time.monotonic()
-        if caps['done'] or left <= 0:
-            return caps, rest
-        if select.select([fd], [], [], left)[0]:
-            chunk = os.read(fd, 4096)
-            if not chunk:
-                return caps, rest
-            data += chunk
-
-
-def _kitty_env(env):
-    return env.get('TERM') == 'xterm-kitty' or 'KITTY_WINDOW_ID' in env
-
-
-def probe(fd, write, timeout=PROBE_S, env=None):
-    """Ask the terminal on ``fd`` (XTVERSION, cell size, DA1), then the kitty graphics query if it
-    is kitty or ghostty; each round ends at the DA1 reply or ``timeout`` s. ``(caps, rest)``."""
-    env = os.environ if env is None else env
-    caps, rest = _ask(fd, write, PROBE, timeout)
-    name = (caps['xtversion'] or '').lower()
-    if caps['done'] and (name.startswith(KITTY_NAMES) or (not name and _kitty_env(env))):
-        more, extra = _ask(fd, write, PROBE_KITTY, timeout)
-        caps['kitty'], rest = more['kitty'], rest + extra
-    return caps, rest
-
-
-def _tmux(env, caps):
-    return bool(env.get('TMUX')) or (caps.get('xtversion') or '').lower().startswith('tmux')
-
-
-def tmux_view(env, run=subprocess.run):
-    """What the tmux server says about the pane in ``env`` ($TMUX, $TMUX_PANE), or None (no answer):
-    ``passthrough`` and the ``clients`` viewing its window, each ``(created, termtype, features,
-    cell)``."""
-    pane = env.get('TMUX_PANE')
-    if not env.get('TMUX') or not pane:
-        return None
-    try:
-        out = run(['tmux', 'display', '-p', '-t', pane, TMUX_FORMAT[0], ';', 'list-clients', '-F', TMUX_FORMAT[1]],
-                  capture_output=True, text=True, timeout=0.5, env=dict(env)).stdout.splitlines()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    head = out[0].split('\t') if out else []
-    if len(head) != 2 or not head[0].startswith('@'):
-        return None
-    clients = []
-    for line in out[1:]:
-        f = line.split('\t')
-        if len(f) == 6 and f[0] == head[0]:
-            cell = (int(f[4]), int(f[5])) if f[4].isdigit() and f[5].isdigit() else (0, 0)
-            clients.append((f[1], f[2], frozenset(f[3].split(',')), cell))
-    return dict(window=head[0], passthrough=head[1] in ('on', 'all'), clients=tuple(sorted(clients)))
-
-
-def _tmux_tier(setting, caps, view, colours):
-    """The tier tmux can carry to every client viewing the window (text without one): tmux keeps
-    the sixel images (built with sixel: its DA1 says 4) for clients with the sixel feature and draws
-    'SIXEL IMAGE' text for the rest; kitty escapes pass through untouched to kitty clients only."""
-    clients = (view or {}).get('clients')
-    if not clients:
-        return 'text'
-    cells = {c[3] for c in clients}
-    nested = any(c[1].lower().startswith(('tmux', 'screen')) for c in clients)
-    if len(cells) != 1 or 0 in next(iter(cells)) or nested:
-        return 'text'
-    if (setting in ('auto', 'kitty') and view['passthrough'] and colours in ('256', 'truecolor', 'eight_bit')
-            and all(c[1].lower().startswith(KITTY_NAMES) for c in clients)):
-        return 'kitty'
-    if setting in ('auto', 'sixel') and caps.get('sixel') and all('sixel' in c[2] for c in clients):
-        return 'sixel'
-    return 'text'
-
-
-def choose(setting, caps, env=None, colours='truecolor', view=None):
-    """The tier for theme.yaml's ``graphics`` setting, the probe's ``caps`` and the environment.
-
-    Under tmux only what tmux reports for its clients (``view``, from `tmux_view`) picks an image
-    tier: tmux can't vouch for a client through ssh or docker, and screen never. Nor in a dumb
-    terminal, nor sixel unless the terminal gave its cell size: a guessed cell lets tiles spill
-    past their cells, over the arm and stop popups."""
-    from mhseals_testing.ui import palette
-    env = os.environ if env is None else env
-    name = (caps.get('xtversion') or '').lower()
-    if (setting == 'off' or env.get('NO_COLOR') or palette.ascii_mode(env) or env.get('TERM') == 'dumb'
-            or env.get('STY') or name.startswith('screen')):
-        return 'text'
-    if _tmux(env, caps):
-        if setting in ('sixel', 'kitty') and view is None and not env.get('TMUX'):
-            # A tmux the TUI can't ask (docker exec or ssh from a tmux pane): a forced tier is the
-            # user's word for the viewers. Sixel trusts tmux's own DA1 (built with sixel) and cell
-            # size; kitty trusts allow-passthrough (tools/boat_tui sets it on its own server).
-            if setting == 'kitty':
-                return 'kitty' if colours in ('256', 'truecolor', 'eight_bit') else 'text'
-            return 'sixel' if caps.get('sixel') and caps.get('cell') else 'text'
-        return _tmux_tier(setting, caps, view, colours)
-    if setting == 'kitty' or (setting == 'auto' and caps.get('kitty')
-                              and colours in ('256', 'truecolor', 'eight_bit')
-                              and (name.startswith(KITTY_NAMES) or (not name and _kitty_env(env)))):
-        return 'kitty'
-    return 'sixel' if caps.get('cell') and (setting == 'sixel' or caps.get('sixel')) else 'text'
 
 
 def start(keys, console, write, setting='off', env=None):
@@ -262,7 +120,11 @@ def start(keys, console, write, setting='off', env=None):
     view = tmux_view(env) if tty and setting != 'off' and env.get('TMUX') else None
     # Under tmux the probe (tmux answers it itself) runs detached too: a client may attach later.
     hopeful = view and dict(view, passthrough=True, clients=(('', 'kitty', frozenset({'sixel'}), DEFAULT_CELL),))
-    if not caps and tty and choose(setting, {'sixel': True, 'cell': DEFAULT_CELL}, env, view=hopeful) != 'text':
+    # The one capability probe of the session: it runs for the camera view's kitty too (kitty_camera),
+    # so graphics: off still asks, as the key reader's own probe did; NO_COLOR and ASCII ask nothing.
+    plain = env.get('NO_COLOR') or env.get('MHS_ASCII')
+    wanted = choose(setting, {'sixel': True, 'cell': DEFAULT_CELL}, env, view=hopeful) != 'text'
+    if not caps and tty and (wanted or not plain):
         try:
             caps, rest = probe(fd, write, env=env)
             _caps.update(caps)
@@ -293,7 +155,7 @@ def stop(console, write):
     """Free kitty's images and unwrap the stream; widgets draw braille again."""
     global TIER, K
     if TIER == 'kitty' and _by_id:
-        write(_wrap(''.join(_delete(_kitty_id(i)) for i in _by_id)))
+        write(_wrap(by_name('kitty').clear(_by_id)))
     if console is not None and isinstance(console.file, _Stream):
         console.file = console.file.inner
     TIER, K = 'text', 1
@@ -368,9 +230,7 @@ def repaint():
 
 def _wrap(data):
     """Kitty escapes for the terminal outside tmux: each in a passthrough DCS, its ESCs doubled."""
-    if not PASSTHROUGH or not data:
-        return data
-    return _APC.sub(lambda m: '\x1bPtmux;' + m.group().replace('\x1b', '\x1b\x1b') + '\x1b\\', data)
+    return tmux.wrap(data) if PASSTHROUGH and data else data
 
 
 def forget():
@@ -523,12 +383,6 @@ class Raster:
         return _rgba(self.px, self.palette)
 
 
-def _rgba(px, palette):
-    lut = np.array([(r, g, b, 255) for r, g, b in palette], np.uint8)
-    lut[0, 3] = 0
-    return lut[px]
-
-
 def dots_to_px(raster, layers, sx, sy):
     """Paint dot layers ``[(ink, xs, ys)]`` (dot coordinates, ``sx`` x ``sy`` dots per cell), lowest
     priority first; each dot is a crisp block of at least 2 x 2 px that leaves no seam to the next."""
@@ -593,25 +447,13 @@ def _evict():
     for place in [p for p, (n, _) in _drawn.items() if n == tile.id]:
         del _drawn[place]
     if TIER == 'kitty' and tile.sent:
-        _pending.append(_delete(_kitty_id(tile.id)))
+        _pending.append(by_name('kitty').clear([tile.id]))
     _free.append(tile.id)
-
-
-def _kitty_id(n):
-    """Pool slot ``n`` (1..POOL) as a kitty id: low byte 1..255 in the colour, high byte >= 1."""
-    return ((1 + (n - 1) // 255) << 24) | (1 + (n - 1) % 255)
-
-
-def _delete(image_id):
-    return f'{ESC}_Ga=d,d=I,i={image_id},q=2{ST}'
 
 
 def cell(tile, r, c):
     """``(text, style)`` of cell (r, c) of ``tile`` in the active tier."""
-    if TIER == 'kitty':
-        kid = _kitty_id(tile.id)
-        return PLACEHOLDER + DIACRITICS[r] + DIACRITICS[c] + DIACRITICS[kid >> 24], f'color({kid & 0xFF})'
-    return chr(MARK0 + tile.id * 128 + r * 16 + c), ''
+    return by_name('kitty' if TIER == 'kitty' else 'sixel').place(tile, r, c)
 
 
 def _paint_sized(now):
@@ -805,7 +647,7 @@ def before(write):
         if isinstance(item, str):
             out.append(item)
         elif item.id in _by_id and _by_id[item.id] is item and not item.sent:
-            out.append(kitty_upload(_kitty_id(item.id), item))
+            out.append(by_name('kitty').cost(item))
             item.sent = True
     _pending.clear()
     data = _wrap(''.join(out))
@@ -940,46 +782,7 @@ class _Stream:
         return getattr(self.inner, name)
 
 
-# --- encoders ----------------------------------------------------------------------------------
-
-def kitty_upload(image_id, tile, chunk=4096):
-    """Transmit a tile as zlib RGBA with a virtual placement for its Unicode placeholders."""
-    h, w = tile.px.shape
-    data = base64.standard_b64encode(zlib.compress(_rgba(tile.px, tile.palette).tobytes(), 6)).decode('ascii')
-    parts = [data[i:i + chunk] for i in range(0, len(data), chunk)] or ['']
-    head = f'a=T,f=32,s={w},v={h},o=z,U=1,i={image_id},c={tile.cols},r={tile.rows},q=2'
-    return ''.join(f'{ESC}_G{head if i == 0 else "q=2"},m={int(i < len(parts) - 1)};{p}{ST}'
-                   for i, p in enumerate(parts))
-
-
-def sixel(px, palette):
-    """A sixel image of indexed pixels ``px`` (0 transparent, P2=1) with run-length encoding."""
-    h, w = px.shape
-    used = [int(i) for i in np.unique(px) if i]
-    head = f'{ESC}P0;1;0q"1;1;{w};{h}' + ''.join(
-        f'#{i};2;{r * 100 // 255};{g * 100 // 255};{b * 100 // 255}' for i in used for r, g, b in (palette[i],))
-    bands = -(-h // 6)
-    stack = np.zeros((bands * 6, w), np.uint8)
-    stack[:h] = px
-    stack = stack.reshape(bands, 6, w)
-    weights = (1 << np.arange(6, dtype=np.uint8))[None, :, None]
-    # every colour's sixel characters for every band at once: (colour, band, x)
-    chars = np.stack([((stack == i) * weights).sum(1, dtype=np.uint8) + 63 for i in used]) if used else []
-    out = []
-    for b in range(bands):
-        rows = []
-        for c, i in enumerate(used):
-            line = chars[c, b].tobytes().rstrip(b'?')      # no trailing blanks; a colour absent here: none
-            if line:
-                rows.append(f'#{i}' + _RUN.sub(_run, line.decode('ascii')))
-        out.append('$'.join(rows))
-    while out and not out[-1]:       # no empty bands, and no line feed, below the last pixels
-        out.pop()
-    return head + '-'.join(out) + ST
-
-
-_RUN = re.compile(r'(.)\1{3,}')     # four or more of a character go out as !N<char>
-
-
-def _run(match):
-    return f'!{len(match.group())}{match.group(1)}'
+def kitty_camera():
+    """True when the session's probe saw kitty graphics answer OK from kitty or ghostty (the camera view's
+    whole-image kitty, whatever the ``graphics`` tier)."""
+    return kitty_enabled(_caps.get('kitty'), _caps.get('xtversion'))

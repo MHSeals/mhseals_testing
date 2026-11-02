@@ -11,7 +11,8 @@ import math
 
 from rich.text import Text
 
-from mhseals_testing.ui import pixels, theme
+from mhseals_testing.ui import theme
+from mhseals_testing.ui import imaging as pixels
 
 GAP = 0.5
 LAYERS = {'pred': 'MUTED', 'meas': 'FG'}   # theme names, read at use; data is plain, the accent is focus
@@ -30,7 +31,7 @@ def _row(value, low, high, rows):
 
 
 class Canvas:
-    """In an image tier (ui/pixels.py) a cell holds 2K x 4K dots and ``rows()`` returns image cells."""
+    """In an image tier (ui/imaging/) a cell holds 2K x 4K dots and ``rows()`` returns image cells."""
 
     def __init__(self, width, height, name='plot'):
         self.width, self.height, self.name = width, height, name

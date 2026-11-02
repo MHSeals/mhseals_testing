@@ -21,7 +21,7 @@ from mhseals_testing.strict_yaml import load_strict
 CONFIG = Path(__file__).resolve().parent.parent.parent / 'config' / 'theme.yaml'
 OVERLAY = Path.home() / '.config' / 'mhseals' / 'theme.yaml'
 TIERS = ('truecolor', '256', '16', 'mono')
-GRAPHICS = ('off', 'auto', 'kitty', 'sixel')   # drawings as terminal images (ui/pixels.py); off = text
+GRAPHICS = ('off', 'auto', 'kitty', 'sixel')   # drawings as terminal images (ui/imaging/); off = text
 FIELDS = ('dark', 'light', 'x256', 'ansi')
 # Contrast against bg: 3:1 for foregrounds, 2:1 for trail ramps (drawn at .72 weight);
 # chrome lines and background tints are decoration with a shape cue and are exempt.
@@ -106,7 +106,7 @@ class Theme:
         self.glyphs = data['glyphs']
         self.mode = data.get('theme', 'auto')
         self.cvd = bool(data.get('cvd', False))
-        graphics = data.get('graphics', 'off')       # ui/pixels.py: off | auto | kitty | sixel
+        graphics = data.get('graphics', 'off')       # ui/imaging/: off | auto | kitty | sixel
         self.graphics = 'off' if graphics is False else graphics   # YAML 1.1 reads a bare off as false
         self.validate()
 

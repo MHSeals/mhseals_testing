@@ -9,7 +9,8 @@ import pytest
 from rich.console import Console
 
 from mhseals_testing.ros.camera_feed import CameraFeed
-from mhseals_testing.ui import app, camera_view, graphics
+from mhseals_testing.ui import app, camera_view
+from mhseals_testing.ui.imaging import kitty as graphics
 
 GOLDEN = Path(__file__).parent / 'golden' / 'camera_halfblocks_8x8.txt'
 

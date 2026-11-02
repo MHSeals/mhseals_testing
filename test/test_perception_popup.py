@@ -12,7 +12,7 @@ from rich.console import Console
 from mhseals_testing.health.model import Fact
 from mhseals_testing.ros import camera_feed
 from test_camera_view import Bus
-from mhseals_testing.ui import app, layout, perception
+from mhseals_testing.ui import app, imaging as pixels, layout, perception
 
 TESTS = Path(__file__).parent
 
@@ -164,7 +164,8 @@ def test_no_color_output_has_no_colour_codes():
     assert colour.search(run())                              # control: colour without NO_COLOR
 
 
-def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
+def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path, monkeypatch):
+    monkeypatch.setattr(pixels, 'kitty_camera', lambda: True)     # the session probe saw kitty
     bus = Bus()
     written = []
     keys = iter(['v', 'd', 'v', 'v', 'escape', 'escape'])
@@ -178,7 +179,7 @@ def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
         seen.append(handle_result)
     host = SimpleNamespace(
         facts={}, scroll=app.App.scroll, popup=popup, write_terminal=written.append,
-        keys=SimpleNamespace(graphics=True, xtversion='kitty(0.35)'), paths=SimpleNamespace(directory=tmp_path),
+        keys=SimpleNamespace(), paths=SimpleNamespace(directory=tmp_path),
         camera_detections=lambda size, floor: [],
         camera_feed=lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe))
     app.App.perception_popup(host)
@@ -189,7 +190,7 @@ def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path):
 def view_host(bus, tmp_path, popup, feed=True):
     return SimpleNamespace(
         facts={}, scroll=app.App.scroll, popup=popup, write_terminal=lambda text: None, notice='',
-        keys=SimpleNamespace(graphics=False), paths=SimpleNamespace(directory=tmp_path),
+        keys=SimpleNamespace(), paths=SimpleNamespace(directory=tmp_path),
         console=SimpleNamespace(size=SimpleNamespace(width=60)), camera_detections=lambda size, floor: [],
         camera_feed=(lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe)) if feed else (lambda: None))
 

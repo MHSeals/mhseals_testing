@@ -21,7 +21,8 @@ import numpy as np
 from rich.text import Text
 
 from mhseals_testing.ros.camera_feed import RATES_HZ
-from mhseals_testing.ui import graphics, palette, theme
+from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui.imaging import braille, kitty as graphics
 
 CELL_PX = (8, 16)       # pixels per cell sent to kitty (width, height)
 BOX_RGB = (255, 255, 0)
@@ -231,7 +232,7 @@ class CameraView:
         cols, rows = self.pane
         blank = [Text('') for _ in range(self.rows - rows)]
         if not self.kitty:
-            return graphics.half_blocks(image.tolist()) + blank
+            return braille.half_blocks(image.tolist()) + blank
         stamp = (frame[0], self.cols, self.rows, self.boxes, self.floor)
         if stamp != self._shown:
             try:
@@ -243,7 +244,7 @@ class CameraView:
             except Exception:
                 self.notice = 'image encode failed'
                 image = self._annotated(frame[1], False)
-                return graphics.half_blocks(image.tolist()) + [Text('') for _ in range(self.rows - self.pane[1])]
+                return braille.half_blocks(image.tolist()) + [Text('') for _ in range(self.rows - self.pane[1])]
             self._shown, self._drawn = stamp, True
         return graphics.placeholder_rows(cols, rows) + blank
 

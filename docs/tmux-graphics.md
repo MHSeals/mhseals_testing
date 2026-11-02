@@ -1,7 +1,7 @@
 # TUI images inside tmux
 
 `theme.yaml graphics: auto|kitty|sixel` draws images under tmux only when tmux confirms every client
-viewing the TUI's window can show them (`ui/pixels.py`). If it can't confirm that, the TUI uses text.
+viewing the TUI's window can show them (`ui/imaging/`). If it can't confirm that, the TUI uses text.
 
 | Path | Needs |
 |---|---|

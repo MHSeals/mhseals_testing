@@ -9,7 +9,8 @@ import math
 
 from rich.text import Text
 
-from mhseals_testing.ui import pixels, theme
+from mhseals_testing.ui import theme
+from mhseals_testing.ui import imaging as pixels
 
 _BITS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))
 _ASCII = ' \'.:'
@@ -20,7 +21,7 @@ RUNGS = '▁▂▃▄▅▆▇█'
 class Dots:
     """A ``cols`` x ``rows`` cell grid of braille dots in layers; a later layer wins a shared cell.
 
-    A cell holds ``sx`` x ``sy`` dots: 2 x 4 in braille, 2K x 4K in an image tier (ui/pixels.py),
+    A cell holds ``sx`` x ``sy`` dots: 2 x 4 in braille, 2K x 4K in an image tier (ui/imaging/),
     where ``rows_text()`` returns image cells with the labels as text."""
 
     def __init__(self, cols, rows, name='dots'):

@@ -12,7 +12,8 @@ from rich.console import Console
 from mhseals_testing.health.model import Fact
 from mhseals_testing.fusion import ros_feed as fusion_feed
 from mhseals_testing.fusion.ros_feed import FusionFeed, StaticTF, detections
-from mhseals_testing.ui import layout, pixels, theme
+from mhseals_testing.ui import layout, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import fusion
 
 K = [700.0, 0, 640.0, 0, 700.0, 360.0, 0, 0, 1]
@@ -778,7 +779,8 @@ SNIPPET = '''
 import io, sys
 sys.path.insert(0, "test")
 from rich.console import Console
-from mhseals_testing.ui import palette, pixels
+from mhseals_testing.ui import palette
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import fusion
 import test_fusion_panel as T
 pixels.use("text")
@@ -793,7 +795,8 @@ STALE_SNIPPET = '''
 import io, sys
 sys.path.insert(0, "test")
 from rich.console import Console
-from mhseals_testing.ui import palette, pixels, theme
+from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import fusion
 import test_fusion_panel as T
 pixels.use("text")

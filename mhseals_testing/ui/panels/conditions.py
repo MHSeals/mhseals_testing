@@ -13,7 +13,8 @@ from functools import lru_cache
 import numpy as np
 from rich.text import Text
 
-from mhseals_testing.ui import pixels, theme
+from mhseals_testing.ui import theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.minimap import hull
 from mhseals_testing.ui.panels import TITLES
 
@@ -221,7 +222,7 @@ ICON_HEAD = (3.5, 2.5)      # dots: the image icon's head length and half width
 
 
 def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
-    """The rose as image cells (ui/pixels.py), the braille rose's look in pixels: muted ticks, the
+    """The rose as image cells (ui/imaging/), the braille rose's look in pixels: muted ticks, the
     hull's pentagon in slate with its foremost quarter in the bow token at the exact heading (no
     bowsprit needed), the command icon (a stem and head) in the driver's hue, the dashed drift.
     Letters, ``↑bow`` and the corner yaw arrows stay text. Inputs are quantized to ROSE_Q, so the

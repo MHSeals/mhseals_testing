@@ -6,7 +6,8 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_testing import calibration
 from mhseals_testing.harness import journal, session as session_module
 from mhseals_testing.report import build_report, write_report
-from mhseals_testing.ui import parts, pixels, theme
+from mhseals_testing.ui import parts, theme
+from mhseals_testing.ui import imaging as pixels
 
 
 class Quit:
@@ -36,7 +37,7 @@ class Quit:
         """One key reader and one full-screen live view for the whole session."""
         # No refresh thread: the loop draws right after each key, and nothing else writes
         # to the terminal between frames, so mode switches such as Kitty's reach it intact.
-        # The image tier is probed on the key reader's fd before the screen switches (ui/pixels.py);
+        # The image tier is probed on the key reader's fd before the screen switches (ui/imaging/);
         # graphics: off (the default) probes nothing and draws the text as before.
         with self.open_keys() as keys:
             pixels.forget()

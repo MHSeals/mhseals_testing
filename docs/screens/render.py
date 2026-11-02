@@ -1,7 +1,7 @@
 """Render the README screenshots offline: python3 docs/screens/render.py [OUT_DIR]  (default: this folder).
 
 Synthetic data from the test fixtures, no ROS, no boat and no terminal; the scenes in screens.yaml decide
-the images and the README's screens table. An image scene draws the TUI's own kitty/sixel tiles (pixels.py)
+the images and the README's screens table. An image scene draws the TUI's own kitty/sixel tiles (ui/imaging/)
 as one PNG over Rich's SVG text, at the cells sixel paints them; a text scene is the braille fallback.
 `make -C docs screens` regenerates them, `test/test_screens.py` fails when the committed SVGs are stale.
 """
@@ -34,7 +34,8 @@ from rich.segment import Segment, Segments  # noqa: E402
 from rich.terminal_theme import MONOKAI  # noqa: E402
 
 from mhseals_testing.profiles import load_profile  # noqa: E402
-from mhseals_testing.ui import layout, pixels  # noqa: E402
+from mhseals_testing.ui import layout  # noqa: E402
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.minimap import tasks  # noqa: E402
 from mhseals_testing.ui.minimap.marks import Obj  # noqa: E402
 from mhseals_testing.ui.minimap.layerbox import LayerBox  # noqa: E402

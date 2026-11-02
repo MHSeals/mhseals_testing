@@ -15,7 +15,8 @@ from mhseals_testing.health import legacy as health, config as health_config
 from mhseals_testing.history import adapters, revert
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, session_hardware
-from mhseals_testing.ui import keymap as keymap_module, palette, parts, pixels, popups, rtk, rtk_icon, theme
+from mhseals_testing.ui import keymap as keymap_module, palette, parts, popups, rtk, rtk_icon, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.feeds import agent as agent_feed
 from mhseals_testing.ui.panels.status import status_rows

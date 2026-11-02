@@ -12,7 +12,8 @@ import time
 import numpy as np
 
 from mhseals_testing.analysis.classes import load_classes
-from mhseals_testing.ui import palette, pixels, theme
+from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.minimap import tasks, view
 from mhseals_testing.ui.minimap.cache import LayerCache, Redraw
 from mhseals_testing.ui.minimap.canvas import Canvas

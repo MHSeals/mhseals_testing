@@ -1,8 +1,9 @@
-"""The Session group's Graphics row: theme.yaml ``graphics`` set from the TUI (ui/pixels.py tiers)."""
+"""The Session group's Graphics row: theme.yaml ``graphics`` set from the TUI (ui/imaging/ tiers)."""
 
 import pytest
 
-from mhseals_testing.ui import palette, pixels, theme
+from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels.status import graphics_rows, status_rows
 
 from test_app import make_app

@@ -147,7 +147,7 @@ def recording_rows(snapshot, specs):
 
 def graphics_rows(snapshot, specs):
     """``Graphics ‹ auto ›`` (Session group): theme.yaml ``graphics``; the detail names the tier
-    drawing now when it differs (ui/pixels.py; the Conditions title also names an image tier).
+    drawing now when it differs (ui/imaging/; the Conditions title also names an image tier).
     left/right steps off, auto, kitty, sixel. Only the live App feeds ``graphics``."""
     graphics = snapshot.get('graphics')
     if graphics is None:

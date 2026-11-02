@@ -12,7 +12,7 @@ turns chips into reverse video; ``mono`` (NO_COLOR) uses only the token's bold/d
 attributes; ASCII emits no SGR at all and maps braille, blanks and gap marks to ASCII.
 """
 
-from mhseals_testing.ui import pixels
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.minimap.canvas import BITS, BLANK, GAP, rank
 
 _SPOT = {bit: xy for xy, bit in BITS.items()}
@@ -138,7 +138,7 @@ def emit(canvas, style, tier='truecolor', ascii=False):
 
 
 def emit_image(canvas, style, tier='truecolor'):
-    """The canvas as image lines (ui/pixels.py): tints fill their cells and every dot is drawn at
+    """The canvas as image lines (ui/imaging/): tints fill their cells and every dot is drawn at
     the canvas's k x braille resolution in its own layer colour, highest priority on top; glyphs
     and gap marks stay terminal text. ``style`` is the same callable as for ``emit``."""
     cells = canvas.cells()

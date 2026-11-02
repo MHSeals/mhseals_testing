@@ -6,7 +6,7 @@ from rich.text import Text
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import camera_view, graphics, perception, popups, theme
+from mhseals_testing.ui import camera_view, imaging as pixels, perception, popups, theme
 from mhseals_testing.ui.camera_view import CameraView
 
 
@@ -65,14 +65,12 @@ class Popups:
                 self.notice = state['note']
                 return
             state['note'] = ''
-            reader = self.keys
             node = getattr(getattr(self, 'ros', None), 'node', None)
             self.camera_boxes = None if node is None else camera_feed.node_observations(  # subscribed while `d` is on
                 node, lambda label: camera_view.class_rgb(self.minimap.table, label))
             state['view'] = CameraView(
                 feed, (1, CAMERA_ROWS), self.write_terminal,
-                kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
-                                             getattr(reader, 'xtversion', None)),
+                kitty=pixels.kitty_camera(),
                 save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections,
                 observations=self.camera_boxes, work=camera_view.background)   # decode and encode off the keys
 

@@ -11,7 +11,8 @@ from mhseals_testing.harness import operator_state
 from mhseals_testing.harness.apply import LiveStaging
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, pixels, theme
+from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, theme
+from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import PANELS, agent_log, fusion as fusion_panel
 from mhseals_testing.ui.feeds import health as health_feed
 from mhseals_testing.ui.layout import MINIMAP, body_rows, motion_shown

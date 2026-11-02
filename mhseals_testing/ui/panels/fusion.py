@@ -25,7 +25,8 @@ from rich.console import Group
 from rich.layout import Layout
 from rich.text import Text
 
-from mhseals_testing.ui import palette, pixels, theme
+from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import imaging as pixels
 
 RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to far; spd.0 past the last break
 # 16 colours: spd.5/spd.4 are both magenta (near a red buoy's box) and spd.3/spd.2 both yellow, so one hue per band;

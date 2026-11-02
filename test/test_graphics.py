@@ -7,7 +7,7 @@ from rich.cells import cell_len
 from rich.color import ColorType
 from rich.console import Console
 
-from mhseals_testing.ui import graphics
+from mhseals_testing.ui.imaging import braille, kitty as graphics
 
 
 def test_small_png_uploads_in_one_escape_with_exact_bytes():
@@ -60,7 +60,7 @@ def test_kitty_only_on_graphics_ok_and_a_kitty_or_ghostty_version():
 
 def test_half_blocks_pair_rows_pad_an_odd_row_and_use_256_colours():
     px = [[(255, 0, 0), (0, 255, 0)], [(0, 0, 255), (10, 11, 12)], [(255, 255, 255), (16, 17, 18)]]
-    lines = graphics.half_blocks(px)
+    lines = braille.half_blocks(px)
     assert [r.plain for r in lines] == ['▀▀', '▀▀'] and all(cell_len(r.plain) == 2 for r in lines)
     spans = [s.style for s in lines[0].spans]
     assert spans[0].color.number == 9 or spans[0].color.number == 196
