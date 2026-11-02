@@ -106,9 +106,9 @@ player() {   # windowed on this display, or headless under xvfb with --headless;
     --crane-course-seed "$PV_SEED" --crane-roboboat-course-truth "$ROOT/data/course_truth.json")
   rm -f "$RUN/player.log"
   if [ "$headless" = 1 ]; then
-    ( exec xvfb-run -a -s "-screen 0 ${w}x${h}x24" nice -n 19 "$PV_PLAYER" "${args[@]}" ) >"$RUN/player-stdout.log" 2>&1 &
+    ( cd "$RUN" && exec xvfb-run -a -s "-screen 0 ${w}x${h}x24" nice -n 19 "$PV_PLAYER" "${args[@]}" ) >"$RUN/player-stdout.log" 2>&1 &
   else
-    ( exec "$PV_PLAYER" "${args[@]}" ) >"$RUN/player-stdout.log" 2>&1 &
+    ( cd "$RUN" && exec "$PV_PLAYER" "${args[@]}" ) >"$RUN/player-stdout.log" 2>&1 &
   fi
   echo $! > "$RUN/player.pid"
 }
