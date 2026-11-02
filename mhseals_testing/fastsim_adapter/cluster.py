@@ -28,8 +28,9 @@ import subprocess
 import sys
 
 NEEDED = ('mhseals_testing', 'mhseals_nav', 'crane_ml')
-# crane_ml: its fast-sim core and course tools, and what coursegen compiles and hashes (CourseIdentity)
-SPARSE = {'crane_ml': ['fastsim', 'Tools/RoboBoat', 'ProjectSettings', 'Assets/Scripts/Course/Core',
+# crane_ml: its fast-sim core (which records trajectories with theater) and course tools, and what
+# coursegen compiles and hashes (CourseIdentity)
+SPARSE = {'crane_ml': ['fastsim', 'theater', 'Tools/RoboBoat', 'ProjectSettings', 'Assets/Scripts/Course/Core',
                        'Assets/Scripts/Course/RoboBoat/Tasks', 'Assets/Config/Course/Resources']}
 SUMMARY = ('metrics.json', 'run.json', 'fastsim.json', 'session.json')
 RAW = ('track.jsonl', 'task_events.jsonl', 'task_status.jsonl', 'events.jsonl', 'sim_events.jsonl')
@@ -61,6 +62,8 @@ class Sources:
     def checkout(self, name, url, ref):
         sha = self.cache.resolve(name, url, ref)
         dest = self.root / f'{name}-{sha[:12]}'
+        if dest.is_dir() and name in SPARSE:  # a checkout made under an older SPARSE gains the new folders
+            _git('sparse-checkout', 'set', '--cone', *SPARSE[name], cwd=dest)
         if not dest.is_dir():
             tmp = dest.with_name(dest.name + f'.tmp{os.getpid()}')
             shutil.rmtree(tmp, ignore_errors=True)
