@@ -1,0 +1,19 @@
+# Bag replay (fastsim_adapter.replay): a session's recorded inputs through the boat's tracker and
+# mission logic offline, with a candidate config, diffed against what the boat did.
+tune:
+  layers: [tracker, mission]   # what re-runs; a layer whose inputs the bag lacks is reported unavailable
+  tracker: {}                  # tracker.yaml overrides (mhseals_nav config/tracker.yaml keys)
+  task: null                   # the task tree; null: each task the boat started
+  profile: null                # a mission profile overlay; null: the mission's own
+  params: {}                   # mission param overrides, merged key by key
+
+topics:
+  observations: /perception/observations   # the tracker's input (the camera backend's ranges)
+  tracks: /perception/tracks               # the tracker's output; the mission's input
+  events: /task/events                     # the mission's decisions
+
+frames: {map: map, odom: odom, base: base_link}
+
+diff:
+  match: 1.0                   # a replayed track this close to a recorded one of its class is the same object
+  reached: 1.0                 # open loop: a replayed goal succeeds once the boat's recorded pose is this close
