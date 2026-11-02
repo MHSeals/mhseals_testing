@@ -354,6 +354,15 @@ def test_refuses_while_someone_else_has_the_boat(world, change, text):
     assert world.calls == [] and not world.events
 
 
+@pytest.mark.parametrize('change', [{'owner': 'none', 'input': None}, {'owner': 'agent', 'input': 'auto'}])
+def test_the_callers_own_claim_does_not_fence_while_idle_or_driving_it(world, change):
+    world.record.update(change, claims=[{'id': 'c1', 'who': 'agent', 'state': 'active'}])
+    assert make(world, claim='c1').apply(ask(wz_max=0.4))['status'] == 'verified'
+    assert 'claim held' in make(world, claim='c2').apply(ask(wz_max=0.4))['refused']
+    world.record.update(owner='rc', input='rc')
+    assert 'someone is driving' in make(world, claim='c1').apply(ask(wz_max=0.4))['refused']
+
+
 def test_refuses_without_an_owner_or_for_another_owner_or_stale_authority(world):
     world.owner_record = None
     assert 'no live session owner' in make(world).apply(ask(wz_max=0.4))['refused']
