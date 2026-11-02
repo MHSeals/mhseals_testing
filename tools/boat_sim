@@ -112,7 +112,7 @@ case $verb in
            "headless with $SIM_COURSE_FAMILY seed $SEED, port $SIM_PORT; logs in $RUN"
       exit 0
     fi
-    rm -f "$RUN/stop"
+    # the stop file stays until this session starts: a session still ending sees it and gives the slot back
     build=''; [ "$BUILD" = 1 ] && build=--build
     ( setsid "$HEAVY" unity "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & )
     echo "boat_sim: queued for the heavy unity slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
