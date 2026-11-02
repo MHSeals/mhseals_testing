@@ -119,7 +119,12 @@ hook:
          'EDIT (change|delete) live .*/agent/stop$',
          'EDIT \w+ live .*/(agent_hook\.py|\.agents/hook\.py|src/[^/]+/hooks/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$',
          '(?i)git\b(?!.*\sconfig\s+(--get\S*|--list|-l)\s).*\bcore\.hookspath\b',
-         '(?i)\w+=.*\bcore\.hookspath\b']
+         '(?i)\w+=.*\bcore\.hookspath\b',
+         # the owner's preview (boat_tui preview): status and an own --test --headless preview only
+         'boat_tui\b(?=.*\spreview(\s|$))(?!.*\spreview\s+status\b)(?!(?=.*\s--test\b)(?=.*\s(--headless|down|attach)\b))',
+         'boat_preview\b(?!\s+status\b)(?!(?=.*\s--test\b)(?=.*\s(--headless|down|attach)\b))',
+         'tmux\b.*-L\s*preview(?=\s|$).*\s(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|respawn-\w+|kill-(server|session|window|pane))(\s|$)',
+         '(docker|podman)\b.*\s(stop|kill|restart|rm|pause)\b.*\broboboat_preview\b']
   hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   # deny_boat: a component started or stopped by hand (boat_agent start/stop COMPONENT --claim ID does it), kills,
   # container, unit and power changes, keys into the boat TUI (tmux -L boat) and its runtime config and launch files.

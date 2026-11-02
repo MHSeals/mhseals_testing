@@ -103,6 +103,14 @@ HOOKS_PATH = [r'(?i)git\b(?!.*\sconfig\s+(--get\S*|--list|-l)\s).*\bcore\.hooksp
 # private sockets (-L/-S) for sim and dev stay free. Watching it (capture-pane, list, status) stays allowed.
 TUI_KEYS = [r'''tmux\b.*(-L\s*boat\b|-S\s*\S*/tmux-\d+/boat\b).*\s(send-keys|send|paste-buffer|pasteb|load-buffer'''
             r'|loadb|pipe-pane|pipep)(\s|$)']
+# The owner's human preview (tools/boat_preview, owner 11-01): agents never start, stop or type into it. Allowed: status,
+# and an integration test's own preview, --test with --headless (or down/attach of it), which shares nothing with it.
+_TEST_PREVIEW = r'(?!(?=.*\s--test\b)(?=.*\s(--headless|down|attach)\b))'
+PREVIEW = [r'boat_tui\b(?=.*\spreview(\s|$))(?!.*\spreview\s+status\b)' + _TEST_PREVIEW,
+           r'boat_preview\b(?!\s+status\b)' + _TEST_PREVIEW,
+           r'tmux\b.*-L\s*preview(?=\s|$).*\s(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|respawn-\w+'
+           r'|kill-(server|session|window|pane))(\s|$)',
+           r'(docker|podman)\b.*\s(stop|kill|restart|rm|pause)\b.*\broboboat_preview\b']
 # Killing the boat's control: a kill (or pkill) whose arguments name it, $(pgrep ...) included. kill PID is fine.
 _CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
             r'|boat_(trial|test)\w*)\b')
@@ -146,7 +154,7 @@ DEFAULTS = {
              r'xargs\b.*\sros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
              r'|lifecycle\s+set|run)\b',
              r'(pkill|killall)\b', r'xargs\b.*\s(sudo\s+)?kill\b', KILL_CONTROL]
-            + ARMING + HOLDS + STOP + HOOKS + HOOKS_PATH,
+            + ARMING + HOLDS + STOP + HOOKS + HOOKS_PATH + PREVIEW,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
                  [BOAT_KILL, r'(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
@@ -184,6 +192,9 @@ USE = ((r'(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the
         'removes it)', None, tuple(STOP)),
        (None, 'changing the live agent hook or its wiring (it keeps agents on boat_agent; develop it in a git worktree '
         'and have the operator land it)', None, tuple(HOOKS)),
+       (None, "the owner's preview (boat_tui preview: start, stop or keys; it is theirs, watch with boat_tui preview "
+        'status). A test run of your own: boat_tui preview --headless --test, then boat_tui preview down --test', None,
+        tuple(PREVIEW)),
        (None, 'git with a hooks path of its own (it skips the commit-msg hook; plain git, -c and GIT_* are fine)', None,
         tuple(HOOKS_PATH)),
        (None, 'arming (starting the thruster driver or the mux)', 'arm --claim ID', tuple(ARMING)),
