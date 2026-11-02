@@ -632,9 +632,10 @@ def test_procedures_explain_why_they_cannot_run(tmp_path):
         arm(bench)
         bench.run_procedure(procedure('v'))
     assert 'bench override' in bench.notice
+    press(app, 'escape')
     app.run_procedure(procedure('f'))
-    assert 'runtime correction application/readback is unsupported' in app.notice
-    assert boat.sent == []
+    assert 'arm first' in app.notice
+    assert set(boat.sent) <= {'neutral'}
 
 
 def _choose(context, answer):
@@ -2719,19 +2720,20 @@ def test_override_is_empty_without_a_mux_state_when_unmuxed_or_disarmed(tmp_path
         assert runner.override() == 'unknown'    # armed and muxed: a missing state is unknown
 
 
-def test_session_pause_resume_refuses_pending_c_without_mutating_files(tmp_path):
-    from mhseals_testing.harness.apply import Staging
-    from mhseals_hardware.menu import Cancelled
+def test_session_pause_puts_the_deployed_c_back_live_and_resume_restages_identity(tmp_path):
+    from test_live_staging import Driver
+    from mhseals_testing.harness.apply import IDENTITY
     app, _ = make_app(tmp_path)
-    staging = Staging(app.args.config)
-    staging.raw_correction()  # explicit offline fixture representing an interrupted old survey
-    before = Path(app.args.config).read_bytes(), staging.state.read_bytes()
-    with app.observe('x') as runner:
-        for callback in (runner.on_pause, runner.on_resume):
-            with pytest.raises(Cancelled, match='restart-only'):
-                callback()
-            assert (Path(app.args.config).read_bytes(), staging.state.read_bytes()) == before
-    assert staging.pending() is not None
+    driver = Driver()
+    staging = app.staging()
+    staging.params = lambda: driver
+    with app.observe('x') as runner, staging.staged():
+        deployed = staging.pending()['decoupling']
+        runner.on_pause()
+        assert driver.values['decoupling'] == deployed
+        runner.on_resume()
+        assert driver.values['decoupling'] == IDENTITY
+    assert staging.pending() is None and driver.values['decoupling'] == deployed
 
 
 def test_segment_and_session_close_build_the_index(tmp_path):
