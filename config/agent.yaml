@@ -99,6 +99,7 @@ hook:
          'ros2\s+param\s+(set|load|delete)\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)\b',
          'ros2\s+lifecycle\s+set\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)\b',
          'ros2\s+service\s+call\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
+         'ros2\s+service\s+call\b.*/fence/anchor\b',
          'ros2\s+run\b.*?\smhseals_nav\s+(\S+\s+)*?run_task\b',
          'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
          'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',

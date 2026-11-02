@@ -1,4 +1,5 @@
-"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, arm, reload, set, fcu, mark, note, ask.
+"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, arm, reload, set, fcu, fence, mark,
+note, ask.
 
 Spec agent-control section 3. ROS-free except ``stop``'s backup path. A verb appends a ``req``
 line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI runs the act
@@ -13,6 +14,8 @@ after a visible countdown the operator cancels (the e-stop always refuses); ``ru
 for one run. ``start COMPONENT`` and ``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:``
 lists, as its Status row does; ``reload config [NAME]`` re-reads the TUI's YAML, ``reload COMPONENT`` respawns one.
 ``run KEY --set K=V`` and ``set K=V`` (claimed) change a setting agent.yaml ``settings:`` lists, as the operator does.
+``fence corners LAT,LON ... | on_exit alert|return | anchor --why`` sets fence_watchdog's course area through the TUI
+(no claim: agents may at any time, D-20261101-23).
 """
 
 import json
@@ -29,9 +32,10 @@ from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
 # acting verbs: each needs --why (owner decision 2026-11-01); stop takes one but never needs it, fcu only to write
-WHY = ('claim', 'release', 'run', 'goal', 'start', 'arm', 'reload', 'set', 'fcu')
+WHY = ('claim', 'release', 'run', 'goal', 'start', 'arm', 'reload', 'set', 'fcu', 'fence')
 VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
-         'mark', 'note', 'ask')
+         'fence', 'mark', 'note', 'ask')
+FENCE_ACTIONS = ('corners', 'on_exit', 'anchor')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
@@ -90,6 +94,10 @@ def add_parsers(sub):
     fcu.add_argument('params', nargs='*', metavar='PARAM [VALUE]')
     fcu.add_argument('--to', metavar='SNAPSHOT', help='revert: the snapshot file (fcu_<vessel>_<stamp>.param)')
     fcu.add_argument('--window', type=float, metavar='S', help='rates: seconds to measure (default agent.yaml)')
+    fence = verb('fence', "fence_watchdog's course area through the TUI: corners LAT,LON LAT,LON ... (3 or more), "
+                 'on_exit alert|return, anchor; validated, read back and kept in ~/.config/mhseals/fence.yaml')
+    fence.add_argument('action', choices=FENCE_ACTIONS)
+    fence.add_argument('values', nargs='*', metavar='LAT,LON|MODE')
     stop = verb('stop', 'Space: hold, neutral and disarm (mux hold over ROS if the TUI is silent); '
                 'with COMPONENT and --claim, stop that stack component instead', claim=False)
     stop.add_argument('component', nargs='?', metavar='COMPONENT',
@@ -284,6 +292,21 @@ class Agent:
                    'params': {n: values.get(n) for n in names},
                    'hint': 'no TUI: values from the newest snapshot, not the FCU; boat_tui up for live values'})
         return 0
+
+    def fence(self):
+        from mhseals_testing.harness import course_area
+        action, words = self.args.action, self.args.values
+        if action == 'corners':
+            corners, hint = course_area.parse(words)
+            hint = hint or course_area.problem(corners)
+            if hint:
+                return self.bad(f'fence corners LAT,LON LAT,LON LAT,LON ...: {hint}')
+            return self.send('fence', {'action': action, 'corners': [f'{a!r},{b!r}' for a, b in corners]})
+        if action == 'on_exit':
+            if len(words) != 1 or words[0] not in course_area.ON_EXIT:
+                return self.bad('fence on_exit alert|return')
+            return self.send('fence', {'action': action, 'mode': words[0]})
+        return self.bad('fence anchor takes no values') if words else self.send('fence', {'action': action})
 
     def arm(self):
         countdown = getattr(self.args, 'countdown', None)

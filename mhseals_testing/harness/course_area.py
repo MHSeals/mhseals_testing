@@ -47,6 +47,20 @@ def problem(corners):
     return watchdog_problem('latlon', flat)
 
 
+def parse(words):
+    """``(corners, '')`` from ``LAT,LON`` words, or ``([], why)``."""
+    corners = []
+    for word in words:
+        try:
+            lat, lon = (float(v) for v in str(word).split(','))
+        except ValueError:
+            return [], f'{word!r}: expected LAT,LON in degrees'
+        if not (math.isfinite(lat) and math.isfinite(lon) and abs(lat) <= 90 and abs(lon) <= 180):
+            return [], f'{word!r}: not a latitude, longitude'
+        corners.append((lat, lon))
+    return corners, ''
+
+
 def flatten(corners):
     return [float(v) for corner in corners for v in corner]
 
@@ -107,15 +121,21 @@ def load(path=FENCE_FILE):
     return pairs((course or {}).get('corners')) if isinstance(course, dict) else []
 
 
-def save(corners, path=FENCE_FILE):
-    """Keep ``corners`` as ``course.corners`` in the fence file, the rest of it unchanged; written whole."""
+def save(corners=None, path=FENCE_FILE, on_exit=None):
+    """Keep ``corners`` as ``course.corners`` (and ``on_exit`` as ``course.on_exit``) in the fence file, the rest of
+    it unchanged; written whole."""
     path = Path(path).expanduser()
     try:
         day = yaml.safe_load(path.read_text()) or {}
     except (OSError, yaml.YAMLError):
         day = {}
     day = day if isinstance(day, dict) else {}
-    day['course'] = dict(day.get('course') or {}, corners=flatten(corners))
+    course = dict(day.get('course') or {})
+    if corners is not None:
+        course['corners'] = flatten(corners)
+    if on_exit is not None:
+        course['on_exit'] = on_exit
+    day['course'] = course
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix('.yaml.tmp')
     temp.write_text(yaml.safe_dump(day, sort_keys=False))

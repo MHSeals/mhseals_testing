@@ -45,7 +45,7 @@ from mhseals_testing.ui.feeds import agent_ops
 MOTION = ('run', 'goal')
 # a refusal of these is a footer notice too, not only an agent-log row
 NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'fcu_set', 'fcu_restart', 'fcu_revert', 'arm',
-           'reload', 'release_hold')
+           'reload', 'release_hold', 'fence')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s

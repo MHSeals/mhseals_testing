@@ -1,4 +1,4 @@
-"""The desk's quick agent verbs: arm and reload (owner decision 2026-11-01).
+"""The desk's quick agent verbs: arm, reload, release HOLD and fence (owner decisions 2026-11-01).
 
 Each runs on the owner's key loop as ``boat_agent fcu`` does, shows in the footer and the agent log, and
 journals an event naming the agent. ``arm`` raises a countdown banner the operator cancels (Esc, Enter on
@@ -161,10 +161,18 @@ def cleared(app, hold):
     nodes = [n for n in ros.nodes() if n.rsplit('/', 1)[-1] == by]
     if not nodes:
         return False, f'{by} is not running'
-    getattr(ros, 'watch_beats', lambda nodes: None)(nodes)
-    status = getattr(ros, 'beat_status', dict)().get(nodes[0])
-    at = ros.beats().get(nodes[0]) if hasattr(ros, 'beats') else None
-    if status is None or at is None or time.monotonic() - at > BEAT_FRESH_S:
+    new = getattr(ros, 'watch_beats', lambda nodes: None)(nodes)
+
+    def beat():
+        status = getattr(ros, 'beat_status', dict)().get(nodes[0])
+        at = ros.beats().get(nodes[0]) if hasattr(ros, 'beats') else None
+        return status, at is not None and time.monotonic() - at <= BEAT_FRESH_S
+    status, fresh = beat()
+    end = time.monotonic() + BEAT_WAIT_S
+    while new and not (status is not None and fresh) and time.monotonic() < end:   # just subscribed: a beat or two
+        time.sleep(0.05)
+        status, fresh = beat()
+    if status is None or not fresh:
         return False, f'no fresh ~/status from {by} yet: ask again in a few seconds'
     return bool(status.get('ok')), str(status.get('reason') or '')
 
@@ -199,5 +207,48 @@ def do_release_hold(desk, req):
     desk.reply(req, True, result={'released': causes, 'why': why}, label=f"release {', '.join(causes)}")
 
 
+def do_fence(desk, req):
+    """boat_agent fence corners|on_exit|anchor --why (owner decision D-20261101-23: any time, no claim): the course
+    area popup's own path, validated with fence_watchdog.problem, read back and kept in the fence file."""
+    from mhseals_testing.harness import course_area
+    from mhseals_testing.ui.popups import course
+    app, args, who = desk.app, req['args'], req['who']
+    why, action = str(req.get('why') or '').strip(), args.get('action')
+    if app.settings.agents == 'block':
+        return desk.reply(req, False, 'blocked', hint='operator must set Agents to allow')
+    if not why:
+        return desk.reply(req, False, 'bad_args', hint='fence ... --why "..."')
+    client = app.fence_client()
+    if client is None:
+        return desk.reply(req, False, 'refused', hint='no fence client: this TUI watches or reviews')
+    by, label = {'who': who, 'why': why}, f'fence {action}'
+    if action == 'corners':
+        corners, bad = course_area.parse(args.get('corners') or [])
+        bad = bad or course_area.problem(corners)
+        if bad:
+            return desk.reply(req, False, 'bad_args', hint=f'course area: {bad}', label=label)
+        ok, bad, path = course.set_corners(app, client, corners, by)
+        result = {'corners': [list(c) for c in corners], 'read_back': ok, 'file': str(path) if path else None}
+        text = f'set the course area ({len(corners)} corners)'
+    elif action == 'on_exit':
+        mode = args.get('mode')
+        if mode not in course_area.ON_EXIT:
+            return desk.reply(req, False, 'bad_args', hint='fence on_exit alert|return', label=label)
+        ok, bad = course.set_on_exit(app, client, mode, by)
+        result, text, label = {'on_exit': mode, 'read_back': ok}, f'set on_exit {mode}', f'fence on_exit {mode}'
+    elif action == 'anchor':
+        try:
+            ok, bad = agent_acts.in_background(app, 'Fence anchor', client.anchor)
+        except Exception as error:      # noqa: BLE001 - no fence_watchdog: refused, said why
+            ok, bad = False, f'{type(error).__name__}: {error}'
+        app.emit('fence_anchor', ok=ok, message=bad, **by)
+        result, text = {'anchored': ok, 'message': bad}, f'anchored the fence ({bad})'
+    else:
+        return desk.reply(req, False, 'bad_args', hint='fence corners LAT,LON ... | on_exit alert|return | anchor')
+    app.notice = f'Agent {who} {text}: {why}' if ok else f'Agent {who} fence {action} refused: {bad}'
+    desk.reply(req, ok, '' if ok else 'refused', result=result, hint='' if ok else bad, label=label)
+
+
 BEAT_FRESH_S = 2.0       # a watchdog's ~/status older than this does not prove its fault cleared
-HANDLERS = {'arm': do_arm, 'reload': do_reload, 'release_hold': do_release_hold}
+BEAT_WAIT_S = 1.5        # a ~/status subscribed at the release itself: its first beat (watchdogs send at 2 Hz)
+HANDLERS = {'arm': do_arm, 'reload': do_reload, 'release_hold': do_release_hold, 'fence': do_fence}

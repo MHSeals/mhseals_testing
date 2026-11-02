@@ -296,7 +296,8 @@ def test_cli_registers_every_verb():
                                           'start': ['odometry', '--claim', 'c'], 'fcu': ['get', 'SCHED_LOOP_RATE'],
                                           'goal': ['1', '2', '--claim', 'c'], 'note': ['t'],
                                           'set': ['thrust_step=survey', '--claim', 'c'],
-                                          'ask': ['q'], 'arm': ['--claim', 'c'], 'reload': ['config']}.get(verb, [])]).command == verb
+                                          'ask': ['q'], 'arm': ['--claim', 'c'], 'reload': ['config'],
+                                          'fence': ['anchor']}.get(verb, [])]).command == verb
 
 
 @pytest.mark.parametrize('who', [None, 'agent', 'agent-0000', ' '])

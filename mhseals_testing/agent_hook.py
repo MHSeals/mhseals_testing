@@ -107,6 +107,11 @@ TUI_KEYS = [r'''tmux\b.*(-L\s*boat\b|-S\s*\S*/tmux-\d+/boat\b).*\s(send-keys|sen
 _CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
             r'|boat_(trial|test)\w*)\b')
 KILL_CONTROL = r'(kill|pkill|killall)\b.*' + _CONTROL
+# fence_watchdog's course area: its corners and on_exit are already a watchdog parameter (denied above); /fence/anchor
+# too. boat_agent fence sets them through the TUI, validated, read back and logged (D-20261101-23).
+FENCE_CALL = r'ros2\s+service\s+call\b.*/fence/anchor\b'
+FENCE = r'fence_watchdog\b.*\b(course\.corners|on_exit)\b|fence_watchdog/set_parameters|/fence/anchor\b'
+NO_CLAIM = ('stop', 'fence ')      # verbs a deny names that need no claim first
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -131,7 +136,7 @@ DEFAULTS = {
              r'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
              NAV2_PARAM, r'ros2\s+lifecycle\s+set\b.*\b' + NAV2 + r'\b',
              r'ros2\s+service\s+call\b.*\b' + NAV2 + r'/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
-             ros2_run('mhseals_nav', 'run_task'),
+             FENCE_CALL, ros2_run('mhseals_nav', 'run_task'),
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
@@ -196,6 +201,8 @@ USE = ((r'(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the
        (r'operator/heartbeat|operator_heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority",
         None, ()),
        (r'estop', 'the thruster e-stop', 'stop', ()),
+       (FENCE, "fence_watchdog's course area (corners, on_exit, anchor)",
+        'fence corners LAT,LON LAT,LON LAT,LON ... | on_exit alert|return | anchor --why "..."', (FENCE_CALL,)),
        (r'mavros/param/set\b|param\s+set\b.*\bmavros', 'an FCU parameter change',
         'fcu set PARAM VALUE --claim ID', ()),
        (r'mavros', 'an FCU arming or mode change (parameters: boat_agent fcu set; an FCU restart: boat_agent fcu '
@@ -372,7 +379,7 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, arm, run, start, reload, set, fcu, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
+        '(claim, arm, run, start, reload, set, fcu, fence, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
         f'tmux sessions there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
         "another agent's session or `-L boat`.",
         '  1. `status`: what runs and who drives.',
@@ -398,6 +405,9 @@ def start_text(who, agent='claude', config=None):
         'never yaw source, compass, servos, arming or failsafes), `fcu revert --to SNAPSHOT --claim ID` and '
         '`fcu restart --claim ID` (disarmed) go through the TUI\'s MAVROS link: snapshot, read-back and '
         'fcu_changes.md name you. SCHED_LOOP_RATE 400 only after `fcu rates` at 200 shows the FCU load low.',
+        '     `fence corners LAT,LON LAT,LON LAT,LON ... --why "..."`, `fence on_exit alert|return --why "..."` and '
+        '`fence anchor --why "..."` set fence_watchdog\'s course area at any time, no claim: validated, read back, '
+        'kept in ~/.config/mhseals/fence.yaml and shown in the agent panel.',
         '     Start sims and heavy runs through the host guard: `.handoff/tools/heavy sim ...` (Unity headless).',
         '     No TUI (exit 4): `boat_tui up` (beside boat_agent) starts the stack and TUI in tmux and prints the line '
         'the operator attaches with; `boat_tui status` says who controls. Never type into its tmux session.',
@@ -454,7 +464,7 @@ def deny_reason(hit, host=None, who='agent', config=None):
         arms = (' The TUI shows a countdown the operator can cancel; the e-stop refuses it. '
                 'Then run KEY --claim ID.')
     return (f'{head} Use: {cli} {verb} --who {who}'
-            + ('' if verb == 'stop' else f' (claim first: claim --reason "..." --who {who})')
+            + ('' if verb.startswith(NO_CLAIM) else f' (claim first: claim --reason "..." --who {who})')
             + f'.{arms} Verbs and exit codes: BOAT_AGENT={who} python3 .agents/hook.py --playbook')
 
 

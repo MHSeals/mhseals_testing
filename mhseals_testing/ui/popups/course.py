@@ -4,7 +4,8 @@ Each corner comes from the boat's GPS fix (drive to it: ``g`` adds one there, ``
 is nudged in place by metres (``n`` ``s`` ``e`` ``w``, ``+``/``-`` change the step); ``x`` removes, ``J``/``K``
 reorder, the arrows select. The minimap previews the corners as they are edited (MapState ``fence_preview``).
 ``y`` applies them to fence_watchdog (course.corners through SetParameters), checks the readback and keeps them in
-~/.config/mhseals/fence.yaml; ``o`` toggles on_exit (alert or return). Esc leaves; nothing applies unless ``y``.
+~/.config/mhseals/fence.yaml; ``o`` toggles on_exit (alert or return), kept there too.
+``boat_agent fence`` takes the same path (ui/feeds/agent_ops.py). Esc leaves; nothing applies unless ``y``.
 """
 
 from mhseals_testing.harness import course_area
@@ -25,30 +26,46 @@ def rows(edit, step, status):
     return out
 
 
-def apply(app, client, corners):
-    """SetParameters, readback, then the fence file; the notice says what happened."""
+def set_corners(app, client, corners, by=None):
+    """SetParameters, readback, then the fence file: ``(ok, why, path)``. ``by`` ({who, why}) names an agent."""
     why = course_area.problem(corners)
     if why:
-        return f'Course area not applied: {why}'
+        return False, why, None
     title = f'Course area: applying {len(corners)} corners'
     try:
         ok, why = agent_acts.in_background(app, title, lambda: client.set_corners(corners), message=title)
     except (TimeoutError, ValueError, RuntimeError) as error:     # fence_watchdog down or not declaring them
         ok, why = False, str(error)
     if not ok:
-        return f'Course area refused: {why}'
+        return False, why, None
     path = course_area.save(corners)
-    app.emit('course_area', corners=course_area.flatten(corners), file=str(path))
+    app.emit('course_area', corners=course_area.flatten(corners), file=str(path), **(by or {}))
+    return True, '', path
+
+
+def set_on_exit(app, client, mode, by=None):
+    """on_exit through SetParameters, read back and kept in the fence file: ``(ok, why)``."""
+    try:
+        ok, why = agent_acts.in_background(app, f'on_exit {mode}', lambda: client.set_on_exit(mode))
+    except (TimeoutError, ValueError, RuntimeError) as error:
+        ok, why = False, str(error)
+    if ok:
+        course_area.save(on_exit=mode)
+    app.emit('fence_on_exit', mode=mode, ok=ok, **(by or {}))
+    return ok, why
+
+
+def apply(app, client, corners):
+    """The popup's ``y``; the notice says what happened."""
+    ok, why, path = set_corners(app, client, corners)
+    if not ok:
+        return f'Course area {"not applied" if course_area.problem(corners) else "refused"}: {why}'
     return f'Course area applied ({len(corners)} corners), read back and kept in {path}'
 
 
 def toggle_on_exit(app, client, status):
     mode = 'return' if (status or {}).get('on_exit', 'alert') == 'alert' else 'alert'
-    try:
-        ok, why = agent_acts.in_background(app, f'on_exit {mode}', lambda: client.set_on_exit(mode))
-    except (TimeoutError, ValueError, RuntimeError) as error:
-        ok, why = False, str(error)
-    app.emit('fence_on_exit', mode=mode, ok=ok)
+    ok, why = set_on_exit(app, client, mode)
     return f'On exit: {mode}' if ok else f'On exit not changed: {why}'
 
 

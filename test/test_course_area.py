@@ -98,7 +98,8 @@ def test_apply_sets_the_corners_reads_them_back_and_on_exit():
 
 def test_the_popup_builds_corners_from_the_fix_and_applies(tmp_path, monkeypatch):
     saved = []
-    monkeypatch.setattr(course.course_area, 'save', lambda corners: saved.append(corners) or tmp_path / 'f.yaml')
+    monkeypatch.setattr(course.course_area, 'save', lambda corners=None, on_exit=None: saved.append(corners or on_exit)
+                        or tmp_path / 'f.yaml')
     state = SimpleNamespace(fence_status={'on_exit': 'alert'}, fix_ll=None, pose=(0, 1.0, 2.0, 0.0),
                             fence_preview=[])
     client = FenceClient(node=None, params=Params())
@@ -125,7 +126,8 @@ def test_the_popup_builds_corners_from_the_fix_and_applies(tmp_path, monkeypatch
     notice = course.open_course(app)
     assert notice.startswith('Course area applied (3 corners)'), notice
     assert len(previews[-1]) == 3 and state.fence_preview == []
-    assert client.params.values['on_exit'] == 'return' and 'course_area' in events and len(saved[0]) == 3
+    assert client.params.values['on_exit'] == 'return' and 'course_area' in events and saved[0] == 'return'
+    assert len(saved[1]) == 3
     assert course_area.pairs(client.params.values['course.corners'])[2][0] > BOX[2][0]     # nudged north
 
 
