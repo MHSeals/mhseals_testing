@@ -10,11 +10,12 @@
 
 Stdlib only: it runs inside the worker. A job's code is exact commits: the hypothesis repo at the
 job's ref (``ctx.repos``) and the others at ``spec.refs[name]`` (default ``main``), checked out
-once per commit under the worker's data folder (crane_ml sparse: its fast-sim core and course
-tools). The batch runs as a child process (``fastsim_adapter.batch``) with that code on its path,
-so two jobs never share imported modules. Spec keys: ``tune`` (config tune overrides: the
-sweep's parameter set), ``config`` (a YAML in mhseals_testing, default the shipped one),
-``refs``, ``workers``. Metrics are the batch's ``metrics.json`` (core and referee numbers).
+once per commit under the worker's data folder (crane_ml sparse: ``SPARSE``). The batch runs as a
+child process (``fastsim_adapter.batch``) with that code on its path, so two jobs never share
+imported modules. Spec keys: ``tune`` (config tune overrides: the sweep's parameter set),
+``config`` (a YAML in mhseals_testing, default the shipped one), ``refs``, ``urls``, ``workers``.
+Metrics are the batch's ``metrics.json`` (core and referee numbers). coursegen needs dotnet and
+Unity's managed assemblies (crane Tools/RoboBoat/cli/README.md).
 """
 
 import json
@@ -25,7 +26,9 @@ import subprocess
 import sys
 
 NEEDED = ('mhseals_testing', 'mhseals_nav', 'crane_ml')
-SPARSE = {'crane_ml': ['fastsim', 'Tools/RoboBoat']}
+# crane_ml: its fast-sim core and course tools, and what coursegen compiles and hashes (CourseIdentity)
+SPARSE = {'crane_ml': ['fastsim', 'Tools/RoboBoat', 'ProjectSettings', 'Assets/Scripts/Course/Core',
+                       'Assets/Scripts/Course/RoboBoat/Tasks', 'Assets/Config/Course/Resources']}
 SUMMARY = ('metrics.json', 'run.json', 'fastsim.json', 'session.json')
 RAW = ('track.jsonl', 'task_events.jsonl', 'task_status.jsonl', 'events.jsonl', 'sim_events.jsonl')
 
@@ -119,7 +122,8 @@ class FastsimBackend:
             f"{tune.get('family', 'roboboat_2026')}-{tune.get('mode', 'iid')}-{(self.shas['crane_ml'] or 'local')[:12]}"
         self.out = Path(ctx.work_dir) / 'runs'
         self.variant = str(spec.get('arm') or 'base')
-        cmd = [self.options.get('python') or sys.executable, '-m', 'mhseals_testing.fastsim_adapter.batch',
+        python = os.path.expanduser(self.options.get('python') or sys.executable)
+        cmd = [python, '-m', 'mhseals_testing.fastsim_adapter.batch',
                '--seeds', ','.join(str(int(s)) for s in ctx.job['seeds']), '--out', str(self.out),
                '--variant', self.variant, '--workers', str(int(spec.get('workers') or self.options.get('workers', 4)))]
         if spec.get('config'):
@@ -183,7 +187,8 @@ class ReplayBackend(FastsimBackend):
             raise RuntimeError('set the replay backend option sessions (the folder holding session folders)')
         root = Path(os.path.expanduser(self.options['sessions']))
         out = self.out / f's{int(seed)}'
-        cmd = [self.options.get('python') or sys.executable, '-m', 'mhseals_testing.fastsim_adapter.replay',
+        python = os.path.expanduser(self.options.get('python') or sys.executable)
+        cmd = [python, '-m', 'mhseals_testing.fastsim_adapter.replay',
                str(root / sessions[int(seed) - 1]), str(out), '--tune', json.dumps(self.ctx.spec.get('tune') or {})]
         env = {**os.environ, 'PYTHONPATH': os.pathsep.join(map(str, self.paths)), **self.ctx.env}
         with open(self.log, 'a') as f:
