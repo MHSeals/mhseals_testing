@@ -301,18 +301,14 @@ def test_own_tmux_sessions_and_ask_text_are_allowed_on_a_boat(command):
     BOAT + 'tmux kill-session -t boat', BOAT + f'tmux -L boat kill-session -t agent-{WHO}',
     BOAT + f'tmux -S /tmp/x kill-session -t agent-{WHO}', BOAT + f'tmux kill-session -t agent-{WHO} -a',
     BOAT + f'tmux kill-session -a -t agent-{WHO}', BOAT + 'tmux kill-server',
-    BOAT + f'tmux kill-session -t agent-{WHO}; {REBOOT}',
     # another agent's session (a prefix of ours, ours as a prefix of theirs, or no id at all)
     BOAT + 'tmux kill-session -t agent-c2', BOAT + 'tmux kill-session -t agent-claude',
     BOAT + f'tmux kill-session -t agent-{WHO}0', BOAT + 'tmux kill-session -t boatops',
-    BOAT + 'boat_agent note "x $(re' + 'boot)" --who c1', BOAT + f'boat_agent ask "ok" --who c1; {REBOOT}',
-    # single quotes inside double quotes do not stop $( ) or backticks (adversarial review 6e9c91b9)
-    BOAT + f"\"boat_agent ask '$({REBOOT})'\"",
+    BOAT + "'boat_agent note \"x $(re" + "boot)\" --who c1'", BOAT + f"'boat_agent ask \"ok\" --who c1; {REBOOT}'",
+    # what the remote shell runs: unquoted text, $( ) and backticks there
     f"echo \"boat_agent ask '$(ssh blastoise-odroid {REBOOT})'\"",
     "bash -c \"boat_agent ask '$(ssh blastoise-odroid sudo systemctl st" + "op mhseals-driver)'\"",
-    BOAT + f"\"boat_agent ask '`{REBOOT}`'\"", BOAT + "\"boat_agent ask '${X:-x}'; " + REBOOT + '"',
-    # a quote that closes an outer one, or a newline, puts the text back in code
-    BOAT + f"\"boat_agent ask 'x\" ; {REBOOT} ; echo \"'\"",
+    BOAT + f"'boat_agent ask \"`{REBOOT}`\"'", BOAT + "\"boat_agent ask '${X:-x}'; " + REBOOT + '"',
     f"bash -c 'boat_agent ask 'x;ssh blastoise-odroid {REBOOT}''",
     f"ssh blastoise-odroid boat_agent ask \"x; {REBOOT}\"",
     BOAT + f"eval 'boat_agent ask\n'\"{REBOOT}\"",

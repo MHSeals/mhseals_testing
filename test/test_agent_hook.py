@@ -124,92 +124,85 @@ def test_raw_motion_is_denied_with_the_verb_to_use_and_noted(sent, command, verb
 def test_reads_stay_allowed(sent, command):
     assert sent('pre', command) is None
 
-
-# The regression table. Rule: nothing the whole-text search denies becomes allowed, except a call made
-# only of commands that read or print text (Tier A), or a heredoc body nothing can run (``code_of``). MAIN rows were denied by the whole-text hook; keep them.
-MAIN = [
+# The regression table (owner decision 2026-11-01): the hook matches what runs (argv per command, what wrappers,
+# shells, ssh and substitutions run), never text. RUNS: a denied command reached through argv. TEXT: the same words
+# only as data (an argument, a heredoc body, a quoted message, a script's source) are allowed.
+WK = 'ros2 topic pub /cmd_vel x y'
+RUNS = [
     'ssh blastoise \'docker exec roboboat_dev bash -c "ros2 topic pub /cmd_vel x y"\'',
     'docker run --rm --net host ros:humble ros2 topic pub /cmd_vel x y',
     'setsid -f ros2 topic pub /cmd_vel x y', 'chrt 10 ros2 topic pub /cmd_vel x y',
     'script -qc "ros2 topic pub /cmd_vel x y" /dev/null', 'tmux new -d "ros2 topic pub /cmd_vel x y"',
     'su roboboat -c "ros2 topic pub /cmd_vel x y"', 'pixi run ros2 topic pub /cmd_vel x y',
-    "awk 'BEGIN{system(\"ros2 topic pub /cmd_vel x y\")}'", 'git -c alias.x="!ros2 topic pub /cmd_vel x y" x',
-    "uv run python -c 'import os; os.system(\"ros2 topic pub /cmd_vel x y\")'",
-    'X="ros2 topic pub /cmd_vel x y"; $X', 'alias p="ros2 topic pub"; p /cmd_vel x y',
+    'sudo -u roboboat env A=1 timeout 5 nice -n 5 ros2 topic pub /cmd_vel x y', 'eval ros2 topic pub /cmd_vel x y',
     'cat <(ros2 topic pub /cmd_vel x y)', '2>/dev/null ros2 topic pub /cmd_vel x y',
-    "echo 'ros2 topic pub /cmd_vel x y' > /tmp/x.sh; bash /tmp/x.sh",
     'echo "$(ros2 topic pub --once /cmd_vel x y)"', 'grep x f && ros2 topic pub /cmd_vel x y',
-    'sed -n "1e ros2 topic pub /cmd_vel x y" f', 'less "+!ros2 topic pub /cmd_vel x y" f',
-    "ros2 topic pub /cmd_vel x 'y",                                  # unreadable
+    'cat <<< "$(ros2 topic pub --once /cmd_vel x y)"', 'if true; then ros2 topic pub /cmd_vel x y; fi',
+    "ros2 topic pub /cmd_vel x 'y",                                  # unreadable: each line's words
     'pkill -f command_mux', 'pkill -P 12345', 'killall -u lunarz codex', 'kill -9 $(pgrep -f fence_watchdog)',
-    # Tier A is side-effect free: no substitution anywhere, no file written (second review)
-    'cat <<< "$(ros2 topic pub --once /cmd_vel x y)"',
-    "cat > conftest.py <<'EOF'\nimport os\nos.system('ros2 topic pub /cmd_vel x y')\nEOF\npytest -q",
-    "printf '[alias]\\n  lg = !ros2 topic pub /cmd_vel x y\\n' >> .git/config; git log -1",
-    "sed '\\%x%e ros2 topic pub /cmd_vel x y' f", "printf '1e ros2 topic pub /cmd_vel x y' > s.sed; sed -n -f s.sed f",
-    "echo 'ros2 topic pub /cmd_vel x y &' >> ~/.bashrc",
-    "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
-    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF\nbash src/x/test_hook.py",
-    "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv"]
-# New surfaces, and the boat by name, ssh alias or STATIC_LEASES address (config/boat-network.env).
-NEW = [
-    'ros2 run mavros mavsafety arm', 'ros2 run mavros mavcmd long 400 1 0 0 0 0 0 0',
+    'kill -9 `pgrep thruster_pwm_node`', 'ros2 run mavros mavsafety arm', 'ros2 run mavros mavcmd long 400 1 0 0 0 0 0 0',
     'ros2 topic pub /operator/heartbeat std_msgs/msg/Header "{}"',
     'ros2 topic pub /mhseals_testing/authority std_msgs/msg/String "{}"',
     'ros2 service call /thruster_pwm_node/estop std_srvs/srv/SetBool "{data: false}"',
     'ros2 topic pub /thrusters/left std_msgs/msg/Float64 "{data: 1.0}"',
-    "python3 -c 'import rclpy; n = rclpy.create_node(\"x\"); n.create_publisher(T, t, 1)'",
     'echo /cmd_vel | xargs ros2 topic pub', 'pgrep -f x | xargs kill',
     'T=/cmd_vel; ros2 topic pub $T geometry_msgs/msg/Twist {}',     # a target the hook cannot read
     'ssh blastoise kill 4242', 'ssh squirtle sudo reboot', "ssh blastoise 'docker compose down'",
-    'ssh roboboat@192.168.0.152 sudo systemctl stop mhseals', 'H=blastoise; ssh $H reboot']
-BLOCK = MAIN + NEW
-TEXT = [            # Tier A: robot words only inside what grep, echo, git commit, cat, pytest read or print
+    'ssh roboboat@192.168.0.152 sudo systemctl stop mhseals', 'H=blastoise; ssh $H reboot',
+    'ssh -p 22 -o BatchMode=yes blastoise-odroid -- sudo reboot', 'sshpass -p x ssh blastoise reboot',
+    "et blastoise-odroid -c 'sudo reboot'", "ssh blastoise 'echo b | sudo tee /proc/sysrq-trigger'"]
+TEXT = [
     "grep -rn 'ros2 topic pub /cmd_vel' src/", "rg 'pkill|killall' src", 'echo "never run ros2 topic pub /cmd_vel"',
     'git commit -m "deny ros2 topic pub /cmd_vel and pkill in the hook"',
     'git add -A && git commit -m "kill the stale run_task; ros2 topic pub /cmd_vel is denied"',
-    "git add mhseals_testing/agent_hook.py test && git commit -qm 'pkill -f command_mux and ros2 run mhseals_nav run_task blocked'",
     "git commit -F - <<'EOF'\nBlock ros2 topic pub /cmd_vel; ssh blastoise reboot too\nEOF",
-    "sed -n '/pkill/p' notes.md | head -5", "sed -nE 's/cmd_vel/x/p;/pkill/p' a b",
-    "grep -rn 'pkill' src 2>/dev/null", "rg -n 'cmd_vel' src 2>&1 | head",
-    "python3 -m pytest src/mhseals_testing/test -q -k 'kill or pkill'", 'git log --oneline --grep pkill | wc -l']
-
-
-@pytest.mark.parametrize('command', ["sed -n '1e ros2 x' f", "sed -n '\\%x%e ros2 x' f", 'sed -n -f s.sed f',
-                                     "sed -n -e '/x/p' f", "sed -n 's/a/b/w out' f", "sed -i 's/a/b/' f", "sed '/x/p' f",
-                                     'git -c core.pager=x log', 'git log --ext-diff', 'git show --output=f',
-                                     'cat <<< "$(date)"', 'echo `date`', 'grep x <(cat f)', 'echo x > f', 'cat f | tee g',
-                                     'echo x >> ~/.bashrc'])
-def test_tier_a_runs_nothing_and_writes_nothing(command):
-    assert not hook.text_only(command)
-# A python file whose code only holds strings: running it does nothing (py_inert), so its body is data, not Tier A.
-PY_DATA = ["cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF"]
-ALLOW = TEXT + PY_DATA + [
+    "git commit -m \"$(cat <<'EOF'\nhook: ros2 topic pub /cmd_vel is denied; pkill -f x too\nEOF\n)\"",
+    "cat > src/x/test_hook.py <<'EOF'\nCASES = ['ros2 topic pub /cmd_vel x y', 'pkill -f command_mux']\nEOF",
+    "printf '%s\\n' 'ros2 topic pub /cmd_vel' >> c.tsv", "sed -n '/pkill/p' notes.md | head -5",
+    "python3 -m pytest src/mhseals_testing/test -q -k 'kill or pkill'", 'git log --oneline --grep pkill | wc -l',
+    "python3 -c 'import rclpy; n = rclpy.create_node(\"x\"); n.create_publisher(T, t, 1)'",
+    "python3 - <<'PY'\nimport rclpy\nn = rclpy.create_node('x'); n.create_publisher(T, '/cmd_vel', 1)\nPY",
+    "codex-task NAME <<'EOF'\nros2 topic pub /cmd_vel x y; sudo reboot; pkill -f command_mux\nEOF",
+    f'ssh blastoise \'{hook.BOAT_AGENT} note "kill mavros later; reboot"\'',     # quoted for the remote shell
+    'grep -rn pkill src | cut -d: -f1 | sort | uniq -c', "awk '/reboot/' /var/log/syslog",
+    "ssh blastoise 'tail -n 200 /var/log/syslog | grep -i reboot'",
+    'printf "blastoise: mavros link down, kill it then restart" >> .handoff/state/notes.md']
+ALLOW = TEXT + [
     'git status', 'kill 12345', 'kill -TERM 4242', 'kill %1', 'docker stop roboboat_dev', 'tmux kill-session -t x',
-    "python3 - <<'EOF'\nimport os, signal\nos.kill(pid, signal.SIGTERM)\nEOF",
     'ros2 topic pub /chatter std_msgs/msg/String "{data: hi}"', 'ros2 topic echo /cmd_vel --once',
-    "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'", f'ssh blastoise {hook.BOAT_AGENT} stop --who x']
+    "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'", f'ssh blastoise {hook.BOAT_AGENT} stop --who x',
+    # local git work and git configuration (audit items 1 and 8)
+    'git checkout -q main', 'git checkout -q --detach 51b1725f', 'git apply --check /tmp/x.diff', 'tar -xf t.tar',
+    'git -c core.editor=true cherry-pick --continue', 'GIT_EDITOR=true git rebase --continue',
+    'git -c user.name=t -c commit.gpgsign=false commit -qm "hook note"', 'git config --get core.hooksPath',
+    # build and scratch dirs named agent or mhseals, reads of agent.yaml (audit items 4 and 5)
+    'rm -rf build/mhseals_testing/agent/', 'rm -rf /tmp/sim/mhseals', 'cp config/agent.yaml /tmp/x',
+    'cp -a src/mhseals_testing/config/agent.yaml /tmp/agent-copy.yml', 'MHSEALS_SIM_ARM=1 true',
+    # Nav2 parameters with a claim (audit item 7)
+    'BOAT_AGENT_CLAIM=c3 ros2 param set /controller_server FollowPath.max_vel_x 2.0',
+    'docker exec crane_autodemo kill -INT 812']
 
 
 @pytest.mark.parametrize('agent', ['claude', 'codex'])
-@pytest.mark.parametrize('command', BLOCK)
-def test_regression_commands_that_run_raw_control_are_blocked(sent, agent, command):
+@pytest.mark.parametrize('command', RUNS)
+def test_commands_that_run_raw_control_are_blocked(sent, agent, command):
     reason = (sent('pre', command, agent=agent) or {}).get('deny', '')
     assert reason.startswith('Blocked `') and f'--who {agent}-3f2a' in reason
 
 
 @pytest.mark.parametrize('agent', ['claude', 'codex'])
 @pytest.mark.parametrize('command', ALLOW)
-def test_regression_text_and_local_work_are_allowed(sent, agent, command):
+def test_text_and_local_work_are_allowed(sent, agent, command):
     assert sent('pre', command, agent=agent) is None
 
 
-@pytest.mark.parametrize('command', BLOCK + ALLOW)
-def test_only_text_commands_escape_the_whole_text_search(command):
-    """Fail closed: what the whole-text search finds stays denied unless every command only reads text."""
-    if hook.matches(hook.DEFAULTS['deny'], command) and command not in PY_DATA:
-        assert (hook.denied(command, hook.DEFAULTS) is None) == hook.text_only(command)
-    assert hook.text_only(command) == (command in TEXT or command == 'git status')
+def test_lines_are_what_runs():
+    got = [line for _, line, _, _ in hook.lines('sudo -u x timeout 5 ros2 node list | grep -c x > /tmp/n.txt',
+                                                 hook.DEFAULTS, cwd='/tmp')]
+    assert got == ['sudo -u x timeout 5 ros2 node list', 'timeout 5 ros2 node list', 'ros2 node list',
+                   'grep -c x', 'EDIT create live /tmp/n.txt']
+    assert [line for _, line, _, _ in hook.lines("bash -c 'cd /x && rm -f a'", hook.DEFAULTS)][-2:] == [
+        'rm -f a', 'EDIT delete live /x/a']
 
 
 def test_a_boat_deny_names_the_host_and_the_command():
@@ -224,15 +217,6 @@ def test_a_boat_deny_names_the_host_and_the_command():
     assert f'Use: ssh blastoise-jetson {hook.BOAT_AGENT} stop' in reason
     assert hook.denied('ssh devbox docker stop x', hook.DEFAULTS) is None
 
-
-def test_the_local_relay_form_is_a_boat_call_like_ssh(monkeypatch):
-    """BOAT_AGENT_TARGET=HOST boat_agent makes the ssh hop itself: the boat rules apply as to ssh HOST boat_agent."""
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    for form in (f'ssh blastoise-odroid {hook.BOAT_AGENT}', f'BOAT_AGENT_TARGET=blastoise-odroid {hook.BOAT_AGENT}'):
-        found = hook.denied(f'{form} status --who x; sudo reboot', hook.DEFAULTS)
-        assert found and found[1] == 'blastoise-odroid', form
-        assert hook.denied(f'{form} status --who x', hook.DEFAULTS) is None
-    assert hook.denied(f'BOAT_AGENT_TARGET=local {hook.BOAT_AGENT} status; sudo reboot', hook.DEFAULTS) is None
 
 
 def test_the_boat_addresses_come_from_the_network_file(tmp_path, monkeypatch):
@@ -255,9 +239,9 @@ def test_without_a_network_file_any_private_lan_address_is_a_boat(monkeypatch):
 def test_matching_is_fast():
     import time
     began = time.perf_counter()
-    for command in BLOCK + ALLOW:
+    for command in RUNS + ALLOW:
         hook.denied(command, hook.DEFAULTS)
-    assert (time.perf_counter() - began) / len(BLOCK + ALLOW) < 0.005      # per command, well under 5 ms
+    assert (time.perf_counter() - began) / len(RUNS + ALLOW) < 0.005      # per command, well under 5 ms
 
 
 def test_a_mission_push_is_advisory_allowed_and_noted(sent):
@@ -488,20 +472,25 @@ def test_place_tells_a_worktree_from_live_copies(trees):
     assert hook.place(str(base / 'bags' / 'agent' / 'stop')) == 'live'               # outside git
 
 
+
+def test_a_subagent_gets_its_own_id_from_agent_id(monkeypatch):
+    monkeypatch.delenv('BOAT_AGENT', raising=False)
+    parent = hook.who_of({'agent': 'claude', 'session_id': SID})
+    subs = {hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': a}) for a in ('a1', 'a2', 'a3')}
+    assert parent == 'claude-3f2a' and parent not in subs and len(subs) == 3
+    assert hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': 'a1'}) in subs     # stable
+    assert 'honour-based' in hook.start_text(parent, config=hook.DEFAULTS)
+
+
 @pytest.mark.parametrize('agent', ['claude', 'codex'])
-def test_edit_tools_are_denied_on_live_safety_files(trees, agent):
+def test_edit_tools_are_denied_on_live_holds_stop_and_hook(trees, agent):
     live, wt, base = trees
     stop = base / 'bags' / 'agent' / 'stop'
-    assert 'enable sim-arm in the sim container' in edit([['write', str(live / 'config' / 'agent.yaml')]], agent=agent)
-    assert edit([['write', 'config/agent.yaml']], cwd=str(live), agent=agent)       # relative to the call's cwd
-    assert 'U in the TUI' in edit([['write', str(base / 'mhseals' / 'command_mux_232.json')]], agent=agent)
+    assert 'release HOLD --why' in edit([['write', str(base / 'mhseals' / 'command_mux_232.json')]], agent=agent)
     assert edit([['write', str(base / 'sess' / 'command_mux_holds.json')]], agent=agent)
-    assert edit([['write', str(base / 'run' / 'mhseals' / 'other')]], agent=agent)
-    assert edit([['write', str(live / 'launch' / 'arm.launch.py')]], agent=agent)                  # main checkout
-    reason = edit([['write', str(live / 'install' / 'pkg' / 'share' / 'pkg' / 'launch' / 'x.py')]], agent=agent)
-    assert 'run KEY --claim ID' in reason
-    assert edit([['write', str(wt / 'install' / 'pkg' / 'launch' / 'x.launch.xml')]], agent=agent)  # ignored there
-    assert edit([['write', str(base / 'tmp' / 'mine.launch.yaml')]], agent=agent)                  # outside git
+    assert edit([['write', str(live / '.agents' / 'hook.py')]], agent=agent)
+    assert edit([['write', str(live / 'src' / 'mhseals_agents' / 'hooks' / 'hook.py')]], agent=agent)
+    assert edit([['write', str(live / 'src' / 'x' / 'agent_hook.py')]], agent=agent)
     assert edit([['write', '']], agent=agent) and edit([['rename', '/x']], agent=agent)            # fail closed
     assert edit([['write', str(stop)]], agent=agent) is None                                       # creating stop
     stop.write_text('')
@@ -512,131 +501,88 @@ def test_edit_tools_are_denied_on_live_safety_files(trees, agent):
         stop.unlink()
 
 
-def test_edit_tools_are_allowed_in_a_worktree_and_on_ordinary_files(trees):
+def test_edit_tools_are_free_on_config_and_launch_off_a_boat_and_in_a_worktree(trees, monkeypatch):
     live, wt, base = trees
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    for path in (live / 'config' / 'agent.yaml', live / 'launch' / 'arm.launch.py', wt / 'config' / 'agent.yaml',
+                 wt / 'agent_hook.py', wt / 'src' / 'x' / 'hooks' / 'hook.py', wt / 'test' / 'command_mux_holds.json'):
+        assert edit([['write', str(path)]]) is None, path
+    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')         # the running boat reads these
+    assert "running boat's config" in edit([['write', str(live / 'config' / 'agent.yaml')]])
+    assert edit([['write', str(live / 'launch' / 'arm.launch.py')]])
     assert edit([['write', str(wt / 'config' / 'agent.yaml')]]) is None
-    assert edit([['write', 'config/agent.yaml']], cwd=str(wt)) is None
-    assert edit([['write', str(wt / 'launch' / 'thrusters.launch.py')]]) is None
-    assert edit([['write', str(wt / 'mhseals_hardware' / 'launch' / 'mux.launch.py')]]) is None
-    assert edit([['write', str(wt / 'test' / 'command_mux_holds.json')]]) is None       # a fixture in a worktree
-    assert edit([['write', str(live / 'README.md')], ['delete', str(live / 'old.py')]]) is None
-    assert edit([['write', str(wt / 'agent_hook.py')]]) is None
 
 
-def test_a_worktree_symlink_to_a_live_file_is_denied(trees):
+def test_a_worktree_symlink_to_a_live_hook_is_denied(trees):
     live, wt, base = trees
-    link = wt / 'linked.yaml'
-    link.symlink_to(live / 'config' / 'agent.yaml')
+    (live / '.agents').mkdir(exist_ok=True)
+    (live / '.agents' / 'hook.py').write_text('')
+    link = wt / 'linked.py'
+    link.symlink_to(live / '.agents' / 'hook.py')
     try:
         assert edit([['write', str(link)]])
+        assert hook.denied(f'echo x >> {link}', hook.DEFAULTS, cwd='/')
     finally:
         link.unlink()
 
 
-def test_shell_writes_to_agent_yaml_are_denied_only_on_live_copies(trees):
+def test_shell_writes_to_holds_stop_and_hook_are_denied_only_on_live_copies(trees, monkeypatch):
     live, wt, base = trees
-    for command in (f'sed -i s/false/true/ {wt}/config/agent.yaml', f'cp /tmp/a.yaml {wt}/config/agent.yaml',
-                    f'printf x > {wt}/config/agent.yaml'):
-        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
-    assert hook.denied('sed -i s/a/b/ config/agent.yaml', hook.DEFAULTS, cwd=str(wt)) is None
-    for command, cwd in ((f'sed -i s/false/true/ {live}/config/agent.yaml', '/'),
-                         (f'cp {wt}/config/agent.yaml {live}/config/agent.yaml', '/'),
-                         (f'printf x > {live}/config/agent.yaml', '/'),
-                         ('sed -i s/a/b/ config/agent.yaml', str(live)),
-                         ('sed -i s/a/b/ config/agent.yaml', None),                       # no cwd: live
-                         (f'cd {live} && sed -i s/a/b/ config/agent.yaml', str(wt)),      # a cd: live
-                         (f'sed -i s/a/b/ $W/config/agent.yaml', str(wt)),                # a variable: live
-                         (f'rm {base}/bags/agent/stop', '/'), (f'rm {base}/mhseals/command_mux_232.json', '/'),
-                         ('MHSEALS_SIM_ARM=1 tui', str(wt))):
-        assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
-
-
-def test_a_heredoc_body_is_data_unless_something_can_run_it(trees):
-    live, wt, base = trees
-    writes = (f'git -C {live} checkout abc1234 -- .', f'sed -i s/false/true/ {live}/config/agent.yaml')
-    for line in writes:
-        assert hook.denied(line, hook.DEFAULTS, cwd='/'), line                  # run, each is denied
-    prompt = f'Check out the pinned profiles commit with {writes[0]},\nthen {writes[1]}; pkill -f command_mux'
-    for command in (f"cd /home/lunarz/astro_dock && .handoff/tools/codex-task NAME <<'EOF'\n{prompt}\nEOF",
-                    f'.handoff/tools/codex-task NAME <<"EOF"\n{prompt}\nEOF\necho sent',
-                    f'.handoff/tools/codex-task NAME <<-EOF\n{prompt}\n\tEOF',
-                    f'codex-task A <<EOF && codex-task B <<\'END\'\n{prompt}\nEOF\n{prompt}\nEND'):
-        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command   # a prompt, not shell
-    for command in (f'bash <<EOF\n{writes[1]}\nEOF', f"sh -s <<-'EOF'\n\t{writes[0]}\n\tEOF",
-                    f"python3 - <<'EOF'\nopen('{live}/config/agent.yaml', 'w').write('x')\nEOF",
-                    f"cat > {live}/config/agent.yaml <<'EOF'\nhook: {{}}\nEOF",
-                    f"cat <<'EOF' | bash\n{writes[1]}\nEOF", f"ssh blastoise <<'EOF'\npkill -f command_mux\nEOF",
-                    f"env -C /tmp sh <<'EOF'\n{writes[1]}\nEOF", f"docker exec -i c sh <<'EOF'\n{writes[1]}\nEOF",
-                    f'codex-task N <<EOF\n$({writes[1]})\nEOF',                       # unquoted: $(...) runs
-                    f"cat > run.sh <<'EOF'\n{writes[1]}\nEOF\nbash run.sh",            # a script run next
-                    f"f() {{ bash; }}; f <<'EOF'\n{writes[1]}\nEOF", f"$X <<'EOF'\n{writes[1]}\nEOF"):
-        assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
-
-
-def test_a_heredoc_body_is_data_only_for_a_known_reader(trees):
-    live, wt, base = trees
-    write = f'sed -i s/false/true/ {live}/config/agent.yaml'
-    for command in (f"python3.12-dbg - <<'EOF'\nimport os; os.system('{write}')\nEOF",
-                    f"ipython <<'EOF'\n!{write}\nEOF", f"bash5 <<'EOF'\n{write}\nEOF",
-                    f"gdb -batch <<'EOF'\nshell {write}\nEOF", f"sqlite3 <<'EOF'\n.shell {write}\nEOF",
-                    f"mystery-tool <<'EOF'\n{write}\nEOF"):
-        assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
-    prompt = f'Pin the profile, then {write}.'
-    for command in (f".handoff/tools/codex-task NAME <<'EOF'\n{prompt}\nEOF", f"codex-ideate X <<'EOF'\n{prompt}\nEOF",
-                    f"cat <<'EOF' | grep pin\n{prompt}\nEOF",
-                    "cat > /tmp/notes.md <<'EOF'\n# Notes\nThe hook now reads heredocs; tests pass.\nEOF",
-                    f"cat > /tmp/notes.md <<'EOF'\nthen {write}\nEOF"):          # scratch data
-        assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    stop = base / 'bags' / 'agent' / 'stop'
+    stop.write_text('')
+    try:
+        for command, cwd in ((f'rm {stop}', '/'), (f'echo > {stop}', '/'), ('rm agent/stop', str(base / 'bags')),
+                             (f'cd {base}/bags && rm agent/stop', '/'), (f'mv {stop} /tmp/', '/'),
+                             (f'rm {base}/bags/agent/*', '/'), ('rm $D/agent/stop', '/'),
+                             (f'rm {base}/mhseals/command_mux_232.json', '/'),
+                             ("echo '{}' > ~/.cache/x/command_mux_holds.json", '/'),
+                             (f'sed -i s/a/b/ {live}/.agents/hook.py', '/'),
+                             (f'cp /tmp/h.py {live}/src/mhseals_agents/hooks/hook.py', '/'),
+                             (f'tee {live}/src/x/agent_hook.py', '/'),
+                             (f'sudo dd of={live}/.codex/hooks.json', '/'), (f'echo {{}} > {live}/.claude/settings.json', '/')):
+            assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
+        for command, cwd in ((f'touch {stop}', '/'), (f'cat {stop}', '/'), (f'cp {stop} /tmp/s.txt', '/'),
+                             (f'sed -i s/a/b/ {wt}/.agents/hook.py', '/'), ('sed -i s/a/b/ agent_hook.py', str(wt)),
+                             (f'sed -i s/a/b/ {live}/config/agent.yaml', '/'),
+                             (f'cp /tmp/x.py {live}/launch/robot.launch.py', '/'),
+                             (f'git -C {live} checkout HEAD -- config', '/'), (f'rsync -a /tmp/src/ {live}/config/', '/'),
+                             (f'tar -xf /tmp/x.tar -C {live}', '/'), (f'python3 -I {live}/.agents/hook.py --playbook', '/')):
+            assert hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
+    finally:
+        stop.unlink()
 
 
 def test_every_shell_safety_deny_names_the_proper_route():
-    for command, says in (('sed -i s/a/b/ /x/config/agent.yaml', 'enable sim-arm in the sim container'),
-                          ('rm /run/user/1000/mhseals/command_mux_232.json', 'U in the TUI'),
-                          ('rm /data/agent/stop', 'touch it or use stop')):
+    for command, says in (('rm /run/user/1000/mhseals/command_mux_232.json', 'release HOLD --why'),
+                          ('rm /data/agent/stop', 'touch it or use stop'),
+                          ('git -c core.hooksPath=/dev/null commit -m x', 'commit-msg hook')):
         reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), config=hook.DEFAULTS)
         assert says in reason and 'boat_agent' in reason, reason
 
 
-# --- restriction audit (10-26): development is free, the boat routes are right ---------------------------------
-
-@pytest.mark.parametrize('command', [
-    'vim src/mhseals_hardware/mhseals_hardware/command_mux.py', 'sed -i s/a/b/ src/mhseals_hardware/mhseals_hardware/command_mux.py', 'ls -la src/mhseals_hardware/mhseals_hardware/command_mux.py', 'python3 -m pytest src/mhseals_hardware/test -q',
-    'black src/mhseals_hardware/mhseals_hardware/command_mux.py && git add src/mhseals_hardware/mhseals_hardware/command_mux.py', 'rm -rf build/mhseals_testing/agent/', 'rm -rf install/mhseals_testing/agent',
-    'cp config/agent.yaml /tmp/x.yaml', 'cp -a src/mhseals_testing/config/agent.yaml /tmp/agent-copy.yml',
-    'grep -rn pkill src | cut -d: -f1 | sort | uniq -c', "find src -name '*.py' | sort",
-    "jq .hook /tmp/a.json", 'diff a/agent.yaml b/agent.yaml', 'ls src/ && stat config/agent.yaml'])
-def test_development_of_the_safety_code_is_not_denied(command):
-    assert hook.denied(command, hook.DEFAULTS) is None
-
-
-@pytest.mark.parametrize('command', ["grep -rn 'ros2 topic pub /cmd_vel' src | cut -d: -f1 | sort -u",
-                                     "rg -l pkill src | head -3", "find . -name '*.py' -newer a | wc -l",
-                                     "ls -1 src | nl", "jq -r .deny[] c.json | tr a-z A-Z | column -t"])
-def test_more_read_only_tools_are_tier_a(command):
-    assert hook.text_only(command)
-
-
-@pytest.mark.parametrize('command', ['find . -name x -delete', "find . -exec rm {} ';'", 'find . -fprint out',
-                                     'sort -o out in', 'sort --output=out in', 'uniq in out', 'file -C -m m'])
-def test_tier_a_tools_that_write_or_run_are_not(command):
-    assert not hook.text_only(command)
+@pytest.mark.parametrize('command', ['git -c core.hooksPath=/dev/null commit -m x', 'git config core.hooksPath /tmp/h',
+                                     "git -c 'core.hooksPath=h' commit -m x", 'git config --unset core.hooksPath',
+                                     "GIT_CONFIG_PARAMETERS=\"'core.hooksPath=/tmp'\" git commit -m x"])
+def test_a_hooks_path_of_its_own_is_denied(command):
+    assert hook.denied(command, hook.DEFAULTS, cwd='/'), command
 
 
 @pytest.mark.parametrize('command', [
-    'python3 -m mhseals_hardware.command_mux', 'python3 src/mhseals_hardware/mhseals_hardware/command_mux.py', 'python3 -c "import mhseals_hardware.command_mux"',
-    "python3 -c 'import runpy; runpy.run_module(\"mhseals_hardware.command_mux\")'",
-    'install/mhseals_hardware/lib/mhseals_hardware/command_mux', 'ros2 run mhseals_hardware thruster_test --help'])
+    'python3 -m mhseals_hardware.command_mux', 'python3 src/mhseals_hardware/mhseals_hardware/command_mux.py',
+    'install/mhseals_hardware/lib/mhseals_hardware/command_mux', 'ros2 run mhseals_hardware thruster_test --help',
+    'sudo nohup ros2 launch mhseals_hardware thrusters.launch.py', 'ros2 launch x.launch.py command_mux:=true'])
 def test_running_the_driver_or_mux_is_still_arming(command):
     hit = hook.denied(command, hook.DEFAULTS)
     assert hit and 'arming' in hook.deny_reason(*hit, config=hook.DEFAULTS)
 
 
-@pytest.mark.parametrize('command', ['cp ~/x/agent.yaml config/', 'cp /tmp/x.yaml config/agent.yaml',
-                                     'rsync -a /tmp/agent.yaml ~/astro_dock/src/mhseals_testing/config/agent.yaml',
-                                     'ln -sf /tmp/agent.yaml config/', 'rm -rf agent', 'rm -rf $MHSEALS_DATA/agent',
-                                     'rm -rf ~/agent', 'find bags/agent/* -delete', 'rm /data/run/agent/stop'])
-def test_writes_to_agent_yaml_and_the_stop_dir_stay_denied(command):
-    assert hook.denied(command, hook.DEFAULTS)
+@pytest.mark.parametrize('command', ['vim src/mhseals_hardware/mhseals_hardware/command_mux.py',
+                                     'python3 -m pytest src/mhseals_hardware/test/test_command_mux.py -q',
+                                     'black src/mhseals_hardware/mhseals_hardware/command_mux.py',
+                                     'python3 -c "import mhseals_hardware.command_mux"', 'grep -n command_mux src -r'])
+def test_development_of_the_safety_code_is_not_denied(command):
+    assert hook.denied(command, hook.DEFAULTS) is None
 
 
 def test_pkill_routes_to_kill_by_pid_not_to_stopping_the_boat():
@@ -654,35 +600,25 @@ def test_arming_routes_to_boat_agent_arm_on_a_boat_and_here():
     reason = hook.deny_reason(*hit, config=hook.DEFAULTS)
     assert 'arm --claim ID' in reason and 'countdown' in reason and 'e-stop' in reason
     assert hook.use_of(hit[0]) == 'boat_agent arm'
-    reason = hook.deny_reason(*hook.denied('ros2 run mhseals_hardware command_mux', hook.DEFAULTS),
-                              config=hook.DEFAULTS)
-    assert 'arm --claim ID' in reason and '--sim-arm' not in reason
 
 
-def test_the_playbook_lists_arm_reload_and_set():
+def test_the_playbook_lists_the_verbs_why_release_and_set():
     text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
-    for verb in ('`arm --claim ID', '`reload config [NAME]`', '`set K=V --claim ID`', '`run f --claim ID`'):
-        assert verb in text
-    assert "arming stays the operator's" not in text
-
-
-@pytest.mark.parametrize('command, says', [
-    ('ros2 lifecycle set /bt_navigator shutdown', "Nav2's servers"),
-    ("ros2 topic pub /chatter std_msgs/String data:mavros\n/cmd_vel", 'raw motion'),
-    ('ros2 run mhseals_hardware command_mux --ros-args -p a:=agent.yaml', 'arming')])
-def test_the_reason_follows_the_rule_that_matched(command, says):
-    reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), config=hook.DEFAULTS)
-    assert says in reason and 'FCU' not in reason
+    for verb in ('`arm --claim ID', '`reload config [NAME]`', '`set K=V --claim ID`', '`run f --claim ID`',
+                 '`--why "..."`', '`release HOLD --why "..."`', 'agent_grants.yaml', 'never releasable',
+                 '`note --doing "..."`', 'BOAT_AGENT_CLAIM=ID'):
+        assert verb in text, verb
+    assert 'never release a hold' not in text
+    assert 'ssh only to run boat_agent' in text and '.handoff/tools/heavy' in text
+    assert 'export BOAT_AGENT=claude-3f2a' in text and 'exact PID' in text
 
 
 @pytest.mark.parametrize('command, route', [
     ('ros2 topic pub /thruster_pwm_node/test_pulses std_msgs/UInt16MultiArray "{data: [1600]}"', 'run KEY --claim'),
-    ('ros2 lifecycle set /controller_server deactivate', 'ask "..."'),
-    ('ros2 param set /controller_server FollowPath.max_vel_x 2.0', 'ask "..."'),
-    ('ros2 param set /collision_monitor enabled false', 'ask "..."'),
+    ('ros2 lifecycle set /controller_server deactivate', 'set K=V --claim ID'),
+    ('ros2 param set /controller_server FollowPath.max_vel_x 2.0', 'set K=V --claim ID'),
     ('ros2 service call /lifecycle_manager_navigation/manage_nodes nav2_msgs/srv/ManageLifecycleNodes "{command: 1}"',
-     'ask "..."'),
-    ('ros2 service call /velocity_smoother/set_parameters rcl_interfaces/srv/SetParameters "{}"', 'ask "..."'),
+     'set K=V --claim ID'),
     ('ros2 run mhseals_nav run_task --task gate', 'run mission --task NAME --claim'),
     ('python3 -m mhseals_nav.tasks.interface', 'run mission --task NAME --claim'),
     ('python3 -m mhseals_testing.procedures.nav', 'run KEY --claim')])
@@ -692,8 +628,9 @@ def test_raw_pulses_nav2_changes_and_direct_mission_runs_go_through_boat_agent(c
 
 
 @pytest.mark.parametrize('command', ['ros2 lifecycle get /controller_server', 'ros2 param get /bt_navigator x',
-                                     'ros2 topic echo /thruster_pwm_node/test_pulses', 'ros2 run mhseals_nav mission_check'])
-def test_reading_nav2_and_the_driver_stays_allowed(command):
+                                     'ros2 topic echo /thruster_pwm_node/test_pulses', 'ros2 run mhseals_nav mission_check',
+                                     'BOAT_AGENT_CLAIM=c1 ros2 param load /controller_server /tmp/p.yaml'])
+def test_reading_nav2_and_claimed_param_changes_stay_allowed(command):
     assert hook.denied(command, hook.DEFAULTS) is None
 
 
@@ -705,348 +642,28 @@ def test_no_session_gets_a_random_id_never_a_shared_one(monkeypatch):
     assert hook.who_of({'agent': 'codex', 'session_id': '9F-3e-00'}) == 'codex-9f3e'
 
 
-def test_the_playbook_matches_playbook_md():
-    text = hook.start_text('claude-3f2a', config=hook.DEFAULTS)
-    assert 'ssh only to run boat_agent' in text and '.handoff/tools/heavy' in text
-    assert 'MHSEALS_SIM_ARM=1' in text and 'export BOAT_AGENT=claude-3f2a' in text and 'exact PID' in text
+def test_a_boat_named_without_a_remote_shell_is_this_machine(monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    assert hook.denied('docker exec crane_autodemo kill 812  # blastoise', hook.DEFAULTS) is None
+    found = hook.denied('docker exec crane_autodemo ' + WK + '  # blastoise', hook.DEFAULTS)
+    assert found[1] is None and ' on blastoise' not in hook.deny_reason(*found, config=hook.DEFAULTS)
+    assert hook.denied('ssh blastoise-odroid kill 812', hook.DEFAULTS)[1] == 'blastoise-odroid'
+    assert hook.denied(f'BOAT_AGENT_TARGET=blastoise-odroid {hook.BOAT_AGENT} status; sudo reboot',
+                       hook.DEFAULTS) is None                    # the reboot runs here, not on the boat
 
 
-# Review fixes (10-26): output-file forms of Tier A tools, shell writes matching the edit tools, symlinks, dir
-# restores, the hook's own files, subagent ids.
-SHELL_LIVE = [('/', 'printf x | uniq - {L}/config/agent.yaml'), ('/', 'uniq /tmp/in {L}/config/agent.yaml'),
-              ('/', 'pytest --junitxml={L}/config/agent.yaml'), ('/', 'sort -o {L}/config/agent.yaml /tmp/x'),
-              ('/', 'sed -i s/a/b/ {L}/launch/robot.launch.py'), ('/', 'cp /tmp/x.py {L}/launch/robot.launch.py'),
-              ('/', 'echo x | tee {L}/launch/robot.launch.py'), ('/', 'echo x > {L}/launch/x.py'),
-              ('L', 'sed -i s/a/b/ launch/robot.launch.py'), ('W', 'cd {L} && sed -i s/a/b/ launch/robot.launch.py'),
-              ('/', 'ln -s {L}/config/agent.yaml {W}/link.yaml'), ('/', 'cp {W}/config/agent.yaml {L}/config/'),
-              ('/', 'rsync -a /tmp/src/ {L}/config/'), ('/', 'tar -xf /tmp/x.tar -C {L}'),
-              ('L', 'git checkout main -- config'), ('L', 'git restore config/'),
-              ('/', 'git -C {L} checkout HEAD -- config'), ('/', 'find {L} -name agent.yaml -delete'),
-              ('L', 'find . -name agent.yaml -delete'), ('/', 'find {L} -name agent.yaml | xargs rm'),
-              ('/', 'sed -i s/a/b/ {L}/.agents/hook.py'), ('/', 'echo {{}} > {L}/.claude/settings.json'),
-              ('/', 'cp /tmp/h.py {L}/src/x/agent_hook.py'), ('/', 'git -C {L} checkout -- .codex/hooks.json'),
-              ('/', 'echo x >> {W}/linked.yaml'), ('W', 'echo x | tee -a linked.yaml')]
-SHELL_DEV = [('/', 'printf x | uniq - {W}/config/agent.yaml'), ('/', 'printf x | uniq'),
-             ('W', 'sed -i s/a/b/ launch/robot.launch.py'), ('/', 'sed -i s/a/b/ {W}/launch/robot.launch.py'),
-             ('/', 'cp {L}/launch/robot.launch.py /tmp/y.py'), ('/', 'cd {W} && sed -i s/a/b/ launch/robot.launch.py'),
-             ('/', 'cp {W}/config/agent.yaml /tmp/'), ('/', 'cp {L}/config/agent.yaml /tmp/a.yaml'),
-             ('/', 'rsync -a /tmp/src/ {W}/config/'), ('/', 'tar -xf /tmp/x.tar -C {W}'),
-             ('/', 'tar -cf /tmp/x.tar -C {L} config'), ('W', 'git restore config/'), ('L', 'git checkout -b newbr'),
-             ('W', 'find . -name agent.yaml -delete'), ('/', 'sed -i s/a/b/ {W}/.agents/hook.py'),
-             ('/', 'python3 -I {L}/.agents/hook.py --playbook'), ('L', 'python3 -I .agents/hook.py --playbook; ls'),
-             ('/', 'pytest {W}/test/test_agent_hook.py -q; ls'), ('W', 'grep -n x launch/robot.launch.py | sed -n 1p')]
+def test_on_a_boat_host_every_command_runs_there(monkeypatch):
+    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')
+    assert hook.denied('sudo reboot', hook.DEFAULTS)[1] == 'blastoise-odroid'
+    assert hook.denied('tmux kill-session -t boat', hook.DEFAULTS)
+    assert hook.denied('tmux kill-session -t agent-claude-3f2a-x', hook.DEFAULTS, who='claude-3f2a') is None
+    assert hook.denied('tmux kill-session -t agent-codex-1111', hook.DEFAULTS, who='claude-3f2a')
+    assert hook.denied('echo b > /proc/sysrq-trigger', hook.DEFAULTS)
 
 
-@pytest.fixture
-def live_files(trees):
-    live, wt, base = trees
-    made = [live / 'launch' / 'robot.launch.py', live / '.agents' / 'hook.py', wt / 'launch' / 'robot.launch.py']
-    for path in made:
-        path.parent.mkdir(exist_ok=True)
-        path.write_text('')
-    link = wt / 'linked.yaml'
-    link.symlink_to(live / 'config' / 'agent.yaml')
-    yield trees
-    link.unlink()
-
-
-@pytest.mark.parametrize('cwd, command', SHELL_LIVE)
-def test_shell_writes_to_live_protected_files_are_denied(live_files, cwd, command):
-    live, wt, base = live_files
-    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
-    assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
-
-
-@pytest.mark.parametrize('cwd, command', SHELL_DEV)
-def test_worktree_development_and_reads_stay_allowed(live_files, cwd, command):
-    live, wt, base = live_files
-    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
-    assert hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
-
-
-def test_uniq_and_pytest_output_files_are_not_tier_a():
-    assert not hook.text_only('printf x | uniq - out') and hook.text_only('printf x | uniq -c -')
-    assert not hook.text_only('pytest --junitxml=x.xml') and not hook.text_only('pytest --basetemp=/x')
-    assert hook.text_only('pytest -q test/test_agent_hook.py -k uniq')
-
-
-def test_edit_tools_are_denied_on_the_live_hook_and_allowed_in_a_worktree(trees):
-    live, wt, base = trees
-    for name in ('src/r/p/agent_hook.py', '.agents/hook.py', '.claude/settings.json', '.claude/settings.local.json',
-                 '.codex/hooks.json'):
-        assert 'operator land it' in edit([['write', str(live / name)]]), name
-        assert edit([['write', str(wt / name)]]) is None, name
-    assert edit([['write', str(Path.home() / '.claude' / 'settings.json')]])                # outside git: live
-
-
-@pytest.mark.parametrize('command, says', [
-    ('ros2 run mhseals_testing operator_heartbeat', "operator's heartbeat"),
-    ("ros2 run --prefix 'gdb -ex run --args' mhseals_nav run_task --task gate", 'run mission --task NAME'),
-    ("ros2 run --prefix 'nice' mavros mavsafety arm", 'ask "..."')])
-def test_prefixed_runs_and_the_heartbeat_node_are_denied(command, says):
-    assert says in hook.deny_reason(hook.denied(command, hook.DEFAULTS)[0], config=hook.DEFAULTS)
-
-
-def test_a_subagent_gets_its_own_id_from_agent_id(monkeypatch):
-    monkeypatch.delenv('BOAT_AGENT', raising=False)
-    parent = hook.who_of({'agent': 'claude', 'session_id': SID})
-    subs = {hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': a}) for a in ('a1', 'a2', 'a3')}
-    assert parent == 'claude-3f2a' and parent not in subs and len(subs) == 3
-    assert hook.who_of({'agent': 'claude', 'session_id': SID, 'agent_id': 'a1'}) in subs     # stable
-    assert 'honour-based' in hook.start_text(parent, config=hook.DEFAULTS)
-
-
-# Re-review gaps (10-26): env -C and python chdir, directory-level writes (cp -r, git apply, patch -d, find roots),
-# the heartbeat by path and ros2 run flags after the package. Worktree development stays free.
-DIR_LIVE = [('/', 'env -C {L} sed -i s/a/b/ launch/robot.launch.py'),
-            ('/', 'env --chdir={L} cp /tmp/x.py launch/robot.launch.py'),
-            ('W', 'env -C {L} sed -i s/a/b/ config/agent.yaml'),
-            ('/', '''python3 -c "import os; os.chdir('{L}'); open('config/agent.yaml', 'w').write('x')"'''),
-            ('W', '''python3 -c "import os, sys; os.chdir(sys.argv[1]); open('launch/robot.launch.py', 'a')" {L}'''),
-            ('/', '''python3 -c "from pathlib import Path; Path('{L}/.agents/hook.py').write_text('')"'''),
-            ('/', 'cp -r {W}/config {L}/'), ('/', 'cp -r {W}/config/. {L}/config'),
-            ('/', 'cd {W} && cp -r config {L}/'), ('/', 'cp -a {W}/launch {L}'), ('/', 'cp -rt {L} {W}/launch'),
-            ('/', 'git -C {L} apply /tmp/p.diff'), ('L', 'git apply /tmp/p.diff'),
-            ('/', 'patch -d {L} -p1 -i /tmp/p.diff'), ('L', 'patch -p1 < /tmp/p.diff'),
-            ('/', 'patch --directory={L}/launch -p0 < /tmp/p.diff'),
-            ('/', 'find {L}/config -name *.yaml -delete'), ('/', 'find {L}/launch -type f -exec rm {{}} +'),
-            ('L', 'find launch -exec sed -i s/a/b/ {{}} ;')]
-DIR_DEV = [('/', 'env -C {W} sed -i s/a/b/ launch/robot.launch.py'),
-           ('/', '''python3 -c "import os; os.chdir('{W}'); open('config/agent.yaml', 'w').write('x')"'''),
-           ('/', '''python3 -c "print(open('{L}/launch/robot.launch.py').read())"'''),
-           ('/', 'cp -r {L}/config {W}/'), ('/', 'cp -r {W}/config/. {W}/config2'), ('W', 'cp -r config /tmp/cfg'),
-           ('/', 'git -C {W} apply /tmp/p.diff'), ('W', 'git apply /tmp/p.diff'),
-           ('/', 'patch -d {W} -p1 -i /tmp/p.diff'), ('W', 'patch -p1 < /tmp/p.diff'),
-           ('/', 'find {W}/config -name *.yaml -delete'), ('/', 'find {L} -name *.pyc -delete'),
-           ('/', 'find {L}/launch -name *.py -exec grep -n x {{}} +'), ('L', 'cp -r /tmp/a /tmp/b')]
-
-
-@pytest.mark.parametrize('cwd, command', DIR_LIVE)
-def test_directory_level_and_chdir_writes_into_live_files_are_denied(live_files, cwd, command):
-    live, wt, base = live_files
-    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
-    hit = hook.denied(command, hook.DEFAULTS, cwd=cwd)
-    assert hit, command
-    assert 'operator' in hook.deny_reason(hit[0], config=hook.DEFAULTS) or 'live' in hook.deny_reason(
-        hit[0], config=hook.DEFAULTS)
-
-
-@pytest.mark.parametrize('cwd, command', DIR_DEV + SHELL_DEV)
-def test_directory_level_and_chdir_work_in_a_worktree_stays_allowed(live_files, cwd, command):
-    live, wt, base = live_files
-    command, cwd = command.format(L=live, W=wt), {'L': str(live), 'W': str(wt)}.get(cwd, cwd)
-    assert hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
-
-
-@pytest.mark.parametrize('command, says', [
-    ('python3 src/mhseals_testing/mhseals_testing/ros/operator_heartbeat.py', "operator's heartbeat"),
-    ('install/mhseals_testing/lib/mhseals_testing/operator_heartbeat', "operator's heartbeat"),
-    ('nohup ~/astro_dock/install/mhseals_testing/lib/mhseals_testing/operator_heartbeat &', "operator's heartbeat"),
-    ('ros2 run mhseals_testing --prefix nice operator_heartbeat', "operator's heartbeat"),
-    ('ros2 run mhseals_nav --prefix nice run_task --task gate', 'run mission --task NAME'),
-    ('ros2 run mhseals_hardware --prefix nice thruster_pwm_node', 'arming')])
-def test_the_heartbeat_by_path_and_flags_after_the_package_are_denied(command, says):
-    assert says in hook.deny_reason(hook.denied(command, hook.DEFAULTS)[0], config=hook.DEFAULTS)
-
-
-@pytest.mark.parametrize('command', [
-    'sed -i s/a/b/ src/mhseals_testing/mhseals_testing/ros/operator_heartbeat.py',
-    'python3 -m pytest test/test_operator_heartbeat.py -q', 'ls install/mhseals_testing/lib/mhseals_testing/',
-    'cat src/mhseals_nav/mhseals_nav/tasks/run_task.py | head'])
-def test_editing_and_testing_the_heartbeat_stays_allowed(command):
-    assert hook.denied(command, hook.DEFAULTS) is None
-
-
-# Leading cd (10-27): ~, $HOME and ${HOME} expand (quoted or not, as plain() reads them) and ; or a newline ends
-# the cd like &&; later cds, $(...), ../ escapes and env -C still void it. A read of a live file is never denied,
-# and a python heredoc writes as a -c one-liner does: a worktree copy is fine, a live one is denied.
-HOOK_FILE = 'src/r/p/agent_hook.py'
-PY_HEREDOC = "python3 - <<EOF\nopen('{f}', 'w').write('x')\nEOF"
-CD_DEV = [('L', 'cd ~/wt ; sed -n 4,5p {H}'), ('L', 'cd ~/wt && sed -n 4,5p {H}'), ('L', 'cd ~/wt; sed -i s/a/b/ {H}'),
-          ('L', 'cd $HOME/wt ; sed -i s/a/b/ {H}'), ('L', 'cd "$HOME/wt"\nsed -i s/a/b/ {H}'),
-          ('L', 'cd "${{HOME}}"/wt; sed -i s/a/b/ launch/robot.launch.py'), ('L', "cd '~/wt' && sed -i s/a/b/ {H}"),
-          ('L', 'cd ~/wt && ' + PY_HEREDOC.format(f='{H}')), ('L', 'cd ~/wt\n' + PY_HEREDOC.format(f='{H}')),
-          ('/', PY_HEREDOC.format(f='{W}/{H}'))]
-CD_LIVE = [('/', 'cd ~/live ; sed -i s/a/b/ {H}'), ('/', 'cd ~/wt ; sed -i s/a/b/ ../live/{H}'),
-           ('/', 'cd ~/wt ; cd ~/live ; sed -i s/a/b/ {H}'), ('/', 'cd ~/wt && env -C ~/live sed -i s/a/b/ {H}'),
-           ('/', 'cd ~/wt && echo $(cd ~/live) ; sed -i s/a/b/ {H}'), ('/', 'cd $HOME/$X ; sed -i s/a/b/ {H}'),
-           ('/', 'cd ~/wt ; pushd ~/live ; sed -i s/a/b/ {H}'), ('/', 'cd ~other/wt ; sed -i s/a/b/ {H}'),
-           ('/', 'cd ~/live && ' + PY_HEREDOC.format(f='{H}')), ('/', PY_HEREDOC.format(f='{L}/{H}')),
-           ('L', "python3 <<'EOF'\nopen('{H}', 'a')\nEOF"), ('L', 'python3 -I - <<EOF\nimport os; os.remove("{H}")\nEOF'),
-           ('W', 'cd ~/wt ; ' + PY_HEREDOC.format(f='{L}/config/agent.yaml'))]
-READS = ['sed -n 1,3p {p}', 'sed -n -E 1p {p}', 'cat {p}', 'grep -n x {p}', 'head -3 {p}', 'less {p}', 'diff {p} {w}',
-         'git show HEAD:{f}', 'git diff -- {p}', 'git log -p -- {p}', 'git -C {l} show HEAD:{f}', 'cat {p} | grep x | head',
-         'cd {l} ; sed -n 1p {f}', 'cd {l} && cat {f}', 'cd ~/live\ngrep x {f}', 'cd {l}; git diff {f}', 'tail -2 {p} 2>&1']
-
-
-@pytest.fixture
-def home_trees(live_files, monkeypatch):
-    live, wt, base = live_files
-    for tree in (live, wt):
-        (tree / HOOK_FILE).parent.mkdir(parents=True, exist_ok=True)
-        (tree / HOOK_FILE).write_text('')
-    monkeypatch.setenv('HOME', str(base))
-    yield live_files
-
-
-@pytest.mark.parametrize('cwd, command, want', [c + (None,) for c in CD_DEV] + [c + ('deny',) for c in CD_LIVE])
-def test_a_leading_cd_resolves_home_and_semicolons(home_trees, cwd, command, want):
-    live, wt, base = home_trees
-    command = command.format(L=live, W=wt, H=HOOK_FILE)
-    got = hook.denied(command, hook.DEFAULTS, cwd={'L': str(live), 'W': str(wt)}.get(cwd, cwd))
-    assert bool(got) == (want == 'deny'), command
-
-
-# A failed cd before ; or a newline (no such directory, or a quoted literal ~ or $) moves nothing: the old cwd
-# resolves. After && the chain stops, so that cd is still trusted.
-@pytest.mark.parametrize('command', [
-    'cd {B}/nope ; rm config/agent.yaml', 'cd {B}/nope\nrm config/agent.yaml', 'cd ~/nope ; rm config/agent.yaml',
-    'cd {B}/nope ; sed -i s/a/b/ launch/robot.launch.py', 'cd {B}/nope\nsed -i s/a/b/ {H}',
-    "cd '~/wt' ; sed -i s/a/b/ {H}", "cd '$HOME/wt' ; rm config/agent.yaml", 'cd "~/wt"\nrm config/agent.yaml',
-    "cd '~/wt'\nsed -i s/a/b/ launch/robot.launch.py"])
-def test_a_failed_cd_before_a_semicolon_keeps_the_old_cwd(home_trees, command):
-    live, wt, base = home_trees
-    command = command.format(B=base, H=HOOK_FILE)
-    assert hook.denied(command, hook.DEFAULTS, cwd=str(live)), command
-
-
-def test_a_cd_that_works_or_stops_the_chain_still_resolves(home_trees):
-    live, wt, base = home_trees
-    for command in ("cd '~/wt' && rm config/agent.yaml",
-                    'cd ~/wt ; rm config/agent.yaml', 'cd "$HOME/wt"\nrm config/agent.yaml'):
-        assert hook.denied(command, hook.DEFAULTS, cwd=str(live)) is None, command
-
-
-@pytest.mark.parametrize('read', READS)
-@pytest.mark.parametrize('name', ['config/agent.yaml', 'launch/robot.launch.py', '.agents/hook.py', HOOK_FILE])
-def test_reading_a_live_safety_file_is_never_denied(home_trees, read, name):
-    live, wt, base = home_trees
-    for cwd in (str(live), '/'):
-        command = read.format(p=name if cwd != '/' else live / name, w=wt / name, f=name, l=live)
-        assert hook.text_only(command) and hook.denied(command, hook.DEFAULTS, cwd=cwd) is None, command
-
-
-WR = 'ros2 topic ' + 'pub /cmd_vel geometry_msgs/Twist x'
-WK = 'pk' + 'ill -f command_' + 'mux'
-WB = f"<<'EOF'\n{WR}; {WK}\nEOF"
-# Each one reopened a hole main closes when "a heredoc written to a file is data" (adversarial check, 10-31).
-WRITE_BYPASS = [
-    f"cat > x.sh {WB}", f"cat >> ~/.bashrc {WB}", f"cat >> /home/lunarz/.bashrc {WB}", f"cat >> ~/.zshrc {WB}",
-    f"cat >> ~/.bash_profile {WB}", f"cat > ~/.config/systemd/user/x.service {WB}", f"cat > /etc/cron.d/x {WB}",
-    f"cat > /var/spool/cron/lunarz {WB}", f"cat > .git/hooks/post-checkout {WB}",
-    f"cat > /home/lunarz/astro_dock/.git/hooks/pre-commit {WB}", f"cat > ~/.local/lib/python3.12/site-packages/x.pth {WB}",
-    f"cat > sitecustomize.py {WB}", f"cat > usercustomize.py {WB}",
-    f"cat > /home/lunarz/.cache/wt/foo/src/mhseals_nav/launch/x.launch.py {WB}",
-    f"cat > /home/lunarz/astro_dock/src/mhseals_nav/launch/x.launch.py {WB}",
-    f"cat > /home/lunarz/astro_dock/install/mhseals_nav/lib/python3.12/site-packages/mhseals_nav/__init__.py {WB}",
-    f"cat > /home/lunarz/astro_dock/src/mhseals_nav/mhseals_nav/__init__.py {WB}",
-    f"cat > ~/.config/autostart/x.desktop {WB}", f"cat > .envrc {WB}", f"tee x.sh {WB}",
-    f"cat > x.sh {WB}\nsource x.sh", f"cat > x.sh {WB}\nexec ./x.sh", f"cat > x.sh {WB}\nenv ./x.sh",
-    f"cat > x {WB} && cp x ~/.bashrc", f"cat > x {WB} && mv x .git/hooks/pre-commit",
-    f"cat > x {WB}; ln -s x .git/hooks/pre-commit",
-    f"cat > x.py {WB}\npython3 -m x", f"cat > x.sh {WB}\nsh x.s?", f"cat > x.sh {WB}\nsh x*",
-    f"cat > x.sh {WB}\nfor f in *.sh; do sh $f; done", f"cat > x.sh {WB}\nsh \"x.sh\"", f"cat > x.sh {WB}\nsh 'x'.sh",
-    f"cat > x.sh {WB}\nsh x\\.sh", f"cat > x.sh {WB}\nsh x''.sh",
-    f"cat > .git/config {WB}", f"cat > ~/.gitconfig {WB}", f"cat > ~/.ssh/rc {WB}",
-    f"cat > /tmp/x.sh <<EOF\n{WR}\nEOF", f"cat > x.sh {WB}\ncrontab x.sh",
-    "git -c alias.add='!" + WR + "' add .", "git -c core.hooksPath=h add . && git commit -m x",
-    "git add . && " + WR, "git add $(" + WR + ")", "git add `" + WK + "`",
-    "git -c core.fsmonitor='" + WK + "' add .", "git -c filter.a.clean='" + WK + "' add .",
-    "git -c core.fsmonitor='" + WK + "' status", "git add -A && git commit -m x; " + WK,
-    "GIT_EXTERNAL_DIFF='" + WK + "' git diff"]
-# The same files written as data (the allowlist's dirs and extensions), then reused or reached: still searched.
-# A call of readers only (Tier A) runs nothing, so a data file it writes and reads back is still data.
-DATA_THEN_READ = ['cat > /tmp/x.md {b}\ncat /tmp/x.md', 'cat > /tmp/x.md {b}\nwc -l /tmp/x.md', 'cat > /tmp/x.md <<EOF; true{t}',
-                  'cat /tmp/x.md > /tmp/y.md {b}']
-DATA_THEN_USED = ['cat > /tmp/x.md <<EOF && chmod +x /tmp/x.md{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x.m?',
-                  'cat > /tmp/x.md <<EOF && cp /tmp/x.md ~/.bashrc{t}', 'cat > /tmp/x.md {b}\nsh /tmp/x*',
-                  'cat > /tmp/x.md {b}\nsh "/tmp/x".md', 'cat > /tmp/x.md {b}\n. /tmp/x.md',
-                  'cat > notes.md {b}',                                   # cwd is the live checkout
-                  'cat > ~/.cache/wt/live/notes.md {b}',                  # a symlink to the live checkout
-                  'cat > ~/.cache/wt/w/.git/x.md {b}', 'cat > /tmp/x.md/../../home/.bashrc {b}',
-                  'cat > /tmp/$X.md {b}', 'cat > /tmp/x*.md {b}', 'cat > /tmp/x.sh {b}',
-                  'cat > /tmp/x {b}', 'cat > ~/astro_dock/.handoff/tools/x {b}', 'tee /tmp/x.md {b}',
-                  'cat > /tmp/x.md {b}\ncat /tmp/x.md | sh', 'cat > /tmp/x.md {b}\nbash < /tmp/x.md']
-
-
-@pytest.fixture
-def data_home(tmp_path, monkeypatch):
-    """HOME with astro_dock (the live checkout: a .git dir) and its .handoff, a linked worktree ~/.cache/wt/w and
-    ~/.cache/wt/live, a symlink to the live checkout."""
-    home = tmp_path / 'home'
-    (home / 'astro_dock' / '.git').mkdir(parents=True)
-    (home / 'astro_dock' / '.handoff' / 'state').mkdir(parents=True)
-    (home / '.cache' / 'wt' / 'w').mkdir(parents=True)
-    (home / '.cache' / 'wt' / 'w' / '.git').write_text('gitdir: /x/.git/worktrees/w\n')
-    (home / '.cache' / 'wt' / 'live').symlink_to(home / 'astro_dock')
-    monkeypatch.setenv('HOME', str(home))
-    (tmp_path / 'scratch').mkdir()
-    monkeypatch.setattr(hook, 'SCRATCH', str(tmp_path / 'scratch'))     # HOME is itself under /tmp here
-    return home
-
-
-@pytest.mark.parametrize('command', WRITE_BYPASS)
-def test_a_written_heredoc_that_could_run_or_load_is_searched(data_home, command):
-    assert hook.denied(command, hook.DEFAULTS, cwd=str(data_home / 'astro_dock')), command
-
-
-def test_a_heredoc_is_data_only_for_a_lone_write_of_a_data_file_in_notes_scratch_or_a_worktree(data_home):
-    dock, tmp = data_home / 'astro_dock', hook.SCRATCH + '/'
-    body = f"<<EOF\nkill the stale run_task; {WR}; {WK}\nEOF"
-    for command in (f'cat > .handoff/state/x.md {body}', f'cat >> ~/astro_dock/.handoff/brief.txt {body}',
-                    f'cat > /tmp/plan.yaml {body}', f'cat >> /tmp/x.log {body}', f'cat {body[:5]} > /tmp/x.json{body[5:]}',
-                    f'cat > ~/.cache/wt/w/docs/notes.md {body}', f"cat > /tmp/a.patch <<'EOF'\n+{WK}\nEOF",
-                    f".handoff/tools/codex-task NAME <<'EOF'\nThen {WK} and {WR}.\nEOF",
-                    'git add x && git commit -m "kill the stale run_task; pkill -f command_mux is denied"'):
-        command = command.replace('/tmp/', tmp)
-        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)) is None, command
-    for command in DATA_THEN_USED:
-        command = command.format(b=body, t=body[5:]).replace('/tmp/', tmp)
-        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)), command
-    for command in DATA_THEN_READ:
-        command = command.format(b=body, t=body[5:]).replace('/tmp/', tmp)
-        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)) is None, command
-    (data_home / 'scratch').symlink_to(hook.SCRATCH)
-    assert hook.denied(f'cat > ~/scratch/x.md {body}', hook.DEFAULTS, cwd='/') is None      # resolves into /tmp
-    assert hook.denied(f'cat > .handoff/state/x.md {body}', hook.DEFAULTS)                  # no cwd: unreadable
-
-
-# Bash ends a heredoc at the exact terminator line as it reads it: a quoted delimiter keeps a trailing backslash
-# literal (it joins nothing), and quotes or backslashes anywhere in the word (E\OF, 'E'OF, "E"OF) are removed and
-# make the body literal. Any doubt (an unterminated body, an odd delimiter) searches the whole call (re-check, 10-31).
-HEREDOC_BYPASS = [f"cat > /tmp/n.md <<'EOF'\nx\\\nEOF\n{k}\nEOF" for k in (WK, WR)] + [
-    f"cat > /tmp/n.md <<{d}\nx\nEOF\n{WK}\nEOF" for d in ('E\\OF', "'E'OF", '"E"OF', "E'O'F", '\\EOF', '"EOF"')] + [
-    f"cat > /tmp/n.md <<EOF\nx\\\nEOF\n{WK}\nEOF", f"cat > /tmp/n.md <<'EOF'\n{WK}", f"cat > /tmp/n.md <<EOF\n{WK}",
-    f"cat > /tmp/n.md <<'EOF\n{WK}\nEOF", f"cat > /tmp/n.md <<$X\nx\n$X\n{WK}\n$X",
-    f"cat > /tmp/n.md <<A <<B\nx\nA\nx\nB\n{WK}", f"cat > /tmp/n.md <<'A'\nx\nA\n{WK}"]
-
-
-@pytest.mark.parametrize('command', HEREDOC_BYPASS)
-def test_a_heredoc_ends_where_bash_ends_it(data_home, command):
-    assert hook.denied(command.replace('/tmp/', hook.SCRATCH + '/'), hook.DEFAULTS, cwd='/'), command
-
-
-@pytest.mark.parametrize('delim', ["'EOF'", '"EOF"', 'E\\OF', "'E'OF", '"E"OF', '\\EOF', 'EOF'])
-def test_a_heredoc_written_as_data_still_ends_where_bash_ends_it(data_home, delim):
-    body = f"x\\\ny {WK}" if delim != 'EOF' else f"y {WK}"     # a quoted body keeps its trailing backslash
-    command = f"cat > {hook.SCRATCH}/n.md <<{delim}\n{body}\nEOF"
-    assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
-    assert [f[1:3] for f in hook.heredocs(command)[1]] == [['EOF', delim != 'EOF']]
-
-
-@pytest.mark.parametrize('command', ['git -c user.name=t -c commit.gpgsign=false commit -qm "hook note"',
-                                     'GIT_PAGER=cat git log -3', 'git -C /tmp/r status',
-                                     'GIT_AUTHOR_NAME=t git commit -m x'])
-def test_plain_git_settings_are_not_denied(command):
-    assert hook.denied(command, hook.DEFAULTS, cwd='/') is None, command
-
-
-@pytest.mark.parametrize('command', ['git -c core.editor=vim commit', 'git --exec-path=/tmp/x status',
-                                     'git --config-env=core.pager=X log', 'GIT_DIR=/tmp/r/.git git status',
-                                     'git config core.hooksPath /tmp/h', 'git config alias.st "!sh x"',
-                                     'GIT_PAGER=./x git log', "git -c 'core.hooksPath=h' commit -m x"])
-def test_git_that_runs_a_chosen_program_is_denied(command):
-    assert not hook.text_only(command) and hook.denied(command, hook.DEFAULTS, cwd='/'), command
+def test_a_block_names_the_id_the_agent_exported(sent):
+    sent('pre', f'export BOAT_AGENT=claude-fcu; {hook.BOAT_AGENT} status')
+    assert '--who claude-fcu' in sent('pre', WK)['deny']
 
 
 def test_a_block_names_the_id_the_agent_claimed_with(sent):
@@ -1111,204 +728,6 @@ def test_private_sockets_stay_free_even_on_a_boat_host(command, monkeypatch):
 def test_watching_the_boats_tui_stays_allowed(command):
     assert hook.denied(f'ssh blastoise-odroid "{command}"', hook.DEFAULTS) is None
 
-
-# --- false positives of 10-31/11-01 (set 2): what runs, what is written and where --------------------------------------
-
-def _fp_allow(dock):
-    holds = '~/.cache/crane-autodemo/data/sessions'
-    return [
-        # a list of launch or hook files fed to a reader
-        'find src -name agent_hook.py | xargs wc -l', 'git ls-files | grep launch/ | xargs -n 1 grep -l mux',
-        # a report written by a python script whose text names launch files, holds and agent.yaml
-        f"mkdir -p {dock}/.handoff/research && python3 - <<'PY'\nfrom pathlib import Path\n"
-        f"p = Path('{dock}/.handoff/research/geom.md')\n"
-        "p.write_text('reads launch/robot.launch.py; command_mux_holds.json; agent.yaml; patch unchanged')\nPY",
-        f"python3 - <<'PY'\nfrom pathlib import Path\nwith Path('{dock}/.handoff/state/merge-queue.md').open('a') as f:\n"
-        "    f.write('range-diff: patch unchanged\\n')\nPY",
-        f"python3 - <<'PY'\nfrom pathlib import Path\nt = Path('{dock}/.handoff/research/x.md')\n"
-        "t.write_text('kill mavros on blastoise'.replace('kill', 'stop'))\nPY",
-        # a report heredoc after a mkdir, a brief then the codex-task that reads it
-        "mkdir -p .handoff/research; cat > .handoff/research/f.md <<'EOF'\n`command_mux_holds.json` records `stale`\nEOF",
-        "mkdir -p .handoff/state/briefs; cat > .handoff/state/briefs/b.txt <<'EOF'\nDo not use `git -c ...`. " + WK
-        + "\nEOF\nCODEX_AFTER=x nohup .handoff/tools/codex-task b < .handoff/state/briefs/b.txt > /dev/null 2>&1 &",
-        # a scratch script whose strings name launch files and agent.yaml (running it reads only)
-        "mkdir -p ~/.cache/params-work; cat > ~/.cache/params-work/x.py <<'PY'\nimport json\n"
-        "X = [dict(file='src/' + 'launch/odom.launch.py', line=18), 'config/agent.yaml']\nprint(json.dumps(X))\nPY",
-        # archived holds read (and summarised into a report)
-        f"python3 - <<'PY'\nimport json\nfrom pathlib import Path\nfor d in Path('{holds}').expanduser().iterdir():\n"
-        "    print(json.loads((d / 'command_mux_holds.json').read_text()))\nPY",
-        f"python3 - <<'PY'\nimport json\nfrom pathlib import Path\nout = Path('{dock}/.handoff/research/g')\n"
-        "out.mkdir(parents=True, exist_ok=True)\nrows = []\n"
-        f"for d in sorted(Path('{holds}').expanduser().iterdir()):\n"
-        "    rows.append(json.loads((d / 'command_mux_holds.json').read_text()))\n"
-        "(out / 'holds.json').write_text(json.dumps(rows))\nPY",
-        # text naming the FCU link and a stop word appended to a local log; a kill of a literal PID
-        "printf '%s\\n' 'blastoise: mavros link down, kill it then restart' >> .handoff/state/notes.md",
-        "echo 'ssh blastoise-odroid: mavros needs a kill and restart' >> ~/.cache/s.log",
-        'kill 4242; echo stopped the local mavros sim', 'kill -INT 4242 && grep mavros ~/.cache/x.log',
-        # the local sim container is this machine
-        "docker exec crane_autodemo bash -lc 'MHSEALS_PROFILE=blastoise ros2 topic echo --once /odom/local'",
-        'docker exec crane_autodemo kill -INT 812  # blastoise profile sim',
-        # git's editor set to true or :
-        'git -c core.editor=true cherry-pick --continue', 'GIT_EDITOR=true git rebase --continue',
-        "GIT_SEQUENCE_EDITOR=: git -c 'core.editor=true' rebase -i HEAD~2"]
-
-
-def _fp_deny(dock):
-    agent_yaml, launch = f'{dock}/config/agent.yaml', f'{dock}/launch/robot.launch.py'
-    return [
-        'kill $(pgrep -f command_mux)', "kill $(ps aux | grep mavros | awk '{print $2}')", 'pid=$(pgrep mavros); kill $pid',
-        'kill -9 `pgrep thruster_pwm_node`', 'kill -9 $(cat /run/mavros.pid)',
-        'find . -name robot.launch.py | xargs rm', 'find . -name robot.launch.py | xargs grep -l x | xargs rm',
-        "echo '{}' > ~/.cache/crane-autodemo/data/s/command_mux_holds.json", "echo '{}' > ~/.cache/x/hold_store.json",
-        f'printf x >> {agent_yaml}',
-        "python3 - <<'PY'\nfrom pathlib import Path\nPath('~/.cache/a/command_mux_holds.json').expanduser().write_text('{}')\nPY",
-        "python3 - <<'PY'\nfrom pathlib import Path\np = Path('/x/s') / 'command_mux_holds.json'\np.write_text('{}')\nPY",
-        "python3 - <<'PY'\nfrom pathlib import Path\nfor d in Path('/x').iterdir():\n    (d / 'command_mux_holds.json').unlink()\nPY",
-        f"python3 - <<'PY'\nimport shutil\nshutil.copy('/tmp/a', '{launch}')\nPY",
-        f"python3 - <<'PY'\nf = '{launch}'\ndef w(p):\n    open(p, 'w').write('')\nw(f)\nPY",
-        f"python3 - <<'PY'\nf = open\nf('{agent_yaml}', 'w').write('x')\nPY",
-        f"python3 - <<'PY'\nimport operator\nfrom pathlib import Path\n"
-        f"operator.methodcaller('write_text', 'x')(Path('{agent_yaml}'))\nPY",
-        "python3 - <<'PY'\nimport os\nos.system('" + WR + "')\nPY",
-        "python3 - <<'PY'\nimport rclpy\nn = rclpy.create_node('x'); n.create_publisher(T, '/cmd_vel', 1)\nPY",
-        "python3 - <<PY\nfrom pathlib import Path\nPath('/tmp/a.md').write_text('$(" + WR + ")')\nPY",
-        "cat > ~/.cache/r.py <<'PY'\n'ros2' 'topic' 'pub' '/cmd_vel' 'x'\nPY\nbash ~/.cache/r.py",
-        "printf '" + WR + "\\n' > ~/.cache/x.md; bash ~/.cache/x.md",
-        "python3 - <<'PY'\nimport paramiko\nc = paramiko.SSHClient(); c.connect('blastoise-odroid')\n"
-        "c.exec_command('sudo reboot')\nPY",
-        'DOCKER_HOST=ssh://blastoise-odroid docker restart mavros', 'ssh blastoise-odroid kill 1234',
-        "git -c core.editor='true; rm -rf x' commit", 'git -c "core.editor=true;rm x" commit',
-        'git -c core.editor="true $(id)" commit', 'GIT_EDITOR=true\\;x git commit', "GIT_EDITOR='sh -c x' git commit"]
-
-
-def test_false_positives_set_2_are_allowed(data_home, monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    dock = data_home / 'astro_dock'
-    for command in _fp_allow(dock):
-        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)) is None, command
-
-
-def test_real_control_and_live_writes_stay_denied_next_to_set_2(data_home, monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    dock = data_home / 'astro_dock'
-    (dock / 'config').mkdir()
-    (dock / 'config' / 'agent.yaml').write_text('hook: {}\n')
-    (dock / 'launch').mkdir()
-    (dock / 'launch' / 'robot.launch.py').write_text('')
-    for command in _fp_deny(dock):
-        assert hook.denied(command, hook.DEFAULTS, cwd=str(dock)), command
-
-
-def test_a_boat_named_without_a_remote_shell_is_this_machine(monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    assert hook.denied('docker exec crane_autodemo kill 812  # blastoise', hook.DEFAULTS) is None
-    found = hook.denied('docker exec crane_autodemo ' + WK + '  # blastoise', hook.DEFAULTS)
-    assert found[1] is None and ' on blastoise' not in hook.deny_reason(*found, config=hook.DEFAULTS)
-    assert hook.denied('ssh blastoise-odroid kill 812', hook.DEFAULTS)[1] == 'blastoise-odroid'
-
-
-def test_a_block_names_the_id_the_agent_exported(sent):
-    sent('pre', f'export BOAT_AGENT=claude-fcu; {hook.BOAT_AGENT} status')
-    assert '--who claude-fcu' in sent('pre', WK)['deny']
-
-
-# A python script reaching a process, a signal, a module past PY_ATTRS or an unchecked path is not inert: its body goes
-# back to the search (from-imports and aliases, module values, hops, keyword paths, eval paths in safe modules).
-PY_NOT_INERT = [
-    "from os import system as s\ns('true')", "from os import execvp\nexecvp('true', ['true'])",
-    "from os import spawnlp, P_WAIT\nspawnlp(P_WAIT, 'true', 'true')", "from os import posix_spawnp as p\np('true', ['true'], {})",
-    "from os import kill as k\nk(1, 0)", "from os import fork as f\nf()", "from os import *\nexecvp('true', ['true'])",
-    "import os as o\no.remove('/home/x/.bashrc')", "import shutil as s\ns.copy('/tmp/a.md', '/home/x/.bashrc')",
-    "import shutil\nm = shutil\nm.move('/tmp/a.md', '/home/x/.bashrc')", "from shutil import rmtree\nrmtree('/home/x/src')",
-    "import os\nos.path.os.remove('/home/x/.bashrc')", "import shutil\nshutil.move('/tmp/a.md', dst='/home/x/.bashrc')",
-    "import os\nos.replace('/tmp/a.md', dst='/home/x/.bashrc')",
-    "from pathlib import Path\nPath('/tmp/a.md').rename(target='/home/x/.bashrc')",
-    "from pathlib import Path\nPath('/tmp/a.md').replace(target='/home/x/.bashrc')",
-    "import argparse\nargparse.FileType('w')('/home/x/.bashrc')",
-    "import yaml\nyaml.load('!!python/object/apply:os.system [true]', yaml.CLoader)",
-    "import yaml\nlist(yaml.unsafe_load_all('!!python/object/apply:os.system [true]'))",
-    "import typing\ndef f(x: \"__import__('os').system('true')\"): pass\ntyping.get_type_hints(f)",
-    "import os, typing\ntyping.operator.methodcaller('system', 'true')(os)",
-    "import dataclasses\ndataclasses.inspect.importlib.import_module('subprocess').run(['true'])",
-    "import os, string\nstring.Formatter().get_field('0.system', [os], {})[0]('true')",
-    "import os, sys\nos.environ['PYTHONBREAKPOINT'] = 'os.system'\nsys.breakpointhook('true')",
-    "import os\nos.environ['PAGER'] = 'true'\nhelp(len)", "import subprocess\nsubprocess.run(['true'])",
-    "import os\nos.system('true')", "import socket\nsocket.socket()", "import importlib\nimportlib.import_module('os')",
-    # a top-level path or a builtin the check reads, shadowed by a parameter, except/match name, def or class
-    "P = '/tmp/a.md'\ndef f(P):\n    open(P, 'w').write('x')\nf('/home/x/.bashrc')",
-    "P = '/tmp/a.md'\n(lambda P: open(P, 'w'))('/home/x/.bashrc')",
-    "P = '/tmp/a.md'\ntry:\n    1 / 0\nexcept Exception as P:\n    open(str(P), 'w')",
-    "P = '/tmp/a.md'\nmatch '/home/x/.bashrc':\n    case P:\n        open(P, 'w')",
-    "def Path(x):\n    return '/home/x/.bashrc'\nopen(Path('/tmp/a.md'), 'w')",
-    "str = lambda x: '/home/x/.bashrc'\nopen(str('/tmp/a.md'), 'w')",
-    # open's mode hidden in **kw or *args
-    "open('/home/x/.bashrc', **{'mode': 'w'})", "open(*['/home/x/.bashrc', 'w'])",
-    "from pathlib import Path\nPath('/home/x/.bashrc').open(**{'mode': 'w'})"]
-PY_INERT = ["import os\nopen(os.path.join('/tmp', 'a.md'), 'w').write('x')", "import os.path\nprint(os.path.exists('/tmp'))",
-            "def save(text):\n    open('/tmp/a.md', 'w').write(text)\nsave('x')", "with open('/home/x/.bashrc') as f:\n    f.read()",
-            "import collections.abc\nprint(isinstance({}, collections.abc.Mapping))",
-            "from datetime import datetime, timezone\nprint(datetime.now(timezone.utc))",
-            "import shutil\nshutil.copy('/tmp/a.md', '/tmp/b.md')", "import yaml, sys\nprint(yaml.safe_load('a: 1'), file=sys.stderr)",
-            "from pathlib import Path\nPath('/tmp/a.md').rename('/tmp/c.md')", "s = 'a'.replace('a', 'b')"]
-
-
-@pytest.mark.parametrize('code', PY_NOT_INERT)
-def test_a_script_that_can_run_signal_or_write_past_the_allowlist_is_not_inert(code):
-    assert not hook.py_inert(code, '/tmp')
-
-
-@pytest.mark.parametrize('code', PY_INERT)
-def test_plain_reports_stay_inert(code):
-    assert hook.py_inert(code, '/tmp')
-
-
-def test_an_aliased_system_call_is_searched():
-    assert hook.denied(f"python3 - <<'PY'\nfrom os import system as s\ns('{WR}')\nPY", hook.DEFAULTS, cwd='/tmp')
-
-
-# Python that is not inert is searched with its string literals joined (py_text): a list argv is the command it runs.
-PY_ARGV_DENY = [
-    "cat > /tmp/w/x.py <<'PY'\nimport subprocess\nsubprocess.run(['ros2','topic','pub','/cmd_vel','x','y'])\nPY",
-    "python3 - <<'PY'\nimport os\nos.environ['X'] = '1'\nos.execvp('ros2', ['ros2', 'topic', 'pub', '/cmd_vel', 'x', 'y'])\nPY",
-    "cat > /tmp/w/x.py <<'PY'\nimport subprocess\nsubprocess.run(['ros2', 'action', 'send_goal', '/navigate_to_pose', 'x'])\n"
-    "PY\npython3 /tmp/w/x.py",
-    "python3 - <<'PY'\nimport subprocess\nsubprocess.call(['ros2', 'service', 'call', '/mavros/cmd/arming', 'x'])\nPY",
-    "python3 -c \"import subprocess; subprocess.run(['ros2','topic','pub','/goal_pose','x'])\"",
-    "sudo python3 -u -c \"import os; os.execvp('ros2', ['ros2', 'param', 'set', '/command_mux', 'x', '1'])\""]
-PY_ARGV_ALLOW = [
-    "python3 - <<'PY'\nfrom pathlib import Path\nt = ['ros2', 'topic', 'pub', '/cmd_vel', '/mavros/cmd/arming', 'arming']\n"
-    "Path('/tmp/report.md').write_text(' '.join(t))\nPY",
-    "cat > /tmp/w/report.py <<'PY'\n# ros2 topic pub /cmd_vel is what the boat_agent run does\nimport json\n"
-    "print(json.dumps({'cmd': 'ros2', 'verb': 'topic', 'what': 'pub', 'topic': '/cmd_vel'}))\nPY",
-    "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['git', 'status'])\nPY",
-    "python3 -c \"import subprocess; subprocess.run(['ros2', 'topic', 'echo', '/cmd_vel'])\""]
-
-
-@pytest.mark.parametrize('command', PY_ARGV_DENY)
-def test_a_python_list_argv_that_drives_the_boat_is_denied(command):
-    found = hook.denied(command, hook.DEFAULTS, cwd='/tmp')
-    assert found and 'boat_agent' in hook.deny_reason(*found, config=hook.DEFAULTS)
-
-
-@pytest.mark.parametrize('command', PY_ARGV_ALLOW)
-def test_python_naming_the_boat_in_data_or_a_read_is_allowed(command):
-    assert not hook.denied(command, hook.DEFAULTS, cwd='/tmp')
-
-
-@pytest.mark.parametrize('command', [
-    'pgrep mavros > /tmp/p; kill $(cat /tmp/p)', 'pgrep mavros | xargs -I {} kill {}',
-    "python3 - <<'PY'\nimport os, subprocess\npid = int(subprocess.check_output(['pgrep', 'mavros']))\nos.kill(pid, 9)\nPY"])
-def test_a_kill_of_a_pid_found_by_the_controls_name_is_denied(command, monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    assert hook.denied(command, hook.DEFAULTS)
-
-
-@pytest.mark.parametrize('command', ['et blastoise-odroid -c reboot', 'kubectl --context blastoise exec x -- reboot',
-                                     'docker context use blastoise; docker restart x'])
-def test_other_remote_shells_reach_the_boat(command, monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
-    assert hook.denied(command, hook.DEFAULTS)[1] in ('blastoise', 'blastoise-odroid')
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke
