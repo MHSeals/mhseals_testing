@@ -66,7 +66,7 @@ PR_SET_PDEATHSIG = 1
 # agree with the boat's own (~/.config/mhseals/hardware.yaml there) on all of them.
 # Dotted keys are nested: the RC kill switch and mode channels the driver reads at start.
 PHYSICAL = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high',
-            'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat_hz', 'channel_map', 'reversed',
+            'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat', 'channel_map', 'reversed',
             'reverse_thrust_ratio', 'command_mux.stop_ch', 'command_mux.mode_ch')
 CHILDREN = {'thruster_pwm_node', 'calibrated_velocity_controller', 'command_mux'}  # mhseals_hardware
 
