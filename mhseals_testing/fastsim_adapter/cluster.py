@@ -7,6 +7,7 @@
         python: <a python with numpy, pyyaml, py_trees>
         repos: {mhseals_testing: URL, mhseals_nav: URL, crane_ml: URL}
         workers: 4
+        wrap: [<a host guard>, sim]                # optional prefix for the batch command
 
 Stdlib only: it runs inside the worker. A job's code is exact commits: the hypothesis repo at the
 job's ref (``ctx.repos``) and the others at ``spec.refs[name]`` (default ``main``), checked out
@@ -94,6 +95,10 @@ class FastsimBackend:
     def update(self):
         pass
 
+    def wrapped(self, cmd):
+        """``cmd`` behind the backend's ``wrap`` prefix (e.g. a host's heavy-job guard), if any."""
+        return [os.path.expanduser(str(w)) for w in self.options.get('wrap') or []] + cmd
+
     def code(self, ctx):
         """{repo: (checkout, sha)}: the hypothesis repo at the job's ref, the rest at spec refs."""
         data_dir = Path(ctx.work_dir).parents[1]
@@ -134,7 +139,8 @@ class FastsimBackend:
                'CRANE_DIR': str(crane), 'FASTSIM_TRUTHS': str(truths), **ctx.env}
         log = Path(ctx.work_dir) / 'batch.log'
         with open(log, 'w') as f:
-            self.proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env, cwd=str(testing))
+            self.proc = subprocess.Popen(self.wrapped(cmd), stdout=f, stderr=subprocess.STDOUT, env=env,
+                                         cwd=str(testing))
             code_ = self.proc.wait()
         self.log = log
         if code_:
@@ -192,7 +198,8 @@ class ReplayBackend(FastsimBackend):
                str(root / sessions[int(seed) - 1]), str(out), '--tune', json.dumps(self.ctx.spec.get('tune') or {})]
         env = {**os.environ, 'PYTHONPATH': os.pathsep.join(map(str, self.paths)), **self.ctx.env}
         with open(self.log, 'a') as f:
-            self.proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env, cwd=str(self.paths[0]))
+            self.proc = subprocess.Popen(self.wrapped(cmd), stdout=f, stderr=subprocess.STDOUT, env=env,
+                                         cwd=str(self.paths[0]))
             if self.proc.wait():
                 raise RuntimeError(f'replay exit {self.proc.returncode}: {self.log.read_text()[-1200:]}')
         return out
