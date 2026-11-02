@@ -5,7 +5,8 @@
 #           crane_full_stack in tmux -L boat session sim (it starts the stack and the ROS-TCP endpoint), then the
 #           player headless under xvfb-run with the course of SEED. Waits for down (or max_s) and tears down.
 #           --build refreshes the container's overlay from the workspace mains first; --dry-run prints the plan.
-#   down    stop the TUI session, the player and the container (exact PIDs) and give the slot back
+#   down    stop the TUI session, the player and the container (exact PIDs) and give the slot back; a session
+#           still queued for the slot is cancelled
 #   status  the domain, the player and the TUI session
 # Settings: config/sim/stack.yaml, each overridable as BOAT_SIM_<KEY> (BOAT_SIM_PLAYER=/path/CRANE.x86_64).
 # Never opens a window; tmux only on its own server (-L boat, $TMUX cleared). tools/boat_tui sim runs this.
@@ -70,6 +71,12 @@ player() { # headless (xvfb, never -nographics), the course of SEED; its truth b
 }
 
 down() {
+  # a session still queued for the slot (no domain yet) is cancelled, or it would start once the slot frees
+  if [ -s "$RUN/queued.pid" ] && [ ! -s "$RUN/domain" ]; then
+    pg=$(cat "$RUN/queued.pid")
+    [ "$(ps -o pgid= -p $$ | tr -d ' ')" != "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
+  fi
+  rm -f "$RUN/queued.pid"
   t kill-session -t "=$SIM_TMUX_SESSION" 2>/dev/null || true
   if [ -s "$RUN/player.pid" ]; then     # xvfb-run's pid: its children first, then itself
     pid=$(cat "$RUN/player.pid")
@@ -114,7 +121,7 @@ case $verb in
     fi
     # the stop file stays until this session starts: a session still ending sees it and gives the slot back
     build=''; [ "$BUILD" = 1 ] && build=--build
-    ( setsid "$HEAVY" unity "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & )
+    ( setsid "$HEAVY" unity "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & echo $! >"$RUN/queued.pid" )
     echo "boat_sim: queued for the heavy unity slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
     ;;
   _run) session ;;
@@ -124,5 +131,5 @@ case $verb in
     [ -s "$RUN/player.pid" ] && kill -0 "$(cat "$RUN/player.pid")" 2>/dev/null && echo "player: running" || echo "player: stopped"
     t has-session -t "=$SIM_TMUX_SESSION" 2>/dev/null && echo "tui: tmux -L boat attach -t $SIM_TMUX_SESSION" || echo "tui: none"
     ;;
-  *) sed -n '2,11s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
+  *) sed -n '2,12s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
 esac
