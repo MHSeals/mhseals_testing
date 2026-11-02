@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# boat_preview [up [REF] [--headless] [--test] [--dry-run] | down | attach | restart | status]: the owner's preview.
+#   up       REF (default origin/main; a branch, field branch or hypothesis ref) of the three packages, snapshot as
+#            git worktrees in ~/.cache/boat-preview/<ref>/ws and built there (symlink-install, again only when a sha
+#            changed) in its own container roboboat_preview from the sim image; its own ROS_DOMAIN_ID, localhost
+#            discovery, endpoint port, tmux -L preview, home, data and run dirs. boat_test crane_full_stack with the
+#            checklist panel (W), then the Unity player WINDOWED on this display (--headless: xvfb). Runs as the
+#            reserved heavy preview slot, which agent Unity sims queue behind. Attaches when this is a terminal.
+#   down     stop the TUI, the player and the container; give the slot back
+#   attach   the TUI again; restart: a new TUI takes over (boat_tui restart), the stack keeps running
+#   status   the ref, the TUI, the player and today's checklist results
+# --test: an integration test's preview (headless only): its own cache, container, socket, domain and port, results in
+# its run dir, the heavy unity slot. Agents start nothing else here (the agent hook denies it).
+# Settings: config/preview.yaml (BOAT_PREVIEW_<KEY>), over config/sim/stack.yaml. tools/boat_tui preview runs this.
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+HEAVY=${BOAT_PREVIEW_HEAVY:-$HOME/astro_dock/.handoff/tools/heavy}
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+IN=/home/roboboat/preview      # the snapshot root inside the container
+
+verb=${1:-}; [ $# -gt 0 ] && shift
+REF='' headless=0 test=0 dry=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --headless) headless=1 ;; --test) test=1 ;; --dry-run) dry=1 ;;
+    -*) echo "boat_preview: unknown option $1" >&2; exit 2 ;;
+    *) REF=$1 ;;
+  esac
+  shift
+done
+[ "$test" = 1 ] && [ "$verb" = up ] && [ "$headless" = 0 ] && { echo 'boat_preview: --test runs only --headless' >&2; exit 2; }
+eval "$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test))"
+mkdir -p "$PV_CACHE"
+CURRENT=$PV_CACHE/current      # the running preview's root and ref
+if [ "$verb" = up ] || [ "$verb" = _run ]; then
+  REF=${REF:-$PV_REF}; ROOT=$PV_CACHE/$(python3 -m mhseals_testing.harness.preview slug "$REF")
+else
+  ROOT=$(sed -n 1p "$CURRENT" 2>/dev/null || true); REF=$(sed -n 2p "$CURRENT" 2>/dev/null || true)
+fi
+WS=$ROOT/ws RUN=$ROOT/run
+t() { env -u TMUX -u TMUX_PANE tmux -L "$PV_SOCKET" "$@"; }
+tui() { BOAT_TUI_SOCKET=$PV_SOCKET "$here/tools/boat_tui" --session "$PV_SESSION" --container "$PV_CONTAINER" "$@"; }
+running() { [ -n "$ROOT" ] && [ -s "$ROOT/run/session.pid" ] && kill -0 "$(cat "$ROOT/run/session.pid")" 2>/dev/null; }
+alive() { t has-session -t "=$PV_SESSION" 2>/dev/null && [ "$(t display-message -p -t "=$PV_SESSION:" '#{pane_dead}')" != 1 ]; }
+
+attach() {
+  if [ -t 0 ] && [ -t 1 ]; then exec env -u TMUX tmux -L "$PV_SOCKET" attach -t "$PV_SESSION"; fi
+  echo "boat_preview: attach: tmux -L $PV_SOCKET attach -t $PV_SESSION"
+}
+
+snapshot() {   # each repo at REF (else origin/main) as a detached worktree; prints repo=sha ...
+  local repo src dst sha
+  for repo in $PV_REPOS; do timeout 30 git -C "$PV_SRC/$repo" fetch -q origin 2>/dev/null & done; wait
+  for repo in $PV_REPOS; do
+    src=$PV_SRC/$repo dst=$WS/src/$repo
+    sha=$(git -C "$src" rev-parse -q --verify "$REF^{commit}" || git -C "$src" rev-parse origin/main)
+    if [ -e "$dst/.git" ]; then git -C "$dst" checkout -q --force --detach "$sha"
+    else git -C "$src" worktree prune; git -C "$src" worktree add -q --detach "$dst" "$sha"; fi
+    printf '%s=%s ' "$repo" "$sha"
+  done
+}
+
+endpoint_port() {   # the snapshot's endpoint on the preview's port, so an agent sim on 6767 keeps it
+  local file=$WS/src/mhseals_nav/config/endpoint_startup.yaml
+  sed -i -E "s/^(unity: \{ip: [0-9.]+, port: )[0-9]+\}/\1$PV_PORT}/" "$file"
+  grep -q "port: $PV_PORT}" "$file" || { echo "boat_preview: cannot set the endpoint port in $file" >&2; exit 1; }
+}
+
+container_up() {
+  local results=$IN/run
+  docker rm -f "$PV_CONTAINER" >/dev/null 2>&1 || true
+  mkdir -p "$ROOT/home/.config" "$ROOT/data" "$RUN/xdg"; chmod 700 "$RUN/xdg"
+  # its own copy of the station config: the TUI saves settings there, never into the owner's
+  [ -d "$HOME/.config/mhseals" ] && rsync -a "$HOME/.config/mhseals/" "$ROOT/home/.config/mhseals/"
+  local mounts=(-v "$ROOT:$IN" -v "$PV_BASE:/home/roboboat/.cache/ctest/base:ro")
+  if [ -n "$PV_RESULTS" ]; then mkdir -p "$PV_RESULTS"; mounts+=(-v "$PV_RESULTS:/home/roboboat/preview-results"); results=/home/roboboat/preview-results; fi
+  docker run -d --name "$PV_CONTAINER" --label boat.preview=1 --init --ipc private --network host --user roboboat \
+    -e BASH_ENV= -e HOME="$IN/home" -e XDG_RUNTIME_DIR="$IN/run/xdg" -e ROS_DOMAIN_ID="$PV_DOMAIN" \
+    -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e MHSEALS_DATA="$IN/data" \
+    -e MHSEALS_HARDWARE_CONFIG="$IN/ws/src/mhseals_testing/config/sim/hardware_crane.yaml" \
+    -e BOAT_PREVIEW_CHECKLIST="$IN/run/checklist.json" -e BOAT_PREVIEW_RESULTS="$results" \
+    -e TERM=xterm-256color -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "${mounts[@]}" -w "$IN/ws" \
+    --entrypoint sleep "$PV_IMAGE" infinity >/dev/null
+}
+
+build() {   # colcon in the container, only when a sha changed since the last good build
+  local stamp=$1
+  if [ "$(cat "$ROOT/built" 2>/dev/null)" = "$stamp" ] && [ -e "$WS/install/setup.bash" ]; then
+    echo "boat_preview: build reused"; return
+  fi
+  echo "boat_preview: building $REF (a few minutes the first time)"
+  rm -f "$ROOT/built"
+  docker exec "$PV_CONTAINER" bash -c ". /opt/ros/jazzy/setup.bash; . /home/roboboat/.cache/ctest/base/install/setup.bash;
+    colcon build --symlink-install --base-paths src --cmake-args -DBUILD_TESTING=OFF" > "$RUN/build.log" 2>&1 \
+    || { echo "boat_preview: build failed, see $RUN/build.log" >&2; tail -n 15 "$RUN/build.log" >&2; exit 1; }
+  echo "$stamp" > "$ROOT/built"
+}
+
+player() {   # windowed on this display, or headless under xvfb with --headless; the course of the sim's seed
+  local w h; read -r w h <<< "$PV_SIZE"
+  local args=(-screen-fullscreen 0 -screen-width "$w" -screen-height "$h" -logFile "$RUN/player.log"
+    --crane-profile interactive-low --crane-scene "Roboboat Course" --crane-ros-ip 127.0.0.1 --crane-ros-port "$PV_PORT"
+    --crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-ros-nav-state
+    --crane-lidar-returns-only --crane-lidar-water-level 0.02 --crane-course-family "$PV_COURSE_FAMILY"
+    --crane-course-seed "$PV_SEED" --crane-roboboat-course-truth "$ROOT/data/course_truth.json")
+  rm -f "$RUN/player.log"
+  if [ "$headless" = 1 ]; then
+    ( exec xvfb-run -a -s "-screen 0 ${w}x${h}x24" nice -n 19 "$PV_PLAYER" "${args[@]}" ) >"$RUN/player-stdout.log" 2>&1 &
+  else
+    ( exec "$PV_PLAYER" "${args[@]}" ) >"$RUN/player-stdout.log" 2>&1 &
+  fi
+  echo $! > "$RUN/player.pid"
+}
+
+down() {
+  t kill-session -t "=$PV_SESSION" 2>/dev/null || true
+  if [ -s "$RUN/player.pid" ]; then     # xvfb-run's or the player's pid: its children first
+    pid=$(cat "$RUN/player.pid")
+    for c in $(pgrep -P "$pid" 2>/dev/null) "$pid"; do kill -0 "$c" 2>/dev/null && kill -TERM "$c" || true; done
+    rm -f "$RUN/player.pid"
+  fi
+  docker stop -t 15 "$PV_CONTAINER" >/dev/null 2>&1 || true
+  rm -f "$RUN/ready"; touch "$RUN/stop"
+  echo "boat_preview: down"
+}
+
+session() {
+  trap down EXIT; trap 'exit 143' INT TERM
+  rm -f "$RUN/stop" "$RUN/failed"; echo $$ > "$RUN/session.pid"
+  printf '%s\n%s\n' "$ROOT" "$REF" > "$CURRENT"
+  echo "boat_preview: snapshot of $REF"
+  stamp=$(snapshot); echo "boat_preview: $stamp"
+  endpoint_port
+  python3 -m mhseals_testing.harness.preview checklist "$WS" "$RUN/checklist.json" "$REF" $([ "$test" = 1 ] && echo --test)
+  container_up
+  build "$stamp"
+  tui up -- --profile "$PV_PROFILE" --set "command_mode=$PV_COMMAND_MODE"
+  touch "$RUN/ready"
+  local waited=0
+  until docker exec "$PV_CONTAINER" pgrep -f default_server_endpoint >/dev/null; do
+    [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: no ROS-TCP endpoint in $PV_READY_S s" >&2; break; }
+    sleep 1; waited=$((waited + 1))
+  done
+  sleep "$PV_CONNECT_S"
+  player
+  waited=0
+  until grep -q CRANE_ROBOBOAT_COURSE_READY "$RUN/player.log" 2>/dev/null; do
+    [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: player not ready in $PV_READY_S s, see $RUN/player.log" >&2; break; }
+    sleep 1; waited=$((waited + 1))
+  done
+  echo "boat_preview: ready, domain $PV_DOMAIN, port $PV_PORT; attach: tmux -L $PV_SOCKET attach -t $PV_SESSION"
+  local end=$(( $(date +%s) + PV_MAX_S ))
+  while [ ! -e "$RUN/stop" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 2; done
+}
+
+case $verb in
+  up)
+    [ -x "$PV_PLAYER" ] || { echo "boat_preview: no player at $PV_PLAYER (config/sim/stack.yaml player)" >&2; exit 2; }
+    slot=preview; [ "$test" = 1 ] && slot=unity
+    if [ "$dry" = 1 ]; then
+      echo "boat_preview: would run under $HEAVY $slot: $REF of $PV_REPOS in $WS, container $PV_CONTAINER ($PV_IMAGE)," \
+           "domain $PV_DOMAIN, port $PV_PORT, boat_test --profile $PV_PROFILE in tmux -L $PV_SOCKET session $PV_SESSION," \
+           "player $([ "$headless" = 1 ] && echo headless || echo windowed), checklist since $PV_SINCE"
+      exit 0
+    fi
+    if [ "$headless" = 0 ] && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+      echo 'boat_preview: no display here for the player window; use --headless' >&2; exit 2
+    fi
+    old=$(sed -n 1p "$CURRENT" 2>/dev/null || true)
+    if [ -n "$old" ] && [ -s "$old/run/session.pid" ] && kill -0 "$(cat "$old/run/session.pid")" 2>/dev/null; then
+      [ "$old" = "$ROOT" ] || { echo "boat_preview: a preview of $(sed -n 2p "$CURRENT") runs; boat_tui preview down first" >&2; exit 4; }
+      alive || tui up -- --profile "$PV_PROFILE" --set "command_mode=$PV_COMMAND_MODE" >/dev/null
+      attach; exit 0
+    fi
+    mkdir -p "$RUN"; rm -f "$RUN/ready" "$RUN/session.pid"
+    : > "$RUN/session.log"
+    ( setsid "$HEAVY" "$slot" "$0" _run "$REF" $([ "$headless" = 1 ] && echo --headless) $([ "$test" = 1 ] && echo --test) \
+        >>"$RUN/session.log" 2>&1 & )
+    shown=0 waited=0
+    until [ -e "$RUN/ready" ]; do
+      lines=$(wc -l < "$RUN/session.log"); [ "$lines" -gt "$shown" ] && { sed -n "$((shown + 1)),${lines}p" "$RUN/session.log"; shown=$lines; }
+      if [ "$waited" -ge "$PV_ATTACH_S" ] || grep -q 'boat_preview: down' "$RUN/session.log"; then
+        echo "boat_preview: not ready (log $RUN/session.log)" >&2; exit 1
+      fi
+      sleep 1; waited=$((waited + 1))
+    done
+    attach
+    ;;
+  _run) session ;;
+  down) [ -n "$ROOT" ] || { echo 'boat_preview: no preview'; exit 0; }; down ;;
+  attach) alive || { echo 'boat_preview: no preview TUI (boat_tui preview starts one)' >&2; exit 4; }; attach ;;
+  restart) tui restart ;;
+  status)
+    running && echo "preview: $REF ($ROOT)" || echo "preview: none"
+    alive && echo "tui: tmux -L $PV_SOCKET attach -t $PV_SESSION" || echo "tui: none"
+    [ -n "$ROOT" ] && [ -s "$RUN/player.pid" ] && kill -0 "$(cat "$RUN/player.pid")" 2>/dev/null && echo "player: running" || echo "player: stopped"
+    [ -z "$PV_RESULTS" ] || echo "checklist: $PV_RESULTS/preview-$(date +%F).md"
+    ;;
+  *) sed -n '2,13s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
+esac
