@@ -129,13 +129,27 @@ def same(left, right, tolerance=1e-7):
                                            for a, b in zip(p, q))
 
 
+STALE_S = 5.0          # fence_watchdog sends /fence/status at status_rate (2 Hz) and on every change
+
+
+def fresh(status, at, now):
+    """``status`` while it is younger than STALE_S, else it marked ``stale`` (inside unknown): a dead
+    fence_watchdog never leaves the row saying inside."""
+    if not isinstance(status, dict) or (at is not None and 0 <= now - at <= STALE_S):
+        return status
+    return dict(status, inside=None, stale=True)
+
+
 def status_line(status):
-    """``(state, text)`` of /fence/status: ``ok``, ``warn`` (no position) or ``bad`` (outside, with what to do)."""
+    """``(state, text)`` of /fence/status: ``ok``, ``warn`` (no position or stale) or ``bad`` (outside, with what
+    to do)."""
     if not isinstance(status, dict):
         return 'off', 'course area: no status'
     edge = status.get('distance_to_edge')
     far = f' {edge:.1f} m' if isinstance(edge, (int, float)) else ''
     mode = status.get('on_exit') or 'alert'
+    if status.get('stale'):
+        return 'warn', f'course area: no fresh status from fence_watchdog ({mode} on exit)'
     if status.get('inside') is None:
         return 'warn', f'course area: no position ({mode} on exit)'
     if status.get('inside'):

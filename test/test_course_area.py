@@ -129,4 +129,39 @@ def test_the_popup_builds_corners_from_the_fix_and_applies(tmp_path, monkeypatch
     assert course_area.pairs(client.params.values['course.corners'])[2][0] > BOX[2][0]     # nudged north
 
 
+def test_leaving_the_area_raises_a_standing_error_toast_until_back_inside():
+    from mhseals_testing.ui.app import App
+    from mhseals_testing.ui.toasts import Toasts
+    now = [100.0]
+    state = SimpleNamespace(fence_status={'inside': True, 'on_exit': 'alert'}, fence_status_at=100.0)
+    events = []
+
+    class Fake:
+        fence_alert, fence_status = App.fence_alert, App.fence_status
+        ros = SimpleNamespace(map=SimpleNamespace(clock=lambda: now[0]))
+        toasts, monitor, notice = Toasts(), SimpleNamespace(clock=lambda: now[0]), ''
+
+        def map_state(self):
+            return state
+
+        def emit(self, phase, **fields):
+            events.append(phase)
+    app = Fake()
+
+    def tick(status, at=None):
+        state.fence_status, state.fence_status_at = status, now[0] if at is None else at
+        app.fence_alert()
+        return [(t.kind, t.text) for t in app.toasts.visible(now[0])]
+    assert tick({'inside': True, 'on_exit': 'alert'}) == []
+    shown = tick({'inside': False, 'distance_to_edge': 3.2, 'on_exit': 'alert'})
+    assert shown[0][0] == 'fail' and 'drive the boat back inside' in shown[0][1] and events == ['fence_outside']
+    now[0] += 60.0       # an error toast never expires while outside, and is raised once
+    assert tick({'inside': False, 'distance_to_edge': 4.0, 'on_exit': 'alert'})[0][0] == 'fail'
+    assert tick({'inside': None, 'on_exit': 'alert'})[0][0] == 'fail' and events == ['fence_outside']
+    assert tick({'inside': True, 'on_exit': 'alert'})[0][0] == 'ok'
+    # a status fence_watchdog stopped sending is stale, never "inside"
+    stale = app.fence_status(SimpleNamespace(fence_status={'inside': True}, fence_status_at=now[0] - 30))
+    assert stale['inside'] is None and course_area.status_line(stale)[0] == 'warn'
+
+
 pytestmark = pytest.mark.smoke   # tools/smoke

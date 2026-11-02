@@ -466,7 +466,7 @@ class App:
             snapshot['control'] = self.control()
             state = self.map_state()
             if state is not None and getattr(state, 'fence_status', None) is not None:
-                snapshot['fence'] = state.fence_status          # the Course area and On exit rows
+                snapshot['fence'] = self.fence_status(state)    # the Course area and On exit rows
             if not self.watching:
                 snapshot['rec_mode'] = self.recorder.mode   # the Recording row (owner only)
         if self.live is not None:   # the Graphics row: this terminal's setting and drawing tier
@@ -2555,15 +2555,27 @@ class App:
         self.emit('fence_anchor', ok=ok, message=message)
         self.monitor.event(f"fence anchor: {message}")
 
+    def fence_status(self, state):
+        """The last /fence/status, marked stale when fence_watchdog went quiet (MapFeeds' own clock)."""
+        clock = getattr(getattr(self.ros, 'map', None), 'clock', time.monotonic)
+        return course_area.fresh(getattr(state, 'fence_status', None), getattr(state, 'fence_status_at', None),
+                                 clock())
+
     def fence_alert(self):
-        """Outside the course area: say it once, with the distance and what happens (on_exit)."""
+        """Outside the course area: the notice and an error toast that stays until the boat is back inside (or x),
+        with the distance and what happens (on_exit)."""
         state = self.map_state()
-        status = getattr(state, 'fence_status', None) if state is not None else None
+        status = self.fence_status(state) if state is not None else None
         outside = isinstance(status, dict) and status.get('inside') is False
-        if outside and not getattr(self, '_fence_out', False):
+        was = getattr(self, '_fence_out', False)
+        if outside and not was:
             self.notice = course_area.status_line(status)[1]
+            self.toasts.push('fence.outside', 'fail', self.notice, self.monitor.clock())
             self.emit('fence_outside', distance=status.get('distance_to_edge'), on_exit=status.get('on_exit'))
-        self._fence_out = outside
+        back = was and isinstance(status, dict) and status.get('inside') is True
+        if back:
+            self.toasts.push('fence.outside', 'ok', 'Back inside the course area', self.monitor.clock())
+        self._fence_out = outside or (was and not back)      # no position yet is not back inside
 
     def live_nav2(self):
         """Return the live Nav2 applier, built when first needed (it subscribes to ROS state)."""
