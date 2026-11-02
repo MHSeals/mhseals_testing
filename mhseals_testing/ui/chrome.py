@@ -57,6 +57,9 @@ def host_item(view, short=False):
 def working_item(view, now=None):
     """``◇ claude-3f2a 3s``: an agent is working on the boat but holds no claim; the glyph and age in
     muted magenta, the name in its vendor hue (Claude, Codex)."""
+    attention = (view.get('agent_desk') or {}).get('attention')
+    if attention:                    # one indicator; what the agent wants is in the Activity panel's agent view
+        return Text(f'{theme.AGENT_GLYPH} agent wants attention', style=f'bold {theme.WARN}')
     seen = authority_chip.working(view.get('agent_desk'), view.get('authority_record'),
                                   time.time() if now is None else now)
     if not seen:

@@ -62,13 +62,17 @@ def _shell(row, line):
 
 
 def _verb(item, state, result, hint=''):
+    """``▸ verb · why``: who, the verb, why the agent acts (--why) and the result."""
+    why = f"{theme.SEPARATOR}{item['why']}" if item.get('why') else ''
     return Row(t=(item.get('t_ns') or 0) / 1e9, who=item.get('who', '?'), state=state, result=result,
-               what=f"{theme.FOCUS} {item.get('label') or item.get('op', '?')}", hint=hint, lines=[item])
+               what=f"{theme.FOCUS} {item.get('label') or item.get('op', '?')}{why}", hint=hint, lines=[item])
 
 
 def _acts(desk):
-    """Verb rows: the current act, then the queue, then finished acts (``recent``), newest first."""
-    out = []
+    """Verb rows: each agent's "doing:" line (note --doing), the current act, the queue, then finished acts
+    (``recent``), newest first."""
+    out = [Row(t=float('inf'), who=who, state='off', result='', what=f"doing: {doing.get('text', '')}", lines=[doing])
+           for who, doing in sorted((desk.get('doing') or {}).items())]
     current = desk.get('act')
     if current:
         waiting = current.get('state') in ('starting', 'asking', 'waiting_arm')
@@ -113,7 +117,8 @@ def rows(desk):
     current = desk.get('act') or {}
     key = (len(notes), id(notes[-1]) if notes else None, len(recent), id(recent[-1]) if recent else None,
            tuple(sorted((k, str(v)) for k, v in current.items() if k != 'motion_lease_s')),
-           tuple(q.get('id') for q in desk.get('queue') or ()))
+           tuple(q.get('id') for q in desk.get('queue') or ()),
+           tuple(sorted((w, str(d.get('t_ns'))) for w, d in (desk.get('doing') or {}).items())))
     if key != _CACHE['key']:
         _CACHE.update(key=key, rows=fold(desk))
     return _CACHE['rows']

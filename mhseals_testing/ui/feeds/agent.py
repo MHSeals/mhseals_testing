@@ -13,7 +13,8 @@ Safety, in one place:
   ``app._runner_cancelled``. A goal is cancelled. A desk popup closes.
 * The motion lease: the act's blocking CLI renews every ``motion_s``/3; a lapse expires the claim
   through the arbiter, which stops exactly as ``E`` does.
-* Nothing here releases a hold. ``arm`` (ui/feeds/agent_ops.py) arms after a countdown banner the
+* Only ``release HOLD --why`` (ui/feeds/agent_ops.py, harness/agent_grants.py) releases a hold: a lease or
+  watchdog hold once its fault cleared, an operator hold with a grant, never the e-stop. ``arm`` arms after a countdown banner the
   operator cancels; the e-stop refuses it. ``run`` of an armed procedure raises the human arm panel, except
   ``run --sim-arm``: it arms (``app.agent_arm``) only when every harness/sim_arm.py check proves a
   simulator, and disarms when the run ends, aborts, passes ``sim_arm.max_s``, loses its lease or meets the
@@ -44,7 +45,7 @@ from mhseals_testing.ui.feeds import agent_ops
 MOTION = ('run', 'goal')
 # a refusal of these is a footer notice too, not only an agent-log row
 NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'fcu_set', 'fcu_restart', 'fcu_revert', 'arm',
-           'reload')
+           'reload', 'release_hold')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
@@ -58,13 +59,14 @@ FCU_OPS = ('fcu_get', 'fcu_rates', 'fcu_set', 'fcu_revert', 'fcu_restart')
 FCU_CLAIMED = ('fcu_set', 'fcu_revert', 'fcu_restart')
 # refused while the operator has declared manual, battery swap or power cycle (``paused``, exit 7); the reads,
 # ask, note, mark, release and stop keep working
-CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'arm', 'reload', *FCU_CLAIMED)
+CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'arm', 'reload', 'release_hold', *FCU_CLAIMED)
 # Never an agent's to start or stop, whatever agent.yaml lists: the thruster driver, the mux and the velocity
 # controller (they arm), the operator's heartbeat and the safety watchdogs; nor a commander part (Nav2, the
 # mission runner), checked by kind.
 NEVER_PARTS = re.compile(r'thruster|command_mux|controller|operator_heartbeat|watchdog')
 PROGRESS_S = 5.0
 STATUS_S = 1.0
+ATTENTION_S = 30.0             # a refusal or a hold release keeps the header's "agent wants attention" this long
 HINTS = {'keys': 'operator must re-arm and release the hold (U)', 'hold': 'operator must U',
          # Space's hold puts the mux on manual too, so 'keyboard' is Space or manual driving
          'keyboard': 'operator took over (Space or manual): wait until they re-arm and release the hold (U)',
@@ -121,6 +123,7 @@ class AgentDesk:
         self.claim_who, self.expired_seen = {}, set()   # agent claim id -> who; lapsed leases already told
         self.dry = None                     # (req, thread, box) of the goal dry run in flight
         self.fcu = None                     # harness.agent_fcu.AgentFcu, made on the first fcu op
+        self.doing = {}                     # who -> {text, t_ns}: each agent's latest note --doing
 
     # --- the feed --------------------------------------------------------------------------
 
@@ -148,9 +151,27 @@ class AgentDesk:
         return {'act': None if act is None else {
                     'id': act['id'], 'op': act['op'], 'who': act['who'], 'claim': act['claim'],
                     'label': act['label'], 'state': act['state'], 'elapsed_s': self.clock() - act['at'],
-                    'motion_lease_s': lease, 'motion_s': self.lease()['motion_s'], 'cause': act['cause']},
-                'queue': [{'id': r['id'], 'op': r['op'], 'who': r['who']} for r in self.queue],
-                'recent': list(self.recent), 'notes': list(self.notes)[-20:], 'config_error': self.config.error}
+                    'motion_lease_s': lease, 'motion_s': self.lease()['motion_s'], 'cause': act['cause'],
+                    'why': str(act['req'].get('why') or '')},
+                'queue': [{'id': r['id'], 'op': r['op'], 'who': r['who'], 'why': str(r.get('why') or '')}
+                          for r in self.queue],
+                'recent': list(self.recent), 'notes': list(self.notes)[-20:], 'config_error': self.config.error,
+                'doing': dict(self.doing), 'attention': self.attention()}
+
+    def attention(self):
+        """Why an agent wants the operator now ('' when not): an ask waiting, or a refusal or a hold release in
+        the last ATTENTION_S. The header shows one indicator; the details stay in the agent panel."""
+        if self.act is not None and self.act['op'] == 'ask':
+            return f"{self.act['who']} asks"
+        now_ns = time.time_ns()
+        for item in reversed(self.recent):
+            if now_ns - item['t_ns'] > ATTENTION_S * 1e9:
+                break
+            if item['op'] == 'release_hold' and item['ok']:
+                return f"{item['who']} released a hold"
+            if not item['ok'] and item['op'] in NOTICED and not ended(item['error']):
+                return f"{item['who']} {item['op']} refused"
+        return ''
 
     def blockers(self):
         """Extra runner blockers while an agent run is in flight: polls the channel, enforces the lease.
@@ -205,19 +226,20 @@ class AgentDesk:
         if state == 'done':
             label = label or (self.act['label'] if self.act and self.act['id'] == req['id'] else req['op'])
             self.recent.append({'id': req['id'], 'op': req['op'], 'who': req['who'], 'label': label,
-                                't_ns': time.time_ns(), 'ok': bool(ok), 'error': error, 'hint': hint})
+                                't_ns': time.time_ns(), 'ok': bool(ok), 'error': error, 'hint': hint,
+                                'why': str(req.get('why') or '')})
         if state != 'progress':
             self.app.emit('agent_act', id=req['id'], who=req['who'], op=req['op'], state=state, error=error)
-        if not ok and state == 'done' and req['op'] in NOTICED and not req.get('dry') and not ended(error):
-            claim = req.get('claim') or ''
-            self.app.notice = (f"Agent {req['who']}{' ' + claim if claim else ''} {req['op']} refused: {error}"
-                               + (f' ({hint})' if hint else ''))
+        # a refusal stays in the agent panel; the header's one "agent wants attention" (``attention``) points there
 
     def on_reply(self, record):
         pass
 
     def on_note(self, record):
         self.touch(record['who'])
+        if record['phase'] == 'doing':        # note --doing: the agent's one "doing:" line in the panel
+            self.doing[record['who']] = {'text': str(record.get('cmd') or ''), 't_ns': record.get('t_ns')}
+            return
         row = {k: record.get(k) for k in ('t_ns', 'who', 'phase', 'tool_id', 'cmd', 'exit', 'dur_s', 'target',
                                           'agent', 'use')}
         self.notes.append(row)
@@ -241,7 +263,8 @@ class AgentDesk:
         # never later than its own stamp allows: a replay keeps no deadline it was not sent with
         deadline = min(req['deadline_ns'], req['t_ns'] + int(self.config.get()['request_s'] * 1e9))
         req = dict(req, args=args, deadline_ns=deadline)
-        self.app.emit('agent_req', id=req['id'], who=req['who'], op=req['op'], args=args, dry=bool(req.get('dry')))
+        self.app.emit('agent_req', id=req['id'], who=req['who'], op=req['op'], args=args, dry=bool(req.get('dry')),
+                      **({'why': req['why']} if req.get('why') else {}))
         self.touch(req['who'], req.get('claim'))
         if req['op'] in MOTION and req['t_ns'] < self.started_ns:
             return self.reply(req, False, 'expired', hint='sent before this TUI started; nothing was done')
@@ -672,20 +695,37 @@ class AgentDesk:
         holds = hold_store.load(section.get('state_file') or hold_store.default_path())
         return str(min(holds.values(), key=lambda h: h['since'])['cause']) if holds else ''
 
+    def busy_cause(self):
+        """What keeps the next queued act from starting, or '' (strictly one Nav2 user at a time: a dry run too)."""
+        app = self.app
+        if app.modal is not None:
+            title = app.modal.get('title') if isinstance(app.modal, dict) else ''
+            return f'popup {title!r} is open' if title else 'a popup is open'
+        if self.busy or self.act is not None:
+            return f"agent act {(self.act or {}).get('label', '')!r} is running".replace(" '' ", ' ')
+        if app.running:
+            return f'procedure {app.running!r} is running'
+        if app.manual:
+            return 'the operator drives manually'
+        return 'a goal dry run is in flight' if self.dry is not None else ''
+
     def start_next(self):
         now_ns, app = time.time_ns(), self.app
-        if self.busy or self.act is not None or app.modal is not None or app.running or app.manual \
-                or self.dry is not None:            # strictly one Nav2 user at a time: a dry run first
-            for req in [r for r in self.queue if now_ns > r['deadline_ns']]:
+        cause = self.busy_cause()
+        if cause:      # an ask waits behind a non-modal state up to ask_s; the rest until its deadline
+            wait = int(self.config.get()['ask_s'] * 1e9)
+            for req in [r for r in self.queue if now_ns > (r['t_ns'] + wait if r['op'] == 'ask' and app.modal is None
+                                                           else r['deadline_ns'])]:
                 self.queue.remove(req)
-                self.reply(req, False, 'busy_ui', hint='a popup was open or something was running')
+                self.reply(req, False, 'busy_ui', hint=f'{cause}; try again after it')
             return
         req = self.queue.pop(0)
         if req['op'] in MOTION and (refusal := self.refusal(req)):
             return self.refuse(req, refusal)
         args = req['args']
         label = {'run': ' '.join(filter(None, ('run', agent_acts.procedure(agent_acts.run_key(args))[1],
-                                                agent_acts.run_task(args)))), 'ask': 'ask',
+                                                agent_acts.run_task(args)))),
+                 'ask': f"ask {str(args.get('question') or '')[:60]}".strip(),
                  'goal': f"goal {args.get('x')}, {args.get('y')}"}[req['op']]
         self.act = {'id': req['id'], 'op': req['op'], 'who': req['who'], 'claim': req.get('claim'),
                     'req': req, 'label': label, 'state': 'starting', 'cause': None, 'armed': app.armed,
@@ -1016,12 +1056,14 @@ class AgentDesk:
             return
         with arbiter.lock:
             self.claim_who.update({c['id']: c['who'] for c in arbiter.table.claims if c['owner'] == 'agent'})
-            lapsed = [cid for cid, why in arbiter.ended.items() if why == 'expired' and cid not in self.expired_seen]
-        for cid in lapsed:
+            lapsed = [(cid, why) for cid, why in arbiter.ended.items()
+                      if why in ('expired', 'lapsed') and cid not in self.expired_seen]
+        for cid, why in lapsed:
             self.expired_seen.add(cid)
             if cid in self.claim_who:
                 self.app.notice = (f'Agent {self.claim_who[cid]} {cid} lease expired: '
-                                   f'stopped{theme.SEPARATOR}neutral, hold (U releases)')
+                                   + (f'stopped{theme.SEPARATOR}neutral, hold (U releases)' if why == 'expired'
+                                      else 'disarmed and neutral, so no hold'))
 
     def watch_goal(self, act, cause):
         goals = self.app.goals
