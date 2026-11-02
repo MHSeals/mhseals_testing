@@ -56,6 +56,14 @@ def test_the_operator_cancels_the_arm_countdown(boat):
     assert 'cancelled' in boat.app.notice
 
 
+def test_space_during_the_countdown_cancels_the_arm(boat):
+    c = claim(boat)
+    boat.app.answers = [['space']]
+    reply = send(boat, 'arm', {}, c)
+    assert reply['error'] == 'cancelled' and not boat.app.armed
+    assert not [call for call in boat.app.calls if call[0] == 'agent_arm']
+
+
 def test_the_e_stop_and_a_missing_claim_refuse_the_arm(boat):
     boat.app.ros.driver_status = {'estop': {'latched': True, 'cause': 'rc'}}
     c = claim(boat)

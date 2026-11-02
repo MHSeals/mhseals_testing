@@ -51,11 +51,12 @@ class Closed(Exception):
     """A desk popup closed by its deadline or by the act's cancel cause."""
 
 
-def choose(app, title, options, timeout_s, cause, message=None, danger=True, clock=time.monotonic):
+def choose(app, title, options, timeout_s, cause, message=None, danger=True, clock=time.monotonic,
+           stop_refuses=False):
     """A ``popup.choose`` that closes itself after ``timeout_s`` or once ``cause()`` names a reason.
 
-    Returns (choice, None), or (None, why): 'refused' (Esc), 'timeout' or the cause. Space and E pass
-    through as in every popup. The focus starts on the safe option (Refuse, or an agent's ``no``),
+    Returns (choice, None), or (None, why): 'refused' (Esc; Space too with ``stop_refuses``), 'timeout' or
+    the cause. Space and E pass through as in every popup. The focus starts on the safe option (Refuse, or an agent's ``no``),
     so Enter alone never allows motion; the time left is a bar in the body.
     """
     from mhseals_testing.ui import popups
@@ -68,6 +69,8 @@ def choose(app, title, options, timeout_s, cause, message=None, danger=True, clo
     keys = popups.choose_keys()
 
     def handle(key):
+        if stop_refuses and key in popups.STOP_KEYS:     # the popup already stopped the boat
+            raise Cancelled('stopped by operator')
         action = keys.get(fold(key))
         if action in ('up', 'left', 'down', 'right'):
             step = -1 if action in ('up', 'left') else 1

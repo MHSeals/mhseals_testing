@@ -9,6 +9,7 @@ through the same path a hand edit takes; ``reload COMPONENT`` stops and starts o
 
 import time
 
+from mhseals_testing.harness import operator_state
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.ui import agent_acts, parts, theme
 
@@ -68,12 +69,15 @@ def do_arm(desk, req):
     desk.reply(req, True, state='started', result={'countdown': seconds})
 
     def cause():
-        return desk.claim_state(claim, who) or estop(app) or desk.operator_setting() or None
+        state = operator_state.current()
+        return (desk.claim_state(claim, who) or estop(app) or desk.operator_setting()
+                or (operator_state.refusal(state) if operator_state.paused(state) else None))
     if seconds > 0:
         app.notice = f'Agent {who} arms in {seconds:g} s{theme.SEPARATOR}Esc cancels'
         choice, why = agent_acts.choose(
             app, f'Agent {who} arms {app.profile.name}', ('Cancel',), seconds, cause,
-            message=f'Arming in {seconds:g} s for agent {who} · claim {claim}. Esc or Enter cancels; Space stops.')
+            message=f'Arming in {seconds:g} s for agent {who} · claim {claim}. Esc or Enter cancels; Space stops.',
+            stop_refuses=True)
         if why != 'timeout':
             reason = 'operator cancelled' if choice or why == 'refused' else why
             app.notice = f'Agent {who} arm cancelled: {reason}'
@@ -119,6 +123,12 @@ def do_reload(desk, req):
         if found:
             return desk.reply(req, False, found[0], hint=found[1])
     stack, who = app.stack, req['who']
+    # A respawn starts only ``key`` again: a running part that needs it would stay down, so it is refused.
+    dependants = [stack.items[name].title for name in stack._dependants(key) if stack.running(name)]
+    if dependants:
+        return desk.reply(req, False, 'refused', label=f'reload {key}',
+                          hint=f"{', '.join(dependants)} need {stack.items[key].title}: stop them first, or ask the "
+                               'operator to restart the stack')
     desk.reply(req, True, state='started')
     try:
         stopped = parts.stop(app, key, who=who) if stack.running(key) else []
