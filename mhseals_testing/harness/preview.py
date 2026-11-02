@@ -28,6 +28,7 @@ PATHS = ('src', 'cache', 'runbook', 'results')
 SHARED = ('player', 'image', 'base', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}$')
 MARKS = ('pass', 'fail', 'note')
+BOAT_DOMAINS = (42, 142)   # the fleet's (harness/mission.py), never a preview's
 
 
 def settings(test=False, path=CONFIG, environ=None):
@@ -44,6 +45,20 @@ def settings(test=False, path=CONFIG, environ=None):
         value = environ.get(f'BOAT_PREVIEW_{key.upper()}', value)
         out[key] = os.path.expanduser(str(value)) if key in PATHS + sim_stack.PATHS and value else value
     return out
+
+
+def refusal(values, other):
+    """Why the settings ``values`` may not run (None when they may): never the boat's domain, the boat's or the sim's
+    container or tmux server, nor anything of ``other`` (the human preview's settings for a test, and back)."""
+    sim = sim_stack.settings(environ={})
+    if int(values['domain']) in BOAT_DOMAINS:
+        return f"domain {values['domain']} is the boat's"
+    if values['container'] in ('roboboat_dev', 'roboboat_test', sim.get('container')):
+        return f"container {values['container']} is not the preview's"
+    if values['socket'] == 'boat':
+        return 'tmux -L boat is the boat TUI'
+    shared = [key for key in ('cache', 'container', 'socket', 'domain', 'port') if str(values[key]) == str(other[key])]
+    return f"{', '.join(shared)} shared with the other preview" if shared else None
 
 
 def slug(ref):
@@ -142,6 +157,10 @@ def main(argv):
     argv = [a for a in argv if a != '--test']
     values = settings(test)
     if argv[:1] == ['env']:
+        refused = refusal(values, settings(not test, environ={}))
+        if refused:
+            print(f'boat_preview: refused: {refused}', file=sys.stderr)
+            return 2
         print(shell(values))
         return 0
     if argv[:1] == ['slug'] and len(argv) == 2:

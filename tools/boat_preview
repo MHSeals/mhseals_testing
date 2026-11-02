@@ -29,7 +29,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ "$test" = 1 ] && [ "$verb" = up ] && [ "$headless" = 0 ] && { echo 'boat_preview: --test runs only --headless' >&2; exit 2; }
-eval "$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test))"
+settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test)) || exit 2
+eval "$settings"
 mkdir -p "$PV_CACHE"
 CURRENT=$PV_CACHE/current      # the running preview's root and ref
 if [ "$verb" = up ] || [ "$verb" = _run ]; then
@@ -114,14 +115,16 @@ player() {   # windowed on this display, or headless under xvfb with --headless;
 }
 
 down() {
-  t kill-session -t "=$PV_SESSION" 2>/dev/null || true
+  touch "$RUN/stop" 2>/dev/null || true   # first: a session still starting stops before its player
+  t kill-server 2>/dev/null || true     # its own server: the TUI, a restart's window and any viewer
   if [ -s "$RUN/player.pid" ]; then     # xvfb-run's or the player's pid: its children first
     pid=$(cat "$RUN/player.pid")
     for c in $(pgrep -P "$pid" 2>/dev/null) "$pid"; do kill -0 "$c" 2>/dev/null && kill -TERM "$c" || true; done
     rm -f "$RUN/player.pid"
   fi
   docker stop -t 15 "$PV_CONTAINER" >/dev/null 2>&1 || true
-  rm -f "$RUN/ready"; touch "$RUN/stop"
+  docker rm -f "$PV_CONTAINER" >/dev/null 2>&1 || true
+  rm -f "$RUN/ready"
   echo "boat_preview: down"
 }
 
@@ -135,17 +138,20 @@ session() {
   python3 -m mhseals_testing.harness.preview checklist "$WS" "$RUN/checklist.json" "$REF" $([ "$test" = 1 ] && echo --test)
   container_up
   build "$stamp"
-  tui up -- --profile "$PV_PROFILE" --set "command_mode=$PV_COMMAND_MODE"
+  # 9>&-: heavy's slot lock (fd 9) stays with this session only, never with the tmux server or the player, so a
+  # session that dies hard still gives the slot back
+  tui up -- --profile "$PV_PROFILE" --set "command_mode=$PV_COMMAND_MODE" 9>&-
   touch "$RUN/ready"
   local waited=0
-  until docker exec "$PV_CONTAINER" pgrep -f default_server_endpoint >/dev/null; do
+  until docker exec "$PV_CONTAINER" pgrep -f default_server_endpoint >/dev/null || [ -e "$RUN/stop" ]; do
     [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: no ROS-TCP endpoint in $PV_READY_S s" >&2; break; }
     sleep 1; waited=$((waited + 1))
   done
   sleep "$PV_CONNECT_S"
-  player
+  [ -e "$RUN/stop" ] && exit 0     # boat_preview down while starting: no player after it
+  player 9>&-
   waited=0
-  until grep -q CRANE_ROBOBOAT_COURSE_READY "$RUN/player.log" 2>/dev/null; do
+  until grep -q CRANE_ROBOBOAT_COURSE_READY "$RUN/player.log" 2>/dev/null || [ -e "$RUN/stop" ]; do
     [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: player not ready in $PV_READY_S s, see $RUN/player.log" >&2; break; }
     sleep 1; waited=$((waited + 1))
   done

@@ -34,6 +34,18 @@ def test_settings_share_the_sim_and_test_has_its_own_everything():
     assert 'PV_CHECKS' not in preview.shell(values)
 
 
+@pytest.mark.parametrize('test, env, refused', [
+    (False, {}, None), (True, {}, None), (False, {'BOAT_PREVIEW_CONTAINER': 'mine'}, None),
+    (False, {'BOAT_PREVIEW_DOMAIN': '42'}, "domain 42 is the boat's"),
+    (False, {'BOAT_PREVIEW_CONTAINER': 'roboboat_dev'}, 'container roboboat_dev'),
+    (True, {'BOAT_PREVIEW_SOCKET': 'boat'}, 'tmux -L boat'),
+    (True, {'BOAT_PREVIEW_CONTAINER': 'roboboat_preview'}, 'container shared'),
+])
+def test_a_preview_never_takes_the_boats_or_the_other_previews(test, env, refused):
+    found = preview.refusal(preview.settings(test, environ=env), preview.settings(not test, environ={}))
+    assert (found is None) if refused is None else refused in found
+
+
 def test_slug_and_feature():
     assert preview.slug('origin/main') == 'origin-main' and preview.slug('field/2026-11-02') == 'field-2026-11-02'
     assert preview.feature('nav2_live: refuse a key') == 'nav2_live'
