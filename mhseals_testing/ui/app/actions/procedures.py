@@ -350,7 +350,7 @@ class Procedures:
         if arbiter is None or not muxed(self.profile):
             return ''
         with arbiter.lock:
-            mux, at, pause = arbiter.mux, arbiter.mux_at, arbiter.pause
+            mux, at, pause = arbiter.mux, arbiter.mux_at, arbiter.pause_request
         age = float('inf') if at is None else arbiter.clock() - at
         if not self.armed and (mux is None or age > STALE_MUX_S):
             return ''

@@ -401,7 +401,7 @@ def mux_stub(app):
     """
     class Mux:
         def __init__(self):
-            self.lock, self.mux, self.mux_at, self.pause = threading.RLock(), None, None, None
+            self.lock, self.mux, self.mux_at, self.pause_request = threading.RLock(), None, None, None
             self.clock = lambda: 1.7e9 + app.clock.now
 
         def on_mux(self, state):

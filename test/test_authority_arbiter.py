@@ -180,3 +180,10 @@ def test_lease_bounds_follow_the_hot_reloaded_config():
     config.lease = dict(config.lease, idle_s=5)
     rig.arbiter.tick()
     assert rig.ask(lease_s=100)['claim']['lease_s'] == 5
+
+
+def test_a_nav_pause_request_never_shadows_the_operator_pause():
+    """nav's /autonomy/pause request is data beside pause(), the operator's swap or break."""
+    arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True)
+    arbiter.on_pause({'paused': True, 'cause': 'geofence', 'why': 'returning inside the fence'})
+    assert arbiter.pause_request['cause'] == 'geofence' and callable(arbiter.pause)

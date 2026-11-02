@@ -65,7 +65,7 @@ class Arbiter:
         self.ended = {}          # claim id -> 'revoked' | 'expired' | 'lapsed' | 'paused_end': the agent's next call learns why
         self.paused = None       # the operator state record while it is not normal (harness/operator_state.py)
         self.mux, self.mux_at = None, None
-        self.pause = None        # the latest pause request (runner.override_cause)
+        self.pause_request = None   # nav's latest pause request (runner.override_cause); pause() is the operator's
         self.record, self.ack, self.sent_at, self.sent = None, None, None, None
         self.saved = None
         self.lock = threading.RLock()
@@ -76,7 +76,7 @@ class Arbiter:
 
     def on_pause(self, request):
         with self.lock:
-            self.pause = request
+            self.pause_request = request
 
     def handle(self, request):
         """Answer one claim-topic request; the ack rides in the next record."""
