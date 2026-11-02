@@ -131,6 +131,9 @@ def test_disarmed_a_stale_mux_releases_from_its_saved_hold_record(held, tmp_path
     hold_store.save(path, {'geofence': fence, 'keys': keys})
     reply = release(held, 'geofence')                     # an operator hold still needs a grant
     assert reply['error'] == 'not_allowed' and 'keys' in reply['hint'] and len(hold_store.load(path)) == 2
+    held.app.arming = SimpleNamespace(remote=object(), config_path=None)   # a remote boat's record is not here
+    hold_store.save(path, {'geofence': fence})
+    assert release(held, 'geofence')['error'] == 'refused' and hold_store.load(path) == {'geofence': fence}
     held.app.is_armed = True                              # armed, a stale mux still refuses
     held.holds(('lease', 'tui'))
     held.clock[0] += 60

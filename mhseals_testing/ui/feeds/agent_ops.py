@@ -184,8 +184,9 @@ def cleared(app, hold):
 
 def stopped_mux_file(app, arbiter):
     """The stopped mux's saved hold file when the boat is disarmed and the mux state is stale or unknown (the mux
-    runs only while armed, so its holds live in that file until the next arm), else None."""
-    if app.armed or not muxed(app.profile):
+    runs only while armed, so its holds live in that file until the next arm), else None. A remote arm's mux saves
+    on the boat, not here: a local file of that name is some other session's, so it is never judged or cleared."""
+    if app.armed or not muxed(app.profile) or getattr(getattr(app, 'arming', None), 'remote', None) is not None:
         return None
     with arbiter.lock:
         mux, at = arbiter.mux, arbiter.mux_at

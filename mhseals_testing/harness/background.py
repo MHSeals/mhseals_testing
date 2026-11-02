@@ -17,6 +17,7 @@ from pathlib import Path
 CLOSED = ('done', 'closed', 'dropped', 'revoked', 'expired', 'adopted', 'answered')   # ev's, plus the plain words
 KINDS = ('question', 'proposal')
 EVERY_S = 5.0       # a frame reads the cached counts; the files are re-read at most this often
+MAX_BYTES = 2 << 20  # a re-read reads at most this much, the newest files first: a frame never waits on a big log
 
 
 def root(configured=''):
@@ -31,12 +32,20 @@ def root(configured=''):
 def read(agents):
     """``{'question': [...], 'proposal': [...]}``: the open items, oldest first, each ``{id, title, station, ts,
     branch, verdict}``."""
-    items = {}
-    for path in sorted((Path(agents) / 'state' / 'events').glob('*.jsonl')):
+    items, texts, budget = {}, [], MAX_BYTES
+    for path in sorted((Path(agents) / 'state' / 'events').glob('*.jsonl'),
+                       key=lambda p: (p.stem.rsplit('-', 1)[-1], p.name), reverse=True):   # newest day first
+        if budget <= 0:
+            break
         try:
-            lines = path.read_text().splitlines()
+            with open(path, 'rb') as handle:
+                data = handle.read(budget)
         except OSError:
             continue
+        budget -= len(data)
+        texts.append((path, data.decode('utf-8', 'replace')))
+    for path, text in reversed(texts):
+        lines = text.splitlines()
         station = path.stem.rsplit('-', 1)[0]
         for line in lines:
             try:
@@ -45,8 +54,9 @@ def read(agents):
                 continue
             if not isinstance(event, dict) or not event.get('id') or not event.get('type'):
                 continue
-            item = items.setdefault(event['id'], {'id': event['id'], 'kind': event['type'], 'station': station,
-                                                  'ts': str(event.get('ts', '')), 'title': '', 'closed': False})
+            ident = str(event['id'])
+            item = items.setdefault(ident, {'id': ident, 'kind': str(event['type']), 'station': station,
+                                            'ts': str(event.get('ts', '')), 'title': '', 'closed': False})
             for key in ('title', 'branch', 'verdict'):
                 if event.get(key):
                     item[key] = str(event[key])
@@ -83,6 +93,6 @@ class Reader:
             key = tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in files)
             if key != self.key:
                 self.key, self.found = key, read(agents) if agents else {kind: [] for kind in KINDS}
-        except OSError:
-            pass                    # a file that moved mid-read: the last counts stand until the next look
+        except Exception:           # noqa: BLE001 - a file that moved mid-read, a bad line: the last counts stand
+            pass
         return self.found

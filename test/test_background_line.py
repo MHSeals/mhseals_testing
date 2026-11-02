@@ -49,6 +49,17 @@ def test_the_reader_rereads_only_after_its_interval(tmp_path, monkeypatch):
     assert reader.get()['question'] == []
 
 
+def test_a_re_read_is_bounded_and_odd_lines_never_raise(tmp_path, monkeypatch):
+    monkeypatch.setenv('MHSEALS_AGENTS', str(tmp_path))
+    events(tmp_path, 'x', {'ts': '1', 'type': 'question', 'id': ['odd']}, {'ts': '2', 'type': 'question', 'id': 'q'})
+    (tmp_path / 'state' / 'events' / 'x-20261102.jsonl').open('ab').write(b'\xff\xfe not json\n')
+    old = tmp_path / 'state' / 'events' / 'x-20261101.jsonl'
+    old.write_text(json.dumps({'ts': '0', 'type': 'question', 'id': 'old'}) + '\n' + ' ' * 1000)
+    monkeypatch.setattr(background, 'MAX_BYTES', (tmp_path / 'state' / 'events' / 'x-20261102.jsonl').stat().st_size)
+    found = background.Reader().get()                        # the newest day first, within the budget
+    assert [i['id'] for i in found['question']] == ["['odd']", 'q']
+
+
 def test_the_panel_shows_one_quiet_line_on_top_and_enter_lists_them():
     found = {'question': [{'id': 'q2', 'station': 'bg', 'title': 'second'}],
              'proposal': [{'id': 'p1', 'station': 'bg', 'title': 'faster return', 'branch': 'bg/ret',
