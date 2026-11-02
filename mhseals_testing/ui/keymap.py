@@ -13,9 +13,14 @@ validated like the shipped file. Rules (see ``validate``):
                                           or a malformed (non list / mapping) value
   2 undeclared shadowing                5 Space stops and E revokes in every stack
   3 modal key collides with passthrough 6 stop, quit, revoke_agent stay bound
+                                        7 a help or hint row names a key its stack lacks
+
+``help`` and ``hints`` are the ? popup's rows and the footer's (ui/app/help.py): not contexts,
+never rebound; their keys are checked against the shipped file only (a rebind leaves them stale).
 """
 
 import copy
+import re
 from pathlib import Path
 
 import yaml
@@ -46,6 +51,89 @@ STACKS = {                               # outermost first
     'review/drive': ['global', 'review', 'review.activity'],
     'review/map': ['global', 'review', 'tab.map', 'view.minimap'],
 }
+
+DOCS = ('help', 'hints')                 # the help popup's and footer's rows, not contexts
+HELP_SCREENS = {                         # a help label's first word -> its stack; no screen word is global
+    'Drive': ['global', 'tab.drive'],
+    'Status': STACKS['drive/status'],
+    'Thrusters': STACKS['drive/thrusters'],
+    'Activity': STACKS['drive/activity'],
+    'Map': STACKS['map'],
+    'Correction': STACKS['correction'],
+    'Bags': STACKS['bags'],
+    'Fusion': STACKS['fusion'],
+    'Review': STACKS['review/drive'],
+    'Manual': ['manual'],
+    'Run': ['tab.drive', 'runner'],      # m (Manual) takes over a run
+}
+HINT_STACKS = {                          # a hints group -> the stack its keys act in
+    'global': ['global'], 'fusion': STACKS['fusion'], 'correction': STACKS['correction'],
+    'review': STACKS['review/drive'], 'manual': ['manual'],
+    'panel.minimap': STACKS['drive/minimap'], 'panel.map': STACKS['map'], 'panel.list': STACKS['bags'],
+    **{f'panel.{name}': STACKS[f'drive/{name}'] for name in
+       ('status', 'motion', 'conditions', 'thrusters', 'procedures', 'activity')},
+}
+LABEL_NAMES = {'Shift Tab': 'backtab', 'Space': 'space', 'Enter': 'enter', 'Esc': 'escape', 'Tab': 'tab'}
+LABEL_FIELDS = {'updown': 'up down', 'leftright': 'left right', 'micro': '', 'plusminus': '', 'pulse_step': ''}
+
+
+def label_keys(label):
+    """The key names a help or hint label (as in keymap.yaml, with its {fields}) names."""
+    text = label.format(**LABEL_FIELDS)
+    ctrl = text.startswith('Ctrl ')
+    text = text.removeprefix('Ctrl ').replace('arrows', 'left down up right')
+    for name, key in LABEL_NAMES.items():
+        text = re.sub(rf'\b{name}\b', key, text)
+    text = re.sub(r'\b(\d)-(\d)\b', lambda m: ' '.join(map(str, range(int(m[1]), int(m[2]) + 1))), text)
+    keys = []
+    for word in text.replace('/', ' ').split():
+        # Ctrl hjkl: one modifier over several letters
+        keys += list(word) if ctrl and word.isalpha() and word.islower() and word not in KEY_NAMES else [word]
+    return ['ctrl-' + k for k in keys] if ctrl else keys
+
+
+def help_screen(label):
+    """``(stack, rest)`` of a help label: its screen's stack and the keys part."""
+    first, _, rest = label.partition(' ')
+    return (HELP_SCREENS[first], rest) if first in HELP_SCREENS and rest else (['global'], label)
+
+
+def _doc_rows(rows, where):
+    if not isinstance(rows, list) or not all(
+            isinstance(r, list) and len(r) in (2, 3) and all(isinstance(x, str) for x in r) for r in rows):
+        return ['%s: rows must be [keys, text] (help: [keys, text, readme text]) strings' % where]
+    errors = []
+    for keys, text, *_ in rows:
+        try:
+            keys.format(**LABEL_FIELDS), text.format(**LABEL_FIELDS)
+        except (KeyError, IndexError, ValueError) as exc:
+            errors.append('%s: %r has a bad {field}: %s' % (where, keys, exc))
+    return errors
+
+
+def doc_errors(doc, keys=True):
+    """Rule 7: ``help`` and ``hints`` rows are well formed; with ``keys`` each key they name resolves
+    in its stack (help: the label's screen, hints: HINT_STACKS)."""
+    errors = _doc_rows(doc.get('help', []), 'help')
+    hints = doc.get('hints', {})
+    if not isinstance(hints, dict):
+        return errors + ['hints must be a mapping of groups']
+    for group, rows in hints.items():
+        if group not in HINT_STACKS:
+            errors.append('hints: unknown group %r' % group)
+        else:
+            errors += _doc_rows(rows, 'hints.' + group)
+    if errors or not keys:
+        return errors
+    checks = [(help_screen(row[0]), row[0], 'help') for row in doc.get('help', [])]
+    checks += [((HINT_STACKS[g], label), label, 'hints.' + g) for g, rows in hints.items() for label, *_ in rows]
+    for (stack, part), label, where in checks:
+        bound = _stack_keys(doc, stack)
+        named = label_keys(part)
+        if not named:
+            errors.append('%s: %r names no key' % (where, label))
+        errors += ['%s: %r: %s is not bound there' % (where, label, key) for key in named if key not in bound]
+    return errors
 
 
 class KeymapError(ValueError):
@@ -97,7 +185,7 @@ def _shape_errors(doc, known=True):
         return ['keymap must be a mapping of contexts']
     errors = []
     for name, context in doc.items():
-        if name == 'schema':
+        if name == 'schema' or (known and name in DOCS):
             continue
         if known and not _known(name):
             errors.append('unknown context %r' % name)
@@ -110,12 +198,14 @@ def _shape_errors(doc, known=True):
     return errors
 
 
-def validate(doc):
-    """Return every rule violation in ``doc`` as a list of strings (empty = valid)."""
+def validate(doc, docs=True):
+    """Return every rule violation in ``doc`` as a list of strings (empty = valid); ``docs``
+    also checks the help and hint keys (rule 7; the shipped file, not a user's rebinds)."""
     errors = _shape_errors(doc)
     if errors:
         return errors
-    contexts = {n: c for n, c in doc.items() if n != 'schema'}
+    errors = doc_errors(doc, keys=docs)
+    contexts = {n: c for n, c in doc.items() if n != 'schema' and n not in DOCS}
     for name, context in contexts.items():
         seen = {}
         for action, keys in bindings(context).items():
@@ -174,7 +264,7 @@ def overlay(doc, user):
         raise KeymapError(errors)
     merged = copy.deepcopy(doc)
     for name, rebinds in (user or {}).items():
-        if name == 'schema':
+        if name == 'schema' or name in DOCS:
             continue
         context = merged.get(name) or {}
         merged[name] = context
@@ -189,8 +279,8 @@ def overlay(doc, user):
 class Keymap:
     """A validated keymap: resolve keys to actions and list footer hints for a stack."""
 
-    def __init__(self, doc):
-        errors = validate(doc)
+    def __init__(self, doc, docs=True):
+        errors = validate(doc, docs)
         if errors:
             raise KeymapError(errors)
         self.doc = doc
@@ -232,7 +322,7 @@ def load(path=None, user=USER_FILE):
     if not (user and Path(user).is_file()):
         return shipped, None
     try:
-        return Keymap(overlay(doc, load_strict(Path(user).read_text(), user))), None
+        return Keymap(overlay(doc, load_strict(Path(user).read_text(), user)), docs=False), None
     except (ValueError, yaml.YAMLError, OSError) as exc:
         first = exc.errors[0] if isinstance(exc, KeymapError) else str(exc).splitlines()[0]
         return shipped, 'keymap overlay ignored: %s' % first

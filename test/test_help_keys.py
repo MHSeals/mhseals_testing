@@ -1,53 +1,33 @@
 """The ? help names only bound keys, and every page action the app handles has a help row.
 
+The help and hint rows live in config/keymap.yaml (help, hints); README.md's key table is generated.
 HELP labels read '[Screen ]keys'; the screen picks a keymap stack, the keys resolve in it.
 Popups are left out: each draws its own key hint line.
 """
-import re
 
 import pytest
 
-from mhseals_testing.ui import keymap
-from mhseals_testing.ui.app import HELP, LEFTRIGHT, UPDOWN
+from pathlib import Path
 
-SCREENS = {   # label prefix -> keymap stack (outermost first); no prefix is global
-    None: ['global'],
-    'Drive': ['global', 'tab.drive'],
-    'Status': keymap.STACKS['drive/status'],
-    'Thrusters': keymap.STACKS['drive/thrusters'],
-    'Activity': keymap.STACKS['drive/activity'],
-    'Map': keymap.STACKS['map'],
-    'Correction': keymap.STACKS['correction'],
-    'Bags': keymap.STACKS['bags'],
-    'Fusion': keymap.STACKS['fusion'],
-    'Review': keymap.STACKS['review/drive'],
-    'Manual': ['manual'],
-    'Run': ['tab.drive', 'runner'],   # m (Manual) takes over a run
-}
-NAMES = {'Shift Tab': 'backtab', 'Space': 'space', 'Enter': 'enter', 'Esc': 'escape', 'Tab': 'tab'}
+from mhseals_testing.strict_yaml import load_strict
+from mhseals_testing.ui import keymap
+from mhseals_testing.ui.app import help as help_module
+
+COVERED = ('global', 'tab.drive', 'tab.correction', 'tab.map', 'tab.bags', 'tab.fusion', 'panel.status',
+           'panel.thrusters', 'panel.procedures', 'panel.activity', 'view.minimap', 'review',
+           'review.activity', 'manual', 'runner')
 # Bound in config/keymap.yaml but not handled by the app yet, so help leaves them out.
 UNHANDLED = {('panel.procedures', 'fold'), ('panel.procedures', 'unfold'),
              ('panel.activity', 'view_prev'), ('panel.activity', 'view_next'), ('panel.activity', 'zoom'),
              ('view.minimap', 'course'), ('view.minimap', 'centre'), ('view.minimap', 'goal_mode'),
              ('view.minimap', 'cancel_goal'), ('tab.bags', 'send'), ('review', 'goto')}
-COVERED = ('global', 'tab.drive', 'tab.correction', 'tab.map', 'tab.bags', 'tab.fusion', 'panel.status',
-           'panel.thrusters', 'panel.procedures', 'panel.activity', 'view.minimap', 'review',
-           'review.activity', 'manual', 'runner')
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def parse(label):
-    """(screen, [key names]) of one HELP label."""
-    first, _, rest = label.partition(' ')
-    screen = first if first in SCREENS else None
-    text = rest if screen else label
-    ctrl = text.startswith('Ctrl ')
-    text = text.removeprefix('Ctrl ').replace('arrows', 'left down up right')
-    text = text.replace(UPDOWN, 'up down').replace(LEFTRIGHT, 'left right')
-    for name, key in NAMES.items():
-        text = re.sub(rf'\b{name}\b', key, text) if name.isalpha() else text.replace(name, key)
-    text = text.replace('1-4', '1 2 3 4')
-    keys = [k for k in text.replace('/', ' ').split() if k]
-    return screen, ['ctrl-' + k for k in keys] if ctrl else keys
+    """(stack, [key names]) of one help row as keymap.yaml writes it."""
+    stack, keys = keymap.help_screen(label)
+    return stack, keymap.label_keys(keys)
 
 
 def owner(doc, stack, key):
@@ -59,25 +39,51 @@ def owner(doc, stack, key):
     return None
 
 
+def rows(doc):
+    return [row[0] for row in doc['help']]
+
+
 def test_help_names_only_handled_bound_keys():
     doc = keymap.load(user=None)[0].doc
-    for label, _ in HELP:
-        screen, keys = parse(label)
+    for label in rows(doc):
+        stack, keys = parse(label)
         assert keys, label
         for key in keys:
-            found = owner(doc, SCREENS[screen], key)
+            found = owner(doc, stack, key)
             assert found, f'{label!r}: {key} is not bound there'
             assert found not in UNHANDLED, f'{label!r}: {key} ({found[1]}) is not handled yet'
 
 
 def test_every_handled_action_has_a_help_row():
     doc = keymap.load(user=None)[0].doc
-    helped = {owner(doc, SCREENS[screen], key) for screen, keys in map(parse, (l for l, _ in HELP))
-              for key in keys}
+    helped = {owner(doc, stack, key) for stack, keys in map(parse, rows(doc)) for key in keys}
     missing = [(name, action) for name in COVERED for action in keymap.bindings(doc.get(name))
                if (name, action) not in helped and (name, action) not in UNHANDLED]
     assert not missing, f'bound without a help row: {missing}'
     assert not UNHANDLED & helped
+
+
+
+def test_the_tables_come_from_the_keymap():
+    doc = keymap.load(user=None)[0].doc
+    assert len(help_module.HELP) == len(doc['help'])
+    assert set(help_module.PANEL_HINTS) == {g.removeprefix('panel.') for g in doc['hints'] if g.startswith('panel.')}
+
+
+def test_a_help_or_hint_key_that_is_not_bound_fails_validation():
+    doc = load_strict((ROOT / 'config' / 'keymap.yaml').read_text())
+    doc['help'].append(['Map Q', 'nothing'])
+    doc['hints']['manual'].append(['W', 'upper-case w is not manual'])
+    errors = keymap.validate(doc)
+    assert any("'Map Q': Q is not bound" in e for e in errors)
+    assert any("hints.manual: 'W'" in e for e in errors)
+    assert not keymap.validate(doc, docs=False)        # a user's rebinds never trip on help text
+
+
+def test_readme_key_table_is_generated():
+    text = (ROOT / 'README.md').read_text()
+    assert '<!-- keys: config/keymap.yaml -->' in text
+    assert help_module.readme(text) == text, 'run python3 -m mhseals_testing.ui.app.help --readme'
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke

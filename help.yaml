@@ -31,6 +31,7 @@ commands:
       - {name: --fail-on, default: fail, choices: [fail, warn], description: Lowest severity that fails.}
       - {name: --json, description: 'Write JSON to this path, or - for stdout.'}
       - {name: --lint, type: bool, description: Check the YAML only; needs no ROS.}
+      - {name: --require, description: 'Exit non-zero unless every check in this group is OK (repeatable).'}
     examples:
       - ros2 run mhseals_testing boat_trial check --only sensors --window 10
 
@@ -56,6 +57,7 @@ commands:
     params:
       - {name: --yes, type: bool, description: Apply; without it only the preview is printed.}
       - {name: --now, type: bool, description: Allow a live-only change while a goal runs.}
+      - {name: --claim, description: 'The agent claim held for this apply (owner agent, mux auto).'}
       - {name: --json, type: bool, description: Print one JSON document.}
 
   - name: rtk_base

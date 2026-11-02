@@ -32,7 +32,8 @@ MODAL = ('manual', 'runner', 'minimap.goal', 'popup.')
 @pytest.fixture(scope='module')
 def doc():
     with open(PATH) as f:
-        return yaml.safe_load(f)
+        doc = yaml.safe_load(f)
+    return {k: v for k, v in doc.items() if k not in ('help', 'hints')}   # rows, not contexts (test_help_keys)
 
 
 def binds(ctx):
@@ -52,7 +53,7 @@ def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
     assert len(contexts) == 36
-    assert sum(len(binds(c)) for c in contexts.values()) == 232
+    assert sum(len(binds(c)) for c in contexts.values()) == 233
 
 
 def test_keys_known_and_unique_per_context(doc):

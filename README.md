@@ -48,15 +48,17 @@ tools/boat_tui preview field/x --headless # any branch, field branch or hypothes
 Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Activity), **Correction**, **Map**, **Bags**,
 **Fusion**. `?` lists every key and is the reference. The ones to know:
 
+<!-- keys: config/keymap.yaml -->
 | Key | Does |
 | --- | --- |
+| `Ctrl h j k l / arrows` | Move focus; Enter runs or opens the row |
 | `Space` | Stop: hold, neutral, disarm; aborts a run |
-| `a` | Arm panel (typed `ARM` on real pins) |
+| `a` | Arm panel (typed ARM on real pins) |
+| `E` | Revoke the agent (stops first, no confirm) |
+| `O` | Take control (a viewer; the owner stops at neutral) |
 | `q` | Quit: neutral, disarm, report, bag flush (never kill the tmux session) |
-| `U` / `E` / `O` / `S` | Release the hold / revoke the agent / take control / operator state |
-| `m` | Manual: hold W/S, A/D, ←/→ together; `+`/`-` speed; `x` leaves |
-| `Tab`, `Ctrl h j k l` | Move focus; `Enter` runs or opens the row |
-| `o`, `!`, `H`, `V` | Pose, health checks, config history, camera |
+| `w s ↑↓` | Manual (m): hold w/s, a/d, ←/→ together; +/- speed; x leaves |
+<!-- /keys -->
 
 Held-key chords need the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm). Glyphs carry every state
 (✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.

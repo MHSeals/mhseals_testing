@@ -81,8 +81,12 @@ def test_help_yaml_options_and_examples_parse(command):
             break
         parser = sub
         options |= {s for action in sub._actions for s in action.option_strings}
-    for param in command.get('params', []):
-        if param['name'].startswith('-'):
-            assert param['name'] in options, f"{command['name']}: help.yaml documents {param['name']}"
+    documented = {param['name'] for param in command.get('params', [])}
+    for name in documented:
+        if name.startswith('-'):
+            assert name in options, f"{command['name']}: help.yaml documents {name}"
+    shown = {s for action in parser._actions if action.help != argparse.SUPPRESS
+             for s in action.option_strings if s.startswith('--')} - {'--help'}
+    assert not shown - documented, f"{command['name']}: help.yaml lacks {sorted(shown - documented)}"
     for example in command.get('examples', []):
         parser_for(example)[0].parse_args(shlex.split(example)[4:])   # after ros2 run PACKAGE PROGRAM
