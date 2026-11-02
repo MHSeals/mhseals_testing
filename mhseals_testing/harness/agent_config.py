@@ -19,6 +19,7 @@ NUMBERS = ('request_s', 'confirm_s', 'ask_s')
 DRIVERS = ('warn', 'hold')
 HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
 ANY = 'any'            # settings: the keys an agent may set outside a run and with any run
+GRANTS = '~/.config/mhseals/agent_grants.yaml'
 # Never an agent's to set, whatever agent.yaml lists: how hard, fast, far or long the boat drives (amplitude, the
 # command hold, repeats, the navigation extents), the command mode, the bench override, staleness and the agent
 # controls themselves; and any later setting named like one of those.
@@ -46,9 +47,12 @@ def load(path=None):
 def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
-    known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', 'arm', *NUMBERS}
+    known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', 'arm', 'grants',
+             *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
+    if not isinstance(data.get('grants', GRANTS), str) or not data.get('grants', GRANTS):
+        raise ValueError('agent.yaml: grants is the path of the agent grant file')
     arm = data.get('arm', {})
     countdown = arm.get('countdown', 5) if isinstance(arm, dict) else None
     if not isinstance(arm, dict) or set(arm) - {'countdown'} or isinstance(countdown, bool) \
@@ -94,7 +98,7 @@ def validate(data):
     limit = hook.get('max_per_10s', 6)
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError('agent.yaml: hook.max_per_10s must be a positive integer')
-    return {**data, 'lease': dict(lease), 'run': list(run), 'start': list(start),
+    return {**data, 'grants': data.get('grants', GRANTS), 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
             'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}}

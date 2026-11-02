@@ -1,9 +1,14 @@
 # Agent control (boat_trial claim/run/goal/... and the agent hook for Claude Code and Codex). Hot reloaded.
 # lease.idle_s: any verb or hook note by the claim's `who` renews it; motion_s: the blocking CLI of
 # a running act renews it every motion_s/3. Expiry acts exactly like E: neutral, mux hold, goal
-# cancelled. max_claim_s ends a claim that keeps renewing.
+# cancelled; an idle lapse while disarmed and neutral ends the claim quietly, no hold (owner decision 2026-11-01).
+# max_claim_s ends a claim that keeps renewing.
 schema: mhseals.agent_config/1
-lease: {idle_s: 120, motion_s: 10, max_claim_s: 3600}
+lease: {idle_s: 600, motion_s: 10, max_claim_s: 3600}
+# boat_agent release HOLD --why (owner decision 2026-11-01): a lease or watchdog hold once its fault cleared; an
+# operator hold (Space, stop, manual, an agent's own stop) only with a grant in this file (harness/agent_grants.py);
+# the e-stop never.
+grants: ~/.config/mhseals/agent_grants.yaml
 request_s: 5            # a request past this is answered expired; never replayed after a restart
 confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120

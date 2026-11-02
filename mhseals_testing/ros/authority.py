@@ -50,14 +50,18 @@ class Arbiter:
 
     def __init__(self, publish, emit, *, registry=None, tui_owner=False, allow_agents=True,
                  sources=lambda: {}, neutral=lambda: None, hold=lambda cause, by: None,
-                 clock=time.time, config=None):
+                 clock=time.time, config=None, quiet=lambda: False):
         self.publish, self.emit, self.registry = publish, emit, registry
         self.tui_owner, self.allow_agents = tui_owner, allow_agents
         self.sources, self.neutral, self.hold, self.clock = sources, neutral, hold, clock
+        self.quiet = quiet       # True: disarmed and neutral, so an idle lease lapses with no stop and no hold
         saved = (registry.read().get('authority') or {}) if registry else {}
         self.table = ClaimTable(saved.get('claims', ()), saved.get('seq', 0))
         self.config = config or agent_config.Watch()
-        self.ended = {}          # claim id -> 'revoked' | 'expired' | 'paused_end', so the agent's next call learns why
+        lease = (self.config.get() or {}).get('lease') or {}      # the first claim gets agent.yaml's lease too
+        self.table.idle_s = lease.get('idle_s', self.table.idle_s)
+        self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
+        self.ended = {}          # claim id -> 'revoked' | 'expired' | 'lapsed' | 'paused_end': the agent's next call learns why
         self.paused = None       # the operator state record while it is not normal (harness/operator_state.py)
         self.mux, self.mux_at = None, None
         self.record, self.ack, self.sent_at, self.sent = None, None, None, None
@@ -187,6 +191,9 @@ class Arbiter:
             self.table.idle_s = lease.get('idle_s', self.table.idle_s)
             self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
             for claim in self.table.expire(now) if self.paused is None else ():
+                if self.quiet():              # disarmed and neutral: nothing to stop, so no hold (owner 11-01)
+                    self.ended[claim['id']] = 'lapsed'
+                    continue
                 self._stop('lease')
                 self.ended[claim['id']] = 'expired'
             found = self.sources()
