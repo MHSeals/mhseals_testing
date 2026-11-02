@@ -202,6 +202,31 @@ def test_an_idle_lapse_while_disarmed_and_neutral_leaves_no_hold(quiet, hold):
     assert ch.exit_code({'ok': False, 'error': 'lapsed'}) == 3
 
 
+def test_set_a_live_nav2_key_goes_through_nav2_live(rig):  # noqa: F811
+    applied = []
+
+    class Live:
+        claim = None
+
+        def apply(self, values):
+            applied.append((values, self.claim))
+            ok = values.get('controller_server.FollowPath.max_vel_x') != 9.0
+            return {'status': 'verified' if ok else 'refused', 'rows': [], 'reasons': [] if ok else ['over the cap']}
+    rig.app.live_nav2 = Live
+    rig.app.live_nav2 = lambda live=Live(): live
+    c = claim(rig)
+    req = ch.request('set', 'claude-3f2a', {'settings': {'nav2.controller_server.FollowPath.max_vel_x': '1.2'}},
+                     claim=c, why='overshoot at 1.5')
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['ok'] and applied == [({'controller_server.FollowPath.max_vel_x': 1.2}, c)]
+    req = ch.request('set', 'claude-3f2a', {'settings': {'nav2.controller_server.FollowPath.max_vel_x': '9'}},
+                     claim=c, why='x')
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['error'] == 'refused' and 'over the cap' in reply['hint']
+
+
 # --- the agent panel ---------------------------------------------------------------------------------------------
 
 def test_the_panel_shows_doing_why_and_the_header_one_attention_indicator(rig):  # noqa: F811

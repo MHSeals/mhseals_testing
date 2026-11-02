@@ -1434,10 +1434,22 @@ def test_a_never_setting_is_refused_even_when_agent_yaml_lists_it(rig, key, valu
     before = getattr(rig.app.settings, key)
     reply = final(ask(rig, 'run', c, key='thrust_physics', settings={key: value})['id'])
     assert reply['error'] == 'not_allowed' and 'never' in reply['hint']
-    rig.app.is_armed = False
-    reply = final(ask(rig, 'set', c, settings={key: value})['id'])
-    assert reply['error'] == 'not_allowed' and 'never' in reply['hint']
     assert getattr(rig.app.settings, key) == before and not list(rig.app.paths.runs.iterdir())
+
+
+@pytest.mark.parametrize('key,value,armed,error', [
+    ('bench_override', 'on', False, 'not_allowed'), ('agent_motion', 'allow', False, 'not_allowed'),
+    ('stale_after', '5', False, 'not_allowed'), ('agents', 'block', False, 'not_allowed'),
+    ('amplitude', '0.5', True, 'refused'), ('command_mode', 'velocity', True, 'refused'),
+    ('amplitude', '0.5', False, ''), ('command_mode', 'velocity', False, ''), ('station_hold', '600', True, ''),
+    ('repeats', '3', True, ''), ('amplitude', '9', False, 'bad_args'), ('nope', '1', False, 'bad_args')])
+def test_set_takes_any_tunable_key_and_armed_unsafe_ones_only_disarmed(rig, key, value, armed, error):
+    c = claim(rig)
+    rig.app.is_armed = armed
+    reply = final(ask(rig, 'set', c, settings={key: value})['id'])
+    assert reply['error'] == error, reply
+    if not error:
+        assert reply['ok'] and getattr(rig.app.settings, key) == reply['result']['set'][key]
 
 
 def test_settings_are_refused_while_a_procedure_runs(rig):
@@ -1452,8 +1464,8 @@ def test_settings_are_refused_while_a_procedure_runs(rig):
 
 def test_set_between_runs_applies_while_disarmed_and_idle_only(rig):
     c = claim(rig)
-    reply = final(ask(rig, 'set', c, settings={'thrust_step': 'survey'})['id'])     # armed: held, as the TUI
-    assert reply['error'] == 'refused' and 'armed' in reply['hint'] and rig.app.settings.thrust_step == 'bollard'
+    reply = final(ask(rig, 'set', c, settings={'amplitude': '0.5'})['id'])     # armed: never amplitude
+    assert reply['error'] == 'refused' and 'armed' in reply['hint'] and rig.app.settings.amplitude == 0.25
     rig.app.is_armed = False
     reply = final(ask(rig, 'set', c, settings={'thrust_step': 'survey', 'dock_step': 'dock_noise'})['id'])
     assert reply['ok'] and reply['result']['set'] == {'thrust_step': 'survey', 'dock_step': 'dock_noise'}
