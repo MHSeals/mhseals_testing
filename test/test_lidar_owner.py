@@ -49,9 +49,10 @@ def sensor_argv(profile_args=None, overlay_args=None, route='sensors', use_sim_t
 def sensor_factory(nav_root, share):
     from mhseals_nav.lidar_configuration import resolve_lidar
     ns = launch_factory(nav_root, 'sensors')
-    ns['resolve_lidar'] = lambda *args, **kw: resolve_lidar(*args, share=share, **kw)
-    # The shipped boat LAN's lidar address (astro_dock's boat-network.env), not this machine's.
-    ns['boat_network'] = SimpleNamespace(value={'LIDAR_IP': '192.168.0.201'}.get)
+    # The shipped boat's lidar facts (its vessel profile), not this machine's.
+    vessel = {'lidar.endpoint.ip': '192.168.0.201', 'lidar.model': 'VLP16', 'lidar.rpm': 600}
+    ns['resolve_lidar'] = lambda *args, **kw: resolve_lidar(*args, share=share, profile=vessel, **kw)
+    ns['boat_network'] = SimpleNamespace(value={'LIDAR_IP': '192.168.0.201'}.get)   # older nav
     # Bind actual transport constants as well as factory bodies from shipped source.
     source = nav_root / 'launch/sensors.launch.py'
     assignments = [node for node in ast.parse(source.read_text()).body
@@ -74,7 +75,7 @@ def sensor_context(ns, nav_root, argv, route):
 
 def selected_file(tmp_path, name, patch):
     path = tmp_path / name
-    path.write_text(yaml.safe_dump({'lidar': patch}))
+    path.write_text(yaml.safe_dump({'driver': patch}))
     return str(path)
 
 
@@ -108,7 +109,7 @@ def test_shipped_boat_lidar_defaults_deployment_and_selected_aliases(
         nodes = ns['sensor_nodes'](sensor_context(ns, nav_root, argv, route))
         driver, transform = [node.parameters[0] for node in nodes[:2]]
         assert driver['device_ip'] == expected_ip and driver['port'] == expected_port
-        assert driver['rpm'] == (450. if overlay else 420.)
+        assert driver['rpm'] == 600.        # the vessel profile's whatever a layer says
         assert driver['model'] == transform['model'] == 'VLP16'
         assert driver['frame_id'] == transform['frame_id'] == 'lidar_link'
         if overlay:
@@ -144,7 +145,7 @@ def test_tui_bad_selected_lidar_refuses_before_node(
         nav_root, tmp_path, calibration_share, route, kind):
     path = tmp_path / 'selected.yaml'
     if kind == 'invalid':
-        path.write_text('lidar: {rpm: 0}')
+        path.write_text('driver: {rpm: 0}')
     ns = sensor_factory(nav_root, calibration_share)
     argv = sensor_argv(overlay_args={'lidar_params_file': str(path)}, route=route)
     context = sensor_context(ns, nav_root, argv, route)
@@ -154,7 +155,7 @@ def test_tui_bad_selected_lidar_refuses_before_node(
 
 
 @pytest.mark.parametrize('route', ['sensors', 'robot'])
-@pytest.mark.parametrize('patch,packages', [({'sim': 'true'}, ['ros_tcp_endpoint']),
+@pytest.mark.parametrize('patch,packages', [({'sim': 'true'}, ['ros_tcp_endpoint', 'mhseals_nav']),
                                          ({'sensors_ignore': ' camera, lidar '}, [])])
 def test_tui_sim_or_ignored_lidar_never_constructs_physical_pair(
         nav_root, calibration_share, route, patch, packages):
@@ -177,7 +178,7 @@ def test_tui_deployment_leaf_validation_cannot_be_masked(
     context = sensor_context(ns, nav_root, argv, route)
     nodes = ns['sensor_nodes'](context)
     assert nodes[0].parameters[0]['port'] == 6543
-    assert nodes[0].parameters[0]['rpm'] == 420.
+    assert nodes[0].parameters[0]['rpm'] == 600.          # the vessel profile's
     selected_file(tmp_path, 'deployment.yaml', {'endpoint': {'port': 0}})
     selected_file(tmp_path, 'selected.yaml', {'endpoint': {'port': 7654}})
     ns['Node'] = lambda **kw: pytest.fail('constructed pair from invalid masked deployment')
