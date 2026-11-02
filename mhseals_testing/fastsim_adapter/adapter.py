@@ -98,6 +98,19 @@ def boat_limits(overlay=None, camera_frame=None):
     return {'limits': limits, 'perception': perception, 'tracker': tracker, 'sources': sources}
 
 
+def mission_params(task, mission=None, profile=None, overrides=None):
+    """mhseals_nav's params for ``task`` with ``overrides`` merged key by key (a key the task lacks
+    is an error); the run budget follows an overridden timeslot, or an overridden timeout wins."""
+    from mhseals_nav.tasks.params import load_params, overlay, timeslot
+    params = load_params(task, mission, profile)
+    if not overrides:
+        return params
+    merged = overlay(params, overrides, 'overrides')
+    if 'timeslot' in merged:
+        merged.pop('timeslot' if 'timeout' in overrides else 'timeout', None)
+    return timeslot(merged)
+
+
 def keep(session, task, track, events, statuses, run_id):
     """What the referee judges, as procedures.mission.keep lays it out (that package needs the
     hardware stack): the session's track.jsonl, task_events.jsonl and task_status.jsonl and the
@@ -177,9 +190,7 @@ class RoboBoatAdapter:
                             limits_overlay=limits_overlay, camera_frame=camera_frame,
                             unknown_static={'within_m': promote['within'], 'after_s': promote['after']},
                             crane=crane)
-        from mhseals_nav.tasks.params import load_params, overlay, timeslot
-        loaded = load_params(task, mission, profile)
-        self.params = timeslot(overlay(loaded, params, 'adapter.params')) if params else loaded
+        self.params = mission_params(task, mission, profile, params)
         self.boat = boat_limits(limits_overlay, camera_frame)
         self.crane = crane_tools(crane)
         self.current = None

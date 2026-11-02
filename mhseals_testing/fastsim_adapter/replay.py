@@ -172,15 +172,13 @@ def run_mission(feed, map_pose, events, tune, reached=1.0):
     succeeds when the boat's recorded pose comes within ``reached`` of its end)."""
     import py_trees
     from mhseals_nav.tasks.host import MissionHost
-    from mhseals_nav.tasks.params import load_params, overlay, timeslot
+    from mhseals_testing.fastsim_adapter.adapter import mission_params
     clock, sink, ticks, outcome = {'now': feed[0][0]}, [], 0, None
     nav = Recorder(clock)
     parts = segments(events, tune, feed[0][0])
     for k, (task, start) in enumerate(parts):
         stop = parts[k + 1][1] if k + 1 < len(parts) else math.inf
-        params = load_params(task, None, tune.get('profile'))
-        if tune.get('params'):
-            params = timeslot(overlay(params, tune['params'], 'tune.params'))
+        params = mission_params(task, None, tune.get('profile'), tune.get('params'))
         py_trees.blackboard.Blackboard.clear()
         host = MissionHost(task, params, nav, lambda p: sink.append({**p, 'received': clock['now']}),
                            lambda: clock['now'])

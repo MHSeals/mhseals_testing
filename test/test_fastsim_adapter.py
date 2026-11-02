@@ -28,6 +28,18 @@ def test_shipped_config_becomes_core_keys_with_tune_merged():
     assert 'tune' not in d and 'core' not in d
 
 
+def test_mission_overrides_move_the_run_budget_and_refuse_unknown_keys():
+    pytest.importorskip('mhseals_nav')
+    from mhseals_testing.fastsim_adapter.adapter import mission_params
+    base = mission_params('mission')
+    slot = base['timeslot']
+    wider = mission_params('mission', overrides={'timeslot': {'setup_reserve_s': slot['setup_reserve_s'] - 60}})
+    assert wider['timeout'] == base['timeout'] + 60
+    assert mission_params('mission', overrides={'timeout': 300.0})['timeout'] == 300.0
+    with pytest.raises(Exception):
+        mission_params('mission', overrides={'no_such_key': 1})
+
+
 def test_replay_config_names_every_layer_input():
     cfg = yaml.safe_load(replay.CONFIG.read_text())
     assert set(cfg['tune']['layers']) == {'tracker', 'mission'}

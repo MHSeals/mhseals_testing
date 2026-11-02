@@ -13,7 +13,8 @@ Stdlib only: it runs inside the worker. A job's code is exact commits: the hypot
 job's ref (``ctx.repos``) and the others at ``spec.refs[name]`` (default ``main``), checked out
 once per commit under the worker's data folder (crane_ml sparse: ``SPARSE``). The batch runs as a
 child process (``fastsim_adapter.batch``) with that code on its path, so two jobs never share
-imported modules. Spec keys: ``tune`` (config tune overrides: the sweep's parameter set),
+imported modules. Spec keys: ``tune`` (config tune overrides), ``vary`` (an arm's own tune
+overrides, merged last: a sweep's value),
 ``config`` (a YAML in mhseals_testing, default the shipped one), ``refs``, ``urls``, ``workers``.
 Metrics are the batch's ``metrics.json`` (core and referee numbers). coursegen needs dotnet and
 Unity's managed assemblies (crane Tools/RoboBoat/cli/README.md).
@@ -122,7 +123,7 @@ class FastsimBackend:
         self.shas = {k: v[1] for k, v in code.items()}
         testing, nav, crane = (code[k][0] for k in NEEDED)
         coursegen(crane)
-        tune = merge(self.options.get('tune') or {}, spec.get('tune') or {})
+        tune = merge(merge(self.options.get('tune') or {}, spec.get('tune') or {}), spec.get('vary') or {})
         truths = Path(ctx.work_dir).parents[1] / 'roboboat' / 'truths' / \
             f"{tune.get('family', 'roboboat_2026')}-{tune.get('mode', 'iid')}-{(self.shas['crane_ml'] or 'local')[:12]}"
         self.out = Path(ctx.work_dir) / 'runs'
