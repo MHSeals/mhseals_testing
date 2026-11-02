@@ -300,7 +300,7 @@ def sim_channel():
             text = (Path(__file__).resolve().parents[1] / 'config' / 'sim' / 'stack.yaml').read_text()
             overlay = re.search(r'^overlay:\s*(\S+)', text, re.M).group(1)
         except (OSError, AttributeError):
-            overlay = '~/.cache/crane-autodemo'
+            overlay = '~/.cache/boat-sim/ws'
     return Path(overlay).expanduser() / 'data' / 'agent' / 'channel.jsonl'
 
 

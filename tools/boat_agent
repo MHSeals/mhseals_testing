@@ -15,7 +15,7 @@ if [ "$target" = sim ]; then
   a=/home/roboboat/autodemo
   exec docker exec -i "$SIM_CONTAINER" bash -c "export HOME=$a/home ROS_DOMAIN_ID=$domain ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
 MHSEALS_DATA=$a/data MHSEALS_HARDWARE_CONFIG=$a/src/mhseals_testing/config/sim/hardware_crane.yaml; \
-. /opt/ros/jazzy/setup.bash; . /home/roboboat/.cache/ctest/base/install/setup.bash; . $a/install/local_setup.bash; "'
+. /opt/ros/jazzy/setup.bash; . $a/install/local_setup.bash; "'
 exec python3 -m mhseals_testing.harness.cli "$@"' _ "$@"
 fi
 here=$(uname -n)

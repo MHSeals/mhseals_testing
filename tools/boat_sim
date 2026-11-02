@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# boat_sim [up [--seed N] [--build] [--dry-run] | down | status]: the headless Unity sim and boat_test on it.
-#   up      ONE heavy-unity job (astro_dock/.handoff/tools/heavy unity): a fresh private-IPC container (config
+# boat_sim [up [--seed N] [--build] [--no-player] [--dry-run] | down | status]: the headless Unity sim and boat_test on it.
+#   up      ONE heavy-unity job (mhseals_agents/tools/heavy unity): a fresh private-IPC container (config
 #           sim/stack.yaml container), a free ROS_DOMAIN_ID (domains, localhost discovery), boat_test --profile
 #           crane_full_stack in tmux -L boat session sim (it starts the stack and the ROS-TCP endpoint), then the
 #           player headless under xvfb-run with the course of SEED. Waits for down (or max_s) and tears down.
-#           --build refreshes the container's overlay from the workspace mains first; --dry-run prints the plan.
+#           --build refreshes the overlay from the workspace checkouts (built on /opt/ros alone, the endpoint on
+#           port; the first up builds it); --dry-run prints the plan. --no-player: the stack and TUI alone, a heavy
+#           sim job (the TUI, its verbs and help while the unity slots are busy; nothing moves the boat).
 #   down    stop the TUI session, the player and the container (exact PIDs) and give the slot back; a session
 #           still queued for the slot is cancelled
 #   status  the domain, the player and the TUI session
@@ -12,7 +14,9 @@
 # Never opens a window; tmux only on its own server (-L boat, $TMUX cleared). tools/boat_tui sim runs this.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-HEAVY=${BOAT_SIM_HEAVY:-$HOME/astro_dock/.handoff/tools/heavy}
+# the workspace src/ of this checkout (of its main checkout when this is a worktree): the overlay copies its repos
+SRC=${BOAT_SIM_SRC:-$(dirname "$(dirname "$(git -C "$here" rev-parse --path-format=absolute --git-common-dir)")")}
+HEAVY=${BOAT_SIM_HEAVY:-$SRC/mhseals_agents/tools/heavy}
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
 eval "$(python3 -m mhseals_testing.harness.sim_stack env)"
 RUN=$SIM_RUN; mkdir -p "$RUN"
@@ -23,27 +27,30 @@ cenv() {   # the stack's environment inside the container
   echo "export HOME=/home/roboboat/autodemo/home ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
 MHSEALS_DATA=/home/roboboat/autodemo/data MHSEALS_HARDWARE_CONFIG=/home/roboboat/autodemo/src/mhseals_testing/config/sim/hardware_crane.yaml \
 MHSEALS_SIM_ARM=1 TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8; source /opt/ros/jazzy/setup.bash; \
-source /home/roboboat/.cache/ctest/base/install/setup.bash; source /home/roboboat/autodemo/install/local_setup.bash"
+source /home/roboboat/autodemo/install/local_setup.bash"
 }
 
 container_up() {
   docker stop -t 10 "$SIM_CONTAINER" >/dev/null 2>&1 || true      # a fresh stack: no old processes or holds
+  mkdir -p "$SIM_OVERLAY/src" "$SIM_OVERLAY/home" "$SIM_OVERLAY/data"      # ours, before docker would make it as root
   if ! docker inspect "$SIM_CONTAINER" >/dev/null 2>&1; then
     docker run -d --name "$SIM_CONTAINER" --label boat.sim=1 --init --ipc private --network host \
-      -e BASH_ENV= --user roboboat -v "$SIM_BASE":/home/roboboat/.cache/ctest/base:ro \
-      -v "$SIM_OVERLAY":/home/roboboat/autodemo --entrypoint sleep "$SIM_IMAGE" infinity >/dev/null
+      -e BASH_ENV= --user roboboat -v "$SIM_OVERLAY":/home/roboboat/autodemo --entrypoint sleep "$SIM_IMAGE" infinity >/dev/null
   fi
   docker start "$SIM_CONTAINER" >/dev/null
   docker exec "$SIM_CONTAINER" bash -c 'f=/tmp/mhseals-$(id -u)/session.json; [ -e $f ] && mv $f $f.stale-$(date +%s) || true'
 }
 
-overlay() { # --build: the workspace mains of the three packages, colcon-built in the container (a few minutes)
-  for p in hardware nav testing; do
-    rsync -a --delete --exclude .git --exclude __pycache__ "$HOME/astro_dock/src/mhseals_$p/" "$SIM_OVERLAY/src/mhseals_$p/"
+overlay() { # --build (or no install yet): the workspace checkouts, colcon-built in the container on /opt/ros alone
+  for p in mhseals_hardware mhseals_nav mhseals_testing ros_tcp_endpoint; do
+    rsync -a --delete --exclude .git --exclude __pycache__ "$SRC/$p/" "$SIM_OVERLAY/src/$p/"
   done
+  local file=$SIM_OVERLAY/src/mhseals_nav/config/endpoint_startup.yaml     # the endpoint on the sim's own port
+  sed -i -E "s/^(unity: \{ip: [0-9.]+, port: )[0-9]+\}/\1$SIM_PORT}/" "$file"
+  grep -q "port: $SIM_PORT}" "$file" || { echo "boat_sim: cannot set the endpoint port in $file" >&2; exit 1; }
   docker exec "$SIM_CONTAINER" bash -c 'export HOME=/home/roboboat/autodemo/home; . /opt/ros/jazzy/setup.bash;
-    . /home/roboboat/.cache/ctest/base/install/setup.bash; cd /home/roboboat/autodemo &&
-    colcon build --symlink-install --base-paths src --build-base build --install-base install --cmake-args -DBUILD_TESTING=OFF' | tail -3
+    cd /home/roboboat/autodemo && colcon build --symlink-install --base-paths src --build-base build \
+    --install-base install --cmake-args -DBUILD_TESTING=OFF' | tail -3
 }
 
 tui() {    # boat_test in the boat tmux server; it starts the profile's components (the endpoint among them)
@@ -95,34 +102,35 @@ session() {
   DOMAIN=$(python3 -m mhseals_testing.harness.sim_stack domain)
   echo "$$" > "$DOMAINS/domain.$DOMAIN"; echo "$DOMAIN" > "$RUN/domain"
   container_up
-  if [ "$BUILD" = 1 ]; then overlay; fi
+  if [ "$BUILD" = 1 ] || [ ! -e "$SIM_OVERLAY/install/local_setup.bash" ]; then overlay; fi
   tui
   until docker exec "$SIM_CONTAINER" pgrep -f default_server_endpoint >/dev/null; do sleep 5; done
   sleep 10                               # the endpoint listens on the port
-  player
+  [ "$PLAYER" = 1 ] && player
   echo "boat_sim: ready, domain $DOMAIN, seed $SEED; attach: tmux -L boat attach -t $SIM_TMUX_SESSION"
   local end=$(( $(date +%s) + SIM_MAX_S ))
   while [ ! -e "$RUN/stop" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 5; done
 }
 
 verb=${1:-}; [ $# -gt 0 ] && shift
-SEED=$SIM_SEED; dry=0; BUILD=0
+SEED=$SIM_SEED; dry=0; BUILD=0; PLAYER=1
 while [ $# -gt 0 ]; do
-  case $1 in --seed) SEED=$2; shift 2 ;; --dry-run) dry=1; shift ;; --build) BUILD=1; shift ;; *) break ;; esac
+  case $1 in --seed) SEED=$2; shift 2 ;; --dry-run) dry=1; shift ;; --build) BUILD=1; shift ;; --no-player) PLAYER=0; shift ;; *) break ;; esac
 done
 case $verb in
   up)
-    [ -x "$SIM_PLAYER" ] || { echo "boat_sim: no player at $SIM_PLAYER (config/sim/stack.yaml player or BOAT_SIM_PLAYER)" >&2; exit 2; }
+    [ "$PLAYER" = 0 ] || [ -x "$SIM_PLAYER" ] || { echo "boat_sim: no player at $SIM_PLAYER (config/sim/stack.yaml player or BOAT_SIM_PLAYER)" >&2; exit 2; }
     if [ "$dry" = 1 ]; then
-      echo "boat_sim: would run under $HEAVY unity: container $SIM_CONTAINER ($SIM_IMAGE), a free domain in" \
-           "$SIM_DOMAINS, boat_test --profile $SIM_PROFILE in tmux -L boat session $SIM_TMUX_SESSION, player $SIM_PLAYER" \
+      echo "boat_sim: would run under $HEAVY $([ "$PLAYER" = 1 ] && echo unity || echo sim): container $SIM_CONTAINER ($SIM_IMAGE), a free domain in" \
+           "$SIM_DOMAINS, boat_test --profile $SIM_PROFILE in tmux -L boat session $SIM_TMUX_SESSION, player $([ "$PLAYER" = 1 ] && echo "$SIM_PLAYER" || echo none)" \
            "headless with $SIM_COURSE_FAMILY seed $SEED, port $SIM_PORT; logs in $RUN"
       exit 0
     fi
     # the stop file stays until this session starts: a session still ending sees it and gives the slot back
     build=''; [ "$BUILD" = 1 ] && build=--build
-    ( setsid "$HEAVY" unity "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & echo $! >"$RUN/queued.pid" )
-    echo "boat_sim: queued for the heavy unity slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
+    slot=unity; [ "$PLAYER" = 0 ] && slot=sim build="$build --no-player"
+    ( setsid "$HEAVY" $slot "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & echo $! >"$RUN/queued.pid" )
+    echo "boat_sim: queued for the heavy $slot slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
     ;;
   _run) session ;;
   down) down ;;

@@ -15,6 +15,8 @@ def test_the_shipped_settings_and_env_overrides():
     values = sim_stack.settings(environ={})
     assert values['profile'] == 'crane_full_stack' and values['domains'] == [101, 199]
     assert not values['player'].startswith('~')
+    assert 'base' not in values           # built on /opt/ros alone: no stale underlay in the sim or its agent verbs
+    assert not any('ctest/base' in (TOOLS / tool).read_text() for tool in ('boat_sim', 'boat_agent'))
     values = sim_stack.settings(environ={'BOAT_SIM_PLAYER': '/opt/CRANE.x86_64', 'BOAT_SIM_DOMAINS': '150 160'})
     assert values['player'] == '/opt/CRANE.x86_64' and values['domains'] == [150, 160]
     assert "SIM_DOMAINS='150 160'" in sim_stack.shell(values)

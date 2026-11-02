@@ -58,7 +58,7 @@ unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaime
 # lapsed lease, when the stop file appears or when the graph re-check (every 5 s) stops proving a sim. A fresh sim
 # session clears holds a previous session left in its own hold file; a --sim-arm run's Ready prompts are the agent's.
 # This file is the boat's too, so it ships off. The sim container turns it on: `docker run -e MHSEALS_SIM_ARM=1`
-# (crane_autodemo, roboboat_test); the boat's containers never set it. enabled: true here also turns it on.
+# (boat_sim, roboboat_test); the boat's containers never set it. enabled: true here also turns it on.
 sim_arm:
   enabled: false
   max_s: 1800

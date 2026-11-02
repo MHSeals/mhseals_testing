@@ -9,7 +9,7 @@ container: roboboat_preview          # its own container from the sim image; mou
 socket: preview                      # tmux -L preview
 session: preview
 domain: 100                          # its own ROS_DOMAIN_ID (agent sims draw from 101..199), localhost discovery
-port: 6768                           # its own ROS-TCP endpoint port, so an agent sim already running keeps 6767
+port: 6768                           # its own ROS-TCP endpoint port, so an agent sim already running keeps its own (config/sim/stack.yaml port)
 size: [1280, 720]                    # the player window
 attach_s: 120                        # boat_tui preview waits this long for the TUI before printing the attach line
 connect_s: 3                         # from the endpoint process to starting the player

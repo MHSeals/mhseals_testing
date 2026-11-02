@@ -2,13 +2,12 @@
 # environment (BOAT_SIM_PLAYER=/path/CRANE.x86_64). Paths may start with ~.
 player: ~/.cache/crane-phase1/player/CRANE.x86_64     # a crane_ml Linux player with the --crane-roboboat-* flags
 run: ~/.cache/boat-sim                                # pid files, logs, the domain, the course truth
-container: crane_autodemo                             # private-IPC container the stack and TUI run in
+container: boat_sim                                   # its own private-IPC container (never crane's crane_autodemo)
 image: vsc-astro_dock-95a55aed170fd9a82efa9f2b7064cb62047b76aa0d602aff3240d6f630e2e39f-uid:latest
-overlay: ~/.cache/crane-autodemo                      # the container's workspace overlay (src/, install/), built there
-base: ~/.cache/crane-fusion/ctest/base                # the base workspace the overlay builds on (read-only)
+overlay: ~/.cache/boat-sim/ws                         # the container's workspace (src/, install/), built there on /opt/ros alone
 profile: crane_full_stack
 command_mode: velocity                               # boat_test --set command_mode: effort for characterization (f)
-port: 6767                                            # mhseals_nav endpoint_startup.yaml unity.port
+port: 6770                                            # its own ROS-TCP endpoint port, set in the overlay's endpoint_startup.yaml
 domains: [101, 199]                                   # a free ROS_DOMAIN_ID from this range, localhost discovery
 course_family: roboboat_2026
 seed: 1

@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'sim' / 'stack.yaml'
-PATHS = ('player', 'run', 'overlay', 'base')
+PATHS = ('player', 'run', 'overlay')
 DOMAINS = Path(f'/tmp/boat-sim-{os.getuid()}')
 
 
