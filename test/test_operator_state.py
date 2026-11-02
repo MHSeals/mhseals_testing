@@ -111,7 +111,7 @@ def test_a_claim_not_kept_alive_while_paused_ends_cleanly_with_no_hold(rig):
     app = operator(rig)
     c = claim(rig)
     app.set_operator_state('power_cycle')
-    rig.clock[0] += 400
+    rig.clock[0] += app.arbiter.table.idle_s + 100                         # past the idle lease
     app.arbiter.tick()
     assert app.arbiter.table.get(c) is not None                            # suspended, not lapsed
     app.set_operator_state('normal')
