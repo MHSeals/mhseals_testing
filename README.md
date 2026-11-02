@@ -1,5 +1,19 @@
 # mhseals_testing
 
+### The sim, one command
+
+```bash
+tools/boat_tui sim [--seed N] [--build]     # headless Unity player + boat_test crane_full_stack (tmux -L boat, session sim)
+tools/boat_tui sim status                   # its domain, player and TUI session
+tools/boat_tui sim down                     # TUI, player and container down, the heavy slot given back
+tmux -L boat attach -t sim                  # the TUI, once the log says ready
+```
+
+It runs as one `heavy unity` job: a fresh private-IPC container, a free `ROS_DOMAIN_ID` (101-199, localhost discovery),
+boat_test with the `crane_full_stack` profile, then the player under `xvfb-run` (never a window) with the 2026 course of
+the seed. Settings are in `config/sim/stack.yaml`; each is overridable as `BOAT_SIM_<KEY>`, the player path as
+`BOAT_SIM_PLAYER`. `--build` refreshes the container's overlay from the workspace mains first; `--dry-run` prints the plan.
+
 The ASV test suite: sensor and TF checks, thruster trials, characterization, controller, navigation and perception tests, and scored mission rehearsals, on the boat or the [`crane_ml`](https://github.com/1unarzDev/crane_ml) simulator. It drives [`mhseals_hardware`](https://github.com/mhseals/mhseals_hardware) (thruster driver, velocity controller) and [`mhseals_nav`](https://github.com/mhseals/mhseals_nav) (localization, Nav2, task trees) through their public topics and launch files only.
 
 ### Screens
