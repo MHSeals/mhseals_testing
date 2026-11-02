@@ -75,7 +75,7 @@ def test_refusals_name_the_reason_and_start_nothing(desk):
     assert reply['error'] == 'unknown_component' and 'odometry, navigation, camera, objects' in reply['hint']
     reply = final(ask(desk, 'start', c, component='navigation')['id'])             # commander, not listed
     assert reply['error'] == 'not_allowed' and 'agent.yaml start: lists odometry' in reply['hint']
-    assert ch.exit_code(reply) == 2 and 'start refused: not_allowed' in desk.app.notice
+    assert ch.exit_code(reply) == 2 and desk.desk.summary()['attention'].endswith('start refused')   # the panel
     assert stack.processes.started == [] and stack.units.calls == []
     desk.app.settings.agents = 'block'
     assert final(ask(desk, 'start', c, component='odometry')['id'])['error'] == 'blocked'
