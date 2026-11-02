@@ -2,7 +2,7 @@
 # nothing here gates motion. Bandwidth is a percentage of the link speed in /sys.
 group: Network & DDS
 probes:
-  # The boat link is the interface holding an address in BOAT_SUBNET (the vessel's network env, ASTRO_NETWORK_ENV).
+  # The boat link is the interface holding an address in LAN_SUBNET (the vessel's network env, ASTRO_NETWORK_ENV).
   # While it is up, the hosts of the device registry's `ping:` roles are pinged once a second
   # (mhseals_testing.devices); the checks below judge the worst of them and name it.
   network:

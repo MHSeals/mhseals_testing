@@ -1,6 +1,6 @@
 """The Status `Network` row: boat-link facts judged by config/health/network.yaml.
 
-The boat subnet is ``BOAT_SUBNET`` in the vessel's network env (ASTRO_NETWORK_ENV) (without it there is
+The boat subnet is ``LAN_SUBNET`` in the vessel's network env (ASTRO_NETWORK_ENV) (without it there is
 no boat link to watch and the row stays hidden). The hosts pinged are those of the device
 registry's ``ping:`` roles, never this machine (mhseals_testing.devices); the worst host's loss and
 round trip are judged, and the row names that host.
@@ -52,7 +52,8 @@ class NetworkRow:
         self.specs = [s for s in loaded.specs if s.group == GROUP]
         settings = loaded.probes.get('network', {})
         kwargs = {'clock': clock} if clock else {}
-        subnet = boat_network.values(env_file or devices.layer_paths()[3]).get('BOAT_SUBNET')
+        lan = boat_network.values(env_file or devices.layer_paths()[3])
+        subnet = lan.get('LAN_SUBNET') or lan.get('BOAT_SUBNET')    # BOAT_SUBNET: the old name
         self.link = Link(subnet, root=root, **kwargs, **link) if subnet else None
         self.engine = Engine(self.specs, **kwargs)
         self.period = settings.get('period', PERIOD)
