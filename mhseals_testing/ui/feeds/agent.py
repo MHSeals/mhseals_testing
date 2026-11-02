@@ -34,6 +34,7 @@ import time
 from mhseals_hardware import hold_store
 
 from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, agent_grants, control, journal, operator_state, sim_arm
+from mhseals_testing.harness import background
 from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
@@ -123,6 +124,7 @@ class AgentDesk:
         self.active_claim = None
         self.claim_who, self.expired_seen = {}, set()   # agent claim id -> who; lapsed leases already told
         self.dry = None                     # (req, thread, box) of the goal dry run in flight
+        self.background = background.Reader(lambda: self.config.get().get('background', ''))
         self.fcu = None                     # harness.agent_fcu.AgentFcu, made on the first fcu op
         self.doing = {}                     # who -> {text, t_ns}: each agent's latest note --doing
         self.working = None                 # the op whose handler runs now: other reqs wait, then expire if late
@@ -160,7 +162,7 @@ class AgentDesk:
                 'queue': [{'id': r['id'], 'op': r['op'], 'who': r['who'], 'why': str(r.get('why') or '')}
                           for r in self.queue],
                 'recent': list(self.recent), 'notes': list(self.notes)[-20:], 'config_error': self.config.error,
-                'doing': dict(self.doing), 'attention': self.attention()}
+                'doing': dict(self.doing), 'attention': self.attention(), 'background': self.background.get()}
 
     def attention(self):
         """Why an agent wants the operator now ('' when not): an ask waiting, or a refusal or a hold release in

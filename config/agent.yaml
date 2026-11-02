@@ -9,6 +9,9 @@ lease: {idle_s: 600, motion_s: 10, max_claim_s: 3600}
 # operator hold (Space, stop, manual, an agent's own stop) only with a grant in this file (harness/agent_grants.py);
 # the e-stop never.
 grants: ~/.config/mhseals/agent_grants.yaml
+# The agent panel's one line "background: N questions · M proposals" (D-20261101-31) reads mhseals_agents
+# state/events from $MHSEALS_AGENTS, else this path, else the checkout beside this one (harness/background.py).
+background: ''
 request_s: 5            # a request past this is answered expired; never replayed after a restart
 confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120

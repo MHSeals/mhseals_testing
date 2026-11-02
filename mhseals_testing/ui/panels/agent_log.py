@@ -6,6 +6,8 @@ command is struck through, ``✗ denied`` with the verb to use; the current act 
 verb rows ``▸ run square  ◌ 34 s``; ``recent`` finished acts, when the desk gives them, keep their
 result, and a refusal reads warn with its hint. Each row wears its agent's vendor hue (Claude,
 Codex): the Agent column where the panel is wide, a ``◆`` mark before the command where it is not.
+Above them, one quiet line while the background orchestrator has open owner questions or proposals
+(D-20261101-31, harness/background.py): ``background: 2 questions · 1 proposal``; Enter lists them, read-only.
 Pure Rich, no ROS. The fold is cached on the desk's lists, so a frame with nothing new costs nothing.
 """
 
@@ -15,6 +17,7 @@ import time
 
 from rich.text import Text
 
+from mhseals_testing.harness import background
 from mhseals_testing.ui import authority_chip, theme
 from mhseals_testing.ui.panels import TITLES, window
 
@@ -104,7 +107,11 @@ def fold(desk):
         row['lines'].append(note)
         _shell(row, note)
     shells = [rows[key] for key in order]
-    return sorted(_acts(desk or {}) + shells, key=lambda r: r['t'], reverse=True)
+    found = (desk or {}).get('background') or {}
+    line = background.line(found)
+    top = [Row(t=float('inf'), who='background', state='off', result='', what=line, background=found,
+               lines=[])] if line else []
+    return top + sorted(_acts(desk or {}) + shells, key=lambda r: r['t'], reverse=True)
 
 
 _CACHE = {'key': None, 'rows': []}
@@ -118,7 +125,8 @@ def rows(desk):
     key = (len(notes), id(notes[-1]) if notes else None, len(recent), id(recent[-1]) if recent else None,
            tuple(sorted((k, str(v)) for k, v in current.items() if k != 'motion_lease_s')),
            tuple(q.get('id') for q in desk.get('queue') or ()),
-           tuple(sorted((w, str(d.get('t_ns'))) for w, d in (desk.get('doing') or {}).items())))
+           tuple(sorted((w, str(d.get('t_ns'))) for w, d in (desk.get('doing') or {}).items())),
+           id(desk.get('background')))
     if key != _CACHE['key']:
         _CACHE.update(key=key, rows=fold(desk))
     return _CACHE['rows']
@@ -160,6 +168,8 @@ def command(row):
     what = theme.ascii_safe(row['what'])
     host, dollar, rest = what.partition('$ ')
     denied = row['state'] == 'deny'
+    if 'background' in row:
+        return Text(what, style=theme.MUTED)
     out = Text(f"{row['hint']}{theme.SEPARATOR}", style=f'bold {theme.BAD}'.strip()) \
         if denied and row.get('hint') else Text()
     out.append(f'{host}{dollar}' if dollar and ' ' not in host else '', style=theme.MUTED)
@@ -209,6 +219,16 @@ def detail(app, desk, cursor):
     if not items:
         return None
     row = items[min(cursor, len(items) - 1)]
+    if 'background' in row:
+        return app.show(row['what'], message='\n'.join(background_list(row['background'])), width=100)
     lines = [json.dumps({k: v for k, v in line.items() if k != 'schema'}, default=str) for line in row['lines']]
     title = theme.SEPARATOR.join((TITLES['activity'], row['who'], clock(row['t'])))
     return app.show(title, message='\n'.join([row['what'], *lines]), width=100)
+
+
+def background_list(found):
+    """Enter on the background line: each open question, then each proposal (branch, sim verdict), oldest first."""
+    out = [f"question {i['id']} ({i['station']}): {i.get('title', '')}" for i in found.get('question') or ()]
+    out += [f"proposal {i['id']} · {i.get('branch', '-')} · sim {i.get('verdict', '?')} ({i['station']}): "
+            f"{i.get('title', '')}" for i in found.get('proposal') or ()]
+    return out

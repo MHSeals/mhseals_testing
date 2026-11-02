@@ -33,6 +33,7 @@ def nav_root():
 def data_root(tmp_path, monkeypatch):
     """Keep tests off the developer's real data root (state.json, sessions)."""
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    monkeypatch.setenv('MHSEALS_AGENTS', str(tmp_path / 'no-agents'))   # nor the workspace's background state
     return tmp_path
 
 
