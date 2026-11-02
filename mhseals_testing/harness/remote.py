@@ -352,7 +352,14 @@ class Units:
             held = [item for item in self.items if item.unit in self.held]
             ending = [item for item in held if stop and (adopted or item.unit in self.started)]
         kept = [item.title for item in held if item not in ending]
-        failed = [item.title for item in ending if self.do_stop(item)]
+        outcome = {}                      # one ssh per unit, all at once: quitting waits for the slowest only
+        workers = [threading.Thread(target=lambda item=item: outcome.update({item.title: self.do_stop(item)}),
+                                    name=f'stop-{item.unit}', daemon=True) for item in ending]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        failed = [item.title for item in ending if outcome.get(item.title, 'did not answer')]
         stopped = [item.title for item in ending if item.title not in failed]
         return '; '.join(filter(None, [stopped and f'stopped {", ".join(stopped)}',
                                        failed and f'could not stop {", ".join(failed)}',

@@ -11,6 +11,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import yaml
@@ -159,8 +160,15 @@ class ProcessManager:
     def stop_all(self, last=None):
         """Stop everything, the recorder last so it captures the shutdown."""
         last = self.last if last is None else last
-        for name in sorted(self.processes, key=lambda name: name in last):
-            self.stop(name, timeout=self.last_grace if name in last else self.grace)
+        for names, grace in (([n for n in self.processes if n not in last], self.grace),
+                             ([n for n in self.processes if n in last], self.last_grace)):
+            # Each child gets its own SIGINT/TERM/KILL ladder at once: the wait is the slowest, not the sum.
+            workers = [threading.Thread(target=self.stop, args=(name, grace), name=f'stop-{name}', daemon=True)
+                       for name in names]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
 
     def summary(self):
         return '\n'.join(

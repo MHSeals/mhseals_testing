@@ -144,3 +144,38 @@ def _wait_up(log):
     deadline = time.time() + 5
     while time.time() < deadline and 'up' not in (log.read_text() if log.exists() else ''):
         time.sleep(0.02)
+
+
+class SlowChild:
+    """Exits 0.3 s after its SIGINT, like a node shutting down."""
+
+    def __init__(self, order, name):
+        self.order, self.name, self.code = order, name, None
+
+    def poll(self):
+        return self.code
+
+    def signal(self, signum):
+        self.order.append(self.name)
+
+    def wait(self, timeout):
+        time.sleep(0.3)
+        self.code = 0
+
+
+def test_stop_all_stops_children_at_once_and_the_recorder_after(tmp_path):
+    manager, order = ProcessManager(tmp_path / 'logs'), []
+    manager.processes = {name: SlowChild(order, name) for name in ('bag', 'a', 'b', 'c')}
+    began = time.monotonic()
+    manager.stop_all()
+    assert time.monotonic() - began < 0.9 and order[-1] == 'bag' and manager.processes == {}
+
+
+def test_discovery_settles_once_the_graph_stops_growing():
+    from mhseals_testing.ui.app import settle_discovery
+    now, graphs = [0.0], iter([['/me'], ['/me', '/a'], ['/me', '/a', '/b'], ['/me', '/a', '/b']])
+    found = settle_discovery(lambda: next(graphs), clock=lambda: now[0],
+                             sleep=lambda s: now.__setitem__(0, now[0] + s))
+    assert found == {'/me', '/a', '/b'} and now[0] == 0.75
+    quiet = settle_discovery(lambda: ['/me'], clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s))
+    assert quiet == {'/me'}

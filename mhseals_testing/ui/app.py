@@ -3270,6 +3270,19 @@ class RemovedStartStack(argparse.Action):
                      'Components, Enter on the Stack row')
 
 
+def settle_discovery(nodes, least=0.5, most=2.0, step=0.25, clock=time.monotonic, sleep=time.sleep):
+    """Wait until the ROS graph stops growing (two equal reads ``step`` apart, after ``least``), at most ``most``
+    seconds; returns the nodes seen last. A quiet graph costs ``least``, not the old fixed 2 s."""
+    start, seen = clock(), set(nodes())
+    while clock() - start < most:
+        sleep(step)
+        now = set(nodes())
+        if now == seen and clock() - start >= least:
+            return now
+        seen = now
+    return seen
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     parser.add_argument('--profile', default='boat',
@@ -3521,7 +3534,7 @@ def session_main(argv=None):
             # them already runs is attached to (Stack.autostart). Off the simulator nothing
             # that moves the boat auto-starts.
             if stack.start_order():
-                time.sleep(2.0)  # let discovery find an already-running stack
+                settle_discovery(ros.nodes)   # let discovery find an already-running stack
                 sim = profile.use_sim_time is True and profile.outputs == 'topic'
                 for line in stack.autostart(ros.nodes(), ros.publishers(profile.odometry), sim):
                     console.print(Text(line, style=theme.WARN))
