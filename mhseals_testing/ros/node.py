@@ -255,11 +255,13 @@ class RosIO:
         return [e['node'] for e in self.endpoints(topic, True) if not e['self']]
 
     def watch_beats(self, nodes):
-        """Subscribe once to each node's ``~/status`` (best effort, over the radio): its liveness beat."""
-        for node in nodes:
-            if node not in self._beat_subs:
-                self._beat_subs[node] = self.node.create_subscription(
-                    String, f'{node}/status', partial(self._beat, node), qos_profile_sensor_data)
+        """Subscribe once to each node's ``~/status`` (best effort, over the radio): its liveness beat. Returns the
+        nodes subscribed now."""
+        new = [node for node in nodes if node not in self._beat_subs]
+        for node in new:
+            self._beat_subs[node] = self.node.create_subscription(
+                String, f'{node}/status', partial(self._beat, node), qos_profile_sensor_data)
+        return new
 
     def _beat(self, node, message):
         now = time.monotonic()                     # the App's clock

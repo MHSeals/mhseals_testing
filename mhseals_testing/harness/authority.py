@@ -129,7 +129,7 @@ class ClaimTable:
 
 
 def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=None, mux_expected=True,
-           muxed=True):
+           muxed=True, saved_holds=()):
     """The authority record for this instant.
 
     ``mux``: the command_mux state, or None. ``claims``: the table's claims.
@@ -143,7 +143,9 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=N
     ``mux_expected`` is False when a muxed profile is disarmed: a missing or
     stale state is then 'none', not unknown. ``muxed`` False (an unmuxed
     profile) has no mux state at all, so it derives as input 'auto' with no rc
-    and no holds and every driver still shows.
+    and no holds and every driver still shows. ``saved_holds`` are the holds a
+    stopped mux (disarmed) saved and restores on arming: the record lists them
+    then, marked ``saved``.
     """
     if not muxed:
         mux, mux_age_s = {'input': 'auto', 'rc': None}, 0.0
@@ -157,6 +159,7 @@ def derive(mux, claims, nav, task, procedure, graph, now, prev=None, mux_age_s=N
     gone = mux is None or (not malformed and _age(mux, now, mux_age_s) > STALE_S)
     if gone and not mux_expected:
         record['claims'] = _effective(claims, False)
+        record['holds'] = [dict(h, saved=True) for h in saved_holds]
         return _finish(record, 'none', '', now, prev)
     if mux is None or malformed or _age(mux, now, mux_age_s) > STALE_S:
         # unknown means paused, but the claims stay visible

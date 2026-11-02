@@ -33,14 +33,14 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, control, journal, operator_state, sim_arm
+from mhseals_testing.harness import agent_channel, agent_config, agent_fcu, agent_grants, control, journal, operator_state, sim_arm
 from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, parts, theme
-from mhseals_testing.ui.feeds import agent_ops
+from mhseals_testing.ui.feeds import agent_ops, authority as authority_feed
 
 MOTION = ('run', 'goal')
 # a refusal of these is a footer notice too, not only an agent-log row
@@ -125,12 +125,15 @@ class AgentDesk:
         self.dry = None                     # (req, thread, box) of the goal dry run in flight
         self.fcu = None                     # harness.agent_fcu.AgentFcu, made on the first fcu op
         self.doing = {}                     # who -> {text, t_ns}: each agent's latest note --doing
+        self.working = None                 # the op whose handler runs now: other reqs wait, then expire if late
+        self.watched, self.watch_at = set(), float('-inf')   # hold watchdogs whose ~/status the desk subscribed to
 
     # --- the feed --------------------------------------------------------------------------
 
     def tick(self, app=None, snapshot=None, now=None):
         self.answer_dry()
         self.poll()
+        self.watch_holds()
         if self.act is not None:
             self.watch()
         self.note_expiry()
@@ -201,6 +204,9 @@ class AgentDesk:
                                or (record['kind'] == 'req' and record.get('op') in URGENT)):
                 self.deferred.append(record)
                 continue
+            if self.working and record['kind'] == 'req' and record.get('op') not in URGENT:
+                self.deferred.append(record)     # a handler still works (its popup ticks): after it, if in time
+                continue
             if record['kind'] == 'req' and record.get('dry') and record.get('op') in MOTION \
                     and record.get('id') not in self.answered:
                 if dry or self.dry is not None:   # one at a time: a goal's waits on Nav2 run off the tick
@@ -222,6 +228,7 @@ class AgentDesk:
             self.registry.update(lambda entry: entry.update(agent=position))
 
     def reply(self, req, ok=True, error='', state='done', result=None, hint='', label=None):
+        hint = agent_acts.agent_text(hint)
         agent_channel.reply(req['id'], req['who'], ok=ok, state=state, error=error, result=result,
                             hint=hint, path=self.path)
         if state == 'done':
@@ -282,7 +289,23 @@ class AgentDesk:
                    **{op: (lambda r, f=f: f(self, r)) for op, f in agent_ops.HANDLERS.items()}}.get(req['op'])
         if handler is None:
             return self.reply(req, False, 'bad_op', hint=f"unknown op {req['op']!r}")
-        handler(req)
+        self.working = req['op']
+        try:
+            handler(req)
+        finally:
+            self.working = None
+
+    def watch_holds(self):
+        """Subscribe to each holding watchdog's ~/status as its hold appears, so a release finds it fresh."""
+        holds = (getattr(self.arbiter, 'mux', None) or {}).get('holds') or []
+        wanted = {str(h.get('by')) for h in holds if isinstance(h, dict) and agent_grants.kind(h) == 'node'}
+        ros = getattr(self.app, 'ros', None)
+        if not wanted - self.watched or not hasattr(ros, 'watch_beats') or self.clock() - self.watch_at < STATUS_S:
+            return
+        self.watch_at = self.clock()           # a watchdog not on the graph yet is looked for once a second
+        nodes = [n for n in ros.nodes() if n.rsplit('/', 1)[-1] in wanted]
+        ros.watch_beats(nodes)
+        self.watched |= {n.rsplit('/', 1)[-1] for n in nodes}
 
     def touch(self, who, claim=None):
         """Renew the idle lease of ``who``'s active claim (any verb or note by it)."""
@@ -731,9 +754,8 @@ class AgentDesk:
 
     def saved_hold(self):
         """The oldest hold the stopped mux saved and restores on arming, as its cause; '' when none."""
-        section = (getattr(self.app.args, 'hardware_config', None) or {}).get('command_mux') or {}
-        holds = hold_store.load(section.get('state_file') or hold_store.default_path())
-        return str(min(holds.values(), key=lambda h: h['since'])['cause']) if holds else ''
+        holds = authority_feed.saved_holds(self.app)
+        return str(holds[0]['cause']) if holds else ''
 
     def busy_cause(self):
         """What keeps the next queued act from starting, or '' (strictly one Nav2 user at a time: a dry run too)."""

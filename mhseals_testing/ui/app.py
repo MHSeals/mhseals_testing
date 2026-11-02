@@ -2563,19 +2563,31 @@ class App:
 
     def fence_alert(self):
         """Outside the course area: the notice and an error toast that stays until the boat is back inside (or x),
-        with the distance and what happens (on_exit)."""
+        with the live distance and what happens (on_exit); "U releases the hold" only while the mux holds."""
         state = self.map_state()
         status = self.fence_status(state) if state is not None else None
         outside = isinstance(status, dict) and status.get('inside') is False
         was = getattr(self, '_fence_out', False)
-        if outside and not was:
-            self.notice = course_area.status_line(status)[1]
-            self.toasts.push('fence.outside', 'fail', self.notice, self.monitor.clock())
-            self.emit('fence_outside', distance=status.get('distance_to_edge'), on_exit=status.get('on_exit'))
+        if outside:
+            text = course_area.status_line(status, held=bool(self.mux_holds()))[1]
+            if not was:
+                self.notice = text
+                self.toasts.push('fence.outside', 'fail', text, self.monitor.clock())
+                self.emit('fence_outside', distance=status.get('distance_to_edge'), on_exit=status.get('on_exit'))
+            elif text != getattr(self, '_fence_text', None):
+                if self.notice == getattr(self, '_fence_text', None):
+                    self.notice = text
+                self.toasts.update('fence.outside', text)
+            self._fence_text = text
         back = was and isinstance(status, dict) and status.get('inside') is True
         if back:
             self.toasts.push('fence.outside', 'ok', 'Back inside the course area', self.monitor.clock())
         self._fence_out = outside or (was and not back)      # no position yet is not back inside
+
+    def mux_holds(self):
+        """The mux's holds as the authority record lists them (saved ones while the mux is stopped); [] when none."""
+        record = feeds_module.merged(self.feeds).get('authority_record') if getattr(self, 'feeds', None) else None
+        return list((record or {}).get('holds') or [])
 
     def live_nav2(self):
         """Return the live Nav2 applier, built when first needed (it subscribes to ROS state)."""

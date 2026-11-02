@@ -9,6 +9,7 @@ and returns them without moving anything.
 
 from dataclasses import replace
 import math
+import re
 import threading
 import time
 from pathlib import Path
@@ -315,6 +316,13 @@ def in_background(app, title, work, message=None, wait_s=0.2, on_abort=lambda: N
 
 # --- dry run ---------------------------------------------------------------------------------
 
+def agent_text(reason):
+    """``reason`` as an agent reads it: command_mode is the operator's (agent.yaml SETTINGS_NEVER), so never "use
+    --set command_mode=X"."""
+    return re.sub(r'; use --set command_mode=(\w+)', r': the operator restarts the TUI with command_mode \1 '
+                  r'(sim: BOAT_SIM_COMMAND_MODE=\1); agents never set it', str(reason or ''))
+
+
 def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0, fence_wait=0.0):
     """Everything a run or goal would check, without executing (spec section 3 --dry-run).
 
@@ -326,7 +334,7 @@ def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0, fence_wa
         blocking, advisory = (app.engine.gate(found.key, app.args.bench_override, 'armed' in found.needs)
                               if app.engine is not None else ([], []))
         needs_arm = 'armed' in found.needs and not app.armed
-        availability = app.availability(found) or None
+        availability = agent_text(app.availability(found)) or None
         course = mission_course(app) if name == 'mission' else ''
         hardware = hardware_advisory(app)
         hint = availability or course or ('ask the operator to arm (a)' if needs_arm else '')

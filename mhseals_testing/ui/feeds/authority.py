@@ -86,7 +86,8 @@ class AuthorityFeed:
         nav = {'goals': [{'id': f"goal {active['claim'] or 'tui'}", 'status': 'executing', 'by': 'nav',
                           'cancel': lambda: goals.cancel('revoke')}]} if active else None
         return {'procedure': procedure, 'task': task, 'graph': graph, 'nav': nav,
-                'mux_expected': bool(app.armed), 'muxed': bool(muxed(app.profile))}
+                'mux_expected': bool(app.armed), 'muxed': bool(muxed(app.profile)),
+                'saved_holds': () if app.armed or not muxed(app.profile) else saved_holds(app)}
 
     def tick(self, app, snapshot, now):
         pass                                   # the arbiter runs on its own ROS timer
@@ -95,6 +96,15 @@ class AuthorityFeed:
         age = None if self.at is None else self.clock() - self.at
         stale = is_unknown(self.record, self.clock(), age)
         return {'authority_record': None if stale else self.record, 'authority_paused': stale}
+
+
+def saved_holds(app):
+    """The holds the stopped mux saved (hold_store, the session's state_file): ``[{cause, by, has_token}]``."""
+    from mhseals_hardware import hold_store
+    section = (getattr(getattr(app, 'args', None), 'hardware_config', None) or {}).get('command_mux') or {}
+    holds = hold_store.load(section.get('state_file') or hold_store.default_path())
+    return [{'cause': h['cause'], 'by': h['by'], 'has_token': h['token'] is not None}
+            for h in sorted(holds.values(), key=lambda h: h['since'])]
 
 
 def start(app, ros, bind=arbiter_module.bind, subscribe=None, registry=None):

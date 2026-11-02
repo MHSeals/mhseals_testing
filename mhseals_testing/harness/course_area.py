@@ -160,9 +160,9 @@ def fresh(status, at, now):
     return dict(status, inside=None, stale=True)
 
 
-def status_line(status):
+def status_line(status, held=True):
     """``(state, text)`` of /fence/status: ``ok``, ``warn`` (no position or stale) or ``bad`` (outside, with what
-    to do)."""
+    to do: U releases the hold only when the mux ``held`` one)."""
     if not isinstance(status, dict):
         return 'off', 'course area: no status'
     edge = status.get('distance_to_edge')
@@ -176,7 +176,8 @@ def status_line(status):
         return 'ok', f'inside the course area,{far} to the edge ({mode} on exit)'
     if status.get('returning') or mode == 'return':
         return 'bad', f'OUTSIDE the course area by{far}: returning inside slowly (on_exit return)'
-    return 'bad', f'OUTSIDE the course area by{far}: drive the boat back inside, then U releases the hold'
+    return 'bad', f'OUTSIDE the course area by{far}: drive the boat back inside' + (
+        ', then U releases the hold' if held else '')
 
 
 def preview(corners, fix, boat):

@@ -140,6 +140,10 @@ def test_leaving_the_area_raises_a_standing_error_toast_until_back_inside():
 
     class Fake:
         fence_alert, fence_status = App.fence_alert, App.fence_status
+        holds = [{'cause': 'geofence'}]
+
+        def mux_holds(self):
+            return self.holds
         ros = SimpleNamespace(map=SimpleNamespace(clock=lambda: now[0]))
         toasts, monitor, notice = Toasts(), SimpleNamespace(clock=lambda: now[0]), ''
 
@@ -157,8 +161,10 @@ def test_leaving_the_area_raises_a_standing_error_toast_until_back_inside():
     assert tick({'inside': True, 'on_exit': 'alert'}) == []
     shown = tick({'inside': False, 'distance_to_edge': 3.2, 'on_exit': 'alert'})
     assert shown[0][0] == 'fail' and 'drive the boat back inside' in shown[0][1] and events == ['fence_outside']
-    now[0] += 60.0       # an error toast never expires while outside, and is raised once
-    assert tick({'inside': False, 'distance_to_edge': 4.0, 'on_exit': 'alert'})[0][0] == 'fail'
+    now[0] += 60.0       # an error toast never expires while outside, and is raised once; its distance is live
+    app.holds = []
+    shown = tick({'inside': False, 'distance_to_edge': 4.0, 'on_exit': 'alert'})
+    assert shown[0][0] == 'fail' and '4.0 m' in shown[0][1] and 'U releases' not in shown[0][1]
     assert tick({'inside': None, 'on_exit': 'alert'})[0][0] == 'fail' and events == ['fence_outside']
     assert tick({'inside': True, 'on_exit': 'alert'})[0][0] == 'ok'
     # a status fence_watchdog stopped sending is stale, never "inside"

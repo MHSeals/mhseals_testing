@@ -203,7 +203,7 @@ class Arbiter:
             record = derive(self.mux, self.table.claims, nav, found.get('task'),
                             found.get('procedure'), found.get('graph'), now, self.record,
                             None if self.mux_at is None else now - self.mux_at,
-                            found.get('mux_expected', True), found.get('muxed', True))
+                            found.get('mux_expected', True), found.get('muxed', True), found.get('saved_holds', ()))
             for event in self.table.drain() + events(self.record, record):
                 self.emit(event['phase'], **event['rec'])
             self.record = record

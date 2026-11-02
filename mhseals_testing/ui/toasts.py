@@ -61,6 +61,14 @@ class Toasts:
         self._items[id] = Toast(id, kind, text, now, count, None if life is None else now + life)
         self._backlog += 1
 
+    def update(self, id, text):
+        """Change a shown toast's text in place (a live value): no new raise, count or backlog; False when gone."""
+        toast = self._items.get(id)
+        if toast is None:
+            return False
+        self._items[id] = dataclasses.replace(toast, text=text)
+        return True
+
     def transition(self, transition, title, now):
         """Feed one engine Transition; `title` names the check."""
         detail = transition.result.detail

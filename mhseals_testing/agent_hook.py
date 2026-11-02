@@ -271,10 +271,26 @@ def target_of(config):
     return (os.environ.get('BOAT_AGENT_TARGET') or config.get('target') or 'local').strip() or 'local'
 
 
+SIM = 'sim'          # $BOAT_AGENT_TARGET=sim: tools/boat_tui sim's TUI on this machine (its container), never a host
+
+
 def remote(config):
-    """The target host when it is another machine, else None."""
+    """The target host when it is another machine, else None (the sim runs here)."""
     target = target_of(config)
-    return None if target == 'local' or hostname().split('.')[0] == target else target
+    return None if target in ('local', SIM) or hostname().split('.')[0] == target else target
+
+
+def sim_channel():
+    """The sim TUI's channel on this machine: config/sim/stack.yaml ``overlay`` (``$BOAT_SIM_OVERLAY`` wins), mounted
+    as the container's /home/roboboat/autodemo, so its data/agent/channel.jsonl; read without PyYAML."""
+    overlay = os.environ.get('BOAT_SIM_OVERLAY')
+    if not overlay:
+        try:
+            text = (Path(__file__).resolve().parents[1] / 'config' / 'sim' / 'stack.yaml').read_text()
+            overlay = re.search(r'^overlay:\s*(\S+)', text, re.M).group(1)
+        except (OSError, AttributeError):
+            overlay = '~/.cache/crane-autodemo'
+    return Path(overlay).expanduser() / 'data' / 'agent' / 'channel.jsonl'
 
 
 def local_channel():
@@ -437,6 +453,7 @@ def start_text(who, agent='claude', config=None):
         'TUI popup. Run in sim first. For runs over 9 min use '
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
         + (f' ({remote(config)}).' if remote(config) else
+           ' (the sim TUI on this machine, BOAT_AGENT_TARGET=sim).' if target_of(config) == SIM else
            ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise-odroid in your environment '
            '(`blastoise` still works for one release; it means blastoise-odroid).')))
 
@@ -668,7 +685,7 @@ def boats(config):
     and addresses of STATIC_LEASES in the vessel's network env (``network_file``; a checkout without it, such as CI,
     knows no boat addresses, so ``is_boat`` then treats any private-LAN address as a boat), and ~/.ssh/config
     aliases for any of them."""
-    names = set(config['hosts']) | {host.split('-')[0] for host in config['hosts']} | {target_of(config)} - {'local'}
+    names = set(config['hosts']) | {host.split('-')[0] for host in config['hosts']} | {target_of(config)} - {'local', SIM}
     try:
         leases = re.search(r'^STATIC_LEASES="?([^"\n]*)', network_file().read_text(), re.M).group(1)
         names |= {part for lease in leases.split() for part in lease.split('=')[1:]}
@@ -1175,8 +1192,8 @@ def deliver(line, config):
     target, host = target_of(config), remote(config)
     try:
         if host is None:
-            path = local_channel() if target == 'local' else config['path']   # or this is the target host
-            if target == 'local' and not Path(path).parent.is_dir():
+            path = {'local': local_channel, SIM: sim_channel}.get(target, lambda: config['path'])()  # or the target
+            if target in ('local', SIM) and not Path(path).parent.is_dir():
                 return              # no TUI has run here: nobody reads the channel, nothing to log
 
             fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
@@ -1204,7 +1221,7 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
         return None
     config = config or hook_config()
     if phase == 'start':
-        full = event.get('source') == 'playbook' or remote(config) is not None
+        full = event.get('source') == 'playbook' or target_of(config) != 'local'
         return {'context': start_text(who, agent, config) if full else brief_text(who, config)}
     send = send or (lambda line: deliver(line, config))
     now = time.time() if now is None else now
