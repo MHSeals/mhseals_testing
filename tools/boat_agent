@@ -4,9 +4,20 @@
 # With $BOAT_AGENT_TARGET naming another host (a boat session sets it), this checkout makes that hop itself and
 # remembers the last operator state, so a boat that is off or out of reach answers `unreachable` with it
 # (harness/agent_relay.py, host python3, no container).
+# BOAT_AGENT_TARGET=sim reaches the TUI of tools/boat_tui sim in its container, domain and data root.
 # File verbs load no rclpy; stop's backup path does.
 target=${BOAT_AGENT_TARGET:-local}
 [ "$target" = blastoise ] && target=blastoise-odroid
+if [ "$target" = sim ]; then
+  root=$(cd "$(dirname "$0")/.." && pwd)
+  eval "$(PYTHONPATH="$root" python3 -m mhseals_testing.harness.sim_stack env)"
+  domain=$(cat "$SIM_RUN/domain" 2>/dev/null) || { echo '{"ok": false, "error": "no_owner", "hint": "no sim: tools/boat_tui sim"}'; exit 4; }
+  a=/home/roboboat/autodemo
+  exec docker exec -i "$SIM_CONTAINER" bash -c "export HOME=$a/home ROS_DOMAIN_ID=$domain ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+MHSEALS_DATA=$a/data MHSEALS_HARDWARE_CONFIG=$a/src/mhseals_testing/config/sim/hardware_crane.yaml; \
+. /opt/ros/jazzy/setup.bash; . /home/roboboat/.cache/ctest/base/install/setup.bash; . $a/install/local_setup.bash; "'
+exec python3 -m mhseals_testing.harness.cli "$@"' _ "$@"
+fi
 here=$(uname -n)
 if [ "$target" != local ] && [ "$target" != "$here" ] && [ "$target" != "${here%%.*}" ]; then
   PYTHONPATH="$(cd "$(dirname "$0")/.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" \
