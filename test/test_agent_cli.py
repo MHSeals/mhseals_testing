@@ -324,3 +324,6 @@ def test_stop_without_an_id_still_stops_and_names_an_agent(monkeypatch):
 def test_status_needs_no_id(monkeypatch):
     monkeypatch.delenv('BOAT_AGENT')
     assert agent_cli.who_of(cli.build_parser().parse_args(['status']))[1] is None
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

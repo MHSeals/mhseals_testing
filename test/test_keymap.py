@@ -170,3 +170,6 @@ def test_shipped_file_falls_back_to_the_share_directory(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, 'ament_index_python.packages', fake)
     assert keymap.shipped_file() == share / 'config' / 'keymap.yaml'
     assert keymap.load(user=None)[0].resolve(['global'], 'a') == 'arm'
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

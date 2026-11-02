@@ -529,3 +529,6 @@ def test_the_module_runs_as_a_cli(verb):
     done = subprocess.run([sys.executable, '-m', 'mhseals_testing.ros.arm_link', verb, '--help'],
                           capture_output=True, text=True, env=dict(os.environ))
     assert done.returncode == 0 and '--config-b64' in done.stdout
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

@@ -92,3 +92,6 @@ def test_cli_reload_checks_their_words_before_sending(words, verb, says):
     agent = agent_cli.Agent(build_parser().parse_args([*words, '--who', 'x']), registry=SimpleNamespace(),
                             out=out, settings=agent_cli.DEFAULTS)
     assert getattr(agent, verb)() == ch.EXIT_CODES['bad_args'] and says in out.getvalue()
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

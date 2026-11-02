@@ -5,6 +5,8 @@ Popups are left out: each draws its own key hint line.
 """
 import re
 
+import pytest
+
 from mhseals_testing.ui import keymap
 from mhseals_testing.ui.app import HELP, LEFTRIGHT, UPDOWN
 
@@ -76,3 +78,6 @@ def test_every_handled_action_has_a_help_row():
                if (name, action) not in helped and (name, action) not in UNHANDLED]
     assert not missing, f'bound without a help row: {missing}'
     assert not UNHANDLED & helped
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

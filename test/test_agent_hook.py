@@ -1309,3 +1309,6 @@ def test_a_kill_of_a_pid_found_by_the_controls_name_is_denied(command, monkeypat
 def test_other_remote_shells_reach_the_boat(command, monkeypatch):
     monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
     assert hook.denied(command, hook.DEFAULTS)[1] in ('blastoise', 'blastoise-odroid')
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

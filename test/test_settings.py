@@ -56,3 +56,6 @@ def test_flags_shrink():
     flags = {option for action in build_parser()._actions for option in action.option_strings}
     assert {'--profile', '--set', '--output'} <= flags
     assert not flags & {'--amplitude', '--velocity-control', '--bench-override', '--repeats', '--stale-after'}
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

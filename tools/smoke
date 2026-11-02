@@ -1,0 +1,11 @@
+#!/bin/sh
+# The smoke tier (under 60 s): every test marked smoke - imports, shipped config, help.yaml and keymap
+# against the parsers, the arm link, the agent verbs and live C. It gates a landing; the full suite
+# runs in CI and never blocks. Sibling checkouts of mhseals_hardware and mhseals_nav are used when
+# present (MHSEALS_HARDWARE / MHSEALS_NAV override). Extra arguments go to pytest.
+here=$(cd "$(dirname "$0")/.." && pwd)
+src=$(dirname "$here")
+hardware=${MHSEALS_HARDWARE:-$src/mhseals_hardware}
+export MHSEALS_NAV="${MHSEALS_NAV:-$src/mhseals_nav}"
+export PYTHONPATH="$here:$hardware:$MHSEALS_NAV${PYTHONPATH:+:$PYTHONPATH}"
+cd "$here" && exec python3 -m pytest -q -m smoke -p no:cacheprovider test "$@"

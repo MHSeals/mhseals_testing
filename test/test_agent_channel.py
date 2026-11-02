@@ -198,3 +198,6 @@ def test_reply_errors_map_to_the_cli_exit_codes():
     assert [ch.exit_code({'ok': False, 'error': e}) for e in
             ('busy', 'motion_observe', 'overridden: rc', 'expired', 'no_owner', 'blocked', 'timeout', 'odd')] == \
         [2, 2, 3, 3, 4, 5, 6, 1]
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

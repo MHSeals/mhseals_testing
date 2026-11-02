@@ -107,3 +107,6 @@ def test_the_progress_line_shows_bar_step_command_and_measured_velocity():
     assert text.startswith('▕███') and ' 25% 3/12 sway+' in text
     assert 'cmd +0.00 +0.40 +0.00' in text and 'vel +0.01 +0.31 -0.02' in text and text.endswith('2.5s')
     assert 'vel —' in progress.line((0, 0, ''), (0, 0, 0), None, 0.0)
+
+
+pytestmark = pytest.mark.smoke   # tools/smoke

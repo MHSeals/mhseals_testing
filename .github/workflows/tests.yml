@@ -5,9 +5,33 @@ on:
 permissions:
   contents: read
 jobs:
+  # The landing gate: tools/smoke, under a minute.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MHSeals/mhseals_hardware
+          path: deps/mhseals_hardware
+      - uses: actions/checkout@v4
+        with:
+          repository: MHSeals/mhseals_nav
+          path: deps/mhseals_nav
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest rich PyYAML numpy pyserial pyubx2 pymavlink pillow
+      - run: tools/smoke
+        env:
+          MHSEALS_HARDWARE: deps/mhseals_hardware
+          MHSEALS_NAV: deps/mhseals_nav
+  # The full suite: informational, never blocks a landing.
   tests:
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         python: ['3.10', '3.12', '3.13']
     steps:
