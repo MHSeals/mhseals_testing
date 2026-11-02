@@ -6,9 +6,12 @@ as half-blocks. ``f`` freezes, ``s`` saves the original JPEG and its detections 
 The picture keeps the source aspect inside the pane and is never enlarged. Closing, a
 resize and the app's detach all call ``close``/``resize``, which delete the kitty image.
 
-Decoding, PNG encoding and the output stream are injected, so tests need no JPEG or terminal.
+Decoding, PNG encoding and the output stream are injected, so tests need no JPEG or terminal. With ``work``
+(``background``, as the TUI passes) decoding and encoding run on one worker thread: the key loop shows the last frame
+until the next is ready (D-20261101-26).
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import time
@@ -26,6 +29,17 @@ BAD_FRAME = 'bad frame'
 WAITING = 'waiting for a frame'
 NEEDS_COLOUR = 'camera view needs colour'
 KEYS_HINT = 'd boxes  D floor  f freeze  s save  +- rate'
+
+
+_pool = None
+
+
+def background(fn):
+    """``fn()`` on the camera's one worker thread; a future."""
+    global _pool
+    if _pool is None:
+        _pool = ThreadPoolExecutor(1, thread_name_prefix='camera-view')
+    return _pool.submit(fn)
 
 
 def fit(max_cols, max_rows, width, height, cell=CELL_PX):
@@ -84,12 +98,13 @@ class CameraView:
     """
 
     def __init__(self, feed, size, write, kitty=False, save_dir=None, detections=None,
-                 decode=decode_jpeg, encode=encode_png, observations=None):
+                 decode=decode_jpeg, encode=encode_png, observations=None, work=None):
         self.feed, self.write, self.kitty = feed, write, kitty
         self.cols, self.rows = size
         self.save_dir, self._detections, self.observations = save_dir, detections, observations
         self.detections = self._detect if detections else None
         self.decode, self.encode = decode, encode
+        self.work, self._pending = work, {}   # work(fn) -> future: decode and encode off the key loop
         self.clock = time.time
         self.boxes = self.floor = self.frozen = False
         self.notice = ''
@@ -139,12 +154,28 @@ class CameraView:
         if latest is not None and latest[1] != self._bad and (
                 self._frame is None or latest[1] != self._frame[0]):
             try:
-                self._frame = (latest[1], self.decode(latest[0]), latest[0])
-                if self.notice == BAD_FRAME:
+                array = self._later('decode', latest[1], lambda data=latest[0]: self.decode(data))
+                if array is not None:
+                    self._frame = (latest[1], array, latest[0])
+                if array is not None and self.notice == BAD_FRAME:
                     self.notice = ''
             except Exception:       # a corrupt frame must not end the TUI
                 self._bad, self.notice = latest[1], BAD_FRAME
         return self._frame
+
+    def _later(self, name, stamp, fn):
+        """``fn()`` for ``stamp``: inline without ``work``, else on the worker, None until it is done (one at a time;
+        a result for an older stamp is dropped). Raises what ``fn`` raised."""
+        if self.work is None:
+            return fn()
+        pending = self._pending.get(name)
+        if pending is not None and not pending[1].done():
+            return None
+        if pending is not None and pending[0] == stamp:
+            del self._pending[name]
+            return pending[1].result()
+        self._pending[name] = (stamp, self.work(fn))
+        return None
 
     def status(self):
         """'1 Hz . 0.3 s old' (perception.md 7), plus 'frozen' and the last notice."""
@@ -204,7 +235,11 @@ class CameraView:
         stamp = (frame[0], self.cols, self.rows, self.boxes, self.floor)
         if stamp != self._shown:
             try:
-                self.write(graphics.upload(self.encode(image), cols, rows))
+                png = self._later('encode', stamp, lambda: self.encode(image))
+                if png is None:          # encoding: the last image stays up
+                    return (graphics.placeholder_rows(cols, rows) if self._drawn else
+                            [Text(WAITING if row == 0 else '', style=theme.MUTED) for row in range(rows)]) + blank
+                self.write(graphics.upload(png, cols, rows))
             except Exception:
                 self.notice = 'image encode failed'
                 image = self._annotated(frame[1], False)

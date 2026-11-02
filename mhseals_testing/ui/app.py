@@ -2351,7 +2351,7 @@ class App:
                 kitty=graphics.kitty_enabled(getattr(reader, 'graphics', False),
                                              getattr(reader, 'xtversion', None)),
                 save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections,
-                observations=self.camera_boxes)
+                observations=self.camera_boxes, work=camera_view.background)   # decode and encode off the keys
 
         def handle(key):
             current = state['view']

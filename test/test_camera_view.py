@@ -298,3 +298,28 @@ def test_class_rgb_follows_the_class_colour_token():
     red, green = camera_view.class_rgb(table, 'red_buoy'), camera_view.class_rgb(table, 'green_buoy')
     assert red != green and red[0] > red[1] and green[1] > green[0]
     assert camera_view.class_rgb(None, 'x') == camera_view.BOX_RGB
+
+
+def test_with_a_worker_decode_and_encode_leave_the_key_loop_and_the_last_frame_stays():
+    from concurrent.futures import Future
+    jobs = []
+
+    def work(fn):
+        jobs.append((fn, Future()))
+        return jobs[-1][1]
+
+    def run():
+        while jobs:
+            fn, future = jobs.pop(0)
+            future.set_result(fn())
+    bus = Bus()
+    v, out = view(bus, kitty=True, decode=lambda data: np.kron(frame8(), np.ones((8, 8, 1), np.uint8)), work=work)
+    bus.publish()
+    assert v.lines()[0].plain.startswith(camera_view.WAITING) and len(jobs) == 1 and not out   # decoding
+    run()
+    v.lines()                                            # decoded: now encoding
+    run()
+    assert len(v.lines()) == 4 and len(out) == 1         # uploaded from the worker's PNG
+    bus.t = 1.0
+    bus.publish(b'y')
+    assert len(v.lines()) == 4 and len(out) == 1 and jobs   # the last image stays while the next decodes
