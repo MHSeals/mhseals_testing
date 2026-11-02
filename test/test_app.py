@@ -3214,7 +3214,7 @@ def test_failed_hardware_snapshot_retains_memory_and_draft(tmp_path, monkeypatch
     app.draft = draft = {'channel_map': [2, 1, 3, 4]}
     def fail(*args):
         raise OSError('snapshot write failed')
-    monkeypatch.setattr('mhseals_testing.ui.app.core.save_config', fail)
+    monkeypatch.setattr('mhseals_testing.ui.app.actions.settings.save_config', fail)
     assert not app.save_hardware(channel_map=[2, 1, 3, 4])
     assert app.args.hardware_config is old and app.arming.hardware_config is old
     assert app.draft is draft
