@@ -8,10 +8,11 @@ config/agent.yaml (about 15 ms per call); without it the built-in defaults apply
 
 * ``start`` returns a brief (the agent's boat name, the one rule, where the playbook is); the
   whole playbook (the ``boat_agent`` verbs, exit codes) in a boat session or for ``--playbook``.
-* ``pre`` denies a command whose text matches ``hook.deny`` (raw /cmd_vel, /goal_pose, mux,
-  MAVROS arming/command/mode/params, Nav2 goals and behaviors, pkill/killall, killing the boat's
-  control) or, when it names a boat (``boats``), ``hook.deny_boat``. A call made only of commands
-  that read or print text (``text_only``: grep, echo, git commit, pytest ...) is never denied.
+* ``pre`` matches what the call runs, never its text: each command of each pipeline (``$(...)``, ``bash -c``,
+  wrappers such as sudo or timeout, and the remote command of ``ssh HOST ...`` included) becomes one line, its
+  argv joined (``commands``), and each file it writes one ``EDIT op live|dev path`` line. ``hook.deny`` patterns
+  match a line from its start; ``hook.deny_boat`` too when the line runs on a boat (this host is one, or ssh to
+  one). Heredoc bodies, quoted text and the arguments of grep, echo or git commit are never commands.
   The reason names the command and the verb to use instead; the TUI gets it as ``phase: deny``. A
   boat-bound command (``hook.match``, not ``hook.skip``) becomes a channel ``note`` line
   ``{phase: pre, tool_id, cmd, agent}``.
@@ -27,6 +28,7 @@ the agent. Advisory, not a boundary: the mux, the claim and the red external chi
 """
 
 import fcntl
+import glob
 import json
 import os
 from pathlib import Path
@@ -47,138 +49,63 @@ SECRETS = (   # agent_channel._SECRETS, kept equal by test_agent_hook
     re.compile(r'(?i)(\bauthorization\s*:\s*(?:(?:bearer|basic|token)\s+)?)' + _VALUE),
     re.compile(r'(?i)(\bbearer\s+)' + _VALUE))
 CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'agent.yaml'
+# Every pattern matches one line from its start (``re.match``): a command's argv joined by spaces, its program
+# by base name (``ros2 topic pub /cmd_vel ...``), or ``EDIT create|change|delete live|dev PATH`` for a file it writes.
 # What starts the thruster driver, the mux or the velocity controller: executables and their modules.
 DRIVER = r'(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)'
 MODULE = r'(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)'
-# Starting the thruster driver, the mux or the velocity controller (arming) in any form: ros2 run, python -m
-# the module or the installed path in command position, an import of it (reading or editing its source is fine), a bare or ./ executable in command position, a launch that starts the mux.
-# ros2 run PKG ... EXE: any flags or --prefix value between the package and the executable.
+
+
 def ros2_run(package, executable):
-    return r'ros2\s+run\b[^;&|\n]*\b' + package + r'\s+([^;&|\n]*\s)?' + executable + r'\b'
+    """ros2 run PKG ... EXE: any flags or --prefix value between the package and the executable."""
+    return r'ros2\s+run\b.*?\s' + package + r'\s+(\S+\s+)*?' + executable + r'\b'
 
 
 def started(names):
-    """``names`` (executables) started in command position: bare, by path (./, ~/, /, install/.../lib/...) or after
-    exec, env, nice, python and the like."""
-    return (r'(^|[;&|(`\n]|\b(exec|nohup|setsid|sudo|env|time|nice|stdbuf|xargs|strace|timeout|python[\d.]*|bash|sh|dash'
-            r'|zsh)\b)\s*((-\S+|\w+=\S*|\d+\w*)\s+)*(/|~/|\.{1,2}/)?([\w.-]+/)*' + names + r'(\.py)?(?=\s|$|[;&|)`])')
+    """``names`` (executables) run directly (the program, after wrappers, by base name) or as a python script."""
+    return names + r'(\.py)?(\s|$)|python[\d.]*\s+(-\S+\s+)*(\S*/)?' + names + r'(\.py)?(\s|$)'
 
 
-ARMING = [ros2_run('mhseals_hardware', DRIVER),
-          r'\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_hardware\.' + MODULE + r'\b',
-          r'(\bimport\s+|\b(run_module|import_module|__import__)\(\s*)mhseals_hardware\.' + MODULE + r'\b',
-          r'\bfrom\s+mhseals_hardware(\.' + MODULE + r'\b|(\.\w+)?\s+import\b[^\n]*\b' + MODULE + r'\b)',
-          started(DRIVER),
-          r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)', r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
-          r'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)']   # a launch file by path
-# Turning sim-arm on: the switch's env name anywhere (MHSEALS_SIM_ARM=1 tui, docker exec -e ...), or a shell write to
-# agent.yaml at any path (sim_arm.enabled; the TUI re-reads it live); cp/ln/install/rsync only when agent.yaml is
-# the last word or the destination is a directory. Only the owner turns sim-arm on.
-# Shell writers of a protected file: editors, movers and filters with an output file (uniq IN OUT, sort -o, tar,
-# find -delete/-exec, git checkout/restore/...). agent.yaml adds python and pytest: running a launch file or the
-# hook (python3 .agents/hook.py --playbook) is not a write.
-WRITERS = (r'rm|mv|dd|tee|sed|perl|awk|gawk|ed|ex|vi|vim|nano|yq|patch|truncate|chmod|unlink|shred|rsync|ln|uniq|sort'
-           r'|tar|find(?=[^;&|\n]*\s-(delete|exec\w*|ok\w*|fprint\w*|fls)\b)'
-           r'|git\s+(-C\s+\S+\s+)?(checkout|restore|apply|reset|stash|mv|rm)')
-
-
-# A python one-liner (-c or stdin) that writes, moves or deletes a file: open(..., w|a|x), write_*, unlink, ...
-PY_WRITE = (r'\bpython[\d.]*\s+(-\S+\s+)*(-[A-Za-z]*c\s|(-\s+)?<<)(?=.*(\b(write_\w+|unlink|remove|rename|replace|copy\w*|move'
-            r'|truncate|chmod|symlink_to|rmtree)\(|\bopen\([^)\n]*[,(]\s*(mode=)?[wax]))')
-
-
-# xargs running a reader (wc, grep, cat, head ...) on the files a list names reads them; any other program may write.
-XARGS_READS = (r'(?!(\s+(-[nPLsI]\s*\S+|-\S+))*\s+(wc|grep|egrep|fgrep|rg|cat|head|tail|ls|stat|file|md5sum|sha\d*sum'
-               r'|du|nl|less)(?=[\s;&|)]|$))')
-
-
-def writes(name, more=''):
-    """Shell writes to a file ``name`` (a regex): a writer naming it, a copy into it (a copy *from* it to a named
-    file is a read), a redirection onto it, a list naming it fed to xargs, a python one-liner writing it."""
-    span = '.*' if more else r'[^;&|\n]*'
-    return [rf'(?<![\w-])({WRITERS}{more})(?![\w.-]){span}({name})', PY_WRITE + rf'.*({name})',
-            rf'(?<![\w-])(cp|install)\b[^;&|\n]*({name})(?![^;&|\n]*\s(?!\S*({name}))\S*[^/\s]\.\w+\s*($|[;&|)\n]))',
-            rf'>\|?\s*\S*({name})', rf'({name})[^;&\n]*\|\s*xargs\b' + XARGS_READS]
-
-
-AGENT_YAML = r'\bagent\.ya?ml\b'
-SIM_ARM = [r'\bMHSEALS_SIM_ARM\b'] + writes(AGENT_YAML, r'|python[\d.]*|pytest|py\.test')
-# Writes into a directory that is or holds a live protected dir (``into_live``: a config dir with agent.yaml, a
-# launch dir, the hook's dirs) without naming the file: rsync, tar -x, git checkout/restore/apply, patch (-d),
-# cp -r/-a, and find whose root is a protected dir with -delete or -exec/-ok of a writer.
-FIND_WRITE = (r'find(?=[^;&|\n]*\s(-delete|-fprint\w*|-fls|-(exec|execdir|ok|okdir)\s+(\S*/)?(rm|rmdir|mv|sed|perl|cp'
-              r'|tee|truncate|chmod|shred|unlink|ln|dd|install|rsync|sh|bash)\b))')
-INTO = [r'(?<![\w-])(rsync|tar|patch|git\s+(-C\s+\S+\s+)?(checkout|restore|apply)'
-        r'|cp(?=[^;&|\n]*\s(-[A-Za-z]*[raR][A-Za-z]*|--recursive|--archive)(?=\s))|' + FIND_WRITE + r')\b[^;&|\n]*']
-# Live launch files (ros2 launch starts the driver and mux from these) and the live agent hook and its wiring.
-_START = r'(?:(?<=/)|(?<![^\s;&|<>()=]))'
-LAUNCH_SH = _START + r'launch/[^\s;&|<>()/]+\.(?:py|xml|ya?ml)\b|[^\s;&|<>()=/]\.launch\.(?:py|xml|ya?ml)\b'
-HOOK_SH = (_START + r'(?:agent_hook\.py|\.agents/hook\.py|\.claude/settings(?:\.local)?\.json|\.codex/hooks\.json)'
-           r'(?![\w.-])')
-LAUNCHES, HOOKS = writes(LAUNCH_SH), writes(HOOK_SH)
-# The mux's saved holds (a sim session's command_mux_holds.json, the boat's command_mux_<domain>.json and their
-# directory) and the agent stop file: no shell write, truncation, move or delete. touch on the stop file stays.
-# The stop file is <data root>/agent/stop: a path ending in agent/stop anywhere; a whole agent dir or a glob in it
-# only under bags/, a $VAR, ~ or bare (a relative agent dir may be the data root's): build/.../agent is not it.
-HOLDS = [r'command_mux[\w*?\[\]-]*\.json|\bcommand_mux_\*|\bhold_store\b(?!\.py)',
-         r'(?<![\w-])(rm|mv|rmdir|unlink|shred|find|rsync)\b.*/mhseals(/\*?)?(?=\s|$|[;&|)])']
-AGENT_DIR = r'((?<![\w./~$}-])|(?<=\bbags/)|(?<=[}~]/)|\$\w+/)agent'
-STOP = [r'(?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr'
-        r'|rmdir)\b.*(\bagent/stop\b|' + AGENT_DIR + r'/(\*|\?|\['  r'))',
-        r'>\|?\s*\S*\bagent/stop\b', r'(?<![\w-])(rm|mv|rmdir|find|rsync)\b.*' + AGENT_DIR + r'/?(?=\s|$|[;&|)])',
-        # a bare stop after a cd into the agent dir: cd .../agent && rm stop
-        r'\b(cd|pushd)\s+(-\S+\s+)*\S*\bagent/?(?=\s|$|[;&|)]).*((?<![\w-])(rm|mv|unlink|shred|truncate|cp|ln|install'
-        r'|dd|tee|sed|perl|python[\d.]*|find|rsync|chmod|chattr)\b.*|>\|?\s*)(?<![\w/.-])(\./)?(stop\b|\*|\?|\[)',
-        r'\bstop_path\(\)\.(unlink|rename|replace|write_\w+|open)\b']
-# The agent's file tools (Claude Edit/Write/NotebookEdit, Codex apply_patch): each file becomes one line
-# ``EDIT create|change|delete live|dev <absolute path>`` (``edit_text``), searched by the deny rules that start
-# with ``(?m)^EDIT``. Only live copies are denied (``place``): what the running stack and the TUI read. A linked
-# git worktree (~/.cache/wt, ~/worktrees) is where agent.yaml, launch files and the hook are developed: allowed.
-# Live: agent.yaml, the mux's saved holds (command_mux*.json, hold_store, the runtime mhseals dir), an existing stop
-# file (creating it is fine) and any launch file (ros2 launch starts the driver or mux from an installed one).
-LAUNCH = r'(/launch/[^/\n]+\.(py|xml|ya?ml)|[^/\n]\.launch\.(py|xml|ya?ml))$'
-EDITS = [r'(?m)^EDIT \w+ live [^\n]*/agent\.ya?ml$',
-         r'(?m)^EDIT \w+ live [^\n]*(/command_mux[^/\n]*\.json$|/hold_store(/|$|\.json$)|/mhseals(/|$))',
-         r'(?m)^EDIT (change|delete) live [^\n]*/agent/stop$',
-         r'(?m)^EDIT \w+ live [^\n]*' + LAUNCH,
-         r'(?m)^EDIT \w+ live [^\n]*/(agent_hook\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$']
-# A shell file rule (SIM_ARM's agent.yaml writes, HOLDS, STOP) is skipped when every file it names (FILES) is a
-# dev copy; a relative name after a cd, a $variable or a glob counts as live (fail closed).
-FILES = re.compile(r'[^\s;&|<>()=]*(agent\.ya?ml|command_mux[^\s;&|<>()/]*\.json|agent/stop|\.launch\.(py|xml|ya?ml)'
-                   r'|' + LAUNCH_SH + '|' + HOOK_SH + r')(?![\w.-])')
-# Nav2's servers: a lifecycle or parameter change breaks a claimed goal that is running.
+# Starting the thruster driver, the mux or the velocity controller (arming) in any form: ros2 run, python -m the
+# module, the executable or its script, a launch that starts the mux or a launch file by path.
+ARMING = [ros2_run('mhseals_hardware', DRIVER), r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_hardware\.' + MODULE + r'\b',
+          started(DRIVER), r'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)',
+          r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b', r'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)']
+# Files no shell or edit tool writes, only live copies (a linked git worktree is development): the mux's saved
+# holds (command_mux*.json, hold_store), changing or removing the agent stop file (creating or touching it stops
+# the boat: fine), and the agent hook and its wiring (this file, .agents/hook.py, the agent-loop repo's
+# src/*/hooks/hook.py, .claude/settings*.json, .codex/hooks.json).
+HOLDS = [r'EDIT \w+ live .*(/command_mux[^/]*(\.json|\*)|/hold_store(/.*)?|/hold_store\.json)$']
+STOP = [r'EDIT (change|delete) live .*/agent/stop$']
+HOOKS = [r'EDIT \w+ live .*/(agent_hook\.py|\.agents/hook\.py|src/[^/]+/hooks/hook\.py|\.claude/settings(\.local)?\.json'
+         r'|\.codex/hooks\.json)$']
+# On a boat computer only: the runtime config and launch files the running boat reads.
+BOAT_FILES = [r'EDIT \w+ live .*(/agent\.ya?ml|/launch/[^/]+\.(py|xml|ya?ml)|[^/]\.launch\.(py|xml|ya?ml))$']
+# Nav2's servers: a lifecycle change breaks a claimed goal that is running. ``ros2 param`` on them is allowed with
+# a claim (``BOAT_AGENT_CLAIM=ID ros2 param set ...``; boat_agent set does it for the live keys).
 NAV2 = (r'(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother'
         r'|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)')
+NAV2_PARAM = r'ros2\s+param\s+(set|load|delete)\b.*\b' + NAV2 + r'\b'
 # On a boat: a stack component started or stopped from a shell (any mhseals_nav/mhseals_hardware launch: the
 # umbrella device launch or one part's, e.g. odom.launch.py; or its mhseals-<part> unit)
 # instead of boat_agent start/stop COMPONENT, which goes through the TUI's Status row path under the claim.
-BOAT_START = [r'\bros2\s+launch\s+(--?\S+\s+)*mhseals_(nav|hardware)\b',
-              r'\bsystemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-']
-BOAT_STOP_PART = [r'\bsystemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-']
-BOAT_KILL = r'\b(pkill|killall|kill)\b'
-# git that runs a program of the caller's choosing: a config or environment set for the call (-c with any key but
-# identity, colour or advice; --config-env, --exec-path; GIT_* other than identity, GIT_PAGER=cat|less or
-# GIT_TERMINAL_PROMPT), or a hooks, fsmonitor, alias, filter, diff or merge driver setting (git config included).
-GIT_RUNS = [r'(?<![\w/.-])git\b[^;&|\n]*\s(-c\s*(?![\'"]?(user\.(name|email)|color\.\S+|advice\.\S+|commit\.gpgsign)=)\S'
-            r'|--config-env\b|--exec-path\b)',
-            r'(?<![\w-])GIT_(?!(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)=|TERMINAL_PROMPT=|PAGER=([\'"]?(cat|less)?[\'"]?)(\s|$))\w+=',
-            r'(?<![\w/.-])git\b[^;&|\n]*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|askPass|gitProxy)|alias\.'
-            r'|filter\.|diff\.\S*(textconv|command)|merge\.\S*driver|credential\.helper|include(If)?\.)']
+BOAT_START = [r'ros2\s+launch\s+(--?\S+\s+)*mhseals_(nav|hardware)\b',
+              r'systemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-']
+BOAT_STOP_PART = [r'systemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-']
+BOAT_KILL = r'(pkill|killall|kill)\b|tmux\b.*\skill-(server|session|window|pane)\b'
+# git with a hooks path of the caller's choosing skips the commit-msg hook (no AI attribution): set for the call,
+# by git config or through the environment. Reading it stays allowed.
+HOOKS_PATH = [r'(?i)git\b(?!.*\sconfig\s+(--get\S*|--list|-l)\s).*\bcore\.hookspath\b',
+              r'(?i)\w+=.*\bcore\.hookspath\b']
 # Typing into the boat's boat_test TUI: tools/boat_tui runs it on its own tmux server (tmux -L boat) on a boat host;
-# keys sent to any of its panes (-t boat, -t %3, no -t, or chained after \;, which the shell hands tmux as ;) would
-# answer the operator's popups, arm or release a hold. A deny_boat rule: only on a boat host or via ssh to one;
+# keys sent to any of its panes would answer the operator's popups, arm or release a hold. A deny_boat rule:
 # private sockets (-L/-S) for sim and dev stay free. Watching it (capture-pane, list, status) stays allowed.
-TUI_KEYS = [r'\btmux\b(?:(?!\btmux\b)[^&|\n])*?' + r'''(-L\s*['"]?boat\b|-S\s*['"]?\S*/tmux-\d+/boat\b)'''
-            r'(?:(?!\btmux\b)[^&|\n])*?(?<![\w-])(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)'
-            r'(?![\w-])']
-# Killing the boat's control: a kill whose own arguments (with their $(...) and backticks) name it, or a kill of a
-# $variable in a call that names it anywhere (pid=$(pgrep mavros); kill $pid). A kill of a literal PID is not, whatever
-# else the call says (kill 4242; echo stopped the mavros sim).
+TUI_KEYS = [r'''tmux\b.*(-L\s*boat\b|-S\s*\S*/tmux-\d+/boat\b).*\s(send-keys|send|paste-buffer|pasteb|load-buffer'''
+            r'|loadb|pipe-pane|pipep)(\s|$)']
+# Killing the boat's control: a kill (or pkill) whose arguments name it, $(pgrep ...) included. kill PID is fine.
 _CONTROL = (r'\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*'
             r'|boat_(trial|test)\w*)\b')
-_KILL_ARGS = r'(?<![\w-])kill\b(?:[^;&|\n$`]|\$\([^)]*\)|`[^`]*`)*?(?:\$\([^)]*?|`[^`]*?)?'
-_KILL_VAR = r'(?<![\w-])kill\b(?:[^;&|\n]*[$`]|\(\s*(?!\d)\w)'      # kill $pid, kill $(cat f), os.kill(pid, 9)
-KILL_CONTROL = f'{_KILL_ARGS}{_CONTROL}|{_KILL_VAR}.*{_CONTROL}|{_CONTROL}.*{_KILL_VAR}'
+KILL_CONTROL = r'(kill|pkill|killall)\b.*' + _CONTROL
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -195,75 +122,67 @@ DEFAULTS = {
              r'ros2\s+bag\s+play\b(?!.*--topics\b)',
              r'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux'
              r'|mavros/(rc/override|setpoint|manual_control))',
-             ros2_run('mavros', r'mav\w*'), r'ros2\s+run\b[^;&|\n]*\bteleop_twist_\w+\b',
+             ros2_run('mavros', r'mav\w*'), r'ros2\s+run\b.*\steleop_twist_\w+\b',
              ros2_run('mhseals_hardware', 'keyboard_control'),
              ros2_run('mhseals_testing', 'operator_heartbeat')
-             + r'|\bpython[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
+             + r'|python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
              started('operator_heartbeat'),
              r'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
-             r'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b' + NAV2 + r'\b',
+             NAV2_PARAM, r'ros2\s+lifecycle\s+set\b.*\b' + NAV2 + r'\b',
              r'ros2\s+service\s+call\b.*\b' + NAV2 + r'/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
              ros2_run('mhseals_nav', 'run_task'),
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
              r'|\bthruster_pwm_node/estop|\bthrusters/)',
-             r'python[\d.]*(\s+-\w+)*\s+(-[A-Za-z]*c|-)\s.*\bcreate_publisher\b',
              r'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)'
              r'\s+(--?[\w-]+\s+)*[^\s-]*\$',
-             r'\bxargs\b[^|;&\n]*\bros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
+             r'xargs\b.*\sros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
              r'|lifecycle\s+set|run)\b',
-             r'\b(pkill|killall)\b', r'\bxargs\s+((-[nPLsIdEa]\s*\S+|-\S+)\s+)*(sudo\s+)?kill\b', KILL_CONTROL]
-            + SIM_ARM + INTO + ARMING + HOLDS + STOP + LAUNCHES + HOOKS + EDITS + GIT_RUNS,
+             r'(pkill|killall)\b', r'xargs\b.*\s(sudo\s+)?kill\b', KILL_CONTROL]
+            + ARMING + HOLDS + STOP + HOOKS + HOOKS_PATH,
     'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
-                 [r'\b(pkill|killall|kill)\b', r'\b(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
-                  r'\bsystemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
-                  r'\b(reboot|poweroff|halt|shutdown)\b', r'\b(tel)?init\s+[0-6sS]\b',
-                  r'\bloginctl\s+(terminate|kill)', r'sysrq'] + TUI_KEYS}
+                 [BOAT_KILL, r'(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
+                  r'systemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
+                  r'(reboot|poweroff|halt|shutdown)\b', r'(tel)?init\s+[0-6sS]\b',
+                  r'loginctl\s+(terminate|kill)', r'EDIT \w+ \w+ .*sysrq'] + TUI_KEYS + BOAT_FILES}
 NETWORK = 'config/boat-network.env'    # legacy path; STATIC_LEASES "MAC=hostname=address ...": the boat computers
 WINDOW_S = 10.0
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
-# Why a denied command is denied and the route that does it instead: (regex on the hit's matched line or None,
-# what it blocks, the boat_agent verb (None: the operator's; PID: kill your own process by PID), the deny patterns
-# it owns). The deny pattern that matched picks its entry (``use_entry``); patterns no entry owns fall back to the
-# regex, searched in the matched text's last line, so a heredoc can't borrow a later line's reason.
+# Why a denied command is denied and the route that does it instead: (regex on the matched line or None, what it
+# blocks, the boat_agent verb (None: the operator's; PID: kill your own process by PID), the deny patterns it owns).
+# The deny pattern that matched picks its entry (``use_entry``); patterns no entry owns fall back to the regex.
 _DENY = DEFAULTS['deny']
-USE = ((r'\b(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the mux, a watchdog, the "
+USE = ((r'(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the mux, a watchdog, the "
         'driver, MAVROS or a trial)', 'stop', (KILL_CONTROL,)),
        (None, 'pkill, killall and xargs kill (they can hit processes that are not yours)', 'PID',
-        (r'\b(pkill|killall)\b', r'\bxargs\s+((-[nPLsIdEa]\s*\S+|-\S+)\s+)*(sudo\s+)?kill\b')),
+        (r'(pkill|killall)\b', r'xargs\b.*\s(sudo\s+)?kill\b')),
        (None, 'starting a stack component on a boat (its device launch or unit)', 'start COMPONENT --claim ID',
         tuple(BOAT_START)),
        (None, 'stopping a stack component on a boat (its unit)', 'stop COMPONENT --claim ID', tuple(BOAT_STOP_PART)),
        (None, 'killing processes on a boat computer (a stack component: stop COMPONENT --claim ID; your own tmux '
-        'session: tmux kill-session -t agent-<your id>...)', 'stop',
-        (BOAT_KILL,)),
-       (None, "stopping or restarting the boat's software or computer (the FCU: boat_agent fcu restart --claim ID)",
-        None,
-        tuple(p for p in DEFAULTS['deny_boat'] if p not in BOAT_START + BOAT_STOP_PART + [BOAT_KILL] + TUI_KEYS)),
-       (None, 'replaying a bag that can carry motion topics (play only --topics without cmd_vel, thruster or mux '
-        'topics)', 'run KEY --claim ID', tuple(p for p in _DENY if p.startswith(r'ros2\s+bag\s+play'))),
-       (None, 'turning sim-arm on or changing the live agent.yaml (develop agent.yaml in a git worktree; sim-arm is '
-        'off unless the sim container sets MHSEALS_SIM_ARM=1: ask the operator to enable sim-arm in the sim container, '
-        'then run KEY --sim-arm)', None,
-        tuple(SIM_ARM)),
-       (None, 'writing into a live config, launch or hook dir (it holds agent.yaml, launch files or the agent hook; '
-        'develop in a git worktree and have the operator land it)', None, tuple(INTO)),
-       (None, "changing the mux's live saved holds (only the operator releases a hold, with U in the TUI)", None,
-        tuple(HOLDS)),
-       (None, 'removing or changing the live agent stop file (to stop, touch it or use stop; only the operator '
-        'removes it)', None, tuple(STOP)),
-       (None, 'changing a live launch file (the running stack starts the thruster driver and mux from these; '
-        'develop it in a git worktree, and to run the stack use run KEY --claim ID)', None, tuple(LAUNCHES)),
-       (None, 'changing the live agent hook or its wiring (it keeps agents on boat_agent; develop it in a git worktree '
-        'and have the operator land it)', None, tuple(HOOKS)),
-       (None, 'git with a config, environment, hook, alias or filter that runs a program (plain git add, commit, diff, '
-        'log, show and status are fine)', None, tuple(GIT_RUNS)),
+        'session: tmux kill-session -t agent-<your id>...)', 'stop', (BOAT_KILL,)),
        (None, "typing into the operator's boat_test TUI (its tmux session): popups, arming and holds are the "
         "operator's; ask with ask \"...\", watch with status or tmux capture-pane", None, tuple(TUI_KEYS)),
+       (None, "changing the running boat's config or launch files on a boat computer (develop them in a git "
+        'worktree; hot changes: set K=V --claim ID or reload config)', None, tuple(BOAT_FILES)),
+       (None, "stopping or restarting the boat's software or computer (the FCU: boat_agent fcu restart --claim ID)",
+        None, tuple(p for p in DEFAULTS['deny_boat']
+                    if p not in BOAT_START + BOAT_STOP_PART + [BOAT_KILL] + TUI_KEYS + BOAT_FILES)),
+       (None, 'replaying a bag that can carry motion topics (play only --topics without cmd_vel, thruster or mux '
+        'topics)', 'run KEY --claim ID', tuple(p for p in _DENY if p.startswith(r'ros2\s+bag\s+play'))),
+       (None, "changing the mux's live saved holds (release a lease or watchdog hold whose fault cleared with "
+        'release HOLD --why "..."; operator holds need a grant)', 'release HOLD --why "..."', tuple(HOLDS)),
+       (None, 'removing or changing the live agent stop file (to stop, touch it or use stop; only the operator '
+        'removes it)', None, tuple(STOP)),
+       (None, 'changing the live agent hook or its wiring (it keeps agents on boat_agent; develop it in a git worktree '
+        'and have the operator land it)', None, tuple(HOOKS)),
+       (None, 'git with a hooks path of its own (it skips the commit-msg hook; plain git, -c and GIT_* are fine)', None,
+        tuple(HOOKS_PATH)),
        (None, 'arming (starting the thruster driver or the mux)', 'arm --claim ID', tuple(ARMING)),
-       (None, "changing Nav2's servers (a lifecycle or parameter change breaks a running claimed goal)", None,
+       (None, "changing Nav2's servers (a lifecycle change breaks a running claimed goal; parameters: "
+        'BOAT_AGENT_CLAIM=ID ros2 param set ..., or set K=V --claim ID)', 'set K=V --claim ID',
         tuple(p for p in _DENY if NAV2 in p)),
        (None, 'starting the mission runner directly (outside the claim)', 'run mission --task NAME --claim ID',
         tuple(p for p in _DENY if 'run_task' in p or r'mhseals_nav\.tasks' in p)),
@@ -271,7 +190,7 @@ USE = ((r'\b(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (t
         tuple(p for p in _DENY if r'mhseals_testing\.(procedures' in p)),
        (None, "raw thruster pulses (thruster_pwm_node's test_pulses)", 'run KEY --claim ID',
         tuple(p for p in _DENY if 'test_pulses' in p)),
-       (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control|create_publisher',
+       (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control',
         'raw motion', 'run KEY --claim ID', ()),
        (r'operator/heartbeat|operator_heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority",
         None, ()),
@@ -291,8 +210,8 @@ PID_ROUTE = 'kill your own process by exact PID: kill PID (pgrep -af NAME lists 
 
 
 class Hit(str):
-    """A denied command's text (``str``: from the match to the next separator), with the deny ``pattern`` that
-    matched, ``tail`` (the last line of the matched text, which names the reason) and ``host``."""
+    """A denied command's text (``str``: the command that runs it), with the deny ``pattern`` that matched, ``tail``
+    (the matched line, which names the reason) and ``host``."""
     def __new__(cls, text, pattern=None, tail=None, host=None):
         hit = super().__new__(cls, text)
         hit.pattern, hit.tail, hit.host = pattern, text if tail is None else tail, host
@@ -307,17 +226,14 @@ def use_entry(hit):
 
 
 # Why an edit is denied, first match on the EDIT line wins.
-EDIT_USE = ((r'/agent\.ya?ml$', 'the live agent.yaml (hook rules, sim-arm switch). Develop it in a git worktree and '
-             'have the operator land it; to arm a sim use {cli} run KEY --sim-arm --claim ID, and ask the operator '
-             'to enable sim-arm in the sim container: {cli} ask "..."'),
-            (r'command_mux|hold_store|/mhseals(/|$)', "the mux's live saved holds. Only the operator releases a hold "
-             '(U in the TUI); ask them: {cli} ask "..."'),
+EDIT_USE = ((r'command_mux|hold_store', "the mux's live saved holds. Release a lease or watchdog hold whose fault "
+             'cleared with {cli} release HOLD --why "..."; an operator hold needs a grant (agent_grants.yaml)'),
             (r'/agent/stop$', 'the live agent stop file. To stop, create or touch it or use {cli} stop; only the '
              'operator removes it'),
             (r'/(agent_hook\.py|hook\.py|settings(\.local)?\.json|hooks\.json)$', 'the live agent hook or its '
              'wiring (it keeps agents on boat_agent). Develop it in a git worktree and have the operator land it'),
-            (r'.', 'a live launch file (the running stack starts the thruster driver and mux from these). Develop it '
-             'in a git worktree; to run the stack use {cli} run KEY --claim ID (a sim: --sim-arm)'))
+            (r'.', "the running boat's config or launch files on a boat computer. Develop them in a git worktree; hot "
+             'changes: {cli} set K=V --claim ID or reload config'))
 
 
 def private_dir(directory=None):
@@ -462,15 +378,15 @@ def start_text(who, agent='claude', config=None):
         '  2. `claim --reason "..."`: ask the operator for the boat.',
         '  3. `run KEY` (`run mission --task NAME`) or `goal X Y [YAW]` with `--claim ID --dry-run`, then for real.',
         '     `arm --claim ID [--countdown S]` arms through the TUI: a banner counts down (agent.yaml arm.countdown, '
-        '5 s) and the operator may cancel it; the e-stop refuses it and no verb releases a hold. Sim only: '
+        '5 s) and the operator may cancel it; the e-stop refuses it and arming never releases a hold. Sim only: '
         '`run KEY --sim-arm` arms a verified sim (its container sets MHSEALS_SIM_ARM=1) for that run and disarms '
         'after.',
         '     `run KEY --set K=V [--set K=V]` sets what the procedure measures before it starts (e.g. '
-        '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets one between runs (disarmed and '
-        'idle). Only agent.yaml `settings:` keys, within their choices (thrust_step bollard/pulses/survey/maneuvers, '
-        'dock_step, auto_tab); never amplitude, timings, speed or limits, command mode, bench override or agent '
-        'controls. The TUI shows and journals "agent ID set K=V". Exit 2: not_allowed (key not yours), bad_args '
-        '(unknown key or value), busy (a procedure runs: never mid-segment), refused (set while armed).',
+        '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets any tunable key (the testing '
+        'config schema; live Nav2 keys such as nav2.controller_server.FollowPath.max_vel_x too), within its range. '
+        'While armed it refuses the keys reload.yaml marks armed-unsafe; never amplitude or command_mode while '
+        'armed. The TUI shows and journals "agent ID set K=V". Exit 2: not_allowed (not tunable), bad_args '
+        '(unknown key or value), busy (a procedure runs: never mid-segment), refused (armed-unsafe while armed).',
         '     `start COMPONENT --claim ID` / `stop COMPONENT --claim ID` starts or stops a stack part agent.yaml '
         '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id; '
         '`reload COMPONENT --claim ID` respawns one. Never the driver, mux, Nav2 or watchdogs.',
@@ -485,8 +401,14 @@ def start_text(who, agent='claude', config=None):
         '     No TUI (exit 4): `boat_tui up` (beside boat_agent) starts the stack and TUI in tmux and prints the line '
         'the operator attaches with; `boat_tui status` says who controls. Never type into its tmux session.',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
-        '  `stop` any time: the operator and the agent it interrupts see your id. `ask "..."` instead of guessing. '
-        '`note "..."` writes a line in the TUI log.',
+        '  Every acting verb (claim, arm, run, goal, set, start, stop, reload, fcu set/restart, release) takes '
+        '`--why "..."`: the TUI agent panel shows who, verb, why and result. `note --doing "..."` sets your "doing:" '
+        'line there; `ask "..."` instead of guessing. `stop` any time: the operator and the agent it interrupts see '
+        'your id. `status` and `fcu get` work with no TUI controller.',
+        '  `release HOLD --why "..."` (hold names in `status` .holds) releases a lease or watchdog hold once its fault '
+        'has cleared, at once; an operator hold (Space, stop, manual) only when ~/.config/mhseals/agent_grants.yaml '
+        'grants it to you (then at once, e.g. a known bug the owner told you to clear). The e-stop is never '
+        'releasable. When it is the best course of action and allowed, act yourself; say why.',
         'Exit codes: 0 ok, 2 refused (read hint), 3 revoked or overridden (the hint says who: '
         'the operator or another agent; claim again only if asked), 4 no TUI (`unreachable`: the boat is off or '
         'out of reach), 5 agents blocked, 6 timeout, 7 paused by the operator.',
@@ -497,8 +419,9 @@ def start_text(who, agent='claude', config=None):
         'carry on (a claim not kept alive during the pause ends cleanly: claim again). Exit 4 with a down state or '
         '`unreachable`: the boat is down; check `status` every few minutes. When status shows `restarted_after`, '
         're-check the stack, FCU params and RTK before anything else, and claim again (old claims are gone).',
-        'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, change Nav2 lifecycles or params, send raw '
-        'test_pulses, start the mission runner or a procedure directly, never arm but through `arm`, never release a hold: '
+        'Never publish /cmd_vel, /goal_pose, mux or MAVROS commands, change Nav2 lifecycles (params: '
+        '`BOAT_AGENT_CLAIM=ID ros2 param set ...` or `set`), send raw test_pulses, start the mission runner or a '
+        'procedure directly, never arm but through `arm`, release holds only with `release`: '
         'the hook blocks them and names the verb; kill only your own processes by exact PID; never answer a '
         'TUI popup. Run in sim first. For runs over 9 min use '
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
@@ -545,8 +468,7 @@ def use_of(hit):
 
 
 def plain(text):
-    """The command as the shell reads its words: continuations joined, quotes and escapes dropped,
-    so ``/cmd''_vel``, ``/cmd\\_vel`` or ``ros2 'topic' pub`` cannot hide a match."""
+    """``text`` with continuations joined and quotes and escapes dropped (the note filter, ``matches``)."""
     return text.replace('\\\n', '').replace("'", '').replace('"', '').replace('\\', '')
 
 
@@ -556,40 +478,17 @@ def matches(patterns, text):
     return any(re.search(p, text, re.S) for p in patterns)
 
 
-# Two tiers. Tier A: every command in the call (each part of a pipe or list, each $(...)) only reads,
-# searches or prints text (READ_ONLY, find without -exec/-delete, sort/uniq without an output file,
-# git commit/log/diff/show/status, pytest, cd): its arguments are data,
-# so a grep pattern, an echo, a commit message or a heredoc into a file never denies. Tier B, anything
-# else: the whole command text is searched (quotes and escapes dropped, ``.`` spanning newlines), so
-# whatever wraps or hides a denied command is still denied, except a heredoc body nothing can run (a codex-task
-# prompt, ``code_of``). Variables, strings built at run time and
-# scripts from earlier calls still get through: advisory, the mux and the claim are the boundary.
 SEPARATORS = {';', '&', '&&', '||', '|', '|&', '\n', ';;', '(', ')'}
 REDIRECTS = {'<', '>', '>>', '>|', '&>', '&>>', '>&', '<&', '<>'}
-WRITES = {'>', '>>', '>|', '&>', '&>>'}
 PUNCT = re.compile(r'<<<|<<|>>|>&|<&|<>|&>>|&>|>\||\|\||&&|\|&|;;|[\s\S]')
-HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([\w.-]+)\1')
 HEREDOC_OP = re.compile(r'(?<!<)<<(?!<)(-?)[ \t]*')
-
 SUBST = re.compile(r'\$\(([^\n]*)|`([^`]*)`')
-READ_ONLY = {'grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'less', 'wc', 'cut', 'nl',
-             'tr', 'column', 'ls', 'stat', 'diff', 'jq', 'basename', 'dirname', 'realpath', 'readlink', 'pwd', 'du',
-             'comm', 'true', 'cd', 'pushd', 'popd', 'mkdir'}    # cd or mkdir changes nothing: the rest must only read
-FIND_RUNS = ('-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls')
-PYTEST_WRITES = ('--junit', '--basetemp', '--result-log', '--report-log', '--debug', '--html', '--json', '--cov',
-                 '--log-file', '-o', '--override-ini', '--lf', '--last-failed', '--ff', '--failed-first', '--sw',
-                 '--stepwise', '--cache-clear', '--pastebin', '--rootdir', '--confcutdir', '-p', '-c', '--inifile',
-                 '--config-file')
-GIT_READ = {'add', 'commit', 'log', 'diff', 'show', 'status'}      # add only stages: git add && git commit -m is text
-_ADDR = r'(\d+|\$|/[^/\n]*/)(,(\d+|\$|/[^/\n]*/))?'
-_SED = rf'({_ADDR})?!?(p|s/[^/\n]*/[^/\n]*/[gpI\d]*)'
-SED_PLAIN = re.compile(rf'{_SED}(;{_SED})*;?')      # print and s/// only: no e, w, r or other delimiters
+FIND_RUNS = ('-exec', '-execdir', '-ok', '-okdir', '-delete')
 
 
 def delimiter(line, start):
     """The heredoc word at ``line[start:]`` as bash reduces it: quotes and backslashes removed, and any of them
-    makes the body literal. ``(word, quoted)``; ValueError for a word the hook will not guess at ($, `, an
-    empty or open-quoted word, a backslash inside double quotes)."""
+    makes the body literal. ``(word, quoted)``; ValueError for a word the hook will not guess at."""
     word, quoted, i = '', False, start
     while i < len(line) and line[i] not in ' \t;&|()<>':
         c = line[i]
@@ -610,11 +509,8 @@ def delimiter(line, start):
 
 
 def heredocs(text):
-    """``(lines, bodies)``: the command lines of ``text`` (backslash-newline joined, as bash reads them) with
-    each heredoc body taken out after its line, and ``bodies`` ``[[dash, word, quoted, body, line index, terminator]]``.
-    Bodies follow bash: a quoted delimiter keeps the body literal (a trailing backslash joins nothing), the
-    terminator is the exact line. Any doubt raises ValueError so the caller treats the whole call as code: an
-    odd delimiter, an unterminated body, or a line ending in a backslash inside an unquoted body."""
+    """``(lines, bodies)``: the command lines of ``text`` (backslash-newline joined) with each heredoc body taken
+    out, and ``bodies`` ``[[dash, word, quoted, body, line index, terminator]]``. ValueError on any doubt."""
     raw, lines, found, i = text.split('\n'), [], [], 0
     while i < len(raw):
         line = raw[i]
@@ -626,8 +522,6 @@ def heredocs(text):
             word, quoted = delimiter(line, op.end())
             dash, body = bool(op.group(1)), []
             while i < len(raw) and (raw[i].lstrip('\t') if dash else raw[i]) != word:
-                if not quoted and raw[i].endswith('\\'):
-                    raise ValueError('heredoc continuation')
                 body.append(raw[i])
                 i += 1
             if i >= len(raw):
@@ -637,452 +531,44 @@ def heredocs(text):
     return lines, found
 
 
-def reads_only(argv):
-    """True when this command only reads, searches or prints: none of its words can run anything or
-    write a file."""
-    if not argv:
-        return False
-    name, args = argv[0], argv[1:]
-    if name == 'git':                   # no -c, --exec, --ext-diff, --textconv or --output
-        while args[:1] == ['--no-pager'] or args[:1] == ['-C']:
-            args = args[1 + (args[0] == '-C'):]
-        return args[:1] != [] and args[0] in GIT_READ and not any(
-            a.startswith(('-c', '--exec', '--ext-diff', '--textconv', '--output')) for a in args)
-    if name in ('pytest', 'py.test') or (re.fullmatch(r'python[\d.]*', name) and args[:2] == ['-m', 'pytest']):
-        return not any(a.startswith(PYTEST_WRITES) for a in args)       # --junitxml=F writes F, --basetemp=D wipes D
-    if name == 'sed':                   # sed -n [-E|-r] SCRIPT FILE...: SCRIPT only prints and substitutes
-        flags = [a for a in args if a.startswith('-')]
-        rest = [a for a in args if not a.startswith('-')]
-        return (all(re.fullmatch(r'-[nEr]+', a) for a in flags) and 'n' in ''.join(flags) and bool(rest)
-                and args.index(rest[0]) == len(flags) and bool(SED_PLAIN.fullmatch(rest[0])))
-    if name == 'rg':
-        return not any(a.startswith('--pre') for a in args)     # --pre runs a program on each file
-    if name == 'find':                  # no -exec/-ok (runs), -delete or -fprint/-fls (writes)
-        return not any(a in FIND_RUNS for a in args)
-    if name == 'sort':                  # -o writes, --compress-program runs
-        return not any(a.startswith(('-o', '--output', '--compress')) or re.match(r'-[^-]*o', a) for a in args)
-    if name == 'uniq':                  # uniq IN OUT writes OUT; - is stdin, a file argument too
-        return len([a for a in args if a == '-' or not a.startswith('-')]) <= 1
-    if name == 'file':                  # -C compiles a magic file
-        return not any(re.match(r'-[^-]*C', a) or a == '--compile' for a in args)
-    if name == 'less':                  # +!cmd runs it; -o/-O/--log-file write a file
-        return not any(a.startswith(('+', '--log', '--LOG')) or re.match(r'-[^-]*[oO]', a) for a in args)
-    return name in READ_ONLY
-
-
-def text_only(command, cwd=None):
-    """Tier A, side-effect free: no $(...), backticks or <(...)/>(...) anywhere (here-strings and
-    heredocs included), no file written but data files (``data_target``: notes, reports, logs; /dev/null and 2>&1),
-    and every command ``reads_only``: nothing in the call can run what it writes."""
-    if re.search(r'\$\(|`|[<>]\(', command):
-        return False
-    try:
-        pipelines = parse(command)
-    except ValueError:                  # an open quote: unreadable, so Tier B
-        return False
-    return bool(pipelines) and all(reads_only(cmd['argv']) and not cmd['subs']
-                                   and all(data_target(t, where(command, cwd)) for t in cmd['writes'])
-                                   for pipeline in pipelines for cmd in pipeline)
-
-
 def tokens_of(text):
-    """Shell words and operators; a quoted word stays one word. Raises ValueError on an open quote."""
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=';&|()<>`\n')
+    """Shell words and operators; a quoted word stays one word and ``\\;`` a word, not a separator (find -exec,
+    tmux). Raises ValueError on an open quote."""
+    lexer = shlex.shlex(text.replace('\\;', '\x01'), posix=True, punctuation_chars=';&|()<>`\n')
     lexer.whitespace, lexer.commenters, lexer.whitespace_split = ' \t\r', '', True
     out = []
     for token in lexer:
-        out += PUNCT.findall(token) if set(token) <= set(';&|()<>`\n') else [token]
+        out += PUNCT.findall(token) if set(token) <= set(';&|()<>`\n') else [token.replace('\x01', '\\;')]
     return out
 
 
 def parse(text, bodies=None):
-    """``[pipeline [command {argv, stdin, writes, subs}]]`` of ``text``. Heredoc bodies come out of the
-    text first (``bodies`` shared with nested substitutions); ``subs`` are ``$(...)`` and backticks."""
+    """``[pipeline [command {argv, stdin, writes, subs, reads}]]`` of ``text``. Heredoc bodies come out of the
+    text first (``bodies`` shared with nested substitutions); ``subs`` are ``$(...)``, backticks and ``<(...)``."""
     if bodies is None:
         lines, found = heredocs(text)
         bodies, text = iter([(f[3], f[2]) for f in found]), '\n'.join(lines)
     return build(tokens_of(text), bodies)
 
 
-# A heredoc body is data only when every command of its pipeline is one of these readers (an allowlist: an
-# unlisted interpreter, debugger or database shell such as ipython, gdb -batch or sqlite3 may run it).
-READS_STDIN = re.compile(r'codex-task|codex-ideate|cat|head|tail|wc|sort|uniq|cut|tr|grep|true|:')
-STDIN_SINKS = re.compile(r'\(\s*\)|\balias\b|\bfunction\b')    # a function or alias can hide the reader
-
-
-def code_of(command, cwd=None):
-    """``command`` without the heredoc bodies that are only data: the body of ``codex-task N <<'EOF'`` is a
-    prompt, not shell, and ``cat > notes.md <<EOF`` writes a file. A body stays when anything could run it: a
-    command in its pipeline that is not a known data reader (``READS_STDIN``), a file written there that is not
-    plain data (``data_file``: an allowlist of data files in notes, scratch and worktree dirs, written by a call that
-    does nothing else), a pipe
-    continued past the line, a ``$(...)``, backtick or ``<(...)`` on the line or (unquoted delimiter) in
-    the body, a word the hook cannot read (``$X``), or a function or alias in the call."""
-    text = command.replace('\\\n', '')
-    try:
-        lines, found = heredocs(command)
-    except ValueError:                  # a heredoc the hook cannot read as bash would: all of it is code
-        return command
-    if STDIN_SINKS.search('\n'.join(lines)):     # a function or alias defined in the call (bodies are text)
-        return command
-    out = []
-    for n, line in enumerate(lines):
-        out.append(line)
-        mine = [f for f in found if f[4] == n]
-        if not mine:
-            continue
-        try:
-            pipelines = parse(line, iter([(f'\0{k}', True) for k in range(len(mine))]))
-        except ValueError:
-            pipelines = []
-        risky = bool(re.search(r'\$\(|`|[<>]\(', line) or re.search(r'\|\s*$', line))
-        for k, (dash, word, quoted, body, _, end) in enumerate(mine):
-            pipe = next((p for p in pipelines if any(f'\0{k}' in c['stdin'] for c in p)), None)
-            data = pipe is not None and not risky and ((not (not quoted and re.search(r'\$\(|`', body)) and not any(
-                (c['writes'] and not data_file(c, text, cwd)) or any('$' in w for w in c['argv'])
-                or not READS_STDIN.fullmatch(os.path.basename(next(
-                    (w for w in c['argv'] if not re.fullmatch(r'\w+=\S*', w)), '')))
-                for c in pipe)) or (py_script(pipe, where(text, cwd), text)
-                                    and (quoted or not re.search(r'[$`\\]', body)) and py_inert(body, where(text, cwd))))
-            out += ([] if data else body.split('\n') + list(filter(None, [py_text(body)]))) + [end]
-    return '\n'.join(out)
-
-
-def py_text(code):
-    """The string literals of python ``code`` joined on one line ('' unless it parses), so the deny rules see a list
-    argv (``subprocess.run(['ros2', 'topic', 'pub', ...])``, ``os.execvp('ros2', [...])``) as the command it runs."""
-    import ast
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, ValueError):
-        return ''
-    return ' '.join(' '.join(n.value.split()) for n in ast.walk(tree)
-                    if isinstance(n, ast.Constant) and isinstance(n.value, str))
-
-
-def py_inline(command):
-    """``py_text`` of each ``python -c CODE`` in the call, one line each."""
-    try:
-        pipelines = parse(command)
-    except ValueError:
-        return ''
-    out, todo = [], [c for p in pipelines for c in p]
-    while todo:
-        cmd = todo.pop()
-        todo += [c for sub in cmd['subs'] for p in sub for c in p]
-        words = cmd['argv']
-        if any(re.fullmatch(r'(\S*/)?python[\d.]*', w) for w in words):     # sudo, env -i, /usr/bin/python3 ...
-            out += [py_text(words[i + 1]) for i, w in enumerate(words[:-1]) if re.fullmatch(r'-[A-Za-z]*c', w)]
-    return '\n'.join(out)
-
-
-WRAPPERS = {'nohup', 'setsid', 'nice', 'env', 'timeout', 'stdbuf', 'time', 'exec'}
-
-
-def program(argv):
-    """The program a command runs: its first word after ``VAR=x`` prefixes, wrappers (nohup, env, nice ...) and their
-    flags."""
-    words = list(argv)
-    while words and (re.fullmatch(r'\w+=\S*', words[0]) or words[0] in WRAPPERS
-                     or (len(words) < len(argv) and re.fullmatch(r'-\S*|\d+\w*', words[0]))):
-        words = words[1:]
-    return os.path.basename(words[0]) if words else ''
-
-
-def data_file(cmd, command, cwd=None):
-    """``cat > T <<EOF`` only stores its body, an allowlist that fails closed: T is a data file (``data_target``) that
-    nothing else in the call touches (``alone``; a reader such as codex-task may take it on stdin). Anything else keeps
-    its body, searched as shell."""
-    return alone(cmd, command) and data_target(cmd['writes'][0], cwd)
-
-
-def alone(cmd, command, readers=True):
-    """``cmd`` is ``cat > T`` and nothing else in the call can name, copy, glob, chmod or run T: no other command,
-    heredoc or redirection names it (with ``readers``, a reader in READS_STDIN taking it on stdin aside), and no word
-    holds a ``$``, a glob or a substitution."""
-    try:
-        pipelines, lines = parse(command), heredocs(command)[0]
-    except ValueError:
-        return False
-    if cmd['argv'] not in (['cat'], ['cat', '-']) or len(cmd['writes']) != 1 or cmd['subs'] or re.search(
-            r'\$\(|`|[<>]\(', '\n'.join(lines)):          # a substitution on a command line (bodies: code_of)
-        return False
-    target = cmd['writes'][0]
-    name = os.path.basename(target)
-    others = [c for p in pipelines for c in p if c['writes'] != cmd['writes'] or c['argv'] != cmd['argv']]
-    for c in [c for p in pipelines for c in p]:
-        if any(re.search(r'[$*?\[]', w) for w in c['argv'] + c['writes'] + c['reads']):
-            return False
-    for c in others:
-        if any(name in w for w in c['argv'] + c['writes'] + c['stdin']) or (
-                any(name in w for w in c['reads']) and not (readers and READS_STDIN.fullmatch(program(c['argv'])))):
-            return False
-    return True
-
-
-def data_target(target, cwd=None):
-    """A file a call may write as data: a plain literal name with a data extension (``DATA_EXT``), not a protected file
-    (``FILES``), resolving (realpath, after ``~`` and ``cwd``) under ``data_roots`` and outside any ``/.git/``."""
-    if target == '/dev/null':
-        return True
-    if not re.fullmatch(r'~?[\w./+-]+', target):
-        return False
-    if target.startswith('~'):
-        if not target.startswith('~/'):
-            return False
-        target = str(Path.home()) + target[1:]
-    if not os.path.isabs(target) and not cwd:
-        return False
-    real = os.path.realpath(os.path.join(cwd or '/', target))
-    if '/.git/' in real + '/' or '/.git/' in target or any(
-            FILES.search(p) or re.search(r'\bhold_store\b|command_mux|/mhseals(/|$)', p) for p in (real, target)):
-        return False
-    if os.path.splitext(real)[1].lower() not in DATA_EXT:
-        return False
-    return any(real.startswith(root) for root in data_roots())
-
-
-# A python script (``python3 - <<EOF``, or ``cat > x.py <<EOF``: what it does when run) is data when nothing in it can
-# act on the boat or a protected file (``py_inert``): it parses, imports only PY_SAFE modules, calls nothing that runs a
-# program, signals a process, changes directory or reaches past the names it shows (PY_OPAQUE), and every file it
-# writes, moves or deletes is a literal path (constants, Path(...) / ..., os.path.join, f-strings of constants) that is
-# a data file (``data_target``). Anything else keeps its body, searched as shell.
-PY_SAFE = {'json', 're', 'os', 'sys', 'pathlib', 'collections', 'itertools', 'math', 'statistics', 'csv',
-           'glob', 'fnmatch', 'datetime', 'time', 'textwrap', 'hashlib', 'yaml', 'typing', 'dataclasses', 'shutil',
-           'difflib', 'pprint', 'string', 'bisect', 'heapq', 'decimal', 'fractions', 'enum', 'copy',
-           'tomllib', 'configparser', 'argparse', 'ast', 'unicodedata', 'statistics', '__future__'}
-PY_OPAQUE = {'exec', 'eval', 'compile', '__import__', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars',
-             'breakpoint', 'system', 'popen', 'kill', 'killpg', 'fork', 'forkpty', 'chdir', 'fchdir', 'startfile',
-             'putenv', 'pidfd_send_signal', 'modules', 'unsafe_load', 'full_load', 'Loader', 'UnsafeLoader', 'FullLoader',
-             'unpack_archive', 'make_archive', 'help'}
-PY_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', 'lchmod', 'chown', 'lchown', 'symlink_to',
-             'hardlink_to', 'link_to', 'rename', 'renames', 'replace', 'truncate', 'rmtree', 'remove', 'removedirs',
-             'copy', 'copy2', 'copyfile', 'copytree', 'copymode', 'copystat', 'move', 'utime', 'symlink', 'link',
-             'mkfifo', 'mknod'}
-# A Path's (or a handle's) own writes: the receiver and, for a link or move, its argument.
-PY_PATH_WRITES = {'write_text', 'write_bytes', 'unlink', 'rmdir', 'touch', 'chmod', 'lchmod', 'symlink_to', 'hardlink_to',
-                  'link_to', 'rename', 'copy_into', 'move_into'}
-# What a script may take from a module, an allowlist: a module named here gives only these names (its writes and open
-# only as path-checked ``module.name(...)`` calls, never from-imported); any other PY_SAFE module gives its public names
-# that are not modules. A module is only ever an attribute's receiver (no alias, no bare value), and the only hops to
-# another module are PY_SUBMODULES, so no other module, and none of its calls, is reachable.
-PY_ATTRS = {
-    'os': PY_WRITES | {'open', 'path', 'environ', 'getenv', 'getcwd', 'listdir', 'scandir', 'walk', 'stat', 'lstat', 'sep',
-                       'linesep', 'pathsep', 'curdir', 'pardir', 'devnull', 'name', 'getpid', 'cpu_count', 'fspath',
-                       'fsencode', 'fsdecode', 'makedirs', 'mkdir', 'access', 'F_OK', 'R_OK', 'W_OK', 'X_OK', 'PathLike',
-                       'get_terminal_size', 'O_RDONLY', 'O_WRONLY', 'O_RDWR', 'O_CREAT', 'O_APPEND', 'O_TRUNC', 'O_EXCL'},
-    'shutil': PY_WRITES | {'which', 'disk_usage', 'get_terminal_size', 'copyfileobj', 'Error', 'SameFileError'},
-    'sys': {'argv', 'stdin', 'stdout', 'stderr', 'exit', 'version', 'version_info', 'platform', 'executable', 'maxsize',
-            'byteorder', 'getsizeof', 'getrecursionlimit', 'setrecursionlimit', 'getdefaultencoding', 'float_info'},
-    'yaml': {'safe_load', 'safe_load_all', 'safe_dump', 'safe_dump_all', 'dump', 'dump_all', 'SafeLoader', 'CSafeLoader',
-             'SafeDumper', 'CSafeDumper', 'Dumper', 'YAMLError'},
-    'pathlib': {'Path', 'PurePath', 'PosixPath', 'PurePosixPath'},
-    'string': {'ascii_letters', 'ascii_lowercase', 'ascii_uppercase', 'digits', 'hexdigits', 'octdigits', 'punctuation',
-               'printable', 'whitespace', 'Template', 'capwords'},
-    'argparse': {'ArgumentParser', 'Namespace', 'SUPPRESS', 'ArgumentError', 'ArgumentTypeError', 'HelpFormatter',
-                 'RawDescriptionHelpFormatter', 'RawTextHelpFormatter', 'ArgumentDefaultsHelpFormatter',
-                 'BooleanOptionalAction'},
-    'typing': {'Any', 'Optional', 'Union', 'List', 'Dict', 'Tuple', 'Set', 'FrozenSet', 'Iterable', 'Iterator', 'Sequence',
-               'Mapping', 'MutableMapping', 'Callable', 'NamedTuple', 'TypedDict', 'Literal', 'TYPE_CHECKING', 'cast',
-               'TypeVar', 'Generic', 'Protocol', 'ClassVar', 'Final', 'IO', 'TextIO', 'overload', 'Annotated', 'Type',
-               'DefaultDict', 'Counter', 'Deque', 'Generator', 'Self', 'NoReturn', 'Never'}}
-PY_SUBMODULES = {'os.path', 'collections.abc'}
-# A write call's keywords that name no path; any other keyword (dst=, target=, **kw) is a path, checked.
-PY_KW_OK = {'encoding', 'errors', 'newline', 'exist_ok', 'missing_ok', 'parents', 'follow_symlinks', 'dirs_exist_ok',
-            'ignore_errors', 'mode'}
-# Attributes that reach a module from an object that is not one (Path('x').parser.os): never.
-PY_HOPS = {'os', 'posix', 'sys', 'builtins', 'bltns', 'subprocess', 'shutil', 'importlib', 'inspect', 'operator',
-           'functools', 'types', 'signal', 'socket', 'ctypes', 'pty', 'annotationlib', 'io', 'codecs', 'parser'}
-
-
-def py_attr(module, name):
-    """``module.name`` is one a script may use (PY_ATTRS above)."""
-    import inspect
-    if f'{module.__name__}.{name}' in PY_SUBMODULES:
-        return True
-    if module.__name__ in PY_ATTRS:
-        return name in PY_ATTRS[module.__name__]
-    return not name.startswith('_') and hasattr(module, name) and not inspect.ismodule(getattr(module, name))
-
-
-def py_modules(tree):
-    """``{name: module}`` the script's imports bind, or None unless each is plain: a PY_SAFE module or PY_SUBMODULES,
-    no alias of a module, no ``*``, from-imports only of names ``py_attr`` allows, writes and open aside."""
-    import ast
-    import importlib
-    import inspect
-    mods = {}
-    try:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.asname or alias.name not in PY_SAFE | PY_SUBMODULES:
-                        return None
-                    importlib.import_module(alias.name)
-                    mods[alias.name.split('.')[0]] = importlib.import_module(alias.name.split('.')[0])
-            elif isinstance(node, ast.ImportFrom):
-                if node.level or node.module not in PY_SAFE | PY_SUBMODULES:
-                    return None
-                module = importlib.import_module(node.module)
-                for alias in node.names:
-                    if alias.name == '*' or alias.name in PY_WRITES | {'open'} or not py_attr(module, alias.name):
-                        return None
-                    if inspect.ismodule(getattr(module, alias.name)):
-                        mods[alias.asname or alias.name] = getattr(module, alias.name)
-    except ImportError:
-        return None
-    return mods
-
-
-def py_script(pipe, cwd=None, command=''):
-    """The heredoc of this pipeline is a python program: ``python3 -`` (or no script; flags -u -B -I -E -s -S only, stdout
-    only into data files), or ``cat > NAME.py`` (a literal name, not a protected file) that nothing else in the call
-    names (``alone``: a shell cannot run it as shell)."""
-    if len(pipe) != 1:
-        return False
-    cmd = pipe[0]
-    words = [w for w in cmd['argv'] if not re.fullmatch(r'\w+=\S*', w)]
-    if words and re.fullmatch(r'python3?(\.\d+)?', os.path.basename(words[0])):
-        return (all(w in ('-', '-u', '-B', '-I', '-E', '-s', '-S') for w in words[1:]) and not cmd['reads']
-                and all(data_target(t, cwd) for t in cmd['writes']))
-    return (words in (['cat'], ['cat', '-']) and len(cmd['writes']) == 1 and cmd['writes'][0].endswith('.py')
-            and bool(re.fullmatch(r'~?[\w./+-]+', cmd['writes'][0])) and not FILES.search(cmd['writes'][0])
-            and '.git/' not in cmd['writes'][0] and alone(cmd, command, readers=False))
-
-
-def py_inert(code, cwd=None):
-    """True when the python ``code`` can only read and write data files (see PY_SAFE above); any doubt is False."""
-    import ast
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, ValueError):
-        return False
-    mods = py_modules(tree)
-    if mods is None:
-        return False
-
-    def module_of(node):            # the module an expression names (os, os.path), else None
-        if isinstance(node, ast.Name):
-            return mods.get(node.id)
-        base = module_of(node.value) if isinstance(node, ast.Attribute) else None
-        value = getattr(base, node.attr, None) if base is not None else None
-        return value if type(value) is type(os) else None
-    stores, called = {}, {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    receivers = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
-            base = module_of(node.value)
-            if not py_attr(base, node.attr) if base is not None else node.attr in PY_HOPS:
-                return False
-        if module_of(node) is not None and id(node) not in receivers:     # a module as a value: m = os; f(shutil)
-            return False
-        if id(node) not in called and (isinstance(node, ast.Name) and node.id == 'open' or isinstance(
-                node, ast.Attribute) and (node.attr in PY_WRITES | {'open'} or ast.unparse(node) == 'sys.path')):
-            return False
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '']
-            if node.__class__ is ast.ImportFrom and node.level or any(n.split('.')[0] not in PY_SAFE for n in names):
-                return False
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            stores[node.id] = stores.get(node.id, 0) + 1
-        elif isinstance(node, ast.Attribute) and (node.attr in PY_OPAQUE or node.attr.startswith(('__', 'exec', 'spawn',
-                                                                                                    'posix_spawn'))):
-            return False
-        elif isinstance(node, ast.Name) and (node.id in PY_OPAQUE or node.id.startswith('__') and node.id != '__name__'):
-            return False
-        # every other binding: a parameter, except/match name or def/class shadows a top-level name (def f(P): ...)
-        name = (node.arg if isinstance(node, ast.arg) else node.rest if isinstance(node, ast.MatchMapping)
-                else getattr(node, 'name', None) if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar,
-                                                                    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                else None)
-        if name:
-            stores[name] = stores.get(name, 0) + 1
-    if any(stores.get(name) for name in ('Path', 'PurePath', 'str', 'open')):    # what py_path and open read as builtins
-        return False
-    env = {}
-    for node in tree.body:              # names bound once, at the top, to a value the hook can read
-        if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-                and stores.get(node.targets[0].id) == 1):
-            value = py_path(node.value, env)
-            if value is not None:
-                env[node.targets[0].id] = value
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func, targets = node.func, None
-        mod = isinstance(func, ast.Attribute) and module_of(func.value) is not None
-        keywords = [k.value for k in node.keywords if k.arg not in PY_KW_OK]           # dst=, target=, **kw
-        if isinstance(func, (ast.Name, ast.Attribute)) and (func.id if isinstance(func, ast.Name) else func.attr) == 'open':
-            method = isinstance(func, ast.Attribute) and not mod            # Path.open(mode)
-            args = node.args[0:] if method else node.args[1:]
-            mode = next((k.value for k in node.keywords if k.arg in ('mode', 'flags')), args[0] if args else None)
-            if any(k.arg is None for k in node.keywords) or any(isinstance(a, ast.Starred) for a in node.args):
-                mode = ast.Name('flags')                                    # open(p, **kw), open(*a): a write
-            if isinstance(func, ast.Attribute) and ast.unparse(func.value) == 'os':
-                mode = None if mode is None else ast.Name('flags')       # os.open(path, flags): always a write
-            if mode is None or (isinstance(mode, ast.Constant) and isinstance(mode.value, str)
-                                and not set(mode.value) & set('wax+')):
-                continue
-            targets = [func.value] if method else node.args[:1]
-        elif isinstance(func, ast.Attribute) and mod and func.attr in PY_WRITES:      # os.remove, shutil.copy ...
-            targets = (node.args[1:2] if func.attr.startswith('copy') else node.args) + keywords
-        elif isinstance(func, ast.Attribute) and (func.attr in PY_PATH_WRITES or (      # a Path's own writes
-                func.attr in ('replace', 'copy', 'move') and len(node.args) + len(node.keywords) == 1)):   # not str.replace(a, b), dict.copy()
-            targets = [func.value] + (node.args if func.attr in PY_PATH_WRITES - {'write_text', 'write_bytes'}
-                                      or func.attr in ('replace', 'copy', 'move') else []) + keywords
-        if targets is not None:
-            for target in targets or [None]:
-                path = py_path(target, env) if target is not None else None
-                if path is None or not data_target(path, cwd):
-                    return False
-    return True
-
-
-def py_path(node, env):
-    """The literal path a python expression names, or None: str constants, f-strings of them, names bound once to one,
-    ``+``, ``Path(...)``/``PurePath``, ``/``, ``os.path.join``, ``str()`` and ``.expanduser()``/``.resolve()``."""
-    import ast
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    if isinstance(node, ast.Name):
-        return env.get(node.id)
-    if isinstance(node, ast.JoinedStr):
-        parts = [py_path(v.value if isinstance(v, ast.FormattedValue) else v, env) for v in node.values]
-        return None if None in parts else ''.join(parts)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Div)):
-        left, right = py_path(node.left, env), py_path(node.right, env)
-        if left is None or right is None:
-            return None
-        return left + right if isinstance(node.op, ast.Add) else os.path.join(left, right)
-    if isinstance(node, ast.Call) and not node.keywords:
-        name = ast.unparse(node.func)
-        args = [py_path(a, env) for a in node.args]
-        if None in args:
-            return None
-        if name in ('Path', 'PurePath', 'pathlib.Path', 'os.path.join', 'str') and args:
-            return os.path.join(*args)
-        if isinstance(node.func, ast.Attribute) and node.func.attr in ('expanduser', 'resolve', 'absolute') and not args:
-            inner = py_path(node.func.value, env)
-            return None if inner is None else os.path.expanduser(inner)
-        if name in ('Path.home', 'pathlib.Path.home') and not args:
-            return str(Path.home())
-    return None
-
-
-SCRATCH = '/tmp'
-DATA_EXT = {'.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.log', '.tex', '.patch', '.diff'}
-
-
-def data_roots():
-    """Where a call may write data: astro_dock's .handoff (notes and briefs), /tmp and ~/.cache (scratch, its linked git
-    worktrees included; protected names stay out by ``FILES``), each as its realpath with a trailing /."""
-    home = Path.home()
-    roots = [home / 'astro_dock' / '.handoff', Path(SCRATCH), home / '.cache']
-    try:
-        roots += [d for d in (home / '.cache' / 'wt').iterdir() if (d / '.git').is_file()]
-    except OSError:
-        pass
-    return [os.path.realpath(r).rstrip('/') + '/' for r in roots]
+def substitutions(text):
+    """The commands of each ``$(...)`` (parentheses balanced) and backtick pair in a word."""
+    out, i = [], 0
+    while i < len(text):
+        if text.startswith('$(', i) and not text.startswith('$((', i):
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += (text[j] == '(') - (text[j] == ')')
+                j += 1
+            out.append(text[i + 2:j - (depth == 0)])
+            i = j
+        elif text[i] == '`' and '`' in text[i + 1:]:
+            end = text.index('`', i + 1)
+            out.append(text[i + 1:end])
+            i = end + 1
+        else:
+            i += 1
+    return out
 
 
 def build(tokens, bodies):
@@ -1099,14 +585,19 @@ def build(tokens, bodies):
             pipe = []
 
     def nested(text):
-        for match in SUBST.finditer(text):
-            cmd['subs'].append(parse(match.group(1) or match.group(2) or '', bodies))
+        for inner in substitutions(text):
+            try:
+                cmd['subs'].append(parse(inner, bodies))
+            except ValueError:
+                cmd['subs'].append([[{'argv': inner.split(), 'writes': [], 'subs': []}]])
 
     i = 0
     while i < len(tokens):
         token = tokens[i]
         i += 1
-        if token == '`' or (token == '(' and cmd['argv'] and cmd['argv'][-1].endswith('$')):
+        process = token in ('<', '>') and tokens[i:i + 1] == ['(']           # <(...) and >(...) run their command
+        if token == '`' or process or (token == '(' and cmd['argv'] and cmd['argv'][-1].endswith('$')):
+            i += process
             depth, j = 1, i
             while j < len(tokens) and depth:
                 depth += (-(tokens[j] == '`') if token == '`' else (tokens[j] == '(') - (tokens[j] == ')'))
@@ -1126,9 +617,12 @@ def build(tokens, bodies):
             if not quoted:                                               # $(...) in it runs
                 nested(body)
         elif token == '<<<' or token in REDIRECTS:
+            if cmd['argv'] and cmd['argv'][-1].isdigit():               # 2>/dev/null: the fd, not a word
+                cmd['argv'].pop()
             target = tokens[i] if i < len(tokens) else ''
             if token == '<<<':
                 cmd['stdin'].append(target)
+                nested(target)                                           # <<< "$(...)" runs it
             elif token == '<':
                 cmd['reads'].append(target)
             elif token not in ('<', '<&') and target != '/dev/null' and not (
@@ -1162,7 +656,7 @@ def boats(config):
     """Every name a boat computer goes by: ``hook.hosts`` and their vessel names (``blastoise-odroid`` ->
     ``blastoise``, the former ssh aliases: blocking more is the safe side), a boat ``$BOAT_AGENT_TARGET``, the hostnames
     and addresses of STATIC_LEASES in the vessel's network env (``network_file``; a checkout without it, such as CI,
-    knows no boat addresses, so ``denied`` then treats any private-LAN address as a boat), and ~/.ssh/config
+    knows no boat addresses, so ``is_boat`` then treats any private-LAN address as a boat), and ~/.ssh/config
     aliases for any of them."""
     names = set(config['hosts']) | {host.split('-')[0] for host in config['hosts']} | {target_of(config)} - {'local'}
     try:
@@ -1184,87 +678,235 @@ def boats(config):
     return names
 
 
-# An agent's own tmux session on a boat host (default server, a boatops-<who>*/agent-<who>* name: it carries the
-# calling agent's id; nothing after the target): ending it is not stopping the boat's software. Never `boat` (the TUI's
-# session), another agent's session, -L/-S sockets or -a.
-OWN_TMUX = r"""\btmux\s+kill-session\s+-t\s*(['"]?)=?(?:boatops|agent)-%s(?:[-_.][\w.-]*)?\1(?=[ \t]*($|[;&|)\n'"]))"""
-# The free text of boat_agent ask/note (the question or note) is data. Shell commands nest (ssh "...", bash -c "..."),
-# so its quotes may be literal at one level and quotes at the next: the text counts as data only when it holds nothing
-# any level could act on (no quote of either kind, $, backtick, backslash, operator or newline), and only when the
-# whole command has no command or parameter substitution anywhere ($(, backticks, ${): otherwise it is checked as code.
-AGENT_TEXT = re.compile(r"""(\bboat_agent[ \t]+(?:ask|note)[ \t]+)("[^"'$`\\;&|<>()\n]*"|'[^"'$`\\;&|<>()\n]*')""")
-EXPANDS = re.compile(r'\$\(|`|\$\{')
+PRIVATE_LAN = re.compile(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
 
 
-def own_text(command, who=None):
-    """``command`` with the calling agent's (``who``) own boat tmux session ends and its boat_agent ask/note text
-    blanked (``AGENT_TEXT``)."""
-    if who:
-        command = re.sub(OWN_TMUX % re.escape(who), 'tmux-end-own-session', command)
-    return command if EXPANDS.search(command) else AGENT_TEXT.sub(r'\1TEXT', command)
+def is_boat(target, names):
+    """The boat name an ssh destination (``user@host``, ``host:path``) reaches, else None; without a network env
+    (``network_file``) any private-LAN address is a boat (fail closed). ``$H`` names nothing the hook can read: a
+    boat."""
+    host = target.rsplit('@', 1)[-1].split(':', 1)[0]
+    if '$' in host or host in names or host.split('.')[0] in names:
+        return host
+    return host if network_file() is None and PRIVATE_LAN.fullmatch(host) else None
 
 
-# ``-c core.editor=true`` or ``GIT_EDITOR=true`` (sequence.editor, GIT_SEQUENCE_EDITOR; ``true`` or ``:``), its value one
-# whole shell word: the non-interactive continue of a cherry-pick, rebase or merge. Any other value (true;x, "true $(x)")
-# stays a program of the caller's choosing (GIT_RUNS).
-BENIGN_GIT = re.compile(r'''(?<![\w$-])(?:-c[ \t]*(['"]?)(?:core|sequence)\.editor=(['"]?)(?:true|:)\2\1'''
-                        r'''|GIT_(?:SEQUENCE_)?EDITOR=(['"]?)(?:true|:)\3)(?=[ \t])''')
-# A command runs on a boat computer when this is one, or when the call reaches one: a boat named in a call with a
-# remote shell or transfer (ssh and kin, a remote docker or podman; BOAT_AGENT_TARGET=HOST boat_agent, which makes the
-# ssh hop itself, as ssh HOST boat_agent). A boat name in a path, a profile or a container's arguments (docker exec
-# crane_autodemo ... blastoise) does not move the command off this machine.
-REMOTE = re.compile(r'(?<![\w.-])(ssh|mosh|autossh|sshpass|dbclient|plink|pdsh|pssh|parallel-ssh|clush|ansible[\w-]*'
-                    r'|salt[\w-]*|telnet|nc|ncat|socat|curl|wget|scp|sftp|rsync|rsh|rexec|rlogin|paramiko|fabric'
-                    r'|asyncssh|pexpect|pxssh|netmiko|telnetlib|socket|sshfs|et|kubectl|tsh)(?![\w.-])|ssh://'
-                    r'|\bBOAT_AGENT_TARGET='
-                    r'|\b(docker\s+context\s+use|podman\s+system\s+connection\s+default)\b'
-                    r'|\b(DOCKER_HOST|DOCKER_CONTEXT|CONTAINER_HOST|CONTAINER_CONNECTION)='
-                    r'|\b(docker|podman)\b[^;&|\n]*\s(-H|--host|--context|-c|--url|--connection|--remote)\b')
+# --- what a call runs ----------------------------------------------------------------------------------------
+# Shell keywords and wrappers run the words after them (their own options first: the letters in the value take the
+# next word; POSITIONAL words more, such as timeout's duration). Shells (-c), su -c, script -c, watch, eval and tmux
+# new/run take a command string; ssh and kin take a remote one; docker/podman run|exec and pixi/uv/conda run argv.
+KEYWORDS = {'!', '{', '}', 'if', 'then', 'else', 'elif', 'do', 'while', 'until', 'coproc'}
+WRAP = {'nohup': '', 'setsid': '', 'exec': 'a', 'command': '', 'builtin': '', 'time': 'fo', 'nice': 'n', 'env': 'uCS',
+        'sudo': 'ugUhpCDrtTR', 'doas': 'uC', 'stdbuf': 'ioe', 'ionice': 'cnp', 'timeout': 'sk', 'chrt': '',
+        'taskset': '', 'flock': 'wEc', 'xargs': 'aEdIiLlnPs', 'strace': 'eoOpPsuS', 'unbuffer': '', 'chroot': '',
+        'systemd-run': 'pupE', 'firejail': '', 'nsenter': 'tSG', 'unshare': '', 'catchsegv': '', 'chronic': ''}
+POSITIONAL = {'timeout': 1, 'chrt': 1, 'taskset': 1, 'flock': 1, 'chroot': 1}
+SHELLS = {'bash', 'sh', 'dash', 'zsh', 'ksh', 'fish'}
+SSH = {'ssh': 'bcDEeFIiJLlmOoPpQRSWw', 'autossh': 'MbcDEeFIiJLlmOoPpQRSWw', 'mosh': '', 'et': 'cpt'}
+DOCKER = 'eEvlpuwhmc'     # docker/podman run|exec: short options that take a value (long ones: '--x=v' or the next word)
+DOCKER_LONG = {'--env', '--volume', '--name', '--workdir', '--user', '--net', '--network', '--publish', '--entrypoint',
+               '--env-file', '--mount', '--label', '--device', '--ipc', '--pid', '--gpus', '--runtime', '--add-host',
+               '--hostname', '--cap-add', '--cap-drop', '--security-opt', '--shm-size', '--ulimit', '--memory',
+               '--cpus', '--platform', '--restart', '--log-driver', '--detach-keys', '--group-add', '--tmpfs'}
+TMUX_RUNS = {'new', 'new-session', 'new-window', 'neww', 'split-window', 'splitw', 'respawn-pane', 'respawnp',
+             'respawn-window', 'respawnw', 'run-shell', 'run', 'display-popup', 'popup'}
+ASSIGN = re.compile(r'[A-Za-z_]\w*=.*', re.S)
+
+
+def options(words, takes, positional=0, assignments=False):
+    """``words`` after a wrapper's options (``-x``; a letter in ``takes`` also takes the next word; ``--`` ends them),
+    its VAR=x words (``assignments``: env, sudo) and ``positional`` words."""
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if word == '--':
+            i += 1
+            break
+        if word.startswith('-') and len(word) > 1:
+            i += 1 + (len(word) == 2 and word[1] in takes)
+        elif assignments and ASSIGN.fullmatch(word):
+            i += 1
+        else:
+            break
+    return words[i + positional:]
+
+
+def runs(argv):
+    """``(argv, text, remote)``: what ``argv`` runs as argv, as a command string, or on the ssh ``remote``."""
+    name, rest = os.path.basename(argv[0]), argv[1:]
+    if name in KEYWORDS:
+        return rest, None, None
+    if name in WRAP:
+        return options(rest, WRAP[name], POSITIONAL.get(name, 0), name in ('env', 'sudo', 'doas')), None, None
+    if name in SHELLS or name in ('su', 'script'):
+        flag = next((i for i, w in enumerate(rest) if re.fullmatch(r'-[A-Za-z]*c|--command', w)), None)
+        return None, rest[flag + 1] if flag is not None and flag + 1 < len(rest) else None, None
+    if name in ('eval', 'watch'):
+        return None, ' '.join(options(rest, 'nd') if name == 'watch' else rest), None
+    if name == 'tmux':
+        at = next((i for i, w in enumerate(rest) if w in TMUX_RUNS), None)
+        if at is not None:
+            words = options(rest[at + 1:], 'censtxyFlLSTb')
+            return None, ' '.join(words) or None, None
+        return None, None, None
+    if name == 'sshpass':
+        return options(rest, 'pfde'), None, None
+    if name in SSH:
+        words = options(rest, SSH[name])
+        if name == 'et' and words:
+            flag = next((i for i, w in enumerate(rest) if w == '-c'), None)
+            return None, rest[flag + 1] if flag is not None and flag + 1 < len(rest) else None, words[0]
+        if words[1:2] == ['--']:
+            words = words[:1] + words[2:]
+        return None, ' '.join(words[1:]) or None, words[0] if words else None
+    if name in ('docker', 'podman') and rest[:1] in (['run'], ['exec'], ['container']):
+        words, i = rest[1 + (rest[:1] == ['container']):], 0
+        while i < len(words) and words[i].startswith('-'):
+            i += 1 + ((len(words[i]) == 2 and words[i][1] in DOCKER) or words[i] in DOCKER_LONG)
+        return words[i + 1:], None, None
+    if name in ('pixi', 'uv', 'poetry', 'conda', 'mamba', 'pipenv', 'rye') and rest[:1] == ['run']:
+        return options(rest[1:], 'nep'), None, None
+    return None, None, None
+
+
+def written(argv):
+    """``[(op, path)]`` the files ``argv`` writes (op ``write`` or ``delete``): removers, movers, copies (the
+    destination, and the file a copy into a directory makes), tee, truncate, chmod, dd of=, sed/perl -i and
+    find -delete/-exec roots."""
+    name, rest = os.path.basename(argv[0]), argv[1:]
+    words = options(rest, {'cp': 'tS', 'mv': 'tS', 'ln': 'tS', 'install': 'tmogS', 'rsync': 'eTfB', 'truncate': 'sr',
+                           'tee': '', 'sed': 'ef', 'perl': 'eEIM'}.get(name, ''))
+    words = [w for w in words if not w.startswith('-')]
+    if name in ('rm', 'unlink', 'shred', 'rmdir'):
+        return [('delete', w) for w in words]
+    if name in ('tee', 'truncate'):
+        return [('write', w) for w in words]
+    if name in ('chmod', 'chown', 'chgrp', 'chattr'):
+        return [('write', w) for w in words[1:]]
+    if name in ('cp', 'mv', 'ln', 'install', 'rsync'):
+        into = next((w.split('=', 1)[1] if '=' in w else rest[i + 1] for i, w in enumerate(rest[:-1])
+                     if w in ('-t', '--target-directory') or w.startswith('--target-directory=')), None)
+        sources, dest = (words, into) if into else (words[:-1], words[-1] if words else None)
+        if dest is None:
+            return []
+        out = [('delete', s) for s in sources] if name == 'mv' else []
+        return out + [('write', dest)] + [('write', os.path.join(dest, os.path.basename(s.rstrip('/'))))
+                                          for s in sources]
+    if name == 'dd':
+        return [('write', w[3:]) for w in rest if w.startswith('of=')]
+    if name in ('sed', 'perl') and any(re.fullmatch(r'-[A-Za-z]*i\S*|--in-place\S*', w) for w in rest):
+        script = any(w in ('-e', '-f', '-E') or re.fullmatch(r'-[A-Za-z]*e', w) for w in rest)
+        return [('write', w) for w in (words if script else words[1:])]
+    if name == 'find' and any(w in FIND_RUNS for w in rest):
+        return [('delete', w) for w in (rest[:next((i for i, w in enumerate(rest) if w[:1] in '-(!'), len(rest))]
+                                        or ['.'])]
+    return []
+
+
+# A file is protected only by name (the deny rules), so only these names need a place (a git call for a worktree).
+PROTECTED = re.compile(r'agent/stop|command_mux[^/]*\.json|hold_store|agent_hook\.py|/hook\.py|\.claude/settings'
+                       r'|\.codex/hooks\.json|agent\.ya?ml|launch|sysrq')
+
+
+def edit_lines(kind, given, base=None, remote=False):
+    """``EDIT op where path`` for a file written (``write``) or removed (``delete``): its absolute path and, when it
+    differs, its symlink target, a glob expanded. A remote or unresolvable name stays as given (``./`` before a
+    relative one), live."""
+    if base and (not os.path.isabs(base) or '$' in base) and not os.path.isabs(os.path.expanduser(given)):
+        given, base = os.path.join(base, given), None           # after a cd the hook cannot resolve
+    if remote or '$' in given or (not os.path.isabs(os.path.expanduser(given)) and base is None):
+        return [f'EDIT {"delete" if kind == "delete" else "change"} live '
+                f'{given if given.startswith(("/", "~")) else "./" + given}']
+    path = os.path.join(base or '/', os.path.expanduser(given))
+    out = []
+    for each in (glob.glob(path) if re.search(r'[*?\[]', path) else []) or [path]:
+        for full in dict.fromkeys([os.path.abspath(each), os.path.realpath(each)]):
+            op = 'delete' if kind == 'delete' else 'change' if os.path.lexists(full) else 'create'
+            out.append(f'EDIT {op} {place(full) if PROTECTED.search(full) else "live"} {full}')
+    return out
+
+
+class Scan:
+    """``(text, line, host, claim)`` for each command a call runs and each file it writes (``lines``): ``text`` the
+    command as the agent wrote it, ``line`` what the deny rules match, ``host`` the boat it runs on or None,
+    ``claim`` a ``BOAT_AGENT_CLAIM=`` the command carries."""
+
+    def __init__(self, names, cwd=None):
+        self.names, self.cwd, self.out = names, cwd, []
+
+    def text(self, command, host=None, remote=False, depth=0):
+        try:
+            pipelines = parse(command)
+        except ValueError:                  # an open quote or an odd heredoc: each line's words, quotes dropped
+            pipelines = [[{'argv': part.split(), 'writes': [], 'subs': []}]
+                         for part in re.split(r'[;&|\n]+', plain(command)) if part.split()]
+        self.pipelines(pipelines, host, remote, depth, self.cwd)
+
+    def pipelines(self, pipelines, host, remote, depth, base):
+        for cmd in (c for p in pipelines for c in p):
+            argv = cmd['argv']
+            if argv[:1] in (['cd'], ['pushd']) and not remote:     # an unknown base stays a relative name
+                to = os.path.expanduser(argv[1] if len(argv) > 1 else '~')
+                known = base is not None and os.path.isabs(base) and '$' not in base
+                base = (None if to == '-' else os.path.normpath(to) if os.path.isabs(to)
+                        else os.path.normpath(os.path.join(base, to)) if known else os.path.join(base or '', to))
+            for sub in cmd.get('subs', []):
+                self.pipelines(sub, host, remote, depth + 1, base)
+            text = ' '.join(argv)
+            if argv:
+                self.argv(argv, text, host, remote, depth, base)
+            for target in cmd.get('writes', []):
+                self.out += [(text, line, host, None) for line in edit_lines('write', target, base, remote)]
+
+    def argv(self, argv, text, host, remote, depth, base, claim=None):
+        if depth > 8 or not argv:
+            return
+        count = 0
+        while count < len(argv) and ASSIGN.fullmatch(argv[count]):
+            count += 1
+        lead = argv[:count]
+        claim = next((w.split('=', 1)[1] for w in lead if w.startswith('BOAT_AGENT_CLAIM=')), claim)
+        words = argv[len(lead):]
+        self.out.append((text, ' '.join(lead + [os.path.basename(words[0])] + words[1:]) if words else ' '.join(lead),
+                         host, claim))
+        if not words:
+            return
+        if lead:
+            self.out.append((text, ' '.join([os.path.basename(words[0])] + words[1:]), host, claim))
+        for kind, path in written(words):
+            self.out += [(text, line, host, claim) for line in edit_lines(kind, path, base, remote)]
+        inner, command, target = runs(words)
+        if target is not None:
+            host, remote = is_boat(target, self.names) or host, True
+        if inner:
+            self.argv(inner, text, host, remote, depth + 1, base, claim)
+        if command:
+            self.text(command, host, remote, depth + 1)
+
+
+def lines(command, config, cwd=None):
+    """Every ``(text, line, host, claim)`` of ``command`` (``Scan``); on a boat host every line runs here."""
+    names = boats(config)
+    here = hostname().split('.')[0]
+    scan = Scan(names, cwd)
+    scan.text(command, here if here in names else None)
+    return scan.out
+
+
+# An agent's own tmux session on a boat host (a boatops-<who>*/agent-<who>* name: it carries the calling agent's id):
+# ending it is not stopping the boat's software. Never `boat`, another agent's session, -L/-S sockets or -a.
+OWN_TMUX = r'tmux\s+kill-session\s+-t\s*=?(?:boatops|agent)-%s(?:[-_.][\w.-]*)?$'
 
 
 def denied(command, config, cwd=None, who=None):
-    """``(what it blocks, the boat it names or None)``, else None. Tier A (``text_only``) is never
-    denied, and a heredoc body that is only data (``code_of``) is not searched;
-    anything else is denied when ``hook.deny`` is found anywhere in its text, or
-    ``hook.deny_boat`` when it names a boat (or runs on one)."""
-    command = BENIGN_GIT.sub('', command)
-    if text_only(command, cwd):
-        return None
-    text = '\n'.join(filter(None, [code_of(command, cwd), py_inline(command)]))    # python list argv as words
-    text, names = links(plain(failed_cd(own_text(text, who))), cwd), boats(config)
-    alternatives = [re.escape(n) for n in sorted(names, key=len, reverse=True)]
-    if network_file() is None:      # no network env (a checkout without astro_dock): fail closed, any private-LAN address
-        alternatives.append(r'(?:192\.168|10|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}')
-    found = re.search(r'(?<![\w.-])(%s)(?![\w-])' % '|'.join(alternatives), text) if alternatives else None
-    here = hostname().split('.')[0]
-    host = found.group(1) if found and REMOTE.search(text) else here if here in names else None
-    live_only = set(SIM_ARM[1:] + HOLDS + STOP + LAUNCHES + HOOKS)   # file rules: a dev copy (a worktree) is development
-    for pattern in config['deny'] + (config['deny_boat'] if host else []):
-        for match in re.finditer(pattern, text, re.S):
-            one_liner = re.match(r'python[\d.]*\s', text[match.start():])    # its ; are python's: to the line end
-            body = one_liner and HEREDOC.search(text[match.start():].split('\n', 1)[0])     # python - <<EOF: its body
-            rest = re.compile(r'\n%s(?=\n|$)' % re.escape(body.group(2)) if body else r'\n' if one_liner
-                              else r'[\n;|&]').search(text, match.end())
-            hit = ' '.join(text[match.start():rest.start() if rest else None].split())
-            if pattern in INTO and not into_live(hit, cwd, text):
-                continue
-            if pattern in live_only and all_dev(hit, cwd, text):
-                continue
-            tail = text[match.start():rest.start() if rest else None].rsplit('\n', 1)[-1]   # the matched line
-            return Hit(hit, pattern, ' '.join(tail.split()), host), host
+    """``(Hit, the boat it runs on or None)`` for the first line of ``command`` a deny rule matches, else None."""
+    for text, line, host, claim in lines(command, config, cwd):
+        if host and who and re.match(OWN_TMUX % re.escape(who), line):
+            continue
+        for pattern in config['deny'] + (config['deny_boat'] if host else []):
+            if re.match(pattern, line, re.S) and not (claim and pattern == NAV2_PARAM):
+                return Hit(' '.join(text.split()), pattern, ' '.join(line.split()), host), host
     return None
-
-
-def links(text, cwd=None):
-    """``text`` with each literal path that is (or runs through) a symlink to a protected file (``FILES``: agent.yaml,
-    holds, stop, launch, hook) replaced by its target, so ``echo x >> wt/link`` to a live agent.yaml is a write to it."""
-    base = where(text, cwd)
-
-    def real(match):
-        paths = resolve(match.group(0), base)
-        target = paths[-1] if paths else None
-        return target if target and target != paths[0] and FILES.fullmatch(target) else match.group(0)
-    return re.sub(r'(?<![^\s;&|<>()=])[~/.\w][^\s;&|<>()=$`*?]*', real, text)
 
 
 def place(path):
@@ -1283,167 +925,6 @@ def place(path):
     return 'dev' if done.returncode == 1 else 'live'
 
 
-MOVES = re.compile(r'(?<![\w-])(?:cd|pushd)\b|\benv\b[^;&|\n]*\s(?:-[A-Za-z]*C|--chdir\b)|\bchdir\(')
-_HOME = r'(?:~|\$HOME\b|\$\{HOME\})(?=/|[\s;&|)]|$)'      # quotes are gone (plain): "$HOME/x", '~'/x
-_DIR = r'((?:[/~]|\$HOME\b|\$\{HOME\})[^\s;&|`*?\[()]*)'
-
-
-_LEAD_CD = re.compile(r'(\s*(?:cd|pushd)\s+)(\S+?)[ \t]*(?:;|\n)')
-
-
-def failed_cd(command):
-    """``command`` with a NUL before the target of a leading ``cd DIR ;`` (or newline) that fails in the shell, so
-    ``where`` keeps the old directory: a DIR that does not exist (after unquoted ``~``/``$HOME`` expansion) or one
-    quoted with a literal ``~`` or ``$`` (``cd '~/x' ;``). After ``&&`` a failed cd stops the chain, so it is left."""
-    lead = _LEAD_CD.match(command)
-    if not lead:
-        return command
-    word = lead.group(2)
-    if not re.search(r"'[^']*[~$]|\"~", word):
-        found = re.sub('^' + _HOME, lambda m: str(Path.home()), plain(word))
-        if '$' in found or not found.startswith('/') or os.path.isdir(found):
-            return command                              # a variable or relative name: where fails closed as before
-    return command[:lead.end(1)] + '\0' + command[lead.end(1):]
-
-
-def where(whole, cwd):
-    """The directory relative names resolve in: the call's ``cwd``, or the literal directory of its only change
-    of directory when that is a leading ``cd DIR`` then ``&&``, ``;`` or a newline (``cwd`` when ``failed_cd`` marked
-    it), a leading ``env -C DIR`` or a python ``os.chdir(DIR)`` (``~``, ``$HOME`` and ``${HOME}`` expanded, any
-    other ``$`` fails closed); None when it changes directory otherwise (fail closed)."""
-    moves = MOVES.findall(whole)
-    if len(moves) == 1 and re.match(r'\s*(?:cd|pushd)\s+\0', whole):             # failed_cd: it never moved
-        return cwd
-    lead = (re.match(r'\s*(?:cd|pushd)\s+' + _DIR + r'[ \t]*(?:&&|;|\n)', whole)
-            or re.match(r'\s*env\s+(?:-\S+\s+)*?(?:-C\s*|--chdir[= ])' + _DIR + r'\s', whole)
-            or re.search(r'\bchdir\(\s*' + _DIR + r'\s*\)', whole))
-    if lead and len(moves) == 1:
-        found = re.sub('^' + _HOME, lambda m: str(Path.home()), lead.group(1))
-        return None if re.search(r'[${}~]', found) else found
-    return None if moves else cwd
-
-
-def resolve(name, base):
-    """``name`` as absolute paths (as given and its symlink target), or None for a $variable, a glob or a relative
-    name with no ``base``."""
-    if re.search(r'[$*?\[{`]', name) or (not name.startswith(('/', '~')) and not base):
-        return None
-    path = Path(os.path.expanduser(name))
-    if not path.is_absolute() and not base:                         # ~other/x with no such user
-        return None
-    path = os.path.abspath(path if path.is_absolute() else Path(base) / path)
-    return list(dict.fromkeys([path, os.path.realpath(path)]))
-
-
-def targets(text):
-    """Paths a command in ``text`` writes that the protected names do not show: the file a copy into a directory
-    makes (cp/mv/ln/install/rsync SRC... DIR, -t DIR) and find's roots."""
-    words = text.split()
-    if not words:
-        return []
-    if words[0] == 'find':
-        roots = []
-        for word in words[1:]:
-            if word.startswith(('-', '(', '!')):
-                break
-            roots.append(word)
-        return roots or ['.']
-    if words[0] not in ('cp', 'mv', 'ln', 'install', 'rsync'):
-        return []
-    args, into, skip = [], None, False
-    for i, word in enumerate(words[1:], 1):
-        if skip:
-            skip = False
-        elif word in ('-t', '--target-directory'):
-            into, skip = (words[i + 1] if i + 1 < len(words) else None), True
-        elif word.startswith('--target-directory='):
-            into = word.split('=', 1)[1]
-        elif not word.startswith('-'):
-            args.append(word)
-    if into is None and len(args) >= 2 and (args[-1].endswith('/') or os.path.isdir(os.path.expanduser(args[-1]))):
-        into, args = args[-1], args[:-1]
-    return [os.path.join(into, os.path.basename(a.rstrip('/'))) for a in args
-            if into and FILES.fullmatch('/' + os.path.basename(a.rstrip('/')))]
-
-
-def all_dev(text, cwd=None, whole=''):
-    """Every file ``FILES`` finds in ``text``, and every file it copies into a directory or root it finds under
-    (``targets``), is a dev copy (literal and symlink target), and it names at least one. A relative name is live
-    when the call (``whole``) changes directory other than by one leading ``cd DIR &&``."""
-    base = where(whole or text, cwd)
-    names, made = [m.group(0) for m in FILES.finditer(text)], targets(text)
-    for name in names + made:
-        paths = resolve(name, base)
-        if paths is None:
-            return False
-        if name in made and not any(any((d / '.git').exists() for d in Path(path).parents) for path in paths):
-            continue                    # a copy into a directory outside git (/tmp/): nothing reads it
-        if any(place(path) != 'dev' for path in paths):
-            return False
-    return bool(names + made)
-
-
-# What makes a directory protected (``holds_live``): the file itself, a protected file in it, a config dir with
-# agent.yaml, a launch dir, a package's launch dir, the hook's wiring.
-PROTECTED = ('', '*', 'config/agent.y*ml', '*/config/agent.y*ml', 'launch/*', '*/launch/*', '.agents/hook.py',
-             '.claude/settings*.json', '.codex/hooks.json')
-
-
-def holds_live(path, globs=PROTECTED):
-    """``path`` is, or holds (``globs``), a live protected file (``FILES``: agent.yaml, a launch file, the hook)."""
-    for glob in globs:
-        for found in (Path(path).glob(glob) if glob else [Path(path)]):
-            if FILES.fullmatch(str(found)) and found.exists() and place(str(found)) != 'dev':
-                return True
-    return False
-
-
-def into_live(text, cwd=None, whole=''):
-    """A write in ``text`` into a directory that is or holds a live protected dir (or one it cannot read: a
-    $variable, a remote ...config/ dir): rsync's or cp -r's destination, tar -x's or git's -C dir and pathspecs,
-    git apply's and patch's dir, find's roots (only a protected dir itself: find LIVE -name x.pyc -delete is fine)."""
-    words, base = text.split(), where(whole or text, cwd)
-    globs = PROTECTED
-    if words[:1] in (['rsync'], ['cp']):
-        into = next((w.split('=', 1)[1] if '=' in w else words[i + 1] for i, w in enumerate(words[:-1])
-                     if re.fullmatch(r'-[A-Za-z]*t|--target-directory(=.*)?', w)), None)
-        args = [w for w in words[1:] if not w.startswith('-')]
-        dirs = [into] if into else args[-1:] if len(args) >= 2 else []
-    elif words[:1] == ['find']:
-        dirs, globs = targets(text), ('', '*')
-    elif words[:1] == ['patch']:
-        found = re.search(r'(?:\s-d\s*|--directory[= ])(\S+)', text)
-        dirs = [found.group(1) if found else '.']
-    elif words[:1] == ['tar']:
-        if not (any(re.fullmatch(r'-?[A-Za-z]*x[A-Za-z]*', w) for w in words[1:2]) or any(
-                re.fullmatch(r'-[A-Za-z]*x[A-Za-z]*|--extract|--get', w) for w in words[1:])):
-            return False                                                # only an extract writes
-        found = re.search(r'(?:\s-C\s*|--directory[= ])(\S+)', text)
-        dirs = [found.group(1) if found else '.']
-    else:
-        found = re.search(r'\s-C\s+(\S+)', text)                       # git -C DIR: pathspecs are relative to DIR
-        if found:
-            base = (resolve(found.group(1), base) or [None])[0]
-        verb, rest = re.split(r'\b(checkout|restore|apply)\b', text, maxsplit=1)[-2:]
-        dirs, skip = ([] if verb != 'apply' else ['.']), False
-        for word in rest.split() if verb != 'apply' else ():
-            if skip:
-                skip = False
-            elif word in ('-s', '--source', '-b', '-B'):
-                skip = True
-            elif not word.startswith('-'):
-                dirs.append(word)
-    for name in dirs:
-        if re.match(r'[\w.-]+@?[\w.-]*:', name):                    # a remote destination: a config dir is live
-            if re.search(r'(^|[:/])(config|launch)/?$', name):
-                return True
-            continue
-        paths = resolve(name, base)
-        if paths is None or any(holds_live(path, globs) for path in paths):
-            return True
-    return False
-
-
 def edit_text(edits, cwd=None):
     """The ``EDIT op where path`` lines of an edit tool's ``[[write|delete, path]]`` (the path as given and,
     when it differs, its symlink target), or None when a path is missing (fail closed)."""
@@ -1460,19 +941,19 @@ def edit_text(edits, cwd=None):
 
 
 def edit_denied(event, config):
-    """The deny reason for an edit tool's files (``event['edits']``), else None. Fails closed: a missing path or
-    any error denies."""
+    """The deny reason for an edit tool's files (``event['edits']``), else None; on a boat host ``deny_boat`` too.
+    Fails closed: a missing path or any error denies."""
     who = who_of(event)
     try:
         text = edit_text(event.get('edits'), event.get('cwd'))
         if text is None:
             return f'Blocked an edit whose file the hook cannot read (fail closed). Name the file. --who {who}'
-        for pattern in config['deny']:
-            match = re.search(pattern, text) if pattern.startswith('(?m)^EDIT') else None
-            if match:
-                line = match.group(0)
-                why = next(w for p, w in EDIT_USE if re.search(p, line)).format(cli=cli_of(config))
-                return f'Blocked editing `{line.split(" ", 3)[3]}`: {why} (--who {who}). Reads stay allowed.'
+        boat = hostname().split('.')[0] in boats(config)
+        for line in text.split('\n'):
+            for pattern in config['deny'] + (config['deny_boat'] if boat else []):
+                if pattern.startswith('EDIT') and re.match(pattern, line):
+                    why = next(w for p, w in EDIT_USE if re.search(p, line)).format(cli=cli_of(config))
+                    return f'Blocked editing `{line.split(" ", 3)[3]}`: {why} (--who {who}). Reads stay allowed.'
     except Exception as error:
         return f'Blocked an edit the hook could not check ({error!r}; fail closed). --who {who}'
     return None
