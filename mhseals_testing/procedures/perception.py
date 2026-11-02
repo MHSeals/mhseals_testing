@@ -17,6 +17,8 @@ def verdict(row, minimum):
         return 'MISSING', 'no messages'
     if row['status'] == 'STALE':
         return 'FAIL', f"stale for {row['age']:.1f} s"
+    if row['values'].get('graph'):     # a raw image the TUI only sees on the graph (ros/nearby.py): no rate
+        return 'N/A', 'published; rate not measured (the TUI takes no raw images)'
     if row['hz'] < minimum:
         return 'FAIL', f"{row['hz']:.1f} Hz < {minimum:g} Hz"
     if row['issue']:

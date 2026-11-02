@@ -52,6 +52,12 @@ def test_a_row_rate_sets_the_minimum_else_its_kind():
     assert 'compass' not in results                      # kinds without a minimum are not judged
 
 
+def test_a_graph_only_image_row_has_no_rate_to_fail():
+    row = dict(status='LIVE', hz=1.0, age=0.1, issue='', values={'graph': True})
+    results, _ = run({}, [SensorSpec('camera', '/cam', 'image')], {'camera': row})
+    assert results['camera']['verdict'] == 'N/A'
+
+
 def test_nav2_fetches_another_topic_once_without_its_lease():
     pytest.importorskip('rclpy')
     from mhseals_testing.ros.nav2 import Nav2
