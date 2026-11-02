@@ -1,0 +1,53 @@
+# crane.prereg/1 - frozen before any E1 data are pulled (design-multifidelity.md section 6.5, T1/E1).
+# Editing this file after frozen_at voids it: a change is a new file with a new id.
+schema: crane.prereg/1
+id: E1-T1-escalation-mission2026q
+frozen_at: 2026-11-02T16:30:00Z
+author: claude (trust-gate X2 agent)
+hypothesis: >
+  The fast tier (crane fastsim core + mhseals_nav mission logic, calibration epoch unity-e1) ranks mission-param
+  variants of mission_2026 / qualifying the way full-stack Unity does (G3, frozen 2026-10-26), and rank-driven
+  escalation (promote the fast tier's top 1/eta to Unity, widen when adjacent rungs disagree) picks Unity's best
+  with at most half the Unity runs of the full grid.
+scope:
+  task: mission
+  mission: mission_2026.yaml
+  profile: qualifying            # time limit 720 s from load_params
+  course: {family: roboboat_2026, mode: iid}
+tiers: {low: fastsim_roboboat, ref: unity-full-stack (crane player + Nav2 + mhseals stack, xvfb, innovation)}
+seeds:
+  evaluation: [1001, 1002, 1003, 1004, 1005]   # disjoint from calibration/dev seeds 1, 7, 42, 239 and the 1-200 G1/dev runs
+variants:                        # mission param overlays on mission_2026 (both tiers run the same mission logic)
+  nominal: {}
+  slow_open: {speed_profile: {open: 0.6}}
+  no_start_look: {start_look_deg: 0.0}
+  wide_search: {layout: {search_s_per_m: 1.5}}
+  short_exit: {exit_reserve: 120.0}
+  speed_first: {agenda: [speed_challenge, docking, supply_drop]}
+  reject_no_agenda: {agenda: []}              # random reject (expected bottom half)
+  near_tie_dwell: {speed_profile: {dwell_s: 2.5}}   # known near-tie with nominal
+refs: {mhseals_nav: origin/main at submit (recorded in every run), mhseals_testing: origin/main, crane_ml: origin/main}
+metrics:
+  primary: points / possible_scorable (referee v8 on mhseals_testing main), mean over the 5 evaluation seeds
+  secondary: [g4 per-metric gaps (frozen bands), escalation unity runs spent vs full grid, rank per variant]
+analysis:
+  g3: >-
+    frozen 2026-10-26 (Spearman >= 0.80 and Kendall tau-b >= 0.60 and top-2 cross-membership; winners top3 >= 2;
+    regret <= max(50 pts, 95% t half-width); false rejection; MMRV <= 0.08); bootstrap 90% LB on rho reported
+  escalate: {eta: 2, soft_rank_eps: 0.05, rungs: [fastsim_roboboat, unity-full-stack]}
+  measured_once: true            # G3 is not re-run on these seeds; a new roster is a new prereg
+  tool: mhseals_testing.judge_pack.trustgate (and the crane_ml judge comparator once it lands)
+success: G3 passes in this scope AND escalation spends <= 50% of the 40 Unity runs and selects the same variant.
+kill: >-
+  G3 refuted here -> the fast tier stays a smoke/logic tier for mission ranking; the router sends rank
+  questions straight to Unity (the ledger records it).
+preconditions:
+  - >-
+    G0 Unity validity: full-stack Unity runs are non-batch (xvfb) and do not use the benchmark water query;
+    cluster unity (benchmark) runs must report water_valid 1 (crane fix dce7fa5 or later).
+  - >-
+    A mission-param overlay path for full-stack Unity runs (boat_agent run mission with a params overlay);
+    until it exists only the nominal arm can run in Unity and the Unity stage waits.
+  - >-
+    Unity runs that end by an infrastructure hold (costmap_stale under host load, stack failure) are censored
+    and re-run once on the same seed; censoring is decided from the run record before scores are looked at.
