@@ -2,6 +2,7 @@
 # Every boat limit is read from mhseals_nav (effective_limits, tracker.yaml, the robot description).
 tune:
   task: mission         # the mission tree (mhseals_nav config/tasks/<task>.yaml)
+  mission: null         # its YAML by name, e.g. mission_2026.yaml (profiles overlay it); null: <task>.yaml
   profile: null         # a mission profile overlay (config/tasks/profiles); null: the mission's own
   params: {}            # mission param overrides, merged key by key: what a sweep varies
   calibration: fastsim_calibration/unity-e1.yaml   # plant epoch (never edited); null: uncalibrated
@@ -12,7 +13,6 @@ tune:
 adapter:
   camera_frame: front_camera_link   # its mount comes from the URDF, as TF gives it on the boat
   unknown_static: {within: 8.0, after: 2.0}   # the tracker's UNKNOWN -> STATIC flip (host.py contract)
-  mission: null         # a task YAML instead of the boat's own
   limits_overlay: null  # a nav2 limits overlay, as the launch takes it
 
 # crane fastsim core keys (crane fastsim/config/default.yaml); the core names them.

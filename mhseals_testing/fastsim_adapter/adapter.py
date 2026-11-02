@@ -101,7 +101,9 @@ def boat_limits(overlay=None, camera_frame=None):
 def mission_params(task, mission=None, profile=None, overrides=None):
     """mhseals_nav's params for ``task`` with ``overrides`` merged key by key (a key the task lacks
     is an error); the run budget follows an overridden timeslot, or an overridden timeout wins."""
-    from mhseals_nav.tasks.params import load_params, overlay, timeslot
+    from mhseals_nav.tasks.params import config_path, load_params, overlay, timeslot
+    if mission and not Path(mission).is_absolute():
+        mission = config_path(mission)  # a name among mhseals_nav's task YAMLs
     params = load_params(task, mission, profile)
     if not overrides:
         return params
@@ -176,7 +178,8 @@ class Journal:
 
 
 class RoboBoatAdapter:
-    """Options: ``task``, ``mission`` (a task YAML, default the boat's own), ``profile``,
+    """Options: ``task``, ``mission`` (a task YAML, absolute or a name in mhseals_nav's config/tasks;
+    default the boat's own), ``profile``,
     ``params`` (mission overrides merged key by key: what a sweep varies), ``limits_overlay``
     (a nav2 limits overlay, as the launch takes it), ``camera_frame``, ``unknown_static``
     ({within, after}: the tracker's UNKNOWN -> STATIC flip) and ``crane`` (a crane checkout)."""

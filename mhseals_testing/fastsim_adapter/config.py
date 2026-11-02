@@ -1,6 +1,6 @@
 """config/fastsim_roboboat.yaml (``tune`` on top) -> the crane fast-sim core's config.
 
-``tune`` holds what people change (task, profile, mission params, calibration, course family,
+``tune`` holds what people change (task, mission, profile, mission params, calibration, course family,
 workers); ``adapter`` the adapter's options; ``core`` the core's own keys. ``load(path, tune)``
 merges ``tune`` overrides (a sweep's parameter set) and returns the core config and its base folder.
 """
@@ -35,8 +35,8 @@ def expand(value):
 def domain(doc, tune=None):
     """The core's domain config (before its defaults) from the YAML document and ``tune`` overrides."""
     t = merge(doc['tune'], tune)
-    options = {**doc.get('adapter', {}), 'task': t['task'], 'profile': t['profile'],
-               'params': t['params'] or None}
+    options = {**doc.get('adapter', {}), 'task': t['task'], 'mission': t.get('mission'),
+               'profile': t['profile'], 'params': t['params'] or None}
     core = copy.deepcopy(doc.get('core', {}))
     scenarios = core.pop('scenarios', None)
     if scenarios is not None:
