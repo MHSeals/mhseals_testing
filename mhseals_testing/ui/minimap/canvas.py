@@ -16,7 +16,7 @@ PRIORITY = (
     'object', 'dock_target',
     'ref_touched', 'ref_failed', 'ref_next', 'ref_passed', 'ref_pending', 'ref_skipped',
     'task', 'wake', 'fov', 'track.pred', 'wall', 'ring', 'grid', 'truth_dot', 'raw_det', 'truth_line', 'hits',
-    'trail', 'acc', 'plan', 'local_plan', 'costmap',
+    'trail', 'acc', 'fence', 'plan', 'local_plan', 'costmap',
 )
 _RANK = {name: i for i, name in enumerate(PRIORITY)}
 GAP = '┄'

@@ -65,6 +65,11 @@ class MapState:
         self.fov = None           # {hfov_deg, range_m, frame} of the camera backend
         self.tasks = []           # minimap.tasks.Task per /task/hypotheses entry
         self.mission_goal = None  # (x, y, yaw, why) of the mission's current goal
+        self.fence = None         # ([(x, y)] map outline of /fence/marker, outside): the course area
+        self.fence_status = None  # the last /fence/status {inside, distance_to_edge, frame, on_exit, corners}
+        self.fence_status_at = None
+        self.fence_preview = []   # [(x, y)] corners being edited (Course area), drawn closed
+        self.fix_ll = None        # (lat, lon) of the last /gps/fix
 
     def ingest(self, kind, **f):
         """Take one message of ``kind``; unknown kinds raise ValueError."""

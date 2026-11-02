@@ -81,6 +81,18 @@ def draw_plan(frame, points, local=False):
                LOCAL_PLAN_PERIOD if local else PLAN_PERIOD)
 
 
+FENCE_PERIOD = 2
+
+
+def draw_fence(frame, fence, preview=None):
+    """The course area: fence_watchdog's /fence/marker outline (``(points, outside)``, map frame) every 2nd dot,
+    red (``fence.out``) while the boat is outside; an edit's ``preview`` corners, closed, in the accent colour."""
+    if fence and len(fence[0]) >= 2:
+        _draw_line(frame, list(fence[0]), 'fence.out' if fence[1] else 'fence', FENCE_PERIOD)
+    if preview and len(preview) >= 2:
+        _draw_line(frame, list(preview) + [preview[0]], 'fence.edit', 1)
+
+
 def _quality(crumb, mode, vmax):
     """(band, period) of a crumb in a trail mode; a None period is a gap."""
     if mode == 'gps':

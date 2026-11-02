@@ -18,13 +18,15 @@ from mhseals_testing.ui.minimap.cache import LayerCache, Redraw
 from mhseals_testing.ui.minimap.canvas import Canvas
 from mhseals_testing.ui.minimap.emit import emit, emit_image
 from mhseals_testing.ui.minimap.frame import draw_accuracy, draw_chrome, draw_rings, ring_step
-from mhseals_testing.ui.minimap.layers import Crumb, Frame, draw_costmap, draw_hits, draw_plan, draw_trail
+from mhseals_testing.ui.minimap.layers import (Crumb, Frame, draw_costmap, draw_fence, draw_hits, draw_plan,
+                                                draw_trail)
 from mhseals_testing.ui.minimap.marks import Projection, draw_fov, draw_objects
 from mhseals_testing.ui.minimap.structure import VMAX, draw_boat
 
 TOKENS = {'plan': 'accent', 'local_plan': 'muted', 'goal': 'accent', 'home': 'accent', 'cursor': 'accent',
           'contact': 'fail', 'wall': 'fg', 'ring': 'muted', 'label': 'muted', 'trail': 'fg', 'chrome': 'muted',
-          'hits': 'fg', 'hits.near': 'fail', 'costmap': 'muted', 'task': 'task.confirmed'}   # layer -> theme token
+          'hits': 'fg', 'hits.near': 'fail', 'costmap': 'muted', 'task': 'task.confirmed',
+          'fence': 'muted', 'fence.out': 'fail', 'fence.edit': 'accent'}   # layer -> theme token
 HALF = 20.0   # m, the default half-width: the boat sits in the middle of +-20 m
 YAW_Q = 3.0   # deg: heading-up rotation of the cached costmap layer
 
@@ -125,6 +127,7 @@ def draw(state, cols, rows, half, table=None, ascii_=False, box=None, full=False
     if trail != 'off':
         draw_trail(frame, crumbs(state), mode=trail, epoch=state.epoch, vmax=VMAX,
                    colourless=tier in ('16', 'mono'), now=t, **({'columns': cache.trail} if cache else {}))
+    draw_fence(frame, getattr(state, 'fence', None), getattr(state, 'fence_preview', None))
     draw_plan(frame, state.plan)
     draw_plan(frame, state.latest.get('local_plan') or [], local=True)
     accuracy = state.accuracy() if hasattr(state, 'accuracy') else None

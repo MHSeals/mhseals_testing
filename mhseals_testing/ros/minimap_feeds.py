@@ -11,6 +11,7 @@ message types are imported only in ``perception_msgs``, and a stack without them
 ``/objects/map``.
 """
 
+import json
 import math
 from pathlib import Path
 import threading
@@ -27,6 +28,7 @@ from mhseals_testing.ui.minimap.state import UNKNOWN_SPEED, MapState
 
 LOCAL, GLOBAL = '/local_costmap/costmap', '/global_costmap/costmap'
 TRACKS, STATUS, OBJECTS = '/perception/tracks', '/perception/status', '/objects/map'
+FENCE_STATUS, FENCE_MARKER = '/fence/status', '/fence/marker'     # mhseals_nav fence_watchdog
 MOTIONS = ('unknown', 'static', 'moving')   # Track.MOTION_UNKNOWN, _STATIC, _MOVING
 SOURCES = ('live', 'prior')                 # Track.SOURCE_LIVE, _PRIOR
 RECORDED = '/mhseals_testing/minimap/costmap'
@@ -244,6 +246,7 @@ class MapFeeds:
             node.create_subscription(objects_type, OBJECTS, lambda m: ingest('objects', items=object_marks(m)), 10)
         from diagnostic_msgs.msg import DiagnosticArray
         node.create_subscription(DiagnosticArray, STATUS, self._status, 10)
+        self._subscribe_fence(node)
         node.create_subscription(tf_type, '/tf_static',
                                  lambda m: ingest('tf_static', transforms=static_transforms(m)),
                                  QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -252,6 +255,36 @@ class MapFeeds:
         except ImportError:
             return
         node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw', self._gps_raw, qos_profile_sensor_data)
+
+    def _subscribe_fence(self, node):
+        """fence_watchdog's /fence/status (JSON, inside, distance, on_exit, corners) and its latched /fence/marker
+        outline in map, red while outside (mhseals_nav fence contract)."""
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+        from std_msgs.msg import String
+        try:
+            from visualization_msgs.msg import Marker
+        except ImportError:
+            Marker = None
+        node.create_subscription(String, FENCE_STATUS, self._fence_status, 10)
+        if Marker is not None:
+            latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                                 durability=DurabilityPolicy.TRANSIENT_LOCAL)
+            node.create_subscription(Marker, FENCE_MARKER, self._fence_marker, latched)
+
+    def _fence_status(self, m):
+        try:
+            status = json.loads(m.data)
+        except ValueError:
+            return
+        if isinstance(status, dict):
+            self.state.fence_status, self.state.fence_status_at = status, self.clock()
+            if self.state.fence is not None:
+                self.state.fence = (self.state.fence[0], status.get('inside') is False)
+
+    def _fence_marker(self, m):
+        status = getattr(self.state, 'fence_status', None)
+        outside = status.get('inside') is False if isinstance(status, dict) else (m.color.r > 0.5 > m.color.g)
+        self.state.fence = ([(p.x, p.y) for p in m.points], outside)
 
     def _status(self, m):
         fov = backend_fov(m)
@@ -300,6 +333,7 @@ class MapFeeds:
         if h_acc is not None:
             self.state.ingest('gps_cov', h_acc_m=h_acc, status=m.status.status)
         if m.status.status >= 0 and math.isfinite(m.latitude):
+            self.state.fix_ll = (m.latitude, m.longitude)     # a course corner set at the boat
             self.origin = self.origin or (m.latitude, m.longitude)
             self.fix_xy = enu(m.latitude, m.longitude, self.origin)
 
