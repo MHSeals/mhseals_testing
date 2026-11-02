@@ -2,7 +2,8 @@
 # The smoke tier (under 60 s): every test marked smoke - imports, shipped config, help.yaml and keymap
 # against the parsers, the arm link, the agent verbs and live C. It gates a landing; the full suite
 # runs in CI and never blocks. Sibling checkouts of mhseals_hardware and mhseals_nav are used when
-# present (MHSEALS_HARDWARE / MHSEALS_NAV override). Extra arguments go to pytest.
+# present, else those beside the main clone (a worktree; MHSEALS_HARDWARE / MHSEALS_NAV override). Extra
+# arguments go to pytest.
 #   tools/smoke --impact   only the test files timpact selects against origin/main (ALL: the full smoke)
 # With the workspace agent tools (MHSEALS_AGENTS, else mhseals_agents beside the main checkout), a tree that
 # already passed is not run again (tcache, tier smoke or smoke-impact; not with extra pytest arguments);
@@ -11,10 +12,10 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 src=$(dirname "$here")
 impact=
 [ "$1" = --impact ] && impact=1 && shift
-agents=${MHSEALS_AGENTS:-}
-if [ -z "$agents" ] && common=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
-    agents=$(dirname "$(dirname "$common")")/mhseals_agents
-fi
+common=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=$here/.git
+# a worktree whose siblings are not the workspace's checkouts uses those beside the main clone
+[ -d "$src/mhseals_hardware/mhseals_hardware" ] || src=$(dirname "$(dirname "$common")")
+agents=${MHSEALS_AGENTS:-$(dirname "$(dirname "$common")")/mhseals_agents}
 if [ -z "$MHSEALS_SMOKE_UNCACHED" ] && [ $# -eq 0 ] && [ -x "$agents/tools/tcache" ]; then
     export MHSEALS_SMOKE_UNCACHED=1
     exec "$agents/tools/tcache" run --repo "$here" --tier "smoke${impact:+-impact}" -- "$here/tools/smoke" ${impact:+--impact}
