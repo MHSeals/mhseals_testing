@@ -58,13 +58,54 @@ def test_commit_saves_the_yaml_and_applies_it_live(config):
     assert driver.values == {'decoupling': fitted, 'decoupling_negative': fitted} and live.pending() is None
 
 
-@pytest.mark.parametrize('driver, says', [(Driver(refuse='out of bounds'), 'refused C: out of bounds'),
-                                          (Driver(drift=0.5), 'reads back')])
-def test_a_refused_or_misread_stage_cancels_and_leaves_no_backup(config, driver, says):
-    live = staging(config, driver)
-    with pytest.raises(Cancelled, match=says):
+def test_a_refused_stage_cancels_and_leaves_no_backup(config):
+    live = staging(config, Driver(refuse='out of bounds'))
+    with pytest.raises(Cancelled, match='refused C: out of bounds'):
         live.raw_correction()
     assert live.pending() is None and not live.active
+
+
+class Flaky(Driver):
+    """Takes the set, then its first readback times out: identity may be live."""
+
+    def __init__(self):
+        super().__init__()
+        self.timeouts = 1
+
+    def get(self, node, names):
+        if self.timeouts:
+            self.timeouts -= 1
+            raise TimeoutError('get timed out')
+        return super().get(node, names)
+
+
+def test_a_stage_that_may_have_landed_puts_the_deployed_c_back(config):
+    driver = Flaky()
+    live = staging(config, driver)
+    with pytest.raises(Cancelled, match='timed out'):
+        live.raw_correction()
+    assert driver.values['decoupling'] == DEPLOYED and live.pending() is None and not live.active
+
+
+def test_a_misread_stage_whose_restore_fails_stays_a_blocker(config):
+    live = staging(config, Driver(drift=0.5))
+    with pytest.raises(Cancelled, match='reads back'):
+        live.raw_correction()
+    assert live.pending() and 'reads back' in live.blockers()[0]
+
+
+def test_a_commit_the_driver_refuses_keeps_the_yaml_and_the_deployed_c_live(config):
+    driver = Driver()
+    live = staging(config, driver)
+    before = config.read_bytes()
+    with pytest.raises(Cancelled):
+        with live.staged():
+            driver.refuse = 'bad C'
+            try:
+                live.commit([2.0] * 9, None)
+            finally:
+                driver.refuse = ''
+    assert config.read_bytes() == before and driver.values['decoupling'] == DEPLOYED and live.pending() is None
 
 
 def test_no_ros_link_refuses_before_anything_moves(config):

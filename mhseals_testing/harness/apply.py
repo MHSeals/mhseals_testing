@@ -96,21 +96,29 @@ class LiveStaging(Staging):
     def __init__(self, config=None, state=None, params=None, node=DRIVER):
         super().__init__(config, state)
         self.params, self.node, self.active, self.error = params, node, False, ''
+        self.untouched = False    # the last apply_live failed before the driver could have taken anything
 
     def apply_live(self, plus, minus=None):
         """Set C+/C- on the driver and verify the readback; Cancelled says why not."""
         from mhseals_hardware.menu import Cancelled
+        plus = IDENTITY if plus is None else plus     # an unset YAML C is identity, an unset C- follows C
         values = {'decoupling': [float(v) for v in plus],
                   'decoupling_negative': [float(v) for v in (minus or plus)]}
+        self.untouched = True
         client = self.params() if self.params else None
         if client is None:
             raise Cancelled('no ROS link to the thruster driver: C cannot be applied live')
         try:
+            self.untouched = False        # a set that times out may still have landed
             ok, reason = client.set_atomically(self.node, values)
             back = client.get(self.node, list(values)) if ok else {}
-        except (TimeoutError, ValueError, RuntimeError) as error:
+        except ValueError as error:       # undeclared or uncoercible: refused before anything is sent
+            self.untouched = True
+            raise Cancelled(f'driver C not applied: {error}') from None
+        except (TimeoutError, RuntimeError) as error:
             raise Cancelled(f'driver C not applied: {error}') from None
         if not ok:
+            self.untouched = True
             raise Cancelled(f'driver refused C: {reason or "no reason"}')
         for key, want in values.items():
             got = list(back.get(key) or [])
@@ -118,7 +126,10 @@ class LiveStaging(Staging):
                 raise Cancelled(f'driver {key} reads back {got or "nothing"}, not {want}')
 
     def raw_correction(self):
-        """Back up C+/C- (once) and stage identity on the driver; a refused stage leaves no new backup."""
+        """Back up C+/C- (once) and stage identity on the driver. A stage the driver never took leaves no new
+        backup; one that may have landed (a timeout, a wrong readback) puts the deployed C back, and if that
+        fails too the backup stays pending, a motion blocker until A restores it."""
+        from mhseals_hardware.menu import Cancelled
         fresh = self.pending() is None
         if fresh:
             current = load_config(self.config)
@@ -126,9 +137,15 @@ class LiveStaging(Staging):
         self.active = True
         try:
             self.apply_live(IDENTITY)
-        except Exception:
+        except Exception as error:
             self.active = False
-            if fresh:
+            if not self.untouched:
+                try:
+                    self.restore()
+                except Cancelled as again:
+                    self.error = f'{error}; then {again}'
+                    raise
+            elif fresh:
                 self._clear()
             raise
 
@@ -150,7 +167,7 @@ class LiveStaging(Staging):
         """The deployed C back on the driver while a human drives (a pause); the backup stays."""
         backup = self.pending()
         if backup is not None:
-            self.apply_live(backup['decoupling'], backup.get('decoupling_negative'))
+            self.apply_live(backup.get('decoupling'), backup.get('decoupling_negative'))
 
     def resume(self):
         """Identity again after a pause."""
@@ -162,16 +179,17 @@ class LiveStaging(Staging):
         if backup is None:
             self.active = False
             return False
-        self.apply_live(backup['decoupling'], backup.get('decoupling_negative'))
+        self.apply_live(backup.get('decoupling'), backup.get('decoupling_negative'))
         self._clear()
         self.active = False
         return True
 
     def commit(self, decoupling, decoupling_negative=None, **changes):
-        """Save the survey's C+/C- to the YAML, then put them on the driver and verify."""
+        """Put the survey's C+/C- on the driver and verify, then save them to the YAML: a driver that does not
+        take them leaves the YAML deployed C, and ``staged`` puts that back live."""
+        self.apply_live(decoupling, decoupling_negative)
         update_config(dict(changes, decoupling=decoupling, decoupling_negative=decoupling_negative),
                       self.config)
-        self.apply_live(decoupling, decoupling_negative)
         self._clear()
         self.active = False
 
