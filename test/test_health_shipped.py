@@ -87,8 +87,8 @@ def test_each_source_gets_its_own_perception_check_set(nav_share):
     assert not any('.sim.' in i or 'legacy_zed' in i for i in boat)
     assert sim == {f'perc.sim.{c}' for c in ('rate', 'latency', 'funnel', 'tracker_rate', 'tracker_latency',
                                              'costmap', 'class_conf', 'heading', 'split')} | \
-        {f'perc.lidar.fusion_{c}' for c in ('rate', 'share', 'p95', 'state')}
-    assert perception_ids('crane_direct') == set()
+        {f'perc.lidar.fusion_{c}' for c in ('rate', 'share', 'p95', 'state')} | {'perc.nearby'}
+    assert 'perc.nearby' in boat and perception_ids('crane_direct') == {'perc.nearby'}   # any lidar profile
 
 
 def test_slow_zed_native_rate_warns_and_anchors_the_camera_row():

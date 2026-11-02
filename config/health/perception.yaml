@@ -10,6 +10,7 @@ probes:
   # silence_s: seconds without a stage before it reads 0 Hz and its other facts drop;
   # status_grace_s: seconds a 1 Hz tracker stage may be quiet before the costmap age grows
   perception: {period: 1, silence_s: 5.0, status_grace_s: 1.5}
+  nearby: {period: 1}    # /perception/nearby arrives at up to 5 Hz (RosIO); quiet 3 s, the row has no evidence
 defaults: {severity: warn, missing: skip}
 checks:
   - id: perc.{source}.rate
@@ -180,3 +181,16 @@ checks:
     hint: WARN is a rotation over 0.75 deg or a translation or image-time alert; ERROR (over 1.5 deg, or no samples) keeps stereo until a restart; recalibrate the mast
     each:
       - {source: lidar, profiles: [boat, crane_full_stack]}
+  # mhseals_nav's /perception/nearby (boat-side summary of /points; the TUI never takes the raw cloud): the nearest
+  # point inside `warn` metres of base_link raises the points-nearby row and toast. Hull points are already cut there.
+  - id: perc.nearby
+    kind: threshold
+    fact: perc.nearby.range
+    probe: nearby
+    warn: 3.0
+    unit: ' m'
+    digits: 1
+    raise_after: 0      # the node already keeps only fresh clouds
+    title: Points nearby
+    message: 'nearest point {value} {label}'
+    hint: Something is inside the warning range of the hull; check the camera and slow down
