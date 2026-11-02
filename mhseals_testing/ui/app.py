@@ -2688,10 +2688,11 @@ class App:
         if arbiter is not None:
             self.settle_mux(arbiter, since)
 
-    def agent_arm(self, who, checks):
-        """Sim auto-arm for an agent run: the arm panel's path, its popup replaced by the desk's sim checks.
+    def agent_arm(self, who, checks, sim=True):
+        """An agent's arm: the arm panel's path, its popup replaced by the desk's sim checks (``sim``) or by
+        ``boat_agent arm``'s countdown banner (ui/feeds/agent_ops.py).
 
-        Only the desk calls it, after every harness/sim_arm.py check passed. The panel's refusals and
+        Only the desk calls it, after its checks passed. The panel's refusals and
         driver start are the same; ``armed`` is journaled with ``by: agent``, who and the checks passed.
         A hold the mux restores is never released: arming is undone and the hold named. Returns ''
         when armed with the mux on auto, else why not (and disarmed).
@@ -2711,10 +2712,11 @@ class App:
             return str(error) or 'arming cancelled'
         if self.plant is not None:
             self.plant.engage()
-        self.armed_by = {'who': who, 'sim': True}   # the ARMED chip reads ◆ who sim-arm; disarm clears it
+        self.armed_by = {'who': who, 'sim': sim}   # the ARMED chip reads ◆ who [sim-arm]; disarm clears it
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware), by='agent', who=who, sim_arm=list(checks))
-        self.notice = f'Armed for agent {who} (sim auto-arm)'
+        what = 'sim auto-arm' if sim else 'agent arm'
+        self.notice = f'Armed for agent {who} ({what})'
         why = ''
         if not self.await_mux(arbiter, since, lambda mux: True):
             why = 'the mux did not report after arming'
@@ -2724,7 +2726,7 @@ class App:
             cause = mux.get('cause') or ((mux.get('holds') or [{}])[0] or {}).get('cause') or self.override_cause()
             why = f'the mux holds ({cause}); only the operator releases it (U)'
         if why:
-            self.disarm(f'sim auto-arm undone: {why}', by='agent')
+            self.disarm(f'{what} undone: {why}', by='agent')
         return why
 
     def settle_mux(self, arbiter, since):

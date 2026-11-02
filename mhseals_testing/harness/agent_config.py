@@ -46,9 +46,14 @@ def load(path=None):
 def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
-    known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', *NUMBERS}
+    known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', 'arm', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
+    arm = data.get('arm', {})
+    countdown = arm.get('countdown', 5) if isinstance(arm, dict) else None
+    if not isinstance(arm, dict) or set(arm) - {'countdown'} or isinstance(countdown, bool) \
+            or not isinstance(countdown, (int, float)) or not 0 <= countdown <= 60:
+        raise ValueError('agent.yaml: arm.countdown must be 0 to 60 seconds')
     lease = data.get('lease')
     if not isinstance(lease, dict) or set(lease) != set(LEASE_KEYS):
         raise ValueError(f"agent.yaml: lease needs exactly {', '.join(LEASE_KEYS)}")
@@ -92,7 +97,7 @@ def validate(data):
     return {**data, 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
-            'sim_arm': sim_arm(data.get('sim_arm', {}))}
+            'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}}
 
 
 def settable(config, procedure=None):

@@ -1,4 +1,4 @@
-"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, set, fcu, mark, note, ask.
+"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, arm, reload, set, fcu, mark, note, ask.
 
 Spec agent-control section 3. ROS-free except ``stop``'s backup path. A verb appends a ``req``
 line to the agent channel and waits for the owner TUI's ``reply`` lines; the TUI runs the act
@@ -7,9 +7,10 @@ JSON lines for ``run``, ``goal`` and ``follow``. Exit codes: 0 ok, 2 refused/bus
 ``hint`` names the human action that unblocks), 3 revoked/overridden/cancelled/expired, 4 no TUI
 owner (``unreachable``: the boat host did not answer; tools/boat_agent says so with the last operator state it
 saw), 5 agents blocked, 6 timeout, 7 paused (the operator declared manual, battery swap or power cycle; the hint
-says since when and the ETA: wait for normal). No verb releases a hold, and none arms a boat: only ``run --sim-arm``
-arms, and only a stack every harness/sim_arm.py check proves a simulator. ``start COMPONENT`` and
-``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:`` lists, as its Status row does.
+says since when and the ETA: wait for normal). No verb releases a hold. ``arm --claim ID`` arms through the TUI
+after a visible countdown the operator cancels (the e-stop always refuses); ``run --sim-arm`` arms a verified sim
+for one run. ``start COMPONENT`` and ``stop COMPONENT`` (claimed) start and stop a stack part agent.yaml ``start:``
+lists, as its Status row does; ``reload config [NAME]`` re-reads the TUI's YAML, ``reload COMPONENT`` respawns one.
 ``run KEY --set K=V`` and ``set K=V`` (claimed) change a setting agent.yaml ``settings:`` lists, as the operator does.
 """
 
@@ -26,7 +27,8 @@ from mhseals_testing.harness import agent_channel as channel, operator_state
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
-VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'set', 'fcu', 'mark', 'note', 'ask')
+VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
+         'mark', 'note', 'ask')
 STREAMS = ('run', 'goal')
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
@@ -84,6 +86,13 @@ def add_parsers(sub):
                 'with COMPONENT and --claim, stop that stack component instead', claim=False)
     stop.add_argument('component', nargs='?', metavar='COMPONENT',
                       help='stop this stack component (needs --claim), not the boat')
+    arm = verb('arm', 'arm through the TUI: a countdown banner the operator cancels; refused on e-stop', claim=True)
+    arm.add_argument('--countdown', type=float, metavar='S',
+                     help='seconds of banner (at least agent.yaml arm.countdown, the default)')
+    reload = verb('reload', 'reload config [NAME]: re-read the TUI YAML; reload COMPONENT --claim ID: respawn one '
+                  'stack part', claim=False)
+    reload.add_argument('target', metavar='config|COMPONENT')
+    reload.add_argument('name', nargs='?', metavar='NAME', help='config: one watched file (hardware, settings, ...)')
     verb('mark', 'put an agent marker in the session').add_argument('note', nargs='?', default='')
     verb('note', 'a text line in the TUI agent log').add_argument('text')
     ask = verb('ask', 'ask the operator a question')
@@ -242,6 +251,21 @@ class Agent:
         except ValueError:
             return bad('fcu set: every VALUE must be a number')
         return self.send('fcu_set', {'changes': changes}, claim)
+
+    def arm(self):
+        countdown = getattr(self.args, 'countdown', None)
+        if countdown is not None and not (math.isfinite(countdown) and 0 <= countdown <= 60):
+            return self.bad('arm --countdown S: 0 to 60 seconds')
+        return self.send('arm', {'countdown': countdown}, self.args.claim,
+                         wait=(countdown or 60.0) + self.cfg['request_s'] + 60.0)
+
+    def reload(self):
+        target, claim = self.args.target, getattr(self.args, 'claim', None)
+        if target == 'config':
+            return self.send('reload', {'config': self.args.name or ''})
+        if not claim:
+            return self.bad(f'reload {target} respawns a stack part: it needs --claim ID')
+        return self.send('reload', {'component': target}, claim, wait=60.0)
 
     def stop_part(self):
         if not getattr(self.args, 'claim', None):

@@ -13,7 +13,8 @@ Safety, in one place:
   ``app._runner_cancelled``. A goal is cancelled. A desk popup closes.
 * The motion lease: the act's blocking CLI renews every ``motion_s``/3; a lapse expires the claim
   through the arbiter, which stops exactly as ``E`` does.
-* Nothing here releases a hold. ``run`` of an armed procedure raises the human arm panel, except
+* Nothing here releases a hold. ``arm`` (ui/feeds/agent_ops.py) arms after a countdown banner the
+  operator cancels; the e-stop refuses it. ``run`` of an armed procedure raises the human arm panel, except
   ``run --sim-arm``: it arms (``app.agent_arm``) only when every harness/sim_arm.py check proves a
   simulator, and disarms when the run ends, aborts, passes ``sim_arm.max_s``, loses its lease or meets the
   stop file.
@@ -38,10 +39,12 @@ from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, parts, theme
+from mhseals_testing.ui.feeds import agent_ops
 
 MOTION = ('run', 'goal')
 # a refusal of these is a footer notice too, not only an agent-log row
-NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'fcu_set', 'fcu_restart', 'fcu_revert')
+NOTICED = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'fcu_set', 'fcu_restart', 'fcu_revert', 'arm',
+           'reload')
 URGENT = ('stop', 'release')   # the reqs a running act's blockers answer; the rest waits for the tick
 LIFECYCLE_S = 2.0              # Nav2 lifecycle states are asked at most this often
 LIFECYCLE_TIMEOUT_S = 0.1      # per server and step: a down Nav2 costs at most 1.2 s
@@ -55,7 +58,7 @@ FCU_OPS = ('fcu_get', 'fcu_rates', 'fcu_set', 'fcu_revert', 'fcu_restart')
 FCU_CLAIMED = ('fcu_set', 'fcu_revert', 'fcu_restart')
 # refused while the operator has declared manual, battery swap or power cycle (``paused``, exit 7); the reads,
 # ask, note, mark, release and stop keep working
-CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', *FCU_CLAIMED)
+CHANGING = ('claim', 'run', 'goal', 'start', 'stop_part', 'set', 'arm', 'reload', *FCU_CLAIMED)
 # Never an agent's to start or stop, whatever agent.yaml lists: the thruster driver, the mux and the velocity
 # controller (they arm), the operator's heartbeat and the safety watchdogs; nor a commander part (Nav2, the
 # mission runner), checked by kind.
@@ -196,11 +199,11 @@ class AgentDesk:
             self.saved = dict(position)
             self.registry.update(lambda entry: entry.update(agent=position))
 
-    def reply(self, req, ok=True, error='', state='done', result=None, hint=''):
+    def reply(self, req, ok=True, error='', state='done', result=None, hint='', label=None):
         agent_channel.reply(req['id'], req['who'], ok=ok, state=state, error=error, result=result,
                             hint=hint, path=self.path)
         if state == 'done':
-            label = self.act['label'] if self.act and self.act['id'] == req['id'] else req['op']
+            label = label or (self.act['label'] if self.act and self.act['id'] == req['id'] else req['op'])
             self.recent.append({'id': req['id'], 'op': req['op'], 'who': req['who'], 'label': label,
                                 't_ns': time.time_ns(), 'ok': bool(ok), 'error': error, 'hint': hint})
         if state != 'progress':
@@ -251,7 +254,8 @@ class AgentDesk:
         handler = {'claim': self.do_claim, 'release': self.do_release, 'stop': self.do_stop, 'revoke': self.do_revoke,
                    'mark': self.do_mark, 'run': self.enqueue, 'goal': self.enqueue,
                    'ask': self.enqueue, 'start': self.do_part, 'stop_part': self.do_part, 'set': self.do_set,
-                   **dict.fromkeys(FCU_OPS, self.do_fcu)}.get(req['op'])
+                   **dict.fromkeys(FCU_OPS, self.do_fcu),
+                   **{op: (lambda r, f=f: f(self, r)) for op, f in agent_ops.HANDLERS.items()}}.get(req['op'])
         if handler is None:
             return self.reply(req, False, 'bad_op', hint=f"unknown op {req['op']!r}")
         handler(req)

@@ -7,9 +7,10 @@ lease: {idle_s: 120, motion_s: 10, max_claim_s: 3600}
 request_s: 5            # a request past this is answered expired; never replayed after a restart
 confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120
-# thrust_physics: owner decision 2026-11-01, an agent runs characterization (B3: pulses, survey, maneuvers) after the operator positions the boat; characterize (f) stays refused
-# (the operator still arms and answers Ready; holds and gates unchanged)
-run: [square, station, nav2_bringup, controller_check, perception, mission, thrust_physics]   # procedure keys agents may request
+# owner decisions 2026-11-01: an agent runs characterization (thrust_physics: B3 pulses, survey, maneuvers; and
+# characterize, f, with C applied live and read back) after the operator positions the boat; arming is through
+# boat_agent arm (a countdown the operator cancels), the operator answers Ready, holds and gates are unchanged
+run: [square, station, nav2_bringup, controller_check, perception, mission, characterize, thrust_physics]   # procedure keys agents may request
 # component keys agents may start and stop (boat_agent start/stop COMPONENT --claim ID), through the Status row's
 # own path, no popup, the row saying "by agent W" (owner decision 2026-10-31). Never the thruster driver, the mux,
 # the controller, the operator heartbeat, the watchdogs or a commander part (Nav2, the mission runner), listed or not.
@@ -37,6 +38,9 @@ fcu:
   rates:
     window_s: 10
     topics: {/imu/raw: sensor_msgs/msg/Imu, /odom/local: nav_msgs/msg/Odometry}
+# boat_agent arm --claim ID (owner decision 2026-11-01): a banner counts down this long in the TUI, the operator
+# cancels it (Esc, Enter); the e-stop refuses. It never releases a hold.
+arm: {countdown: 5}
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
 # Sim-only auto-arm (owner decision 2026-10-26): `run KEY --sim-arm` arms for that run when every check of
 # harness/sim_arm.py proves a sim (sim profile and clock, crane player, private domain in `domains`, never 42,
