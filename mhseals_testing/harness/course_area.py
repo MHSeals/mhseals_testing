@@ -174,7 +174,7 @@ def status_line(status, held=True):
         return 'warn', f'course area: no position ({mode} on exit)'
     if status.get('inside'):
         return 'ok', f'inside the course area,{far} to the edge ({mode} on exit)'
-    if status.get('returning') or mode == 'return':
+    if status.get('returning'):       # only while the goal is out: a failed or unstarted return says drive back
         return 'bad', f'OUTSIDE the course area by{far}: returning inside slowly (on_exit return)'
     return 'bad', f'OUTSIDE the course area by{far}: drive the boat back inside' + (
         ', then U releases the hold' if held else '')

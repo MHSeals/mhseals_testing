@@ -44,6 +44,7 @@ def test_the_fence_file_keeps_the_rest_and_reads_back(tmp_path):
     ({'inside': True, 'distance_to_edge': 12.0, 'on_exit': 'alert'}, 'ok', 'inside'),
     ({'inside': False, 'distance_to_edge': 3.5, 'on_exit': 'alert'}, 'bad', 'drive the boat back inside'),
     ({'inside': False, 'distance_to_edge': 3.5, 'on_exit': 'return', 'returning': True}, 'bad', 'returning inside'),
+    ({'inside': False, 'distance_to_edge': 3.5, 'on_exit': 'return', 'returning': False}, 'bad', 'drive the boat back'),
     ({'inside': None, 'on_exit': 'alert'}, 'warn', 'no position')])
 def test_the_status_line_says_what_to_do(status, state, words):
     found, text = course_area.status_line(status)
