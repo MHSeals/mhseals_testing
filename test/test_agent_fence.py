@@ -48,7 +48,7 @@ def test_the_fence_verb_checks_its_words_and_needs_why_but_no_claim(monkeypatch)
 
 
 @pytest.fixture
-def fenced(rig, tmp_path, monkeypatch):  # noqa: F811
+def fenced(rig, tmp_path, monkeypatch):  # noqa: F811 - the rig fixture
     monkeypatch.setattr(course_area, 'FENCE_FILE', tmp_path / 'fence.yaml')
     monkeypatch.setattr(course_area.save, '__defaults__', (None, tmp_path / 'fence.yaml', None))
     monkeypatch.setattr(agent_acts, 'in_background', lambda app, title, work, **k: work())
@@ -59,7 +59,7 @@ def fenced(rig, tmp_path, monkeypatch):  # noqa: F811
     return rig
 
 
-def fence(rig, why='set for the day', **args):
+def fence(rig, why='set for the day', **args):  # noqa: F811 - the rig fixture's object
     req = ch.request('fence', 'claude-3f2a', args, why=why)
     rig.desk.tick()
     return final(req['id'])
