@@ -38,6 +38,7 @@ global:
   back: [escape]
   amplitude_up: ['+', '=']
   amplitude_down: ['-', '_']
+  checklist: [W]                # boat_tui preview's checklist panel: check on/off (p pass, f fail, n note)
 
 # -- tabs ----------------------------------------------------------------------------
 tab.drive:                      # procedure letters exist only here

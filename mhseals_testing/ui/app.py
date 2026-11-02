@@ -85,6 +85,7 @@ from mhseals_testing.ui import keymap as keymap_module, progress, rtk, rtk_icon,
 from mhseals_testing.harness import bags as bags_module
 from mhseals_testing.ui.panels import PANELS, TITLES, activity, agent_log, correction, scrubber
 from mhseals_testing.ui.panels.status import status_rows
+from mhseals_testing.ui.panels.checklist import Checklist
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.popups import magcal as magcal_popup, stop as stop_popup
 from mhseals_testing.ui.popups import course
@@ -199,6 +200,7 @@ HELP = [   # '[Screen ]keys', as test_help_keys reads them against config/keymap
     ('S', 'Operator state: normal, manual, battery swap, power cycle (agents pause; m sets manual)'),
     ('o', 'Pose: what the EKFs fuse, and the sources'),
     ('!', 'Health checks: mute, recheck, acknowledge'),
+    ('W', 'Preview checklist (boat_tui preview): check on/off; then p pass, f fail, n note, Esc'),
     ('H', 'Config history: hardware, Nav2, FCU, RTK, health, keymap'),
     ('V', 'Perception with the camera view open'),
     ('+ / -', 'Trial amplitude'),
@@ -390,6 +392,7 @@ class App:
         self.layerbox = LayerBox(getattr(self.ros, 'map', None), self.map_state, live=True)
         self.map_keys, self.map_tab_keys = map_key_maps(keymap_module.load()[0].doc)
         self.fusion_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('tab.fusion'))
+        self.checklist = Checklist.from_env()   # boat_tui preview's sanity checklist, else None
         self.fusion_image = None   # the Fusion camera image: None until toggled (on locally, off over a link budget)
         self.bag_recording_key = None
         self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
@@ -1082,7 +1085,7 @@ class App:
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         shared = {} if self.review else feeds_module.merged(self.feeds)
         own = dict(
-            tab=self.tab, minimap=self.minimap, layerbox=self.layerbox,
+            tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=getattr(self, 'checklist', None),
             **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
@@ -1746,6 +1749,9 @@ class App:
             folded = fold(key)
             if self.dispatch_review(folded) or not self.review_allows(folded):
                 return
+        checklist = getattr(self, 'checklist', None)
+        if checklist is not None and not self.review and checklist.handle(self, key):
+            return
         if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
             self.perception_popup(view=True)  # ui.md keymap camera: View already open
             return

@@ -29,6 +29,7 @@ from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout
 from mhseals_testing.ui.panels.activity import activity_panel
 from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels import bags as bags_panel
+from mhseals_testing.ui.panels import checklist as checklist_panel
 from mhseals_testing.ui.panels import fusion as fusion_panel
 from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
@@ -52,6 +53,7 @@ COND_ROWS, THRUSTER_ROWS = 13, 7   # the right column: Conditions over Thrusters
 FULL_CONDITIONS = 90               # below this Conditions is the two-line Cond/Cmd form
 COMPACT_ROWS = 4
 TOP_ROW = COND_ROWS + THRUSTER_ROWS   # Motion height, and the right column's
+CHECKLIST_SIDE = 130  # from this width the preview checklist sits beside the body; below it only while checking
 STRIP_FULL, STRIP_SHORT = 100, 5   # below 100 columns the strip shows its first five items
 
 
@@ -461,7 +463,14 @@ def render(snapshot, view, width=120, height=34):
                         Layout(footer(view, width), size=3 + extra))
     body = layout['body']
     build = BODIES.get(view.get('tab', TABS[0]), placeholder_body)
-    body.update(build(snapshot, view, width, body_height))
+    checklist = view.get('checklist')
+    if checklist is None or not (width >= CHECKLIST_SIDE or checklist.active):
+        body.update(build(snapshot, view, width, body_height))
+    elif width >= CHECKLIST_SIDE:      # boat_tui preview: the checklist beside every tab
+        body.split_row(Layout(build(snapshot, view, width - checklist_panel.WIDTH, body_height)),
+                       Layout(checklist.panel(body_height), size=checklist_panel.WIDTH))
+    else:                              # narrow: over the body while checking
+        body.update(checklist.panel(body_height))
     return _with_modal(layout, view, width, height)
 
 

@@ -32,6 +32,7 @@ ACTIONS = {
     'change_down': Action('change down', 0),
     'change_up': Action('change up', 0),
     'characterize': Action('characterize', 7),
+    'checklist': Action('checklist', 0),
     'dock_physics': Action('dock physics', 7),
     'thrust_physics': Action('thrust physics', 7),
     'take_control': Action('take control', 0),
