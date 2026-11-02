@@ -363,6 +363,12 @@ def test_the_callers_own_claim_does_not_fence_while_idle_or_driving_it(world, ch
     assert 'someone is driving' in make(world, claim='c1').apply(ask(wz_max=0.4))['refused']
 
 
+def test_a_node_outside_nav2_is_refused_before_any_read_or_reset(world):
+    receipt = make(world).apply({'fence_watchdog.on_exit': 'return'})
+    assert receipt['status'] == 'refused' and 'not a Nav2 node: fence_watchdog' in receipt['refused']
+    assert world.calls == []
+
+
 def test_refuses_without_an_owner_or_for_another_owner_or_stale_authority(world):
     world.owner_record = None
     assert 'no live session owner' in make(world).apply(ask(wz_max=0.4))['refused']

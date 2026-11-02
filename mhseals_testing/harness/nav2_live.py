@@ -241,6 +241,9 @@ class Nav2Live:
             found.refusals.append('nothing is requested')
         elif len(changes) != len(named):
             found.refusals.append('two keys name the same parameter')
+        others = sorted({n2.split(key)[0] for key in changes} - set(n2.ORDER))
+        if others:      # a reset would restart Navigation for a node it never brings up (fence_watchdog)
+            found.refusals.append(f"not a Nav2 node: {', '.join(others)}")
         if found.refusals:
             return found
         for key, value in changes.items():
