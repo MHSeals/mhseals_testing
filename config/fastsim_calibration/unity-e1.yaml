@@ -1,0 +1,26 @@
+# Fast-tier plant calibration against the Unity sim, epoch 1 (2026-11-01). Never edit a fitted file:
+# a refit is a new epoch file, so old runs and pairs stay interpretable.
+# EFFECTIVE numbers for the lumped Nav2 MPPI controller + Unity plant as the fast tier's stand-in
+# controller sees them, not physical constants: the measured command-to-motion lag in these bags is
+# 0.1-0.3 s (vx) and 0.15 s (wz); the larger fitted delays and the low gain stand in for MPPI's
+# smooth, sideways-blended approach. Three of four values sit on the fit grid's edge (structural
+# mismatch, research/fastsim-unity-motion-1101.md); prequential scores on new batches decide.
+epoch: 1
+basis: unity
+fit:
+  method: goal-segment replay, grid search, mean RMS position error over [t_sent, min(next goal, t_sent + 30 s)]
+  data: Unity bag exports (EKF map frame), crane b84427e, nav 5c65be8
+  sessions: [20261027_161837, 20261027_162648, 20261027_163129, 20261027_163514]
+  segments: 30
+  split: ~/.cache/fastsim/fidelity/SPLIT.md (calibration = sessions before 20261101)
+  grid: {gain: [0.15, 1.0], delay_vx_s: [0.15, 1.2], delay_wz_s: [0.0, 0.6], speed_scale: [0.6, 1.0]}
+plant:
+  gain: 0.15
+  delay_s: [1.2, 0.0, 0.6]
+  speed_scale: 0.7
+held_out:
+  sessions: [20261101_024527, 20261101_024641, 20261101_025044]
+  segments: 9
+  rms_position_error_m: {uncalibrated: {mean: 1.334, median: 1.055}, calibrated: {mean: 0.720, median: 0.501}}
+  path_length_abs_log_ratio_median: {uncalibrated: 0.405, calibrated: 0.050}
+  segments_improved: 7 of 9

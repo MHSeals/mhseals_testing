@@ -1,0 +1,32 @@
+# RoboBoat fast sim: crane's fast-sim core running mhseals_nav's mission logic (fastsim_adapter).
+# Every boat limit is read from mhseals_nav (effective_limits, tracker.yaml, the robot description).
+tune:
+  task: mission         # the mission tree (mhseals_nav config/tasks/<task>.yaml)
+  profile: null         # a mission profile overlay (config/tasks/profiles); null: the mission's own
+  params: {}            # mission param overrides, merged key by key: what a sweep varies
+  calibration: fastsim_calibration/unity-e1.yaml   # plant epoch (never edited); null: uncalibrated
+  family: roboboat_2026 # course generator family and mode (crane coursegen)
+  mode: iid
+  workers: 4            # batch processes, never above core.max_workers
+
+adapter:
+  camera_frame: front_camera_link   # its mount comes from the URDF, as TF gives it on the boat
+  unknown_static: {within: 8.0, after: 2.0}   # the tracker's UNKNOWN -> STATIC flip (host.py contract)
+  mission: null         # a task YAML instead of the boat's own
+  limits_overlay: null  # a nav2 limits overlay, as the launch takes it
+
+# crane fastsim core keys (crane fastsim/config/default.yaml); the core names them.
+core:
+  dt: 0.05
+  tick_hz: 10.0         # the mission's TaskRunner rate
+  track_hz: 10.0
+  grace_s: 5.0
+  mux_idle_s: 0.5       # command_mux idles 0.5 s after the last command
+  max_workers: 8
+  vehicle: {model: kinematic, gain: 1.0}
+  scenarios:
+    dir: $FASTSIM_TRUTHS
+    pattern: '{family}-s{seed}.json'
+    generate: [dotnet, '$CRANE_DIR/Tools/RoboBoat/cli/bin/Release/net10.0/coursegen.dll', --family, '{family}',
+               --mode, '{mode}', --seeds, '{seeds_from}:{seeds_to}', --out, '{dir}']
+    format: {name: crane_truth, identity_check: '$CRANE_DIR/Tools/RoboBoat/course_truth.py:check_identity'}
