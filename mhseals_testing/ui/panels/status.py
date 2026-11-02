@@ -222,7 +222,25 @@ def localization_rows(snapshot, specs, site=magnetic.SITE):
 
 # A provider is ``f(snapshot, specs) -> rows``; each row names its own group. Later items append
 # providers (Control, Recording, Config, RTK) without touching the grouping below.
-PROVIDERS = [health_rows, control_rows, component_rows, localization_rows, frame_rows, system_rows, recording_rows,
+def fence_rows(snapshot, specs):
+    """Course area (from /fence/status: inside, the distance, OUTSIDE with what to do; Enter edits the corners) and
+    On exit (alert or return, left/right toggles live), in Control. None without a fence_watchdog status."""
+    from mhseals_testing.harness import course_area
+    status = snapshot.get('fence')
+    if status is None:
+        return []
+    state, text = course_area.status_line(status)
+    level = {'ok': 'OK', 'warn': 'WARN', 'bad': 'FAIL'}.get(state, 'OFF')
+    left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
+    return [dict(group='Control', state=level, name='Course area', value=theme.ascii_safe(text.split(',')[0]),
+                 detail=f'{text} · Enter sets the corners', required=level == 'FAIL', plain=level == 'OK',
+                 style=f'bold {theme.BAD}' if level == 'FAIL' else None),
+            dict(group='Control', state='OK', name='On exit', value=f"{left}{status.get('on_exit') or '?'}{right}",
+                 detail='left/right: alert holds outside; return drives back inside slowly', required=False,
+                 plain=True, style='', setting='on_exit')]
+
+
+PROVIDERS = [health_rows, control_rows, fence_rows, component_rows, localization_rows, frame_rows, system_rows, recording_rows,
              session_rows, graphics_rows]
 # Placeholder until the Command-effort and Bench items publish these advisories (ui.md 6.1, Session group);
 # no producer exists yet, so only the test advises them.

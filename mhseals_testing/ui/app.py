@@ -36,7 +36,7 @@ from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITION
 from mhseals_testing import calibration, data, nav2_limits
 from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness import control, host, index, journal, runs, session as session_module, settings
-from mhseals_testing.harness import operator_state
+from mhseals_testing.harness import course_area, operator_state
 from mhseals_testing.harness.bags import MODES as REC_MODES, Recorder
 from mhseals_testing.harness.apply import LiveStaging
 from mhseals_testing.harness.components import Stack, components
@@ -87,6 +87,7 @@ from mhseals_testing.ui.panels import PANELS, TITLES, activity, agent_log, corre
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, odometry, pins, run as run_popup
 from mhseals_testing.ui.popups import magcal as magcal_popup, stop as stop_popup
+from mhseals_testing.ui.popups import course
 from mhseals_testing.ui.review import (
     BIG, find_session, load_session, Offline, review_metadata, SMALL)
 from mhseals_testing.ui.source import LiveSource, ReviewSource
@@ -463,6 +464,9 @@ class App:
             snapshot['components'] = snapshot.get('components', []) + parts.feed(self)
         if self.source.live:    # a past session shows no live control state
             snapshot['control'] = self.control()
+            state = self.map_state()
+            if state is not None and getattr(state, 'fence_status', None) is not None:
+                snapshot['fence'] = state.fence_status          # the Course area and On exit rows
             if not self.watching:
                 snapshot['rec_mode'] = self.recorder.mode   # the Recording row (owner only)
         if self.live is not None:   # the Graphics row: this terminal's setting and drawing tier
@@ -671,6 +675,8 @@ class App:
             snapshot = self.snapshot()
             for feed in self.feeds:
                 feed.tick(self, snapshot, self.clock())
+        if not self.watching:
+            self.fence_alert()
         if self.nav2_file is not None:
             self.notice = self.nav2_file.poll() or self.notice
         if self.test_pulses is not None and self.publish_pulses is not None:
@@ -2024,6 +2030,11 @@ class App:
         rows = status_rows(self.snapshot(), self.profile.sensors)
         if key in ('left', 'right') and self.agents_row(rows):
             self.toggle_agents()
+        elif key in ('left', 'right') and self.row_setting(rows) == 'on_exit' and not self.watching:
+            state = self.map_state()
+            client = self.fence_client()
+            if state is not None and client is not None:
+                self.notice = course.toggle_on_exit(self, client, state.fence_status)
         elif key in ('left', 'right') and self.row_setting(rows) == 'agent_motion':
             agent_feed.step_setting(self, self.row_setting(rows), key)
         elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
@@ -2045,6 +2056,9 @@ class App:
                     return parts.toggle_stack(self)
                 if row['name'] == 'Driving':
                     return self.open('authority')
+                if row['name'] == 'Course area' and not self.watching:
+                    self.notice = course.open_course(self)
+                    return None
                 if row['name'] == 'Hold':
                     return stop_popup.open_stop(self) if row.get('stop') else self.release_hold()
                 if row['name'] in ('RTK', 'Source'):
@@ -2519,6 +2533,38 @@ class App:
     def show(self, title, message=None, rows=None, width=60):
         return popups.show(self, title, message, rows, width)
 
+    def fence_client(self):
+        """fence_watchdog's course area and on_exit (ros/fence.py) on this owner's node; None for a watcher or review."""
+        if self.watching or self.review or getattr(self.ros, 'node', None) is None:
+            return None
+        if getattr(self, '_fence_client', None) is None:
+            from mhseals_testing.ros.fence import FenceClient
+            self._fence_client = FenceClient(self.ros.node)
+        return self._fence_client
+
+    def anchor_fence(self):
+        """/fence/anchor at a characterization's start: a map fence re-centres on the boat; a lat/lon course area
+        stays ("course area fixed"). Journaled and logged; a failure never stops the run."""
+        client = self.fence_client()
+        if client is None:
+            return
+        try:
+            ok, message = agent_acts.in_background(self, 'Fence anchor', client.anchor)
+        except Exception as error:      # noqa: BLE001 - no fence_watchdog (a bench): logged, the run goes on
+            ok, message = False, f'{type(error).__name__}: {error}'
+        self.emit('fence_anchor', ok=ok, message=message)
+        self.monitor.event(f"fence anchor: {message}")
+
+    def fence_alert(self):
+        """Outside the course area: say it once, with the distance and what happens (on_exit)."""
+        state = self.map_state()
+        status = getattr(state, 'fence_status', None) if state is not None else None
+        outside = isinstance(status, dict) and status.get('inside') is False
+        if outside and not getattr(self, '_fence_out', False):
+            self.notice = course_area.status_line(status)[1]
+            self.emit('fence_outside', distance=status.get('distance_to_edge'), on_exit=status.get('on_exit'))
+        self._fence_out = outside
+
     def live_nav2(self):
         """Return the live Nav2 applier, built when first needed (it subscribes to ROS state)."""
         if self._nav2_live is None and self.nav2_live_factory is not None:
@@ -2940,6 +2986,8 @@ class App:
             self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
             self.notice = f'Running {procedure.title}'
             self.health_snapshot('start', procedure)
+            if procedure.key == 'f':           # characterization (f, and an agent's run f): the fence follows
+                self.anchor_fence()
             began = self.engine.clock() if self.engine else 0.0
         except BaseException:              # manual never outlives the drive it was set for
             self.running, self.tags = None, {}
