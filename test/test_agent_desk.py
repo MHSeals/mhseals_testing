@@ -104,7 +104,7 @@ class App:
         self.feeds, self.notice, self.modal, self.running, self.manual = [], '', None, None, False
         self.detaching, self.activity, self.run_id = False, 'results', None
         self._runner_cancelled = self._runner_paused = False
-        self.settings = Settings()
+        self.settings = Settings(agent_motion='confirm')      # the confirm path; the shipped default is allow
         self.profile = SimpleNamespace(name='sim', muxed=True, use_sim_time=False, command_units='velocity',
                                        command_topic='/cmd_vel', command_type='twist', uses_fcu=True,
                                        sensors=(SimpleNamespace(name='GPS', kind='gps'),))
@@ -285,7 +285,7 @@ def ask(rig, op, claim_id, who='claude-3f2a', dry=False, **args):
 
 def test_a_claim_gets_the_idle_lease_and_a_run_goes_through_with_confirm(rig):
     c = claim(rig)
-    assert rig.app.arbiter.table.get(c)['lease_s'] == 120
+    assert rig.app.arbiter.table.get(c)['lease_s'] == 600
     assert rig.app.activity == 'agent'                     # Activity always follows a claim
     rig.app.answers = [['enter']]                          # Refuse is focused: Enter alone never allows
     assert final(ask(rig, 'run', c, key='square')['id'])['error'] == 'refused'
@@ -334,15 +334,15 @@ def test_motion_refusals_name_the_human_action(rig):
     assert reply['error'] == 'no_mux'
 
 
-def test_agent_motion_resets_to_confirm_at_every_start():
-    settings = Settings(agent_motion='allow')
+def test_agent_motion_resets_to_allow_at_every_start():
+    settings = Settings(agent_motion='observe')
     assert save_settings(settings)
     loaded = load_settings()
-    assert loaded.agent_motion == 'confirm' and not hasattr(loaded, 'agent_view')
+    assert loaded.agent_motion == 'allow' and not hasattr(loaded, 'agent_view')     # owner decision 11-01
     from mhseals_testing.harness.settings import settings_path
     path = settings_path()
     path.write_text(path.read_text() + 'agent_view: off\n')   # an older file: read past, even strictly
-    assert load_settings(strict=True).agent_motion == 'confirm'
+    assert load_settings(strict=True).agent_motion == 'allow'
 
 
 def test_no_verb_arms_a_run_waits_for_the_human_arm_panel(rig):
@@ -571,7 +571,7 @@ def test_renewals_from_the_acts_cli_keep_the_motion_lease(rig):
 
 def test_an_idle_lease_lapse_expires_the_claim(rig):
     c = claim(rig)
-    rig.clock[0] += 121
+    rig.clock[0] += 601
     rig.app.arbiter.tick()
     assert ('hold', 'lease') in rig.app.calls
     assert final(ask(rig, 'run', c, key='square')['id'])['error'] == 'expired'
@@ -1300,16 +1300,17 @@ def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
 
 # --- operator visibility: refusals, lapsed leases, settings switched mid-act ------------------
 
-def test_a_refused_claim_or_run_is_a_footer_notice_naming_the_agent(rig):
+def test_a_refused_claim_or_run_stays_in_the_panel_with_one_attention_indicator(rig):
     rig.app.arbiter.allow_agents = False
     ch.request('claim', 'codex-1')
     rig.desk.tick()
-    assert rig.app.notice == 'Agent codex-1 claim refused: blocked (operator must set Agents to allow)'
+    assert rig.app.notice == '' and rig.desk.summary()['attention'] == 'codex-1 claim refused'
+    assert rig.desk.recent[-1]['error'] == 'blocked' and 'Agents to allow' in rig.desk.recent[-1]['hint']
     rig.app.arbiter.allow_agents = True
     c = claim(rig)
     rig.app.settings.agent_motion = 'observe'
     ask(rig, 'run', c, key='square')
-    assert rig.app.notice.startswith(f'Agent claude-3f2a {c} run refused: motion_observe (')
+    assert rig.desk.summary()['attention'] == 'claude-3f2a run refused' and rig.app.notice == ''
 
 
 def test_a_dry_run_refusal_stays_in_the_agent_log(rig):
@@ -1322,7 +1323,7 @@ def test_a_dry_run_refusal_stays_in_the_agent_log(rig):
 
 def test_an_idle_lease_lapse_is_a_notice(rig):
     c = claim(rig)
-    rig.clock[0] += 121
+    rig.clock[0] += 601
     rig.app.arbiter.tick()
     rig.desk.tick()
     assert rig.app.notice.startswith(f'Agent claude-3f2a {c} lease expired: stopped')

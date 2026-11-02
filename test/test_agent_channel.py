@@ -152,7 +152,7 @@ def test_an_oversized_reply_keeps_its_short_result_keys():
 
 def test_shipped_agent_config_is_valid():
     config = agent_config.load()
-    assert config['lease'] == {'idle_s': 120, 'motion_s': 10, 'max_claim_s': 3600}
+    assert config['lease'] == {'idle_s': 600, 'motion_s': 10, 'max_claim_s': 3600}
     assert 'manual' not in config['run'] and 'square' in config['run']
     assert config['unclaimed_driver'] == 'warn' and config['hook']['max_per_10s'] == 6
 
@@ -160,7 +160,7 @@ def test_shipped_agent_config_is_valid():
 @pytest.mark.parametrize('edit, word', [
     (lambda c: c.update(schema='x'), 'schema'),
     (lambda c: c['lease'].update(idle_s=0), 'lease.idle_s'),
-    (lambda c: c['lease'].update(motion_s=500), 'motion_s <= idle_s'),
+    (lambda c: c['lease'].update(motion_s=900), 'motion_s <= idle_s'),
     (lambda c: c['lease'].pop('max_claim_s'), 'lease needs'),
     (lambda c: c.update(request_s='5'), 'request_s'),
     (lambda c: c.update(run='square'), 'run'),
@@ -180,11 +180,11 @@ def test_watch_hot_reloads_and_keeps_the_last_good_config(tmp_path):
     text = agent_config.config_path().read_text()
     path.write_text(text)
     watch = agent_config.Watch(path)
-    assert watch.get()['lease']['idle_s'] == 120 and watch.error is None
-    path.write_text(text.replace('idle_s: 120', 'idle_s: 60'))
+    assert watch.get()['lease']['idle_s'] == 600 and watch.error is None
+    path.write_text(text.replace('idle_s: 600', 'idle_s: 60'))
     os.utime(path, ns=(1, 1))
     assert watch.get()['lease']['idle_s'] == 60
-    path.write_text(text.replace('idle_s: 120', 'idle_s: -1'))
+    path.write_text(text.replace('idle_s: 600', 'idle_s: -1'))
     assert watch.get()['lease']['idle_s'] == 60 and 'idle_s' in watch.error
     path.write_text('lease: [')
     os.utime(path, ns=(2, 2))

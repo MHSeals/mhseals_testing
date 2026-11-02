@@ -64,6 +64,8 @@ def agent_id(monkeypatch):
 
 def call(argv, desk=None, registry=None, **seams):
     args = cli.build_parser().parse_args(argv)
+    if agent_cli.needs_why(args) and '--no-why' not in argv:     # every acting verb says why (owner 11-01)
+        args.why = 'test'
     out = io.StringIO()
     desk = desk or Desk()
     code = agent_cli.main(args, registry=registry or Reg(), out=out, clock=desk.clock,
@@ -173,7 +175,7 @@ def test_the_tui_dying_mid_act_exits_4():
 def test_no_reply_past_the_deadline_times_out(monkeypatch, tmp_path):
     monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
     data.write_json(runtime_dir() / 'status.json', {'pid': 77}, 'mhseals.status/1')   # the desk is up
-    args = cli.build_parser().parse_args(['claim'])
+    args = cli.build_parser().parse_args(['claim', '--why', 'test'])
     stream, desk = io.StringIO(), Desk()
     code = agent_cli.main(args, registry=Reg(), out=stream, clock=desk.clock, sleep=desk.sleep,
                           settings=dict(SETTINGS, request_s=-3.0))
@@ -184,7 +186,7 @@ def test_no_reply_past_the_deadline_times_out(monkeypatch, tmp_path):
 def test_an_owner_without_a_desk_exits_4_not_6(argv, monkeypatch, tmp_path):
     monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
     data.write_json(runtime_dir() / 'status.json', {'pid': 12}, 'mhseals.status/1')   # an earlier TUI's
-    args = cli.build_parser().parse_args(argv)
+    args = cli.build_parser().parse_args(argv + ['--why', 'test'])
     stream, desk = io.StringIO(), Desk()
     code = agent_cli.main(args, registry=Reg(), out=stream, clock=desk.clock, sleep=desk.sleep,
                           settings=dict(SETTINGS, request_s=-3.0))
