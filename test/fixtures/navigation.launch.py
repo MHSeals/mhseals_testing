@@ -72,14 +72,12 @@ def generate_launch_description():
         # Hold-only: without a mux nothing would act on its requests.
         Node(package='mhseals_nav', executable='costmap_watchdog', name='costmap_watchdog',
              output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
-             parameters=[PathJoinSubstitution([share, 'config', 'costmap_watchdog.yaml']),
-                         {'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
+             parameters=[{'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
                                                          value_type=bool)}]),
         # Holds, hold-only too, when an obstacle closes in on the hull from any side.
         Node(package='mhseals_nav', executable='approach_guard', name='approach_guard',
              output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
-             parameters=[PathJoinSubstitution([share, 'config', 'approach_guard.yaml']),
-                         {'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
+             parameters=[{'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
                                                          value_type=bool),
                           # Log-only on the boat until water bags replay clean.
                           'enforce': ParameterValue(LaunchConfiguration('sim'),
