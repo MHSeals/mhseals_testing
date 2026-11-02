@@ -85,8 +85,8 @@ Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); 
   COMPONENT, `set K=V`, `fcu get|set|rates|revert|restart`, `follow`, `mark`, `note`, `ask`, `stop`. Every acting verb takes `--why`.
 - **Release and grants:** `release HOLD --why` frees a lease or watchdog hold once its fault cleared; an operator hold only
   with a grant in `~/.config/mhseals/agent_grants.yaml`; the e-stop never.
-- **Fence:** agents may edit the course fence (corners, on exit alert or return) any time, with `--why`, logged; the
-  `fence` verb is not in `boat_agent` yet.
+- **Fence:** `fence corners LAT,LON ... | on_exit alert|return | anchor --why`, any time, no claim: validated, read back,
+  kept in `~/.config/mhseals/fence.yaml` and named in the agent panel.
 - **Exit codes:** 0 ok, 2 refused (read `hint`), 3 revoked, 4 no TUI, 5 blocked, 6 timeout, 7 paused by the operator.
 - **Hook:** `mhseals_testing/agent_hook.py` blocks raw motion, FCU and hold changes and names the verb instead. Details: [docs/agents.md](docs/agents.md).
 
