@@ -1,0 +1,16 @@
+# boat_tui sim: the headless Unity sim stack (tools/boat_sim). Each key may be overridden by BOAT_SIM_<KEY> in the
+# environment (BOAT_SIM_PLAYER=/path/CRANE.x86_64). Paths may start with ~.
+player: ~/.cache/crane-phase1/player/CRANE.x86_64     # a crane_ml Linux player with the --crane-roboboat-* flags
+run: ~/.cache/boat-sim                                # pid files, logs, the domain, the course truth
+container: crane_autodemo                             # private-IPC container the stack and TUI run in
+image: vsc-astro_dock-95a55aed170fd9a82efa9f2b7064cb62047b76aa0d602aff3240d6f630e2e39f-uid:latest
+overlay: ~/.cache/crane-autodemo                      # the container's workspace overlay (src/, install/), built there
+base: ~/.cache/crane-fusion/ctest/base                # the base workspace the overlay builds on (read-only)
+profile: crane_full_stack
+port: 6767                                            # mhseals_nav endpoint_startup.yaml unity.port
+domains: [101, 199]                                   # a free ROS_DOMAIN_ID from this range, localhost discovery
+course_family: roboboat_2026
+seed: 1
+ready_s: 240                                          # the player's course must be ready within this
+max_s: 21600                                          # the heavy unity slot is given back after this
+tmux_session: sim                                     # in boat_tui's own tmux server (tmux -L boat)

@@ -4,6 +4,7 @@
 #   view [NAME]    a viewer (boat_test --view) in session S-NAME (first free v1..v9); attaches on a tty
 #   restart        a new TUI takes over the old one's pane (neutral, disarmed); the stack and keepers keep running
 #   status         tmux sessions and who controls (harness/control.py)
+#   sim [--seed N] | sim down   the headless Unity sim, then boat_test crane_full_stack in session sim (tools/boat_sim)
 # Run it on the TUI host (the boat host, or the sim host): from the dev machine,
 #   ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_tui up
 # C is the container boat_test runs in (roboboat_dev; roboboat_test in sim; '' runs it here). J adds -J J to the
@@ -133,6 +134,10 @@ case $verb in
         echo "boat_tui: boat_test restarted in $session on $host (the stack kept running); attach:" >&2
         attach_line "$session"
         ;;
+    sim)
+        # boat_tui sim [--seed N] [--dry-run] | sim down | sim status: the headless Unity sim and boat_test on it
+        case ${1:-} in down|status) exec "$(dirname "$0")/boat_sim" "$@" ;; *) exec "$(dirname "$0")/boat_sim" up "$@" ;; esac
+        ;;
     status)
         t list-sessions -F '#{session_name}  #{?pane_dead,exited,running}  #{session_attached} attached' 2>/dev/null \
             | grep -E "^$session(-|  )" || echo "no $session sessions on $host"
@@ -143,5 +148,5 @@ case $verb in
             python3 -m mhseals_testing.harness.control
         fi
         ;;
-    *) sed -n '2,11s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
+    *) sed -n '2,12s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
 esac

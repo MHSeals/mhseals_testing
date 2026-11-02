@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# boat_sim [up [--seed N] [--build] [--dry-run] | down | status]: the headless Unity sim and boat_test on it.
+#   up      ONE heavy-unity job (astro_dock/.handoff/tools/heavy unity): a fresh private-IPC container (config
+#           sim/stack.yaml container), a free ROS_DOMAIN_ID (domains, localhost discovery), boat_test --profile
+#           crane_full_stack in tmux -L boat session sim (it starts the stack and the ROS-TCP endpoint), then the
+#           player headless under xvfb-run with the course of SEED. Waits for down (or max_s) and tears down.
+#           --build refreshes the container's overlay from the workspace mains first; --dry-run prints the plan.
+#   down    stop the TUI session, the player and the container (exact PIDs) and give the slot back
+#   status  the domain, the player and the TUI session
+# Settings: config/sim/stack.yaml, each overridable as BOAT_SIM_<KEY> (BOAT_SIM_PLAYER=/path/CRANE.x86_64).
+# Never opens a window; tmux only on its own server (-L boat, $TMUX cleared). tools/boat_tui sim runs this.
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+HEAVY=${BOAT_SIM_HEAVY:-$HOME/astro_dock/.handoff/tools/heavy}
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+eval "$(python3 -m mhseals_testing.harness.sim_stack env)"
+RUN=$SIM_RUN; mkdir -p "$RUN"
+DOMAINS=/tmp/boat-sim-$(id -u); mkdir -p "$DOMAINS"; chmod 700 "$DOMAINS"
+t() { env -u TMUX -u TMUX_PANE tmux -L boat "$@"; }
+
+cenv() {   # the stack's environment inside the container
+  echo "export HOME=/home/roboboat/autodemo/home ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+MHSEALS_DATA=/home/roboboat/autodemo/data MHSEALS_HARDWARE_CONFIG=/home/roboboat/autodemo/src/mhseals_testing/config/sim/hardware_crane.yaml \
+MHSEALS_SIM_ARM=1 TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8; source /opt/ros/jazzy/setup.bash; \
+source /home/roboboat/.cache/ctest/base/install/setup.bash; source /home/roboboat/autodemo/install/local_setup.bash"
+}
+
+container_up() {
+  docker stop -t 10 "$SIM_CONTAINER" >/dev/null 2>&1 || true      # a fresh stack: no old processes or holds
+  if ! docker inspect "$SIM_CONTAINER" >/dev/null 2>&1; then
+    docker run -d --name "$SIM_CONTAINER" --label boat.sim=1 --init --ipc private --network host \
+      -e BASH_ENV= --user roboboat -v "$SIM_BASE":/home/roboboat/.cache/ctest/base:ro \
+      -v "$SIM_OVERLAY":/home/roboboat/autodemo --entrypoint sleep "$SIM_IMAGE" infinity >/dev/null
+  fi
+  docker start "$SIM_CONTAINER" >/dev/null
+  docker exec "$SIM_CONTAINER" bash -c 'f=/tmp/mhseals-$(id -u)/session.json; [ -e $f ] && mv $f $f.stale-$(date +%s) || true'
+}
+
+overlay() { # --build: the workspace mains of the three packages, colcon-built in the container (a few minutes)
+  for p in hardware nav testing; do
+    rsync -a --delete --exclude .git --exclude __pycache__ "$HOME/astro_dock/src/mhseals_$p/" "$SIM_OVERLAY/src/mhseals_$p/"
+  done
+  docker exec "$SIM_CONTAINER" bash -c 'export HOME=/home/roboboat/autodemo/home; . /opt/ros/jazzy/setup.bash;
+    . /home/roboboat/.cache/ctest/base/install/setup.bash; cd /home/roboboat/autodemo &&
+    colcon build --symlink-install --base-paths src --build-base build --install-base install --cmake-args -DBUILD_TESTING=OFF' | tail -3
+}
+
+tui() {    # boat_test in the boat tmux server; it starts the profile's components (the endpoint among them)
+  t kill-session -t "=$SIM_TMUX_SESSION" 2>/dev/null || true
+  t new-session -d -s "$SIM_TMUX_SESSION" -x 200 -y 55 \
+    "docker exec -it $SIM_CONTAINER bash -c '$(cenv); exec ros2 run mhseals_testing boat_test --profile $SIM_PROFILE --set command_mode=velocity'; sleep 600"
+}
+
+player() { # headless (xvfb, never -nographics), the course of SEED; its truth beside the run
+  rm -f "$RUN/course_truth.json" "$RUN/player.log"
+  ( exec xvfb-run -a -s "-screen 0 1280x720x24" nice -n 19 "$SIM_PLAYER" \
+      -screen-fullscreen 0 -screen-width 1280 -screen-height 720 -logFile "$RUN/player.log" \
+      --crane-profile interactive-low --crane-scene "Roboboat Course" \
+      --crane-ros-ip 127.0.0.1 --crane-ros-port "$SIM_PORT" \
+      --crane-disable-sitl --crane-ros-thruster-pwm --crane-roboboat-contract --crane-ros-nav-state \
+      --crane-lidar-returns-only --crane-lidar-water-level 0.02 \
+      --crane-course-family "$SIM_COURSE_FAMILY" --crane-course-seed "$SEED" \
+      --crane-roboboat-course-truth "$RUN/course_truth.json" ) >"$RUN/player-stdout.log" 2>&1 &
+  echo $! > "$RUN/player.pid"
+  local waited=0
+  until grep -q CRANE_ROBOBOAT_COURSE_READY "$RUN/player.log" 2>/dev/null; do
+    [ "$waited" -ge "$SIM_READY_S" ] && { echo "boat_sim: player not ready in $SIM_READY_S s, see $RUN/player.log" >&2; exit 1; }
+    sleep 2; waited=$((waited + 2))
+  done
+}
+
+down() {
+  t kill-session -t "=$SIM_TMUX_SESSION" 2>/dev/null || true
+  if [ -s "$RUN/player.pid" ]; then     # xvfb-run's pid: its children first, then itself
+    pid=$(cat "$RUN/player.pid")
+    for c in $(pgrep -P "$pid" 2>/dev/null) "$pid"; do kill -0 "$c" 2>/dev/null && kill -TERM "$c" || true; done
+    rm -f "$RUN/player.pid"
+  fi
+  docker stop -t 15 "$SIM_CONTAINER" >/dev/null 2>&1 || true
+  [ -s "$RUN/domain" ] && rm -f "$DOMAINS/domain.$(cat "$RUN/domain")"
+  rm -f "$RUN/domain"; touch "$RUN/stop"
+  echo "boat_sim: down"
+}
+
+session() {
+  trap down EXIT; trap 'exit 143' INT TERM
+  rm -f "$RUN/stop"
+  DOMAIN=$(python3 -m mhseals_testing.harness.sim_stack domain)
+  echo "$$" > "$DOMAINS/domain.$DOMAIN"; echo "$DOMAIN" > "$RUN/domain"
+  container_up
+  if [ "$BUILD" = 1 ]; then overlay; fi
+  tui
+  until docker exec "$SIM_CONTAINER" pgrep -f default_server_endpoint >/dev/null; do sleep 5; done
+  sleep 10                               # the endpoint listens on the port
+  player
+  echo "boat_sim: ready, domain $DOMAIN, seed $SEED; attach: tmux -L boat attach -t $SIM_TMUX_SESSION"
+  local end=$(( $(date +%s) + SIM_MAX_S ))
+  while [ ! -e "$RUN/stop" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 5; done
+}
+
+verb=${1:-}; [ $# -gt 0 ] && shift
+SEED=$SIM_SEED; dry=0; BUILD=0
+while [ $# -gt 0 ]; do
+  case $1 in --seed) SEED=$2; shift 2 ;; --dry-run) dry=1; shift ;; --build) BUILD=1; shift ;; *) break ;; esac
+done
+case $verb in
+  up)
+    [ -x "$SIM_PLAYER" ] || { echo "boat_sim: no player at $SIM_PLAYER (config/sim/stack.yaml player or BOAT_SIM_PLAYER)" >&2; exit 2; }
+    if [ "$dry" = 1 ]; then
+      echo "boat_sim: would run under $HEAVY unity: container $SIM_CONTAINER ($SIM_IMAGE), a free domain in" \
+           "$SIM_DOMAINS, boat_test --profile $SIM_PROFILE in tmux -L boat session $SIM_TMUX_SESSION, player $SIM_PLAYER" \
+           "headless with $SIM_COURSE_FAMILY seed $SEED, port $SIM_PORT; logs in $RUN"
+      exit 0
+    fi
+    rm -f "$RUN/stop"
+    build=''; [ "$BUILD" = 1 ] && build=--build
+    ( setsid "$HEAVY" unity "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & )
+    echo "boat_sim: queued for the heavy unity slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
+    ;;
+  _run) session ;;
+  down) down ;;
+  status)
+    echo "domain: $(cat "$RUN/domain" 2>/dev/null || echo none)"
+    [ -s "$RUN/player.pid" ] && kill -0 "$(cat "$RUN/player.pid")" 2>/dev/null && echo "player: running" || echo "player: stopped"
+    t has-session -t "=$SIM_TMUX_SESSION" 2>/dev/null && echo "tui: tmux -L boat attach -t $SIM_TMUX_SESSION" || echo "tui: none"
+    ;;
+  *) sed -n '2,11s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
+esac
