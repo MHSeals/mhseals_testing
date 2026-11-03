@@ -96,6 +96,36 @@ def test_cluster_backend_reads_metrics_and_lists_artifacts(tmp_path):
             ('code.json', 'summary')} <= names
 
 
+def test_cluster_backend_keeps_the_trajectory_and_stamps_its_meta(tmp_path):
+    """run.ctraj, its LOD and the course go up as summary artifacts; run_meta stamps the job's fields."""
+    crane = os.environ.get('CRANE_DIR')
+    if not crane or not (Path(crane) / 'theater' / 'meta.py').is_file():
+        pytest.skip('needs CRANE_DIR (a crane checkout with theater/meta.py)')
+    import sys
+    sys.path.insert(0, crane)
+    try:
+        from theater import traj
+    finally:
+        sys.path.remove(crane)
+    run = tmp_path / 'runs' / 'shadow' / 's7'
+    run.mkdir(parents=True)
+    traj.write(run / 'run.ctraj', {'seed': 7, 'pose_dims': 'planar', 'outcome': 'finished', 'valid': True,
+                                   'course': {'name': 'c', 'truth_sha256': 'a' * 64}},
+               {'robot.x': [0.0, 1.0, 2.0], 'robot.y': [0.0, 0.5, 1.0], 'robot.yaw': [0.0, 0.1, 0.2]}, [], hz=2.0)
+    (run / 'course_truth.json').write_text('{}')
+    b = cluster.FastsimBackend('fastsim_roboboat', {})
+    b.out, b.variant, b.shas = tmp_path / 'runs', 'shadow', {}
+    b.ctx = NS(job={'job_id': 'j1', 'hypothesis_id': 'h1', 'arm': None, 'stage_index': 0},
+               spec={'arm': 'shadow', 'metric': 'points'})
+    b.python, b.env, b.tune = sys.executable, {**os.environ, 'PYTHONPATH': crane}, {'shield': {'mode': 'shadow'}}
+    meta = b.run_meta(run, {'points': 42.0})
+    assert meta['study'] == 'h1' and meta['score'] == 42.0 and meta['traj_name'] == 'run.ctraj'
+    assert meta['course_sha256'] == 'a' * 64 and len(meta['traj_sha256']) == 64
+    names = {(n, r) for _, n, r in b.artifacts(run)}
+    assert {('run.ctraj', 'summary'), ('run.lod.ctraj', 'summary'), ('course_truth.json', 'summary')} <= names
+    assert cluster.FastsimBackend('x', {}).run_meta(tmp_path, {}) is None
+
+
 def test_hypothesis_repo_comes_from_the_job_and_the_rest_need_urls(tmp_path):
     ctx = NS(work_dir=tmp_path / 'jobs' / 'j1', repos={'mhseals_nav': tmp_path / 'nav'},
              resolved={'mhseals_nav': 'f' * 40}, spec={})

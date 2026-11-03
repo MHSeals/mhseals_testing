@@ -17,7 +17,10 @@ child process (``fastsim_adapter.batch``) with that code on its path, so two job
 imported modules. Spec keys: ``tune`` (config tune overrides), ``vary`` (an arm's own tune
 overrides, merged last: a sweep's value),
 ``config`` (a YAML in mhseals_testing, default the shipped one), ``refs``, ``urls``, ``workers``.
-Metrics are the batch's ``metrics.json`` (core and referee numbers). coursegen needs dotnet and
+Metrics are the batch's ``metrics.json`` (core and referee numbers). Each run keeps its ``run.ctraj`` (and
+``run.lod.ctraj``) and ``course_truth.json`` as summary artifacts, and ``run_meta`` stamps the trajectory with
+the job's study, iteration, arm and score through crane's ``theater.meta`` (in a child process on the job's
+code), so the run feed can replay it. coursegen needs dotnet and
 Unity's managed assemblies (crane Tools/RoboBoat/cli/README.md).
 """
 
@@ -33,7 +36,18 @@ NEEDED = ('mhseals_testing', 'mhseals_nav', 'crane_ml')
 # coursegen compiles and hashes (CourseIdentity)
 SPARSE = {'crane_ml': ['fastsim', 'theater', 'Tools/RoboBoat', 'ProjectSettings', 'Assets/Scripts/Course/Core',
                        'Assets/Scripts/Course/RoboBoat/Tasks', 'Assets/Config/Course/Resources']}
-SUMMARY = ('metrics.json', 'run.json', 'fastsim.json', 'session.json')
+SUMMARY = ('metrics.json', 'run.json', 'fastsim.json', 'session.json', 'run.ctraj', 'run.lod.ctraj',
+           'course_truth.json')
+# run_meta's child: stamp run.ctraj with the job's theater fields, write its LOD, print the run_meta body
+STAMP = '''import json, sys
+from theater import meta
+a = json.loads(sys.argv[2])
+fields = meta.job_fields(a['job'], a['spec'], params=a['params'], metrics=a['metrics'])
+fields.pop('job_id', None)
+header, sha = meta.stamp(sys.argv[1], **fields)
+meta.write_lod(sys.argv[1])
+print(json.dumps(meta.run_meta(header, traj_name='run.ctraj', traj_sha256=sha)))
+'''
 RAW = ('track.jsonl', 'task_events.jsonl', 'task_status.jsonl', 'events.jsonl', 'sim_events.jsonl')
 
 
@@ -156,6 +170,7 @@ class FastsimBackend:
             cmd += ['--tune', json.dumps(tune)]
         env = {**os.environ, 'PYTHONPATH': os.pathsep.join(str(p) for p in (testing, nav, crane)),
                'CRANE_DIR': str(crane), 'FASTSIM_TRUTHS': str(truths), **ctx.env}
+        self.python, self.env, self.tune = python, env, tune
         log = Path(ctx.work_dir) / 'batch.log'
         with open(log, 'w') as f:
             self.proc = subprocess.Popen(self.wrapped(cmd), stdout=f, stderr=subprocess.STDOUT, env=env,
@@ -174,6 +189,22 @@ class FastsimBackend:
     def metrics(self, run_dir):
         data = json.loads((Path(run_dir) / 'metrics.json').read_text())
         return {k: float(v) for k, v in data.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+
+    def run_meta(self, run_dir, metrics):
+        """Stamp ``run.ctraj`` with the job's study, iteration, arm, params (the merged tune) and score, write
+        its LOD and return the run_meta body; None without a trajectory. A failure only drops the meta."""
+        path = Path(run_dir) / 'run.ctraj'
+        if not path.is_file():
+            return None
+        job = {k: self.ctx.job.get(k) for k in ('job_id', 'hypothesis_id', 'arm', 'stage_index')}
+        if job['arm'] is None:
+            job['arm'] = self.variant
+        arg = json.dumps({'job': job, 'spec': self.ctx.spec, 'params': self.tune, 'metrics': metrics})
+        done = subprocess.run([self.python, '-c', STAMP, str(path), arg], capture_output=True, text=True,
+                              timeout=120, env=self.env, cwd=str(Path(run_dir)))
+        if done.returncode:
+            raise RuntimeError(f'run meta: {done.stderr.strip()[-500:]}')
+        return json.loads(done.stdout.strip().splitlines()[-1])
 
     def artifacts(self, run_dir):
         run_dir = Path(run_dir)
