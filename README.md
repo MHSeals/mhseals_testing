@@ -58,7 +58,7 @@ Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Ac
 | `O` | Take control (a viewer; the owner stops at neutral) |
 | `b / B` | Mark now; 1-9 within 3 s tags it (wake, gust, contact ...) |
 | `N` | Bad data on / off |
-| `"` | Log a spoken instruction (1-9 picks, 0 types) |
+| `"` | Log a spoken instruction (1-8 picks the words) |
 | `q` | Quit: neutral, disarm, report, bag flush (never kill the tmux session) |
 | `w s ↑↓` | Manual (m): hold w/s, a/d, ←/→ together; +/- speed; x leaves |
 <!-- /keys -->

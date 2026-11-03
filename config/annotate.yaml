@@ -13,7 +13,7 @@ tune:
     - {label: good, effect: none, span: [0, 0]}
     - {label: interesting, effect: none, span: [-5, 5]}
     - {label: other, effect: suspect, span: [-10, 10]}
-  # " then a digit logs a common operator instruction (8 fit the footer; 0 types one, or later in Labels while moving)
+  # " then a digit logs a common operator instruction (8 fit the footer beside Space; other words: n in Labels)
   phrases:
     - hold position here
     - go to the next gate
