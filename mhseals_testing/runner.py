@@ -108,6 +108,8 @@ class Runner:
 
     def progress(self, done, total, label=''):
         """Where a long procedure is (characterization): ``show`` reads ``place`` on the next repaint."""
+        if label and (self.place is None or self.place[2] != str(label)):
+            self.emit('step', done=int(done), total=max(int(total), 1), label=str(label))   # a segment boundary
         self.place = (int(done), max(int(total), 1), str(label))
 
     def invalid(self, start, end):
