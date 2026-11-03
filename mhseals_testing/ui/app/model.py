@@ -46,6 +46,7 @@ class ViewState(TypedDict, total=False):
     modal: Any
     # messages
     notice: Any
+    flash: Any              # a mark's short confirmation, bold before the notice (ui/app/actions/annotate.py)
     hints: list
     toasts: list
     toasts_more: int
@@ -78,6 +79,7 @@ class ViewState(TypedDict, total=False):
     rec: Any
     review: Any
     bags: Any
+    labels: Any             # the Labels tab's model (ui/panels/labels.py), on that tab only
     bag_usage: Any
     # thrusters and correction
     bench_override: Any

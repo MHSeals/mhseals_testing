@@ -13,6 +13,7 @@ from mhseals_hardware.keyboard import KeyReader
 from mhseals_testing.ui import input as key_input
 from mhseals_testing.harness.bags import Recorder
 from mhseals_testing.analysis.readiness import planned_directions
+from mhseals_testing.annotate.live import AnnotateFeed
 from mhseals_testing.conditions import Conditions
 from mhseals_testing.harness.recwatch import RecWatch
 from mhseals_testing.harness.watch import Watched, Watcher
@@ -37,6 +38,8 @@ from mhseals_testing.ui.app.shared import CURSORS
 from mhseals_testing.ui.app.help import map_key_maps
 from mhseals_testing.ui.app.actions.quit import Quit
 from mhseals_testing.ui.app.actions.operator import Operator
+from mhseals_testing.ui.app.actions.annotate import Annotate
+from mhseals_testing.ui.app.actions.labels import Labels
 from mhseals_testing.ui.app.actions.bags import Bags
 from mhseals_testing.ui.app.actions.settings import Settings
 from mhseals_testing.ui.app.actions.holds import Holds
@@ -48,7 +51,8 @@ from mhseals_testing.ui.app.view import View
 from mhseals_testing.ui.app.loop import Loop
 
 
-class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Bags, Operator, Quit):
+class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate, Labels, Bags, Operator,
+          Quit):
     """The page, its key handling and the procedure context.
 
     ROS, processes, arming, the plant, keys, the live view and the raw-pulse
@@ -82,7 +86,8 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Bags, Op
         self.tracking = TrackingFeed()  # model ghost and live scores; session scores recorded at close
         self.rtk = RtkFeed(profile)
         # ui.feeds objects: ticked live, their view() merged into view()
-        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed(), self.rtk, self.issues]
+        self.annotations = AnnotateFeed()   # journals the automatic segment edges (annotate/live.py)
+        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed(), self.rtk, self.issues, self.annotations]
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes

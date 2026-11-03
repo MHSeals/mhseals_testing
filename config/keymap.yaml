@@ -22,8 +22,11 @@ global:
   revoke_agent: [E]             # no confirm; locked while Agents = allow
   take_control: [O]             # a viewer takes control (confirm); the owner keeps it
   operator_state: [S]           # normal, manual, battery swap, power cycle: agents pause; m sets manual
-  mark: [b]
+  mark: [b]                     # instant; a digit within a moment tags it (config/annotate.yaml)
   mark_note: [B]
+  bad_data: [N]                 # bad data from here; N again ends it
+  say: ['"']                    # the operator's instruction, with the pose; a digit picks the words
+  labels: [L]                   # the Labels tab: review marks and segments, set the water conditions
   tab_prev: ['[']
   tab_next: [']']
   focus_next: [tab]
@@ -80,6 +83,21 @@ tab.bags:
 
 tab.fusion:
   camera_image: [i]             # the camera frame under the points and boxes (image tiers)
+
+tab.labels:                     # review edits wait for disarmed; the conditions rows never do
+  override: [activate]          # Enter replays a closed session from the item
+  scale_down: [left, h]         # conditions rows: wind, waves, current 0-3
+  scale_up: [right, l]
+  accept: [y]
+  reject: [r]
+  tag: ['1', '2', '3', '4', '5', '6', '7', '8', '9']   # a mark's tag; a said item's outcome
+  note_label: [n]
+  split: [s]
+  merge: [m]
+  undo: [u]
+  replay: [enter]
+  session_prev: ['<']
+  session_next: ['>']
 
 # -- panels (Drive) ------------------------------------------------------------------
 panel.status:
@@ -251,7 +269,10 @@ help:
   - ['V', 'Perception with the camera view open']
   - ['+ / -', 'Trial amplitude']
   - ['x', 'Write the session report (dismisses a toast first)']
-  - ['b / B', 'Mark the moment (journal) / add a note to the last marker']
+  - ['b / B', 'Mark the moment, a digit tags it (never a popup) / a note on the last mark', 'Mark now; 1-9 within 3 s tags it (wake, gust, contact ...)']
+  - ['N', 'Bad data from here; N again ends it', 'Bad data on / off']
+  - ['"', 'Log what the operator said, with the pose; a digit picks the words, 0 types', 'Log a spoken instruction (1-9 picks, 0 types)']
+  - ['L', 'Labels: review marks and segments, set wind, waves and current']
   - ['?', 'This help']
   - ['q', 'Quit: neutral, disarm, flush the bag', 'Quit: neutral, disarm, report, bag flush (never kill the tmux session)']
   - ['Drive f d y g e v', 'Characterize, dock / thrust physics, compass cal / interference, controller steps']
@@ -285,6 +306,14 @@ help:
   - ['Bags d / P', 'Delete the session / prune old ones']
   - ['Bags F', 'Finalize the session']
   - ['Fusion i', 'Camera image under the points and boxes, on or off (kitty/sixel graphics; on by default locally, off over SSH)']
+  - ['Labels {updown}', 'Select; the first rows are wind, waves and current']
+  - ['Labels {leftright}', 'Set the selected condition: 0 unset, 1 calm, 2 moderate, 3 rough']
+  - ['Labels y / r', 'Accept / reject the item (again: back to pending)']
+  - ['Labels 1-9', 'Tag a mark; on a said item, its outcome: done, partly, failed, unsafe, ignored']
+  - ['Labels n', 'Note on the item (the words of a said item)']
+  - ['Labels s / m / u', 'Split the item at a mark or its middle / merge with the next / undo the last edit']
+  - ['Labels Enter', 'Replay a closed session from the item']
+  - ['Labels < >', 'Previous / next session']
   - ['Review p', 'Play / pause (arming, procedures and edits are off)']
   - ['Review {leftright} / {{ }}', 'Seek 5 s / 30 s']
   - ['Review , .', 'Previous / next marker']
@@ -363,6 +392,16 @@ hints:
     - ['R', 'Run all']
     - ['A', 'Apply pending']
     - ['I', 'Hardware changed']
+  labels:
+    - ['y', 'Accept']
+    - ['r', 'Reject']
+    - ['1-9', 'Tag']
+    - ['n', 'Note']
+    - ['u', 'Undo']
+    - ['s', 'Split']
+    - ['m', 'Merge']
+    - ['Enter', 'Replay']
+    - ['< >', 'Session']
   review:
     - ['p', 'Play/pause']
     - ['{leftright} {{ }}', 'Seek 5 s / 30 s']

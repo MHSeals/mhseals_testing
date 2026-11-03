@@ -32,6 +32,7 @@ def tables(doc=None, fields=None):
 HELP, _HINTS = tables()   # '[Screen ]keys', as keymap.validate reads them (rule 7)
 GLOBAL_HINTS, FUSION_HINTS = _HINTS['global'], _HINTS['fusion']
 CORRECTION_HINTS, REVIEW_HINTS, MANUAL_HINTS = _HINTS['correction'], _HINTS['review'], _HINTS['manual']
+LABELS_HINTS = _HINTS['labels']
 PANEL_HINTS = {group.removeprefix('panel.'): rows for group, rows in _HINTS.items() if group.startswith('panel.')}
 
 

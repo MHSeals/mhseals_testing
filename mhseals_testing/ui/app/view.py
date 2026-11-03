@@ -21,7 +21,7 @@ from mhseals_testing.ui.layout import MINIMAP, body_rows, motion_shown
 from mhseals_testing.ui.panels.status import status_rows
 
 from mhseals_testing.ui.app.help import (
-    CORRECTION_HINTS, FUSION_HINTS, GLOBAL_HINTS, MANUAL_HINTS, PANEL_HINTS, REVIEW_HINTS)
+    CORRECTION_HINTS, FUSION_HINTS, GLOBAL_HINTS, LABELS_HINTS, MANUAL_HINTS, PANEL_HINTS, REVIEW_HINTS)
 
 
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
@@ -110,6 +110,8 @@ class View:
             return 4
         if panel == 'list':
             return len(self.bags_view()[0])
+        if panel == 'labels':
+            return self.labels_count()
         if panel == 'procedures':
             return len(PROCEDURES)
         if panel == 'activity':
@@ -140,13 +142,21 @@ class View:
             hints = FUSION_HINTS + GLOBAL_HINTS
         if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
+        if self.tab == 'Labels' and not self.review:
+            hints = LABELS_HINTS + [('Space', 'Stop')]     # the tab's own keys; ? and q stay in the help
+        chip = None if self.review else self.review_chip()
+        hints = ([chip] if chip else []) + hints
+        pick = None if self.review else self.pick_hints()
+        if pick:
+            hints = pick + [('Space', 'Stop')]
         shared = {} if self.review else feeds_module.merged(self.feeds)
         own = dict(
             tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=getattr(self, 'checklist', None),
-            **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
+            **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), **({'labels': self.labels_model()} if self.tab == 'Labels' and not self.review else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
+            flash=None if self.review else self.flashing(),
             position=f'{min(self.cursors[self.focus], count - 1) + 1}/{count}' if count else '',
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared), operator=None if self.review else operator_state.current(),

@@ -47,6 +47,7 @@ STACKS = {                               # outermost first
     'correction': ['global', 'tab.correction'],
     'map': ['global', 'tab.map', 'view.minimap'],
     'bags': ['global', 'tab.bags'],
+    'labels': ['global', 'tab.labels'],
     'fusion': ['global', 'tab.fusion'],
     'review/drive': ['global', 'review', 'review.activity'],
     'review/map': ['global', 'review', 'tab.map', 'view.minimap'],
@@ -61,6 +62,7 @@ HELP_SCREENS = {                         # a help label's first word -> its stac
     'Map': STACKS['map'],
     'Correction': STACKS['correction'],
     'Bags': STACKS['bags'],
+    'Labels': STACKS['labels'],
     'Fusion': STACKS['fusion'],
     'Review': STACKS['review/drive'],
     'Manual': ['manual'],
@@ -68,7 +70,7 @@ HELP_SCREENS = {                         # a help label's first word -> its stac
 }
 HINT_STACKS = {                          # a hints group -> the stack its keys act in
     'global': ['global'], 'fusion': STACKS['fusion'], 'correction': STACKS['correction'],
-    'review': STACKS['review/drive'], 'manual': ['manual'],
+    'review': STACKS['review/drive'], 'manual': ['manual'], 'labels': STACKS['labels'],
     'panel.minimap': STACKS['drive/minimap'], 'panel.map': STACKS['map'], 'panel.list': STACKS['bags'],
     **{f'panel.{name}': STACKS[f'drive/{name}'] for name in
        ('status', 'motion', 'conditions', 'thrusters', 'procedures', 'activity')},

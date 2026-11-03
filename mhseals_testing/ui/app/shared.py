@@ -34,4 +34,4 @@ def decoupled(config):
 STOPPING_ERRORS = (Aborted, Cancelled, RuntimeError, OSError, ValueError, KeyError)
 
 
-CURSORS = (*PANELS, 'list')   # every cursor an App keeps, the Bags tab's 'list' included
+CURSORS = (*PANELS, 'list', 'labels')   # every cursor an App keeps: the Bags tab's 'list', the Labels tab's
