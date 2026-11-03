@@ -33,7 +33,7 @@ import time
 
 from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import control, journal, operator_state, sim_arm
+from mhseals_testing.harness import control, operator_state, sim_arm
 from mhseals_testing.agent import channel as agent_channel, config as agent_config, fcu as agent_fcu, grants as agent_grants
 from mhseals_testing.harness import background
 from mhseals_testing.harness.registry import alive as registry_alive
@@ -594,7 +594,7 @@ class AgentDesk:
         self.reply(req, True, result={'revoked': holder['id']})
 
     def do_mark(self, req):
-        number = journal.next_marker_id(journal.read(self.app.paths.journal))
+        number = self.app.next_id('marker')
         self.app.emit('marker', kind='agent', id=number, who=req['who'], note=str(req['args'].get('note', '')),
                       tag=str(req['args'].get('tag') or ''), why=req.get('why') or '', t_ns=time.time_ns())
         self.reply(req, True, result={'marker': number})

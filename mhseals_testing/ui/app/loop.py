@@ -169,7 +169,7 @@ class Loop:
             folded = fold(key)
             if self.dispatch_review(folded) or not self.review_allows(folded):
                 return
-        if not self.review and key != 'space' and self.annotate_key(key):   # b N " and a pick's digit: never Space
+        if not self.review and self.annotate_key(key):   # b N " and an offered pick digit; never Space or E
             return
         checklist = getattr(self, 'checklist', None)
         if checklist is not None and not self.review and checklist.handle(self, key):

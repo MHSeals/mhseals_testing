@@ -17,13 +17,15 @@ from mhseals_testing.annotate import config
 HOLD = 2.0                     # s a new fix tier must hold before it is journaled
 FIX_WORDS = {0: 'none', 1: 'none', 2: '2D', 3: '3D', 4: 'DGPS', 5: 'FLOAT', 6: 'FIXED'}
 TRUSTED = (None, 'none', 'hold', 'keyboard', 'procedure')   # owners whose command is app.command
+FAILURES = 3                   # errors in a row before the feed turns itself off
+DEFAULT_STEADY = {'tolerance': 0.02, 'min': 4, 'calibration': 6, 'neutral': 8}
 
 
 def fix_word(app, snapshot):
     rtk = getattr(getattr(app, 'rtk', None), 'current', None)
     if rtk is not None and rtk.fix:
         return rtk.fix
-    row = snapshot.get('sensors', {}).get('gpsraw') or {}
+    row = (snapshot.get('sensors') or {}).get('gpsraw') or {}
     fix = (row.get('values') or {}).get('fix')
     return FIX_WORDS.get(fix) if row.get('status', 'LIVE') == 'LIVE' and fix is not None else None
 
@@ -65,9 +67,29 @@ class AnnotateFeed:
     def __init__(self, wall=time.time_ns):
         self.wall = wall
         self.fix, self.fix_seen, self.holds, self.owner, self.steady = None, None, set(), None, None
-        self.settings = config.load()['steady']
+        self._settings, self.failures = None, 0
+
+    @property
+    def settings(self):
+        if self._settings is None:
+            try:
+                self._settings = config.load()['steady']
+            except (OSError, ValueError, KeyError, TypeError):
+                self._settings = dict(DEFAULT_STEADY)     # a bad annotate.yaml never stops the TUI
+        return self._settings
 
     def tick(self, app, snapshot, now):
+        """One live tick; an error is a notice, and after FAILURES in a row the feed stops (the loop never sees it)."""
+        if self.failures >= FAILURES:
+            return
+        try:
+            self._tick(app, snapshot, now)
+            self.failures = 0
+        except Exception as error:
+            self.failures += 1
+            app.notice = f'Automatic labels: {error}' + (' (off for this session)' if self.failures >= FAILURES else '')
+
+    def _tick(self, app, snapshot, now):
         self._fix(app, fix_word(app, snapshot), now)
         holds = {str(h.get('cause') or h.get('by') or 'hold') for h in (snapshot.get('control') or {}).get('holds', ())}
         for cause in sorted(holds - self.holds):
@@ -103,7 +125,7 @@ class AnnotateFeed:
         if command is not None and window is None:
             self.steady = Steady(command, self.wall(), self.fix)
         elif window is not None:
-            values = snapshot.get('sensors', {}).get('odometry', {}).get('values') or {}
+            values = ((snapshot.get('sensors') or {}).get('odometry') or {}).get('values') or {}
             velocity = [values.get(k) for k in ('vx', 'vy', 'wz')]
             window.add(velocity if all(isinstance(v, (int, float)) and math.isfinite(v) for v in velocity) else None)
 

@@ -174,6 +174,7 @@ class Manual:
             desk.tick()
         self.command, self.chords = tuple(command), bool(chords)
         self.monitor.command(command)
+        self.annotate_queued()        # marks typed while driving, journaled after this publish
         if 'motion' in self.panels():
             self.focus = 'motion'
         active = ' '.join(f'{axis} {value:+.2f}' for axis, value in

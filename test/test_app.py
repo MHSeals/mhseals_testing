@@ -1902,13 +1902,34 @@ def test_marks_never_popup_while_moving(tmp_path):
     app.dispatch('b')
     app.dispatch('N')
     app.dispatch('"')
-    app.dispatch('0')            # 'type it' while moving: kept for the Labels tab, no popup
+    app.dispatch('0')            # not offered: 0 keeps its panel meaning, and nothing pops up
     assert app.modal is None
     app.dispatch('B')
     [mark] = journal.markers(journal.read(app.paths.journal))
     assert mark['note'] == '' and app.notice == 'Not while moving'
     phases = [e['phase'] for e in journal.read(app.paths.journal)]
     assert phases == ['marker', 'bad_data', 'said']
+
+
+def test_a_pick_leaves_the_thrusters_digits_and_manual_queues_marks(tmp_path):
+    app, _ = make_app(tmp_path)
+    journal = journaling(app)
+    app.focus = 'thrusters'
+    app.dispatch('b')
+    assert not app.annotate_key('0') and not app.annotate_key('2')     # neutral and wiring stay the panel's
+    app.focus = 'motion'
+    app.annotate_later('press:b')                 # manual drive: queued, journaled after the publish
+    app.annotate_later('release:b')
+    assert [e['phase'] for e in journal.read(app.paths.journal)] == ['marker']
+    app.annotate_queued()
+    assert [e['id'] for e in journal.read(app.paths.journal)] == [1, 2]
+
+
+def test_a_failing_label_feed_turns_itself_off(tmp_path):
+    app, _ = make_app(tmp_path)
+    for _ in range(4):
+        app.annotations.tick(app, {'control': {'holds': 'not a list of holds'}}, 0.0)
+    assert app.annotations.failures == 3 and 'off for this session' in app.notice
 
 
 def test_space_still_stops_while_a_pick_is_open(tmp_path):

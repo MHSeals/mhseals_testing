@@ -1,8 +1,9 @@
 """Field annotation keys from any loop (the page, a run, manual): b marks, N bad data, " what the operator said.
 
 Marks never block control and open nothing: b journals at once and offers the digit tags in the footer for
-``pick`` seconds (config/annotate.yaml); Space and every other key keep their meaning meanwhile. The Labels
-tab (actions/labels.py) reviews them afterwards.
+``pick`` seconds (config/annotate.yaml); Space and every other key keep their meaning meanwhile. In manual drive
+the keys are queued and handled after the publish, so a journal fsync never delays a command. The Labels
+tab (actions/labels.py) reviews them afterwards (other words for a said item: n there).
 """
 
 import math
@@ -30,28 +31,46 @@ class Annotate:
     flash = None         # (text, until): the footer's short confirmation
     bad_on = False
 
+    _ids = None          # {'marker': last id, 'said': last id}, read from the journal once
+    _queued = ()         # manual drive's annotation keys, handled after its publish
+
     # --- marks, anywhere -----------------------------------------------------------------------------------
     def annotate_key(self, key):
-        """b, N, " and a pick's digit from any loop (the page, a run, manual). True when it was one of ours."""
+        """b, N, " and a pick's digit from any loop (the page, a run). True when it was one of ours.
+
+        Never Space, E or a digit the pick does not offer; any error is a notice, never a stop."""
         key = plain(key)
+        if key not in ('b', 'N', '"') and not self.pick_wants(key):
+            return False
         try:
-            if key == 'b':
-                self.mark()
-            elif key == 'N':
-                self.toggle_bad()
-            elif key == '"':
-                self.say()
-            elif key and key.isdigit() and self.pick_open():
-                self.pick_digit(key)
-            else:
-                return False
-        except (OSError, ValueError) as error:      # a full disk or a torn journal never stops the boat
+            {'b': self.mark, 'N': self.toggle_bad, '"': self.say}.get(key, lambda: self.pick_digit(key))()
+        except Exception as error:      # a full disk, a torn journal or a bad config never stops the boat
             self.notice = f'Mark not saved: {error}'
         return True
 
+    def annotate_later(self, key):
+        """Manual drive's hook: queue the key; ``annotate_queued`` handles it after the publish (no fsync before it)."""
+        if plain(key) in ('b', 'N', '"') or self.pick_wants(plain(key)):
+            self._queued = (*self._queued, key)
+
+    def annotate_queued(self):
+        queued, self._queued = self._queued, ()
+        for key in queued:
+            self.annotate_key(key)
+
+    def next_id(self, kind):
+        """The next marker or said id, from memory after the first read (agents' marks come through here too)."""
+        if self._ids is None:
+            events = journal.read(self.paths.journal)
+            self._ids = {'marker': journal.next_marker_id(events) - 1,
+                         'said': max((e['id'] for e in events if e.get('phase') == 'said'
+                                      and isinstance(e.get('id'), int)), default=0)}
+        self._ids[kind] += 1
+        return self._ids[kind]
+
     def mark(self):
         """b: a marker stamped now, with the digit tags offered for a moment."""
-        number = journal.next_marker_id(journal.read(self.paths.journal))
+        number = self.next_id('marker')
         self.emit('marker', kind='user', id=number, note='', t_ns=time.time_ns())
         self.open_pick('tag', number)
         self.flash_text(f'{theme.pick("▾", "v")}{number} marked{theme.SEPARATOR}a digit tags it, optional')
@@ -63,7 +82,7 @@ class Annotate:
 
     def say(self):
         """": what the operator just said, journaled now with the pose and scene; a digit picks the words."""
-        number = 1 + max((e.get('id', 0) for e in journal.read(self.paths.journal) if e.get('phase') == 'said'), default=0)
+        number = self.next_id('said')
         self.emit('said', id=number, text='', source='operator', pose=self.pose(), scene=self.scene())
         self.open_pick('said', number)
         self.flash_text(theme.pick('❝', '"') + f'{number} logged with the pose{theme.SEPARATOR}a digit picks the words')
@@ -76,21 +95,21 @@ class Annotate:
             self.pick = None
         return self.pick is not None
 
+    def pick_wants(self, key):
+        """A digit the open pick offers; on the Thrusters panel digits stay the panel's (0 is neutral there)."""
+        if not (key and key.isdigit() and self.pick_open()) or getattr(self, 'focus', None) == 'thrusters':
+            return False
+        settings = config.load()
+        return key in (settings['tags'] if self.pick['kind'] == 'tag' else settings['phrases'])
+
     def pick_digit(self, digit):
         pick, self.pick = self.pick, None
         settings = config.load()
-        if pick['kind'] == 'tag' and digit in settings['tags']:
+        if pick['kind'] == 'tag':
             tag = settings['tags'][digit]['label']
             self.emit('marker_tag', id=pick['id'], tag=tag)
             self.flash_text(f'{theme.pick("▾", "v")}{pick["id"]} {tag}')
-        elif pick['kind'] == 'said' and digit == '0':
-            if self.moving() or self.armed:
-                self.flash_text('typed in Labels later; the pose is kept')
-            else:
-                text = self.text_input('What was said', 'The instruction, in the operator\'s words')
-                if text:
-                    self.emit('said_text', id=pick['id'], text=text)
-        elif pick['kind'] == 'said' and digit in settings['phrases']:
+        else:
             self.emit('said_text', id=pick['id'], text=settings['phrases'][digit])
             self.flash_text(f'"{settings["phrases"][digit]}"')
 
@@ -101,7 +120,7 @@ class Annotate:
         settings = config.load()
         if self.pick['kind'] == 'tag':
             return [(d, t['label'].replace('_', ' ')) for d, t in settings['tags'].items()]
-        return [(d, p) for d, p in settings['phrases'].items()] + [('0', 'type it')]
+        return [(d, p) for d, p in settings['phrases'].items()]      # other words: n on the item in Labels
 
     def flash_text(self, text):
         self.flash = (text, self.clock() + FLASH)
