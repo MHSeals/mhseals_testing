@@ -101,6 +101,12 @@ Sessions record under `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/b
 but images, clouds and costmaps, `config/bags.yaml`), `<session>.report.json`, the driver's hardware YAML and logs.
 Health checks are YAML (`config/health/`); `~/.config/mhseals/health.yaml` disables or overrides them.
 
+Labels: `b` marks (a digit tags it), `N` brackets bad data, `"` logs an operator instruction with the pose, and the
+TUI journals procedures, steps, arming, takeovers, link holds, fence exits, fix changes and steady command windows
+by itself. The Labels tab (`L`) sets the water conditions and reviews a session; `manifest.json`
+(`mhseals.session_manifest/1`, `annotate/manifest.py`) beside the bag is what the judge, the plant card and the NLC
+study read. Operator cheat sheet: [docs/labels.md](docs/labels.md); tags and phrases: `config/annotate.yaml`.
+
 ## Development
 
 ```bash
