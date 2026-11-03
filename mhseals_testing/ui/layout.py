@@ -31,6 +31,7 @@ from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.panels import bags as bags_panel
 from mhseals_testing.ui.panels import checklist as checklist_panel
 from mhseals_testing.ui.panels import fusion as fusion_panel
+from mhseals_testing.ui.panels import labels as labels_panel
 from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels import mission as mission_panel
@@ -188,7 +189,10 @@ def footer(view, width):
     focus = Text(f' Focus {title}', style=f'bold {theme.ACCENT}')
     if position:
         focus.append(f'{theme.SEPARATOR}{position}', style=theme.MUTED)
-    status.add_row(focus, Text(view['notice'], style=theme.MUTED))
+    notice = Text(view['notice'], style=theme.MUTED)
+    if view.get('flash'):      # a mark's confirmation: bold, before the notice
+        notice = Text(view['flash'], style=f'bold {theme.ACCENT}') + Text(theme.SEPARATOR, style=theme.MUTED) + notice
+    status.add_row(focus, notice)
     review = playing(view)
     if review:  # the strip footer takes the status line's place; the notice rides on its status line
         status = Group(*scrubber.review_footer(review, width, view['notice']))
@@ -599,13 +603,18 @@ def bags_body(snapshot, view, width, height):
     return page
 
 
+def labels_body(snapshot, view, width, height):
+    """The Labels tab: conditions, the session timeline and the review list (panels/labels.py)."""
+    return labels_panel.render(view['labels'], width, height, view['focus'] == 'labels')
+
+
 def fusion_body(snapshot, view, width, height):
     """The Fusion tab: camera-lidar alignment (panels/fusion.py)."""
     return fusion_panel.body(view, width, height)
 
 
 BODIES = {'Drive': drive_body, 'Correction': correction_body, 'Map': map_body, 'Bags': bags_body,
-          'Fusion': fusion_body}
+          'Labels': labels_body, 'Fusion': fusion_body}
 
 
 def _with_modal(layout, view, width, height):
@@ -622,8 +631,9 @@ def _with_modal(layout, view, width, height):
 
 # --- density tiers and per-tab memory (no Rich) -----------------------------------
 
-TABS = ('Drive', 'Correction', 'Map', 'Bags', 'Fusion')
-DEFAULT_FOCUS = {'Drive': 'status', 'Correction': 'table', 'Map': 'map', 'Bags': 'list', 'Fusion': 'fusion'}
+TABS = ('Drive', 'Correction', 'Map', 'Bags', 'Labels', 'Fusion')
+DEFAULT_FOCUS = {'Drive': 'status', 'Correction': 'table', 'Map': 'map', 'Bags': 'list', 'Labels': 'labels',
+                 'Fusion': 'fusion'}
 
 # (minimum width, tier name, Status column width on Drive); Status is hidden in 'single'.
 TIERS = ((150, 'wide', 34), (110, 'standard', 34), (90, 'compact', 28),

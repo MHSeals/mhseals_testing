@@ -52,8 +52,8 @@ def key_map(ctx):
 def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
-    assert len(contexts) == 36
-    assert sum(len(binds(c)) for c in contexts.values()) == 233
+    assert len(contexts) == 37
+    assert sum(len(binds(c)) for c in contexts.values()) == 248
 
 
 def test_keys_known_and_unique_per_context(doc):
