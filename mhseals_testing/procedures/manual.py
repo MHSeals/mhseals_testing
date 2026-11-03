@@ -101,8 +101,10 @@ DRAIN_S = 0.1   # s after the last publish: the queued batch is read before the 
 MIN_DRAIN_S = 0.02   # s; after a long stall the budget is spent already, yet a stale burst must still be read whole
 
 
-def drive(keys, state, publisher, show, clock=time.monotonic):
-    """Read keys until an exit key; publish one coherent command per batch of events."""
+def drive(keys, state, publisher, show, clock=time.monotonic, annotate=None):
+    """Read keys until an exit key; publish one coherent command per batch of events.
+
+    ``annotate(key)`` sees every key after the drive state did (marks while driving); it only journals."""
     published = clock()
     while True:
         key = keys.read(timeout=0.05)
@@ -121,6 +123,8 @@ def drive(keys, state, publisher, show, clock=time.monotonic):
                 publisher.hold()
             if key in STOP_KEYS:
                 break  # Stop must not be hidden by queued input.
+            if annotate is not None:
+                annotate(key)   # after the stop: a mark never delays it
             if clock() >= deadline:
                 break      # the rest stays queued for the next batch
             key = keys.read(timeout=0)
@@ -143,7 +147,7 @@ def run(ctx):
     outcome = dict(outcome='complete', by='operator', cause='exit')
     try:
         with interlocks, manual['open_events']() as keys:
-            drive(keys, state, publisher, manual['show'], clock)
+            drive(keys, state, publisher, manual['show'], clock, manual.get('annotate'))
     except Aborted as error:
         outcome = dict(outcome=str(error), by=error.by, cause=error.cause)
         raise

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing import calibration
+from mhseals_testing.annotate import manifest
 from mhseals_testing.harness import journal, session as session_module
 from mhseals_testing.report import build_report, write_report
 from mhseals_testing.ui import parts, theme
@@ -100,7 +101,8 @@ class Quit:
         if self.args.review is not None:
             return  # nothing of ours to flush; the session's report must not be rewritten
         steps = [('Outputs', self.close_outputs), ('Children', self.close_children),
-                 ('Remote parts', self.close_units), ('Report', self.close_report), ('Tracking', self.close_tracking),
+                 ('Remote parts', self.close_units), ('Report', self.close_report), ('Labels', self.close_labels),
+                 ('Tracking', self.close_tracking),
                  ('Calibration', self.close_calibration),
                  ('Recording', self.close_recording), ('Index', self.close_index)]
         if self.detaching:   # the children and the recording go on under the next owner
@@ -142,6 +144,12 @@ class Quit:
     def close_report(self):
         self.ros.emit('session_stop')
         return self.export().name
+
+    def close_labels(self):
+        """The open steady window ends, then the session manifest is written beside the bag."""
+        self.annotations.end(self)
+        doc = manifest.write(self.paths.directory)
+        return f"manifest{theme.SEPARATOR}{doc['pending']} to review in Labels" if doc['pending'] else 'manifest written'
 
     def close_tracking(self):
         verdicts = self.tracking.close()

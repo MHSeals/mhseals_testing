@@ -1881,29 +1881,44 @@ def journaling(app):
     return journal
 
 
-def test_b_marks_and_asks_for_a_note_when_idle(tmp_path):
+def test_b_marks_at_once_and_a_digit_tags_it(tmp_path):
     app, _ = make_app(tmp_path)
     journal = journaling(app)
     with app.attached():
-        press(app, 'w', 'space', 'o', 'enter')
-        app.dispatch('b')
-        assert [(m['id'], m['note']) for m in journal.markers(journal.read(app.paths.journal))] == [(1, 'w o')]
-        press(app, 'x', 'escape')  # Esc keeps the marker bare
-        app.dispatch('b')
+        app.dispatch('b')            # never a popup: no answers are queued
+        assert app.modal is None and app.pick_hints()[0] == ('1', 'wake')
+        app.dispatch('2')            # within the pick: the tag, not a panel key
         press(app, 'n', 'enter')
-        app.dispatch('B')  # raw capital: note on the last marker
-    assert [m['note'] for m in journal.markers(journal.read(app.paths.journal))] == ['w o', 'n']
+        app.dispatch('B')            # raw capital: a note on the last marker, idle only
+    [mark] = journal.markers(journal.read(app.paths.journal))
+    assert mark['note'] == 'n' and app.pick_hints() is None
+    assert [e['tag'] for e in journal.read(app.paths.journal) if e['phase'] == 'marker_tag'] == ['gust']
 
 
-def test_no_popup_while_moving(tmp_path):
+def test_marks_never_popup_while_moving(tmp_path):
     app, _ = make_app(tmp_path)
     journal = journaling(app)
     app.running = 'Manual'
-    app.dispatch('b')  # a popup would fail the test: no answers queued
-    assert app.notice == f'{theme.pick("▾", "v")}1 marked{theme.SEPARATOR}B adds a note'
+    app.dispatch('b')
+    app.dispatch('N')
+    app.dispatch('"')
+    app.dispatch('0')            # 'type it' while moving: kept for the Labels tab, no popup
+    assert app.modal is None
     app.dispatch('B')
     [mark] = journal.markers(journal.read(app.paths.journal))
     assert mark['note'] == '' and app.notice == 'Not while moving'
+    phases = [e['phase'] for e in journal.read(app.paths.journal)]
+    assert phases == ['marker', 'bad_data', 'said']
+
+
+def test_space_still_stops_while_a_pick_is_open(tmp_path):
+    app, _ = make_app(tmp_path)
+    journaling(app)
+    stops = []
+    app.operator_stop = lambda agent=None: stops.append(agent)
+    app.dispatch('b')
+    app.dispatch('space')
+    assert stops == [None]
 
 
 def test_one_run_file_per_procedure_run_with_settings(tmp_path):

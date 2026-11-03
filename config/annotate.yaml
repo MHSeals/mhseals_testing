@@ -13,7 +13,7 @@ tune:
     - {label: good, effect: none, span: [0, 0]}
     - {label: interesting, effect: none, span: [-5, 5]}
     - {label: other, effect: suspect, span: [-10, 10]}
-  # " then a digit logs a common operator instruction (0 types one; while moving it is filled in later)
+  # " then a digit logs a common operator instruction (8 fit the footer; 0 types one, or later in Labels while moving)
   phrases:
     - hold position here
     - go to the next gate
@@ -22,7 +22,6 @@ tune:
     - slow down
     - return to the dock
     - follow the shoreline
-    - stop
     - avoid that boat
   # Steady windows: a command held this still for this long is a calibration candidate
   steady: {tolerance: 0.02, min: 4, calibration: 6, neutral: 8}

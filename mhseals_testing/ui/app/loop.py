@@ -169,6 +169,8 @@ class Loop:
             folded = fold(key)
             if self.dispatch_review(folded) or not self.review_allows(folded):
                 return
+        if not self.review and key != 'space' and self.annotate_key(key):   # b N " and a pick's digit: never Space
+            return
         checklist = getattr(self, 'checklist', None)
         if checklist is not None and not self.review and checklist.handle(self, key):
             return
@@ -177,6 +179,9 @@ class Loop:
             return
         if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
             self.open('history')
+            return
+        if key == 'L' and not self.review:   # the Labels tab: review this session's marks and segments
+            self.show_tab('Labels')
             return
         if key in ('E', 'U', 'O', 'S'):  # Shift bindings of the global scope; never the lowercase procedure letters
             if key == 'E':
@@ -203,6 +208,8 @@ class Loop:
             return
         if raw == '!' and self.engine is not None:  # keymap global health
             self.open('health')
+            return
+        if self.tab == 'Labels' and not self.review and self.on_labels(raw):
             return
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
             return
@@ -242,8 +249,8 @@ class Loop:
         elif key == 'x' and raw == 'x':
             if not self.toasts.ack_newest(self.monitor.clock()):   # x dismisses a toast first
                 self.export()
-        elif key == 'b':
-            self.mark_note() if raw == 'B' else self.mark()
+        elif raw == 'B':
+            self.mark_note()
         elif key in ('+', '=', '-', '_'):
             step = 0.05 if key in ('+', '=') else -0.05
             self.set_setting('amplitude', round(min(1.0, max(0.05, self.settings.amplitude + step)), 2))

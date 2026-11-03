@@ -1,7 +1,6 @@
 """Recording and bags: segments, the bag index, the Bags tab and bag review."""
 
 import threading
-import time
 
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing import data
@@ -256,16 +255,6 @@ class Bags:
             finally:
                 with self.recording_lock:
                     self.finalizing = None
-
-    def mark(self):
-        """Journal a marker stamped now; ask for a note unless something is moving."""
-        t_ns = time.time_ns()
-        number = journal.next_marker_id(journal.read(self.paths.journal))
-        self.ros.emit('marker', kind='user', id=number, note='', t_ns=t_ns)
-        if self.moving():
-            self.notice = f'{theme.pick("▾", "v")}{number} marked{theme.SEPARATOR}B adds a note'
-        else:
-            self.mark_note(number)
 
     def mark_note(self, number=None):
         """Type a note for marker ``number`` (default the last); never while moving."""
