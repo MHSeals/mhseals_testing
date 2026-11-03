@@ -9,6 +9,11 @@ Channels (all on the bag's receive clock, seconds):
 Events: the session journal topic (/mhseals_testing/events: armed, disarmed, procedure phases) and
 RTK route/phase changes (/mhseals_testing/rtk/status).
 
+Labels: the session manifest beside the bag (annotate/manifest.py), when there is one, adds the operator's water
+conditions to the scenario, flags a window that overlaps excluded spans (bad data, interventions, link holds,
+invalid tags), turns operator language commands into ``operator.said`` events and keeps the calibration
+candidates and exclusions as the ``manifest`` attachment; ``plant_fit`` skips the excluded spans.
+
 Clock: rosbag2 log time is the record clock; the median |log - header stamp| of the odometry is the
 alignment residual (receive latency plus clock offset) the integrity check reports.
 
@@ -24,6 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
+from mhseals_testing.annotate import manifest as session_manifest
 from mhseals_testing.judge_pack.roboboat._core import core
 
 core()
@@ -157,15 +163,44 @@ class BagSource(Source):
         if data.get('_errors'):
             flags['torn_segments'] = len(data['_errors'])
         sess = json_or_empty(path / 'session.json') or json_or_empty(path.parent.parent / 'session.json')
+        condition = {'site': sess.get('site', ''), 'profile': sess.get('profile', 'boat')}
+        labels = manifest_of(path)
+        if labels is not None:
+            condition.update(labels_condition(labels, t0))
+            excluded = session_manifest.overlaps(labels, t0, t1)
+            if excluded:
+                flags['manifest_excluded'] = excluded
+            events = tuple(sorted(events + tuple(
+                Event(c['t'], 'operator.said', 'operator', {'why': c['text'], **c}) for c in labels['commands']),
+                key=lambda e: e.t))
         header = Header(run_id=path.name, tier='real', source=self.name, domain='roboboat',
                         robot=Robot('blastoise', 'wam-v-mini'), task_id=str(sess.get('procedure', '')),
-                        scenario=Scenario(family='field', condition={'site': sess.get('site', ''), 'profile': sess.get('profile', 'boat')}),
+                        scenario=Scenario(family='field', condition=condition),
                         provenance={'bag': str(path), 'odometry': src, 'gnss': gq}, clock=Clock('wall', 'log_time', 0.0, lag),
                         window=(t0, t1, 'disarmed' if disarmed else 'bag_end'))
         # Without a surveyed course the truth is only GNSS: no gate geometry, no referee rows.
         caps = {'truth': None, 'contacts': None, 'claims': False}
-        return RunRecord(header, channels, events, caps, Validity(True, flags, frozenset()), {},
-                         {'gnss_quality': gq})
+        attachments = {'gnss_quality': gq}
+        if labels is not None:
+            attachments['manifest'] = {'path': labels['path'], 'calibration': labels['calibration'],
+                                       'excluded': session_manifest.excluded(labels), 'commands': labels['commands']}
+        return RunRecord(header, channels, events, caps, Validity(True, flags, frozenset()), {}, attachments)
+
+
+def manifest_of(path):
+    """The session manifest for a bag folder or a session holding one, or None (older sessions have none)."""
+    for folder in (path, path.parent, path.parent.parent):
+        try:
+            return session_manifest.load(folder)
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def labels_condition(doc, t):
+    """The operator's wind, waves and current scales in force at ``t`` (0 unset), as scenario conditions."""
+    before = [c for c in doc['conditions'] if c['t'] <= t] or doc['conditions'][:1]
+    return {k: v for k, v in (before[-1] if before else {}).items() if k != 't'}
 
 
 def json_or_empty(p):
@@ -258,6 +293,8 @@ def plant_fit(rec, axis='surge', dt=0.1):
     idx = np.clip(np.searchsorted(c.t, t, side='right') - 1, 0, len(c.t) - 1)
     u = c.v[idx, ci]
     fresh = (t - c.t[idx]) <= 0.5
+    for a, b, _ in (rec.attachments.get('manifest') or {}).get('excluded', ()):
+        fresh &= ~((t >= a) & (t <= b))           # labelled bad data, interventions, link holds
     y = np.interp(t, v.t, v.v[:, vi])
     if np.ptp(u[fresh]) < 1e-3 if fresh.any() else True:
         return None

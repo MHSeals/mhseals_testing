@@ -596,7 +596,7 @@ class AgentDesk:
     def do_mark(self, req):
         number = journal.next_marker_id(journal.read(self.app.paths.journal))
         self.app.emit('marker', kind='agent', id=number, who=req['who'], note=str(req['args'].get('note', '')),
-                      t_ns=time.time_ns())
+                      tag=str(req['args'].get('tag') or ''), why=req.get('why') or '', t_ns=time.time_ns())
         self.reply(req, True, result={'marker': number})
 
     # --- acts ------------------------------------------------------------------------------

@@ -95,6 +95,21 @@ def test_plant_fit_recovers_a_planted_first_order_dead_time():
     assert abs(fit['gain'] - gain) / gain < 0.05 and fit['r2'] > 0.8
 
 
+def test_session_manifest_labels_reach_the_record(tmp_path):
+    from mhseals_testing.annotate import manifest
+    S = 1_000_000_000
+    session, bag = tmp_path / 's1', tmp_path / 's1' / 'bag'
+    bag.mkdir(parents=True)
+    manifest.write(session, [
+        {'t_ns': 100 * S, 'phase': 'conditions_set', 'wind': 2, 'waves': 1, 'current': 0},
+        {'t_ns': 110 * S, 'phase': 'bad_data', 'on': True}, {'t_ns': 120 * S, 'phase': 'bad_data', 'on': False},
+        {'t_ns': 130 * S, 'phase': 'said', 'id': 1, 'text': 'hold position here', 'pose': {'x': 1.0}}])
+    doc = real.manifest_of(bag)
+    assert doc is not None and real.labels_condition(doc, 105.0) == {'wind': 2, 'waves': 1, 'current': 0}
+    assert manifest.overlaps(doc, 100.0, 200.0) == ['bad'] and doc['commands'][0]['text'] == 'hold position here'
+    assert real.manifest_of(tmp_path / 'none') is None
+
+
 def test_rigid_fit_finds_a_rotated_track():
     rng = np.random.default_rng(1)
     a = rng.uniform(-20, 20, (200, 2))

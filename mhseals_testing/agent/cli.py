@@ -55,9 +55,9 @@ def add_parsers(sub):
                             help='your own agent id (default $BOAT_AGENT; required: no shared default)')
         if claim is not None:
             parser.add_argument('--claim', required=claim, metavar='ID')
-        if name in WHY or name == 'stop':
+        if name in WHY or name in ('stop', 'mark'):
             parser.add_argument('--why', metavar='TEXT', help='why you act: the TUI agent panel shows it'
-                                + ('' if name == 'stop' else ' (required)'))
+                                + ('' if name in ('stop', 'mark') else ' (required)'))
         return parser
     verb('claim', 'ask the TUI for driving authority').add_argument('--reason', default='')
     verb('release', 'end a claim (--claim ID, the TUI cancels its act first), or release HOLD: a lease or watchdog '
@@ -110,7 +110,9 @@ def add_parsers(sub):
                   'stack part', claim=False)
     reload.add_argument('target', metavar='config|COMPONENT')
     reload.add_argument('name', nargs='?', metavar='NAME', help='config: one watched file (hardware, settings, ...)')
-    verb('mark', 'put an agent marker in the session').add_argument('note', nargs='?', default='')
+    mark = verb('mark', 'put an agent marker in the session (Labels tab, manifest); --tag one of config/annotate.yaml')
+    mark.add_argument('note', nargs='?', default='')
+    mark.add_argument('--tag', metavar='LABEL', help='wake, gust, contact, pushed, sensor_bump, fouling, good, ...')
     note = verb('note', 'a text line in the TUI agent log; --doing TEXT sets your "doing:" line there')
     note.add_argument('text', nargs='?', default='')
     note.add_argument('--doing', metavar='TEXT')
@@ -344,8 +346,9 @@ class Agent:
         return 0
 
     def mark(self):
+        tag, why = getattr(self.args, 'tag', None) or '', getattr(self.args, 'why', None) or ''
         if self.owner() is not None:
-            return self.send('mark', {'note': self.args.note})
+            return self.send('mark', {'note': self.args.note, 'tag': tag})
         session = last_session(self.registry)
         if session is None:
             self.emit({'ok': False, 'error': 'no_session', 'hint': 'no session recorded yet'})
@@ -354,7 +357,7 @@ class Agent:
         record = {'t_ns': time.time_ns(), 'phase': 'marker', 'kind': 'agent', 'who': self.who,
                   'id': max((e['id'] for e in events if e.get('phase') == 'marker'
                              and isinstance(e.get('id'), int)), default=0) + 1,
-                  'note': self.args.note, 'rec': False}
+                  'note': self.args.note, 'tag': tag, 'why': why, 'rec': False}
         data.append_jsonl(session / 'events.jsonl', record)
         self.emit({'ok': True, 'session': str(session), 'marker': record})
         return 0
