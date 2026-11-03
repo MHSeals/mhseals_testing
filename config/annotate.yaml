@@ -1,0 +1,31 @@
+# Field annotation (mhseals_testing/annotate): marks, auto segments and the session manifest.
+tune:
+  pick: 3                 # s the digit pick stays open after b or "
+  # b then a digit tags the mark (1 is the first entry). effect and span (s around the mark) follow the sim2real evidence labels:
+  # invalid drops overlapping windows, suspect excludes them by default, degraded keeps them noisier.
+  tags:
+    - {label: wake, effect: suspect, span: [-5, 20]}
+    - {label: gust, effect: degraded, span: [-5, 15]}
+    - {label: contact, effect: invalid, span: [-2, 5]}
+    - {label: pushed, effect: invalid, span: [-3, 3]}
+    - {label: sensor_bump, effect: invalid, span: [-2, 5]}
+    - {label: fouling, effect: suspect, span: [0, 30]}
+    - {label: good, effect: none, span: [0, 0]}
+    - {label: interesting, effect: none, span: [-5, 5]}
+    - {label: other, effect: suspect, span: [-10, 10]}
+  # " then a digit logs a common operator instruction (0 types one; while moving it is filled in later)
+  phrases:
+    - hold position here
+    - go to the next gate
+    - go around the buoy on the left
+    - go around the buoy on the right
+    - slow down
+    - return to the dock
+    - follow the shoreline
+    - stop
+    - avoid that boat
+  # Steady windows: a command held this still for this long is a calibration candidate
+  steady: {tolerance: 0.02, min: 4, calibration: 6, neutral: 8}
+
+# Internal
+scales: [wind, waves, current]   # 1 calm, 2 moderate, 3 rough; 0 unset
