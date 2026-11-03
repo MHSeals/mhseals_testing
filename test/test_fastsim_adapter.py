@@ -103,6 +103,25 @@ def test_hypothesis_repo_comes_from_the_job_and_the_rest_need_urls(tmp_path):
         cluster.FastsimBackend('x', {}).code(ctx)
 
 
+def test_coursegen_builds_once_with_a_forward_slash_root(tmp_path, monkeypatch):
+    calls = []
+
+    def run(argv, **kw):
+        calls.append(argv)
+        dll = tmp_path / 'Tools/RoboBoat/cli/bin/Release/net10.0/coursegen.dll'
+        dll.parent.mkdir(parents=True, exist_ok=True)
+        dll.write_text('')
+        return NS(returncode=0, stdout='', stderr='')
+    monkeypatch.setattr(cluster.subprocess, 'run', run)
+    dll = tmp_path / 'Tools/RoboBoat/cli/bin/Release/net10.0/coursegen.dll'
+    dll.parent.mkdir(parents=True)
+    dll.write_text('')                              # built before the root fix: no stamp, rebuilt once
+    assert cluster.coursegen(tmp_path) == (dll, True)
+    root = next(a for a in calls[0] if a.startswith('-p:CraneRoot='))
+    assert root.endswith('/') and '\\' not in root
+    assert cluster.coursegen(tmp_path) == (dll, False) and len(calls) == 1
+
+
 def test_one_seed_end_to_end(tmp_path):
     """A real fast run on the shipped test course (needs py_trees and a crane checkout)."""
     pytest.importorskip('py_trees')

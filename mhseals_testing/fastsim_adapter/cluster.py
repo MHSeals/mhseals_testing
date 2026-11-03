@@ -80,14 +80,24 @@ class Sources:
 
 
 def coursegen(crane, python=None):
-    """crane's course generator, built once per crane commit (dotnet)."""
+    """crane's course generator, built once per crane commit (dotnet): (dll, built now).
+
+    The build gets its root with forward slashes and a trailing ``/``. crane commits before coursegen
+    trimmed its root stamp ``C:\\...\\`` on Windows, whose trailing backslash escapes the quote around
+    ``git -C``, so their truths said ``crane_commit unknown`` and the fast sim refused every one
+    ("scenario identity: generator version unknown"). A build without the ``crane-root.ok`` stamp
+    predates this and is rebuilt once; its commit's truths are regenerated (``prepare``)."""
     dll = crane / 'Tools/RoboBoat/cli/bin/Release/net10.0/coursegen.dll'
-    if not dll.is_file():
-        done = subprocess.run(['dotnet', 'build', '-c', 'Release', '--nologo', '-v', 'q',
-                               str(crane / 'Tools/RoboBoat/cli')], capture_output=True, text=True, timeout=1800)
-        if done.returncode or not dll.is_file():
-            raise RuntimeError(f'coursegen build failed: {(done.stdout + done.stderr)[-800:]}')
-    return dll
+    stamp = dll.parent / 'crane-root.ok'
+    if dll.is_file() and stamp.is_file():
+        return dll, False
+    root = crane.resolve().as_posix().rstrip('/') + '/'
+    done = subprocess.run(['dotnet', 'build', '-c', 'Release', '--nologo', '-v', 'q', f'-p:CraneRoot={root}',
+                           str(crane / 'Tools/RoboBoat/cli')], capture_output=True, text=True, timeout=1800)
+    if done.returncode or not dll.is_file():
+        raise RuntimeError(f'coursegen build failed: {(done.stdout + done.stderr)[-800:]}')
+    stamp.write_text(root + '\n')
+    return dll, True
 
 
 class FastsimBackend:
@@ -125,10 +135,14 @@ class FastsimBackend:
         code = self.code(ctx)
         self.shas = {k: v[1] for k, v in code.items()}
         testing, nav, crane = (code[k][0] for k in NEEDED)
-        coursegen(crane)
+        _, rebuilt = coursegen(crane)
         tune = merge(merge(self.options.get('tune') or {}, spec.get('tune') or {}), spec.get('vary') or {})
+        commit = (self.shas['crane_ml'] or 'local')[:12]
         truths = Path(ctx.work_dir).parents[1] / 'roboboat' / 'truths' / \
-            f"{tune.get('family', 'roboboat_2026')}-{tune.get('mode', 'iid')}-{(self.shas['crane_ml'] or 'local')[:12]}"
+            f"{tune.get('family', 'roboboat_2026')}-{tune.get('mode', 'iid')}-{commit}"
+        if rebuilt:   # truths from an earlier build of this commit may carry an unknown generator version
+            for old in truths.parent.glob(f'*-{commit}'):
+                shutil.rmtree(old, ignore_errors=True)
         self.out = Path(ctx.work_dir) / 'runs'
         self.variant = str(spec.get('arm') or 'base')
         python = os.path.expanduser(self.options.get('python') or sys.executable)
