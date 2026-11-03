@@ -47,6 +47,7 @@ import test_agent_view  # noqa: E402
 import test_dashboard  # noqa: E402
 import test_fusion_panel  # noqa: E402
 import test_inspect_popup  # noqa: E402
+import test_labels_panel  # noqa: E402
 
 PROFILE = load_profile('boat')
 HINTS = [('Tab', 'Focus'), ('a', 'Arm'), ('Space', 'Stop'), ('?', 'Help'), ('q', 'Quit')]
@@ -145,7 +146,23 @@ def fusion():
                                                             fusion_facts=test_fusion_panel.facts())
 
 
-SCENES = {'agent-sim-arm': agent_sim_arm, 'fusion': fusion, 'drive': drive, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
+def labels():
+    monitor, _ = test_inspect_popup.scene()
+    hints = [('y', 'Accept'), ('r', 'Reject'), ('1-9', 'Tag'), ('n', 'Note'), ('s', 'Split'), ('m', 'Merge'),
+             ('u', 'Undo'), ('Enter', 'Replay'), ('< >', 'Session'), ('Space', 'Stop')]
+    return monitor.snapshot(PROFILE.required_tf), base_view(tab='Labels', focus='labels', labels=test_labels_panel.model(),
+                                                            hints=hints, notice='')
+
+
+def mark_pick():
+    monitor, _ = test_inspect_popup.scene()
+    hints = [('1', 'wake'), ('2', 'gust'), ('3', 'contact'), ('4', 'pushed'), ('5', 'sensor bump'), ('6', 'fouling'),
+             ('7', 'good'), ('8', 'interesting'), ('9', 'other'), ('Space', 'Stop')]
+    return monitor.snapshot(PROFILE.required_tf), base_view(tab='Drive', armed=True, arm_label='armed', hints=hints,
+                                                            flash='▾3 marked · a digit tags it, optional')
+
+
+SCENES = {'labels': labels, 'mark-pick': mark_pick, 'agent-sim-arm': agent_sim_arm, 'fusion': fusion, 'drive': drive, 'map': map_, 'compass': compass, 'agent': agent, 'agent-stopped': agent_stopped}
 
 
 # The scene's `graphics`: `text` draws the braille, `image` the tiles a sixel or kitty terminal shows

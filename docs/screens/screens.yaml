@@ -20,3 +20,7 @@
    caption: '<b>Fusion</b>: lidar points over the camera, boxes with fused ranges, top-down and the alignment check'}
 - {name: fusion-text, scene: fusion, size: [80, 30], graphics: text, alt: Fusion tab in text,
    caption: '<b>Text</b>: the Fusion tab in braille at 80 columns'}
+- {name: labels, scene: labels, size: [120, 40], graphics: text, alt: Labels tab,
+   caption: '<b>Labels</b>: water conditions, the session timeline and the review list (L)'}
+- {name: mark-pick, scene: mark-pick, size: [120, 40], graphics: text, alt: Mark tags in the footer,
+   caption: '<b>Mark</b>: b marks at once; the footer offers the digit tags for 3 s, nothing pops up'}
