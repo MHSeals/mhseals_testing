@@ -1,4 +1,5 @@
-"""crane-worker backends for RoboBoat: the fast sim and bag replay (replay.py).
+"""crane-worker backends for RoboBoat: the fast sim and bag replay (replay.py), for the research cluster
+(github.com/1unarzDev/research-cluster; registered as its research_cluster.backends entry points in setup.py).
 
     backends:
       fastsim_roboboat:

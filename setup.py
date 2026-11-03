@@ -39,5 +39,11 @@ setup(
             'operator_heartbeat = mhseals_testing.ros.operator_heartbeat:main',
             'host_diagnostic =mhseals_testing.ros.host_diagnostic:main',
         ],
+        # The research cluster's plugin seam (github.com/1unarzDev/research-cluster): installed, a worker's
+        # type: fastsim_roboboat resolves here; uninstalled workers name the module:Class with this checkout on path.
+        'research_cluster.backends': [
+            'fastsim_roboboat = mhseals_testing.fastsim_adapter.cluster:FastsimBackend',
+            'replay_roboboat = mhseals_testing.fastsim_adapter.cluster:ReplayBackend',
+        ],
     },
 )
