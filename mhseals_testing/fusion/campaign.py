@@ -287,8 +287,8 @@ class Player:
                     continue
                 if lid.get('drop_p') and random.random() < lid['drop_p']:
                     continue
-                msg = cloud_edit(msg, lid, self.rng, T_bl, self.cfg['water_z_base_m'],
-                                 self.cfg['bow_x_m'])
+                msg = cloud_edit(msg, lid, self.rng, T_bl, self.cfg['water_z_base'],
+                                 self.cfg['bow_x'])
                 if lid.get('late_s'):
                     heapq.heappush(late, (t + lid['late_s'], id(msg), typ, msg))
                     continue
@@ -374,7 +374,7 @@ def id_changes(seq):
 
 def metrics(out, statics, elements, cfg):
     """Range error per bin and source, lidar share, association, ids, MOVING, NEES, alarms."""
-    bins = cfg['bins_m']
+    bins = cfg['bins']
     R_bc, t_bc = statics['front_camera_link']
     xy = np.array([[e['x'], e['y']] for e in elements])
     t0 = out['truth'][0][0] if out['truth'] else 0.0
@@ -422,7 +422,7 @@ def metrics(out, statics, elements, cfg):
                 if i is None and src == 'split':
                     w = world(frame['t'], o['p'])[:2]
                     d = np.hypot(*(xy - w).T)
-                    i = int(np.argmin(d)) if d.min() < cfg['truth_match_m'] else None
+                    i = int(np.argmin(d)) if d.min() < cfg['truth_match'] else None
                     if i is None:
                         assoc['lidar'] += 1
                         assoc['errors'] += 1
@@ -451,7 +451,7 @@ def metrics(out, statics, elements, cfg):
                     share.setdefault(b, []).append(lidar)
                     if o['cls'].endswith('_buoy') and not o['cls'].endswith('pole_buoy'):
                         ball.setdefault(b, []).append(lidar)
-                        if spacing[i] > cfg['unpaired_m'] and rt >= cfg['share_r_min_m']:
+                        if spacing[i] > cfg['unpaired'] and rt >= cfg['share_r_min']:
                             unpaired.setdefault(b, []).append(lidar)
                     why = whys.get(round(frame['t'], 4), [])
                     if not lidar and k < len(why):
@@ -459,7 +459,7 @@ def metrics(out, statics, elements, cfg):
                         m[why[k]] = m.get(why[k], 0) + 1
                     if lidar:
                         assoc['lidar'] += 1
-                        assoc['errors'] += abs(e) > cfg['assoc_error_m']
+                        assoc['errors'] += abs(e) > cfg['assoc_error']
     ranges = {f'{k}|{b}': {'n': len(v), 'rms': float(np.sqrt(np.mean(np.square(v)))),
                            'bias': float(np.mean(v))} for (k, b), v in sorted(err.items())}
     tracks = {}
@@ -468,14 +468,14 @@ def metrics(out, statics, elements, cfg):
         rows = out[f'tracks_{name}']
         for a, b in zip(rows, rows[1:] + [None]):
             dt = min((b['t'] - a['t']) if b else 0.1, 0.5)
-            if a['t'] - t0 < cfg['warmup_s']:
+            if a['t'] - t0 < cfg['warmup']:
                 continue
             R, p = truth_pose(out['truth'], a['t'])
             for tr in a['tracks']:
                 w = np.array(tr['xy'])          # map == odom == world here (TF from truth)
                 d = np.hypot(*(xy - w).T)
                 i = int(np.argmin(d))
-                if d[i] > cfg['truth_match_m'] or elements[i]['label'] != tr['cls']:
+                if d[i] > cfg['truth_match'] or elements[i]['label'] != tr['cls']:
                     continue
                 s = ids.setdefault(i, [])           # run-length credited ids, all matches
                 if not s or s[-1] != tr['id']:
