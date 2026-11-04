@@ -33,9 +33,9 @@ from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
 # acting verbs: each needs --why (owner decision 2026-11-01); stop takes one but never needs it, fcu only to write
-WHY = ('claim', 'release', 'run', 'goal', 'route', 'start', 'arm', 'reload', 'set', 'fcu', 'fence')
+WHY = ('claim', 'release', 'run', 'goal', 'route', 'fetch', 'start', 'arm', 'reload', 'set', 'fcu', 'fence')
 VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'route', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
-         'fence', 'mark', 'note', 'ask', 'quality')
+         'fence', 'mark', 'note', 'ask', 'quality', 'fetch')
 FENCE_ACTIONS = ('corners', 'on_exit', 'anchor')
 STREAMS = ('run', 'goal')      # route sends goals
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
@@ -129,9 +129,22 @@ def add_parsers(sub):
     quality.add_argument('--last', type=float, metavar='S', help='only the last S seconds of the bags')
     quality.add_argument('--topics', type=lambda s: s.split(','), default=[], metavar='T1,T2',
                          help='more topics to rate')
+    fetch = verb('fetch', 'on the station (BOAT_AGENT_TARGET names the boat): pull one session (default the newest) '
+                 'over rsync into this data root, resumable and throttled (agent.yaml fetch.bwlimit_kbps); the open '
+                 'bag segment is left out; read-only on the boat')
+    fetch.add_argument('session', nargs='?', metavar='SESSION', help='a session id under sessions/')
+    fetch.add_argument('--bwlimit', type=int, metavar='KBPS', help='rsync --bwlimit for this call')
+    fetch.add_argument('--no-bags', action='store_true', help='only the reports, events and manifest, no bag/')
+    fetch.add_argument('--to', metavar='DIR', help='station directory to fetch into (default <data root>/sessions)')
+    fetch.add_argument('--where', action='store_true', help=argparse_suppress())
     ask = verb('ask', 'ask the operator a question')
     ask.add_argument('question')
     ask.add_argument('--options', type=lambda s: s.split(','), default=['yes', 'no'])
+
+
+def argparse_suppress():
+    import argparse
+    return argparse.SUPPRESS
 
 
 def config():
@@ -455,6 +468,44 @@ class Agent:
         except ImportError as error:        # no rosbag2_py: the dev container has it
             self.emit({'ok': False, 'error': 'no_reader', 'hint': f'{error}: run it in the dev container'})
             return 2
+        return 0
+
+    def fetch(self):
+        """The boat's half of ``fetch`` (``--where``, relay.py's first hop): which session, where it lies below
+        the workspace, its open segment and the rate, with a note in the TUI agent log. Called on the station
+        itself it says where fetch runs."""
+        if not self.args.where:
+            return self.bad('fetch runs on the station with BOAT_AGENT_TARGET naming the boat (tools/boat_agent '
+                            'relays it); here the session is already local: quality SESSION')
+        name = self.args.session
+        try:
+            session = data.path('sessions', name) if name else last_session(self.registry)
+        except ValueError as error:
+            return self.bad(f'fetch SESSION: {error}')
+        if session is None or not session.is_dir():
+            self.emit({'ok': False, 'error': 'no_session', 'hint': f'no session {name or "recorded yet"} here'})
+            return 2
+        session = session.resolve()
+        home = data.workspace()
+        if not session.is_relative_to(home):
+            self.emit({'ok': False, 'error': 'refused', 'hint': f'{session} is outside the workspace {home}'})
+            return 2
+        live = (self.owner() is not None and str(session) == str(Path((self.registry.state() or {})
+                                                                        .get('session') or '/').resolve()))
+        segments = sorted(p.name for p in (session / 'bag').glob('[0-9][0-9]*') if p.is_dir())
+        rate = self.args.bwlimit or int((self.cfg.get('fetch') or {}).get('bwlimit_kbps') or 0)
+        if not rate:
+            from mhseals_testing.agent.config import FETCH_KBPS
+            rate = FETCH_KBPS
+        if rate <= 0:
+            return self.bad('fetch --bwlimit KBPS: a positive rate')
+        doc = {'ok': True, 'id': session.name, 'rel': session.relative_to(home).as_posix(),
+               'open_segments': segments[-1:] if live else [], 'live': live, 'bwlimit_kbps': rate}
+        try:
+            channel.note(self.who, 'text', f"fetch {session.name} to the station: {self.args.why}", path=self.path)
+        except OSError:
+            pass                    # the log line is advisory; the pull reads only
+        self.emit(doc)
         return 0
 
     def status(self):

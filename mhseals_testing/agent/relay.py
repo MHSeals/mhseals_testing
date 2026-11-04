@@ -85,6 +85,78 @@ def unreachable(target, why, now_ns=None):
             'seen_ns': seen_ns, 't_ns': now_ns or time.time_ns()}
 
 
+def fetch_args(argv):
+    """The station's view of ``fetch``'s arguments (the boat parses them again), or None when malformed."""
+    import argparse
+    parser = argparse.ArgumentParser(prog='boat_agent fetch', add_help=False, exit_on_error=False)
+    parser.add_argument('session', nargs='?')
+    for flag in ('--who', '--why', '--to'):
+        parser.add_argument(flag)
+    parser.add_argument('--bwlimit', type=int)
+    parser.add_argument('--no-bags', action='store_true')
+    try:
+        found, extra = parser.parse_known_args(argv)
+    except (argparse.ArgumentError, SystemExit):
+        return None
+    return None if extra else found
+
+
+def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess.run):
+    """``boat_agent fetch`` on the station: the boat names the session (``fetch --where``, logged in its TUI agent
+    log), then rsync pulls it here, resumable (``--partial-dir``), throttled, without its open segment."""
+    from mhseals_testing import data
+
+    def say(doc, code):
+        print(json.dumps(dict(doc, t_ns=time.time_ns())), file=out, flush=True)
+        return code
+    found = fetch_args(argv[1:])
+    if found is None or not (found.why or '').strip():
+        return say({'ok': False, 'error': 'bad_args', 'hint': 'fetch [SESSION] --why "..." [--bwlimit KBPS] '
+                    '[--no-bags] [--to DIR]'}, 2)
+    lines = []
+
+    class Keep:
+        def write(self, text):
+            lines.append(text)
+
+        def flush(self):
+            pass
+    code = run(target, [*argv, '--where'], out=Keep(), popen=popen)
+    plan = None
+    for line in reversed(''.join(lines).splitlines()):
+        try:
+            plan = json.loads(line)
+            break
+        except ValueError:
+            continue
+    if code or not isinstance(plan, dict) or not plan.get('ok'):
+        out.write(''.join(lines))
+        out.flush()
+        return code or 2
+    rel, ident = str(plan.get('rel') or ''), str(plan.get('id') or '')
+    if not rel or rel.startswith('/') or '..' in rel.split('/') or not ident or '/' in ident or ident in ('.', '..'):
+        return say({'ok': False, 'error': 'refused', 'hint': f'the boat named an unsafe path {rel!r}'}, 2)
+    base = Path(os.path.expanduser(found.to)) if found.to else data.root() / 'sessions'
+    dest = base / ident
+    home = Path(BOAT_AGENT).parent.parent.parent.parent.as_posix().removeprefix('~/').removeprefix('~')
+    source = f"{target}:{home + '/' if home else ''}{rel}/"
+    command = ['rsync', '-a', '--partial-dir=.rsync-partial', '--mkpath', f"--bwlimit={int(plan['bwlimit_kbps'])}",
+               '-e', f'ssh -o ConnectTimeout={CONNECT_S} -o BatchMode=yes -o ServerAliveInterval=5',
+               *(['--exclude=/bag/'] if found.no_bags else []),
+               *(f'--exclude=/bag/{s}/' for s in plan.get('open_segments') or []), source, f'{dest}/']
+    started = time.monotonic()
+    done = rsync(command, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    doc = {'ok': done.returncode == 0, 'id': ident, 'dest': str(dest), 'source': source,
+           'rsync_exit': done.returncode, 'seconds': round(time.monotonic() - started, 1),
+           'skipped': plan.get('open_segments') or [], 'bwlimit_kbps': plan['bwlimit_kbps']}
+    if done.returncode:
+        doc.update(error='rsync', hint=((done.stderr or '').strip().splitlines() or ['rsync failed'])[-1][:200]
+                   + '; run fetch again to resume')
+    elif plan.get('live'):
+        doc['hint'] = 'the session is still recording: fetch again later for the rest'
+    return say(doc, 0 if done.returncode == 0 else 2)
+
+
 def run(target, argv, out=sys.stdout, popen=subprocess.Popen):
     """Relay one verb; returns its exit code (4 ``unreachable`` when ssh fails, 2 for a target that is no host name)."""
     if not HOST.fullmatch(target):
@@ -116,4 +188,4 @@ def run(target, argv, out=sys.stdout, popen=subprocess.Popen):
 
 
 if __name__ == '__main__':
-    sys.exit(run(sys.argv[1], sys.argv[2:]))
+    sys.exit((fetch if sys.argv[2:3] == ['fetch'] else run)(sys.argv[1], sys.argv[2:]))

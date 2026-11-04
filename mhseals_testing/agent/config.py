@@ -20,6 +20,7 @@ DRIVERS = ('warn', 'hold')
 HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
 ANY = 'any'            # settings: the keys an agent may set outside a run and with any run
 GRANTS = '~/.config/mhseals/agent_grants.yaml'
+FETCH_KBPS = 2000      # boat_agent fetch's rsync --bwlimit when agent.yaml names none
 # Never an agent's to set, whatever agent.yaml lists: how hard, fast, far or long the boat drives (amplitude, the
 # command hold, repeats, the navigation extents), the command mode, the bench override, staleness and the agent
 # controls themselves; and any later setting named like one of those.
@@ -48,13 +49,18 @@ def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
     known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', 'arm', 'grants',
-             'background', *NUMBERS}
+             'background', 'fetch', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     if not isinstance(data.get('grants', GRANTS), str) or not data.get('grants', GRANTS):
         raise ValueError('agent.yaml: grants is the path of the agent grant file')
     if not isinstance(data.get('background', ''), str):
         raise ValueError("agent.yaml: background is the mhseals_agents path ('' finds it)")
+    fetch = data.get('fetch', {})
+    limit = fetch.get('bwlimit_kbps', FETCH_KBPS) if isinstance(fetch, dict) else None
+    if not isinstance(fetch, dict) or set(fetch) - {'bwlimit_kbps'} or isinstance(limit, bool) \
+            or not isinstance(limit, int) or limit <= 0:
+        raise ValueError('agent.yaml: fetch.bwlimit_kbps is a positive whole number of KB/s')
     arm = data.get('arm', {})
     countdown = arm.get('countdown', 5) if isinstance(arm, dict) else None
     if not isinstance(arm, dict) or set(arm) - {'countdown'} or isinstance(countdown, bool) \

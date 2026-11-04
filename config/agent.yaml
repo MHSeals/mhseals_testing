@@ -47,6 +47,9 @@ fcu:
   rates:
     window_s: 10
     topics: {/imu/raw: sensor_msgs/msg/Imu, /odom/local: nav_msgs/msg/Odometry}
+# boat_agent fetch [SESSION] --why: the station pulls one session over rsync (resumable, the open bag segment left
+# out), at most this rate so the link keeps its telemetry and heartbeats; --bwlimit KBPS overrides it per call.
+fetch: {bwlimit_kbps: 2000}
 # boat_agent arm --claim ID (owner decision 2026-11-01): a banner counts down this long in the TUI, the operator
 # cancels it (Esc, Enter); the e-stop refuses. It never releases a hold.
 arm: {countdown: 5}
