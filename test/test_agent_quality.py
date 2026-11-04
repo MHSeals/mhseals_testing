@@ -74,6 +74,10 @@ def test_the_verb_reads_a_session_and_refuses_an_escape(data_root, monkeypatch):
     monkeypatch.setattr(quality.bagread, 'read_raw', reader_of([]))
     code, doc = run(['quality', '--who', 'a', str(path)])
     assert code == 2 and doc['ok'] is False and doc['error'] == 'no_messages'      # nothing read is never ok
+    # a relative path is a directory from the cwd: run where ../../etc is no directory (a checkout two levels
+    # under / once resolved it to /etc)
+    (data_root / 'a' / 'b').mkdir(parents=True)
+    monkeypatch.chdir(data_root / 'a' / 'b')
     code, doc = run(['quality', '--who', 'a', '../../etc'])
     assert code == 2 and doc['error'] in ('bad_args', 'no_session')
 
