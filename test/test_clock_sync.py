@@ -84,7 +84,7 @@ def test_network_row_samples_clocks_on_the_boat_link(tmp_path):
             started.append(dict(self.peers))
             self.round()
 
-    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path, clock=clock,
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health.yaml', root=tmp_path, clock=clock,
                      environ={'ASTRO_DDS_ADDRESS': '192.168.0.152'},
                      addresses=lambda names: {'end0': '192.168.0.152'}, pinger=lambda peers: None,
                      targets={}, env_file=LAN, clock_targets={'orin': '192.168.0.3'},

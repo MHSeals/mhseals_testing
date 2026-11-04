@@ -5,7 +5,7 @@
 perception-v2.md section 7.2), ``Probe.diagnostic`` one of /diagnostics. Missing keys
 leave their fact out. A source that stays silent longer than ``silence_s`` reads 0 Hz
 instead of vanishing, so a dead or unreachable camera host turns the rate row red. The
-timings are the ``probes: perception`` settings of config/health/perception.yaml. Time
+timings are the ``probes: perception`` settings of config/health.yaml. Time
 comes from an injected monotonic clock so tests need no sleeping.
 """
 

@@ -105,7 +105,7 @@ Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); 
 
 Sessions record under `$MHSEALS_DATA`, else `$ROS_WS/bags`, else `~/astro_dock/bags`: one bag per session (all topics
 but images, clouds and costmaps, `config/bags.yaml`), `<session>.report.json`, the driver's hardware YAML and logs.
-Health checks are YAML (`config/health/`); `~/.config/mhseals/health.yaml` disables or overrides them.
+Health checks are YAML (`config/health.yaml`); `~/.config/mhseals/health.yaml` disables or overrides them.
 
 Labels: `b` marks (a digit tags it), `N` brackets bad data, `"` logs an operator instruction with the pose, and the
 TUI journals procedures, steps, arming, takeovers, link holds, fence exits, fix changes and steady command windows

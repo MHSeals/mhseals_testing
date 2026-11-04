@@ -4,7 +4,7 @@ No stamp check can see a delay equal to a clock offset (they cancel), so the hos
 compared directly: one SNTP query per host, the method of astro_dock's .devcontainer/astro-clock.py.
 chrony answers it on hosts set up by ``setup.linux.sh --components clock``; a host that does not
 answer (timesyncd serves no time) leaves the spread unknown, and preflight does not pass. The hosts
-are those of the probe's ``roles`` (config/health/preflight.yaml), never this machine, whose own
+are those of the probe's ``roles`` (config/health.yaml), never this machine, whose own
 clock enters the spread as 0, so an operator's TUI holds the boat to the operator's clock as well.
 One daemon thread; ``facts()`` only copies under a lock.
 """

@@ -1,7 +1,7 @@
 """RTK feed: the base status, the rover's GPS_RAW fix and the ECEF baseline as an ``RtkView`` (gps.md 7).
 
 Each live tick it builds ``self.current`` (None when the profile has no RTK base and no status topic
-exists, so Status shows no row) and publishes ``rtk.seconds_below_fixed`` for config/health/rtk.yaml:
+exists, so Status shows no row) and publishes ``rtk.seconds_below_fixed`` for config/health.yaml:
 seconds the rover has been below FIXED while the base streams, absent otherwise (that check skips). It
 also publishes rtk.correction_age and rtk.bytes_per_s for rtk.age / rtk.flow.
 """

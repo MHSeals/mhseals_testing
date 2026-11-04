@@ -16,7 +16,7 @@ and arming).
   frozen ``Params`` dataclass (its fields are the YAML keys) and a pure function registered with
   ``@kind(name, Params, needs=probes, fields=message-template keys)``. The registry imports
   every module in ``kinds/``.
-* Checks: ``config/health/*.yaml`` (``group``, ``defaults``, ``checks``; keys are the fields of
+* Checks: ``config/health.yaml`` (``probes``, and ``groups`` each with ``defaults``, ``joins`` and ``checks``; keys are the fields of
   ``model.CheckSpec``). ``each`` expands one check per row. ``~/.config/mhseals/health.yaml`` may
   ``disable`` ids (globs allowed), ``override`` fields of one id and set ``probes:`` options;
   an entry matching no check is a lint problem. ``config.lint`` must pass on the shipped files.

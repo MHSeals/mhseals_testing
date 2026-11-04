@@ -1,4 +1,4 @@
-"""The Status `Network` row: boat-link facts judged by config/health/network.yaml.
+"""The Status `Network` row: boat-link facts judged by config/health.yaml.
 
 The boat subnet is ``LAN_SUBNET`` in the vessel's network env (ASTRO_NETWORK_ENV) (without it there is
 no boat link to watch and the row stays hidden). The hosts pinged are those of the device
@@ -59,7 +59,7 @@ class NetworkRow:
         self.period = settings.get('period', PERIOD)
         targets = ping_targets(env_file) if targets is None else targets
         self.pinger = pinger(targets) if targets and self.link else None
-        sync = loaded.probes.get('clock_sync', {})     # config/health/preflight.yaml: pre.clock_sync
+        sync = loaded.probes.get('clock_sync', {})     # config/health.yaml: pre.clock_sync
         if clock_targets is None and self.link:
             clock_targets = clock_sync.targets(tuple(sync.get('roles', clock_sync.ROLES)), env_file)
         self.clocks = (clocks(clock_targets, sync.get('period', clock_sync.PERIOD))

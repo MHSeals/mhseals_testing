@@ -10,7 +10,7 @@ import pytest
 
 from mhseals_testing.health import advisories, probes
 from mhseals_testing.health import config as health_config
-from mhseals_testing.health.config import HEALTH_DIR, lint, load
+from mhseals_testing.health.config import HEALTH_FILE, lint, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import Fact
 from mhseals_testing.monitor import BoatMonitor
@@ -40,7 +40,7 @@ def health(tmp_path, monkeypatch):
 
 
 def test_the_charge_estimate_ships_disabled():
-    assert not {s.id: s for s in load(HEALTH_DIR, user=False).specs}['power.charge'].enabled
+    assert not {s.id: s for s in load(HEALTH_FILE, user=False).specs}['power.charge'].enabled
 
 
 def settle(health, clock, snapshot=None, seconds=12):
@@ -58,7 +58,7 @@ def battery_rows(health, clock, *args, **kwargs):
 
 
 def test_shipped_checks_lint_clean(nav_share):
-    config = load(HEALTH_DIR, load_profile('boat'), user=False)  # templates need a profile
+    config = load(HEALTH_FILE, load_profile('boat'), user=False)  # templates need a profile
     assert {'clock.offset', 'compute.load', 'fcu.mode', 'power.charge'} <= {s.id for s in config.specs}
     assert lint(config.specs, unmatched=config.unmatched) == []
 

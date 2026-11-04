@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from mhseals_testing.health import registry
-from mhseals_testing.health.config import HEALTH_DIR, lint, load
+from mhseals_testing.health.config import HEALTH_FILE, lint, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import Fact
 from mhseals_testing.profiles import load_profile
@@ -22,7 +22,7 @@ def kinds():
 
 
 def test_shipped_health_config_loads_and_lints_clean(nav_share):
-    assert HEALTH_DIR.is_dir() and list(HEALTH_DIR.glob('*.yaml'))
+    assert HEALTH_FILE.is_file() and HEALTH_FILE.name == 'health.yaml'
     config = load(user=False, profile=load_profile('boat'))
     assert any(s.id == 'cmd.owner' for s in config.specs)
     assert lint(config.specs, unmatched=config.unmatched) == []

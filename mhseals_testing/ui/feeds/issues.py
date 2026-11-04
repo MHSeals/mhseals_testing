@@ -11,7 +11,7 @@ the part is missing here is an issue. Issues come from the Stack each tick:
 ``probe:<host>``       the host answers, but its process probe fails: parts not run as units there
                        read unknown, never off
 
-Each one shows only once it has lasted its grace (``probes: devices`` in config/health/network.yaml:
+Each one shows only once it has lasted its grace (``probes: devices`` in config/health.yaml:
 ``grace_s``, and ``discovery_grace_s`` for discovery), so a blip under it shows nothing. A shown
 issue puts the issue glyph in the header and on its row and raises a toast with the cause; it
 clears, with a "resolved" toast, as soon as its cause is gone.

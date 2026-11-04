@@ -1,7 +1,7 @@
 """Boat-link facts from /proc and /sys: throughput, errors, UDP drops, address changes.
 
 Stdlib only, no root and no subprocess. ``Link.sample()`` returns ``{name: Fact}``
-for the checks in ``config/health/network.yaml``. A rate needs two samples, and a
+for the checks in ``config/health.yaml``. A rate needs two samples, and a
 counter that went backwards (interface bounce, reboot, `nstat -r`) leaves its fact
 out for that interval rather than reporting a negative or huge rate.
 """

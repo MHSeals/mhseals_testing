@@ -3,7 +3,7 @@
 Each function turns raw readings into ``(level, detail)`` for
 ``BoatMonitor.advise``. None of them can block motion (see readiness.py).
 Power, flight controller, clock and compute are health checks now: see
-``health/probes.py`` and ``config/health/``.
+``health/probes.py`` and ``config/health.yaml``.
 """
 
 from mhseals_hardware.thruster_mixer import NEUTRAL_PWM

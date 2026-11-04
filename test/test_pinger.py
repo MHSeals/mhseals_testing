@@ -143,7 +143,7 @@ def test_network_row_pings_the_camera_host_only_on_the_boat_link(tmp_path):
         made.append(FakePinger(peers))
         return made[-1]
     targets = {'blastoise-jetson': '10.1.2.3', 'router': '10.1.2.1'}
-    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path,
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health.yaml', root=tmp_path,
                      clock=clock, environ={}, addresses=lambda names: dict(held), env_file=lan,
                      targets=targets, pinger=pinger)
     assert made[0].peers == targets
@@ -163,7 +163,7 @@ def test_network_row_pings_the_camera_host_only_on_the_boat_link(tmp_path):
 def test_network_row_is_hidden_without_a_boat_subnet(tmp_path):
     from pathlib import Path
     from mhseals_testing.health.network import NetworkRow
-    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health', root=tmp_path,
+    net = NetworkRow(Path(__file__).resolve().parents[1] / 'config' / 'health.yaml', root=tmp_path,
                      environ={}, addresses=lambda names: {'end0': '192.168.0.152'},
                      env_file=tmp_path / 'missing.env', targets={'x': '10.0.0.1'}, pinger=FakePinger)
     assert net.poll() is None and net.pinger is None

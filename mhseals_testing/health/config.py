@@ -1,8 +1,9 @@
 """Load health checks from YAML: each-expansion, profile templating, user override, lint.
 
-Shipped files live in ``config/health/*.yaml``; ``~/.config/mhseals/health.yaml``
-may ``disable`` ids (globs allowed), ``override`` fields of one id, and
-override ``probes`` settings. See health/registry.py for the kinds.
+The shipped checks live in ``config/health.yaml``: ``probes`` settings and ``groups``,
+one per Status group (``defaults``, ``joins``, ``checks``). ``~/.config/mhseals/health.yaml``
+may ``disable`` ids (globs allowed), ``override`` fields of one id, and override
+``probes`` settings. See health/registry.py for the kinds.
 """
 
 import copy
@@ -34,19 +35,19 @@ class ConfigError(ValueError):
     """A health file that cannot be loaded."""
 
 
-def _health_dir():
-    """config/health in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parents[2] / 'config' / 'health'
-    if source.is_dir():
+def _health_file():
+    """config/health.yaml in the source tree, else the installed share directory."""
+    source = Path(__file__).resolve().parents[2] / 'config' / 'health.yaml'
+    if source.is_file():
         return source
     try:
         from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'health'
+        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'health.yaml'
     except (ImportError, KeyError):
         return source
 
 
-HEALTH_DIR = _health_dir()
+HEALTH_FILE = _health_file()
 
 
 def share_dir(package):
@@ -219,35 +220,57 @@ def _profile_in(profile, names):
     return profile.name in names or profile.name.split('+', 1)[0] in names
 
 
-def load(directory=None, profile=None, user=None):
-    """Specs and probe settings from every ``*.yaml`` in ``directory`` plus the user file.
+def _groups(data, path):
+    """(group name, section) for each group of one health file: its ``groups`` mapping, else the
+    file itself as one group (``group``, else the file name), as a test directory may hold."""
+    groups = _section(data, 'groups', dict, path)
+    if not groups:
+        return [(str(data.get('group', path.stem)), data)]
+    for name, section in groups.items():
+        if not isinstance(section, dict):
+            raise ConfigError(f'{path}: group {name} must be a mapping')
+    return [(str(name), section) for name, section in groups.items()]
+
+
+def sections(source=None):
+    """(group name, raw section) for every group of the health file, or of every ``*.yaml`` in a directory."""
+    source = Path(source or HEALTH_FILE)
+    out = []
+    for path in sorted(source.glob('*.yaml')) if source.is_dir() else [source]:
+        out += _groups(_read(path), path)
+    return out
+
+
+def load(source=None, profile=None, user=None):
+    """Specs and probe settings from the health file (or every ``*.yaml`` in a directory) plus the user file.
 
     ``profile`` (a PlantProfile) fills templates and drops checks whose
-    ``profiles`` list excludes it. ``user`` defaults to USER_FILE when ``directory`` does.
+    ``profiles`` list excludes it. ``user`` defaults to USER_FILE when ``source`` does.
     """
-    directory = Path(directory or HEALTH_DIR)
-    if user is None and directory == HEALTH_DIR:
+    source = Path(source or HEALTH_FILE)
+    if user is None and source == HEALTH_FILE:
         user = USER_FILE
     registry.discover()
     context = {'workspace': str(workspace()), **profile_context(profile), 'share': Share()}
     raws, probes, joins = [], {}, {}
-    for path in sorted(directory.glob('*.yaml')):
+    for path in sorted(source.glob('*.yaml')) if source.is_dir() else [source]:
         data = _read(path)
         _merge(probes, _section(data, 'probes', dict, path))
-        for join in _section(data, 'joins', list, path):    # existing checks this file's group also counts
-            if not isinstance(join, dict) or not isinstance(join.get('id'), str):
-                raise ConfigError(f'{path}: every join must be a mapping with an id, got {join!r}')
-            names = join.get('profiles') or ()
-            if profile is None or not names or _profile_in(profile, (names,) if isinstance(names, str) else names):
-                joins.setdefault(str(data.get('group', path.stem)).lower(), []).append(join['id'])
-        defaults = _section(data, 'defaults', dict, path)
-        for entry in _section(data, 'checks', list, path):
-            if not isinstance(entry, dict):
-                raise ConfigError(f'{path}: every check must be a mapping, got {entry!r}')
-            rows = entry.get('each')
-            if rows is not None and not (isinstance(rows, list) and all(isinstance(r, dict) for r in rows)):
-                raise ConfigError(f'{path}: {entry.get("id", "?")}: each must be a list of mappings')
-            raws += expand(entry, defaults, data.get('group', path.stem), context)
+        for group, section in _groups(data, path):
+            for join in _section(section, 'joins', list, path):    # existing checks this group also counts
+                if not isinstance(join, dict) or not isinstance(join.get('id'), str):
+                    raise ConfigError(f'{path}: every join must be a mapping with an id, got {join!r}')
+                names = join.get('profiles') or ()
+                if profile is None or not names or _profile_in(profile, (names,) if isinstance(names, str) else names):
+                    joins.setdefault(group.lower(), []).append(join['id'])
+            defaults = _section(section, 'defaults', dict, path)
+            for entry in _section(section, 'checks', list, path):
+                if not isinstance(entry, dict):
+                    raise ConfigError(f'{path}: every check must be a mapping, got {entry!r}')
+                rows = entry.get('each')
+                if rows is not None and not (isinstance(rows, list) and all(isinstance(r, dict) for r in rows)):
+                    raise ConfigError(f'{path}: {entry.get("id", "?")}: each must be a list of mappings')
+                raws += expand(entry, defaults, group, context)
     user = Path(user) if user and Path(user).is_file() else None
     override = _read(user) if user else {}
     _merge(probes, _section(override, 'probes', dict, user))

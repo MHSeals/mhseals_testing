@@ -6,7 +6,7 @@ and compute are advisories: always shown, never blocking, because the
 operator (not the suite) owns the e-stop and the boat.
 
 Arming itself is refused only while a node the health checks gating ``arm`` require is off the
-graph: the boat's safety watchdogs (config/health/preflight.yaml), so a boat never arms without
+graph: the boat's safety watchdogs (config/health.yaml), so a boat never arms without
 them silently.
 """
 

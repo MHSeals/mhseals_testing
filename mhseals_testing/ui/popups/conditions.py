@@ -8,7 +8,6 @@ drift and C_d per direction are not produced by the estimator yet and read ``not
 
 import math
 
-import yaml
 
 from mhseals_testing.health import config as health_config
 from mhseals_testing.ui import theme
@@ -21,12 +20,12 @@ UPDOWN = theme.pick('↑↓', 'Up/Down')
 
 
 def gates(path=None):
-    """Checks that gate a procedure start: ``[(check id, severity, 'Characterize start', expected verdicts)]``."""
-    path = path or health_config.HEALTH_DIR / 'conditions.yaml'
+    """Conditions checks that gate a procedure start: ``[(check id, severity, 'Characterize start', expected verdicts)]``."""
     out = []
-    for check in (yaml.safe_load(path.read_text()) or {}).get('checks', []):
-        for key in check.get('gates', ()):
-            out.append((check['id'], check['severity'], GATED.get(key, key), check.get('expect', [])))
+    for group, section in health_config.sections(path):
+        for check in section.get('checks', []) if group == 'Conditions' else ():
+            for key in check.get('gates', ()):
+                out.append((check['id'], check['severity'], GATED.get(key, key), check.get('expect', [])))
     return out
 
 

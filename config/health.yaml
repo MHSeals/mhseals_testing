@@ -1,0 +1,845 @@
+# Health checks (health/config.py, docs/health.md). probes: how often each probe publishes
+# and its settings; groups: one per Status group, each with optional defaults (merged into
+# every check), joins (other groups' checks that its --require also needs) and checks.
+# ~/.config/mhseals/health.yaml may disable ids (globs allowed), override fields of one id and
+# override probes settings.
+probes:
+  # How often each probe publishes. A fact older than three periods reads as unknown.
+  # `snapshot`, `calibration` (rereads calibration/current.json) and `host` run on the App tick; `fcu` and `battery` are MAVROS callbacks;
+  # `graph` reads the watched topics (health.md: 2 s); `params` reads the FCU parameters (300 s).
+  snapshot: {period: 1}
+  calibration: {period: 10}
+  host: {period: 5}
+  fcu: {period: 5, wmm_total_mG: 470}  # Fort Worth 32.61 N; per-site, change it at competition
+  battery: {period: 5}
+  graph: {period: 2}
+  params: {period: 300}
+  logs: {period: 1}     # child log tails and the /rosout matches publish each tick
+  git: {period: 30, fetch: 0}   # health.md: 30 s on the worker; fetch is opt-in
+  # The boat link is the interface holding an address in LAN_SUBNET (the vessel's network env, ASTRO_NETWORK_ENV).
+  # While it is up, the hosts of the device registry's `ping:` roles are pinged once a second
+  # (mhseals_testing.devices); the checks below judge the worst of them and name it.
+  network:
+    period: 5
+  # Each computer reports its own parts (unit status --probe over one shared ssh connection per
+  # host), every `period` s; DDS discovery never sets a part's state. A problem shows as an issue
+  # (header and row glyph, and a toast) only once it lasts its grace: `grace_s` for a host whose
+  # reads fail or a part that exited, `discovery_grace_s` for a running part's nodes missing from
+  # this computer's graph (radio dropouts last about 5 s).
+  devices:
+    period: 5
+    grace_s: 15
+    discovery_grace_s: 20
+  # silence_s: seconds without a stage before it reads 0 Hz and its other facts drop;
+  # status_grace_s: seconds a 1 Hz tracker stage may be quiet before the costmap age grows
+  perception: {period: 1, silence_s: 5.0, status_grace_s: 1.5}
+  nearby: {period: 1}    # /perception/nearby arrives at up to 5 Hz (RosIO); quiet 3 s, the row has no evidence
+  preflight: {period: 1}
+  # SNTP to the hosts of these registry roles from the TUI's computer (health/clock_sync.py)
+  clock_sync: {period: 5, roles: [boat_computer, camera_host]}
+groups:
+  # Calibration staleness. The `calibration` probe publishes calibration.stale (the number of axes whose
+  # stored tracking scores say the model drifted, label = those axes) from calibration/current.json,
+  # judged by analysis/tracking.py with the thresholds in config/tracking.yaml. Information only.
+  Calibration:
+    checks:
+      - id: calib.stale
+        kind: threshold
+        fact: calibration.stale
+        below: false
+        warn: 0.5
+        fail: 1000
+        severity: info
+        missing: skip
+        raise_after: 0      # the verdict is already judged across sessions; no second debounce
+        title: Recharacterize suggested
+        message: 'Tracking has fallen on {label}'
+        hint: Run Characterize again; one bad run never raises this
+
+      - id: calib.invalid
+        kind: threshold
+        fact: calibration.invalid
+        below: false
+        warn: 0.5
+        fail: 1000
+        severity: warn
+        missing: skip
+        raise_after: 0      # computed from the stored hash against the config now; no debounce
+        gates: [w, s, t]
+        title: Calibration invalid
+        message: 'Fitted under different hardware: {label}'
+        hint: Rerun Characterize (Correction r)
+
+      # A dead thruster still finishes routes in the plant study, but overshoots goals by 0.77 m:
+      # no autonomous runs until Characterize sees every direction respond.
+      - id: calib.dead
+        kind: threshold
+        fact: calibration.dead
+        below: false
+        warn: 0.5
+        fail: 0.5
+        severity: fail
+        raise_after: 0      # the stored fit says it; no debounce
+        gates: [w, s, t]
+        title: Dead thruster direction
+        message: 'No response in Characterize: {label}'
+        hint: A thruster direction gave no response in Characterize; check the thruster before autonomous runs
+  # Water conditions. The `snapshot` probe publishes conditions.* from the live estimator (conditions/segments.py).
+  # Thresholds live only in config/conditions.yaml; these checks gate the start of Characterize and
+  # Thrust physics, never a run in progress.
+  Conditions:
+    checks:
+      - id: conditions.poor
+        kind: state
+        fact: conditions.verdict
+        expect: [good, marginal, unknown]
+        severity: fail
+        gates: [f, y]
+        raise_after: 0      # the verdict is already windowed; no second debounce
+        title: Water conditions
+        message: '{reason}'
+        hint: Wait for steadier water, or follow the Conditions hint
+      - id: conditions.marginal
+        kind: state
+        fact: conditions.verdict
+        expect: [good, unknown]
+        severity: warn
+        gates: [f, y]
+        raise_after: 0      # the verdict is already windowed; no second debounce
+        title: Water conditions
+        message: '{reason}'
+  # Deploy state: each repo against its origin. Fetch is off; at the dock set
+  # probes.git.fetch: 900 in ~/.config/mhseals/health.yaml.
+  Deploy:
+    checks:
+      - id: git.{repo}
+        kind: git_state
+        title: Git {repo}
+        show: [header.deploy]
+        missing: skip
+        message: '{detail}'
+        each:
+          - {repo: astro_dock, path: '{workspace}'}
+          - {repo: hardware,   path: '{workspace}/src/mhseals_hardware'}
+          - {repo: nav,        path: '{workspace}/src/mhseals_nav'}
+          - {repo: testing,    path: '{workspace}/src/mhseals_testing'}
+  # Known-failure log lines (see kinds/log_pattern.py). /rosout WARN+ and managed child logs.
+  # Severity caps the result; a match holds the check active for 30 s unless `hold` says otherwise.
+  Logs:
+    defaults: {severity: warn}
+    checks:
+      - {id: log.prearm, kind: log_pattern, pattern: 'PreArm: (?P<why>.+)', key: why, severity: fail,
+         gates: [motion], message: 'FCU: {why}', hint: 'Read the PreArm text; it names what the FCU refuses.'}
+      - {id: log.imu_freefall, kind: log_pattern, pattern: 'IMU seems to be in free fall|stores unscaled raw acceleration',
+         hint: 'If madgwick is not in the fused path, remove the node instead of living with the alert.'}
+      - {id: log.gps_vel_stale, kind: log_pattern, pattern: 'GPS velocity is stale'}
+      - {id: log.ekf_rate, kind: log_pattern, pattern: 'Failed to meet update rate', min_count: 5}
+      - {id: log.costmap_lag, kind: log_pattern, pattern: 'buffer updated in .* should be', min_count: 3}
+      - {id: log.rate_request, kind: log_pattern, pattern: 'set_message_interval',
+         hint: 'Re-request the message rates after the FCU reconnects.'}
+      - {id: log.heartbeat, kind: log_pattern, pattern: 'HEARTBEAT timed out|Wrong FCU time', severity: fail}
+      - {id: log.nav2_bringup, kind: log_pattern, pattern: 'Aborting bringup|Failed to change state for node', severity: fail}
+      - {id: log.rtps, kind: log_pattern, pattern: 'RTPS_\w+ Error',
+         hint: 'Fast DDS prints these to a child stderr, never to /rosout. See graph.legacy for a Foxy or Humble peer.'}
+      - {id: log.qos, kind: log_pattern, pattern: 'incompatible QoS'}
+      - {id: log.bag_drops, kind: log_pattern, pattern: 'messages lost'}
+      - {id: log.process_died, kind: log_pattern, key: proc,
+         pattern: 'process has died \[pid \d+, exit code (?P<code>-?\d+), cmd ''(?P<proc>[^ '']+)',
+         message: '{proc} exited with {code}'}
+      - {id: log.watchdog, kind: log_pattern, pattern: 'commands timed out', severity: info, when: {procedure: running}}
+      - {id: log.noise, kind: log_pattern, suppress: true,
+         pattern: 'Publisher already registered for node name|CMD: Unexpected command|VER: broadcast request timeout'}
+  # Map checks. The map feeds publish the nav.map_rotation fact: |rotation| of /odom/gps against
+  # enu(/gps/fix) in degrees. A bad yaw at the navsat datum or a missing declination shows here.
+  Navigation:
+    checks:
+      - id: nav.map_rotation
+        kind: threshold
+        fact: nav.map_rotation
+        below: false
+        warn: 3
+        fail: 10
+        unit: ' deg'
+        severity: warn
+        missing: skip
+        show: [odometry]
+        title: Map rotation
+        message: 'Map frame is rotated {value}'
+  # Boat-link checks. The `network` probe (health/netstat.py) publishes the facts;
+  # nothing here gates motion. Bandwidth is a percentage of the link speed in /sys.
+  Network & DDS:
+    defaults:
+      missing: skip                  # rates need two samples; no boat interface hides the group
+    checks:
+      - id: net.bw
+        kind: threshold
+        fact: net.bw_pct
+        warn: 40
+        fail: 80
+        below: false
+        unit: ' %'
+        title: Link use
+      - id: net.errs
+        kind: threshold
+        fact: net.errs_ps
+        warn: 0
+        fail: 10
+        below: false
+        unit: ' /s'
+        title: Interface errors
+      - id: udp.drops
+        kind: threshold
+        fact: udp.drops_ps
+        warn: 0
+        fail: 50
+        below: false
+        unit: ' /s'
+        title: UDP drops
+        hint: 'RcvbufErrors: raise net.core.rmem_max. ReasmFails: use the 1400 B MTU in fastdds.xml.'
+      - id: udp.noports
+        kind: threshold
+        fact: udp.noports_ps
+        warn: 200
+        fail: 1000000000
+        below: false
+        severity: info
+        unit: ' /s'
+        title: Packets to closed ports
+      - id: net.addr_changed
+        kind: threshold
+        fact: net.addr_changed
+        warn: 0.5
+        fail: 2
+        below: false
+        title: Address changed
+        hint: Nodes hold the old locator; restart them.
+      - id: net.addr_events
+        kind: threshold
+        fact: net.addr_events_5m
+        warn: 0.5
+        fail: 2.5
+        below: false
+        title: Address changes in 5 min
+      - id: net.peer.loss                      # the host itself, apart from its ROS processes
+        kind: threshold
+        fact: net.loss_pct
+        severity: fail
+        warn: 10
+        fail: 50
+        below: false
+        unit: ' %'
+        title: ping loss to
+        hint: Lost pings mean the host is off or off the LAN, not just its container; at 100 % also check its reservation in the vessel's network env.
+      - id: net.peer.rtt
+        kind: threshold
+        fact: net.rtt_ms
+        warn: 20
+        fail: 100
+        below: false
+        unit: ' ms'
+        title: ping time to
+  # Perception checks, one set per backend source (perception-v2.md section 7.2).
+  # The perception probe publishes perc.<source>.* facts from the backend, tracker
+  # and heading stages of /perception/status and the ZED wrapper's /diagnostics; the
+  # boat has no camera topic of its own (the ZED runs on the Orin), so the camera
+  # row comes from these checks and the sensor:Camera anchor. A silent backend reads
+  # 0 Hz, so a dead or unreachable camera host fails the rate row instead of skipping.
+  # A source is added by one row under each; its profiles list says where it runs.
+  Perception:
+    defaults: {severity: warn, missing: skip}
+    checks:
+      - id: perc.{source}.rate
+        kind: threshold
+        fact: perc.{source}.hz
+        severity: fail
+        unit: ' Hz'
+        show: ['sensor:Camera']
+        title: Detections rate {source}
+        message: '{value} of {nominal} Hz expected'
+        hint: Backend frames include empty arrays; 0 Hz means no backend status reached us (Orin down, backend dead or DDS cut)
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed], nominal: 15, warn: 10, fail: 3}  # provisional until the Orin hz is measured (orin.md T3)
+          - {source: sim, profiles: [crane_full_stack], nominal: 10, warn: 7, fail: 2}
+      - id: perc.{source}.latency
+        kind: threshold
+        fact: perc.{source}.latency
+        severity: fail
+        below: false
+        warn: 0.25
+        fail: 0.5
+        unit: ' s'
+        title: Detection latency {source}
+        hint: The backend rejects stamps older than 1.0 s; check the clock offset and the funnel
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.funnel
+        kind: threshold
+        fact: perc.{source}.funnel_loss
+        below: false
+        warn: 0.15
+        fail: 0.5
+        title: Pipeline loss {source}
+        hint: Share of backend frames dropped as stale, reordered or malformed
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.inference
+        kind: threshold
+        fact: perc.{source}.inference_ms
+        below: false
+        warn: 70
+        fail: 130
+        unit: ' ms'
+        title: Inference time {source}
+        hint: Object detection processing time from the ZED diagnostics; bands are provisional (about one and two frame periods at 15 Hz)
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+      - id: perc.{source}.clock
+        kind: threshold
+        fact: perc.{source}.clock_offset
+        severity: fail
+        abs: true
+        below: false
+        warn: 0.03
+        fail: 0.08
+        unit: ' s'
+        title: Clock offset {source}
+        hint: DDS source_timestamp offset of /perception/status from the Orin; check chrony on the Orin
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+      - id: perc.{source}.tracker_rate
+        kind: threshold
+        fact: perc.{source}.tracker_hz
+        severity: fail
+        warn: 7
+        fail: 2
+        unit: ' Hz'
+        title: Tracker rate {source}
+        hint: 0 Hz means no tracker status reached us; the tracks and the costmap stop with it
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.tracker_latency
+        kind: threshold
+        fact: perc.{source}.tracker_latency
+        below: false
+        warn: 0.3
+        fail: 0.6
+        unit: ' s'
+        title: Tracker latency {source}
+        hint: Capture stamp to track update on the Orin
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.costmap
+        kind: threshold
+        fact: perc.{source}.costmap_age
+        severity: fail
+        below: false
+        warn: 0.5
+        fail: 1.0
+        unit: ' s'
+        title: Perception costmap age {source}
+        hint: A stale /perception/costmap holds the boat during autonomy; check object_tracker and the perception costmap on the Orin
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.class_conf
+        kind: threshold
+        fact: perc.{source}.class_conf
+        warn: 0.4
+        title: Weakest class confidence {source}
+        hint: Mean score over 10 s of the weakest class seen; lighting, range or the model
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.heading
+        kind: state
+        fact: perc.{source}.heading
+        severity: fail
+        expect: [ok]
+        warn: [warn, stale]
+        title: Heading consistency {source}
+        hint: heading or camera extrinsic lags during turns; check compass and front_camera_joint
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: perc.{source}.split
+        kind: state
+        fact: perc.{source}.split
+        severity: info
+        expect: []
+        title: Tracks {source}
+        hint: Static, moving, unknown and prior tracks
+        each:
+          - {source: zed_native, profiles: [boat, dev_zed]}
+          - {source: sim, profiles: [crane_full_stack]}
+      # lidar_fusion (mhseals_nav config/lidar_fusion.yaml): its rows skip while it is disabled.
+      - id: perc.{source}.fusion_rate
+        kind: threshold
+        fact: perc.{source}.fusion_hz
+        severity: fail
+        warn: 5
+        fail: 2
+        unit: ' Hz'
+        title: Lidar fusion rate
+        hint: 0 Hz once seen means lidar_fusion died; the tracker reads only its output and coasts until the respawn
+        each:
+          - {source: lidar, profiles: [boat, crane_full_stack]}
+      - id: perc.{source}.fusion_share
+        kind: threshold
+        fact: perc.{source}.fusion_share
+        warn: 0.1
+        title: Lidar-ranged share
+        hint: Few boxes get a lidar range; the stage's skip_* counts name the gate (sweep, TF, motion, extrinsic)
+        each:
+          - {source: lidar, profiles: [boat, crane_full_stack]}
+      - id: perc.{source}.fusion_p95
+        kind: threshold
+        fact: perc.{source}.fusion_p95_ms
+        below: false
+        warn: 10
+        fail: 20
+        unit: ' ms'
+        title: Lidar fusion time p95
+        hint: Per-frame processing on the camera host; the budget is 10 ms
+        each:
+          - {source: lidar, profiles: [boat, crane_full_stack]}
+      - id: perc.{source}.fusion_state
+        kind: state
+        fact: perc.{source}.fusion_state
+        severity: fail
+        expect: [ok]
+        warn: [warn]
+        title: Lidar-camera extrinsic
+        hint: WARN is a rotation over 0.75 deg or a translation or image-time alert; ERROR (over 1.5 deg, or no samples) keeps stereo until a restart; recalibrate the mast
+        each:
+          - {source: lidar, profiles: [boat, crane_full_stack]}
+      # mhseals_nav's /perception/nearby (boat-side summary of /points; the TUI never takes the raw cloud): the nearest
+      # point inside `warn` metres of base_link raises the points-nearby row and toast. Hull points are already cut there.
+      - id: perc.nearby
+        kind: threshold
+        fact: perc.nearby.range
+        probe: nearby
+        warn: 3.0
+        unit: ' m'
+        digits: 1
+        raise_after: 0      # the node already keeps only fresh clouds
+        title: Points nearby
+        message: 'nearest point {value} {label}'
+        hint: Something is inside the warning range of the hull; check the camera and slow down
+  # Power checks. The `battery` probe publishes the facts they read.
+  Power:
+    checks:
+      - id: power.pack_voltage
+        kind: threshold
+        fact: battery.voltage
+        digits: 1
+        unit: V
+        probe: battery
+        advisory: battery
+        severity: info
+        missing: skip
+        title: Pack voltage
+      - id: power.cell_voltage
+        kind: threshold
+        fact: battery.cell_v
+        warn: 3.5
+        fail: 3.3
+        unit: V
+        probe: battery
+        advisory: battery
+        severity: fail
+        title: Cell voltage
+        message: 'Lowest cell {value}'
+      - id: power.plausible
+        kind: threshold
+        fact: battery.plausible
+        expect: true
+        probe: battery
+        advisory: battery
+        severity: warn
+        missing: skip
+        title: Battery reading
+      # The FCU's charge estimate: its battery band is not validated on this pack, so it ships off.
+      # Set enabled: true here (or `override: {power.charge: {enabled: true}}` in ~/.config/mhseals/health.yaml).
+      - id: power.charge
+        enabled: false
+        kind: threshold
+        fact: battery.percent
+        warn: 30
+        fail: 15
+        digits: 0
+        unit: '%'
+        probe: battery
+        advisory: battery
+        severity: fail
+        missing: skip
+        title: Charge estimate
+  # Pre-water checks: `boat_trial check --require preflight` exits non-zero unless every one is OK
+  # (unknown never passes). Read only; nothing here moves a thruster. The `preflight` probe
+  # (ros/preflight.py) publishes driver.*, rc.*, gps.*, bag.active, orin.* and pwm.readback; the
+  # rest are other probes' facts judged at pre-water bands. Thresholds live only here.
+  Preflight:
+    joins:                  # other groups' checks that `--require preflight` also needs OK
+      - {id: fcu.link, profiles: [boat]}
+    checks:
+      # Thrusters. The driver runs only while armed: arm on the dock with the thrusters
+      # disconnected to read its status; disarmed these read unknown.
+      - id: pre.driver_config
+        kind: state
+        fact: driver.outputs
+        expect: [match]
+        severity: fail
+        profiles: [boat, crane_full_stack]
+        title: Driver pins
+        hint: 'The running driver against hardware.yaml pins (pwm_chips, pwm_channels, mosfet_*); unknown: arm first'
+      - id: pre.pwm_readback
+        kind: pwm_readback
+        severity: fail
+        profiles: [boat]
+        title: PWM readback
+        hint: Kernel sysfs settings of the configured pins; disarmed they must be off or neutral
+      - id: pre.mosfet
+        kind: state
+        fact: driver.mosfet
+        expect: ['on']        # quoted: bare on is YAML true
+        severity: fail
+        profiles: [boat]
+        title: MOSFET
+        hint: 'Armed, the ESC power MOSFET must be on; off means cut (e-stop) and none means no MOSFET configured'
+      - id: pre.estop
+        kind: state
+        fact: driver.estop
+        expect: [armed]
+        severity: fail
+        profiles: [boat]
+        title: RC e-stop
+        hint: 'The RC stop channel must be able to cut the MOSFET (estop_cuts_power) and not be latched; needs hw-estop-mosfet'
+      - id: pre.calib_dead
+        kind: threshold
+        fact: calibration.dead
+        below: false
+        warn: 0.5
+        fail: 0.5
+        severity: fail
+        title: Dead thruster direction
+        hint: Characterize got no response from a direction; unknown until a fit is stored
+
+      # Links
+      # The FCU link is fcu.link (sensors_fcu.yaml), counted in this group by `joins`.
+      - id: pre.rc
+        kind: state
+        fact: rc.link
+        expect: [valid]
+        severity: fail
+        profiles: [boat]
+        title: RC link
+        hint: /mavros/rc/in judged by the command mux rule (rc_max_age, 900-2100 us); bind and power the transmitter
+      - id: pre.mavros_extras
+        kind: endpoints
+        topic: /mavros/gps_rtk/send_rtcm
+        subscribers: [1, 10]
+        severity: fail
+        profiles: [boat]
+        title: mavros_extras (RTK)
+        hint: No gps_rtk subscriber means the mavros_extras plugins did not load; RTCM goes nowhere
+      - id: pre.gps_fix
+        kind: threshold
+        fact: gps.fix_type
+        fail: [3, 6]          # below a 3D fix: no water
+        warn: [5, 6]          # below RTK float: no precise tasks (docking, gates)
+        fmt: '{:.0f}'
+        probe: preflight
+        severity: fail
+        profiles: [boat]
+        title: GPS fix tier
+        hint: 3 3D, 4 DGPS, 5 RTK float, 6 RTK fixed; precise tasks need 5 or better
+
+      # Camera host (Orin): no RTC, chrony to blastoise. costmap_watchdog compares cross-host stamps
+      # with a 2 s limit, so 50 ms is far inside it.
+      - id: pre.orin_clock
+        kind: threshold
+        fact: perc.{source}.clock_offset
+        abs: true
+        below: false
+        warn: 0.03
+        fail: 0.05
+        unit: ' s'
+        severity: fail
+        title: Orin clock offset
+        hint: DDS source stamp of /perception/status against blastoise; fix chrony on the Orin
+        each:
+          - {source: zed_native, profiles: [boat]}
+      # The boat computers' clocks against each other and this computer (an operator's included), by
+      # chrony's NTP answer. A delay equal to a clock offset cancels in every stamp check: this is the guard.
+      - id: pre.clock_sync
+        kind: threshold
+        fact: clock.spread
+        below: false
+        warn: 0.03
+        fail: 0.05
+        unit: ' s'
+        probe: clock_sync
+        severity: fail
+        profiles: [boat]
+        title: Boat clocks agree
+        hint: 'Unknown: a host gave no NTP answer; run setup.linux.sh --components clock there (chrony), then astro-clock.py'
+      - {id: pre.orin_temp, kind: threshold, fact: orin.temp_max, below: false, warn: 70, fail: 85,
+         digits: 0, unit: ' C', probe: preflight, severity: fail, profiles: [boat], title: Orin temperature,
+         hint: 'host_diagnostic on the Orin publishes this; unknown means it is not running there'}
+      - {id: pre.orin_power, kind: state, fact: orin.power_mode, expect: [MAXN_SUPER], severity: warn,
+         profiles: [boat], title: Orin power mode, hint: 'sudo nvpmodel -m <MAXN_SUPER id> on the Orin'}
+      - {id: pre.orin_disk, kind: threshold, fact: orin.disk_free_gb, warn: 20, fail: 5, digits: 1,
+         unit: ' GB', probe: preflight, severity: fail, profiles: [boat], title: Orin free disk}
+
+      # Perception chain into the hold watchdog
+      - id: pre.watchdog
+        kind: nodes
+        require: [/costmap_watchdog]
+        severity: fail
+        profiles: [boat, crane_full_stack]
+        title: costmap_watchdog
+        hint: Starts with navigation on muxed profiles; without it a stale costmap never holds the boat
+      # Safety watchdogs (mhseals_nav watchdogs.launch.py): they start with the Odom stack on the boat
+      # itself (the odroid device profile's `with: [watchdogs]`). gates: [arm] refuses arming while
+      # one is off the graph, read live at the keypress (not debounced, not mutable); only
+      # `override: {pre.link_watchdog: {enabled: false}}` in ~/.config/mhseals/health.yaml lifts one.
+      - id: pre.{name}_watchdog
+        kind: nodes
+        require: ['/{name}_watchdog']
+        severity: fail
+        profiles: [boat]
+        gates: [arm]
+        title: '{name}_watchdog'
+        hint: 'Not on the graph: start the Odom stack on the boat (its launch brings the watchdogs)'
+        each:
+          - {name: link}
+          - {name: fcu}
+          - {name: fence}
+          - {name: ekf_input}
+      - id: pre.costmap.{source}
+        kind: threshold
+        fact: perc.{source}.costmap_age
+        below: false
+        warn: 0.5
+        fail: 1.0
+        unit: ' s'
+        severity: fail
+        title: /perception/costmap age
+        each:
+          - {source: zed_native, profiles: [boat]}
+          - {source: sim, profiles: [crane_full_stack]}
+      - id: pre.tracks.{source}
+        kind: threshold
+        fact: perc.{source}.tracker_hz
+        warn: 7
+        fail: 2
+        unit: ' Hz'
+        severity: fail
+        title: /perception/tracks rate
+        each:
+          - {source: zed_native, profiles: [boat]}
+          - {source: sim, profiles: [crane_full_stack]}
+
+      # Bags and disk
+      - {id: pre.recording, kind: threshold, fact: bag.active, expect: true, probe: preflight, severity: fail,
+         title: Recording, hint: Start lean recording in the TUI before leaving the dock}
+      - {id: pre.disk, kind: threshold, fact: host.disk_free_gb, warn: 30, fail: 10, digits: 1, unit: ' GB',
+         probe: host, severity: fail, title: Free disk (bags)}
+
+      # Battery: per cell from the FCU monitor. An implausible reading (the FCU supply's 6-6.8 V,
+      # a wrong BATT_VOLT_MULT or cell count) publishes no cell voltage, so this reads unknown.
+      - id: pre.battery
+        kind: threshold
+        fact: battery.cell_v
+        warn: 3.7
+        fail: 3.5
+        unit: ' V/cell'
+        probe: battery
+        severity: fail
+        profiles: [boat]
+        title: Battery voltage
+        hint: 'Unknown: the monitor reading is implausible for the pack (see the Power group); calibrate BATT_VOLT_MULT'
+  # ROS graph checks. The `graph` probe publishes the facts they read.
+  ROS graph:
+    checks:
+      - id: cmd.owner                         # two TUIs both commanding
+        kind: endpoints
+        topic: '{command_topic}'
+        publishers: [0, 1]
+        severity: fail
+        raise_after: 0
+        gates: [motion]
+        message: '{topic}: {count} publishers ({nodes})'
+        hint: Another boat_test or teleop is commanding; quit it or take over.
+      - {id: node.unique, kind: nodes, unique: true, severity: fail, raise_after: 3}
+      - id: tui.single                        # per-instance names hide a second TUI from node.unique
+        kind: nodes
+        count: {'/mhseals_testing_*': [0, 1]}
+        raise_after: 5                        # takeover overlaps briefly
+        severity: fail
+      - id: pub.{name}
+        kind: endpoints
+        publishers: [1, 1]
+        each:
+          - {name: ekf_local, topic: /odom/local, gates: [motion]}
+          - {name: mavros_state, topic: /mavros/state, gates: [motion]}
+          - {name: gps, topic: /gps/fix}
+          - {name: imu, topic: /imu/raw}
+          # the camera host's backend and tracker (perception v2); endpoints only, nothing is subscribed
+          - {name: observations, topic: /perception/observations, profiles: [boat]}
+          - {name: tracks, topic: /perception/tracks, profiles: [boat]}
+      - id: qos.{name}
+        kind: endpoints
+        qos: true
+        each:
+          - {name: odom, topic: /odom/local}
+          - {name: cmd, topic: '{command_topic}'}
+          - {name: rtcm, topic: /mavros/gps_rtk/send_rtcm, forbid_qos: [lifespan]}   # lifespan + skew drops RTCM
+          - {name: detections, topic: /detections}
+      - {id: type.detections, kind: endpoints, topic: /detections, type: true}
+      - id: node.camera                       # the camera host's ZED wrapper, not anything running here
+        kind: nodes
+        require: [/front/zed_node]
+        profiles: [boat]
+        hint: The camera host or its ZED container is down, or off domain 42; the Network row pings it.
+      - id: graph.legacy                      # a Foxy container on our domain
+        kind: nodes
+        legacy: true
+        severity: fail
+        message: '{count} graph problems'
+        hint: A Foxy/Humble container is on our domain; stop it or move it to another domain.
+  # RTK checks (gps.md 7.4). The rtk probe counts seconds_below_fixed only while the link is fresh.
+  RTK:
+    checks:
+      - id: rtk.converge
+        kind: threshold
+        fact: rtk.seconds_below_fixed
+        below: false
+        warn: 180
+        fail: 1000000000.0         # warn only: FLOAT that never converges is a warning, not a failure
+        unit: ' s'
+        severity: warn
+        show: [odometry]
+        missing: skip
+        raise_after: 0       # the 180 s is already the debounce
+        title: RTK convergence
+        message: 'Below FIXED for {value}'
+      - id: rtk.age
+        kind: threshold
+        fact: rtk.correction_age
+        warn: [0, 2]
+        fail: [0, 5]
+        severity: fail
+        unit: ' s'
+        show: [odometry]
+        missing: skip        # the base process reports the age; none before its first frame
+        raise_after: 0       # the 2 s and 5 s bands are already the debounce
+        title: RTK correction age
+      - id: rtk.flow
+        kind: threshold
+        fact: rtk.bytes_per_s
+        warn: [300, 1000000000.0]
+        unit: ' B/s'
+        show: [odometry]
+        missing: skip
+        title: RTK correction flow
+  # Flight controller, compass and GPS checks. The `fcu` probe (health/probes/fcu.py) and
+  # the `params` probe publish the facts. Read only: nothing here ever writes to the FCU.
+  FCU:
+    checks:
+      - {id: fcu.link, kind: threshold, fact: fcu.connected, expect: true, severity: fail,
+         gates: [motion], title: FCU link, hint: 'No MAVROS heartbeat; check the Cube USB and fcu_url'}
+      # fcu.mode lives in system.yaml (the flight controller advisory row)
+      - {id: fcu.armed, kind: threshold, fact: fcu.armed, expect: false, title: FCU armed,
+         hint: An armed FCU can also drive the outputs}
+      - id: fcu.params                       # 10-19: EK3_SRC1_YAW 1->8, COMPASS_USE 1->0
+        kind: params
+        node: /mavros/param
+        reference: '{share:mhseals_nav}/config/fcu/blastoise.param'
+        # blastoise.param is still the 10-22 as-found dump (8/0), not the target. This inline
+        # expect wins over it; drop it once mhseals_nav refreshes blastoise.param.
+        expect: {EK3_SRC1_YAW: 1, COMPASS_USE: 1}
+        names: [EK3_SRC1_YAW, COMPASS_USE, COMPASS_USE2, COMPASS_PRIO1_ID, ARMING_CHECK, GPS_INJECT_TO,
+                GPS1_TYPE, BATT_MONITOR]
+        severity: fail
+        title: FCU parameters
+        hint: Differs from blastoise.param; compare before any write
+      - id: compass.field                    # 2663 mG vs 875 max; Here4 horizontal ~238 mG
+        kind: threshold
+        fact: mag.field_mG
+        scale: 470                           # probes.fcu.wmm_total_mG
+        warn: [0.8, 1.25]
+        fail: [0.6, 1.8]
+        fmt: '{:.2f}×'
+        show: [rose, odometry]
+        missing: skip                        # until nav requests the mag stream
+        title: Compass field
+        hint: Run Magcal; if the ratio stays high, move the Here4 mast
+      - {id: compass.innovation, kind: threshold, fact: ekf.compass_variance, warn: [0, 0.5], fail: [0, 1.0],
+         show: [rose, odometry], missing: skip, title: Compass innovation}
+      - {id: gps.fix, kind: threshold, fact: gps.fix_type, fail: [3, 6], warn: [4, 6], fmt: '{:.0f}',
+         show: [odometry], title: GPS fix}                                   # 5 float, 6 fixed
+      - {id: gps.h_acc, kind: threshold, fact: gps.h_acc, warn: [0, 1.0], fail: [0, 3.0], unit: ' m',
+         show: [odometry], title: GPS accuracy}
+      - id: nav.speed_agreement              # 10-18: FCU 3.8 vs GPS 0.1 skewed the fits
+        kind: threshold
+        fact: nav.speed_disagreement
+        warn: [0, 0.5]
+        fail: [0, 1.5]
+        unit: ' m/s'
+        show: [odometry]
+        title: FCU vs GPS speed
+        hint: FCU pose speed disagrees with GPS ground speed; do not trust fits
+      - {id: imu.free_fall, kind: threshold, fact: imu.accel_norm, warn: [5.0, 20.0], fail: [2.0, 40.0],
+         unit: ' m/s²', missing: skip, title: IMU acceleration}
+      - id: battery.diag                     # MAVROS 'Battery' diagnostic, WARN "Low voltage" on the 6.0-6.8 V bag
+        kind: threshold
+        fact: battery.diag_level
+        warn: 0.5
+        fail: 1.5
+        below: false
+        fmt: '{:.0f}'
+        missing: skip
+        title: MAVROS battery
+        message: 'MAVROS: {label}'
+  # Computer, clock and flight controller. Each `advisory` is a dashboard System row.
+  System:
+    checks:
+      - {id: clock.offset, kind: threshold, fact: clock.stamp_offset, abs: true, below: false,
+         label_first: true, warn: 0.5, fail: 60, unit: s, probe: snapshot, advisory: clock, severity: fail,
+         title: Sensor clock offset}
+      - {id: compute.load, kind: threshold, fact: host.load, below: false, warn: 0.9, unit: ' load',
+         probe: host, advisory: compute, severity: warn, title: CPU load per core}
+      - {id: compute.temp, kind: threshold, fact: host.temp_max, below: false, warn: 75, fail: 85,
+         digits: 0, unit: °C, probe: host, advisory: compute, severity: fail, missing: skip,
+         title: Temperature}
+      - {id: compute.disk, kind: threshold, fact: host.disk_free_gb, warn: 5, fail: 1, digits: 1,
+         unit: ' GB free', probe: host, advisory: compute, severity: fail, title: Free disk}
+      - {id: fcu.connected, kind: threshold, fact: fcu.connected, expect: true, probe: fcu,
+         advisory: flight controller, severity: warn, title: FCU link}
+      - {id: fcu.disarmed, kind: threshold, fact: fcu.armed, expect: false, quiet: true,
+         probe: fcu, advisory: flight controller, severity: warn, missing: skip, title: FCU disarmed}
+      - {id: fcu.mode, kind: threshold, fact: fcu.mode, expect: [MANUAL, HOLD], probe: fcu,
+         advisory: flight controller, severity: warn, missing: skip, title: FCU mode}
+      # Recording (harness/recwatch.py publishes bag.*; free disk is compute.disk above).
+      - id: bag.off_armed
+        kind: threshold
+        fact: bag.off_armed
+        below: false
+        warn: 0.5
+        fail: 2
+        severity: warn
+        title: Recording off while armed
+        message: 'Armed with the recorder off'
+      - id: bag.unfinalized
+        kind: threshold
+        fact: bag.unfinalized
+        below: false
+        warn: 0.5
+        fail: 1000
+        severity: info
+        title: Unfinalized segments
+        message: '{value} segments lack metadata.yaml'
