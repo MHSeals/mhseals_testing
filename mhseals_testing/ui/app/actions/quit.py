@@ -1,7 +1,8 @@
 """Quitting: the confirm popup and closing every output, child and file in order."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
+from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing import calibration
 from mhseals_testing.annotate import manifest
@@ -47,9 +48,11 @@ class Quit:
             if pixels.WHY:      # an image setting that falls back says so once, with the reason
                 self.notice = f'Images off, braille: {pixels.WHY}'
             key_input.attach(keys, pixels.caps())
+            # The mouse after the probe (its replies come first): the wheel scrolls, a button confirms a hold.
+            mouse = key_input.Keys(keys) if isinstance(keys, KeyReader) and key_input.mouse_on() else nullcontext(keys)
             try:
-                with self.live_factory(self.render(), console=self.console, screen=True,
-                                       auto_refresh=False) as live:
+                with mouse as keys, self.live_factory(self.render(), console=self.console, screen=True,
+                                                      auto_refresh=False) as live:
                     self.keys, self.live = keys, live
                     try:
                         yield self

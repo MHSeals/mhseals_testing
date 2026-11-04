@@ -6,7 +6,16 @@
 # confirm_hold: seconds a key (or mouse button) is held to confirm. first_gap: the longest wait for
 # the first auto-repeat (the OS's initial delay); gap: between later repeats. Manual driving's
 # deadman stays mhseals_hardware's manual_repeat_timeout / manual_initial_timeout.
+# hold: the confirms that become hold-to-confirm (D-20261101-28): hold Enter, the action's own key or a
+# mouse button until the bar fills (confirm_hold, after the OS's repeat delay without kitty events); a
+# tap, a release or any other key cancels, and Space still stops at once. false keeps that action's popup
+# (y, or typed ARM on real pins). arm and release stay on their popups until after the 11-04 pool test.
+#   arm a, release U, take O (a viewer takes control), quit_armed q while armed
+# mouse: SGR mouse reports while the TUI runs: the wheel scrolls lists and popups (up/down) and a button
+# press-and-hold confirms a hold; Shift+drag still selects text in most terminals. Manual driving drops them.
 schema: mhseals.input/1
+hold: {arm: false, release: false, take: true, quit_armed: true}
+mouse: true
 terminals:
   kitty: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
   legacy: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
