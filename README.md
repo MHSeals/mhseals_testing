@@ -9,7 +9,7 @@ simulator. It drives [`mhseals_hardware`](https://github.com/mhseals/mhseals_har
 | --- | --- |
 | `tools/boat_tui up` / `view` / `restart` / `status` | The boat's TUI in `tmux -L boat`: start it, watch it, swap in new TUI code (the stack keeps running), who controls |
 | `tools/boat_tui sim [--seed N]` / `sim down` | Headless Unity sim and the TUI on it, for agents and quick checks |
-| `tools/boat_tui preview [REF] [--headless]` / `preview down` | The owner's preview of REF before a boat test: its own build, container and checklist |
+| `tools/boat_tui preview [up] [REF] [--headless]` / `preview down` | The owner's preview of REF before a boat test: its own build, container and checklist |
 | `ros2 run mhseals_testing boat_test [--profile P]` | The TUI itself (`boat`, `crane_full_stack`, `crane_direct`) |
 | `ros2 run mhseals_testing boat_trial ...` | Headless: `check`, `profiles`, `analyze`, `index`, `config`, and the agent verbs |
 | `tools/boat_agent <verb> --who ID` | Agents act on the boat or sim only through this ([Agents](#agents)) |

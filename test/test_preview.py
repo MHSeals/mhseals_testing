@@ -122,6 +122,10 @@ def test_boat_tui_preview_dry_run_and_test_needs_headless(tmp_path):
     test = subprocess.run([str(TOOLS / 'boat_tui'), 'preview', '--test', '--dry-run'], capture_output=True,
                           text=True, env=env, timeout=30)
     assert test.returncode == 2 and '--headless' in test.stderr
+    # an explicit up is the verb, never the ref (11-04: preview up snapshot the ref "up" into a fresh cache)
+    up = subprocess.run([str(TOOLS / 'boat_tui'), 'preview', 'up', 'field/x', '--dry-run'], capture_output=True,
+                        text=True, env=env, timeout=30)
+    assert up.returncode == 0 and 'field-x/ws' in up.stdout and '/up/' not in up.stdout, up.stderr
 
 
 @pytest.mark.parametrize('command, denied', [
