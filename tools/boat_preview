@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # boat_preview [up [REF] [--headless] [--test] [--dry-run] | down | attach | restart | status]: the owner's preview.
-#   up       REF (default origin/main; a branch, field branch or hypothesis ref) of the three packages, snapshot as
-#            git worktrees in ~/.cache/boat-preview/<ref>/ws and built there on /opt/ros alone (symlink-install, again
-#            only when a sha changed) in its own container roboboat_preview from the sim image; its own ROS_DOMAIN_ID, localhost
+#   up       REF (default: the workspace manifest; a branch, field branch or hypothesis ref) of the workspace's repos
+#            (its manifest: hw.sh hosts repos and astro_dock's submodule pins), snapshot as git worktrees in
+#            ~/.cache/boat-preview/<ref>/ws and built there by hw.sh build on /opt/ros alone (again only when a sha or
+#            the image changed) in its own container roboboat_preview from the dev image (hw.sh image); its own ROS_DOMAIN_ID, localhost
 #            discovery, endpoint port, tmux -L preview, home, data and run dirs. boat_test crane_full_stack with the
 #            checklist panel (W), then the Unity player WINDOWED on this display (--headless: xvfb). Runs as the
 #            reserved heavy preview slot, which agent Unity sims queue behind. Attaches when this is a terminal.
@@ -28,8 +29,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ "$test" = 1 ] && [ "$verb" = up ] && [ "$headless" = 0 ] && { echo 'boat_preview: --test runs only --headless' >&2; exit 2; }
+# the settings; resolved: with the workspace's dev image and manifest (docs/preview.md)
 settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test)) || exit 2
 eval "$settings"
+resolved() { settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test) --resolve "$@") || exit 2; eval "$settings"; }
 HEAVY=${BOAT_PREVIEW_HEAVY:-$PV_SRC/mhseals_agents/tools/heavy}   # the workspace heavy-job guard
 mkdir -p "$PV_CACHE"
 CURRENT=$PV_CACHE/current      # the running preview's root and ref
@@ -50,25 +53,16 @@ attach() {
   echo "boat_preview: attach: tmux -L $PV_SOCKET attach -t $PV_SESSION"
 }
 
-pinned() {   # the commit the workspace (the superproject of src/) pins REPO at, when REPO is its submodule
-  local top; top=$(git -C "$PV_SRC/.." rev-parse --show-toplevel 2>/dev/null) || return 1
-  git -C "$top" ls-tree HEAD "src/$1" 2>/dev/null | awk '$2 == "commit" {print $3; f=1} END {exit !f}'
-}
-
-snapshot() {   # each repo at REF (else origin/main) as a detached worktree; prints repo=sha ...
-  local repo src dst sha
-  for repo in $PV_REPOS; do timeout 30 git -C "$PV_SRC/$repo" fetch -q origin 2>/dev/null & done; wait
-  for repo in $PV_REPOS; do
+snapshot() {   # each repo of the manifest at REF where it has it, else at its manifest ref; prints repo=sha ...
+  local repo src dst sha plan
+  for repo in $PV_REPOS; do timeout 30 git -C "$PV_SRC/${repo%%=*}" fetch -q origin 2>/dev/null & done; wait
+  plan=$(python3 -m mhseals_testing.harness.preview plan "$REF") || exit 2
+  while read -r repo sha; do
     src=$PV_SRC/$repo dst=$WS/src/$repo
-    # REF where the repo has it; else a workspace submodule's pin (the superproject's gitlink, e.g. a ROS 2 fork
-    # branch, never its upstream's default); else origin/main
-    # (the default REF, origin/main, exists in a pinned repo too, so the pin wins unless REF was given explicitly)
-    if [ "$REF" = "$PV_REF" ] && sha=$(pinned "$repo"); then :
-    else sha=$(git -C "$src" rev-parse -q --verify "$REF^{commit}" || pinned "$repo" || git -C "$src" rev-parse origin/main); fi
     if [ -e "$dst/.git" ]; then git -C "$dst" checkout -q --force --detach "$sha"
     else git -C "$src" worktree prune; git -C "$src" worktree add -q --detach "$dst" "$sha"; fi
     printf '%s=%s ' "$repo" "$sha"
-  done
+  done <<< "$plan"
 }
 
 endpoint_port() {   # the snapshot's endpoint on the preview's port, so an agent sim on 6767 keeps it
@@ -95,25 +89,18 @@ container_up() {
     --entrypoint sleep "$PV_IMAGE" infinity >/dev/null
 }
 
-build() {   # colcon in the container, only when a sha changed since the last good build
-  local stamp=$1
+build() {   # hw.sh build (the workspace's build, from clean when the image changed), only when a sha or the image changed
+  local stamp; stamp="$1 $(docker inspect --format '{{.Image}}' "$PV_CONTAINER")"
   if [ "$(cat "$ROOT/built" 2>/dev/null)" = "$stamp" ] && [ -e "$WS/install/setup.bash" ]; then
     echo "boat_preview: build reused"; return
   fi
-  echo "boat_preview: building $REF (a few minutes the first time)"
+  echo "boat_preview: building ${REF:-the workspace manifest} (a few minutes the first time)"
   rm -f "$ROOT/built"
-  # a different image (a pull or rebuild) leaves CMake caches pointing at its old /opt/ros libraries
-  # (e.g. libfastcdr.so.2.2.7): build from clean whenever the image changed since the last build
-  local image; image=$(docker inspect --format '{{.Image}}' "$PV_CONTAINER" 2>/dev/null || true)
-  if [ -n "$image" ] && [ "$(cat "$ROOT/built-image" 2>/dev/null)" != "$image" ]; then
-    [ -d "$WS/build" ] && echo "boat_preview: the image changed; building from clean"
-    rm -rf "$WS/build" "$WS/install" "$WS/log"
-  fi
-  # only /opt/ros under the snapshot: no other workspace leaks stale packages into its install chain
-  docker exec "$PV_CONTAINER" bash -c ". /opt/ros/jazzy/setup.bash;
-    colcon build --symlink-install --base-paths src --cmake-args -DBUILD_TESTING=OFF" > "$RUN/build.log" 2>&1 \
+  # only /opt/ros under the snapshot (it has no dev.bashrc): no other workspace leaks into its install chain
+  ASTRO_BUILD_CLEAN_UNSTAMPED=1 ASTRO_BUILD_TAIL=0 "$PV_WORKSPACE/hw.sh" build --ws "$IN/ws" --container "$PV_CONTAINER" \
+    > "$RUN/build.log" 2>&1 \
     || { echo "boat_preview: build failed, see $RUN/build.log" >&2; tail -n 15 "$RUN/build.log" >&2; exit 1; }
-  echo "$stamp" > "$ROOT/built"; [ -n "$image" ] && echo "$image" > "$ROOT/built-image"
+  echo "$stamp" > "$ROOT/built"
 }
 
 player() {   # windowed on this display, or headless under xvfb with --headless; the course of the sim's seed
@@ -150,7 +137,8 @@ session() {
   trap down EXIT; trap 'exit 143' INT TERM
   rm -f "$RUN/stop" "$RUN/failed" "$QUEUED"; echo $$ > "$RUN/session.pid"
   printf '%s\n%s\n' "$ROOT" "$REF" > "$CURRENT"
-  echo "boat_preview: snapshot of $REF"
+  resolved --pull     # the workspace's image (newer from the registry first) and manifest
+  echo "boat_preview: snapshot of ${REF:-the workspace manifest}"
   stamp=$(snapshot); echo "boat_preview: $stamp"
   endpoint_port
   python3 -m mhseals_testing.harness.preview checklist "$WS" "$RUN/checklist.json" "$REF" $([ "$test" = 1 ] && echo --test)
@@ -180,11 +168,11 @@ session() {
 
 case $verb in
   up)
-    [ -x "$PV_PLAYER" ] || { echo "boat_preview: no player at $PV_PLAYER (config/sim/stack.yaml player)" >&2; exit 2; }
-    [ "$dry" = 1 ] || [ -n "$PV_IMAGE" ] || { echo "boat_preview: no dev container image here matching config/sim/stack.yaml image_match: build the dev container first" >&2; exit 2; }
+    [ -x "$PV_PLAYER" ] || { echo "boat_preview: no player at $PV_PLAYER; install the crane_ml player there, or set BOAT_PREVIEW_PLAYER=/path/CRANE.x86_64 (config/sim/stack.yaml player)" >&2; exit 2; }
+    resolved
     slot=preview; [ "$test" = 1 ] && slot=unity
     if [ "$dry" = 1 ]; then
-      echo "boat_preview: would run under $HEAVY $slot: $REF of $PV_REPOS in $WS, container $PV_CONTAINER ($PV_IMAGE)," \
+      echo "boat_preview: would run under $HEAVY $slot: ${REF:-the workspace manifest} of $PV_REPOS in $WS, built by $PV_WORKSPACE/hw.sh build, container $PV_CONTAINER ($PV_IMAGE)," \
            "domain $PV_DOMAIN, port $PV_PORT, boat_test --profile $PV_PROFILE in tmux -L $PV_SOCKET session $PV_SESSION," \
            "player $([ "$headless" = 1 ] && echo headless || echo windowed), checklist since $PV_SINCE"
       exit 0

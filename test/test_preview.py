@@ -30,7 +30,8 @@ def test_settings_share_the_sim_and_test_has_its_own_everything():
     test = preview.settings(test=True, environ={'BOAT_PREVIEW_PORT': '7000'})
     assert test['container'] != values['container'] and test['socket'] != values['socket']
     assert test['domain'] != values['domain'] and test['results'] == '' and test['port'] == '7000'
-    assert "PV_REPOS='mhseals_hardware mhseals_nav mhseals_testing ros_tcp_endpoint'" in preview.shell(values)
+    assert 'repos' not in values and values['ref'] == ''    # the workspace manifest (test_workspace_derivation)
+    assert not values['runbook'].startswith('{src}') and values['runbook'].startswith(values['src'])
     assert 'PV_BASE' not in preview.shell(values)   # built on /opt/ros alone, no stale underlay
     assert 'PV_CHECKS' not in preview.shell(values)
 

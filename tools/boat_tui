@@ -47,7 +47,7 @@ run() {
     client=$1; shift
     args=''; for arg in "$@"; do args="$args $(q "$arg")"; done
     if [ -n "$container" ]; then
-        inner=". /opt/ros/jazzy/setup.bash && . install/setup.bash && exec ros2 run mhseals_testing boat_test$args"
+        inner=". /opt/ros/\$ROS_DISTRO/setup.bash && . install/setup.bash && exec ros2 run mhseals_testing boat_test$args"
         printf 'docker exec -it%s -e BOAT_TUI_CLIENT=%s -e BOAT_TUI_FROM=%s %s bash -c %s' "$hints" \
             "$(q "$client")" "$(q "$from")" "$(q "$container")" "$(q "$inner")"
     else
@@ -163,7 +163,7 @@ case $verb in
             | grep -E "^$session(-|  )" || echo "no $session sessions on $host"
         if [ -n "$container" ]; then
             docker exec -i "$container" bash -c \
-                '. /opt/ros/jazzy/setup.bash && . install/setup.bash && exec python3 -m mhseals_testing.harness.control'
+                '. /opt/ros/$ROS_DISTRO/setup.bash && . install/setup.bash && exec python3 -m mhseals_testing.harness.control'
         else
             python3 -m mhseals_testing.harness.control
         fi

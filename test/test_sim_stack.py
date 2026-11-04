@@ -47,10 +47,14 @@ pytestmark = pytest.mark.smoke   # tools/smoke
 
 def test_the_image_and_player_are_found_on_this_machine_never_written_down(tmp_path):
     shipped = (TOOLS.parent / 'config/sim/stack.yaml').read_text()
-    assert 'image: auto' in shipped and 'uid:latest' not in shipped
+    assert 'image: auto' in shipped and 'uid:latest' not in shipped and 'image_match' not in shipped
+    values = sim_stack.settings(environ={})
+    assert values['image'] == 'auto'                       # resolved by the workspace (hw.sh image), not here
     seen = []
-    values = sim_stack.settings(environ={}, image=lambda match: seen.append(match) or 'vsc-ws-abc-uid:latest')
-    assert values['image'] == 'vsc-ws-abc-uid:latest' and seen == ['vsc-astro_dock-*-uid']
+    found = sim_stack.resolve(values, tmp_path, image=lambda root, pull: seen.append((root, pull)) or 'img:x',
+                              repos=lambda root, roles: [('repo_a', 'origin/main')])
+    assert found['image'] == 'img:x' and seen == [(tmp_path, False)] and found['repos'] == [('repo_a', 'origin/main')]
+    assert "SIM_REPOS=repo_a=origin/main" in sim_stack.shell(found)
     cluster = tmp_path / 'players/CRANE-Worker-Linux'
     cluster.mkdir(parents=True)
     (cluster / 'CRANE-Worker-Linux.x86_64').write_text('#!/bin/sh\n')
@@ -58,6 +62,5 @@ def test_the_image_and_player_are_found_on_this_machine_never_written_down(tmp_p
     gone = str(tmp_path / 'phase1/CRANE.x86_64')
     assert sim_stack.first_player([gone, str(cluster)]) == str(cluster / 'CRANE-Worker-Linux.x86_64')
     assert sim_stack.first_player([gone]) == gone                  # nothing here: the message names the first
-    values = sim_stack.settings(environ={'BOAT_SIM_PLAYER': f'{gone}:{cluster}'}, image=lambda m: '')
-    assert values['player'].endswith('CRANE-Worker-Linux.x86_64') and values['image'] == ''
-    assert sim_stack.local_image('x', run=lambda *a, **k: (_ for _ in ()).throw(OSError())) == ''
+    values = sim_stack.settings(environ={'BOAT_SIM_PLAYER': f'{gone}:{cluster}'})
+    assert values['player'].endswith('CRANE-Worker-Linux.x86_64')

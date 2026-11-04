@@ -1,10 +1,13 @@
 """boat_tui preview's settings and sanity checklist (tools/boat_preview). ROS-free.
 
-    python3 -m mhseals_testing.harness.preview env [--test]        # PV_KEY=... lines for the script to eval
+    python3 -m mhseals_testing.harness.preview env [--test] [--resolve [--pull]]  # PV_KEY=... lines for the script
     python3 -m mhseals_testing.harness.preview slug REF             # REF as a cache directory name
+    python3 -m mhseals_testing.harness.preview plan [REF]           # "repo sha" per repo of the snapshot
     python3 -m mhseals_testing.harness.preview checklist WS OUT [REF]  # the checklist of the snapshot workspace WS as JSON
 
 config/preview.yaml over config/sim/stack.yaml; ``test:`` over both with --test; ``BOAT_PREVIEW_<KEY>`` wins.
+What the workspace knows is never written here (docs/preview.md): ``src`` is the workspace's src/ (sim_stack.src_dir),
+``--resolve`` adds its dev image and its manifest's repos (sim_stack.resolve), and the build is ``hw.sh build``.
 The checklist: ``checks``, the runbook's "before a test" items, and the commits landed since ``since`` (a date or a
 ref) in each repo of the snapshot, grouped by feature (``feature``).
 The TUI's checklist panel (ui/panels/checklist.py) reads it and appends each mark with ``result_line``.
@@ -25,7 +28,8 @@ from mhseals_testing.harness import sim_stack
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'preview.yaml'
 PATHS = ('src', 'cache', 'runbook', 'results')
-SHARED = ('player', 'image', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')
+MANIFEST = 'manifest'      # the slug of no REF: each repo at the workspace manifest's ref
+SHARED = ('player', 'image', 'roles', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}$')
 MARKS = ('pass', 'fail', 'note')
 BOAT_DOMAINS = (42, 142)   # the fleet's (harness/mission.py), never a preview's
@@ -41,9 +45,40 @@ def settings(test=False, path=CONFIG, environ=None):
     out.update(found)
     if test:
         out.update(overlay)
+    src = environ.get('BOAT_PREVIEW_SRC') or str(sim_stack.src_dir(environ))
+    out['src'] = src
     for key, value in list(out.items()):
         value = environ.get(f'BOAT_PREVIEW_{key.upper()}', value)
+        if key == 'roles' and isinstance(value, str):
+            value = value.replace(',', ' ').split()
+        if isinstance(value, str) and key in PATHS:
+            value = value.replace('{src}', src)
         out[key] = os.path.expanduser(str(value)) if key in PATHS + sim_stack.PATHS and value else value
+    return out
+
+
+def plan(ref, repos, src, run=subprocess.run):
+    """``[(repo, sha)]`` of the snapshot: each repo at ``ref`` where it has it (an explicit REF), else at its
+    manifest ref (``origin/<branch>`` or astro_dock's pin, ``sim_stack.manifest``). A pinned repo takes REF only
+    when REF descends from its pin (an upstream's own main, e.g. ROS-TCP-Endpoint's ROS 1 one, never does). Missing
+    names the fix."""
+    out = []
+    for repo, pinned in repos:
+        git = ['git', '-C', str(Path(src) / repo)]
+        sha = None
+        for want in ([ref] if ref else []) + [pinned]:
+            done = run([*git, 'rev-parse', '-q', '--verify', f'{want}^{{commit}}'], capture_output=True, text=True,
+                       timeout=20)
+            found = done.stdout.strip() if done.returncode == 0 else ''
+            if found and want != pinned and re.fullmatch(r'[0-9a-f]{40}', pinned) and run(
+                    [*git, 'merge-base', '--is-ancestor', pinned, found], capture_output=True, timeout=20).returncode:
+                found = ''
+            if found:
+                sha = found
+                break
+        if sha is None:
+            raise sim_stack.Missing(f'{repo} has no {pinned} here; git -C {Path(src) / repo} fetch origin')
+        out.append((repo, sha))
     return out
 
 
@@ -118,7 +153,8 @@ def runbook_items(text, heading=r'before a (boat )?test'):
 
 def checklist(values, ws, ref):
     """The checklist of the snapshot workspace ``ws`` (src/<repo> worktrees) for ``ref``."""
-    found = {repo: commits(Path(ws) / 'src' / repo, values['since']) for repo in values['repos']}
+    repos = sorted(p.name for p in (Path(ws) / 'src').iterdir() if (p / '.git').exists())   # the snapshot's
+    found = {repo: commits(Path(ws) / 'src' / repo, values['since']) for repo in repos}
     try:
         runbook = runbook_items(Path(values['runbook']).read_text())
     except OSError:
@@ -147,9 +183,8 @@ def header_line(ref, at=None):
 
 
 def shell(values):
-    """``PV_KEY='value'`` lines; a list is space-joined; nested values (checks) are left out."""
-    return '\n'.join(f"PV_{key.upper()}={shlex.quote(' '.join(map(str, v)) if isinstance(v, list) else str(v))}"
-                     for key, v in values.items() if not (isinstance(v, list) and v and isinstance(v[0], dict)))
+    """``PV_KEY='value'`` lines; a list is space-joined (repos as ``name=ref``); nested values (checks) are left out."""
+    return sim_stack.shell(values, prefix='PV')
 
 
 def main(argv):
@@ -161,10 +196,26 @@ def main(argv):
         if refused:
             print(f'boat_preview: refused: {refused}', file=sys.stderr)
             return 2
-        print(shell(values))
+        try:
+            root = sim_stack.workspace(values['src'])
+            if '--resolve' in argv:
+                values = sim_stack.resolve(values, root, pull='--pull' in argv)
+        except sim_stack.Missing as error:
+            print(f'boat_preview: {error}', file=sys.stderr)
+            return 2
+        print(shell(dict(values, workspace=str(root))))
         return 0
     if argv[:1] == ['slug'] and len(argv) == 2:
-        print(slug(argv[1]))
+        print(slug(argv[1]) if argv[1] else MANIFEST)
+        return 0
+    if argv[:1] == ['plan'] and len(argv) in (1, 2):
+        try:
+            repos = sim_stack.manifest(sim_stack.workspace(values['src']), values.get('roles') or [])
+            found = plan(argv[1] if len(argv) == 2 else '', repos, values['src'])
+        except sim_stack.Missing as error:
+            print(f'boat_preview: {error}', file=sys.stderr)
+            return 2
+        print('\n'.join(f'{repo} {sha}' for repo, sha in found))
         return 0
     if argv[:1] == ['checklist'] and len(argv) in (3, 4):
         made = checklist(values, argv[1], argv[3] if len(argv) == 4 else values['ref'])

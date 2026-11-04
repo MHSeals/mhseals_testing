@@ -1,9 +1,9 @@
 # boat_tui preview (tools/boat_preview): the owner's look at a ref's sim stack and TUI before a boat test, isolated
-# from agents' work. Player, image, profile, command_mode, course_family, seed, ready_s and max_s come from
-# config/sim/stack.yaml unless set here. Each key may be overridden by BOAT_PREVIEW_<KEY>; paths may start with ~.
-ref: origin/main                     # the default REF
-src: ~/astro_dock/src                # the checkouts the snapshot's worktrees come from
-repos: [mhseals_hardware, mhseals_nav, mhseals_testing, ros_tcp_endpoint]   # REF where a repo has it, else origin/main
+# from agents' work. Player, image, roles (the repos), profile, command_mode, course_family, seed, ready_s and max_s
+# come from config/sim/stack.yaml unless set here. Each key may be overridden by BOAT_PREVIEW_<KEY>; paths may start
+# with ~ or {src}. The workspace's own facts are derived, never written here (docs/preview.md): its src/ (the main
+# clone's; BOAT_PREVIEW_SRC), the repos and commits (its manifest), the image (hw.sh image) and the build (hw.sh build).
+ref: ''                              # the default REF: '' is each repo at the manifest's (origin/<branch>, a submodule's pin)
 cache: ~/.cache/boat-preview         # <ref>/ws (worktrees, build, install), home, data, run
 container: roboboat_preview          # its own container from the sim image; mounts only <ref>, config and results
 socket: preview                      # tmux -L preview
@@ -16,8 +16,8 @@ connect_s: 3                         # from the endpoint process to starting the
 # The sanity checklist: commits landed since `since` (a date or a ref), grouped by feature, the runbook's
 # "before a test" items and these checks. Results append to results/preview-<date>.md.
 since: '2026-11-01'
-runbook: ~/astro_dock/src/mhseals_agents/runbooks/field.md
-results: ~/astro_dock/src/mhseals_agents/state
+runbook: '{src}/mhseals_agents/runbooks/field.md'
+results: '{src}/mhseals_agents/state'
 checks:
   - {id: arm, text: 'Arming countdown shows and cancels: a, then cancel before it ends; nothing moves, disarmed'}
   - {id: fence, text: 'Course fence: the corners on the minimap match the course'}

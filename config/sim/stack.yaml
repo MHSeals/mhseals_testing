@@ -5,8 +5,8 @@ player:                                               # a crane_ml Linux player 
   - ~/.cache/crane-cluster/players/CRANE-Worker-Linux # the cluster-installed player (a directory: its *.x86_64)
 run: ~/.cache/boat-sim                                # pid files, logs, the domain, the course truth
 container: boat_sim                                   # its own private-IPC container (never crane's crane_autodemo)
-image: auto                                           # this machine's newest dev container image matching image_match
-image_match: vsc-astro_dock-*-uid                     # Dev Containers' name for the workspace's image
+image: auto                                           # the workspace's dev image (hw.sh image --local); a name pins one
+roles: [boat_computer]                                # the repos built: hw.sh hosts repos --role (repos.all and these roles') and astro_dock's submodules
 overlay: ~/.cache/boat-sim/ws                         # the container's workspace (src/, install/), built there on /opt/ros alone
 profile: crane_full_stack
 command_mode: velocity                               # boat_test --set command_mode: effort for characterization (f)
