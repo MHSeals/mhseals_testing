@@ -33,10 +33,15 @@ def test_rose_is_9_by_21_north_up_with_the_hull_at_the_centre():
     assert all('⠀' < ch <= '⣿' for ch in rows[4][9:12])   # the hull in braille dots, not blocks
 
 
-@pytest.mark.parametrize('k', range(16))
-def test_hull_is_dots_with_its_foremost_quarter_the_bow(k):
+def test_hull_is_dots_with_its_foremost_quarter_the_bow():
     """Every 22.5 deg: the map's pentagon, the bow dots all ahead of the body's, worn in the bow token,
     and no block glyph anywhere (the image tier's solid hull, in dots)."""
+    for k in range(16):
+        _hull_is_dots(k)
+    assert plain(conditions.rose(heading=0)) != plain(conditions.rose(heading=90))   # it turns
+
+
+def _hull_is_dots(k):
     dots = conditions.hull_dots(k * 22.5)
     fx, fy = conditions._polar(k * 22.5, 1.0)
     bow = [x * fx + y * fy for x, y, layer in dots if layer == conditions.BOW]
@@ -45,7 +50,6 @@ def test_hull_is_dots_with_its_foremost_quarter_the_bow(k):
     rows = conditions.rose(heading=k * 22.5)
     assert not set(''.join(plain(rows))) & set('▘▝▀▖▌▞▛▗▚▐▜▄▙▟█')
     assert not theme.MUTED or styles(rows) >= {conditions._token('bow', theme.ACCENT)}
-    assert plain(conditions.rose(heading=0)) != plain(conditions.rose(heading=90))   # it turns
 
 
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode rose')
@@ -76,9 +80,10 @@ def test_unreliable_yaw_turns_the_hull_warn():
     assert not theme.WARN or (theme.WARN not in styles(ok) and theme.WARN in styles(bad))   # mono: plain
 
 
-@pytest.mark.parametrize('heading', (None, 0, 30, 135, 247))
-@pytest.mark.parametrize('command', ((0.1, 0, 0), (0.5, 0, 0), (0.6, 0.0, 0.2), (0.5, 0.29, 0),
-                                     (0, -0.5, 0), (-0.4, 0.4, -0.5), (2.0, 0, 0)))
+# each command once, the headings in turn (the rose rotates the same way for every command: no cross product)
+@pytest.mark.parametrize('command, heading', [
+    ((0.1, 0, 0), None), ((0.5, 0, 0), 0), ((0.6, 0.0, 0.2), 30), ((0.5, 0.29, 0), 135),
+    ((0, -0.5, 0), 247), ((-0.4, 0.4, -0.5), None), ((2.0, 0, 0), 30)])
 def test_the_command_is_one_icon_in_the_drivers_hue(command, heading):
     """No shaft: braille dots in the hue, or one arrow glyph in ASCII; size never changes the icon."""
     rows = conditions.rose(heading=heading, command=command, amplitude=0.5, hue='magenta')[1:]   # row 0: ↑bow, spin
@@ -97,9 +102,13 @@ def _letters():
             for dx, dy in (conditions._polar(t, conditions.RADIUS) for t in (0, 90, 180, 270))}
 
 
-@pytest.mark.parametrize('k', range(16))
-def test_every_icon_stays_inside_the_ring_clear_of_letters_and_hull(k):
+def test_every_icon_stays_inside_the_ring_clear_of_letters_and_hull():
     """All 16 bearings: each dot inside the canvas and the tick ring, none in N/E/S/W or the corner."""
+    for k in range(16):
+        _icon_stays_inside_the_ring(k)
+
+
+def _icon_stays_inside_the_ring(k):
     shape, (ox, oy) = conditions.command_icon(k)
     cx, cy = conditions.CENTRE
     cells = {((cx + ox + x) // 2, (cy + oy + y) // 4) for x, y in shape}
@@ -115,9 +124,13 @@ def test_every_icon_stays_inside_the_ring_clear_of_letters_and_hull(k):
         assert all('⠀' <= rose[row].plain[col] <= '⣿' for col, row in cells)
 
 
-@pytest.mark.parametrize('k', range(16))
-def test_icon_is_whole_in_the_rendered_rose_and_panel(k):
-    """The icon's dots all reach the screen at the narrowest full panel; ASCII puts its glyph inside too."""
+def test_icon_is_whole_in_the_rendered_rose_and_panel():
+    """All 16 bearings: the icon's dots reach the screen at the narrowest full panel; ASCII puts its glyph inside."""
+    for k in range(16):
+        _icon_is_whole(k)
+
+
+def _icon_is_whole(k):
     rel = math.radians(k * 22.5)
     rows = conditions.rose(heading=0, command=(0.5 * math.cos(rel), -0.5 * math.sin(rel), 0), amplitude=0.5, hue='magenta')
     from rich.console import Console

@@ -244,10 +244,14 @@ def test_readiness_and_tracking_models():
     assert t['rows'][0][:3] == ('surge', '91%', '90%') and t['notes'] == ['stale: sway falling trend']
 
 
+# each source gets a bool, a non-number and a non-finite or overflowing value, and every kind of bad value
+# reaches some source (each case builds a whole app: no cross product)
 @pytest.mark.parametrize('source,bad', [
-    (source, bad) for source in ('overall', 'direction', 'live', 'saved')
-    for bad in (True, False, '0.9', [], {}, float('nan'), float('inf'), -float('inf'), 10 ** 400)
-] + [(source, 1e308) for source in ('overall', 'direction', 'live')])
+    ('overall', True), ('overall', '0.9'), ('overall', float('nan')), ('overall', 1e308),
+    ('direction', False), ('direction', []), ('direction', float('inf')), ('direction', 1e308),
+    ('live', True), ('live', {}), ('live', -float('inf')), ('live', 10 ** 400), ('live', 1e308),
+    ('saved', False), ('saved', '0.9'), ('saved', float('nan')), ('saved', 10 ** 400),
+])
 def test_app_correction_renders_unknown_for_malformed_percentages(tmp_path, bad, source):
     app = tab_app(tmp_path)
     water = dict(verdict='marginal', ceiling=.66)
