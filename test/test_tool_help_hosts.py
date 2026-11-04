@@ -65,3 +65,19 @@ def test_a_vessel_name_targets_its_registry_tui_host(env):
 def test_boat_tui_host_prints_the_registry_tui_host(env):
     out = subprocess.run([str(TOOLS / 'boat_tui'), 'host'], capture_output=True, text=True, env=env)
     assert out.returncode == 0 and out.stdout.strip() == 'vesselq-brain'
+
+
+def test_ui_and_tools_name_no_registry_host_and_no_ip():
+    """Hardware is never hardcoded (D-20261104-03): no workspace registry host or vessel name and no IPv4
+    literal (loopback and any-address aside) in the TUI or the tools; config and test fixtures may."""
+    import re
+    hosts = real_hosts(workspace())
+    ip = re.compile(r'\b(?!127\.0\.0\.1\b|0\.0\.0\.0\b)(?:\d{1,3}\.){3}\d{1,3}\b')
+    root = TOOLS.parent
+    files = [p for p in (root / 'mhseals_testing/ui').rglob('*.py')] + [p for p in TOOLS.iterdir() if p.is_file()]
+    found = []
+    for path in files:
+        text = path.read_text(errors='replace')
+        found += [f'{path.relative_to(root)}: {h}' for h in hosts if re.search(rf'(?<![\w-]){re.escape(h)}(?![\w-])', text)]
+        found += [f'{path.relative_to(root)}: {m}' for m in ip.findall(text)]
+    assert not found, found
