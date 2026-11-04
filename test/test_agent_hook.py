@@ -384,7 +384,11 @@ def no_ssh(monkeypatch):
     """Any ssh the hook would start is recorded instead."""
     import subprocess as sp
     started = []
-    monkeypatch.setattr(sp, 'Popen', lambda args, **kw: started.append(args) or (_ for _ in ()).throw(OSError('no')))
+    def popen(args, **kw):   # record ssh launches only (the start brief may run devices/deps.sh check); start nothing
+        if 'ssh' in Path(str(args[0] if isinstance(args, (list, tuple)) else args).split()[0]).name:
+            started.append(args)
+        raise OSError('no')
+    monkeypatch.setattr(sp, 'Popen', popen)
     return started
 
 
