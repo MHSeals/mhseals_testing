@@ -2,6 +2,7 @@ import io
 import math
 
 import pytest
+from rich.text import Text
 from rich.cells import cell_len
 
 from mhseals_testing.ui import theme
@@ -305,3 +306,30 @@ def test_the_sea_row_leads_with_speed_over_ground_in_its_band():
     row = conditions.sea_row(info, 0.42)
     assert row.plain.startswith('sog .42 m/s') and 'floor' in row.plain
     assert conditions.sea_row(info).plain.startswith('floor')
+
+
+def test_the_ring_glows_toward_the_nearest_lidar_point_within_range():
+    assert conditions.glow({'range': 2.0, 'bearing': 90.0}, 30.0) == (120.0, True)    # world-up: heading + bow bearing
+    assert conditions.glow({'range': 6.0, 'bearing': 0.0}, 0.0) == (0.0, False)
+    assert conditions.glow({'range': 20.0, 'bearing': 0.0}, 0.0) is None              # nothing close
+    assert conditions.glow({'range': 2.0, 'bearing': None}, 0.0) is None
+    near = conditions.rose(heading=0.0, nearby={'range': 2.0, 'bearing': 90.0})
+    assert plain(near) != plain(conditions.rose(heading=0.0))
+    if not theme.ASCII:
+        assert any(theme.BAD in str(span.style) for row in near for span in row.spans)
+
+
+def test_the_image_rose_paints_the_glow_in_the_fail_hue(monkeypatch):
+    from mhseals_testing.ui import imaging as pixels
+    painted = {}
+    monkeypatch.setattr(pixels, 'active', lambda: True)
+    monkeypatch.setattr(pixels, 'surface', lambda name, paint, cols, rows, **kw: painted.update(paint=paint, key=kw['key'])
+                        or [[(' ', None)] * cols for _ in range(rows)])
+    monkeypatch.setattr(pixels, 'text_rows', lambda grid, text: [Text('')] * conditions.ROSE_ROWS)
+    counts = []
+    for nearby in (None, {'range': 2.0, 'bearing': 90.0}):
+        conditions.rose(heading=0.0, nearby=nearby)
+        raster = pixels.Raster(conditions.ROSE_COLS, conditions.ROSE_ROWS)
+        painted['paint'](raster)
+        counts.append(len(set(map(int, raster.px.ravel()))))
+    assert counts[1] > counts[0]                                    # one more ink: the glow

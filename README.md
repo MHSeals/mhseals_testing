@@ -65,7 +65,8 @@ Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Ac
 
 Held-key combos (Conditions reads `keys·combos`, else `keys·one key`) need the Kitty keyboard protocol (Kitty,
 Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
-Conditions `sog` readout and the minimap trail run calm grey to hot magenta. Glyphs carry every state
+Conditions `sog` readout and the minimap trail run calm grey to hot magenta. The Conditions ring glows red toward the nearest lidar point
+(/perception/nearby) inside 8 m, wider and bold inside 3 m. Glyphs carry every state
 (✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.
 
 ## Procedures

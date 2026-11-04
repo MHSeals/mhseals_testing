@@ -54,8 +54,12 @@ EIGHTHS = ' ▏▎▍▌▋▊▉█'       # left-aligned fills; a bar growing 
 BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
         (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 # Rose layers, highest first: a cell takes the hue of its strongest dot.
-BOW, BOAT, COMMAND, YAW, DRIFT, TICK = range(6)
-ASCII_DOTS = '#o.(:.'       # the ASCII cell per layer
+BOW, BOAT, COMMAND, YAW, DRIFT, GLOW, TICK = range(7)
+ASCII_DOTS = '#o.(:*.'      # the ASCII cell per layer
+# The proximity glow (/perception/nearby): an arc on the ring toward the nearest lidar point, inside GLOW_FAR m;
+# inside GLOW_NEAR it is wider, two dots deep and bold. Half-widths in degrees.
+GLOW_NEAR, GLOW_FAR = 3.0, 8.0
+GLOW_SPAN = {True: 30.0, False: 15.0}
 BOW_SHARE = 0.25            # the hull's foremost quarter wears the bow hue (both tiers)
 
 
@@ -134,15 +138,32 @@ def _token(name, fallback):
         return fallback
 
 
-def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0), amplitude=1.0, hue=''):
+def glow(nearby, up):
+    """``(screen bearing, near)`` of the proximity glow, or None: nothing within GLOW_FAR, or no bearing.
+
+    ``nearby`` is ``{range, bearing}`` (degrees clockwise from the bow); ``up`` is the bow's screen bearing."""
+    if not nearby or nearby.get('bearing') is None or nearby.get('range') is None or nearby['range'] > GLOW_FAR:
+        return None
+    return (up + nearby['bearing']) % 360, nearby['range'] <= GLOW_NEAR
+
+
+def _glow_bearings(shown, step):
+    centre, near = shown
+    span = GLOW_SPAN[near]
+    return [centre + offset for offset in np.arange(-span, span + step / 2, step)]
+
+
+def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0), amplitude=1.0, hue='',
+         nearby=None):
     """The 9 x 21 rose as Text rows: north up, or bow up (``↑bow``) while ``heading`` is None.
 
     ``drift`` is the world velocity (east, north) in m/s, ``heading`` the compass bearing in degrees
     and ``command`` the body (surge, sway, yaw) against ``amplitude``. Without a heading the command
-    is drawn in the body frame and the world drift is hidden, never mixed in.
+    is drawn in the body frame and the world drift is hidden, never mixed in. ``nearby`` (the nearest lidar
+    point) lights the ring toward it in the fail hue (``glow``).
     """
     if pixels.active():
-        return _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue)
+        return _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby)
     dots, glyphs = {}, {}
     cx, cy = CENTRE
     up = heading if heading is not None else 0.0     # the bow's screen bearing
@@ -160,6 +181,10 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
 
     for step in range(16):
         ray(step * 22.5, RADIUS - (step % 4 == 2), RADIUS, TICK)   # a longer tick on the intercardinals
+    lit = glow(nearby, up)
+    if lit is not None:
+        for bearing in _glow_bearings(lit, 3.0):
+            ray(bearing, RADIUS - 1 if lit[1] else RADIUS, RADIUS, GLOW)
     if heading is None:
         for col, char in enumerate(theme.pick('↑bow', '^bow')):
             glyphs[(ROSE_COLS // 2 - 1 + col, 0)] = (char, 'bold')
@@ -199,8 +224,10 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
 
     # the body in slate sits with the frames, as in the image tier; ASCII keeps the brighter boat token
     boat = (_token('boat', 'bold') if theme.ASCII else _token('slate', '')) if yaw_ok else theme.WARN
+    near = lit is not None and lit[1]
     styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
-              f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, theme.MUTED)
+              f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, f"{'bold' if near else 'dim'} {theme.BAD}".strip(),
+              theme.MUTED)
     ascii_dots = ASCII_DOTS
     rows = []
     for row in range(ROSE_ROWS):
@@ -223,7 +250,7 @@ ICON_SPAN = (7.0, 13.0)     # dots from the centre: the image command icon's tai
 ICON_HEAD = (3.5, 2.5)      # dots: the image icon's head length and half width
 
 
-def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
+def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=None):
     """The rose as image cells (ui/imaging/), the braille rose's look in pixels: muted ticks, the
     hull's pentagon in slate with its foremost quarter in the bow token at the exact heading (no
     bowsprit needed), the command icon (a stem and head) in the driver's hue, the dashed drift.
@@ -254,7 +281,9 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
         shown = (q(bearing), start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)))
     stale = age > STALE_S
     tokens = (_token('slate', ''), _token('bow', theme.ACCENT), theme.MUTED, theme.WARN, hue)
-    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode)
+    lit = glow(nearby, up)
+    lit = None if lit is None else (q(lit[0]), lit[1])
+    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit)
 
     def paint(r):
         sx, sy = r.cw / 2, r.ch / 4                   # px per dot
@@ -264,6 +293,12 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
         for step in range(16):                        # as the braille ticks: longer on the intercardinals
             a, b = _polar(step * 22.5, RADIUS - 0.25 - (step % 4 == 2)), _polar(step * 22.5, RADIUS + 0.25)
             r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), muted, pen)
+        if lit is not None:                           # the proximity glow: the ring's arc toward the nearest point
+            fail = pixels.rgb(theme.BAD, pixels.token('fail'))
+            ink = r.ink(fail if lit[1] else tuple((f + b) // 2 for f, b in zip(fail, pixels.token('bg'))))
+            arc = [_polar(bearing, RADIUS - 0.5 * lit[1]) for bearing in _glow_bearings(lit, ROSE_Q)]
+            for (ax, ay), (bx, by) in zip(arc, arc[1:]):
+                r.line(*at(cx + ax, cy + ay), *at(cx + bx, cy + by), ink, pen * (2 if lit[1] else 1))
         if shown:
             ink = r.ink(tuple((m + b) // 2 for m, b in zip(pixels.rgb(theme.MUTED), pixels.token('bg'))) if stale
                         else pixels.rgb(theme.MUTED))
@@ -561,7 +596,7 @@ class _Body:
             info, command = self.info, self.view['command']
             _, hue = driver(self.view)
             left = rose(info.get('drift'), info.get('heading'), info.get('yaw_ok', True), info.get('age', 0.0),
-                        command, self.view.get('amplitude', 1.0), hue)
+                        command, self.view.get('amplitude', 1.0), hue, info.get('nearby'))
             right = command_column(self.view, info, width - ROSE_COLS - 3)
             lines = [Text.assemble(a, ' ', (theme.BAR, theme.MUTED), ' ', b) for a, b in zip(left, right)]
             lines += [drift_row(info), sea_row(info, self.view.get('sog'))]
