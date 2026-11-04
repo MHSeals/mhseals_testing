@@ -480,13 +480,22 @@ class AgentDesk:
         values = {k: yaml.safe_load(v) if isinstance(v, str) else v for k, v in requested.items()}
         live.claim = req.get('claim')
         title = f"Agent {req['who']}: setting Nav2 {', '.join(values)}"
+        def work():
+            receipt = live.apply(values)
+            return receipt, (live.readback(values) if hasattr(live, 'readback') else {})
         try:
-            receipt = agent_acts.in_background(self.app, title, lambda: live.apply(values), message=title)
+            receipt, now = agent_acts.in_background(self.app, title, work, message=title)
         except Exception as fault:      # noqa: BLE001 - a Nav2 timeout: told, never raised
             return False, 'refused', f'{type(fault).__name__}: {fault}', None
         status = receipt.get('status')
-        self.app.emit('agent_nav2', who=req['who'], keys=sorted(values), status=status)
-        rows = [{'key': r['key'], 'old': r['old'], 'new': r['new']} for r in receipt.get('rows', ())]
+        changed = {r['key']: r for r in receipt.get('rows', ())}
+        # one row per requested key, read back from the node after the apply: an unchanged key says so
+        rows = [{'key': key, 'requested': value, 'readback': now.get(key),
+                 **({'old': changed[key]['old'], 'new': changed[key]['new']} if key in changed else {'unchanged': True})}
+                for key, value in values.items()]
+        rows += [{'key': k, 'old': r['old'], 'new': r['new'], 'derived': True} for k, r in changed.items() if k not in values]
+        self.app.emit('agent_nav2', who=req['who'], keys=sorted(values), status=status,
+                      readback={r['key']: r['readback'] for r in rows if 'readback' in r})
         if status != 'verified':
             why = receipt.get('error') or '; '.join(receipt.get('reasons') or []) or str(receipt.get('refused'))
             return False, 'refused', f'nav2 {status}: {why}', {'rows': rows}
@@ -1068,7 +1077,7 @@ class AgentDesk:
         cause = act['cause']
         if act['op'] == 'run':
             if cause:
-                self.app._runner_cancelled = True   # a paused agent run aborts instead of resuming
+                self.app._runner_cancelled = f'(agent act ended: {cause})'   # a paused agent run aborts, not resumes
             elif act['started'] and self.clock() - act['progress_at'] >= PROGRESS_S:
                 act['progress_at'] = self.clock()
                 self.reply(act['req'], True, state='progress',

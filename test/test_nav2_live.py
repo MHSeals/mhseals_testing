@@ -181,6 +181,12 @@ def test_raising_a_limit_sets_the_controller_then_the_smoother_and_reads_both_ba
                        'velocity_smoother.min_velocity']
 
 
+def test_readback_reads_each_requested_key_from_its_node_after_the_apply(world):
+    live = make(world)
+    live.apply(ask(wz_max=0.4))
+    assert live.readback(ask(wz_max=0.4, nonexistent=1)) == {FOLLOW + 'wz_max': 0.4, FOLLOW + 'nonexistent': None}
+
+
 def test_lowering_a_limit_sends_the_smoother_first_at_the_restrictive_value(world):
     make(world).apply(ask(wz_max=0.1))
     assert [n for n, _ in world.sets()] == ['/velocity_smoother', '/controller_server']

@@ -405,7 +405,7 @@ class Arm:
         A watcher publishes neutral too: Space always works.
         """
         if getattr(self, '_runner_paused', False):
-            self._runner_cancelled = True
+            self._runner_cancelled = self._runner_cancelled or f'by {by}: {reason}'   # the first cause names it
         try:
             self.disarm(reason, by)
         finally:

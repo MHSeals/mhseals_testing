@@ -306,8 +306,9 @@ class Procedures:
 
         def paused_tick(cause, elapsed):
             self._runner_paused = True
-            if self._runner_cancelled:
-                raise Aborted('motion cancelled by operator')
+            if self._runner_cancelled:      # name what ended it and what paused it (a fence hold is no operator)
+                ended = self._runner_cancelled if isinstance(self._runner_cancelled, str) else 'by operator'
+                raise Aborted(f'motion cancelled {ended} while paused by {cause}')
             self.poll_pause()
             self.command = (0.0, 0.0, 0.0)
             self.monitor.command(self.command)

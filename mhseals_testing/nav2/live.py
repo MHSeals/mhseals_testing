@@ -378,6 +378,18 @@ class Nav2Live:
             reasons.append(f'something else is driving ({who})')
         return reasons
 
+    def readback(self, requested):
+        """``{raw key: value now on the node}`` for each requested key, read fresh after an apply (None when the
+        node did not answer or does not have it): what an agent's ``set nav2.*`` reports as applied."""
+        out = {}
+        for raw, (flat, _) in normalize(requested).items():
+            node, param = n2.split(flat)
+            try:
+                out[raw] = self.ports.get(target(node), [param]).get(param)
+            except (TimeoutError, OSError, ValueError, KeyError):
+                out[raw] = None
+        return out
+
     # ---- apply
 
     def applier(self, requested):

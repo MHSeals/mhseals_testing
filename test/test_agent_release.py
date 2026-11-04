@@ -240,6 +240,9 @@ def test_set_a_live_nav2_key_goes_through_nav2_live(rig):  # noqa: F811
             applied.append((values, self.claim))
             ok = values.get('controller_server.FollowPath.max_vel_x') != 9.0
             return {'status': 'verified' if ok else 'refused', 'rows': [], 'reasons': [] if ok else ['over the cap']}
+
+        def readback(self, values):
+            return {k: 1.2 for k in values}
     rig.app.live_nav2 = Live
     rig.app.live_nav2 = lambda live=Live(): live
     c = claim(rig)
@@ -248,6 +251,8 @@ def test_set_a_live_nav2_key_goes_through_nav2_live(rig):  # noqa: F811
     rig.desk.tick()
     reply = final(req['id'])
     assert reply['ok'] and applied == [({'controller_server.FollowPath.max_vel_x': 1.2}, c)]
+    assert reply['result']['nav2']['rows'] == [{'key': 'controller_server.FollowPath.max_vel_x', 'requested': 1.2,
+                                                'readback': 1.2, 'unchanged': True}]   # read back, even unchanged
     req = ch.request('set', 'claude-3f2a', {'settings': {'nav2.controller_server.FollowPath.max_vel_x': '9'}},
                      claim=c, why='x')
     rig.desk.tick()

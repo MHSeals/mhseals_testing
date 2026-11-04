@@ -151,7 +151,7 @@ class App:
     def stop(self, reason, by='operator'):
         self.calls.append(('stop', reason))
         if self._runner_paused:
-            self._runner_cancelled = True
+            self._runner_cancelled = self._runner_cancelled or f'by {by}: {reason}'   # as ui/app/actions/arm.py
         self.is_armed = False
 
     def revoke_agent(self):
@@ -539,7 +539,9 @@ def test_an_rc_or_keyboard_mux_takeover_pauses_then_aborts_the_agent_run(rig, in
         rig.app._runner_paused = True                # the runner pauses on the override
     _, reply = run_with(rig, 1, takeover)
     assert reply['error'] == f'overridden: {cause}'
-    assert rig.app._runner_cancelled                 # set by desk.tick inside the pause
+    assert f'overridden: {cause}' in rig.app._runner_cancelled and 'operator' not in rig.app._runner_cancelled
+    # set inside the pause:
+    # the runner's abort names it (ui/app/actions/procedures.py), never "by operator" for a hold or a takeover
 
 
 def test_e_revokes_cancels_the_run_and_the_next_call_says_revoked(rig):
