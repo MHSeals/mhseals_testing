@@ -40,6 +40,7 @@ from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
+from mhseals_testing.procedures import unavailable
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, parts, theme
 from mhseals_testing.ui.feeds import agent_ops, authority as authority_feed
@@ -836,6 +837,9 @@ class AgentDesk:
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
         task = agent_acts.run_task(act['req']['args'])
         sim = 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm')
+        blocked = unavailable(found, app.profile, True, app.args.bench_override)
+        if blocked:                              # never runnable in this TUI, armed or not: refused, nothing asked
+            return self.finish(act, False, 'refused', hint=agent_acts.agent_text(blocked))
         values, refusal = self.settings_of(act['req'], agent_config.settable(self.config.get(), name), idle=False)
         if refusal:                              # agent.yaml changed since the request was read: never a wrong step
             return self.finish(act, False, refusal[0], hint=refusal[1])

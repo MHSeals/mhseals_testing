@@ -112,3 +112,14 @@ def test_an_agent_stop_during_the_countdown_cancels_the_arm(boat):
     reply = send(boat, 'arm', {'countdown': 3}, c)
     assert not reply['ok'] and reply['error'] == 'cancelled' and 'stopped by agent claude-3f2a' in reply['hint']
     assert not boat.app.armed and not [call for call in boat.app.calls if call[0] == 'agent_arm']
+
+
+def test_a_run_this_tui_can_never_do_is_refused_before_any_ask(boat):
+    """Sim rehearsal 11-04: run f in a velocity TUI ended ok/done with no result; it is refused, naming the fix."""
+    from test_agent_desk import ask
+    c = claim(boat)
+    boat.app.answers = []                                   # no confirm popup may open
+    reply = final(ask(boat, 'run', c, key='f')['id'])
+    assert not reply['ok'] and reply['error'] == 'refused'
+    assert 'boat_agent set command_mode=effort' in reply['hint'] and 'boat_tui restart' in reply['hint']
+    assert not boat.app.armed and not [call for call in boat.app.calls if call[0] == 'agent_arm']
