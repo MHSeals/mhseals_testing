@@ -119,7 +119,7 @@ KILL_CONTROL = r'(kill|pkill|killall)\b.*' + _CONTROL
 # too. boat_agent fence sets them through the TUI, validated, read back and logged (D-20261101-23).
 FENCE_CALL = r'ros2\s+service\s+call\b.*/fence/anchor\b'
 FENCE = r'fence_watchdog\b.*\b(course\.corners|on_exit)\b|fence_watchdog/set_parameters|/fence/anchor\b'
-NO_CLAIM = ('stop', 'fence ')      # verbs a deny names that need no claim first
+NO_CLAIM = ('stop', 'fence ')      # verbs a deny names that need no claim first (stop COMPONENT --claim ID does)
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
     'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
@@ -493,7 +493,7 @@ def deny_reason(hit, host=None, who='agent', config=None):
         arms = (' The TUI shows a countdown the operator can cancel; the e-stop refuses it. '
                 'Then run KEY --claim ID.')
     return (f'{head} Use: {cli} {verb} --who {who}'
-            + ('' if verb.startswith(NO_CLAIM) else f' (claim first: claim --reason "..." --who {who})')
+            + ('' if verb.startswith(NO_CLAIM) and '--claim' not in verb else f' (claim first: claim --reason "..." --who {who})')
             + f'.{arms} Verbs and exit codes: BOAT_AGENT={who} python3 .agents/hook.py --playbook')
 
 
