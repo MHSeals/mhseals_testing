@@ -35,7 +35,7 @@ FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
 # acting verbs: each needs --why (owner decision 2026-11-01); stop takes one but never needs it, fcu only to write
 WHY = ('claim', 'release', 'run', 'goal', 'route', 'start', 'arm', 'reload', 'set', 'fcu', 'fence')
 VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'route', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
-         'fence', 'mark', 'note', 'ask')
+         'fence', 'mark', 'note', 'ask', 'quality')
 FENCE_ACTIONS = ('corners', 'on_exit', 'anchor')
 STREAMS = ('run', 'goal')      # route sends goals
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
@@ -55,9 +55,9 @@ def add_parsers(sub):
                             help='your own agent id (default $BOAT_AGENT; required: no shared default)')
         if claim is not None:
             parser.add_argument('--claim', required=claim, metavar='ID')
-        if name in WHY or name in ('stop', 'mark'):
+        if name in WHY or name in ('stop', 'mark', 'quality'):
             parser.add_argument('--why', metavar='TEXT', help='why you act: the TUI agent panel shows it'
-                                + ('' if name in ('stop', 'mark') else ' (required)'))
+                                + ('' if name in ('stop', 'mark', 'quality') else ' (required)'))
         return parser
     verb('claim', 'ask the TUI for driving authority').add_argument('--reason', default='')
     verb('release', 'end a claim (--claim ID, the TUI cancels its act first), or release HOLD: a lease or watchdog '
@@ -122,6 +122,13 @@ def add_parsers(sub):
     note = verb('note', 'a text line in the TUI agent log; --doing TEXT sets your "doing:" line there')
     note.add_argument('text', nargs='?', default='')
     note.add_argument('--doing', metavar='TEXT')
+    quality = verb('quality', "a session's data quality, read-only: rates, gaps, commanded vs measured coverage of the "
+                   "profile's command, odometry and sensor topics (default: the newest session here; run it on the "
+                   'station after fetch: BOAT_AGENT_TARGET=local)')
+    quality.add_argument('session', nargs='?', metavar='SESSION|DIR', help='a session id under sessions/ or a path')
+    quality.add_argument('--last', type=float, metavar='S', help='only the last S seconds of the bags')
+    quality.add_argument('--topics', type=lambda s: s.split(','), default=[], metavar='T1,T2',
+                         help='more topics to rate')
     ask = verb('ask', 'ask the operator a question')
     ask.add_argument('question')
     ask.add_argument('--options', type=lambda s: s.split(','), default=['yes', 'no'])
@@ -428,6 +435,27 @@ class Agent:
             return self.local(req, '', via='ros', hold='agent_stop')
         hint = 'press Space or use the RC/kill switch'
         return self.local(req, f'timeout: {why}' if self.owner() else 'no_owner', hint, via='ros')
+
+    def quality(self):
+        from mhseals_testing.harness import quality
+        name = self.args.session
+        try:
+            session = (Path(name) if name and Path(name).is_dir() else data.path('sessions', name) if name
+                       else last_session(self.registry))
+        except ValueError as error:
+            return self.bad(f'quality SESSION: {error}')
+        if session is None or not Path(session).is_dir():
+            self.emit({'ok': False, 'error': 'no_session', 'hint': f'no session {name or "recorded yet"} here'})
+            return 2
+        last = self.args.last
+        if last is not None and not (math.isfinite(last) and last > 0):
+            return self.bad('quality --last S: a positive number of seconds')
+        try:
+            self.emit(quality.summarize(session, self.args.topics, last))
+        except ImportError as error:        # no rosbag2_py: the dev container has it
+            self.emit({'ok': False, 'error': 'no_reader', 'hint': f'{error}: run it in the dev container'})
+            return 2
+        return 0
 
     def status(self):
         self.emit(status(self.registry, self.args.section))
