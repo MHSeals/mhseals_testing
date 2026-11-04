@@ -35,13 +35,19 @@ q() { printf "'%s'" "$(printf %s "$1" | sed "s/'/'\\\\''/g")"; }
 host=$(uname -n); host=${host%%.*}
 ssh_client=${SSH_CLIENT:-}; from=${ssh_client%% *}; from=${from:-$host}; from=${BOAT_AGENT:+$BOAT_AGENT@}$from
 
+# What the pane knows about its terminal, handed into the container (docker exec drops it; a bare -e passes
+# only what is set): TERM picks the colours (tmux-256color, not docker's 16-colour xterm), TERM_PROGRAM=tmux
+# tells the image probe it runs under a tmux it can't ask, NO_COLOR and MHS_ASCII keep the text fallbacks.
+hints=''
+for name in TERM TERM_PROGRAM TERM_PROGRAM_VERSION KITTY_WINDOW_ID NO_COLOR MHS_ASCII; do hints="$hints -e $name"; done
+
 # The command line that runs boat_test with ARGS in the container (or here), as client $1.
 run() {
     client=$1; shift
     args=''; for arg in "$@"; do args="$args $(q "$arg")"; done
     if [ -n "$container" ]; then
         inner=". /opt/ros/jazzy/setup.bash && . install/setup.bash && exec ros2 run mhseals_testing boat_test$args"
-        printf 'docker exec -it -e BOAT_TUI_CLIENT=%s -e BOAT_TUI_FROM=%s %s bash -c %s' \
+        printf 'docker exec -it%s -e BOAT_TUI_CLIENT=%s -e BOAT_TUI_FROM=%s %s bash -c %s' "$hints" \
             "$(q "$client")" "$(q "$from")" "$(q "$container")" "$(q "$inner")"
     else
         printf 'BOAT_TUI_CLIENT=%s BOAT_TUI_FROM=%s exec boat_test%s' "$(q "$client")" "$(q "$from")" "$args"
