@@ -148,7 +148,7 @@ def _execute(history, backends, env, p, settings, source, session):
     if live is not None and fresh.target['after'] == fresh.current['after']:
         return Outcome('noop', 'already at that version')
     target, previous = history.version(fresh.target), history.version(fresh.current)
-    timeout = settings['verify_timeout_s'][sub]
+    timeout = settings['verify_timeout'][sub]
     with env.hold(f'revert-{uuid.uuid4().hex[:8]}') if fresh.hold else contextlib.nullcontext():
         if _applied(backend, target, timeout):
             try:

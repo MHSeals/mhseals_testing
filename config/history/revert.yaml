@@ -1,5 +1,5 @@
 # Revert settings. Seconds each subsystem gets to show the reverted value.
-verify_timeout_s:
+verify_timeout:
   hardware: 3.0
   nav2: 3.0
   fcu: 1.0
