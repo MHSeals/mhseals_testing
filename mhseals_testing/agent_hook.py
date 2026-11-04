@@ -1224,6 +1224,16 @@ def deliver(line, config):
         log(f'deliver to {target}: {error!r}')
 
 
+def deps_notice():
+    """The workspace's missing host tools (devices/deps.sh check: declared in the repos' deps.yaml), '' when complete."""
+    script = Path(__file__).resolve().parents[3] / 'devices' / 'deps.sh'
+    try:
+        done = subprocess.run([str(script), 'check'], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return ''
+    return done.stderr.strip()
+
+
 def agent_event(event, config=None, send=None, now=None, state_dir=None):
     """The answer to one neutral event (None, ``{'context'}`` or ``{'deny'}``); sends at most one note."""
     phase, agent = event.get('event'), event.get('agent') or 'agent'
@@ -1233,7 +1243,9 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
     config = config or hook_config()
     if phase == 'start':
         full = event.get('source') == 'playbook' or target_of(config) != 'local'
-        return {'context': start_text(who, agent, config) if full else brief_text(who, config)}
+        text = start_text(who, agent, config) if full else brief_text(who, config)
+        notice = deps_notice()
+        return {'context': text + ('\n\n' + notice + '\nTell the owner; do not run sudo yourself.' if notice else '')}
     send = send or (lambda line: deliver(line, config))
     now = time.time() if now is None else now
     command = str(event.get('command') or '')

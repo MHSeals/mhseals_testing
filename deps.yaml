@@ -1,0 +1,8 @@
+# Host tools boat_tui, boat_preview, boat_sim and the harness call (names from astro_dock config/host-deps.yaml).
+deps:
+  - tmux
+  - rsync
+  - openssh
+  - xvfb
+  - procps
+  - util-linux
