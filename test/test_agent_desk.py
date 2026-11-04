@@ -128,6 +128,11 @@ class App:
     def emit(self, phase, **fields):
         self.events.append((phase, fields))
 
+    def next_id(self, kind):
+        """The app's id counter (ui/app/actions/annotate.py), from the events this fake emitted."""
+        return 1 + max((f.get('id', 0) for p, f in self.events if p == kind and isinstance(f.get('id'), int)),
+                       default=0)
+
     def nav2(self):
         return self.nav
 
@@ -698,7 +703,7 @@ def test_ask_returns_the_humans_choice_and_mark_journals(rig):
     req = ch.request('mark', 'claude-3f2a', {'note': 'gust'})
     rig.desk.tick()
     assert final(req['id'])['ok']
-    assert ('marker', {'kind': 'agent', 'id': 1, 'who': 'claude-3f2a', 'note': 'gust',
+    assert ('marker', {'kind': 'agent', 'id': 1, 'who': 'claude-3f2a', 'note': 'gust', 'tag': '', 'why': '',
                        't_ns': rig.app.events[-2][1]['t_ns']}) in rig.app.events
 
 
