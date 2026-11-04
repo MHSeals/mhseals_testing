@@ -3,7 +3,7 @@
 The tab (ui/panels/fusion.py) wants it through ``want(on, camera=...)``. Off, every subscription this
 feed made is destroyed and its data forgotten; /points comes through RosIO.tap, a raw subscription that lives only
 while the tab shows, and scans are dropped before decoding.
-Scans are decimated and projected into the camera at ``points_hz``; the camera frame (only in an
+Scans are decimated and projected into the camera at ``points_rate``; the camera frame (only in an
 image tier on an unbudgeted link) is cut to a small greyscale on arrival. ``snapshot()`` is a plain
 dict the panel paints from; nothing here draws. Projection and the correction are lidar_fusion's
 (``axes_matrix``, ``small_rotation``), so the tab shows the points the fusion associates.
@@ -24,9 +24,9 @@ from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_panel.yaml'
 KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
-        'feed': {'points_hz', 'points_max', 'points_link', 'points_link_framed', 'scan_dt_max_s', 'camera_hz', 'camera_width',
-                 'max_range_m', 'residual_s', 'stale_s'},
-        'ramp_m': None, 'rings_m': None, 'draw_hz': None,
+        'feed': {'points_rate', 'points_max', 'points_link', 'points_link_framed', 'scan_dt_max', 'camera_rate', 'camera_width',
+                 'max_range', 'residual_window', 'stale'},
+        'ramp': None, 'rings': None, 'draw_rate': None,
         'check': {'near_m', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
                   'range_tol', 'range_fail_tol', 'min_samples'}}
 TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the transforms before the tab opened
@@ -224,7 +224,7 @@ class FusionFeed:
     def points_due(self):
         """Whether the next scan is wanted (checked before it is decoded)."""
         now = self._clock()
-        return self.is_open and (self._points_at is None or now - self._points_at >= 1.0 / self.cfg['feed']['points_hz'])
+        return self.is_open and (self._points_at is None or now - self._points_at >= 1.0 / self.cfg['feed']['points_rate'])
 
     def on_points(self, message):
         """A decoded PointCloud2: decimate, put it in the camera frame with the applied correction, project."""
@@ -241,7 +241,7 @@ class FusionFeed:
             p = (cloud_xyz(message, self.cfg['feed']['points_max']) @ R.T + t) @ optical.T
             p = p @ small_rotation(-np.radians(self.applied_deg())).T     # as lidar_fusion associates them
             rng = np.hypot(p[:, 0], p[:, 2])          # horizontal rho, as the box labels and lidar_fusion
-            front = (p[:, 2] > 0.1) & (rng < self.cfg['feed']['max_range_m'])
+            front = (p[:, 2] > 0.1) & (rng < self.cfg['feed']['max_range'])
             p, rng = p[front], rng[front]
             k = np.asarray(K, float).reshape(3, 3)
             uv = np.stack([(k[0, 0] * p[:, 0] / p[:, 2] + k[0, 2]) / size[0],
@@ -329,7 +329,7 @@ class FusionFeed:
             if not skipped:
                 self._grade(now)
             for held in (self.residuals, self.grades):
-                while held and held[0][0] < now - self.cfg['feed']['residual_s']:
+                while held and held[0][0] < now - self.cfg['feed']['residual_window']:
                     held.popleft()
 
     def _grade(self, now):
@@ -364,7 +364,7 @@ class FusionFeed:
     def snapshot(self):
         """A plain dict for ui/panels/fusion.py (see its ``model`` docstring)."""
         now = self._clock()
-        stale = self.cfg['feed']['stale_s']
+        stale = self.cfg['feed']['stale']
         if self._camera_on and self.camera is not None:
             latest = self.camera.stamped()
             if latest is not None and latest[1] != self._frame_at and self.pending is None:
@@ -375,7 +375,7 @@ class FusionFeed:
         with self._lock:
             if self.pending is not None:
                 self._settle(now)
-            fresh = self._points_at is not None and now - self._points_at < stale + 1.0 / self.cfg['feed']['points_hz']
+            fresh = self._points_at is not None and now - self._points_at < stale + 1.0 / self.cfg['feed']['points_rate']
             dets = detections(self._stereo_for(self.fused), self.fused, self.sources)
             t = (self.fused or self.raw or (None,))[0]
             scan = min(self.scans, key=lambda s: abs(s[0] - t)) if self.scans and t is not None else (

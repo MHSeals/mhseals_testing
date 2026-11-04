@@ -1,4 +1,5 @@
 # Fusion tab (ui/panels/fusion.py, fusion/ros_feed.py): camera-lidar alignment at a glance.
+# Units are in config/schema.yaml (fusion_panel.*): s, m, Hz for rates, px for pixels.
 # Topics are lidar_fusion.yaml's; /points and /tf_static come from the session's own subscriptions.
 topics:
   observations: /perception/observations          # stereo boxes (the backend's ranges)
@@ -8,19 +9,19 @@ topics:
   # (the boat's preview frame, the sim's camera); the frame is drawn only with this info's aspect
   camera_info: [/front/zed_node/rgb/color/rect/camera_info, /front_camera/camera_info]
 feed:
-  points_hz: 2.0            # scans projected per second; the rest are dropped before decoding
+  points_rate: 2.0          # scans projected per second; the rest are dropped before decoding
   points_max: 3000          # projected points kept per scan (stride decimation)
   points_link: 600          # points drawn per paint over a budgeted link (the radio: images sent 1.4-2x the budget)
   points_link_framed: 150   # and with the camera image under them (its blocks cost the points more: a tile is no longer empty)
-  scan_dt_max_s: 0.3        # a scan further than this from the boxes' stamp is drawn grey (not motion compensated)
-  camera_hz: 1              # camera frames per second (1, 2 or 4) under the points while the image is on (i)
+  scan_dt_max: 0.3          # a scan further than this from the boxes' stamp is drawn grey (not motion compensated)
+  camera_rate: 1            # camera frames per second (1, 2 or 4) under the points while the image is on (i)
   camera_width: 320         # px the frame is cut to on arrival (greyscale)
-  max_range_m: 60.0         # points beyond this are not drawn
-  residual_s: 120.0         # residual trend window
-  stale_s: 2.0              # boxes or points older than this are dropped
-draw_hz: 4.0               # camera and top-down repaints per second at most (boxes change every frame)
-ramp_m: [5.0, 10.0, 20.0, 35.0, 50.0]   # range breaks for the point colours spd.1..spd.5 (spd.0 beyond)
-rings_m: [5.0, 10.0, 15.0, 25.0, 40.0]  # top-down range rings; the outer one drawn is the first past every box
+  max_range: 60.0           # points beyond this are not drawn
+  residual_window: 120.0    # residual trend window
+  stale: 2.0                # boxes or points older than this are dropped
+draw_rate: 4.0             # camera and top-down repaints per second at most (boxes change every frame)
+ramp: [5.0, 10.0, 20.0, 35.0, 50.0]     # range breaks for the point colours spd.1..spd.5 (spd.0 beyond)
+rings: [5.0, 10.0, 15.0, 25.0, 40.0]    # top-down range rings; the outer one drawn is the first past every box
 check:                      # same keys as fusion_calib.yaml check (perception-calib); live, not the recorded check
   near_m: 10.0
   du_pass_px: 5.0

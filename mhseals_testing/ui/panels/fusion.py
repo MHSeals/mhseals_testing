@@ -167,14 +167,14 @@ _HZ = {}              # drawing name -> (repaints per second, set at, image byte
 
 
 def draw_rate(cfg, name, budgeted=1.0):
-    """Repaints per second: draw_hz, and over a link budget at most THROTTLE_HZ times ``budgeted`` (two big surfaces
+    """Repaints per second: draw_rate, and over a link budget at most THROTTLE_HZ times ``budgeted`` (two big surfaces
     share the link, so Around takes half the camera's rate), resized every RATE_S from the image bytes the held rate
     sent (at once when the link is over its budget; a drawing starts at START of the top rate and rises at most STEP
     times per update): ``hz * LINK_SHARE * BUDGET / sent``. A map from the rate alone (rate / BUDGET, or its square)
     settles above the budget; this settles near LINK_SHARE of it (a dense scan left 1.1-2 times the budget)."""
     if not pixels.BUDGET:
-        return cfg['draw_hz']
-    top, now, total = min(cfg['draw_hz'], pixels.THROTTLE_HZ) * budgeted, pixels.clock(), pixels.STATS['upload'] + pixels.STATS['sixel']
+        return cfg['draw_rate']
+    top, now, total = min(cfg['draw_rate'], pixels.THROTTLE_HZ) * budgeted, pixels.clock(), pixels.STATS['upload'] + pixels.STATS['sixel']
     held = _HZ.get(name)
     over = pixels.rate(now) > pixels.BUDGET
     if held is not None and total >= held[2] and now - held[1] < (OVER_S if over else RATE_S):
@@ -208,10 +208,10 @@ def link_stride(n, cfg, framed=False):
 
 def scan_stale(model, cfg):
     """Whether the drawn scan cannot be read against the boxes: the boat is turning (lidar_fusion skipped its frame
-    for motion) or the scan is more than scan_dt_max_s from the boxes' stamp. Not motion compensated, a lagged scan
+    for motion) or the scan is more than scan_dt_max from the boxes' stamp. Not motion compensated, a lagged scan
     sits off its boxes like an extrinsic error, so it is drawn in the STALE ink and the subtitle leads with it."""
     dt = model.get('scan_dt')
-    return bool(model.get('motion')) or (dt is not None and abs(dt) > cfg['feed']['scan_dt_max_s'])
+    return bool(model.get('motion')) or (dt is not None and abs(dt) > cfg['feed']['scan_dt_max'])
 
 
 def label_cells(text, col, row, cols, rows, style):
@@ -282,7 +282,7 @@ _JOINED = {}     # drawing name -> (block size of its frame, repaints of it so f
 
 
 def paint_camera(model, cfg):
-    breaks = np.asarray(cfg['ramp_m'], float)
+    breaks = np.asarray(cfg['ramp'], float)
 
     def paint(r, inks):
         if r.cw > TEXT_CELL[0] and frame_shown(model):
@@ -381,7 +381,7 @@ def paint_around(model, cfg, span):
         cx, base = at(0, 0)
         for sign in (-1, 1):
             r.line(cx, base, *at(sign * span * math.sin(half), span * math.cos(half)), inks['fov'], 1, 2)
-        for ring in [x for x in cfg['rings_m'] if x <= span]:
+        for ring in [x for x in cfg['rings'] if x <= span]:
             a = np.linspace(-arc, arc, max(16, int(ring * scale * 3 * arc)))
             r.squares(cx + ring * scale * np.sin(a), base - ring * scale * np.cos(a), 1, inks['ring'])
         scan = model.get('points')
@@ -433,7 +433,7 @@ def around_labels(model, span, cols, rows, cell):
 
 
 def around_rows(model, cfg, cols, rows):
-    span = reach(model, cfg['rings_m'])
+    span = reach(model, cfg['rings'])
     tokens = sorted({class_token(d['cls']) for d in model['dets']})
     layers = ([('ring', 'grid'), ('fov', 'fov'), ('point', 'muted'), ('stereo', 'muted'), ('bar', 'slate')]
               + [(f'det.{t}', t) for t in tokens] + [('boat', 'boat')])
@@ -656,7 +656,7 @@ def camera_subtitle(model, cfg):
     ramp = Text()
     for i, token in enumerate(RAMP[:-1]):
         ramp.append(theme.pick('⣿', '#'), style=ink_style(token))
-        ramp.append(f"{cfg['ramp_m'][i]:g} ", style=theme.MUTED)
+        ramp.append(f"{cfg['ramp'][i]:g} ", style=theme.MUTED)
     ramp.append('m', style=theme.MUTED)
     sub.append_text(Text(' ').join([ramp, Text(f"{len(model['points'][1]) if model.get('points') else 0} pts",
                                                style=theme.MUTED)]))
@@ -683,7 +683,7 @@ def image_note(model, cfg):
             return 'image loading', theme.MUTED
     dt = model.get('frame_dt')
     if dt is not None and abs(dt) > STAMP_MATCH_S:
-        return f'frame {dt:+.2f}s', theme.WARN if abs(dt) > cfg['feed']['scan_dt_max_s'] else theme.MUTED
+        return f'frame {dt:+.2f}s', theme.WARN if abs(dt) > cfg['feed']['scan_dt_max'] else theme.MUTED
     return None
 
 

@@ -22,3 +22,12 @@ tracking.score.yellow: {type: float, units: "1", tier: new-session, doc: "Tracki
 tracking.stale.min_sessions: {type: int, units: count, tier: new-session, doc: "Sessions on one calibration before staleness is judged."}
 tracking.stale.low_score: {type: float, units: "1", tier: new-session, doc: "Weighted mean score below this flags the calibration as stale."}
 tracking.live.window_s: {type: float, units: s, tier: new-session, doc: "Sliding window the Motion header scores over."}
+fusion_panel.feed.points_rate: {type: float, units: Hz, tier: restart, doc: "Lidar scans projected per second in the Fusion tab."}
+fusion_panel.feed.scan_dt_max: {type: float, units: s, tier: restart, doc: "A scan further than this from the boxes' stamp is drawn grey."}
+fusion_panel.feed.camera_rate: {type: int, units: Hz, tier: restart, doc: "Camera frames per second under the points (1, 2 or 4)."}
+fusion_panel.feed.max_range: {type: float, units: m, tier: restart, doc: "Points beyond this range are not drawn."}
+fusion_panel.feed.residual_window: {type: float, units: s, tier: restart, doc: "Window of the residual trend."}
+fusion_panel.feed.stale: {type: float, units: s, tier: restart, doc: "Boxes or points older than this are dropped."}
+fusion_panel.draw_rate: {type: float, units: Hz, tier: restart, doc: "Camera and top-down repaints per second at most."}
+fusion_panel.ramp: {type: list, units: m, tier: restart, doc: "Range breaks for the point colours spd.1..spd.5."}
+fusion_panel.rings: {type: list, units: m, tier: restart, doc: "Top-down range rings."}

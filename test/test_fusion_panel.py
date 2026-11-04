@@ -245,7 +245,7 @@ def test_sources_become_pixel_residuals():
     cb[f.cfg['topics']['sources']](NS(data='not json'))
     (age, du, dv), = f.snapshot()['residuals']
     assert (age, du, dv) == pytest.approx((0.0, 1.4, -0.7), abs=1e-5)
-    now[0] += f.cfg['feed']['residual_s'] + 1
+    now[0] += f.cfg['feed']['residual_window'] + 1
     cb[f.cfg['topics']['sources']](NS(data='{"t": 11, "sources": []}'))
     assert f.snapshot()['residuals'] == []
 
@@ -455,9 +455,9 @@ def test_readout_marks_a_kept_correction_stale():
 def test_budgeted_link_slows_the_drawings(monkeypatch):
     cfg = fusion_feed.load_config()
     monkeypatch.setattr(fusion, '_HZ', {})
-    assert fusion.draw_rate(cfg, 'a') == cfg['draw_hz'] and fusion.draw_rate(cfg, 'b', 0.5) == cfg['draw_hz']
+    assert fusion.draw_rate(cfg, 'a') == cfg['draw_rate'] and fusion.draw_rate(cfg, 'b', 0.5) == cfg['draw_rate']
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
-    assert fusion.draw_rate(cfg, 'a') == min(cfg['draw_hz'], pixels.THROTTLE_HZ) * fusion.START
+    assert fusion.draw_rate(cfg, 'a') == min(cfg['draw_rate'], pixels.THROTTLE_HZ) * fusion.START
     assert fusion.draw_rate(cfg, 'b', 0.5) == fusion.draw_rate(cfg, 'a') / 2
 
 
@@ -466,7 +466,7 @@ def test_drawing_rate_ramps_up_and_drops_at_once_over_the_budget(monkeypatch):
     resizes the rate at once instead of after RATE_S."""
     cfg = fusion_feed.load_config()
     now = [100.0]
-    top = min(cfg['draw_hz'], pixels.THROTTLE_HZ)
+    top = min(cfg['draw_rate'], pixels.THROTTLE_HZ)
     monkeypatch.setattr(fusion, '_HZ', {})
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
@@ -505,7 +505,7 @@ def test_drawing_rate_settles_under_the_budget(monkeypatch):
     run(4 * fusion.RATE_S)
     assert (pixels.STATS['sixel'] - b0) / (now[0] - t0) == pytest.approx(fusion.LINK_SHARE * pixels.SSH_BUDGET, rel=0.02)
     per_paint /= 10
-    assert run(4 * fusion.RATE_S) == min(cfg['draw_hz'], pixels.THROTTLE_HZ)
+    assert run(4 * fusion.RATE_S) == min(cfg['draw_rate'], pixels.THROTTLE_HZ)
 
 
 def test_16_colour_ramp_gives_each_band_its_own_hue(monkeypatch):
@@ -621,7 +621,7 @@ def test_tab_fits_every_width_in_text(width, text_tier, monkeypatch):
     assert any(0x2800 < ord(ch) <= 0x28FF for ch in text)          # the braille drawing
 
 
-def test_text_tier_repaints_on_new_data_at_draw_hz_at_most(text_tier, monkeypatch):
+def test_text_tier_repaints_on_new_data_at_draw_rate_at_most(text_tier, monkeypatch):
     now = [100.0]
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     cfg = fusion_feed.load_config()
@@ -629,12 +629,12 @@ def test_text_tier_repaints_on_new_data_at_draw_hz_at_most(text_tier, monkeypatc
     a = fusion.camera_rows(m, cfg, 40, 10)
     assert fusion.camera_rows(m, cfg, 40, 10) is a                    # same data: the held rows
     m['version'] = 2
-    assert fusion.camera_rows(m, cfg, 40, 10) is a                    # new data within 1/draw_hz
+    assert fusion.camera_rows(m, cfg, 40, 10) is a                    # new data within 1/draw_rate
     assert fusion.camera_rows(m, cfg, 41, 10) is not a                # a new size repaints at once
-    now[0] += 1.0 / cfg['draw_hz']
+    now[0] += 1.0 / cfg['draw_rate']
     b = fusion.camera_rows(m, cfg, 41, 10)
     m['version'] = 3
-    now[0] += 1.0 / cfg['draw_hz']
+    now[0] += 1.0 / cfg['draw_rate']
     assert fusion.camera_rows(m, cfg, 41, 10) is not b
 
 
@@ -688,9 +688,9 @@ def test_image_labels_stay_with_their_tile_until_it_repaints(monkeypatch):
         moved = model()
         moved['version'] = 2
         moved['dets'][0] = {**moved['dets'][0], 'box': (0.12, 0.1, 0.17, 0.25), 'range': 4.0}
-        held = ''.join(r.plain for r in fusion.camera_rows(moved, cfg, 48, 12))   # within 1/draw_hz: the old tile
+        held = ''.join(r.plain for r in fusion.camera_rows(moved, cfg, 48, 12))   # within 1/draw_rate: the old tile
         assert held == first and '7.0L/7.3S' in held and '4.0L' not in held
-        now[0] += 1.0 / cfg['draw_hz']
+        now[0] += 1.0 / cfg['draw_rate']
         fresh = ''.join(r.plain for r in fusion.camera_rows(moved, cfg, 48, 12))
         assert '4.0L' in fresh and '7.0L' not in fresh
     finally:
