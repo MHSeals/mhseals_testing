@@ -115,6 +115,24 @@ def test_run_streams_progress_and_renews_the_motion_lease():
     assert renews and all(r['claim'] == 'c4' and r['act'] == req['id'] for r in renews)
 
 
+def test_route_sends_each_goal_in_order_and_the_first_failure_ends_it():
+    def script(req):
+        if req['args']['x'] == 3.0:
+            return [dict(ok=False, error='overridden', hint='operator took over')]
+        return [dict(state='started'), dict(state='done')]
+    code, out = call(['route', '1,2', '2,2,1.5', '3,0', '4,4', '--claim', 'c4', '--why', 'nav2 pool loop'], Desk(script))
+    goals = lines('req')
+    assert code == 3 and [g['args']['x'] for g in goals] == [1.0, 2.0, 3.0]
+    assert goals[1]['args'] == {'x': 2.0, 'y': 2.0, 'yaw': 1.5} and goals[0]['op'] == 'goal'
+    assert goals[2]['why'] == 'nav2 pool loop (route 3/4)' and goals[2]['claim'] == 'c4'
+    assert out[-1] == {'ok': False, 'route': 3, 'of': 4, 'error': 'route_ended', 'exit': 3}
+
+
+def test_route_refuses_a_bad_waypoint_before_sending_anything():
+    code, out = call(['route', '1,2', '1,nan', '--claim', 'c4'])
+    assert code == 2 and out[0]['error'] == 'bad_args' and lines() == []
+
+
 def test_run_mission_sends_the_task_it_names():
     desk = Desk(lambda req: [dict(state='done', result={})])
     call(['run', 'mission', '--task', 'nav_channel', '--claim', 'c4', '--dry-run'], desk)
@@ -314,7 +332,7 @@ def test_cli_registers_every_verb():
     for verb in agent_cli.VERBS:
         assert parser.parse_args([verb, *{'release': ['--claim', 'c'], 'run': ['k', '--claim', 'c'],
                                           'start': ['odometry', '--claim', 'c'], 'fcu': ['get', 'SCHED_LOOP_RATE'],
-                                          'goal': ['1', '2', '--claim', 'c'], 'note': ['t'],
+                                          'goal': ['1', '2', '--claim', 'c'], 'route': ['1,2', '--claim', 'c'], 'note': ['t'],
                                           'set': ['thrust_step=survey', '--claim', 'c'],
                                           'ask': ['q'], 'arm': ['--claim', 'c'], 'reload': ['config'],
                                           'fence': ['anchor']}.get(verb, [])]).command == verb

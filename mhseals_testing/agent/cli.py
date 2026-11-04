@@ -33,11 +33,11 @@ from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
 # acting verbs: each needs --why (owner decision 2026-11-01); stop takes one but never needs it, fcu only to write
-WHY = ('claim', 'release', 'run', 'goal', 'start', 'arm', 'reload', 'set', 'fcu', 'fence')
-VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
+WHY = ('claim', 'release', 'run', 'goal', 'route', 'start', 'arm', 'reload', 'set', 'fcu', 'fence')
+VERBS = ('claim', 'release', 'status', 'follow', 'run', 'goal', 'route', 'start', 'stop', 'arm', 'reload', 'set', 'fcu',
          'fence', 'mark', 'note', 'ask')
 FENCE_ACTIONS = ('corners', 'on_exit', 'anchor')
-STREAMS = ('run', 'goal')
+STREAMS = ('run', 'goal')      # route sends goals
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
 DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': {'idle_s': 600.0, 'motion_s': 10.0}}
@@ -89,6 +89,10 @@ def add_parsers(sub):
         goal.add_argument(name, type=float)
     goal.add_argument('yaw', type=float, nargs='?')
     goal.add_argument('--dry-run', action='store_true', help='evaluate the gates only')
+    route = verb('route', 'map-frame goals in order, each one goal through the TUI (its gates, Allow and lease); '
+                 'the first that does not succeed ends the route', claim=True)
+    route.add_argument('waypoints', nargs='+', metavar='X,Y[,YAW]')
+    route.add_argument('--dry-run', action='store_true', help='evaluate the first goal\'s gates only')
     start = verb('start', 'start a stack component (agent.yaml start:) as its Status row does', claim=True)
     start.add_argument('component', metavar='COMPONENT', help='a component key: odometry, ekf, sensors, ...')
     fcu = verb('fcu', 'FCU parameters through the TUI: get PARAM..., rates [--window S] (read-only); '
@@ -161,12 +165,12 @@ class Agent:
         self.emit(reply)
         return channel.exit_code(reply)
 
-    def send(self, op, args=None, claim=None, dry=False, wait=None):
+    def send(self, op, args=None, claim=None, dry=False, wait=None, why=None):
         """Append a req and wait for its final reply; returns the exit code."""
         tail = channel.Tail(self.path)
         tail.seek_end()
         req = channel.request(op, self.who, args, claim, dry, self.cfg['request_s'], path=self.path,
-                              why=getattr(self.args, 'why', None))
+                              why=why or getattr(self.args, 'why', None))
         if self.owner() is None:
             return self.no_tui(req, 'start boat_test on the boat; agents act only through it')
         return self.wait(req, tail, wait)
@@ -257,6 +261,30 @@ class Agent:
             self.emit({'ok': False, 'error': 'bad_args', 'hint': 'goal needs finite x, y (and yaw)'})
             return channel.EXIT_CODES['bad_args']
         return self.send('goal', args, self.args.claim, self.args.dry_run)
+
+    def route(self):
+        """Each waypoint as its own ``goal`` act, in order: nothing new on the TUI side, so every goal keeps its
+        gates, the operator's Allow, the motion lease and Space; a goal that fails, is refused or is cancelled ends
+        the route with its exit code. ``--dry-run`` checks the first goal's gates."""
+        legs = []
+        for word in self.args.waypoints:
+            try:
+                values = [float(v) for v in word.split(',')]
+            except ValueError:
+                values = []
+            if len(values) not in (2, 3) or not all(math.isfinite(v) for v in values):
+                return self.bad(f'route X,Y[,YAW] ...: {word!r} is not 2 or 3 finite numbers')
+            legs.append(dict(zip(('x', 'y', 'yaw'), values + [None])))
+        if self.args.dry_run:
+            return self.send('goal', legs[0], self.args.claim, True)
+        for index, leg in enumerate(legs, 1):
+            self.emit({'route': index, 'of': len(legs), 'goal': leg})
+            code = self.send('goal', leg, self.args.claim, why=f'{self.args.why} (route {index}/{len(legs)})')
+            if code:
+                self.emit({'ok': False, 'route': index, 'of': len(legs), 'error': 'route_ended', 'exit': code})
+                return code
+        self.emit({'ok': True, 'route': len(legs), 'of': len(legs), 'state': 'done'})
+        return 0
 
     def start(self):
         return self.send('start', {'component': self.args.component}, self.args.claim)
