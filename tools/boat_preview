@@ -62,7 +62,9 @@ snapshot() {   # each repo at REF (else origin/main) as a detached worktree; pri
     src=$PV_SRC/$repo dst=$WS/src/$repo
     # REF where the repo has it; else a workspace submodule's pin (the superproject's gitlink, e.g. a ROS 2 fork
     # branch, never its upstream's default); else origin/main
-    sha=$(git -C "$src" rev-parse -q --verify "$REF^{commit}" || pinned "$repo" || git -C "$src" rev-parse origin/main)
+    # (the default REF, origin/main, exists in a pinned repo too, so the pin wins unless REF was given explicitly)
+    if [ "$REF" = "$PV_REF" ] && sha=$(pinned "$repo"); then :
+    else sha=$(git -C "$src" rev-parse -q --verify "$REF^{commit}" || pinned "$repo" || git -C "$src" rev-parse origin/main); fi
     if [ -e "$dst/.git" ]; then git -C "$dst" checkout -q --force --detach "$sha"
     else git -C "$src" worktree prune; git -C "$src" worktree add -q --detach "$dst" "$sha"; fi
     printf '%s=%s ' "$repo" "$sha"
