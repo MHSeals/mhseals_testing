@@ -45,9 +45,14 @@ def sensor_rows(snapshot, specs):
     return rows
 
 
+STARTABLE = ('stack', 'part')   # rows Enter starts or stops (ui/parts.py): their own Stack section
+
+
 def component_rows(snapshot, specs):
-    """Sensors, then the managed components the app feeds into ``snapshot['components']``."""
-    return sensor_rows(snapshot, specs) + list(snapshot.get('components', ()))
+    """Sensors, then the managed components the app feeds into ``snapshot['components']``; the parts Enter
+    starts (the Stack row and each part) form the Stack section."""
+    return sensor_rows(snapshot, specs) + [
+        {**row, 'group': 'Stack'} if row.get('source') in STARTABLE else row for row in snapshot.get('components', ())]
 
 
 def frame_rows(snapshot, specs):
@@ -299,10 +304,25 @@ def short(detail, limit=10):
     return ''
 
 
-def row_label(row, active):
-    """The glyph and label cell; a healthy summary row keeps the glyph cell blank so labels align."""
+START = theme.pick('▶', '>')    # on a Stack row that is off or exited: Enter starts it
+
+
+def row_label(row, active, now=None):
+    """The glyph and label cell; a healthy summary row keeps the glyph cell blank so labels align.
+
+    A Stack row (``STARTABLE``) shows a braille spinner while it starts, ✓ running, ✗ exited, and the START
+    marker in the accent while Enter would start it (off, exited)."""
     name = Text(row.get('label') or row['name'], style='bold' if row['required'] else None)
     plain = row.get('plain')
+    if row.get('source') in STARTABLE:
+        level = theme.kind(row['state'])
+        if level == 'busy' and now is not None:
+            glyph = Text(theme.spinner(now), style=theme.BUSY)
+        else:
+            glyph = theme.icon(row['state'])
+        if level in ('off', 'bad', 'warn'):
+            name.append(f' {START}', style=f'bold {theme.ACCENT}')
+        return theme.row(None, name, active, prefix=glyph)
     return theme.row(None if plain else row['state'], name, active, prefix=' ' if plain else None)
 
 
@@ -321,8 +341,8 @@ class StatusTable:
     """The Status rows at the column's width: labels keep LABEL_MIN cells (up to half a narrow column) and a
     longer value is cut, so no long value squeezes the labels out."""
 
-    def __init__(self, rows, visible, net, cursor):
-        self.rows, self.visible, self.net, self.cursor = rows, visible, net, cursor
+    def __init__(self, rows, visible, net, cursor, now=None):
+        self.rows, self.visible, self.net, self.cursor, self.now = rows, visible, net, cursor, now
 
     def __rich_console__(self, console, options):
         width = options.max_width
@@ -349,7 +369,7 @@ class StatusTable:
                     continue
                 value = row['value']
                 # A value keeps a one-cell gutter, so a cut label never runs into it; an empty one gives its cell back.
-                table.add_row(row_label(row, active),
+                table.add_row(row_label(row, active, self.now),
                               Text(f' {value}' if value else '',
                                    style=row['style'] if row.get('style') is not None
                                    else getattr(theme, RATE_STYLE.get(row.get('rate'), 'MUTED'))))
@@ -396,7 +416,7 @@ def status_panel(snapshot, view, height):
     # The window keeps the cursor row in view.
     place = next((i for i, e in enumerate(entries) if e[0] == 'row' and e[1] == cursor), 0)
     start, visible = window(entries, place, budget)
-    table = StatusTable(rows, visible, net, cursor if focused else None)
+    table = StatusTable(rows, visible, net, cursor if focused else None, view.get('now'))
     detail = Text(rows[cursor]['detail'] if rows else 'No sensors in this profile',
                   style=theme.MUTED, no_wrap=True, overflow=theme.OVERFLOW)
     live = sum(1 for row in rows if row.get('source') == 'sensor' and row['state'] == 'LIVE')

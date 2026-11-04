@@ -435,3 +435,17 @@ def test_the_focused_panel_title_is_a_solid_bar_and_a_popup_keeps_its_plain_titl
     popup = theme.block(Text('x'), 'Pose', True, bar=False).title
     assert theme.FOCUS in popup.plain and not any('reverse' in str(span.style) for span in popup.spans)
     assert not any('reverse' in str(span.style) for span in theme.block(Text('x'), 'Status').title.spans)
+
+
+def test_stack_rows_have_their_own_section_a_spinner_while_starting_and_a_start_marker():
+    from mhseals_testing.ui.panels import status
+    from mhseals_testing.ui.panels.status import START, row_label
+    part = lambda name, state: dict(group='Components', source='part', key=name, state=state, name=name,
+                                    value='', required=False, detail='')
+    rows = status.component_rows({'sensors': {}, 'components': [part('Odom', 'OK'), part('Nav2', 'OFF')]}, [])
+    assert {row['group'] for row in rows} == {'Stack'}
+    from mhseals_testing.ui import theme
+    assert row_label(part('Odom', 'CHECKING'), False, 0.0).plain.strip().startswith(theme.spinner(0.0))
+    assert row_label(part('Nav2', 'OFF'), False, 0.0).plain.endswith(START)
+    assert row_label(part('Mission', 'FAIL'), False, 0.0).plain.endswith(START)
+    assert START not in row_label(part('Odom', 'OK'), False, 0.0).plain

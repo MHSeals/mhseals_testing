@@ -30,7 +30,7 @@ def test_rows_come_in_ui_group_order():
 
 
 def test_fold_order_is_u13():
-    assert FOLD_ORDER == ('Session', 'System', 'Components', 'Localization', 'Control')
+    assert FOLD_ORDER == ('Session', 'System', 'Components', 'Stack', 'Localization', 'Control')
     groups = {'Session': ['OK'], 'System': ['OK'] * 3, 'Components': ['LIVE'] * 3}
     assert layout.fold_groups(groups, 9) == {'Session'}
     assert layout.fold_groups(groups, 6) == {'Session', 'System'}
