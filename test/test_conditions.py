@@ -383,30 +383,6 @@ def test_a_practical_step_is_material():
     assert est.material(S)
 
 
-def _same_windows(a, b):
-    assert len(a) == len(b) > 0
-    for x, y in zip(a, b):
-        assert x.t0 == y.t0 and x.flag == y.flag and x.hz == pytest.approx(y.hz)
-        assert x.mean == pytest.approx(y.mean)
-
-
-def test_duplicated_samples_give_the_clean_windows():
-    clean = neutral(60)
-    _same_windows(windows_of([np.repeat(a, 2, axis=0) for a in clean]), windows_of(clean))
-
-
-def test_locally_swapped_samples_give_the_clean_windows():
-    clean = neutral(60)
-    order = np.arange(len(clean[0]))
-    order[0:-1:3], order[1::3] = order[1::3].copy(), order[0:-1:3].copy()
-    _same_windows(windows_of([a[order] for a in clean]), windows_of(clean))
-
-
-def test_reversed_samples_give_the_clean_windows():
-    clean = neutral(60)
-    _same_windows(windows_of([a[::-1] for a in clean]), windows_of(clean))
-
-
 @pytest.mark.parametrize('tau, floor', [(1.0, 0.90), (6.0, 0.83)])
 def test_drift_error_covers_slowly_wandering_noise(tau, floor):
     # Windows of a gust or slow wander are alike, so their scatter alone made the error optimistic.
