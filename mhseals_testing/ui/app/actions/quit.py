@@ -44,6 +44,8 @@ class Quit:
         with self.open_keys() as keys:
             pixels.forget()
             pixels.start(keys, self.console, self.write_terminal, theme.PALETTE.graphics)
+            if pixels.WHY:      # an image setting that falls back says so once, with the reason
+                self.notice = f'Images off, braille: {pixels.WHY}'
             key_input.attach(keys, pixels.caps())
             try:
                 with self.live_factory(self.render(), console=self.console, screen=True,

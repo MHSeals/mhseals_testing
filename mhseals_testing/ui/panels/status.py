@@ -152,9 +152,9 @@ def graphics_rows(snapshot, specs):
     graphics = snapshot.get('graphics')
     if graphics is None:
         return []
-    setting, tier = graphics
+    setting, tier, why = (tuple(graphics) + ('',))[:3]
     left, right = theme.pick('‹ ', '< '), theme.pick(' ›', ' >')
-    drawing = f'drawing {tier}{theme.SEPARATOR}' if tier != setting and setting != 'off' else ''
+    drawing = f'drawing {tier}{f" ({why})" if why else ""}{theme.SEPARATOR}' if tier != setting and setting != 'off' else ''
     return [dict(group='Session', state='OK', name='Graphics', required=False, value=f'{left}{setting}{right}',
                  plain=True, setting='graphics',
                  detail=f'{drawing}left/right: off, auto, kitty or sixel; drawings as terminal images, '

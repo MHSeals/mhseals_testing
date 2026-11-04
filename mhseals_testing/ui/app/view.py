@@ -48,7 +48,7 @@ class View:
             if not self.watching:
                 snapshot['rec_mode'] = self.recorder.mode   # the Recording row (owner only)
         if self.live is not None:   # the Graphics row: this terminal's setting and drawing tier
-            snapshot['graphics'] = (theme.PALETTE.graphics, pixels.TIER)
+            snapshot['graphics'] = (theme.PALETTE.graphics, pixels.TIER, pixels.WHY)
         counts = health_feed.summary(self.engine)
         if counts:
             snapshot['health'] = counts

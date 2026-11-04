@@ -57,10 +57,12 @@ def test_the_conditions_title_names_an_image_tier_only(overlay):
 def test_arrows_step_off_auto_kitty_sixel_save_the_overlay_and_switch_the_tier(tmp_path, overlay):
     app, _ = make_app(tmp_path)
     with app.attached():
-        assert theme.PALETTE.graphics == 'off' and pixels.TIER == 'text'
-        assert graphics_row(app)['value'] == chip('off')
-        app.dispatch('left')                                  # already first: stays, writes nothing
-        assert not overlay.exists()
+        assert theme.PALETTE.graphics == 'auto' and pixels.TIER == 'text'    # the default; no terminal here
+        assert graphics_row(app)['value'] == chip('auto')
+        app.dispatch('left')
+        assert overlay.read_text() == 'graphics: off\n' and pixels.SETTING == 'off'
+        app.dispatch('left')                                  # already first: stays
+        assert theme.PALETTE.graphics == 'off'
         app.dispatch('right')                                 # auto: no terminal to ask here, so text
         assert overlay.read_text() == 'graphics: auto\n' and pixels.SETTING == 'auto' and pixels.TIER == 'text'
         app.dispatch('right')
