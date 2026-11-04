@@ -3042,7 +3042,7 @@ def test_actual_app_manual_space_ends_at_zero_even_on_hold_error(tmp_path, fails
             raise RuntimeError('hold failed')
 
     boat.hold = hold
-    press(app, 'y')
+    press(app, *(['y'] if fails else ['q'] * 22))   # still armed: quitting is a held q (config/input.yaml quit_armed)
     app.run()
     assert len(stopped) == 1 and not app.manual
     assert all(command == 'neutral' or command == (0, 0, 0)

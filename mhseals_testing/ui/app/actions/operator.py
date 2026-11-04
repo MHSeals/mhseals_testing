@@ -6,6 +6,7 @@ import socket
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.harness import control, operator_state
 from mhseals_testing.ui import feeds as feeds_module, theme
+from mhseals_testing.ui import input as key_input
 
 
 class Operator:
@@ -89,8 +90,11 @@ class Operator:
                 ('Agent claim', 'revoked (the agent claims again only if you allow it)'),
                 ('Children', 'keep running; you adopt them'), ('Old client', 'becomes a viewer, told who took over')]
         try:
-            if self.choose('Take control', ('Cancel', 'Take control'), {'n': 0, 'y': 1}, rows=rows,
-                           danger=True, width=72) != 'Take control':
+            if key_input.by_hold('take'):
+                if not self.hold_confirm('Take control', 'take control', rows=rows, key='O', width=72):
+                    return
+            elif self.choose('Take control', ('Cancel', 'Take control'), {'n': 0, 'y': 1}, rows=rows,
+                             danger=True, width=72) != 'Take control':
                 return
         except Cancelled:
             return

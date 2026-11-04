@@ -109,3 +109,39 @@ def test_the_session_keys_pass_the_mouse_to_the_popup():
 def test_the_bar_fills_with_the_hold():
     assert hold.fill(0.0).strip('▕▏ ') == '' and hold.fill(1.0).count('█') == 24
     assert hold.label('a') == 'Enter or a' and hold.label(None) == 'Enter'
+
+
+def test_o_takes_control_by_a_hold_and_a_tap_takes_nothing(monkeypatch):
+    from types import SimpleNamespace
+    from mhseals_testing.ui.app import App as TUI
+    monkeypatch.setattr(key_input, 'by_hold', lambda action, path=None: action == 'take')
+    for script, taken in ((repeats('O', 2.0), True), ([(0.0, 'O'), (2.0, 'escape')], False)):
+        app = App(script)
+        app.watching, app.review, app.feeds, app.quit, app.restart_as = 1, None, [], False, None
+        app.hold_confirm = lambda *a, **kw: hold.confirm(app, *a, **kw)
+        SimpleNamespace(take=TUI.take_control).take(app)
+        assert (app.restart_as == 'take' and app.quit) is taken
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_arm_by_a_hold_when_input_yaml_says_so(tmp_path, monkeypatch, enabled):
+    from test_app import arm, make_app, press
+    monkeypatch.setattr(key_input, 'by_hold', lambda action, path=None: enabled and action == 'arm')
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        if not enabled:
+            arm(app)                                   # the popup: typed ARM on real pins, else y
+            return
+        press(app, *['a'] * 30)
+        app.dispatch('a')
+        assert app.armed and 'hold confirmed: Arm' in str(app.monitor.events)
+
+
+def test_a_tapped_a_never_arms(tmp_path, monkeypatch):
+    from test_app import make_app, press
+    monkeypatch.setattr(key_input, 'by_hold', lambda action, path=None: action == 'arm')
+    app, _ = make_app(tmp_path)
+    with app.attached():
+        press(app, *([None] * 40 + ['escape']))
+        app.dispatch('a')
+        assert not app.armed and app.notice == 'Arming cancelled'

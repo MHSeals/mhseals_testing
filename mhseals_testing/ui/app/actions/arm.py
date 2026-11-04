@@ -8,6 +8,7 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_testing.devices import DeviceError
 from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
 from mhseals_testing.ros.arming import muxed
+from mhseals_testing.ui import input as key_input
 from mhseals_testing.ui import theme, widgets
 from mhseals_testing.ui.popups import pins
 
@@ -155,9 +156,13 @@ class Arm:
         return rows
 
     def confirm_drive(self, title):
-        """The typed word that starts the real driver, for arming and the pin readback alike."""
-        return self.type_word(title, 'Propellers submerged, area clear, physical power '
-                              'cutoff within reach.', 'arm', rows=self.arm_rows(), width=72, quiet=True)
+        """The typed word (or, with ``hold: arm``, the hold) that starts the real driver, for arming and the
+        pin readback alike."""
+        message = 'Propellers submerged, area clear, physical power cutoff within reach.'
+        if key_input.by_hold('arm'):
+            return self.hold_confirm(title, 'arm', rows=self.arm_rows(), message=message, key='a', width=72,
+                                     quiet=True)
+        return self.type_word(title, message, 'arm', rows=self.arm_rows(), width=72, quiet=True)
 
     def arm_panel(self):
         """One popup for both directions; Space still stops without it.
@@ -220,6 +225,8 @@ class Arm:
                 return
             if self.profile.outputs == 'odroid':
                 ok = self.confirm_drive(title)
+            elif key_input.by_hold('arm'):
+                ok = self.hold_confirm(title, 'arm', rows=self.arm_rows(), key='a', width=72, quiet=True)
             else:
                 ok = self.choose(title, ('Cancel', 'Arm'), {'n': 0, 'y': 1},
                                  rows=self.arm_rows(), width=72, quiet=True) == 'Arm'

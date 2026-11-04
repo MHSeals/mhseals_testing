@@ -8,6 +8,7 @@ from mhseals_testing.agent import grants as agent_grants
 from mhseals_testing.runner import STALE_MUX_S
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, feeds as feeds_module
+from mhseals_testing.ui import input as key_input
 
 
 HOLD_CONFIRM_S = 2.0      # s the mux state may take to show a requested watchdog hold
@@ -146,8 +147,12 @@ class Holds:
         self._releasing = True
         requested = False
         try:
-            answer = self.choose('Release hold?', ['Release', 'Cancel'],
-                                 message=f'{resumer} resumes', default=1, danger=True)
+            if key_input.by_hold('release'):
+                answer = 'Release' if self.hold_confirm('Release hold?', 'release', message=f'{resumer} resumes',
+                                                        key='U') else 'Cancel'
+            else:
+                answer = self.choose('Release hold?', ['Release', 'Cancel'],
+                                     message=f'{resumer} resumes', default=1, danger=True)
             if answer == 'Release':
                 refusal = self.release_refusal()
                 if not refusal and self.release_resumer()[0] != identity:

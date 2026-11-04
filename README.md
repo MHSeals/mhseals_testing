@@ -63,6 +63,9 @@ Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Ac
 | `w s ↑↓` | Manual (m): hold w/s, a/d, ←/→ together; +/- speed; x leaves |
 <!-- /keys -->
 
+Hold-to-confirm: the confirms config/input.yaml `hold:` names (take control `O`, quitting while armed; arm and
+release after the 11-04 pool test) fill a bar while Enter, the action's key or a mouse button is held; a tap or Esc
+cancels and Space still stops at once. With `mouse: true` the wheel scrolls lists and popups; manual driving ignores it.
 Held-key combos (Conditions reads `keys·combos`, else `keys·one key`) need the Kitty keyboard protocol (Kitty,
 Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
 Conditions `sog` readout and the minimap trail run calm grey to hot magenta. The Conditions ring glows red toward the nearest lidar point

@@ -80,8 +80,14 @@ class Quit:
         if any(value.endswith('Quit keeps them running') for _, value in remote):
             options.insert(-1, 'Quit, also stop adopted parts')
         try:
-            choice = self.choose('Quit', options, {'y': 0, 'n': len(options) - 1}, rows=rows,
-                                 default=len(options) - 1, width=72)
+            if self.armed and key_input.by_hold('quit_armed'):    # armed: a hold, then any choice of how
+                if not self.hold_confirm('Quit while armed', 'quit', rows=rows, key='q', width=72):
+                    return
+                choice = options[0] if len(options) == 2 else self.choose(
+                    'Quit', options, None, rows=rows, default=len(options) - 1, width=72)
+            else:
+                choice = self.choose('Quit', options, {'y': 0, 'n': len(options) - 1}, rows=rows,
+                                     default=len(options) - 1, width=72)
         except Cancelled:
             return
         if choice == 'Cancel':
