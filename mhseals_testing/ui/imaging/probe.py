@@ -86,7 +86,14 @@ def probe(fd, write, timeout=PROBE_S, env=None):
 
 
 def _tmux(env, caps):
-    return bool(env.get('TMUX')) or (caps.get('xtversion') or '').lower().startswith('tmux')
+    """Under tmux: $TMUX, TERM_PROGRAM=tmux (tools/boat_tui hands it through docker exec) or tmux's XTVERSION."""
+    return (bool(env.get('TMUX')) or env.get('TERM_PROGRAM') == 'tmux'
+            or (caps.get('xtversion') or '').lower().startswith('tmux'))
+
+
+def blind(env, caps):
+    """A tmux the TUI can't ask about its clients (docker exec or ssh from a tmux pane: no $TMUX)."""
+    return _tmux(env, caps) and not env.get('TMUX')
 
 
 def choose(setting, caps, env=None, colours='truecolor', view=None):
@@ -103,10 +110,11 @@ def choose(setting, caps, env=None, colours='truecolor', view=None):
             or env.get('STY') or name.startswith('screen')):
         return 'text'
     if _tmux(env, caps):
-        if setting in ('sixel', 'kitty') and view is None and not env.get('TMUX'):
+        if setting in ('auto', 'sixel', 'kitty') and view is None and not env.get('TMUX'):
             # A tmux the TUI can't ask (docker exec or ssh from a tmux pane): a forced tier is the
-            # user's word for the viewers. Sixel trusts tmux's own DA1 (built with sixel) and cell
-            # size; kitty trusts allow-passthrough (tools/boat_tui sets it on its own server).
+            # user's word for the viewers. Sixel (auto too) trusts tmux's own DA1 (built with sixel:
+            # tmux draws it, text for a client without sixel) and cell size; kitty trusts
+            # allow-passthrough (tools/boat_tui sets it on its own server).
             if setting == 'kitty':
                 return 'kitty' if colours in ('256', 'truecolor', 'eight_bit') else 'text'
             return 'sixel' if caps.get('sixel') and caps.get('cell') else 'text'
@@ -115,3 +123,32 @@ def choose(setting, caps, env=None, colours='truecolor', view=None):
         if backend.probe(setting, caps, env, colours):
             return backend.name
     return 'text'
+
+
+def reason(setting, caps, env=None, colours='truecolor', view=None):
+    """Why `choose` draws text for an image setting, in a few words for the operator ('' when it doesn't)."""
+    from mhseals_testing.ui import palette
+    env = os.environ if env is None else env
+    if setting == 'off' or choose(setting, caps, env, colours, view) != 'text':
+        return ''
+    name = (caps.get('xtversion') or '').lower()
+    if env.get('NO_COLOR') or palette.ascii_mode(env):
+        return 'NO_COLOR or ASCII mode'
+    if env.get('TERM') == 'dumb' or env.get('STY') or name.startswith('screen'):
+        return 'dumb terminal or screen'
+    if not caps.get('done'):
+        return 'the terminal did not answer the probe'
+    if _tmux(env, caps):
+        if view is None and env.get('TMUX'):
+            return 'tmux did not answer'
+        if view is None:
+            return ('tmux has no sixel: kitty users set Graphics kitty' if not caps.get('sixel')
+                    else 'tmux gave no cell size yet')
+        if not view.get('clients'):
+            return 'no client attached'
+        if not view.get('passthrough'):
+            return 'tmux allow-passthrough is off and a client lacks sixel'
+        return 'a tmux client is not kitty and has no sixel'
+    if setting == 'sixel' or caps.get('sixel'):
+        return 'the terminal gave no cell size'
+    return 'the terminal has neither kitty graphics nor sixel'

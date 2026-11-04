@@ -60,3 +60,16 @@ def _tmux_tier(setting, caps, view, colours):
 def wrap(data):
     """Kitty escapes for the terminal outside tmux: each in a passthrough DCS, its ESCs doubled."""
     return _APC.sub(lambda m: '\x1bPtmux;' + m.group().replace('\x1b', '\x1b\x1b') + '\x1b\\', data)
+
+
+def passthrough(env, run=subprocess.run):
+    """Turn allow-passthrough on for the TUI's own pane ($TMUX_PANE), so kitty's escapes reach the terminal
+    outside; only that pane changes. A tmux before 3.3 (no such option) or no answer leaves it as it was."""
+    pane = env.get('TMUX_PANE')
+    if not env.get('TMUX') or not pane:
+        return
+    try:
+        run(['tmux', 'set-option', '-p', '-t', pane, 'allow-passthrough', 'on'], capture_output=True, timeout=0.5,
+            env=dict(env))
+    except (OSError, subprocess.SubprocessError):
+        pass

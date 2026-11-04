@@ -46,12 +46,12 @@ from mhseals_testing.ui.imaging import tmux
 from mhseals_testing.ui.imaging.kitty import (DIACRITICS, ESC, KITTY_NAMES, PLACEHOLDER, ST, _delete,  # noqa: F401
                                               _kitty_id, kitty_enabled, kitty_upload)
 from mhseals_testing.ui.imaging.probe import (PROBE, PROBE_ID, PROBE_KITTY, PROBE_S, _ask, _tmux,  # noqa: F401
-                                              choose, parse, probe)
+                                              blind, choose, parse, probe, reason)
 from mhseals_testing.ui.imaging.protocol import by_name, rgba as _rgba
 from mhseals_testing.ui.imaging.sixel import MARK0, _MARKS, sixel  # noqa: F401
 from mhseals_testing.ui.imaging.tmux import TMUX_FORMAT, _tmux_tier, tmux_view  # noqa: F401
 
-SETTINGS = ('off', 'auto', 'kitty', 'sixel')   # theme.yaml ``graphics``; off (the default) is the text
+SETTINGS = ('off', 'auto', 'kitty', 'sixel')   # theme.yaml ``graphics`` (default auto); off is the text
 DEFAULT_CELL = (10, 20)     # px per cell when the terminal does not say (kitty; sixel then stays text)
 POOL = 480                  # tile ids alive at once (sixel markers have room for 511)
 TILE = (8, 4)               # cells per tile, at most 16 x 8 (the marker code)
@@ -60,6 +60,7 @@ BLANK = (' ', None)         # the cell of an empty tile
 
 TIER = 'text'
 SETTING = 'off'             # the setting start() was given
+WHY = ''                    # why an image setting draws text, for the operator ('' otherwise)
 _caps = {}                  # the session's probe replies: start() asks the terminal once
 clock = time.monotonic      # s; surface()'s repaint rate (tests run a simulated clock)
 # Over SSH (the boat radio: about 1 Mbit/s) image bytes get a budget, a fifth of that link; above
@@ -106,8 +107,9 @@ def start(keys, console, write, setting='off', env=None):
     probe nothing unless a tier is wanted. Bytes that were not probe replies (keys typed meanwhile) go back to the
     reader's buffer. In sixel the console's stream is wrapped so markers become cursor-forward.
     Without a tty on the reader's fd every setting is text."""
-    global TIER, CELL, K, GENERATION, SETTING, BUDGET, PASSTHROUGH, _stream
+    global TIER, CELL, K, GENERATION, SETTING, BUDGET, PASSTHROUGH, WHY, _stream
     _reset()
+    _listen(keys)
     _session.update(keys=keys, console=console, write=write)
     GENERATION += 1
     SETTING = setting
@@ -118,6 +120,8 @@ def start(keys, console, write, setting='off', env=None):
         tty = fd is not None and os.isatty(fd)
     except OSError:
         tty = False
+    if tty and setting != 'off' and env.get('TMUX'):
+        tmux.passthrough(env)            # the TUI's own pane passes kitty's escapes (cx's tmux too)
     view = tmux_view(env) if tty and setting != 'off' and env.get('TMUX') else None
     # Under tmux the probe (tmux answers it itself) runs detached too: a client may attach later.
     hopeful = view and dict(view, passthrough=True, clients=(('', 'kitty', frozenset({'sixel'}), DEFAULT_CELL),))
@@ -136,6 +140,7 @@ def start(keys, console, write, setting='off', env=None):
             caps = {}
     system = getattr(console, 'color_system', None) or 'truecolor'
     TIER = choose(setting, caps, env, system, view) if tty else 'text'
+    WHY = (reason(setting, caps, env, system, view) or '') if tty else ('no terminal' if setting != 'off' else '')
     BUDGET = SSH_BUDGET if env.get('SSH_CONNECTION') else None
     CELL = caps.get('cell') or DEFAULT_CELL
     if TIER != 'text' and view:          # tmux's 16t answer may be stale (asked while detached)
@@ -144,8 +149,10 @@ def start(keys, console, write, setting='off', env=None):
     _mux.clear()
     if view is not None:
         _mux.update(env=env, view=view, next=clock() + TMUX_POLL_S, painted=clock(), token=object())
-    elif TIER != 'text' and _tmux(env, caps):    # forced sixel through a tmux it can't ask: repaint only
-        _mux.update(blind=True, painted=clock())
+    elif tty and setting != 'off' and blind(env, caps):
+        # A tmux it can't ask: repaint now and then, and ask tmux again (DA1, cell size) when a client
+        # attaches (the window resizes) or while it draws text: boat_tui starts detached.
+        _mux.update(blind=True, env=env, painted=clock(), size=_size_of(console), reprobe=clock() + TMUX_REPAINT_S)
     K = 1 if TIER == 'text' else max(1, min(4, round(CELL[0] / 3.5)))
     if TIER == 'sixel' and console is not None and not isinstance(console.file, _Stream):
         _stream = console.file = _Stream(console.file)
@@ -196,7 +203,9 @@ def watch():
         return False
     now = clock()
     if _mux.get('blind'):
-        if now - _mux['painted'] < TMUX_REPAINT_S:
+        if _reprobe(now):
+            return True
+        if TIER == 'text' or now - _mux['painted'] < TMUX_REPAINT_S:
             return False
         _mux['painted'] = now
         repaint()
@@ -217,6 +226,57 @@ def watch():
         repaint()
         return TIER != 'text'
     return False
+
+
+def _listen(keys):
+    """Copy the terminal replies the key reader drops (`KeyReader.absorb`) into a re-probe round in flight."""
+    inner = getattr(keys, 'absorb', None)
+    if inner is None or getattr(inner, 'imaging', False):
+        return
+
+    def absorb(value):
+        hit = inner(value)
+        if hit and 'round' in _mux:
+            _mux['round'][1].extend(value)
+        return hit
+    absorb.imaging = True
+    keys.absorb = absorb
+
+
+def _reprobe(now):
+    """Behind a tmux it can't ask: send the probe again on a resize (a client attached) or every
+    TMUX_REPAINT_S while drawing text; tmux answers it itself, and its replies come back through the key
+    reader (`_listen`), so nothing waits. A settled round with a new tier or cell restarts the tier."""
+    session = _session
+    if 'round' in _mux:
+        started, data = _mux['round']
+        got, _ = parse(bytes(data))
+        if not got['done'] and now - started < 4 * PROBE_S:
+            return False
+        del _mux['round']
+        if not got['done']:
+            return False
+        _caps.update({k: got[k] for k in ('sixel', 'cell', 'xtversion') if got[k] is not None})
+        _caps['done'] = True
+        console = session.get('console')
+        system = getattr(console, 'color_system', None) or 'truecolor'
+        tier = choose(SETTING, _caps, _mux['env'], system)
+        if tier != TIER or (tier != 'text' and _caps.get('cell') != CELL):
+            restart(session['keys'], console, session['write'], SETTING, _mux['env'])
+            return True
+        return False
+    size = _size_of(session.get('console'))
+    if size != _mux.get('size') or (TIER == 'text' and now >= _mux['reprobe']):
+        _mux.update(size=size, reprobe=now + TMUX_REPAINT_S, round=(now, bytearray()))
+        session['write'](PROBE)
+    return False
+
+
+def _size_of(console):
+    try:
+        return tuple(console.size) if console is not None else None
+    except (OSError, ValueError):
+        return None
 
 
 def repaint():

@@ -142,9 +142,9 @@ def test_probe_gives_up_after_its_timeout_and_start_falls_back_to_text():
         os.close(slave)
 
 
-def test_theme_graphics_setting_is_off_by_default_validated_and_may_be_overlaid(tmp_path):
+def test_theme_graphics_setting_is_auto_by_default_validated_and_may_be_overlaid(tmp_path):
     base, _ = palette.load_theme(overlay=False)
-    assert base.graphics == 'off'
+    assert base.graphics == 'auto'
     overlay = tmp_path / 'theme.yaml'
     overlay.write_text('graphics: sixel\n')
     assert palette.load_theme(overlay=overlay)[0].graphics == 'sixel'
@@ -152,7 +152,7 @@ def test_theme_graphics_setting_is_off_by_default_validated_and_may_be_overlaid(
     assert palette.load_theme(overlay=overlay)[0].graphics == 'off'
     overlay.write_text('graphics: text\n')
     themed, warning = palette.load_theme(overlay=overlay)
-    assert themed.graphics == 'off' and 'graphics' in warning
+    assert themed.graphics == 'auto' and 'graphics' in warning
 
 
 def test_save_graphics_sets_one_line_and_keeps_the_rest_of_the_overlay(tmp_path):
@@ -547,7 +547,7 @@ def test_under_tmux_only_what_tmux_reports_for_every_client_picks_an_image(setti
 
 
 def test_tmux_without_a_view_and_screen_stay_text():
-    assert pixels.choose('auto', TMUX_CAPS, {}) == 'text'           # tmux over ssh: XTVERSION only
+    assert pixels.choose('auto', dict(TMUX_CAPS, sixel=False), {}) == 'text'    # tmux over ssh, no sixel in tmux
     assert pixels.choose('kitty', TMUX_CAPS, TMUX_ENV) == 'text'    # its own tmux didn't answer
     assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='screen'), {}, view=view(FOOT)) == 'text'
     assert pixels.choose('sixel', dict(TMUX_CAPS, xtversion='foot'), dict(TMUX_ENV, NO_COLOR='1'),
@@ -670,7 +670,7 @@ def test_forced_kitty_through_a_tmux_it_cannot_ask_wraps_and_repaints(monkeypatc
     assert pixels.choose('kitty', TMUX_CAPS, {}) == 'kitty'
     assert pixels.choose('kitty', TMUX_CAPS, {}, 'standard') == 'text'
     assert pixels.choose('kitty', TMUX_CAPS, {'NO_COLOR': '1'}) == 'text'
-    assert pixels.choose('auto', dict(TMUX_CAPS, kitty=True), {}) == 'text'       # nothing vouches for kitty
+    assert pixels.choose('auto', dict(TMUX_CAPS, kitty=True, sixel=False), {}) == 'text'   # nothing vouches for kitty
     monkeypatch.setattr(pixels, 'tmux_view', lambda env: pytest.fail('asked tmux'))
     monkeypatch.setattr(pixels, 'probe', lambda fd, write, env=None: (dict(TMUX_CAPS), b''))
     monkeypatch.setattr(os, 'isatty', lambda fd: True)
