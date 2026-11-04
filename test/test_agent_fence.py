@@ -166,7 +166,7 @@ def test_a_holding_watchdog_is_watched_at_once_and_a_first_release_waits_for_its
 
 def test_agents_are_never_told_to_set_command_mode():
     text = agent_acts.agent_text('needs effort commands; use --set command_mode=effort')
-    assert '--set command_mode' not in text and 'operator' in text and 'BOAT_SIM_COMMAND_MODE=effort' in text
+    assert '--set command_mode' not in text and 'operator' in text and 'no restart' in text
 
 
 def test_the_sim_target_is_this_machine_never_an_ssh_host(tmp_path, monkeypatch):

@@ -308,3 +308,25 @@ def test_all_three_arm_time_snapshots_use_the_helper():
     for source in (inspect.getsource(arming.Arming.begin), inspect.getsource(arming.Arming.restart_driver),
                    inspect.getsource(app.App.apply_hardware)):
         assert 'session_hardware(' in source and 'output_backend=' not in source
+
+
+def test_the_command_path_switches_only_disarmed_with_its_children_gone(tmp_path):
+    """command_mode's hot switch (D-20261101-06): the next arm starts the new mode's children, never mid-arm."""
+    from mhseals_testing.ros.arming import command_profile
+    switch, processes = arming('crane_full_stack', tmp_path=tmp_path)
+    base = switch.profile
+    assert command_profile(base, 'effort') is base
+    velocity = command_profile(base, 'velocity')
+    switch.switch_profile(velocity)
+    assert switch.profile is velocity and 'velocity' in switch.children()
+    switch.armed = True
+    with pytest.raises(RuntimeError, match='disarmed'):
+        switch.switch_profile(base)
+    switch.armed = False
+    processes.started.append('velocity')                       # a controller the disarm left running
+    with pytest.raises(RuntimeError, match='velocity still running'):
+        switch.switch_profile(base)
+    assert switch.profile is velocity
+    processes.stopped.append('velocity')
+    switch.switch_profile(base)
+    assert switch.profile is base and 'velocity' not in switch.children()

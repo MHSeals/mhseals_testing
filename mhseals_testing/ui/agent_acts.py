@@ -317,12 +317,11 @@ def in_background(app, title, work, message=None, wait_s=0.2, on_abort=lambda: N
 # --- dry run ---------------------------------------------------------------------------------
 
 def agent_text(reason):
-    """``reason`` as an agent reads it: the command mode is chosen at the TUI's start, so the hint names the
-    command that changes it (boat_agent set saves it, disarmed; it takes effect at the next start), never
-    ``run --set``."""
+    """``reason`` as an agent reads it: the hint names the command that switches the command mode (boat_agent set,
+    disarmed; the TUI switches its command path at once, no restart), never ``run --set``."""
     return re.sub(r'; use --set command_mode=(\w+)',
-                  r': boat_agent set command_mode=\1 --claim ID --why ... (disarmed; or the operator), then boat_tui restart '
-                  r'(sim: BOAT_SIM_COMMAND_MODE=\1 tools/boat_sim up); then run again', str(reason or ''))
+                  r': boat_agent set command_mode=\1 --claim ID --why ... (disarmed; or the operator; it applies at '
+                  r'once, no restart); then run again', str(reason or ''))
 
 
 def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0, fence_wait=0.0):

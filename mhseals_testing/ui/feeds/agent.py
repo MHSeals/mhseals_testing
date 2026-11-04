@@ -468,7 +468,9 @@ class AgentDesk:
                 return self.reply(req, False, error, hint=hint, result=applied)
             result['nav2'] = applied
         if values:
-            self.apply_settings(values, req['who'])
+            error = self.apply_settings(values, req['who'])
+            if error:                     # command_mode's hot switch refused (switch_command_mode): nothing set
+                return self.reply(req, False, 'refused', hint=error, result=result)
             result['set'] = values
         self.reply(req, True, result=result)
 
@@ -521,8 +523,13 @@ class AgentDesk:
         return values, None
 
     def apply_settings(self, values, who):
+        """Each value as the operator's change; the first refusal (command_mode's hot switch) stops there."""
         for key, value in values.items():
-            self.app.set_setting(key, value, who=who)
+            error = self.app.set_setting(key, value, who=who)
+            if error:
+                return error
+        return ''
+
 
     def fcu_work(self):
         """The AgentFcu over this TUI's MavrosLink (ros/fcu.py, the one MAVROS path) and node."""

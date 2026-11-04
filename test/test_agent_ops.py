@@ -121,5 +121,5 @@ def test_a_run_this_tui_can_never_do_is_refused_before_any_ask(boat):
     boat.app.answers = []                                   # no confirm popup may open
     reply = final(ask(boat, 'run', c, key='f')['id'])
     assert not reply['ok'] and reply['error'] == 'refused'
-    assert 'boat_agent set command_mode=effort' in reply['hint'] and 'boat_tui restart' in reply['hint']
+    assert 'boat_agent set command_mode=effort' in reply['hint'] and 'no restart' in reply['hint']
     assert not boat.app.armed and not [call for call in boat.app.calls if call[0] == 'agent_arm']

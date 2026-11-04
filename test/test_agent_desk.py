@@ -1506,6 +1506,14 @@ def test_set_takes_any_tunable_key_and_armed_unsafe_ones_only_disarmed(rig, key,
         assert reply['ok'] and getattr(rig.app.settings, key) == reply['result']['set'][key]
 
 
+
+def test_a_refused_command_mode_switch_is_the_agents_refusal(rig, monkeypatch):
+    c = claim(rig)
+    rig.app.is_armed = False
+    monkeypatch.setattr(rig.app, 'set_setting', lambda key, value, who=None: 'velocity still running; disarm fully first')
+    reply = final(ask(rig, 'set', c, settings={'command_mode': 'effort'})['id'])
+    assert reply['error'] == 'refused' and 'still running' in reply['hint']
+
 def test_settings_are_refused_while_a_procedure_runs(rig):
     c = claim(rig)
     rig.app.running = 'Thrust physics'                       # mid-segment

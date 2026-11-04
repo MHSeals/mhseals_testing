@@ -61,6 +61,12 @@ def controller_topics(profile):
                 odom_topic=profile.odometry)
 
 
+def command_profile(base, mode):
+    """The profile a session drives in ``mode`` (settings command_mode): ``base`` for effort, else ``base`` behind the
+    calibrated velocity controller. The one rule for the start (ui/app/startup.py) and the hot switch."""
+    return base.with_velocity_control() if mode == 'velocity' else base
+
+
 def driver_commands(profile, config_path, topics=None):
     """(name, argv) for each child, the driver first so it holds neutral before commands, the mux last."""
     if topics is None:
@@ -266,6 +272,17 @@ class Arming:
             return
         for name in reversed(self.children()):  # controller first, then the driver
             self.processes.stop(name)
+
+    def switch_profile(self, profile):
+        """Take ``profile`` (another command mode) for the next arm; RuntimeError, nothing changed, while armed,
+        arming or with any child of the current command path still running (they are stopped by its names)."""
+        if self.armed or self.pending is not None:
+            raise RuntimeError('armed: the command path switches only while disarmed')
+        if self.profile.outputs != 'none':
+            left = [name for name in self.children() if self.running(name)]
+            if left:
+                raise RuntimeError(f"{', '.join(left)} still running; disarm fully first")
+        self.profile, self.topics = profile, None
 
     def disarm(self):
         self.armed, self.pending = False, None

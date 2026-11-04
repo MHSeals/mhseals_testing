@@ -14,7 +14,7 @@ from mhseals_testing.harness.watch import Watched
 from mhseals_testing.health import legacy as health, config as health_config
 from mhseals_testing.history import adapters, revert
 from mhseals_testing.procedures import PROCEDURES
-from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, session_hardware
+from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, command_profile, session_hardware
 from mhseals_testing.ui import keymap as keymap_module, palette, parts, popups, rtk, rtk_icon, theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import correction
@@ -506,10 +506,35 @@ class Settings:
         entry = self.journal.snapshot(label, self.engine.last, self.engine.clock())
         self.ros.emit('health_snapshot', procedure=procedure.key, **entry)
 
+    def switch_command_mode(self, mode):
+        """Hot-switch the command path (D-20261101-06): this session takes the profile its start would build for
+        ``mode``, so procedures, the view and the next arm (driver alone, or the velocity controller in front)
+        follow at once, no restart. Only disarmed, idle and with the last arm's children gone; the error, else ''."""
+        base = getattr(self.args, 'base_profile', None)
+        if base is None or self.arming is None or self.review is not None or self.watching:
+            return 'this session has no command path to switch; restart it with --set command_mode=' + mode
+        if self.armed or self.running or self.manual:
+            return 'armed or busy: it switches only while disarmed and between runs'
+        try:
+            profile = command_profile(base, mode)
+            self.arming.switch_profile(profile)
+        except (RuntimeError, ValueError) as error:
+            return str(error)
+        self.profile = profile
+        if getattr(self.source, 'profile', None) is not None:
+            self.source.profile = profile
+        self.emit('command_mode', mode=mode, profile=profile.name)
+        return ''
+
     def set_setting(self, key, value, who=None):
         """Change one setting as the operator's Settings change does: the value, the saved file (our own save, not
         a hand edit) and a journal line; an agent's (``who``) is a notice and a toast naming it too."""
         old = getattr(self.settings, key)
+        if key == 'command_mode' and value != old:
+            error = self.switch_command_mode(value)
+            if error:
+                self.notice = f'command_mode not switched: {error}'
+                return error
         setattr(self.settings, key, value)
         settings.save(self.settings)
         self.watcher.reload('settings')

@@ -91,6 +91,9 @@ Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); 
 
 - **Verbs:** `status`, `claim`, `run KEY`, `goal X Y`, `arm` (a countdown the operator cancels), `start`/`stop`/`reload`
   COMPONENT, `set K=V`, `fcu get|set|rates|revert|restart`, `follow`, `mark`, `note`, `ask`, `stop`. Every acting verb takes `--why`.
+- **Command mode:** `set command_mode=effort|velocity --claim ID --why` (disarmed, between runs) switches the TUI's
+  command path at once, no restart: the next arm starts the driver alone or behind the velocity controller. It lasts
+  for this TUI; a restart takes its start arguments again.
 - **Release and grants:** `release HOLD --why` frees a lease or watchdog hold once its fault cleared; an operator hold only
   with a grant in `~/.config/mhseals/agent_grants.yaml`; the e-stop never.
 - **Fence:** `fence corners LAT,LON ... | on_exit alert|return | anchor --why`, any time, no claim: validated, read back,

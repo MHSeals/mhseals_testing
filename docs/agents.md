@@ -59,7 +59,11 @@ The playbook an agent gets is `python3 .agents/hook.py --playbook`.
   `set K=V --claim ID` (disarmed and idle) change a setting that `config/agent.yaml` `settings:` lists for that
   procedure (`thrust_step`, `dock_step`, `auto_tab`), within its choices, as the operator's change does; the notice, a
   toast and the journal say `agent W set K=V`, and amplitude, timings, repeats, navigation extents, the command mode,
-  the bench override, staleness and the agent controls are never an agent's, listed or not.
+  the bench override, staleness and the agent controls are never an agent's to pass with `run --set`, listed or not.
+- `set command_mode=effort|velocity --claim ID --why` (disarmed, between runs) switches the command path hot
+  (D-20261101-06): the TUI takes the profile its start would build for that mode (procedures, the view and the next
+  arm follow), journaled `command_mode`; it is refused while armed, arming or while a child of the last arm still
+  runs, and a `boat_tui restart` takes the start arguments again.
 - `release HOLD --why "..."` frees a lease or watchdog hold once its fault cleared; an operator hold (Space,
   stop, manual) only with a grant in `~/.config/mhseals/agent_grants.yaml`; the e-stop never. Disarmed, the mux
   is stopped: the release then judges and clears the holds it saved for the next arm, by the same rules.

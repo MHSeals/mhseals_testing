@@ -27,7 +27,7 @@ from mhseals_testing.history import adapters
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import available_profiles, load_profile
-from mhseals_testing.ros.arming import muxed
+from mhseals_testing.ros.arming import command_profile, muxed
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, control as control_feed
 from mhseals_testing.ui.feeds.issues import IssuesFeed, settings as issue_settings
@@ -128,9 +128,8 @@ def parse_args(argv=None, *, defer_hardware=False):
     except ValueError as error:
         parser.error(f'--set {error}')
     args.stale_after, args.bench_override = args.settings.stale_after, args.settings.bench_override
-    profile = load_profile(args.profile)
-    if args.settings.command_mode == 'velocity':
-        profile = profile.with_velocity_control()
+    args.base_profile = load_profile(args.profile)     # the command_mode hot switch (set_setting) starts here
+    profile = command_profile(args.base_profile, args.settings.command_mode)
     if profile.components and args.review is None:
         try:            # where each part runs: refused here, before a session directory exists
             profile.placed

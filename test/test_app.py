@@ -94,6 +94,12 @@ class Arming:
         self.armed = False
         self.calls.append('disarm')
 
+    def switch_profile(self, profile):
+        if self.armed or self.pending is not None:
+            raise RuntimeError('armed: the command path switches only while disarmed')
+        self.profile = profile
+        self.calls.append('switch')
+
     def fault(self):
         return ''
 
@@ -3314,3 +3320,20 @@ def test_manual_never_caches_a_clear_for_unarmed_outputs(tmp_path):
     assert app.manual_now() == ['outputs are not armed']
     assert app.manual_checks() == ['outputs are not armed']
     assert app.manual_blockers() == ['outputs are not armed']
+
+
+def test_command_mode_switches_hot_while_disarmed_and_never_armed(tmp_path):
+    """D-20261101-06: boat_agent set command_mode (or the operator) switches the command path without a restart."""
+    app, _ = make_app(tmp_path, ['--set', 'command_mode=velocity'])
+    from mhseals_testing.procedures import unavailable
+    assert app.profile.command_units == 'velocity' and 'effort' in unavailable(procedure('f'), app.profile, True)
+    assert not app.set_setting('command_mode', 'effort', who='claude-1')
+    assert app.profile.command_units == 'effort' and not app.profile.velocity_controller
+    assert app.arming.profile is app.profile and app.source.profile is app.profile
+    assert app.settings.command_mode == 'effort' and not unavailable(procedure('f'), app.profile, True)
+    app.arming.armed = True
+    assert 'disarmed' in app.set_setting('command_mode', 'velocity')
+    assert app.profile.command_units == 'effort' and app.settings.command_mode == 'effort'
+    app.arming.armed = False
+    assert not app.set_setting('command_mode', 'velocity')
+    assert app.profile.velocity_controller and app.arming.calls.count('switch') == 2
