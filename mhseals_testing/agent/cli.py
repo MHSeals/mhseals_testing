@@ -1,4 +1,4 @@
-"""boat_trial agent verbs: claim, release, status, follow, run, goal, start, stop, arm, reload, set, fcu, fence, mark,
+"""boat_trial agent verbs: claim, release, status, follow, run (and run --list), goal, start, stop, arm, reload, set, fcu, fence, mark,
 note, ask.
 
 Spec agent-control section 3. ROS-free except ``stop``'s backup path. A verb appends a ``req``
@@ -68,8 +68,10 @@ def add_parsers(sub):
     follow = verb('follow', 'stream session events and agent replies', claim=False)
     follow.add_argument('--until', metavar='PHASE[:FIELD=VAL]|owner:none')
     follow.add_argument('--timeout', type=float, metavar='S')
-    run = verb('run', 'run a procedure through the TUI', claim=True)
-    run.add_argument('procedure', metavar='KEY|NAME')
+    run = verb('run', 'run a procedure through the TUI; run --list: every procedure, whether agents may run it, '
+               'its settings and its gate (read-only, no claim)', claim=False)
+    run.add_argument('procedure', nargs='?', metavar='KEY|NAME')
+    run.add_argument('--list', action='store_true', help='list the procedures and their gate state; runs nothing')
     run.add_argument('--dry-run', action='store_true', help='evaluate the gates only')
     run.add_argument('--task', help='mission only: the task to rehearse (else the operator picks it)')
     run.add_argument('--sim-arm', action='store_true',
@@ -223,6 +225,11 @@ class Agent:
         return self.send('release', claim=self.args.claim)
 
     def run(self):
+        if getattr(self.args, 'list', False):
+            self.emit(procedure_list(self.cfg, self.registry))
+            return 0
+        if not self.args.procedure or not self.args.claim:
+            return self.bad('run KEY --claim ID (run --list names the procedures)')
         args = {'key': self.args.procedure}
         if getattr(self.args, 'task', None):
             args['task'] = self.args.task
@@ -402,6 +409,37 @@ class Agent:
         return follow(self, self.args.until, self.args.timeout, self.args.claim)
 
 
+def procedure_list(cfg, registry):
+    """``run --list``: each procedure (key, agent name, title, needs), whether agent.yaml ``run:`` lets agents run
+    it, the settings ``run --set`` takes, and its gate from a fresh TUI status (``None``: clear; text: why not;
+    ``unknown``: no fresh TUI). Read-only."""
+    from mhseals_testing.agent import config as agent_config
+    try:
+        from mhseals_testing.procedures import PROCEDURES
+        from mhseals_testing.ui.agent_acts import NAMES
+    except ImportError as error:        # no mhseals_hardware here: the agent names alone
+        PROCEDURES, NAMES, why = (), {}, repr(error)
+    else:
+        why = ''
+    allowed = list(cfg.get('run') or [])
+    doc = status(registry, ('health',))
+    fresh = doc.get('stale') is False
+    gates = ((doc.get('health') or {}).get('gates') or {}) if fresh else {}
+    names = {key: name for name, key in NAMES.items()}
+    rows = []
+    for p in PROCEDURES:
+        name = names.get(p.key)
+        agent = name in allowed
+        rows.append({'key': p.key, 'name': name, 'title': p.title, 'group': p.group, 'needs': sorted(p.needs),
+                     'agent': agent, 'settings': agent_config.settable(cfg, name) if agent else [],
+                     'gate': (gates.get(name) if name in gates else 'unknown') if agent else 'operator only'})
+    out = {'ok': True, 'procedures': rows, 'agent_run': allowed, 'tui': 'fresh' if fresh else 'not running or stale',
+           'hint': 'gate null is clear; run KEY --dry-run --claim ID re-checks one'}
+    if why:
+        out['warning'] = f'procedures not importable here ({why}): agent_run only'
+    return out
+
+
 def last_session(registry):
     """The registry's session, else the newest under sessions/, else None."""
     named = (registry.state() or {}).get('session')
@@ -533,6 +571,8 @@ def assignments(words):
 def needs_why(args):
     """An acting verb with no ``--why``: fcu only to write, stop never."""
     if args.command not in WHY or (getattr(args, 'why', None) or '').strip():
+        return False
+    if args.command == 'run' and getattr(args, 'list', False):      # run --list reads only
         return False
     return args.command != 'fcu' or getattr(args, 'action', None) in ('set', 'revert', 'restart')
 

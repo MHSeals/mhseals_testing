@@ -290,6 +290,25 @@ def test_config_apply_own_claim_passes_only_the_claim_fence():
     assert 'a goal is active' in fences('c4')
 
 
+def test_run_list_names_each_procedure_its_agent_flag_and_gate(monkeypatch, tmp_path):
+    import time
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    data.write_json(runtime_dir() / 'status.json', {'t_ns': time.time_ns(), 'owner': {'pid': 77},
+                    'health': {'gates': {'square': None, 'characterize': 'not armed'}}}, 'mhseals.status/1')
+    settings = dict(SETTINGS, run=['square', 'characterize'], settings={'any': ['auto_tab']})
+    args = cli.build_parser().parse_args(['run', '--list'])
+    out = io.StringIO()
+    assert agent_cli.main(args, registry=Reg(), out=out, settings=settings) == 0
+    doc = json.loads(out.getvalue())
+    rows = {r['name']: r for r in doc['procedures']}
+    assert rows['square']['agent'] and rows['square']['gate'] is None and rows['square']['settings'] == ['auto_tab']
+    assert rows['characterize']['gate'] == 'not armed'
+    assert rows['manual']['agent'] is False and rows['manual']['gate'] == 'operator only'
+    assert lines() == []                                   # nothing asked of the TUI
+    code, out = call(['run', 'square'])                    # a run still needs its claim
+    assert code == 2 and out[0]['error'] == 'bad_args'
+
+
 def test_cli_registers_every_verb():
     parser = cli.build_parser()
     for verb in agent_cli.VERBS:
