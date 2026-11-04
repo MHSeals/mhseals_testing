@@ -43,3 +43,21 @@ def test_boat_tui_sim_dry_run_names_the_plan_and_starts_nothing(tmp_path):
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke
+
+
+def test_the_image_and_player_are_found_on_this_machine_never_written_down(tmp_path):
+    shipped = (TOOLS.parent / 'config/sim/stack.yaml').read_text()
+    assert 'image: auto' in shipped and 'uid:latest' not in shipped
+    seen = []
+    values = sim_stack.settings(environ={}, image=lambda match: seen.append(match) or 'vsc-ws-abc-uid:latest')
+    assert values['image'] == 'vsc-ws-abc-uid:latest' and seen == ['vsc-astro_dock-*-uid']
+    cluster = tmp_path / 'players/CRANE-Worker-Linux'
+    cluster.mkdir(parents=True)
+    (cluster / 'CRANE-Worker-Linux.x86_64').write_text('#!/bin/sh\n')
+    (cluster / 'CRANE-Worker-Linux.x86_64').chmod(0o755)
+    gone = str(tmp_path / 'phase1/CRANE.x86_64')
+    assert sim_stack.first_player([gone, str(cluster)]) == str(cluster / 'CRANE-Worker-Linux.x86_64')
+    assert sim_stack.first_player([gone]) == gone                  # nothing here: the message names the first
+    values = sim_stack.settings(environ={'BOAT_SIM_PLAYER': f'{gone}:{cluster}'}, image=lambda m: '')
+    assert values['player'].endswith('CRANE-Worker-Linux.x86_64') and values['image'] == ''
+    assert sim_stack.local_image('x', run=lambda *a, **k: (_ for _ in ()).throw(OSError())) == ''

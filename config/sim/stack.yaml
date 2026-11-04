@@ -1,9 +1,12 @@
 # boat_tui sim: the headless Unity sim stack (tools/boat_sim). Each key may be overridden by BOAT_SIM_<KEY> in the
 # environment (BOAT_SIM_PLAYER=/path/CRANE.x86_64). Paths may start with ~.
-player: ~/.cache/crane-phase1/player/CRANE.x86_64     # a crane_ml Linux player with the --crane-roboboat-* flags
+player:                                               # a crane_ml Linux player with the --crane-roboboat-* flags:
+  - ~/.cache/crane-phase1/player/CRANE.x86_64         # the first that exists here (BOAT_SIM_PLAYER: a:b:c)
+  - ~/.cache/crane-cluster/players/CRANE-Worker-Linux # the cluster-installed player (a directory: its *.x86_64)
 run: ~/.cache/boat-sim                                # pid files, logs, the domain, the course truth
 container: boat_sim                                   # its own private-IPC container (never crane's crane_autodemo)
-image: vsc-astro_dock-95a55aed170fd9a82efa9f2b7064cb62047b76aa0d602aff3240d6f630e2e39f-uid:latest
+image: auto                                           # this machine's newest dev container image matching image_match
+image_match: vsc-astro_dock-*-uid                     # Dev Containers' name for the workspace's image
 overlay: ~/.cache/boat-sim/ws                         # the container's workspace (src/, install/), built there on /opt/ros alone
 profile: crane_full_stack
 command_mode: velocity                               # boat_test --set command_mode: effort for characterization (f)

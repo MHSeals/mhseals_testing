@@ -165,6 +165,7 @@ session() {
 case $verb in
   up)
     [ -x "$PV_PLAYER" ] || { echo "boat_preview: no player at $PV_PLAYER (config/sim/stack.yaml player)" >&2; exit 2; }
+    [ "$dry" = 1 ] || [ -n "$PV_IMAGE" ] || { echo "boat_preview: no dev container image here matching config/sim/stack.yaml image_match: build the dev container first" >&2; exit 2; }
     slot=preview; [ "$test" = 1 ] && slot=unity
     if [ "$dry" = 1 ]; then
       echo "boat_preview: would run under $HEAVY $slot: $REF of $PV_REPOS in $WS, container $PV_CONTAINER ($PV_IMAGE)," \

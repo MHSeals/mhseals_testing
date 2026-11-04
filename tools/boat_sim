@@ -120,6 +120,7 @@ done
 case $verb in
   up)
     [ "$PLAYER" = 0 ] || [ -x "$SIM_PLAYER" ] || { echo "boat_sim: no player at $SIM_PLAYER (config/sim/stack.yaml player or BOAT_SIM_PLAYER)" >&2; exit 2; }
+    [ "$dry" = 1 ] || [ -n "$SIM_IMAGE" ] || { echo "boat_sim: no dev container image here matching config/sim/stack.yaml image_match: build the dev container first" >&2; exit 2; }
     if [ "$dry" = 1 ]; then
       echo "boat_sim: would run under $HEAVY $([ "$PLAYER" = 1 ] && echo unity || echo sim): container $SIM_CONTAINER ($SIM_IMAGE), a free domain in" \
            "$SIM_DOMAINS, boat_test --profile $SIM_PROFILE in tmux -L boat session $SIM_TMUX_SESSION, player $([ "$PLAYER" = 1 ] && echo "$SIM_PLAYER" || echo none)" \
