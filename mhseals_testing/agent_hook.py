@@ -442,7 +442,8 @@ def start_text(who, agent='claude', config=None):
         '  Every acting verb (claim, arm, run, goal, set, start, stop, reload, fcu set/restart, release) takes '
         '`--why "..."`: the TUI agent panel shows who, verb, why and result. `note --doing "..."` sets your "doing:" '
         'line there; `ask "..."` instead of guessing. `stop` any time: the operator and the agent it interrupts see '
-        'your id. `status` and `fcu get` work with no TUI controller.',
+        'your id; it cancels an arm countdown and keeps your claim (`release` it to claim again). `status` and '
+        '`fcu get` work with no TUI controller.',
         '  `release HOLD --why "..."` (hold names in `status` .authority.record.holds) releases a lease or watchdog hold once its fault '
         'has cleared, at once; an operator hold (Space, stop, manual) only when ~/.config/mhseals/agent_grants.yaml '
         'grants it to you (then at once, e.g. a known bug the owner told you to clear). The e-stop is never '
