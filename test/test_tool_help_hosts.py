@@ -81,3 +81,27 @@ def test_ui_and_tools_name_no_registry_host_and_no_ip():
         found += [f'{path.relative_to(root)}: {h}' for h in hosts if re.search(rf'(?<![\w-]){re.escape(h)}(?![\w-])', text)]
         found += [f'{path.relative_to(root)}: {m}' for m in ip.findall(text)]
     assert not found, found
+
+
+def test_the_preview_and_sim_write_down_nothing_the_workspace_knows():
+    """D-20261104-03 for boat_tui preview and sim (docs/preview.md): no image name or hash, no ROS distro, no home or
+    workspace path and no list of the workspace's repos in their tools, config or harness: the workspace's manifest,
+    hw.sh image and hw.sh build say them."""
+    import re
+    root = TOOLS.parent
+    files = [TOOLS / 'boat_preview', TOOLS / 'boat_sim', root / 'config/preview.yaml', root / 'config/sim/stack.yaml',
+             root / 'mhseals_testing/harness/preview.py', root / 'mhseals_testing/harness/sim_stack.py']
+    repos = {p.name for p in workspace().joinpath('src').iterdir() if p.is_dir()} | {
+        'mhseals_hardware', 'mhseals_nav', 'mhseals_testing', 'ros_tcp_endpoint'}
+    rules = {'an image name': r'vsc-|lunarzdev/|astro:\w', 'an image hash': r'\b[0-9a-f]{40,64}\b',
+             'a ROS distro': r'/opt/ros/(?!\$|<|\{)\w', 'a home or workspace path': r'(?<![\w}])/home/(?!roboboat/)|~/astro_dock|\$HOME/astro_dock',
+             'a colcon call': r'colcon build'}
+    found = []
+    for path in files:
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            where = f'{path.relative_to(root)}:{n}'
+            found += [f'{where}: {what}' for what, rule in rules.items() if re.search(rule, line)]   # /home/roboboat: in the container
+            named = [r for r in repos if re.search(rf'(?<![\w/]){re.escape(r)}(?![\w/])', line)]
+            if len(named) > 1:
+                found.append(f'{where}: a repo list {sorted(named)}')
+    assert not found, found

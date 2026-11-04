@@ -27,7 +27,7 @@ simulator. It drives [`mhseals_hardware`](https://github.com/mhseals/mhseals_har
 
 ```bash
 tools/boat_tui sim [--seed N] [--build]   # agents' sim: one heavy unity job, headless; attach: tmux -L boat attach -t sim
-tools/boat_tui preview                    # the owner: origin/main windowed, TUI attached; preview attach | restart | down
+tools/boat_tui preview                    # the owner: the workspace manifest windowed, TUI attached (docs/preview.md); attach | restart | down
 tools/boat_tui preview field/x --headless # any branch, field branch or hypothesis ref; xvfb instead of a window
 ```
 
