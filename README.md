@@ -78,6 +78,9 @@ Held-key chords need the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm)
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
 | t | Mission rehearsal, scored (`config/missions/`), judged by the referee in crane_ml | armed, sensors, velocity, Nav2 |
 
+Each row wears its state: ○ ready, ⊘ blocked with the reason on the row, a spinner (and the percent of a long
+run) while running, ✓ or ✗ for its last result this session; the focused panel's bottom border is the legend.
+
 Only sensors and TF block motion; power, clock, links and compute advise. Settings: `--set K=V` (`harness/settings.py`,
 saved in `~/.config/mhseals/boat_test.yaml`). Profiles: `boat` (ODROID pins), `crane_full_stack` (`/thrusters/pwm` into
 the sim), `crane_direct` (no navigation); `boat_trial profiles` explains each.

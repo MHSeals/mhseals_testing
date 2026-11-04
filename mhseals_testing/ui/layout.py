@@ -521,7 +521,7 @@ def drive_slots(snapshot, view, width, height):
         'motion': motion,
         'conditions': conditions_panel(view, width < FULL_CONDITIONS),
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
-        'procedures': procedures_panel(view, lower if wide else half),
+        'procedures': procedures_panel(view, lower if wide else half, snapshot['results']),
         'mission': mission,
         'activity': activity_panel(snapshot, view, below - strip),
         'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,

@@ -21,7 +21,7 @@
 │                          ││                            ││   · RL    p33    4     ·      1500  —  │
 │                          │╰────────────────────────────╯╰────────────────────────────────────────╯
 │                          │╭─ Procedures · 1 ready ───────────╮╭─ Activity · results · 1 ─────────╮
-│                          ││   ✓ 1 Surge trial                ││     Proc…  Result       Detail   │
+│                          ││   ○ 1 Surge trial                ││     Proc…  Result       Detail   │
 │                          ││                                  ││   ✓ surg…  sign match   +0.200   │
 │                          ││ both ways                        ││                                  │
 │                          ││                                  ││                                  │

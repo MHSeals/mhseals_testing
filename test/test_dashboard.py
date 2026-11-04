@@ -408,3 +408,20 @@ def test_status_labels_keep_a_gutter_before_their_value(monkeypatch):
     panel.width = 26                                               # 80 columns give Status about this
     out = text(panel, 26, 12)
     assert '… ‹ confirm ›' in out and '…‹' not in out              # a space parts a cut label from its value
+
+
+def test_procedure_rows_wear_their_state_and_every_blocked_row_its_reason():
+    from mhseals_testing.ui.panels.procedures import procedures_panel
+    items = [dict(key='f', title='Characterize', description='', reason='', group='Calibrate'),
+             dict(key='d', title='Dock physics', description='', reason='needs dock', group='Calibrate'),
+             dict(key='e', title='Interference', description='', reason='needs armed', group='Calibrate'),
+             dict(key='m', title='Manual control', description='', reason='', group='Drive'),
+             dict(key='w', title='Waypoint square', description='', reason='', group='Drive')]
+    results = [dict(run_id='001-characterize', verdict='PASS'), dict(run_id='002-waypoint-square', verdict='FAIL')]
+    page = text(procedures_panel(dict(focus='procedures', cursors={'procedures': 3}, procedures=items, now=0.0,
+                                      running='Manual control', notice='▕██░░▏  42% 5/12'), 14, results), 60, 14)
+    line = lambda word: next(l for l in page.splitlines() if word in l)
+    assert '✓' in line('Characterize') and '✗' in line('Waypoint')
+    assert 'needs dock' in line('Dock physics') and 'needs armed' in line('Interference')
+    assert '42%' in line('Manual control') and '⊘' in line('Interference')
+    assert '○ready' in page                                         # the legend on the focused border
