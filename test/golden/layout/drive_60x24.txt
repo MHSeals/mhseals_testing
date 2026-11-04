@@ -1,6 +1,6 @@
  boat_test  [Drive]            boat · ROS 42  idle  disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                
-╭─ ▸ Status · 1/8 live ──────╮╭─ Conditions ───────────────╮
+╭─  ▸ Status  · 1/8 live ────╮╭─ Conditions ───────────────╮
 │ Components                 ││ measuring · hdg —          │
 │ › ✓ pose              once ││ Cmd · 0 · one key          │
 │   · FCU pose               │╰────────────────────────────╯

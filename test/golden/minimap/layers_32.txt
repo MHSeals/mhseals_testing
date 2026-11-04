@@ -1,4 +1,4 @@
-╭─ ▸ Layers ───────────────────╮
+╭─  ▸ Layers  ─────────────────╮
 │ c local       r hits         │
 │ d objects .5  y gps          │
 │ F fov         w wake         │

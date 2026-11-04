@@ -334,7 +334,7 @@ def popup(modal, width, height=None):
             room = max(1, height - 2 - pinned)
             modal['scroll'] = max(0, min(modal.get('scroll', 0), total - room))
             body = Window(body, modal['scroll'], room)
-    panel = theme.block(Group(body, *tail), modal['title'], True, keys=hint)  # keys sit on the bottom border
+    panel = theme.block(Group(body, *tail), modal['title'], True, keys=hint, bar=False)  # keys sit on the bottom border
     if quiet:                                   # the title in the danger hue, the profile muted
         words = str(modal['title']).split(theme.SEPARATOR, 1)
         panel.title = Text.assemble((f'{theme.FOCUS} {words[0]}', f'bold {theme.BAD}'.strip()),

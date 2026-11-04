@@ -71,6 +71,7 @@ Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw 
 Conditions `sog` readout and the minimap trail run calm grey to hot magenta. The Conditions ring glows red toward the nearest lidar point
 (/perception/nearby) inside 8 m, wider and bold inside 3 m. Glyphs carry every state
 (✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.
+The focused panel's title is a solid accent bar (` ▸ Status `, reverse video), so focus shows at a glance.
 
 ## Procedures
 

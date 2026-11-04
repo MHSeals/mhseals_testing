@@ -3,6 +3,7 @@ import re
 
 import pytest
 from rich.console import Console
+from rich.text import Text
 
 from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.thruster_mixer import THRUSTER_MIXER
@@ -425,3 +426,12 @@ def test_procedure_rows_wear_their_state_and_every_blocked_row_its_reason():
     assert 'needs dock' in line('Dock physics') and 'needs armed' in line('Interference')
     assert '42%' in line('Manual control') and '⊘' in line('Interference')
     assert '○ready' in page                                         # the legend on the focused border
+
+
+def test_the_focused_panel_title_is_a_solid_bar_and_a_popup_keeps_its_plain_title():
+    from mhseals_testing.ui import theme
+    focused = theme.block(Text('x'), 'Procedures', True).title
+    assert theme.FOCUS in focused.plain and any('reverse' in str(span.style) for span in focused.spans)
+    popup = theme.block(Text('x'), 'Pose', True, bar=False).title
+    assert theme.FOCUS in popup.plain and not any('reverse' in str(span.style) for span in popup.spans)
+    assert not any('reverse' in str(span.style) for span in theme.block(Text('x'), 'Status').title.spans)

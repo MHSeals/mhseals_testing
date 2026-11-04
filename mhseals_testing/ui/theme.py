@@ -144,16 +144,21 @@ def agent_style(agent):
     return PALETTE.style(token if token in PALETTE.tokens else 'auth.agent')
 
 
-def block(renderable, title, focused=False, subtitle=None, keys=None, **kwargs):
+def block(renderable, title, focused=False, subtitle=None, keys=None, bar=True, **kwargs):
     """A rounded panel in the grey ``border`` token; the focused one gets a bold accent border and a
-    ▸ before its title.
+    ▸ before its title, which is a solid accent title bar (reverse video, so NO_COLOR keeps it) to tell
+    the focused panel apart at a glance. A popup (``bar=False``) keeps the plain ▸ accent title: it is
+    the only frame taking keys.
 
     ``keys`` is written on the bottom border (popup key hints). The title is all spans and no base
     style: Rich's Panel re-applies a title's base style over its spans, which would paint the muted
     subtitle and its status glyphs in the accent.
     """
     heading = Text()
-    heading.append(f'{FOCUS} {title}' if focused else title, style=f'bold {ACCENT}')
+    if focused and bar:
+        heading.append(f' {FOCUS} {title} ', style=f'bold reverse {ACCENT}'.strip())
+    else:
+        heading.append(f'{FOCUS} {title}' if focused else title, style=f'bold {ACCENT}')
     if subtitle:
         heading.append(SEPARATOR, style=MUTED)
         heading.append_text(subtitle) if isinstance(subtitle, Text) else heading.append(subtitle, style=MUTED)
