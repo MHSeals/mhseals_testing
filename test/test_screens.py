@@ -31,6 +31,7 @@ def pixels_only(svg):
     return PNG.sub(raw, svg)
 
 
+@pytest.mark.nightly
 def test_committed_screens_are_current(tmp_path):
     from importlib.metadata import version
     drawn = (SCREENS / 'rich-version.txt').read_text().strip()

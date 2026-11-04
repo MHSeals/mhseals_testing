@@ -61,6 +61,7 @@ def folder(tmp_path, name='out'):
     return tmp_path / 'sim' / name
 
 
+@pytest.mark.nightly
 def test_every_kind_writes_a_labelled_copy_and_leaves_the_source_alone(good, tmp_path):
     root, record = good
     name = f'{record["fit"]["id"]}-survey'
@@ -72,6 +73,7 @@ def test_every_kind_writes_a_labelled_copy_and_leaves_the_source_alone(good, tmp
         assert (root / f'{name}.yaml').read_bytes() == original
 
 
+@pytest.mark.nightly
 def test_corruption_is_deterministic_and_grows_with_severity(good, tmp_path):
     root, record = good
     name = f'{record["fit"]["id"]}-survey'
@@ -91,6 +93,7 @@ def test_corruption_is_deterministic_and_grows_with_severity(good, tmp_path):
         assert changed(kind, 1, 1) < changed(kind, 3, 1), kind
 
 
+@pytest.mark.nightly
 def test_sample_edits_pass_the_integrity_hash_and_byte_edits_fail_it(good, tmp_path):
     root, record = good
     name = f'{record["fit"]["id"]}-survey'

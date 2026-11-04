@@ -79,6 +79,7 @@ def fit(cfg, fr):
     return rows, fc.calibrate(est, sample_t, cfg), est
 
 
+@pytest.mark.nightly
 def test_injected_rotation_is_recovered_within_two_se_and_the_se_is_honest(cfg):
     truth = {'pitch_deg': -0.5, 'yaw_deg': 1.0, 'roll_deg': 0.0}
     rows, params, est = fit(cfg, frames(SPREAD, (-0.5, 1.0, 0.0)))

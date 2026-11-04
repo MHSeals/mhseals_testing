@@ -373,6 +373,7 @@ def test_wrong_login_unknown_mount_and_missing_credentials_raise_kinds(casters):
 
 # --- failover ----------------------------------------------------------------------------
 
+@pytest.mark.nightly
 def test_stale_mount_fails_over_to_the_next_and_rests(casters):
     caster = casters([STR('NEAR', MSM7, 27.373, -82.447), STR('NEXT', MSM7, 27.40, -82.47)],
                      {'NEAR': {'silent': True}, 'NEXT': {}})
@@ -398,6 +399,7 @@ def test_auth_failure_rests_the_whole_caster_and_uses_the_next_caster(casters):
     assert locked.connections == {}
 
 
+@pytest.mark.nightly
 def test_disconnect_fails_over_and_the_dropped_mount_returns_after_its_cooldown(casters):
     caster = casters([STR('A', MSM7, 27.373, -82.447), STR('B', MSM7, 27.42, -82.49)],
                      {'A': {'close_after': 3}, 'B': {}})

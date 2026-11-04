@@ -383,6 +383,7 @@ def test_a_practical_step_is_material():
     assert est.material(S)
 
 
+@pytest.mark.nightly
 @pytest.mark.parametrize('tau, floor', [(1.0, 0.90), (6.0, 0.83)])
 def test_drift_error_covers_slowly_wandering_noise(tau, floor):
     # Windows of a gust or slow wander are alike, so their scatter alone made the error optimistic.

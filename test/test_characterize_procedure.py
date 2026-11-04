@@ -339,8 +339,8 @@ def test_a_failed_provenance_write_warns_and_keeps_the_save(config, tmp_path, mo
     assert any('could not be recorded' in w for w in warnings)
 
 
-@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -float('inf')])
-@pytest.mark.parametrize('target', ['hold', 'settle'])
+# each phase and each non-finite value once (a whole survey per case: no cross product)
+@pytest.mark.parametrize('target, bad', [('hold', float('nan')), ('settle', float('inf')), ('hold', -float('inf'))])
 def test_one_nonfinite_sample_keeps_characterization(config, tmp_path, bad, target):
     runner = Fake(config)
     original = runner.hold

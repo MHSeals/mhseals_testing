@@ -67,6 +67,7 @@ def test_non_finite_values_are_dropped():
     assert staleness(runs([0.9, float('nan'), 0.9, 0.9]), 1, S)['sessions'] == 3
 
 
+@pytest.mark.nightly
 def test_healthy_and_single_bad_last_sessions_rarely_flag():
     rng = np.random.default_rng(7)
     for k in (3, 4, 6, 8, 10):

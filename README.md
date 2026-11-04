@@ -116,7 +116,7 @@ study read. Operator cheat sheet: [docs/labels.md](docs/labels.md); tags and phr
 ## Development
 
 ```bash
-tools/smoke                 # the landing gate (< 60 s); the full suite (pytest -q test) runs in CI and never blocks
+tools/smoke                 # the landing gate (< 60 s); CI runs pytest -q -m 'not nightly' test on a push, all nightly
 tools/smoke --impact        # only the tests timpact selects against origin/main (ALL: the full smoke)
 make -C docs pdf screens    # docs/math.pdf, docs/tuning.pdf, and the images above
 ```
