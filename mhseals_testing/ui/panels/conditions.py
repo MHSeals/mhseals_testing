@@ -17,7 +17,7 @@ from mhseals_testing.ui import theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.minimap import hull
 from mhseals_testing.ui.minimap.layers import SPEED_BANDS
-from mhseals_testing.ui.minimap.structure import VMAX
+from mhseals_testing.ui.minimap.structure import VMAX, WAKE_DEG, WAKE_SPEED
 from mhseals_testing.ui.panels import TITLES
 
 ROSE_COLS, ROSE_ROWS = 21, 9
@@ -54,8 +54,9 @@ EIGHTHS = ' ▏▎▍▌▋▊▉█'       # left-aligned fills; a bar growing 
 BITS = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
         (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 # Rose layers, highest first: a cell takes the hue of its strongest dot.
-BOW, BOAT, COMMAND, YAW, DRIFT, GLOW, TICK = range(7)
-ASCII_DOTS = '#o.(:*.'      # the ASCII cell per layer
+BOW, BOAT, COMMAND, YAW, DRIFT, WAKE, GLOW, TICK = range(8)
+ASCII_DOTS = '#o.(:,*.'     # the ASCII cell per layer
+WAKE_REACH = (2, 6)         # dots of wake behind the stern: 2 + 6 * sog / VMAX, past WAKE_SPEED (the minimap's)
 # The proximity glow (/perception/nearby): an arc on the ring toward the nearest lidar point, inside GLOW_FAR m;
 # inside GLOW_NEAR it is wider, two dots deep and bold. Half-widths in degrees.
 GLOW_NEAR, GLOW_FAR = 3.0, 8.0
@@ -153,17 +154,31 @@ def _glow_bearings(shown, step):
     return [centre + offset for offset in np.arange(-span, span + step / 2, step)]
 
 
+def wake(sog, up):
+    """``[(bearing, start, stop)]`` of the two wake lines off the stern at ``WAKE_DEG`` (dots from the centre), or []
+    below WAKE_SPEED. ``sog`` is the speed over ground (m/s), ``up`` the bow's screen bearing."""
+    if sog is None or not math.isfinite(sog) or sog <= WAKE_SPEED:
+        return []
+    length = WAKE_REACH[0] + WAKE_REACH[1] * min(sog / VMAX, 1.0)
+    lines = []
+    for side in (1, -1):
+        bearing = (up + 180 + side * WAKE_DEG) % 360
+        start = _reach(math.radians(bearing - up))
+        lines.append((bearing, start, round(start + length)))
+    return lines
+
+
 def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0), amplitude=1.0, hue='',
-         nearby=None):
+         nearby=None, sog=None):
     """The 9 x 21 rose as Text rows: north up, or bow up (``↑bow``) while ``heading`` is None.
 
     ``drift`` is the world velocity (east, north) in m/s, ``heading`` the compass bearing in degrees
     and ``command`` the body (surge, sway, yaw) against ``amplitude``. Without a heading the command
     is drawn in the body frame and the world drift is hidden, never mixed in. ``nearby`` (the nearest lidar
-    point) lights the ring toward it in the fail hue (``glow``).
+    point) lights the ring toward it in the fail hue (``glow``); ``sog`` (m/s) trails a wake off the stern.
     """
     if pixels.active():
-        return _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby)
+        return _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby, sog)
     dots, glyphs = {}, {}
     cx, cy = CENTRE
     up = heading if heading is not None else 0.0     # the bow's screen bearing
@@ -197,6 +212,8 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
             start = _reach(math.radians(bearing - up))
             ray(bearing, start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)),
                 DRIFT, 2)
+    for bearing, start, stop in wake(sog, up):
+        ray(bearing, start, stop, WAKE, 2)
     for dx, dy, layer in hull_dots(up):
         put(cx + dx, cy + dy, layer)
 
@@ -226,8 +243,8 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
     boat = (_token('boat', 'bold') if theme.ASCII else _token('slate', '')) if yaw_ok else theme.WARN
     near = lit is not None and lit[1]
     styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
-              f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, f"{'bold' if near else 'dim'} {theme.BAD}".strip(),
-              theme.MUTED)
+              f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, _token('wake', theme.MUTED),
+              f"{'bold' if near else 'dim'} {theme.BAD}".strip(), theme.MUTED)
     ascii_dots = ASCII_DOTS
     rows = []
     for row in range(ROSE_ROWS):
@@ -250,7 +267,7 @@ ICON_SPAN = (7.0, 13.0)     # dots from the centre: the image command icon's tai
 ICON_HEAD = (3.5, 2.5)      # dots: the image icon's head length and half width
 
 
-def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=None):
+def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=None, sog=None):
     """The rose as image cells (ui/imaging/), the braille rose's look in pixels: muted ticks, the
     hull's pentagon in slate with its foremost quarter in the bow token at the exact heading (no
     bowsprit needed), the command icon (a stem and head) in the driver's hue, the dashed drift.
@@ -283,7 +300,8 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
     tokens = (_token('slate', ''), _token('bow', theme.ACCENT), theme.MUTED, theme.WARN, hue)
     lit = glow(nearby, up)
     lit = None if lit is None else (q(lit[0]), lit[1])
-    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit)
+    trails = tuple(wake(sog, up))
+    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit, trails)
 
     def paint(r):
         sx, sy = r.cw / 2, r.ch / 4                   # px per dot
@@ -304,6 +322,11 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
                         else pixels.rgb(theme.MUTED))
             a, b = _polar(shown[0], shown[1]), _polar(shown[0], shown[2])
             r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), ink, pen, dash=max(2, round(sx)))
+        if trails:                                    # the wake off the stern, dashed like the minimap's
+            ink = r.ink(pixels.rgb(_token('wake', theme.MUTED), pixels.token('muted')))
+            for bearing, start, stop in trails:
+                a, b = _polar(bearing, start), _polar(bearing, stop)
+                r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), ink, pen, dash=max(2, round(sx)))
         warn = pixels.rgb(theme.WARN, pixels.token('warn'))
         body = r.ink(pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn)
         poly = hull.outline(90.0 - up, *HULL_DOTS)
@@ -596,7 +619,7 @@ class _Body:
             info, command = self.info, self.view['command']
             _, hue = driver(self.view)
             left = rose(info.get('drift'), info.get('heading'), info.get('yaw_ok', True), info.get('age', 0.0),
-                        command, self.view.get('amplitude', 1.0), hue, info.get('nearby'))
+                        command, self.view.get('amplitude', 1.0), hue, info.get('nearby'), self.view.get('sog'))
             right = command_column(self.view, info, width - ROSE_COLS - 3)
             lines = [Text.assemble(a, ' ', (theme.BAR, theme.MUTED), ' ', b) for a, b in zip(left, right)]
             lines += [drift_row(info), sea_row(info, self.view.get('sog'))]

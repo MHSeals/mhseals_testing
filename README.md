@@ -69,7 +69,8 @@ cancels and Space still stops at once. With `mouse: true` the wheel scrolls list
 Held-key combos (Conditions reads `keys·combos`, else `keys·one key`) need the Kitty keyboard protocol (Kitty,
 Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
 Conditions `sog` readout and the minimap trail run calm grey to hot magenta. The Conditions ring glows red toward the nearest lidar point
-(/perception/nearby) inside 8 m, wider and bold inside 3 m. Glyphs carry every state
+(/perception/nearby) inside 8 m, wider and bold inside 3 m; past 0.15 m/s a dashed wake trails off the stern, longer
+with speed. Glyphs carry every state
 (✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.
 Status lists the parts Enter starts in their own **Stack** section: a spinner while one starts, ✓ running, ✗ exited,
 and `▶` after the name where Enter would start it.

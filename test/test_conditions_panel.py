@@ -333,3 +333,11 @@ def test_the_image_rose_paints_the_glow_in_the_fail_hue(monkeypatch):
         painted['paint'](raster)
         counts.append(len(set(map(int, raster.px.ravel()))))
     assert counts[1] > counts[0]                                    # one more ink: the glow
+
+
+def test_a_wake_trails_off_the_stern_past_the_wake_speed():
+    assert conditions.wake(None, 0.0) == [] and conditions.wake(0.1, 0.0) == []
+    lines = conditions.wake(1.0, 0.0)
+    assert sorted(round(bearing) for bearing, _, _ in lines) == [162, 198]          # astern, either side
+    assert all(stop > start for _, start, stop in lines)
+    assert plain(conditions.rose(heading=0.0, sog=1.0)) != plain(conditions.rose(heading=0.0))
