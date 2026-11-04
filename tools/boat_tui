@@ -7,10 +7,10 @@
 #   sim [--seed N] | sim down   the headless Unity sim, then boat_test crane_full_stack in session sim (tools/boat_sim)
 #   preview [REF] [--headless] | preview down|attach|restart|status   the owner's preview of REF (default origin/main):
 #                  its own snapshot, build, container and tmux -L preview, the player windowed (tools/boat_preview)
-# Run it on the TUI host (the boat host, or the sim host): from the dev machine,
-#   ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_tui up
+# Run it on the TUI host (the registry's tui_backend, else boat_computer host; or the sim host): from the station,
+#   ssh TUI_HOST ~/astro_dock/src/mhseals_testing/tools/boat_tui up
 # C is the container boat_test runs in (roboboat_dev; roboboat_test in sim; '' runs it here). J adds -J J to the
-# printed ssh line (the owner's ssh config already routes blastoise-* through tranquility). Quit with q in the TUI:
+# printed ssh line (a jump host, when the station does not route the boat LAN itself). Quit with q in the TUI:
 # killing tmux skips the session's close (neutral, disarm, bag flush). Agents arm with boat_agent arm.
 # Every tmux call goes to its own server (socket BOAT_TUI_SOCKET, default boat: tmux -L boat), never the caller's
 # ($TMUX is cleared), so nothing here can reach another tmux server on the host.
@@ -163,5 +163,8 @@ case $verb in
             python3 -m mhseals_testing.harness.control
         fi
         ;;
-    *) sed -n '2,14s/^# \{0,1\}//p' "$0"; [ -z "$verb" ] || exit 2 ;;
+    *)
+        . "$(dirname "$0")/registry.sh"
+        tui=$(tui_host) || tui=TUI_HOST        # filled from the vessel registry
+        sed -n '2,14s/^# \{0,1\}//p' "$0" | sed "s/TUI_HOST/$tui/g"; [ -z "$verb" ] || exit 2 ;;
 esac

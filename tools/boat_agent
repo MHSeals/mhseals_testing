@@ -1,13 +1,17 @@
 #!/bin/sh
 # boat_agent VERB ...: boat_trial's agent verbs inside the dev container, one SSH hop from the dev
-# machine, called from the boat host's checkout: ssh blastoise-odroid ~/astro_dock/src/mhseals_testing/tools/boat_agent status
+# machine, called from the TUI host's checkout (tools/registry.sh tui_host): ssh TUI_HOST ~/astro_dock/src/mhseals_testing/tools/boat_agent status
 # With $BOAT_AGENT_TARGET naming another host (a boat session sets it), this checkout makes that hop itself and
 # remembers the last operator state, so a boat that is off or out of reach answers `unreachable` with it
 # (agent/relay.py, host python3, no container).
 # BOAT_AGENT_TARGET=sim reaches the TUI of tools/boat_tui sim in its container, domain and data root.
 # File verbs load no rclpy; stop's backup path does.
 target=${BOAT_AGENT_TARGET:-local}
-[ "$target" = blastoise ] && target=blastoise-odroid
+case $target in
+  local|sim) ;;
+  *) . "$(dirname "$0")/registry.sh"      # the vessel's name means the host its TUI runs on (the registry's)
+     [ "$target" = "$(vessel)" ] && target=$(tui_host) ;;
+esac
 if [ "$target" = sim ]; then
   root=$(cd "$(dirname "$0")/.." && pwd)
   eval "$(PYTHONPATH="$root" python3 -m mhseals_testing.harness.sim_stack env)"
