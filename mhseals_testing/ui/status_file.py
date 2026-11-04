@@ -78,12 +78,12 @@ def _run(app, desk):
 
 
 def _health(app, desk):
-    from mhseals_testing.ui.agent_acts import procedure
+    from mhseals_testing.ui.agent_acts import agent_text, procedure
     gates = {}
     for name in desk.config.get()['run']:
         found, _ = procedure(name)
-        if found is not None:
-            gates[name] = app.availability(found) or None
+        if found is not None:       # as an agent reads it (run --list, status), like a refused run's hint
+            gates[name] = agent_text(app.availability(found)) or None
     return {'summary': app.snapshot().get('health'), 'gates': gates}
 
 

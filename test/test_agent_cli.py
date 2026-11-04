@@ -327,6 +327,16 @@ def test_run_list_names_each_procedure_its_agent_flag_and_gate(monkeypatch, tmp_
     assert code == 2 and out[0]['error'] == 'bad_args'
 
 
+def test_the_status_gates_read_as_an_agent_reads_them():
+    from types import SimpleNamespace
+    from mhseals_testing.ui import status_file
+    app = SimpleNamespace(availability=lambda p: 'velocity TUI; use --set command_mode=effort',
+                          snapshot=lambda: {'health': None})
+    desk = SimpleNamespace(config=SimpleNamespace(get=lambda: {'run': ['characterize']}))
+    gate = status_file._health(app, desk)['gates']['characterize']
+    assert '--set' not in gate and 'boat_agent set command_mode=effort' in gate
+
+
 def test_cli_registers_every_verb():
     parser = cli.build_parser()
     for verb in agent_cli.VERBS:
