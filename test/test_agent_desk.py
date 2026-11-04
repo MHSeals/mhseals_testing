@@ -1392,6 +1392,8 @@ def test_the_status_rows_switches_reach_the_desk():
 
 def test_run_set_applies_the_setting_before_the_run_starts_and_journals_it(rig):
     c = claim(rig)
+    rig.app.profile.command_units, rig.app.profile.outputs = 'effort', 'topic'   # thrust_physics drives efforts on
+    # outputs (else it is refused at once, ee2bee3b)
     seen, titles, popup = [], [], rig.app.popup
     rig.app.on_step = {0: lambda: seen.append(rig.app.settings.thrust_step)}
     rig.app.popup = lambda modal, *a, **k: (titles.append(modal.get('title')), popup(modal, *a, **k))[1]
@@ -1409,9 +1411,18 @@ def test_run_set_applies_the_setting_before_the_run_starts_and_journals_it(rig):
 
 def test_run_set_refused_by_operator_changes_nothing(rig):
     c = claim(rig)
+    rig.app.profile.command_units, rig.app.profile.outputs = 'effort', 'topic'
     rig.app.answers = [['enter']]                            # Refuse is focused
     reply = final(ask(rig, 'run', c, key='thrust_physics', settings={'thrust_step': 'survey'})['id'])
     assert reply['error'] == 'refused' and rig.app.settings.thrust_step == 'bollard'
+    assert 'effort' not in reply['hint']                     # the operator's refusal, not the command-mode one
+
+
+def test_run_set_in_a_tui_that_can_never_run_it_is_refused_before_any_setting(rig):
+    c = claim(rig)                                           # the rig's TUI sends velocity; thrust_physics needs effort
+    reply = final(ask(rig, 'run', c, key='thrust_physics', settings={'thrust_step': 'survey'})['id'])
+    assert reply['error'] == 'refused' and 'boat_agent set command_mode=effort' in reply['hint']
+    assert rig.app.settings.thrust_step == 'bollard' and 'arm_panel' not in rig.app.calls
 
 
 @pytest.mark.parametrize('settings,error', [
