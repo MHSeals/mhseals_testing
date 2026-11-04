@@ -102,11 +102,18 @@ build() {   # colcon in the container, only when a sha changed since the last go
   fi
   echo "boat_preview: building $REF (a few minutes the first time)"
   rm -f "$ROOT/built"
+  # a different image (a pull or rebuild) leaves CMake caches pointing at its old /opt/ros libraries
+  # (e.g. libfastcdr.so.2.2.7): build from clean whenever the image changed since the last build
+  local image; image=$(docker inspect --format '{{.Image}}' "$PV_CONTAINER" 2>/dev/null || true)
+  if [ -n "$image" ] && [ "$(cat "$ROOT/built-image" 2>/dev/null)" != "$image" ]; then
+    [ -d "$WS/build" ] && echo "boat_preview: the image changed; building from clean"
+    rm -rf "$WS/build" "$WS/install" "$WS/log"
+  fi
   # only /opt/ros under the snapshot: no other workspace leaks stale packages into its install chain
   docker exec "$PV_CONTAINER" bash -c ". /opt/ros/jazzy/setup.bash;
     colcon build --symlink-install --base-paths src --cmake-args -DBUILD_TESTING=OFF" > "$RUN/build.log" 2>&1 \
     || { echo "boat_preview: build failed, see $RUN/build.log" >&2; tail -n 15 "$RUN/build.log" >&2; exit 1; }
-  echo "$stamp" > "$ROOT/built"
+  echo "$stamp" > "$ROOT/built"; [ -n "$image" ] && echo "$image" > "$ROOT/built-image"
 }
 
 player() {   # windowed on this display, or headless under xvfb with --headless; the course of the sim's seed
