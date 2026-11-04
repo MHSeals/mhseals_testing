@@ -4,7 +4,8 @@ For the session profile's command topic, odometry and sensors (plus any ``--topi
 count, rate, largest gap and the gaps longer than its tolerance (3 periods of the sensor's nominal ``hz``, else
 GAP_S), flagging a rate below LOW_RATE of nominal. ``coverage`` answers "was the boat measured while it was
 commanded": the share of the time the command topic was live (messages no more than CMD_GAP_S apart) that odometry
-was live too (no more than its tolerance apart). Only those topics are read (bagread.read_raw), never decoded.
+was live too (no more than its tolerance apart). Only those topics are read (bagread.read_raw), never decoded, and only
+closed segments: a session still recording is summarized up to its last closed segment, or refused (ok false).
 """
 
 from pathlib import Path
@@ -91,9 +92,30 @@ def summarize(session, extra=(), last_s=None, reader=None):
     wanted, problem = plan(session, extra)
     stamps = {topic: [] for topic in wanted}
     segments = []
-    for topic, _type, _data, t_ns in reader(session, topics=list(wanted),
-                                             on_segment=lambda p, e: segments.append({'dir': p.name, 'error': e})):
-        stamps[topic].append(t_ns)
+    found = bagread.segments(session)
+    # rosbag2 writes metadata.yaml when a segment closes: one without it is still recording (or crashed), and its
+    # open mcap reads as nothing, so it is left out and named, never read as an empty, clean bag
+    recording = [p.name for p in found if not (p / 'metadata.yaml').exists()]
+    closed = [p for p in found if p.name not in recording]
+
+    def fail(error, hint):
+        return {'ok': False, 'error': error, 'session': str(session), 'hint': hint, 'recording': recording,
+                'segments': segments}
+    if not closed:
+        return fail('recording', 'bag still recording; use a finished segment (stop recording or wait for the next '
+                    'segment), or quality a closed session' if recording else 'no bag segments in this session')
+    try:
+        for segment in closed:
+            for topic, _type, _data, t_ns in reader(segment, topics=list(wanted),
+                                                     on_segment=lambda p, e: segments.append({'dir': p.name,
+                                                                                              'error': e})):
+                stamps[topic].append(t_ns)
+    except (OSError, RuntimeError) as error:
+        return fail('unreadable', f'{type(error).__name__}: {error}')
+    if not any(stamps.values()):
+        bad = [s for s in segments if s['error']]
+        return fail('no_messages', f"no messages on {', '.join(wanted) or 'any topic'} in the closed segments"
+                    + (f" ({bad[0]['dir']}: {bad[0]['error']})" if bad else ''))
     every = sorted(t for s in stamps.values() for t in s)
     start_ns, end_ns = (every[0], every[-1]) if every else (None, None)
     if last_s is not None and every:
@@ -104,7 +126,7 @@ def summarize(session, extra=(), last_s=None, reader=None):
     topics = {t: {'role': w['role'], **topic_stats(stamps[t], w['hz'], start_ns, end_ns)} for t, w in wanted.items()}
     doc = {'ok': True, 'session': str(session), 'window': {'start_ns': start_ns, 'end_ns': end_ns,
            'duration_s': round((end_ns - start_ns) / 1e9, 3) if every else 0.0}, 'segments': segments,
-           'topics': topics}
+           'topics': topics, 'recording': recording}
     command = next((t for t, w in wanted.items() if w['role'] == 'command'), None)
     odometry = next((t for t, w in wanted.items() if w['role'] == 'odometry'), None)
     if command and odometry:
@@ -114,8 +136,10 @@ def summarize(session, extra=(), last_s=None, reader=None):
         doc['coverage'] = {'command': command, 'odometry': odometry, 'commanded_s': round(span / 1e9, 3),
                            'measured_share': round(overlap(commanded, measured) / span, 3) if span else None}
     bad = sorted(t for t, s in topics.items() if s['flags'])
-    doc['verdict'] = 'clean' if not bad and not problem and every else 'check'
+    doc['verdict'] = 'clean' if not bad and not problem and not recording else 'check'
     doc['flagged'] = bad
+    if recording:
+        problem = '; '.join(filter(None, [problem, f"segment {', '.join(recording)} still recording: not read"]))
     if problem:
         doc['warning'] = problem
     return doc

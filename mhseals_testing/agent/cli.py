@@ -464,11 +464,12 @@ class Agent:
         if last is not None and not (math.isfinite(last) and last > 0):
             return self.bad('quality --last S: a positive number of seconds')
         try:
-            self.emit(quality.summarize(session, self.args.topics, last))
+            doc = quality.summarize(session, self.args.topics, last)
         except ImportError as error:        # no rosbag2_py: the dev container has it
             self.emit({'ok': False, 'error': 'no_reader', 'hint': f'{error}: run it in the dev container'})
             return 2
-        return 0
+        self.emit(doc)
+        return 0 if doc.get('ok') else 2
 
     def fetch(self):
         """The boat's half of ``fetch`` (``--where``, relay.py's first hop): which session, where it lies below
