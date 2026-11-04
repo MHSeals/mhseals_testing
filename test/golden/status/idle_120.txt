@@ -1,5 +1,5 @@
 == 34x30
-╭─ ▸ Status · 1/8 live ──────────╮
+╭─  ▸ Status  · 1/8 live ────────╮
 │ Components                     │
 │ › ✓ pose                  once │
 │   · FCU pose                   │
@@ -18,7 +18,7 @@
 │ /odom/local                    │
 ╰────────────────────────────────╯
 == 34x20
-╭─ ▸ Status · 1/8 live ──────────╮
+╭─  ▸ Status  · 1/8 live ────────╮
 │ Components                     │
 │ › ✓ pose                  once │
 │   · FCU pose                   │
@@ -37,7 +37,7 @@
 │ /odom/local                    │
 ╰────────────────────────────────╯
 == 34x14
-╭─ ▸ Status · 1/8 live ──────────╮
+╭─  ▸ Status  · 1/8 live ────────╮
 │ Components                     │
 │ › ✓ pose                  once │
 │   · FCU pose                   │

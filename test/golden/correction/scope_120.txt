@@ -1,4 +1,4 @@
-╭─ ▸ Correction · C± fitted 10-22 14:05 · min 70% · 1 verify ────────────────────────╮╭─ Readiness · good ─────────────╮
+╭─  ▸ Correction · C± fitted 10-22 14:05 · min 70% · 1 verify  ──────────────────────╮╭─ Readiness · good ─────────────╮
 │ refine surge+ · hold 7/14                                                          ││ Verdict   good 94%             │
 │ thrust M → C± (driver adds) → speed curves (controller inverts)                    ││   ✓ afloat                     │
 │                                                                                    │╰────────────────────────────────╯

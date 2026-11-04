@@ -1,4 +1,4 @@
-╭─ ▸ Status · 1/8 live ──────────╮
+╭─  ▸ Status  · 1/8 live ────────╮
 │ Components                     │
 │ › ✓ pose                  once │
 │   · FCU pose                   │
