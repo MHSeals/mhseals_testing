@@ -1,7 +1,7 @@
  boat_test  [Drive]  Correction  Map  Bags  Labels  Fusion  boat · effort                  boat · ROS 42  idle  disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                                                            
 ╭─ ▸ Status · 1/8 live ──────────╮╭─ Motion · effort · ✓ pose ──────────────╮╭─ Conditions · measuring ────────────────╮
-│ Components                     ││ Surge  +0% → +0.20                      ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀↑bow⠀⠄⠀⠀⠀⠀⠀⠀ │ single key      │
+│ Components                     ││ Surge  +0% → +0.20                      ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀↑bow⠀⠄⠀⠀⠀⠀⠀⠀ │ one key         │
 │ › ✓ pose                  once ││ +0.6                                    ││ ⠀⠀⠀⠀⠠⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠀⠀⠀⠀ │                 │
 │   · FCU pose                   ││                                       ⠐ ││ ⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀ │ surge         0 │
 │   ✗ GPS                        ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │ ▕      │      ▏ │
@@ -11,7 +11,7 @@
 │   · LiDAR                      ││                                         ││ ⠀⠀⠀⠀⠠⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠢⠀⠀⠀⠀ │ ▕      │      ▏ │
 │   · tracks                     ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠈ ││ ⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀⢀⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀ │ hdg —           │
 │ Localization                   ││ -0.3                                    ││ drift —                                 │
-│   ✓ map → odom                 ││ Yaw  +0% → —                            ││ floor —                                 │
+│   ✓ map → odom                 ││ Yaw  +0% → —                            ││ sog .20 m/s · floor —                   │
 │   ✗ odom → base_link           ││ +0.5                                    │╰─────────────────────────────────────────╯
 │ System                         ││                                         │╭─ Thrusters · odroid · defaults ─────────╮
 │   ! compute               78°C ││    0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ ││    Thr    Pin    Out    Rev      µs  Rb │

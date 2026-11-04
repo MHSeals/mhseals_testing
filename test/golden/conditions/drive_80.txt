@@ -1,4 +1,4 @@
- boat_test  [Drive]  Correction  Map  Bags  Fusion        boat   KEYS   disarmed
+ boat_test  [Drive]  Correction  Map  Bags  Labels  Fusion       KEYS   disarmed
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                                    
 ╭─ ▸ Status · 1/8 live ──────╮╭─ Motion · effort · ✓ pose · KEYS ──────────────╮
 │ Components                 ││ Surge  +60% +0.20                            ⠐ │
@@ -17,7 +17,7 @@
 │   ! compute           78°C ││   · RL          4          ·              1500 │
 │                            │╰────────────────────────────────────────────────╯
 │ /odom/local                │╭─ Procedures · 1 ready ─────────────────────────╮
-│                            ││   ✓ 1 Surge trial                              │
+│                            ││   ○ 1 Surge trial                              │
 │                            ││                                                │
 │                            │╰────────────────────────────────────────────────╯
 │                            │╭─ Activity · results · 1 ───────────────────────╮

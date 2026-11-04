@@ -14,7 +14,7 @@ _HUE = {'green': 'GOOD', 'yellow': 'WARN', 'red': 'BAD', None: 'MUTED'}   # trac
 STALE = 2.0          # s; a measurement older than this reads as a dash
 
 
-def _latest(series, now):
+def latest(series, now):
     return series[-1][1] if series and now - series[-1][0] <= STALE else None
 
 
@@ -35,7 +35,7 @@ def _traces(index, snapshot, view, width, rows):
         (t, c[index] * (scale if effort else 1.0)) for t, c in plots['cmd']]   # the command until a model runs
     plot.line(pred, now - window, now, -scale, scale, 'pred')
     clipped = plot.line(series, now - window, now, -scale, scale, 'meas')
-    return plot, clipped, scale, gutter, _latest(series, now)
+    return plot, clipped, scale, gutter, latest(series, now)
 
 
 def _axis(index, snapshot, view, width, rows):

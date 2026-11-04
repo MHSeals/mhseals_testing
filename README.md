@@ -63,7 +63,9 @@ Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Ac
 | `w s ↑↓` | Manual (m): hold w/s, a/d, ←/→ together; +/- speed; x leaves |
 <!-- /keys -->
 
-Held-key chords need the Kitty keyboard protocol (Kitty, Ghostty, foot, WezTerm). Glyphs carry every state
+Held-key combos (Conditions reads `keys·combos`, else `keys·one key`) need the Kitty keyboard protocol (Kitty,
+Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
+Conditions `sog` readout and the minimap trail run calm grey to hot magenta. Glyphs carry every state
 (✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.
 
 ## Procedures

@@ -48,7 +48,7 @@ def test_hold_timing_follows_the_terminal():
 
 
 def test_the_driver_shows_when_chords_are_unavailable():
-    assert conditions.mode_label(False, unavailable='tmux') == 'no chords (tmux)'
-    assert conditions.mode_label(True, unavailable='tmux') == 'chords'
+    assert conditions.mode_label(False, unavailable='tmux') == 'one key (tmux)'
+    assert conditions.mode_label(True, unavailable='tmux') == 'combos'
     view = dict(authority=('human', 'KEYS'), chords=False, chords_unavailable='tmux')
-    assert conditions.driver(view)[0].endswith('no chords')
+    assert conditions.driver(view)[0].endswith('one key')

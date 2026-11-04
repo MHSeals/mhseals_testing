@@ -224,7 +224,7 @@ def test_bars_fill_in_eighths_grow_port_left_and_mark_a_clip():
 
 def test_driver_names_who_and_how_in_the_authority_hue():
     view = dict(authority=('human', 'KEYS'), chords=True)
-    assert conditions.driver(view) == ('keyboard' + theme.MIDDOT + 'chords', theme.auth_style('human'))
+    assert conditions.driver(view) == ('keys' + theme.MIDDOT + 'combos', theme.auth_style('human'))
     assert conditions.driver({'authority': ('nav', 'NAV')}) == ('nav', theme.auth_style('nav'))
     assert conditions.driver({'authority': ('ours', 'C=I'), 'command_mode': 'proc · C=I'})[0] == 'proc · C=I'
     assert conditions.driver({'chords': False})[1] == theme.MUTED
@@ -254,8 +254,8 @@ def test_heading_row_has_its_cardinal_sigma_and_yaw_trust():
 @pytest.mark.own_colour_env
 @pytest.mark.parametrize('term, colorterm, ramp', [('xterm-256color', '', 4), ('xterm-256color', 'truecolor', 4),
                                                      ('xterm', '', 2)])
-def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues(monkeypatch, term, colorterm, ramp):
-    # The colour depth is pinned: the gauge resolves throttle.* at call time, so the ambient TERM would decide it.
+def test_speed_gauge_lights_cells_calm_to_hot_in_the_speed_palette(monkeypatch, term, colorterm, ramp):
+    # The colour depth is pinned: the gauge resolves spd.* at call time, so the ambient TERM would decide it.
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.setenv('TERM', term)
     monkeypatch.setenv('COLORTERM', colorterm)
@@ -267,8 +267,9 @@ def test_speed_gauge_lights_cells_calm_to_hot_and_stays_off_the_status_hues(monk
         style = theme.PALETTE.style
         full = conditions.speed_gauge(1.0)
         lit = {style_at(full, i) for i, ch in enumerate(full.plain) if ch == on} - {style('muted')}
-        assert len(lit) >= ramp            # a grey-to-white gradient, not one colour (16 colours: grey, default, bold)
-        assert not lit & {style(token) for token in ('ok', 'warn', 'fail', 'stop')}   # fast is not a warning
+        assert len(lit) >= ramp            # a gradient, not one colour (16 colours: grey, blue, yellow, magenta)
+        assert lit <= {style(f'spd.{band}') for band in range(6)}     # the minimap trail's speed palette
+        assert not lit & {style(token) for token in ('fail', 'stop')}   # fast is not a failure
 
 
 def style_at(row, index):
@@ -284,7 +285,23 @@ def test_command_column_shows_the_speed_gauge_under_the_driver():
 
 
 def test_label_names_the_mode_with_the_tmux_caveat():
-    assert conditions.mode_label(True, tmux=True) == 'chords'
-    assert conditions.mode_label(False, tmux=True) == 'single key (tmux)'
-    assert conditions.mode_label(False, tmux=False) == 'single key'
+    assert conditions.mode_label(True, tmux=True) == 'combos'
+    assert conditions.mode_label(False, tmux=True) == 'one key (tmux)'
+    assert conditions.mode_label(False, tmux=False) == 'one key'
     assert conditions.mode_label(False, mode='rc · mux') == 'rc · mux'
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode bar')
+def test_command_bars_run_through_the_speed_bands_outward():
+    full = conditions.bar(1.0, 1.0, 6)
+    cells = [style_at(full, i) for i, ch in enumerate(full.plain) if ch == '█']
+    assert len(cells) == 6 and len(set(cells)) >= 3 and cells[0] == theme.PALETTE.style('spd.0')
+    over = conditions.bar(1.5, 1.0, 6)
+    assert over.plain.endswith('▶') and style_at(over, len(over.plain) - 1) == theme.PALETTE.style('spd.5')
+
+
+def test_the_sea_row_leads_with_speed_over_ground_in_its_band():
+    info = {'floor': 0.0025, 'sea': 0.016}
+    row = conditions.sea_row(info, 0.42)
+    assert row.plain.startswith('sog .42 m/s') and 'floor' in row.plain
+    assert conditions.sea_row(info).plain.startswith('floor')

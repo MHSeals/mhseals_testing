@@ -2,7 +2,7 @@
  rec · ✗ sensors 1/3 · ✗ tf · ! compute 78°C                
 ╭─ ▸ Status · 1/8 live ──────╮╭─ Conditions ───────────────╮
 │ Components                 ││ measuring · hdg —          │
-│ › ✓ pose              once ││ Cmd · 0 · single key       │
+│ › ✓ pose              once ││ Cmd · 0 · one key          │
 │   · FCU pose               │╰────────────────────────────╯
 │   ✗ GPS                    │╭─ Thrusters · odroid · defa─╮
 │   ! IMU              once× ││    Thr    Out   Rev     µs │

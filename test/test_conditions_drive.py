@@ -58,7 +58,7 @@ def test_title_and_bottom_rows_come_from_the_summary():
     assert 'Conditions · good 94% · 4 min' in out
     assert 'drift .12 m/s →045° ±.02 · trust 88%' in out
     assert 'floor .14°/s · sea .9°/s' in out and '↕' not in out
-    assert ' │ keyboard·chords' in out and 'surge      +60%' in out and 'hdg 030° NNE' in out
+    assert ' │ keys·combos' in out and 'surge      +60%' in out and 'hdg 030° NNE' in out
     assert len(out.splitlines()) == 13
 
 
@@ -110,7 +110,7 @@ def test_motion_no_longer_draws_a_drift_line():
 def test_compact_form_names_heading_drift_and_command_and_drops_what_does_not_fit():
     ok = plain(conditions.conditions_panel(drive_view(), True), 70)
     assert 'good 94% · hdg 030° NNE · drift .12→045° ±.02' in ok
-    assert 'Cmd ↑ surge   │█▎+60% · yaw ↺  ▋│  +20% · keyboard·chords' in ok
+    assert 'Cmd ↑ surge   │█▎+60% · yaw ↺  ▋│  +20% · keys·combos' in ok
     assert '! hdg 030° NNE' in plain(conditions.conditions_panel(drive_view(yaw_ok=False), True), 60)
     narrow = plain(conditions.conditions_panel(drive_view(), True), 30).splitlines()
     assert narrow[1] == '│ good 94% · hdg 030° NNE    │' and narrow[2] == '│ Cmd ↑ surge   │█▎+60%      │'

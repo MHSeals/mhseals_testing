@@ -14,6 +14,7 @@ switching tabs returns to where the operator was.
 """
 
 import io
+import math
 
 from rich.console import Console, Group
 from rich.layout import Layout
@@ -35,7 +36,7 @@ from mhseals_testing.ui.panels import labels as labels_panel
 from mhseals_testing.ui.panels.conditions import conditions_panel
 from mhseals_testing.ui.panels.minimap import WIDTH as MINIMAP_WIDTH, minimap_panel
 from mhseals_testing.ui.panels import mission as mission_panel
-from mhseals_testing.ui.panels.motion import motion_panel
+from mhseals_testing.ui.panels.motion import latest as motion_latest, motion_panel
 from mhseals_testing.ui.panels.procedures import procedures_panel
 from mhseals_testing.ui.panels.status import reconcile, status_panel, status_rows
 from mhseals_testing.ui.panels.thrusters import thrusters_panel
@@ -501,6 +502,13 @@ def top_rows(width):
     return (COND_ROWS if width >= FULL_CONDITIONS else COMPACT_ROWS) + THRUSTER_ROWS
 
 
+def ground_speed(snapshot):
+    """Speed over ground (m/s) from the latest fresh odometry surge and sway, or None while odometry is quiet."""
+    plots = snapshot.get('plots') or {}
+    surge, sway = (motion_latest(plots.get('meas', {}).get(key, []), plots.get('now', 0.0)) for key in ('vx', 'vy'))
+    return None if surge is None or sway is None else math.hypot(surge, sway)
+
+
 def drive_slots(snapshot, view, width, height):
     """The Drive panels by named slot for the tier of ``width`` (ui.md 4.5); None leaves a slot empty.
 
@@ -519,7 +527,7 @@ def drive_slots(snapshot, view, width, height):
     return {
         'status': status_panel(snapshot, view, height) if width >= FOLD else None,
         'motion': motion,
-        'conditions': conditions_panel(view, width < FULL_CONDITIONS),
+        'conditions': conditions_panel({**view, 'sog': ground_speed(snapshot)}, width < FULL_CONDITIONS),
         'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
         'procedures': procedures_panel(view, lower if wide else half, snapshot['results']),
         'mission': mission,

@@ -16,6 +16,8 @@ from rich.text import Text
 from mhseals_testing.ui import theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.minimap import hull
+from mhseals_testing.ui.minimap.layers import SPEED_BANDS
+from mhseals_testing.ui.minimap.structure import VMAX
 from mhseals_testing.ui.panels import TITLES
 
 ROSE_COLS, ROSE_ROWS = 21, 9
@@ -294,16 +296,17 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue):
 # --- the command column -----------------------------------------------------------------------
 
 def mode_label(chords, tmux=None, mode=None, unavailable=None):
-    """How the keyboard drives: ``mode`` (``proc · C=I``, ``rc · mux``) wins outside manual;
-    ``unavailable`` (why the terminal cannot chord, ui/input.py) shows ``no chords (tmux)``."""
+    """How the keyboard drives, in plain words: ``combos`` (keys held together) or ``one key``; ``mode``
+    (``proc · C=I``, ``rc · mux``) wins outside manual; ``unavailable`` (why the terminal cannot hold keys
+    together, ui/input.py) shows ``one key (tmux)``."""
     if mode:
         return mode
     if chords:
-        return 'chords'
+        return 'combos'
     if unavailable:
-        return f'no chords ({unavailable})'
+        return f'one key ({unavailable})'
     tmux = bool(os.environ.get('TMUX')) if tmux is None else tmux
-    return 'single key (tmux)' if tmux else 'single key'
+    return 'one key (tmux)' if tmux else 'one key'
 
 
 def _figure(value, amplitude):
@@ -313,27 +316,40 @@ def _figure(value, amplitude):
     return Text(f'{value / amplitude:+.0%}')
 
 
-def bar(value, amplitude, cells, hue, grows_left=False):
+def speed_style(fraction):
+    """The spd.* band of ``fraction`` of full (spd.0 calm .. spd.4, spd.5 past full): the minimap trail's speed
+    palette, so one colour means one speed everywhere (D-20261101-27)."""
+    band = SPEED_BANDS if fraction > 1 else min(int(max(fraction, 0.0) * SPEED_BANDS), SPEED_BANDS - 1)
+    return _token('spd.%d' % band, theme.FG)
+
+
+def bar(value, amplitude, cells, hue=None, grows_left=False):
     """A bipolar bar of ``cells`` per side about a centre ``│``, at 1/8-cell resolution.
 
     A positive value grows right, or left when ``grows_left`` (sway and yaw: port is left, as on
-    the water). Past ``amplitude`` the end cell shows ``▶``/``◀``. ASCII: ``#`` per whole cell.
+    the water). Each cell wears the spd.* band of its own distance out, so a harder command reaches
+    hotter cells. Past ``amplitude`` the end cell shows ``▶``/``◀`` in spd.5. ASCII: ``#`` per whole
+    cell. ``hue`` is kept for callers; the gradient replaced it.
     """
     frac = value / amplitude if amplitude else 0.0
     left = (frac > 0) == grows_left
     eighths = round(min(abs(frac), 1.0) * cells * 8)
+    look = lambda i: speed_style((i + 0.5) / cells)       # the band of cell i, counted outward
+    side = Text()
     if theme.ASCII:
-        side = Text.assemble(('#' * round(eighths / 8), hue))
+        for i in range(round(eighths / 8)):
+            side.append('#', look(i))
     else:
-        side = Text.assemble(('█' * (eighths // 8), hue))
+        for i in range(eighths // 8):
+            side.append('█', look(i))
         if eighths % 8:
-            part = eighths % 8
+            part, cell = eighths % 8, look(eighths // 8)
             # Unicode has right-aligned blocks only for 1/8 and 1/2; the rest is a left fill reversed.
-            side.append(*(('▕', hue) if part == 1 and left else ('▐', hue) if part == 4 and left
-                          else (EIGHTHS[8 - part], f'reverse {hue}') if left else (EIGHTHS[part], hue)))
+            side.append(*(('▕', cell) if part == 1 and left else ('▐', cell) if part == 4 and left
+                          else (EIGHTHS[8 - part], f'reverse {cell}') if left else (EIGHTHS[part], cell)))
     if abs(frac) > 1:
-        side = Text.assemble((side.plain[:-1], hue))
-        side.append(theme.pick('◀' if left else '▶', '<' if left else '>'), style=hue)
+        side = side[:-1]
+        side.append(theme.pick('◀' if left else '▶', '<' if left else '>'), style=speed_style(abs(frac)))
     pad = Text(' ' * (cells - len(side)))
     empty = Text(' ' * cells)
     lhs, rhs = (Text.assemble(pad, _flip(side)), empty) if left else (empty, side + pad)
@@ -423,18 +439,29 @@ def drift_row(info):
                                  f"±{_short(info['se'])}{theme.SEPARATOR}trust {info['drift_trust']:.0%}"))
 
 
-def sea_row(info):
-    """``floor .14°/s · sea .9°/s`` (no heave figure until an a_z source exists), or ``! yaw 4°`` in warn while yaw is unreliable."""
+def sog_text(sog):
+    """``sog .42`` (m/s over ground, from odometry) in its spd.* band against the minimap's VMAX; None hides it."""
+    if sog is None:
+        return Text()
+    return Text.assemble(('sog ', theme.MUTED), (f'{_short(sog)}', speed_style(sog / VMAX)), (' m/s', theme.MUTED))
+
+
+def sea_row(info, sog=None):
+    """``sog .42 m/s · floor .14°/s · sea .9°/s`` (no heave figure until an a_z source exists), or ``! yaw 4°``
+    in warn while yaw is unreliable; ``sog`` leads while odometry reports one."""
     if not info.get('yaw_ok', True):
-        return Text(f"! yaw {info.get('yaw_note', '')}".rstrip(), style=theme.WARN)
-    if info.get('floor') is None or info.get('sea') is None:
-        return Text(f'floor {theme.DASH}', style=theme.MUTED)
-    text = f"floor {_short(_deg(info['floor']))}°/s{theme.SEPARATOR}sea {_short(_deg(info['sea']), 1)}°/s"
-    return Text(theme.ascii_safe(text))
+        body = Text(f"! yaw {info.get('yaw_note', '')}".rstrip(), style=theme.WARN)
+    elif info.get('floor') is None or info.get('sea') is None:
+        body = Text(f'floor {theme.DASH}', style=theme.MUTED)
+    else:
+        body = Text(theme.ascii_safe(
+            f"floor {_short(_deg(info['floor']))}°/s{theme.SEPARATOR}sea {_short(_deg(info['sea']), 1)}°/s"))
+    head = sog_text(sog)
+    return Text.assemble(head, (theme.SEPARATOR, theme.MUTED), body) if head else body
 
 
 def driver(view):
-    """``(label, hue)`` of who drives: ``keyboard·chords``, ``nav``, ``proc · C=I``, ``rc · mux``."""
+    """``(label, hue)`` of who drives: ``keys·combos``, ``nav``, ``proc · C=I``, ``rc · mux``."""
     kind = (view.get('authority') or ('', ''))[0]
     owner = OWNERS.get(kind)
     hue = theme.auth_style(kind) if owner else theme.MUTED
@@ -442,35 +469,30 @@ def driver(view):
     label = mode_label(view.get('chords', False), mode=mode,
                        unavailable=view.get('chords_unavailable')).split(' (')[0]
     if owner == 'keyboard' and not mode:
-        label = f'keyboard{theme.MIDDOT}{label}'
+        label = f'keys{theme.MIDDOT}{label}'
     elif owner and not mode:
         label = owner
     return label, hue
 
 
 GAUGE_CELLS = 10
-THROTTLE_BANDS = 5       # throttle.0 .. throttle.4 across the gauge, calm to hot
-
-
-def _throttle(fraction):
-    return theme.PALETTE.style('throttle.%d' % min(THROTTLE_BANDS - 1, int(fraction * THROTTLE_BANDS)))
 
 
 def speed_gauge(speed, cells=GAUGE_CELLS, label=True):
     """``≫ ▰▰▰▰▰▰▰▱▱▱ 75%``: the manual speed as a gauge whose lit cells run calm to hot.
 
-    Each cell wears the band of its own position, so a higher speed reaches hotter cells; the colour
-    never reads as severity or any hue family (a neutral grey ramp up to white). ASCII: ``>> #######--- 75%``;
-    NO_COLOR keeps the count of lit cells and the percentage.
+    Each cell wears the spd.* band of its own position, so a higher speed reaches hotter cells, in the
+    speed palette of the bars and the minimap trail. ASCII: ``>> #######--- 75%``; NO_COLOR keeps the
+    count of lit cells and the percentage.
     """
     speed = min(1.0, max(0.0, float(speed)))
     lit = int(speed * cells + 0.5)
     on, off = theme.pick('▰', '#'), theme.pick('▱', '-')
-    out = Text.assemble((theme.PALETTE.glyph('speed'), _throttle(speed)), ' ')
+    out = Text.assemble((theme.PALETTE.glyph('speed'), speed_style(speed)), ' ')
     for i in range(cells):
-        out.append(on, _throttle((i + 0.5) / cells)) if i < lit else out.append(off, theme.MUTED)
+        out.append(on, speed_style((i + 0.5) / cells)) if i < lit else out.append(off, theme.MUTED)
     if label:
-        out.append(f' {speed:.0%}', _throttle(speed))
+        out.append(f' {speed:.0%}', speed_style(speed))
     return out
 
 
@@ -482,7 +504,7 @@ def command_column(view, info, width):
     cells = min(BAR_CELLS, (width - 3) // 2)
     speed = view.get('speed')
     gauge = Text() if speed is None else speed_gauge(speed, min(GAUGE_CELLS, max(3, width - 9)))
-    rows = [Text(label if len(label) <= width else label.replace('keyboard', 'keys'), style=hue), gauge]
+    rows = [Text(label, style=hue), gauge]
     for name, value, left in (('surge', surge, False), ('sway', sway, True), (_yaw_label(yaw), yaw, True)):
         rows.append(_labelled(name, value, amplitude, 3 + 2 * cells))
         rows.append(Text.assemble((theme.pick('▕', '['), theme.MUTED), bar(value, amplitude, cells, hue, left),
@@ -505,7 +527,7 @@ def _fit(segments, width, sep=None):
 
 def compact_lines(view, info, width=46):
     """The 60-89 column form: ``good 94% · hdg 030° NNE · drift .12→045° ±.02`` over
-    ``Cmd ↑ surge  │█▊+60 · yaw ▐│  +20 · keyboard·chords``; segments that do not fit are dropped."""
+    ``Cmd ↑ surge  │█▊+60 · yaw ▐│  +20 · keys·combos``; segments that do not fit are dropped."""
     cond = [conditions_title(info, full=False), heading_row(info)]
     figures = _drift_figures(info)
     if figures:
@@ -542,7 +564,7 @@ class _Body:
                         command, self.view.get('amplitude', 1.0), hue)
             right = command_column(self.view, info, width - ROSE_COLS - 3)
             lines = [Text.assemble(a, ' ', (theme.BAR, theme.MUTED), ' ', b) for a, b in zip(left, right)]
-            lines += [drift_row(info), sea_row(info)]
+            lines += [drift_row(info), sea_row(info, self.view.get('sog'))]
         for line in lines:
             line.truncate(width, overflow='ellipsis')
             yield line
