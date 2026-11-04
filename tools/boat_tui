@@ -4,6 +4,7 @@
 #   view [NAME]    a viewer (boat_test --view) in session S-NAME (first free v1..v9); attaches on a tty
 #   restart        a new TUI takes over the old one's pane (neutral, disarmed); the stack and keepers keep running
 #   status         tmux sessions and who controls (harness/control.py)
+#   host           the TUI host from the vessel registry (ssh "$(boat_tui host)" ... from the station)
 #   sim [--seed N] | sim down   the headless Unity sim, then boat_test crane_full_stack in session sim (tools/boat_sim)
 #   preview [REF] [--headless] | preview down|attach|restart|status   the owner's preview of REF (default origin/main):
 #                  its own snapshot, build, container and tmux -L preview, the player windowed (tools/boat_preview)
@@ -153,6 +154,10 @@ case $verb in
         # boat_tui sim [--seed N] [--dry-run] | sim down | sim status: the headless Unity sim and boat_test on it
         case ${1:-} in down|status) exec "$(dirname "$0")/boat_sim" "$@" ;; *) exec "$(dirname "$0")/boat_sim" up "$@" ;; esac
         ;;
+    host)
+        . "$(dirname "$0")/registry.sh"
+        tui_host || { echo 'boat_tui: no tui_backend or boat_computer host in the vessel registry (hw.sh whoami --registry)' >&2; exit 2; }
+        ;;
     status)
         t list-sessions -F '#{session_name}  #{?pane_dead,exited,running}  #{session_attached} attached' 2>/dev/null \
             | grep -E "^$session(-|  )" || echo "no $session sessions on $host"
@@ -166,5 +171,5 @@ case $verb in
     *)
         . "$(dirname "$0")/registry.sh"
         tui=$(tui_host) || tui=TUI_HOST        # filled from the vessel registry
-        sed -n '2,14s/^# \{0,1\}//p' "$0" | sed "s/TUI_HOST/$tui/g"; [ -z "$verb" ] || exit 2 ;;
+        sed -n '2,15s/^# \{0,1\}//p' "$0" | sed "s/TUI_HOST/$tui/g"; [ -z "$verb" ] || exit 2 ;;
 esac

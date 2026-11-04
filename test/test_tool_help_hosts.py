@@ -60,3 +60,8 @@ def test_a_vessel_name_targets_its_registry_tui_host(env):
     script = f'. {TOOLS}/registry.sh; vessel; tui_host'
     out = subprocess.run(['sh', '-c', script], capture_output=True, text=True, env=env).stdout.split()
     assert out == ['vesselq', 'vesselq-brain']
+
+
+def test_boat_tui_host_prints_the_registry_tui_host(env):
+    out = subprocess.run([str(TOOLS / 'boat_tui'), 'host'], capture_output=True, text=True, env=env)
+    assert out.returncode == 0 and out.stdout.strip() == 'vesselq-brain'
