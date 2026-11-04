@@ -50,12 +50,19 @@ attach() {
   echo "boat_preview: attach: tmux -L $PV_SOCKET attach -t $PV_SESSION"
 }
 
+pinned() {   # the commit the workspace (the superproject of src/) pins REPO at, when REPO is its submodule
+  local top; top=$(git -C "$PV_SRC/.." rev-parse --show-toplevel 2>/dev/null) || return 1
+  git -C "$top" ls-tree HEAD "src/$1" 2>/dev/null | awk '$2 == "commit" {print $3; f=1} END {exit !f}'
+}
+
 snapshot() {   # each repo at REF (else origin/main) as a detached worktree; prints repo=sha ...
   local repo src dst sha
   for repo in $PV_REPOS; do timeout 30 git -C "$PV_SRC/$repo" fetch -q origin 2>/dev/null & done; wait
   for repo in $PV_REPOS; do
     src=$PV_SRC/$repo dst=$WS/src/$repo
-    sha=$(git -C "$src" rev-parse -q --verify "$REF^{commit}" || git -C "$src" rev-parse origin/main)
+    # REF where the repo has it; else a workspace submodule's pin (the superproject's gitlink, e.g. a ROS 2 fork
+    # branch, never its upstream's default); else origin/main
+    sha=$(git -C "$src" rev-parse -q --verify "$REF^{commit}" || pinned "$repo" || git -C "$src" rev-parse origin/main)
     if [ -e "$dst/.git" ]; then git -C "$dst" checkout -q --force --detach "$sha"
     else git -C "$src" worktree prune; git -C "$src" worktree add -q --detach "$dst" "$sha"; fi
     printf '%s=%s ' "$repo" "$sha"
