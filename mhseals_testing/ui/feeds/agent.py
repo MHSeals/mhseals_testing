@@ -265,6 +265,9 @@ class AgentDesk:
         act = self.act
         if act and act['id'] == record['act'] and act['claim'] == record['claim'] and act['who'] == record['who']:
             act['renewed'] = self.clock()
+        for req in self.queue:
+            if req['id'] == record['act'] and req.get('claim') == record['claim'] and req['who'] == record['who']:
+                req['renewed'] = self.clock()
 
     def on_req(self, req):
         if req['id'] in self.answered:
@@ -633,8 +636,10 @@ class AgentDesk:
                     result = dict(result, sim_arm=[{'check': n, 'ok': ok, 'detail': d} for n, ok, d in checks],
                                   hint=why or ('' if result.get('availability') else 'sim-arm checks pass'))
                 return self.reply(req, True, result=result, hint=result.get('hint', ''))
+        req['renewed'] = self.clock()          # a queued run or goal's CLI renews it as it waits (on_renew)
         self.queue.append(req)
-        self.reply(req, True, state='queued')
+        cause = self.busy_cause()
+        self.reply(req, True, state='queued', hint=f'waits up to {self.queue_s():g} s: {cause}' if cause else '')
 
     def start_dry(self, req):
         """A goal dry run on its own thread: Nav2's lifecycle, GetCostmap and the planner can take seconds,
@@ -786,15 +791,26 @@ class AgentDesk:
             return 'the operator drives manually'
         return 'a goal dry run is in flight' if self.dry is not None else ''
 
+    def queue_s(self):
+        """agent.yaml queue_s: how long a queued run, goal or ask waits behind a busy TUI before busy_ui."""
+        return float(self.config.get().get('queue_s', agent_config.QUEUE_S))
+
     def start_next(self):
         now_ns, app = time.time_ns(), self.app
+        motion_s = self.lease()['motion_s']
+        for req in [r for r in self.queue if r['op'] in MOTION and self.clock() - r['renewed'] > motion_s]:
+            self.queue.remove(req)     # its CLI went away while it waited: nothing starts later for nobody
+            self.reply(req, False, 'expired', hint='the CLI stopped waiting while it was queued; nothing was done')
         cause = self.busy_cause()
-        if cause:      # an ask waits behind a non-modal state up to ask_s; the rest until its deadline
+        if cause:      # an ask waits behind a non-modal state up to ask_s; the rest (and an ask behind a popup) queue_s
             wait = int(self.config.get()['ask_s'] * 1e9)
-            for req in [r for r in self.queue if now_ns > (r['t_ns'] + wait if r['op'] == 'ask' and app.modal is None
-                                                           else r['deadline_ns'])]:
+            queue = int(self.queue_s() * 1e9)
+            for req in [r for r in self.queue if now_ns > max(r['deadline_ns'], r['t_ns'] + (
+                    wait if r['op'] == 'ask' and app.modal is None else queue))]:
                 self.queue.remove(req)
-                self.reply(req, False, 'busy_ui', hint=f'{cause}; try again after it')
+                self.reply(req, False, 'busy_ui', hint=f'{cause} after {self.queue_s():g} s queued; try again after it')
+            return
+        if not self.queue:
             return
         req = self.queue.pop(0)
         if req['op'] in MOTION and (refusal := self.refusal(req)):

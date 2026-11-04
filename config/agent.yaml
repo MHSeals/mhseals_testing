@@ -15,6 +15,10 @@ background: ''
 request_s: 5            # a request past this is answered expired; never replayed after a restart
 confirm_s: 30           # human confirm popup; timeout = refused
 ask_s: 120
+# a run, goal or ask that finds the TUI busy (a popup open, a procedure or another agent act running, the operator
+# driving manually) waits in the queue this long, then busy_ui; it starts when that ends, through every gate, and only
+# while its CLI still renews it (a CLI that went away leaves nothing to start later). arm is refused at once.
+queue_s: 120
 # owner decisions 2026-11-01: an agent runs characterization (thrust_physics: B3 pulses, survey, maneuvers; and
 # characterize, f, with C applied live and read back) after the operator positions the boat; arming is through
 # boat_agent arm (a countdown the operator cancels), the operator answers Ready, holds and gates are unchanged

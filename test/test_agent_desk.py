@@ -752,14 +752,48 @@ def test_a_restart_resumes_the_position_and_skips_answered_requests(rig):
     assert len(replies(pending['id'])) == 1 and c
 
 
-def test_a_busy_ui_leaves_the_act_queued_until_its_deadline(rig):
+def test_a_busy_ui_leaves_the_act_queued_until_queue_s(rig):
     c = claim(rig)
+    rig.desk.queue_s = lambda: 0.05
     rig.app.modal = {'kind': 'message'}
     req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c, request_s=0.05)
     rig.desk.tick()
+    assert 'a popup is open' in replies(req['id'])[0]['hint']            # queued, and says behind what
     time.sleep(0.06)
     rig.desk.tick()
-    assert final(req['id'])['error'] == 'busy_ui' and rig.app.running is None
+    reply = final(req['id'])
+    assert reply['error'] == 'busy_ui' and 'queued' in reply['hint'] and rig.app.running is None
+
+
+def test_a_run_queued_behind_a_popup_starts_when_the_popup_closes(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.modal = {'kind': 'message', 'title': 'Ready?'}
+    req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c, request_s=0.05)
+    rig.desk.tick()
+    time.sleep(0.06)                                   # past its request deadline: it still waits (queue_s)
+    for _ in range(3):
+        rig.clock[0] += 3.0
+        ch.renew('claude-3f2a', c, req['id'])          # the waiting CLI renews it
+        rig.desk.tick()
+    assert [r['state'] for r in replies(req['id'])] == ['queued'] and rig.desk.queue
+    rig.app.modal = None
+    rig.desk.tick()
+    assert final(req['id'])['ok'] and not rig.desk.queue
+
+
+def test_a_queued_run_whose_cli_went_away_never_starts(rig):
+    c = claim(rig)
+    rig.app.settings.agent_motion = 'allow'
+    rig.app.modal = {'kind': 'message'}
+    req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c)
+    rig.desk.tick()
+    rig.clock[0] += rig.desk.lease()['motion_s'] + 1   # no renewals: the CLI was killed while it waited
+    rig.app.modal = None
+    rig.desk.tick()
+    reply = final(req['id'])
+    assert reply['error'] == 'expired' and 'stopped waiting' in reply['hint'] and rig.app.running is None
+    assert not rig.desk.queue and ('arm_panel' not in rig.app.calls)
 
 
 def test_a_flood_keeps_the_tick_short(rig):
@@ -880,10 +914,11 @@ def test_a_goal_the_gates_refuse_never_asks_allow(rig):
     assert 'asking' not in [r['state'] for r in replies(reply['re'])]
 
 
-def test_a_request_queued_behind_a_goal_expires_at_its_deadline(rig):
+def test_a_request_queued_behind_a_goal_expires_after_queue_s(rig):
     c = claim(rig)
     rig.app.settings.agent_motion = 'allow'
     ask(rig, 'goal', c, x=5, y=0)
+    rig.desk.queue_s = lambda: 0.05
     req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c, request_s=0.05)
     ch.renew('claude-3f2a', c, rig.desk.act['id'])
     rig.desk.tick()

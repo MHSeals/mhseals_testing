@@ -155,6 +155,7 @@ def test_shipped_agent_config_is_valid():
     assert config['lease'] == {'idle_s': 600, 'motion_s': 10, 'max_claim_s': 3600}
     assert 'manual' not in config['run'] and 'square' in config['run']
     assert config['unclaimed_driver'] == 'warn' and config['hook']['max_per_10s'] == 6
+    assert config['queue_s'] == 120
 
 
 @pytest.mark.parametrize('edit, word', [
@@ -164,6 +165,8 @@ def test_shipped_agent_config_is_valid():
     (lambda c: c['lease'].pop('max_claim_s'), 'lease needs'),
     (lambda c: c.update(request_s='5'), 'request_s'),
     (lambda c: c.update(run='square'), 'run'),
+    (lambda c: c.update(queue_s=0), 'queue_s'),
+    (lambda c: c.update(queue_s=601), 'queue_s'),
     (lambda c: c.update(unclaimed_driver='stop'), 'unclaimed_driver'),
     (lambda c: c['hook']['deny'].append('('), 'hook.deny'),
     (lambda c: c.update(extra=1), 'unknown key extra'),

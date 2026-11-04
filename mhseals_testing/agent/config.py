@@ -16,6 +16,7 @@ import yaml
 SCHEMA = 'mhseals.agent_config/1'
 LEASE_KEYS = ('idle_s', 'motion_s', 'max_claim_s')
 NUMBERS = ('request_s', 'confirm_s', 'ask_s')
+QUEUE_S = 120.0        # a run, goal or ask waits this long behind a popup, a procedure or another act (queue_s)
 DRIVERS = ('warn', 'hold')
 HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
 ANY = 'any'            # settings: the keys an agent may set outside a run and with any run
@@ -49,7 +50,7 @@ def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
     known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', 'arm', 'grants',
-             'background', 'fetch', *NUMBERS}
+             'background', 'fetch', 'queue_s', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     if not isinstance(data.get('grants', GRANTS), str) or not data.get('grants', GRANTS):
@@ -72,6 +73,9 @@ def validate(data):
     for key, value in [*(('lease.' + k, lease[k]) for k in LEASE_KEYS), *((k, data.get(k)) for k in NUMBERS)]:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f'agent.yaml: {key} must be a positive number of seconds')
+    queue = data.get('queue_s', QUEUE_S)
+    if isinstance(queue, bool) or not isinstance(queue, (int, float)) or not 0 < queue <= 600:
+        raise ValueError('agent.yaml: queue_s must be more than 0 and at most 600 seconds')
     if not lease['motion_s'] <= lease['idle_s'] <= lease['max_claim_s']:
         raise ValueError('agent.yaml: lease needs motion_s <= idle_s <= max_claim_s')
     run = data.get('run')
@@ -109,7 +113,7 @@ def validate(data):
     return {**data, 'grants': data.get('grants', GRANTS), 'background': data.get('background', ''), 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
-            'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}}
+            'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}, 'queue_s': float(queue)}
 
 
 def settable(config, procedure=None):

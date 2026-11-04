@@ -15,6 +15,10 @@ The playbook an agent gets is `python3 .agents/hook.py --playbook`.
 - `arm --claim ID` arms through the arm panel's path after a countdown banner (`config/agent.yaml` `arm.countdown`, 5
   s, which an agent may lengthen but never shorten) the operator cancels with Esc or Enter; a latched e-stop refuses
   it, and the ARMED chip and journal name the agent.
+- A `run`, `goal` or `ask` that finds the TUI busy (a popup open, a procedure or another agent act running, the
+  operator driving manually) is answered `queued` with the cause and starts when that ends, through every gate as if
+  just sent, for up to `config/agent.yaml` `queue_s` (120 s), then `busy_ui` (exit 2); a queued run or goal whose CLI
+  stops renewing it (killed while it waited) is answered `expired` and never starts. `arm` is refused at once.
 - `reload config [NAME]` re-reads the TUI's watched YAML as a hand edit does; `reload COMPONENT --claim ID` stops and
   starts one part under the `start`/`stop` rules.
 - Characterize (`f`, `r`/`R` on Correction, `run characterize`) stages identity C on the running driver over
