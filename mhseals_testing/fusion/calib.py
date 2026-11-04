@@ -169,7 +169,7 @@ def calibrate(est, sample_t, cfg):
         return None
     theta, se = est.fit()
     b = cfg['bootstrap']
-    boot = bootstrap(est, sample_t, b['reps'], b['block_s'], b['seed'], b['min_units'])
+    boot = bootstrap(est, sample_t, b['reps'], b['block'], b['seed'], b['min_units'])
     lo, hi = (None, None) if boot is None else np.percentile(boot, [2.5, 97.5], 0)
     prior = np.array(est.cfg['prior_sigma'], float)
     params = {}
@@ -431,7 +431,7 @@ def run(args):
     cfg = load_config(args.config)
     frames, counts = frames_from_bag(args.bag, cfg)
     rows, est, sample_t = measure(frames, cfg)
-    objects = summarize(rows, cfg['check']['near_m'])
+    objects = summarize(rows, cfg['check']['near'])
     print(f'{args.bag}: {counts["frames"]} frames, {counts["no_cloud"]} without a cloud, '
           f'{counts["compensated"]} motion-compensated, {counts["static_only"]} static TF only; '
           f'{len(rows)} detections, {len(est.samples)} samples')

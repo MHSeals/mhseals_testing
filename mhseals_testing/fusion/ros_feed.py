@@ -27,7 +27,7 @@ KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
         'feed': {'points_rate', 'points_max', 'points_link', 'points_link_framed', 'scan_dt_max', 'camera_rate', 'camera_width',
                  'max_range', 'residual_window', 'stale'},
         'ramp': None, 'rings': None, 'draw_rate': None,
-        'check': {'near_m', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
+        'check': {'near', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
                   'range_tol', 'range_fail_tol', 'min_samples'}}
 TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the transforms before the tab opened
 LIDAR_SOURCES = ('lidar', 'split', 'lidar_ray')   # fused rows ranged by the lidar (a hit)
@@ -334,7 +334,7 @@ class FusionFeed:
 
     def _grade(self, now):
         """Hits and L/S of this fused frame's near boxes that lidar_fusion would sample (extrinsic_samples):
-        stereo < near_m, a sample class, border_px clear of the image edge, no other box within isolation_deg in u.
+        stereo < near, a sample class, border_px clear of the image edge, no other box within isolation_deg in u.
 
         Only frames the fusion processed (no ``skip``) and labelled; ``held`` rows are neither a hit nor a miss."""
         if self.fused is None or not self.sources or abs(self.sources[0] - self.fused[0]) > 1e-6 or self.K is None:
@@ -345,7 +345,7 @@ class FusionFeed:
         iso, edge = self.K[0] * math.tan(math.radians(rule['isolation_deg'])), rule['border_px']
         for i, det in enumerate(dets):
             u0, v0, u1, v1 = px[i]
-            if det['stereo'] is None or det['stereo'] >= self.cfg['check']['near_m'] \
+            if det['stereo'] is None or det['stereo'] >= self.cfg['check']['near'] \
                     or det['source'] in ('held', 'fused') or not det['cls'].endswith(tuple(rule['sample_classes'])) \
                     or u0 < edge or v0 < edge or u1 > W - edge or v1 > H - edge \
                     or any(j != i and min(o[2], u1 + iso) - max(o[0], u0 - iso) > 0 for j, o in enumerate(px)):

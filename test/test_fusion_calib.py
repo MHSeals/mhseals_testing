@@ -120,7 +120,7 @@ def test_one_centred_buoy_at_one_range_leaves_roll_unconstrained(cfg):
     for name in ('cx_m', 'cy_m', 'cz_m'):         # one range cannot separate translation
         assert not params[name]['constrained'], name
     assert fc.camera_delta(params)['xyz_m'] == [None, None, None]
-    objects = fc.summarize(rows, cfg['check']['near_m'])
+    objects = fc.summarize(rows, cfg['check']['near'])
     lines = fc.fit_lines(params, objects)
     assert any('aliased' in x and 'yaw' in x for x in lines)
     assert any('GLS SE is the bound' in x for x in lines)
@@ -129,7 +129,7 @@ def test_one_centred_buoy_at_one_range_leaves_roll_unconstrained(cfg):
 
 def test_spread_ranges_drop_the_aliasing_note_but_keep_the_bootstrap_caveat(cfg):
     rows, params, _ = fit(cfg, frames(SPREAD, seconds=6))
-    lines = fc.fit_lines(params, fc.summarize(rows, cfg['check']['near_m']))
+    lines = fc.fit_lines(params, fc.summarize(rows, cfg['check']['near']))
     assert not any('aliased' in x for x in lines)
     assert any('GLS SE is the bound' in x for x in lines)
 
@@ -139,7 +139,7 @@ def test_check_verdicts_follow_the_injected_yaw(cfg, yaw, level):
     base_rows, base, _ = fit(cfg, frames(NEAR, seed=5))
     baseline = {'params': base}
     rows, params, _ = fit(cfg, frames(NEAR, (0.0, yaw, 0.0), seed=6))
-    objects = fc.summarize(rows, cfg['check']['near_m'])
+    objects = fc.summarize(rows, cfg['check']['near'])
     got, reasons, levels = fc.verdict(objects, params, cfg, baseline)
     assert got == level, (reasons, [round(o['du_med'], 1) for o in objects])
     if level == fc.WARN:
@@ -179,7 +179,7 @@ def test_range_ratio_uses_the_near_face_offset_and_tape(cfg):
 @pytest.mark.parametrize('pitch, level', [(0.0, fc.PASS), (0.6, fc.WARN), (1.5, fc.FAIL)])
 def test_check_reads_the_vertical_offset_dv(cfg, pitch, level):
     rows, _, _ = fit(cfg, frames(NEAR, (pitch, 0.0, 0.0), seconds=4, seed=7))
-    objects = fc.summarize(rows, cfg['check']['near_m'])
+    objects = fc.summarize(rows, cfg['check']['near'])
     got, reasons, _ = fc.verdict(objects, None, cfg)
     assert got == level, (reasons, [round(o['dv_med'], 1) for o in objects])
     assert level == fc.PASS or all(r.split(': ')[1].startswith('dv') for r in reasons)

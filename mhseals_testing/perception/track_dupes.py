@@ -4,8 +4,8 @@
 
 Reads the tracker's TrackArray and odom->base /tf from a rosbag2 dir. Per class it counts the
 distinct live ids, the most confirmed live ids at once, and same-class pairs closer than
-dupes.radius_m (one buoy tracked twice). Verdict, exit 0 PASS, 1 WARN, 2 FAIL (3 error):
-  FAIL  a duplicate pair lasting dupes.persist_s or more, or more confirmed live ids at once
+dupes.radius (one buoy tracked twice). Verdict, exit 0 PASS, 1 WARN, 2 FAIL (3 error):
+  FAIL  a duplicate pair lasting dupes.persist or more, or more confirmed live ids at once
         than --buoys;
   WARN  a shorter duplicate pair, ids re-born beyond --buoys over the run (churn), or a yaw
         sweep under dupes.min_sweep_deg (insufficient evidence);
@@ -36,7 +36,7 @@ def analyze(frames, yaw, cfg, buoys=None):
             ids[ca].add(a)
             n[ca] += ha >= c['min_hits']
             for b, cb, xb, yb, _ in tracks[i + 1:]:
-                if ca == cb and math.hypot(xa - xb, ya - yb) < c['radius_m']:
+                if ca == cb and math.hypot(xa - xb, ya - yb) < c['radius']:
                     k = (ca, min(a, b), max(a, b))
                     pairs[k] = (pairs.get(k, (t, t))[0], t)
         for k, v in n.items():
@@ -47,8 +47,8 @@ def analyze(frames, yaw, cfg, buoys=None):
         rows.append({'class': cls, 'ids': len(ids[cls]), 'max_live': conc[cls],
                      'dup_pairs': len(dur), 'longest_dup_s': max(dur, default=0.0)})
     for (cls, a, b), (t0, t1) in sorted(pairs.items()):
-        lv = FAIL if t1 - t0 >= c['persist_s'] else WARN
-        reasons.append((lv, f'{cls} ids {a}/{b} within {c["radius_m"]} m for {t1 - t0:.1f} s'))
+        lv = FAIL if t1 - t0 >= c['persist'] else WARN
+        reasons.append((lv, f'{cls} ids {a}/{b} within {c["radius"]} m for {t1 - t0:.1f} s'))
     if buoys is not None:
         live, total = sum(r['max_live'] for r in rows), sum(r['ids'] for r in rows)
         if live > buoys:

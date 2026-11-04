@@ -452,7 +452,7 @@ def median(values):
 def check(model, cfg):
     """``(level, reason)``: fusion_calib's check rule over the live samples; level None while collecting.
 
-    Hits and L/S come from the feed's ``grades``: the near boxes lidar_fusion samples (stereo < near_m, a sample
+    Hits and L/S come from the feed's ``grades``: the near boxes lidar_fusion samples (stereo < near, a sample
     class, clear of the edge, isolated) of the frames the fusion processed, pooled per object over the residual
     window; an object fails only if it never got a hit. With no graded box at all the check WARNs (``near 0``)."""
     c = cfg['check']
