@@ -37,9 +37,14 @@ def test_every_module_imports():
     assert not broken, '\n'.join(broken)
 
 
-@pytest.mark.parametrize('path', sorted((ROOT / 'config').rglob('*.yaml')), ids=lambda p: str(p.relative_to(ROOT)))
-def test_shipped_yaml_parses(path):
-    yaml.safe_load(path.read_text())
+def test_shipped_yaml_parses():
+    paths, broken = sorted((ROOT / 'config').rglob('*.yaml')), []
+    for path in paths:
+        try:
+            yaml.safe_load(path.read_text())
+        except yaml.YAMLError as error:     # every broken file is listed, not the first
+            broken.append(f'{path.relative_to(ROOT)}: {error}')
+    assert paths and not broken, '\n'.join(broken)
 
 
 def test_shipped_config_validates():
