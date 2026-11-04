@@ -3,7 +3,7 @@
 ``Probe.status`` takes one DiagnosticStatus of /perception/status (``name`` is
 ``perception/<source>/<stage>``, stage ``backend``, ``tracker`` or ``heading``;
 perception-v2.md section 7.2), ``Probe.diagnostic`` one of /diagnostics. Missing keys
-leave their fact out. A source that stays silent longer than ``silence_s`` reads 0 Hz
+leave their fact out. A source that stays silent longer than ``silence`` reads 0 Hz
 instead of vanishing, so a dead or unreachable camera host turns the rate row red. The
 timings are the ``probes: perception`` settings of config/health.yaml. Time
 comes from an injected monotonic clock so tests need no sleeping.
@@ -36,8 +36,8 @@ class Source:
     def __init__(self):
         self.stages = {}                       # stage -> (receive time, level, message, values)
         self.latency = deque(maxlen=HISTORY)   # backend p50 in s, one per sample
-        self.funnel = deque()                  # (time, hz, total drops) inside silence_s
-        self.offsets = deque()                 # (time, clock offset in s) inside silence_s
+        self.funnel = deque()                  # (time, hz, total drops) inside silence
+        self.offsets = deque()                 # (time, clock offset in s) inside silence
         self.classes = {}                      # class -> deque of mean confidence
 
 
@@ -46,8 +46,8 @@ class Probe:
 
     def __init__(self, source, clock, settings):
         self.source, self.clock = source, clock
-        self.rate_window = float(settings['silence_s'])     # silence before 0 Hz; facts drop
-        self.grace = float(settings['status_grace_s'])      # quiet tracker before the grid ages
+        self.rate_window = float(settings['silence'])     # silence before 0 Hz; facts drop
+        self.grace = float(settings['status_grace'])      # quiet tracker before the grid ages
         self.started = clock()
         self.sources = {source: Source()}
         self.zed = None                        # (receive time, zed_diag.parse result)

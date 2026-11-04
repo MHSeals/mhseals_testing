@@ -20,7 +20,7 @@ def source_name(profile):
 
 
 def settings(profile=None, directory=None, user=None):
-    """The ``probes: perception`` mapping of the health YAML (period, silence_s, status_grace_s)."""
+    """The ``probes: perception`` mapping of the health YAML (period, silence, status_grace)."""
     from mhseals_testing.health import config
     return config.load(directory, profile=profile, user=user).probes['perception']
 

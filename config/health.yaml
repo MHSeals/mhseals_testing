@@ -23,16 +23,16 @@ probes:
     period: 5
   # Each computer reports its own parts (unit status --probe over one shared ssh connection per
   # host), every `period` s; DDS discovery never sets a part's state. A problem shows as an issue
-  # (header and row glyph, and a toast) only once it lasts its grace: `grace_s` for a host whose
-  # reads fail or a part that exited, `discovery_grace_s` for a running part's nodes missing from
+  # (header and row glyph, and a toast) only once it lasts its grace (s): `grace` for a host whose
+  # reads fail or a part that exited, `discovery_grace` for a running part's nodes missing from
   # this computer's graph (radio dropouts last about 5 s).
   devices:
     period: 5
-    grace_s: 15
-    discovery_grace_s: 20
-  # silence_s: seconds without a stage before it reads 0 Hz and its other facts drop;
-  # status_grace_s: seconds a 1 Hz tracker stage may be quiet before the costmap age grows
-  perception: {period: 1, silence_s: 5.0, status_grace_s: 1.5}
+    grace: 15
+    discovery_grace: 20
+  # silence: seconds without a stage before it reads 0 Hz and its other facts drop;
+  # status_grace: seconds a 1 Hz tracker stage may be quiet before the costmap age grows
+  perception: {period: 1, silence: 5.0, status_grace: 1.5}
   nearby: {period: 1}    # /perception/nearby arrives at up to 5 Hz (RosIO); quiet 3 s, the row has no evidence
   preflight: {period: 1}
   # SNTP to the hosts of these registry roles from the TUI's computer (health/clock_sync.py)

@@ -12,7 +12,7 @@ the part is missing here is an issue. Issues come from the Stack each tick:
                        read unknown, never off
 
 Each one shows only once it has lasted its grace (``probes: devices`` in config/health.yaml:
-``grace_s``, and ``discovery_grace_s`` for discovery), so a blip under it shows nothing. A shown
+``grace``, and ``discovery_grace`` for discovery), so a blip under it shows nothing. A shown
 issue puts the issue glyph in the header and on its row and raises a toast with the cause; it
 clears, with a "resolved" toast, as soon as its cause is gone.
 """
@@ -24,7 +24,7 @@ DISCOVERY_GRACE_S = 20.0    # nodes of a running part missing from the graph (dr
 
 
 def settings():
-    """``probes: devices`` of the health config ({} when unreadable): period_s, grace_s, discovery_grace_s."""
+    """``probes: devices`` of the health config ({} when unreadable): period, grace, discovery_grace."""
     try:
         from mhseals_testing.health import config
         return dict(config.load().probes.get('devices') or {})

@@ -225,9 +225,9 @@ def test_weak_class_warns(clock):
 def test_the_yaml_timings_take_effect(tmp_path, clock):
     from mhseals_testing.health.config import HEALTH_FILE
     text = HEALTH_FILE.read_text()
-    assert 'silence_s: 5.0, status_grace_s: 1.5' in text
-    (tmp_path / 'health.yaml').write_text(text.replace('silence_s: 5.0, status_grace_s: 1.5',
-                                                           'silence_s: 2.0, status_grace_s: 0.5'))
+    assert 'silence: 5.0, status_grace: 1.5' in text
+    (tmp_path / 'health.yaml').write_text(text.replace('silence: 5.0, status_grace: 1.5',
+                                                           'silence: 2.0, status_grace: 0.5'))
     probe = Probe('sim', clock, feed.settings(directory=tmp_path / 'health.yaml', user=False))
     probe.status(status('perception/sim/tracker', [('grid_age_s', '0.2'), ('hz', '10')]))
     clock.t = 1.0

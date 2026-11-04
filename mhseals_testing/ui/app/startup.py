@@ -338,7 +338,7 @@ def session_main(argv=None):
                   registry=registry, watching=watching, facts=facts,
                   nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
                   nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack,
-                  issues=IssuesFeed(status.get('grace_s', 15.0), status.get('discovery_grace_s', 20.0)))
+                  issues=IssuesFeed(status.get('grace', 15.0), status.get('discovery_grace', 20.0)))
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))
