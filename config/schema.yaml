@@ -21,7 +21,7 @@ tracking.score.green: {type: float, units: "1", tier: new-session, doc: "Trackin
 tracking.score.yellow: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is yellow."}
 tracking.stale.min_sessions: {type: int, units: count, tier: new-session, doc: "Sessions on one calibration before staleness is judged."}
 tracking.stale.low_score: {type: float, units: "1", tier: new-session, doc: "Weighted mean score below this flags the calibration as stale."}
-tracking.live.window_s: {type: float, units: s, tier: new-session, doc: "Sliding window the Motion header scores over."}
+tracking.live.window: {type: float, units: s, tier: new-session, doc: "Sliding window the Motion header scores over."}
 fusion_panel.feed.points_rate: {type: float, units: Hz, tier: restart, doc: "Lidar scans projected per second in the Fusion tab."}
 fusion_panel.feed.scan_dt_max: {type: float, units: s, tier: restart, doc: "A scan further than this from the boxes' stamp is drawn grey."}
 fusion_panel.feed.camera_rate: {type: int, units: Hz, tier: restart, doc: "Camera frames per second under the points (1, 2 or 4)."}

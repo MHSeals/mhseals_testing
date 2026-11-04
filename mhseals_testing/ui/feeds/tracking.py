@@ -3,7 +3,7 @@
 Each tick the new commanded-effort samples are run through ``analysis.predictor.Predictor`` with the
 hardware config's speed curves and t95 lags, plus the world drift from Conditions rotated into the
 body frame. The predicted series is the Motion ghost; ``analysis.tracking.tracking_score`` over the
-last ``live.window_s`` seconds is the header's ``track NN%`` (None while gated, drawn as a dash).
+last ``live.window`` seconds is the header's ``track NN%`` (None while gated, drawn as a dash).
 Only effort commands are modelled; with velocity units the feed contributes nothing.
 
 ``tick`` passes each ungated window score to ``add`` (with the conditions trust and the calibration
@@ -32,7 +32,7 @@ class TrackingFeed:
         self.path = path                                # calibration/current.json unless given
         self.version = None
         self.axes = {}                                  # session sums: axis -> [score sum, windows, trust sum]
-        self.window = self.settings['live']['window_s']
+        self.window = self.settings['live']['window']
         self.key = self.predictor = None
         self.fitted = (False, False, False)             # which axes have a speed curve (else the command ghost stays)
         self.last = None                                # time of the newest command sample consumed
