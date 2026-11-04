@@ -115,4 +115,9 @@ tools/smoke --impact        # only the tests timpact selects against origin/main
 make -C docs pdf screens    # docs/math.pdf, docs/tuning.pdf, and the images above
 ```
 
+`mhseals_testing/backend/` is the link of the coming UI-less backend (D-20261101-19): a versioned protocol over a
+local socket (`config/backend.yaml`), a server that never takes a live backend's socket, and a thin client that attaches
+with the full snapshot in well under a second and reattaches by itself after link loss or a backend restart.
+`boat_tui` does not use it yet.
+
 Everything outside `mhseals_testing/ros/` imports without ROS. Sims and full suites go through `.handoff/tools/heavy`.
