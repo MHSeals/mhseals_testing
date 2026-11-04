@@ -116,6 +116,7 @@ class AgentDesk:
         self.path = self.tail.path
         self.started_ns = time.time_ns()    # motion requests stamped before this are a replay
         self.queue, self.act, self.busy, self.deferred = [], None, False, []
+        self.stops, self.stopped_by = 0, None   # agent stops so far and the last one's id (cancel an arm countdown)
         self.lifecycle_states, self.lifecycle_at = {}, None
         self.notes = deque(maxlen=NOTES)
         self.notices = deque(maxlen=5)
@@ -368,6 +369,7 @@ class AgentDesk:
         agent's, not the operator's: another agent's act ends ``overridden: agent W`` and the hold's hints name W."""
         if self.act and self.act['op'] in MOTION:
             self.cancel('stop' if self.act['who'] == req['who'] else f"overridden: agent {req['who']}")
+        self.stops, self.stopped_by = self.stops + 1, req['who']
         self.app.operator_stop(agent=req['who'])
         self.reply(req, True, result={'stopped': True})
 

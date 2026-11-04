@@ -103,3 +103,12 @@ def test_cli_reload_checks_their_words_before_sending(words, verb, says):
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke
+
+
+def test_an_agent_stop_during_the_countdown_cancels_the_arm(boat):
+    """Sim rehearsal 11-04: boat_agent stop during the banner stopped the boat, then the countdown armed it."""
+    c = claim(boat)
+    boat.app.answers = [[lambda: ch.request('stop', 'claude-3f2a', {})]]
+    reply = send(boat, 'arm', {'countdown': 3}, c)
+    assert not reply['ok'] and reply['error'] == 'cancelled' and 'stopped by agent claude-3f2a' in reply['hint']
+    assert not boat.app.armed and not [call for call in boat.app.calls if call[0] == 'agent_arm']

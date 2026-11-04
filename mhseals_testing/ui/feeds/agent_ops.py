@@ -74,9 +74,13 @@ def do_arm(desk, req):
     app.emit('agent_arm', who=who, claim=claim, state='countdown', countdown=seconds)
     desk.reply(req, True, state='started', result={'countdown': seconds})
 
+    stops = desk.stops
+
     def cause():
         state = operator_state.current()
-        return (desk.claim_state(claim, who) or estop(app) or desk.operator_setting()
+        stopped = desk.stops != stops         # a stop during the countdown is a stop: never arm after it
+        return ((f'stopped by agent {desk.stopped_by}' if stopped else None)
+                or desk.claim_state(claim, who) or estop(app) or desk.operator_setting()
                 or (operator_state.refusal(state) if operator_state.paused(state) else None))
     if seconds > 0:
         app.notice = f'Agent {who} arms in {seconds:g} s{theme.SEPARATOR}Esc cancels'
