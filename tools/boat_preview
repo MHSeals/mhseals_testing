@@ -184,7 +184,9 @@ case $verb in
     fi
     mkdir -p "$RUN"; rm -f "$RUN/ready" "$RUN/session.pid"
     : > "$RUN/session.log"
-    ( setsid "$HEAVY" "$slot" "$0" _run "$REF" $([ "$headless" = 1 ] && echo --headless) $([ "$test" = 1 ] && echo --test) \
+    guard=("$HEAVY" "$slot")
+    [ -x "$HEAVY" ] || { guard=(); echo "boat_preview: no heavy guard on this host ($HEAVY); running directly" >&2; }
+    ( setsid "${guard[@]}" "$0" _run "$REF" $([ "$headless" = 1 ] && echo --headless) $([ "$test" = 1 ] && echo --test) \
         >>"$RUN/session.log" 2>&1 & echo $! > "$QUEUED" )
     shown=0 waited=0
     until [ -e "$RUN/ready" ]; do

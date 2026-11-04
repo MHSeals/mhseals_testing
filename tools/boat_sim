@@ -130,7 +130,9 @@ case $verb in
     # the stop file stays until this session starts: a session still ending sees it and gives the slot back
     build=''; [ "$BUILD" = 1 ] && build=--build
     slot=unity; [ "$PLAYER" = 0 ] && slot=sim build="$build --no-player"
-    ( setsid "$HEAVY" $slot "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & echo $! >"$RUN/queued.pid" )
+    guard=("$HEAVY" "$slot")
+    [ -x "$HEAVY" ] || { guard=(); echo "boat_sim: no heavy guard on this host ($HEAVY); running directly" >&2; }
+    ( setsid "${guard[@]}" "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & echo $! >"$RUN/queued.pid" )
     echo "boat_sim: queued for the heavy $slot slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
     ;;
   _run) session ;;
