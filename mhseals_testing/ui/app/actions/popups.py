@@ -7,6 +7,7 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import camera_view, imaging as pixels, perception, popups, theme
+from mhseals_testing.ui.popups import hold
 from mhseals_testing.ui.camera_view import CameraView
 
 
@@ -185,3 +186,7 @@ class Popups:
 
     def type_word(self, title, message, word, rows=None, width=64, quiet=False):
         return popups.type_word(self, title, message, word, rows, width, quiet)
+
+    def hold_confirm(self, title, verb, rows=None, message=None, key=None, width=64, quiet=False):
+        """Hold-to-confirm (ui/popups/hold.py): True once Enter, ``key`` or a mouse button is held."""
+        return hold.confirm(self, title, verb, rows, message, key, width, quiet)
