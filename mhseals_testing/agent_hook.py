@@ -418,7 +418,7 @@ def start_text(who, agent='claude', config=None):
         'after.',
         '     `run KEY --set K=V [--set K=V]` sets what the procedure measures before it starts (e.g. '
         '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets any tunable key (the testing '
-        'config schema; live Nav2 keys such as nav2.controller_server.FollowPath.max_vel_x too), within its range. '
+        'config schema; live Nav2 keys such as nav2.controller_server.FollowPath.vx_max too: mhseals_nav config/schema.yaml names them), within its range. '
         'While armed it refuses the keys reload.yaml marks armed-unsafe; never amplitude or command_mode while '
         'armed. The TUI shows and journals "agent ID set K=V". Exit 2: not_allowed (not tunable), bad_args '
         '(unknown key or value), busy (a procedure runs: never mid-segment), refused (armed-unsafe while armed).',
