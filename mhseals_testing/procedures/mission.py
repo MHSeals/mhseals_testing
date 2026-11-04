@@ -99,14 +99,14 @@ def reset_to_start(ctx, config_path=START_RESET):
         return f'cannot reset to the course start: this session has no {service} client'
     clock = getattr(getattr(ctx, 'monitor', None), 'clock', time.monotonic)
     try:
-        ok, message = reset(float(config['timeout_s']))
+        ok, message = reset(float(config['timeout']))
     except Exception as error:  # noqa: BLE001  (TimeoutError, or rclpy's own)
         return (f'cannot reset to the course start: {service} failed ({error}); '
                 'restart the simulator with a crane_ml that has it')
     if not ok:
         return f'cannot reset to the course start: {service} refused ({message})'
     began = clock()   # after the teleport: a sample received during the call predates it
-    deadline = time.monotonic() + float(config['settle_s'])
+    deadline = time.monotonic() + float(config['settle'])
     while True:
         samples = [v for t, v in ctx.history(since=began, name='ground truth')
                    if t > began and v.get('x') is not None]
@@ -115,17 +115,16 @@ def reset_to_start(ctx, config_path=START_RESET):
         time.sleep(0.05)
     if not samples:
         return (f'{service} answered ({message}) but no ground truth arrived within '
-                f'{config["settle_s"]:g}s to confirm the boat is on the start')
+                f'{config["settle"]:g}s to confirm the boat is on the start')
     x, y, yaw = samples[-1]['x'], samples[-1]['y'], samples[-1].get('yaw')
     distance = math.hypot(x - sx, y - sy)
-    turn = (None if yaw is None else
-            abs(math.degrees(math.atan2(math.sin(yaw - syaw), math.cos(yaw - syaw)))))
-    if distance <= float(config['position_m']) and turn is not None and turn <= float(config['yaw_deg']):
+    turn = None if yaw is None else abs(math.atan2(math.sin(yaw - syaw), math.cos(yaw - syaw)))
+    if distance <= float(config['position']) and turn is not None and turn <= float(config['yaw']):
         return ''
-    heading = 'unknown' if turn is None else f'{turn:.0f} deg'
+    heading = 'unknown' if turn is None else f'{math.degrees(turn):.0f} deg'
     return (f'after {service} the boat is {distance:.1f} m and {heading} off the course start '
             f'(ground truth {x:.1f}, {y:.1f}; start {sx:.1f}, {sy:.1f}); limits '
-            f'{config["position_m"]:g} m and {config["yaw_deg"]:g} deg')
+            f'{config["position"]:g} m and {math.degrees(config["yaw"]):.0f} deg')
 
 
 class LimitError(Exception):

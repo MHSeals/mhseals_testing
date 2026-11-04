@@ -202,8 +202,8 @@ def _reset_ctx(tmp_path, *, sim=True, at=(-2.3, -4.8, 0.5), reset='ok', ground_t
 
 def _settle_fast(tmp_path):
     config = tmp_path / 'start_reset.yaml'
-    config.write_text('service: /crane/reset_to_start\nposition_m: 2.0\nyaw_deg: 15.0\n'
-                      'timeout_s: 5.0\nsettle_s: 0.1\n')
+    config.write_text('service: /crane/reset_to_start\nposition: 2.0\nyaw: 0.26\n'
+                      'timeout: 5.0\nsettle: 0.1\n')
     return config
 
 
