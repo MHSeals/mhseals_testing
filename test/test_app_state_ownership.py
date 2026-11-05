@@ -1,9 +1,11 @@
-"""Each App attribute has one writer (finding #4): ui/app/core.py OWNERS gives each mixin its attribute group.
+"""Each App attribute has one writer (finding #4, atlas #27): ui/app/core.py OWNERS gives each mixin its group.
 
-An AST walk over the mixins (ui/app/actions/**, loop.py, view.py) collects every ``self.<attr> = ...``; a write
-to an attribute OWNERS gives another mixin, or to one App builds (APP), is a crossing. SHARED (notice, modal,
-focus, ...) is the page's own and anyone's. ALLOWED holds the crossings on 11-04: it only shrinks, and an
-entry that no longer crosses must leave it (as the area converting its mixin does). An attribute no table
+An AST walk over every ui/** module collects each write to the App: ``self.<attr> = ...`` in App and its mixins
+(keyed by class) and ``app.<attr> = ...`` or ``self.app.<attr> = ...`` anywhere (keyed by module). A mixin's write
+to an attribute OWNERS gives another mixin, or to one App builds (APP), is a crossing; a module (a feed, a popup,
+a panel) writes no App attribute at all, it calls the owner's method. App.__init__, startup.py and wiring.py build
+the App and write what they build. SHARED (modal, focus, ...) is the page's own and anyone's, except the footer
+notice: App.say is its one writer. ALLOWED, the 11-04 crossings, is empty and stays so. An attribute no table
 names may have one writer only. core.py's own fan-out stays at 25 modules or fewer (it was 40 on 11-04).
 """
 
@@ -18,8 +20,11 @@ from mhseals_testing.ui.app import core
 from mhseals_testing.ui.app import state as app_state
 
 APP_DIR = Path(core.__file__).resolve().parent
+UI_DIR = APP_DIR.parent
 FAN_OUT = 25
-ALLOWED = set()   # the 11-04 crossings, all converted to owner methods (atlas #27)
+ALLOWED = set()   # the 11-04 crossings, all converted to owner methods (atlas #27); nothing joins it
+BUILD = ('app/startup.py', 'app/wiring.py')   # with App.__init__: they build the App, writing what they build
+MIXINS = {cls.__name__ for cls in core.App.__mro__} - {'object'}
 
 
 def owner_of():
@@ -28,63 +33,100 @@ def owner_of():
     return owners
 
 
-def mixin_files():
-    files = sorted(p for p in (APP_DIR / 'actions').rglob('*.py') if '__pycache__' not in p.parts)
-    return files + [APP_DIR / 'loop.py', APP_DIR / 'view.py']
+def ui_files():
+    return sorted(p for p in UI_DIR.rglob('*.py') if '__pycache__' not in p.parts)
 
 
-def direct(target):
-    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == 'self':
-        yield target.attr
-    elif isinstance(target, (ast.Tuple, ast.List)):
+def app_attrs(target, mixin):
+    """The App attributes ``target`` assigns: self.x in a mixin, app.x and self.app.x anywhere."""
+    if isinstance(target, (ast.Tuple, ast.List)):
         for element in target.elts:
-            yield from direct(element)
+            yield from app_attrs(element, mixin)
     elif isinstance(target, ast.Starred):
-        yield from direct(target.value)
+        yield from app_attrs(target.value, mixin)
+    elif isinstance(target, ast.Attribute):
+        value = target.value
+        if isinstance(value, ast.Name) and (value.id == 'app' or (value.id == 'self' and mixin)):
+            yield target.attr
+        elif isinstance(value, ast.Attribute) and value.attr == 'app' and isinstance(value.value, ast.Name) \
+                and value.value.id == 'self':
+            yield target.attr
+
+
+def walk(node, writer, rel, found):
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.ClassDef):
+            walk(child, child.name if rel.startswith('app/') and child.name in MIXINS else writer, rel, found)
+            continue
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            name = {('App', '__init__'): 'build', ('App', 'say'): 'App.say'}.get((writer, child.name), writer)
+            walk(child, name, rel, found)
+            continue
+        targets = child.targets if isinstance(child, ast.Assign) else (
+            [child.target] if isinstance(child, (ast.AugAssign, ast.AnnAssign)) else [])
+        for target in targets:
+            for attr in app_attrs(target, writer in MIXINS or writer in ('build', 'App.say')):
+                found[(writer, attr)].append(f'{rel}:{child.lineno}')
+        walk(child, writer, rel, found)
 
 
 def writes():
-    """{(class, attr): [file:line]} of every self.<attr> write in a mixin class."""
+    """{(writer, attr): [file:line]} of every App write in ui/**: the writer is a mixin class, 'build' or a module."""
     found = defaultdict(list)
-    for path in mixin_files():
-        for cls in (n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef)):
-            for node in ast.walk(cls):
-                targets = node.targets if isinstance(node, ast.Assign) else (
-                    [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else [])
-                for target in targets:
-                    for attr in direct(target):
-                        found[(cls.name, attr)].append(f'{path.relative_to(APP_DIR)}:{node.lineno}')
+    for path in ui_files():
+        rel = str(path.relative_to(UI_DIR))
+        walk(ast.parse(path.read_text()), 'build' if rel in BUILD else rel, rel, found)
     return found
 
 
 def crossings():
     owners = owner_of()
-    return {(cls, attr): owners[attr] for cls, attr in writes()
-            if attr not in core.SHARED and attr in owners and owners[attr] != cls}
+    out = {}
+    for writer, attr in writes():
+        if writer == 'build' or (attr in core.SHARED and attr != 'notice'):
+            continue
+        if attr == 'notice':
+            if writer != 'App.say':
+                out[(writer, attr)] = 'App.say'
+        elif writer not in MIXINS:
+            out[(writer, attr)] = owners.get(attr, 'its owner\'s method')    # a module writes no App state
+        elif attr in owners and owners[attr] != writer:
+            out[(writer, attr)] = owners[attr]
+    return out
 
 
 @pytest.mark.smoke
-def test_no_mixin_writes_another_ones_state():
+def test_the_allowlist_is_empty():
+    assert ALLOWED == set(), 'no crossing joins ALLOWED: give the write to its owner (core.py OWNERS)'
+
+
+@pytest.mark.smoke
+def test_nothing_writes_another_owners_state():
     found = writes()
     new = {key: owner for key, owner in crossings().items() if key not in ALLOWED}
     assert not new, 'writes across owners (core.py OWNERS; read through app.services, ask the owner to write):\n' + \
-        '\n'.join(f'  {cls}.{attr} (owner {owner}) at {", ".join(found[(cls, attr)])}'
-                  for (cls, attr), owner in sorted(new.items()))
+        '\n'.join(f'  {writer} sets {attr} (owner {owner}) at {", ".join(found[(writer, attr)])}'
+                  for (writer, attr), owner in sorted(new.items()))
 
 
-@pytest.mark.smoke
-def test_the_allowlist_only_shrinks():
-    stale = sorted(key for key in ALLOWED if key not in crossings())
-    assert not stale, f'no longer crossing, drop from ALLOWED: {stale}'
+def test_the_walk_sees_mixins_modules_and_the_notice():
+    """The walk itself: a mixin's self.x, a module's app.x and self.app.x, and App.say's notice."""
+    found = writes()
+    assert ('Arm', 'armed_by') in found and ('App.say', 'notice') in found
+    assert any(writer.startswith('feeds/') for writer, _ in found)          # channel.py's self.app.activity
+    planted = defaultdict(list)
+    walk(ast.parse('def f(app):\n    app.x = 1\nclass F:\n    def g(self):\n        self.app.y = self.z = 2\n'),
+         'feeds/planted.py', 'feeds/planted.py', planted)
+    assert set(planted) == {('feeds/planted.py', 'x'), ('feeds/planted.py', 'y')}
 
 
 @pytest.mark.smoke
 def test_an_unowned_attribute_has_one_writer():
     owners = owner_of()
     writers = defaultdict(set)
-    for cls, attr in writes():
-        if attr not in owners and attr not in core.SHARED:
-            writers[attr].add(cls)
+    for writer, attr in writes():
+        if attr not in owners and attr not in core.SHARED and writer != 'build':
+            writers[attr].add(writer)
     shared = {attr: sorted(classes) for attr, classes in writers.items() if len(classes) > 1}
     assert not shared, f'give these an owner in core.py OWNERS: {shared}'
 
