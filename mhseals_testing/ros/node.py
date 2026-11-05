@@ -82,10 +82,26 @@ def node_name(pid=None, host=None):
     return f'mhseals_testing_{host}_{os.getpid() if pid is None else pid}'
 
 
+def make_executor(name=None):
+    """The node's executor (config/perf.yaml ``tune.executor``): ``events`` is rclpy's C++ EventsExecutor, a
+    fraction of SingleThreadedExecutor's per-message cost, which rebuilds its wait set in Python for every
+    message; ``single``, or a rclpy without the EventsExecutor, is SingleThreadedExecutor."""
+    if name is None:
+        from mhseals_testing.tunables import tune
+        name = tune('perf')['executor']
+    if name == 'events':
+        try:
+            from rclpy.experimental import EventsExecutor
+        except ImportError:
+            return SingleThreadedExecutor()
+        return EventsExecutor()
+    return SingleThreadedExecutor()
+
+
 class RosIO:
     """Owns the node, its executor thread and the publishers the suite needs."""
 
-    def __init__(self, profile, monitor, stale_after=2.0, journal_path=None, facts=None):
+    def __init__(self, profile, monitor, stale_after=2.0, journal_path=None, facts=None, executor=None):
         self.profile = profile
         topics = topics_of(profile)
         self.monitor = monitor
@@ -148,7 +164,8 @@ class RosIO:
         self.map = MapFeeds(self.node, facts=facts, topics=topics, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
         self.mission = MissionState(self.map.state)   # a ui feed; tasks and the goal go on into the map
         MissionFeed(self.node, self.mission)
-        self.executor = SingleThreadedExecutor()
+        self.executor = make_executor(executor)
+        self.spin_cpu = 0.0     # this node's executor thread's CPU time so far (ui/perf.py splits the TUI's CPU)
         self.executor.add_node(self.node)
         self._spinning = True
         self.thread = threading.Thread(target=self._spin, daemon=True)
@@ -160,6 +177,7 @@ class RosIO:
                 self.executor.spin_once(timeout_sec=0.1)
             except Exception as error:  # a bad sample must not stop every other feed
                 self._callback_fault(error)
+            self.spin_cpu = time.thread_time()
 
     def _callback_fault(self, error):
         """Surface a callback error once per kind and keep spinning; motion stays refused.

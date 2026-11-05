@@ -1,0 +1,13 @@
+# TUI speed (ui/perf.py): the ROS executor, how frames reach the terminal, and the budgets perf.json and
+# test_perf_budget hold the TUI to.
+tune:
+  executor: events        # the TUI node's executor: events (rclpy's C++ EventsExecutor) or single (SingleThreadedExecutor)
+  diff: true              # write only the screen rows that changed since the last frame
+  full_every: 5.0         # s between whole-screen redraws while diffing (0: only after a resize or another writer)
+  sync: true              # wrap each frame in synchronized output, so the terminal shows it whole
+  image_cap: 16           # most sixel images one frame paints, joining tile parts (tmux keeps 19); 0: each part alone
+  report_every: 2.0       # s between perf.json writes in the session directory (0: never)
+budget:
+  frame: 0.040            # s; frame time p99 (lay out and write one frame) on the boat computer
+  key: 0.100              # s; key read to its frame written, p99
+  window: 30.0            # s of frames and keys the percentiles cover

@@ -1,0 +1,11 @@
+# perf.yaml (ui/perf.py, ui/difflive.py, ros/node.py): read when the TUI starts.
+perf.tune.executor: {type: str, units: "", enum: [events, single], tier: restart, doc: "The TUI node's ROS executor: events (rclpy's C++ EventsExecutor) or single (SingleThreadedExecutor)."}
+perf.tune.diff: {type: bool, units: "", tier: restart, doc: "Write only the screen rows that changed since the last frame."}
+perf.tune.full_every: {type: float, units: s, range: [0, 600], tier: restart, doc: "Time between whole-screen redraws while diffing; 0 redraws only after a resize or another writer."}
+perf.tune.sync: {type: bool, units: "", tier: restart, doc: "Wrap each frame in synchronized output (DEC 2026) so the terminal shows it whole."}
+perf.tune.image_cap: {type: int, units: count, range: [0, 1000], tier: restart, doc: "Most sixel images one frame paints, joining neighbouring tile parts (tmux keeps its last 19); 0 paints each part alone."}
+perf.tune.report_every: {type: float, units: s, range: [0, 600], tier: restart, doc: "Time between perf.json writes in the session directory; 0 never writes it."}
+perf.budget.frame: {type: float, units: s, range: [0.001, 1], tier: restart, doc: "Frame time p99 budget: laying out and writing one frame."}
+perf.budget.key: {type: float, units: s, range: [0.001, 2], tier: restart, doc: "Key latency p99 budget: a key read to its frame written."}
+perf.budget.window: {type: float, units: s, range: [1, 600], tier: restart, doc: "Span of frames and keys the percentiles cover."}
+perf: {closed: true}   # every key of perf.yaml is described; another is an unknown key
