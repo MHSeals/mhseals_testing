@@ -110,8 +110,12 @@ def tab_page(tab, width, height):
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode golden')
 @pytest.mark.parametrize('width,height', PAGE_SIZES)
 @pytest.mark.parametrize('tab', ('Drive', 'Correction', 'Map', 'Bags', 'Labels', 'Fusion'))
-def test_every_tab_page_matches_its_golden(tab, width, height, request):
+def test_every_tab_page_matches_its_golden(tab, width, height, request, monkeypatch):
+    import time
     from pathlib import Path
+    monkeypatch.setenv('TZ', 'UTC')   # Labels prints clock times; CI runs in UTC
+    time.tzset()
+    request.addfinalizer(time.tzset)   # after monkeypatch restores TZ
     golden = Path(__file__).parent / 'golden' / 'layout' / f'page_{tab.lower()}_{width}x{height}.ansi'
     actual = tab_page(tab, width, height)
     if request.config.getoption('--update-goldens'):
