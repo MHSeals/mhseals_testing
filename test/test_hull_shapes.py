@@ -18,7 +18,8 @@ def test_the_vessel_profile_sets_the_hull_over_its_fleet(tmp_path):
     (tmp_path / 'boat' / 'network.env').write_text('')
     found = vessel.section('hull', str(tmp_path / 'boat' / 'network.env'))
     assert found == {'shape': 'catamaran', 'length': 2.0, 'beam': 1.0, 'pontoon': 0.2}
-    assert vessel.section('hull', str(tmp_path / 'missing.env')) == {}
+    with pytest.raises(ValueError, match='missing'):                  # a named vessel never reads as none
+        vessel.section('hull', str(tmp_path / 'missing.env'))
 
 
 def test_catamaran_is_two_pontoons_bridged_by_a_deck():
