@@ -101,6 +101,15 @@ def fetch_args(argv):
     return None if extra else found
 
 
+def _open_excludes(plan):
+    """rsync excludes for what the boat is still writing: only its open bag files (``open_files``, every closed
+    split comes along), else, from a boat that names segments only, the whole open segment."""
+    if 'open_files' in plan:
+        return [f'--exclude=/{rel}' for rel in plan['open_files'] or []
+                if isinstance(rel, str) and not rel.startswith('/') and '..' not in rel.split('/')]
+    return [f'--exclude=/bag/{s}/' for s in plan.get('open_segments') or []]
+
+
 def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess.run):
     """``boat_agent fetch`` on the station: the boat names the session (``fetch --where``, logged in its TUI agent
     log), then rsync pulls it here, resumable (``--partial-dir``), throttled, without its open segment."""
@@ -143,12 +152,13 @@ def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess
     command = ['rsync', '-a', '--partial-dir=.rsync-partial', '--mkpath', f"--bwlimit={int(plan['bwlimit_kbps'])}",
                '-e', f'ssh -o ConnectTimeout={CONNECT_S} -o BatchMode=yes -o ServerAliveInterval=5',
                *(['--exclude=/bag/'] if found.no_bags else []),
-               *(f'--exclude=/bag/{s}/' for s in plan.get('open_segments') or []), source, f'{dest}/']
+               *_open_excludes(plan), source, f'{dest}/']
     started = time.monotonic()
     done = rsync(command, stdin=subprocess.DEVNULL, capture_output=True, text=True)
     doc = {'ok': done.returncode == 0, 'id': ident, 'dest': str(dest), 'source': source,
            'rsync_exit': done.returncode, 'seconds': round(time.monotonic() - started, 1),
-           'skipped': plan.get('open_segments') or [], 'bwlimit_kbps': plan['bwlimit_kbps']}
+           'skipped': (plan['open_files'] if 'open_files' in plan else plan.get('open_segments')) or [],
+           'bwlimit_kbps': plan['bwlimit_kbps']}
     if done.returncode:
         doc.update(error='rsync', hint=((done.stderr or '').strip().splitlines() or ['rsync failed'])[-1][:200]
                    + '; run fetch again to resume')

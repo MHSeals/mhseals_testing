@@ -142,6 +142,19 @@ def add_parsers(sub):
     ask.add_argument('--options', type=lambda s: s.split(','), default=['yes', 'no'])
 
 
+def open_files(session, segments):
+    """The bag files of a live session still being written: the newest split of its open segment, by split
+    index (a rolled split is closed and complete, so the station may pull it while the session records)."""
+    files = []
+    for name in segments:
+        def index(path):
+            tail = path.stem.rsplit('_', 1)[-1]
+            return int(tail) if tail.isdigit() else -1
+        splits = sorted((session / 'bag' / name).glob('*.mcap'), key=index)
+        files += [f'bag/{name}/{p.name}' for p in splits[-1:]]
+    return files
+
+
 def argparse_suppress():
     import argparse
     return argparse.SUPPRESS
@@ -501,7 +514,8 @@ class Agent:
         if rate <= 0:
             return self.bad('fetch --bwlimit KBPS: a positive rate')
         doc = {'ok': True, 'id': session.name, 'rel': session.relative_to(home).as_posix(),
-               'open_segments': segments[-1:] if live else [], 'live': live, 'bwlimit_kbps': rate}
+               'open_segments': segments[-1:] if live else [], 'open_files': open_files(session, segments[-1:])
+               if live else [], 'live': live, 'bwlimit_kbps': rate}
         try:
             channel.note(self.who, 'text', f"fetch {session.name} to the station: {self.args.why}", path=self.path)
         except OSError:

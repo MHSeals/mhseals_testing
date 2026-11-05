@@ -79,6 +79,30 @@ def test_the_station_pulls_with_rsync_throttled_and_without_the_open_segment(dat
     assert doc['ok'] and 'still recording' in doc['hint']
 
 
+def test_a_live_session_names_only_its_open_split_so_closed_splits_come_along(data_root, monkeypatch):
+    """11-04 pool: the boat records one segment per session, so excluding the whole open segment left the
+    station with no bag at all while the session recorded (the 01:35 surge+ hold could not be checked)."""
+    monkeypatch.setenv('ROS_WS', str(data_root))
+    session = data_root / 'sessions' / '20261105_011850_pool'
+    (session / 'bag' / '00').mkdir(parents=True)
+    for n in (0, 1, 2, 10):
+        (session / 'bag' / '00' / f'00_{n}.mcap').write_bytes(b'')
+    code, doc = where(['fetch', '--who', 'a', '--why', 'w', '--where'], Reg(session, pid=7))
+    assert code == 0 and doc['open_files'] == ['bag/00/00_10.mcap']
+    assert where(['fetch', '--who', 'a', '--why', 'w', '--where'], Reg(session))[1]['open_files'] == []
+    pulled = []
+
+    def rsync(argv, **kw):
+        pulled.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '', '')
+    plan = dict(doc, rel='bags/sessions/s1', id='s1')
+    out = io.StringIO()
+    assert relay.fetch(T, ['fetch', '--who', 'a', '--why', 'qc'], out=out, rsync=rsync,
+                       popen=lambda argv, **kw: Proc(json.dumps(plan) + '\n')) == 0
+    assert '--exclude=/bag/00/00_10.mcap' in pulled[0] and '--exclude=/bag/00/' not in pulled[0]
+    assert json.loads(out.getvalue())['skipped'] == ['bag/00/00_10.mcap']
+
+
 @pytest.mark.parametrize('plan', [{'ok': True, 'id': 's1', 'rel': '../../etc', 'bwlimit_kbps': 1},
                                   {'ok': True, 'id': '..', 'rel': 'bags/x', 'bwlimit_kbps': 1},
                                   {'ok': False, 'error': 'no_session'}])
