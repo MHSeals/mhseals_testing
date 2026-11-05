@@ -81,8 +81,7 @@ the sim), `crane_direct` (no navigation); `boat_trial profiles` explains each.
 
 Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); `python3 .agents/hook.py --playbook` is the guide.
 
-- **Verbs:** `status`, `claim`, `run KEY`, `goal X Y`, `arm` (a countdown the operator cancels), `start`/`stop`/`reload`
-  COMPONENT, `set K=V`, `fcu get|set|rates|revert|restart`, `follow`, `mark`, `note`, `ask`, `stop`. Every acting verb takes `--why`.
+- **Verbs:** `tools/boat_agent --help` lists them; every acting verb takes `--why`.
 - **Hook:** `mhseals_testing/agent_hook.py` blocks raw motion, FCU and hold changes and names the verb instead. Details: [docs/agents.md](docs/agents.md).
 
 ## Data

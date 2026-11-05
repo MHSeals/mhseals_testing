@@ -7,8 +7,7 @@ an agent or CI can ask "is the boat ready" without the TUI. Exit codes: 0 ok,
 --require GROUP also needs every check in GROUP OK: a fail exits 2, an unknown 3, a warn 1.
 With ROS importable and a window, the TUI's ROS probes are sampled too (ros/preflight.py).
 
-The agent verbs (claim, release, status, follow, run, goal, stop, mark, note, ask) live in
-``agent_cli``; ``analyze NAME`` re-runs an offline analysis on a finished session and ``index``
+The agent verbs live in ``agent_cli`` (``boat_agent --help`` lists them); ``analyze NAME`` re-runs an offline analysis on a finished session and ``index``
 rebuilds INDEX.json, both ROS-free.
 """
 
