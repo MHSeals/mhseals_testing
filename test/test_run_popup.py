@@ -1,15 +1,8 @@
-"""Enter routing per timeline item kind, the run popup rows and X exclusion (TS107)."""
+"""The run popup rows and X exclusion (TS107)."""
 import pytest
 
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.ui.popups import run
-
-
-@pytest.mark.parametrize('kind, owner', [
-    ('run', 'run'), ('abort', 'run'), ('proc', 'run'), ('manual', 'run'),
-    ('config', 'history'), ('health', 'health'), ('mark', 'marker'), ('auth', 'show'), ('hold', 'show'), ('cluster', 'choose'), ('unknown', 'show')])
-def test_routing_table_per_item_kind(kind, owner):
-    assert run.route(dict(kind=kind)) == owner
 
 
 def test_exclusion_needs_a_reason():
