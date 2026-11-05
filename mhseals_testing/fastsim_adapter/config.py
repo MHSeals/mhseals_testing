@@ -9,9 +9,10 @@ import copy
 import os
 from pathlib import Path
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fastsim_roboboat.yaml'
+CONFIG = config_path('config', 'fastsim_roboboat.yaml')
 ADAPTER = 'mhseals_testing.fastsim_adapter.adapter:RoboBoatAdapter'
 
 

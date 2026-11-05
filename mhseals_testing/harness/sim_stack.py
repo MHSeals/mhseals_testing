@@ -23,10 +23,11 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.hook import registry
 from mhseals_testing.strict_yaml import load_strict
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'sim' / 'stack.yaml'
+CONFIG = config_path('config', 'sim', 'stack.yaml')
 PATHS = ('player', 'run', 'overlay')
 PORT_BASE = 10000   # a sim's ROS-TCP endpoint port is this + its ROS_DOMAIN_ID (crane_ml's rigq.py too)
 DOMAINS = Path(f'/tmp/boat-sim-{os.getuid()}')

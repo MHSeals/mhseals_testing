@@ -5,7 +5,7 @@ keys, never a deny list) over them. Stdlib only."""
 from pathlib import Path
 import re
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'agent.yaml'
+CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'agent.yaml'   # not config_path: the hook is stdlib only
 
 
 # Every pattern matches one line from its start (``re.match``): a command's argv joined by spaces, its program

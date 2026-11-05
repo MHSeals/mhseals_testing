@@ -37,7 +37,8 @@ def private_dir(directory=None):
 
 def sim_channel():
     """The sim TUI's channel on this machine: config/sim/stack.yaml ``overlay`` (``$BOAT_SIM_OVERLAY`` wins), mounted
-    as the container's stack.yaml ``mount``, so its data/agent/channel.jsonl; read without PyYAML."""
+    as the container's stack.yaml ``mount``, so its data/agent/channel.jsonl; read without PyYAML, and from this
+    file's own checkout, not health.config.config_path (the hook is stdlib only and runs from the source tree)."""
     overlay = os.environ.get('BOAT_SIM_OVERLAY')
     if not overlay:
         try:
