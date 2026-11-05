@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# boat_preview [up [REF] [--headless] [--test] [--dry-run] | down | attach | restart | status]: the owner's preview.
+# boat_preview [up [REF] [--headless] [--test] [--unguarded] [--dry-run] | down | attach | restart | status]: the owner's preview.
 #   up       REF (default: the workspace manifest; a branch, field branch or hypothesis ref) of the workspace's repos
 #            (its manifest: hw.sh hosts repos and astro_dock's submodule pins), snapshot as git worktrees in
 #            ~/.cache/boat-preview/<ref>/ws and built there by hw.sh build on /opt/ros alone (again only when a sha or
@@ -18,10 +18,11 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
 
 verb=${1:-}; [ $# -gt 0 ] && shift
-REF='' headless=0 test=0 dry=0
+REF='' headless=0 test=0 dry=0 unguarded=0
 while [ $# -gt 0 ]; do
   case $1 in
     --headless) headless=1 ;; --test) test=1 ;; --dry-run) dry=1 ;;
+    --unguarded) unguarded=1 ;;
     -*) echo "boat_preview: unknown option $1" >&2; exit 2 ;;
     *) REF=$1 ;;
   esac
@@ -33,7 +34,7 @@ settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && e
 eval "$settings"
 IN=$PV_MOUNT      # the snapshot root inside the container (preview.yaml mount)
 resolved() { settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test) --resolve "$@") || exit 2; eval "$settings"; }
-HEAVY=${BOAT_PREVIEW_HEAVY:-$PV_SRC/mhseals_agents/tools/heavy}   # the workspace heavy-job guard
+HEAVY=$PV_HEAVY      # this host's heavy-job guard (sim_stack.heavy: BOAT_PREVIEW_HEAVY, ~/.config/mhseals/sim.yaml)
 mkdir -p "$PV_CACHE"
 CURRENT=$PV_CACHE/current      # the running preview's root and ref
 QUEUED=$PV_CACHE/queued.pid    # the heavy guard of a session still waiting for its slot
@@ -185,6 +186,10 @@ session() {
 case $verb in
   up)
     [ -x "$PV_PLAYER" ] || { echo "boat_preview: no player at $PV_PLAYER; install the crane_ml player there, or set BOAT_PREVIEW_PLAYER=/path/CRANE.x86_64 (config/sim/stack.yaml player)" >&2; exit 2; }
+    [ "$unguarded" = 1 ] && HEAVY=none
+    if [ "$HEAVY" != none ] && ! { [ -n "$HEAVY" ] && command -v "$HEAVY" >/dev/null; }; then
+      echo "boat_preview: no heavy guard on this host (${HEAVY:-none set}); set heavy: in ~/.config/mhseals/sim.yaml or BOAT_PREVIEW_HEAVY (heavy: none or --unguarded runs it directly)" >&2; exit 2
+    fi
     resolved
     slot=preview; [ "$test" = 1 ] && slot=unity
     if [ "$dry" = 1 ]; then
@@ -208,8 +213,7 @@ case $verb in
     fi
     mkdir -p "$RUN"; rm -f "$RUN/ready" "$RUN/starting" "$RUN/session.pid"
     : > "$RUN/session.log"
-    guard=("$HEAVY" "$slot")
-    [ -x "$HEAVY" ] || { guard=(); echo "boat_preview: no heavy guard on this host ($HEAVY); running directly" >&2; }
+    guard=("$HEAVY" "$slot"); [ "$HEAVY" = none ] && guard=()
     ( setsid "${guard[@]}" "$0" _run "$REF" $([ "$headless" = 1 ] && echo --headless) $([ "$test" = 1 ] && echo --test) \
         >>"$RUN/session.log" 2>&1 & echo $! > "$QUEUED" )
     # queued for the heavy slot (or the GPU lock), the pull and the build are not the TUI starting: attach_s counts from

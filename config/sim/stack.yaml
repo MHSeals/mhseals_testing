@@ -18,4 +18,3 @@ seed: 1
 ready_s: 240                                          # the player's course must be ready within this
 max_s: 21600                                          # the heavy unity slot is given back after this
 tmux_session: sim                                     # in boat_tui's own tmux server (tmux -L boat)
-heavy: ''                                             # the heavy-job guard (a command; BOAT_SIM_HEAVY): '' runs directly, warned

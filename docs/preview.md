@@ -13,7 +13,7 @@ again, so neither drifts from the dev and boat builds (D-20261104-03; the 11-04 
 | Image | `hw.sh image --local` (astro_dock `.devcontainer/dev-image.sh`): the dev image the Compose config prebuild wrote names (`docker compose ... config --images dev`), or its local UID variant only when built on that tag. `up` first runs prebuild's pull-if-newer (`--pull`) |
 | Build | `hw.sh build --ws DIR --container NAME` (astro_dock `devices/build.sh`), the build hosts apply runs too: the workspace's colcon_defaults.yaml, /opt/ros alone (a snapshot has no dev.bashrc), stale links pruned, from clean when the container's image or the colcon defaults changed since the last build |
 | Player | `sim_stack.first_player` over stack.yaml `player:` (`BOAT_SIM_PLAYER`), for both |
-| Heavy guard | `src/mhseals_agents/tools/heavy` when present; without it they run directly |
+| Heavy guard | `BOAT_SIM_HEAVY` / `BOAT_PREVIEW_HEAVY`, else `heavy:` in `~/.config/mhseals/sim.yaml` (`sim_stack.heavy`); without one up refuses (`none` or `--unguarded` runs directly) |
 
 Every gap stops with what is missing and the command that fixes it (`hw.sh profile sync`, `setup.linux.sh
 --components repos`, `git submodule update --init`, `.devcontainer/prebuild.sh`, `BOAT_SIM_PLAYER=...`).
