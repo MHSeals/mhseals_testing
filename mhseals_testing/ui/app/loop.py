@@ -271,7 +271,7 @@ class Loop:
             self.say(f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}')
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus in PANEL_SCOPES and keymap.dispatch(PANEL_SCOPES[self.focus], key))  # thrusters s,
-              and not (self.focus == 'minimap' and key in self.services.files.map_keys)):  # activity v, status e; view.minimap e centres
+              and not (self.focus == 'minimap' and key in self.services.files.map_keys)):  # activity v, status e
             self.on_procedures(key)
         elif self.focus == 'list':
             self.on_list(raw)
