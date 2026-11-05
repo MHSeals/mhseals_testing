@@ -7,8 +7,8 @@ from mhseals_testing.analysis import magnetic
 from mhseals_testing.health.kinds.topic_rate import classify
 from mhseals_testing.readiness import advisories
 from mhseals_testing.ui import authority_chip, theme
-from mhseals_testing.ui import rtk_icon
-from mhseals_testing.ui.rtk_row import ROW_STATES, RtkCell, _state
+from mhseals_testing.ui.rtk import icon as rtk_icon
+from mhseals_testing.ui.rtk.row import ROW_STATES, RtkCell, _state
 from mhseals_testing.ui.panels import GROUPS, HEADERLESS, TITLES, fold_groups, window
 
 MARKS = {'↓': theme.pick('↓', 'v'), '↑': theme.pick('↑', '^'), '~': '~',

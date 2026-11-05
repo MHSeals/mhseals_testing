@@ -20,7 +20,7 @@ def popup(app, modal, handle, refresh=None):
     Ready prompt) closes as cancelled once that act ends (boat_agent stop, release, revoke, a lapsed lease), so
     the run ends with it instead of waiting for an answer nobody gives.
     """
-    from mhseals_testing.ui.feeds.agent import run_act
+    from mhseals_testing.ui.feeds.agent_desk.desk import run_act
     owner = run_act(app)
     previous = app.modal
     app.modal = modal

@@ -9,7 +9,7 @@ is listed when the profile has course truth.
 from rich.text import Text
 
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.minimap.state import FLOORS
+from mhseals_testing.model.map_state import FLOORS
 
 SOURCES = ('auto', 'local', 'global')
 OBJECTS = ('off', 'tracks', 'raw')      # `d` cycles; raw is tracks plus the raw detections

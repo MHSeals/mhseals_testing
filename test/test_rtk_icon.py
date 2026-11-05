@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from mhseals_testing.ui import rtk_icon, theme
-from mhseals_testing.ui.rtk_row import RtkView as V
+from mhseals_testing.ui import theme
+from mhseals_testing.ui.rtk import icon as rtk_icon
+from mhseals_testing.ui.rtk.row import RtkView as V
 
 GOLDEN = Path(__file__).parent / 'golden' / 'rtk_icon.txt'
 HERE4 = dict(base_model='Here4')

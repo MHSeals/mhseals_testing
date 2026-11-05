@@ -1,5 +1,5 @@
 from mhseals_testing.analysis.fixlog import Fixlog, state_of
-from mhseals_testing.ui.rtk_pane import key_action, rtk_pane
+from mhseals_testing.ui.rtk.pane import key_action, rtk_pane
 
 
 def ev(t, fix):

@@ -41,7 +41,7 @@ from mhseals_testing.ui.minimap import tasks  # noqa: E402
 from mhseals_testing.ui.minimap.marks import Obj  # noqa: E402
 from mhseals_testing.ui.minimap.layerbox import LayerBox  # noqa: E402
 from mhseals_testing.ui.minimap.panel import MiniMap  # noqa: E402
-from mhseals_testing.ui.minimap.state import MapState  # noqa: E402
+from mhseals_testing.model.map_state import MapState  # noqa: E402
 from mhseals_testing.ui.popups import inspect  # noqa: E402
 
 import test_agent_view  # noqa: E402

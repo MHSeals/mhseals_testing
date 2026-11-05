@@ -1,6 +1,6 @@
 """Sim-only auto-arm (owner decision 2026-10-26): the checks that prove a stack is a simulator. ROS-free.
 
-``boat_agent run KEY --sim-arm --claim ID`` asks the desk (ui/feeds/agent.py) to arm for that run
+``boat_agent run KEY --sim-arm --claim ID`` asks the desk (ui/feeds/agent_desk/) to arm for that run
 instead of raising the human arm panel. The desk arms only when every check here passes, through
 ``App.agent_arm`` (the arm panel's own path, without its popup), never releases a hold, and disarms
 when the run ends for any reason. Each check is one a real boat cannot pass by accident:

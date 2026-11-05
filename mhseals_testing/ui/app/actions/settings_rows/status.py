@@ -2,7 +2,7 @@
 
 from mhseals_testing.nav2 import edit as nav2_edit
 from mhseals_testing.ui import keymap, parts, popups
-from mhseals_testing.ui.feeds import agent as agent_feed
+from mhseals_testing.ui.feeds.agent_desk import desk as agent_feed
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import course, stop as stop_popup
 

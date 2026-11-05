@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from mhseals_testing.ui.minimap import canvas, layers, panel
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.model.map_state import MapState
 from mhseals_testing.ui.minimap.layers import Crumb
 
 
@@ -155,7 +155,7 @@ def test_hits_are_lethal_cells_within_range_and_near_ones_use_the_fail_layer():
 
 def test_gps_trail_from_map_state_maps_fix_type_to_bands():
     from mhseals_testing.ui.minimap import panel
-    from mhseals_testing.ui.minimap.state import MapState
+    from mhseals_testing.model.map_state import MapState
 
     def trail(fix):
         s = MapState()

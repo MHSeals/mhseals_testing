@@ -8,7 +8,7 @@ from rich.console import Console
 from mhseals_testing.ros import minimap_feeds as feeds
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.minimap.layerbox import LayerBox
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.model.map_state import MapState
 
 OBJECT_GLYPHS = '●○▲▴▼■▪⊠◉◆◇△⊕'      # as test_ui_grammar
 

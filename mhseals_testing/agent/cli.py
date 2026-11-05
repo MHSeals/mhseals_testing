@@ -318,7 +318,7 @@ class Agent:
         return self.send('start', {'component': self.args.component}, self.args.claim)
 
     def fcu(self):
-        """boat_agent fcu ACTION: the TUI does it over its MAVROS link (ui/feeds/agent.py do_fcu)."""
+        """boat_agent fcu ACTION: the TUI does it over its MAVROS link (ui/feeds/agent_desk/ do_fcu)."""
         action, words, claim = self.args.action, self.args.params, getattr(self.args, 'claim', None)
 
         def bad(hint):

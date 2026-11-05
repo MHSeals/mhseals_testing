@@ -602,7 +602,7 @@ class StatusTracker:
             self.first_accuracy = None
             return dict(survey=0.0, survey_limit='time', survey_left=None, survey_acc=None,
                         survey_target=None, svin=None)
-        from mhseals_testing.ui.rtk_row import survey_fraction
+        from mhseals_testing.ui.rtk.row import survey_fraction
         # a0 (gps.md 7.3): worst accuracy in the first 10 s; a resumed survey already past that uses the first seen
         if survey['accuracy'] and (not self.first_accuracy or survey['seconds'] <= 10):
             self.first_accuracy = max(self.first_accuracy or 0.0, survey['accuracy'])

@@ -17,7 +17,8 @@ from mhseals_testing.agent import channel as ch
 from mhseals_testing.harness.settings import Settings, load as load_settings, save as save_settings
 from mhseals_testing.runner import Aborted, interlock_abort
 from mhseals_testing.ui import agent_acts, status_file
-from mhseals_testing.ui.feeds import agent as agent_feed
+from mhseals_testing.ui.feeds.agent_desk import desk as agent_feed
+from mhseals_testing.ui.feeds.agent_desk import common as desk_common
 from mhseals_testing.ui.feeds.authority import AuthorityFeed
 
 # fence_watchdog's message: a map box around the start, as the sim's
@@ -425,7 +426,7 @@ def test_dry_runs_ask_nav2_with_short_waits_and_reuse_its_lifecycle(rig):
     rig.app.nav.lifecycle = lambda timeout=2.0: asked.append(timeout) or lifecycle()
     for _ in range(2):
         assert final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])['result']['gate'] is None
-    assert asked == [agent_feed.LIFECYCLE_TIMEOUT_S]
+    assert asked == [desk_common.LIFECYCLE_TIMEOUT_S]
 
 
 def test_run_blockers_answer_only_renew_stop_and_release(rig):
@@ -1008,7 +1009,7 @@ def test_manual_takeover_cancels_the_agent_goal_in_nav2_and_the_desk_keeps_answe
     rig.app.manual, rig.app.running = True, 'Manual control'
     written = []
     rig.desk.status = lambda app, desk: written.append(desk.summary())
-    rig.clock[0] += agent_feed.STATUS_S
+    rig.clock[0] += desk_common.STATUS_S
     dry = ask(rig, 'goal', c, dry=True, x=5, y=0)
     goal = ask(rig, 'goal', c, x=5, y=0)
     assert final(dry['id'])['error'] == final(goal['id'])['error'] == 'overridden'
@@ -1024,7 +1025,7 @@ def test_space_and_fence_holds_say_what_the_operator_does(rig):
     rig.desk.tick()
     reply = final(req['id'])
     assert reply['error'] == 'overridden: geofence' and 'inward' in reply['hint'] and '(U)' in reply['hint']
-    assert '(U)' in agent_feed.HINTS['keyboard'] and 'left manual' not in agent_feed.HINTS['keyboard']
+    assert '(U)' in desk_common.HINTS['keyboard'] and 'left manual' not in desk_common.HINTS['keyboard']
 
 
 def test_goal_freshness_is_judged_on_the_grid_fetched_for_it(rig):
@@ -1043,7 +1044,7 @@ def test_dry_run_helpers_name_an_off_course_sim_boat_a_boat_yaml_and_the_operato
     from pathlib import Path
     from types import SimpleNamespace
     from mhseals_testing.ui import agent_acts
-    from mhseals_testing.ui.feeds.agent import operator_popup
+    from mhseals_testing.ui.feeds.agent_desk.popups import operator_popup
     truth = tmp_path / 'course_truth.json'
     truth.write_text(json.dumps({'elements': [{'label': 'red_pole_buoy', 'x': 0.0, 'y': 0.0}]}))
     history = {'ground truth': [(0.0, {'x': 0.0, 'y': -90.0})]}

@@ -1,7 +1,7 @@
 """The pure minimap state: crumbs, xte against the initial plan, epochs, floor, tf_static."""
 import pytest
 
-from mhseals_testing.ui.minimap.state import MapState, path_distance
+from mhseals_testing.model.map_state import MapState, path_distance
 
 LINE = [(0, 0), (10, 0), (20, 0)]
 

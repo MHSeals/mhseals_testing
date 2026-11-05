@@ -1,4 +1,4 @@
-"""Mission panels: what the task runner is doing and why (ui.feeds.mission.MissionState as ``view['mission']``).
+"""Mission panels: what the task runner is doing and why (model.mission_status.MissionState as ``view['mission']``).
 
 ``strip`` is the Drive strip over Activity, shown only while the status is fresh: the stage and
 phase, behaviour and elapsed, the goal's why, and the stage ladder. ``pane`` is the same on the Map

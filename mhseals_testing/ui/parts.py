@@ -12,7 +12,7 @@ is never refused, armed or not, except for a process no TUI started.
 The Stack row (the profile's ``stack: true`` parts) starts or stops them together after one confirm,
 each through that same ``start``/``stop`` in needs order; their own rows show the progress.
 
-``start`` and ``stop`` are that path after the confirm; the agent desk (ui/feeds/agent.py, boat_agent
+``start`` and ``stop`` are that path after the confirm; the agent desk (ui/feeds/agent_desk/, boat_agent
 start/stop COMPONENT) calls them too, with the agent's id, so an agent-started part's row says
 ``by agent W`` until it stops, and the notice and the journal name the agent.
 """
