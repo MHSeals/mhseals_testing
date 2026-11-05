@@ -113,25 +113,24 @@ class Corners:
             self.add(fix)
 
 
-def load(path=FENCE_FILE):
-    """The corners the operator's fence file holds (``course.corners``), [] when none."""
+def read(path=FENCE_FILE):
+    """The fence file, strictly ({} when there is none); ValueError or yaml.YAMLError naming it when hand-edited wrong."""
     path = Path(path).expanduser()
-    try:
-        day = load_strict(path.read_text(), path) or {}
-    except (OSError, ValueError, yaml.YAMLError):
-        return []
+    return (load_strict(path.read_text(), path) or {}) if path.exists() else {}
+
+
+def load(path=FENCE_FILE):
+    """The corners the operator's fence file holds (``course.corners``), [] when none; raises like ``read``."""
+    day = read(path)
     course = day.get('course') if isinstance(day, dict) else None
     return pairs((course or {}).get('corners')) if isinstance(course, dict) else []
 
 
 def save(corners=None, path=FENCE_FILE, on_exit=None):
     """Keep ``corners`` as ``course.corners`` (and ``on_exit`` as ``course.on_exit``) in the fence file, the rest of
-    it unchanged; written whole."""
+    it unchanged; written whole. A file ``read`` refuses raises and is left as the operator wrote it."""
     path = Path(path).expanduser()
-    try:
-        day = yaml.safe_load(path.read_text()) or {}    # lenient on purpose: a rewrite keeps all the operator wrote
-    except (OSError, yaml.YAMLError):
-        day = {}
+    day = read(path)
     day = day if isinstance(day, dict) else {}
     course = dict(day.get('course') or {})
     if corners is not None:

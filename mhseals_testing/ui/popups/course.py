@@ -8,6 +8,8 @@ reorder, the arrows select. The minimap previews the corners as they are edited 
 ``boat_agent fence`` takes the same path (ui/feeds/agent_ops.py). Esc leaves; nothing applies unless ``y``.
 """
 
+import yaml
+
 from mhseals_testing.harness import course_area
 from mhseals_testing.ui import agent_acts, keymap, theme
 
@@ -38,7 +40,10 @@ def set_corners(app, client, corners, by=None):
         ok, why = False, str(error)
     if not ok:
         return False, why, None
-    path = course_area.save(corners)
+    try:
+        path = course_area.save(corners)
+    except (ValueError, yaml.YAMLError) as error:
+        return False, f'live, but the fence file is not kept: {error}', None
     app.emit('course_area', corners=course_area.flatten(corners), file=str(path), **(by or {}))
     return True, '', path
 
@@ -49,8 +54,11 @@ def set_on_exit(app, client, mode, by=None):
         ok, why = agent_acts.in_background(app, f'on_exit {mode}', lambda: client.set_on_exit(mode))
     except (TimeoutError, ValueError, RuntimeError) as error:
         ok, why = False, str(error)
-    if ok:
-        course_area.save(on_exit=mode)
+    try:
+        if ok:
+            course_area.save(on_exit=mode)
+    except (ValueError, yaml.YAMLError) as error:
+        ok, why = False, f'live, but the fence file is not kept: {error}'
     app.emit('fence_on_exit', mode=mode, ok=ok, **(by or {}))
     return ok, why
 
@@ -76,9 +84,15 @@ def open_course(app):
     if state is None or client is None:
         return 'Course area: live session owners only'
     status = state.fence_status or {}
-    edit = course_area.Corners(course_area.pairs(status.get('corners')) or course_area.load())
     box = {'step': 1, 'notice': ''}
-    modal = dict(kind='message', title='Course area', message='Corners of the day\'s course area (lat, lon)',
+    corners = course_area.pairs(status.get('corners'))
+    try:
+        corners = corners or course_area.load()
+    except (ValueError, yaml.YAMLError) as error:
+        box['notice'] = f'fence file: {error}'
+    edit = course_area.Corners(corners)
+    modal = dict(kind='message', title='Course area',
+                 message=box['notice'] or 'Corners of the day\'s course area (lat, lon)',
                  rows=None, width=72, hint=HINT)
 
     def refresh():
