@@ -5,24 +5,52 @@ path that touches the real host or boat (host reads, config watching, arming,
 procedures); a replay source sets it False.
 """
 
+import time
+from contextlib import contextmanager
+
 from mhseals_testing import events
 
 
 class LiveSource:
-    """Messages arrive through ``ros.ingest`` callbacks, so ``tick`` has nothing to do."""
+    """Messages arrive through ``ros.ingest`` callbacks, so ``tick`` has nothing to do.
+
+    Inside ``batch()`` (one pass of the TUI loop: a key, the tick, its frames) a snapshot younger than
+    perf.yaml ``snapshot`` is reused: the loop asks for one several times a pass, and each copies the
+    monitor's histories under the lock the ROS callbacks wait on."""
 
     live = True
 
-    def __init__(self, monitor, profile, meta=None):
+    def __init__(self, monitor, profile, meta=None, clock=time.monotonic):
         self.monitor = monitor
         self.profile = profile
         self.meta = meta or {}
+        self.clock = clock
+        self._batch = None       # (taken at, snapshot) inside batch(), else None
+
+    @contextmanager
+    def batch(self):
+        """Reuse a fresh snapshot within this block (the loop's pass)."""
+        self._batch = (float('-inf'), None)
+        try:
+            yield
+        finally:
+            self._batch = None
 
     def snapshot(self):
-        return self.monitor.snapshot(self.profile.required_tf)
+        if self._batch is None:
+            return self.monitor.snapshot(self.profile.required_tf)
+        now = self.clock()
+        if self._batch[1] is None or now - self._batch[0] >= _reuse():
+            self._batch = (now, self.monitor.snapshot(self.profile.required_tf))
+        return dict(self._batch[1])     # callers add top-level keys (view.snapshot)
 
     def tick(self, now):
         pass
+
+
+def _reuse():
+    from mhseals_testing.tunables import tune
+    return tune('perf')['snapshot']
 
 
 class ReviewSource:

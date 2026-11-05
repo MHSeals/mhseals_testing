@@ -1,6 +1,7 @@
 """The loop: ticks, keys and focus; it renders only on a change."""
 
 import errno
+from contextlib import nullcontext
 
 from mhseals_testing.runner import fold
 from mhseals_testing.procedures import PROCEDURES
@@ -110,15 +111,16 @@ class Loop:
                 while not self.quit:
                     try:
                         key = self.keys.read(timeout=0.1)
-                        if key is not None:
-                            self.perf.key()
-                            try:
-                                self.dispatch(key)
-                            except STOPPING_ERRORS as error:
-                                self.stop(str(error) or type(error).__name__, by='error')
-                            perf.draw(self)              # the key's frame first, before the tick's work
-                        self.tick()
-                        perf.draw(self, force=False)     # idle ticks render only on change
+                        with getattr(self.source, 'batch', nullcontext)():     # one snapshot per pass (ui/source.py)
+                            if key is not None:
+                                self.perf.key()
+                                try:
+                                    self.dispatch(key)
+                                except STOPPING_ERRORS as error:
+                                    self.stop(str(error) or type(error).__name__, by='error')
+                                perf.draw(self)              # the key's frame first, before the tick's work
+                            self.tick()
+                            perf.draw(self, force=False)     # idle ticks render only on change
                     except KeyboardInterrupt as error:
                         self.detaching = isinstance(error, Detach)
                         # Ctrl+C quits like q, minus the question: anything moving has

@@ -12,6 +12,7 @@ perf.tune.hold.conditions: {type: float, units: s, range: [0, 10], tier: restart
 perf.tune.hold.thrusters: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Thrusters panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
 perf.tune.hold.procedures: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Procedures panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
 perf.tune.hold.activity: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Activity panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
+perf.tune.snapshot: {type: float, units: s, range: [0, 1], tier: restart, doc: "Age up to which the monitor's snapshot is reused within one pass of the loop; 0 takes a new one each time."}
 perf.tune.report_every: {type: float, units: s, range: [0, 600], tier: restart, doc: "Time between perf.json writes in the session directory; 0 never writes it."}
 perf.budget.frame: {type: float, units: s, range: [0.001, 1], tier: restart, doc: "Frame time p99 budget: laying out and writing one frame."}
 perf.budget.key: {type: float, units: s, range: [0.001, 2], tier: restart, doc: "Key latency p99 budget: a key read to its frame written."}

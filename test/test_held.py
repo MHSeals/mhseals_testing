@@ -33,3 +33,21 @@ def test_hold_wraps_only_listed_panels_and_keeps_an_empty_slot_empty():
     assert isinstance(held.hold('motion', lambda: Text('x'), {'status': 0.5}), Text)
     assert held.hold('status', None, {'status': 0.5}) is None
     assert set(held.periods()) >= {'status', 'procedures', 'activity'}
+
+
+def test_a_live_source_reuses_a_fresh_snapshot_only_inside_a_batch():
+    from mhseals_testing.ui.source import LiveSource
+    taken, now = [], [0.0]
+
+    class Monitor:
+        def snapshot(self, required_tf):
+            taken.append(1)
+            return {'n': len(taken)}
+    source = LiveSource(Monitor(), type('P', (), {'required_tf': ()})(), clock=lambda: now[0])
+    assert source.snapshot()['n'] == 1 and source.snapshot()['n'] == 2      # outside a pass: always new
+    with source.batch():
+        first = source.snapshot()
+        first['added'] = True                                               # a caller's key stays its own
+        assert source.snapshot() == {'n': 3}
+        now[0] = 1.0
+        assert source.snapshot()['n'] == 4                                  # past perf.yaml snapshot: new
