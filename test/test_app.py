@@ -177,6 +177,7 @@ WATCHDOGS = ['/link_watchdog', '/fcu_watchdog', '/fence_watchdog', '/ekf_input_w
 
 class Ros:
     fault = ''
+    node = None
 
     def __init__(self):
         self.events = []
@@ -440,7 +441,7 @@ def test_a_watchdog_lost_while_armed_holds_the_mux_after_a_grace(tmp_path):
     app.tick()
     app.clock.now += WATCHDOG_GRACE
     app.tick()
-    assert getattr(boat, 'holds', []) == [] and app.watchdog_missing is None
+    assert getattr(boat, 'holds', []) == [] and app.state.holds.watchdog_missing is None
 
     mux = mux_stub(app)
     nodes.remove('/fence_watchdog')
@@ -459,7 +460,7 @@ def test_a_watchdog_lost_while_armed_holds_the_mux_after_a_grace(tmp_path):
     assert app.release_refusal().startswith('Release refused: safety watchdog not running')
     nodes.append('/fence_watchdog')
     app.tick()
-    assert app.watchdog_missing is None
+    assert app.state.holds.watchdog_missing is None
     assert 'watchdog' not in app.release_refusal()
 
 
@@ -552,7 +553,7 @@ def test_a_radio_dropout_silencing_every_beat_keeps_the_boat_armed(tmp_path):
     beats['/link_watchdog'] = runs['/link_watchdog'] = app.clock.now
     app.clock.now += 0.05
     app.tick()
-    assert getattr(boat, 'holds', []) == [] and app.armed and app.watchdog_missing is None
+    assert getattr(boat, 'holds', []) == [] and app.armed and app.state.holds.watchdog_missing is None
 
 
 def test_a_watchdog_part_its_computer_reports_off_refuses_arming(tmp_path):
@@ -2098,7 +2099,7 @@ def geofence_run(tmp_path, body, raises=None, holds=(), outside=False):
     tmp_path.mkdir()
     app, _ = make_app(tmp_path)
     app.mux_holds = lambda: list(holds)
-    app._fence_out = outside
+    app.state.holds.fence_out = outside
     if raises:
         with pytest.raises(raises):
             app.run_procedure(Procedure('z', 'Waypoint square', body))

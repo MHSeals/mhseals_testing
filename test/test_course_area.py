@@ -144,6 +144,7 @@ def test_the_popup_builds_corners_from_the_fix_and_applies(tmp_path, monkeypatch
 
 def test_leaving_the_area_raises_a_standing_error_toast_until_back_inside():
     from mhseals_testing.ui.app import App
+    from mhseals_testing.ui.app.state import AppState
     from mhseals_testing.ui.toasts import Toasts
     now = [100.0]
     state = SimpleNamespace(fence_status={'inside': True, 'on_exit': 'alert'}, fence_status_at=100.0)
@@ -152,6 +153,9 @@ def test_leaving_the_area_raises_a_standing_error_toast_until_back_inside():
     class Fake:
         fence_alert, fence_status, say = App.fence_alert, App.fence_status, App.say
         holds = [{'cause': 'geofence'}]
+
+        def __init__(self):
+            self.state = AppState()
 
         def mux_holds(self):
             return self.holds

@@ -2,7 +2,7 @@
 
 ``app.state`` holds them (``AppState``): ``render`` (View's redraw bookkeeping), ``bags`` (the Bags tab and the
 bag a session records), ``thrusters`` (the Thrusters panel's unsaved edit and raw
-pulses), ``arming_ui`` (the watchdog guard) and ``arm`` (Arm's: who armed, the last stop, the pin guard). The Labels tab keeps its own (``app.labels``,
+pulses), ``holds`` (Holds': the watchdog guard, the fence alert) and ``arm`` (Arm's: who armed, the last stop, the pin guard). The Labels tab keeps its own (``app.labels``,
 actions/labels.py LabelsState). core.py's OWNERS table names which mixin
 owns which attribute group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used
 before (``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin,
@@ -49,9 +49,13 @@ class ArmState:
 
 
 @dataclass
-class ArmingUiState:
-    """Holds' guard: a watchdog off the graph while armed."""
+class HoldsState:
+    """Holds' (actions/holds.py): a watchdog off the graph while armed, the fence client and alert, a release."""
     watchdog_missing: object = None  # {since, asked, retried, held} while armed with a watchdog off the graph
+    fence_client: object = None      # ros/fence.FenceClient on this owner's node, made on first use
+    fence_out: bool = False          # outside the course area (until a position shows it back inside)
+    fence_text: object = None        # the outside notice last said
+    releasing: bool = False          # U's confirm is open: a second U waits
 
 
 @dataclass
@@ -59,7 +63,7 @@ class AppState:
     render: RenderState = field(default_factory=RenderState)
     bags: BagsState = field(default_factory=BagsState)
     thrusters: ThrustersState = field(default_factory=ThrustersState)
-    arming_ui: ArmingUiState = field(default_factory=ArmingUiState)
+    holds: HoldsState = field(default_factory=HoldsState)
     arm: ArmState = field(default_factory=ArmState)
 
 
@@ -93,7 +97,6 @@ ALIASES = {
     'finalizing': ('bags', 'finalizing'), 'finalize_thread': ('bags', 'finalize_thread'),
     'draft': ('thrusters', 'draft'),
     'grabbed': ('thrusters', 'grabbed'), 'test_pulses': ('thrusters', 'test_pulses'),
-    'watchdog_missing': ('arming_ui', 'watchdog_missing'),
 }
 
 

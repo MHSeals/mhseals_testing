@@ -1,7 +1,5 @@
 """Watchdog holds, their release and the geofence."""
 
-import time
-
 from mhseals_hardware import hold_store
 from mhseals_testing.model import Cancelled
 from mhseals_testing.harness import control, course_area
@@ -34,13 +32,13 @@ class Holds:
         graph, live = self.watchdog_reasons() if self.armed else ('', '')
         reason = '; '.join(filter(None, (graph, live)))
         if not reason:
-            self.watchdog_missing = None
+            self.state.holds.watchdog_missing = None
             return
         now = self.clock()
-        state = self.watchdog_missing
+        state = self.state.holds.watchdog_missing
         if state is None:
-            state = self.watchdog_missing = dict(since=now, asked=None, asked_mux=None,
-                                                        retried=False, held=False)
+            state = self.state.holds.watchdog_missing = dict(since=now, asked=None, asked_mux=None,
+                                                             retried=False, held=False)
         if live:
             state['since'] = min(state['since'], now - WATCHDOG_GRACE)
         if state['held'] or now - state['since'] < WATCHDOG_GRACE:
@@ -62,7 +60,7 @@ class Holds:
     def request_watchdog_hold(self, state, now, reason):
         """Ask the mux to hold and note when: ``now`` on the app's clock for the confirm timeout,
         and the arbiter's own clock (wall time), which stamps the mux state, for the confirmation."""
-        arbiter = getattr(self, 'arbiter', None)
+        arbiter = self.arbiter
         state['asked'], state['asked_mux'] = now, arbiter.clock() if arbiter is not None else None
         self.plant.hold('watchdog')
         self.ros.emit('watchdog_hold', reason=reason)
@@ -71,7 +69,7 @@ class Holds:
 
     def mux_holding(self, since):
         """True when the mux reported input 'hold' at or after ``since`` (the arbiter's clock)."""
-        arbiter = getattr(self, 'arbiter', None)
+        arbiter = self.arbiter
         if arbiter is None or since is None:
             return False
         with arbiter.lock:
@@ -88,7 +86,7 @@ class Holds:
             control.request_revoke(self.client_name())
             self.say('Stopped; revoke sent to the controller')
             return
-        arbiter = getattr(self, 'arbiter', None)
+        arbiter = self.arbiter
         holder = arbiter.table.holder() if arbiter is not None else None
         if holder is None or holder.get('owner') != 'agent':
             self.say('No agent claim to revoke')
@@ -101,7 +99,7 @@ class Holds:
         watchdogs = self.watchdog_refusal() if self.armed else ''
         if watchdogs:
             return f'Release refused: {watchdogs}'
-        arbiter = getattr(self, 'arbiter', None)
+        arbiter = self.arbiter
         if arbiter is None:
             return 'Release refused: mux state is unknown'
         stored = agent_ops.stopped_mux_file(self, arbiter)
@@ -137,19 +135,20 @@ class Holds:
         """U's release, boat_agent release's own (agent_ops): the mux's request, or disarmed, the saved holds cleared."""
         stored = agent_ops.stopped_mux_file(self, self.arbiter)
         if stored is None:
-            return getattr(self.plant, 'release_hold', None)
+            return self.plant.release_hold if self.plant is not None else None
         return lambda: self.emit('hold_release', holds=agent_ops.release_saved(stored), saved=str(stored)) or True
 
     def release_hold(self):
         """Confirm who resumes, then request release once (True when requested); only mux state proves release."""
-        if getattr(self, '_releasing', False):
+        if self.state.holds.releasing:
             return False
         refusal = self.release_refusal()
         if refusal or self.release_route() is None:
             self.say(refusal or 'Release hold is not available here')
             return False
         identity, resumer = self.release_resumer()
-        title, message, requested, self._releasing = 'Release hold?', f'{resumer} resumes', False, True
+        title, message, requested = 'Release hold?', f'{resumer} resumes', False
+        self.state.holds.releasing = True
         try:
             if (self.hold_confirm(title, 'release', message=message, key='U') if key_input.by_hold('release') else
                     self.choose(title, ['Release', 'Cancel'], message=message, default=1, danger=True) == 'Release'):
@@ -162,17 +161,17 @@ class Holds:
         except Cancelled:
             pass
         finally:
-            self._releasing = False
+            self.state.holds.releasing = False
         return requested
 
     def fence_client(self):
         """fence_watchdog's course area and on_exit (ros/fence.py) on this owner's node; None for a watcher or review."""
-        if self.watching or self.review or getattr(self.ros, 'node', None) is None:
+        if self.watching or self.review or self.ros.node is None:
             return None
-        if getattr(self, '_fence_client', None) is None:
+        if self.state.holds.fence_client is None:
             from mhseals_testing.ros.fence import FenceClient
-            self._fence_client = FenceClient(self.ros.node)
-        return self._fence_client
+            self.state.holds.fence_client = FenceClient(self.ros.node)
+        return self.state.holds.fence_client
 
     def anchor_fence(self):
         """/fence/anchor at a characterization's start: a map fence re-centres on the boat; a lat/lon course area
@@ -189,9 +188,7 @@ class Holds:
 
     def fence_status(self, state):
         """The last /fence/status, marked stale when fence_watchdog went quiet (MapFeeds' own clock)."""
-        clock = getattr(getattr(self.ros, 'map', None), 'clock', time.monotonic)
-        return course_area.fresh(getattr(state, 'fence_status', None), getattr(state, 'fence_status_at', None),
-                                 clock())
+        return course_area.fresh(state.fence_status, state.fence_status_at, self.ros.map.clock())
 
     def fence_alert(self):
         """Outside the course area: the notice and an error toast that stays until the boat is back inside (or x),
@@ -199,30 +196,31 @@ class Holds:
         state = self.map_state()
         status = self.fence_status(state) if state is not None else None
         outside = isinstance(status, dict) and status.get('inside') is False
-        was = getattr(self, '_fence_out', False)
+        holds = self.state.holds
+        was = holds.fence_out
         if outside:
             text = course_area.status_line(status, held=bool(self.mux_holds()))[1]
             if not was:
                 self.say(text)
                 self.toasts.push('fence.outside', 'fail', text, self.monitor.clock())
                 self.emit('fence_outside', distance=status.get('distance_to_edge'), on_exit=status.get('on_exit'))
-            elif text != getattr(self, '_fence_text', None):
-                if self.notice == getattr(self, '_fence_text', None):
+            elif text != holds.fence_text:
+                if self.notice == holds.fence_text:
                     self.say(text)
                 self.toasts.update('fence.outside', text)
-            self._fence_text = text
+            holds.fence_text = text
         back = was and isinstance(status, dict) and status.get('inside') is True
         if back:
             self.toasts.push('fence.outside', 'ok', 'Back inside the course area', self.monitor.clock())
-        self._fence_out = outside or (was and not back)      # no position yet is not back inside
+        holds.fence_out = outside or (was and not back)      # no position yet is not back inside
 
     def mux_holds(self):
         """The mux's holds as the authority record lists them (saved ones while the mux is stopped); [] when none."""
-        record = feeds_module.merged(self.feeds).get('authority_record') if getattr(self, 'feeds', None) else None
+        record = feeds_module.merged(self.feeds).get('authority_record') if self.feeds else None
         return list((record or {}).get('holds') or [])
 
     def guard_cause(self):
         """The watchdog holding the boat now ('' when none): a watchdog node's mux hold (the fence's ``geofence``),
         or ``geofence`` while the boat is outside the course area (on_exit return: the fence's goal preempts first)."""
         found = next((str(h.get('cause')) for h in self.mux_holds() if agent_grants.kind(h) == 'node'), '')
-        return found or ('geofence' if getattr(self, '_fence_out', False) else '')
+        return found or ('geofence' if self.state.holds.fence_out else '')
