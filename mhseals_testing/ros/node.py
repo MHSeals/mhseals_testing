@@ -40,7 +40,7 @@ from mhseals_testing.profiles import default_topics, topics_of
 from mhseals_testing.ros import nearby
 from mhseals_testing.ros.minimap_feeds import MapFeeds
 from mhseals_testing.ros.mission import MissionFeed
-from mhseals_testing.ui.feeds.mission import MissionState
+from mhseals_testing.model.mission_status import MissionState
 from mhseals_testing.ros.sources import subscribe_sources
 from mhseals_testing.validation import GPS_RAW_INT, RAW_KINDS, GpsRawInt
 
