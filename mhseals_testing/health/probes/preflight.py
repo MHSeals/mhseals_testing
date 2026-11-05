@@ -16,9 +16,7 @@ Facts:
   camera_host.power_mode   nvpmodel mode name on the camera host
   camera_host.disk_free_gb free disk on the camera host's data directory
 
-The camera host's facts are named by its role, not its compute module. The old ``orin.*`` ids are read
-aliases for one release (FACT_ALIASES): the same facts are published under them too, so a check that
-still names ``orin.temp_max`` resolves. Drop the aliases once health.yaml names ``camera_host.*``.
+The camera host's facts are named by its role, not its compute module.
 """
 
 from pathlib import Path
@@ -117,12 +115,10 @@ def host_values(zones=THERMAL_ZONES, status=NVPMODEL_STATUS, conf=NVPMODEL_CONF,
 
 
 CAMERA_HOST = 'camera_host'
-# old fact id -> its role-named id; read aliases for one release (11-04), then removed
-FACT_ALIASES = {f'orin.{name}': f'{CAMERA_HOST}.{name}' for name in ('temp_max', 'power_mode', 'disk_free_gb')}
 
 
 def camera_host_facts(values, host):
-    """Facts from a ``host:`` diagnostic's {key: value} strings (``host`` labels them), plus their aliases."""
+    """Facts from a ``host:`` diagnostic's {key: value} strings (``host`` labels them)."""
     facts = {}
     for key, name in (('temp_max_c', 'temp_max'), ('disk_free_gb', 'disk_free_gb')):
         try:
@@ -132,8 +128,4 @@ def camera_host_facts(values, host):
     if values.get('power_mode'):
         facts[f'{CAMERA_HOST}.power_mode'] = Fact(values['power_mode'],
                                                   data={'reason': f"{host}: {values['power_mode']}"})
-    facts.update({old: facts[new] for old, new in FACT_ALIASES.items() if new in facts})
     return facts
-
-
-orin_facts = camera_host_facts   # the old name, for one release with the fact aliases

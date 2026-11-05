@@ -486,7 +486,7 @@ groups:
         title: Charge estimate
   # Pre-water checks: `boat_trial check --require preflight` exits non-zero unless every one is OK
   # (unknown never passes). Read only; nothing here moves a thruster. The `preflight` probe
-  # (ros/preflight.py) publishes driver.*, rc.*, gps.*, bag.active, orin.* and pwm.readback; the
+  # (ros/preflight.py) publishes driver.*, rc.*, gps.*, bag.active, camera_host.* and pwm.readback; the
   # rest are other probes' facts judged at pre-water bands. Thresholds live only here.
   Preflight:
     joins:                  # other groups' checks that `--require preflight` also needs OK
@@ -593,12 +593,12 @@ groups:
         profiles: [boat]
         title: Boat clocks agree
         hint: 'Unknown: a host gave no NTP answer; run setup.linux.sh --components clock there (chrony), then astro-clock.py'
-      - {id: pre.orin_temp, kind: threshold, fact: orin.temp_max, below: false, warn: 70, fail: 85,
+      - {id: pre.orin_temp, kind: threshold, fact: camera_host.temp_max, below: false, warn: 70, fail: 85,
          digits: 0, unit: ' C', probe: preflight, severity: fail, profiles: [boat], title: Orin temperature,
          hint: 'host_diagnostic on the Orin publishes this; unknown means it is not running there'}
-      - {id: pre.orin_power, kind: state, fact: orin.power_mode, expect: [MAXN_SUPER], severity: warn,
+      - {id: pre.orin_power, kind: state, fact: camera_host.power_mode, expect: [MAXN_SUPER], severity: warn,
          profiles: [boat], title: Orin power mode, hint: 'sudo nvpmodel -m <MAXN_SUPER id> on the Orin'}
-      - {id: pre.orin_disk, kind: threshold, fact: orin.disk_free_gb, warn: 20, fail: 5, digits: 1,
+      - {id: pre.orin_disk, kind: threshold, fact: camera_host.disk_free_gb, warn: 20, fail: 5, digits: 1,
          unit: ' GB', probe: preflight, severity: fail, profiles: [boat], title: Orin free disk}
 
       # Perception chain into the hold watchdog

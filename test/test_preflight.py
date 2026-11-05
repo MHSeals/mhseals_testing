@@ -38,9 +38,9 @@ CASES = {
     'pre.orin_clock': ({'perc.zed_native.clock_offset': Fact(-0.01)},
                                   {'perc.zed_native.clock_offset': Fact(-0.06)}),
     'pre.clock_sync': ({'clock.spread': Fact(0.007)}, {'clock.spread': Fact(0.06)}),
-    'pre.orin_temp': ({'orin.temp_max': Fact(55.0)}, {'orin.temp_max': Fact(90.0)}),
-    'pre.orin_power': ({'orin.power_mode': Fact('MAXN_SUPER')}, {'orin.power_mode': Fact('15W')}),
-    'pre.orin_disk': ({'orin.disk_free_gb': Fact(80.0)}, {'orin.disk_free_gb': Fact(2.0)}),
+    'pre.orin_temp': ({'camera_host.temp_max': Fact(55.0)}, {'camera_host.temp_max': Fact(90.0)}),
+    'pre.orin_power': ({'camera_host.power_mode': Fact('MAXN_SUPER')}, {'camera_host.power_mode': Fact('15W')}),
+    'pre.orin_disk': ({'camera_host.disk_free_gb': Fact(80.0)}, {'camera_host.disk_free_gb': Fact(2.0)}),
     'pre.watchdog': ({'graph.nodes': Fact(['/costmap_watchdog'])}, {'graph.nodes': Fact(['/x'])}),
     **{f'pre.{name}_watchdog': ({'graph.nodes': Fact([f'/{name}_watchdog'])},
                                 {'graph.nodes': Fact(['/x'])})
@@ -187,20 +187,14 @@ def test_bag_and_camera_host_facts(tmp_path):
     facts = preflight.camera_host_facts(values, 'jetson')
     assert facts['camera_host.temp_max'].value == 48.5 and facts['camera_host.power_mode'].value == 'MAXN_SUPER'
     assert facts['camera_host.disk_free_gb'].value > 0
-    # the old orin.* ids still resolve, to the same facts, for one release
-    assert preflight.FACT_ALIASES == {'orin.temp_max': 'camera_host.temp_max',
-                                      'orin.power_mode': 'camera_host.power_mode',
-                                      'orin.disk_free_gb': 'camera_host.disk_free_gb'}
-    assert all(facts[old] is facts[new] for old, new in preflight.FACT_ALIASES.items())
-    assert preflight.orin_facts(values, 'jetson') == facts
     assert preflight.camera_host_facts(preflight.host_values(str(tmp_path / 'none*'), tmp_path / 'x', tmp_path / 'y',
                                                       tmp_path / 'missing'), 'jetson') == {}
 
 
 def test_every_shipped_check_on_a_camera_host_fact_resolves():
-    """health.yaml's pre.* checks name a fact camera_host_facts publishes (new id or alias)."""
+    """health.yaml's pre.* checks name a fact camera_host_facts publishes."""
     text = (Path(__file__).resolve().parent.parent / 'config' / 'health.yaml').read_text()
-    named = set(re.findall(r'fact: ((?:orin|camera_host)\.\w+)', text))
+    named = set(re.findall(r'fact: (camera_host\.\w+)', text))
     published = set(preflight.camera_host_facts({'temp_max_c': '50', 'disk_free_gb': '9', 'power_mode': 'X'}, 'h'))
     assert named and named <= published, named - published
 
@@ -215,8 +209,8 @@ def test_preflight_probe_reads_the_driver_only_while_its_node_runs():
     assert probe.facts(0.0, ['/thruster_pwm_node'])['driver.outputs'].value == 'match'
     kv = [SimpleNamespace(key='temp_max_c', value='60.0')]
     probe.on_diagnostics(SimpleNamespace(status=[SimpleNamespace(hardware_id='host:jetson', values=kv)]))
-    assert probe.facts(probe.host[0], [])['orin.temp_max'].value == 60.0
-    assert 'orin.temp_max' not in probe.facts(probe.host[0] + 10, [])     # silent camera host
+    assert probe.facts(probe.host[0], [])['camera_host.temp_max'].value == 60.0
+    assert 'camera_host.temp_max' not in probe.facts(probe.host[0] + 10, [])     # silent camera host
 
 
 def test_rc_rule_follows_a_live_hardware_edit_and_status_can_come_from_the_tui():
