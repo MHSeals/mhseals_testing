@@ -92,3 +92,21 @@ def verdict(holds, name, who, grants, cleared, now):
         if not ok:
             return 'refused', f'{cause} hold: its fault has not cleared ({why})'
     return None
+
+
+def how_released(cause):
+    """Who releases the hold ``cause`` (as ``status`` .authority.record.holds names it) and how: one phrase."""
+    if cause in ESTOP:
+        return 'the e-stop: only the operator, on the boat'
+    if cause in OPERATOR:
+        return (f'an operator hold: the operator presses U, or an agent granted {cause} in agent_grants.yaml runs '
+                f'boat_agent release {cause} --why ...')
+    return f'boat_agent release {cause} --why ... once its fault has cleared (or the operator presses U)'
+
+
+def holds_text(holds, fallback=''):
+    """The mux's holds as ``status`` names them, each with who releases it: ``keys (by tui; an operator hold: ...)``."""
+    named = [h for h in holds or () if isinstance(h, dict) and h.get('cause')]
+    if not named:
+        return f'{fallback} ({how_released(fallback)})' if fallback else 'a hold'
+    return '; '.join(f"{h['cause']} (by {h.get('by') or '?'}; {how_released(h['cause'])})" for h in named)

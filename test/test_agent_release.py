@@ -280,3 +280,11 @@ def test_the_panel_shows_doing_why_and_the_header_one_attention_indicator(rig): 
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke
+
+
+def test_an_arm_refusal_names_the_holds_as_status_does_and_who_releases_each():
+    from mhseals_testing.agent import grants as g
+    text = g.holds_text([{'cause': 'keys', 'by': 'tui'}, {'cause': 'geofence', 'by': 'fence_watchdog'}], 'manual_end')
+    assert text.startswith('keys (by tui; an operator hold: the operator presses U') and 'manual_end' not in text
+    assert 'boat_agent release keys --why' in text and 'boat_agent release geofence --why ... once its fault' in text
+    assert g.holds_text([], 'costmap_stale').startswith('costmap_stale (boat_agent release costmap_stale')

@@ -5,6 +5,7 @@ import threading
 import traceback
 
 from mhseals_hardware.menu import Cancelled
+from mhseals_testing.agent import grants
 from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import drives_pwm_pins, outputs_description
 from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
@@ -288,8 +289,8 @@ class Arm:
         elif self.override_cause():
             with arbiter.lock:
                 mux = arbiter.mux or {}
-            cause = mux.get('cause') or ((mux.get('holds') or [{}])[0] or {}).get('cause') or self.override_cause()
-            why = f'the mux holds ({cause}); only the operator releases it (U)'
+            # the holds as status names them (.authority.record.holds), not the mux state's cause, and who releases each
+            why = 'the mux holds ' + grants.holds_text(mux.get('holds'), mux.get('cause') or self.override_cause())
         if why:
             self.disarm(f'{what} undone: {why}', by='agent')
         return why
