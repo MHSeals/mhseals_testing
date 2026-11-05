@@ -21,7 +21,7 @@ ALLOWED = {   # (mixin class, attribute): the crossings on 11-04, by owner
     ('Arm', 'command'), ('Procedures', 'command'), ('Hardware', 'draft'), ('Hardware', 'grabbed'),   # Manual's
     ('Loop', 'grabbed'), ('Hardware', 'manual_speed'),
     ('Arm', '_runner_cancelled'),                                                                  # Procedures'
-    ('Bags', 'last_tick'), ('Files', 'last_drawn'), ('Loop', '_review_fault'), ('Loop', 'labels_from'),  # Loop's...
+    ('Bags', 'last_tick'), ('Files', 'last_drawn'), ('Loop', '_review_fault'),  # Loop's and View's
     ('Bags', 'layerbox'), ('Bags', 'minimap'), ('Bags', 'review'), ('Bags', 'source'), ('Bags', 'tabs'),  # App's
     ('Loop', 'detaching'), ('Loop', 'source'), ('Quit', 'keys'), ('Quit', 'live'), ('Settings', 'profile'),
 }

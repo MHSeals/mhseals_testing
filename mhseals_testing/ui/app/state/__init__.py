@@ -1,8 +1,9 @@
 """The App's state by owner: one small container per area, so a feature's state has one writer (finding #4).
 
 ``app.state`` holds them (``AppState``): ``render`` (View's redraw bookkeeping), ``bags`` (the Bags tab and the
-bag a session records), ``labels`` (the Labels tab), ``thrusters`` (the Thrusters panel's unsaved edit and raw
-pulses) and ``arming_ui`` (the arm path's pin and watchdog guards). core.py's OWNERS table names which mixin
+bag a session records), ``thrusters`` (the Thrusters panel's unsaved edit and raw
+pulses) and ``arming_ui`` (the arm path's pin and watchdog guards). The Labels tab keeps its own (``app.labels``,
+actions/labels.py LabelsState). core.py's OWNERS table names which mixin
 owns which attribute group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used
 before (``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin,
 so reads, writes and tests see one value. Other areas read a container through ``app.services`` (services.py),
@@ -30,16 +31,6 @@ class BagsState:
 
 
 @dataclass
-class LabelsState:
-    """The Labels tab: the session it shows (None: the live one), its manifest cache, the tab L came from and
-    the conditions last set."""
-    folder: object = None
-    cache: tuple = (None, None)
-    came_from: object = None
-    conditions_set: object = None
-
-
-@dataclass
 class ThrustersState:
     """The Thrusters panel's edit (Manual's keys): the unsaved mapping, the row being moved and raw pulses."""
     draft: object = None             # unsaved thruster mapping: channel_map, reversed and pwm_chips
@@ -58,7 +49,6 @@ class ArmingUiState:
 class AppState:
     render: RenderState = field(default_factory=RenderState)
     bags: BagsState = field(default_factory=BagsState)
-    labels: LabelsState = field(default_factory=LabelsState)
     thrusters: ThrustersState = field(default_factory=ThrustersState)
     arming_ui: ArmingUiState = field(default_factory=ArmingUiState)
 
@@ -91,8 +81,6 @@ ALIASES = {
     'last_frame': ('render', 'last_frame'), 'last_drawn': ('render', 'last_drawn'), 'last_key': ('render', 'last_key'),
     'bag_recording_key': ('bags', 'recording_key'), 'bag_scan': ('bags', 'scan'),
     'finalizing': ('bags', 'finalizing'), 'finalize_thread': ('bags', 'finalize_thread'),
-    'labels_dir': ('labels', 'folder'), '_labels_cache': ('labels', 'cache'), 'labels_from': ('labels', 'came_from'),
-    'conditions_set': ('labels', 'conditions_set'),
     'draft': ('thrusters', 'draft'), 'pins_unverified': ('arming_ui', 'pins_unverified'),
     'grabbed': ('thrusters', 'grabbed'), 'test_pulses': ('thrusters', 'test_pulses'),
     'watchdog_missing': ('arming_ui', 'watchdog_missing'),

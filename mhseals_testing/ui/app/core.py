@@ -58,14 +58,14 @@ from mhseals_testing.ui.app.loop import Loop
 # footer notice, the popup, focus, the Activity view, the cursors, quit); APP is what App builds and hands
 # out (a review swaps some of it). test_app_state_ownership fails on a write across owners outside its
 # allowlist of the crossings on 11-04, which only shrinks. The containers in ui/app/state hold the groups
-# converted so far (render, bags, labels, thrusters, arming_ui).
+# converted so far (render, bags, thrusters, arming_ui); Labels keeps its own LabelsState.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'keys', 'live', 'detaching')
 OWNERS = {
     'View': ('last_frame', 'last_drawn', 'last_key', '_staging', 'fusion_feed'),
     'Loop': ('last_tick', 'fusion_image'),
     'Bags': ('bag_recording_key', 'bag_scan', 'finalizing', 'finalize_thread', 'rec', '_review_live', '_review_fault'),
-    'Labels': ('labels_dir', '_labels_cache', 'labels_from', 'conditions_set'),
+    'Labels': ('_labels_state',),   # its LabelsState (actions/labels.py), read as app.labels
     'Manual': ('manual', 'manual_speed', 'chords', 'command', 'draft', 'grabbed', 'test_pulses', '_manual_desk_at'),
     'Arm': ('armed_by', 'ever_armed', 'foreign_seen', 'stopped_by', 'pins_unverified'),
     'Holds': ('watchdog_missing', '_fence_client', '_fence_out', '_fence_text', '_releasing'),
