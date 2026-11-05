@@ -193,7 +193,7 @@ class LeaseMixin:
     def human(self):
         """``override()``, with a Space-style hold an agent's ``stop`` set named ``agent W``."""
         cause = self.override()
-        stopper = str(getattr(self.app, 'stopped_by', '') or '')
+        stopper = str(self.app.services.arm.stopped_by or '')
         if cause in ('keys', 'keyboard') and stopper.startswith('agent '):
             return stopper
         return cause

@@ -17,6 +17,7 @@ from mhseals_testing.harness.authority import ClaimTable
 from mhseals_testing.ros.authority import Arbiter
 from mhseals_testing.ui import app as app_module, control_tracker
 from mhseals_testing.ui.app import App
+from mhseals_testing.ui.app.state import AppState
 from mhseals_testing.ui.feeds.authority import ViewerFeed
 from mhseals_testing.ui.feeds.control import ControlFeed
 from mhseals_testing.ui.takeover import decide
@@ -286,7 +287,7 @@ def viewer(monkeypatch):
     monkeypatch.setenv('BOAT_TUI_CLIENT', 'boat-v1')
     holds, stops = [], []
     app = Viewer(watching=1, plant=SimpleNamespace(hold=lambda cause, by='tui': holds.append((cause, by))),
-                 command=None, notice='', review=None)
+                 command=None, notice='', review=None, state=AppState())
     app.stop = lambda reason, by='operator': stops.append(reason)
     return app, holds, stops
 

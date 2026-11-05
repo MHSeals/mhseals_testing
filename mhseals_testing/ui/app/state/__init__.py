@@ -2,12 +2,12 @@
 
 ``app.state`` holds them (``AppState``): ``render`` (View's redraw bookkeeping), ``bags`` (the Bags tab and the
 bag a session records), ``thrusters`` (the Thrusters panel's unsaved edit and raw
-pulses) and ``arming_ui`` (the arm path's pin and watchdog guards). The Labels tab keeps its own (``app.labels``,
+pulses), ``arming_ui`` (the watchdog guard) and ``arm`` (Arm's: who armed, the last stop, the pin guard). The Labels tab keeps its own (``app.labels``,
 actions/labels.py LabelsState). core.py's OWNERS table names which mixin
 owns which attribute group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used
 before (``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin,
-so reads, writes and tests see one value. Other areas read a container through ``app.services`` (services.py),
-never by writing it.
+so reads, writes and tests see one value; a converted area has no alias, its owner reads and writes
+``app.state.<group>`` and other areas read it through ``app.services`` (services.py), never by writing it.
 """
 
 from dataclasses import dataclass, field
@@ -39,9 +39,18 @@ class ThrustersState:
 
 
 @dataclass
-class ArmingUiState:
-    """The arm path's guards: a pin change not read back yet, and a watchdog off the graph while armed."""
+class ArmState:
+    """Arm's (actions/arm.py): who armed, whether this session ever did, unexplained suite nodes, the last stop."""
+    armed_by: object = None          # None is the operator's arm, else {'who', 'sim'} (an agent), for the ARMED chip
+    ever_armed: bool = False         # a hold saved after this is this session's (sim stale holds)
+    foreign_seen: dict = field(default_factory=dict)   # suite node -> first seen, no registry entry explains it
+    stopped_by: object = None        # who stopped last: 'operator', 'agent <id>' or 'viewer <name>'
     pins_unverified: bool = False    # a saved pin change not read back yet: arming refused
+
+
+@dataclass
+class ArmingUiState:
+    """Holds' guard: a watchdog off the graph while armed."""
     watchdog_missing: object = None  # {since, asked, retried, held} while armed with a watchdog off the graph
 
 
@@ -51,6 +60,7 @@ class AppState:
     bags: BagsState = field(default_factory=BagsState)
     thrusters: ThrustersState = field(default_factory=ThrustersState)
     arming_ui: ArmingUiState = field(default_factory=ArmingUiState)
+    arm: ArmState = field(default_factory=ArmState)
 
 
 def state_of(app):
@@ -81,7 +91,7 @@ ALIASES = {
     'last_frame': ('render', 'last_frame'), 'last_drawn': ('render', 'last_drawn'), 'last_key': ('render', 'last_key'),
     'bag_recording_key': ('bags', 'recording_key'), 'bag_scan': ('bags', 'scan'),
     'finalizing': ('bags', 'finalizing'), 'finalize_thread': ('bags', 'finalize_thread'),
-    'draft': ('thrusters', 'draft'), 'pins_unverified': ('arming_ui', 'pins_unverified'),
+    'draft': ('thrusters', 'draft'),
     'grabbed': ('thrusters', 'grabbed'), 'test_pulses': ('thrusters', 'test_pulses'),
     'watchdog_missing': ('arming_ui', 'watchdog_missing'),
 }

@@ -169,6 +169,8 @@ class ArmApp:
         self.plant = SimpleNamespace(engage=lambda: self.calls.append('engage'))
         self.ros = SimpleNamespace(emit=lambda phase, **f: self.events.append((phase, f)))
         self.armed = False
+        from mhseals_testing.ui.app.state import AppState
+        self.state = AppState()
 
     def thruster_refusal(self):
         return ''
@@ -221,10 +223,10 @@ def test_agent_arm_starts_the_driver_and_journals_who(App):
 def test_a_sim_arm_marks_the_armed_chip_with_the_agent_and_disarm_clears_it(App):
     from mhseals_testing.ui import chrome, theme
     app = ArmApp()
-    app.armed_by = None
+    app.state.arm.armed_by = None
     assert App.agent_arm(app, 'claude-autoarm', ['profile', 'domain']) == ''
-    assert app.armed_by == {'who': 'claude-autoarm', 'sim': True}
-    view = {'authority': ('agent', 'AGENT'), 'armed': app.armed, 'armed_by': app.armed_by}
+    assert app.state.arm.armed_by == {'who': 'claude-autoarm', 'sim': True}
+    view = {'authority': ('agent', 'AGENT'), 'armed': app.armed, 'armed_by': app.state.arm.armed_by}
     *_, chip, mark = chrome.chips(view)
     assert chip.plain.strip() == 'ARMED' and mark.plain == f'{theme.AGENT_GLYPH} claude-autoarm sim-arm'
     assert chrome.chips(view, short=True)[-1].plain == f'{theme.AGENT_GLYPH} sim-arm'
@@ -233,7 +235,7 @@ def test_a_sim_arm_marks_the_armed_chip_with_the_agent_and_disarm_clears_it(App)
     app.watcher = SimpleNamespace(watches={'hardware': SimpleNamespace(warning=None)})
     app.clear_pulses = lambda: None
     App.disarm(app, 'sim auto-arm: run ended', by='agent')
-    assert app.armed_by is None
+    assert app.state.arm.armed_by is None
 
 
 def test_agent_arm_never_releases_a_restored_hold(App):

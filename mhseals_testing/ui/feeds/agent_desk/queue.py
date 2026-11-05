@@ -224,7 +224,7 @@ class QueueMixin:
         logged. Every other check must have passed: never outside a verified sim, never a hold raised now.
         Returns the checks to judge (re-gathered after a clear)."""
         app = self.app
-        if facts is None or getattr(app, 'ever_armed', False):
+        if facts is None or app.services.arm.ever_armed:
             return checks
         try:
             fresh = os.stat(facts.hold_file).st_mtime_ns < self.started_ns

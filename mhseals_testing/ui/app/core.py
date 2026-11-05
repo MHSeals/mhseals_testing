@@ -31,7 +31,7 @@ from mhseals_testing.ui.app import mixins, wiring
 # quit; the footer notice only through App.say). APP is what App builds and hands out: startup.py and wiring.py
 # build it, and after that App.rebuild is its one writer (a review swaps some of it). test_app_state_ownership
 # fails on any write across owners in ui/**. The containers in ui/app/state hold the groups converted so far
-# (render, bags, thrusters, arming_ui); Labels keeps its own LabelsState.
+# (render, bags, thrusters, arming_ui behind aliases; arm as ``state.arm``, its own); Labels keeps its LabelsState.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
 OWNERS = {
@@ -40,7 +40,7 @@ OWNERS = {
     'Bags': ('bag_recording_key', 'bag_scan', 'finalizing', 'finalize_thread', 'rec', '_review_live', '_review_fault'),
     'Labels': ('_labels_state',),   # its LabelsState (actions/labels.py), read as app.labels
     'Manual': ('manual', 'manual_speed', 'chords', 'command', 'draft', 'grabbed', 'test_pulses', '_manual_desk_at'),
-    'Arm': ('armed_by', 'ever_armed', 'foreign_seen', 'stopped_by', 'pins_unverified'),
+    'Arm': ('state.arm',),
     'Holds': ('watchdog_missing', '_fence_client', '_fence_out', '_fence_text', '_releasing'),
     'Procedures': ('running', 'run_id', 'run_fields', 'tags', '_runner_cancelled', '_runner_paused', '_start_reset',
                    '_nav2', '_watcher'),
@@ -89,7 +89,7 @@ class App(*mixins.ROSTER):
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
         self.detaching = False
         self.handed_by = self.restart_as = None   # the takeover's taker; 'take' or 'view' to restart as one
-        self.foreign_seen, self.guests_seen = {}, set()
+        self.guests_seen = set()
         self._review_live = None
         self.review = review     # a ui.review.Review while a past session plays; live work is off
         self.profile = profile
@@ -165,7 +165,6 @@ class App(*mixins.ROSTER):
     def armed(self):
         return self.arming is not None and self.arming.armed
 
-    armed_by = None   # who armed, for the ARMED chip: None is the operator, else {'who', 'sim'} (an agent)
     arbiter = authority_view = desk = None   # the owner's arbiter and desk, a viewer's record (startup.py)
 
     def say(self, text):

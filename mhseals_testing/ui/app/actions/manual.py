@@ -101,7 +101,7 @@ class Manual:
             self.edit_mapping(channel_map, reversed_)
         elif action == 'save':
             if self.draft is None:   # a pin change still unread: s retries the readback
-                self.say(pins.verify(self) if self.pins_unverified else 'Nothing to save')
+                self.say(pins.verify(self) if self.services.arm.pins_unverified else 'Nothing to save')
                 return
             moved = self.pins_moved()
             if moved and pins.busy(self):
