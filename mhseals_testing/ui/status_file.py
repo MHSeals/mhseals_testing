@@ -119,6 +119,12 @@ def _operator(app, desk):
     return out
 
 
+def _perf(app, desk):
+    """The TUI's own speed (ui/perf.py): frame and key p99s, bytes per second, its CPU split, the host's load."""
+    meter = getattr(app, 'perf', None)
+    return None if meter is None else meter.last
+
+
 SECTIONS = {'session': _session, 'authority': _authority, 'run': _run, 'health': _health,
             'odometry': _odometry, 'perception': _perception, 'nav2': _nav2, 'agent': _agent,
-            'control': _control, 'operator': _operator}
+            'control': _control, 'operator': _operator, 'perf': _perf}

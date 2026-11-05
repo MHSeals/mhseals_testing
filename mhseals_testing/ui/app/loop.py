@@ -6,6 +6,7 @@ from mhseals_testing.runner import fold
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import keymap
 from mhseals_testing.ui.layout import ROW
+from mhseals_testing.ui import perf
 from mhseals_testing.ui.popups import pins
 
 from mhseals_testing.ui.app.shared import CURSORS, Detach, STOPPING_ERRORS
@@ -98,8 +99,10 @@ class Loop:
         if self.armed and self.arming.fault():
             self.stop(self.arming.fault(), by='fault')
         self.watch_watchdogs()
+        perf.tick(self)
 
     def run(self):
+        perf.start(self)        # config/perf.yaml: rows-only output in place of Rich's Live, and the Meter
         with self.attached():
             try:
                 self.offer_restore()
@@ -107,13 +110,14 @@ class Loop:
                     try:
                         key = self.keys.read(timeout=0.1)
                         if key is not None:
+                            self.perf.key()
                             try:
                                 self.dispatch(key)
                             except STOPPING_ERRORS as error:
                                 self.stop(str(error) or type(error).__name__, by='error')
-                            self.refresh()               # the key's frame first, before the tick's work
+                            perf.draw(self)              # the key's frame first, before the tick's work
                         self.tick()
-                        self.refresh(force=False)        # idle ticks render only on change
+                        perf.draw(self, force=False)     # idle ticks render only on change
                     except KeyboardInterrupt as error:
                         self.detaching = isinstance(error, Detach)
                         # Ctrl+C quits like q, minus the question: anything moving has
