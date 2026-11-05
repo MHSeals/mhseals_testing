@@ -37,7 +37,7 @@ class Operator:
 
     def operator_sync(self, record):
         """Tell the arbiter (leases suspend or resume, never a hold) and the desk (an act in flight ends)."""
-        arbiter, desk = getattr(self, 'arbiter', None), getattr(self, 'desk', None)
+        arbiter, desk = self.arbiter, self.desk
         if operator_state.paused(record):
             if arbiter is not None:
                 arbiter.pause(record)
@@ -98,16 +98,16 @@ class Operator:
                 return
         except Cancelled:
             return
-        self.restart_as = 'take'
+        self.state.operator.restart_as = 'take'
         self.quit = True
 
     def close_handover(self):
         """Leave the children running, recorded for the successor, and give up the seat."""
         children = self.processes.records()
         handover = (self.registry.state().get('handover') or {}) if self.registry else {}
-        self.handed_by = handover.get('by')
+        self.state.operator.handed_by = handover.get('by')
         if handover.get('revoke'):       # a human takeover: no agent claim passes to the next controller
-            arbiter = getattr(self, 'arbiter', None)
+            arbiter = self.arbiter
             holder = arbiter.table.holder() if arbiter is not None else None
             if holder is not None and holder.get('owner') == 'agent':
                 arbiter.revoke(holder['id'])
@@ -118,5 +118,5 @@ class Operator:
         self.processes.release(children)
         if self.registry is not None:
             self.registry.release(os.getpid())
-        self.handed_to = handover.get('to')
-        return f"{', '.join(children) or 'no children'} left running for pid {self.handed_to}"
+        self.state.operator.handed_to = handover.get('to')
+        return f"{', '.join(children) or 'no children'} left running for pid {handover.get('to')}"

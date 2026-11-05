@@ -5,6 +5,7 @@ import pytest
 
 from mhseals_hardware.keyboard import Mouse, Terminal
 from mhseals_testing.ui import input as key_input
+from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.ui.popups import hold
 
 
@@ -120,10 +121,11 @@ def test_o_takes_control_by_a_hold_and_a_tap_takes_nothing(monkeypatch):
     monkeypatch.setattr(key_input, 'by_hold', lambda action, path=None: action == 'take')
     for script, taken in ((repeats('O', 2.0), True), ([(0.0, 'O'), (2.0, 'escape')], False)):
         app = App(script)
-        app.watching, app.review, app.feeds, app.quit, app.restart_as = 1, None, [], False, None
+        app.watching, app.review, app.feeds, app.quit = 1, None, [], False
+        app.state = app_state.AppState()
         app.hold_confirm = lambda *a, **kw: hold.confirm(app, *a, **kw)
         SimpleNamespace(take=TUI.take_control).take(app)
-        assert (app.restart_as == 'take' and app.quit) is taken
+        assert (app.state.operator.restart_as == 'take' and app.quit) is taken
 
 
 @pytest.mark.parametrize('enabled', [True, False])

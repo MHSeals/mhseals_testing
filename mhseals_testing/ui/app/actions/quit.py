@@ -28,11 +28,12 @@ class Quit:
         if self.registry is None or self.watching:
             return
         guests = self.registry.state().get('guests', {})
-        for pid in sorted(set(guests) - self.guests_seen):
+        quit = self.state.quit
+        for pid in sorted(set(guests) - quit.guests_seen):
             self.ros.emit('guest_attach', pid=pid, **guests[pid])
-        for pid in sorted(self.guests_seen - set(guests)):
+        for pid in sorted(quit.guests_seen - set(guests)):
             self.ros.emit('guest_detach', pid=pid)
-        self.guests_seen = set(guests)
+        quit.guests_seen = set(guests)
 
     @contextmanager
     def attached(self):
@@ -92,8 +93,8 @@ class Quit:
             return
         if choice == 'Cancel':
             return
-        self.keep_units = choice == 'Quit, keep remote parts running'
-        self.stop_adopted = choice == 'Quit, also stop adopted parts'
+        self.state.quit.keep_units = choice == 'Quit, keep remote parts running'
+        self.state.quit.stop_adopted = choice == 'Quit, also stop adopted parts'
         if choice == 'Save mapping and quit':
             channel_map, reversed_ = self.mapping()
             if not self.save_hardware(channel_map=channel_map, reversed=reversed_):
@@ -105,9 +106,9 @@ class Quit:
 
         Safe to call more than once; main() calls it too in case the page never opened.
         """
-        if self.closed:
+        if self.state.quit.closed:
             return
-        self.closed = True
+        self.state.quit.closed = True
         self.health.close()
         if self.args.review is not None:
             return  # nothing of ours to flush; the session's report must not be rewritten
@@ -149,7 +150,7 @@ class Quit:
         """Stop the units we started on other computers (Quit's default), or leave them to their
         lease; adopted ones are stopped only on the operator's explicit choice."""
         units = getattr(self.stack, 'units', None)
-        return units.close(stop=not self.keep_units, adopted=self.stop_adopted) \
+        return units.close(stop=not self.state.quit.keep_units, adopted=self.state.quit.stop_adopted) \
             if units is not None else 'none'
 
     def close_report(self):

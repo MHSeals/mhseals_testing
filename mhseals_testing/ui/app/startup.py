@@ -139,11 +139,13 @@ def restart_as(app):
     human takeover restarts the old owner as a viewer, told who took over. None otherwise."""
     if app is None:
         return None
-    if app.restart_as == 'take':
+    handover = app.services.operator
+    if handover.restart_as == 'take':
         mode, notice = '--take', 'Taking control'
-    elif app.services.loop.detaching and app.handed_by:
-        mode, notice = '--view', f'Control taken by {control.name(app.handed_by)}' + (
-            f" ({app.handed_by['from']})" if app.handed_by.get('from') else '') + '; you are viewing'
+    elif app.services.loop.detaching and handover.handed_by:
+        taker = handover.handed_by
+        mode, notice = '--view', f'Control taken by {control.name(taker)}' + (
+            f" ({taker['from']})" if taker.get('from') else '') + '; you are viewing'
     else:
         return None
     argv = [arg for arg in sys.orig_argv if arg not in ('--view', '--take')]
@@ -361,7 +363,7 @@ def session_main(argv=None):
             ros.close()
             rclpy.try_shutdown()
     if app is not None and app.services.loop.detaching:
-        console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
+        console.print(f'Handed over to pid {app.services.operator.handed_to}')
     restart = restart_as(app)
     if restart:
         console.print(restart[1])

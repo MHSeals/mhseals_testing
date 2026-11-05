@@ -132,7 +132,7 @@ def test_quit_keeps_adopted_units_unless_the_operator_chooses_to_stop_them():
                                services=SimpleNamespace(manual=SimpleNamespace(draft=None)),
                                watching=None, snapshot=lambda: {'results': []}, quit=False,
                                choose=choose, stack=SimpleNamespace(units=units),
-                               keep_units=False, stop_adopted=False)
+                               state=SimpleNamespace(quit=SimpleNamespace(keep_units=False, stop_adopted=False)))
     plain = tui('Quit')
     Tui.confirm_quit(plain)
     options, rows, default, yes = asked[0]

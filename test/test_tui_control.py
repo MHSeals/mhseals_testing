@@ -235,7 +235,7 @@ def leaving_owner(tmp_path, handover):
     arbiter.table.claim('agent', 'claude-3f2a', 1000.0)
     app = Owner(registry=registry, arbiter=arbiter, export=lambda: None,
                 processes=SimpleNamespace(records=lambda: {}, release=lambda c: None),
-                ros=SimpleNamespace(emit=lambda *a, **k: None))
+                ros=SimpleNamespace(emit=lambda *a, **k: None), state=AppState())
     return app, arbiter, holds
 
 
@@ -243,19 +243,19 @@ def test_a_human_takeover_revokes_the_agent_claim_and_names_the_taker(tmp_path):
     app, arbiter, holds = leaving_owner(tmp_path, {'to': 2, 'deadline': 9, 'revoke': True, 'by': seat(2, 'boat-v1')})
     app.close_handover()
     assert arbiter.table.holder() is None and arbiter.ended == {'c1': 'revoked'} and holds == ['revoke']
-    assert app.handed_by['client'] == 'boat-v1'
+    assert app.state.operator.handed_by['client'] == 'boat-v1'
 
 
 def test_a_plain_handover_keeps_the_claim_for_the_successor(tmp_path):
     app, arbiter, holds = leaving_owner(tmp_path, {'to': 2, 'deadline': 9})
     app.close_handover()
-    assert arbiter.table.holder()['id'] == 'c1' and not holds and app.handed_by is None
+    assert arbiter.table.holder()['id'] == 'c1' and not holds and app.state.operator.handed_by is None
 
 
 def ending(restart_as, detaching, handed_by):
     """What restart_as reads of an App: the Loop's detach and the Operator's handover."""
-    return SimpleNamespace(restart_as=restart_as, handed_by=handed_by,
-                           services=SimpleNamespace(loop=SimpleNamespace(detaching=detaching)))
+    return SimpleNamespace(services=SimpleNamespace(loop=SimpleNamespace(detaching=detaching), operator=SimpleNamespace(
+        restart_as=restart_as, handed_by=handed_by)))
 
 
 def test_restart_as_takes_from_a_viewer_and_views_after_a_human_takeover(monkeypatch):
