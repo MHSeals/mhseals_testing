@@ -103,6 +103,31 @@ def test_a_live_session_names_only_its_open_split_so_closed_splits_come_along(da
     assert json.loads(out.getvalue())['skipped'] == ['bag/00/00_10.mcap']
 
 
+def test_the_station_finalizes_an_unindexed_closed_segment_but_not_the_open_one(data_root):
+    """atlas #99 F8: a segment killed mid-write arrives without metadata.yaml; fetch runs the Bags finalize."""
+    dest = data_root / 'sessions' / 's1'
+
+    def rsync(argv, **kw):
+        for name in ('00', '01', '02'):
+            (dest / 'bag' / name).mkdir(parents=True, exist_ok=True)
+            (dest / 'bag' / name / 'x.mcap').write_bytes(b'x')
+        (dest / 'bag' / '00' / 'metadata.yaml').write_text('x')
+        return subprocess.CompletedProcess(argv, 0, '', '')
+    reindexed = []
+
+    def reindex(argv):
+        reindexed.append(argv)
+        (data_root / argv[3] / 'metadata.yaml').write_text('x')
+        return 0
+    plan = {'ok': True, 'id': 's1', 'rel': 'bags/sessions/s1', 'live': True, 'bwlimit_kbps': 1,
+            'open_files': ['bag/02/x_1.mcap']}
+    out = io.StringIO()
+    assert relay.fetch(T, ['fetch', '--who', 'a', '--why', 'qc'], out=out, rsync=rsync, reindex=reindex,
+                       popen=lambda argv, **kw: Proc(json.dumps(plan) + '\n')) == 0
+    assert [argv[3] for argv in reindexed] == [str(dest / 'bag' / '01')]
+    assert json.loads(out.getvalue())['finalized'] == {'01': 'done'}
+
+
 @pytest.mark.parametrize('plan', [{'ok': True, 'id': 's1', 'rel': '../../etc', 'bwlimit_kbps': 1},
                                   {'ok': True, 'id': '..', 'rel': 'bags/x', 'bwlimit_kbps': 1},
                                   {'ok': False, 'error': 'no_session'}])
