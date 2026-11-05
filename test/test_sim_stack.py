@@ -52,10 +52,50 @@ def test_the_vessels_domains_come_from_the_profile_set(tmp_path, monkeypatch):
     assert registry.dev_container()          # the package registry's defaults.container, never a literal in code
 
 
+def test_boat_tui_refuses_when_the_registry_names_no_container(tmp_path):
+    """11-05 review: an unreadable registry gave container '' and boat_test ran on the host; '' only when asked."""
+    import shutil
+    (tmp_path / 'tools').mkdir()
+    for name in ('boat_tui', 'registry.sh'):                # no package beside it: registry.py cannot be read
+        shutil.copy(TOOLS / name, tmp_path / 'tools' / name)
+    env = {k: v for k, v in os.environ.items() if k != 'BOAT_TUI_CONTAINER'}
+    env['BOAT_TUI_SOCKET'] = f'test-{os.getpid()}'
+    done = subprocess.run([str(tmp_path / 'tools/boat_tui'), 'status'], capture_output=True, text=True, env=env,
+                          timeout=30)
+    assert done.returncode == 4 and 'no dev container' in done.stderr
+
+
+def test_the_heavy_guard_is_the_hosts_and_up_refuses_without_one(tmp_path, ws):
+    """11-05 review: '' in stack.yaml ran Unity unguarded with a warning. The guard is $BOAT_SIM_HEAVY, else this
+    host's ~/.config/mhseals/sim.yaml heavy (~ expanded); none or --unguarded is the only way to run without one."""
+    assert not re.search(r'^heavy:', (TOOLS.parent / 'config/sim/stack.yaml').read_text(), re.M)
+    host = tmp_path / 'xdg'
+    assert sim_stack.heavy('BOAT_SIM_HEAVY', {'XDG_CONFIG_HOME': str(host)}) == ''
+    (host / 'mhseals').mkdir(parents=True)
+    (host / 'mhseals' / 'sim.yaml').write_text('heavy: ~/tools/heavy\n')
+    assert sim_stack.heavy('BOAT_SIM_HEAVY', {'XDG_CONFIG_HOME': str(host)}) == os.path.expanduser('~/tools/heavy')
+    assert sim_stack.heavy('BOAT_PREVIEW_HEAVY', {'XDG_CONFIG_HOME': str(host), 'BOAT_PREVIEW_HEAVY': 'none'}) == 'none'
+    env = dict(os.environ, BOAT_SIM_PLAYER='/bin/true', BOAT_SIM_RUN=str(tmp_path / 'run'), XDG_CONFIG_HOME=str(host),
+               BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent))
+    env.pop('BOAT_SIM_HEAVY', None)
+    up = lambda *args, **extra: subprocess.run([str(TOOLS / 'boat_sim'), 'up', '--dry-run', *args], capture_output=True,
+                                               text=True, timeout=30, env=dict(env, **extra))
+    refused = up()                                           # ~/tools/heavy is no command here
+    assert refused.returncode == 2 and 'no heavy guard' in refused.stderr and 'would run' not in refused.stdout
+    assert up(BOAT_SIM_HEAVY='').returncode == 2
+    for done in (up('--unguarded'), up(BOAT_SIM_HEAVY='none')):
+        assert done.returncode == 0 and 'no heavy guard (none)' in done.stdout, done.stderr
+    assert '/bin/true unity' in up(BOAT_SIM_HEAVY='/bin/true').stdout
+    preview = subprocess.run([str(TOOLS / 'boat_preview'), 'up', '--dry-run'], capture_output=True, text=True,
+                             timeout=30, env=dict(env, BOAT_PREVIEW_PLAYER='/bin/true', BOAT_PREVIEW_SRC=env['BOAT_SIM_SRC'],
+                                                  BOAT_PREVIEW_CACHE=str(tmp_path / 'cache')))
+    assert preview.returncode == 2 and 'no heavy guard' in preview.stderr      # one rule for both
+
+
 def test_boat_tui_sim_dry_run_names_the_plan_and_starts_nothing(tmp_path, ws):
     # the fixture workspace (stub hw.sh, scratch repos): CI's standalone checkout has no astro_dock around it
     env = dict(os.environ, BOAT_SIM_PLAYER='/bin/true', BOAT_SIM_RUN=str(tmp_path / 'run'),
-               BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent))
+               BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent), BOAT_SIM_HEAVY='/bin/true')
     done = subprocess.run([str(TOOLS / 'boat_tui'), 'sim', '--seed', '7', '--dry-run'], capture_output=True,
                           text=True, env=env, timeout=30)
     assert done.returncode == 0, done.stderr
