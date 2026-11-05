@@ -22,7 +22,7 @@ def test_tui_help_dispatch_shows_selected_description():
     from mhseals_testing.ui.app import App
     captured = {}
     profile = SimpleNamespace(name='custom', description='Custom output and sensor path')
-    app = SimpleNamespace(profile=profile, tab='Status', review=False, panels=lambda: [],
+    app = SimpleNamespace(profile=profile, tab='Status', review=False, panels=lambda: [], annotate_key=lambda key: False,
                           show=lambda title, **kwargs: captured.update(title=title, **kwargs))
     App.dispatch(app, '?')
     assert captured['title'] == 'Help'
