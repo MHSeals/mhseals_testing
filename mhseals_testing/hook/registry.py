@@ -154,11 +154,13 @@ def registry_hosts(text):
 
 
 def top(text, key):
-    """A top-level ``key: value`` (a scalar or a flow value) of a small YAML file (profile.yaml), or None."""
+    """A top-level ``key: value`` of a small YAML file (profile.yaml), or None: a flow value (``{...}``, ``[...]``) as
+    dict or list, anything else as the plain scalar it always was (a ``,`` in it is no flow separator)."""
     for line in text.splitlines():
         found = KEY.match(uncomment(line).rstrip()) if line[:1] not in ' \t' else None
         if found and scalar(found.group(1)) == key and found.group(2):
-            return flow(found.group(2))
+            value = found.group(2).strip()
+            return flow(value) if value[:1] in '{[' else scalar(value)
     return None
 
 

@@ -16,11 +16,12 @@
 # Every tmux call goes to its own server (socket BOAT_TUI_SOCKET, default boat: tmux -L boat), never the caller's
 # ($TMUX is cleared), so nothing here can reach another tmux server on the host.
 set -eu
-session=boat container=${BOAT_TUI_CONTAINER-$(. "$(dirname "$0")/registry.sh"; dev_container)} jump=${BOAT_TUI_JUMP-} socket=${BOAT_TUI_SOCKET:-boat}
+# picked: C was given (BOAT_TUI_CONTAINER or --container, '' included); else the registry's, and none found refuses
+session=boat container=${BOAT_TUI_CONTAINER-} picked=${BOAT_TUI_CONTAINER+1} jump=${BOAT_TUI_JUMP-} socket=${BOAT_TUI_SOCKET:-boat}
 while [ $# -gt 0 ]; do
     case $1 in
         --session) session=$2; shift 2 ;;
-        --container) container=$2; shift 2 ;;
+        --container) container=$2 picked=1; shift 2 ;;
         --jump) jump=$2; shift 2 ;;
         --start-stack) echo 'boat_tui: --start-stack was removed: start the stack in the TUI, Status panel, Components, Enter on the Stack row' >&2; exit 2 ;;
         *) break ;;
@@ -57,7 +58,7 @@ run() {
 
 attach_line() {
     if [ -n "${SSH_CONNECTION:-}" ] || [ -n "$jump" ]; then
-        # tmux by its path here: ssh runs a non-login shell, whose PATH may lack it (tranquility's ~/.local/bin)
+        # tmux by its path here: ssh runs a non-login shell, whose PATH may lack it (a ~/.local/bin tmux)
         echo "ssh -t ${jump:+-J $jump }$host $(command -v tmux) -L $socket attach -t $1"
     else
         echo "tmux -L $socket attach -t $1"
@@ -91,6 +92,10 @@ start() {
 # nothing and a dead pane counted as running.
 alive() { t has-session -t "=$1" 2>/dev/null && [ "$(t display-message -p -t "=$1:" '#{pane_dead}')" != 1 ]; }
 
+case $verb in up|view|restart|status)
+    [ -n "$picked" ] || container=$(. "$(dirname "$0")/registry.sh"; dev_container) || container=''
+    [ -n "$picked$container" ] || { echo "boat_tui: no dev container (the registry's defaults.container, read by tools/registry.sh dev_container); set BOAT_TUI_CONTAINER, or --container '' to run here" >&2; exit 4; }
+esac
 case $verb in
     up)
         [ "${1:-}" = -- ] && shift
@@ -159,7 +164,7 @@ case $verb in
         esac
         ;;
     sim)
-        # boat_tui sim [--seed N] [--dry-run] | sim down | sim status: the headless Unity sim and boat_test on it
+        # boat_tui sim [--seed N] [--unguarded] [--dry-run] | sim down | sim status: the headless Unity sim and boat_test on it
         [ "${1:-}" = up ] && shift
         case ${1:-} in down|status) exec "$(dirname "$0")/boat_sim" "$@" ;; *) exec "$(dirname "$0")/boat_sim" up "$@" ;; esac
         ;;
