@@ -3,16 +3,20 @@ or anything else runs; each is refused (never executed) when it cannot run now, 
 when it waited too long. The acts themselves run through ui/agent_acts.py, the same code as a key."""
 
 import os
+import threading
 import time
+
+from dataclasses import replace
 
 from mhseals_hardware import hold_store
 
 from mhseals_testing.agent import config as agent_config
 from mhseals_testing.harness import operator_state, sim_arm
+from mhseals_testing.harness.goals import gate
 from mhseals_testing.procedures import unavailable
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts
-from mhseals_testing.ui.feeds.agent_desk.common import MOTION
+from mhseals_testing.ui.feeds.agent_desk.common import DRY_TIMEOUT_S, FENCE_WAIT_S, MOTION
 
 
 class QueueMixin:
@@ -289,3 +293,95 @@ class QueueMixin:
         act['replied'], act['state'] = True, 'done'
         self.reply(act['req'], ok, error, result=result, hint=hint)
         return False
+
+    def start_dry(self, req):
+        """A goal dry run on its own thread: Nav2's lifecycle, GetCostmap and the planner can take seconds,
+        and the tick (Space) must never wait on them. ``answer_dry`` replies once it ends."""
+        box, setting = {}, self.app.settings.agent_motion
+
+        def work():
+            try:
+                box['result'] = agent_acts.dry_run(self.app, 'goal', req['args'], setting, self.lifecycle(),
+                                                   DRY_TIMEOUT_S, fence_wait=FENCE_WAIT_S)
+            except Exception as error:      # noqa: BLE001 - answered as the tick would
+                box['error'] = error
+        thread = threading.Thread(target=work, name='agent-dry', daemon=True)
+        self.dry = (req, thread, box)
+        thread.start()
+
+    def answer_dry(self, wait_s=0.0):
+        """Reply to the goal dry run once its thread ended (waiting at most ``wait_s``)."""
+        if self.dry is None:
+            return
+        req, thread, box = self.dry
+        thread.join(wait_s)
+        if thread.is_alive():
+            return
+        self.dry = None
+        error = box.get('error')
+        if error is None:
+            return self.reply(req, True, result=box['result'], hint=box['result'].get('hint', ''))
+        bad = isinstance(error, (KeyError, TypeError, ValueError, AttributeError, ArithmeticError))
+        self.reply(req, False, 'bad_args' if bad else 'refused', hint=str(error) or type(error).__name__)
+
+    def act_goal(self, act):
+        app = self.app
+        goal = agent_acts.goal_args(act['req']['args'])
+        facts = agent_acts.goal_facts(app, self.lifecycle())
+        reason = gate(replace(facts, costmap_age_s=0.0)) or agent_acts.in_background(
+            app, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f}",
+            lambda: agent_acts.fence_check(app, goal, facts),      # toLL may wait: off the key loop
+            message='Checking the fence', on_abort=lambda: self.cancel('handover'))
+        if reason:                               # never ask Allow for a goal the gates already refuse (the
+            #                                      send fetches the costmap fresh and checks it all again)
+            return self.finish(act, False, 'refused', hint=reason)
+        if not self.confirm(act, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f} · allow?"):
+            return False
+        if self.watch():
+            return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
+
+        def send():                              # off the key loop: Nav2 may take seconds to answer
+            lifecycle = self.lifecycle()
+            facts = agent_acts.goal_facts(app, lifecycle, fence_wait=FENCE_WAIT_S)
+            return lifecycle, agent_acts.goal_send(app, goal, facts, act['claim'], lambda: act['cause'])
+        try:
+            lifecycle, (path_m, reason) = agent_acts.in_background(
+                app, f"Agent {act['who']}: goal {goal[0]:.1f}, {goal[1]:.1f}", send,
+                message='Checking Nav2 and sending the goal', on_abort=lambda: self.cancel('handover'))
+        except KeyboardInterrupt:
+            self.drop_goal(act, 'handover')     # Ctrl+C: a goal that landed meanwhile is cancelled
+            raise
+        if self.watch():                         # Space, E or a lapse while Nav2 answered
+            self.drop_goal(act, act['cause'])
+            return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
+        if reason:
+            return self.finish(act, False, 'refused', hint=reason)
+        act['lifecycle'] = lifecycle
+        self.begin(act, {'path_m': path_m})
+        return True                              # the goal goes on; watch() polls it each tick
+
+    def drop_goal(self, act, cause):
+        goals = self.app.goals
+        if goals.active is not None and goals.active['claim'] == act['claim']:
+            goals.cancel(f'agent: {cause}')
+
+    def watch_goal(self, act, cause):
+        goals = self.app.goals
+        if goals.active is None or goals.active['claim'] != act['claim']:
+            return self.end_goal(act, cause or 'cancelled', None)
+        if cause:
+            goals.cancel(f'agent: {cause}')
+            return self.end_goal(act, cause, None)
+        handle = goals.active['goal']
+        goals.poll(agent_acts.goal_facts(self.app, act['lifecycle']))
+        if goals.active is None:
+            status = handle.status if handle.done else 'CANCELED'
+            self.end_goal(act, None if status == 'SUCCEEDED' else f'goal {status.lower()}', status)
+
+    def end_goal(self, act, cause, status):
+        if cause:
+            self.finish(act, False, self.error_of(cause), result={'status': status, 'cause': cause},
+                        hint=self.hint_of(cause, ''))
+        else:
+            self.finish(act, True, result={'status': status})
+        self.act = None
