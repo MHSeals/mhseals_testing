@@ -217,10 +217,10 @@ def test_a_stale_or_missing_record_with_an_arbiter_reads_unclaimed_stale(tmp_pat
     app, _ = make_app(tmp_path)
     clock = [1000.0]
     feed, _ = start(app, clock)
-    app.manual = True                                          # the local guess must not win
+    app.state.manual.active = True                             # the local guess must not win
     assert app.view()['authority'] == ('unclaimed', '? authority stale')   # no record yet
     feed.arbiter.tick()
-    app.manual = False
+    app.state.manual.active = False
     clock[0] += 10.0                                           # paused: the record went stale
     assert feed.view()['authority_paused']
     assert app.view()['authority'] == ('unclaimed', '? authority stale')
@@ -229,9 +229,9 @@ def test_a_stale_or_missing_record_with_an_arbiter_reads_unclaimed_stale(tmp_pat
 def test_without_an_arbiter_the_local_state_is_the_guess(tmp_path):
     app, _ = make_app(tmp_path)
     assert app.view()['authority'] is None
-    app.manual = True
+    app.state.manual.active = True
     assert app.view()['authority'] == ('human', 'KEYS')
-    app.manual, app.running = False, 'Drift'
+    app.state.manual.active, app.running = False, 'Drift'
     assert app.view()['authority'] == ('ours', 'DRIFT')
 
 
@@ -301,7 +301,7 @@ def test_driving_row_shows_stale_in_red_when_the_feed_is_paused(tmp_path):
 
 def test_driving_row_falls_back_to_the_local_guess_without_an_arbiter(tmp_path):
     app, _ = make_app(tmp_path)
-    app.manual = True
+    app.state.manual.active = True
     assert app.snapshot()['control']['driving'] == ('human', 'KEYS')
 
 

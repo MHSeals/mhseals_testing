@@ -68,7 +68,7 @@ class Quit:
                 ('Report', str(self.paths.report)),
                 ('Results', str(len(self.snapshot()['results'])))]
         options = ['Quit', 'Cancel']
-        if self.draft is not None:
+        if self.services.manual.draft is not None:
             rows.append(('Mapping', 'unsaved changes'))
             if self.pins_moved():   # pins save only through s, which reads them back
                 rows.append(('Pins', 'unsaved pin change is dropped'))

@@ -163,7 +163,7 @@ def test_i_confirmed_bumps_the_epoch_and_saves_through_save_hardware(tmp_path, m
 
 def test_i_is_refused_while_moving(tmp_path):
     app = tab_app(tmp_path)
-    app.manual = True
+    app.state.manual.active = True
     app.dispatch('I')
     assert app.notice == 'Not while moving'
     assert app.args.hardware_config.get('hardware_epoch', 0) == 0

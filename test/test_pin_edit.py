@@ -38,13 +38,13 @@ def test_pin_edit_is_a_draft_that_s_saves_and_reads_back(tmp_path, monkeypatch):
     app.ask_text = lambda title, message, text, check: asked.append((title, text)) or '7'
     app.dispatch('P')
     assert asked == [('FL pin', '')]                          # off the table: no pin to show
-    assert app.draft['pwm_chips'] == CHIPS and processes.started == []
+    assert app.state.manual.draft['pwm_chips'] == CHIPS and processes.started == []
     assert load_config(app.args.config)['pwm_chips'][0] == OFF_TABLE   # nothing written yet
     app.dispatch('s')
     assert load_config(app.args.config)['pwm_chips'] == CHIPS
     assert app.notice.startswith('Pins saved; driver restarted, sysfs showed')
     assert app.typed == ['arm'] and processes.started == ['hardware'] == processes.stopped
-    assert not app.armed and not app.state.arm.pins_unverified and app.draft is None
+    assert not app.armed and not app.state.arm.pins_unverified and app.state.manual.draft is None
 
 
 def test_mapping_only_save_leaves_the_chip_paths_out_of_the_file(tmp_path, monkeypatch):
@@ -58,7 +58,7 @@ def test_duplicate_pin_is_rejected_and_nothing_drafted(tmp_path, monkeypatch):
     app, processes, _ = pins_app(tmp_path, monkeypatch, [('enabled', '')])
     app.ask_text = lambda *a: '33'
     app.dispatch('P')
-    assert app.notice == 'Pin rejected: pin 33 already drives output 4' and app.draft is None
+    assert app.notice == 'Pin rejected: pin 33 already drives output 4' and app.state.manual.draft is None
 
 
 @pytest.mark.parametrize('state', ['armed', 'pending'])
@@ -75,7 +75,7 @@ def test_pin_edit_and_its_save_are_refused_unless_disarmed(tmp_path, state):
     app.dispatch('P')
     assert app.notice == pins.REFUSED
     app.dispatch('s')
-    assert app.notice == pins.REFUSED and app.draft is not None
+    assert app.notice == pins.REFUSED and app.state.manual.draft is not None
     assert load_config(app.args.config)['pwm_chips'][0] == OFF_TABLE
 
 

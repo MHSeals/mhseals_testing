@@ -103,7 +103,7 @@ class QueueMixin:
             return f"agent act {(self.act or {}).get('label', '')!r} is running".replace(" '' ", ' ')
         if app.running:
             return f'procedure {app.running!r} is running'
-        if app.manual:
+        if app.services.manual.active:
             return 'the operator drives manually'
         return 'a goal dry run is in flight' if self.dry is not None else ''
 

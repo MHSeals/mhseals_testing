@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from mhseals_testing.annotate.live import AnnotateFeed
+from mhseals_testing.ui.app import state as app_state
 
 pytestmark = pytest.mark.smoke   # tools/smoke
 
@@ -13,8 +14,10 @@ S = 1_000_000_000
 
 class FakeApp:
     def __init__(self):
-        self.lines, self.armed, self.manual, self.running = [], True, True, None
-        self.command, self.feeds, self.rtk = (0.0, 0.0, 0.0), [], SimpleNamespace(current=None)
+        self.lines, self.armed, self.running = [], True, None
+        self.feeds, self.rtk = [], SimpleNamespace(current=None)
+        self.state = app_state.AppState(manual=app_state.ManualState(active=True))
+        self.services = app_state.facades(self)
 
     def emit(self, phase, **details):
         self.lines.append((phase, details))
@@ -32,11 +35,11 @@ def test_feed_journals_fix_holds_owner_and_steady_windows():
         feed.tick(app, snapshot, t)
 
     tick(0)
-    app.command = (0.4, 0.0, 0.0)
+    app.state.manual.command = (0.4, 0.0, 0.0)
     for t in range(1, 8):
         tick(t, fix=5 if t >= 3 else 6)
     tick(8, holds=('link lost',))
-    app.command = (0.0, 0.0, 0.0)
+    app.state.manual.command = (0.0, 0.0, 0.0)
     tick(9)
     phases = [p for p, _ in app.lines]
     assert phases[:2] == ['gnss_fix', 'owner']

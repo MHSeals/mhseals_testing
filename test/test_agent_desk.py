@@ -538,7 +538,7 @@ def test_a_hold_the_stopped_mux_saved_suspends_the_claim_while_disarmed(rig):
 
 
 def test_manual_mode_cancels_the_agent_run(rig):
-    _, reply = run_with(rig, 1, lambda: setattr(rig.app, 'manual', True))
+    _, reply = run_with(rig, 1, lambda: setattr(rig.app.state.manual, 'active', True))
     assert reply['error'] == 'overridden: keyboard'
 
 
@@ -1015,7 +1015,7 @@ def test_manual_takeover_cancels_the_agent_goal_in_nav2_and_the_desk_keeps_answe
     assert rig.app.nav.goal.cancelled and rig.desk.goals.active is None and rig.desk.act is None
     reply = final(req['id'])
     assert reply['error'] == 'overridden: keyboard' and ch.exit_code(reply) == 3 and 'U' in reply['hint']
-    rig.app.manual, rig.app.running = True, 'Manual control'
+    rig.app.state.manual.active, rig.app.running = True, 'Manual control'
     written = []
     rig.desk.status = lambda app, desk: written.append(desk.summary())
     rig.clock[0] += desk_common.STATUS_S

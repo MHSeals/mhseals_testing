@@ -37,6 +37,7 @@ class Clock:
 
 class Boat:
     """A plant that answers commands with odometry, and keeps every sensor and TF edge live."""
+    pulse_fallback = False
 
     def __init__(self, monitor, profile, gain=1.2, sensors=True):
         self.monitor, self.profile, self.gain, self.sensors = monitor, profile, gain, sensors
@@ -177,7 +178,7 @@ WATCHDOGS = ['/link_watchdog', '/fcu_watchdog', '/fence_watchdog', '/ekf_input_w
 
 class Ros:
     fault = ''
-    node = None
+    node = driver_output = driver_output_at = driver_status = None
 
     def __init__(self):
         self.events = []
@@ -700,7 +701,7 @@ def test_thruster_panel_reverses_and_rewires_with_hot_reload(tmp_path):
         app.dispatch('down')  # FR
         app.dispatch('r')
         app.dispatch('3')     # FR to output 3, RR takes FR's output 2
-        assert app.draft and 'reversed' not in (tmp_path / 'hardware.yaml').read_text()
+        assert app.state.manual.draft and 'reversed' not in (tmp_path / 'hardware.yaml').read_text()
         app.dispatch('s')
     saved = yaml.safe_load((tmp_path / 'hardware.yaml').read_text())
     assert saved['reversed'] == [False, True, False, False]
@@ -834,7 +835,7 @@ def test_test_pulses_need_arming_follow_the_wiring_and_clear(tmp_path):
     with app.attached():
         app.focus = 'thrusters'
         app.dispatch('right')
-        assert app.test_pulses is None and 'Arm first' in app.notice
+        assert app.state.manual.test_pulses is None and 'Arm first' in app.notice
         arm(app)
         app.save_hardware(channel_map=[2, 1, 3, 4])
         for _ in range(3):
@@ -842,7 +843,7 @@ def test_test_pulses_need_arming_follow_the_wiring_and_clear(tmp_path):
         app.tick()
         assert app.pulse_log[-1] == [1500, 1530, 1500, 1500]
         app.dispatch('\t')         # leaving the panel ends the test pulses
-        assert app.test_pulses is None and app.pulse_log[-1] == [1500] * 4
+        assert app.state.manual.test_pulses is None and app.pulse_log[-1] == [1500] * 4
 
 
 def test_a_test_pulse_shows_the_driver_readback_and_says_when_it_did_not_arrive(tmp_path):
@@ -852,8 +853,8 @@ def test_a_test_pulse_shows_the_driver_readback_and_says_when_it_did_not_arrive(
         app.focus = 'thrusters'
         arm(app)
         app.dispatch('right')                      # FL, output 1: one step up
-        sent = app.test_pulses
-        app.pulses_since -= 1.0                    # past the grace
+        sent = app.state.manual.test_pulses
+        app.state.manual.pulses_since -= 1.0                    # past the grace
         app.tick()
         assert 'UNVERIFIED' in app.notice          # no ~/output from the driver
         app.ros.driver_output = {'pulses': [1500] * 4, 'source': 'cmd_vel', 'error': ''}
@@ -885,7 +886,7 @@ def test_thruster_set_maps_outputs_and_reversals(tmp_path):
     assert app.snapshot()['results'][-1]['verdict'] == 'SAVED'
     pulsed = [p for p in app.pulse_log if p != [1500] * 4]
     assert [p.index(max(p)) + 1 for p in pulsed[::max(1, len(pulsed) // 4)]][:1] == [1]
-    assert app.pulse_log[-1] == [1500] * 4 and app.test_pulses is None
+    assert app.pulse_log[-1] == [1500] * 4 and app.state.manual.test_pulses is None
 
 
 def run(app, key, answer=None):
@@ -1155,9 +1156,9 @@ def test_leaving_thrusters_by_direction_ends_test_pulses(tmp_path):
         arm(app)
         app.focus = 'thrusters'
         app.dispatch('right')
-        assert app.test_pulses is not None
+        assert app.state.manual.test_pulses is not None
         app.dispatch('ctrl-h')
-    assert app.focus == 'motion' and app.test_pulses is None
+    assert app.focus == 'motion' and app.state.manual.test_pulses is None
 
 
 @pytest.mark.parametrize('down,up', [('down', 'up'), ('j', 'k')])
@@ -1171,10 +1172,10 @@ def test_grab_moves_a_thruster_and_undo_restores(tmp_path, down, up):
     app.dispatch(down)
     app.dispatch(down)       # carried to RR's row: FL<->FR, then FR<->RR swaps
     app.dispatch('enter')
-    assert app.draft == dict(channel_map=[2, 3, 1, 4], reversed=[False, False, True, False])
-    assert app.cursors['thrusters'] == 2 and app.grabbed is None
+    assert app.state.manual.draft == dict(channel_map=[2, 3, 1, 4], reversed=[False, False, True, False])
+    assert app.cursors['thrusters'] == 2 and app.state.manual.grabbed is None
     app.dispatch('u')
-    assert app.draft is None and app.mapping() == ([1, 2, 3, 4], [False] * 4)
+    assert app.state.manual.draft is None and app.mapping() == ([1, 2, 3, 4], [False] * 4)
 
 
 def test_escape_never_quits_and_quit_asks_first(tmp_path):
@@ -1353,14 +1354,14 @@ def test_manual_control_drives_held_keys_on_the_page_and_ends_neutral(tmp_path):
     app.open_events = lambda: events
     shown = []
     original = app.manual_show
-    app.manual_show = lambda *a, **k: (shown.append((app.manual, a[0])), original(*a, **k))
+    app.manual_show = lambda *a, **k: (shown.append((app.state.manual.active, a[0])), original(*a, **k))
     with app.attached():
         arm(app)
         app.dispatch('m')
     sent = [command for command in boat.sent if command != 'neutral']
     assert any(command[0] > 0 for command in sent)          # W drove forward
     assert any(command[1] > 0 for command in sent)          # A drove to port
-    assert boat.sent[-1] == 'neutral' and not app.manual and app.armed
+    assert boat.sent[-1] == 'neutral' and not app.state.manual.active and app.armed
     assert events.entered == 1 and app.live is None
     assert app.focus == 'motion' and app.notice == 'Manual control ended'
 
@@ -1398,7 +1399,7 @@ def test_manual_keys_follow_the_keymap(tmp_path, monkeypatch):
         arm(app)
         app.dispatch('m')
     sent = [command for command in boat.sent if command != 'neutral']
-    assert any(command[0] > 0 for command in sent) and not app.manual and events.keys == []
+    assert any(command[0] > 0 for command in sent) and not app.state.manual.active and events.keys == []
 
 
 def test_manual_control_takes_over_from_the_agent_desk_and_keeps_it_ticking(tmp_path):
@@ -1409,13 +1410,13 @@ def test_manual_control_takes_over_from_the_agent_desk_and_keeps_it_ticking(tmp_
 
     class Desk:
         def take_over(self):
-            seen.append(('take_over', app.manual))
+            seen.append(('take_over', app.state.manual.active))
 
         def tick(self):
-            seen.append(('tick', app.manual))
+            seen.append(('tick', app.state.manual.active))
 
         def operator_paused(self):
-            seen.append(('operator_paused', app.manual))
+            seen.append(('operator_paused', app.state.manual.active))
     app.desk = Desk()
     app.open_events = lambda: Events(app.clock, ['press:w', None, 'release:w', None, None, None, 'press:x'])
     with app.attached():
@@ -1606,7 +1607,7 @@ def test_manual_wasd_reserved_after_yaw_and_speed_change(tmp_path, letter, direc
     sent = [command for command in boat.sent if command != 'neutral']
     assert any(command[2] > 0 for command in sent)
     assert sent[-1] == pytest.approx(expected)
-    assert boat.sent[-1] == 'neutral' and app.armed and not app.manual
+    assert boat.sent[-1] == 'neutral' and app.armed and not app.state.manual.active
     assert not app.snapshot()['results']  # S did not run station keeping.
 
 
@@ -1618,7 +1619,7 @@ def test_manual_speed_is_kept_when_manual_is_enabled_again(tmp_path):
     with app.attached():
         arm(app)
         app.dispatch('m')
-        assert app.manual_speed == pytest.approx(0.35) and app.view()['speed'] == pytest.approx(0.35)
+        assert app.state.manual.speed == pytest.approx(0.35) and app.view()['speed'] == pytest.approx(0.35)
         app.dispatch('m')
     sent = [command for command in boat.sent if command != 'neutral']
     assert sent[-1] == pytest.approx((0.35, 0, 0))      # kept, not back to the 0.25 default
@@ -1639,11 +1640,11 @@ def test_manual_speed_starts_at_the_configured_default(tmp_path):
 def test_a_new_configured_manual_amplitude_resets_the_session_speed(tmp_path):
     app, _ = make_app(tmp_path)
     app.args.hardware_config['manual_amplitude'] = 0.25
-    app.manual_speed = 0.35
+    app.state.manual.speed = 0.35
     app.apply_hardware(dict(app.args.hardware_config, rev_FL=True))   # another key: the speed stays
-    assert app.manual_speed == pytest.approx(0.35)
+    assert app.state.manual.speed == pytest.approx(0.35)
     app.apply_hardware(dict(app.args.hardware_config, manual_amplitude=0.5))
-    assert app.manual_speed is None and app.view()['speed'] == pytest.approx(0.5)
+    assert app.state.manual.speed is None and app.view()['speed'] == pytest.approx(0.5)
 
 
 def test_arming_shows_progress_and_space_cancels_a_slow_driver(tmp_path):
@@ -2936,7 +2937,7 @@ def test_operator_space_never_engages_watchers_auto_topic(tmp_path, popup, fails
     app, boat = make_app(tmp_path)
     app.watching = 123
     app.arming.armed = True
-    app.command = (0.3, 0, 0)
+    app.state.manual.command = (0.3, 0, 0)
     calls = []
 
     def hold(cause, by='tui'):
@@ -2956,7 +2957,7 @@ def test_operator_space_never_engages_watchers_auto_topic(tmp_path, popup, fails
         except RuntimeError:
             assert fails
     assert calls == ['keys']
-    assert app.command == (0, 0, 0) and not app.armed
+    assert app.state.manual.command == (0, 0, 0) and not app.armed
     assert boat.sent and all(command == 'neutral' for command in boat.sent)
 
 
@@ -3115,23 +3116,23 @@ def test_actual_app_manual_space_ends_at_zero_even_on_hold_error(tmp_path, fails
     boat.hold = hold
     press(app, *(['y'] if fails else ['q'] * 22))   # still armed: quitting is a held q (config/input.yaml quit_armed)
     app.run()
-    assert len(stopped) == 1 and not app.manual
+    assert len(stopped) == 1 and not app.state.manual.active
     assert all(command == 'neutral' or command == (0, 0, 0)
                for command in boat.sent[stopped[0]:])
-    assert app.command == (0, 0, 0)
+    assert app.state.manual.command == (0, 0, 0)
     if fails:
         assert not app.armed
 
 
 def test_popup_space_clears_raw_pulses_before_background_tick(tmp_path):
     app, _ = make_app(tmp_path)
-    app.test_pulses = [1600] * 4
+    app.state.manual.test_pulses = [1600] * 4
     app.arming.armed = True
     with app.attached():
         press(app, 'space')
         app.show('Pulses', message='bench')
     assert app.pulse_log and all(pulses == [1500] * 4 for pulses in app.pulse_log)
-    assert app.test_pulses is None and not app.armed
+    assert app.state.manual.test_pulses is None and not app.armed
 
 
 
@@ -3271,11 +3272,11 @@ def test_actual_authority_u_uses_confirmed_release(tmp_path, confirm):
 def test_actual_authority_space_is_sticky_and_disarms(tmp_path):
     app, boat, releases = authority_popup_app(tmp_path)
     app.arming.armed = True
-    app.command = (0.2, 0, 0)
+    app.state.manual.command = (0.2, 0, 0)
     with app.attached():
         press(app, 'space', 'escape')
         app.dispatch('enter')
-    assert boat.holds == ['keys'] and not app.armed and app.command == (0, 0, 0)
+    assert boat.holds == ['keys'] and not app.armed and app.state.manual.command == (0, 0, 0)
     assert releases == [] and boat.sent and all(command == 'neutral' for command in boat.sent)
 
 
@@ -3324,13 +3325,13 @@ def test_failed_hardware_snapshot_retains_memory_and_draft(tmp_path, monkeypatch
     app.profile = type('Profile', (), {'outputs': 'memory'})()
     old = app.args.hardware_config
     app.arming.hardware_config = old
-    app.draft = draft = {'channel_map': [2, 1, 3, 4]}
+    app.state.manual.draft = draft = {'channel_map': [2, 1, 3, 4]}
     def fail(*args):
         raise OSError('snapshot write failed')
     monkeypatch.setattr('mhseals_testing.ui.app.actions.settings_rows.hardware.save_config', fail)
     assert not app.save_hardware(channel_map=[2, 1, 3, 4])
     assert app.args.hardware_config is old and app.arming.hardware_config is old
-    assert app.draft is draft
+    assert app.state.manual.draft is draft
     assert 'snapshot write failed' in app.notice
     assert 'reloaded' not in app.notice
     assert not app.watcher.reload('hardware').report
@@ -3424,7 +3425,7 @@ def _pulse_with_driver(tmp_path, output):
         app.focus = 'thrusters'
         arm(app)
         app.dispatch('right')
-        app.pulses_since -= 1.0
+        app.state.manual.pulses_since -= 1.0
         app.ros.driver_output, app.ros.driver_output_at = output, clock.monotonic()
         app.tick()
     return app

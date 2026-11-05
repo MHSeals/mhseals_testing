@@ -31,7 +31,7 @@ from mhseals_testing.ui.app import mixins, wiring
 # quit; the footer notice only through App.say). APP is what App builds and hands out: startup.py and wiring.py
 # build it, and after that App.rebuild is its one writer (a review swaps some of it). test_app_state_ownership
 # fails on any write across owners in ui/**. The containers in ui/app/state hold the groups converted so far
-# (render, bags, thrusters behind aliases; arm and holds as ``state.<group>``, their own); Labels keeps its LabelsState.
+# (render, bags behind aliases; manual, arm and holds as ``state.<group>``, their own); Labels keeps its LabelsState.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
 OWNERS = {
@@ -39,7 +39,7 @@ OWNERS = {
     'Loop': ('last_tick', 'fusion_image', 'detaching'),
     'Bags': ('bag_recording_key', 'bag_scan', 'finalizing', 'finalize_thread', 'rec', '_review_live', '_review_fault'),
     'Labels': ('_labels_state',),   # its LabelsState (actions/labels.py), read as app.labels
-    'Manual': ('manual', 'manual_speed', 'chords', 'command', 'draft', 'grabbed', 'test_pulses', '_manual_desk_at'),
+    'Manual': ('state.manual',),
     'Arm': ('state.arm',),
     'Holds': ('state.holds',),
     'Procedures': ('running', 'run_id', 'run_fields', 'tags', '_runner_cancelled', '_runner_paused', '_start_reset',
@@ -116,7 +116,6 @@ class App(*mixins.ROSTER):
         # Manual control needs key releases (Kitty protocol) to tell held keys from taps: the
         # session's reader turns them on (ui/input.py), keeping its queue across manual mode.
         self.open_events = open_events or (lambda: key_input.events(self.keys))
-        self.manual = False
         self.nav2_factory, self._nav2 = nav2, None
         self.nav2_file = nav2_file  # harness.nav2_edit.Nav2File, or None
         self.nav2_live_factory, self._nav2_live = nav2_live, None   # -> harness.nav2_live.Nav2Live
@@ -139,9 +138,6 @@ class App(*mixins.ROSTER):
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
         self.say(theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel')
-        self.command = (0.0, 0.0, 0.0)
-        self.chords = False             # the manual mode, for the Command glyph's label
-        self.manual_speed = None        # the last manual speed this session; None until manual ran
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(wiring.toast_feed(self.health))

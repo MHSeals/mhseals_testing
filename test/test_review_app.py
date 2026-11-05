@@ -98,10 +98,10 @@ def test_armed_fault_still_stops_in_review_over_a_live_session(tmp_path):
 def test_panel_edit_keys_do_not_reach_the_thrusters_in_review(tmp_path):
     app, _ = make_app_review(tmp_path)
     app.focus = 'thrusters'
-    before = (app.draft, app.grabbed)
+    before = (app.state.manual.draft, app.state.manual.grabbed)
     for key in ('r', '4', 'enter', 'u', 'down', 'enter', 'down'):
         app.dispatch(key)
-    assert (app.draft, app.grabbed) == before and app.modal is None
+    assert (app.state.manual.draft, app.state.manual.grabbed) == before and app.modal is None
     app.focus = 'activity'
     app.dispatch('v')
     assert app.activity == 'log'

@@ -178,7 +178,7 @@ def goal_facts(app, lifecycle=None, fence_wait=0.0):
         fix = int(fix.value) if fix is not None else 0
     else:
         fix = navsat_fix(app.profile, sensors)
-    driving = app.running or ('manual control' if app.manual else '')
+    driving = app.running or ('manual control' if app.services.manual.active else '')
     fence, fence_age = nav2.fence_state(fence_wait) if hasattr(nav2, 'fence_state') else (None, math.inf)
     return goals_module.Facts(
         fence=fence, fence_age_s=fence_age, to_ll=getattr(nav2, 'to_ll', None),

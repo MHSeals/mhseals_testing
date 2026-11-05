@@ -27,11 +27,11 @@ def test_a_session_becomes_a_manifest(tmp_path):
     app.arming.armed = True
     app.emit('armed', by='operator')
     tick()
-    app.manual, app.command = True, (0.4, 0.0, 0.0)
+    app.state.manual.active, app.state.manual.command = True, (0.4, 0.0, 0.0)
     for _ in range(10):                          # 10 s of a held command: a calibration candidate
         clock[0] += 1.0
         tick()
-    app.command = (0.0, 0.0, 0.0)
+    app.state.manual.command = (0.0, 0.0, 0.0)
     tick()
     app.dispatch('b')
     app.dispatch('1')                            # wake
@@ -39,7 +39,7 @@ def test_a_session_becomes_a_manifest(tmp_path):
     app.dispatch('5')                            # slow down
     tick(holds=('link lost',))
     tick()
-    app.manual = False
+    app.state.manual.active = False
     app.arming.armed = False
     app.emit('disarmed', by='operator')
     app.close_labels()

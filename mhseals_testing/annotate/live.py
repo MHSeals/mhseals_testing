@@ -16,7 +16,7 @@ from mhseals_testing.annotate import config
 
 HOLD = 2.0                     # s a new fix tier must hold before it is journaled
 FIX_WORDS = {0: 'none', 1: 'none', 2: '2D', 3: '3D', 4: 'DGPS', 5: 'FLOAT', 6: 'FIXED'}
-TRUSTED = (None, 'none', 'hold', 'keyboard', 'procedure')   # owners whose command is app.command
+TRUSTED = (None, 'none', 'hold', 'keyboard', 'procedure')   # owners whose command is app.services.manual.command
 FAILURES = 3                   # errors in a row before the feed turns itself off
 DEFAULT_STEADY = {'tolerance': 0.02, 'min': 4, 'calibration': 6, 'neutral': 8}
 
@@ -35,7 +35,7 @@ def owner_of(app):
     record = feeds.merged(app.feeds).get('authority_record') if getattr(app, 'arbiter', None) is not None else None
     if record:
         return record.get('owner') or 'none'
-    return 'keyboard' if app.manual else 'procedure' if app.running else 'none'
+    return 'keyboard' if app.services.manual.active else 'procedure' if app.running else 'none'
 
 
 class Steady:
@@ -115,8 +115,8 @@ class AnnotateFeed:
             self.fix, self.fix_seen = word, None
 
     def _steady(self, app, snapshot, owner):
-        trusted = app.armed and (owner in TRUSTED or app.running or app.manual)
-        command = tuple(app.command) if trusted else None
+        trusted = app.armed and (owner in TRUSTED or app.running or app.services.manual.active)
+        command = tuple(app.services.manual.command) if trusted else None
         window = self.steady
         if window is not None and (command is None or any(
                 abs(a - b) > self.settings['tolerance'] for a, b in zip(command, window.command))):

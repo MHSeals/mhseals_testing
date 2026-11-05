@@ -128,7 +128,8 @@ def test_quit_keeps_adopted_units_unless_the_operator_chooses_to_stop_them():
         def choose(title, options, shortcuts=None, rows=None, default=0, **_):
             asked.append((options, dict(rows), options[default], options[shortcuts['y']]))
             return answer
-        return SimpleNamespace(armed=False, paths=SimpleNamespace(bag='b', report='r'), draft=None,
+        return SimpleNamespace(armed=False, paths=SimpleNamespace(bag='b', report='r'),
+                               services=SimpleNamespace(manual=SimpleNamespace(draft=None)),
                                watching=None, snapshot=lambda: {'results': []}, quit=False,
                                choose=choose, stack=SimpleNamespace(units=units),
                                keep_units=False, stop_adopted=False)

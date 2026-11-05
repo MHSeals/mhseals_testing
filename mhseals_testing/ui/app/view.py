@@ -140,13 +140,13 @@ class View:
             f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
         hints = (self.review_hints()
-                 if self.review else MANUAL_HINTS if self.manual
+                 if self.review else MANUAL_HINTS if self.services.manual.active
                  else PANEL_HINTS.get(self.focus, []) + GLOBAL_HINTS)
         if self.tab == 'Correction' and not self.review:
             hints = CORRECTION_HINTS
-        elif self.tab == 'Fusion' and not (self.review or self.manual):
+        elif self.tab == 'Fusion' and not (self.review or self.services.manual.active):
             hints = FUSION_HINTS + GLOBAL_HINTS
-        if self.nav2_file is not None and self.focus == 'status' and not (self.manual or self.review):
+        if self.nav2_file is not None and self.focus == 'status' and not (self.services.manual.active or self.review):
             hints = PANEL_HINTS['status'] + [('e', 'Nav2')] + GLOBAL_HINTS
         if self.tab == 'Labels' and not self.review:
             hints = LABELS_HINTS + [('Space', 'Stop')]     # the tab's own keys; ? and q stay in the help
@@ -156,7 +156,7 @@ class View:
         if pick:
             hints = pick + [('Space', 'Stop')]
         shared = {} if self.review else feeds_module.merged(self.feeds)
-        thrusters = self.services.thrusters   # the Thrusters panel's edit, Manual's to write
+        thrusters = self.services.manual   # the Thrusters panel's edit, Manual's to write
         own = dict(
             tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=getattr(self, 'checklist', None),
             **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), **({'labels': self.labels_model()} if self.tab == 'Labels' and not self.review else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
@@ -170,9 +170,9 @@ class View:
             agent=authority_chip.banner(shared.get('authority_record'), time.time(), desk=shared.get('agent_desk')),
             armed=self.armed, armed_by=self.services.arm.armed_by if self.armed else None,
             arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
-            if self.armed else 'disarmed', command=self.command, chords=self.chords,
+            if self.armed else 'disarmed', command=self.services.manual.command, chords=self.services.manual.chords,
             chords_unavailable=key_input.chords_unavailable(self.keys),
-            speed=self.manual_speed if self.manual_speed is not None
+            speed=self.services.manual.speed if self.services.manual.speed is not None
             else (self.args.hardware_config or {}).get('manual_amplitude'),
             profile=self.profile.name, units=self.profile.command_units,
             plot_scale=self.profile.plot_scale,
@@ -226,7 +226,7 @@ class View:
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
         return authority_chip.driving(shared if shared is not None else feeds_module.merged(self.feeds),
                                       getattr(self, 'arbiter', None) or getattr(self, 'authority_view', None),
-                                      self.manual, self.running, time.time())
+                                      self.services.manual.active, self.running, time.time())
 
     def control(self):
         """``snapshot['control']`` for the Status Control rows."""
@@ -245,7 +245,7 @@ class View:
         """Something moves on screen (driving, a run, an act, a popup, a replay, the Fusion tab): idle ticks draw at
         the FRAME cap, as ever."""
         goals = getattr(self.desk, 'goals', None)
-        return bool(self.armed or self.running or self.manual or self.modal is not None or self.review
+        return bool(self.armed or self.running or self.services.manual.active or self.modal is not None or self.review
                     or getattr(getattr(self, 'desk', None), 'act', None) or getattr(goals, 'active', None)
                     or self.tab == 'Fusion')
 

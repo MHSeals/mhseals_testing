@@ -225,6 +225,7 @@ class Offline:
     """Stands in for the ROS node and the process manager in --review: nothing runs, nothing publishes."""
     fault = ''
     processes = {}
+    node = driver_output = driver_output_at = driver_status = None
 
     def emit(self, *args, **details):
         pass

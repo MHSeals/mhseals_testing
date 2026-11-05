@@ -177,7 +177,7 @@ class LeaseMixin:
             return str(mux.get('cause') or ((mux.get('holds') or [{}])[0] or {}).get('cause') or 'hold')
         if cause:
             return HUMAN.get(cause, cause)
-        if app.manual:
+        if app.services.manual.active:
             return 'keyboard'
         if self.act and self.act.get('armed') and not app.armed:
             return 'keys'                       # Space disarmed it (an unmuxed sim has no hold to see)

@@ -113,8 +113,9 @@ def test_busy_entry_refuses_without_loading_or_changing_owners(tmp_path, monkeyp
     if state == 'armed':
         app.arming.armed = True
     else:
-        field = {'manual': 'manual', 'running': 'running', 'pulses': 'test_pulses'}[state]
-        setattr(app, field, True)
+        owner, field = {'manual': (app.state.manual, 'active'), 'running': (app, 'running'),
+                        'pulses': (app.state.manual, 'test_pulses')}[state]
+        setattr(owner, field, True)
     source = app.source
     app.dispatch('enter')
     assert app.review is None and app.source is source and not opens
