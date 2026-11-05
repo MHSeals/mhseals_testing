@@ -40,6 +40,16 @@ def test_the_fence_file_keeps_the_rest_and_reads_back(tmp_path):
     assert course_area.load(tmp_path / 'none.yaml') == []
 
 
+def test_a_hand_edited_fence_the_strict_reader_refuses_is_named_and_never_rewritten(tmp_path):
+    path = tmp_path / 'fence.yaml'
+    path.write_text('course: {corners: [0, 0]}\ncourse: {on_exit: alert}\n')    # a duplicate key
+    with pytest.raises(ValueError, match='duplicate key'):
+        course_area.load(path)
+    with pytest.raises(ValueError, match='duplicate key'):
+        course_area.save(BOX, path)
+    assert path.read_text() == 'course: {corners: [0, 0]}\ncourse: {on_exit: alert}\n'
+
+
 @pytest.mark.parametrize('status, state, words', [
     ({'inside': True, 'distance_to_edge': 12.0, 'on_exit': 'alert'}, 'ok', 'inside'),
     ({'inside': False, 'distance_to_edge': 3.5, 'on_exit': 'alert'}, 'bad', 'drive the boat back inside'),
