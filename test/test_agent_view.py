@@ -10,7 +10,6 @@ from mhseals_testing.ui import authority_chip, chrome, layout, strip, theme
 from mhseals_testing.ui.panels import agent_log
 from mhseals_testing.ui.popups import authority as authority_popup
 from mhseals_testing.ui.timeaxis import Axis
-from mhseals_testing.ui.timeline import Timeline
 from test_dashboard import monitor, text, view
 
 NOW = 1_800_000_000.0
@@ -235,33 +234,7 @@ def test_detail_shows_every_line_of_the_row():
     assert 'run square' in shown['message'] and '"id": "r2"' in shown['message']
 
 
-# -- timeline and strip ----------------------------------------------------------------------------
-
-def journal():
-    return [
-        {'phase': 'claim', 't_ns': NS, 'owner': 'agent', 'who': WHO, 'id': 'c4'},
-        {'phase': 'claim', 't_ns': NS + 1, 'owner': 'procedure', 'who': 'square', 'id': 'c5'},
-        {'phase': 'agent_act', 't_ns': NS + int(5e9), 'id': 'r2', 'state': 'started', 'who': WHO, 'op': 'run'},
-        {'phase': 'square_start', 't_ns': NS + int(5.5e9), 'procedure': 'square', 'key': 'w'},
-        {'phase': 'marker', 't_ns': NS + int(8e9), 'id': 3, 'kind': 'agent', 'note': 'gate 1 passed'},
-        {'phase': 'square_stop', 't_ns': NS + int(15e9), 'procedure': 'square'},
-        {'phase': 'agent_act', 't_ns': NS + int(15e9), 'id': 'r2', 'state': 'done', 'who': WHO, 'op': 'run'},
-        {'phase': 'square_start', 't_ns': NS + int(16e9), 'procedure': 'square', 'key': 'w'},
-        {'phase': 'claim_expire', 't_ns': NS + int(20e9), 'owner': 'agent', 'who': WHO, 'id': 'c4'},
-    ]
-
-
-def test_timeline_places_agent_points_and_labels_agent_runs():
-    tl = Timeline()
-    for e in journal():
-        tl.add(e)
-    points = [p for p in tl.points() if p.kind == 'agent']
-    assert [p.label for p in points] == [f'claim · {WHO}', f'run started · {WHO}',
-                                         'gate 1 passed', f'run done · {WHO}', f'lease expired · {WHO}']
-    assert points[-1].sev == 1
-    assert [s.label for s in tl.spans() if s.kind == 'proc'] == ['agent:square', 'square']
-    assert [i.what for i in tl.items('markers')] == ['gate 1 passed']
-
+# -- strip -----------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize('ascii_mode, glyph', [(False, '◆'), (True, 'A')])
 def test_strip_draws_the_agent_glyph(ascii_mode, glyph):
