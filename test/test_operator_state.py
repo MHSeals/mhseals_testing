@@ -209,9 +209,23 @@ def test_tools_boat_agent_relays_only_to_another_host(tmp_path):
     env = {'PATH': f'{fake}:/usr/bin:/bin', 'HOME': str(tmp_path), 'XDG_CACHE_HOME': str(tmp_path)}
     local = subprocess.run([script, 'status'], env=env, capture_output=True, text=True).stdout
     assert local.startswith('docker exec -i roboboat_dev')
-    remote = subprocess.run([script, 'status'], env=dict(env, BOAT_AGENT_TARGET='blastoise'),
+    # A fixture workspace and registry (no astro_dock in CI): the vessel's name means its TUI host.
+    ws = tmp_path / 'ws'
+    (ws / 'devices').mkdir(parents=True)
+    (ws / 'hw.sh').write_text('#!/bin/sh\nexit 1\n')
+    (ws / 'hw.sh').chmod(0o755)
+    (ws / 'devices' / 'profile.py').write_text(
+        'import json\ndef registry_hosts(path):\n    return json.load(open(path))\n')
+    registry = tmp_path / 'vessel' / 'devices.json'
+    registry.parent.mkdir()
+    registry.write_text(json.dumps({'vessel-jetson': {'roles': ['camera']}, 'vessel-tui': {'roles': ['tui_backend']}}))
+    env = dict(env, ASTRO_WS=str(ws), ASTRO_REGISTRY=str(registry))
+    remote = subprocess.run([script, 'status'], env=dict(env, BOAT_AGENT_TARGET='vessel'),
                             capture_output=True, text=True).stdout
-    assert remote.startswith('ssh -o ConnectTimeout=8 -o BatchMode=yes -- blastoise-odroid BOAT_AGENT_TARGET=local')
+    assert remote.startswith('ssh -o ConnectTimeout=8 -o BatchMode=yes -- vessel-tui BOAT_AGENT_TARGET=local')
+    other = subprocess.run([script, 'status'], env=dict(env, BOAT_AGENT_TARGET='vessel-jetson'),
+                           capture_output=True, text=True).stdout
+    assert other.startswith('ssh -o ConnectTimeout=8 -o BatchMode=yes -- vessel-jetson BOAT_AGENT_TARGET=local')
 
 
 # --- what the operator sees ---------------------------------------------------------------------
