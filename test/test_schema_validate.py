@@ -75,17 +75,51 @@ def test_a_file_without_a_fragment_is_not_checked(tmp_path):
     assert schema.validate(path, {'anything': 1}) == []
 
 
-def test_load_strict_warns_now_and_raises_when_strict(config, caplog, monkeypatch):
+def test_load_strict_raises_and_warns_only_when_not_strict(config, caplog, monkeypatch):
     write, fragment = config
     fragment({'tune.rate': entry('float')}, closed=True)
     path = write({'tune': {'rate': 'fast'}})
+    with pytest.raises(ValueError, match=r"demo\.yaml:tune\.rate: expected float, got str 'fast'"):
+        load_strict(path.read_text(), path)
+    monkeypatch.setattr(strict_yaml, 'STRICT', False)
     with caplog.at_level(logging.WARNING, logger='mhseals_testing.strict_yaml'):
         assert load_strict(path.read_text(), path) == {'tune': {'rate': 'fast'}}
     assert "demo.yaml:tune.rate: expected float, got str 'fast'" in caplog.text
     assert load_strict(path.read_text()) == {'tune': {'rate': 'fast'}}     # no path: nothing to look up
-    monkeypatch.setattr(strict_yaml, 'STRICT', True)
-    with pytest.raises(ValueError, match=r"demo\.yaml:tune\.rate: expected float, got str 'fast'"):
-        load_strict(path.read_text(), path)
+
+
+def test_a_broken_fragment_warns_and_the_config_still_loads(config, caplog):
+    write, _ = config
+    path = write({'tune': {'rate': 1}})
+    (path.parent / 'schema' / 'demo.yaml').write_text('demo.tune.rate: {type: double}\n')
+    with caplog.at_level(logging.WARNING, logger='mhseals_testing.strict_yaml'):
+        assert load_strict(path.read_text(), path) == {'tune': {'rate': 1}}
+    assert 'its schema fragment does not load' in caplog.text
+
+
+@pytest.fixture
+def health_copy(tmp_path):
+    """The shipped health.yaml and its real fragment in a scratch config dir; returns the copy's path."""
+    (tmp_path / 'schema').mkdir()
+    (tmp_path / 'schema' / 'health.yaml').write_text((OWN / 'config' / 'schema' / 'health.yaml').read_text())
+    path = tmp_path / 'health.yaml'
+    path.write_text((OWN / 'config' / 'health.yaml').read_text())
+    return path
+
+
+@pytest.mark.parametrize('old, new, why', [
+    ('git: {period: 30, fetch: 0, stale: 3600}', 'git: {period: 30, fetch: 0, stael: 3600}',
+     r'health\.yaml:probes\.git\.stael: unknown key \(not in schema/health\.yaml\)'),
+    ('    max_shown: 3 ', '    max_shown: three ',
+     r"health\.yaml:tune\.toasts\.max_shown: expected int, got str 'three'"),
+])
+def test_a_typo_or_wrong_type_in_health_yaml_fails_at_load(health_copy, old, new, why):
+    from mhseals_testing.health import config as health_config
+    text = health_copy.read_text()
+    assert old in text
+    health_copy.write_text(text.replace(old, new, 1))
+    with pytest.raises(health_config.ConfigError, match=why):
+        health_config.load(health_copy, user=False)
 
 
 @pytest.mark.smoke
