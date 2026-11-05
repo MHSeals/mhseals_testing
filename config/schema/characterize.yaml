@@ -14,3 +14,11 @@ characterize.nav2_rules.tau_s.yaw: {type: float, units: s, tier: new-session, do
 characterize.nav2_rules.stop_distance_m: {type: float, units: m, tier: new-session, doc: "Distance within which the boat must stop, lag included; caps vx and vy."}
 characterize.nav2_rules.ramp_lags: {type: float, units: "1", tier: new-session, doc: "Lags a full-speed ramp must take at least; caps the accelerations."}
 characterize.nav2_rules.yaw_tolerance: {type: float, units: rad, tier: new-session, doc: "Yaw tolerance a turn may overshoot by half of; caps wz."}
+characterize.refine.max_holds: {type: int, units: count, tier: new-session, doc: "Refinement holds per direction at most."}
+characterize.refine.probe: {type: float, units: "1", tier: new-session, doc: "Refinement probe amplitude as a fraction of the run amplitude."}
+characterize.refine.headroom: {type: float, units: "1", tier: new-session, doc: "a(1 + sum|c|) stays below this."}
+characterize.refine.min_room: {type: float, units: "1", tier: new-session, doc: "Smallest sum|c| the amplitude must allow."}
+characterize.tolerance.surge: {type: list, units: "1", tier: new-session, doc: "Cross response per unit surge that counts as corrected: sway, yaw."}
+characterize.tolerance.sway: {type: list, units: "1", tier: new-session, doc: "Cross response per unit sway that counts as corrected: surge, yaw."}
+characterize.tolerance.yaw: {type: list, units: "1", tier: new-session, doc: "Cross response per unit yaw that counts as corrected: surge, sway."}
+characterize: {closed: true}   # every key of characterize.yaml is described; another is an unknown key

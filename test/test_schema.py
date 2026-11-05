@@ -36,15 +36,11 @@ def shares(tmp_path, monkeypatch):
 def test_own_schema_keys_exist_in_the_shipped_yaml(shares):
     keys = schema.load('mhseals_testing')
     assert keys
-    for key in keys:
-        name, *path = key.split('.')
-        node = yaml.safe_load((OWN / 'config' / f'{name}.yaml').read_text())
-        for part in path:
-            node = node[part]
-        entry = keys[key]
-        kind = {'float': (int, float), 'int': int, 'bool': bool, 'str': str,
-                'list': list}[entry['type']]
-        assert isinstance(node, kind) or node is None and entry.get('nullable'), key
+    for name in {key.split('.')[0] for key in keys}:
+        path = OWN / 'config' / f'{name}.yaml'
+        doc = yaml.safe_load(path.read_text())
+        assert schema.validate(path, doc) == [], name          # each described value has its type
+        assert schema.coverage(path, doc)[1] == [], name       # and each entry names something shipped
 
 
 @pytest.mark.parametrize('package', ['mhseals_hardware', 'mhseals_nav'])

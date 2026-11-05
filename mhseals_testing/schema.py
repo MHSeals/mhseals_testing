@@ -139,46 +139,71 @@ def validate(path, doc):
     or enum; and, in a fragment marked ``<file>: {closed: true}``, any key it does not describe. Key
     patterns: ``*`` is any mapping key, ``[]`` each item of a list (``health.groups.*.checks.[].id``).
     """
+    problems, unknown, _ = _walk(path, doc)
+    return problems + (unknown if closed(path) else [])
+
+
+def coverage(path, doc):
+    """(keys of ``doc`` no entry describes, entries that describe nothing in it and are not ``optional``)."""
     fragment = fragment_of(path)
     if fragment is None:
-        return []
+        return [f'{Path(path).name}: no schema fragment'], []
+    _, unknown, used = _walk(path, doc)
     name = Path(path).stem
-    raw = _mapping(fragment)
-    closed = bool((raw.get(name) or {}).get('closed'))
+    unused = [key for key, entry in _mapping(fragment).items()
+              if key != name and key not in used and not entry.get('optional')]
+    return unknown, unused
+
+
+def closed(path):
+    fragment = fragment_of(path)
+    return bool(fragment and (_mapping(fragment).get(Path(path).stem) or {}).get('closed'))
+
+
+def _walk(path, doc):
+    """(value problems, undescribed keys, keys of the entries that matched) of ``doc`` against its fragment."""
+    fragment = fragment_of(path)
+    if fragment is None:
+        return [], [], set()
+    name = Path(path).stem
     patterns = {}
-    for key, entry in raw.items():
+    for key, entry in _mapping(fragment).items():
         if key != name:
             _check(key, entry, fragment)
-            patterns[tuple(key.split('.')[1:])] = entry
+            patterns[tuple(key.split('.')[1:])] = (key, entry)
     prefixes = {pattern[:n] for pattern in patterns for n in range(len(pattern) + 1)}
-    problems = []
+    problems, unknown, used = [], [], set()
+    absent = f'(not in {fragment.parent.name}/{fragment.name})'
 
     def matches(have, want):
         return len(have) == len(want) and all(w in ('*', h) for h, w in zip(have, want))
 
+    def items(node, at, shown):
+        if isinstance(node, list) and any(matches(at + ('[]',), prefix) for prefix in prefixes):
+            for index, item in enumerate(node):
+                walk(item, at + ('[]',), shown + [str(index)])
+            return True
+        return False
+
     def walk(node, at, shown):
-        entry = next((e for pattern, e in patterns.items() if matches(at, pattern)), None)
+        found = next((ke for pattern, ke in patterns.items() if matches(at, pattern)), None)
         where = f"{Path(path).name}:{'.'.join(shown) or '(top)'}"
-        if entry is not None:
-            problem = _value(where, entry, node)
+        if found is not None:
+            used.add(found[0])
+            problem = _value(where, found[1], node)
             if problem:
                 problems.append(problem)
-            if entry['type'] == 'list' and isinstance(node, list) and any(matches(at + ('[]',), p) for p in prefixes):
-                for index, item in enumerate(node):
-                    walk(item, at + ('[]',), shown + [str(index)])
+            if found[1]['type'] == 'list':
+                items(node, at, shown)
             return
         if isinstance(node, dict):
             for key, value in node.items():
                 child = at + (str(key),)
                 if any(matches(child, prefix) for prefix in prefixes):
                     walk(value, child, shown + [str(key)])
-                elif closed:
-                    problems.append(f"{Path(path).name}:{'.'.join(shown + [str(key)])}: unknown key "
-                                    f"(not in {fragment.parent.name}/{fragment.name})")
-        elif isinstance(node, list) and any(matches(at + ('[]',), prefix) for prefix in prefixes):
-            for index, item in enumerate(node):
-                walk(item, at + ('[]',), shown + [str(index)])
-        elif closed and at:
-            problems.append(f'{where}: not described (not in {fragment.parent.name}/{fragment.name})')
+                else:
+                    unknown.append(f"{Path(path).name}:{'.'.join(shown + [str(key)])}: unknown key {absent}")
+        elif not items(node, at, shown) and at:
+            unknown.append(f'{where}: not described {absent}')
     walk(doc, (), [])
-    return problems
+    return problems, unknown, used

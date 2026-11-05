@@ -9,3 +9,21 @@ fusion_panel.draw_rate: {type: float, units: Hz, tier: restart, doc: "Camera and
 fusion_panel.ramp: {type: list, units: m, tier: restart, doc: "Range breaks for the point colours spd.1..spd.5."}
 fusion_panel.rings: {type: list, units: m, tier: restart, doc: "Top-down range rings."}
 fusion_panel.tune.perception.loss_warn: {type: float, units: "1", range: [0, 1], tier: restart, doc: "Perception popup: a rate drop above this fraction between two stages marks the arrow."}
+fusion_panel.topics.observations: {type: str, units: topic, tier: restart, doc: "Stereo boxes (the backend's ranges)."}
+fusion_panel.topics.fused: {type: str, units: topic, tier: restart, doc: "lidar_fusion output; absent while fusion is off."}
+fusion_panel.topics.sources: {type: str, units: topic, tier: restart, doc: "JSON source label per fused box and the extrinsic samples."}
+fusion_panel.topics.camera_info: {type: list, units: topic, tier: restart, doc: "Camera info topics for the drawn camera's intrinsics, any of these."}
+fusion_panel.feed.points_max: {type: int, units: count, tier: restart, doc: "Projected points kept per scan (stride decimation)."}
+fusion_panel.feed.points_link: {type: int, units: count, tier: restart, doc: "Points drawn per paint over a budgeted link."}
+fusion_panel.feed.points_link_framed: {type: int, units: count, tier: restart, doc: "Points drawn per paint over a budgeted link with the camera image under them."}
+fusion_panel.feed.camera_width: {type: int, units: px, tier: restart, doc: "Width the camera frame is cut to on arrival (greyscale)."}
+fusion_panel.check.near: {type: float, units: m, tier: restart, doc: "Live check: boxes nearer than this are graded (as fusion_calib.yaml check)."}
+fusion_panel.check.du_pass_px: {type: float, units: px, tier: restart, doc: "Live check: horizontal offset that passes."}
+fusion_panel.check.du_warn_px: {type: float, units: px, tier: restart, doc: "Live check: horizontal offset beyond which it fails (warns between)."}
+fusion_panel.check.dv_pass_px: {type: float, units: px, tier: restart, doc: "Live check: vertical (pitch) offset that passes."}
+fusion_panel.check.dv_warn_px: {type: float, units: px, tier: restart, doc: "Live check: vertical offset beyond which it fails (warns between)."}
+fusion_panel.check.hit_rate_min: {type: float, units: "1", tier: restart, doc: "Live check: smallest lidar hit rate that passes."}
+fusion_panel.check.range_tol: {type: float, units: "1", tier: restart, doc: "Live check: |lidar/stereo - 1| beyond this warns."}
+fusion_panel.check.range_fail_tol: {type: float, units: "1", tier: restart, doc: "Live check: |lidar/stereo - 1| beyond this fails."}
+fusion_panel.check.min_samples: {type: int, units: count, tier: restart, doc: "Extrinsic samples before the live check gives a verdict."}
+fusion_panel: {closed: true}   # every key of fusion_panel.yaml is described; another is an unknown key

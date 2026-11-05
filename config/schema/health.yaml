@@ -5,3 +5,15 @@ health.tune.toasts.lifetime.ok: {type: float, units: s, range: [0, 3600], tier: 
 health.tune.toasts.lifetime.fail: {type: float, units: s, range: [0, 3600], nullable: true, tier: restart, doc: "An error toast stays this long; null stays until recovery or ack."}
 health.tune.toasts.max_shown: {type: int, units: count, range: [1, 20], tier: restart, doc: "Toasts drawn at once; the rest count as hidden."}
 health.tune.toasts.dedupe: {type: float, units: s, range: [0, 3600], tier: restart, doc: "A repeat of a toast inside this window bumps its count."}
+health.probes.*.period: {type: float, units: s, tier: restart, doc: "How often this probe publishes; a fact older than three periods reads as unknown."}
+health.probes.fcu.wmm_total_mG: {type: float, units: mG, tier: restart, doc: "The site's World Magnetic Model total field the compass checks compare to (per site)."}
+health.probes.git.fetch: {type: float, units: s, tier: restart, doc: "How often the git probe fetches; 0 never fetches (opt-in)."}
+health.probes.devices.grace: {type: float, units: s, tier: restart, doc: "A host whose reads fail or a part that exited shows as an issue only after this long."}
+health.probes.devices.discovery_grace: {type: float, units: s, tier: restart, doc: "A running part's nodes missing from this computer's graph show as an issue only after this long."}
+health.probes.perception.silence: {type: float, units: s, tier: restart, doc: "Seconds without a stage before it reads 0 Hz and its other facts drop."}
+health.probes.perception.status_grace: {type: float, units: s, tier: restart, doc: "Seconds a 1 Hz tracker stage may be quiet before the costmap age grows."}
+health.probes.clock_sync.roles: {type: list, units: "", tier: restart, doc: "Device registry roles whose hosts the clock check queries over SNTP."}
+health.groups.*.defaults: {type: map, units: "", tier: restart, optional: true, doc: "Fields merged into every check of the group."}
+health.groups.*.joins: {type: list, units: "", tier: restart, optional: true, doc: "Other groups' check ids that this group's --require also needs OK."}
+health.groups.*.checks: {type: list, units: "", tier: restart, doc: "The group's checks; health/config.py checks each against its kind (health/registry.py) and lints them."}
+health: {closed: true}   # every key of health.yaml is described; another is an unknown key

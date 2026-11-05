@@ -5,3 +5,10 @@ tracking.score.yellow: {type: float, units: "1", tier: new-session, doc: "Tracki
 tracking.stale.min_sessions: {type: int, units: count, tier: new-session, doc: "Sessions on one calibration before staleness is judged."}
 tracking.stale.low_score: {type: float, units: "1", tier: new-session, doc: "Weighted mean score below this flags the calibration as stale."}
 tracking.live.window: {type: float, units: s, tier: new-session, doc: "Sliding window the Motion header scores over."}
+tracking.score.active_sigma: {type: float, units: "1", tier: new-session, doc: "A sample counts when |predicted speed| is at least this many neutral SDs."}
+tracking.score.min_active: {type: float, units: "1", tier: new-session, doc: "Fraction of the window that must count, else the score is -."}
+tracking.stale.trend_sessions: {type: int, units: count, tier: new-session, doc: "Sessions before a falling trend can flag the calibration."}
+tracking.stale.low_runs: {type: int, units: count, tier: new-session, doc: "Sessions in a row below low_score that flag the calibration."}
+tracking.stale.confidence: {type: float, units: "1", tier: new-session, doc: "Bootstrap interval the falling slope must clear."}
+tracking.stale.bootstrap: {type: int, units: count, tier: new-session, doc: "Bootstrap resamples of the trend slope."}
+tracking: {closed: true}   # every key of tracking.yaml is described; another is an unknown key
