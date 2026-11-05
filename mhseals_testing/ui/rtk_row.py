@@ -142,9 +142,7 @@ def _link(view, link, cells, ascii):
 
 
 def _age(age, narrow):
-    if narrow or age >= 10:
-        return '>99s' if age > 99 else f'{age:.0f}s'
-    return f'{age:.1f}s'
+    return theme.age(age, 'precise', narrow=narrow)
 
 
 def _distance(metres, narrow):

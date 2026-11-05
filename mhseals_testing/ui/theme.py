@@ -88,6 +88,39 @@ def spinner(t):
     """The spinner frame for time ``t`` seconds, advancing SPINNER_HZ frames a second."""
     return SPINNER[int(t * SPINNER_HZ) % len(SPINNER)] if math.isfinite(t) else SPINNER[0]
 
+
+# Ages as text (theme.age): one formatter, a style per kind of place an age is read.
+_AGE_UNITS = (('d', 86400), ('h', 3600), ('m', 60))
+
+
+def age(seconds, style='compact', narrow=False):
+    """``seconds`` as an age. ``compact``: ``4m``, ``2h``, ``3d`` (whole units, ``12s`` under a minute);
+    ``chip``: ``40 s`` under a minute, else ``4m`` or ``2h``; ``words``: ``4 min ago``, ``2 h ago``,
+    ``3 d ago``, ``just now`` under a minute; ``precise``: ``2.4s`` under 10 s, ``12s``, ``>99s`` past 99 s
+    (``narrow`` drops the tenth)."""
+    if style == 'precise':
+        if narrow or seconds >= 10:
+            return '>99s' if seconds > 99 else f'{seconds:.0f}s'
+        return f'{seconds:.1f}s'
+    if style == 'chip':
+        seconds = max(0, int(seconds))
+        if seconds < 60:
+            return f'{seconds} s'
+        return f'{seconds // 60}m' if seconds < 3600 else f'{seconds // 3600}h'
+    if style == 'words':
+        seconds = max(0, seconds)
+        for unit, size in _AGE_UNITS:
+            if seconds >= size:
+                return f"{int(seconds // size)} {'min' if unit == 'm' else unit} ago"
+        return 'just now'
+    if style == 'compact':
+        for unit, size in _AGE_UNITS:
+            if seconds >= size:
+                return f'{int(seconds // size)}{unit}'
+        return f'{int(seconds)}s'
+    raise ValueError(f'age style {style!r}: compact, chip, words or precise')
+
+
 _KINDS = {
     'good': {'LIVE', 'OK', 'PASS', 'SIGN MATCH', 'SETTLED', 'HELD', 'REACHED', 'FITTED',
              'SAVED', 'DONE', 'RECORDED', 'SUCCEEDED', 'ARMED', 'READY'},
