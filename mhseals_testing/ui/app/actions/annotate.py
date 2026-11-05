@@ -11,7 +11,9 @@ import time
 
 from mhseals_testing.annotate import config
 from mhseals_testing.harness import journal
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
+
+MARKS = ('mark', 'bad_data', 'say')    # global: b, N and " from any loop
 
 FLASH = 3.0              # s a mark's footer flash stays (the pick's length by default)
 
@@ -40,17 +42,18 @@ class Annotate:
 
         Never Space, E or a digit the pick does not offer; any error is a notice, never a stop."""
         key = plain(key)
-        if key not in ('b', 'N', '"') and not self.pick_wants(key):
+        action = keymap.dispatch('global', key)
+        if action not in MARKS and not self.pick_wants(key):
             return False
         try:
-            {'b': self.mark, 'N': self.toggle_bad, '"': self.say}.get(key, lambda: self.pick_digit(key))()
+            {'mark': self.mark, 'bad_data': self.toggle_bad, 'say': self.say}.get(action, lambda: self.pick_digit(key))()
         except Exception as error:      # a full disk, a torn journal or a bad config never stops the boat
             self.notice = f'Mark not saved: {error}'
         return True
 
     def annotate_later(self, key):
         """Manual drive's hook: queue the key; ``annotate_queued`` handles it after the publish (no fsync before it)."""
-        if plain(key) in ('b', 'N', '"') or self.pick_wants(plain(key)):
+        if keymap.dispatch('global', plain(key)) in MARKS or self.pick_wants(plain(key)):
             self._queued = (*self._queued, key)
 
     def annotate_queued(self):

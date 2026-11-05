@@ -181,6 +181,13 @@ LITERALS = [
     *[('popup.run', k, a) for k, a in (('X', 'exclude'), ('up', 'prev'), ('k', 'prev'), ('down', 'next'),
                                        ('j', 'next'), ('escape', 'close'), ('q', 'close'))],
     (('global', 'panel.activity'), 'v', 'view_next'), (('global', 'panel.activity'), 'h', None),
+    # actions/annotate.py, actions/procedures.py
+    ('global', 'b', 'mark'), ('global', 'N', 'bad_data'), ('global', '"', 'say'), ('global', 'B', 'mark_note'),
+    # actions/manual.py: the Thrusters panel (its key arrives folded)
+    *[(STACKS['drive/thrusters'], k, a) for k, a in (
+        ('left', 'pulse_down'), ('h', 'pulse_down'), ('right', 'pulse_up'), ('l', 'pulse_up'), ('0', 'neutral'),
+        ('enter', 'activate'), ('1', 'wire_1'), ('2', 'wire_2'), ('3', 'wire_3'), ('4', 'wire_4'), ('r', 'reverse'),
+        ('s', 'save'), ('u', 'undo'), ('i', 'thruster_set'), ('c', 'clear_decoupling'))],
 ]
 
 

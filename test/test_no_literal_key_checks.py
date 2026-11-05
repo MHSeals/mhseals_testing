@@ -20,7 +20,6 @@ KEY_VARS = {'key', 'raw', 'folded', 'pressed', 'ch'}
 EVENTS = ('press:', 'release:', 'repeat:')
 ALLOWED = {   # path under ui/ -> literal key checks left (refactor areas 3, 4, 6 and this area's queue)
     'popups/hold.py': 2, 'feeds/agent_desk/desk.py': 1, 'app/view.py': 1, 'panels/checklist.py': 6,
-    'app/actions/manual.py': 10, 'app/actions/procedures.py': 1, 'app/actions/annotate.py': 1,
 }
 
 

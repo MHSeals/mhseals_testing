@@ -5,7 +5,7 @@ import time
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS
 from mhseals_testing.harness import operator_state
 from mhseals_testing.procedures import PROCEDURES
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 from mhseals_testing.ui import input as key_input
 from mhseals_testing.ui.popups import pins
 
@@ -17,6 +17,7 @@ MANUAL_DESK_S = 0.2      # s; the agent desk's tick from inside manual control
 
 
 NEUTRAL = 1500
+WIRES = {'wire_1': 1, 'wire_2': 2, 'wire_3': 3, 'wire_4': 4}   # panel.thrusters: the output a row goes to
 
 
 class Manual:
@@ -66,22 +67,24 @@ class Manual:
     def on_thrusters(self, key):
         position = self.cursors['thrusters']
         channel_map, reversed_ = self.mapping()
-        if key in ('left', 'right', 'h', 'l'):
-            self.nudge(position, PULSE_STEP if key in ('right', 'l') else -PULSE_STEP)
-        elif key == '0':
+        action = keymap.dispatch(keymap.STACKS['drive/thrusters'], key)
+        if action in ('pulse_down', 'pulse_up'):
+            self.nudge(position, PULSE_STEP if action == 'pulse_up' else -PULSE_STEP)
+        elif action == 'neutral':
             self.clear_pulses('Test pulses neutral')
-        elif key == 'enter':
+        elif action == 'activate':
             self.grabbed = None if self.grabbed is not None else position
             self.notice = ('Moving ' + POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
                            'Enter drops' if self.grabbed is not None else 'Dropped')
-        elif key in ('1', '2', '3', '4'):
-            other = channel_map.index(int(key))
-            channel_map[other], channel_map[position] = channel_map[position], int(key)
+        elif action in WIRES:
+            output = WIRES[action]
+            other = channel_map.index(output)
+            channel_map[other], channel_map[position] = channel_map[position], output
             self.edit_mapping(channel_map, reversed_)
-        elif key == 'r':
+        elif action == 'reverse':
             reversed_[position] = not reversed_[position]
             self.edit_mapping(channel_map, reversed_)
-        elif key == 's':
+        elif action == 'save':
             if self.draft is None:   # a pin change still unread: s retries the readback
                 self.notice = pins.verify(self) if self.pins_unverified else 'Nothing to save'
                 return
@@ -94,12 +97,12 @@ class Manual:
             chips = dict(pwm_chips=self.draft['pwm_chips']) if moved else {}
             if self.save_hardware(channel_map=channel_map, reversed=reversed_, **chips):
                 self.notice = pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}'
-        elif key == 'u':
+        elif action == 'undo':
             self.draft = self.grabbed = None
             self.notice = 'Mapping changes undone'
-        elif key == 'i':
-            self.run_procedure(next(p for p in PROCEDURES if p.key == 'i'))
-        elif key == 'c':
+        elif action == 'thruster_set':
+            self.run_procedure(next(p for p in PROCEDURES if p.key == key))
+        elif action == 'clear_decoupling':
             if decoupled(self.args.hardware_config) is None:
                 self.notice = 'No decoupling to clear'
             elif self.choose('Clear the fitted decoupling? Thrust goes back to the plain mixer.',

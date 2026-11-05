@@ -66,7 +66,7 @@ class Procedures:
         pass
 
     def on_procedures(self, key):
-        if key == 'enter':
+        if keymap_module.matches('global', 'activate', key):
             self.run_procedure(PROCEDURES[self.cursors['procedures']])
             return
         procedure = next((p for p in PROCEDURES if p.key == key), None)
