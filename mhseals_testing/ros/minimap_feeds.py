@@ -24,8 +24,7 @@ from mhseals_testing.analysis.fixlog import state_of
 from mhseals_testing.analysis.geo import MapRotation, enu
 from mhseals_testing.health.model import Fact
 from mhseals_testing.profiles import default_topics
-from mhseals_testing.ui.minimap.marks import Obj
-from mhseals_testing.ui.minimap.state import UNKNOWN_SPEED, MapState
+from mhseals_testing.model.map_state import UNKNOWN_SPEED, MapState, Obj
 
 # The shipped topic names (config/profile.yaml topics:); MapFeeds reads its profile's, these are the defaults.
 _TOPICS = default_topics()

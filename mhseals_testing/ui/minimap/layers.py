@@ -7,17 +7,16 @@ the emitter maps them to the palette and to the colourless tiers.
 """
 
 import math
-from collections import namedtuple
 
 import numpy as np
 
+from mhseals_testing.model.map_state import FIX_BANDS, Crumb  # noqa: F401  (re-export)
 from mhseals_testing.ui.minimap import view
 from mhseals_testing.ui.minimap.canvas import BITS
 
 # Every Nth dot is drawn per GPS quality; None is no fix (a gap mark, no dots).
 GPS_PERIOD = {'fix': 1, 'float': 2, 'dgps': 3, '3d': 4, 'none': None}
-# GPSRAW fix_type (what MapState and the trail file keep) to a GPS_PERIOD band; others are 'none'.
-FIX_BANDS = {6: 'fix', 5: 'float', 4: 'dgps', 3: '3d'}
+# GPSRAW fix_type (what MapState and the trail file keep) to a GPS_PERIOD band: FIX_BANDS (model.map_state).
 TRACK_BANDS = ((0.25, 'ok', 1), (0.6, 'mid', 2))  # (cross-track limit m, band, period)
 TRACK_FAR = ('bad', 3)
 SPEED_BANDS = 5  # spd.0 .. spd.4 up to vmax, spd.5 above it
@@ -27,8 +26,7 @@ COST_MIN, INSCRIBED, LETHAL = 50, 99, 100
 HITS_RANGE, HITS_NEAR = 20.0, 3.0  # m from the boat
 
 # xte is the cross-track error against the goal's first plan, None when unknown.
-# ``t`` (s, the pose clock) ages the crumb into the mid and old bands.
-Crumb = namedtuple('Crumb', 'x y fix xte speed epoch t', defaults=(0, None, 0.0, 0, None))
+# ``t`` (s, the pose clock) ages the crumb into the mid and old bands. Crumb: model.map_state.
 OLD_SHARE = 64   # the faded tail keeps at most 1/64 of the canvas cells, its newest ones (SSH bytes)
 AGE_BANDS = ((30.0, None), (120.0, 'mid'))   # fresh up to 30 s keeps its mode band, then mid, then old
 

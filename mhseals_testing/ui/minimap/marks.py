@@ -5,15 +5,11 @@ after a colon (``object:obj.red``); `canvas.rank` ignores it and the emitter rea
 """
 
 import math
-from collections import namedtuple
 
 from mhseals_testing.analysis.classes import TRACKS
+from mhseals_testing.model.map_state import Obj  # noqa: F401  (re-export: a map object or track)
 from mhseals_testing.ui.minimap.view import rotate
 
-# A map object or tracker track (perception-v2 7.1). ``motion`` is static, moving or unknown,
-# ``source`` live or prior (course map); ``vx vy`` m/s and ``sx sy`` size in m, map frame.
-Obj = namedtuple('Obj', 'x y label score contact motion vx vy sx sy source',
-                 defaults=(False, 'static', 0.0, 0.0, 0.0, 0.0, 'live'))
 SCORE_FLOOR = 0.3   # default detection floor D (0, .3, .5, .7); below it the object is hidden
 RING_HALF = 10.0    # class-radius rings show at or below this half-width, labels at LABEL_HALF
 LABEL_HALF = 10.0
