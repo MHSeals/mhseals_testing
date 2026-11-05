@@ -57,6 +57,12 @@ fetch: {bwlimit_kbps: 2000}
 # boat_agent arm --claim ID (owner decision 2026-11-01): a banner counts down this long in the TUI, the operator
 # cancels it (Esc, Enter); the e-stop refuses. It never releases a hold.
 arm: {countdown: 5}
+# The authority UI's field knobs (schema.yaml agent.tune.*): working_s, how recent an agent note shows the header's
+# unclaimed-activity item; stop_wait_s, how long a starting TUI waits for an owner it stops to flush its bag and exit;
+# view_wait_s, how long a viewer waits for the next owner after a takeover. The chip's motion lease total, when an act
+# carries none, is lease.motion_s.
+tune:
+  authority: {working_s: 60, stop_wait_s: 40, view_wait_s: 15}
 unclaimed_driver: warn  # warn | hold: hold asks for a mux hold when an unclaimed /cmd_vel drives >1 s while armed
 # Sim-only auto-arm (owner decision 2026-10-26): `run KEY --sim-arm` arms for that run when every check of
 # harness/sim_arm.py proves a sim (sim profile and clock, crane player, private domain in `domains`, never 42,

@@ -22,6 +22,10 @@ HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
 ANY = 'any'            # settings: the keys an agent may set outside a run and with any run
 GRANTS = '~/.config/mhseals/agent_grants.yaml'
 FETCH_KBPS = 2000      # boat_agent fetch's rsync --bwlimit when agent.yaml names none
+# tune: the UI's field knobs and their code defaults (schema.yaml agent.tune.*). authority: how recent a note shows the
+# unclaimed-activity item (ui/authority_chip), and how long a starting TUI waits for an owner it stops or a viewer for
+# the next owner (ui/takeover).
+TUNE = {'authority': {'working_s': 60.0, 'stop_wait_s': 40.0, 'view_wait_s': 15.0}}
 # Never an agent's to set, whatever agent.yaml lists: how hard, fast, far or long the boat drives (amplitude, the
 # command hold, repeats, the navigation extents), the command mode, the bench override, staleness and the agent
 # controls themselves; and any later setting named like one of those.
@@ -50,7 +54,7 @@ def validate(data):
     if not isinstance(data, dict) or data.get('schema') != SCHEMA:
         raise ValueError(f'agent.yaml: schema must be {SCHEMA}')
     known = {'schema', 'lease', 'run', 'start', 'settings', 'fcu', 'unclaimed_driver', 'hook', 'sim_arm', 'arm', 'grants',
-             'background', 'fetch', 'queue_s', *NUMBERS}
+             'background', 'fetch', 'queue_s', 'tune', *NUMBERS}
     if (extra := sorted(set(data) - known)):
         raise ValueError(f'agent.yaml: unknown key {extra[0]}')
     if not isinstance(data.get('grants', GRANTS), str) or not data.get('grants', GRANTS):
@@ -67,6 +71,7 @@ def validate(data):
     if not isinstance(arm, dict) or set(arm) - {'countdown'} or isinstance(countdown, bool) \
             or not isinstance(countdown, (int, float)) or not 0 <= countdown <= 60:
         raise ValueError('agent.yaml: arm.countdown must be 0 to 60 seconds')
+    tune = validate_tune(data.get('tune', {}))
     lease = data.get('lease')
     if not isinstance(lease, dict) or set(lease) != set(LEASE_KEYS):
         raise ValueError(f"agent.yaml: lease needs exactly {', '.join(LEASE_KEYS)}")
@@ -113,7 +118,23 @@ def validate(data):
     return {**data, 'grants': data.get('grants', GRANTS), 'background': data.get('background', ''), 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
-            'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}, 'queue_s': float(queue)}
+            'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}, 'queue_s': float(queue), 'tune': tune}
+
+
+def validate_tune(tune):
+    """``tune:`` over TUNE: each section a mapping of its known keys to 1 to 3600 seconds."""
+    if not isinstance(tune, dict) or set(tune) - set(TUNE):
+        raise ValueError(f"agent.yaml: tune has sections {', '.join(TUNE)}")
+    out = {}
+    for section, defaults in TUNE.items():
+        given = tune.get(section, {})
+        if not isinstance(given, dict) or set(given) - set(defaults):
+            raise ValueError(f"agent.yaml: tune.{section} has keys {', '.join(defaults)}")
+        for key, value in given.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 3600:
+                raise ValueError(f'agent.yaml: tune.{section}.{key} must be 1 to 3600 seconds')
+        out[section] = {key: float(given.get(key, default)) for key, default in defaults.items()}
+    return out
 
 
 def settable(config, procedure=None):

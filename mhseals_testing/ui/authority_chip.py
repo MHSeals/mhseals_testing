@@ -6,7 +6,7 @@ reads the red ``? authority stale``; the local guess (KEYS / the running procedu
 watch guest or a review, which have no arbiter.
 """
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import authority_tune, theme
 
 STALE = ('unclaimed', '? authority stale')
 # Mux hold causes that are a stop (the RC stop-channel edge, Space, a fault) -> the chip's short word.
@@ -83,8 +83,8 @@ class Banner(str):
     parts = ()
 
 
-WORKING_S = 60     # a note this recent, with no agent claim, shows the unclaimed-activity item
-MOTION_S = 10      # motion lease total when the act does not carry its own motion_s
+# agent.yaml: tune.authority.working_s, how recent a note (with no agent claim) shows the unclaimed-activity item;
+# lease.motion_s, the motion lease total when the act does not carry its own motion_s.
 ACT_STATE = {'waiting_arm': 'WAITING ARM', 'asking': 'ASKING'}
 
 
@@ -110,7 +110,7 @@ def lease(claim, desk, now):
     """
     doing = act(desk, claim.get('id'))
     if doing and doing.get('motion_lease_s') is not None:
-        left, total = doing['motion_lease_s'], doing.get('motion_s') or MOTION_S
+        left, total = doing['motion_lease_s'], doing.get('motion_s') or authority_tune.get('motion_s')
     elif claim.get('lease_s'):
         total = claim['lease_s']
         left = total - (now - claim.get('seen_ns', claim.get('since_ns', 0)) / 1e9)
@@ -161,7 +161,7 @@ def working(desk, record, now):
         return None
     note = notes[-1]
     ago = now - (note.get('t_ns') or 0) / 1e9
-    return (note['who'], ago) if ago <= WORKING_S else None
+    return (note['who'], ago) if ago <= authority_tune.get('working_s') else None
 
 
 def driving(feed, arbiter, manual, running, now):

@@ -10,9 +10,10 @@ from dataclasses import dataclass, field
 import signal
 
 from mhseals_testing.harness.registry import Busy
+from mhseals_testing.ui import authority_tune
 
-STOP_WAIT = 40.0   # s: a stopping owner flushes the bag before it exits
-VIEW_WAIT = 15.0   # s: a viewer started during a handover waits this long for the next owner
+# agent.yaml tune.authority: stop_wait_s, the time a stopping owner gets to flush the bag and exit; view_wait_s, the
+# time a viewer started during a handover waits for the next owner.
 
 
 @dataclass
@@ -36,7 +37,7 @@ def describe(state, alive, now):
 def decide(registry, console, me, ask=None, mode=None):
     """Claim the seat or let the operator choose; returns a Choice. ``me`` is the owner record.
 
-    ``mode`` skips the menu: ``view`` watches the live owner (waiting VIEW_WAIT for one, as after a
+    ``mode`` skips the menu: ``view`` watches the live owner (waiting view_wait_s for one, as after a
     takeover the next owner is still starting); ``take`` takes control (harness/control.py): a live owner
     is asked to hand over and its agent claim is revoked, a stale one's children are adopted. A take
     that fails falls back to the menu.
@@ -89,8 +90,8 @@ def decide(registry, console, me, ask=None, mode=None):
             return Choice('quit')
 
 
-def watch(registry, console, wait=VIEW_WAIT):
-    end = registry.clock() + wait
+def watch(registry, console, wait=None):
+    end = registry.clock() + (authority_tune.get('view_wait_s') if wait is None else wait)
     while True:
         state = registry.state()
         owner = state.get('owner')
@@ -114,12 +115,12 @@ def claimed(registry, me, state, mode):
     return Choice(mode, children, state.get('session', ''))
 
 
-def stop_owner(registry, pid, wait=STOP_WAIT):
+def stop_owner(registry, pid, wait=None):
     """SIGTERM runs the owner's normal close (neutral, disarm, stop children, flush the bag)."""
     try:
         registry.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         return
-    end = registry.clock() + wait
+    end = registry.clock() + (authority_tune.get('stop_wait_s') if wait is None else wait)
     while registry.alive(pid) and registry.clock() < end:
         registry.sleep(0.2)

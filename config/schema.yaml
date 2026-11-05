@@ -32,3 +32,6 @@ fusion_panel.draw_rate: {type: float, units: Hz, tier: restart, doc: "Camera and
 fusion_panel.ramp: {type: list, units: m, tier: restart, doc: "Range breaks for the point colours spd.1..spd.5."}
 fusion_panel.rings: {type: list, units: m, tier: restart, doc: "Top-down range rings."}
 health.probes.git.stale: {type: float, units: s, tier: restart, doc: "A last fetch older than this shows its age in the header deploy mark."}
+agent.tune.authority.working_s: {type: float, units: s, range: [1, 3600], tier: restart, doc: "An agent note this recent, with no agent claim, shows the header's unclaimed-activity item."}
+agent.tune.authority.stop_wait_s: {type: float, units: s, range: [1, 3600], tier: restart, doc: "A starting TUI waits this long for an owner it stops to flush its bag and exit."}
+agent.tune.authority.view_wait_s: {type: float, units: s, range: [1, 3600], tier: restart, doc: "A viewer started during a takeover waits this long for the next owner."}
