@@ -19,7 +19,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / 'mhseals_testing'
 LIMIT = 500
 FEATURE_LIMIT = 4
 CEILINGS = {   # path under mhseals_testing/ -> its lines on 11-04 (only ever lowered; agent/cli.py: d591fd73's 729)
-    'agent_hook.py': 1290, 'analysis/score.py': 964, 'ui/imaging/__init__.py': 886, 'ntrip.py': 778,
+    'agent_hook.py': 1290, 'analysis/score.py': 964, 'ui/imaging/__init__.py': 638, 'ntrip.py': 778,
     'nav2/live.py': 773, 'harness/components.py': 735, 'agent/cli.py': 729,
     'fusion/campaign.py': 667, 'ui/panels/conditions.py': 661, 'rtk.py': 660, 'ros/arm_link.py': 649,
     'procedures/physics.py': 647, 'harness/score_analyze.py': 560,
