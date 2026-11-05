@@ -2612,8 +2612,8 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     app.dispatch('E')
     assert app.notice == 'Agent revoked' and holds == [('revoke', 'tui')]
     assert app.arbiter.table.get(claim['id'])['state'] == 'revoked'
-    app.dispatch('U')
-    assert app.notice == 'Release hold is not available here'
+    app.dispatch('U')                   # disarmed, no mux state: the stopped mux's saved holds, here none
+    assert app.notice == 'Release refused: the stopped mux saved no holds'
     released = []
     app.plant = __import__("types").SimpleNamespace(release_hold=lambda: released.append(1) or True)
     app.arbiter.on_mux({'input': 'hold', 'rc': {'mode': 'GUIDED'}})

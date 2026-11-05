@@ -2,12 +2,14 @@
 
 import time
 
+from mhseals_hardware import hold_store
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.harness import control, course_area
 from mhseals_testing.agent import grants as agent_grants
 from mhseals_testing.runner import STALE_MUX_S
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, feeds as feeds_module
+from mhseals_testing.ui.feeds import agent_ops
 from mhseals_testing.ui import input as key_input
 
 
@@ -16,7 +18,7 @@ WATCHDOG_GRACE = 2.0     # s a required safety watchdog may be missing from the 
 
 
 class Holds:
-    """Watchdog holds, their release and the geofence., mixed into App."""
+    """Watchdog holds, their release and the geofence, mixed into App."""
 
     def watch_watchdogs(self):
         """While armed, hold the mux once a required safety watchdog is off the graph WATCHDOG_GRACE.
@@ -95,13 +97,16 @@ class Holds:
             self.notice = 'Agent revoked'
 
     def release_refusal(self):
-        """Only fresh, known mux state can authorize an operator release request."""
+        """Fresh, known mux state authorizes U; disarmed, the stopped mux's saved holds (the next arm restores them)."""
         watchdogs = self.watchdog_refusal() if self.armed else ''
         if watchdogs:
             return f'Release refused: {watchdogs}'
         arbiter = getattr(self, 'arbiter', None)
         if arbiter is None:
             return 'Release refused: mux state is unknown'
+        stored = agent_ops.stopped_mux_file(self, arbiter)
+        if stored is not None:
+            return '' if hold_store.load(stored) else 'Release refused: the stopped mux saved no holds'
         with arbiter.lock:
             mux, at = arbiter.mux, arbiter.mux_at
         if (mux is None or at is None or not 0 <= arbiter.clock() - at <= STALE_MUX_S
@@ -116,7 +121,7 @@ class Holds:
         return ''
 
     def release_resumer(self):
-        """Describe the prospective driver and retain its identity across confirmation."""
+        """The prospective driver (no claim is not idle: an unclaimed publisher drives) and its identity to recheck."""
         holder = self.arbiter.table.holder()
         if holder:
             identity = tuple(holder.get(key) for key in ('id', 'owner', 'who', 'reason'))
@@ -125,41 +130,35 @@ class Holds:
             return ('procedure', self.running, self.run_id), self.running
         with self.arbiter.lock:
             auto = (self.arbiter.mux or {}).get('auto') or {}
-        # No claim does not establish idle: an unclaimed publisher can drive after release.
         label = 'unclaimed automation' if auto.get('active') else 'unknown automation (if present)'
         return ('unclaimed', auto.get('active'), auto.get('node')), label
 
-    def release_hold(self):
-        """Confirm who resumes, then request release once; only mux state proves release.
+    def release_route(self):
+        """U's release, boat_agent release's own (agent_ops): the mux's request, or disarmed, the saved holds cleared."""
+        stored = agent_ops.stopped_mux_file(self, self.arbiter)
+        if stored is None:
+            return getattr(self.plant, 'release_hold', None)
+        return lambda: self.emit('hold_release', holds=agent_ops.release_saved(stored), saved=str(stored)) or True
 
-        True when the release was requested."""
+    def release_hold(self):
+        """Confirm who resumes, then request release once (True when requested); only mux state proves release."""
         if getattr(self, '_releasing', False):
             return False
-        release = getattr(self.plant, 'release_hold', None)
-        if release is None:
-            self.notice = 'Release hold is not available here'
-            return False
         refusal = self.release_refusal()
-        if refusal:
-            self.notice = refusal
+        if refusal or self.release_route() is None:
+            self.notice = refusal or 'Release hold is not available here'
             return False
         identity, resumer = self.release_resumer()
-        self._releasing = True
-        requested = False
+        title, message, requested, self._releasing = 'Release hold?', f'{resumer} resumes', False, True
         try:
-            if key_input.by_hold('release'):
-                answer = 'Release' if self.hold_confirm('Release hold?', 'release', message=f'{resumer} resumes',
-                                                        key='U') else 'Cancel'
-            else:
-                answer = self.choose('Release hold?', ['Release', 'Cancel'],
-                                     message=f'{resumer} resumes', default=1, danger=True)
-            if answer == 'Release':
+            if (self.hold_confirm(title, 'release', message=message, key='U') if key_input.by_hold('release') else
+                    self.choose(title, ['Release', 'Cancel'], message=message, default=1, danger=True) == 'Release'):
                 refusal = self.release_refusal()
                 if not refusal and self.release_resumer()[0] != identity:
                     refusal = 'Release refused: resumer changed; confirm again'
-                requested = not refusal and release()
-                self.notice = refusal or ('Release requested' if requested
-                                          else 'Release hold is not available here')
+                release = None if refusal else self.release_route()
+                requested = bool(release and release())
+                self.notice = refusal or ('Release requested' if requested else 'Release hold is not available here')
         except Cancelled:
             pass
         finally:
