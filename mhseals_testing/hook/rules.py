@@ -31,11 +31,11 @@ ARMING = [ros2_run('mhseals_hardware', DRIVER), r'python[\d.]*\s+(-\S+\s+)*-m\s*
           r'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b', r'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)']
 # Files no shell or edit tool writes, only live copies (a linked git worktree is development): the mux's saved
 # holds (command_mux*.json, hold_store), changing or removing the agent stop file (creating or touching it stops
-# the boat: fine), and the agent hook and its wiring (agent_hook.py and its hook/ package, .agents/hook.py, the agent-loop repo's
-# src/*/hooks/hook.py, .claude/settings*.json, .codex/hooks.json).
+# the boat: fine), and the agent hook and its wiring (agent_hook.py and its hook/ package, .agents/hook.py,
+# .claude/settings*.json, .codex/hooks.json).
 HOLDS = [r'EDIT \w+ live .*(/command_mux[^/]*(\.json|\*)|/hold_store(/.*)?|/hold_store\.json)$']
 STOP = [r'EDIT (change|delete) live .*/agent/stop$']
-HOOKS = [r'EDIT \w+ live .*/(agent_hook\.py|\w+/hook/[^/]+\.py|\.agents/hook\.py|src/[^/]+/hooks/hook\.py|\.claude/settings(\.local)?\.json'
+HOOKS = [r'EDIT \w+ live .*/(agent_hook\.py|\w+/hook/[^/]+\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json'
          r'|\.codex/hooks\.json)$']
 # On a boat computer only: the runtime config and launch files the running boat reads.
 BOAT_FILES = [r'EDIT \w+ live .*(/agent\.ya?ml|/launch/[^/]+\.(py|xml|ya?ml)|[^/]\.launch\.(py|xml|ya?ml))$']

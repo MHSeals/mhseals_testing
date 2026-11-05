@@ -278,6 +278,11 @@ def test_matching_is_fast():
     assert (time.perf_counter() - began) / len(RUNS + ALLOW) < 0.005      # per command, well under 5 ms
 
 
+def test_prompt_events_are_ignored(sent):
+    """The dispatcher also sends UserPromptSubmit as ``prompt``: no answer, no note, even for a guarded text."""
+    assert sent('prompt', 'ros2 launch mhseals_hardware thrusters.launch.py') is None and sent.lines == []
+
+
 def test_a_mission_push_is_advisory_allowed_and_noted(sent):
     """A waypoint upload to the FCU drives nothing here: not denied, but the TUI shows it."""
     command = 'ros2 service call /mavros/mission/push mavros_msgs/srv/WaypointPush "{}"'
@@ -527,7 +532,7 @@ def test_edit_tools_are_denied_on_live_holds_stop_and_hook(trees, agent):
     assert 'release HOLD --why' in edit([['write', str(base / 'mhseals' / 'command_mux_232.json')]], agent=agent)
     assert edit([['write', str(base / 'sess' / 'command_mux_holds.json')]], agent=agent)
     assert edit([['write', str(live / '.agents' / 'hook.py')]], agent=agent)
-    assert edit([['write', str(live / 'src' / 'mhseals_agents' / 'hooks' / 'hook.py')]], agent=agent)
+    assert edit([['write', str(live / 'src' / 'mhseals_agents' / 'hooks' / 'agent_hook.py')]], agent=agent)
     assert edit([['write', str(live / 'src' / 'x' / 'agent_hook.py')]], agent=agent)
     assert edit([['write', '']], agent=agent) and edit([['rename', '/x']], agent=agent)            # fail closed
     assert edit([['write', str(stop)]], agent=agent) is None                                       # creating stop
@@ -576,7 +581,7 @@ def test_shell_writes_to_holds_stop_and_hook_are_denied_only_on_live_copies(tree
                              (f'rm {base}/mhseals/command_mux_232.json', '/'),
                              ("echo '{}' > ~/.cache/x/command_mux_holds.json", '/'),
                              (f'sed -i s/a/b/ {live}/.agents/hook.py', '/'),
-                             (f'cp /tmp/h.py {live}/src/mhseals_agents/hooks/hook.py', '/'),
+                             (f'cp /tmp/h.py {live}/src/mhseals_agents/hooks/agent_hook.py', '/'),
                              (f'tee {live}/src/x/agent_hook.py', '/'),
                              (f'sudo dd of={live}/.codex/hooks.json', '/'), (f'echo {{}} > {live}/.claude/settings.json', '/')):
             assert hook.denied(command, hook.DEFAULTS, cwd=cwd), command
