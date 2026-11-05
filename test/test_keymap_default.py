@@ -53,7 +53,7 @@ def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
     assert len(contexts) == 44
-    assert sum(len(binds(c)) for c in contexts.values()) == 276
+    assert sum(len(binds(c)) for c in contexts.values()) == 279
 
 
 def test_keys_known_and_unique_per_context(doc):
@@ -141,6 +141,15 @@ LITERALS = [
         ('e', 'nudge_east'), ('w', 'nudge_west'), ('+', 'step_up'), ('=', 'step_up'), ('-', 'step_down'),
         ('_', 'step_down'), ('x', 'remove'), ('up', 'up'), ('down', 'down'), ('K', 'move_up'), ('J', 'move_down'),
         ('o', 'on_exit'), ('y', 'apply'), ('k', None), ('j', None))],
+    # popups/__init__.py (show folds, prompt folds, text fields), camera_view.py (case kept), actions/popups.py
+    ('popup.show', 'k', 'up'), ('popup.show', 'j', 'down'), ('popup.show', 'up', 'close'), ('popup.show', 'z', 'close'),
+    ('popup.prompt', 'enter', 'continue'), ('popup.prompt', 'escape', 'cancel'), ('popup.prompt', 'q', 'cancel'),
+    ('popup.text', 'backspace', 'erase'), ('popup.text', 'ctrl-h', 'erase'), ('popup.text', '\x7f', 'erase'),
+    ('popup.text', 'space', None), ('global', 'U', 'release_hold'),
+    *[('popup.perception', k, a) for k, a in (
+        ('d', 'boxes'), ('D', 'floor'), ('f', 'freeze'), ('s', 'save'), ('+', 'rate_up'), ('=', 'rate_up'),
+        ('-', 'rate_down'), ('_', 'rate_down'), ('k', 'up'), ('j', 'down'), ('up', None), ('down', None),
+        ('v', 'view'), ('escape', 'back'), ('q', 'close'))],
 ]
 
 

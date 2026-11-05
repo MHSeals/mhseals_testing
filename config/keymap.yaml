@@ -222,7 +222,7 @@ popup.choose:     {passthrough: [stop, revoke_agent], up: [up, k], down: [down, 
                    right: [right, l, tab], select: [enter], decline: [n], cancel: [escape, q]}
                    # decline picks Cancel/Close; a call's own shortcuts win. No key confirms but Enter or a call's shortcut.
 popup.prompt:     {passthrough: [stop, revoke_agent], continue: [enter], cancel: [escape, q]}
-popup.show:       {passthrough: [stop, revoke_agent], close: [any]}
+popup.show:       {passthrough: [stop, revoke_agent], up: [k], down: [j], close: [any]}   # k j scroll a clipped one
 popup.text:       {confirm: [enter], cancel: [escape], erase: [backspace, ctrl-h]}   # never open while anything moves
 popup.help:       {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], close: [escape, q, '?']}
 popup.health:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], history: [tab],
@@ -243,9 +243,9 @@ popup.conditions: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [
 popup.run:        {passthrough: [stop, mark, history, health, revoke_agent], prev: [up, k], next: [down, j],
                    review_here: [r], exclude: [X], close: [escape, q]}
 popup.transfer:   {passthrough: [stop, mark, revoke_agent], hide: [escape], cancel: [c], retry: [r]}
-popup.perception: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], view: [v],
+popup.perception: {passthrough: [stop, mark, revoke_agent], up: [k], down: [j], view: [v],
                    boxes: [d], floor: [D], rate_up: ['+', '='], rate_down: ['-', '_'], freeze: [f],
-                   save: [s], source: [c], close: [escape]}
+                   save: [s], source: [c], back: [escape], close: [q]}   # Esc closes the camera view first
 popup.power:      {passthrough: [stop, mark, revoke_agent], close: [escape, q]}
 popup.magcal:     {passthrough: [stop, mark, revoke_agent], enter_heading: [enter], fit: [f],
                    interference: [i], close: [escape]}

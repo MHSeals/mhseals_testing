@@ -22,8 +22,8 @@ ALLOWED = {   # path under ui/ -> literal key checks left (refactor areas 3, 4, 
     'app/actions/settings.py': 14, 'app/actions/arm.py': 6, 'popups/authority.py': 5, 'popups/hold.py': 2,
     'popups/stop.py': 1, 'feeds/agent.py': 1, 'app/view.py': 1, 'panels/checklist.py': 6,
     'app/loop.py': 35, 'app/actions/bags.py': 26, 'popups/history.py': 15, 'app/actions/labels.py': 13,
-    'popups/__init__.py': 10, 'app/actions/manual.py': 10,
-    'camera_view.py': 6, 'app/actions/popups.py': 5, 'app/actions/procedures.py': 1,
+    'app/actions/manual.py': 10,
+    'app/actions/procedures.py': 1,
     'app/actions/annotate.py': 1,
 }
 

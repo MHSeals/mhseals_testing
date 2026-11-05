@@ -3,10 +3,11 @@
 
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 from mhseals_testing.ui.popups import authority, conditions, config, health, history, inspect, power
 
-STOP_KEYS = ('space', 'press:space')
+STOP_KEYS = (keymap.STOP_KEY, 'press:' + keymap.STOP_KEY)   # fixed: no keymap file moves them
+TYPED = {'space': ' '}                  # key names a text field types as a character
 UPDOWN = theme.pick('↑↓', 'Up/Down')
 
 
@@ -32,10 +33,10 @@ def popup(app, modal, handle, refresh=None):
                 continue
             if modal.get('kind') != 'input':
                 # Authority owns E itself so it can revoke the selected claim.
-                if key == 'E' and not str(modal.get('title', '')).startswith('Authority'):
+                if key == keymap.REVOKE_KEY and not str(modal.get('title', '')).startswith('Authority'):
                     app.revoke_agent()
                     continue
-                if key == 'U':   # a release modal (Authority, Stop) releases through the confirm
+                if keymap.matches('global', 'release_hold', key):   # a release modal (Authority, Stop) releases through the confirm
                     if modal.get('release'):
                         app.release_hold()
                     continue
@@ -60,17 +61,17 @@ def show(app, title, message=None, rows=None, width=60):
                  hint='Any key closes')
 
     def handle(key):
-        return not (modal['clipped'] and app.scroll(modal, fold(key), ('k', 'j')))
+        return not (modal['clipped'] and app.scroll(modal, keymap.dispatch('popup.show', key, fold=True), ('up', 'down')))
     app.popup(modal, handle)
 
 
 def prompt(app, message, title='Ready'):
     """Wait for Enter; Escape cancels the procedure."""
     def handle(key):
-        key = fold(key)
-        if key == 'enter':
+        action = keymap.dispatch('popup.prompt', key, fold=True)
+        if action == 'continue':
             return ''
-        if key in ('escape', 'q'):
+        if action == 'cancel':
             raise Cancelled('cancelled by operator')
     return app.popup(dict(kind='message', title=title, message=message,
                            hint=f'Enter continue{theme.SEPARATOR}Esc cancel'), handle)
@@ -144,10 +145,9 @@ def choose(app, title, options, shortcuts=None, message=None, danger=False, rows
 
 def edit(text, key, upper=False):
     """``text`` after one key in a one-line field: backspace deletes, Space and printables type."""
-    if key in ('backspace', 'ctrl-h', '\x7f'):
+    if keymap.matches('popup.text', 'erase', key):
         return text[:-1]
-    if key == 'space':
-        key = ' '
+    key = TYPED.get(key, key)
     if len(key) == 1 and key.isprintable():
         return text + (key.upper() if upper else key)
     return text
@@ -171,9 +171,9 @@ def ask_text(app, title, message, text='', check=None):
                 modal['state'], modal['note'] = 'bad', str(error)
 
     def handle(key):
-        if key == 'enter':
+        if keymap.matches('popup.text', 'confirm', key):
             return None if modal.get('state') == 'bad' else modal['text']
-        if key == 'escape':
+        if keymap.matches('popup.text', 'cancel', key):
             return False
         modal['text'] = edit(modal['text'], key)
         validate()
@@ -194,9 +194,9 @@ def type_word(app, title, message, word, rows=None, width=64, quiet=False):
                  quiet=quiet, word_hue=theme.PALETTE.style('arm.word') if quiet else None)
 
     def handle(key):
-        if key == 'enter':
+        if keymap.matches('popup.text', 'confirm', key):
             return True if modal['text'] == word else None
-        if key == 'escape':
+        if keymap.matches('popup.text', 'cancel', key):
             return False
         modal['text'] = edit(modal['text'], key, upper=True)[:len(word)]
     return app.popup(modal, handle)

@@ -4,9 +4,8 @@ from rich.console import Group
 from rich.text import Text
 
 from mhseals_hardware.menu import Cancelled
-from mhseals_testing.runner import fold
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import camera_view, imaging as pixels, perception, popups, theme
+from mhseals_testing.ui import camera_view, imaging as pixels, keymap, perception, popups, theme
 from mhseals_testing.ui.popups import hold
 from mhseals_testing.ui.camera_view import CameraView
 
@@ -23,9 +22,9 @@ class Popups:
                      placeholder='add a note', hint=f'Enter save{theme.SEPARATOR}Esc keeps it bare')
 
         def handle(key):
-            if key == 'enter':
+            if keymap.matches('popup.text', 'confirm', key):
                 return modal['text'].strip()
-            if key == 'escape':
+            if keymap.matches('popup.text', 'cancel', key):
                 return ''
             modal['text'] = popups.edit(modal['text'], key)
         return self.popup(modal, handle) or None
@@ -79,16 +78,15 @@ class Popups:
             current = state['view']
             if current is not None and current.key(key):  # raw: d and D differ
                 return None
-            key = fold(key)
-            if self.scroll(modal, key, ('k', 'j')):
+            action = keymap.dispatch('popup.perception', key, fold=True)
+            if self.scroll(modal, action, ('up', 'down')):
                 return None
-            if key == 'v':
+            if action == 'view':
                 close_view() if current is not None else open_view()
-            elif key in ('escape', 'q'):
-                if current is not None and key == 'escape':
-                    close_view()
-                else:
-                    return True
+            elif action == 'back' and current is not None:   # Esc closes the view first
+                close_view()
+            elif action in ('back', 'close'):
+                return True
         try:
             if view:
                 open_view()

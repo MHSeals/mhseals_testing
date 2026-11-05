@@ -21,7 +21,7 @@ import numpy as np
 from rich.text import Text
 
 from mhseals_testing.ros.camera_feed import RATES_HZ
-from mhseals_testing.ui import palette, theme
+from mhseals_testing.ui import keymap, palette, theme
 from mhseals_testing.ui.imaging import braille, kitty as graphics
 
 CELL_PX = (8, 16)       # pixels per cell sent to kitty (width, height)
@@ -124,20 +124,21 @@ class CameraView:
         return self._detections(size, floor, self._frame[0] if self._frame else None)
 
     def key(self, key):
-        """Handle f s d D + -; True when the key was ours."""
-        if key == 'd':
+        """Handle popup.perception's view keys (f s d D + -, case kept); True when the key was ours."""
+        action = keymap.dispatch('popup.perception', key)
+        if action == 'boxes':
             self.boxes = not self.boxes
             if self.observations is not None:
                 self.observations.want(self.boxes)
-        elif key == 'D':
+        elif action == 'floor':
             self.floor = not self.floor
-        elif key == 'f':
+        elif action == 'freeze':
             self.frozen = not self.frozen
-        elif key == 's':
+        elif action == 'save':
             self.notice = self.save()
-        elif key in ('+', '='):
+        elif action == 'rate_up':
             self._step(1)
-        elif key in ('-', '_'):
+        elif action == 'rate_down':
             self._step(-1)
         else:
             return False
