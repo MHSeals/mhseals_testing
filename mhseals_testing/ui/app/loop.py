@@ -4,10 +4,11 @@ import errno
 
 from mhseals_testing.runner import fold
 from mhseals_testing.procedures import PROCEDURES
+from mhseals_testing.ui import keymap
 from mhseals_testing.ui.layout import ROW
 from mhseals_testing.ui.popups import pins
 
-from mhseals_testing.ui.app.shared import CURSORS, DIRECTIONS, Detach, STOPPING_ERRORS
+from mhseals_testing.ui.app.shared import CURSORS, Detach, STOPPING_ERRORS
 from mhseals_testing.ui.app.help import HELP, help_rows, help_width
 
 
@@ -26,6 +27,11 @@ NEIGHBOURS = {   # a name or the first of a tuple of names that is on screen
             'procedures': {'left': 'status', 'up': 'thrusters', 'down': 'activity'},
             'activity': {'left': 'status', 'up': 'procedures'}},
 }
+
+
+FOCUS = {'focus_left': 'left', 'focus_right': 'right', 'focus_up': 'up', 'focus_down': 'down'}   # global
+SHIFTED = ('take_control', 'operator_state', 'release_hold')   # global Shift letters, never the procedure ones
+PANEL_SCOPES = {'thrusters': 'panel.thrusters', 'activity': 'panel.activity', 'status': 'panel.status'}  # win over Drive
 
 
 def terminal_gone(error):
@@ -139,12 +145,13 @@ class Loop:
 
     def on_minimap(self, key, keys=None):
         """view.minimap keys (Drive column and Map tab): zoom, and the Layers box toggles."""
-        if key in ('z', 'Z'):
-            self.minimap.zoom(1 if key == 'z' else -1)
-        elif key == '0':
+        action = (keys or self.map_keys).get(key)
+        if action in ('zoom_in', 'zoom_out'):
+            self.minimap.zoom(1 if action == 'zoom_in' else -1)
+        elif action == 'zoom_fit':
             self.minimap.reset()
         else:
-            self.layerbox.press((keys or self.map_keys).get(key), self.minimap.half)
+            self.layerbox.press(action, self.minimap.half)
 
     def on_map(self, key):
         """The Map tab adds tab.map's toggles, whose keys are Drive procedures elsewhere."""
@@ -174,46 +181,46 @@ class Loop:
         checklist = getattr(self, 'checklist', None)
         if checklist is not None and not self.review and checklist.handle(self, key):
             return
-        if key == 'V' and not self.review:  # Shift-V; folded 'v' still toggles Results/log on Activity
+        bound = keymap.dispatch('global', key)          # case kept (K1)
+        if bound == 'camera' and not self.review:  # Shift-V; action 'v' still toggles Results/log on Activity
             self.perception_popup(view=True)  # ui.md keymap camera: View already open
             return
-        if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
+        if bound == 'history':  # Shift-H opens the history everywhere; action 'h' still adjusts a setting
             self.open('history')
             return
-        if key == 'L' and not self.review:   # the Labels tab: review this session's marks and segments; L again leaves it
+        if bound == 'labels' and not self.review:   # the Labels tab: review this session's marks and segments; L again leaves it
             if self.tab == 'Labels':
                 self.show_tab(getattr(self, 'labels_from', None) or self.tabs.tabs[0])
             else:
                 self.labels_from = self.tab
                 self.show_tab('Labels')
             return
-        if key == 'escape' and self.tab == 'Labels' and not self.review and not self.modal:   # Esc leaves Labels too
+        if bound == 'back' and self.tab == 'Labels' and not self.review and not self.modal:   # Esc leaves Labels too
             self.show_tab(getattr(self, 'labels_from', None) or self.tabs.tabs[0])
             return
-        if key in ('E', 'U', 'O', 'S'):  # Shift bindings of the global scope; never the lowercase procedure letters
-            if key == 'E':
-                self.revoke_agent()
-            elif key == 'O':
-                self.take_control()
-            elif key == 'S':
-                self.operator_menu()
-            else:
-                self.release_hold()
+        if key == keymap.REVOKE_KEY:   # fixed: no keymap file moves it
+            self.revoke_agent()
+            return
+        if bound in SHIFTED:
+            {'take_control': self.take_control, 'operator_state': self.operator_menu,
+             'release_hold': self.release_hold}[bound]()
             return
         raw, key = key, fold(key)
-        if raw == 'M' and self.focus == 'thrusters' and not self.review:  # keymap pins: M; folded 'm' stays Manual
+        if keymap.matches('panel.thrusters', 'pins', raw) and self.focus == 'thrusters' and not self.review:  # action 'm' stays Manual
             self.notice = pins.edit_pins(self)
             return
-        if raw == 'P' and self.focus == 'thrusters' and not self.review:  # keymap pin: P; p stays Perception
+        if keymap.matches('panel.thrusters', 'pin', raw) and self.focus == 'thrusters' and not self.review:  # p stays Perception
             self.notice = pins.edit_row_pin(self, self.cursors['thrusters'])
             return
-        if raw == 'X' and self.focus == 'activity' and not self.review and self.activity == 'results':
-            self.exclude_result()  # panel-level Exclude run; folded 'x' still writes the report
+        if (keymap.matches('panel.activity', 'exclude', raw) and self.focus == 'activity' and not self.review
+                and self.activity == 'results'):
+            self.exclude_result()  # panel-level Exclude run; action 'x' still writes the report
             return
-        if key == 'o':  # the Pose popup is global
+        action = keymap.dispatch('global', key)          # Shift folds to the lowercase binding
+        if action == 'odometry':  # the Pose popup is global
             self.open('odometry')
             return
-        if raw == '!' and self.engine is not None:  # keymap global health
+        if bound == 'health' and self.engine is not None:
             self.open('health')
             return
         if self.tab == 'Labels' and not self.review and self.on_labels(raw):
@@ -225,48 +232,46 @@ class Loop:
             self.notice = f"camera image {'on' if self.fusion_image else 'off'}"
             return
         panels = self.panels()
-        if key in ('[', ']'):
-            self.switch_tab(-1 if key == '[' else 1)
-        elif key in ('\t', 'backtab'):
+        if action in ('tab_prev', 'tab_next'):
+            self.switch_tab(-1 if action == 'tab_prev' else 1)
+        elif action in ('focus_next', 'focus_prev'):
             index = panels.index(self.focus) if self.focus in panels else 0
-            self.focus_on(panels[(index + (-1 if key == 'backtab' else 1)) % len(panels)])
-        elif key in DIRECTIONS:
-            wanted = NEIGHBOURS[self.console.size.width >= ROW].get(self.focus, {}).get(DIRECTIONS[key], ())
+            self.focus_on(panels[(index + (-1 if action == 'focus_prev' else 1)) % len(panels)])
+        elif action in FOCUS:
+            wanted = NEIGHBOURS[self.console.size.width >= ROW].get(self.focus, {}).get(FOCUS[action], ())
             neighbour = next((p for p in ((wanted,) if isinstance(wanted, str) else wanted) if p in panels), None)
             if neighbour:
                 self.focus_on(neighbour)
-        elif key in ('up', 'down', 'j', 'k'):
-            step = -1 if key in ('up', 'k') else 1
+        elif action in ('up', 'down'):
+            step = -1 if action == 'up' else 1
             if self.focus == 'thrusters' and self.grabbed is not None and not self.review:
                 self.move_grabbed(step)
             else:
                 self.move(step)
-        elif key == 'space':
+        elif key == keymap.STOP_KEY:   # fixed
             self.operator_stop()
-        elif key == 'q':
+        elif action == 'quit':
             self.confirm_quit()
-        elif key == 'escape':  # backs out; never quits
+        elif action == 'back':  # backs out; never quits
             if self.grabbed is not None:
                 self.grabbed = None
                 self.notice = 'Dropped'
-        elif key == '?':
+        elif action == 'help':
             self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(getattr(getattr(self, 'console', None), 'width', None)))
-        elif key == 'a':
+        elif action == 'arm':
             self.arm_panel()
-        elif key == 'x' and raw == 'x':
+        elif bound == 'report':
             if not self.toasts.ack_newest(self.monitor.clock()):   # x dismisses a toast first
                 self.export()
-        elif raw == 'B':
+        elif bound == 'mark_note':
             self.mark_note()
-        elif key in ('+', '=', '-', '_'):
-            step = 0.05 if key in ('+', '=') else -0.05
+        elif action in ('amplitude_up', 'amplitude_down'):
+            step = 0.05 if action == 'amplitude_up' else -0.05
             self.set_setting('amplitude', round(min(1.0, max(0.05, self.settings.amplitude + step)), 2))
             self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
-              and not (self.focus == 'thrusters' and key in ('1', '2', '3', 'c', 's'))
-              and not (self.focus == 'activity' and key == 'v')
-              and not (self.focus == 'status' and key == 'e')  # Nav2 popup there; interference elsewhere
-              and not (self.focus == 'minimap' and key in self.map_keys)):  # view.minimap wins (e centres)
+              and not (self.focus in PANEL_SCOPES and keymap.dispatch(PANEL_SCOPES[self.focus], key))  # thrusters s,
+              and not (self.focus == 'minimap' and key in self.map_keys)):  # activity v, status e; view.minimap e centres
             self.on_procedures(key)
         elif self.focus == 'list':
             self.on_list(raw)
