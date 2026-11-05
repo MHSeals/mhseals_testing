@@ -29,13 +29,6 @@ The focused panel's title is a solid accent bar (` ▸ Status `, reverse video),
 Each row wears its state: ▷ ready, ⊘ blocked with the reason on the row, a spinner (and the percent of a long
 run) while running, ✓ or ✗ for its last result this session; the focused panel's bottom border is the legend.
 
-## Backend
-
-`mhseals_testing/backend/` is the link of the coming UI-less backend (D-20261101-19): a versioned protocol over a
-local socket (`config/backend.yaml`), a server that never takes a live backend's socket, and a thin client that attaches
-with the full snapshot in well under a second and reattaches by itself after link loss or a backend restart.
-`boat_tui` does not use it yet.
-
 Keys live in `config/keymap.yaml`: global, tab, panel and view scopes, plus one `popup.<name>` scope per
 popup and modal loop (`~/.config/mhseals/keymap.yaml` rebinds any of them). Code asks
 `keymap.matches(scope, action, key)` or `keymap.dispatch(scope, key)`; no ui/ file compares a key with a
