@@ -153,7 +153,7 @@ def test_filled_conditions_and_minimap_slots_render_with_conditions_above_thrust
         slots['conditions'], slots['minimap'] = Text('CONDITIONS SLOT'), Text('MINIMAP SLOT')
         return slots
 
-    monkeypatch.setattr(layout, 'drive_slots', filled)
+    monkeypatch.setattr(layout.bodies, 'drive_slots', filled)   # drive_body reads it there
     text = drive_text(160, 44)
     assert 'MINIMAP SLOT' in text and 'CONDITIONS SLOT' in text
     lines = text.splitlines()
