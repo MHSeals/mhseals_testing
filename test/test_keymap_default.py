@@ -53,7 +53,7 @@ def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
     assert len(contexts) == 44
-    assert sum(len(binds(c)) for c in contexts.values()) == 279
+    assert sum(len(binds(c)) for c in contexts.values()) == 281
 
 
 def test_keys_known_and_unique_per_context(doc):
@@ -150,6 +150,17 @@ LITERALS = [
         ('d', 'boxes'), ('D', 'floor'), ('f', 'freeze'), ('s', 'save'), ('+', 'rate_up'), ('=', 'rate_up'),
         ('-', 'rate_down'), ('_', 'rate_down'), ('k', 'up'), ('j', 'down'), ('up', None), ('down', None),
         ('v', 'view'), ('escape', 'back'), ('q', 'close'))],
+    # popups/history.py (case kept)
+    *[('popup.history', k, a) for k, a in (
+        ('escape', 'close'), ('q', 'close'), ('[', 'tab_prev'), ('left', 'tab_prev'), (']', 'tab_next'),
+        ('right', 'tab_next'), ('up', 'up'), ('k', 'up'), ('down', 'down'), ('j', 'down'), ('K', 'scroll_up'),
+        ('J', 'scroll_down'), ('l', 'detail'), ('d', 'base'), ('enter', 'revert'), ('y', 'confirm'),
+        ('n', 'name'), ('N', 'note'))],
+    # actions/labels.py (tab.labels alone, case kept)
+    *[('tab.labels', k, a) for k, a in (
+        ('left', 'scale_down'), ('h', 'scale_down'), ('right', 'scale_up'), ('l', 'scale_up'), ('<', 'session_prev'),
+        ('>', 'session_next'), ('y', 'accept'), ('r', 'reject'), ('u', 'undo'), ('s', 'split'), ('m', 'merge'),
+        ('n', 'note_label'), ('enter', 'replay'), ('0', None), *((str(d), 'tag') for d in range(1, 10)))],
 ]
 
 

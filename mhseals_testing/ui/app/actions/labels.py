@@ -9,9 +9,11 @@ import time
 
 from mhseals_testing import data
 from mhseals_testing.annotate import config, fold as fold_module, manifest as manifest_module
+from mhseals_testing.ui import keymap
 
 LISTED = ('mark', 'bad', 'intervention', 'said', 'procedure', 'steady', 'neutral', 'link', 'fence')
 OUTCOMES = ('done', 'partly', 'failed', 'unsafe', 'ignored')     # what a language command led to
+EDITS = ('accept', 'reject', 'undo', 'split', 'merge', 'note_label', 'replay', 'tag')   # tab.labels: wait for disarmed
 
 
 class Labels:
@@ -90,51 +92,52 @@ class Labels:
     def on_labels(self, key):
         """tab.labels keys; True when consumed. Edits wait for disarmed and still, the conditions never do."""
         scales = len(config.load()['scales'])
-        cursor = self.cursors.get('labels', 0)
-        if key in ('left', 'h', 'right', 'l') and cursor < scales:
-            self.set_condition(cursor, -1 if key in ('left', 'h') else 1)
-        elif key in ('<', '>'):
-            self.labels_step(-1 if key == '<' else 1)
-        elif key in ('y', 'r', 'u', 's', 'm', 'n', 'enter') or (key.isdigit() and key != '0'):
+        cursor, action = self.cursors.get('labels', 0), keymap.dispatch('tab.labels', key)
+        if action in ('scale_down', 'scale_up') and cursor < scales:
+            self.set_condition(cursor, -1 if action == 'scale_down' else 1)
+        elif action in ('session_prev', 'session_next'):
+            self.labels_step(-1 if action == 'session_prev' else 1)
+        elif action in EDITS:
             if self.armed or self.moving():
                 self.notice = 'Labels: review edits wait for disarmed; b, N and " still mark'
             else:
-                self.labels_edit_key(key)
+                self.labels_edit_key(action, key)
         else:
             return False
         return True
 
-    def labels_edit_key(self, key):
+    def labels_edit_key(self, action, key):
+        """One tab.labels edit; ``key`` is the digit of a ``tag``."""
         item = self.labels_selected()
-        if key == 'u':
+        if action == 'undo':
             self.edit_label('undo')
         elif item is None:
             return
-        elif key == 'y':
+        elif action == 'accept':
             self.edit_label('pending' if item['status'] == 'accepted' else 'accept')
-        elif key == 'r':
+        elif action == 'reject':
             self.edit_label('pending' if item['status'] == 'rejected' else 'reject')
-        elif key.isdigit() and item['kind'] == 'said':
+        elif action == 'tag' and item['kind'] == 'said':
             index = int(key) - 1
             if index < len(OUTCOMES):
                 self.edit_label('outcome', OUTCOMES[index])
-        elif key.isdigit() and item['kind'] == 'mark' and key in config.load()['tags']:
+        elif action == 'tag' and item['kind'] == 'mark' and key in config.load()['tags']:
             self.edit_label('tag', config.load()['tags'][key]['label'])
-        elif key == 'n':
+        elif action == 'note_label':
             text = self.text_input('Said' if item['kind'] == 'said' else 'Note', item.get('label', '') or item['kind'])
             if text:
                 self.edit_label('text' if item['kind'] == 'said' else 'note', text)
-        elif key == 's' and item['t1'] > item['t0']:
+        elif action == 'split' and item['t1'] > item['t0']:
             inside = [i['t0'] for i in self.labels_rows() if i['kind'] == 'mark' and item['t0'] < i['t0'] < item['t1']]
             middle = (item['t0'] + item['t1']) / 2
             self.edit_label('split', min(inside, key=lambda t: abs(t - middle)) if inside else middle)
-        elif key == 'm':
+        elif action == 'merge':
             rows = self.labels_rows()
             after = next((i for i in rows if i['kind'] == item['kind'] and i['t0'] >= item['t1']
                           and i['id'] != item['id']), None)
             if after is not None:
                 self.edit_label('merge', after['id'])
-        elif key == 'enter':
+        elif action == 'replay':
             self.labels_replay(item)
 
     def labels_step(self, step):

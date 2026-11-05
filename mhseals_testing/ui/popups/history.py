@@ -17,7 +17,7 @@ from rich.text import Text
 
 from mhseals_testing import calibration
 from mhseals_testing.history import render, revert
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 
 SUBS = ('hardware', 'nav2', 'fcu', 'rtk', 'health', 'keymap')
 LABELS = {'hardware': 'Hardware', 'nav2': 'Nav2', 'fcu': 'FCU', 'rtk': 'RTK', 'health': 'Health', 'keymap': 'Keymap'}
@@ -110,11 +110,7 @@ def day_label(when, now):
 
 
 def age(when, now):
-    seconds = max(0, (now - when).total_seconds())
-    for size, unit in ((86400, 'd'), (3600, 'h'), (60, 'min')):
-        if seconds >= size:
-            return f'{int(seconds // size)} {unit} ago'
-    return 'just now'
+    return theme.age((now - when).total_seconds(), style='words')   # 4 min ago, just now
 
 
 def change_line(state, change, active, width, heads):
@@ -258,26 +254,26 @@ def say(state, text, bad=False):
 
 def handle(state, key, app):
     """Apply one key; returns True when the popup should close."""
-    change = state.selected()
-    if key in ('escape', 'q') and state.plan is not None:
+    change, action = state.selected(), keymap.dispatch('popup.history', key)
+    if action == 'close' and state.plan is not None:
         state.plan = None
-    elif key in ('escape', 'q'):
+    elif action == 'close':
         return True
-    elif key in ('[', 'left', ']', 'right'):
-        state.tab = (state.tab + (1 if key in (']', 'right') else -1)) % len(state.tabs())
+    elif action in ('tab_prev', 'tab_next'):
+        state.tab = (state.tab + (1 if action == 'tab_next' else -1)) % len(state.tabs())
         state.cursor, state.plan, state.message, state.scroll = 0, None, None, 0
-    elif key in ('up', 'k', 'down', 'j'):
-        state.cursor = max(0, min(len(state.entries()) - 1, state.cursor + (1 if key in ('down', 'j') else -1)))
+    elif action in ('up', 'down'):
+        state.cursor = max(0, min(len(state.entries()) - 1, state.cursor + (1 if action == 'down' else -1)))
         state.plan, state.message, state.scroll = None, None, 0
-    elif key in ('J', 'K'):
-        state.scroll = max(0, state.scroll + (1 if key == 'J' else -1))
-    elif key == 'l':
+    elif action in ('scroll_up', 'scroll_down'):
+        state.scroll = max(0, state.scroll + (1 if action == 'scroll_down' else -1))
+    elif action == 'detail':
         state.detail = not state.detail
-    elif key == 'd':
+    elif action == 'base':
         state.base = 'previous' if state.base == 'current' else 'current'
     elif change is None:
         pass
-    elif key == 'enter':
+    elif action == 'revert':
         state.message, state.scroll = None, 0
         if change['subsystem'] not in state.backends:
             say(state, f'cannot revert {change["subsystem"]}: not wired', bad=True)
@@ -286,11 +282,11 @@ def handle(state, key, app):
             state.plan = revert.plan(state.history, state.backends, state.env, change['id'], change['subsystem'])
         except KeyError as error:
             say(state, f'cannot revert {change["subsystem"]}: {error.args[0]}', bad=True)
-    elif key == 'y' and state.plan is not None:
+    elif action == 'confirm' and state.plan is not None:
         confirm(state, app)
-    elif key in ('n', 'N'):
-        field = 'name' if key == 'n' else 'note'
-        text = app.ask_text(f'Name {change["id"]}' if key == 'n' else f'Note on {change["id"]}', '', change.get(field, ''))
+    elif action in ('name', 'note'):
+        field = action
+        text = app.ask_text(f'Name {change["id"]}' if action == 'name' else f'Note on {change["id"]}', '', change.get(field, ''))
         if text is not None:
             state.history.label(change['id'], **{field: text})
     return False

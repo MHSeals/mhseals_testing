@@ -232,7 +232,8 @@ popup.odometry:   {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [
 popup.authority:  {passthrough: [stop, mark, release_hold], up: [up, k], down: [down, j],
                    detail: [enter], revoke_selected: [E], close: [escape]}   # Enter: the config popup
 popup.history:    {passthrough: [stop, mark, revoke_agent], tab_prev: ['[', left], tab_next: [']', right],
-                   up: [up, k], down: [down, j], detail: [l], revert: [enter], confirm: [y], base: [d],
+                   up: [up, k], down: [down, j], scroll_up: [K], scroll_down: [J], detail: [l], revert: [enter],
+                   confirm: [y], base: [d],
                    name: [n], note: [N], trials: [s], raw: [v], calibration: [c], reboot: [r],
                    filter: ['/'], close: [escape, q]}
 popup.config:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], apply: [enter],

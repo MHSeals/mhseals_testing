@@ -205,5 +205,7 @@ ACTIONS = {
     'remove': Action('remove', 0),
     'move_up': Action('move up', 0),
     'move_down': Action('move down', 0),
+    'scroll_up': Action('scroll up', 0),
+    'scroll_down': Action('scroll down', 0),
     'on_exit': Action('on_exit', 0),
 }
