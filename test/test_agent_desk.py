@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mhseals_testing.harness import goals as goals_module, runs
+from mhseals_testing.harness import goals as goals_module, operator_state, runs
 from mhseals_testing.agent import channel as ch
 from mhseals_testing.harness.settings import Settings, load as load_settings, save as save_settings
 from mhseals_testing.runner import Aborted, interlock_abort
@@ -1375,6 +1375,28 @@ def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
 
 
 # --- operator visibility: refusals, lapsed leases, settings switched mid-act ------------------
+
+@pytest.mark.parametrize('op,failing,wins', [      # the gate order of agent_desk/__init__.py
+    ('run', ('paused', 'observe', 'block', 'claim'), 'paused'),
+    ('run', ('observe', 'block', 'claim'), 'motion_observe'),
+    ('run', ('block', 'claim'), 'agents_block'),
+    ('run', ('claim',), 'unknown_claim'),
+    ('claim', ('paused', 'block', 'busy'), 'paused'),
+    ('claim', ('block', 'busy'), 'blocked'),
+    ('claim', ('busy',), 'busy')])
+def test_when_several_gates_fail_the_first_in_order_answers(rig, op, failing, wins):
+    held = claim(rig, 'codex-77aa')
+    rig.app.settings.agent_motion = 'observe' if 'observe' in failing else 'allow'
+    rig.app.settings.agents = 'block' if 'block' in failing else 'allow'
+    if 'paused' in failing:
+        operator_state.save(operator_state.change('battery_swap', eta_s=600))
+    if op == 'run':
+        req = ask(rig, 'run', 'c-none' if 'claim' in failing else held, who='codex-77aa', key='square')
+    else:
+        req = ch.request('claim', 'claude-3f2a', {'reason': 'second'})
+        rig.desk.tick()
+    assert final(req['id'])['error'] == wins
+
 
 def test_a_refused_claim_or_run_stays_in_the_panel_with_one_attention_indicator(rig):
     rig.app.settings.agents = 'block'
