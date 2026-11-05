@@ -3,7 +3,8 @@
 Pure rendering of ``labels_model`` (ui/app/actions/annotate.py feeds it); keys belong to the app.
 The timeline has three lanes over the session: runs (procedures over armed time), windows (calibration
 candidates, solid when usable) and marks (▾ mark, ━ bad data in red, ! intervention, ❝ said, ⌁ link hold,
-⊘ fence exit). The selected item is drawn in reverse in its lane, with a ▲ on the axis under it.
+⊘ fence exit). The selected item is drawn in reverse in its lane, with a ↑ on the axis under it.
+Map-object glyphs stay off this tab (ui.md 1, test_ui_grammar).
 """
 
 from datetime import datetime
@@ -18,7 +19,7 @@ from mhseals_testing.ui.panels import window
 SCALE_WORDS = ('unset', 'calm', 'moderate', 'rough')
 GLYPHS = {'mark': ('▾', 'v'), 'bad': ('✕', 'x'), 'intervention': ('!', '!'), 'said': ('❝', '"'),
           'link': ('⌁', '~'), 'fence': ('⊘', 'o'), 'procedure': ('▸', '>'), 'steady': ('▬', '='),
-          'neutral': ('○', 'o')}
+          'neutral': ('▭', 'o')}
 KIND_WORDS = {'bad': 'bad data', 'link': 'link hold', 'fence': 'fence exit', 'said': 'said',
               'steady': 'steady', 'neutral': 'neutral'}
 LANES = ('runs', 'windows', 'marks')
@@ -40,12 +41,12 @@ def status_cell(status):
         return theme.icon('good')
     if status == 'rejected':
         return theme.icon('bad')
-    return Text(theme.pick('○', 'o'), style=theme.MUTED)
+    return Text(theme.pick('·', '.'), style=theme.MUTED)
 
 
 def scale(name, value, active, compact=False):
-    """``› Wind     ●●○  moderate``; compact: ``› Wind ●●○``."""
-    on, off = theme.pick('●', '#'), theme.pick('○', '-')
+    """``› Wind     ▰▰▱  moderate``; compact: ``› Wind ▰▰▱``."""
+    on, off = theme.pick('▰', '#'), theme.pick('▱', '-')
     text = Text(theme.CURSOR if active else '  ', style=f'bold {theme.ACCENT}' if active else None)
     text.append(f'{name.title()} ' if compact else f'{name.title():<9}', style=f'bold {theme.ACCENT}' if active else None)
     text.append(on * value, style=theme.ACCENT)
@@ -60,7 +61,7 @@ def scale(name, value, active, compact=False):
 
 def lanes(model, width):
     """The three timeline lanes, each ``width`` cells over [t0, t1] (the selected item in reverse), and the axis
-    with the session's start and end and a ▲ under the selected item."""
+    with the session's start and end and a ↑ under the selected item."""
     t0, t1 = model['t0'], max(model['t1'], model['t0'] + 1.0)
     cells = {lane: [(' ', None)] * width for lane in LANES}
     selected = (model.get('selected') or {}).get('id')
@@ -95,14 +96,14 @@ def lanes(model, width):
         for char, style in cells[lane]:
             text.append(char, style=style)
         out.append(text)
-    axis = [' '] * width                      # the start and end clocks at the lane edges, ▲ at the selection
+    axis = [' '] * width                      # the start and end clocks at the lane edges, ↑ at the selection
     mark = at(model['selected']['t0']) if model.get('selected') else None
     for start, word in ((0, clock(t0)), (width - len(clock(t1)), clock(t1))):
-        if mark is None or not start <= mark < start + len(word):       # a clock under the ▲ gives way
+        if mark is None or not start <= mark < start + len(word):       # a clock under the ↑ gives way
             axis[start:start + len(word)] = word
     text = Text(' ' * LANE_WIDTH, style=theme.MUTED)
     for k, char in enumerate(axis):
-        text.append(theme.pick('▲', '^') if k == mark else char,
+        text.append(theme.pick('↑', '^') if k == mark else char,
                     style=f'bold {theme.ACCENT}' if k == mark else theme.MUTED)
     out.append(text)
     return out

@@ -56,6 +56,15 @@ def test_no_object_glyphs_in_chrome():
         assert not set(page) & set(OBJECT_GLYPHS)
 
 
+@pytest.mark.parametrize('width,height', ((120, 30), (80, 24)))
+def test_no_object_glyphs_in_the_labels_tab(width, height):
+    from test_labels_panel import model, text
+    from mhseals_testing.ui.panels import labels
+    for cursor in (0, 4):
+        page = text(labels.render(model(cursor=cursor), width, height), width, height)
+        assert not set(page) & set(OBJECT_GLYPHS)
+
+
 def test_status_glyph_hue_matches_meaning():
     seen = set()
     for page in pages(color=True):
