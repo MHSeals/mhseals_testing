@@ -1,9 +1,13 @@
 """The backend's wire protocol: newline-delimited JSON objects over a local stream socket. ROS-free.
 
 A client opens with ``hello`` (its protocol version and who it is). The backend answers ``welcome``
-with the full ``snapshot`` and its sequence number, or ``refuse`` with why, and closes. After that the
-backend pushes ``delta`` frames (each with the next ``seq``), and the client sends ``request`` frames
-(``id``, ``op``, ``args``) that get one ``reply`` each (``id`` and ``data`` or ``error``). Clients
+with the full ``snapshot``, its ``seq`` and clock ``t``, or ``refuse`` with why, and closes. After that the
+backend pushes ``delta {seq, base, t, set, del}`` frames: a merge patch over the snapshot by dotted path
+(``set`` maps a path to its new value, ``del`` lists removed paths). ``base`` is the ``seq`` of the
+client's previous frame; any other base is a gap and the client resyncs from a fresh ``welcome``. Paths
+change in rate groups: the ``control`` group goes out on every change, never coalesced; every other group
+at most at its configured rate, with only its newest values (latest wins). The client sends ``request``
+frames (``id``, ``op``, ``args``) that get one ``reply`` each (``id`` and ``data`` or ``error``). Clients
 ``ping`` every heartbeat and the backend answers ``pong``; a reconnecting client starts over from a
 fresh ``welcome``, so a lost link never leaves it with a partial state.
 
@@ -18,7 +22,8 @@ from pathlib import Path
 from mhseals_testing.profiles import PROFILE_DIR
 from mhseals_testing.strict_yaml import load_strict
 
-VERSION = (1, 0)
+VERSION = (2, 0)   # 2.0: path deltas in rate groups (1.x pushed whole data blobs)
+CONTROL = 'control'   # the rate group sent on every change, never coalesced
 KINDS = frozenset({'hello', 'welcome', 'refuse', 'delta', 'request', 'reply', 'ping', 'pong'})
 CONFIG = PROFILE_DIR.parent / 'backend.yaml'
 
@@ -33,8 +38,17 @@ class Settings:
     heartbeat: float
     link_timeout: float
     reconnect: tuple
+    rates: dict           # group -> Hz
+    slow_client: float
     socket: str
     max_frame: int
+    outbox: int
+    requests: int
+    priority: frozenset   # ops answered ahead of the request queue
+
+    def period(self, group):
+        """Seconds between a group's sends to one client: 0 for control, else 1 / rate; KeyError when unknown."""
+        return 0.0 if group == CONTROL else 1.0 / self.rates[group]
 
 
 def load_settings(path=CONFIG):
@@ -48,15 +62,27 @@ def load_settings(path=CONFIG):
     if set(values) != expected:
         raise ValueError(f'{Path(path).name}: missing {sorted(expected - set(values))}, '
                          f'unknown {sorted(set(values) - expected)}')
-    first, longest = values['reconnect']
+    name, first, longest = Path(path).name, *values['reconnect']
+    rates = values['rates']
     numbers = [values['attach_timeout'], values['heartbeat'], values['link_timeout'], first, longest,
-               values['max_frame']]
-    if not all(isinstance(n, (int, float)) and not isinstance(n, bool) and n > 0 for n in numbers):
-        raise ValueError(f'{Path(path).name}: timeouts, reconnect waits and max_frame must be positive numbers')
+               values['slow_client'], values['max_frame'], values['outbox'], values['requests']]
+    if not isinstance(rates, dict) or not rates or CONTROL in rates:
+        raise ValueError(f'{name}: rates maps each group but {CONTROL} (always on change) to its Hz')
+    if not all(_positive(n) for n in numbers + list(rates.values())):
+        raise ValueError(f'{name}: timeouts, waits, rates and sizes must be positive numbers')
     if values['link_timeout'] <= values['heartbeat'] or longest < first:
-        raise ValueError(f'{Path(path).name}: link_timeout must exceed heartbeat, and reconnect be [first, longest]')
+        raise ValueError(f'{name}: link_timeout must exceed heartbeat, and reconnect be [first, longest]')
+    priority = values['priority']
+    if not isinstance(priority, list) or not all(isinstance(op, str) and op for op in priority):
+        raise ValueError(f'{name}: priority is a list of op names')
     return Settings(float(values['attach_timeout']), float(values['heartbeat']), float(values['link_timeout']),
-                    (float(first), float(longest)), str(values['socket']), int(values['max_frame']))
+                    (float(first), float(longest)), {str(g): float(hz) for g, hz in rates.items()},
+                    float(values['slow_client']), str(values['socket']), int(values['max_frame']),
+                    int(values['outbox']), int(values['requests']), frozenset(priority))
+
+
+def _positive(n):
+    return isinstance(n, (int, float)) and not isinstance(n, bool) and n > 0
 
 
 def encode(frame, max_frame):
@@ -96,3 +122,38 @@ def check_hello(frame, version=VERSION):
     if not isinstance(frame.get('who'), str) or not frame['who']:
         return 'hello without who'
     return None
+
+
+def keys(path):
+    """A dotted path's keys (``panels.gnss.h_acc``); keys never hold a dot."""
+    return path.split('.')
+
+
+def lookup(model, path):
+    """(True, value) at ``path`` in the nested ``model``, else (False, None)."""
+    node = model
+    for key in keys(path):
+        if not isinstance(node, dict) or key not in node:
+            return False, None
+        node = node[key]
+    return True, node
+
+
+def apply(model, changes=None, removed=()):
+    """Merge one patch into ``model`` in place: removals first, then each set path (making parent mappings)."""
+    for path in removed:
+        *parents, last = keys(path)
+        node = model
+        for key in parents:
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node.pop(last, None)
+    for path, value in (changes or {}).items():
+        *parents, last = keys(path)
+        node = model
+        for key in parents:
+            if not isinstance(node.get(key), dict):
+                node[key] = {}
+            node = node[key]
+        node[last] = value
+    return model

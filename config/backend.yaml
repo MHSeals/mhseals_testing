@@ -1,9 +1,18 @@
-# The UI-less TUI backend and its thin clients (D-20261101-19). The link only: boat_tui does not use it yet.
+# The UI-less TUI backend and its thin clients (D-20261101-19, D-20261104-07). The link only: boat_tui does not use it yet.
 tune:
   attach_timeout: 1.0     # one attach attempt (connect, hello, welcome with the full snapshot) gives up after this
   heartbeat: 0.5          # a client pings this often; the backend answers each ping
   link_timeout: 2.0       # a link silent this long is lost: the client reconnects, the backend drops the client
   reconnect: [0.05, 1.0]  # a lost client's first and longest wait between attach attempts (doubling)
+  rates:                  # Hz each client gets a group's newest values at most; the control group goes out on every change
+    fast: 10              # pose, velocity, command, plots
+    status: 2             # sensors, health, parts, agent log
+    map: 2                # objects, trail, plans
+    idle: 1               # ages, clocks
+  slow_client: 2.0        # a client that takes no bytes for this long is dropped (it resyncs on reconnect)
 internal:
   socket: backend.sock    # in the runtime directory (harness.registry.runtime_dir), mode 0600
   max_frame: 1048576      # bytes in one frame, newline included
+  outbox: 256             # frames queued per client (control changes, replies, pongs); a client past it is dropped
+  requests: 32            # queued requests per client; one past it is answered busy at once
+  priority: [stop, estop, cancel_arm]   # ops answered on the reader at once, ahead of every queued request

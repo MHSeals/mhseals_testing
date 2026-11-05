@@ -17,15 +17,20 @@ def test_shipped_settings_load_and_bad_ones_are_refused(tmp_path):
     bad.write_text(protocol.CONFIG.read_text().replace('max_frame:', 'maxframe:'))
     with pytest.raises(ValueError, match='missing'):
         protocol.load_settings(bad)
+    bad.write_text(protocol.CONFIG.read_text().replace('fast: 10 ', 'control: 10 '))
+    with pytest.raises(ValueError, match='rates'):
+        protocol.load_settings(bad)
+    assert settings.period('control') == 0 and settings.period('fast') == pytest.approx(1 / settings.rates['fast'])
+    assert {'stop', 'estop', 'cancel_arm'} <= settings.priority
 
 
 def test_frames_round_trip_and_bad_ones_are_errors():
-    frame = {'kind': 'delta', 'seq': 3, 'data': {'mode': 'hold'}}
+    frame = {'kind': 'delta', 'seq': 3, 'base': 2, 't': 1.5, 'set': {'mode': 'hold'}, 'del': []}
     assert protocol.decode(protocol.encode(frame, 1024)) == frame
     with pytest.raises(protocol.FrameError):
         protocol.encode({'kind': 'nope'}, 1024)
     with pytest.raises(protocol.FrameError, match='exceeds'):
-        protocol.encode({'kind': 'delta', 'data': 'x' * 2048}, 1024)
+        protocol.encode({'kind': 'delta', 'set': {'x': 'x' * 2048}}, 1024)
     for line in (b'[1]', b'{"kind": "spoof"}', b'not json'):
         with pytest.raises(protocol.FrameError):
             protocol.decode(line)
@@ -37,3 +42,15 @@ def test_hello_versions_must_share_a_major():
     assert 'incompatible' in protocol.check_hello(protocol.hello('station', (protocol.VERSION[0] + 1, 0)))
     assert 'who' in protocol.check_hello({'kind': 'hello', 'version': list(protocol.VERSION)})
     assert 'expected hello' in protocol.check_hello({'kind': 'ping'})
+
+
+def test_patches_merge_by_dotted_path():
+    model = {'panels': {'gnss': {'h_acc': 0.5, 'fix': 'rtk'}}, 'armed': False}
+    protocol.apply(model, {'panels.gnss.h_acc': 0.02, 'authority.owner': 'station', 'armed': True},
+                   ['panels.gnss.fix', 'no.such.path'])
+    assert model == {'panels': {'gnss': {'h_acc': 0.02}}, 'armed': True, 'authority': {'owner': 'station'}}
+    assert protocol.lookup(model, 'panels.gnss.h_acc') == (True, 0.02)
+    assert protocol.lookup(model, 'panels.gnss.fix') == (False, None)
+    assert protocol.lookup(model, 'armed.deeper') == (False, None)
+    protocol.apply(model, {'armed.why': 'scalar parent becomes a mapping'})
+    assert model['armed'] == {'why': 'scalar parent becomes a mapping'}
