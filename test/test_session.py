@@ -47,8 +47,8 @@ def test_never_cwd_relative(tmp_path, monkeypatch):
     elsewhere = tmp_path / 'cwd'
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
-    made = session.create('boat', host='h', now=NOW)
-    assert made.directory.is_absolute() and not made.directory.is_relative_to(elsewhere)
+    with pytest.raises(RuntimeError, match='no data root'):      # no guess, and never the cwd
+        session.create('boat', host='h', now=NOW)
     assert list(elsewhere.iterdir()) == []
 
 

@@ -139,7 +139,7 @@ def _session_time(path):
 
 def find_session(name, root=None):
     """Session folder for --review: a path, an id under `sessions/` or the root, or the newest."""
-    root = Path(root or data.data_root())
+    root = Path(root or data.root())
     if name:
         for candidate in (Path(name), root / 'sessions' / name, root / name):
             if candidate.is_dir() and (candidate == Path(name) or candidate.name not in RESERVED):

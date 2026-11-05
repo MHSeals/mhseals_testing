@@ -23,16 +23,16 @@ def test_root_precedence_and_never_cwd(tmp_path, monkeypatch):
     assert data.root() == tmp_path / 'data'
     monkeypatch.delenv('MHSEALS_DATA')
     monkeypatch.delenv('ROS_WS')
-    assert data.root().parts[-2:] == ('astro_dock', 'bags')
-    assert not str(data.root()).startswith(str(tmp_path))
+    with pytest.raises(RuntimeError, match='MHSEALS_DATA or ROS_WS'):
+        data.root()
 
 
 def test_relative_env_is_ignored_not_resolved(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('MHSEALS_DATA', 'bags')
     monkeypatch.setenv('ROS_WS', 'ws')
-    assert data.root().parts[-2:] == ('astro_dock', 'bags')
-    assert not str(data.root()).startswith(str(tmp_path))
+    with pytest.raises(RuntimeError):
+        data.root()
     monkeypatch.setenv('ROS_WS', str(tmp_path / 'abs'))
     assert data.root() == tmp_path / 'abs' / 'bags'
 
@@ -123,12 +123,6 @@ def test_torn_utf8_tail_is_skipped(root):
     assert data.read_jsonl(target) == [{'a': 1}, {'a': 2}]
 
 
-def test_data_root_is_root_and_ignores_install_path(monkeypatch, tmp_path):
-    monkeypatch.delenv('MHSEALS_DATA', raising=False)
-    monkeypatch.setenv('ROS_WS', str(tmp_path / 'ws'))
-    assert data.data_root() == tmp_path / 'ws' / 'bags'
-
-
 def test_default_session_is_created_under_the_data_root(monkeypatch, tmp_path):
     from mhseals_testing.harness import session
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'd'))
@@ -142,6 +136,7 @@ def test_default_session_is_created_under_the_data_root(monkeypatch, tmp_path):
 def test_relative_data_env_does_not_land_in_cwd(monkeypatch, tmp_path):
     from mhseals_testing.harness import session
     monkeypatch.setenv('MHSEALS_DATA', 'rel_bags')
+    monkeypatch.setenv('ROS_WS', str(tmp_path / 'ws'))
     monkeypatch.chdir(tmp_path)
     made = session.create('boat')
-    assert made.directory.is_absolute() and not str(made.directory).startswith(str(tmp_path))
+    assert made.directory.is_relative_to(tmp_path / 'ws' / 'bags')

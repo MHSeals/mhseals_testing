@@ -4,7 +4,7 @@ Everything the harness produces (sessions, runs, health, config history) is
 JSON or JSONL under a single root, so people, ``jq`` and agents find it the
 same way. Nothing else builds these paths.
 
-Root: ``$MHSEALS_DATA``, else ``$ROS_WS/bags``, else ``~/astro_dock/bags``; never the
+Root: ``$MHSEALS_DATA``, else ``$ROS_WS/bags``; neither set is an error, never a guess or the
 working directory. ``path(*parts)`` joins under the root and rejects absolute parts and ``..``.
 Every JSON file carries a first ``schema`` field such as ``mhseals.run/1``.
 
@@ -44,15 +44,12 @@ def workspace():
 
 
 def root():
-    """``$MHSEALS_DATA``, else ``$ROS_WS/bags``, else ``~/astro_dock/bags``; never the working directory."""
+    """``$MHSEALS_DATA``, else ``$ROS_WS/bags`` (as mhseals_nav's course_map.data_root); neither is an error."""
     if (explicit := _absolute_env('MHSEALS_DATA')):
         return explicit.resolve()
-    return workspace() / 'bags'
-
-
-def data_root():
-    """Alias of ``root()`` for existing callers."""
-    return root()
+    if (ws := _absolute_env('ROS_WS')):
+        return ws.resolve() / 'bags'
+    raise RuntimeError('no data root: set MHSEALS_DATA or ROS_WS')
 
 
 def path(*parts):

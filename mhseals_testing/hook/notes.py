@@ -51,13 +51,11 @@ def sim_channel():
 
 def local_channel():
     """This machine's channel: data.path('agent', 'channel.jsonl') (``$MHSEALS_DATA``, else
-    ``$ROS_WS/bags``, else ``~/astro_dock/bags``), without importing the package."""
-    data = os.environ.get('MHSEALS_DATA')
+    ``$ROS_WS/bags``), without importing the package; None when neither is set."""
+    data, ws = os.environ.get('MHSEALS_DATA'), os.environ.get('ROS_WS')
     if data and os.path.isabs(data):
         return Path(data).resolve() / 'agent' / 'channel.jsonl'
-    ws = os.environ.get('ROS_WS')
-    ws = Path(ws).resolve() if ws and os.path.isabs(ws) else Path.home() / 'astro_dock'
-    return ws / 'bags' / 'agent' / 'channel.jsonl'
+    return Path(ws).resolve() / 'bags' / 'agent' / 'channel.jsonl' if ws and os.path.isabs(ws) else None
 
 
 def redact(cmd):
@@ -138,7 +136,7 @@ def deliver(line, config):
     try:
         if host is None:                    # local, the sim, or this is the target
             path = {'local': local_channel, SIM: sim_channel}.get(target, lambda: os.path.expanduser(path))()
-            if target in ('local', SIM) and not Path(path).parent.is_dir():
+            if target in ('local', SIM) and not (path and Path(path).parent.is_dir()):
                 return              # no TUI has run here: nobody reads the channel, nothing to log
 
             fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
