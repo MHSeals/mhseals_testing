@@ -653,6 +653,7 @@ def test_the_playbook_lists_the_verbs_why_release_and_set():
 
 @pytest.mark.parametrize('command, route', [
     ('ros2 topic pub /thruster_pwm_node/test_pulses std_msgs/UInt16MultiArray "{data: [1600]}"', 'run KEY --claim'),
+    ('ros2 topic pub /thruster_pwm_node/test_pulses/held std_msgs/String "{data: x}"', 'run KEY --claim'),
     ('ros2 lifecycle set /controller_server deactivate', 'set K=V --claim ID'),
     ('ros2 param set /controller_server FollowPath.max_vel_x 2.0', 'set K=V --claim ID'),
     ('ros2 service call /lifecycle_manager_navigation/manage_nodes nav2_msgs/srv/ManageLifecycleNodes "{command: 1}"',

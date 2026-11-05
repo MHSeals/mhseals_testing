@@ -14,6 +14,10 @@ from mhseals_testing.health.probes.graph import topic_fact_name
 NEUTRAL_REPEATS = 3  # a few copies so one dropped message can't leave thrust on
 # thruster_pwm_node's raw-pulse input: physical outputs 1-4 in µs, for bench tests.
 TEST_PULSES_TOPIC = '/thruster_pwm_node/test_pulses'
+# The same pulses held by the driver for hold_s after each message, so a stalled loop does not
+# chop them (a driver without it gets TEST_PULSES_TOPIC, held only for its command_timeout).
+HELD_PULSES_TOPIC = TEST_PULSES_TOPIC + '/held'
+PULSE_HOLD_S = 1.5   # the longest TUI stall a test pulse rides out; the driver caps it
 MUX_REQUEST_TOPIC = '/command_mux/request'  # command_mux ~/request: {op, cause, by}
 # Nav2's smoother is the mux's own auto source (quiet while no goal runs), not a rival.
 NAV2_AUTO_SOURCE = '/velocity_smoother'
@@ -26,7 +30,8 @@ class Plant:
         self.stamped = profile.command_type == 'twist_stamped'
         self.publisher = None  # exists only while armed, so an idle suite is no conflict
         self.manual_publisher = None  # keyboard drive and Space only
-        self.pulse_publisher = None
+        self.pulse_publisher = self.held_publisher = None
+        self.pulse_seq, self.last_pulses = 0, None
         # Created up front: the mux's reliable subscription needs discovery time, so a
         # publisher made at the first Space would lose that first (safety) request.
         self.request_publisher = (ros.node.create_publisher(String, MUX_REQUEST_TOPIC, 10)
@@ -106,10 +111,20 @@ class Plant:
         return True
 
     def test_pulses(self, pulses):
-        if self.pulse_publisher is None:
+        """Raw pulses per output; the seq (the driver's ~/output echoes it) moves when they change."""
+        pulses = [int(p) for p in pulses]
+        if pulses != self.last_pulses:
+            self.pulse_seq, self.last_pulses = self.pulse_seq + 1, pulses
+        if self.held_publisher is None:
+            self.held_publisher = self.ros.node.create_publisher(String, HELD_PULSES_TOPIC, 10)
             self.pulse_publisher = self.ros.node.create_publisher(
                 UInt16MultiArray, TEST_PULSES_TOPIC, 10)
-        self.pulse_publisher.publish(UInt16MultiArray(data=[int(p) for p in pulses]))
+        if self.held_publisher.get_subscription_count():
+            self.held_publisher.publish(String(data=json.dumps(
+                {'pulses': pulses, 'hold_s': PULSE_HOLD_S, 'seq': self.pulse_seq})))
+        else:   # a driver from before the held topic
+            self.pulse_publisher.publish(UInt16MultiArray(data=pulses))
+        return self.pulse_seq
 
     def conflicts(self):
         """Another node commanding the same topic would fight every trial."""
