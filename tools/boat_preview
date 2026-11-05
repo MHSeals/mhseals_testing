@@ -145,7 +145,7 @@ down() {
 session() {
   in_session=1     # stderr is run/session.log
   trap down EXIT; trap 'exit 143' INT TERM
-  rm -f "$RUN/stop" "$RUN/failed" "$QUEUED"; echo $$ > "$RUN/session.pid"
+  rm -f "$RUN/stop" "$RUN/failed" "$RUN/starting" "$QUEUED"; echo $$ > "$RUN/session.pid"
   printf '%s\n%s\n' "$ROOT" "$REF" > "$CURRENT"
   resolved --pull     # the workspace's image (newer from the registry first) and manifest
   echo "boat_preview: snapshot of ${REF:-the workspace manifest}"
@@ -156,6 +156,7 @@ session() {
   build "$stamp"
   # 9>&-: heavy's slot lock (fd 9) stays with this session only, never with the tmux server or the player, so a
   # session that dies hard still gives the slot back
+  touch "$RUN/starting"     # up's attach_s counts from here: queueing, the pull and the build have their own ends
   tui up -- --profile "$PV_PROFILE" --set "command_mode=$PV_COMMAND_MODE" 9>&-
   touch "$RUN/ready"
   local waited=0
@@ -168,7 +169,7 @@ session() {
   player 9>&-
   waited=0
   until grep -q CRANE_ROBOBOAT_COURSE_READY "$RUN/player.log" 2>/dev/null || [ -e "$RUN/stop" ]; do
-    [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: player not ready in $PV_READY_S s, see $RUN/player.log" >&2; break; }
+    [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: player not ready in $PV_READY_S s, see $RUN/player.log" >&2; exit 1; }
     if ! kill -0 "$(cat "$RUN/player.pid")" 2>/dev/null; then    # it exited: say why now, not after ready_s
       echo "boat_preview: the player exited before its course was ready; its last lines:" >&2
       tail -n 30 "$RUN/player-stdout.log" "$RUN/player.log" 2>/dev/null >&2 || true
@@ -205,20 +206,28 @@ case $verb in
       alive || tui up -- --profile "$PV_PROFILE" --set "command_mode=$PV_COMMAND_MODE" >/dev/null
       attach; exit 0
     fi
-    mkdir -p "$RUN"; rm -f "$RUN/ready" "$RUN/session.pid"
+    mkdir -p "$RUN"; rm -f "$RUN/ready" "$RUN/starting" "$RUN/session.pid"
     : > "$RUN/session.log"
     guard=("$HEAVY" "$slot")
     [ -x "$HEAVY" ] || { guard=(); echo "boat_preview: no heavy guard on this host ($HEAVY); running directly" >&2; }
     ( setsid "${guard[@]}" "$0" _run "$REF" $([ "$headless" = 1 ] && echo --headless) $([ "$test" = 1 ] && echo --test) \
         >>"$RUN/session.log" 2>&1 & echo $! > "$QUEUED" )
+    # queued for the heavy slot (or the GPU lock), the pull and the build are not the TUI starting: attach_s counts from
+    # run/starting; leaving while still queued cancels the session, so it never starts unattended later
+    cancel() { [ -s "$QUEUED" ] && { kill -TERM -- "-$(cat "$QUEUED")" 2>/dev/null; rm -f "$QUEUED"; echo 'boat_preview: queued session cancelled' >&2; }; exit 1; }
+    trap cancel INT TERM HUP
     shown=0 waited=0
     until [ -e "$RUN/ready" ]; do
       lines=$(wc -l < "$RUN/session.log"); [ "$lines" -gt "$shown" ] && { sed -n "$((shown + 1)),${lines}p" "$RUN/session.log"; shown=$lines; }
-      if [ "$waited" -ge "$PV_ATTACH_S" ] || grep -q 'boat_preview: down' "$RUN/session.log"; then
+      if grep -q 'boat_preview: down' "$RUN/session.log"; then
         echo "boat_preview: not ready (log $RUN/session.log)" >&2; exit 1
       fi
-      sleep 1; waited=$((waited + 1))
+      if [ "$waited" -ge "$PV_ATTACH_S" ]; then
+        echo "boat_preview: no TUI after $PV_ATTACH_S s; it is still starting (boat_tui preview status; boat_tui preview down stops it; log $RUN/session.log)" >&2; exit 1
+      fi
+      sleep 1; [ -e "$RUN/starting" ] && waited=$((waited + 1))
     done
+    trap - INT TERM HUP
     attach
     ;;
   _run) session ;;
@@ -230,7 +239,7 @@ case $verb in
   attach) alive || { echo 'boat_preview: no preview TUI (boat_tui preview starts one)' >&2; exit 4; }; attach ;;
   restart) tui restart ;;
   status)
-    running && echo "preview: $REF ($ROOT)" || echo "preview: none"
+    running && echo "preview: ${REF:-the workspace manifest} ($ROOT)" || echo "preview: none"
     alive && echo "tui: tmux -L $PV_SOCKET attach -t $PV_SESSION" || echo "tui: none"
     [ -n "$ROOT" ] && [ -s "$RUN/player.pid" ] && kill -0 "$(cat "$RUN/player.pid")" 2>/dev/null && echo "player: running" || echo "player: stopped"
     [ -z "$PV_RESULTS" ] || echo "checklist: $PV_RESULTS/preview-$(date +%F).md"
