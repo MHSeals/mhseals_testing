@@ -54,7 +54,7 @@ def start_text(who, agent='claude', config=None):
         ' every agent needs its own (a subagent too): the desk refuses a claim by an id that already holds one, and'
         " a claim works only with the id that made it. Ids are honour-based: never use another agent's --who.",
         f'Act on the boat or its sim only through `{cli}` (JSON out). On a boat host, ssh only to run boat_agent '
-        '(claim, arm, run, start, reload, set, fcu, fence, ask, note, release, stop) or boat_tui; nothing else there. You may end your own '
+        'or boat_tui; nothing else there. You may end your own '
         f'tmux sessions there (name them `agent-{who}-...` and end them with `tmux kill-session -t agent-{who}-...`), never `boat`, '
         "another agent's session or `-L boat`.",
         '  1. `status`: what runs and who drives.',
@@ -92,8 +92,8 @@ def start_text(who, agent='claude', config=None):
         '     No TUI (exit 4): `boat_tui up` (beside boat_agent) starts the stack and TUI in tmux and prints the line '
         'the operator attaches with; `boat_tui status` says who controls. Never type into its tmux session.',
         '  4. `follow --claim ID --until ...`: watch it.  5. `release --claim ID`: hand it back.',
-        '  Every acting verb (claim, arm, run, goal, set, start, stop, reload, fcu set/restart, release) takes '
-        '`--why "..."`: the TUI agent panel shows who, verb, why and result. `note --doing "..."` sets your "doing:" '
+        '  Every acting verb takes `--why "..."` (`boat_agent VERB --help` marks it required): the TUI agent panel '
+        'shows who, verb, why and result. `note --doing "..."` sets your "doing:" '
         'line there; `ask "..."` instead of guessing. `stop` any time: the operator and the agent it interrupts see '
         'your id; it cancels an arm countdown and keeps your claim (`release` it to claim again). `status` and '
         '`fcu get` work with no TUI controller.',
