@@ -48,6 +48,7 @@ from mhseals_testing.ui.imaging.kitty import (DIACRITICS, ESC, KITTY_NAMES, PLAC
 from mhseals_testing.ui.imaging.probe import (PROBE, PROBE_ID, PROBE_KITTY, PROBE_S, _ask, _tmux,  # noqa: F401
                                               blind, choose, parse, probe, reason)
 from mhseals_testing.ui.imaging.protocol import by_name, rgba as _rgba
+from mhseals_testing.ui.imaging import sixel_merge
 from mhseals_testing.ui.imaging.sixel import MARK0, _MARKS, sixel  # noqa: F401
 from mhseals_testing.ui.imaging.tmux import TMUX_FORMAT, _tmux_tier, tmux_view  # noqa: F401
 
@@ -821,24 +822,14 @@ def _rects(spans):
 
 
 def after(write):
-    """Sixel: clear and paint each visible tile part not already painted there."""
+    """Sixel: clear and paint the visible tile parts not already painted there, joined into as few images as
+    tmux keeps (sixel_merge), so a tmux redraw never drops part of a picture."""
     global _drawn
     if TIER != 'sixel':
         return
-    out, drawn = [], {}
-    for (row, col), (n, crop) in _live.items():
-        tile = _by_id.get(n)
-        if tile is None:            # evicted while this frame made a dimmed copy: drawn next frame
-            continue
-        drawn[(row, col)] = (n, crop)
-        if _drawn.get((row, col)) == (n, crop):
-            continue
-        r0, c0, r1, c1 = crop
-        ch, cw = tile.px.shape[0] // tile.rows, tile.px.shape[1] // tile.cols
-        out.append(''.join(f'\x1b[{row + r + 1};{col + 1}H' + ' ' * (c1 - c0) for r in range(r1 - r0)))
-        part = tile.px[r0 * ch:r1 * ch, c0 * cw:c1 * cw]
-        if part.any():               # an empty tile only clears what was under it, once
-            out.append(f'\x1b[{row + 1};{col + 1}H' + sixel(part, tile.palette))
+    drawn = {place: part for place, part in _live.items() if part[0] in _by_id}   # evicted: drawn next frame
+    changed = [(r, c, n, crop) for (r, c), (n, crop) in drawn.items() if _drawn.get((r, c)) != (n, crop)]
+    out = sixel_merge.paint(changed, [(r, c, n, crop) for (r, c), (n, crop) in drawn.items()], _by_id, _rects)
     _drawn = drawn
     if out:
         data = '\x1b7\x1b[0m' + ''.join(out) + '\x1b8'
