@@ -99,8 +99,9 @@ hook:
   # alias. Advisory: variables and scripts get through; the mux and the claim are the safety.
   # Kept: raw motion, MAVROS arming/mode/params, the operator heartbeat and e-stop, bags with motion topics,
   # starting the driver, mux, mission runner or a procedure directly, pkill/killall (kill PID instead), the mux's
-  # saved holds, changing the stop file, the live agent hook and its wiring (src/*/hooks/hook.py too) and
-  # core.hooksPath. Nav2 params pass with a claim (BOAT_AGENT_CLAIM=ID ros2 param set ...); lifecycles do not.
+  # saved holds, changing the stop file, the live agent hook and its wiring (agent_hook.py's hook/ package and
+  # src/*/hooks/hook.py too) and core.hooksPath. Nav2 params pass with a claim (BOAT_AGENT_CLAIM=ID ros2 param
+  # set ...); lifecycles do not.
   deny: ['ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
          'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
          'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
@@ -135,7 +136,7 @@ hook:
          'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)',
          'EDIT \w+ live .*(/command_mux[^/]*(\.json|\*)|/hold_store(/.*)?|/hold_store\.json)$',
          'EDIT (change|delete) live .*/agent/stop$',
-         'EDIT \w+ live .*/(agent_hook\.py|\.agents/hook\.py|src/[^/]+/hooks/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$',
+         'EDIT \w+ live .*/(agent_hook\.py|\w+/hook/[^/]+\.py|\.agents/hook\.py|src/[^/]+/hooks/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$',
          '(?i)git\b(?!.*\sconfig\s+(--get\S*|--list|-l)\s).*\bcore\.hookspath\b',
          '(?i)\w+=.*\bcore\.hookspath\b',
          # the owner's preview (boat_tui preview): status and an own --test --headless preview only

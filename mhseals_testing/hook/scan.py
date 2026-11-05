@@ -62,7 +62,7 @@ def claimed_ids(command):
 
 
 # A file is protected only by name (the deny rules), so only these names need a place (a git call for a worktree).
-PROTECTED = re.compile(r'agent/stop|command_mux[^/]*\.json|hold_store|agent_hook\.py|/hook\.py|\.claude/settings'
+PROTECTED = re.compile(r'agent/stop|command_mux[^/]*\.json|hold_store|agent_hook\.py|/hook/|/hook\.py|\.claude/settings'
                        r'|\.codex/hooks\.json|agent\.ya?ml|launch|sysrq')
 
 
