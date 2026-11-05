@@ -14,7 +14,7 @@ from mhseals_testing.strict_yaml import load_strict
 import yaml
 
 SCHEMA = 'mhseals.agent_config/1'
-LEASE_KEYS = ('idle_s', 'motion_s', 'max_claim_s')
+LEASE = {'idle_s': 600.0, 'motion_s': 10.0, 'max_claim_s': 3600.0}   # agent.yaml's lease; the code fallback
 NUMBERS = ('request_s', 'confirm_s', 'ask_s')
 QUEUE_S = 120.0        # a run, goal or ask waits this long behind a popup, a procedure or another act (queue_s)
 DRIVERS = ('warn', 'hold')
@@ -74,9 +74,9 @@ def validate(data):
         raise ValueError('agent.yaml: arm.countdown must be 0 to 60 seconds')
     tune = validate_tune(data.get('tune', {}))
     lease = data.get('lease')
-    if not isinstance(lease, dict) or set(lease) != set(LEASE_KEYS):
-        raise ValueError(f"agent.yaml: lease needs exactly {', '.join(LEASE_KEYS)}")
-    for key, value in [*(('lease.' + k, lease[k]) for k in LEASE_KEYS), *((k, data.get(k)) for k in NUMBERS)]:
+    if not isinstance(lease, dict) or set(lease) != set(LEASE):
+        raise ValueError(f"agent.yaml: lease needs exactly {', '.join(LEASE)}")
+    for key, value in [*(('lease.' + k, lease[k]) for k in LEASE), *((k, data.get(k)) for k in NUMBERS)]:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f'agent.yaml: {key} must be a positive number of seconds')
     queue = data.get('queue_s', QUEUE_S)

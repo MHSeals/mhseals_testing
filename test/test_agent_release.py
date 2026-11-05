@@ -220,7 +220,7 @@ def test_fcu_get_without_a_tui_reads_the_newest_snapshot(tmp_path, monkeypatch):
 def test_an_idle_lapse_while_disarmed_and_neutral_leaves_no_hold(quiet, hold):
     clock, holds = [100.0], []
     config = SimpleNamespace(get=lambda: {'lease': {'idle_s': 600, 'motion_s': 10, 'max_claim_s': 3600}})
-    arbiter = Arbiter(lambda record: None, lambda phase, **f: None, tui_owner=True, clock=lambda: clock[0],
+    arbiter = Arbiter(lambda record: None, lambda phase, **f: None, clock=lambda: clock[0],
                       hold=lambda cause, by: holds.append(cause), config=config, quiet=lambda: quiet)
     ack = arbiter.handle({'op': 'claim', 'who': 'claude-1', 'request': 'r', 'lease_s': 600})
     clock[0] += 601

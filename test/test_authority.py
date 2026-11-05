@@ -185,8 +185,8 @@ def test_leases_expire_and_agent_claims_always_have_one():
     assert [c['id'] for c in claims.expire(NOW + 20)] == [leased['id']]
     assert claims.get(leased['id']) is None
     unleased, _ = claims.claim('agent', 'cli', NOW + 20)
-    assert unleased['lease_s'] == claims.idle_s == 120
-    assert claims.expire(NOW + 20 + 121) == [unleased]
+    assert unleased['lease_s'] == claims.idle_s == 600   # agent/config.LEASE, as agent.yaml
+    assert claims.expire(NOW + 20 + 601) == [unleased]
     assert [e['phase'] for e in claims.drain()] == [
         'claim', 'claim_expire', 'claim', 'claim_expire']
 

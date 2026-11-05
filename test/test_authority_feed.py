@@ -314,11 +314,6 @@ def test_agents_row_flips_with_left_and_right(tmp_path):
     assert status_rows(app.snapshot(), app.profile.sensors)[app.cursors['status']]['value'] == theme.pick('‹ block ›', '< block >')
     app.dispatch('left')
     assert app.settings.agents == 'allow'
-    app.arbiter = SimpleNamespace(allow_agents=True)   # the one Arbiter attribute
-    app.dispatch('left')
-    assert app.arbiter.allow_agents is False
-    app.dispatch('left')
-    assert app.arbiter.allow_agents is True
 
 
 def test_sources_report_when_a_mux_is_expected(tmp_path):

@@ -1,9 +1,10 @@
-"""The arbiter with fake transport: claim ack, handover, TUI-owner rule, revoke."""
+"""The arbiter with fake transport: claim, handover, revoke, leases."""
 
 import copy
 import json
 
-from mhseals_testing.ros.authority import Arbiter, exit_code
+from mhseals_testing.agent.channel import exit_code
+from mhseals_testing.ros.authority import Arbiter
 
 
 class FakeRegistry:
@@ -35,40 +36,30 @@ class Rig:
         return self.arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'tune', **request})
 
 
-def test_claim_is_acked_in_the_next_record_and_second_claim_is_busy():
-    rig = Rig(tui_owner=True)
+def test_claim_is_published_and_second_claim_is_busy():
+    rig = Rig()
     ack = rig.ask(reason='sweep')
     assert ack['ok'] and ack['claim']['id'] == 'c1' and ack['id'] == 'c1'
-    latest = rig.sent[-1]
-    assert latest['ack']['request'] == 'r1' and latest['owner'] == 'agent'
+    assert rig.sent[-1]['owner'] == 'agent' and 'ack' not in rig.sent[-1]
     busy = rig.ask(request='r2', who='other')
     assert exit_code(busy) == 2 and busy['holder']['id'] == 'c1'
     assert busy['id'] is None and not busy['ok']
     assert exit_code(ack) == 0
 
 
-def test_agent_claim_without_a_tui_owner_exits_4():
-    rig = Rig(tui_owner=False)
-    ack = rig.ask()
-    assert ack['error'] == 'no_owner' and exit_code(ack) == 4
-    assert rig.arbiter.table.claims == []
-
-
-def test_blocked_agents_exit_5_and_revoke_over_the_topic_is_refused():
-    rig = Rig(tui_owner=True, allow_agents=False)
-    assert exit_code(rig.ask()) == 5
-    rig = Rig(tui_owner=True)
+def test_revoke_through_handle_is_a_bad_op():
+    rig = Rig()
     rig.ask()
     ack = rig.arbiter.handle({'op': 'revoke', 'id': 'c1', 'request': 'x'})
-    assert ack['error'] == 'forbidden' and rig.arbiter.table.get('c1')['state'] == 'active'
+    assert ack['error'] == 'bad_op' and rig.arbiter.table.get('c1')['state'] == 'active'
 
 
 def test_handover_keeps_claims_and_seq():
     registry = FakeRegistry()
-    first = Rig(registry, tui_owner=True)
+    first = Rig(registry)
     first.ask()
     first.arbiter.close(keep_claims=True)
-    second = Rig(registry, tui_owner=True)
+    second = Rig(registry)
     assert [c['id'] for c in second.arbiter.table.claims] == ['c1']
     second.arbiter.table.release('c1', second.now)
     assert second.ask(request='r3')['claim']['id'] == 'c2'  # never re-issues c1
@@ -76,7 +67,7 @@ def test_handover_keeps_claims_and_seq():
 
 def test_claims_end_with_the_session_unless_kept():
     registry = FakeRegistry()
-    rig = Rig(registry, tui_owner=True)
+    rig = Rig(registry)
     rig.ask()
     rig.arbiter.close()
     assert registry.data['authority']['claims'] == []
@@ -84,7 +75,7 @@ def test_claims_end_with_the_session_unless_kept():
 
 
 def test_revoke_stops_the_boat_cancels_goals_then_revokes():
-    rig = Rig(tui_owner=True)
+    rig = Rig()
     rig.ask()
     rig.goals.append({'id': 'g1', 'status': 'executing', 'by': 'tune',
                       'cancel': lambda: rig.calls.append('cancel g1')})
@@ -96,7 +87,7 @@ def test_revoke_stops_the_boat_cancels_goals_then_revokes():
 
 
 def test_record_is_republished_only_on_change_or_heartbeat():
-    rig = Rig(tui_owner=True)
+    rig = Rig()
     rig.arbiter.tick()
     count = len(rig.sent)
     rig.now += 0.3
@@ -110,7 +101,7 @@ def test_record_is_republished_only_on_change_or_heartbeat():
 
 
 def rig_with_goal():
-    rig = Rig(tui_owner=True)
+    rig = Rig()
     rig.ask(lease_s=10)
     rig.goals.append({'id': 'g1', 'status': 'executing', 'by': 'tune',
                       'cancel': lambda: rig.calls.append('cancel g1')})
@@ -140,7 +131,7 @@ def test_the_desks_motion_lease_expires_a_claim_like_revoke():
 
 
 def test_only_the_claims_who_may_renew_or_release_it():
-    rig = Rig(tui_owner=True)
+    rig = Rig()
     rig.ask(lease_s=10)
     for op in ('renew', 'release'):
         ack = rig.arbiter.handle({'op': op, 'id': 'c1', 'who': 'intruder', 'request': 'x'})
@@ -156,7 +147,7 @@ def test_only_the_claims_who_may_renew_or_release_it():
 
 
 def test_a_revoked_claim_cannot_be_renewed_and_says_why():
-    rig = Rig(tui_owner=True)
+    rig = Rig()
     rig.ask()
     rig.arbiter.revoke('c1')
     ack = rig.arbiter.handle({'op': 'renew', 'id': 'c1', 'who': 'tune', 'request': 'x'})
@@ -171,7 +162,7 @@ def test_lease_bounds_follow_the_hot_reloaded_config():
             return {'lease': self.lease}
 
     config = Config()
-    rig = Rig(tui_owner=True, config=config)
+    rig = Rig(config=config)
     rig.ask(lease_s=100)
     config.lease = dict(config.lease, max_claim_s=50)
     rig.now += 51
@@ -184,6 +175,6 @@ def test_lease_bounds_follow_the_hot_reloaded_config():
 
 def test_a_nav_pause_request_never_shadows_the_operator_pause():
     """nav's /autonomy/pause request is data beside pause(), the operator's swap or break."""
-    arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True)
+    arbiter = Arbiter(lambda record: None, lambda phase, **fields: None)
     arbiter.on_pause({'paused': True, 'cause': 'geofence', 'why': 'returning inside the fence'})
     assert arbiter.pause_request['cause'] == 'geofence' and callable(arbiter.pause)

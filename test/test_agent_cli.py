@@ -86,6 +86,13 @@ def test_exit_codes(error, code):
     assert ch.exit_code({'ok': not error, 'error': error}) == code
 
 
+def test_the_lease_fallback_is_the_shipped_lease():
+    from mhseals_testing.agent import config as agent_config
+    from mhseals_testing.harness.authority import ClaimTable
+    assert agent_cli.DEFAULTS['lease'] == agent_config.LEASE == agent_config.load()['lease']
+    assert (ClaimTable().idle_s, ClaimTable().max_claim_s) == (600, 3600)
+
+
 @pytest.mark.parametrize('argv', [['claim', '--who', 'a'], ['release', '--claim', 'c1'],
                                   ['run', 's', '--claim', 'c1'], ['goal', '1', '2', '--claim', 'c1'],
                                   ['ask', 'lines off?']])

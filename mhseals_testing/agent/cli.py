@@ -30,6 +30,7 @@ from mhseals_testing import data
 from mhseals_testing.harness import operator_state, transfer
 from mhseals_testing.agent import channel
 from mhseals_testing.agent.ask import assignments, reads_only
+from mhseals_testing.agent.config import LEASE
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
@@ -41,7 +42,7 @@ FENCE_ACTIONS = ('corners', 'on_exit', 'anchor')
 STREAMS = ('run', 'goal')      # route sends goals
 SECTIONS = ('authority', 'run', 'health', 'odometry', 'perception', 'nav2', 'agent')
 ALWAYS = ('schema', 't_ns', 'host', 'profile', 'sim', 'session', 'owner', 'stale', 'age_s', 'operator')
-DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': {'idle_s': 600.0, 'motion_s': 10.0}}
+DEFAULTS = {'request_s': 5.0, 'ask_s': 120.0, 'lease': dict(LEASE)}
 STATUS_STALE_S = 3.0
 STOP_WAIT_S = 1.0
 POLL_S = 0.1

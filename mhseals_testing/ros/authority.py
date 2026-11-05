@@ -4,9 +4,9 @@ It runs in the session owner (the TUI, or a headless run). Every second, and
 at once on any change, it turns the latest mux state, the claim table and what
 the owner knows about goals, tasks and procedures into one record
 (harness/authority.derive) and publishes it latched on AUTHORITY_TOPIC. Agents
-ask for claims on CLAIM_TOPIC and read the answer in the ``ack`` field of the
-next record. Claims and their sequence number persist in the session registry
-(``registry.authority``), so a takeover or exec reload adopts them.
+claim through the owner's agent desk (ui/feeds/agent_desk/lease.py), which calls
+``Arbiter.handle`` in process. Claims and their sequence number persist in the
+session registry (``registry.authority``), so a takeover or exec reload adopts them.
 
 ``Arbiter`` has no ROS in it: transport and side effects are injected, so it
 is tested with plain callables. ``bind`` wires it to a RosIO node.
@@ -16,23 +16,14 @@ import json
 import threading
 import time
 
-from mhseals_testing.harness import operator_state
 from mhseals_testing.agent import config as agent_config
 from mhseals_testing.harness.authority import ClaimTable, derive, events
 
 AUTHORITY_TOPIC = '/mhseals_testing/authority'
-CLAIM_TOPIC = '/mhseals_testing/authority/claim'
 MUX_STATE_TOPIC = '/command_mux/state'
 PAUSE_TOPIC = '/autonomy/pause'      # nav's latched pause requests (the fence's return)
 HEARTBEAT_S = 1.0
 TICK_S = 0.25
-# Ack errors and the exit codes the CLI maps them to (spec section 6, agent-control section 3).
-EXIT_CODES = {'busy': 2, 'not_holder': 2, 'revoked': 3, 'expired': 3, 'no_owner': 4, 'blocked': 5, 'paused': 7}
-
-
-def exit_code(ack):
-    """0 for an accepted request, else the CLI exit code of its error."""
-    return 0 if ack.get('ok') else EXIT_CODES.get(ack.get('error'), 1)
 
 
 class Arbiter:
@@ -41,33 +32,28 @@ class Arbiter:
     ``publish(record)`` sends the record; ``emit(phase, **fields)`` journals an
     event. ``sources()`` returns {'nav', 'task', 'procedure', 'graph'} for
     ``derive``; nav goals may carry a ``cancel`` callable. ``neutral()`` and
-    ``hold(cause, by)`` stop the boat (zero command, mux hold). ``tui_owner``
-    is False for a headless run, which refuses agent claims. ``config`` is the
+    ``hold(cause, by)`` stop the boat (zero command, mux hold). ``config`` is the
     hot-reloaded config/agent.yaml (``agent_config.Watch``): its lease bounds
     agent claims. An expired lease stops the boat exactly as ``revoke`` does.
     While the operator has declared a state other than normal (``pause``), agent
-    leases are suspended, not lapsed: nothing expires and no lease hold is made, and a new claim is refused.
-    Renew and release over the topic must name the claim's ``who``.
+    leases are suspended, not lapsed: nothing expires and no lease hold is made.
+    Renew and release must name the claim's ``who``. The desk's gates come first (agent_desk/__init__.py).
     """
 
-    def __init__(self, publish, emit, *, registry=None, tui_owner=False, allow_agents=True,
-                 sources=lambda: {}, neutral=lambda: None, hold=lambda cause, by: None,
+    def __init__(self, publish, emit, *, registry=None, sources=lambda: {}, neutral=lambda: None, hold=lambda cause, by: None,
                  clock=time.time, config=None, quiet=lambda: False):
         self.publish, self.emit, self.registry = publish, emit, registry
-        self.tui_owner, self.allow_agents = tui_owner, allow_agents
         self.sources, self.neutral, self.hold, self.clock = sources, neutral, hold, clock
         self.quiet = quiet       # True: disarmed and neutral, so an idle lease lapses with no stop and no hold
         saved = (registry.read().get('authority') or {}) if registry else {}
         self.table = ClaimTable(saved.get('claims', ()), saved.get('seq', 0))
         self.config = config or agent_config.Watch()
-        lease = (self.config.get() or {}).get('lease') or {}      # the first claim gets agent.yaml's lease too
-        self.table.idle_s = lease.get('idle_s', self.table.idle_s)
-        self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
+        self._apply_lease()      # the first claim gets agent.yaml's lease too
         self.ended = {}          # claim id -> 'revoked' | 'expired' | 'lapsed' | 'paused_end': the agent's next call learns why
         self.paused = None       # the operator state record while it is not normal (harness/operator_state.py)
         self.mux, self.mux_at = None, None
         self.pause_request = None   # nav's latest pause request (runner.override_cause); pause() is the operator's
-        self.record, self.ack, self.sent_at, self.sent = None, None, None, None
+        self.record, self.sent_at, self.sent = None, None, None
         self.saved = None
         self.lock = threading.RLock()
 
@@ -80,7 +66,7 @@ class Arbiter:
             self.pause_request = request
 
     def handle(self, request):
-        """Answer one claim-topic request; the ack rides in the next record."""
+        """Answer one desk request (claim, renew or release) and publish the result."""
         with self.lock:
             now = self.clock()
             op = request.get('op')
@@ -89,26 +75,24 @@ class Arbiter:
                 self._claim(request, now, ack)
             elif op in ('release', 'renew'):
                 self._own(request, now, ack)
-            else:  # revoke is the owner's own key; over the topic it is refused like any other op
-                ack.update(ok=False, error='forbidden' if op == 'revoke' else 'bad_op')
-            self.ack = ack
+            else:  # revoke is the owner's own key (revoke())
+                ack.update(ok=False, error='bad_op')
             self.tick(force=True)
             return ack
 
     def _claim(self, request, now, ack):
-        if not self.tui_owner:
-            ack.update(ok=False, error='no_owner')  # no TUI means no banner to show the claim
-        elif not self.allow_agents:
-            ack.update(ok=False, error='blocked')
-        elif self.paused is not None:            # the desk's paused refusal, for a claim sent on the topic
-            ack.update(ok=False, error='paused', hint=operator_state.refusal(self.paused))
-        else:
-            claim, holder = self.table.claim(
-                request.get('owner', 'agent'), request.get('who') or 'agent', now,
-                request.get('reason', ''), request.get('lease_s'), request.get('pid'),
-                request.get('host'))
-            ack.update(ok=claim is not None, id=claim['id'] if claim else None,
-                       claim=claim, holder=holder, error='' if claim else 'busy')
+        """The last gate: one holder at a time (busy); the desk already refused paused and blocked."""
+        claim, holder = self.table.claim(
+            request.get('owner', 'agent'), request.get('who') or 'agent', now,
+            request.get('reason', ''), request.get('lease_s'), request.get('pid'), request.get('host'))
+        ack.update(ok=claim is not None, id=claim['id'] if claim else None,
+                   claim=claim, holder=holder, error='' if claim else 'busy')
+
+    def _apply_lease(self):
+        """agent.yaml's lease bounds (hot-reloaded) onto the claim table."""
+        lease = (self.config.get() or {}).get('lease') or {}
+        self.table.idle_s = lease.get('idle_s', self.table.idle_s)
+        self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
 
     def _own(self, request, now, ack):
         """Renew or release: only the claim's own ``who`` may (G5)."""
@@ -194,9 +178,7 @@ class Arbiter:
         """Derive, journal edges, and publish on change or once per HEARTBEAT_S."""
         with self.lock:
             now = self.clock()
-            lease = (self.config.get() or {}).get('lease') or {}
-            self.table.idle_s = lease.get('idle_s', self.table.idle_s)
-            self.table.max_claim_s = lease.get('max_claim_s', self.table.max_claim_s)
+            self._apply_lease()
             for claim in self.table.expire(now) if self.paused is None else ():
                 if self.quiet():              # disarmed and neutral: nothing to stop, so no hold (owner 11-01)
                     self.ended[claim['id']] = 'lapsed'
@@ -216,7 +198,6 @@ class Arbiter:
             self.record = record
             self._persist()
             key = json.dumps({k: v for k, v in record.items() if k != 't_ns'}, sort_keys=True)
-            record = dict(record, ack=self.ack)
             if force or key != self.sent or self.sent_at is None or now - self.sent_at >= HEARTBEAT_S:
                 self.sent, self.sent_at = key, now
                 self.publish(record)
@@ -239,7 +220,7 @@ class Arbiter:
 
 
 def bind(ros, arbiter):
-    """Subscribe the arbiter to the mux state, pause and claim requests and run its timer on ``ros``."""
+    """Subscribe the arbiter to the mux state and pause requests and run its timer on ``ros``."""
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import String
     node = ros.node
@@ -255,15 +236,10 @@ def bind(ros, arbiter):
             return None
         return value if isinstance(value, dict) else None
 
-    def on_claim(message):
-        if (request := parsed(message)) is not None:
-            arbiter.handle(request)
-
     def on_mux(message):
         if (state := parsed(message)) is not None:
             arbiter.on_mux(state)
 
-    node.create_subscription(String, CLAIM_TOPIC, on_claim, 10)
     node.create_subscription(String, MUX_STATE_TOPIC, on_mux, latched)
     node.create_subscription(String, PAUSE_TOPIC, lambda m: arbiter.on_pause(parsed(m)), latched)
     node.create_timer(TICK_S, arbiter.tick)

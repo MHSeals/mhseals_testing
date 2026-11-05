@@ -13,7 +13,6 @@ from types import MethodType, SimpleNamespace
 
 from mhseals_testing.harness import operator_state as op
 from mhseals_testing.agent import channel as ch, relay as agent_relay
-from mhseals_testing.ros.authority import Arbiter
 from mhseals_testing.ui import authority_chip, chrome, layout, status_file
 from mhseals_testing.ui.app import App as RealApp
 
@@ -259,15 +258,6 @@ def test_a_run_queued_before_the_pause_is_refused_paused_when_it_would_start(rig
     reply = final(req['id'])
     assert reply['error'] == 'paused' and ch.exit_code(reply) == 7 and reply['result']['operator']['state'] == 'manual'
     assert [r['state'] for r in replies(req['id'])] == ['queued', 'done'] and rig.desk.act is None
-
-
-def test_a_claim_over_the_claim_topic_is_refused_while_paused():
-    arbiter = Arbiter(lambda record: None, lambda *a, **k: None, tui_owner=True)
-    arbiter.pause(op.change('battery_swap', eta_s=600))
-    ack = arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'claude-3f2a'})
-    assert not ack['ok'] and ack['error'] == 'paused' and 'battery swap' in ack['hint'] and not arbiter.table.claims
-    arbiter.resume()
-    assert arbiter.handle({'op': 'claim', 'request': 'r2', 'who': 'claude-3f2a'})['ok']
 
 
 def test_the_operator_banner_names_a_held_claim_and_stopped_still_wins():

@@ -604,7 +604,7 @@ def test_release_by_another_who_is_refused(rig):
 
 
 def test_agents_block_refuses_new_claims_with_exit_5(rig):
-    rig.app.arbiter.allow_agents = False
+    rig.app.settings.agents = 'block'
     req = ch.request('claim', 'claude-3f2a')
     rig.desk.tick()
     assert ch.exit_code(final(req['id'])) == 5
@@ -1377,12 +1377,12 @@ def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):
 # --- operator visibility: refusals, lapsed leases, settings switched mid-act ------------------
 
 def test_a_refused_claim_or_run_stays_in_the_panel_with_one_attention_indicator(rig):
-    rig.app.arbiter.allow_agents = False
+    rig.app.settings.agents = 'block'
     ch.request('claim', 'codex-1')
     rig.desk.tick()
     assert rig.app.notice == '' and rig.desk.summary()['attention'] == 'codex-1 claim refused'
     assert rig.desk.recent[-1]['error'] == 'blocked' and 'Agents to allow' in rig.desk.recent[-1]['hint']
-    rig.app.arbiter.allow_agents = True
+    rig.app.settings.agents = 'allow'
     c = claim(rig)
     rig.app.settings.agent_motion = 'observe'
     ask(rig, 'run', c, key='square')

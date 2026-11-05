@@ -51,14 +51,15 @@ class LeaseMixin:
     def do_claim(self, req):
         if self.arbiter is None:
             return self.reply(req, False, 'no_owner')
+        if self.app.settings.agents == 'block':
+            return self.reply(req, False, 'blocked', hint='operator must set Agents to allow')
         idle = self.lease()['idle_s']
         ack = self.arbiter.handle({'op': 'claim', 'request': req['id'], 'who': req['who'], 'lease_s': idle,
                                    'reason': str(req['args'].get('reason', '')), 'pid': req['pid'],
                                    'host': req['host']})
         holder = ack.get('holder') or {}
         error = ack.get('error', '')
-        hint = {'busy': f"{holder.get('who')} holds the boat (wait, or ask them)",
-                'blocked': 'operator must set Agents to allow'}.get(error, '')
+        hint = f"{holder.get('who')} holds the boat (wait, or ask them)" if error == 'busy' else ''
         if error == 'busy' and holder.get('who') == req['who']:   # two agents sharing one id: refuse, say so
             error = 'duplicate_who'     # no hint repeats a claim id: another agent must not drive under it
             hint = (f"the id {req['who']} already holds a claim (pid {holder.get('pid')} on {holder.get('host')}); "
