@@ -53,7 +53,7 @@ class NetworkRow:
         settings = loaded.probes.get('network', {})
         kwargs = {'clock': clock} if clock else {}
         lan = boat_network.values(env_file or devices.layer_paths()[3])
-        subnet = lan.get('LAN_SUBNET') or lan.get('BOAT_SUBNET')    # BOAT_SUBNET: the old name
+        subnet = lan.get('LAN_SUBNET')
         self.link = Link(subnet, root=root, **kwargs, **link) if subnet else None
         self.engine = Engine(self.specs, **kwargs)
         self.period = settings.get('period', PERIOD)
