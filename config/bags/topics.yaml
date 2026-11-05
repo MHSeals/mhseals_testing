@@ -25,6 +25,7 @@ lean:
     - /gps/fix
     - /mavros/state
     - /mavros/imu/data
+    - /mavros/imu/data_raw         # RAW_IMU 100 Hz: the primary IMU's accel and gyro
     - /mavros/imu/mag
     - /mavros/rc/in
     - /mavros/battery

@@ -50,7 +50,9 @@ fcu:
   loop_400: {after: 200, max_load_pct: 60}
   rates:
     window_s: 10
-    topics: {/imu/raw: sensor_msgs/msg/Imu, /odom/local: nav_msgs/msg/Odometry}
+    # the first imu topic is the loop-rate proof; the others are the stream rates bring-up checks
+    topics: {/imu/raw: sensor_msgs/msg/Imu, /odom/local: nav_msgs/msg/Odometry, /mavros/imu/data_raw: sensor_msgs/msg/Imu,
+             /mavros/imu/mag: sensor_msgs/msg/MagneticField, /gps/fix: sensor_msgs/msg/NavSatFix}
 # boat_agent fetch [SESSION] --why: the station pulls one session over rsync (resumable, the open bag segment left
 # out), at most this rate so the link keeps its telemetry and heartbeats; --bwlimit KBPS overrides it per call.
 fetch: {bwlimit_kbps: 2000}

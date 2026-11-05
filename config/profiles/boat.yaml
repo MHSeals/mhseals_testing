@@ -29,16 +29,21 @@ components:
   mapping: {needs: [odometry, ekf, sensors]}
   navigation: {limits: true, needs: [odometry, ekf, sensors]}
   camera: {stack: true}
-  objects: {topic: /perception/tracks, stack: true}
+  # The tracker publishes each track twice: /perception/tracks (TrackArray, with covariance and priors; the
+  # perception health checks) and /objects/map (the same tracks as a Detection3DArray, the tasks' and the
+  # tracks row's). Detections are /perception/observations, on the camera host only.
+  objects: {topic: /objects/map, stack: true}
   watchdogs: {title: Safety watchdogs}    # hold-only: operator link, fence, FCU, EKF inputs
   operator_heartbeat: {title: Operator heartbeat}   # a station service (hw.sh station take); link_watchdog holds without it
   host_diagnostic: {title: Camera host diagnostic}
 sensors:
   - {name: odometry, label: pose, topic: /odom/local, kind: odometry, required: true}
   - {name: FCU odometry, label: FCU pose, topic: /odom/mavros, kind: odometry}
-  - {name: GPS, topic: /gps/fix, kind: gps, required: true, hz: 10}   # Here4 10 Hz (nav mavros_setup '24:10')
-  - {name: IMU, topic: /imu/raw, kind: imu, required: true, hz: 18}
+  # Rates are nav mavros_setup's requests: GPS_RAW_INT 10 Hz (the Here4 F9P's 3-GNSS RTK maximum; its node's
+  # GPS1_RATE_MS 100) and ATTITUDE_QUATERNION 100 Hz behind /imu/raw (FCU SCHED_LOOP_RATE 200).
+  - {name: GPS, topic: /gps/fix, kind: gps, required: true, hz: 10}
+  - {name: IMU, topic: /imu/raw, kind: imu, required: true, hz: 100}
   - {name: GPS raw, topic: /mavros/gpsstatus/gps1/raw, kind: gpsraw}
   - {name: compass, topic: /mavros/imu/mag, kind: mag}
   - {name: LiDAR, topic: /points, kind: points}
-  - {name: tracks, topic: /objects/map, kind: detections}
+  - {name: tracks, topic: /objects/map, kind: detections}   # the tracker's tracks (kind: the message type)

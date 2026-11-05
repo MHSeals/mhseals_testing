@@ -27,7 +27,7 @@ class Clock:
 
 
 def scene(opened=None):
-    """70 s of a boat at rest heading about 247°: a 20 Hz IMU with one 3 s dropout, 5 Hz RTK float
+    """70 s of a boat at rest heading about 247°: a 100 Hz IMU with one 3 s dropout, 5 Hz RTK float
     GPS raw wandering a few cm, a compass, odometry and a TF tree with a second map->odom publisher.
     ``opened(monitor, now)`` runs every 0.25 s from t = 5 s, as the popup refresh does while open."""
     clock = Clock()
@@ -38,7 +38,7 @@ def scene(opened=None):
     while t < 70.0:
         clock.t = 1000.0 + t
         step = round(t * 100)
-        if step % 5 == 0 and not 30 <= t < 33:
+        if not 30 <= t < 33:
             monitor.observe('IMU', dict(wz=0.002 * math.sin(t), summary='wz'), stamp_age=0.012)
         if step % 20 == 0:
             k = step // 20
@@ -102,7 +102,7 @@ def test_golden(case, request):
 
 def test_sensor_strip_marks_the_dropout_and_reports_rate_and_publishers():
     out = paint(popup_for('IMU', 'sensor'))
-    assert '20 Hz · 0–20' in out and 'max gap 3.0' in out and 'expected 18 Hz' in out
+    assert '100 Hz · 0–100' in out and 'max gap 3.0' in out and 'expected 100 Hz' in out
     assert theme.pick('┄', '.') in out and '1 publisher (mavros)' in out
 
 
