@@ -61,7 +61,7 @@ def message_type(kind):
     return MESSAGE_TYPES[kind]
 
 
-EVENTS_TOPIC = '/mhseals_testing/events'
+EVENTS_TOPIC = events.TOPIC
 GRAPH_S = 1.0          # raw image sensors: how often the graph is asked whether they publish
 FAULT_LOG = os.path.join(tempfile.gettempdir(), 'boat_test_faults.log')  # callback tracebacks
 MAVLINK_TOPIC = '/uas1/mavlink_source'   # MAVROS's every received frame (mavros_msgs/Mavlink)

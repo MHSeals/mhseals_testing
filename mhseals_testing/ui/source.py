@@ -5,6 +5,8 @@ path that touches the real host or boat (host reads, config watching, arming,
 procedures); a replay source sets it False.
 """
 
+from mhseals_testing import events
+
 
 class LiveSource:
     """Messages arrive through ``ros.ingest`` callbacks, so ``tick`` has nothing to do."""
@@ -36,7 +38,7 @@ class ReviewSource:
         self.kinds = {sensor.topic: sensor.kind for sensor in profile.sensors}
         self.kinds.update({'/tf': 'tf', '/tf_static': 'tf_static',
                            '/calibrated_velocity_controller/drift': 'drift',
-                           '/mhseals_testing/events': 'event'})
+                           events.TOPIC: 'event'})
         self.reader = BagSource(path, self.kinds, self.ingest, self.reset,
                                 span=(int(review.t0 * 1e9), int(review.t1 * 1e9)), **reader_args)
         self.seek(review.t0)

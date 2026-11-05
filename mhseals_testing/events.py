@@ -12,6 +12,7 @@ import socket
 import time
 
 NODE = 'mhseals_testing'
+TOPIC = '/mhseals_testing/events'           # the session journal every suite publishes on
 
 # Per-process emission counter: ros_time is 0.0 until the first sim /clock and repeats within a tick
 _seq = itertools.count()

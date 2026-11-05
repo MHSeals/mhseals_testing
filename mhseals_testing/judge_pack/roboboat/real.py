@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 
 from mhseals_testing.annotate import manifest as session_manifest
+from mhseals_testing.events import TOPIC as EVENTS_TOPIC
 from mhseals_testing.judge_pack.roboboat._core import core
 
 core()
@@ -43,7 +44,7 @@ from judge.run import judge_runs  # noqa: E402
 from judge.insight import Insight  # noqa: E402
 from judge.source import FidelityProfile, Refused, Source  # noqa: E402
 
-TOPICS = ('/odom/global', '/odom/local', '/gps/fix', '/cmd_vel', '/mhseals_testing/events',
+TOPICS = ('/odom/global', '/odom/local', '/gps/fix', '/cmd_vel', EVENTS_TOPIC,
           '/mhseals_testing/rtk/status')
 R_EARTH = 6378137.0
 
@@ -112,7 +113,7 @@ def _gnss(rows):
 
 def _events(data):
     out = []
-    for t, _, m in data.get('/mhseals_testing/events', []):
+    for t, _, m in data.get(EVENTS_TOPIC, []):
         try:
             d = json.loads(m.data)
         except ValueError:
