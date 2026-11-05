@@ -1,8 +1,8 @@
-"""The hull shape library (hull_shapes.py) and the vessel profile reader it is fed from (vessel.py)."""
+"""The hull shape library (hull_shapes.py) and the vessel profile reader it is fed from (mhseals_hardware.vessel)."""
 
 import numpy as np
 
-from mhseals_testing import vessel
+from mhseals_hardware import vessel
 from mhseals_testing.ui.minimap import hull_shapes
 
 CAT = {'shape': 'catamaran', 'length': 1.34, 'beam': 0.9, 'pontoon': 0.23, 'deck': 0.63}

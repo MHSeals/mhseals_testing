@@ -16,7 +16,7 @@ dots inside it that the hull clears of what lies under. The image tier draws the
 import math
 from functools import lru_cache
 
-from mhseals_testing import vessel
+from mhseals_hardware import vessel
 from mhseals_testing.analysis.classes import _section, load_section
 from mhseals_testing.ui.minimap import hull_shapes
 
