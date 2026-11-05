@@ -79,3 +79,41 @@ def test_status_glyph_hue_matches_meaning():
 @pytest.mark.parametrize('glyph', '●○')
 def test_theme_exports_no_dot_constant(glyph):
     assert glyph not in ''.join(str(v) for v in vars(theme).values() if isinstance(v, str))
+
+
+# --- every tab page byte for byte (the layout/, fusion/ and inspect splits must not move a cell) ----------
+PAGE_SIZES = ((120, 30), (80, 24))
+
+
+def tab_page(tab, width, height):
+    """The whole page of ``tab`` in 16 colours, with the warn-health snapshot of ``pages``."""
+    from mhseals_testing.ui import layout
+    profile = load_profile('boat')
+    counts = summary(engine(40, warn=('compass innovation',)))
+    snapshot = {**monitor().snapshot(profile.required_tf), 'health': counts}
+    state = {**view(profile, armed=True, health=counts), 'tab': tab, 'focus': layout.DEFAULT_FOCUS[tab]}
+    if tab == 'Labels':
+        from test_labels_panel import model
+        state['labels'] = model()
+    if tab == 'Fusion':   # the panel's drawings in braille text, from a fresh text cache
+        import test_fusion_panel as fusion_test
+        from mhseals_testing.ui import imaging
+        from mhseals_testing.ui.panels import fusion
+        imaging.use('text')
+        fusion._TEXT.clear()
+        state.update(fusion=fusion_test.model(), fusion_facts=fusion_test.facts())
+    console = Console(file=io.StringIO(), width=width, height=height, color_system='standard', force_terminal=True)
+    console.print(render(snapshot, state, width, height))
+    return console.file.getvalue()
+
+
+@pytest.mark.skipif(theme.ASCII, reason='the Unicode golden')
+@pytest.mark.parametrize('width,height', PAGE_SIZES)
+@pytest.mark.parametrize('tab', ('Drive', 'Correction', 'Map', 'Bags', 'Labels', 'Fusion'))
+def test_every_tab_page_matches_its_golden(tab, width, height, request):
+    from pathlib import Path
+    golden = Path(__file__).parent / 'golden' / 'layout' / f'page_{tab.lower()}_{width}x{height}.ansi'
+    actual = tab_page(tab, width, height)
+    if request.config.getoption('--update-goldens'):
+        golden.write_text(actual)
+    assert actual == golden.read_text(), f'{golden.name} differs; --update-goldens to regenerate and review'

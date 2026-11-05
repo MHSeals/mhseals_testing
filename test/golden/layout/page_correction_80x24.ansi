@@ -1,0 +1,24 @@
+[1;96m boat_test [0m[37m  Drive[0m[1;96m [Correction][0m[37m  Map[0m[37m  Bags[0m[37m  Labels[0m[37m  Fusion[0m   [37mboat[0m  [37midle[0m  [30;101m ARMED [0m
+ [37mrec[0m · [91m✗ sensors 1/3[0m · [91m✗ tf[0m · [93m! compute 78°C[0m                  [91m✗[0m 2  [93m![0m 1[37m · sensors[0m
+[1;96m╭─[0m[1;96m [0m[1;7;96m ▸ Correction · C± not fitted [0m[1;96m [0m[1;96m────────────────────────────────────────────[0m[1;96m─╮[0m
+[1;96m│[0m —                                                                            [1;96m│[0m
+[1;96m│[0m [37mthrust M → C± (driver adds) → speed curves (controller inverts)[0m              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m [3;37m                  [0m[1;3;37;100msurge+   [0m[1;3;37msurge−   [0m[1;3;37msway+    [0m[1;3;37msway−    [0m[1;3;37myaw+     [0m[1;3;37myaw−     [0m     [1;96m│[0m
+[1;96m│[0m [3;37mhw  Thrusters M   [0m[3;37;100m−−++     [0m[3;37m++−−     +−−+     −++−     +−+−     −+−+     [0m     [1;96m│[0m
+[1;96m│[0m [3;37mcal C cross sw    [0m[3;37;100m+.000    [0m[3;37m+.000    —        —        +.000    +.000    [0m     [1;96m│[0m
+[1;96m│[0m [3;37m    ψ             [0m[3;37;100m+.000    [0m[3;37m+.000    +.000    +.000    —        —        [0m     [1;96m│[0m
+[1;96m│[0m [3;37m    su            [0m[3;37;100m—        [0m[3;37m—        +.000    +.000    +.000    +.000    [0m     [1;96m│[0m
+[1;96m│[0m [37m    no data yet   [0m[37mpeak |t| · ± σ / age · Trust hi/lo · Drag v lo/hi · d1 · …[0m [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m                                                                              [1;96m│[0m
+[1;96m│[0m [37mscope [0m[3;37mhw[0m hardware: refit when rebuilt  [3;37mcal[0m calibration: refit each test      [1;96m│[0m
+[1;96m╰──────────────────────────────────────────────────────────────────────────────╯[0m
+[1;96m Focus Table[0m[1;37m · 1/9[0m[1;96m             [0m [37m                                           Ready[0m
+[1;96m Tab [0mFocus                 [1;96m a [0mArm                     [1;91m Space [0m[1;91mStop[0m               
+[1;96m ? [0mHelp                    [1;96m q [0mQuit                                              
