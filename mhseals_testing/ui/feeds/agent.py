@@ -26,16 +26,14 @@ Safety, in one place:
 from collections import deque
 from dataclasses import replace
 import os
-import socket
 import threading
 import time
 
 from mhseals_hardware import hold_store
 
 from mhseals_testing.harness import control, operator_state, sim_arm
-from mhseals_testing.agent import channel as agent_channel, config as agent_config, fcu as agent_fcu, grants as agent_grants
+from mhseals_testing.agent import channel as agent_channel, config as agent_config, fcu as agent_fcu
 from mhseals_testing.harness import background
-from mhseals_testing.harness.registry import alive as registry_alive
 from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
@@ -45,13 +43,14 @@ from mhseals_testing.ui import agent_acts, parts, theme
 from mhseals_testing.ui.feeds import authority as authority_feed
 from mhseals_testing.ui.feeds.agent_desk.channel import ChannelMixin
 from mhseals_testing.ui.feeds.agent_desk.popups import PopupsMixin
+from mhseals_testing.ui.feeds.agent_desk.lease import LeaseMixin
 from mhseals_testing.ui.feeds.agent_desk.popups import operator_popup  # noqa: F401 - re-exported
 from mhseals_testing.ui.feeds.agent_desk.common import (  # noqa: F401 - re-exported
     MOTION, NOTICED, URGENT, LIFECYCLE_S, LIFECYCLE_TIMEOUT_S, DRY_TIMEOUT_S, FENCE_WAIT_S, DRY_CLOSE_S, NOTES,
     PART_OPS, FCU_OPS, FCU_CLAIMED, CHANGING, NEVER_PARTS, PROGRESS_S, STATUS_S, NAV2_PREFIX, ATTENTION_S, HINTS)
 
 
-class AgentDesk(PopupsMixin, ChannelMixin):
+class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin):
     """The desk; ``clock`` is the wall clock in seconds (deadlines are ``time_ns`` stamps)."""
 
     def __init__(self, app, ros, *, registry=None, config=None, clock=time.time, path=None, status=None):
@@ -148,35 +147,6 @@ class AgentDesk(PopupsMixin, ChannelMixin):
 
         # a refusal stays in the agent panel; the header's one "agent wants attention" (``attention``) points there
 
-    def watch_holds(self):
-        """Subscribe to each holding watchdog's ~/status as its hold appears, so a release finds it fresh."""
-        holds = (getattr(self.arbiter, 'mux', None) or {}).get('holds') or []
-        wanted = {str(h.get('by')) for h in holds if isinstance(h, dict) and agent_grants.kind(h) == 'node'}
-        ros = getattr(self.app, 'ros', None)
-        if not wanted - self.watched or not hasattr(ros, 'watch_beats') or self.clock() - self.watch_at < STATUS_S:
-            return
-        self.watch_at = self.clock()           # a watchdog not on the graph yet is looked for once a second
-        nodes = [n for n in ros.nodes() if n.rsplit('/', 1)[-1] in wanted]
-        ros.watch_beats(nodes)
-        self.watched |= {n.rsplit('/', 1)[-1] for n in nodes}
-
-    def touch(self, who, claim=None):
-        """Renew the idle lease of ``who``'s active claim (any verb or note by it)."""
-        arbiter = self.arbiter
-        if arbiter is None:
-            return
-        with arbiter.lock:
-            holder = arbiter.table.holder()
-            if holder and holder['who'] == who and claim in (None, holder['id']):
-                arbiter.table.renew(holder['id'], self.clock())
-
-    @property
-    def arbiter(self):
-        return getattr(self.app, 'arbiter', None)
-
-    def lease(self):
-        return self.config.get()['lease']
-
     def lifecycle(self):
         """Nav2's lifecycle states, asked at most every LIFECYCLE_S with short waits; {} without Nav2."""
         if self.lifecycle_at is None or self.clock() - self.lifecycle_at >= LIFECYCLE_S:
@@ -186,32 +156,6 @@ class AgentDesk(PopupsMixin, ChannelMixin):
         return self.lifecycle_states
 
     # --- immediate ops ---------------------------------------------------------------------
-
-    def do_claim(self, req):
-        if self.arbiter is None:
-            return self.reply(req, False, 'no_owner')
-        idle = self.lease()['idle_s']
-        ack = self.arbiter.handle({'op': 'claim', 'request': req['id'], 'who': req['who'], 'lease_s': idle,
-                                   'reason': str(req['args'].get('reason', '')), 'pid': req['pid'],
-                                   'host': req['host']})
-        holder = ack.get('holder') or {}
-        error = ack.get('error', '')
-        hint = {'busy': f"{holder.get('who')} holds the boat (wait, or ask them)",
-                'blocked': 'operator must set Agents to allow'}.get(error, '')
-        if error == 'busy' and holder.get('who') == req['who']:   # two agents sharing one id: refuse, say so
-            error = 'duplicate_who'     # no hint repeats a claim id: another agent must not drive under it
-            hint = (f"the id {req['who']} already holds a claim (pid {holder.get('pid')} on {holder.get('host')}); "
-                    'every agent needs its own --who (a subagent too): claim with your own id')
-        self.reply(req, ack['ok'], error, result={'claim': ack.get('id'), 'lease_s': idle}, hint=hint)
-
-    def do_release(self, req):
-        claim = req.get('claim') or req['args'].get('claim')
-        if self.act and self.act['claim'] == claim and self.act['who'] == req['who']:
-            self.cancel('released')
-        if self.arbiter is None:
-            return self.reply(req, False, 'no_owner')
-        ack = self.arbiter.handle({'op': 'release', 'id': claim, 'who': req['who'], 'request': req['id']})
-        self.reply(req, ack['ok'], ack.get('error', ''))
 
     def do_stop(self, req):
         """Space for the agent: hold, neutral, disarm. Always allowed, never needs a claim. The stop is the
@@ -442,24 +386,6 @@ class AgentDesk(PopupsMixin, ChannelMixin):
                      **{k: result[k] for k in ('changes', 'snapshot') if k in result})
         self.reply(req, ok, error, result=result, hint=hint)
 
-    def do_revoke(self, req):
-        """A viewer's E (harness/control.py): revoke the active agent claim as the owner's E does. Only a live
-        viewer of this session may: an agent has no revoke verb and its pid is no registered viewer."""
-        entry = (self.registry.read() or {}) if self.registry is not None else {}
-        if not (str(req['who']).startswith('view:') and req.get('host') == socket.gethostname()
-                and control.is_viewer(entry, req.get('pid'), registry_alive)):
-            return self.reply(req, False, 'refused', hint='only a viewer of this session revokes (E)')
-        arbiter = self.arbiter
-        holder = arbiter.table.holder() if arbiter is not None else None
-        if holder is None or holder.get('owner') != 'agent':
-            return self.reply(req, True, result={'revoked': None})
-        viewer = req['who'][len('view:'):]
-        self.cancel('revoked')
-        arbiter.revoke(holder['id'])
-        self.app.emit('viewer_revoke', viewer=viewer, claim=holder['id'], who=holder['who'])
-        self.app.notice = f"Agent {holder['who']} revoked from viewer {viewer}"
-        self.reply(req, True, result={'revoked': holder['id']})
-
     # --- acts ------------------------------------------------------------------------------
 
     def enqueue(self, req):
@@ -562,35 +488,6 @@ class AgentDesk(PopupsMixin, ChannelMixin):
         paused = refusal[0] == 'paused'
         return self.reply(req, False, refusal[0], hint=refusal[1],
                           result={'operator': operator_state.summary(operator_state.current())} if paused else None)
-
-    def claim_state(self, claim_id, who):
-        """None for ``who``'s active claim, else why not: revoked, expired, released, not_holder."""
-        arbiter = self.arbiter
-        if arbiter is None:
-            return 'no_owner'
-        claim = arbiter.table.get(claim_id)
-        if claim is None:
-            return arbiter.ended.get(claim_id, 'unknown_claim' if claim_id else 'released')
-        if claim['who'] != who:
-            return 'not_holder'
-        return None if claim['state'] == 'active' else arbiter.ended.get(claim_id, 'revoked')
-
-    def claim_hint(self, found, claim_id):
-        """What an agent does about ``claim_state``'s answer; an unknown claim names this TUI session's start."""
-        if found == 'not_holder':
-            return 'use your own claim'
-        if found == 'paused_end':
-            return (f'claim {claim_id} ended cleanly when the operator returned to normal: it was not kept alive '
-                    'while paused (no hold was made); claim again')
-        if found == 'unknown_claim' and claim_id:
-            record = operator_state.current()
-            started = time.strftime('%H:%M', time.localtime(self.started_ns / 1e9))
-            after = record.get('restarted_after')
-            why = (f", restarted after {operator_state.LABELS.get(after.get('state'), '?')} at "
-                   f"{operator_state.clock(after.get('since_ns'))}: re-check the stack, FCU params and RTK"
-                   if after else '')
-            return f'claim {claim_id} is not in this TUI session (started {started}{why}); claim again'
-        return 'claim again'
 
     def operator_paused(self):
         """The operator declared manual, battery swap or power cycle: an act in flight ends now (a run through
@@ -951,34 +848,6 @@ class AgentDesk(PopupsMixin, ChannelMixin):
             self.note_expiry()
             return 'expired'
         return None
-
-    def operator_setting(self):
-        """'motion observe' or 'agents block' while a Control row forbids agent motion, else ''."""
-        settings = self.app.settings
-        if settings.agent_motion == 'observe':
-            return 'motion observe'
-        return 'agents block' if settings.agents == 'block' else ''
-
-    def setting_changed(self):
-        """The operator switched Agents or Agent motion: a motion act in flight stops now (``lost``)."""
-        if self.act is not None and self.act['op'] in MOTION and self.operator_setting():
-            self.watch()
-
-    def note_expiry(self):
-        """A lapsed lease (idle or motion) ended a claim and stopped the boat as E: tell the operator once."""
-        arbiter = self.arbiter
-        if arbiter is None:
-            return
-        with arbiter.lock:
-            self.claim_who.update({c['id']: c['who'] for c in arbiter.table.claims if c['owner'] == 'agent'})
-            lapsed = [(cid, why) for cid, why in arbiter.ended.items()
-                      if why in ('expired', 'lapsed') and cid not in self.expired_seen]
-        for cid, why in lapsed:
-            self.expired_seen.add(cid)
-            if cid in self.claim_who:
-                self.app.notice = (f'Agent {self.claim_who[cid]} {cid} lease expired: '
-                                   + (f'stopped{theme.SEPARATOR}neutral, hold (U releases)' if why == 'expired'
-                                      else 'disarmed and neutral, so no hold'))
 
     def watch_goal(self, act, cause):
         goals = self.app.goals
