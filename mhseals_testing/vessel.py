@@ -2,8 +2,9 @@
 
 The vessel's directory is the one holding its network env (``boat_network.path()``, which astro_dock exports as
 ``$ASTRO_NETWORK_ENV``). Its profile.yaml may ``extends`` a fleet profile; ``section(name)`` lays each profile's
-``name:`` mapping over the last, fleet first, so a vessel overrides only what differs. Without a vessel profile
-every section reads as {} and callers keep their package defaults.
+NAME.yaml and then its profile.yaml ``name:`` mapping over the last, fleet first (astro_dock's device kinds), so a
+vessel overrides only what differs. Without a vessel profile every section reads as {} and callers keep their
+package defaults.
 """
 
 from functools import cache
@@ -37,6 +38,7 @@ def section(name, network_env=None):
         here = here.parent / parent if isinstance(parent, str) else None
     merged = {}
     for directory in reversed(chain):
+        merged.update(_mapping(directory / f'{name}.yaml'))
         found = _mapping(directory / 'profile.yaml').get(name)
         if isinstance(found, dict):
             merged.update(found)

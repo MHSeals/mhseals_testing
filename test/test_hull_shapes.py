@@ -10,7 +10,8 @@ CAT = {'shape': 'catamaran', 'length': 1.34, 'beam': 0.9, 'pontoon': 0.23, 'deck
 
 def test_the_vessel_profile_sets_the_hull_over_its_fleet(tmp_path):
     (tmp_path / 'fleet').mkdir()
-    (tmp_path / 'fleet' / 'profile.yaml').write_text('hull: {shape: monohull, length: 2.0, beam: 1.0}\n')
+    (tmp_path / 'fleet' / 'profile.yaml').write_text('hull: {shape: monohull, length: 2.0}\n')
+    (tmp_path / 'fleet' / 'hull.yaml').write_text('{length: 9.0, beam: 1.0}\n')       # the kind file, under it
     (tmp_path / 'boat').mkdir()
     (tmp_path / 'boat' / 'profile.yaml').write_text('extends: fleet\nhull: {shape: catamaran, pontoon: 0.2}\n')
     (tmp_path / 'boat' / 'network.env').write_text('')
