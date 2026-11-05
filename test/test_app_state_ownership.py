@@ -1,7 +1,7 @@
 """Each App attribute has one writer (finding #4, atlas #27): ui/app/core.py OWNERS gives each mixin its group.
 
-An AST walk over every ui/** module collects each write to the App: ``self.<attr> = ...`` in App and its mixins
-(keyed by class) and ``app.<attr> = ...`` or ``self.app.<attr> = ...`` anywhere (keyed by module). A mixin's write
+An AST walk over every ui/** module, and every other package module that receives ``app`` (annotate/live.py),
+collects each write to the App: ``self.<attr> = ...`` in App and its mixins (keyed by class) and ``app.<attr> = ...`` or ``self.app.<attr> = ...`` anywhere (keyed by module). A mixin's write
 to an attribute OWNERS gives another mixin, or to one App builds (APP), is a crossing; a module (a feed, a popup,
 a panel) writes no App attribute at all, it calls the owner's method. App.__init__, startup.py and wiring.py build
 the App and write what they build. SHARED (modal, focus, ...) is the page's own and anyone's, except the footer
@@ -33,8 +33,20 @@ def owner_of():
     return owners
 
 
+PACKAGE = UI_DIR.parent
+
+
+def takes_app(path):
+    """True when a module outside ui/** has a function taking ``app`` (annotate/live.py, harness/sim_arm.py)."""
+    return any(isinstance(node, ast.arg) and node.arg == 'app' for node in ast.walk(ast.parse(path.read_text())))
+
+
 def ui_files():
-    return sorted(p for p in UI_DIR.rglob('*.py') if '__pycache__' not in p.parts)
+    """{rel: path}: every ui/** module (rel to ui/) and every other package module that receives app."""
+    files = {str(p.relative_to(UI_DIR)): p for p in UI_DIR.rglob('*.py') if '__pycache__' not in p.parts}
+    files.update((str(p.relative_to(PACKAGE)), p) for p in PACKAGE.rglob('*.py')
+                 if '__pycache__' not in p.parts and UI_DIR not in p.parents and takes_app(p))
+    return dict(sorted(files.items()))
 
 
 def app_attrs(target, mixin):
@@ -73,8 +85,7 @@ def walk(node, writer, rel, found):
 def writes():
     """{(writer, attr): [file:line]} of every App write in ui/**: the writer is a mixin class, 'build' or a module."""
     found = defaultdict(list)
-    for path in ui_files():
-        rel = str(path.relative_to(UI_DIR))
+    for rel, path in ui_files().items():
         walk(ast.parse(path.read_text()), 'build' if rel in BUILD else rel, rel, found)
     return found
 
@@ -114,6 +125,7 @@ def test_the_walk_sees_mixins_modules_and_the_notice():
     found = writes()
     assert ('Arm', 'armed_by') in found and ('App.say', 'notice') in found
     assert any(writer.startswith('feeds/') for writer, _ in found)          # channel.py's self.app.activity
+    assert 'annotate/live.py' in ui_files()                                  # outside ui/**, but it receives app
     planted = defaultdict(list)
     walk(ast.parse('def f(app):\n    app.x = 1\nclass F:\n    def g(self):\n        self.app.y = self.z = 2\n'),
          'feeds/planted.py', 'feeds/planted.py', planted)

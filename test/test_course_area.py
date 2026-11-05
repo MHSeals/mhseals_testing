@@ -150,7 +150,7 @@ def test_leaving_the_area_raises_a_standing_error_toast_until_back_inside():
     events = []
 
     class Fake:
-        fence_alert, fence_status = App.fence_alert, App.fence_status
+        fence_alert, fence_status, say = App.fence_alert, App.fence_status, App.say
         holds = [{'cause': 'geofence'}]
 
         def mux_holds(self):
