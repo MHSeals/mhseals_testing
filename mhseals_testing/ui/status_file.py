@@ -73,7 +73,7 @@ def _control(app, desk):
 
 
 def _run(app, desk):
-    return {'running': app.running, 'run_id': app.run_id, 'notice': str(app.notice or ''),
+    return {'running': app.services.procedures.running, 'run_id': app.services.procedures.run_id, 'notice': str(app.notice or ''),
             'notices': list(desk.notices)}
 
 

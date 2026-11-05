@@ -87,7 +87,7 @@ def test_procedure_keys_do_nothing_off_the_drive_tab(tmp_path):
     app, _ = make_app(tmp_path)
     app.dispatch(']')
     app.dispatch('1')
-    assert app.running is None and app.tab == 'Correction'
+    assert app.state.procedures.running is None and app.tab == 'Correction'
 
 
 def status_out(profile, m, height):

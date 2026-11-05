@@ -81,7 +81,7 @@ class Files:
 
         def apply_held(_value):     # read while armed or running: say it waits, not that it reloaded
             self.adopt_health()
-            return dict(status='unknown', detail=HELD) if self.armed or self.running else None
+            return dict(status='unknown', detail=HELD) if self.armed or self.services.procedures.running else None
 
         def apply_settings(new):    # procedures read settings each step: held while one runs
             self.pending_settings = new
@@ -101,7 +101,7 @@ class Files:
 
     def adopt_health(self):
         """Health rules and settings are read while armed or running: edits wait for neither."""
-        if self.armed or self.running:
+        if self.armed or self.services.procedures.running:
             return
         for watched in self.watcher.watches.values():
             if watched.warning == HELD:

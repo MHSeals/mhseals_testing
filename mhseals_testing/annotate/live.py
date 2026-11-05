@@ -35,7 +35,7 @@ def owner_of(app):
     record = feeds.merged(app.feeds).get('authority_record') if getattr(app, 'arbiter', None) is not None else None
     if record:
         return record.get('owner') or 'none'
-    return 'keyboard' if app.services.manual.active else 'procedure' if app.running else 'none'
+    return 'keyboard' if app.services.manual.active else 'procedure' if app.services.procedures.running else 'none'
 
 
 class Steady:
@@ -115,7 +115,7 @@ class AnnotateFeed:
             self.fix, self.fix_seen = word, None
 
     def _steady(self, app, snapshot, owner):
-        trusted = app.armed and (owner in TRUSTED or app.running or app.services.manual.active)
+        trusted = app.armed and (owner in TRUSTED or app.services.procedures.running or app.services.manual.active)
         command = tuple(app.services.manual.command) if trusted else None
         window = self.steady
         if window is not None and (command is None or any(

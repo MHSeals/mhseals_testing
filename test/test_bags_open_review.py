@@ -113,7 +113,7 @@ def test_busy_entry_refuses_without_loading_or_changing_owners(tmp_path, monkeyp
     if state == 'armed':
         app.arming.armed = True
     else:
-        owner, field = {'manual': (app.state.manual, 'active'), 'running': (app, 'running'),
+        owner, field = {'manual': (app.state.manual, 'active'), 'running': (app.state.procedures, 'running'),
                         'pulses': (app.state.manual, 'test_pulses')}[state]
         setattr(owner, field, True)
     source = app.source

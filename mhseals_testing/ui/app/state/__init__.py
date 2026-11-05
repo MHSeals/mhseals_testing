@@ -2,9 +2,9 @@
 
 ``app.state`` holds them (``AppState``): ``render`` (View's redraw bookkeeping), ``bags`` (the Bags tab and the
 bag a session records), ``manual`` (manual control, the Thrusters panel's edit and raw pulses), ``holds``
-(the watchdog guard, the fence alert) and ``arm`` (who armed, the last stop, the pin guard). The Labels tab
-keeps its own (``app.labels``, actions/labels.py LabelsState). core.py's OWNERS table names which mixin owns
-which group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used before
+(the watchdog guard, the fence alert), ``arm`` (who armed, the last stop, the pin guard) and ``procedures``
+(the run in progress). The Labels tab keeps its own (``app.labels``, actions/labels.py LabelsState).
+core.py's OWNERS table names which mixin owns which group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used before
 (``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin; a
 converted area has no alias: its owner reads and writes ``app.state.<group>`` and other areas read it through
 ``app.services`` (services.py), never by writing it.
@@ -67,10 +67,25 @@ class HoldsState:
 
 
 @dataclass
+class ProceduresState:
+    """Procedures' (actions/procedures.py): the run in progress, its runner's pause and cancel, lazy clients."""
+    running: object = None           # the title of the procedure running, else None
+    run_id: object = None            # the run in progress; its results carry this id
+    run_fields: dict = field(default_factory=dict)   # run-level fields a procedure adds to its run record
+    tags: dict = field(default_factory=dict)         # procedure, key and run_id, journaled with every event
+    cancelled: object = False        # the first cause that cancels the run (True: the operator)
+    paused: bool = False             # the runner is paused (the loop only polls)
+    start_reset: object = None       # ros/sim_reset.StartReset, made on first use
+    nav2: object = None              # the Nav2 client, made on first use
+    watcher: object = None           # the task watcher, made on first use
+
+
+@dataclass
 class AppState:
     render: RenderState = field(default_factory=RenderState)
     bags: BagsState = field(default_factory=BagsState)
     manual: ManualState = field(default_factory=ManualState)
+    procedures: ProceduresState = field(default_factory=ProceduresState)
     holds: HoldsState = field(default_factory=HoldsState)
     arm: ArmState = field(default_factory=ArmState)
 

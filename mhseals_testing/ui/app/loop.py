@@ -45,7 +45,7 @@ class Loop:
     """The loop, mixed into App."""
 
     def tick(self):
-        if getattr(self, '_runner_paused', False):
+        if self.services.procedures.paused:
             self.poll_pause()
             return
         if self.review:

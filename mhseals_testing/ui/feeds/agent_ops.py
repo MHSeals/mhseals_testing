@@ -61,7 +61,7 @@ def do_arm(desk, req):
         return desk.reply(req, False, found[0], hint=found[1])
     if app.armed:
         return desk.reply(req, True, result={'armed': True, 'already': True}, label='arm (already armed)')
-    if app.modal is not None or app.running or app.services.manual.active or desk.act is not None or desk.busy:
+    if app.modal is not None or app.services.procedures.running or app.services.manual.active or desk.act is not None or desk.busy:
         return desk.reply(req, False, 'busy_ui', hint='a popup is open or something runs; arm after it')
     why = estop(app)
     if why:
