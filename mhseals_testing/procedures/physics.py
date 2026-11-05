@@ -19,11 +19,10 @@ from mhseals_hardware.thruster_mixer import (
     decouple, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
     validate_reversed,
 )
-from mhseals_testing import data, physics_record
+from mhseals_testing import data, physics_record, strict_yaml
 from mhseals_testing.analysis import physics
 from mhseals_testing.health.config import config_path
 from mhseals_testing.profiles import drives_pwm_pins
-from mhseals_testing.strict_yaml import load_strict
 
 DOCK_STEPS = ('weigh_in', 'dock_noise')
 THRUST_STEPS = ('bollard', 'pulses', 'survey', 'maneuvers')
@@ -44,8 +43,7 @@ class TakenOver(Refused):
 
 def load_settings(path=None):
     """config/physics.yaml."""
-    path = Path(path or config_path('config', 'physics.yaml'))
-    return check_settings(load_strict(path.read_text(), path))
+    return check_settings(strict_yaml.load(path or config_path('config', 'physics.yaml')))
 
 
 def check_settings(cfg):

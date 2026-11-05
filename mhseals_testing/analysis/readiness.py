@@ -30,7 +30,7 @@ class Direction:
 
 def load_tolerances(path=None) -> dict:
     """``{'psi': ..., 'ell': ...}`` from the YAML; ValueError naming the file for anything unusable."""
-    path = Path(path or conditions._config_path())
+    path = Path(path or conditions.CONFIG)
     raw = (load_strict(path.read_text(), path) or {}).get('tolerance')
     try:
         out = {k: float(raw[k]) for k in ('psi', 'ell')}

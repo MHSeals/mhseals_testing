@@ -11,15 +11,14 @@ from pathlib import Path
 
 import numpy as np
 
+from mhseals_testing import strict_yaml
 from mhseals_testing.data import atomic_write, read_json
 from mhseals_testing.health.config import config_path
-from mhseals_testing.strict_yaml import load_strict
 
 
 def load_settings(path=None) -> dict:
     """The tracking.yaml groups ({'score': {...}, 'stale': {...}})."""
-    path = Path(path or config_path('config', 'tracking.yaml'))
-    return load_strict(path.read_text(), path)
+    return strict_yaml.load(path or config_path('config', 'tracking.yaml'))
 
 
 def tracking_score(measured, predicted, command, sigma_wave, settings, ignore=False):

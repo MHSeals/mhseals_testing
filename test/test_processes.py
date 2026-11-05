@@ -6,7 +6,12 @@ import subprocess
 import sys
 import time
 
-from mhseals_testing.harness.processes import ProcessManager, bag_command, unique_path
+from mhseals_testing.harness.bags import record_command
+from mhseals_testing.harness.processes import ProcessManager, unique_path
+
+
+def bag_command(path):
+    return record_command(path, 'full')    # the shipped bags.yaml excludes
 
 
 def test_children_log_stop_cleanly_and_report_exit(tmp_path):
@@ -54,7 +59,7 @@ def test_bag_command_excludes_heavy_topics_instead_of_recording_all(tmp_path):
 def test_bag_command_excludes_heavy_message_types_the_name_regex_misses(tmp_path):
     command = bag_command(tmp_path / 'b')
     start = command.index('--exclude-topic-types') + 1
-    types = command[start:command.index('-o')]
+    types = command[start:command.index('-s')]
     for heavy in ('sensor_msgs/msg/PointCloud2', 'sensor_msgs/msg/Image', 'sensor_msgs/msg/CompressedImage',
                   'stereo_msgs/msg/DisparityImage'):
         assert heavy in types
@@ -64,7 +69,7 @@ def test_bag_command_excludes_heavy_message_types_the_name_regex_misses(tmp_path
 def test_full_bag_keeps_the_minimap_costmap_and_object_tracks_but_not_rtabmap_grids(tmp_path):
     command = bag_command(tmp_path / 'b')
     regex = re.compile(command[command.index('--exclude-regex') + 1])
-    types = command[command.index('--exclude-topic-types') + 1:command.index('-o')]
+    types = command[command.index('--exclude-topic-types') + 1:command.index('-s')]
     assert 'nav_msgs/msg/OccupancyGrid' not in types
     for kept in ('/mhseals_testing/minimap/costmap', '/objects/map'):
         assert not regex.fullmatch(kept)

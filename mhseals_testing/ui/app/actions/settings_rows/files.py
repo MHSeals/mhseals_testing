@@ -91,7 +91,7 @@ class Files:
                 Watched('keymap', keymap_module.USER_FILE, load_keymap, apply_keymap,
                         subsystem='keymap'),
                 Watched('theme', palette.OVERLAY, load_theme, apply_theme),
-                Watched('minimap', classes_module._default_path(), classes_module.load_classes,
+                Watched('minimap', classes_module.FILE, classes_module.load_classes,
                         apply_minimap),
                 Watched('settings', settings.settings_path(),
                         lambda path: settings.load(path, strict=True), apply_settings),

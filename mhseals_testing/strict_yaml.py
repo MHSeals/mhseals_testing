@@ -5,11 +5,18 @@ It refuses aliases, merge keys, duplicate or non-string keys, and non-finite
 numbers; errors carry the file name (when given) and line number. A file with a
 schema fragment beside it (config/schema/<stem>.yaml) is checked against it
 (schema.validate): a problem raises ValueError naming file:key and what was expected.
+``load(path)`` reads and checks a file; ``load_strict(text, path)`` text already read.
 """
 import logging
 import math
+from pathlib import Path
 
 import yaml
+
+
+def load(path):
+    """The YAML file ``path``, strictly parsed and checked against its schema fragment."""
+    return load_strict(Path(path).read_text(), path)
 
 
 class _Loader(yaml.SafeLoader):

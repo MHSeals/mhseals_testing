@@ -10,10 +10,9 @@ import datetime
 import fnmatch
 from pathlib import Path
 
-from mhseals_testing import data
+from mhseals_testing import data, strict_yaml
 from mhseals_testing.health.config import config_path
 from mhseals_testing.history import digest
-from mhseals_testing.strict_yaml import load_strict
 
 SCHEMA = 'mhseals.calibration/1'
 INVALID, VERIFY, OK = 'invalid', 'verify', 'ok'
@@ -23,8 +22,7 @@ BATTERY_TOLERANCE_V = 0.8
 
 def load_fields(path=None):
     """config/history/fields.yaml."""
-    path = Path(path or config_path('config', 'history', 'fields.yaml'))
-    return load_strict(path.read_text(), path)
+    return strict_yaml.load(path or config_path('config', 'history', 'fields.yaml'))
 
 
 def _matches(key, block):
