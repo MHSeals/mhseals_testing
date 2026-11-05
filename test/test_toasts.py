@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.text import Text
 
 from mhseals_testing.ui import layout, theme
-from mhseals_testing.ui.toasts import MAX_SHOWN, Toasts
+from mhseals_testing.ui.toasts import Toasts, max_shown
 
 
 def kinds(toasts, now, **kw):
@@ -69,7 +69,7 @@ def test_at_most_three_and_ack():
     toasts = Toasts()
     for n in range(5):
         toasts.push(f'f{n}', 'fail', 'x', 0)
-    assert len(toasts.visible(1)) == MAX_SHOWN and toasts.hidden(1) == 2
+    assert len(toasts.visible(1)) == max_shown() and toasts.hidden(1) == 2
     toasts.ack()
     assert toasts.visible(1) == []
 

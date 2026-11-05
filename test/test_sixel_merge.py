@@ -12,7 +12,7 @@ from test_pixels import paint_box, sixel_frame, text_after  # noqa: F401  (text_
 @pytest.fixture
 def cap(monkeypatch):
     def set_cap(n):
-        monkeypatch.setattr(sixel_merge, 'CAP', n)
+        monkeypatch.setattr(sixel_merge, 'cap', lambda: n)
     return set_cap
 
 

@@ -10,11 +10,21 @@ import dataclasses
 from mhseals_testing import tunables
 from mhseals_testing.ui import theme
 
-_TUNE = tunables.tune('health')['toasts']           # health.yaml tune.toasts
-LIFETIME = dict(_TUNE['lifetime'])                  # seconds; None stays until recovery or ack
 TITLES = {'warn': ' Warning ', 'fail': ' Error ', 'ok': ' Recovered ', 'info': ' Health '}
-MAX_SHOWN = _TUNE['max_shown']
-DEDUPE = _TUNE['dedupe']                            # a repeat inside this window bumps the count
+
+
+def lifetime():
+    """health.yaml tune.toasts.lifetime: seconds per kind; None stays until recovery or ack (read live)."""
+    return tunables.tune('health')['toasts']['lifetime']
+
+
+def max_shown():
+    return tunables.tune('health')['toasts']['max_shown']
+
+
+def dedupe():
+    """s; a repeat inside this window bumps the count."""
+    return tunables.tune('health')['toasts']['dedupe']
 
 
 @dataclasses.dataclass
@@ -52,13 +62,13 @@ class Toasts:
             return
         first, count = self._seen.get(id, (now, 0))
         if kind != 'ok':
-            if now - first > DEDUPE:
+            if now - first > dedupe():
                 first, count = now, 0
             self._seen[id] = (first, count + 1)
             count += 1
         else:
             count = 1
-        life = LIFETIME[kind]
+        life = lifetime()[kind]
         self._items.pop(id, None)
         self._items[id] = Toast(id, kind, text, now, count, None if life is None else now + life)
         self._backlog += 1
@@ -79,7 +89,7 @@ class Toasts:
     def summary(self, text, now):
         """Show one info toast (the start-up summary); it expires like a warning."""
         self._items.pop('summary', None)
-        self._items['summary'] = Toast('summary', 'info', text, now, expires=now + LIFETIME['warn'])
+        self._items['summary'] = Toast('summary', 'info', text, now, expires=now + lifetime()['warn'])
 
     def ack_newest(self, now):
         """Dismiss the newest toast; False when none is showing."""
@@ -94,7 +104,7 @@ class Toasts:
             self._items.pop(key, None)
 
     def visible(self, now, suppressed=False):
-        """The toasts to draw, newest last, at most MAX_SHOWN, then `hidden(now)` more."""
+        """The toasts to draw, newest last, at most max_shown(), then `hidden(now)` more."""
         items = self._live(now)
         if suppressed:
             self._was_suppressed = True
@@ -105,15 +115,15 @@ class Toasts:
             if len(items) > 1 and arrived > 1:
                 kept = [t for t in items if t.kind == 'fail']
                 summary = Toast('summary', 'info', f'Health: {arrived} new{theme.SEPARATOR}! details', now,
-                                expires=now + LIFETIME['warn'])
+                                expires=now + lifetime()['warn'])
                 self._items = {t.id: t for t in kept}
                 self._items['summary'] = summary
                 items = list(self._items.values())
         self._backlog = 0
-        return items[-MAX_SHOWN:]
+        return items[-max_shown():]
 
     def hidden(self, now):
-        return max(0, len(self._live(now)) - MAX_SHOWN)
+        return max(0, len(self._live(now)) - max_shown())
 
     def _live(self, now):
         self._items = {k: t for k, t in self._items.items() if t.expires is None or t.expires > now}
