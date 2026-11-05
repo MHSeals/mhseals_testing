@@ -1,24 +1,7 @@
-"""The run popup and the Enter routing of timeline items (timeline.md TL5, critique K4).
+"""The run popup: its rows for a run and the exclusion record (critique K4).
 
-Pure helpers: which owner an item opens, the popup rows for a run, and the
-exclusion record. ``App`` supplies the modal loop and the destinations.
+Pure helpers; ``App`` supplies the modal loop.
 """
-
-# Item kind (the ts095 Item kinds, plus hold and cluster) -> owner opened by Enter.
-ROUTES = {
-    'run': 'run', 'abort': 'run', 'proc': 'run', 'manual': 'run',
-    'config': 'history',   # H popup, preselected on that id
-    'health': 'health',    # popup.health on its History tab
-    'mark': 'marker',      # note text or a show popup
-    'auth': 'show',        # who, pid, host, reason, duration
-    'hold': 'show',
-    'cluster': 'choose',   # members to pick from
-}
-
-
-def route(item):
-    """The owner (``run``, ``history``, ``health``, ``marker``, ``show``, ``choose``) for an item."""
-    return ROUTES.get(item.get('kind'), 'show')
 
 
 def excluded(result):

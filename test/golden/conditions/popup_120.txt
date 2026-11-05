@@ -8,9 +8,6 @@
 │ Wave floor    yaw 0.14 deg/s                                             │
 │ Sea state     0.9 deg/s                                                  │
 │ Neutral       31 s                                                       │
-│ Windage       not wired                                                  │
-│ Observer      not wired                                                  │
-│ C_d           not wired                                                  │
 │ Gates         Characterize start: warn unless good/unknown               │
 │               (conditions.marginal)                                      │
 │ Windows          T      v_N      v_E   psi    r-bar  flag                │

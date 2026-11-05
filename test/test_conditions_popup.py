@@ -37,7 +37,7 @@ def text(rows):
 def test_rows_cover_the_spec_items():
     t = text(popup.rows(SUMMARY, DETAIL, GATES))
     for want in ('marginal', 'ceiling 66%', 'trust 88%', 'CI 0.020', 'D 1.12', 'z 1.4', 'steady',
-                 'yaw 0.14 deg/s', '0.9 deg/s', 'Windage not wired', 'C_d not wired', 'Characterize start',
+                 'yaw 0.14 deg/s', '0.9 deg/s', 'Characterize start',
                  'retired', 'turn', '-120 s'):
         assert want in t
 

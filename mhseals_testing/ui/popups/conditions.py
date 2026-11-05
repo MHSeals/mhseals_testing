@@ -2,8 +2,7 @@
 
 ``rows`` turns a ``Conditions.summary()`` and ``Conditions.detail()`` into label/value rows (panel
 figures, D, beta with its z, the change state, then the window table); ``open_conditions`` is the
-modal loop with up/down (k/j) scrolling. Nothing here estimates anything. Windage, the observer
-drift and C_d per direction are not produced by the estimator yet and read ``not wired``.
+modal loop with up/down (k/j) scrolling. Nothing here estimates anything.
 """
 
 import math
@@ -14,7 +13,6 @@ from mhseals_testing.ui import keymap, theme
 
 DASH = theme.DASH
 GATED = {'f': 'Characterize start'}     # procedure key -> what starting it means
-NOT_WIRED = 'not wired'
 SEP = theme.SEPARATOR.strip()
 UPDOWN = theme.pick('↑↓', 'Up/Down')
 
@@ -69,7 +67,6 @@ def rows(summary, detail=None, gate_list=()):
     out.append(('Wave floor', 'yaw ' + _num(_deg(s.get('floor')), '.2f') + ' deg/s'))
     out.append(('Sea state', _num(_deg(s.get('sea')), '.1f') + ' deg/s'))
     out.append(('Neutral', _num(s.get('neutral_s'), '.0f') + ' s'))
-    out += [('Windage', NOT_WIRED), ('Observer', NOT_WIRED), ('C_d', NOT_WIRED)]
     for check_id, severity, what, expect in gate_list:
         out.append(('Gates', f'{what}: {severity} unless {"/".join(expect)}  ({check_id})'))
     return out + table(d.get('windows', ()))
