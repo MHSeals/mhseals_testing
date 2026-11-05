@@ -27,7 +27,6 @@ import json
 import math
 import os
 import re
-import sys
 from pathlib import Path
 
 from mhseals_testing.history.seed import read_param_file
@@ -47,8 +46,8 @@ DEFAULTS = {'set': [], 'values': {}, 'loop_400': {'after': 200, 'max_load_pct': 
 
 
 def settings(cfg):
-    """agent.yaml ``fcu`` over the defaults (absent: agents set nothing)."""
-    fcu = {**DEFAULTS, 'store': None, **(cfg.get('fcu') or {})}
+    """agent.yaml ``fcu`` (validated: it has the store) over the defaults (no set: agents set nothing)."""
+    fcu = {**DEFAULTS, **cfg['fcu']}
     fcu['rates'] = dict(DEFAULTS['rates'], **fcu['rates'])
     fcu['loop_400'] = dict(DEFAULTS['loop_400'], **fcu['loop_400'])
     return fcu
@@ -124,27 +123,6 @@ def stats(times):
     p99 = gaps[min(len(gaps) - 1, math.ceil(0.99 * len(gaps)) - 1)]
     return {'n': len(times), 'hz': round(len(gaps) / (times[-1] - times[0]), 1),
             'gap_p99_ms': round(p99 * 1000, 1), 'gap_max_ms': round(gaps[-1] * 1000, 1)}
-
-
-MOVED_FROM = Path('.claude', 'plans', 'boat')    # under HOME: the store before atlas #132, moved out once
-
-
-def open_store(cfg, vessel='fcu'):
-    """The Store at agent.yaml ``fcu.store`` (None when agent.yaml has no fcu), after a one-time move of the
-    ``fcu_*`` files of the old store (MOVED_FROM) into it while it has none of its own."""
-    directory = settings(cfg)['store']
-    if directory is None:
-        return None
-    store = Store(directory, vessel)
-    old = Path.home() / MOVED_FROM
-    found = sorted(p for p in old.glob('fcu_*') if p.is_file()) if old.is_dir() else []
-    if found and not any(store.dir.glob('fcu_*')):
-        store.dir.mkdir(parents=True, exist_ok=True)
-        for path in found:
-            path.rename(store.dir / path.name)
-        store.log(f'moved {len(found)} files from {old}', [f'- {p.name}' for p in found])
-        print(f'fcu store: moved {len(found)} files from {old} to {store.dir}', file=sys.stderr)
-    return store
 
 
 class Store:

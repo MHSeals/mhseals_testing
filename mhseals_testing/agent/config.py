@@ -104,9 +104,8 @@ def validate(data):
             isinstance(k, str) and isinstance(v, list) and all(isinstance(n, str) and n for n in v)
             for k, v in settings.items()):
         raise ValueError(f'agent.yaml: settings maps a procedure key (or {ANY}) to a list of setting keys')
-    if 'fcu' in data:                  # absent: agents set no FCU parameter
-        from mhseals_testing.agent.fcu import validate as validate_fcu
-        validate_fcu(data['fcu'])
+    from mhseals_testing.agent.fcu import validate as validate_fcu
+    validate_fcu(data.get('fcu'))      # required for fcu.store; fcu.set absent: agents set no FCU parameter
     if data.get('unclaimed_driver') not in DRIVERS:
         raise ValueError(f"agent.yaml: unclaimed_driver must be one of {'/'.join(DRIVERS)}")
     hook = data.get('hook')
@@ -126,8 +125,7 @@ def validate(data):
     limit = hook.get('max_per_10s', 6)
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError('agent.yaml: hook.max_per_10s must be a positive integer')
-    fcu = {'fcu': {**data['fcu'], 'store': expand(data['fcu']['store'])}} if 'fcu' in data else {}
-    return {**data, **fcu, 'grants': data.get('grants', GRANTS), 'background': data.get('background', ''), 'lease': dict(lease), 'run': list(run), 'start': list(start),
+    return {**data, 'fcu': {**data['fcu'], 'store': expand(data['fcu']['store'])}, 'grants': data.get('grants', GRANTS), 'background': data.get('background', ''), 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
             'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}, 'queue_s': float(queue), 'tune': tune}
