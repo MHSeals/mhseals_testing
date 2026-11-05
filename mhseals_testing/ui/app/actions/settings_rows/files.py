@@ -72,7 +72,7 @@ class Files:
             theme.use_palette(new)
             if self.keys is not None and new.graphics != pixels.SETTING:   # Graphics row or a hand edit
                 pixels.restart(self.keys, self.console, self.write_terminal, new.graphics)
-                self.last_drawn = None
+                self.repaint()
             self.minimap.redraw.mark()
 
         def apply_minimap(table):

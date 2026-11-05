@@ -53,14 +53,18 @@ class Loop:
             if self._review_live is not None and self._review_live['source'].live:
                 replay = self.source
                 try:
-                    self.source = self._review_live['source']
+                    self.rebuild(source=self._review_live['source'])
                     self.tick_live()
                 finally:
-                    self.source = replay
+                    self.rebuild(source=replay)
             if self.args.review is None and self.armed and self.arming.fault():
                 self.stop(self.arming.fault())  # review over a live session still stops on a fault
             return
         self.tick_live()
+
+    def restart_ticks(self):
+        """The next tick measures from now (a review starts or ends)."""
+        self.last_tick = self.clock()
 
     def tick_review(self):
         """Advance the replay; reader, decode and ingest data errors end only the review."""
@@ -71,14 +75,7 @@ class Loop:
             self.last_tick = self.clock()
             self.source.tick(self.clock())
         except (RuntimeError, OSError, ValueError, KeyError) as error:
-            self.review.pause()
-            self.review.due = None
-            message = f'Review playback failed: {error}'
-            if self.args.review is None and self._review_live is not None:
-                self.leave_review()          # live owners and recording were never touched
-            else:
-                self._review_fault = True    # standalone replay: stay paused, stop reading
-            self.notice = message
+            self.review_failed(error)
 
     def tick_live(self):
         """Keep the existing live owner work running while review only replaces its view."""
@@ -168,7 +165,7 @@ class Loop:
         """Move to the next or previous tab, restoring the focus and cursors it was left with."""
         if self.focus == 'thrusters':
             self.clear_pulses()  # test pulses only while their panel has focus
-        self.grabbed = None
+        self.drop_grab()
         self.focus, saved = self.tabs.switch(step, self.focus, self.cursors)
         self.cursors = {**dict.fromkeys(CURSORS, 0), **saved}
 
@@ -261,7 +258,7 @@ class Loop:
             self.confirm_quit()
         elif action == 'back':  # backs out; never quits
             if self.grabbed is not None:
-                self.grabbed = None
+                self.drop_grab()
                 self.notice = 'Dropped'
         elif action == 'help':
             self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(getattr(getattr(self, 'console', None), 'width', None)))

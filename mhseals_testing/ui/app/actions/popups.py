@@ -8,6 +8,7 @@ from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import camera_view, imaging as pixels, keymap, perception, popups, theme
 from mhseals_testing.ui.popups import hold
 from mhseals_testing.ui.camera_view import CameraView
+from mhseals_testing.ui.feeds.agent_desk import desk as agent_feed
 
 
 CAMERA_ROWS = 12         # cell rows of the perception popup's camera view
@@ -166,9 +167,10 @@ class Popups:
             self.notice = source.apply(previewed)
 
     def prompt(self, message, title='Ready'):
-        # Owner decision 2026-10-26: a --sim-arm run whose checks passed (the desk sets agent_ready for it,
-        # and only while it holds the arm) has its Ready prompts confirmed by the agent, journaled as such.
-        who = getattr(self, 'agent_ready', None)
+        # Owner decision 2026-10-26: a --sim-arm run whose checks passed (the desk marks its act ready, and
+        # only while it holds the arm) has its Ready prompts confirmed by the agent, journaled as such.
+        act = agent_feed.run_act(self)
+        who = act['who'] if act and act.get('ready') else None
         if who and title == 'Ready' and self.armed:
             self.ros.emit('ready', by='agent', who=who, sim_arm=True, message=message)
             self.notice = f'Ready confirmed by agent {who} (sim auto-arm)'

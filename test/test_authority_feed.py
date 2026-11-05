@@ -33,6 +33,7 @@ class FakeBus:
 def start(app, clock):
     bus = FakeBus()
     feed = feed_module.start(app, app.ros, bind=bus.bind)
+    app.arbiter = feed.arbiter                  # as startup.py names it
     feed.clock = feed.arbiter.clock = lambda: clock[0]
     feed.arbiter.on_mux({'input': 'auto', 't_ns': int(clock[0] * 1e9)})
     return feed, bus

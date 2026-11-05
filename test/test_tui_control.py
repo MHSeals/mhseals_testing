@@ -278,6 +278,8 @@ class Viewer(SimpleNamespace):
     revoke_agent = App.revoke_agent
     client_name = App.client_name
     take_control = App.take_control
+    set_command = App.set_command
+    say = App.say
 
 
 def viewer(monkeypatch):

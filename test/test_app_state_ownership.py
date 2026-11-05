@@ -19,14 +19,7 @@ from mhseals_testing.ui.app import state as app_state
 
 APP_DIR = Path(core.__file__).resolve().parent
 FAN_OUT = 25
-ALLOWED = {   # (mixin class, attribute): the crossings on 11-04, by owner
-    ('Arm', 'command'), ('Procedures', 'command'), ('Hardware', 'draft'), ('Hardware', 'grabbed'),   # Manual's
-    ('Loop', 'grabbed'), ('Hardware', 'manual_speed'),
-    ('Arm', '_runner_cancelled'),                                                                  # Procedures'
-    ('Bags', 'last_tick'), ('Files', 'last_drawn'), ('Loop', '_review_fault'),  # Loop's and View's
-    ('Bags', 'layerbox'), ('Bags', 'minimap'), ('Bags', 'review'), ('Bags', 'source'), ('Bags', 'tabs'),  # App's
-    ('Loop', 'detaching'), ('Loop', 'source'), ('Quit', 'keys'), ('Quit', 'live'), ('Settings', 'profile'),
-}
+ALLOWED = set()   # the 11-04 crossings, all converted to owner methods (atlas #27)
 
 
 def owner_of():

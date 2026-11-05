@@ -193,6 +193,12 @@ class ArmApp:
         self.calls.append('release_hold')
         return True
 
+    def set_command(self, command=(0.0, 0.0, 0.0)):
+        self.command = command
+
+    def say(self, text):
+        self.notice = text
+
     def disarm(self, reason='disarmed', by='operator'):
         self.calls.append(('disarm', reason, by))
         self.armed = False

@@ -67,7 +67,7 @@ def mark_pending(app):
 
     A first change records the pins in force as the last verified, so the new ones differ.
     """
-    app.pins_unverified = True
+    app.pins_verified(False)
     if verified_hash(app) is None:
         write_marker(app, pin_hash(app.args.hardware_config))
 
@@ -178,9 +178,9 @@ def verify(app):
     if busy(app):
         return REFUSED
     if not drives_pwm_pins(app.profile) or app.arming is None:
-        app.pins_unverified = False   # nothing to read back; the marker keeps the real driver waiting
+        app.pins_verified(True)   # nothing to read back; the marker keeps the real driver waiting
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
-    app.pins_unverified = True
+    app.pins_verified(False)
     blocked = app.thruster_refusal()
     if blocked:
         return f'Pins saved; driver not started: {blocked}'
@@ -196,7 +196,7 @@ def verify(app):
     except RuntimeError as error:
         return f'Pins saved; driver not restarted: {error}'
     if confirmed:
-        app.pins_unverified = False
+        app.pins_verified(True)
         write_marker(app, pin_hash(config))
         return ('Pins saved; driver restarted, sysfs showed the new channels enabled, driver '
                 'stopped again (MOSFET line not read back)')

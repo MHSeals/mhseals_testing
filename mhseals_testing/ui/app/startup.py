@@ -329,10 +329,11 @@ def session_main(argv=None):
             registry.set_children(processes.records())
         authority = None if watching else authority_feed.start(
             app, ros, subscribe=authority_feed.subscribe_cmd_vel, registry=registry)
-        desk = None if watching else agent_feed.start(app, ros, registry=registry)
+        app.arbiter = authority and authority.arbiter   # the one arbiter the popups, banner and Agents setting read
+        app.desk = desk = None if watching else agent_feed.start(app, ros, registry=registry)
         if not watching and not app.review:
             app.operator_start()                   # after the arbiter and desk: they pause with it
-        authority_feed.viewer(app, ros)            # a viewer shows the owner's record; None for the owner
+        app.authority_view = authority_feed.viewer(app, ros)   # a viewer shows the owner's record; None for the owner
         control_feed.start(app, registry, emit=None if watching else ros.emit)
         if os.environ.get('BOAT_TUI_NOTICE'):      # why this client restarted (a takeover), once
             app.notice = os.environ.pop('BOAT_TUI_NOTICE')
