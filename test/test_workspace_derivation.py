@@ -80,3 +80,17 @@ def test_the_preview_resolves_as_the_real_workspace_says():
         assert sim_stack.manifest(root, roles) == want
     except sim_stack.Missing as error:
         pytest.skip(f'the workspace lacks a manifest repo: {error}')
+
+
+def test_the_vessel_files_are_the_workspace_resolution_or_none(ws, tmp_path):
+    """The preview hands its container the registry and network env hw.sh resolves here; none in generic mode."""
+    root, _ = ws
+    assert sim_stack.vessel(root) == {'registry': '', 'network_env': ''}      # the stub knows no vessel
+    registry, env = tmp_path / 'devices.yaml', tmp_path / 'network.env'
+    registry.write_text('hosts: {}\n')
+    env.write_text('LAN_SUBNET=10.0.0.0/24\n')
+    hw = root / 'hw.sh'
+    hw.write_text(f'#!/bin/sh\ncase "$1" in whoami) echo {registry} ;; env) echo {env} ;; *) exit 1 ;; esac\n')
+    assert sim_stack.vessel(root) == {'registry': str(registry), 'network_env': str(env)}
+    text = (TOOLS / 'boat_preview').read_text()
+    assert 'ASTRO_REGISTRY=' in text and 'ASTRO_NETWORK_ENV=' in text

@@ -7,7 +7,8 @@
 
 config/preview.yaml over config/sim/stack.yaml; ``test:`` over both with --test; ``BOAT_PREVIEW_<KEY>`` wins.
 What the workspace knows is never written here (docs/preview.md): ``src`` is the workspace's src/ (sim_stack.src_dir),
-``--resolve`` adds its dev image and its manifest's repos (sim_stack.resolve), and the build is ``hw.sh build``.
+``--resolve`` adds its dev image and its manifest's repos (sim_stack.resolve) and this machine's vessel registry and
+network env (sim_stack.vessel), and the build is ``hw.sh build``.
 The checklist: ``checks``, the runbook's "before a test" items, and the commits landed since ``since`` (a date or a
 ref) in each repo of the snapshot, grouped by feature (``feature``).
 The TUI's checklist panel (ui/panels/checklist.py) reads it and appends each mark with ``result_line``.
@@ -199,7 +200,7 @@ def main(argv):
         try:
             root = sim_stack.workspace(values['src'])
             if '--resolve' in argv:
-                values = sim_stack.resolve(values, root, pull='--pull' in argv)
+                values = dict(sim_stack.resolve(values, root, pull='--pull' in argv), **sim_stack.vessel(root))
         except sim_stack.Missing as error:
             print(f'boat_preview: {error}', file=sys.stderr)
             return 2

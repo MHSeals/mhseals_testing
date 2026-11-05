@@ -99,6 +99,18 @@ def dev_image(root, pull=False, run=subprocess.run):
     return done.stdout.split()[-1]
 
 
+def vessel(root, run=subprocess.run):
+    """This machine's vessel files as the workspace resolves them for its dev container (dev.bashrc): ``registry``
+    (``hw.sh whoami --registry``) and ``network_env`` (``hw.sh env``), each '' without a vessel (generic mode), so
+    a station's ``self:`` in ~/.config/mhseals/devices.yaml names a host the stack knows."""
+    out = {}
+    for key, cmd in (('registry', ['whoami', '--registry']), ('network_env', ['env'])):
+        done = _run([str(Path(root) / 'hw.sh'), *cmd], run, timeout=30)
+        found = done.stdout.strip().splitlines()[-1:] if done.returncode == 0 else []
+        out[key] = found[0] if found and Path(found[0]).is_file() else ''
+    return out
+
+
 def resolve(values, root, pull=False, image=dev_image, repos=manifest):
     """``values`` with ``image: auto`` and the ``repos`` the workspace at ``root`` names."""
     out = dict(values)

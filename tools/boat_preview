@@ -80,12 +80,16 @@ container_up() {
   [ -d "$HOME/.config/mhseals" ] && rsync -a "$HOME/.config/mhseals/" "$ROOT/home/.config/mhseals/"
   local mounts=(-v "$ROOT:$IN")
   if [ -n "$PV_RESULTS" ]; then mkdir -p "$PV_RESULTS"; mounts+=(-v "$PV_RESULTS:/home/roboboat/preview-results"); results=/home/roboboat/preview-results; fi
+  # the vessel's registry and network env, as the dev container has them (the station config's self: names its host)
+  local vessel=()
+  [ -z "$PV_REGISTRY" ] || { mounts+=(-v "$PV_REGISTRY:/home/roboboat/vessel/devices.yaml:ro"); vessel+=(-e ASTRO_REGISTRY=/home/roboboat/vessel/devices.yaml); }
+  [ -z "$PV_NETWORK_ENV" ] || { mounts+=(-v "$PV_NETWORK_ENV:/home/roboboat/vessel/network.env:ro"); vessel+=(-e ASTRO_NETWORK_ENV=/home/roboboat/vessel/network.env); }
   docker run -d --name "$PV_CONTAINER" --label boat.preview=1 --init --ipc private --network host --user roboboat \
     -e BASH_ENV= -e HOME="$IN/home" -e XDG_RUNTIME_DIR="$IN/run/xdg" -e ROS_DOMAIN_ID="$PV_DOMAIN" \
     -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e MHSEALS_DATA="$IN/data" \
     -e MHSEALS_HARDWARE_CONFIG="$IN/ws/src/mhseals_testing/config/sim/hardware_crane.yaml" \
     -e BOAT_PREVIEW_CHECKLIST="$IN/run/checklist.json" -e BOAT_PREVIEW_RESULTS="$results" \
-    -e TERM=xterm-256color -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "${mounts[@]}" -w "$IN/ws" \
+    -e TERM=xterm-256color -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "${vessel[@]}" "${mounts[@]}" -w "$IN/ws" \
     --entrypoint sleep "$PV_IMAGE" infinity >/dev/null
 }
 
