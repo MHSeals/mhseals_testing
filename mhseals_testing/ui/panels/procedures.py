@@ -13,7 +13,7 @@ from mhseals_testing.ui.panels import TITLES, window
 # A procedure's state as (glyph, ASCII glyph, palette style name, legend word); running is the spinner.
 STATES = {
     'ready': ('○', 'o', 'GOOD', 'ready'),
-    'blocked': ('⊘', '-', 'MUTED', 'blocked'),
+    'blocked': ('⊘', ':', 'MUTED', 'blocked'),   # ASCII ':' stays apart from the spinner's frames
     'running': (None, None, 'BUSY', 'run'),
     'done': ('✓', '+', 'GOOD', 'ok'),
     'failed': ('✗', 'x', 'BAD', 'fail'),
