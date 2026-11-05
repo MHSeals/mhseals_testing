@@ -69,7 +69,7 @@ class App(*mixins.ROSTER):
         """Read-only facades on other areas' state (ui/app/state/services.py): ``app.services.bags.scan``."""
         found = self.__dict__.get('_services')
         if found is None:
-            found = self.__dict__['_services'] = app_state.services(self)
+            found = self.__dict__['_services'] = app_state.facades(self)
         return found
 
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,

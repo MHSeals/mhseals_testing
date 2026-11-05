@@ -113,6 +113,8 @@ def test_each_alias_reads_and_writes_its_container():
             assert getattr(getattr(app.services, group), attr) is marker
     with pytest.raises(AttributeError):
         app.services.bags.scan = None
+    other = core.App.__new__(core.App)       # every App gets its facades, not only the first
+    assert other.services.bags.scan == app_state.BagsState().scan
 
 
 def imported_modules(path):

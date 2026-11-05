@@ -94,7 +94,7 @@ def install(cls):
     return cls
 
 
-def services(app):
+def facades(app):
     """The read-only facades on ``app`` (services.py)."""
     from mhseals_testing.ui.app.state.services import Services
     return Services(app)
