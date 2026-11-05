@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from mhseals_testing import data
-from mhseals_testing.harness import operator_state
+from mhseals_testing.harness import operator_state, transfer
 from mhseals_testing.agent import channel
 from mhseals_testing.agent.ask import assignments, reads_only
 from mhseals_testing.harness.registry import Registry, runtime_dir
@@ -143,19 +143,6 @@ def add_parsers(sub):
     ask = verb('ask', 'ask the operator a question')
     ask.add_argument('question')
     ask.add_argument('--options', type=lambda s: s.split(','), default=['yes', 'no'])
-
-
-def open_files(session, segments):
-    """The bag files of a live session still being written: the newest split of its open segment, by split
-    index (a rolled split is closed and complete, so the station may pull it while the session records)."""
-    files = []
-    for name in segments:
-        def index(path):
-            tail = path.stem.rsplit('_', 1)[-1]
-            return int(tail) if tail.isdigit() else -1
-        splits = sorted((session / 'bag' / name).glob('*.mcap'), key=index)
-        files += [f'bag/{name}/{p.name}' for p in splits[-1:]]
-    return files
 
 
 def argparse_suppress():
@@ -516,13 +503,12 @@ class Agent:
         segments = sorted(p.name for p in (session / 'bag').glob('[0-9][0-9]*') if p.is_dir())
         rate = self.args.bwlimit or int((self.cfg.get('fetch') or {}).get('bwlimit_kbps') or 0)
         if not rate:
-            from mhseals_testing.agent.config import FETCH_KBPS
-            rate = FETCH_KBPS
+            from mhseals_testing.agent.config import FETCH_KBPS as rate
         if rate <= 0:
             return self.bad('fetch --bwlimit KBPS: a positive rate')
         doc = {'ok': True, 'id': session.name, 'rel': session.relative_to(home).as_posix(),
-               'open_segments': segments[-1:] if live else [], 'open_files': open_files(session, segments[-1:])
-               if live else [], 'live': live, 'bwlimit_kbps': rate}
+               'open_segments': segments[-1:] if live else [], 'live': live, 'bwlimit_kbps': rate,
+               'open_files': transfer.open_files(session, segments[-1:]) if live else []}
         try:
             channel.note(self.who, 'text', f"fetch {session.name} to the station: {self.args.why}", path=self.path)
         except OSError:

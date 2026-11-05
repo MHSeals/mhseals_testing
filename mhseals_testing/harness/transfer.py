@@ -248,3 +248,16 @@ class Transfer:
     def _finish(self, status, error=None, **fields):
         self._save(status=status, error=error, finished=self.clock(), **fields)
         return status
+
+
+def open_files(session, segments):
+    """The bag files of a live session still being written: the newest split of its open segment, by split
+    index (a rolled split is closed and complete, so the station may pull it while the session records)."""
+    files = []
+    for name in segments:
+        def index(path):
+            tail = path.stem.rsplit('_', 1)[-1]
+            return int(tail) if tail.isdigit() else -1
+        splits = sorted((session / 'bag' / name).glob('*.mcap'), key=index)
+        files += [f'bag/{name}/{p.name}' for p in splits[-1:]]
+    return files
