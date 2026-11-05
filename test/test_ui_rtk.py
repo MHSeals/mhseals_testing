@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing import rtk
 from mhseals_testing.harness import reload as reload_
 from mhseals_testing.ui import rtk as ui_rtk

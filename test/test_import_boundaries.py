@@ -89,11 +89,9 @@ PANEL_ALLOWED = {
     'ui/panels/checklist.py': {'mhseals_testing.harness'},
     'ui/panels/procedures.py': {'mhseals_testing.harness'},
     'ui/panels/thrusters.py': {'mhseals_hardware'},
-    'ui/popups/__init__.py': {'mhseals_hardware'},
     'ui/popups/authority.py': {'mhseals_testing.harness'},
     'ui/popups/config.py': {'mhseals_testing.harness'},
     'ui/popups/course.py': {'mhseals_testing.harness'},
-    'ui/popups/magcal.py': {'mhseals_hardware'},
     'ui/popups/pins.py': {'mhseals_hardware'},
 }
 

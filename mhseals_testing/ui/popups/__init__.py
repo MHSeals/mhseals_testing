@@ -1,7 +1,7 @@
 """Popups over the live dashboard: functions over an ``app`` that has ``modal``, ``keys``,
 ``refresh``, ``tick``, ``popup`` and ``scroll``. ``App`` keeps one-line methods that call these."""
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.runner import fold
 from mhseals_testing.ui import keymap, perf, theme
 from mhseals_testing.ui.popups import authority, conditions, config, health, history, inspect, power

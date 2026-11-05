@@ -3,7 +3,7 @@
 import time
 
 from mhseals_hardware import hold_store
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.harness import control, course_area
 from mhseals_testing.agent import grants as agent_grants
 from mhseals_testing.runner import STALE_MUX_S

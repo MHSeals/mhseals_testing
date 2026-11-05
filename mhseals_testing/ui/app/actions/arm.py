@@ -4,7 +4,7 @@ import textwrap
 import threading
 import traceback
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.agent import grants
 from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import drives_pwm_pins, outputs_description

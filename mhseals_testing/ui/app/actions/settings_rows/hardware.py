@@ -5,7 +5,7 @@ import time
 import yaml
 
 from mhseals_hardware.configuration import config_sha, load_config, save_config, update_config
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.history import adapters
 from mhseals_testing.ros.arming import session_hardware
 from mhseals_testing.ui import keymap

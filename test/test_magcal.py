@@ -134,7 +134,7 @@ class Keyed:
 
 def test_heading_popup_validates_and_enter_waits_for_a_valid_bearing():
     import pytest
-    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing.model import Cancelled
     from mhseals_testing.ui.popups.magcal import ask_heading
     app = Keyed('enter', '4', '0', '0', 'enter', 'backspace', 'backspace', 'backspace',
                 '1', '2', '7', '.', '5', 'enter')

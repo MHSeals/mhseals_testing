@@ -2,7 +2,7 @@
 
 import threading
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing import data
 from mhseals_testing.harness import bags as bags_module, index, journal
 from mhseals_testing.harness.bags import MODES as REC_MODES

@@ -1,7 +1,7 @@
 """LiveStaging: C on the running driver over SetParameters, verified by GetParameters (contract C4)."""
 import pytest
 from mhseals_hardware.configuration import load_config, update_config
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 
 from mhseals_testing.harness.apply import IDENTITY, LiveStaging
 from mhseals_testing.procedures import PROCEDURES

@@ -1,6 +1,6 @@
 """What more than one part of the app shares: constants and small helpers."""
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_hardware.thruster_mixer import IDENTITY
 from mhseals_testing.runner import Aborted
 from mhseals_testing.ui.panels import PANELS
