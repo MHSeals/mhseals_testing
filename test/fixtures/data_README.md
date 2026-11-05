@@ -24,7 +24,7 @@ A directory holding only a rosbag2 bag (no `session.json`) is indexed too, with 
 ## INDEX.json
 
 `{"schema": "mhseals.index/1", "sessions": [row, ...]}`, newest first. A row has: `id`, `title`, `host`,
-`profile`, `kind` (boat, sim, headless), `outcome` (measured, aborted, excluded or empty), `flags`, `pinned`,
+`profile`, `kind` (boat, bench, sim, headless), `outcome` (measured, aborted, excluded or empty), `flags`, `pinned`,
 `config` (config version ids), `time` (start), `duration_s`, `markers` (count), `runs` (count), `bytes`.
 
 ## summary.json

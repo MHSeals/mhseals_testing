@@ -37,9 +37,10 @@ def test_missing_truth_is_recorded_not_fatal_and_the_boat_has_a_wall_clock(tmp_p
     sim = simsession.start_session(sim_profile(course_truth=str(tmp_path / 'none.json')),
                                    tmp_path / 'a' / 'session.json', tmp_path / 'a.json')
     assert sim['course_truth'] is None and not (tmp_path / 'a.json').exists()
-    boat = simsession.start_session(sim_profile(name='boat', use_sim_time=False, ground_truth=None),
+    unplaced = (SimpleNamespace(name='local'), {})
+    boat = simsession.start_session(sim_profile(name='boat', use_sim_time=False, ground_truth=None, placed=unplaced),
                                     tmp_path / 'b' / 'session.json', tmp_path / 'b.json')
-    assert boat['clock']['domain'] == 'wall' and 'course_truth' not in boat
+    assert boat['clock']['domain'] == 'wall' and 'course_truth' not in boat and boat['kind'] == 'bench'
 
 
 def test_clock_rewind_reports_once_per_reset_and_ignores_jitter():

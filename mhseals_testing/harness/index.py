@@ -89,7 +89,7 @@ def summarize(session):
     return {
         'id': header.get('id') or session.name, 'title': header.get('title', ''), 'note': header.get('note', ''),
         'pinned': bool(header.get('pinned')), 'profile': profile, 'host': header.get('host'),
-        'kind': header.get('kind') or ('sim' if clock.get('domain') == 'sim' else 'boat' if not bare else 'headless'),
+        'kind': header.get('kind') or ('sim' if clock.get('domain') == 'sim' else 'bench' if not bare else 'headless'),
         'clock': clock, 'git': header.get('git', {}), 'config': header.get('config', {}),
         'time': {'start': header.get('created') or (min(starts) / 1e9 if starts else None), 'end': header.get('ended'),
                  'duration_s': round(sum(s['duration_s'] for s in segments), 3)},
@@ -135,7 +135,7 @@ A directory holding only a rosbag2 bag (no `session.json`) is indexed too, with 
 ## INDEX.json
 
 `{"schema": "mhseals.index/1", "sessions": [row, ...]}`, newest first. A row has: `id`, `title`, `host`,
-`profile`, `kind` (boat, sim, headless), `outcome` (measured, aborted, excluded or empty), `flags`, `pinned`,
+`profile`, `kind` (boat, bench, sim, headless), `outcome` (measured, aborted, excluded or empty), `flags`, `pinned`,
 `config` (config version ids), `time` (start), `duration_s`, `markers` (count), `runs` (count), `bytes`.
 
 ## summary.json

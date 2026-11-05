@@ -47,6 +47,19 @@ class Session:
         return self.directory / 'snapshots'
 
 
+def kind(profile):
+    """'sim' on sim time, 'boat' only when this machine is one of the profile's placed hosts, else 'bench'."""
+    if profile.use_sim_time:
+        return 'sim'
+    from mhseals_testing import devices
+    try:
+        me, parts = profile.placed
+    except (devices.DeviceError, FileNotFoundError, ValueError):
+        return 'bench'
+    placed = me.name != devices.FALLBACK and any(part.host.name == me.name for part in parts.values())
+    return 'boat' if placed else 'bench'
+
+
 def create(profile, host=None, clock=None, git=None, config=None, now=None, directory=None, kind=None):
     """Claim a fresh session directory and write its header.
 
@@ -54,7 +67,7 @@ def create(profile, host=None, clock=None, git=None, config=None, now=None, dire
     and ``config`` (config-history version ids) are stored as given. The
     directory is claimed with mkdir, so concurrent starts in the same second get
     ``_02``, ``_03``... suffixes instead of sharing a name. An explicit ``directory``
-    (``boat_test --output``) is used as given, and ``kind`` (boat, sim, headless) is stored when set.
+    (``boat_test --output``) is used as given, and ``kind`` (boat, bench, sim, headless; see ``kind``) is stored when set.
     """
     now = now or datetime.now().astimezone()    # the id is local time, created is UTC
     host = host or socket.gethostname()

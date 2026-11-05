@@ -93,6 +93,18 @@ def test_prune_stops_once_under_budget(root):
     assert [b.id for b in bags.prune_candidates(found, total - 1)] == ['old']
 
 
+def test_prune_takes_empty_sessions_first_even_new_ones(root):
+    # atlas #95: a TUI start leaves session.json, logs/ and snapshots/ only; those go before any data
+    session(root, 'old', 1, size=3000, runs=1)
+    header_only = root / 'sessions' / 'tui_start'
+    (header_only / 'logs').mkdir(parents=True)
+    (header_only / 'snapshots').mkdir()
+    data.write_json(header_only / 'session.json', {'created': 9, 'kind': 'bench'}, bags.SCHEMA)
+    found = bags.scan(root)
+    assert [b.id for b in bags.prune_candidates(found, budget=10**9)] == ['tui_start']
+    assert [b.id for b in bags.prune_candidates(found, budget=0)] == ['tui_start', 'old']
+
+
 def test_delete_refuses_pinned_and_recording(root):
     session(root, 'p', 1, pinned=True)
     session(root, 'r', 2)
