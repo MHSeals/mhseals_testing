@@ -169,35 +169,61 @@ def setting_refusal(key, value, allowed):
 ARMED_NEVER = ('amplitude', 'command_mode')     # never set while armed, whatever reload.yaml says
 
 
-def armed_unsafe(key, rules=None):
-    """``key`` is one reload.yaml's ``settings`` surface puts in the ``disarmed`` class, or ARMED_NEVER."""
+def armed_unsafe(key, rules=None, surface='settings'):
+    """``key`` is one reload.yaml's ``surface`` (settings, hardware) puts in the ``disarmed`` class, or
+    ARMED_NEVER."""
     from mhseals_testing.harness import reload
     if key in ARMED_NEVER:
         return True
     try:
         rules = rules or reload.load_rules()
-        return reload.DISARMED in reload.classify(rules, 'settings', {key: 0}, {key: 1})
+        return reload.DISARMED in reload.classify(rules, surface, {key: 0}, {key: 1})
     except (OSError, KeyError, ValueError):
         return True            # unreadable rules: the safe side
 
 
-def tunable_refusal(key, value, armed=False, rules=None):
+def armed_refusal(key, current, target, where):
+    """The ``refused`` reply for an armed-unsafe key while armed: the structured ask, saying exactly when it is
+    allowed and the line to run then."""
+    from mhseals_testing.agent import ask
+    found = ask.setting_ask(key, current, target, where, f'{key} is armed-unsafe (reload.yaml)',
+                            when='once the boat is disarmed and idle (status .armed false; wait with '
+                                 '`boat_agent follow --claim ID --until disarmed`)')
+    return 'refused', f'armed: {ask.text(found)}', found
+
+
+def tunable_refusal(key, value, armed=False, rules=None, current=None):
     """``(value, None)`` with the parsed value when ``boat_agent set`` may set ``key`` now, else ``(None, (error,
-    hint))``: any setting marked tunable (harness/settings.py), within its range or choices; an armed-unsafe one
-    only while disarmed (owner decision 2026-11-01)."""
+    hint[, ask]))``: any setting marked tunable (harness/settings.py), within its range or choices; an armed-unsafe
+    one only while disarmed (owner decision 2026-11-01). ``ask`` (agent/ask.py) is the structured settings ask."""
     from mhseals_testing.harness.settings import BY_KEY
     spec = BY_KEY.get(key)
     if spec is None:
         return None, ('bad_args', f'unknown setting {key!r} (nav2.NODE.PARAM for a live Nav2 key)')
     if not spec.tunable:
-        return None, ('not_allowed', f"{key} is not tunable (an agent or safety control): the operator sets it")
+        from mhseals_testing.agent import ask
+        where = settings_where(key)
+        found = ask.setting_ask(key, current, value, where, f'{key} is an agent or safety control: the operator '
+                                'changes it, never an agent', command=f'operator: in {where}, {OPERATOR_KEYS}')
+        return None, ('not_allowed', ask.text(found), found)
     try:
         parsed = spec.parse(value)
     except ValueError as error:
-        return None, ('bad_args', str(error))
+        return None, ('bad_args', f'{error} ({key} is {spec.describe()})')
     if armed and armed_unsafe(key, rules):
-        return None, ('refused', f'armed: {key} is set only while disarmed')
+        return None, armed_refusal(key, current, parsed, settings_where(key))
     return parsed, None
+
+
+OPERATOR_KEYS = 'select the row and step it with left/right'   # keymap.yaml settings rows: adjust_down/adjust_up
+
+
+def settings_where(key):
+    """Where a session setting lives: its TUI setting row (harness/settings.py group) and the user's settings file."""
+    from mhseals_testing.harness.settings import BY_KEY, settings_path
+    spec = BY_KEY[key]
+    saved = 'reset at each start' if spec.reset else f'saved in {settings_path()}'
+    return f'the TUI setting row {key} ({spec.group} group; {saved})'
 
 
 def sim_arm(section):

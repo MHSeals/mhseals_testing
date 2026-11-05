@@ -11,6 +11,11 @@ profiles:
   next: [bringup, components]
 settings:
   default: next
+# the operator hardware YAML (boat_agent set KEY, agent/layers.py): the driver takes C live and reads it back;
+# everything else changes only disarmed
+hardware:
+  default: disarmed
+  live: [decoupling, decoupling_negative]
 missions:
   default: next
 rtk:

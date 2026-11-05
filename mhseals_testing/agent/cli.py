@@ -29,6 +29,7 @@ from pathlib import Path
 from mhseals_testing import data
 from mhseals_testing.harness import operator_state
 from mhseals_testing.agent import channel
+from mhseals_testing.agent.ask import assignments, reads_only
 from mhseals_testing.harness.registry import Registry, runtime_dir
 
 FCU_ACTIONS = ('get', 'set', 'revert', 'restart', 'rates')
@@ -81,9 +82,11 @@ def add_parsers(sub):
     run.add_argument('--set', action='append', default=[], metavar='KEY=VALUE', dest='settings',
                      help="a setting agent.yaml settings: lists for this procedure (e.g. thrust_step=survey), "
                           'applied before the run starts; repeatable')
-    setting = verb('set', "change settings agent.yaml settings: lists, as the operator's Settings change "
-                   '(disarmed and idle)', claim=True)
-    setting.add_argument('settings', nargs='+', metavar='KEY=VALUE')
+    setting = verb('set', 'change any tunable setting as the operator would (between runs; armed-unsafe keys only '
+                   'disarmed): a session setting (amplitude, command_mode), a hardware YAML key (manual_amplitude, '
+                   'decoupling or its row decoupling.yaw, command_mux.ramp) or nav2.NODE.PARAM; read back, logged. '
+                   'set KEY reads it (no claim)', claim=False)
+    setting.add_argument('settings', nargs='+', metavar='KEY[=VALUE]')
     goal = verb('goal', 'send a map-frame goal through the TUI', claim=True)
     for name in ('x', 'y'):
         goal.add_argument(name, type=float)
@@ -281,7 +284,11 @@ class Agent:
         return self.send('run', args, self.args.claim, self.args.dry_run)
 
     def set(self):
-        settings, hint = assignments(self.args.settings)
+        """``set KEY=VALUE --claim ID`` writes (session, hardware or nav2 layer); ``set KEY`` reads, no claim."""
+        reads = reads_only(self.args.settings)
+        settings, hint = assignments(self.args.settings, reads=reads)
+        if not hint and not reads and not self.args.claim:
+            hint = 'set KEY=VALUE needs your claim: --claim ID (set KEY alone reads it, no claim)'
         return self.bad(hint) if hint else self.send('set', {'settings': settings}, self.args.claim)
 
     def bad(self, hint):
@@ -679,22 +686,13 @@ def follow(agent, until=None, timeout=None, claim=None):
         agent.sleep(POLL_S)
 
 
-def assignments(words):
-    """(``{key: value}``, None) from ``KEY=VALUE`` words, or (None, hint)."""
-    out = {}
-    for word in words:
-        key, separator, value = word.partition('=')
-        if not separator or not key.strip() or key.strip() in out:
-            return None, f'{word!r}: expected KEY=VALUE, each key once'
-        out[key.strip()] = value.strip()
-    return out, None
-
-
 def needs_why(args):
     """An acting verb with no ``--why``: fcu only to write, stop never."""
     if args.command not in WHY or (getattr(args, 'why', None) or '').strip():
         return False
     if args.command == 'run' and getattr(args, 'list', False):      # run --list reads only
+        return False
+    if args.command == 'set' and reads_only(args.settings):          # set KEY reads only
         return False
     return args.command != 'fcu' or getattr(args, 'action', None) in ('set', 'revert', 'restart')
 
