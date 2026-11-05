@@ -435,8 +435,9 @@ groups:
         title: Points nearby
         message: 'nearest point {value} {label}'
         hint: Something is inside the warning range of the hull; check the camera and slow down
-  # Power checks. The `battery` probe publishes the facts they read.
+  # Power checks. The `battery` probe publishes the facts they read. Hardware only (atlas #99 B5).
   Power:
+    defaults: {profiles: [boat]}
     checks:
       - id: power.pack_voltage
         kind: threshold
@@ -691,7 +692,7 @@ groups:
         publishers: [1, 1]
         each:
           - {name: ekf_local, topic: /odom/local, gates: [motion]}
-          - {name: mavros_state, topic: /mavros/state, gates: [motion]}
+          - {name: mavros_state, topic: /mavros/state, gates: [motion], profiles: [boat]}
           - {name: gps, topic: /gps/fix}
           - {name: imu, topic: /imu/raw}
           # the camera host's backend and tracker (perception v2); endpoints only, nothing is subscribed
@@ -703,7 +704,7 @@ groups:
         each:
           - {name: odom, topic: /odom/local}
           - {name: cmd, topic: '{command_topic}'}
-          - {name: rtcm, topic: /mavros/gps_rtk/send_rtcm, forbid_qos: [lifespan]}   # lifespan + skew drops RTCM
+          - {name: rtcm, topic: /mavros/gps_rtk/send_rtcm, forbid_qos: [lifespan], profiles: [boat]}   # lifespan + skew drops RTCM
           - {name: detections, topic: /detections}
       - {id: type.detections, kind: endpoints, topic: /detections, type: true}
       - id: node.camera                       # the camera host's ZED wrapper, not anything running here
@@ -719,6 +720,7 @@ groups:
         hint: A Foxy/Humble container is on our domain; stop it or move it to another domain.
   # RTK checks (gps.md 7.4). The rtk probe counts seconds_below_fixed only while the link is fresh.
   RTK:
+    defaults: {profiles: [boat]}
     checks:
       - id: rtk.converge
         kind: threshold
@@ -753,8 +755,10 @@ groups:
         missing: skip
         title: RTK correction flow
   # Flight controller, compass and GPS checks. The `fcu` probe (health/probes/fcu.py) and
-  # the `params` probe publish the facts. Read only: nothing here ever writes to the FCU.
+  # the `params` probe publish the facts. Read only: nothing here ever writes to the FCU. A profile
+  # without a flight controller (the simulator) skips them (atlas #99 B5); the pose and IMU checks stay.
   FCU:
+    defaults: {profiles: [boat]}
     checks:
       - {id: fcu.link, kind: threshold, fact: fcu.connected, expect: true, severity: fail,
          gates: [motion], title: FCU link, hint: 'No MAVROS heartbeat; check the Cube USB and fcu_url'}
@@ -797,10 +801,11 @@ groups:
         fail: [0, 1.5]
         unit: ' m/s'
         show: [odometry]
+        profiles: []                         # every profile: its odometry against its GPS
         title: FCU vs GPS speed
         hint: FCU pose speed disagrees with GPS ground speed; do not trust fits
       - {id: imu.free_fall, kind: threshold, fact: imu.accel_norm, warn: [5.0, 20.0], fail: [2.0, 40.0],
-         unit: ' m/s²', missing: skip, title: IMU acceleration}
+         unit: ' m/s²', missing: skip, profiles: [], title: IMU acceleration}
       - id: battery.diag                     # MAVROS 'Battery' diagnostic, WARN "Low voltage" on the 6.0-6.8 V bag
         kind: threshold
         fact: battery.diag_level
@@ -825,11 +830,11 @@ groups:
       - {id: compute.disk, kind: threshold, fact: host.disk_free_gb, warn: 5, fail: 1, digits: 1,
          unit: ' GB free', probe: host, advisory: compute, severity: fail, title: Free disk}
       - {id: fcu.connected, kind: threshold, fact: fcu.connected, expect: true, probe: fcu,
-         advisory: flight controller, severity: warn, title: FCU link}
+         advisory: flight controller, severity: warn, profiles: [boat], title: FCU link}
       - {id: fcu.disarmed, kind: threshold, fact: fcu.armed, expect: false, quiet: true,
-         probe: fcu, advisory: flight controller, severity: warn, missing: skip, title: FCU disarmed}
+         probe: fcu, advisory: flight controller, severity: warn, profiles: [boat], missing: skip, title: FCU disarmed}
       - {id: fcu.mode, kind: threshold, fact: fcu.mode, expect: [MANUAL, HOLD], probe: fcu,
-         advisory: flight controller, severity: warn, missing: skip, title: FCU mode}
+         advisory: flight controller, severity: warn, profiles: [boat], missing: skip, title: FCU mode}
       # Recording (harness/recwatch.py publishes bag.*; free disk is compute.disk above).
       - id: bag.off_armed
         kind: threshold
