@@ -7,7 +7,7 @@
 │   ✗ GPS                    │╰────────────────────────────────────────────────╯
 │   ! IMU              once× │╭─ Conditions ───────────────────────────────────╮
 │   · GPS raw                ││ measuring · hdg —                              │
-│   · compass                ││ Cmd · 0 · one key                              │
+│   · compass                ││ Cmd · 0 · timed combos                         │
 │   · LiDAR                  │╰────────────────────────────────────────────────╯
 │   · tracks                 │╭─ Thrusters · odroid · defaults ────────────────╮
 │ Localization               ││    Thr          Out        Rev              µs │
