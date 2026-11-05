@@ -81,6 +81,16 @@ def _section(name, given, defaults):
     return out
 
 
+def load_section(name, defaults, path=None):
+    """One minimap.yaml settings section over ``defaults`` (the hull's size); a malformed one raises ValueError."""
+    path = Path(path or _default_path())
+    try:
+        data = load_strict(path.read_text())
+        return _section(name, data.get(name) if isinstance(data, dict) else None, defaults)
+    except (ValueError, yaml.YAMLError) as error:
+        raise ValueError(f'{path}: {error}') from error
+
+
 class ClassTable:
     """The class table with an `unknown` fallback, plus the track and fov drawing settings."""
 

@@ -15,7 +15,7 @@ from rich.text import Text
 
 from mhseals_testing.ui import theme
 from mhseals_testing.ui import imaging as pixels
-from mhseals_testing.ui.minimap import hull
+from mhseals_testing.ui.minimap import hull, hull_sprite
 from mhseals_testing.ui.minimap.layers import SPEED_BANDS
 from mhseals_testing.ui.minimap.structure import VMAX, WAKE_DEG, WAKE_SPEED
 from mhseals_testing.ui.panels import TITLES
@@ -61,7 +61,8 @@ WAKE_REACH = (2, 6)         # dots of wake behind the stern: 2 + 6 * sog / VMAX,
 # inside GLOW_NEAR it is wider, two dots deep and bold. Half-widths in degrees.
 GLOW_NEAR, GLOW_FAR = 3.0, 8.0
 GLOW_SPAN = {True: 30.0, False: 15.0}
-BOW_SHARE = 0.25            # the hull's foremost quarter wears the bow hue (both tiers)
+BOW_SHARE = hull.BOW_SHARE  # the hull's foremost quarter wears the bow hue (both tiers)
+WAKE_FADE = 3               # smooth braille: every WAKE_FADE-th wake dot the spacing grows by one (the minimap's)
 
 
 def _polar(bearing_deg, radius):
@@ -124,7 +125,7 @@ def _reach(rel):
 
 def hull_dots(up):
     """``[(dx, dy, layer)]``: the rose's hull at screen bearing ``up`` in dots about CENTRE (the map's
-    mask, 3 deg steps), its foremost quarter BOW as in the image tier, the rest BOAT."""
+    mask, 3 deg steps, in theme.yaml's ``hull`` look), its foremost quarter BOW as in the image tier, the rest BOAT."""
     fx, fy = _polar(up, 1.0)
     bow = HULL_DOTS[0] * (0.5 - BOW_SHARE)
     return [(dx, dy, BOW if dx * fx + dy * fy > bow else BOAT)
@@ -156,8 +157,9 @@ def _glow_bearings(shown, step):
 
 def wake(sog, up):
     """``[(bearing, start, stop)]`` of the two wake lines off the stern at ``WAKE_DEG`` (dots from the centre), or []
-    below WAKE_SPEED. ``sog`` is the speed over ground (m/s), ``up`` the bow's screen bearing."""
-    if sog is None or not math.isfinite(sog) or sog <= WAKE_SPEED:
+    below WAKE_SPEED or with theme.yaml ``wake: false``. ``sog`` is the speed over ground (m/s), ``up`` the bow's
+    screen bearing."""
+    if sog is None or not math.isfinite(sog) or sog <= WAKE_SPEED or not hull.wake_shown():
         return []
     length = WAKE_REACH[0] + WAKE_REACH[1] * min(sog / VMAX, 1.0)
     lines = []
@@ -189,10 +191,13 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
             bits, best = dots.get(pos, (0, layer))
             dots[pos] = (bits | BITS[(x % 2, y % 4)], min(best, layer))
 
-    def ray(bearing, start, stop, layer, step=1):
-        for radius in range(start, stop + 1, step):
+    def ray(bearing, start, stop, layer, step=1, fade=0):
+        radius, n = start, 0
+        while radius <= stop:      # with ``fade`` the spacing grows by one every ``fade`` dots
             dx, dy = _polar(bearing, radius)
             put(cx + round(dx), cy + round(dy), layer)
+            n += 1
+            radius += step + (n // fade if fade else 0)
 
     for step in range(16):
         ray(step * 22.5, RADIUS - (step % 4 == 2), RADIUS, TICK)   # a longer tick on the intercardinals
@@ -213,7 +218,7 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
             ray(bearing, start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)),
                 DRIFT, 2)
     for bearing, start, stop in wake(sog, up):
-        ray(bearing, start, stop, WAKE, 2)
+        ray(bearing, start, stop, WAKE, 2, WAKE_FADE if hull.style() == 'smooth' else 0)
     for dx, dy, layer in hull_dots(up):
         put(cx + dx, cy + dy, layer)
 
@@ -301,7 +306,8 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
     lit = glow(nearby, up)
     lit = None if lit is None else (q(lit[0]), lit[1])
     trails = tuple(wake(sog, up))
-    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit, trails)
+    look = hull.style()
+    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit, trails, look)
 
     def paint(r):
         sx, sy = r.cw / 2, r.ch / 4                   # px per dot
@@ -322,21 +328,21 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
                         else pixels.rgb(theme.MUTED))
             a, b = _polar(shown[0], shown[1]), _polar(shown[0], shown[2])
             r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), ink, pen, dash=max(2, round(sx)))
-        if trails:                                    # the wake off the stern, dashed like the minimap's
+        if trails and look == 'classic':              # the wake off the stern, dashed like the minimap's
             ink = r.ink(pixels.rgb(_token('wake', theme.MUTED), pixels.token('muted')))
             for bearing, start, stop in trails:
                 a, b = _polar(bearing, start), _polar(bearing, stop)
                 r.line(*at(cx + a[0], cy + a[1]), *at(cx + b[0], cy + b[1]), ink, pen, dash=max(2, round(sx)))
         warn = pixels.rgb(theme.WARN, pixels.token('warn'))
-        body = r.ink(pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn)
-        poly = hull.outline(90.0 - up, *HULL_DOTS)
-        r.polygon([at(cx + x, cy + y) for x, y in poly], body)
-        # the bow: the hull's foremost quarter, as hull_dots splits it, at the exact heading
-        fx, fy = _polar(up, 1.0)
-        ys, xs = np.nonzero(r.px == body)
-        ahead = (xs + 0.5 - (cx + 0.5) * sx) / sx * fx + (ys + 0.5 - (cy + 0.5) * sy) / sy * fy
-        front = ahead > HULL_DOTS[0] * (0.5 - BOW_SHARE)
-        r.px[ys[front], xs[front]] = r.ink(pixels.rgb(tokens[1], pixels.token('bow')) if yaw_ok else warn)
+        if look == 'smooth':                          # anti-aliased, with the wake as a soft V (hull_sprite.py)
+            inks = (pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn,
+                    pixels.rgb(tokens[1], pixels.token('bow')) if yaw_ok else warn,
+                    pixels.rgb(_token('wake', theme.MUTED), pixels.token('muted')))
+            reach = max((stop - start for _, start, stop in trails), default=0) * sx
+            hull_sprite.paint(r, *at(cx, cy), 90.0 - up, HULL_DOTS[0] * sx, HULL_DOTS[1] * sx, inks,
+                              pixels.token('bg'), BOW_SHARE, reach, pen, WAKE_DEG, ROSE_Q)
+        else:
+            _classic_hull(r, at, sx, sy, up, tokens, yaw_ok, warn)
         if icon is not None:
             drive = r.ink(pixels.rgb(hue, pixels.token('fg')))
             (tail, tip), (head, half) = ICON_SPAN, ICON_HEAD
@@ -349,6 +355,19 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
 
     grid = pixels.surface('conditions.rose', paint, ROSE_COLS, ROSE_ROWS, key=key, holes=glyphs, tile=ROSE_TILE)
     return pixels.text_rows(grid, lambda col, row: glyphs.get((col, row), (' ', None)))
+
+
+def _classic_hull(r, at, sx, sy, up, tokens, yaw_ok, warn):
+    """The classic image hull: the pentagon in slate, its foremost quarter in the bow token at the exact heading."""
+    cx, cy = CENTRE
+    body = r.ink(pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn)
+    r.polygon([at(cx + x, cy + y) for x, y in hull.outline(90.0 - up, *HULL_DOTS)], body)
+    # the bow: the hull's foremost quarter, as hull_dots splits it, at the exact heading
+    fx, fy = _polar(up, 1.0)
+    ys, xs = np.nonzero(r.px == body)
+    ahead = (xs + 0.5 - (cx + 0.5) * sx) / sx * fx + (ys + 0.5 - (cy + 0.5) * sy) / sy * fy
+    front = ahead > HULL_DOTS[0] * (0.5 - BOW_SHARE)
+    r.px[ys[front], xs[front]] = r.ink(pixels.rgb(tokens[1], pixels.token('bow')) if yaw_ok else warn)
 
 
 # --- the command column -----------------------------------------------------------------------

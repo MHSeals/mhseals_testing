@@ -420,7 +420,10 @@ def test_a_tile_under_a_modal_backdrop_is_drawn_dimmed_like_the_text(tier):
         assert copies[0] in pixels._pending       # uploaded before the frame that names it
 
 
-def test_the_image_rose_paints_the_text_tiers_tokens():
+@pytest.mark.parametrize('look', ['classic', 'smooth'])
+def test_the_image_rose_paints_the_text_tiers_tokens(look, monkeypatch):
+    """Classic paints the tokens alone; smooth adds only their anti-aliased blends (with each other or the bg)."""
+    monkeypatch.setattr(theme.PALETTE, 'hull', look)
     pixels.use('sixel')
     seen = {}
     real = pixels.surface
@@ -433,8 +436,23 @@ def test_the_image_rose_paints_the_text_tiers_tokens():
     raster = pixels.Raster(conditions.ROSE_COLS, conditions.ROSE_ROWS)
     seen['r'](raster)
     used = {raster.palette[i] for i in np.unique(raster.px) if i}
-    assert used == {pixels.rgb(theme.PALETTE.style('slate')), pixels.rgb(theme.PALETTE.style('bow')),
-                    pixels.rgb(theme.MUTED), (255, 0, 255)}
+    tokens = {pixels.rgb(theme.PALETTE.style('slate')), pixels.rgb(theme.PALETTE.style('bow')),
+              pixels.rgb(theme.MUTED), (255, 0, 255)}
+    if look == 'classic':
+        assert used == tokens
+        return
+    ends = [np.array(c, float) for c in tokens | {pixels.token('bg'), pixels.token('slate')}]
+
+    def blend(c):
+        c = np.array(c, float)
+        for a in ends:
+            for b in ends:
+                d = b - a
+                t = np.clip((c - a) @ d / (d @ d), 0, 1) if d @ d else 0.0
+                if np.abs(a + t * d - c).max() <= 40:   # two stacked blends stay near one pair's line
+                    return True
+        return False
+    assert tokens <= used and all(blend(c) for c in used)
 
 
 def test_rects_cover_cells_with_whole_row_runs():

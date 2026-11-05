@@ -22,6 +22,7 @@ CONFIG = Path(__file__).resolve().parent.parent.parent / 'config' / 'theme.yaml'
 OVERLAY = Path.home() / '.config' / 'mhseals' / 'theme.yaml'
 TIERS = ('truecolor', '256', '16', 'mono')
 GRAPHICS = ('off', 'auto', 'kitty', 'sixel')   # drawings as terminal images (ui/imaging/); off = text
+HULLS = ('smooth', 'classic')   # the boat glyph's look (ui/minimap/hull.py); classic is the filled pentagon
 FIELDS = ('dark', 'light', 'x256', 'ansi')
 # Contrast against bg: 3:1 for foregrounds, 2:1 for trail ramps (drawn at .72 weight);
 # chrome lines and background tints are decoration with a shape cue and are exempt.
@@ -108,6 +109,8 @@ class Theme:
         self.cvd = bool(data.get('cvd', False))
         graphics = data.get('graphics', 'off')       # ui/imaging/: off | auto | kitty | sixel
         self.graphics = 'off' if graphics is False else graphics   # YAML 1.1 reads a bare off as false
+        self.hull = data.get('hull', 'classic')
+        self.wake = data.get('wake', True)
         self.validate()
 
     def validate(self):
@@ -115,6 +118,10 @@ class Theme:
             raise ValueError(f'theme {self.mode!r} must be auto, dark or light')
         if self.graphics not in GRAPHICS:
             raise ValueError(f'graphics {self.graphics!r} must be off, auto, kitty or sixel')
+        if self.hull not in HULLS:
+            raise ValueError(f'hull {self.hull!r} must be {" or ".join(HULLS)}')
+        if not isinstance(self.wake, bool):
+            raise ValueError(f'wake {self.wake!r} must be true or false')
         for name, entry in self.tokens.items():
             _check_entry(name, entry)
             self._leaf(name)
@@ -216,7 +223,7 @@ def _merge(base, overlay):
             if not isinstance(value, dict):
                 raise ValueError(f'{key}: expected a mapping')
             merged.setdefault(key, {}).update(value)
-        elif key in ('theme', 'cvd', 'graphics'):
+        elif key in ('theme', 'cvd', 'graphics', 'hull', 'wake'):
             merged[key] = value
         elif key != 'schema':
             raise ValueError(f'unknown key {key!r}')

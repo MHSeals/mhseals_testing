@@ -12,8 +12,12 @@ turns chips into reverse video; ``mono`` (NO_COLOR) uses only the token's bold/d
 attributes; ASCII emits no SGR at all and maps braille, blanks and gap marks to ASCII.
 """
 
+import numpy as np
+
 from mhseals_testing.ui import imaging as pixels
+from mhseals_testing.ui.minimap import hull, hull_sprite
 from mhseals_testing.ui.minimap.canvas import BITS, BLANK, GAP, rank
+from mhseals_testing.ui.minimap.structure import WAKE_DEG
 
 _SPOT = {bit: xy for xy, bit in BITS.items()}
 
@@ -137,6 +141,14 @@ def emit(canvas, style, tier='truecolor', ascii=False):
     return rows
 
 
+def _sprite(r, canvas, x, y, drawing, colour, bg):
+    """A canvas sprite (structure.Hull: the smooth hull) at dot (x, y), dots scaled to the raster's px."""
+    fx, fy = r.cw / canvas.sx, r.ch / canvas.sy
+    hull_sprite.paint(r, (x + 0.5) * fx, (y + 0.5) * fy, drawing.yaw, drawing.length * fx, drawing.beam * fx,
+                      (colour(drawing.body), colour(drawing.bow), colour('wake')), bg, hull.BOW_SHARE,
+                      drawing.wake * fx, max(2, int(np.ceil(fx))), WAKE_DEG, hull.YAW_STEP)
+
+
 def emit_image(canvas, style, tier='truecolor'):
     """The canvas as image lines (ui/imaging/): tints fill their cells and every dot is drawn at
     the canvas's k x braille resolution in its own layer colour, highest priority on top; glyphs
@@ -163,8 +175,13 @@ def emit_image(canvas, style, tier='truecolor'):
                 xs, ys = layers.setdefault(layer, ([], []))
                 xs.append(col * canvas.sx + dx)
                 ys.append(row * canvas.sy + dy)
-        pixels.dots_to_px(r, [(r.ink(colour(layer)), *layers[layer])
-                              for layer in sorted(layers, key=rank, reverse=True)], canvas.sx, canvas.sy)
+        order = sorted(layers, key=rank, reverse=True)      # lowest priority first; a sprite goes in at its rank
+        for sprite in sorted(canvas.sprites, key=lambda s: rank(s[2].layer), reverse=True):
+            under = [layer for layer in order if rank(layer) >= rank(sprite[2].layer)]
+            pixels.dots_to_px(r, [(r.ink(colour(layer)), *layers[layer]) for layer in under], canvas.sx, canvas.sy)
+            order = order[len(under):]
+            _sprite(r, canvas, *sprite, colour, bg)
+        pixels.dots_to_px(r, [(r.ink(colour(layer)), *layers[layer]) for layer in order], canvas.sx, canvas.sy)
 
     def hole(col, row):
         cell = cells[row][col]

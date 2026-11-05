@@ -51,6 +51,7 @@ class Canvas:
         self._glyphs = {}  # (col, row) -> (char, layer, chip)
         self._gaps = set()
         self._tint = {}    # (col, row) -> background token
+        self.sprites = []  # (x, y, sprite): image-tier drawings at a dot (the smooth hull), painted by the emitter
 
     def cell(self, x, y):
         """The (col, row) of dot (x, y)."""
@@ -66,6 +67,7 @@ class Canvas:
         other._glyphs = dict(self._glyphs)
         other._gaps = set(self._gaps)
         other._tint = dict(self._tint)
+        other.sprites = list(self.sprites)
         return other
 
     def overlay(self, other):
@@ -85,6 +87,7 @@ class Canvas:
                 self._glyphs[pos] = (char, layer, chip)
         self._gaps |= other._gaps
         self._tint.update(other._tint)
+        self.sprites += other.sprites
 
     @property
     def dots_wide(self):
@@ -117,6 +120,17 @@ class Canvas:
                 bit = BITS[(x % 2, y % 4)] if braille else (x % sx, y % sy)
                 if bit not in bits or rank(layer) < rank(bits[bit]):
                     bits[bit] = layer
+
+    def clear(self, x, y, layer):
+        """Drop the dot at (x, y) if ``layer`` outranks it: an outline hull keeps the trail out of its inside."""
+        bits = self._dots.get((x // self.sx, y // self.sy))
+        bit = self._bit(x, y)
+        if bits and bit in bits and rank(layer) < rank(bits[bit]):
+            del bits[bit]
+
+    def sprite(self, x, y, drawing):
+        """An image-tier drawing centred on dot (x, y); it ranks as ``drawing.layer`` among the dots."""
+        self.sprites.append((x, y, drawing))
 
     def glyph(self, col, row, char, layer, chip=False):
         """Replace a cell with ``char``; the higher-priority glyph keeps a contested cell."""
