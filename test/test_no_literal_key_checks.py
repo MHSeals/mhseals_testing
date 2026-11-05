@@ -19,12 +19,11 @@ UI = Path(__file__).resolve().parents[1] / 'mhseals_testing' / 'ui'
 KEY_VARS = {'key', 'raw', 'folded', 'pressed', 'ch'}
 EVENTS = ('press:', 'release:', 'repeat:')
 ALLOWED = {   # path under ui/ -> literal key checks left (refactor areas 3, 4, 6 and this area's queue)
-    'app/actions/settings.py': 14, 'app/actions/arm.py': 6, 'popups/authority.py': 5, 'popups/hold.py': 2,
-    'popups/stop.py': 1, 'feeds/agent.py': 1, 'app/view.py': 1, 'panels/checklist.py': 6,
+    'app/actions/settings_rows/status.py': 8, 'app/actions/settings_rows/correction.py': 5,
+    'app/actions/settings_rows/hardware.py': 1, 'app/actions/arm.py': 6, 'popups/authority.py': 5,
+    'popups/hold.py': 2, 'popups/stop.py': 1, 'feeds/agent.py': 1, 'app/view.py': 1, 'panels/checklist.py': 6,
     'app/loop.py': 35, 'app/actions/bags.py': 26, 'popups/history.py': 15, 'app/actions/labels.py': 13,
-    'app/actions/manual.py': 10,
-    'app/actions/procedures.py': 1,
-    'app/actions/annotate.py': 1,
+    'app/actions/manual.py': 10, 'app/actions/procedures.py': 1, 'app/actions/annotate.py': 1,
 }
 
 
