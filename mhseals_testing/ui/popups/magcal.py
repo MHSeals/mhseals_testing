@@ -8,7 +8,7 @@ bearing; the FCU write keeps its own typed confirmation in the procedure.
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.analysis.magcal import true_heading
 from mhseals_testing.analysis.magnetic import SITE
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 
 
 def parse_heading(text):
@@ -48,10 +48,10 @@ def ask_heading(app, declination=SITE['declination_deg']):
 
     def handle(key):
         from mhseals_testing.ui.popups import edit
-        if key == 'enter':
+        if keymap.matches('popup.text', 'confirm', key):
             return (dict(heading=parse_heading(modal['text']), declination=declination)
                     if modal['state'] == 'ok' else None)
-        if key == 'escape':
+        if keymap.matches('popup.text', 'cancel', key):
             raise Cancelled('cancelled by operator')
         modal['text'] = edit(modal['text'], key)[:8]
         update()

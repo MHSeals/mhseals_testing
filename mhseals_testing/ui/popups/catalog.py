@@ -2,6 +2,7 @@
 import json
 
 from mhseals_testing import schema
+from mhseals_testing.ui import keymap
 
 
 def details(app, label, record):
@@ -10,11 +11,11 @@ def details(app, label, record):
                  hint='Up/Down scroll · Esc back')
 
     def handle(key):
-        if key in ('escape', 'q'):
+        action = keymap.dispatch('popup.catalog_detail', key)
+        if action == 'close':
             return True
-        if key in ('up', 'k', '[', 'down', 'j', ']'):
-            modal['scroll'] = max(0, modal.get('scroll', 0)
-                                  + (1 if key in ('down', 'j', ']') else -1))
+        if action in ('up', 'down'):
+            modal['scroll'] = max(0, modal.get('scroll', 0) + (1 if action == 'down' else -1))
     app.popup(modal, handle)
 
 
@@ -41,13 +42,14 @@ def open_catalog(app, view=None):
         modal['scroll'] = 0
 
     def handle(key):
-        if key in ('up', 'k'):
+        action = keymap.dispatch('popup.catalog', key)
+        if action == 'up':
             state['selected'] = (state['selected'] - 1) % len(items)
-        elif key in ('down', 'j'):
+        elif action == 'down':
             state['selected'] = (state['selected'] + 1) % len(items)
-        elif key == 'enter':
+        elif action == 'detail':
             details(app, *items[state['selected']])
-        elif key in ('escape', 'q'):
+        elif action == 'close':
             return True
         refresh()
     refresh()

@@ -6,7 +6,7 @@ source the facts are None and the popup says ``no_voltage_source`` (voltage scal
 The Battery row on Status exists only with a source, so that is the only way in.
 """
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 
 DASH = theme.DASH
 NO_SOURCE = 'no_voltage_source'
@@ -45,5 +45,5 @@ def modal(facts):
 def open_power(app):
     """Show the popup for the live facts, refreshed while open; Esc or q closes."""
     m = modal(app.power_facts())
-    app.popup(m, lambda key: True if key in ('escape', 'q') else None,
+    app.popup(m, lambda key: True if keymap.matches('popup.power', 'close', key) else None,
               lambda: m.update(rows=rows(app.power_facts())))

@@ -9,10 +9,10 @@ reorder, the arrows select. The minimap previews the corners as they are edited 
 """
 
 from mhseals_testing.harness import course_area
-from mhseals_testing.ui import agent_acts, theme
+from mhseals_testing.ui import agent_acts, keymap, theme
 
 STEPS = (1.0, 5.0, 10.0, 25.0)
-NUDGE = {'n': (1, 0), 's': (-1, 0), 'e': (0, 1), 'w': (0, -1)}
+NUDGE = {'nudge_north': (1, 0), 'nudge_south': (-1, 0), 'nudge_east': (0, 1), 'nudge_west': (0, -1)}   # popup.course
 HINT = theme.SEPARATOR.join(('g corner at boat', 'G move here', 'nsew nudge', '+- step', 'x remove', 'JK order',
                              'o on_exit', 'y apply', 'Esc leave'))
 
@@ -88,29 +88,30 @@ def open_course(app):
 
     def handle(key):
         fix = state.fix_ll
-        if key == 'escape':
+        action = keymap.dispatch('popup.course', key)
+        if action == 'leave':
             return 'left'
-        if key in ('g', 'G'):
+        if action in ('corner_add', 'corner_here'):
             if fix is None:
                 box['notice'] = 'no GPS fix yet'
             else:
-                (edit.add if key == 'g' else edit.set)(fix)
-        elif key in NUDGE:
-            north, east = NUDGE[key]
+                (edit.add if action == 'corner_add' else edit.set)(fix)
+        elif action in NUDGE:
+            north, east = NUDGE[action]
             edit.nudge(north * STEPS[box['step']], east * STEPS[box['step']])
-        elif key in ('+', '='):
+        elif action == 'step_up':
             box['step'] = min(box['step'] + 1, len(STEPS) - 1)
-        elif key in ('-', '_'):
+        elif action == 'step_down':
             box['step'] = max(box['step'] - 1, 0)
-        elif key == 'x':
+        elif action == 'remove':
             edit.remove()
-        elif key in ('up', 'down'):
-            edit.select(-1 if key == 'up' else 1)
-        elif key in ('K', 'J'):
-            edit.move(-1 if key == 'K' else 1)
-        elif key == 'o':
+        elif action in ('up', 'down'):
+            edit.select(-1 if action == 'up' else 1)
+        elif action in ('move_up', 'move_down'):
+            edit.move(-1 if action == 'move_up' else 1)
+        elif action == 'on_exit':
             box['notice'] = toggle_on_exit(app, client, state.fence_status)
-        elif key == 'y':
+        elif action == 'apply':
             box['notice'] = apply(app, client, list(edit.items))
             if box['notice'].startswith('Course area applied'):
                 return 'applied'

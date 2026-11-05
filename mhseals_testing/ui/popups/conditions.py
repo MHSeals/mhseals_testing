@@ -10,7 +10,7 @@ import math
 
 
 from mhseals_testing.health import config as health_config
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 
 DASH = theme.DASH
 GATED = {'f': 'Characterize start'}     # procedure key -> what starting it means
@@ -87,7 +87,8 @@ def open_conditions(app):
     m = modal(app.conditions.summary(), app.conditions.detail(), gate_list)
 
     def handle(key):
-        if key in ('escape', 'q'):
+        action = keymap.dispatch('popup.conditions', key)
+        if action == 'close':
             return True
-        app.scroll(m, key, ('up', 'down')) or app.scroll(m, key, ('k', 'j'))
+        app.scroll(m, action, ('up', 'down'))
     app.popup(m, handle, lambda: m.update(rows=rebuild()))

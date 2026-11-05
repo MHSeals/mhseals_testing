@@ -226,7 +226,7 @@ popup.show:       {passthrough: [stop, revoke_agent], close: [any]}
 popup.text:       {confirm: [enter], cancel: [escape], erase: [backspace, ctrl-h]}   # never open while anything moves
 popup.help:       {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], close: [escape, q, '?']}
 popup.health:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], history: [tab],
-                   mute: [m], recheck: [r], ack: [x], close: [escape]}
+                   mute: [m], recheck: [r], ack: [x], close: [escape, q]}
 popup.odometry:   {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], fold: [enter],
                    rtk_base: [r], magcal: [c], restart_ekf: [e], close: [escape]}
 popup.authority:  {passthrough: [stop, mark, release_hold], up: [up, k], down: [down, j],
@@ -239,14 +239,14 @@ popup.config:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [
                    restart_code: [r], close: [escape]}
 popup.nav2:       {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], edit: [enter],
                    step_down: [left, h], step_up: [right, l], apply: [y], discard: [u], close: [escape]}
-popup.conditions: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], close: [escape]}
+popup.conditions: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], close: [escape, q]}
 popup.run:        {passthrough: [stop, mark, history, health, revoke_agent], prev: [up, k], next: [down, j],
                    review_here: [r], exclude: [X], close: [escape, q]}
 popup.transfer:   {passthrough: [stop, mark, revoke_agent], hide: [escape], cancel: [c], retry: [r]}
 popup.perception: {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], view: [v],
                    boxes: [d], floor: [D], rate_up: ['+', '='], rate_down: ['-', '_'], freeze: [f],
                    save: [s], source: [c], close: [escape]}
-popup.power:      {passthrough: [stop, mark, revoke_agent], close: [escape]}
+popup.power:      {passthrough: [stop, mark, revoke_agent], close: [escape, q]}
 popup.magcal:     {passthrough: [stop, mark, revoke_agent], enter_heading: [enter], fit: [f],
                    interference: [i], close: [escape]}
 popup.pins:       {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], change_down: [left, h],
@@ -258,6 +258,12 @@ popup.arming:     {passthrough: [stop, revoke_agent], cancel: [escape]}
                    # the arm waits (actions/arm.py): the mux reply and the boat config read stop on Space;
                    # the driver start cancels on Space or Esc
 popup.pins_wait:  {passthrough: [revoke_agent], stop: [space, escape]}   # the driver confirming a pins edit
+popup.catalog:    {passthrough: [stop, revoke_agent], up: [up, k], down: [down, j], detail: [enter], close: [escape, q]}
+popup.catalog_detail: {passthrough: [stop, revoke_agent], up: [up, k, '['], down: [down, j, ']'], close: [escape, q]}
+popup.course:     {passthrough: [stop, revoke_agent], corner_add: [g], corner_here: [G], nudge_north: [n],
+                   nudge_south: [s], nudge_east: [e], nudge_west: [w], step_up: ['+', '='], step_down: ['-', '_'],
+                   remove: [x], up: [up], down: [down], move_up: [K], move_down: [J], on_exit: [o], apply: [y],
+                   leave: [escape]}   # the course area corners (view.minimap K)
 
 # -- help and footer hints (ui/app/help.py) ---------------------------------------------
 # help: the ? popup, rows of ['[Screen ]keys', text]; the screen picks a keymap stack (keymap.HELP_SCREENS).

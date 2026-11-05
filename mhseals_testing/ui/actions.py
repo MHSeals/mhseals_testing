@@ -195,4 +195,15 @@ ACTIONS = {
     'session_next': Action('next session', 6),
     'scale_down': Action('scale -', 0),
     'scale_up': Action('scale +', 0),
+    # popup.course (ui/popups/course.py)
+    'corner_add': Action('corner at boat', 0),
+    'corner_here': Action('move here', 0),
+    'nudge_north': Action('nudge north', 0),
+    'nudge_south': Action('nudge south', 0),
+    'nudge_east': Action('nudge east', 0),
+    'nudge_west': Action('nudge west', 0),
+    'remove': Action('remove', 0),
+    'move_up': Action('move up', 0),
+    'move_down': Action('move down', 0),
+    'on_exit': Action('on_exit', 0),
 }

@@ -52,8 +52,8 @@ def key_map(ctx):
 def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
-    assert len(contexts) == 41
-    assert sum(len(binds(c)) for c in contexts.values()) == 253
+    assert len(contexts) == 44
+    assert sum(len(binds(c)) for c in contexts.values()) == 276
 
 
 def test_keys_known_and_unique_per_context(doc):
@@ -124,6 +124,23 @@ LITERALS = [
     *[('tab.correction', k, a) for k, a in (('left', 'column_prev'), ('h', 'column_prev'), ('right', 'column_next'),
                                             ('l', 'column_next'), ('r', 'rerun_direction'), ('R', 'run_all'),
                                             ('A', 'apply_pending'), ('I', 'hardware_changed'))],
+    # popups/power.py, health.py, conditions.py, magcal.py (popup.text), config.py (folded)
+    *[(s, k, 'close') for s in ('popup.power', 'popup.health', 'popup.conditions') for k in ('escape', 'q')],
+    ('popup.conditions', 'up', 'up'), ('popup.conditions', 'k', 'up'),
+    ('popup.conditions', 'down', 'down'), ('popup.conditions', 'j', 'down'),
+    ('popup.text', 'enter', 'confirm'), ('popup.text', 'escape', 'cancel'),
+    ('popup.config', 'up', 'up'), ('popup.config', 'k', 'up'), ('popup.config', 'down', 'down'),
+    ('popup.config', 'j', 'down'), ('popup.config', 'enter', 'apply'), ('popup.config', 'escape', 'close'),
+    # popups/catalog.py, popups/course.py (its NUDGE letters too)
+    *[('popup.catalog', k, a) for k, a in (('up', 'up'), ('k', 'up'), ('down', 'down'), ('j', 'down'),
+                                           ('enter', 'detail'), ('escape', 'close'), ('q', 'close'))],
+    *[('popup.catalog_detail', k, a) for a, ks in (('up', ('up', 'k', '[')), ('down', ('down', 'j', ']')),
+                                                   ('close', ('escape', 'q'))) for k in ks],
+    *[('popup.course', k, a) for k, a in (
+        ('escape', 'leave'), ('g', 'corner_add'), ('G', 'corner_here'), ('n', 'nudge_north'), ('s', 'nudge_south'),
+        ('e', 'nudge_east'), ('w', 'nudge_west'), ('+', 'step_up'), ('=', 'step_up'), ('-', 'step_down'),
+        ('_', 'step_down'), ('x', 'remove'), ('up', 'up'), ('down', 'down'), ('K', 'move_up'), ('J', 'move_down'),
+        ('o', 'on_exit'), ('y', 'apply'), ('k', None), ('j', None))],
 ]
 
 

@@ -10,7 +10,7 @@ shown disabled until the reload rework (TS092) lands.
 from datetime import datetime
 
 from mhseals_testing.harness.watch import stat_key
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 
 GLYPH = dict(ok=theme.pick('✓', 'ok'), pending=theme.pick('↻', '~'), bad=theme.pick('⚠', '!'))
 HINT = theme.SEPARATOR.join(('Enter apply', 'r restart code (not yet)', 'Esc close'))
@@ -74,13 +74,13 @@ def open_config(app):
     modal = dict(kind='message', title='Config', rows=menu_rows(), width=76, hint=HINT)
 
     def handle(key):
-        key = key.lower() if len(key) == 1 else key
+        action = keymap.dispatch('popup.config', key, fold=True)
         count = len(names())
-        if key in ('up', 'k') and count:
+        if action == 'up' and count:
             state['selected'] = (state['selected'] - 1) % count
-        elif key in ('down', 'j') and count:
+        elif action == 'down' and count:
             state['selected'] = (state['selected'] + 1) % count
-        elif key == 'enter' and count:
+        elif action == 'apply' and count:
             if state['selected'] == len(app.watcher.watches):
                 from mhseals_testing.ui.popups.catalog import open_catalog
                 open_catalog(app)
@@ -88,7 +88,7 @@ def open_config(app):
                 watched = app.watcher.watches[names()[state['selected']]]
                 if pending(watched):
                     app.announce(app.watcher.reload(watched.name))
-        elif key == 'escape':
+        elif action == 'close':
             return True
         modal['rows'] = menu_rows()
     app.popup(modal, handle, refresh=lambda: modal.update(rows=menu_rows()))

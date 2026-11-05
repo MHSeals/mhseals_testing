@@ -1,5 +1,7 @@
 """The Health popup (``!``): every check that is not ok, worst first, refreshed while open."""
 
+from mhseals_testing.ui import keymap
+
 ORDER = {'fail': 0, 'warn': 1, 'unknown': 2}
 
 
@@ -17,5 +19,5 @@ def rows(engine):
 def open_health(app):
     """Show the popup; Esc or q closes."""
     m = dict(kind='message', title='Health', rows=rows(app.engine), width=96, hint='Esc close')
-    app.popup(m, lambda key: True if key in ('escape', 'q') else None,
+    app.popup(m, lambda key: True if keymap.matches('popup.health', 'close', key) else None,
               lambda: m.update(rows=rows(app.engine)))
