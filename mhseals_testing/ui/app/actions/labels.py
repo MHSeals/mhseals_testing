@@ -114,7 +114,7 @@ class Labels:
             self.labels_step(-1 if action == 'session_prev' else 1)
         elif action in EDITS:
             if self.armed or self.moving():
-                self.notice = 'Labels: review edits wait for disarmed; b, N and " still mark'
+                self.say('Labels: review edits wait for disarmed; b, N and " still mark')
             else:
                 self.labels_edit_key(action, key)
         else:
@@ -167,7 +167,7 @@ class Labels:
     def labels_replay(self, item):
         """Enter: play a closed session from just before the item (the Bags review)."""
         if self.labels_live():
-            self.notice = 'Live session: its replay opens from Bags once it is closed'
+            self.say('Live session: its replay opens from Bags once it is closed')
             return
         bag = next((b for b in self.bags_view()[0] if b.path == self.labels_session()), None)
         if bag is not None:

@@ -189,11 +189,13 @@ def test_the_popup_opens_the_view_on_v_and_releases_it_on_every_exit(tmp_path, m
 
 
 def view_host(bus, tmp_path, popup, feed=True):
-    return SimpleNamespace(
+    host = SimpleNamespace(
         facts={}, scroll=app.App.scroll, popup=popup, write_terminal=lambda text: None, notice='',
         keys=SimpleNamespace(), paths=SimpleNamespace(directory=tmp_path),
         console=SimpleNamespace(size=SimpleNamespace(width=60)), camera_detections=lambda size, floor: [],
         camera_feed=(lambda: camera_feed.CameraFeed(bus.subscribe, bus.unsubscribe)) if feed else (lambda: None))
+    host.say = lambda text: setattr(host, 'notice', text)
+    return host
 
 
 def test_view_lists_its_keys_and_status_and_v_without_a_node_says_so(tmp_path):

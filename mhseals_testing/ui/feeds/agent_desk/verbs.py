@@ -114,7 +114,7 @@ class VerbsMixin:
         work, claim = self.fcu_work(), req.get('claim')
 
         def wrote(name, old, new):       # each write as it lands: a partial set stays visible
-            app.notice = f'Agent {who} {claim}: FCU {name} {old}->{new}'
+            app.say(f'Agent {who} {claim}: FCU {name} {old}->{new}')
             app.emit('fcu', action='write', ok=True, by='agent', who=who, claim=claim, changes={name: [old, new]},
                      snapshot=work.snapshot.name if work.snapshot else None)
         jobs = {'fcu_get': lambda: work.get(list(args.get('params') or [])),
@@ -129,16 +129,16 @@ class VerbsMixin:
                   'fcu_restart': 'restarting the FCU'}
         title = f'Agent {who}: {titles[op]}'
         if op in FCU_CLAIMED:
-            app.notice = title
+            app.say(title)
         self.reply(req, True, state='started')
         try:
             ok, error, hint, result = agent_acts.in_background(app, title, jobs[op], message=title)
         except Exception as fault:      # noqa: BLE001 - a MAVROS timeout or a missing service: told, not raised
             ok, error, hint, result = False, 'refused', f'{type(fault).__name__}: {fault}', None
         if op in FCU_CLAIMED and result is not None:
-            app.notice = (f"Agent {who} {claim}: {titles[op]}"
-                          + (f": {', '.join(f'{n} {o}->{v}' for n, (o, v) in result.get('changes', {}).items())}"
-                             if result.get('changes') else '') + ('' if ok else f' failed ({hint})'))
+            app.say(f"Agent {who} {claim}: {titles[op]}"
+                    + (f": {', '.join(f'{n} {o}->{v}' for n, (o, v) in result.get('changes', {}).items())}"
+                       if result.get('changes') else '') + ('' if ok else f' failed ({hint})'))
             app.emit('fcu', action=op[4:], ok=ok, by='agent', who=who, claim=claim,
                      **{k: result[k] for k in ('changes', 'snapshot') if k in result})
         self.reply(req, ok, error, result=result, hint=hint)

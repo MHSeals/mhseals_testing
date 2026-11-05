@@ -188,7 +188,7 @@ def step_setting(app, name, key):
     choices = BY_KEY[name].choices
     value = choices[(choices.index(getattr(app.settings, name)) + (1 if key == 'right' else -1)) % len(choices)]
     setattr(app.settings, name, value)
-    app.notice = f"{name.replace('_', ' ').capitalize()} {value}"
+    app.say(f"{name.replace('_', ' ').capitalize()} {value}")
     desk = getattr(app, 'desk', None)
     if desk is not None:
         desk.setting_changed()               # observe stops a run in flight, as E does

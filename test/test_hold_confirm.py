@@ -29,6 +29,9 @@ class Reader:
 
 
 class App:
+    def say(self, text):   # App.say, the notice's one writer
+        self.notice = text
+
     def __init__(self, script):
         self.now, self.modal, self.notice, self.stops, self.revokes = 0.0, None, '', 0, 0
         self.keys = Reader(self, script)

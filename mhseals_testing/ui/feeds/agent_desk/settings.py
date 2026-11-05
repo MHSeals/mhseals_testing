@@ -169,7 +169,7 @@ class SettingsMixin:
                 return False, f"{key} reads back {ask.show(row['value'])}, not {ask.show(row['requested'])}", rows
             app.emit('setting', key=key, old=change['old'], value=change['new'], by='agent', who=who,
                      layer='hardware')
-            app.notice = f"agent {who} set {key}={ask.show(change['new'])}"
+            app.say(f"agent {who} set {key}={ask.show(change['new'])}")
             toasts = getattr(app, 'toasts', None)
             if toasts is not None:
                 toasts.push(f'agent.setting.{key}', 'warn', app.notice, app.monitor.clock())

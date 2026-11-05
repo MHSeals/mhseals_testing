@@ -67,8 +67,8 @@ class Pose:
         The EKF and navsat rows share one keeper child, so either row restarts both (HR9).
         """
         if self.ekf is None:
-            self.notice = 'EKF restart unavailable in this session'
+            self.say('EKF restart unavailable in this session')
             return
         result = self.ekf.restart()
-        self.notice = ('EKFs restarted' if result['restarted']
-                       else 'EKF restart refused: ' + '; '.join(result['blocked']))
+        self.say('EKFs restarted' if result['restarted']
+                 else 'EKF restart refused: ' + '; '.join(result['blocked']))

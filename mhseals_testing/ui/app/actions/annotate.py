@@ -48,7 +48,7 @@ class Annotate:
         try:
             {'mark': self.mark, 'bad_data': self.toggle_bad, 'say': self.said}.get(action, lambda: self.pick_digit(key))()
         except Exception as error:      # a full disk, a torn journal or a bad config never stops the boat
-            self.notice = f'Mark not saved: {error}'
+            self.say(f'Mark not saved: {error}')
         return True
 
     def annotate_later(self, key):

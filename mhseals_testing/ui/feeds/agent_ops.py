@@ -82,14 +82,14 @@ def do_arm(desk, req):
                 or desk.claim_state(claim, who) or estop(app) or desk.operator_setting()
                 or (operator_state.refusal(state) if operator_state.paused(state) else None))
     if seconds > 0:
-        app.notice = f'Agent {who} arms in {seconds:g} s{theme.SEPARATOR}Esc cancels'
+        app.say(f'Agent {who} arms in {seconds:g} s{theme.SEPARATOR}Esc cancels')
         choice, why = agent_acts.choose(
             app, f'Agent {who} arms {app.profile.name}', ('Cancel',), seconds, cause,
             message=f'Arming in {seconds:g} s for agent {who} · claim {claim}. Esc or Enter cancels; Space stops.',
             stop_refuses=True)
         if why != 'timeout':
             reason = 'operator cancelled' if choice or why == 'refused' else why
-            app.notice = f'Agent {who} arm cancelled: {reason}'
+            app.say(f'Agent {who} arm cancelled: {reason}')
             app.emit('agent_arm', who=who, claim=claim, state='cancelled', reason=reason)
             return desk.reply(req, False, 'cancelled', hint=reason, label='arm')
     why = cause()
@@ -121,8 +121,8 @@ def do_reload(desk, req):
             change = app.announce(app.watcher.reload(each))
             done.append({'name': each, 'ok': change.ok, 'error': change.error or ''})
         failed = [d for d in done if not d['ok']]
-        app.notice = (f"Agent {req['who']} reloaded {name or 'config'}"
-                      + (f": {failed[0]['name']} rejected ({failed[0]['error']})" if failed else ''))
+        app.say(f"Agent {req['who']} reloaded {name or 'config'}"
+                + (f": {failed[0]['name']} rejected ({failed[0]['error']})" if failed else ''))
         app.emit('agent_reload', who=req['who'], target='config', files=done)
         return desk.reply(req, not failed, 'refused' if failed else '', result={'files': done},
                           hint=failed[0]['error'] if failed else '', label=f"reload {name or 'config'}")
@@ -282,7 +282,7 @@ def do_fence(desk, req):
         result, text = {'anchored': ok, 'message': bad}, f'anchored the fence ({bad})'
     else:
         return desk.reply(req, False, 'bad_args', hint='fence corners LAT,LON ... | on_exit alert|return | anchor')
-    app.notice = f'Agent {who} {text}: {why}' if ok else f'Agent {who} fence {action} refused: {bad}'
+    app.say(f'Agent {who} {text}: {why}' if ok else f'Agent {who} fence {action} refused: {bad}')
     desk.reply(req, ok, '' if ok else 'refused', result=result, hint='' if ok else bad, label=label)
 
 

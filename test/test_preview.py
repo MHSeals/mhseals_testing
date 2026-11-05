@@ -83,6 +83,9 @@ def test_checklist_groups_commits_since_a_date(tmp_path):
 
 
 class App:
+    def say(self, text):   # App.say, the notice's one writer
+        self.notice = text
+
     notice = ''
 
     def ask_text(self, title, message):

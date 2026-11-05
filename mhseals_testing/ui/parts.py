@@ -84,10 +84,10 @@ def feed(app):
     if stack is None or not stack.items:
         return []
     for line in stack.units.take_notices() if stack.units is not None else ():
-        app.notice = line
+        app.say(line)
         app.ros.emit('unit', detail=line)
     for line in stack.advance(app.ros.nodes()):     # the starts waiting for their needs
-        app.notice = line
+        app.say(line)
         app.ros.emit('component', action='start_failed', detail=line)
     return rows(stack, app.ros.nodes(), getattr(app, 'issues', None))
 
@@ -99,7 +99,7 @@ def toggle(app, key):
     nodes = app.ros.nodes()
     status, detail = stack.state(key, nodes)
     if status == 'disabled':
-        app.notice = f'{item.title}: {detail or status}'
+        app.say(f'{item.title}: {detail or status}')
         return
     if item.carried_by:
         return toggle_carried(app, key, status)
@@ -124,7 +124,7 @@ def toggle(app, key):
         try:
             needs = [stack.items[name].title for name in stack.plan(key, nodes)[:-1]]
         except ComponentError as error:
-            app.notice = str(error)
+            app.say(str(error))
             return
         if needs:
             title = f"{item.title} needs {', '.join(needs)}: start all {len(needs) + 1}?"
@@ -140,7 +140,7 @@ def toggle(app, key):
     try:
         stop(app, key) if stopping else start(app, key)
     except ComponentError as error:
-        app.notice = str(error)
+        app.say(str(error))
 
 
 def carrier(stack, key):
@@ -155,14 +155,14 @@ def toggle_carried(app, key, status):
     stack, item = app.stack, app.stack.items[key]
     host = carrier(stack, key)
     if host is None or status in UP:
-        app.notice = f'{item.title} run with {item.carried_by}: start or stop that from its row'
+        app.say(f'{item.title} run with {item.carried_by}: start or stop that from its row')
         return
     lead = stack.items[host]
     lead_status, _ = stack.state(host, app.ros.nodes())
     where = lead.remote or 'this computer'
     info = [('State', f'{status} ({item.title} start with {lead.title})'), ('Computer', where)]
     if lead_status == 'unknown':
-        app.notice = f'{lead.title} on {where} not read yet; try again shortly'
+        app.say(f'{lead.title} on {where} not read yet; try again shortly')
         return
     if lead_status in UP:
         info += [('Problem', f'{lead.title} is {lead_status} but {item.title} are not up: it was started '
@@ -184,7 +184,7 @@ def toggle_carried(app, key, status):
     try:
         start(app, host)
     except ComponentError as error:
-        app.notice = str(error)
+        app.say(str(error))
 
 
 def toggle_stack(app):
@@ -235,10 +235,10 @@ def start_stack(app):
             started.append(key)
         except ComponentError as error:
             failed[key] = str(error)
-    app.notice = '; '.join(filter(None, [
-        f"Stack: starting {', '.join(stack.items[key].title for key in started)}" if started else
-        'Stack: nothing to start' if not failed else '',
-        *(f'{stack.items[key].title} not started: {why}' for key, why in failed.items())]))
+    app.say('; '.join(filter(None, [
+   f"Stack: starting {', '.join(stack.items[key].title for key in started)}" if started else
+   'Stack: nothing to start' if not failed else '',
+   *(f'{stack.items[key].title} not started: {why}' for key, why in failed.items())])))
     return started, failed
 
 
@@ -255,10 +255,10 @@ def stop_stack(app):
             stopped += stop(app, key)
         except ComponentError as error:
             failed[key] = str(error)
-    app.notice = '; '.join(filter(None, [
-        f"Stack: stopping {', '.join(stack.items[key].title for key in dict.fromkeys(stopped))}"
-        if stopped else 'Stack: nothing to stop' if not failed else '',
-        *(f'{stack.items[key].title} not stopped: {why}' for key, why in failed.items())]))
+    app.say('; '.join(filter(None, [
+   f"Stack: stopping {', '.join(stack.items[key].title for key in dict.fromkeys(stopped))}"
+   if stopped else 'Stack: nothing to stop' if not failed else '',
+   *(f'{stack.items[key].title} not stopped: {why}' for key, why in failed.items())])))
     return stopped, failed
 
 
@@ -271,8 +271,8 @@ def start(app, key, who=None):
     where = item.remote or 'this computer'
     plan = stack.start(key, app.ros.nodes(), commander=who is None, by=who)
     needs = [stack.items[name].title for name in plan[:-1]]
-    app.notice = (f"{f'Agent {who}: s' if who else 'S'}tarting {item.title} on {where}"
-                  + (f" after {', '.join(needs)}" if needs else ''))
+    app.say(f"{f'Agent {who}: s' if who else 'S'}tarting {item.title} on {where}"
+            + (f" after {', '.join(needs)}" if needs else ''))
     app.ros.emit('component', action='start', component=key, host=where,
                  **({'needs': plan[:-1]} if needs else {}), **({'by': 'agent', 'who': who} if who else {}))
     return plan
@@ -283,8 +283,8 @@ def stop(app, key, who=None):
     stack, item = app.stack, app.stack.items[key]
     where = item.remote or 'this computer'
     done = stack.stop(key, app.ros.nodes())
-    app.notice = (f"{f'Agent {who}: s' if who else 'S'}topping "
-                  f"{', '.join(stack.items[name].title for name in done)}")
+    app.say(f"{f'Agent {who}: s' if who else 'S'}topping "
+            f"{', '.join(stack.items[name].title for name in done)}")
     app.ros.emit('component', action='stop', component=key, host=where,
                  **({'by': 'agent', 'who': who} if who else {}))
     return done

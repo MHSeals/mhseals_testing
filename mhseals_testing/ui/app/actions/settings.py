@@ -51,12 +51,12 @@ class Settings(Health, Files, Hardware, StatusRows, Pose, Correction):
         if key == 'command_mode' and value != old:
             error = self.switch_command_mode(value)
             if error:
-                self.notice = f'command_mode not switched: {error}'
+                self.say(f'command_mode not switched: {error}')
                 return error
         setattr(self.settings, key, value)
         settings.save(self.settings)
         self.watcher.reload('settings')
         self.emit('setting', key=key, old=old, value=value, by='agent' if who else 'operator', who=who)
         if who:
-            self.notice = f'agent {who} set {key}={value}'
+            self.say(f'agent {who} set {key}={value}')
             self.toasts.push(f'agent.setting.{key}', 'warn', self.notice, self.monitor.clock())

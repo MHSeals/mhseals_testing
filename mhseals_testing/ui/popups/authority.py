@@ -192,6 +192,6 @@ def open(app):
             if state['ids']:
                 claim = state['ids'][min(state['cursor'], len(state['ids']) - 1)]
                 done = arbiter.revoke(claim)
-                app.notice = f'Revoked {claim}' if done else f'{claim} is not active'
+                app.say(f'Revoked {claim}' if done else f'{claim} is not active')
         refresh()
     return app.popup(box, handle, refresh)

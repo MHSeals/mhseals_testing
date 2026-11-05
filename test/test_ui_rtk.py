@@ -25,6 +25,9 @@ def home(tmp_path, monkeypatch):
 class FakeApp:
     """choose/ask_text answer from queues; Cancelled when empty."""
 
+    def say(self, text):   # App.say, the notice's one writer
+        self.notice = text
+
     def __init__(self, link, choices=(), texts=()):
         self.rtk_link, self.choices, self.texts, self.notice, self.events = link, list(choices), list(texts), '', []
 

@@ -89,13 +89,13 @@ class View:
         if not 0 <= i < len(palette.GRAPHICS):
             return
         if not palette.save_graphics(palette.GRAPHICS[i]):
-            self.notice = f'Graphics not saved: {palette.OVERLAY} is not writable'
+            self.say(f'Graphics not saved: {palette.OVERLAY} is not writable')
             return
         change = self.watcher.reload('theme')   # our own save is not a hand edit
         if change is not None and not change.ok:
             self.announce(change)
             return
-        self.notice = f'Graphics {theme.PALETTE.graphics}{theme.SEPARATOR}{pixels.TIER}'
+        self.say(f'Graphics {theme.PALETTE.graphics}{theme.SEPARATOR}{pixels.TIER}')
 
     @property
     def tab(self):

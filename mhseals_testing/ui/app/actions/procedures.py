@@ -95,17 +95,17 @@ class Procedures:
 
     def run_procedure(self, procedure):
         if self.review:
-            self.notice = f'{procedure.title}: procedures are off in review'
+            self.say(f'{procedure.title}: procedures are off in review')
             return
         if not self.source.live:
-            self.notice = 'Procedures are disabled in review'
+            self.say('Procedures are disabled in review')
             return
         reason = self.availability(procedure)
         if reason and 'armed' in procedure.needs and not self.armed:
             self.arm_panel()  # offer to arm, then carry on with the procedure
             reason = self.availability(procedure)
         if reason:
-            self.notice = f'{procedure.title}: {reason}'
+            self.say(f'{procedure.title}: {reason}')
             return
         self.clear_pulses()
         desk = getattr(self, 'desk', None)
@@ -123,7 +123,7 @@ class Procedures:
             self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
             self.run_fields = {}   # run-level fields a procedure adds to its run record (mission)
             self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
-            self.notice = f'Running {procedure.title}'
+            self.say(f'Running {procedure.title}')
             self.health_snapshot('start', procedure)
             if procedure.key == 'f':           # characterization (f, and an agent's run f): the fence follows
                 self.anchor_fence()
@@ -154,7 +154,7 @@ class Procedures:
                 aborted, ended = guard_end(guard, ended.get('by'))
             if not isinstance(error, Cancelled):
                 raise
-            self.notice = f'{procedure.title} cancelled'
+            self.say(f'{procedure.title} cancelled')
             self.disarm(f'{procedure.title} cancelled')
             return
         finally:
@@ -165,9 +165,9 @@ class Procedures:
             self.focus, self.activity = 'activity', 'results'
             self.cursors['activity'] = 0
             if aborted is not None:
-                self.notice = f"{procedure.title} ABORTED: {ended.get('cause')}"
+                self.say(f"{procedure.title} ABORTED: {ended.get('cause')}")
             elif not invalid:
-                self.notice = f'{procedure.title} complete'
+                self.say(f'{procedure.title} complete')
 
     def write_run(self, procedure, start, aborted, ended=None):
         """The one run file for a procedure run: every result it recorded since ``start``, how the
@@ -200,7 +200,7 @@ class Procedures:
             self.engine, procedure.key, began, self.engine.clock(), 'armed' in procedure.needs)
         if problems:
             self.ros.emit('trial_window_invalid', procedure=procedure.key, reasons=problems)
-            self.notice = f'{procedure.title}: window invalid, {problems[0]}'
+            self.say(f'{procedure.title}: window invalid, {problems[0]}')
             return self.notice
         return None
 
@@ -302,10 +302,10 @@ class Procedures:
             self.monitor.command(command)
             place = getattr(runner, 'place', None)
             if place is not None:     # a long run (characterization): bar, step, command against measured
-                self.notice = (progress.line(place, command, self.measured_velocity(), remaining, theme.SEPARATOR)
-                               + f'{theme.SEPARATOR}Space aborts')
+                self.say(progress.line(place, command, self.measured_velocity(), remaining, theme.SEPARATOR)
+                         + f'{theme.SEPARATOR}Space aborts')
             else:
-                self.notice = f'{label or name}{theme.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts'
+                self.say(f'{label or name}{theme.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts')
             if self.test_pulses is not None and self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
             self.refresh(force=False)
@@ -321,8 +321,8 @@ class Procedures:
             self.poll_pause()
             self.set_command()
             self.monitor.command(self.command)
-            self.notice = (f'PAUSED{theme.SEPARATOR}{cause}{theme.SEPARATOR}{elapsed:.1f}s'
-                           f'{theme.SEPARATOR}U release · E revoke · Space aborts')
+            self.say(f'PAUSED{theme.SEPARATOR}{cause}{theme.SEPARATOR}{elapsed:.1f}s'
+                     f'{theme.SEPARATOR}U release · E revoke · Space aborts')
             self.refresh(force=False)
 
         def on_pause():     # the human drives with the deployed C, the survey with identity

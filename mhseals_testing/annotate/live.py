@@ -87,7 +87,7 @@ class AnnotateFeed:
             self.failures = 0
         except Exception as error:
             self.failures += 1
-            app.notice = f'Automatic labels: {error}' + (' (off for this session)' if self.failures >= FAILURES else '')
+            app.say(f'Automatic labels: {error}' + (' (off for this session)' if self.failures >= FAILURES else ''))
 
     def _tick(self, app, snapshot, now):
         self._fix(app, fix_word(app, snapshot), now)
