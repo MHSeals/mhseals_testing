@@ -1,7 +1,7 @@
 """Procedures: running one, its context, pausing, and its run record."""
 
 from contextlib import contextmanager
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 from mhseals_testing.nav2 import limits as nav2_limits

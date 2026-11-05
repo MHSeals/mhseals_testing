@@ -16,7 +16,7 @@ import yaml
 from rich.console import Console
 
 from mhseals_hardware.configuration import load_config
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing import events
 from mhseals_testing.monitor import BoatMonitor
 from mhseals_testing.procedures import PROCEDURES
@@ -780,7 +780,7 @@ class TimedKeys:
 def test_the_arm_time_boat_config_read_never_blocks_the_keys(tmp_path, key, stops):
     """The ssh read runs off the key loop: the view says so, Esc cancels and Space also stops."""
     import time
-    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing.model import Cancelled
     app, _ = make_app(tmp_path)
     boat = SlowBoat()
     app.arming.remote = boat
@@ -1775,7 +1775,7 @@ def test_pins_popup_does_not_report_success_without_matching_readback(
 
 @pytest.mark.parametrize('answer', ['declined', 'cancelled'])
 def test_pins_readback_needs_the_arming_word_or_no_driver_starts(tmp_path, monkeypatch, answer):
-    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing.model import Cancelled
     app, processes, seen = pins_app(tmp_path, monkeypatch, [('enabled', '')])
 
     def refuse(*a, **kw):
@@ -1809,7 +1809,7 @@ def test_no_driver_starts_on_a_host_without_the_thrusters_capability(tmp_path, m
 def test_a_host_without_thrusters_arms_the_thrusters_host_with_every_gate(tmp_path, monkeypatch):
     """Remote arming lifts only the capability refusal: the typed word stays. Pins are the boat's
     hardware.yaml: a pin edit here is refused and nothing runs on either computer."""
-    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing.model import Cancelled
     from mhseals_testing import devices
     from test_arm_link import BOAT, Link, Ssh
     from mhseals_testing.ros.arm_link import RemoteDriver
@@ -2142,7 +2142,7 @@ def test_an_interrupted_run_is_recorded_as_aborted_and_the_interrupt_propagates(
 
 
 def test_a_cancelled_run_is_recorded(tmp_path):
-    from mhseals_hardware.menu import Cancelled
+    from mhseals_testing.model import Cancelled
 
     def body(ctx):
         ctx.services['run_fields'].update(started=False, files={})

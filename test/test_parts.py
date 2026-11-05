@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 
 from mhseals_testing.harness.components import Stack
 from mhseals_testing.ui import parts, popups

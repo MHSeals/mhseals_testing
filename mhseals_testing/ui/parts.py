@@ -17,7 +17,7 @@ start/stop COMPONENT) calls them too, with the agent's id, so an agent-started p
 ``by agent W`` until it stops, and the notice and the journal name the agent.
 """
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 
 from mhseals_testing.harness.components import ComponentError, moves
 from mhseals_testing.ui import theme

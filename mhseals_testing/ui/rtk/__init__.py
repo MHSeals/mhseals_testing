@@ -8,7 +8,7 @@ Survey (minimum time and accuracy), known position and settings. Each one is sav
 from copy import deepcopy
 from math import isfinite
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing import rtk
 from mhseals_testing.harness import reload as reload_
 from mhseals_testing.ui import theme

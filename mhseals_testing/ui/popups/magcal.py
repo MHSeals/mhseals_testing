@@ -5,7 +5,7 @@
 bearing; the FCU write keeps its own typed confirmation in the procedure.
 """
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.analysis.magcal import true_heading
 from mhseals_testing.analysis.magnetic import SITE
 from mhseals_testing.ui import keymap, theme

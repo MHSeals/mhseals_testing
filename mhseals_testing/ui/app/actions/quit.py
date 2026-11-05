@@ -2,8 +2,7 @@
 
 from contextlib import contextmanager, nullcontext
 
-from mhseals_hardware.keyboard import KeyReader
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing import calibration
 from mhseals_testing.annotate import manifest
 from mhseals_testing.harness import journal, session as session_module
@@ -49,7 +48,8 @@ class Quit:
                 self.notice = f'Images off, braille: {pixels.WHY}'
             key_input.attach(keys, pixels.caps())
             # The mouse after the probe (its replies come first): the wheel scrolls, a button confirms a hold.
-            mouse = key_input.Keys(keys) if isinstance(keys, KeyReader) and key_input.mouse_on() else nullcontext(keys)
+            real = isinstance(keys, key_input.KeyReader)
+            mouse = key_input.Keys(keys) if real and key_input.mouse_on() else nullcontext(keys)
             try:
                 with mouse as keys, self.live_factory(self.render(), console=self.console, screen=True,
                                                       auto_refresh=False) as live:

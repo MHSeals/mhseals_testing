@@ -3,7 +3,7 @@
 from rich.console import Group
 from rich.text import Text
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import camera_view, imaging as pixels, keymap, perception, popups, theme
 from mhseals_testing.ui.popups import hold

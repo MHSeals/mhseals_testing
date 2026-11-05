@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from mhseals_hardware.configuration import load_config, update_config
 
 from mhseals_testing import data
+from mhseals_testing.model import Cancelled
 
 SCHEMA = 'mhseals.state/1'
 KEYS = ('decoupling', 'decoupling_negative')
@@ -100,7 +101,6 @@ class LiveStaging(Staging):
 
     def apply_live(self, plus, minus=None):
         """Set C+/C- on the driver and verify the readback; Cancelled says why not."""
-        from mhseals_hardware.menu import Cancelled
         plus = IDENTITY if plus is None else plus     # an unset YAML C is identity, an unset C- follows C
         values = {'decoupling': [float(v) for v in plus],
                   'decoupling_negative': [float(v) for v in (minus or plus)]}
@@ -129,7 +129,6 @@ class LiveStaging(Staging):
         """Back up C+/C- (once) and stage identity on the driver. A stage the driver never took leaves no new
         backup; one that may have landed (a timeout, a wrong readback) puts the deployed C back, and if that
         fails too the backup stays pending, a motion blocker until A restores it."""
-        from mhseals_hardware.menu import Cancelled
         fresh = self.pending() is None
         if fresh:
             current = load_config(self.config)
@@ -153,7 +152,6 @@ class LiveStaging(Staging):
     def staged(self):
         """Identity inside the block; any exit but ``commit`` restores. A restore the driver did not take
         stays pending (a motion blocker naming why) instead of masking how the block ended."""
-        from mhseals_hardware.menu import Cancelled
         self.raw_correction()
         try:
             yield self

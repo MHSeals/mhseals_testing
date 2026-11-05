@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 import numpy as np
 
 from mhseals_testing.data import read_json

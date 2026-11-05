@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from mhseals_hardware.configuration import load_config
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_hardware.thruster_mixer import POSITIONS
 from mhseals_testing.health.pwm_sysfs import sample
 from mhseals_testing.profiles import drives_pwm_pins, pin_map

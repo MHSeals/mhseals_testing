@@ -8,7 +8,6 @@ import time
 from rich.console import Console
 from rich.live import Live
 
-from mhseals_hardware.keyboard import KeyReader
 from mhseals_testing.ui import input as key_input
 from mhseals_testing.harness.bags import Recorder
 from mhseals_testing.analysis.readiness import planned_directions
@@ -73,7 +72,7 @@ class App(*mixins.ROSTER):
         return found
 
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
-                 arming=None, plant=None, open_keys=KeyReader, live=Live,
+                 arming=None, plant=None, open_keys=key_input.KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
                  task_watcher=None, pulses=None, open_events=None, registry=None, watching=0,
                  facts=None, source=None, nav2_file=None, nav2_live=None,

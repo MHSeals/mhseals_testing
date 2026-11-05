@@ -3,7 +3,7 @@
 import os
 import socket
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.harness import control, operator_state
 from mhseals_testing.ui import feeds as feeds_module, theme
 from mhseals_testing.ui import input as key_input

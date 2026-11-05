@@ -2,7 +2,7 @@
 
 import time
 
-from mhseals_hardware.menu import Cancelled
+from mhseals_testing.model import Cancelled
 from mhseals_testing.harness import journal
 from mhseals_testing.history import revert
 from mhseals_testing.procedures import PROCEDURES
