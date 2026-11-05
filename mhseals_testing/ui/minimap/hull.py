@@ -13,6 +13,7 @@ dots inside it that the hull clears of what lies under. The image tier draws the
 (hull_sprite.py).
 """
 
+import logging
 import math
 from functools import lru_cache
 
@@ -26,7 +27,11 @@ DEFAULTS = {'shape': 'monohull', 'length': 1.34, 'beam': 0.9, 'pontoon': 0.0, 'd
 
 
 def _settings():
-    found = vessel.section('hull')
+    try:
+        found = vessel.section('hull')
+    except ValueError as error:                   # a cosmetic glyph never stops the TUI; arming refuses on its own
+        logging.getLogger(__name__).warning('vessel hull unreadable, drawing the default: %s', error)
+        found = {}
     if not set(found) <= set(GEOMETRY_KEYS):
         extra = sorted(set(found) - set(GEOMETRY_KEYS))
         raise ValueError(f'vessel profile hull: takes {", ".join(GEOMETRY_KEYS)}, not {extra}')
