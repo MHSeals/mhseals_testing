@@ -32,9 +32,10 @@ def test_every_outputs_value_has_its_arm_description():
 
 
 def test_the_pin_popup_and_panel_read_the_driver_table_through_the_profile():
+    from mhseals_hardware.configuration import load_defaults
     from mhseals_hardware.odroid_pwm import J2_PINS
     from mhseals_testing.ui.panels import thrusters
     from mhseals_testing.ui.popups import pins
-    assert pins.PWM_PINS == {pin: chip for out, (pin, _, _, chip) in J2_PINS.items() if out != 'mosfet'}
+    assert pins.PWM_PINS == {J2_PINS[o][0]: chip for o, chip in enumerate(load_defaults()['pwm_chips'], 1)}
     assert pins.MOSFET_PIN == J2_PINS['mosfet'][0]
     assert [thrusters.pin_of({}, output) for output in range(1, 5)] == [J2_PINS[o][0] for o in range(1, 5)]

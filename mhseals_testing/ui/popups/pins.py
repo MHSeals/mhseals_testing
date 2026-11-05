@@ -12,7 +12,7 @@ import json
 import time
 from pathlib import Path
 
-from mhseals_hardware.configuration import load_config
+from mhseals_hardware.configuration import load_config, load_defaults
 from mhseals_testing.model import Cancelled
 from mhseals_hardware.thruster_mixer import POSITIONS
 from mhseals_testing.health.pwm_sysfs import sample
@@ -20,7 +20,7 @@ from mhseals_testing.profiles import drives_pwm_pins, pin_map
 from mhseals_testing.ui import theme
 
 READBACK_TIMEOUT = 5.0   # seconds the restarted driver gets to export and enable the outputs
-PWM_PINS = {pin: chip for output, (pin, _pad, _pwm, chip) in pin_map().items() if output != 'mosfet'}
+PWM_PINS = {pin_map()[o][0]: chip for o, chip in enumerate(load_defaults()['pwm_chips'], 1)}
 MOSFET_PIN = pin_map()['mosfet'][0]
 REFUSED = 'Pins refused: disarm first, pins move real outputs'
 # Only the table's pins: each has its own controller. Another pad on a used PWM (J2 pin 22 is

@@ -174,7 +174,7 @@ class PlantProfile:
         return 'pwm_pins' in self.capabilities
 
     def pin_map(self):
-        """The pin-output driver's header table, ``{output: (pin, pad, pwm, chip)}`` (J2_PINS), or {}.
+        """The pin-output driver's header table, ``{output: (pin, pad, pwm)}`` (J2_PINS), or {}.
 
         The one place outside mhseals_hardware that knows which driver module backs ``pwm_pins``.
         """
