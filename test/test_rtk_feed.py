@@ -33,7 +33,9 @@ def gps_snapshot(fix=5, status='LIVE', lat=43.0001, lon=-76.0, alt=100.0):
 
 def app_with(profile=None):
     facts = Facts(lambda: 0.0)
-    return SimpleNamespace(engine=None, health=SimpleNamespace(facts=facts)), facts
+    app = SimpleNamespace(engine=None, health=SimpleNamespace(facts=facts))
+    app.say = lambda text: setattr(app, 'notice', text)   # App.say, the notice's one writer
+    return app, facts
 
 
 def boat(fcu=True):
