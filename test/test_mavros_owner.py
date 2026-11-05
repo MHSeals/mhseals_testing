@@ -8,7 +8,6 @@ import yaml
 
 from mhseals_testing.harness.components import components
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui.app import stack_overlay
 
 
 def launch_context_type():
@@ -87,9 +86,7 @@ def boat_argv(profile_args, overlay_args, launch='odom.launch.py'):
     ``launch`` only names the factory the caller feeds: odom and robot read the same arguments.
     """
     boat = load_profile('boat')
-    overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
-    assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
-                       for key in ('odometry', 'sensors')}
+    overlay = {key: {'fcu_url': 'serial:///inert-fcu'} for key in ('odometry', 'sensors')}
     overlay['odometry'].update(profile_args)
     overlay['odometry'].update(overlay_args)
     return include_argv(next(item for item in components(boat, overlay) if item.key == 'odometry'))
@@ -120,7 +117,7 @@ def test_shipped_boat_tui_selected_rates_match_direct_and_robot(nav_root, tmp_pa
     odom, robot = launch_factory(nav_root, 'odom'), launch_factory(nav_root, 'robot')
     for ns in (odom, robot):
         assert all(defaults(ns['generate_launch_description']())[key] == '' for key in ALIASES)
-    # Shipped profile and stack_overlay do not inject any old rate defaults.
+    # The shipped profile does not inject any old rate defaults.
     shipped = boat_argv({}, {})
     assert not any(arg.split(':=')[0] in ALIASES for arg in shipped)
     profile_args = {'mavros_setup_params_file': first}

@@ -11,7 +11,6 @@ commands:
          description: Plant profile name or YAML path; boat_trial profiles explains each.}
       - {name: --view, type: bool, description: 'Watch the live session: no commands but Space and E; O takes control.'}
       - {name: --take, type: bool, description: 'Take control of the live session: it stops at neutral, disarms and hands over.'}
-      - {name: --fcu-url, description: MAVROS FCU URL override; empty inherits the endpoint YAML.}
       - {name: --set, description: 'One KEY=VALUE setting for this run, e.g. command_mode=velocity.'}
       - {name: --review, description: Play back a past session (path or name; empty for the newest) with no ROS.}
       - {name: --output, type: path, description: Session directory (default a new one under the data root).}

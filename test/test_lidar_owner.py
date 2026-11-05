@@ -9,7 +9,6 @@ import yaml
 
 from mhseals_testing.harness.components import components
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui.app import stack_overlay
 from test_mavros_owner import context_for, include_argv, launch_factory
 
 
@@ -39,9 +38,7 @@ def sensor_argv(profile_args=None, overlay_args=None, route='sensors', use_sim_t
                  for name, part in parts.items()}
         boat = replace(boat, use_sim_time=True)
         boat.__dict__['placed'] = (me, parts)
-    overlay = stack_overlay(boat, SimpleNamespace(fcu_url='serial:///inert-fcu'))
-    assert overlay == {key: {'fcu_url': 'serial:///inert-fcu'}
-                       for key in ('odometry', 'sensors')}
+    overlay = {key: {'fcu_url': 'serial:///inert-fcu'} for key in ('odometry', 'sensors')}
     overlay['sensors'] = {**(profile_args or {}), **(overlay_args or {})}
     return include_argv(next(item for item in components(boat, overlay) if item.key == 'sensors'))
 

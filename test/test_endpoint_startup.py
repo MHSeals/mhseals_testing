@@ -4,7 +4,7 @@ from types import ModuleType
 
 from mhseals_testing.harness import components as module
 from mhseals_testing.harness.components import components
-from mhseals_testing.ui.app import parse_args, stack_overlay
+from mhseals_testing.ui.app import parse_args
 import pytest
 
 
@@ -23,18 +23,11 @@ def arguments(children):
 
 
 def test_omitted_cli_inherits_session_alias_and_tui_context(resolver):
-    args, profile = parse_args([])
-    assert stack_overlay(profile, args) == {}
+    _, profile = parse_args([])
     selected = arguments(components(profile, {'sensors': {'fcu_url': 'serial:///profile:57600'}}))
     assert all(row['fcu_url'] == 'serial:///profile:57600' and
                row['endpoint_context'] == 'tui' for row in selected.values())
     assert resolver[-1]['aliases'] == {'fcu_url': 'serial:///profile:57600'}
-
-
-def test_actual_cli_wins_across_participants(resolver):
-    args, profile = parse_args(['--fcu-url', 'tcp://localhost:5762'])
-    selected = arguments(components(profile, stack_overlay(profile, args)))
-    assert all(row['fcu_url'] == args.fcu_url for row in selected.values())
 
 
 @pytest.mark.parametrize('name,value', [
@@ -62,9 +55,9 @@ def test_conflicts_precede_constructors(resolver, monkeypatch, name):
 
 
 def test_direct_unity_requires_no_endpoint_import(monkeypatch):
-    args, profile = parse_args(['--profile', 'crane_direct', '--fcu-url', 'unused'])
+    _, profile = parse_args(['--profile', 'crane_direct'])
     monkeypatch.setitem(sys.modules, 'mhseals_nav.endpoint_configuration', None)
-    assert stack_overlay(profile, args) == {} and components(profile) == ()
+    assert components(profile) == ()
 
 
 def test_resolver_refusal_precedes_component_construction(resolver, monkeypatch):
@@ -104,15 +97,13 @@ def test_app_yaml_argv_reaches_actual_endpoint_factories(
     deployment = tmp_path / 'deployment.yaml'
     operator = tmp_path / 'operator.yaml'
     deployment.write_text('fcu_url: serial:///inert-deployment:57600\nunity: {port: 7001}\n')
-    cli = ['--profile', profile_name]
-    if explicit:
-        cli += ['--fcu-url', 'serial:///inert-cli:57600']
-    args, profile = parse_args(cli)
+    _, profile = parse_args(['--profile', profile_name])
+    explicit = explicit and profile.uses_fcu     # an explicit component fcu_url beats both endpoint files
     old = None
     for port in (7002, 7003):
         operator.write_text(yaml.safe_dump({'fcu_url': 'tcp://localhost:5763',
                                            'unity': {'ip': '0.0.0.0', 'port': port}}))
-        overlay = stack_overlay(profile, args)
+        overlay = {key: {'fcu_url': 'serial:///inert-cli:57600'} for key in ('odometry', 'sensors')} if explicit else {}
         overlay.setdefault('sensors', {}).update(
             endpoint_deployment_file=str(deployment), endpoint_startup_file=str(operator), gcs_url='')
         children = {item.key: include_argv(item) for item in components(profile, overlay)}
@@ -129,8 +120,7 @@ def test_app_yaml_argv_reaches_actual_endpoint_factories(
                                for key, value in include.launch_arguments})
         node = odom['create_mavros_node'](invocation)[0]
         params = node.parameters[1]
-        expected = 'serial:///inert-cli:57600' if explicit and profile.uses_fcu else (
-            'tcp://localhost:5763')
+        expected = 'serial:///inert-cli:57600' if explicit else 'tcp://localhost:5763'
         assert params == {'fcu_url': expected, 'gcs_url': '',
                           'use_sim_time': profile.use_sim_time}
         sensors = launch_factory(nav_root, 'sensors')
@@ -169,10 +159,8 @@ def test_real_endpoint_refusal_precedes_components(tmp_path, monkeypatch, kind):
     assert constructors == []
 
 
-def test_the_fcu_url_flag_still_overrides_for_one_release_and_says_it_is_deprecated(capsys):
-    """Finding #15: the override moves to the endpoint YAML; the old flag works one more release, with a note."""
-    from mhseals_testing.ui.app.startup import FCU_URL_DEPRECATED
-    args, _ = parse_args(['--fcu-url', 'tcp://localhost:5762'])
-    assert args.fcu_url == 'tcp://localhost:5762' and FCU_URL_DEPRECATED in capsys.readouterr().err
-    parse_args([])
-    assert 'deprecated' not in capsys.readouterr().err
+@pytest.mark.parametrize('flag', [['--fcu-url', 'tcp://localhost:5762'], ['--start-stack']])
+def test_the_removed_flags_are_unknown(flag):
+    """The FCU URL is the endpoint YAML's fcu_url; the Status panel's Stack row starts the stack (atlas #37)."""
+    with pytest.raises(SystemExit):
+        parse_args(flag)
