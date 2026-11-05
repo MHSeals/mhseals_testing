@@ -12,16 +12,14 @@ from pathlib import Path
 import numpy as np
 
 from mhseals_testing.data import atomic_write, read_json
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 
 def load_settings(path=None) -> dict:
-    """The tracking.yaml groups ({'score': {...}, 'stale': {...}}), source tree first."""
-    source = Path(__file__).resolve().parent.parent.parent / 'config' / 'tracking.yaml'
-    if path is None and not source.exists():
-        from ament_index_python.packages import get_package_share_directory
-        source = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'tracking.yaml'
-    return load_strict(Path(path or source).read_text(), path or source)
+    """The tracking.yaml groups ({'score': {...}, 'stale': {...}})."""
+    path = Path(path or config_path('config', 'tracking.yaml'))
+    return load_strict(path.read_text(), path)
 
 
 def tracking_score(measured, predicted, command, sigma_wave, settings, ignore=False):

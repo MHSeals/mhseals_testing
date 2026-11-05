@@ -21,6 +21,7 @@ from mhseals_hardware.thruster_mixer import (
 )
 from mhseals_testing import data, physics_record
 from mhseals_testing.analysis import physics
+from mhseals_testing.health.config import config_path
 from mhseals_testing.profiles import drives_pwm_pins
 from mhseals_testing.strict_yaml import load_strict
 
@@ -42,11 +43,8 @@ class TakenOver(Refused):
 
 
 def load_settings(path=None):
-    """config/physics.yaml from the source tree, else the installed share directory."""
-    path = Path(path or Path(__file__).resolve().parents[2] / 'config' / 'physics.yaml')
-    if not path.exists():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'physics.yaml'
+    """config/physics.yaml."""
+    path = Path(path or config_path('config', 'physics.yaml'))
     return check_settings(load_strict(path.read_text(), path))
 
 

@@ -11,27 +11,16 @@ import fcntl
 from pathlib import Path
 import uuid
 
-import yaml
-
 from mhseals_testing import history as hist
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 
-def _settings_path():
-    """config/history/revert.yaml in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parents[2] / 'config' / 'history' / 'revert.yaml'
-    if source.is_file():
-        return source
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'history' / 'revert.yaml'
-    except (ImportError, KeyError):
-        return source
-
-
-SETTINGS = _settings_path()
+SETTINGS = config_path('config', 'history', 'revert.yaml')
 
 
 def load_settings(path=None):
-    return yaml.safe_load(Path(path or SETTINGS).read_text())
+    path = Path(path or SETTINGS)
+    return load_strict(path.read_text(), path)
 
 
 @dataclass

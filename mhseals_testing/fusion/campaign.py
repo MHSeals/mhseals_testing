@@ -23,9 +23,11 @@ import subprocess
 import time
 
 import numpy as np
-import yaml
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_campaign.yaml'
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
+
+CONFIG = config_path('config', 'fusion_campaign.yaml')
 # Crane's clock starts near 0 and the tracker looks up TF at t - 0.2 s (negative Time): every
 # replayed stamp and the clock move by this much.
 CLOCK_OFFSET = 100.0
@@ -563,14 +565,13 @@ def metrics(out, statics, elements, cfg):
 
 
 def replay(session, name, outdir, rate):
-    from ament_index_python.packages import get_package_share_directory
-    cfg = yaml.safe_load(CONFIG.read_text())
+    cfg = load_strict(CONFIG.read_text(), CONFIG)
     inj = dict(cfg['injections'][name.split('+')[0]])
     if name.endswith('+merge'):
         inj['merge'] = True
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    share = Path(get_package_share_directory('mhseals_nav')) / 'config'
+    share = config_path('config', package='mhseals_nav', installed=True)
     procs = {}
     for key, cmd in nodes(session, inj, cfg, share).items():
         log = open(outdir / f'{key}.log', 'w')
@@ -603,7 +604,7 @@ def replay(session, name, outdir, rate):
 
 def score(outdir):
     """metrics.json from raw.json.gz (re-run after a metrics change, without a replay)."""
-    cfg = yaml.safe_load(CONFIG.read_text())
+    cfg = load_strict(CONFIG.read_text(), CONFIG)
     with gzip.open(Path(outdir) / 'raw.json.gz', 'rt') as f:
         raw = json.load(f)
     session = Path(raw['session'])

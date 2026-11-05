@@ -16,6 +16,7 @@ import re
 import struct
 import tempfile
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 
@@ -69,8 +70,7 @@ def source(selection):
         return path.resolve()
     if not re.fullmatch(r'[A-Za-z0-9_-]+', str(selection)):
         raise ValueError('select a shipped course name or a YAML path')
-    from ament_index_python.packages import get_package_share_directory
-    return Path(get_package_share_directory('mhseals_testing')) / 'config/courses' / (str(selection) + '.yaml')
+    return config_path('config', 'courses', f'{selection}.yaml')
 
 
 def compile_course(selection):

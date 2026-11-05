@@ -1,8 +1,5 @@
 """Keymap validation rules 1-6, overlay, resolve and hints, with inline YAML."""
 
-import sys
-import types
-
 import pytest
 import yaml
 
@@ -160,19 +157,6 @@ def test_hints_ordered_by_priority_and_follow_rebinding():
     assert ('A', 'arm') in Keymap(keymap.overlay(doc(), {'global': {'arm': ['A']}})).hints(['global'])
 
 
-def test_shipped_file_falls_back_to_the_share_directory(tmp_path, monkeypatch):
-    monkeypatch.setattr(keymap, 'SHIPPED_FILE', tmp_path / 'nope' / 'keymap.yaml')
-    share = tmp_path / 'share'
-    (share / 'config').mkdir(parents=True)
-    (share / 'config' / 'keymap.yaml').write_text(BASE)
-    fake = types.ModuleType('ament_index_python.packages')
-    fake.get_package_share_directory = lambda name: str(share)
-    monkeypatch.setitem(sys.modules, 'ament_index_python', types.ModuleType('ament_index_python'))
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', fake)
-    assert keymap.shipped_file() == share / 'config' / 'keymap.yaml'
-    assert keymap.load(user=None)[0].resolve(['global'], 'a') == 'arm'
-
-
 pytestmark = pytest.mark.smoke   # tools/smoke
 
 
@@ -205,7 +189,7 @@ def test_dispatch_matches_and_keys_name_raw_keys():
 def test_current_rereads_a_changed_file(tmp_path, monkeypatch):
     path = tmp_path / 'keymap.yaml'
     path.write_text(BASE)
-    monkeypatch.setattr(keymap, 'SHIPPED_FILE', path)
+    monkeypatch.setattr(keymap, 'shipped_file', lambda: path)
     monkeypatch.setattr(keymap, 'USER_FILE', tmp_path / 'none.yaml')
     monkeypatch.setattr(keymap, 'LIVE', dict(keymap=None, stamp=None, checked=0.0))
     monkeypatch.setattr(keymap, 'RECHECK_S', 0.0)

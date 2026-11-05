@@ -16,9 +16,9 @@ from pathlib import Path
 import yaml
 from rich.text import Text
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
-CONFIG = Path(__file__).resolve().parent.parent.parent / 'config' / 'theme.yaml'
 OVERLAY = Path.home() / '.config' / 'mhseals' / 'theme.yaml'
 TIERS = ('truecolor', '256', '16', 'mono')
 GRAPHICS = ('off', 'auto', 'kitty', 'sixel')   # drawings as terminal images (ui/imaging/); off = text
@@ -33,14 +33,7 @@ GLYPH_IDS = ('ok', 'warn', 'fail', 'busy', 'off', 'focus', 'cursor', 'sep', 'spi
 
 
 def default_path():
-    """config/theme.yaml in the source tree, else the installed share directory."""
-    if CONFIG.is_file():
-        return CONFIG
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'theme.yaml'
-    except (ImportError, KeyError):
-        return CONFIG
+    return config_path('config', 'theme.yaml')
 
 
 def ascii_mode(env=None):

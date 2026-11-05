@@ -12,7 +12,9 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-import yaml
+
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 
 
 @dataclass(frozen=True)
@@ -41,12 +43,7 @@ class Settings:
 
 
 def _config_path():
-    """config/conditions.yaml in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parent.parent.parent / 'config' / 'conditions.yaml'
-    if source.exists():
-        return source
-    from ament_index_python.packages import get_package_share_directory
-    return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'conditions.yaml'
+    return config_path('config', 'conditions.yaml')
 
 
 def load_settings(path=None) -> Settings:
@@ -55,7 +52,7 @@ def load_settings(path=None) -> Settings:
     Raises one ValueError naming the file and the key for anything unusable.
     """
     path = Path(path or _config_path())
-    raw = yaml.safe_load(path.read_text())
+    raw = load_strict(path.read_text(), path)
     if not isinstance(raw, dict):
         raise ValueError(f'{path}: expected a mapping of settings')
     flat = {}

@@ -12,12 +12,13 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-import yaml
 from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing import calibration
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 from mhseals_testing.ui import fitrows, theme
 
 AXES = ('surge', 'sway', 'yaw')
@@ -33,12 +34,9 @@ def scope_style():
 
 
 def load_settings(path=None) -> dict:
-    """correction.yaml, source tree first, then the installed share directory."""
-    source = Path(__file__).resolve().parents[3] / 'config' / 'correction.yaml'
-    if path is None and not source.exists():
-        from ament_index_python.packages import get_package_share_directory
-        source = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'correction.yaml'
-    return yaml.safe_load(Path(path or source).read_text())
+    """config/correction.yaml."""
+    path = Path(path or config_path('config', 'correction.yaml'))
+    return load_strict(path.read_text(), path)
 
 
 def _square(flat):

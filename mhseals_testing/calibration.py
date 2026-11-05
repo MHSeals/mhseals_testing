@@ -10,10 +10,10 @@ import datetime
 import fnmatch
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing import data
+from mhseals_testing.health.config import config_path
 from mhseals_testing.history import digest
+from mhseals_testing.strict_yaml import load_strict
 
 SCHEMA = 'mhseals.calibration/1'
 INVALID, VERIFY, OK = 'invalid', 'verify', 'ok'
@@ -22,12 +22,9 @@ BATTERY_TOLERANCE_V = 0.8
 
 
 def load_fields(path=None):
-    """config/history/fields.yaml, source tree first, else the installed share directory."""
-    source = Path(__file__).resolve().parent.parent / 'config' / 'history' / 'fields.yaml'
-    if not source.exists():
-        from ament_index_python.packages import get_package_share_directory
-        source = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'history' / 'fields.yaml'
-    return yaml.safe_load(Path(path or source).read_text())
+    """config/history/fields.yaml."""
+    path = Path(path or config_path('config', 'history', 'fields.yaml'))
+    return load_strict(path.read_text(), path)
 
 
 def _matches(key, block):

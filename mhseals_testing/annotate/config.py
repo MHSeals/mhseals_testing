@@ -3,23 +3,16 @@
 from functools import lru_cache
 from pathlib import Path
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 EFFECTS = ('none', 'degraded', 'suspect', 'invalid')     # worst last
 
 
-def path():
-    source = Path(__file__).resolve().parents[2] / 'config' / 'annotate.yaml'
-    if source.exists():
-        return source
-    from ament_index_python.packages import get_package_share_directory
-    return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'annotate.yaml'
-
-
 @lru_cache(maxsize=1)
 def load(file=None):
     """The validated settings: ``tags`` {digit str: {label, effect, span}}, ``phrases`` {digit str: text}."""
-    file = Path(file or path())
+    file = Path(file or config_path('config', 'annotate.yaml'))
     doc = load_strict(file.read_text(), file)
     tune = doc['tune']
     tags = {str(n): dict(v) for n, v in enumerate(tune['tags'][:9], 1)}

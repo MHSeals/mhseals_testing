@@ -35,11 +35,11 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.ui.actions import ACTIONS
 from mhseals_testing.strict_yaml import load_strict
 
 USER_FILE = Path.home() / '.config' / 'mhseals' / 'keymap.yaml'
-SHIPPED_FILE = Path(__file__).resolve().parents[2] / 'config' / 'keymap.yaml'   # source tree
 KEY_NAMES = set('space enter escape tab backtab backspace up down left right shift-left shift-right '
                 'ctrl-up ctrl-down ctrl-left ctrl-right ctrl-h ctrl-j ctrl-k ctrl-l focus-out any'.split())
 OPTIONS = ('override', 'passthrough')
@@ -369,14 +369,7 @@ class Keymap:
 
 
 def shipped_file():
-    """config/keymap.yaml in the source tree, else the installed share directory."""
-    if SHIPPED_FILE.is_file():
-        return SHIPPED_FILE
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'keymap.yaml'
-    except (ImportError, KeyError):
-        return SHIPPED_FILE
+    return config_path('config', 'keymap.yaml')
 
 
 def load(path=None, user=USER_FILE):

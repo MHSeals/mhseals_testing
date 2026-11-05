@@ -11,9 +11,10 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from mhseals_hardware.keyboard import MOUSE_OFF, MOUSE_ON, Hold, KeyReader, Mouse, Terminal, terminal_write
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
-FILE = Path(__file__).resolve().parents[2] / 'config' / 'input.yaml'   # source tree
+FILE = config_path('config', 'input.yaml')
 FIELDS = ('confirm_hold', 'first_gap', 'gap')
 ACTIONS = ('arm', 'release', 'take', 'quit_armed')    # the confirms a hold may replace (``hold:``)
 

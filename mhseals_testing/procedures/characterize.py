@@ -27,6 +27,7 @@ from mhseals_testing.analysis.characterization import (
 from mhseals_testing.analysis.column import _within, refine, worst
 from mhseals_testing.analysis.thrust import speed_curve
 from mhseals_testing.harness.apply import IDENTITY, Staging
+from mhseals_testing.health.config import config_path
 from mhseals_testing.history import adapters
 from mhseals_testing.runner import NEUTRAL
 from mhseals_testing.strict_yaml import load_strict
@@ -39,11 +40,8 @@ DIRECTIONS = tuple((axis, sign) for axis in range(3) for sign in (1, -1))
 
 
 def load_settings(path=None):
-    """config/characterize.yaml from the source tree, else the installed share directory."""
-    path = Path(path or Path(__file__).resolve().parents[2] / 'config' / 'characterize.yaml')
-    if not path.exists():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'characterize.yaml'
+    """config/characterize.yaml."""
+    path = Path(path or config_path('config', 'characterize.yaml'))
     return load_strict(path.read_text(), path)
 
 

@@ -24,30 +24,26 @@ from pathlib import Path
 import re
 import shutil
 
-import yaml
-
 from mhseals_testing import data
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 
 MODES = ('lean', 'full', 'off')
 SPLIT_S = 120
 CACHE_BYTES = 4 * 1024 * 1024
 STOP_WAIT_S = 20  # SIGINT, up to 20 s for metadata.yaml, then SIGTERM, then SIGKILL (ProcessManager.stop)
-CONFIG = Path(__file__).resolve().parents[2] / 'config'
 
 
 def load_profiles(path=None):
-    """config/bags/topics.yaml (source tree, else the installed share)."""
-    path = Path(path or CONFIG / 'bags' / 'topics.yaml')
-    if not path.exists():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'bags' / 'topics.yaml'
-    return yaml.safe_load(path.read_text())
+    """config/bags/topics.yaml."""
+    path = Path(path or config_path('config', 'bags', 'topics.yaml'))
+    return load_strict(path.read_text(), path)
 
 
 def budget_bytes(path=None):
     """Decimal GB, matching the Bags gauge; configured in bags.yaml."""
-    path = Path(path or CONFIG / 'bags.yaml')
-    config = yaml.safe_load(path.read_text()) if path.exists() else None
+    path = Path(path or config_path('config', 'bags.yaml'))
+    config = load_strict(path.read_text(), path) if path.exists() else None
     return float((config or {}).get('budget_gb', 20)) * 1e9
 
 
