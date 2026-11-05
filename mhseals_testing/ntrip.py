@@ -50,7 +50,7 @@ def load_settings(rtk_config=None, path=None):
     settings = load_strict(path.read_text(), path)        # the shipped file is required: no defaults in code
     overlay = dict((rtk_config or {}).get('ntrip') or {})
     casters = [dict(c) for c in settings.get('casters') or []]
-    overlay['penalties'] = {**settings['penalties'], **overlay.get('penalties', {})}
+    overlay['penalties'] = {**settings['penalties'], **(overlay.get('penalties') or {})}
     for change in overlay.pop('casters', None) or []:
         match = next((c for c in casters if c['name'] == change.get('name')), None)
         if match is None:

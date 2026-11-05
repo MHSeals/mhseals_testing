@@ -136,6 +136,8 @@ def deliver(line, config):
     try:
         if host is None:                    # local, the sim, or this is the target
             path = {'local': local_channel, SIM: sim_channel}.get(target, lambda: os.path.expanduser(path))()
+            if path is None:
+                return log('deliver to local: no data root ($MHSEALS_DATA or $ROS_WS unset), note dropped')
             if target in ('local', SIM) and not (path and Path(path).parent.is_dir()):
                 return              # no TUI has run here: nobody reads the channel, nothing to log
 
