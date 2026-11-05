@@ -57,7 +57,8 @@ run() {
 
 attach_line() {
     if [ -n "${SSH_CONNECTION:-}" ] || [ -n "$jump" ]; then
-        echo "ssh -t ${jump:+-J $jump }$host tmux -L $socket attach -t $1"
+        # tmux by its path here: ssh runs a non-login shell, whose PATH may lack it (tranquility's ~/.local/bin)
+        echo "ssh -t ${jump:+-J $jump }$host $(command -v tmux) -L $socket attach -t $1"
     else
         echo "tmux -L $socket attach -t $1"
     fi

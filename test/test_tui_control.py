@@ -381,6 +381,10 @@ def test_boat_tui_only_talks_to_its_own_socket_with_tmux_cleared(tmp_path):
     assert not any('kill-server' in c for c in calls)
     assert '-L boat-test set-option -g allow-passthrough on' in (tmp_path / 'tmux.log.args').read_text().splitlines()
     assert up.stdout.strip() == 'tmux -L boat-test attach -t boat'
+    # over ssh the line names tmux by its path: the station's non-login ssh shell may not have it on PATH
+    remote = subprocess.run(['sh', str(script), '--container', '', 'up'], env=dict(env, SSH_CONNECTION='1 2 3 4'),
+                            capture_output=True, text=True, timeout=30)
+    assert remote.stdout.strip().endswith(f'{shim}/tmux -L boat-test attach -t boat'), remote.stdout
 
 
 def test_boat_tui_replaces_a_dead_pane_on_a_private_tmux_server():
