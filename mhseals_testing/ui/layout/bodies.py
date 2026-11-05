@@ -5,7 +5,7 @@ import math
 from rich.layout import Layout
 from rich.text import Text
 
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import held, theme
 from mhseals_testing.ui.panels import (bags as bags_panel, correction, fusion as fusion_panel,
                                        labels as labels_panel, mission as mission_panel)
 from mhseals_testing.ui.panels.activity import activity_panel
@@ -63,14 +63,18 @@ def drive_slots(snapshot, view, width, height):
         motion = motion_panel(snapshot, view, TOP_ROW)
     elif motion_shown(width, height):
         motion = motion_panel(snapshot, view, compact=True)
+    # slow panels lay out at their perf.yaml hold rate between keys (ui/held.py); a key lays them out at once
     return {
-        'status': status_panel(snapshot, view, height) if width >= FOLD else None,
+        'status': held.hold('status', lambda: status_panel(snapshot, view, height)) if width >= FOLD else None,
         'motion': motion,
-        'conditions': conditions_panel({**view, 'sog': ground_speed(snapshot)}, width < FULL_CONDITIONS),
-        'thrusters': thrusters_panel(view, width < 120) if wide else thrusters_panel(view, True, pins=False),
-        'procedures': procedures_panel(view, lower if wide else half, snapshot['results']),
+        'conditions': held.hold('conditions', lambda: conditions_panel(
+            {**view, 'sog': ground_speed(snapshot)}, width < FULL_CONDITIONS)),
+        'thrusters': held.hold('thrusters', lambda: thrusters_panel(view, width < 120) if wide
+                               else thrusters_panel(view, True, pins=False)),
+        'procedures': held.hold('procedures', lambda: procedures_panel(view, lower if wide else half,
+                                                                       snapshot['results'])),
         'mission': mission,
-        'activity': activity_panel(snapshot, view, below - strip),
+        'activity': held.hold('activity', lambda: activity_panel(snapshot, view, below - strip)),
         'minimap': minimap_panel(view, TOP_ROW) if width >= MINIMAP else None,
     }
 

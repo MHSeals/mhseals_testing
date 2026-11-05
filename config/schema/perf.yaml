@@ -7,6 +7,11 @@ perf.tune.diff: {type: bool, units: "", tier: restart, doc: "Write only the scre
 perf.tune.full_every: {type: float, units: s, range: [0, 600], tier: restart, doc: "Time between whole-screen redraws while diffing; 0 redraws only after a resize or another writer."}
 perf.tune.sync: {type: bool, units: "", tier: restart, doc: "Wrap each frame in synchronized output (DEC 2026) so the terminal shows it whole."}
 perf.tune.image_cap: {type: int, units: count, range: [0, 1000], tier: restart, doc: "Most sixel images one frame paints, joining neighbouring tile parts (tmux keeps its last 19); 0 paints each part alone."}
+perf.tune.hold.status: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Status panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
+perf.tune.hold.conditions: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Conditions panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
+perf.tune.hold.thrusters: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Thrusters panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
+perf.tune.hold.procedures: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Procedures panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
+perf.tune.hold.activity: {type: float, units: s, range: [0, 10], tier: restart, doc: "Time the Activity panel's layout is reused between keys while the screen redraws; 0 lays it out every frame."}
 perf.tune.report_every: {type: float, units: s, range: [0, 600], tier: restart, doc: "Time between perf.json writes in the session directory; 0 never writes it."}
 perf.budget.frame: {type: float, units: s, range: [0.001, 1], tier: restart, doc: "Frame time p99 budget: laying out and writing one frame."}
 perf.budget.key: {type: float, units: s, range: [0.001, 2], tier: restart, doc: "Key latency p99 budget: a key read to its frame written."}

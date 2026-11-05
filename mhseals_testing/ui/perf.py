@@ -177,10 +177,16 @@ def period(app, default):
 
 
 def draw(app, force=True):
-    """``app.refresh(force)``, timed into the Meter when it drew a frame (``last_frame`` moved)."""
+    """``app.refresh(force)``, timed into the Meter when it drew a frame (``last_frame`` moved); a continuous
+    (unforced) frame lets held panels reuse their last layout."""
     meter, before = getattr(app, 'perf', None), getattr(app, 'last_frame', None)
     start, cpu = time.monotonic(), time.thread_time()
-    app.refresh() if force else app.refresh(force=False)     # the calls the loop made before
+    if force:
+        app.refresh()                       # the calls the loop made before
+    else:
+        from mhseals_testing.ui import held
+        with held.continuous():             # slow panels may reuse their layout (ui/held.py)
+            app.refresh(force=False)
     if meter is not None and getattr(app, 'last_frame', None) != before:
         meter.frame(time.monotonic() - start, getattr(app.live, 'sent', None), time.thread_time() - cpu)
 

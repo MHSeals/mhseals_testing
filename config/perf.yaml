@@ -9,6 +9,12 @@ tune:
   full_every: 5.0         # s between whole-screen redraws while diffing (0: only after a resize or another writer)
   sync: true              # wrap each frame in synchronized output, so the terminal shows it whole
   image_cap: 16           # most sixel images one frame paints, joining tile parts (tmux keeps 19); 0: each part alone
+  hold:                   # s a slow panel's layout is reused between keys while the screen redraws (0: every frame)
+    status: 0.5
+    conditions: 0.2
+    thrusters: 0.5
+    procedures: 1.0
+    activity: 0.5
   report_every: 2.0       # s between perf.json writes in the session directory (0: never)
 budget:
   frame: 0.040            # s; frame time p99 (lay out and write one frame) on the boat computer
