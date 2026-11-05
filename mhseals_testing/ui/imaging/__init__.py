@@ -57,6 +57,8 @@ POOL = 480                  # tile ids alive at once (sixel markers have room fo
 TILE = (8, 4)               # cells per tile, at most 16 x 8 (the marker code)
 
 BLANK = (' ', None)         # the cell of an empty tile
+BLEND_LEVELS = 8            # alpha steps of Raster.blend (anti-aliased edges)
+INKS_FULL = 200             # inks after which Raster.blend stops adding partial blends (a Raster holds 255)
 
 TIER = 'text'
 SETTING = 'off'             # the setting start() was given
@@ -382,7 +384,7 @@ def token(name, fallback=(213, 219, 229)):
 # --- raster ------------------------------------------------------------------------------------
 
 class Raster:
-    """An indexed image (0 = transparent) with flat-colour primitives: no anti-aliasing."""
+    """An indexed image (0 = transparent) with flat-colour primitives; `blend` alone anti-aliases."""
 
     def __init__(self, cols, rows, cell=None):
         self.cw, self.ch = cell or CELL
@@ -440,6 +442,29 @@ class Raster:
             for a, b in zip(xs[::2], xs[1::2]):
                 self.rect(round(a), y, round(b), y + 1, ink)
 
+    def blend(self, x0, y0, alpha, colour, under, levels=BLEND_LEVELS):
+        """Composite ``colour`` at ``alpha`` (an HxW array of 0..1, its top-left at px (x0, y0)) over what is
+        drawn, ``under`` (r, g, b) where nothing is: the one anti-aliased primitive. Alpha goes in ``levels``
+        steps, so the blends stay a few inks; with the palette near full it rounds to on or off."""
+        h, w = alpha.shape
+        xa, ya, xb, yb = max(0, x0), max(0, y0), min(self.w, x0 + w), min(self.h, y0 + h)
+        if xa >= xb or ya >= yb:
+            return
+        steps = np.rint(alpha[ya - y0:yb - y0, xa - x0:xb - x0] * levels).astype(np.int32)
+        if len(self.palette) > INKS_FULL:
+            steps = np.where(steps * 2 >= levels, levels, 0)
+        hit = steps > 0
+        if not hit.any():
+            return
+        region = self.px[ya:yb, xa:xb]
+        combos, back = np.unique(region[hit].astype(np.int32) * (levels + 1) + steps[hit], return_inverse=True)
+        inks = []
+        for combo in combos.tolist():
+            index, step = divmod(combo, levels + 1)
+            base, t = (self.palette[index] if index else under), step / levels
+            inks.append(self.ink(tuple(round(b + (c - b) * t) for b, c in zip(base, colour))))
+        region[hit] = np.asarray(inks, np.uint8)[back.ravel()]
+
     def rgba(self):
         return _rgba(self.px, self.palette)
 
@@ -467,7 +492,14 @@ class Tile:
 def _tile(raster, c0, r0, cols, rows):
     """The pooled Tile for a cell rectangle of ``raster``, made and queued for kitty when new."""
     ys, xs = slice(r0 * raster.ch, (r0 + rows) * raster.ch), slice(c0 * raster.cw, (c0 + cols) * raster.cw)
-    return _pooled(raster.px[ys, xs], raster.palette, cols, rows)
+    px, palette = raster.px[ys, xs], raster.palette
+    if len(palette) > 2:      # only the tile's own inks: a blend elsewhere in the raster leaves it the same tile
+        used = np.union1d([0], px)
+        if len(used) < len(palette):
+            lut = np.zeros(256, np.uint8)
+            lut[used] = np.arange(len(used))
+            px, palette = lut[px], [palette[i] for i in used]
+    return _pooled(px, palette, cols, rows)
 
 
 def _pooled(px, palette, cols, rows):
