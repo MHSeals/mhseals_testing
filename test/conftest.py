@@ -6,7 +6,6 @@ from types import ModuleType
 
 import pytest
 
-from mhseals_hardware import vessel
 
 from nav_paths import find_nav
 from ros_isolation import isolate_ros_env
@@ -38,9 +37,6 @@ def _no_vessel(monkeypatch):
     """No vessel profile unless a test names one, so a developer's vessel env never flips load_config or layers.plan."""
     monkeypatch.delenv('ASTRO_NETWORK_ENV', raising=False)
     monkeypatch.delenv('ROS_WS', raising=False)
-    vessel.section.cache_clear()
-    yield
-    vessel.section.cache_clear()
 
 
 @pytest.fixture(autouse=True)
