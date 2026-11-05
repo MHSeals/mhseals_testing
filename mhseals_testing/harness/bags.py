@@ -13,8 +13,8 @@ has no ``session.json``. Listing never starts or stops a recorder.
 
 Finalize (B7): a segment killed mid-write has ``.mcap`` files but no ``metadata.yaml``;
 ``finalize`` repairs it with ``ros2 bag reindex`` run as a keeper child, only from the Bags tab
-``F`` key, never automatically (reindex reads the whole bag, too much for the ODROID to start
-on its own). There is no mcap-parsing fallback: a failed reindex leaves the segment as it was.
+``F`` key or on the station after ``boat_agent fetch``, never automatically on the boat (reindex reads
+the whole bag, too much for the ODROID to start on its own). There is no mcap-parsing fallback: a failed reindex leaves the segment as it was.
 """
 
 from dataclasses import dataclass

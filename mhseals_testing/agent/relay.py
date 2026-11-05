@@ -115,9 +115,30 @@ def _open_excludes(plan):
     return [f'--exclude=/bag/{s}/' for s in plan.get('open_segments') or []]
 
 
-def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess.run):
+def _reindex(argv):
+    """Exit code of one ``ros2 bag reindex``; 127 when this station has no ros2."""
+    try:
+        return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True).returncode
+    except FileNotFoundError:
+        return 127
+
+
+def _finalize(dest, plan, reindex):
+    """``{segment: status}`` for the fetched segments left unindexed (killed mid-write), through the Bags tab's
+    finalize; the segment still being recorded on the boat is left alone."""
+    from mhseals_testing.harness import bags
+    open_segments = set(plan.get('open_segments') or []) | {
+        rel.split('/')[1] for rel in plan.get('open_files') or [] if isinstance(rel, str) and rel.count('/') >= 2}
+    return {segment.name: bags.finalize(segment, reindex)['status']
+            for segment in sorted(Path(dest, 'bag').glob('[0-9][0-9]*'))
+            if segment.is_dir() and segment.name not in open_segments
+            and bags.segment_state(segment) == bags.UNINDEXED}
+
+
+def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess.run, reindex=_reindex):
     """``boat_agent fetch`` on the station: the boat names the session (``fetch --where``, logged in its TUI agent
-    log), then rsync pulls it here, resumable (``--partial-dir``), throttled, without its open segment."""
+    log), then rsync pulls it here, resumable (``--partial-dir``), throttled, without its open segment, and an
+    unindexed closed segment is finalized here (``bags.finalize``: ros2 bag reindex)."""
     from mhseals_testing import data
 
     def say(doc, code):
@@ -167,8 +188,11 @@ def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess
     if done.returncode:
         doc.update(error='rsync', hint=((done.stderr or '').strip().splitlines() or ['rsync failed'])[-1][:200]
                    + '; run fetch again to resume')
-    elif plan.get('live'):
-        doc['hint'] = 'the session is still recording: fetch again later for the rest'
+    else:
+        if not found.no_bags:
+            doc['finalized'] = _finalize(dest, plan, reindex)
+        if plan.get('live'):
+            doc['hint'] = 'the session is still recording: fetch again later for the rest'
     return say(doc, 0 if done.returncode == 0 else 2)
 
 

@@ -135,7 +135,7 @@ def add_parsers(sub):
                          help='more topics to rate')
     fetch = verb('fetch', 'on the station (BOAT_AGENT_TARGET names the boat): pull one session (default the newest) '
                  'over rsync into this data root, resumable and throttled (agent.yaml fetch.bwlimit_kbps); the open '
-                 'bag segment is left out; read-only on the boat')
+                 'bag segment is left out and an unindexed closed one is finalized on the station; read-only on the boat')
     fetch.add_argument('session', nargs='?', metavar='SESSION', help='a session id under sessions/')
     fetch.add_argument('--bwlimit', type=int, metavar='KBPS', help='rsync --bwlimit for this call')
     fetch.add_argument('--no-bags', action='store_true', help='only the reports, events and manifest, no bag/')
