@@ -25,7 +25,6 @@ def test_the_vessel_profile_sets_the_hull_over_its_fleet(tmp_path):
 def test_an_unreadable_vessel_profile_draws_the_default_hull(tmp_path, monkeypatch):
     from mhseals_testing.ui.minimap import hull
     monkeypatch.setenv('ASTRO_NETWORK_ENV', str(tmp_path / 'missing.env'))
-    vessel.section.cache_clear()
     assert hull._settings()['shape'] == hull.DEFAULTS['shape']
 
 
