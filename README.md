@@ -88,7 +88,7 @@ The focused panel's title is a solid accent bar (` ▸ Status `, reverse video),
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
 | t | Mission rehearsal, scored (`config/missions/`), judged by the referee in crane_ml | armed, sensors, velocity, Nav2 |
 
-Each row wears its state: ○ ready, ⊘ blocked with the reason on the row, a spinner (and the percent of a long
+Each row wears its state: ▷ ready, ⊘ blocked with the reason on the row, a spinner (and the percent of a long
 run) while running, ✓ or ✗ for its last result this session; the focused panel's bottom border is the legend.
 
 Only sensors and TF block motion; power, clock, links and compute advise. Settings: `--set K=V` (`harness/settings.py`,

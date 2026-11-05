@@ -12,7 +12,7 @@
 │   · tracks                 ││   · RL    4     ·     1500 │
 │ Localization               │╰────────────────────────────╯
 │   ✓ map → odom             │╭─ Procedures · 1 ready ─────╮
-│   ✗ odom → base_link       ││   ○ 1 Surge trial          │
+│   ✗ odom → base_link       ││   ▷ 1 Surge trial          │
 │ System                     ││                            │
 │   ! compute           78°C │╰────────────────────────────╯
 │                            │╭─ Activity · results · 1 ───╮

@@ -412,7 +412,7 @@ def test_status_labels_keep_a_gutter_before_their_value(monkeypatch):
 
 
 def test_procedure_rows_wear_their_state_and_every_blocked_row_its_reason():
-    from mhseals_testing.ui.panels.procedures import procedures_panel
+    from mhseals_testing.ui.panels.procedures import STATES, procedures_panel
     items = [dict(key='f', title='Characterize', description='', reason='', group='Calibrate'),
              dict(key='d', title='Dock physics', description='', reason='needs dock', group='Calibrate'),
              dict(key='e', title='Interference', description='', reason='needs armed', group='Calibrate'),
@@ -425,7 +425,7 @@ def test_procedure_rows_wear_their_state_and_every_blocked_row_its_reason():
     assert '✓' in line('Characterize') and '✗' in line('Waypoint')
     assert 'needs dock' in line('Dock physics') and 'needs armed' in line('Interference')
     assert '42%' in line('Manual control') and '⊘' in line('Interference')
-    assert '○ready' in page                                         # the legend on the focused border
+    assert STATES['ready'][0] + 'ready' in page                      # the legend on the focused border
 
 
 def test_the_focused_panel_title_is_a_solid_bar_and_a_popup_keeps_its_plain_title():
