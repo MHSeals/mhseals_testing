@@ -39,12 +39,12 @@ class Files:
             adapters.observe_file(self.history, watched.subsystem, watched.path, self.warn_history)
         if not change.ok:
             if change.name == 'hardware':
-                self.config_note = 'invalid edit'
+                self.state.files.config_note = 'invalid edit'
             if change.report:
                 self.say(f'Config rejected, keeping the last good one: {change.error}')
             return
         if change.name == 'hardware':
-            self.config_note = watched.path.name
+            self.state.files.config_note = watched.path.name
         self.say(f'Config read from {watched.path.name}{theme.SEPARATOR}{watched.warning}' if watched.warning
                  else f'Config reloaded from {watched.path.name}')
         self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok',
@@ -65,8 +65,9 @@ class Files:
             return new
 
         def apply_keymap(keymap):
-            self.map_keys, self.map_tab_keys = map_key_maps(keymap.doc)
-            self.fusion_keys = keymap_module.key_map(keymap.doc.get('tab.fusion'))
+            files = self.state.files
+            files.map_keys, files.map_tab_keys = map_key_maps(keymap.doc)
+            files.fusion_keys = keymap_module.key_map(keymap.doc.get('tab.fusion'))
 
         def apply_theme(new):
             theme.use_palette(new)
@@ -84,7 +85,7 @@ class Files:
             return dict(status='unknown', detail=HELD) if self.armed or self.services.procedures.running else None
 
         def apply_settings(new):    # procedures read settings each step: held while one runs
-            self.pending_settings = new
+            self.state.files.pending_settings = new
             return apply_held(new)
 
         for watched in (
@@ -107,7 +108,7 @@ class Files:
             if watched.warning == HELD:
                 watched.warning = None
         self.health.adopt_pending()
-        new, self.pending_settings = self.pending_settings, None
+        new, self.state.files.pending_settings = self.state.files.pending_settings, None
         if new is not None:     # a key the file dropped goes back to its default
             for spec in settings.SPECS:
                 if not spec.reset:

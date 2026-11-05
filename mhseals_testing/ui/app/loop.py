@@ -150,7 +150,7 @@ class Loop:
 
     def on_minimap(self, key, keys=None):
         """view.minimap keys (Drive column and Map tab): zoom, and the Layers box toggles."""
-        action = (keys or self.map_keys).get(key)
+        action = (keys or self.services.files.map_keys).get(key)
         if action in ('zoom_in', 'zoom_out'):
             self.minimap.zoom(1 if action == 'zoom_in' else -1)
         elif action == 'zoom_fit':
@@ -160,7 +160,7 @@ class Loop:
 
     def on_map(self, key):
         """The Map tab adds tab.map's toggles, whose keys are Drive procedures elsewhere."""
-        self.on_minimap(key, self.map_tab_keys)
+        self.on_minimap(key, self.services.files.map_tab_keys)
 
     def switch_tab(self, step):
         """Move to the next or previous tab, restoring the focus and cursors it was left with."""
@@ -227,7 +227,7 @@ class Loop:
             return
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
             return
-        if self.tab == 'Fusion' and not self.review and self.fusion_keys.get(raw) == 'camera_image':
+        if self.tab == 'Fusion' and not self.review and self.services.files.fusion_keys.get(raw) == 'camera_image':
             self.state.loop.fusion_image = not self.fusion_on()
             self.say(f"camera image {'on' if self.state.loop.fusion_image else 'off'}")
             return
@@ -271,7 +271,7 @@ class Loop:
             self.say(f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}')
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus in PANEL_SCOPES and keymap.dispatch(PANEL_SCOPES[self.focus], key))  # thrusters s,
-              and not (self.focus == 'minimap' and key in self.map_keys)):  # activity v, status e; view.minimap e centres
+              and not (self.focus == 'minimap' and key in self.services.files.map_keys)):  # activity v, status e; view.minimap e centres
             self.on_procedures(key)
         elif self.focus == 'list':
             self.on_list(raw)

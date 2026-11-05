@@ -19,7 +19,7 @@ class Correction:
         fits = {d: {**derived.get(d, {}), **saved.get(d, {})} for d in {*derived, *saved}}
         shown = calibration.marks(self.args.hardware_config, self.history)
         fits = {**(fits or {}), **{d: {**(fits or {}).get(d, {}), 'mark': m} for d, m in shown.items()}} if shown else fits
-        return dict(fits=fits, column=self.column, **self.correction_side())
+        return dict(fits=fits, column=self.state.correction.column, **self.correction_side())
 
     def correction_side(self):
         """Readiness (conditions + the characterize gates) and Tracking (feed + calibration file) models."""
@@ -48,7 +48,7 @@ class Correction:
         step = {'column_prev': -1, 'column_next': 1}.get(action)
         if step is not None:
             model = correction.tab_view(self.args.hardware_config, self.correction_state())
-            self.column = correction.move(model, step)
+            self.state.correction.column = correction.move(model, step)
         elif action in ('rerun_direction', 'run_all'):
             model = correction.tab_view(self.args.hardware_config, self.correction_state())
             self.characterize(model['columns'][model['cursor']]['key'] if action == 'rerun_direction' else '')

@@ -13,9 +13,9 @@ class Health:
 
     def refresh_advisories(self):
         """Sample the non-blocking checks at most once per ADVISORY_PERIOD."""
-        if self.clock() - self.last_advisory < ADVISORY_PERIOD:
+        if self.clock() - self.state.health.last_advisory < ADVISORY_PERIOD:
             return
-        self.last_advisory = self.clock()
+        self.state.health.last_advisory = self.clock()
         seen, live = self.foreign_instances()
         self.feed_map()
         self.monitor.advise('instances', 'FAIL' if live else 'WARN' if seen else 'OK',
@@ -47,16 +47,16 @@ class Health:
                 self.armed, self.processes.running('hardware')))
         if drives_pwm_pins(self.profile):   # the sysfs advisory always: enables and disarmed-but-on
             config = self.args.hardware_config
-            level, detail, self.pwm_sysfs = health.pwm_readback(
+            level, detail, self.state.health.pwm_sysfs = health.pwm_readback(
                 config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
             self.monitor.advise('PWM readback', level, detail)
-            self.pwm_readback = list(self.pwm_sysfs)
+            self.state.health.pwm_readback = list(self.state.health.pwm_sysfs)
 
     def show_driver_readback(self, pulses):
         """The Rb column from the driver's ~/output (each output's pulse, read back by the driver);
         a pin the sysfs probe reads as off or unreadable keeps that row, so a disabled channel still shows."""
-        sysfs = getattr(self, 'pwm_sysfs', None) or []
-        self.pwm_readback = [row if index < len(sysfs) and not str(row := sysfs[index]).startswith('ON')
+        sysfs = self.state.health.pwm_sysfs
+        self.state.health.pwm_readback = [row if index < len(sysfs) and not str(row := sysfs[index]).startswith('ON')
                              else f'ON {pulse} us' for index, pulse in enumerate(pulses)]
 
     def feed_map(self):

@@ -47,9 +47,9 @@ OWNERS = {
     'Annotate': ('state.annotate',),
     'Quit': ('state.quit', 'keys', 'live'),
     'Operator': ('state.operator',),
-    'Correction': ('column',),
-    'Files': ('config_note', 'pending_settings', 'map_keys', 'map_tab_keys', 'fusion_keys'),
-    'Health': ('last_advisory', 'pwm_readback'),
+    'Correction': ('state.correction',),
+    'Files': ('state.files',),
+    'Health': ('state.health',),
 }
 
 
@@ -116,32 +116,29 @@ class App(*mixins.ROSTER):
         self.watcher_factory = task_watcher
         self.settings = args.settings
         self.tabs = TabMemory()
-        wiring.map_views(self)   # minimap, layerbox, map_keys, map_tab_keys, fusion_keys
+        wiring.map_views(self)   # minimap, layerbox and the key maps in state.files
         self.checklist = Checklist.from_env()   # boat_tui preview's sanity checklist, else None
         self.focus = 'status'
         self.cursors = dict.fromkeys(CURSORS, 0)
-        self.column = None   # Correction tab column; None follows the worst one
         self.activity = 'results'
         self.modal = None
         self.toasts = wiring.toasts()
         self._wall_offset = None
         self.say(theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel')
-        self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(wiring.toast_feed(self.health))
         if getattr(ros, 'mission', None) is not None:   # model.mission_status.MissionState, fed by ROS
             self.feeds.append(ros.mission)
         self.recwatch = RecWatch(self.clock)
         self.recorder = recorder or Recorder(processes, paths.bag, profile.name)
-        self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
         self.state.loop.last_tick = clock()
         self.quit = False
         self.started = clock()
         wiring.config_watch(self, args)   # config_file, history, config_backends, watcher
         self.watch_own_files()
-        self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
-        self.pending_settings = None
+        if self.config_file.exists():
+            self.state.files.config_note = self.config_file.name
 
     @property
     def armed(self):

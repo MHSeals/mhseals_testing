@@ -71,7 +71,7 @@ class StatusRows:
         """Flip the Agents setting (block: the desk refuses new agent claims)."""
         self.settings.agents = 'block' if self.settings.agents == 'allow' else 'allow'
         self.say(f'Agents {self.settings.agents}')
-        desk = getattr(self, 'desk', None)
+        desk = self.desk
         if desk is not None:
             desk.setting_changed()           # block stops an agent run in flight, as E does
 

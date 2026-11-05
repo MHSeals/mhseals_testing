@@ -27,15 +27,15 @@ def settle(app):
 
 def test_keymap_edit_rebinds_the_minimap_keys_and_a_bad_one_keeps_the_last(tmp_path, monkeypatch):
     app, seen = start(tmp_path, monkeypatch)
-    assert app.map_keys['c'] == 'layer_costmap'
+    assert app.state.files.map_keys['c'] == 'layer_costmap'
     (tmp_path / 'keymap.yaml').write_text('view.minimap:\n  layer_costmap: ["1"]\n')
     settle(app)
-    assert app.map_keys['1'] == 'layer_costmap' and 'c' not in app.map_keys
+    assert app.state.files.map_keys['1'] == 'layer_costmap' and 'c' not in app.state.files.map_keys
     phase, details = seen[-1]
     assert phase == 'config_reloaded' and details['file'] == 'keymap' and details['sha']
     (tmp_path / 'keymap.yaml').write_text('view.minimap:\n  layer_costmap: ["1", nope\n')
     settle(app)
-    assert app.map_keys['1'] == 'layer_costmap' and app.watcher.watches['keymap'].error
+    assert app.state.files.map_keys['1'] == 'layer_costmap' and app.watcher.watches['keymap'].error
     assert 'keymap' in app.notice
 
 
@@ -122,7 +122,7 @@ def test_settings_and_health_edits_wait_for_a_running_procedure(tmp_path, monkey
         return next(s for s in app.health.specs if s.id == 'conditions.poor').severity
 
     before = app.settings.amplitude
-    note = app.config_note
+    note = app.state.files.config_note
     app.state.procedures.running = 'Controller'
     path = app.watcher.watches['settings'].path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +131,7 @@ def test_settings_and_health_edits_wait_for_a_running_procedure(tmp_path, monkey
     (tmp_path / 'theme.yaml').write_text('not: [valid\n')
     settle(app)
     assert app.settings.amplitude == before and severity() == 'fail'
-    assert app.config_note == note      # only the hardware file labels the thrusters panel
+    assert app.state.files.config_note == note      # only the hardware file labels the thrusters panel
     app.state.procedures.running = None
     app.watch_config()
     assert app.settings.amplitude == 0.9 and severity() == 'warn'

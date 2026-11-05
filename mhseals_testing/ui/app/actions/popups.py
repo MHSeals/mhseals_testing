@@ -67,13 +67,15 @@ class Popups:
                 return
             state['note'] = ''
             node = self.ros.node
-            self.state.popups.camera_boxes = None if node is None else camera_feed.node_observations(  # subscribed while `d` is on
+            # subscribed while `d` is on
+            self.state.popups.camera_boxes = None if node is None else camera_feed.node_observations(
                 node, lambda label: camera_view.class_rgb(self.minimap.table, label))
             state['view'] = CameraView(
                 feed, (1, CAMERA_ROWS), self.write_terminal,
                 kitty=pixels.kitty_camera(),
                 save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections,
-                observations=self.state.popups.camera_boxes, work=camera_view.background)   # decode and encode off the keys
+                observations=self.state.popups.camera_boxes,
+                work=camera_view.background)   # decode and encode off the keys
 
         def handle(key):
             current = state['view']
