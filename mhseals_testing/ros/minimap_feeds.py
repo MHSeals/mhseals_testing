@@ -23,12 +23,15 @@ from mhseals_testing import data
 from mhseals_testing.analysis.fixlog import state_of
 from mhseals_testing.analysis.geo import MapRotation, enu
 from mhseals_testing.health.model import Fact
+from mhseals_testing.profiles import default_topics
 from mhseals_testing.ui.minimap.marks import Obj
 from mhseals_testing.ui.minimap.state import UNKNOWN_SPEED, MapState
 
-LOCAL, GLOBAL = '/local_costmap/costmap', '/global_costmap/costmap'
-TRACKS, STATUS, OBJECTS = '/perception/tracks', '/perception/status', '/objects/map'
-FENCE_STATUS, FENCE_MARKER = '/fence/status', '/fence/marker'     # mhseals_nav fence_watchdog
+# The shipped topic names (config/profile.yaml topics:); MapFeeds reads its profile's, these are the defaults.
+_TOPICS = default_topics()
+LOCAL, GLOBAL = _TOPICS['local_costmap'], _TOPICS['global_costmap']
+TRACKS, STATUS, OBJECTS = _TOPICS['tracks'], _TOPICS['perception_status'], _TOPICS['objects']
+FENCE_STATUS, FENCE_MARKER = _TOPICS['fence_status'], _TOPICS['fence_marker']     # mhseals_nav fence_watchdog
 MOTIONS = ('unknown', 'static', 'moving')   # Track.MOTION_UNKNOWN, _STATIC, _MOVING
 SOURCES = ('live', 'prior')                 # Track.SOURCE_LIVE, _PRIOR
 RECORDED = '/mhseals_testing/minimap/costmap'
@@ -41,11 +44,11 @@ TRAIL_SCHEMA = 'mhseals.trail/1'
 TRAIL_SPACING, TRAIL_PERIOD = 0.25, 1.0     # one crumb per 0.25 m or 1 s
 
 
-def costmap_source(half_width, choice='auto'):
+def costmap_source(half_width, choice='auto', topics=None):
     """Topic for the costmap layer: 'local' / 'global' as chosen, auto by view half-width."""
     if choice == 'auto':
         choice = 'local' if half_width <= LOCAL_HALF else 'global'
-    return LOCAL if choice == 'local' else GLOBAL
+    return (topics or _TOPICS)['local_costmap' if choice == 'local' else 'global_costmap']
 
 
 def path_points(message):
@@ -204,15 +207,20 @@ def rotation_fact(rotation, now):
 class MapFeeds:
     """ROS wiring: map rotation samples always, costmaps only on lease, the decimated costmap while recording."""
 
-    def __init__(self, node, state=None, facts=None, clock=time.monotonic, wall=time.time, on_fix=None):
+    topics = _TOPICS   # the topic map (profile topics:); an instance sets its profile's
+
+    def __init__(self, node, state=None, facts=None, clock=time.monotonic, wall=time.time, on_fix=None,
+                 topics=None):
         """``clock`` (monotonic) ages the rotation fit and fact; ``wall`` stamps crumbs and trail.jsonl,
-        as the bag and journal do. ``on_fix`` journals each GPSRAW fix_type change."""
+        as the bag and journal do. ``on_fix`` journals each GPSRAW fix_type change. ``topics`` is the
+        profile's topic map (profiles.topics_of), else the shipped defaults."""
         from nav_msgs.msg import OccupancyGrid, Odometry, Path as PathMsg
         from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
         from sensor_msgs.msg import NavSatFix
         from tf2_msgs.msg import TFMessage
         from vision_msgs.msg import Detection3DArray
         self.node, self.grid_type, self.clock, self.wall = node, OccupancyGrid, clock, wall
+        self.topics = topic = topics or _TOPICS
         self.state, self.facts = state if state is not None else MapState(), facts
         self.rotation, self.origin = MapRotation(), None
         self.costmaps = {}           # topic -> latest message
@@ -222,10 +230,10 @@ class MapFeeds:
         self.trail, self.gps = None, (None, None, None)   # TrailWriter (owner only); fix, h_acc_m, speed_mps
         keep = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.subs = {topic: LazySub(node, OccupancyGrid, topic, lambda m, t=topic: self._costmap(t, m), keep)
-                     for topic in (LOCAL, GLOBAL)}
-        node.create_subscription(NavSatFix, '/gps/fix', self._fix, qos_profile_sensor_data)
-        node.create_subscription(Odometry, '/odom/gps', self._odom('gps_xy'), 10)
-        node.create_subscription(Odometry, '/odom/global', self._odom('global_xy', sample=True), 10)
+                     for topic in (topic['local_costmap'], topic['global_costmap'])}
+        node.create_subscription(NavSatFix, topic['gps_fix'], self._fix, qos_profile_sensor_data)
+        node.create_subscription(Odometry, topic['odom_gps'], self._odom('gps_xy'), 10)
+        node.create_subscription(Odometry, topic['odom_global'], self._odom('global_xy', sample=True), 10)
         self._subscribe_state(node, PathMsg, Detection3DArray, TFMessage)
         self.fact_timer = node.create_timer(FACT_PERIOD, self.publish_fact)
         self.publisher = node.create_publisher(OccupancyGrid, RECORDED, keep)
@@ -236,16 +244,17 @@ class MapFeeds:
     def _subscribe_state(self, node, path_type, objects_type, tf_type):
         """The always-on feeds into MapState; GPSRAW only when mavros_msgs is installed."""
         from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
-        ingest = self.state.ingest
-        node.create_subscription(path_type, '/plan', lambda m: ingest('plan', points=path_points(m)), 10)
-        node.create_subscription(path_type, '/local_plan', lambda m: ingest('local_plan', data=path_points(m)), 10)
+        ingest, topic = self.state.ingest, self.topics
+        node.create_subscription(path_type, topic['plan'], lambda m: ingest('plan', points=path_points(m)), 10)
+        node.create_subscription(path_type, topic['local_plan'],
+                                 lambda m: ingest('local_plan', data=path_points(m)), 10)
         msgs = perception_msgs()
         if msgs is not None:
-            node.create_subscription(msgs.TrackArray, TRACKS, lambda m: ingest('objects', items=track_marks(m)), 1)
+            node.create_subscription(msgs.TrackArray, topic['tracks'], lambda m: ingest('objects', items=track_marks(m)), 1)
         else:
-            node.create_subscription(objects_type, OBJECTS, lambda m: ingest('objects', items=object_marks(m)), 10)
+            node.create_subscription(objects_type, topic['objects'], lambda m: ingest('objects', items=object_marks(m)), 10)
         from diagnostic_msgs.msg import DiagnosticArray
-        node.create_subscription(DiagnosticArray, STATUS, self._status, 10)
+        node.create_subscription(DiagnosticArray, topic['perception_status'], self._status, 10)
         self._subscribe_fence(node)
         node.create_subscription(tf_type, '/tf_static',
                                  lambda m: ingest('tf_static', transforms=static_transforms(m)),
@@ -254,7 +263,7 @@ class MapFeeds:
             from mavros_msgs.msg import GPSRAW
         except ImportError:
             return
-        node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw', self._gps_raw, qos_profile_sensor_data)
+        node.create_subscription(GPSRAW, topic['gps_raw'], self._gps_raw, qos_profile_sensor_data)
 
     def _subscribe_fence(self, node):
         """fence_watchdog's /fence/status (JSON, inside, distance, on_exit, corners) and its latched /fence/marker
@@ -265,11 +274,11 @@ class MapFeeds:
             from visualization_msgs.msg import Marker
         except ImportError:
             Marker = None
-        node.create_subscription(String, FENCE_STATUS, self._fence_status, 10)
+        node.create_subscription(String, self.topics['fence_status'], self._fence_status, 10)
         if Marker is not None:
             latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                                  durability=DurabilityPolicy.TRANSIENT_LOCAL)
-            node.create_subscription(Marker, FENCE_MARKER, self._fence_marker, latched)
+            node.create_subscription(Marker, self.topics['fence_marker'], self._fence_marker, latched)
 
     def _fence_status(self, m):
         try:
@@ -308,7 +317,7 @@ class MapFeeds:
 
     def want_layers(self, costmap, hits, half_width, choice='auto'):
         """Lease the costmap the view needs while the c or r layer is on; drop the other source."""
-        wanted = costmap_source(half_width, choice) if costmap or hits else None
+        wanted = costmap_source(half_width, choice, self.topics) if costmap or hits else None
         for topic, sub in self.subs.items():
             sub.lease('layers', topic == wanted)
             if topic != wanted and not sub.holders:
@@ -320,7 +329,7 @@ class MapFeeds:
     def want_record(self, owner, recording, nav_running):
         """Hold the global costmap and publish the decimated one under should_record's gate."""
         self.record = should_record(owner, recording, nav_running)
-        self.subs[GLOBAL].lease('recorder', self.record)
+        self.subs[self.topics['global_costmap']].lease('recorder', self.record)
 
     def _costmap(self, topic, message):
         """Keep the newest grid per topic; only the layers' topic goes to the map state (the recorder's may differ)."""
@@ -363,7 +372,7 @@ class MapFeeds:
             self.facts.publish('map', {} if fact is None else {'nav.map_rotation': fact})
 
     def _publish(self):
-        grid = self.costmaps.get(GLOBAL)
+        grid = self.costmaps.get(self.topics['global_costmap'])
         if not (self.record and grid and self.global_xy):
             return
         info = grid.info

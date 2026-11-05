@@ -17,8 +17,8 @@ profiles on this machine instead. Odometry and endpoint startup defaults come fr
 simulator: ``standalone``), and conflicting selections refuse before any process starts.
 """
 
-from dataclasses import dataclass, replace
-from functools import cached_property
+from dataclasses import dataclass, field, replace
+from functools import cache, cached_property
 from pathlib import Path
 
 from mhseals_testing import data as records
@@ -56,6 +56,26 @@ OUTPUT_CAPABILITIES = {
 }
 OUTPUTS = tuple(OUTPUT_CAPABILITIES)   # ('none', 'odroid', 'topic')
 ARMED_OUTPUTS = tuple(name for name in OUTPUTS if 'arm' in OUTPUT_CAPABILITIES[name])
+
+
+@cache
+def _shipped_topics():
+    document = load_strict((PROFILE_DIR.parent / 'profile.yaml').read_text()) or {}
+    topics = document.get('topics')
+    if not isinstance(topics, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and v.startswith('/') for k, v in topics.items()):
+        raise ValueError('profile.yaml: topics: maps a key to an absolute topic name')
+    return tuple(topics.items())
+
+
+def default_topics():
+    """config/profile.yaml ``topics:``: the stack's topic names every profile starts from (a fresh dict)."""
+    return dict(_shipped_topics())
+
+
+def topics_of(profile):
+    """``profile.topics`` for any object: the shipped defaults when it carries none (a test double)."""
+    return getattr(profile, 'topics', None) or default_topics()
 
 
 MUX_INPUT = '/cmd_vel'  # the topic Nav2, tasks and agents publish; the mux owns it
@@ -121,6 +141,8 @@ class PlantProfile:
     conditions_velocity: str = 'gpsraw'  # explicit odom:<topic|name> is simulation-only
 
     placement: dict | None = None    # {self: [device profiles]}: all on this machine; None: the registry's roles
+    # the stack's topic names (config/profile.yaml topics:, then the profile's own topics:)
+    topics: dict = field(default_factory=default_topics)
 
     @cached_property
     def placed(self):
@@ -274,6 +296,15 @@ def parse_profile(data, where='profile'):
     scale = tuple(float(value) for value in data.get('plot_scale', PLOT_SCALE))
     if len(scale) != 3 or not all(0 < value < float('inf') for value in scale):
         raise ValueError(f'{where}.plot_scale: three positive numbers')
+    topics = data.get('topics') or {}
+    defaults = default_topics()
+    if not isinstance(topics, dict):
+        raise ValueError(f'{where}.topics: mapping of key to topic')
+    for key, value in topics.items():
+        if key not in defaults:
+            raise ValueError(f'{where}.topics.{key}: one of {sorted(defaults)}')
+        if not isinstance(value, str) or not value.startswith('/'):
+            raise ValueError(f'{where}.topics.{key}: an absolute topic name')
     battery = data.get('battery') or {}
     cells = battery.get('cells')
     if cells is not None and (not isinstance(cells, int) or isinstance(cells, bool) or cells < 1):
@@ -300,7 +331,7 @@ def parse_profile(data, where='profile'):
         sensors=tuple(sensors), components=components or None, placement=placement, battery_cells=cells,
         battery_chemistry=chemistry, battery_capacity_mah=capacity,
         plot_scale=scale, stamp_future=_positive(data, 'stamp_future', where) or FUTURE_TOLERANCE,
-        conditions_velocity=velocity)
+        conditions_velocity=velocity, topics={**defaults, **topics})
 
 
 def available_profiles(directory=PROFILE_DIR):

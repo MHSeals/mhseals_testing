@@ -1,0 +1,18 @@
+# profile.yaml (profiles.py): defaults every plant profile starts from; a profile's topics: overrides a key.
+profile.topics.mavlink_source: {type: str, units: topic, tier: new-session, doc: "MAVROS's received-frame topic (mavros_msgs/Mavlink); carries the FCU's namespace."}
+profile.topics.drift: {type: str, units: topic, tier: new-session, doc: "The velocity controller's drift estimate (Vector3Stamped)."}
+profile.topics.gps_fix: {type: str, units: topic, tier: new-session, doc: "The GNSS fix the minimap reads (NavSatFix)."}
+profile.topics.gps_raw: {type: str, units: topic, tier: new-session, doc: "The FCU's raw GPS status: fix type, accuracy and speed (mavros_msgs/GPSRAW)."}
+profile.topics.odom_gps: {type: str, units: topic, tier: new-session, doc: "navsat_transform's GPS odometry."}
+profile.topics.odom_global: {type: str, units: topic, tier: new-session, doc: "The global EKF's odometry (map frame)."}
+profile.topics.odom_local: {type: str, units: topic, tier: new-session, doc: "The local EKF's odometry (odom frame)."}
+profile.topics.local_costmap: {type: str, units: topic, tier: new-session, doc: "Nav2's local costmap (OccupancyGrid)."}
+profile.topics.global_costmap: {type: str, units: topic, tier: new-session, doc: "Nav2's global costmap (OccupancyGrid); the recorder decimates it."}
+profile.topics.plan: {type: str, units: topic, tier: new-session, doc: "Nav2's global plan (Path)."}
+profile.topics.local_plan: {type: str, units: topic, tier: new-session, doc: "The controller's local plan (Path)."}
+profile.topics.tracks: {type: str, units: topic, tier: new-session, doc: "Perception's tracks (mhseals_perception TrackArray)."}
+profile.topics.objects: {type: str, units: topic, tier: new-session, doc: "Map objects (Detection3DArray), read when the perception messages are absent."}
+profile.topics.perception_status: {type: str, units: topic, tier: new-session, doc: "Perception's diagnostics (backend, fusion)."}
+profile.topics.fence_status: {type: str, units: topic, tier: new-session, doc: "fence_watchdog's status (JSON: inside, distance, corners)."}
+profile.topics.fence_marker: {type: str, units: topic, tier: new-session, doc: "fence_watchdog's latched outline (Marker)."}
+profile: {closed: true}   # every key of profile.yaml is described; another is an unknown key

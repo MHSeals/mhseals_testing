@@ -1,0 +1,24 @@
+# What every plant profile (config/profiles/*.yaml) starts from: a profile's own keys override these
+# (mhseals_testing/profiles.py). Schema: config/schema/profile.yaml.
+#
+# topics: the stack's topic names the TUI's feeds and the judge pack read that no sensors: entry
+# carries. A stack with other names sets `topics: {<key>: /its/name}` in its profile; an unknown key
+# refuses at load. A wrong name is silent (the feed simply hears nothing), so test_profile_topics
+# pins each shipped default.
+topics:
+  mavlink_source: /uas1/mavlink_source          # MAVROS's every received frame (its uas1 namespace)
+  drift: /calibrated_velocity_controller/drift   # the velocity controller's drift estimate
+  gps_fix: /gps/fix                              # the minimap's fix (NavSatFix)
+  gps_raw: /mavros/gpsstatus/gps1/raw            # fix type, accuracy and speed (mavros_msgs/GPSRAW)
+  odom_gps: /odom/gps                            # navsat_transform's GPS odometry
+  odom_global: /odom/global                      # the global EKF
+  odom_local: /odom/local                        # the local EKF
+  local_costmap: /local_costmap/costmap
+  global_costmap: /global_costmap/costmap
+  plan: /plan                                    # Nav2's global plan
+  local_plan: /local_plan                        # the controller's local plan
+  tracks: /perception/tracks                     # mhseals_perception TrackArray
+  objects: /objects/map                          # Detection3DArray, when the perception messages are absent
+  perception_status: /perception/status          # perception's DiagnosticArray (backend, fusion)
+  fence_status: /fence/status                    # mhseals_nav fence_watchdog (JSON)
+  fence_marker: /fence/marker                    # its latched outline

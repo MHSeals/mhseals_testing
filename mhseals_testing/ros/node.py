@@ -36,6 +36,7 @@ from mhseals_testing.readiness import BEAT_STALE_S
 from mhseals_testing.ros.graph import RclpyGraph
 from mhseals_testing.ros.ingest import RTK_TOPIC, ingest
 from mhseals_testing.health.model import Fact
+from mhseals_testing.profiles import default_topics, topics_of
 from mhseals_testing.ros import nearby
 from mhseals_testing.ros.minimap_feeds import MapFeeds
 from mhseals_testing.ros.mission import MissionFeed
@@ -64,10 +65,10 @@ def message_type(kind):
 EVENTS_TOPIC = events.TOPIC
 GRAPH_S = 1.0          # raw image sensors: how often the graph is asked whether they publish
 FAULT_LOG = os.path.join(tempfile.gettempdir(), 'boat_test_faults.log')  # callback tracebacks
-MAVLINK_TOPIC = '/uas1/mavlink_source'   # MAVROS's every received frame (mavros_msgs/Mavlink)
+MAVLINK_TOPIC = default_topics()['mavlink_source']   # MAVROS's every received frame; a profile's topics: overrides
 AUTOPILOT = 1                            # MAV_COMP_ID_AUTOPILOT1, the FCU's component id
 GUID_PREFIX = 12             # bytes of an endpoint gid that name its DDS participant
-DRIFT_TOPIC = '/calibrated_velocity_controller/drift'
+DRIFT_TOPIC = default_topics()['drift']             # the velocity controller's drift; likewise
 EVENTS_QOS = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE,
                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
@@ -86,6 +87,7 @@ class RosIO:
 
     def __init__(self, profile, monitor, stale_after=2.0, journal_path=None, facts=None):
         self.profile = profile
+        topics = topics_of(profile)
         self.monitor = monitor
         self.stale_after = stale_after
         self.fault = ''
@@ -113,10 +115,10 @@ class RosIO:
                 message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind), qos_profile_sensor_data)
             if sensor.kind == 'gpsraw':
                 from mavros_msgs.msg import Mavlink
-                self.node.create_subscription(Mavlink, MAVLINK_TOPIC, partial(self._gps_raw_int, sensor.topic),
-                                              qos_profile_sensor_data)
+                self.node.create_subscription(Mavlink, topics['mavlink_source'],
+                                              partial(self._gps_raw_int, sensor.topic), qos_profile_sensor_data)
         self.node.create_subscription(
-            Vector3Stamped, DRIFT_TOPIC, partial(self._ingest, DRIFT_TOPIC, 'drift'), 10)
+            Vector3Stamped, topics['drift'], partial(self._ingest, topics['drift'], 'drift'), 10)
         self.facts, self.nearby, self._tap_subs = facts, None, {}
         clouds = [s.name for s in profile.sensors if s.kind == 'points']
         if clouds:
@@ -143,7 +145,7 @@ class RosIO:
         if profile.use_sim_time:   # the sim's harbor-alert horn, journaled for the referee
             hear = HornJournal(self.emit, getattr(profile, 'course_truth', None))
             self.node.create_subscription(String, HORN_TOPIC, lambda m: hear(m.data), 10)
-        self.map = MapFeeds(self.node, facts=facts, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
+        self.map = MapFeeds(self.node, facts=facts, topics=topics, on_fix=partial(self.emit, 'gps_fix'))  # rotation always, costmaps on lease
         self.mission = MissionState(self.map.state)   # a ui feed; tasks and the goal go on into the map
         MissionFeed(self.node, self.mission)
         self.executor = SingleThreadedExecutor()
