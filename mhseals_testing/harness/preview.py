@@ -26,6 +26,7 @@ from pathlib import Path
 import yaml
 
 from mhseals_testing.harness import sim_stack
+from mhseals_testing.hook import registry
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'preview.yaml'
 PATHS = ('src', 'cache', 'runbook', 'results')
@@ -33,7 +34,6 @@ MANIFEST = 'manifest'      # the slug of no REF: each repo at the workspace mani
 SHARED = ('player', 'image', 'roles', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')
 DATE = re.compile(r'\d{4}-\d{2}-\d{2}$')
 MARKS = ('pass', 'fail', 'note')
-BOAT_DOMAINS = (42, 142)   # the fleet's (harness/mission.py), never a preview's
 
 
 def settings(test=False, path=CONFIG, environ=None):
@@ -55,6 +55,7 @@ def settings(test=False, path=CONFIG, environ=None):
         if isinstance(value, str) and key in PATHS:
             value = value.replace('{src}', src)
         out[key] = os.path.expanduser(str(value)) if key in PATHS + sim_stack.PATHS and value else value
+    out['port'] = sim_stack.endpoint_port(out['domain'])
     return out
 
 
@@ -84,16 +85,17 @@ def plan(ref, repos, src, run=subprocess.run):
 
 
 def refusal(values, other):
-    """Why the settings ``values`` may not run (None when they may): never the boat's domain, the boat's or the sim's
-    container or tmux server, nor anything of ``other`` (the human preview's settings for a test, and back)."""
+    """Why the settings ``values`` may not run (None when they may): never a vessel's domain (the profile set's), the
+    dev or the sim's container or the boat TUI's tmux server, nor anything of ``other`` (the human preview's settings
+    for a test, and back). The port follows the domain."""
     sim = sim_stack.settings(environ={})
-    if int(values['domain']) in BOAT_DOMAINS:
+    if int(values['domain']) in registry.boat_domains():
         return f"domain {values['domain']} is the boat's"
-    if values['container'] in ('roboboat_dev', 'roboboat_test', sim.get('container')):
+    if values['container'] in (registry.dev_container(), sim.get('container')):
         return f"container {values['container']} is not the preview's"
     if values['socket'] == 'boat':
         return 'tmux -L boat is the boat TUI'
-    shared = [key for key in ('cache', 'container', 'socket', 'domain', 'port') if str(values[key]) == str(other[key])]
+    shared = [key for key in ('cache', 'container', 'socket', 'domain') if str(values[key]) == str(other[key])]
     return f"{', '.join(shared)} shared with the other preview" if shared else None
 
 

@@ -8,8 +8,9 @@ cache: ~/.cache/boat-preview         # <ref>/ws (worktrees, build, install), hom
 container: roboboat_preview          # its own container from the sim image; mounts only <ref>, config and results
 socket: preview                      # tmux -L preview
 session: preview
-domain: 100                          # its own ROS_DOMAIN_ID (agent sims draw from 101..199), localhost discovery
-port: 6768                           # its own ROS-TCP endpoint port, so an agent sim already running keeps its own (config/sim/stack.yaml port)
+domain: 100                          # its own ROS_DOMAIN_ID (agent sims draw from 101..199), localhost discovery; its
+                                     # ROS-TCP endpoint port is 10000 + it (sim_stack.endpoint_port), never an agent sim's
+mount: /preview                      # where <ref> is mounted in the container (its results and vessel files beside it)
 size: [1280, 720]                    # the player window
 attach_s: 120                        # boat_tui preview waits this long for the TUI to start (queueing and the build not counted)
 connect_s: 3                         # from the endpoint process to starting the player
@@ -31,4 +32,4 @@ checks:
 # --test (an integration test, the only preview an agent may start): headless, its own everything, results in its run
 # dir, and the heavy unity slot (queued behind a human preview) instead of the reserved preview slot.
 test: {cache: ~/.cache/boat-preview-test, container: roboboat_preview_test, socket: preview-test, domain: 99,
-       port: 6769, results: ''}
+       results: ''}

@@ -8,12 +8,14 @@ container: boat_sim                                   # its own private-IPC cont
 image: auto                                           # the workspace's dev image (hw.sh image --local); a name pins one
 roles: [boat_computer]                                # the repos built: hw.sh hosts repos --role (repos.all and these roles') and astro_dock's submodules
 overlay: ~/.cache/boat-sim/ws                         # the container's workspace (src/, install/), built there on /opt/ros alone
+mount: /boat_sim                                      # where the overlay is mounted in the container (built there; a change rebuilds)
 profile: crane_full_stack
 command_mode: velocity                               # boat_test --set command_mode: effort for characterization (f)
-port: 6770                                            # its own ROS-TCP endpoint port, set in the overlay's endpoint_startup.yaml
-domains: [101, 199]                                   # a free ROS_DOMAIN_ID from this range, localhost discovery
+domains: [101, 199]                                   # a free ROS_DOMAIN_ID from this range (never a vessel's), localhost
+                                                      # discovery; the ROS-TCP endpoint port is 10000 + it (sim_stack.endpoint_port)
 course_family: roboboat_2026
 seed: 1
 ready_s: 240                                          # the player's course must be ready within this
 max_s: 21600                                          # the heavy unity slot is given back after this
 tmux_session: sim                                     # in boat_tui's own tmux server (tmux -L boat)
+heavy: ''                                             # the heavy-job guard (a command; BOAT_SIM_HEAVY): '' runs directly, warned

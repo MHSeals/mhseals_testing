@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # boat_sim [up [--seed N] [--build] [--no-player] [--dry-run] | down | status]: the headless Unity sim and boat_test on it.
-#   up      ONE heavy-unity job (mhseals_agents/tools/heavy unity): a fresh private-IPC container (config
-#           sim/stack.yaml container), a free ROS_DOMAIN_ID (domains, localhost discovery), boat_test --profile
+#   up      ONE heavy-unity job (stack.yaml heavy, unity slot): a fresh private-IPC container (config
+#           sim/stack.yaml container), a free ROS_DOMAIN_ID (domains, localhost; endpoint port 10000 + it), boat_test --profile
 #           crane_full_stack in tmux -L boat session sim (it starts the stack and the ROS-TCP endpoint), then the
 #           player headless under xvfb-run with the course of SEED. Waits for down (or max_s) and tears down.
-#           --build refreshes the overlay from the workspace checkouts (built on /opt/ros alone, the endpoint on
-#           port; the first up builds it); --dry-run prints the plan. --no-player: the stack and TUI alone, a heavy
+#           --build refreshes the overlay from the workspace checkouts (built on /opt/ros alone at stack.yaml
+#           mount; the first up builds it); --dry-run prints the plan. --no-player: the stack and TUI alone, a heavy
 #           sim job (the TUI, its verbs and help while the unity slots are busy; nothing moves the boat).
 #   down    stop the TUI session, the player and the container (exact PIDs) and give the slot back; a session
 #           still queued for the slot is cancelled
@@ -21,16 +21,16 @@ settings=$(python3 -m mhseals_testing.harness.sim_stack env) || exit 2
 eval "$settings"
 resolved() { settings=$(python3 -m mhseals_testing.harness.sim_stack env --resolve "$@") || exit 2; eval "$settings"; }
 SRC=$SIM_SRC
-HEAVY=${BOAT_SIM_HEAVY:-$SRC/mhseals_agents/tools/heavy}
+HEAVY=$SIM_HEAVY      # stack.yaml heavy (BOAT_SIM_HEAVY): this host's heavy-job guard, never guessed
 RUN=$SIM_RUN; mkdir -p "$RUN"
 DOMAINS=/tmp/boat-sim-$(id -u); mkdir -p "$DOMAINS"; chmod 700 "$DOMAINS"
 t() { env -u TMUX -u TMUX_PANE tmux -L boat "$@"; }
 
 cenv() {   # the stack's environment inside the container
-  echo "export HOME=/home/roboboat/autodemo/home ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
-MHSEALS_DATA=/home/roboboat/autodemo/data MHSEALS_HARDWARE_CONFIG=/home/roboboat/autodemo/src/mhseals_testing/config/sim/hardware_crane.yaml \
+  echo "export HOME=$SIM_MOUNT/home ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+MHSEALS_DATA=$SIM_MOUNT/data MHSEALS_HARDWARE_CONFIG=$SIM_MOUNT/src/mhseals_testing/config/sim/hardware_crane.yaml \
 MHSEALS_SIM_ARM=1 TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8; source /opt/ros/\$ROS_DISTRO/setup.bash; \
-source /home/roboboat/autodemo/install/local_setup.bash"
+source $SIM_MOUNT/install/local_setup.bash"
 }
 
 container_up() {
@@ -42,7 +42,7 @@ container_up() {
   fi
   if ! docker inspect "$SIM_CONTAINER" >/dev/null 2>&1; then
     docker run -d --name "$SIM_CONTAINER" --label boat.sim=1 --init --ipc private --network host \
-      -e BASH_ENV= --user roboboat -v "$SIM_OVERLAY":/home/roboboat/autodemo --entrypoint sleep "$SIM_IMAGE" infinity >/dev/null
+      -e BASH_ENV= --user roboboat -v "$SIM_OVERLAY:$SIM_MOUNT" --entrypoint sleep "$SIM_IMAGE" infinity >/dev/null
   fi
   docker start "$SIM_CONTAINER" >/dev/null
   docker exec "$SIM_CONTAINER" bash -c 'f=/tmp/mhseals-$(id -u)/session.json; [ -e $f ] && mv $f $f.stale-$(date +%s) || true'
@@ -53,10 +53,13 @@ overlay() { # --build (or no install yet): the workspace checkouts of its manife
   for p in $SIM_REPOS; do
     rsync -a --delete --exclude .git --exclude __pycache__ "$SRC/${p%%=*}/" "$SIM_OVERLAY/src/${p%%=*}/"
   done
-  local file=$SIM_OVERLAY/src/mhseals_nav/config/endpoint_startup.yaml     # the endpoint on the sim's own port
-  sed -i -E "s/^(unity: \{ip: [0-9.]+, port: )[0-9]+\}/\1$SIM_PORT}/" "$file"
+  ASTRO_BUILD_CLEAN_UNSTAMPED=1 "$SIM_WORKSPACE/hw.sh" build --ws "$SIM_MOUNT" --container "$SIM_CONTAINER"
+}
+
+endpoint_port() { # the endpoint on this session's port (sim_stack.endpoint_port of its domain; symlink-installed)
+  local file=$SIM_OVERLAY/src/mhseals_nav/config/endpoint_startup.yaml
+  sed -i -E "s/^(unity: \{ip: [0-9.]+, port: )[0-9a-z]+\}/\1$SIM_PORT}/" "$file"
   grep -q "port: $SIM_PORT}" "$file" || { echo "boat_sim: cannot set the endpoint port in $file" >&2; exit 1; }
-  ASTRO_BUILD_CLEAN_UNSTAMPED=1 "$SIM_WORKSPACE/hw.sh" build --ws /home/roboboat/autodemo --container "$SIM_CONTAINER"
 }
 
 tui() {    # boat_test in the boat tmux server; it starts the profile's components (the endpoint among them)
@@ -108,8 +111,11 @@ session() {
   resolved --pull       # the workspace's image, pulled first when the registry has a newer one
   DOMAIN=$(python3 -m mhseals_testing.harness.sim_stack domain)
   echo "$$" > "$DOMAINS/domain.$DOMAIN"; echo "$DOMAIN" > "$RUN/domain"
+  SIM_PORT=$(python3 -m mhseals_testing.harness.sim_stack port "$DOMAIN")
   container_up
-  if [ "$BUILD" = 1 ] || [ ! -e "$SIM_OVERLAY/install/local_setup.bash" ]; then overlay; fi
+  # built elsewhere (another mount: its setup files name that prefix) or never: build here
+  if [ "$BUILD" = 1 ] || ! grep -qF "$SIM_MOUNT/install" "$SIM_OVERLAY/install/setup.sh" 2>/dev/null; then overlay; fi
+  endpoint_port
   tui
   until docker exec "$SIM_CONTAINER" pgrep -f default_server_endpoint >/dev/null; do sleep 5; done
   sleep 10                               # the endpoint listens on the port
@@ -131,14 +137,14 @@ case $verb in
     if [ "$dry" = 1 ]; then
       echo "boat_sim: would run under $HEAVY $([ "$PLAYER" = 1 ] && echo unity || echo sim): container $SIM_CONTAINER ($SIM_IMAGE), a free domain in" \
            "$SIM_DOMAINS, boat_test --profile $SIM_PROFILE in tmux -L boat session $SIM_TMUX_SESSION, player $([ "$PLAYER" = 1 ] && echo "$SIM_PLAYER" || echo none)" \
-           "headless with $SIM_COURSE_FAMILY seed $SEED, port $SIM_PORT, repos $SIM_REPOS built by $SIM_WORKSPACE/hw.sh build; logs in $RUN"
+           "headless with $SIM_COURSE_FAMILY seed $SEED, port 10000 + domain, repos $SIM_REPOS built by $SIM_WORKSPACE/hw.sh build; logs in $RUN"
       exit 0
     fi
     # the stop file stays until this session starts: a session still ending sees it and gives the slot back
     build=''; [ "$BUILD" = 1 ] && build=--build
     slot=unity; [ "$PLAYER" = 0 ] && slot=sim build="$build --no-player"
     guard=("$HEAVY" "$slot")
-    [ -x "$HEAVY" ] || { guard=(); echo "boat_sim: no heavy guard on this host ($HEAVY); running directly" >&2; }
+    [ -n "$HEAVY" ] && command -v "$HEAVY" >/dev/null || { guard=(); echo "boat_sim: no heavy guard (${HEAVY:-none}: stack.yaml heavy or BOAT_SIM_HEAVY); running directly" >&2; }
     ( setsid "${guard[@]}" "$0" _run --seed "$SEED" $build >"$RUN/session.log" 2>&1 & echo $! >"$RUN/queued.pid" )
     echo "boat_sim: queued for the heavy $slot slot; log $RUN/session.log; when ready: tmux -L boat attach -t $SIM_TMUX_SESSION"
     ;;

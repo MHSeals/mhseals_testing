@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from mhseals_testing.harness.sim_stack import endpoint_port
+
 PERCEPTION = Path(__file__).with_name('perception_sim.yaml')
 RUN_RECORD = 'simrig_run.json'   # the session's DDS domain and the draw that chose it
 
@@ -48,7 +50,7 @@ def run_hold_still(rig, out, seconds=45, domain=None, seed=None):
     """
     cmd = [str(rig / 'run_sim.sh'), '--no-drive', '-d', str(seconds), '-o', str(out)]
     if domain:
-        cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
+        cmd += ['--domain', str(domain), '--port', str(endpoint_port(domain))]
     return run_rig(cmd, out, seconds + 300, domain, seed)
 
 
@@ -121,7 +123,7 @@ def run_perception_case(rig, out, mode, case='metamorphic', seconds=300, domain=
     cmd = [str(rig / 'run_sim.sh'), '--config', str(rig / cfg['rig_config']),
            '--run', perception_command(mode, case, cfg), '-d', str(seconds), '-o', str(out)]
     if domain:
-        cmd += ['--domain', str(domain), '--port', str(10000 + int(domain))]
+        cmd += ['--domain', str(domain), '--port', str(endpoint_port(domain))]
     if overlay:
         cmd += ['--overlay', str(overlay)]
     return run_rig(cmd, out, seconds + 300, domain, seed)

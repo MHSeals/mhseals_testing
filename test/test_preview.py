@@ -27,9 +27,9 @@ def test_settings_share_the_sim_and_test_has_its_own_everything():
     values = preview.settings(environ={})
     assert values['profile'] == 'crane_full_stack' and values['container'] == 'roboboat_preview'
     assert values['socket'] == 'preview' and not values['cache'].startswith('~') and values['results']
-    test = preview.settings(test=True, environ={'BOAT_PREVIEW_PORT': '7000'})
+    test = preview.settings(test=True, environ={'BOAT_PREVIEW_DOMAIN': '98'})
     assert test['container'] != values['container'] and test['socket'] != values['socket']
-    assert test['domain'] != values['domain'] and test['results'] == '' and test['port'] == '7000'
+    assert test['domain'] != values['domain'] and test['results'] == '' and test['port'] == 10098   # 10000 + domain
     assert 'repos' not in values and values['ref'] == ''    # the workspace manifest (test_workspace_derivation)
     assert not values['runbook'].startswith('{src}') and values['runbook'].startswith(values['src'])
     assert 'PV_BASE' not in preview.shell(values)   # built on /opt/ros alone, no stale underlay
@@ -43,7 +43,11 @@ def test_settings_share_the_sim_and_test_has_its_own_everything():
     (True, {'BOAT_PREVIEW_SOCKET': 'boat'}, 'tmux -L boat'),
     (True, {'BOAT_PREVIEW_CONTAINER': 'roboboat_preview'}, 'container shared'),
 ])
-def test_a_preview_never_takes_the_boats_or_the_other_previews(test, env, refused):
+def test_a_preview_never_takes_the_boats_or_the_other_previews(test, env, refused, tmp_path, monkeypatch):
+    (tmp_path / 'boat').mkdir()          # the profile set's one vessel, on domain 42
+    (tmp_path / 'boat' / 'profile.yaml').write_text('kind: vessel\n')
+    (tmp_path / 'boat' / 'network.env').write_text('ROS_DOMAIN_ID=42\n')
+    monkeypatch.setenv('ASTRO_PROFILES', str(tmp_path))
     found = preview.refusal(preview.settings(test, environ=env), preview.settings(not test, environ={}))
     assert (found is None) if refused is None else refused in found
 
