@@ -10,7 +10,6 @@ from mhseals_testing.ui.panels import TITLES
 AXES = (('Surge', 'm/s', 'vx'), ('Sway', 'm/s', 'vy'), ('Yaw', 'rad/s', 'wz'))
 TALL = 20            # panel height at which each axis gets 4 braille rows (else 1)
 SHORT = 40           # inner width below which the axis header is `Surge  +60% -> +0.37`
-_HUE = {'green': 'GOOD', 'yellow': 'WARN', 'red': 'BAD', None: 'MUTED'}   # track score hues
 STALE = 2.0          # s; a measurement older than this reads as a dash
 
 
@@ -53,7 +52,7 @@ def _axis(index, snapshot, view, width, rows):
     percent = theme.DASH if not tracking or tracking['score'][index] is None else f"{tracking['score'][index]:.0%}"
     header = Text(f'{name}', style='bold', no_wrap=True, overflow='crop')
     if width < SHORT:      # U14: shrink in order: drop the score, then the arrow and cmd; meas always shows whole
-        hue = getattr(theme, _HUE[tracking['colour'][index]]) if tracking else ''
+        hue = theme.score_style(tracking['colour'][index]) if tracking else ''
         tiers = ([[(f' {percent}   ', hue), (f'{cmd} {arrow} {meas}', 'bold')]] if tracking else []) + [
             [('  ', ''), (f'{cmd} {arrow} {meas}', 'bold')], [(' ', ''), (f'{cmd} {arrow} {meas}', 'bold')],
             [(' ', ''), (meas, 'bold')]]
@@ -65,7 +64,7 @@ def _axis(index, snapshot, view, width, rows):
     else:
         parts = [(f'{unit}{"" if tracking or key != "wz" else " gyro"}', 'bold')]    # gyro yields to the score
         if tracking:
-            parts.append((f'track {percent}', getattr(theme, _HUE[tracking['colour'][index]])))
+            parts.append((f'track {percent}', theme.score_style(tracking['colour'][index])))
         parts += [(f'cmd {cmd}', 'bold'), (f'meas {meas}', 'bold')]
         gap = '  ' if len(name) + 1 + sum(len(t) for t, _ in parts) + 2 * (len(parts) - 1) <= width else ' '   # tighten before cropping
         for n, (part, style) in enumerate(parts):

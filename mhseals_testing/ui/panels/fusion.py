@@ -28,16 +28,13 @@ from rich.text import Text
 from mhseals_testing.ui import palette, theme
 from mhseals_testing.ui import imaging as pixels
 
-RAMP = ('spd.5', 'spd.4', 'spd.3', 'spd.2', 'spd.1', 'spd.0')   # near (warm) to far; spd.0 past the last break
-# 16 colours: spd.5/spd.4 are both magenta (near a red buoy's box) and spd.3/spd.2 both yellow, so one hue per band;
-# yellow is left to the stale scan (warn) and green to the buoys; every ANSI hue is taken, so the 5-10 m band is the
-# bright cyan beside the plain cyan 10-20 m band
-RAMP16 = dict(zip(RAMP, ('bright_magenta', 'bright_cyan', 'cyan', 'blue', 'white', 'bright_black')))
+RAMP = tuple(f'spd.range.{band}' for band in range(5, -1, -1))   # near (warm) to far; spd.range.0 past the last break
+# theme.yaml spd.range.*: the spd tones with one 16-colour hue per band
 STALE = 'warn'         # the whole scan in one ink no band uses while it cannot be read against the boxes
 GREYS = 6              # grey levels of the frame behind the points
 LINK_BLOCKS = (64, 32, 16, 8, 4)   # px: over a link budget the frame is drawn in blocks this size (runs that sixel/kitty pack),
 #                                coarsest first: it starts coarse and refines while the budget has room
-CLASS_TOKENS = ('red', 'green', 'yellow', 'blue', 'black')
+CLASS_TOKENS = tuple(t[4:] for t in theme.PALETTE.tokens if t.startswith('obj.') and t != 'obj.unknown')   # obj.red: red
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
 READOUT_ROWS = 8       # Alignment's six lines and its border
 AROUND_MIN = 24        # Around's least width beside the camera column
@@ -80,8 +77,8 @@ def optical_xz(det, pos):
 # --- one paint for every tier ---------------------------------------------------------------------
 
 def ink_style(token):
-    """The text style of a layer token: the panel's own ramp in 16 colours (points and legend alike)."""
-    return (RAMP16.get(token) if palette.detect_tier() == '16' else None) or theme.PALETTE.style(token)
+    """The text style of a layer token (points and legend alike)."""
+    return theme.PALETTE.style(token)
 
 
 class Inks:

@@ -148,3 +148,59 @@ def test_the_armed_chip_is_far_from_the_agent_chip(theme, tier, mode, cvd):
 def test_on_16_colours_armed_is_its_own_name_and_bold(theme):
     assert theme.resolve('armed', tier='16') != theme.resolve('auth.agent', tier='16')
     assert 'bold' in theme.attr16.get('armed', '')
+
+
+# --- colour names stay in theme.yaml (audit finding 13) -------------------------------------------
+# Rich colour names, '#rrggbb' and 'color(n)' written as style strings in ui/panels, ui/popups, ui/layout and
+# ui/minimap bypass the tokens, so CVD swaps and the light theme never reach them. The allowlist only shrinks:
+# a file on it must still hold exactly its count (drop the entry when it reaches 0).
+COLOUR_ALLOW = {
+    'minimap/emit.py': 8,   # the ANSI SGR names of its own emitter; waits for the hull work (follow-up)
+}
+_STYLE_WORDS = {'bold', 'dim', 'italic', 'underline', 'reverse', 'blink', 'strike', 'not', 'on', 'default'}
+
+
+def _colour_literals(path):
+    import ast
+    import re
+    from rich.color import ANSI_COLOR_NAMES
+    spelled = re.compile(r'^(#[0-9a-fA-F]{6}|color\(\d+\)|rgb\(.*\))$')
+
+    def colour(word):
+        return (word in ANSI_COLOR_NAMES and word != 'default') or bool(spelled.match(word))
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            words = node.value.split()
+            if words and all(w in _STYLE_WORDS or colour(w) for w in words) and any(map(colour, words)):
+                yield node.lineno, node.value
+
+
+def test_no_colour_names_outside_the_theme():
+    from pathlib import Path
+    import mhseals_testing.ui as ui
+    root = Path(ui.__file__).parent
+    files = [*root.glob('panels/**/*.py'), *root.glob('popups/**/*.py'), *root.glob('minimap/**/*.py'),
+             *root.glob('layout*.py'), *root.glob('layout/**/*.py')]
+    found = {}
+    for path in files:
+        hits = list(_colour_literals(path))
+        if hits:
+            found[path.relative_to(root).as_posix()] = hits
+    over = {name: hits for name, hits in found.items() if len(hits) > COLOUR_ALLOW.get(name, 0)}
+    assert not over, f'colour names outside theme.py/theme.yaml (use a token): {over}'
+    shrunk = {name: n for name, n in COLOUR_ALLOW.items() if len(found.get(name, ())) < n}
+    assert not shrunk, f'COLOUR_ALLOW can shrink: {shrunk}'
+
+
+def test_the_fusion_range_ramp_is_the_spd_tones(theme):
+    """spd.range.* differ from spd.* only in their 16-colour name (one hue per band); the rest is spd's."""
+    for band in range(6):
+        ramp, spd = theme.tokens[f'spd.range.{band}'], theme.tokens[f'spd.{band}']
+        assert {k: ramp[k] for k in ('dark', 'light', 'x256')} == {k: spd[k] for k in ('dark', 'light', 'x256')}
+    sixteen = [theme.style(f'spd.range.{band}', tier='16') for band in range(6)]
+    assert len(set(sixteen)) == 6 and theme.style('obj.red', tier='16') not in sixteen
+
+
+def test_score_grades_take_the_status_styles():
+    from mhseals_testing.ui import theme as ui
+    assert [ui.score_style(g) for g in ('green', 'yellow', 'red', None)] == [ui.GOOD, ui.WARN, ui.BAD, ui.MUTED]

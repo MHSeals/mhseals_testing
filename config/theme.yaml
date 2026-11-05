@@ -80,6 +80,15 @@ tokens:
   spd.3:       {dark: '#D49A80', light: '#A8603E', x256: [173, 130], ansi: yellow}
   spd.4:       {dark: '#D88FB0', light: '#AA4C7A', x256: [175, 132], ansi: magenta}
   spd.5:       {dark: '#DE86D0', light: '#A8409A', x256: [176, 133], ansi: magenta}
+  # the Fusion tab's range ramp (near spd.range.5 to far spd.range.0): the spd tones, with one 16-colour hue per band,
+  # since spd.5/spd.4 share magenta (beside a red buoy's box) and spd.3/spd.2 yellow (the stale scan's warn);
+  # every ANSI hue is taken, so 5-10 m is the bright cyan beside the plain cyan 10-20 m (test_theme_tokens)
+  spd.range.0: {dark: '#5F6B7C', light: '#8C96A4', x256: [60, 247],  ansi: bright_black}
+  spd.range.1: {dark: '#7091B8', light: '#4A6E9C', x256: [67, 24],   ansi: white}
+  spd.range.2: {dark: '#B4A88E', light: '#857550', x256: [144, 101], ansi: blue}
+  spd.range.3: {dark: '#D49A80', light: '#A8603E', x256: [173, 130], ansi: cyan}
+  spd.range.4: {dark: '#D88FB0', light: '#AA4C7A', x256: [175, 132], ansi: bright_cyan}
+  spd.range.5: {dark: '#DE86D0', light: '#A8409A', x256: [176, 133], ansi: bright_magenta}
   # manual speed gauge, calm to hot: a neutral grey ramp rising to white, so it never reads as a
   # status, buoy, authority or accent hue; the lit-cell count and the percentage carry the value
   throttle.0:  {dark: '#858E9D', light: '#7A828F', x256: [245, 244], ansi: bright_black}

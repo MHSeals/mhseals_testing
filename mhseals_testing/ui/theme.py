@@ -54,6 +54,15 @@ def use_palette(new):
     })
 
 
+# A score grade (analysis.tracking: green, yellow, red, None while unscored) as its status style.
+_SCORE = {'green': 'GOOD', 'yellow': 'WARN', 'red': 'BAD', None: 'MUTED'}
+
+
+def score_style(grade):
+    """The status style of a score grade: GOOD, WARN, BAD, or MUTED unscored (follows use_palette)."""
+    return globals()[_SCORE[grade]]
+
+
 def pick(glyph, ascii_glyph):
     """The Unicode glyph, or its ASCII stand-in when ASCII mode is on."""
     return ascii_glyph if ASCII else glyph
