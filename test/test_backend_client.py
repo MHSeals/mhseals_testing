@@ -50,14 +50,15 @@ def test_deltas_arrive_in_order_and_requests_get_replies_or_errors(path):
 
     server = Server(FAST, dict, handle=handle, path=path).start()
     seen, attached = [], threading.Event()
-    client = Client(FAST, 'station', path=path, on_delta=lambda data, seq: seen.append(seq),
+    client = Client(FAST, 'station', path=path, on_delta=lambda changes, removed, seq: seen.append(seq),
                     on_link=lambda state, why: state == 'attached' and attached.set()).start()
     try:
         assert attached.wait(2)
         assert wait_for(lambda: server.attached() == ['station'])
         for n in range(20):
-            server.publish({'n': n})
+            server.publish('control', {'n': n})
         assert wait_for(lambda: len(seen) == 20) and seen == list(range(1, 21))
+        assert client.model == {'n': 19}
         assert client.request('echo', {'x': 1}) == {'who': 'station', 'x': 1}
         with pytest.raises(RequestError, match='unknown op'):
             client.request('arm')

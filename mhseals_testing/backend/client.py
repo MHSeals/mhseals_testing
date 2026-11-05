@@ -3,6 +3,8 @@
 ``attach`` is one attempt within ``attach_timeout``. ``start`` keeps the client attached in the
 background: a lost link (closed, or silent past ``link_timeout``) is reported once, then the client
 reattaches with doubling waits and resyncs from the fresh welcome, so it never holds a partial state.
+``model`` is the backend's model as of the last frame: the welcome's snapshot with every delta merged in;
+a delta whose base is not the previous seq is a gap, and the client resyncs at once.
 """
 
 import itertools
@@ -16,17 +18,18 @@ from mhseals_testing.backend.link import Conn, Lost, Refused, RequestError, sock
 
 
 class Client:
-    """``on_welcome(snapshot, seq)``, ``on_delta(data, seq)`` and ``on_link(state, why)`` run on the reader thread;
-    ``state`` is 'attached', 'lost' or 'refused'."""
+    """``on_welcome(snapshot, seq)``, ``on_delta(changes, removed, seq)`` (after the delta is merged into ``model``)
+    and ``on_link(state, why)`` run on the reader thread; ``state`` is 'attached', 'lost' or 'refused'."""
 
     def __init__(self, settings, who, path=None, on_welcome=None, on_delta=None, on_link=None):
         self.settings, self.who = settings, who
         self.path = Path(path) if path else socket_path(settings)
         self.on_welcome = on_welcome or (lambda snapshot, seq: None)
-        self.on_delta = on_delta or (lambda data, seq: None)
+        self.on_delta = on_delta or (lambda changes, removed, seq: None)
         self.on_link = on_link or (lambda state, why: None)
         self.conn, self.closed, self.ids = None, threading.Event(), itertools.count(1)
         self.pending, self.lock, self.thread = {}, threading.Lock(), None
+        self.model, self.seq = {}, None
 
     def attach(self):
         """One attempt within ``attach_timeout``: (snapshot, seq), then detach. ``Lost`` when unreachable,
@@ -43,7 +46,7 @@ class Client:
         except OSError as error:
             sock.close()
             raise Lost(f'no backend at {self.path}: {error.strerror or error}') from None
-        conn = Conn(sock, self.settings.max_frame)
+        conn = Conn(sock, self.settings.max_frame, self.settings.link_timeout)
         try:
             conn.send(protocol.hello(self.who))
             frame = conn.recv(self.settings.attach_timeout)
@@ -103,6 +106,7 @@ class Client:
                 pass
             else:
                 wait = self.settings.reconnect[0]
+                self.model, self.seq = snapshot, seq
                 self.on_welcome(snapshot, seq)
                 self.conn = conn
                 self.on_link('attached', None)
@@ -113,6 +117,8 @@ class Client:
                 if self.closed.is_set():
                     return
                 self.on_link('lost', why)
+                if why.startswith('gap'):
+                    continue   # resync at once: the backend is up
             if self.closed.wait(wait):
                 return
             wait = min(wait * 2, self.settings.reconnect[1])
@@ -136,7 +142,12 @@ class Client:
                 continue
             heard = time.monotonic()
             if frame['kind'] == 'delta':
-                self.on_delta(frame.get('data'), frame.get('seq'))
+                if frame.get('base') != self.seq:
+                    return f'gap: a delta on seq {frame.get("base")} after seq {self.seq}'
+                changes, removed = frame.get('set') or {}, frame.get('del') or []
+                protocol.apply(self.model, changes, removed)
+                self.seq = frame.get('seq')
+                self.on_delta(changes, removed, self.seq)
             elif frame['kind'] == 'reply':
                 with self.lock:
                     slot = self.pending.get(frame.get('id'))
