@@ -81,8 +81,9 @@ def test_the_shipped_checks_evaluate_on_the_fixture_and_none_is_skipped(facts):
     from mhseals_testing.health.config import load
     from mhseals_testing.profiles import load_profile
     config = load(profile=load_profile('boat'), user=False)
-    specs = [replace(s, raise_after=0.0) for s in config.specs  # fusion is off
-             if s.group == 'Perception' and not s.id.startswith('perc.lidar.')]
+    # fusion is off; perc.nearby reads its own probe (/perception/nearby), not this status fixture
+    specs = [replace(s, raise_after=0.0) for s in config.specs
+             if s.group == 'Perception' and not s.id.startswith(('perc.lidar.', 'perc.nearby'))]
     results = Engine(specs).tick(facts, {}).results
     assert {s.id for s in specs} == set(results)            # nothing skipped
     assert {r.status for i, r in results.items() if i != 'perc.zed_native.split'} == {'ok'}
