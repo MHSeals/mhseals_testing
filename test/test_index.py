@@ -74,6 +74,7 @@ def test_rebuild_writes_index_summary_readme(root):
     assert [r['id'] for r in rows] == ['new', 'old', 'bare']
     assert json.loads((root / 'INDEX.json').read_text())['schema'] == 'mhseals.index/1'
     assert rows[0]['kind'] == 'sim'
+    assert rows[1]['kind'] == 'bench'   # atlas #95: a header without kind is not assumed to be the boat
     assert (root / 'sessions' / 'old' / 'summary.json').exists()
     assert not list(root.glob('sessions/*/index.md'))
 

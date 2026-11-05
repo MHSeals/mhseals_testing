@@ -26,8 +26,9 @@ def extra_topics(profile_name, path=TOPICS):
 
 def session_record(profile, session_id):
     """The identity and clock-domain fields start_session merges into ``session.json``."""
+    from mhseals_testing.harness.session import kind
     sim = bool(profile.use_sim_time)
-    return {'id': session_id, 'kind': 'sim' if sim else 'boat',
+    return {'id': session_id, 'kind': kind(profile),
             'profile': profile.name, 'ground_truth': profile.ground_truth,
             'clock': {'domain': 'sim' if sim else 'wall', 'time_scale': 1.0}}
 

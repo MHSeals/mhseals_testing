@@ -88,3 +88,33 @@ def test_legacy_scan_is_read_only(root):
 
 def test_legacy_scan_without_root(root):
     assert session.scan_legacy() == []
+
+
+def _profile(placed, sim=False):
+    from types import SimpleNamespace
+    return SimpleNamespace(use_sim_time=sim, placed=placed)
+
+
+def test_kind_is_boat_only_on_a_placed_host():
+    # atlas #95: a laptop running the boat profile against the boat's hosts records 'bench', not 'boat'
+    from types import SimpleNamespace
+    from mhseals_testing import devices
+    host = lambda name: SimpleNamespace(name=name)
+    parts = {'odometry': SimpleNamespace(host=host('odroid')), 'camera': SimpleNamespace(host=host('jetson'))}
+    assert session.kind(_profile((host('innovation'), parts))) == 'bench'
+    assert session.kind(_profile((host('odroid'), parts))) == 'boat'
+    local = {'odometry': SimpleNamespace(host=host(devices.FALLBACK))}
+    assert session.kind(_profile((host(devices.FALLBACK), local))) == 'bench'
+    assert session.kind(_profile(None, sim=True)) == 'sim'
+
+
+def test_kind_is_bench_when_placement_is_refused():
+    from mhseals_testing import devices
+
+    class Refused:
+        use_sim_time = False
+
+        @property
+        def placed(self):
+            raise devices.DeviceError('no registry')
+    assert session.kind(Refused()) == 'bench'
