@@ -124,8 +124,8 @@ class Holds:
         if holder:
             identity = tuple(holder.get(key) for key in ('id', 'owner', 'who', 'reason'))
             return ('claim', *identity), holder.get('who') or holder.get('reason') or holder['id']
-        if self.running:
-            return ('procedure', self.running, self.run_id), self.running
+        if self.services.procedures.running:
+            return ('procedure', self.services.procedures.running, self.services.procedures.run_id), self.services.procedures.running
         with self.arbiter.lock:
             auto = (self.arbiter.mux or {}).get('auto') or {}
         label = 'unclaimed automation' if auto.get('active') else 'unknown automation (if present)'

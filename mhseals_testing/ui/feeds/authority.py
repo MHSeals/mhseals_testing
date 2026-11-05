@@ -15,7 +15,7 @@ from mhseals_testing.profiles import MUX_INPUT
 from mhseals_testing.ros.arming import muxed
 
 CMD_WINDOW_S = 1.0
-MISSION = 'Mission rehearsal'  # app.running holds the procedure's title (procedures 't')
+MISSION = 'Mission rehearsal'  # app.services.procedures.running holds the procedure's title (procedures 't')
 
 
 class AuthorityFeed:
@@ -36,7 +36,7 @@ class AuthorityFeed:
         app = self.app
         moving = self.cmd_nonzero and self.cmd_at is not None and self.clock() - self.cmd_at <= CMD_WINDOW_S
         goals = getattr(getattr(app, 'desk', None), 'goals', None)
-        return not (app.armed or app.running or app.services.manual.active or moving or (goals is not None and goals.active))
+        return not (app.armed or app.services.procedures.running or app.services.manual.active or moving or (goals is not None and goals.active))
 
     def publish(self, record):
         """The arbiter's transport: remember the record, then send it (bind swaps in the publisher)."""
@@ -57,16 +57,17 @@ class AuthorityFeed:
     def sources(self):
         """The arbiter's inputs from the app's state (see harness.authority.derive)."""
         app = self.app
-        procedure = {'name': app.running, 'run': app.run_id} if app.running else None
+        procedure = {'name': app.services.procedures.running, 'run': app.services.procedures.run_id} if app.services.procedures.running else None
         act = getattr(getattr(app, 'desk', None), 'act', None)
         if procedure and act and act.get('op') == 'run':
             procedure['claim'] = act['claim']  # the agent's own requested run nests under its claim
-        task = getattr(getattr(app, '_watcher', None), 'status', None) or None
+        watcher = app.services.procedures.watcher
+        task = (watcher.status if watcher is not None else None) or None
         # run_task's status names it 'task'.
         name = task and (task.get('task') or task.get('name'))
         children = getattr(app, 'processes', None)
         own = [n[len('task_'):] for n in getattr(children, 'processes', ())
-               if n.startswith('task_') and children.running(n)] if app.running == MISSION else []
+               if n.startswith('task_') and children.running(n)] if app.services.procedures.running == MISSION else []
         if name in own:
             task = None                        # the Mission's own task: not a second source
         elif task:

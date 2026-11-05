@@ -67,7 +67,7 @@ class View:
         facts, _ = self.health.facts.read()
         battery = facts.get('battery.voltage')
         muted = bool(self.health.engine.muted & {'conditions.poor', 'conditions.marginal'})
-        return dict(session=self.paths.session.parent.name, run=self.run_id,
+        return dict(session=self.paths.session.parent.name, run=self.services.procedures.run_id,
                     battery_v=getattr(battery, 'value', None), muted=muted)
 
     def staging(self):
@@ -136,7 +136,7 @@ class View:
         config = self.args.hardware_config
         blockers = ([] if self.review else
                     self.motion_blockers() if self.armed else self.blockers())
-        notice = self.notice if not blockers or self.running else (
+        notice = self.notice if not blockers or self.services.procedures.running else (
             f'{self.notice}{theme.SEPARATOR}blocked: {blockers[0]}')
         count = self.rows(self.focus)
         hints = (self.review_hints()
@@ -159,7 +159,7 @@ class View:
         thrusters = self.services.manual   # the Thrusters panel's edit, Manual's to write
         own = dict(
             tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=getattr(self, 'checklist', None),
-            **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), **({'labels': self.labels_model()} if self.tab == 'Labels' and not self.review else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
+            **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), **({'labels': self.labels_model()} if self.tab == 'Labels' and not self.review else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.services.procedures.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
             toasts_more=self.toasts.hidden(self.monitor.clock()), notice=notice, hints=hints,
@@ -226,7 +226,7 @@ class View:
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
         return authority_chip.driving(shared if shared is not None else feeds_module.merged(self.feeds),
                                       getattr(self, 'arbiter', None) or getattr(self, 'authority_view', None),
-                                      self.services.manual.active, self.running, time.time())
+                                      self.services.manual.active, self.services.procedures.running, time.time())
 
     def control(self):
         """``snapshot['control']`` for the Status Control rows."""
@@ -245,7 +245,7 @@ class View:
         """Something moves on screen (driving, a run, an act, a popup, a replay, the Fusion tab): idle ticks draw at
         the FRAME cap, as ever."""
         goals = getattr(self.desk, 'goals', None)
-        return bool(self.armed or self.running or self.services.manual.active or self.modal is not None or self.review
+        return bool(self.armed or self.services.procedures.running or self.services.manual.active or self.modal is not None or self.review
                     or getattr(getattr(self, 'desk', None), 'act', None) or getattr(goals, 'active', None)
                     or self.tab == 'Fusion')
 

@@ -45,7 +45,7 @@ def test_procedure_start_gives_an_ours_record_and_an_authority_event(tmp_path):
     feed, bus = start(app, clock)
     feed.arbiter.tick()
     assert bus.bound == [feed.arbiter] and feed.record['owner'] == 'none'
-    app.running, app.run_id = 'Characterize', 'r1'
+    app.state.procedures.running, app.state.procedures.run_id = 'Characterize', 'r1'
     clock[0] += 0.25
     feed.arbiter.tick()
     record = feed.view()['authority_record']
@@ -83,8 +83,8 @@ def test_the_mission_procedures_own_task_reads_as_the_procedure(tmp_path):
     app, _ = make_app(tmp_path)
     clock = [1000.0]
     feed, _ = start(app, clock)
-    app.running, app.run_id = 'Mission rehearsal', 'r1'
-    app._watcher = SimpleNamespace(status={'status': 'RUNNING', 'name': 'gate'})
+    app.state.procedures.running, app.state.procedures.run_id = 'Mission rehearsal', 'r1'
+    app.state.procedures.watcher = SimpleNamespace(status={'status': 'RUNNING', 'name': 'gate'})
     feed.arbiter.tick()
     assert feed.record['owner'] == 'external' and feed.record['conflict']   # not ours: an outside task
     running = {'task_gate'}
@@ -207,7 +207,7 @@ def test_arbiter_is_one_attribute_and_the_view_follows_its_record(tmp_path):
     assert app.arbiter is feed.arbiter
     feed.arbiter.tick()
     assert app.view()['authority'] is None                     # fresh and idle
-    app.running, app.run_id = 'Characterize', 'r1'
+    app.state.procedures.running, app.state.procedures.run_id = 'Characterize', 'r1'
     clock[0] += 0.25
     feed.arbiter.tick()
     assert app.view()['authority'] == ('ours', 'CHARACTERIZE')
@@ -231,7 +231,7 @@ def test_without_an_arbiter_the_local_state_is_the_guess(tmp_path):
     assert app.view()['authority'] is None
     app.state.manual.active = True
     assert app.view()['authority'] == ('human', 'KEYS')
-    app.state.manual.active, app.running = False, 'Drift'
+    app.state.manual.active, app.state.procedures.running = False, 'Drift'
     assert app.view()['authority'] == ('ours', 'DRIFT')
 
 
@@ -421,7 +421,7 @@ def test_a_task_started_outside_the_tui_shows_as_task_from_the_session_start(tmp
     watcher = SimpleNamespace(status={})
     app.watcher_factory = lambda: watcher
     feed, _ = start(app, [1000.0])
-    assert app._watcher is watcher                    # watching before any Mission
+    assert app.state.procedures.watcher is watcher                    # watching before any Mission
     watcher.status = {'task': 'docking', 'status': 'RUNNING'}
     feed.arbiter.tick()
     record = feed.view()['authority_record']
@@ -432,16 +432,16 @@ def test_a_task_started_outside_the_tui_shows_as_task_from_the_session_start(tmp
 def test_a_task_the_mission_procedure_started_is_not_a_second_source(tmp_path):
     app, _ = make_app(tmp_path)
     feed, _ = start(app, [1000.0])
-    app._watcher = SimpleNamespace(status={'task': 'pair_test', 'status': 'RUNNING'})
+    app.state.procedures.watcher = SimpleNamespace(status={'task': 'pair_test', 'status': 'RUNNING'})
     from mhseals_testing.procedures import PROCEDURES
-    app.running = next(p.title for p in PROCEDURES if p.key == 't')  # as run_procedure sets it
+    app.state.procedures.running = next(p.title for p in PROCEDURES if p.key == 't')  # as run_procedure sets it
     app.processes.processes = {'task_pair_test': None}
     app.processes.running = lambda name: name == 'task_pair_test'
     assert feed.sources()['task'] is None
     assert feed.sources()['procedure']['task'] == 'pair_test'
-    app._watcher.status = {'task': 'docking', 'status': 'RUNNING'}   # someone else's task
+    app.state.procedures.watcher.status = {'task': 'docking', 'status': 'RUNNING'}   # someone else's task
     assert feed.sources()['task']['task'] == 'docking'
     assert 'task' not in feed.sources()['procedure']                 # so it still conflicts
-    app._watcher.status = {'task': 'pair_test', 'status': 'RUNNING'}
-    app.running = None                                                # no mission: not ours
+    app.state.procedures.watcher.status = {'task': 'pair_test', 'status': 'RUNNING'}
+    app.state.procedures.running = None                                                # no mission: not ours
     assert feed.sources()['task']['task'] == 'pair_test'

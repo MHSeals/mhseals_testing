@@ -318,7 +318,7 @@ class Bags:
         """Open the selected closed session without replacing live owners or callbacks."""
         if self.review:
             return
-        if self.armed or self.services.manual.active or self.running or self.services.manual.test_pulses is not None:
+        if self.armed or self.services.manual.active or self.services.procedures.running or self.services.manual.test_pulses is not None:
             self.say('Review: disarm and stop motion or test pulses first')
             return
         header = review_metadata(bag.meta_path)

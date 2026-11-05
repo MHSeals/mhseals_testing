@@ -53,7 +53,7 @@ class Procedures:
     """Procedures, mixed into App."""
 
     def moving(self):
-        return bool(self.running or self.services.manual.active)
+        return bool(self.state.procedures.running or self.services.manual.active)
 
     def characterize(self, direction):
         """r: re-refine ``direction`` (the cursor column); R: the whole survey. The setting is this run's only."""
@@ -108,7 +108,7 @@ class Procedures:
             self.say(f'{procedure.title}: {reason}')
             return
         self.clear_pulses()
-        desk = getattr(self, 'desk', None)
+        desk = self.desk
         if desk is not None and procedure.key == 'm':
             desk.take_over()             # manual cancels an agent goal at once, as Space and E do
         if procedure.key == 'm' and not operator_state.paused(operator_state.load()):
@@ -116,20 +116,21 @@ class Procedures:
         try:
             # Only jump to Map once it has a body; otherwise the operator lands on a placeholder.
             if (self.settings.auto_tab and 'Map' in layout.BODIES
-                    and getattr(procedure, 'group', '') in ('Navigate', 'Mission')):
+                    and procedure.group in ('Navigate', 'Mission')):
                 self.show_tab('Map')
-            self.running = procedure.title
+            run = self.state.procedures
+            run.running = procedure.title
             results = len(self.snapshot()['results'])
-            self.run_id = runs.next_run_id(self.paths.runs, procedure.title)
-            self.run_fields = {}   # run-level fields a procedure adds to its run record (mission)
-            self.tags = dict(procedure=procedure.title, key=procedure.key, run_id=self.run_id)
+            run.run_id = runs.next_run_id(self.paths.runs, procedure.title)
+            run.run_fields = {}   # run-level fields a procedure adds to its run record (mission)
+            run.tags = dict(procedure=procedure.title, key=procedure.key, run_id=run.run_id)
             self.say(f'Running {procedure.title}')
             self.health_snapshot('start', procedure)
             if procedure.key == 'f':           # characterization (f, and an agent's run f): the fence follows
                 self.anchor_fence()
             began = self.engine.clock() if self.engine else 0.0
         except BaseException:              # manual never outlives the drive it was set for
-            self.running, self.tags = None, {}
+            self.state.procedures.running, self.state.procedures.tags = None, {}
             self.end_manual(procedure)
             raise
         aborted, ended = None, dict(outcome='complete', cause=None)
@@ -158,7 +159,7 @@ class Procedures:
             self.disarm(f'{procedure.title} cancelled')
             return
         finally:
-            self.running, self.tags = None, {}
+            self.state.procedures.running, self.state.procedures.tags = None, {}
             self.end_manual(procedure)
             self.write_run(procedure, results, aborted, ended)
         if len(self.snapshot()['results']) > results:  # show what it found
@@ -174,8 +175,9 @@ class Procedures:
         run ended (``ended``: outcome and cause, see run_end) and the procedure's run fields, which
         win (a mission's ``refused``). A run with neither results, an abort nor fields leaves none."""
         found = self.snapshot()['results'][start:]
-        run_id, self.run_id = self.run_id, None
-        fields = getattr(self, 'run_fields', None) or {}
+        run = self.state.procedures
+        run_id, run.run_id = run.run_id, None
+        fields = run.run_fields or {}
         if not found and aborted is None and not fields:
             return
         key = agent_acts.procedure(procedure.key)[1]   # its agent name (mission); title: display
@@ -186,7 +188,7 @@ class Procedures:
         runs.write_run(self.paths.runs, record, settings=vars(self.settings),
                        status=runs.ABORTED if aborted is not None else None,
                        provenance=session_module.provenance(
-                           self.facts, self.history, getattr(self.args, 'profile', None)))
+                           self.facts, self.history, self.args.profile))
 
     def health_window(self, procedure, began):
         """Snapshot health and flag the trial window invalid when a gated check left ok.
@@ -219,7 +221,7 @@ class Procedures:
                 user_config=self.args.config,
                 history=self.history, warn=self.warn_history,
                 staging=self.staging(), fit_context=self.fit_context, ask_text=self.ask_text,
-                driver_status=lambda: getattr(self.ros, 'driver_status', None),
+                driver_status=lambda: self.ros.driver_status,
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 mux_input=self.mux_input,
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
@@ -227,7 +229,7 @@ class Procedures:
                 agent=agent_run(self),    # an agent's run: {who, claim}; its save questions answer no
                 reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
                 mission_profile=act.get('profile'),   # and its nav profile (finals)
-                run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
+                run_id=self.state.procedures.run_id, run_fields=self.state.procedures.run_fields,
                 manual=dict(plant=self.plant, blockers=self.manual_now, checks=self.manual_checks,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
                             speed=lambda: self.services.manual.speed, clock=self.monitor.clock,
@@ -248,7 +250,7 @@ class Procedures:
 
     def resume_gate(self):
         """Fresh odometry, independent of the neutral-water estimator's selected source."""
-        if self.armed and muxed(self.profile) and getattr(self, 'arbiter', None) is None:
+        if self.armed and muxed(self.profile) and self.arbiter is None:
             return ['authority is unknown']
         row = self.monitor.snapshot()['sensors'].get('odometry', {})
         age = row.get('age', float('inf'))
@@ -263,12 +265,13 @@ class Procedures:
 
     def cancel_run(self, cause):
         """Abort the run in flight at its next key or paused tick; the first cause names it."""
-        self._runner_cancelled = self._runner_cancelled or cause
+        run = self.state.procedures
+        run.cancelled = run.cancelled or cause
 
     def poll_pause(self):
         """Refresh read-only sources and views; never replay pulses or watch/apply config."""
         self.source.tick(self.clock())
-        arbiter = getattr(self, 'arbiter', None)
+        arbiter = self.arbiter
         if arbiter is not None:
             arbiter.tick()
         snapshot = self.snapshot()
@@ -285,23 +288,23 @@ class Procedures:
             return 'abort'
         if action is None and keymap.resolve(['tab.drive'], key) == 'manual':
             # A manual takeover: the run (an agent's too) ends at neutral; m again drives.
-            desk = getattr(self, 'desk', None)
+            desk = self.desk
             if desk is not None:
                 desk.cancel('overridden: keyboard')
             return 'abort'
         if action in ('mark', 'revoke_agent', 'release_hold'):
             {'mark': self.mark, 'revoke_agent': self.revoke_agent,
              'release_hold': self.release_hold}[action]()
-            if getattr(self, '_runner_cancelled', False):
+            if self.state.procedures.cancelled:
                 return 'abort'
 
     @contextmanager
     def session(self, name, blockers, details):
         def show(command, remaining, label):
-            self._runner_paused = False
+            self.state.procedures.paused = False
             self.set_command(command)
             self.monitor.command(command)
-            place = getattr(runner, 'place', None)
+            place = runner.place
             if place is not None:     # a long run (characterization): bar, step, command against measured
                 self.say(progress.line(place, command, self.measured_velocity(), remaining, theme.SEPARATOR)
                          + f'{theme.SEPARATOR}Space aborts')
@@ -311,13 +314,14 @@ class Procedures:
                 self.publish_pulses(self.services.manual.test_pulses)
             self.refresh(force=False)
 
-        self._runner_cancelled = False
+        self.state.procedures.cancelled = False
         keymap, _ = keymap_module.load()
 
         def paused_tick(cause, elapsed):
-            self._runner_paused = True
-            if self._runner_cancelled:      # name what ended it and what paused it (a fence hold is no operator)
-                ended = self._runner_cancelled if isinstance(self._runner_cancelled, str) else 'by operator'
+            run = self.state.procedures
+            run.paused = True
+            if run.cancelled:      # name what ended it and what paused it (a fence hold is no operator)
+                ended = run.cancelled if isinstance(run.cancelled, str) else 'by operator'
                 raise Aborted(f'motion cancelled {ended} while paused by {cause}')
             self.poll_pause()
             self.set_command()
@@ -343,7 +347,7 @@ class Procedures:
             with runner.session(name, **details):
                 yield runner
         finally:
-            self._runner_paused = False
+            self.state.procedures.paused = False
             self.set_command()
 
     def measured_velocity(self):
@@ -359,7 +363,7 @@ class Procedures:
         '' when no arbiter is bound or the profile has no mux; when disarmed
         (the mux only runs as an arming child) a missing or stale state is '' too.
         """
-        arbiter = getattr(self, 'arbiter', None)
+        arbiter = self.arbiter
         if arbiter is None or not muxed(self.profile):
             return ''
         with arbiter.lock:
@@ -371,22 +375,23 @@ class Procedures:
 
     def reset_to_start(self, timeout):
         """crane_ml's /crane/reset_to_start; mission.reset_to_start calls it on a sim stack only."""
-        if getattr(self, '_start_reset', None) is None:
+        run = self.state.procedures
+        if run.start_reset is None:
             from mhseals_testing.procedures.mission import START_RESET
             from mhseals_testing.ros.sim_reset import StartReset
-            self._start_reset = StartReset(self.ros, load_strict(START_RESET.read_text(), START_RESET)['service'])
-        return self._start_reset(timeout)
+            run.start_reset = StartReset(self.ros, load_strict(START_RESET.read_text(), START_RESET)['service'])
+        return run.start_reset(timeout)
 
     def task_watcher(self):
-        if self._watcher is None:
+        if self.state.procedures.watcher is None:
             if self.watcher_factory is None:
                 raise RuntimeError('no task watcher in this session')
-            self._watcher = self.watcher_factory()
-        return self._watcher
+            self.state.procedures.watcher = self.watcher_factory()
+        return self.state.procedures.watcher
 
     def nav2(self):
-        if self._nav2 is None:
+        if self.state.procedures.nav2 is None:
             if self.nav2_factory is None:
                 raise RuntimeError('no Nav2 client in this session')
-            self._nav2 = self.nav2_factory()
-        return self._nav2
+            self.state.procedures.nav2 = self.nav2_factory()
+        return self.state.procedures.nav2

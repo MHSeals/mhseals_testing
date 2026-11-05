@@ -245,7 +245,7 @@ class Manual:
                        f' sent {sent} {MICRO}s')
         elif all(abs(held[index] - pulses[index]) <= READBACK_TOLERANCE for index in range(4)):
             verdict = (f'Test pulse at the outputs: {sent} {MICRO}s, read back'
-                       + ('' if self.running else '; 0 or Tab ends'))
+                       + ('' if self.services.procedures.running else '; 0 or Tab ends'))
         else:
             verdict = (f'Test pulse NOT at the outputs: sent {sent} {MICRO}s, outputs hold '
                        f'{", ".join(f"{index + 1}: {held[index]}" for index in tested)} ({output.get("source")})')

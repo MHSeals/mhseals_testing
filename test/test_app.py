@@ -584,7 +584,7 @@ def test_escape_at_a_prompt_cancels_and_disarms(tmp_path):
         arm(app)
         press(app, 'escape')
         app.run_procedure(procedure('v'))
-    assert not app.armed and 'cancelled' in app.notice and app.running is None
+    assert not app.armed and 'cancelled' in app.notice and app.state.procedures.running is None
 
 
 def test_space_aborts_motion_and_disarms(tmp_path):
@@ -1451,7 +1451,7 @@ def test_a_failure_before_manual_control_starts_leaves_the_operator_state_normal
         arm(app)
         with pytest.raises(RuntimeError):
             app.dispatch('m')
-    assert operator_state.load()['state'] == 'normal' and app.running is None
+    assert operator_state.load()['state'] == 'normal' and app.state.procedures.running is None
 
 
 def test_manual_notice_labels_the_chord_modes_like_keyboard_control(tmp_path):
@@ -1976,7 +1976,7 @@ def test_b_marks_at_once_and_a_digit_tags_it(tmp_path):
 def test_marks_never_popup_while_moving(tmp_path):
     app, _ = make_app(tmp_path)
     journal = journaling(app)
-    app.running = 'Manual'
+    app.state.procedures.running = 'Manual'
     app.dispatch('b')
     app.dispatch('N')
     app.dispatch('"')
@@ -2852,7 +2852,7 @@ def test_a_still_screen_renders_only_on_change(tmp_path, monkeypatch):
     assert len(renders) == 3
     app.refresh()                                  # a key always draws
     assert len(renders) == 4
-    app.running = 'Square'                         # something moves: every capped tick lays out again
+    app.state.procedures.running = 'Square'                         # something moves: every capped tick lays out again
     idle()
     idle()
     assert len(renders) == 6
@@ -3031,7 +3031,7 @@ def test_nested_release_restores_authority_and_e_revokes_inside_confirm(tmp_path
 
 def test_release_confirmation_names_procedure_and_rechecks_rc(tmp_path):
     app, boat, calls = release_app(tmp_path)
-    app.running = 'characterize'
+    app.state.procedures.running = 'characterize'
 
     def choose(title, options, **kwargs):
         assert kwargs['message'] == 'characterize resumes' and kwargs['default'] == 1
@@ -3156,7 +3156,7 @@ def test_release_refuses_changed_resumer_after_confirmation(tmp_path, change):
     if change in ('replace', 'revoke'):
         claim = app.arbiter.handle({'op': 'claim', 'request': 'r1', 'who': 'agent_one'})['claim']
     elif change == 'procedure':
-        app.running, app.run_id = 'characterize', 'run1'
+        app.state.procedures.running, app.state.procedures.run_id = 'characterize', 'run1'
     app.arbiter.hold = lambda *a: None
 
     def choose(title, options, **kwargs):
@@ -3166,7 +3166,7 @@ def test_release_refuses_changed_resumer_after_confirmation(tmp_path, change):
         if change in ('replace', 'new'):
             app.arbiter.handle({'op': 'claim', 'request': 'r2', 'who': 'agent_two'})
         if change == 'procedure':
-            app.run_id = 'run2'
+            app.state.procedures.run_id = 'run2'
         return 'Release'
 
     app.choose = choose

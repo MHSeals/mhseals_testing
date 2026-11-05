@@ -28,7 +28,7 @@ class QueueMixin:
             if refusal:
                 return self.refuse(req, refusal)
             if req.get('dry'):
-                if self.act is not None or self.busy or self.app.running:
+                if self.act is not None or self.busy or self.app.services.procedures.running:
                     return self.reply(req, False, 'busy', hint='an act or procedure is running; dry-run after it')
                 if req['op'] == 'goal':
                     return self.start_dry(req)
@@ -101,8 +101,8 @@ class QueueMixin:
             return f'popup {title!r} is open' if title else 'a popup is open'
         if self.busy or self.act is not None:
             return f"agent act {(self.act or {}).get('label', '')!r} is running".replace(" '' ", ' ')
-        if app.running:
-            return f'procedure {app.running!r} is running'
+        if app.services.procedures.running:
+            return f'procedure {app.services.procedures.running!r} is running'
         if app.services.manual.active:
             return 'the operator drives manually'
         return 'a goal dry run is in flight' if self.dry is not None else ''

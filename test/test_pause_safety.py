@@ -69,7 +69,7 @@ def test_actual_app_pause_cannot_resume_without_fresh_finite_stillness(tmp_path,
             getattr(runner, loop)(*((.2, 0, 0), 1) if loop == 'hold' else (1,))
     assert not outputs and frames and feeds
     assert all('PAUSED' in label for _, label in frames)
-    assert boat.sent[-1] == 'neutral' and not app._runner_paused
+    assert boat.sent[-1] == 'neutral' and not app.state.procedures.paused
 
 
 @pytest.mark.parametrize('loop', ['hold', 'supervise'])
@@ -98,7 +98,7 @@ def test_actual_app_requires_full_settle_after_sensing_or_override_returns(tmp_p
                              on_resume=lambda: callbacks.append(('goal', app.clock())))
             assert callbacks == [('cancel', 0), ('goal', 2.25)]
     assert all(t >= 2.25 for t, _ in outputs)
-    assert len(feeds) > 8 and len(frames) > 8 and not app._runner_paused
+    assert len(feeds) > 8 and len(frames) > 8 and not app.state.procedures.paused
 
 
 @pytest.mark.parametrize('loop', ['hold', 'supervise'])
@@ -125,7 +125,7 @@ def test_paused_app_routes_case_sensitive_controls_and_configured_abort(tmp_path
         with app.observe('test') as runner:
             app.arbiter.on_mux({'input': 'hold'})
             getattr(runner, loop)(*((.2, 0, 0), 1) if loop == 'hold' else (1,))
-    assert not outputs and not app._runner_paused
+    assert not outputs and not app.state.procedures.paused
     assert revoked == (['tui'] if key == 'E' else [])
     assert ('keys' in getattr(boat, 'holds', [])) == (key in ('E', 'space'))
     assert boat.sent[-1] == 'neutral'
@@ -139,13 +139,13 @@ def test_paused_u_confirmation_ticks_without_raw_output_and_needs_mux_ack(tmp_pa
         app.monitor.observe('odometry', {'vx': 0, 'vy': 0, 'wz': 0})
     app, boat, frames, outputs, _ = paused_app(tmp_path, monkeypatch, poll)
     boat.release_hold = lambda: releases.append(app.clock()) or True
-    app.running = 'test'
+    app.state.procedures.running = 'test'
     modal_keys = iter(['up', 'enter'] if confirm == 'accept' else ['enter'] if confirm == 'cancel' else ['space', 'escape'])
     delivered = []
     def read(timeout):
         app.clock.now += timeout
         if app.modal:
-            assert app._runner_paused
+            assert app.state.procedures.paused
             return next(modal_keys)
         if not delivered:
             delivered.append('U')
@@ -163,7 +163,7 @@ def test_paused_u_confirmation_ticks_without_raw_output_and_needs_mux_ack(tmp_pa
                 runner.hold((.2, 0, 0), .1)
     assert len(releases) == (confirm == 'accept')
     assert all(t >= 1.25 or command == [1500] * 4 for t, command in outputs)
-    assert not app._runner_paused and app.modal is None
+    assert not app.state.procedures.paused and app.modal is None
 
 
 def test_paused_callback_failure_leaves_neutral_and_clears_app_pause_flag(tmp_path, monkeypatch):
@@ -174,7 +174,7 @@ def test_paused_callback_failure_leaves_neutral_and_clears_app_pause_flag(tmp_pa
         with app.observe('test') as runner:
             app.arbiter.on_mux({'input': 'rc'})
             runner.hold((.2, 0, 0), 1)
-    assert not outputs and boat.sent[-1] == 'neutral' and not app._runner_paused
+    assert not outputs and boat.sent[-1] == 'neutral' and not app.state.procedures.paused
 
 
 def test_paused_runner_honors_configured_marker_passthrough(tmp_path, monkeypatch):
@@ -185,7 +185,7 @@ def test_paused_runner_honors_configured_marker_passthrough(tmp_path, monkeypatc
     def poll(app, now):
         app.arbiter.on_mux({'input': 'hold'})
     app, boat, _, outputs, _ = paused_app(tmp_path, monkeypatch, poll)
-    app.running = 'test'
+    app.state.procedures.running = 'test'
     keys = iter(['v', 'space'])
     def read(timeout):
         app.clock.now += timeout

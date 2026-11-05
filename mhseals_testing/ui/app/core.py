@@ -31,7 +31,7 @@ from mhseals_testing.ui.app import mixins, wiring
 # quit; the footer notice only through App.say). APP is what App builds and hands out: startup.py and wiring.py
 # build it, and after that App.rebuild is its one writer (a review swaps some of it). test_app_state_ownership
 # fails on any write across owners in ui/**. The containers in ui/app/state hold the groups converted so far
-# (render, bags behind aliases; manual, arm and holds as ``state.<group>``, their own); Labels keeps its LabelsState.
+# (render, bags behind aliases; manual, arm, holds and procedures as ``state.<group>``, their own); Labels keeps its LabelsState.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
 OWNERS = {
@@ -42,8 +42,7 @@ OWNERS = {
     'Manual': ('state.manual',),
     'Arm': ('state.arm',),
     'Holds': ('state.holds',),
-    'Procedures': ('running', 'run_id', 'run_fields', 'tags', '_runner_cancelled', '_runner_paused', '_start_reset',
-                   '_nav2', '_watcher'),
+    'Procedures': ('state.procedures',),
     'Popups': ('_nav2_live', 'camera_boxes'),
     'Annotate': ('flash', 'pick', 'bad_on', '_ids', '_queued'),
     'Quit': ('closed', 'guests_seen', 'keep_units', 'stop_adopted', 'keys', 'live'),
@@ -116,13 +115,12 @@ class App(*mixins.ROSTER):
         # Manual control needs key releases (Kitty protocol) to tell held keys from taps: the
         # session's reader turns them on (ui/input.py), keeping its queue across manual mode.
         self.open_events = open_events or (lambda: key_input.events(self.keys))
-        self.nav2_factory, self._nav2 = nav2, None
+        self.nav2_factory = nav2
         self.nav2_file = nav2_file  # harness.nav2_edit.Nav2File, or None
         self.nav2_live_factory, self._nav2_live = nav2_live, None   # -> harness.nav2_live.Nav2Live
         if nav2_file is not None and nav2_file.applier is None and nav2_live is not None:
             nav2_file.applier = self.apply_nav2_live
-        self.watcher_factory, self._watcher = task_watcher, None
-        self.run_id = None  # the procedure run in progress; its results carry this id
+        self.watcher_factory = task_watcher
         self.settings = args.settings
         self.tabs = TabMemory()
         wiring.map_views(self)   # minimap, layerbox, map_keys, map_tab_keys, fusion_keys
@@ -134,9 +132,7 @@ class App(*mixins.ROSTER):
         self.activity = 'results'
         self.modal = None
         self.toasts = wiring.toasts()
-        self.running = None
         self._wall_offset = None
-        self.tags = {}           # procedure, key and run_id of the run in progress
         self.say(theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel')
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
@@ -205,11 +201,12 @@ class App(*mixins.ROSTER):
 
     def emit(self, phase, **details):
         """Journal an event stamped with the running procedure; explicit details win."""
-        self.ros.emit(phase, **{**self.tags, **details})
+        self.ros.emit(phase, **{**self.services.procedures.tags, **details})
 
     def record(self, result):
-        if self.run_id:
-            result = {**result, 'run_id': self.run_id}
+        run_id = self.services.procedures.run_id
+        if run_id:
+            result = {**result, 'run_id': run_id}
         self.monitor.record_result(result)
         self.ros.emit('result', **result)
         self.export()

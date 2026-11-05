@@ -123,7 +123,7 @@ def test_settings_and_health_edits_wait_for_a_running_procedure(tmp_path, monkey
 
     before = app.settings.amplitude
     note = app.config_note
-    app.running = 'Controller'
+    app.state.procedures.running = 'Controller'
     path = app.watcher.watches['settings'].path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('amplitude: 0.9\n')
@@ -132,7 +132,7 @@ def test_settings_and_health_edits_wait_for_a_running_procedure(tmp_path, monkey
     settle(app)
     assert app.settings.amplitude == before and severity() == 'fail'
     assert app.config_note == note      # only the hardware file labels the thrusters panel
-    app.running = None
+    app.state.procedures.running = None
     app.watch_config()
     assert app.settings.amplitude == 0.9 and severity() == 'warn'
 

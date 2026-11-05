@@ -413,7 +413,7 @@ class Arm:
 
         A watcher publishes neutral too: Space always works.
         """
-        if getattr(self, '_runner_paused', False):
+        if self.services.procedures.paused:
             self.cancel_run(f'by {by}: {reason}')
         try:
             self.disarm(reason, by)

@@ -146,7 +146,7 @@ class Annotate:
 
     def scene(self):
         conditions = getattr(getattr(self, 'labels', None), 'conditions', None)
-        return {'running': self.running, 'run': self.run_id, 'armed': self.armed, 'manual': self.services.manual.active,
+        return {'running': self.services.procedures.running, 'run': self.services.procedures.run_id, 'armed': self.armed, 'manual': self.services.manual.active,
                 'driving': list(self.driving() or ()) or None, 'conditions': conditions,
                 'nearby': (getattr(self, 'feeds', None) and next((f.info.get('nearby') for f in self.feeds
                                                                     if getattr(f, 'info', None)), None))}

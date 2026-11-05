@@ -106,9 +106,8 @@ class App:
         self.calls, self.events, self.keys = [], [], []
         self.watching = self.review = None
         self.args = SimpleNamespace(review=None, bench_override=False)
-        self.feeds, self.notice, self.modal, self.running, self.manual = [], '', None, None, False
-        self.detaching, self.activity, self.run_id = False, 'results', None
-        self._runner_cancelled = self._runner_paused = False
+        self.feeds, self.notice, self.modal = [], '', None
+        self.detaching, self.activity = False, 'results'
         self.settings = Settings(agent_motion='confirm')      # the confirm path; the shipped default is allow
         self.profile = SimpleNamespace(name='sim', muxed=True, use_sim_time=False, command_units='velocity',
                                        command_topic='/cmd_vel', command_type='twist', uses_fcu=True,
@@ -123,7 +122,7 @@ class App:
         self.monitor = SimpleNamespace(snapshot=lambda: {'sensors': {'odometry': {'status': 'LIVE', 'age': 0.1}}})
         self.facts = {'gps.fix_type': SimpleNamespace(value=6)}
         self.ros = SimpleNamespace(emit=self.emit, nodes=lambda: ['/bt_navigator', '/planner_server'])
-        self._watcher, self.engine, self.nav = None, None, Nav2()
+        self.engine, self.nav = None, Nav2()
         self.steps, self.on_step, self.arm_answer, self.answers = 3, {}, True, []
         self.agent_arm_why = ''
 
@@ -154,12 +153,13 @@ class App:
 
     def stop(self, reason, by='operator'):
         self.calls.append(('stop', reason))
-        if self._runner_paused:
+        if self.state.procedures.paused:
             self.cancel_run(f'by {by}: {reason}')   # as ui/app/actions/arm.py
         self.is_armed = False
 
     def cancel_run(self, cause):
-        self._runner_cancelled = self._runner_cancelled or cause
+        run = self.state.procedures
+        run.cancelled = run.cancelled or cause
 
     def revoke_agent(self):
         holder = self.arbiter.table.holder()
@@ -228,14 +228,15 @@ class App:
 
     def run_procedure(self, procedure):
         """The runner, reduced: blockers each step; a pause ticks the feeds and honours the cancel."""
-        self.running, self.run_id = procedure.title, runs.next_run_id(self.paths.runs, procedure.title)
+        run = self.state.procedures
+        run.running, run.run_id = procedure.title, runs.next_run_id(self.paths.runs, procedure.title)
         aborted = None
         try:
             for step in range(self.steps):
                 self.on_step.get(step, lambda: None)()
-                if self._runner_paused:
+                if run.paused:
                     self.tick()
-                    if self._runner_cancelled:
+                    if run.cancelled:
                         raise Aborted('motion cancelled by operator')
                 reasons = agent_feed.blockers(self)
                 if reasons:
@@ -245,8 +246,8 @@ class App:
             aborted = str(error)
             raise
         finally:
-            self.running = None
-            runs.write_run(self.paths.runs, {'procedure': procedure.title, 'run_id': self.run_id,
+            run.running = None
+            runs.write_run(self.paths.runs, {'procedure': procedure.title, 'run_id': run.run_id,
                                              'results': [{'verdict': 'PASS'}]},
                            status=runs.ABORTED if aborted else None)
         self.notice = f'{procedure.title} complete'
@@ -407,7 +408,7 @@ def test_a_lapsed_motion_lease_in_the_confirm_popup_expires_the_claim(rig):
     rig.app.answers = [[]]                                    # nobody answers; the CLI died: no renewals
     reply = final(ask(rig, 'run', c, key='square')['id'])
     assert reply['error'] == 'expired' and rig.app.arbiter.ended[c] == 'expired'
-    assert ('hold', 'lease') in rig.app.calls and rig.app.running is None
+    assert ('hold', 'lease') in rig.app.calls and rig.app.state.procedures.running is None
 
 
 def test_a_dry_run_moves_nothing(rig):
@@ -416,7 +417,7 @@ def test_a_dry_run_moves_nothing(rig):
     assert reply['ok'] and reply['result']['asks'] == {'arm': False, 'confirm': True}
     reply = final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])
     assert reply['ok'] and reply['result']['gate'] is None and reply['result']['path_m'] == 5.0
-    assert rig.app.nav.goal is None and not rig.app.running and rig.desk.goals.active is None
+    assert rig.app.nav.goal is None and not rig.app.state.procedures.running and rig.desk.goals.active is None
 
 
 def test_a_dry_run_while_an_act_runs_is_busy_and_asks_nav2_nothing(rig):
@@ -442,7 +443,7 @@ def test_run_blockers_answer_only_renew_stop_and_release(rig):
     c = claim(rig)
     rig.app.settings.agent_motion = 'allow'
     sent, asked, lifecycle = {}, [], rig.app.nav.lifecycle
-    rig.app.nav.lifecycle = lambda timeout=2.0: asked.append(rig.app.running) or lifecycle()
+    rig.app.nav.lifecycle = lambda timeout=2.0: asked.append(rig.app.state.procedures.running) or lifecycle()
 
     def write():
         sent['mark'] = ch.request('mark', 'claude-3f2a', {'note': 'gust'})
@@ -521,7 +522,7 @@ def test_space_cancels_an_agent_run_and_it_never_resumes(rig):
     assert reply['hint'] == 'operator must re-arm and release the hold (U)'
     assert rig.app.arbiter.table.get(c)['state'] == 'active'          # suspended, not dropped
     rig.desk.tick()
-    assert rig.app.running is None and rig.desk.act is None          # nothing restarts it
+    assert rig.app.state.procedures.running is None and rig.desk.act is None          # nothing restarts it
 
 
 def test_a_hold_the_stopped_mux_saved_suspends_the_claim_while_disarmed(rig):
@@ -546,10 +547,10 @@ def test_manual_mode_cancels_the_agent_run(rig):
 def test_an_rc_or_keyboard_mux_takeover_pauses_then_aborts_the_agent_run(rig, input, cause):
     def takeover():
         rig.app.set_mux(input)
-        rig.app._runner_paused = True                # the runner pauses on the override
+        rig.app.state.procedures.paused = True                # the runner pauses on the override
     _, reply = run_with(rig, 1, takeover)
     assert reply['error'] == f'overridden: {cause}'
-    assert f'overridden: {cause}' in rig.app._runner_cancelled and 'operator' not in rig.app._runner_cancelled
+    assert f'overridden: {cause}' in rig.app.state.procedures.cancelled and 'operator' not in rig.app.state.procedures.cancelled
     # set inside the pause:
     # the runner's abort names it (ui/app/actions/procedures.py), never "by operator" for a hold or a takeover
 
@@ -706,7 +707,7 @@ def test_boat_agent_stop_closes_a_popup_of_the_agents_run_and_ends_it(rig):
     c, reply = run_with(rig, 1, waits_in_a_popup)
     assert seen['act']['who'] == 'claude-3f2a' and seen['act']['claim'] == c
     assert not reply['ok'] and reply['result']['cause'] == 'stop' and not rig.app.armed
-    assert rig.app.modal is None and rig.app.running is None and rig.desk.act is None
+    assert rig.app.modal is None and rig.app.state.procedures.running is None and rig.desk.act is None
 
 
 def test_an_operators_popup_never_closes_on_the_desk():
@@ -758,7 +759,7 @@ def test_a_stale_request_is_never_executed(rig):
     c = claim(rig)
     req = ch.request('run', 'claude-3f2a', {'key': 'square'}, claim=c, request_s=-1)
     rig.desk.tick()
-    assert final(req['id'])['error'] == 'expired' and rig.app.running is None
+    assert final(req['id'])['error'] == 'expired' and rig.app.state.procedures.running is None
 
 
 def test_a_deadline_is_clamped_to_its_stamp_plus_request_s(rig):
@@ -777,7 +778,7 @@ def test_a_motion_request_from_before_a_takeover_is_never_replayed(rig):
     again = agent_feed.AgentDesk(rig.app, rig.app.ros, registry=rig.registry, clock=lambda: rig.clock[0])
     again.tick()
     reply = final(old['id'])
-    assert reply['error'] == 'expired' and 'before' in reply['hint'] and rig.app.running is None
+    assert reply['error'] == 'expired' and 'before' in reply['hint'] and rig.app.state.procedures.running is None
 
 
 def test_a_restart_resumes_the_position_and_skips_answered_requests(rig):
@@ -805,7 +806,7 @@ def test_a_busy_ui_leaves_the_act_queued_until_queue_s(rig):
     time.sleep(0.06)
     rig.desk.tick()
     reply = final(req['id'])
-    assert reply['error'] == 'busy_ui' and 'queued' in reply['hint'] and rig.app.running is None
+    assert reply['error'] == 'busy_ui' and 'queued' in reply['hint'] and rig.app.state.procedures.running is None
 
 
 def test_a_run_queued_behind_a_popup_starts_when_the_popup_closes(rig):
@@ -835,7 +836,7 @@ def test_a_queued_run_whose_cli_went_away_never_starts(rig):
     rig.app.modal = None
     rig.desk.tick()
     reply = final(req['id'])
-    assert reply['error'] == 'expired' and 'stopped waiting' in reply['hint'] and rig.app.running is None
+    assert reply['error'] == 'expired' and 'stopped waiting' in reply['hint'] and rig.app.state.procedures.running is None
     assert not rig.desk.queue and ('arm_panel' not in rig.app.calls)
 
 
@@ -967,7 +968,7 @@ def test_a_request_queued_behind_a_goal_expires_after_queue_s(rig):
     rig.desk.tick()
     time.sleep(0.06)
     rig.desk.tick()
-    assert final(req['id'])['error'] == 'busy_ui' and rig.app.running is None
+    assert final(req['id'])['error'] == 'busy_ui' and rig.app.state.procedures.running is None
 
 
 def test_recent_keeps_finished_and_refused_acts_after_act_clears(rig):
@@ -1015,7 +1016,7 @@ def test_manual_takeover_cancels_the_agent_goal_in_nav2_and_the_desk_keeps_answe
     assert rig.app.nav.goal.cancelled and rig.desk.goals.active is None and rig.desk.act is None
     reply = final(req['id'])
     assert reply['error'] == 'overridden: keyboard' and ch.exit_code(reply) == 3 and 'U' in reply['hint']
-    rig.app.state.manual.active, rig.app.running = True, 'Manual control'
+    rig.app.state.manual.active, rig.app.state.procedures.running = True, 'Manual control'
     written = []
     rig.desk.status = lambda app, desk: written.append(desk.summary())
     rig.clock[0] += desk_common.STATUS_S
@@ -1153,7 +1154,7 @@ def test_a_hold_the_mux_restores_undoes_the_sim_arm_and_is_never_released(sim):
     sim.app.agent_arm_why = 'the mux holds (costmap_stale); only the operator releases it (U)'
     reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
     assert reply['error'] == 'refused' and 'costmap_stale' in reply['hint'] and not sim.app.armed
-    assert sim.app.running is None
+    assert sim.app.state.procedures.running is None
 
 
 def test_a_saved_hold_refuses_the_sim_arm_before_arming(sim):
@@ -1245,7 +1246,7 @@ def test_any_error_while_sim_arming_disarms_and_refuses(sim, error):
     reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
     assert reply['error'] == 'refused' and 'arming failed' in reply['hint'] and not sim.app.armed
     assert any(c[0] == 'disarm' and 'arming failed' in c[1] and c[2] == 'agent'
-               for c in sim.app.calls if isinstance(c, tuple)) and sim.app.running is None
+               for c in sim.app.calls if isinstance(c, tuple)) and sim.app.state.procedures.running is None
 
 
 def test_a_ctrl_c_while_sim_arming_disarms_and_propagates(sim):
@@ -1457,7 +1458,7 @@ def test_switching_a_control_row_mid_run_stops_it_as_e_does(rig, switch, cause):
     assert f'{c} stopped: {cause}' in rig.app.notice
     assert rig.app.arbiter.table.get(c) is not None                                # the claim stays
     rig.desk.tick()
-    assert rig.desk.act is None and rig.app.running is None                        # never resumes
+    assert rig.desk.act is None and rig.app.state.procedures.running is None                        # never resumes
     rig.app.revoke_agent()                                                         # E still wins
     assert rig.app.arbiter.table.get(c)['state'] == 'revoked' and ('hold', 'revoke') in rig.app.calls
 
@@ -1582,7 +1583,7 @@ def test_a_refused_command_mode_switch_is_the_agents_refusal(rig, monkeypatch):
 
 def test_settings_are_refused_while_a_procedure_runs(rig):
     c = claim(rig)
-    rig.app.running = 'Thrust physics'                       # mid-segment
+    rig.app.state.procedures.running = 'Thrust physics'                       # mid-segment
     reply = final(ask(rig, 'run', c, key='thrust_physics', settings={'thrust_step': 'survey'})['id'])
     assert reply['error'] == 'busy' and 'mid-segment' in reply['hint']
     rig.app.is_armed = False

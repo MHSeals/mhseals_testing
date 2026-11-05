@@ -100,7 +100,7 @@ def test_invalid_window_notice_survives_the_complete_notice(tmp_path):
     app.availability = lambda proc: None
     app.snapshot = lambda: {'results': list(results)}
     app.journal.window_problems = lambda *a: ['Compass was fail']
-    stub = SimpleNamespace(title='Obs', key=p.key, needs=(), run=lambda ctx: results.append({'verdict': 'OK'}))
+    stub = SimpleNamespace(title='Obs', key=p.key, needs=(), group='', run=lambda ctx: results.append({'verdict': 'OK'}))
     app.run_procedure(stub)
     assert app.notice == 'Obs: window invalid, Compass was fail'
     app.journal.window_problems = lambda *a: []
