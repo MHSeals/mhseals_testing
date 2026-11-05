@@ -20,7 +20,6 @@ from mhseals_testing.nav2.live import Ports
 from mhseals_testing.ros.authority import AUTHORITY_TOPIC, MUX_STATE_TOPIC
 from mhseals_testing.ros.params import Params
 
-MUX_REQUEST_TOPIC = '/command_mux/request'
 GOAL_ACTIONS = ('navigate_to_pose', 'navigate_through_poses')
 LIVE_GOAL = (1, 2, 3)           # GoalStatus ACCEPTED, EXECUTING, CANCELING
 BAD_LOG = ('not found', 'invalid')
@@ -112,6 +111,7 @@ class RosPorts(Ports):
                 (self.clock(), m.name, m.msg, m.level)),
             QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.VOLATILE))
+        from mhseals_testing.ros.plant import MUX_REQUEST_TOPIC     # ROS messages: imported with the node
         self.publisher = node.create_publisher(String, MUX_REQUEST_TOPIC, 10)
 
     def _sample(self, key, message):

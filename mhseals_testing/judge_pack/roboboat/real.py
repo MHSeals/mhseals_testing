@@ -7,7 +7,7 @@ Channels (all on the bag's receive clock, seconds):
                   plus the fix status per sample (2 = RTK/GBAS)
   actuator.cmd    /cmd_vel (surge, sway, yaw) as commanded (effort units on the boat profile)
 Events: the session journal topic (/mhseals_testing/events: armed, disarmed, procedure phases) and
-RTK route/phase changes (/mhseals_testing/rtk/status).
+RTK route/phase changes (ros/rtk.STATUS_TOPIC).
 
 Labels: the session manifest beside the bag (annotate/manifest.py), when there is one, adds the operator's water
 conditions to the scenario, flags a window that overlaps excluded spans (bad data, interventions, link holds,
@@ -32,6 +32,7 @@ import numpy as np
 from mhseals_testing.annotate import manifest as session_manifest
 from mhseals_testing.events import TOPIC as EVENTS_TOPIC
 from mhseals_testing.judge_pack.roboboat._core import core
+from mhseals_testing.ros.rtk import STATUS_TOPIC as RTK_STATUS
 
 core()
 
@@ -45,7 +46,6 @@ from judge.insight import Insight  # noqa: E402
 from judge.source import FidelityProfile, Refused, Source  # noqa: E402
 
 REAL_PROFILE = 'boat'                        # the plant whose bags this source reads
-RTK_STATUS = '/mhseals_testing/rtk/status'   # this package's own RTK status (ros/rtk.py)
 
 
 def _names(profile=REAL_PROFILE):

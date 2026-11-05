@@ -3,11 +3,7 @@
 import json
 import time
 
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from mavros_msgs.msg import RTCM
-from std_msgs.msg import String
-
-STATUS_TOPIC = '/mhseals_testing/rtk/status'
+STATUS_TOPIC = '/mhseals_testing/rtk/status'   # the one name (ROS imports below are lazy: a reader needs none)
 
 # MAVROS fragments up to 4 x 180 B; a longer message is dropped on its side with an error.
 MAX_FRAME = 720
@@ -28,7 +24,9 @@ class MavrosSink:
     """
 
     def __init__(self, node, namespace='/mavros', clock=time.monotonic):
-        self.node, self.clock = node, clock
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+        from mavros_msgs.msg import RTCM
+        self.node, self.clock, self.message = node, clock, RTCM
         self.topic = namespace.rstrip('/') + '/gps_rtk/send_rtcm'
         self.publisher = node.create_publisher(
             RTCM, self.topic,
@@ -56,7 +54,7 @@ class MavrosSink:
         else:
             parts = [frame]
         for part in parts:
-            message = RTCM()
+            message = self.message()
             message.header.stamp = self.node.get_clock().now().to_msg()
             message.data = list(part)
             self.publisher.publish(message)
@@ -90,14 +88,16 @@ class StatusPublisher:
     """Latched std_msgs/String JSON of StatusTracker.status() at 1 Hz."""
 
     def __init__(self, node, tracker, topic=STATUS_TOPIC):
-        self.tracker = tracker
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+        from std_msgs.msg import String
+        self.tracker, self.string = tracker, String
         self.publisher = node.create_publisher(
             String, topic, QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.timer = node.create_timer(1.0, self.publish)
 
     def publish(self):
-        self.publisher.publish(String(data=json.dumps(self.tracker.status())))
+        self.publisher.publish(self.string(data=json.dumps(self.tracker.status())))
 
 
 # The rover's fix for NTRIP picking and the GGA uplink: stock MAVROS publishes it, no extras needed.

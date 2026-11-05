@@ -85,7 +85,7 @@ class Ports:
         raise NotImplementedError
 
     def mux_request(self, request):
-        """Publish ``request`` on /command_mux/request."""
+        """Publish ``request`` on command_mux's request topic (ros/plant.MUX_REQUEST_TOPIC)."""
         raise NotImplementedError
 
     def read(self, node):
