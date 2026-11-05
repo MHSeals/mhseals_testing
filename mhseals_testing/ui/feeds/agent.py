@@ -43,24 +43,14 @@ from mhseals_testing.procedures import unavailable
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, parts, theme
 from mhseals_testing.ui.feeds import agent_ops, authority as authority_feed
+from mhseals_testing.ui.feeds.agent_desk.popups import PopupsMixin
+from mhseals_testing.ui.feeds.agent_desk.popups import operator_popup  # noqa: F401 - re-exported
 from mhseals_testing.ui.feeds.agent_desk.common import (  # noqa: F401 - re-exported
     MOTION, NOTICED, URGENT, LIFECYCLE_S, LIFECYCLE_TIMEOUT_S, DRY_TIMEOUT_S, FENCE_WAIT_S, DRY_CLOSE_S, NOTES,
     PART_OPS, FCU_OPS, FCU_CLAIMED, CHANGING, NEVER_PARTS, PROGRESS_S, STATUS_S, NAV2_PREFIX, ATTENTION_S, HINTS)
 
 
-def operator_popup(app):
-    """Return the popup a run waits on (e.g. the procedure's "Clear the area and press Enter"), or None.
-
-    Only the operator answers it; an agent reports it and waits (no verb answers a popup).
-    """
-    modal = getattr(app, 'modal', None)
-    if not isinstance(modal, dict):
-        return None
-    title, message = modal.get('title') or '', modal.get('message') or ''
-    return f'{title}: {message}' if title and message else (title or message or None)
-
-
-class AgentDesk:
+class AgentDesk(PopupsMixin):
     """The desk; ``clock`` is the wall clock in seconds (deadlines are ``time_ns`` stamps)."""
 
     def __init__(self, app, ros, *, registry=None, config=None, clock=time.time, path=None, status=None):
@@ -808,21 +798,6 @@ class AgentDesk:
             if not keep and act is not None and not act['replied']:   # the TUI is closing or handing over
                 self.finish(act, False, 'handover' if app.detaching else 'cancelled', hint=self.closed_hint())
 
-    def confirm(self, act, title):
-        """Under agent_motion confirm, Allow from the human (Refuse is focused); returns True to go on."""
-        if self.app.settings.agent_motion != 'confirm':
-            return True
-        self.set_state(act, 'asking')
-        choice, why = agent_acts.choose(self.app, title, ('Allow', 'Refuse'), self.config.get()['confirm_s'],
-                                        self.watch, clock=self.clock,
-                                        message=f"Agent {act['who']} · claim {act['claim']}")
-        if choice == 'Allow':
-            return True
-        cause = act['cause'] or why or 'refused'      # the Refuse button names no cause
-        self.finish(act, False, self.error_of(cause) if act['cause'] else 'refused',
-                    hint=self.hint_of(cause, f'operator: {cause}'))
-        return False
-
     def act_run(self, act):
         app = self.app
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
@@ -986,18 +961,6 @@ class AgentDesk:
         goals = self.app.goals
         if goals.active is not None and goals.active['claim'] == act['claim']:
             goals.cancel(f'agent: {cause}')
-
-    def act_ask(self, act):
-        args = act['req']['args']
-        options = [str(o) for o in (args.get('options') or ('yes', 'no'))][:6]
-        self.set_state(act, 'asking')
-        choice, why = agent_acts.choose(self.app, f"Agent {act['who']} asks", options,
-                                        self.config.get()['ask_s'], self.watch, clock=self.clock,
-                                        message=str(args.get('question', ''))[:300], danger=False)
-        if choice is not None:
-            return self.finish(act, True, result={'choice': choice})
-        self.finish(act, False, 'timeout' if why == 'timeout' else 'cancelled', result={'cause': why})
-        return False
 
     def begin(self, act, result=None):
         act['started'], act['renewed'] = True, self.clock()
