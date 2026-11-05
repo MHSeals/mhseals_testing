@@ -149,6 +149,27 @@ def test_declining_the_save_keeps_the_old_correction(config, tmp_path):
     assert not any(r.get('verdict') == 'SAVED' for r in records)
 
 
+def test_an_agents_run_never_asks_to_save_and_names_the_set_line(config, tmp_path):
+    """Nobody need be at the keys for an agent's run: it answers no, and the summary names the boat_agent set line
+    that saves this fit under the agent's claim."""
+    import shlex
+    from mhseals_testing.agent import ask
+    before = load_config(config)['characterization']
+    ctx, records, calls = context(tmp_path, Fake(config), answer='save')
+    ctx.services['agent'] = dict(who='claude-3f2a', claim='c7')
+    run(ctx)
+    assert calls == [] and not any(r.get('verdict') == 'SAVED' for r in records)
+    assert load_config(config)['decoupling'] == C_OLD and load_config(config)['characterization'] == before
+    line = next(r['save'] for r in records if 'save' in r)
+    assert line.startswith("not saved (an agent's run never saves by itself)")
+    words = shlex.split(line.split(': ', 1)[1])
+    assert words[:2] == ['boat_agent', 'set'] and words[words.index('--claim') + 1] == 'c7'
+    values, error = ask.assignments(words[2:4])
+    assert error is None and set(values) == {'decoupling', 'decoupling_negative'}
+    plus = yaml.safe_load(values['decoupling'])
+    assert columns(plus)[0] == pytest.approx(EXPECTED[(0, 1)], abs=1e-6)
+
+
 def test_overlay_is_written_before_the_save_question(config, tmp_path):
     nav2 = tmp_path / 'nav2.yaml'
     nav2.write_text(yaml.safe_dump({'controller_server': {'ros__parameters': {'FollowPath': {}}},

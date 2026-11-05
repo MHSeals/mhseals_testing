@@ -4,5 +4,6 @@ agent_desk/desk.py's docstring. ``from mhseals_testing.ui.feeds import agent`` a
 from mhseals_testing.ui.feeds.agent_desk.common import (  # noqa: F401 - re-exported
     MOTION, NOTICED, URGENT, LIFECYCLE_S, LIFECYCLE_TIMEOUT_S, DRY_TIMEOUT_S, FENCE_WAIT_S, DRY_CLOSE_S, NOTES,
     PART_OPS, FCU_OPS, FCU_CLAIMED, CHANGING, NEVER_PARTS, PROGRESS_S, STATUS_S, NAV2_PREFIX, ATTENTION_S, HINTS)
-from mhseals_testing.ui.feeds.agent_desk.desk import AgentDesk, blockers, ended, start, step_setting  # noqa: F401
+from mhseals_testing.ui.feeds.agent_desk.desk import (  # noqa: F401
+    AgentDesk, blockers, ended, run_act, start, step_setting)
 from mhseals_testing.ui.feeds.agent_desk.popups import operator_popup  # noqa: F401 - re-exported

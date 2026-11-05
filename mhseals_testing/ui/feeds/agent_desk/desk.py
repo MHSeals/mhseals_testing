@@ -10,7 +10,7 @@ Safety, in one place:
 * A human override (Space, manual, RC, a hold, a fault), ``E``, a lapsed lease or a release cancels
   the act at once and nothing resumes it. A run aborts through the runner's interlock path
   (``blockers``, neutral first); while it is paused for an override, the next tick sets
-  ``app._runner_cancelled``. A goal is cancelled. A desk popup closes.
+  ``app._runner_cancelled``. A goal is cancelled. A desk popup, and any popup of its run (``run_act``), closes.
 * The motion lease: the act's blocking CLI renews every ``motion_s``/3; a lapse expires the claim
   through the arbiter, which stops exactly as ``E`` does.
 * Only ``release HOLD --why`` (ui/feeds/agent_ops.py, agent/grants.py) releases a hold: a lease or
@@ -172,6 +172,13 @@ def blockers(app):
     """The desk's runner blockers (app.session adds them to every runner); [] without a desk."""
     desk = getattr(app, 'desk', None)
     return desk.blockers() if desk is not None else []
+
+
+def run_act(app):
+    """The agent act whose run is in flight (started), or None. Its popups close once it ends (ui/popups ``popup``)
+    and its procedure answers its own save questions with the safe answer (procedure context ``agent``)."""
+    act = getattr(getattr(app, 'desk', None), 'act', None)
+    return act if act is not None and act['op'] == 'run' and act.get('started') else None
 
 
 def step_setting(app, name, key):

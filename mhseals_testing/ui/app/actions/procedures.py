@@ -47,6 +47,12 @@ def nav2_params():
     return path if path.exists() else None
 
 
+def agent_run(app):
+    """``{who, claim}`` of the agent act whose run this is, or None (an operator's run)."""
+    act = agent_feed.run_act(app)
+    return None if act is None else dict(who=act['who'], claim=act['claim'])
+
+
 class Procedures:
     """Procedures, mixed into App."""
 
@@ -221,6 +227,7 @@ class Procedures:
                 mux_input=self.mux_input,
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
                 task=getattr(self, 'agent_task', None),   # mission: the task an agent's run named
+                agent=agent_run(self),    # an agent's run: {who, claim}; its save questions answer no
                 reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
                 mission_profile=getattr(self, 'agent_profile', None),   # and its nav profile (finals)
                 run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),

@@ -16,8 +16,12 @@ def popup(app, modal, handle, refresh=None):
 
     Background work keeps ticking while the popup waits, so test pulses keep
     flowing and the dashboard behind it stays live. ``refresh``, if given, is
-    called after each tick to rebuild the body.
+    called after each tick to rebuild the body. A popup opened inside an agent's run (its save question, a
+    Ready prompt) closes as cancelled once that act ends (boat_agent stop, release, revoke, a lapsed lease), so
+    the run ends with it instead of waiting for an answer nobody gives.
     """
+    from mhseals_testing.ui.feeds.agent import run_act
+    owner = run_act(app)
     previous = app.modal
     app.modal = modal
     try:
@@ -29,6 +33,8 @@ def popup(app, modal, handle, refresh=None):
             app.tick()
             if refresh:
                 refresh()
+            if owner is not None and owner['cause']:
+                raise Cancelled(f"agent act ended: {owner['cause']}")
             if key is None:
                 continue
             if getattr(app, 'perf', None) is not None:

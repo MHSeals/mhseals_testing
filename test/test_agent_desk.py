@@ -680,6 +680,39 @@ def test_an_agents_own_stop_reads_stop(rig):
     assert final(goal['id'])['result']['cause'] == 'stop'
 
 
+def test_boat_agent_stop_closes_a_popup_of_the_agents_run_and_ends_it(rig):
+    """A run that waits in a popup (a save question, a Ready prompt) ends on boat_agent stop instead of
+    waiting for an answer nobody gives."""
+    from mhseals_testing.ui import popups
+    rig.app.keys = SimpleNamespace(read=lambda timeout=None: None)    # nobody at the keys
+    rig.app.refresh = lambda force=True: None
+    rig.app.popup = lambda modal, handle, refresh=None: popups.popup(rig.app, modal, handle, refresh)   # the real loop
+    seen = {}
+
+    def waits_in_a_popup():
+        seen['act'] = agent_feed.run_act(rig.app)
+        ch.request('stop', 'claude-3f2a')
+        popups.choose(rig.app, 'Save?', ('no', 'save'))
+    c, reply = run_with(rig, 1, waits_in_a_popup)
+    assert seen['act']['who'] == 'claude-3f2a' and seen['act']['claim'] == c
+    assert not reply['ok'] and reply['result']['cause'] == 'stop' and not rig.app.armed
+    assert rig.app.modal is None and rig.app.running is None and rig.desk.act is None
+
+
+def test_an_operators_popup_never_closes_on_the_desk():
+    """Without an agent run in flight (an operator's run, or the desk's own confirm before it starts) the popup
+    waits for its answer as before."""
+    from mhseals_testing.ui import popups
+    for act in (None, {'op': 'run', 'started': False, 'cause': 'stop'}, {'op': 'goal', 'started': True,
+                                                                        'cause': 'stop'}):
+        keys = iter([None, None, 's'])
+        app = SimpleNamespace(modal=None, desk=SimpleNamespace(act=act), keys=SimpleNamespace(
+            read=lambda timeout=None: next(keys)), tick=lambda: None, refresh=lambda force=True: None,
+                              scroll=popups.scroll)
+        app.popup = lambda modal, handle, refresh=None, app=app: popups.popup(app, modal, handle, refresh)
+        assert popups.choose(app, 'Save?', ('no', 'save'), {'n': 0, 's': 1}) == 'save'
+
+
 def test_the_desk_popup_focuses_refuse_and_counts_down_in_its_body():
     from types import SimpleNamespace
     from mhseals_testing.ui import agent_acts

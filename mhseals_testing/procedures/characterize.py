@@ -12,12 +12,14 @@ Any abort restores the saved C+/C-.
 from datetime import datetime, timezone
 import math
 from pathlib import Path
+import shlex
 
 import yaml
 
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.thruster_mixer import AXES
 from mhseals_testing import calibration
+from mhseals_testing.agent import ask
 from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.analysis.characterization import (
     audit_holds, hold_t95, motion_limits, nav2_profile, neutral_noise, samples_from_windows,
@@ -426,9 +428,12 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         summary['verdict'] = 'FITTED' if refined[label(*only)]['converged'] else 'PARTIAL'
         if dead:
             summary['dead_directions'] = [label(*only)]
+    agent = ctx.services.get('agent')    # an agent's run: nobody need be at the keys, so it never asks
+    if agent:
+        summary['save'] = save_line(plus, minus, agent)
     ctx.record(dict(summary, characterization=result) if result else summary)
-    choice = ctx.choose('Save the characterization to the hardware config?',
-                        ('no', 'save'), {'n': 0, 's': 1})
+    choice = 'no' if agent else ctx.choose('Save the characterization to the hardware config?',
+                                           ('no', 'save'), {'n': 0, 's': 1})
     if choice == 'no':
         return result or summary
     fit = calibration.new_fit()     # hardware.yaml keeps {id, time}; the rest goes to calibration/current.json
@@ -452,6 +457,16 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         ctx.record(dict(procedure='characterization', verdict='SAVED',
                         path=str(nav2_limits.save(profile, ctx.services['nav2_user']))))
     return result or summary
+
+
+def save_line(plus, minus, agent):
+    """The answer an agent's run gets instead of the save question: not saved, and the ``boat_agent set`` line
+    (agent/ask.py) that saves this fit's C+ and C- under the agent's claim."""
+    words = ' '.join(shlex.quote(f'{key}={ask.show(value)}')
+                     for key, value in (('decoupling', plus), ('decoupling_negative', minus)))
+    why = shlex.quote('save the characterization fit')
+    return (f"not saved (an agent's run never saves by itself); to save this fit: "
+            f"boat_agent set {words} --claim {agent.get('claim') or 'ID'} --why {why}")
 
 
 def _record_calibration(ctx, refined, fit, water, config, history):
