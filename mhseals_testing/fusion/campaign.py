@@ -25,7 +25,7 @@ import time
 import numpy as np
 
 from mhseals_testing.health.config import config_path
-from mhseals_testing.strict_yaml import load_strict
+from mhseals_testing.strict_yaml import load
 
 CONFIG = config_path('config', 'fusion_campaign.yaml')
 # Crane's clock starts near 0 and the tracker looks up TF at t - 0.2 s (negative Time): every
@@ -565,10 +565,8 @@ def metrics(out, statics, elements, cfg):
 
 
 def replay(session, name, outdir, rate):
-    cfg = load_strict(CONFIG.read_text(), CONFIG)
-    inj = dict(cfg['injections'][name.split('+')[0]])
-    if name.endswith('+merge'):
-        inj['merge'] = True
+    cfg = load(CONFIG)
+    inj = dict(cfg['injections'][name.split('+')[0]], merge=name.endswith('+merge'))   # +merge: S5
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     share = config_path('config', package='mhseals_nav', installed=True)
@@ -604,7 +602,7 @@ def replay(session, name, outdir, rate):
 
 def score(outdir):
     """metrics.json from raw.json.gz (re-run after a metrics change, without a replay)."""
-    cfg = load_strict(CONFIG.read_text(), CONFIG)
+    cfg = load(CONFIG)
     with gzip.open(Path(outdir) / 'raw.json.gz', 'rt') as f:
         raw = json.load(f)
     session = Path(raw['session'])
