@@ -1,4 +1,4 @@
-"""tools/boat_agent on a dev machine whose ``$BOAT_AGENT_TARGET`` is a boat host: one ssh hop, and a cache. Stdlib only.
+"""tools/boat_agent on a dev machine whose ``$BOAT_AGENT_TARGET`` is a boat host: one ssh hop, and a cache. Stdlib only (and agent.yaml).
 
 Runs the verb on the target's checkout over ssh (output streamed as it comes) and remembers the last operator state
 any output carried (status, a paused reply, a follow event) in ``~/.cache/mhseals/boat_agent/<target>.json``. When
@@ -15,13 +15,18 @@ import subprocess
 import sys
 import time
 
-from mhseals_testing.agent_hook import BOAT_AGENT
 from mhseals_testing.harness import operator_state
 
 SSH_FAILED = 255
 CONNECT_S = 8
 # a host name or address, with an optional user@: never an ssh option (-oProxyCommand=...) or a path
 HOST = re.compile(r'([\w.-]+@)?[A-Za-z0-9][\w.-]*', re.ASCII)
+
+
+def boat_agent():
+    """The target's boat_agent: agent.yaml hook.boat_agent, home-relative (~ expands there)."""
+    from mhseals_testing.agent import config as agent_config
+    return agent_config.load()['hook']['boat_agent']
 
 
 def cache_path(target):
@@ -147,7 +152,7 @@ def fetch(target, argv, out=sys.stdout, popen=subprocess.Popen, rsync=subprocess
         return say({'ok': False, 'error': 'refused', 'hint': f'the boat named an unsafe path {rel!r}'}, 2)
     base = Path(os.path.expanduser(found.to)) if found.to else data.root() / 'sessions'
     dest = base / ident
-    home = Path(BOAT_AGENT).parent.parent.parent.parent.as_posix().removeprefix('~/').removeprefix('~')
+    home = Path(boat_agent()).parent.parent.parent.parent.as_posix().removeprefix('~/').removeprefix('~')
     source = f"{target}:{home + '/' if home else ''}{rel}/"
     command = ['rsync', '-a', '--partial-dir=.rsync-partial', '--mkpath', f"--bwlimit={int(plan['bwlimit_kbps'])}",
                '-e', f'ssh -o ConnectTimeout={CONNECT_S} -o BatchMode=yes -o ServerAliveInterval=5',
@@ -175,7 +180,7 @@ def run(target, argv, out=sys.stdout, popen=subprocess.Popen):
               file=out, flush=True)
         return 2
     # ~ expands on the target; its own BOAT_AGENT_TARGET never sends the call on another hop
-    remote = ' '.join(['BOAT_AGENT_TARGET=local', BOAT_AGENT, *(shlex.quote(a) for a in argv)])
+    remote = ' '.join(['BOAT_AGENT_TARGET=local', boat_agent(), *(shlex.quote(a) for a in argv)])
     proc = popen(['ssh', '-o', f'ConnectTimeout={CONNECT_S}', '-o', 'BatchMode=yes', '--', target, remote],
                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     for line in proc.stdout:

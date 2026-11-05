@@ -1,5 +1,6 @@
-"""The rule table: what the hook denies (``DEFAULTS``: deny, deny_boat), the TUI-note filters, and the route each
-deny names instead (``USE``, ``EDIT_USE``); ``hook_config`` lays config/agent.yaml ``hook:`` over them. Stdlib only."""
+"""The rule table: what the hook denies (``DEFAULTS``: deny, deny_boat, here only), the TUI-note filters, and the
+route each deny names instead (``USE``, ``EDIT_USE``); ``hook_config`` lays config/agent.yaml ``hook:`` (its tunable
+keys, never a deny list) over them. Stdlib only."""
 
 from pathlib import Path
 import re
@@ -84,7 +85,7 @@ ROUTES = ('boat_agent', 'boat_tui')
 # The boat computers are the registry's hosts with one of boat_roles (the first is the one a vessel name reaches);
 # match notes ssh to them too (hosts.note_match). ssh_allow: what ssh still reaches while the registry is unread.
 DEFAULTS = {
-    'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
+    'target': 'local', 'boat_agent': '~/astro_dock/src/mhseals_testing/tools/boat_agent',   # the boat hosts' checkout
     'match': [r'\bros2\b', r'\bdocker\s+exec\b'],
     'boat_roles': ['boat_computer', 'camera_host'], 'ssh_allow': ['localhost', '127.0.0.1'],
     'skip': [r'\bboat_(trial|agent)\b'], 'max_per_10s': 6,
@@ -111,7 +112,7 @@ DEFAULTS = {
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
              r'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
              r'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority'
-             r'|\bthruster_pwm_node/estop|\bthrusters/)',
+             r'|\bthruster_pwm_node/estop|\bthrusters/|\barm_link/beat)',
              r'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)'
              r'\s+(--?[\w-]+\s+)*[^\s-]*\$',
              r'xargs\b.*\sros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)'
@@ -171,7 +172,8 @@ USE = ((None, 'ssh to a host the device registry cannot vouch for (fail closed)'
         tuple(p for p in _DENY if 'test_pulses' in p)),
        (r'cmd_vel|thrusters/|mavros/(rc/override|setpoint|manual_control)|teleop|keyboard_control',
         'raw motion', 'run KEY --claim ID', ()),
-       (r'operator/heartbeat|operator_heartbeat|mhseals_testing/authority', "the operator's heartbeat or authority",
+       (r'operator/heartbeat|operator_heartbeat|mhseals_testing/authority|arm_link/beat',
+        "the operator's heartbeat, arm link beat or authority",
         None, ()),
        (r'estop', 'the thruster e-stop', 'stop', ()),
        (FENCE, "fence_watchdog's course area (corners, on_exit, anchor)",
@@ -223,10 +225,11 @@ OWN_TMUX = r'tmux\s+kill-session\s+-t\s*=?(?:boatops|agent)-%s(?:[-_.][\w.-]*)?$
 
 
 def hook_config(path=CONFIG):
-    """``hook:`` of config/agent.yaml over the built-in defaults."""
+    """``hook:`` of config/agent.yaml over the built-in defaults; the deny lists are DEFAULTS' alone (agent/config.py
+    refuses them in the file). ``path`` (a boat's channel) is the file's only."""
     try:
         import yaml
         found = (yaml.safe_load(Path(path).read_text()) or {}).get('hook') or {}
     except Exception:          # no PyYAML, or a missing or broken file: the defaults are the shipped values
         return dict(DEFAULTS)
-    return {**DEFAULTS, **{k: v for k, v in found.items() if k in DEFAULTS}}
+    return {**DEFAULTS, **{k: v for k, v in found.items() if k not in ('deny', 'deny_boat')}}

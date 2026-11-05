@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from mhseals_testing import agent_hook as hook
+from mhseals_testing.hook import hosts
 
 import hook_registry
 from test_agent_hook import ALLOW, RUNS
@@ -25,6 +26,8 @@ REMOTE = ('sudo reboot', 'docker stop roboboat_dev', 'systemctl --user restart m
 CORPUS = ([f'ssh {n} {c}' for n in NAMES for c in REMOTE] + [f'ssh -t {n} "{c}"' for n in NAMES for c in REMOTE]
           + [f'ssh {n} bash <<EOF\n{c}\nEOF' for n in NAMES[:5] for c in REMOTE[:3]])
 
+BOAT_AGENT = hook.DEFAULTS['boat_agent']
+
 
 def answer(command):
     """``[deny route or None, host]`` and whether a TUI note goes out, as hook_lock.json records them."""
@@ -38,13 +41,13 @@ def fleet(tmp_path, monkeypatch):
     """``fleet(profiles)``: that profile set is the registry; this machine is devbox, the network env the boat's."""
     network = tmp_path / 'network.env'
     network.write_text(LEASES)
-    monkeypatch.setattr(hook, 'network_file', lambda: network)
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'network_file', lambda: network)
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     monkeypatch.delenv('BOAT_AGENT_TARGET', raising=False)
 
     def use(profiles, name='profiles'):
         root = hook_registry.profile_set(tmp_path / name, profiles)
-        hook_registry.use(monkeypatch, hook, root)
+        hook_registry.use(monkeypatch, root)
         return root
     return use
 
@@ -71,7 +74,7 @@ def test_the_playbook_is_the_same_for_the_shipped_registry(fleet):
     assert hook.start_text(WHO, config=hook.DEFAULTS) == lock['playbook']
     assert hook.brief_text(WHO, config=hook.DEFAULTS) == lock['brief']
     reason = hook.deny_reason(*hook.denied('ssh blastoise pkill -f x', hook.DEFAULTS), who=WHO, config=hook.DEFAULTS)
-    assert f'Use: ssh blastoise-odroid {hook.BOAT_AGENT} stop' in reason       # the legacy alias, from the registry
+    assert f'Use: ssh blastoise-odroid {BOAT_AGENT} stop' in reason       # the legacy alias, from the registry
 
 
 def test_a_renamed_or_added_boat_host_is_blocked_without_a_code_edit(fleet):
@@ -84,7 +87,7 @@ def test_a_renamed_or_added_boat_host_is_blocked_without_a_code_edit(fleet):
     for gone in ('squirtle-jetson', 'shore'):      # not boats of this fleet (the network env's leases still are)
         assert hook.denied(f'ssh {gone} sudo reboot', hook.DEFAULTS) is None, gone
     reason = hook.deny_reason(*hook.denied('ssh kestrel pkill -f x', hook.DEFAULTS), who=WHO, config=hook.DEFAULTS)
-    assert f'Use: ssh kestrel-main {hook.BOAT_AGENT} stop' in reason      # the boat computer, not the file's first
+    assert f'Use: ssh kestrel-main {BOAT_AGENT} stop' in reason      # the boat computer, not the file's first
     assert 'BOAT_AGENT_TARGET=heron-pc in your environment (`heron` still works' in hook.start_text(WHO, config=hook.DEFAULTS)
     (root / 'kestrel' / 'devices.yaml').write_text(hook_registry.KESTREL + '  osprey2: {roles: [camera_host]}\n')
     assert hook.denied('ssh osprey2 sudo reboot', hook.DEFAULTS)[1] == 'osprey2'      # added: blocked at once
@@ -107,18 +110,18 @@ def test_an_unread_registry_fails_closed_and_names_the_route(fleet, monkeypatch,
     found = hook.denied('ssh devbox uptime', hook.DEFAULTS, who=WHO)
     assert found and found[1] == 'devbox'
     reason = hook.deny_reason(*found, who=WHO, config=hook.DEFAULTS)
-    assert 'cannot read the device registry' in reason and f'ssh devbox {hook.BOAT_AGENT} <verb> --who {WHO}' in reason
+    assert 'cannot read the device registry' in reason and f'ssh devbox {BOAT_AGENT} <verb> --who {WHO}' in reason
     assert hook.use_of(found[0]) == 'boat_agent status'
     for command in ('ssh newboat sudo reboot', 'ssh -t devbox', 'ssh devbox bash <<EOF\nuptime\nEOF',
                     'ssh devbox boat_agent ask "$(uptime)" --who c1', 'ssh devbox "boat_agent status; uptime"'):
         assert hook.denied(command, hook.DEFAULTS, who=WHO), command
-    for command in (f'ssh devbox {hook.BOAT_AGENT} status --who {WHO}', 'ssh -t devbox boat_tui status',
+    for command in (f'ssh devbox {BOAT_AGENT} status --who {WHO}', 'ssh -t devbox boat_tui status',
                     f'ssh devbox tmux kill-session -t agent-{WHO}', 'ssh localhost uptime', 'ssh 127.0.0.1 ls',
                     'git status', 'ros2 topic echo /odom'):
         assert hook.denied(command, hook.DEFAULTS, who=WHO) is None, command
     assert hook.matches(hook.note_match(hook.DEFAULTS), 'ssh anyhost uptime')          # every ssh is boat-bound
     assert hook.this_boat(names) is None                                               # a laptop stays a laptop
-    monkeypatch.setattr(hook, 'DEVICE_TREE', tmp_path)                                  # a board computer:
+    monkeypatch.setattr(hosts, 'DEVICE_TREE', tmp_path)                                  # a board computer:
     assert hook.this_boat(names) == 'devbox' and hook.denied('kill 4242', hook.DEFAULTS)  # deny_boat here too
 
 

@@ -4,8 +4,9 @@ Reference for `tools/boat_agent` and the agent hook; the short version is in the
 The playbook an agent gets is `python3 .agents/hook.py --playbook`.
 
 - Agents drive the boat only through the owner TUI: `boat_trial claim | status | follow | run | goal | start | stop |
-  arm | reload | set | fcu | mark | note | ask | release` (remotely `ssh blastoise-odroid
-  ~/astro_dock/src/mhseals_testing/tools/boat_agent <verb> --who NAME`) runs each request through the same gates, arm
+  arm | reload | set | fcu | mark | note | ask | release` (remotely `ssh TUI_HOST
+  ~/astro_dock/src/mhseals_testing/tools/boat_agent <verb> --who NAME`, TUI_HOST being tools/registry.sh's `tui_host`:
+  the registry's tui_backend host, else its boat computer) runs each request through the same gates, arm
   panel and runner as a key and prints JSON (exit 0 ok, 2 refused with a `hint`, 3 revoked or overridden, 4 no TUI, 5
   blocked, 6 timeout, 7 paused).
 - The operator's `S` declares manual, battery swap or power cycle (`m` manual control sets manual): agents' changing

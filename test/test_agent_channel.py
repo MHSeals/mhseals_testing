@@ -168,7 +168,10 @@ def test_shipped_agent_config_is_valid():
     (lambda c: c.update(queue_s=0), 'queue_s'),
     (lambda c: c.update(queue_s=601), 'queue_s'),
     (lambda c: c.update(unclaimed_driver='stop'), 'unclaimed_driver'),
-    (lambda c: c['hook']['deny'].append('('), 'hook.deny'),
+    (lambda c: c['hook']['match'].append('('), 'hook.match'),
+    (lambda c: c['hook'].update(deny=['x']), 'unknown key hook.deny'),         # the deny rules are code only
+    (lambda c: c['hook'].update(deny_boat=['x']), 'unknown key hook.deny_boat'),
+    (lambda c: c['hook'].pop('boat_agent'), 'boat_agent'),
     (lambda c: c.update(extra=1), 'unknown key extra'),
 ])
 def test_bad_agent_config_names_the_key(edit, word):

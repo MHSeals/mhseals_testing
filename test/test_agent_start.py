@@ -4,6 +4,7 @@
 import pytest
 
 from mhseals_testing import agent_hook as hook
+from mhseals_testing.hook import hosts
 from mhseals_testing.agent import channel as ch
 from mhseals_testing.agent import config as agent_config
 from mhseals_testing.harness.components import Stack
@@ -12,6 +13,8 @@ from test_agent_cli import Desk, agent_id, call, lines  # noqa: F401 (agent_id: 
 from test_agent_desk import ask, claim, fence_topic, final, rig  # noqa: F401 (fixtures)
 from test_components import ME, WATCHED_PARTS, FakeProcesses, FakeUnits, Profile, items
 from mhseals_testing.harness.components import components
+
+BOAT_AGENT = hook.DEFAULTS['boat_agent']
 
 
 class Boatish(Profile):
@@ -157,15 +160,11 @@ def test_cli_start_and_stop_component_send_their_ops_and_plain_stop_stays_the_bo
 ])
 def test_the_hook_routes_a_boat_component_start_or_stop_to_the_verb(command, verb):
     reason = hook.deny_reason(*hook.denied(command, hook.DEFAULTS), who='claude-3f2a', config=hook.DEFAULTS)
-    assert f'{hook.BOAT_AGENT} {verb} --who claude-3f2a (claim first' in reason
-
-
-def test_the_shipped_agent_yaml_mirrors_the_boat_denies():
-    assert agent_config.load()['hook']['deny_boat'] == hook.DEFAULTS['deny_boat']
+    assert f'{BOAT_AGENT} {verb} --who claude-3f2a (claim first' in reason
 
 
 def test_a_local_dev_launch_is_not_blocked_and_the_playbook_names_the_verb(monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     assert hook.denied('ros2 launch mhseals_nav device.launch.py device:=odometry', hook.DEFAULTS) is None
     assert hook.denied('ros2 launch mhseals_nav odom.launch.py', hook.DEFAULTS) is None
     # an mhseals_hardware launch starts the driver: the arming rule blocks it on every host

@@ -7,6 +7,8 @@ before 11-04 (squirtle-jetson), so the hook's own tests keep their three hosts. 
 
 from pathlib import Path
 
+from mhseals_testing.hook import registry
+
 BLASTOISE = '''# Which computer has which role on the boat (the deployment layer of the device registry).
 hosts:
   blastoise-odroid: {roles: [boat_computer, time_server], user: roboboat, capabilities: [mavros, thrusters]}
@@ -53,8 +55,8 @@ def profile_set(root, profiles):
     return Path(root)
 
 
-def use(monkeypatch, hook, root):
+def use(monkeypatch, root):
     """Make the profile set at ``root`` the hook's only registry source (no $ASTRO_REGISTRY, no workspace's)."""
     monkeypatch.setenv('ASTRO_PROFILES', str(root))
     monkeypatch.delenv('ASTRO_REGISTRY', raising=False)
-    monkeypatch.setattr(hook, 'workspaces', lambda: [])
+    monkeypatch.setattr(registry, 'workspaces', lambda: [])
