@@ -1,0 +1,4 @@
+# bags.yaml (harness/bags.py): what a recorded session leaves out.
+bags.exclude_regex: {type: str, units: regex, tier: new-session, doc: "Topics matching this are not recorded (heavy images, clouds, costmaps)."}
+bags.exclude_types: {type: list, units: msg type, tier: new-session, doc: "Message types never recorded."}
+bags: {closed: true}

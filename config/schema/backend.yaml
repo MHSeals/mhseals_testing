@@ -1,0 +1,8 @@
+# backend.yaml (backend/protocol.py): the TUI backend link; protocol.py requires every key positive.
+backend.tune.attach_timeout: {type: float, units: s, tier: restart, doc: "One attach attempt (connect, hello, welcome with the snapshot) gives up after this."}
+backend.tune.heartbeat: {type: float, units: s, tier: restart, doc: "A client pings this often; the backend answers each ping."}
+backend.tune.link_timeout: {type: float, units: s, tier: restart, doc: "A link silent this long is lost: the client reconnects, the backend drops it."}
+backend.tune.reconnect: {type: list, units: s, tier: restart, doc: "A lost client's first and longest wait between attach attempts (doubling)."}
+backend.internal.socket: {type: str, units: file, tier: restart, doc: "Socket name in the runtime directory (mode 0600)."}
+backend.internal.max_frame: {type: int, units: bytes, tier: restart, doc: "Bytes in one frame, newline included."}
+backend: {closed: true}

@@ -1,0 +1,5 @@
+# reload.yaml (harness/reload.py): when an edit to each surface applies.
+reload.*.default: {type: str, units: "", enum: [live, next, disarmed, child], tier: restart, doc: "When the surface's edits apply, unless a key is listed below."}
+reload.*.live: {type: list, units: key, tier: restart, optional: true, doc: "Keys of the surface that apply at once."}
+reload.*.next: {type: list, units: key, tier: restart, optional: true, doc: "Keys of the surface that apply on the next session."}
+reload: {closed: true}

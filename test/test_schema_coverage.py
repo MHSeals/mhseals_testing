@@ -15,13 +15,13 @@ CONFIG = Path(__file__).resolve().parents[1] / 'config'
 # subdirectories by pattern: one fragment would describe every file the pattern matches (none yet)
 PATTERNS = ('*.yaml', 'profiles/*.yaml', 'courses/*.yaml', 'missions/*.yaml')
 UNCOVERED = {
-    'agent.yaml', 'annotate.yaml', 'backend.yaml', 'bags.yaml', 'conditions.yaml', 'correction.yaml',
+    'agent.yaml', 'annotate.yaml', 'conditions.yaml',
     'devices.yaml', 'fastsim_replay.yaml', 'fastsim_roboboat.yaml', 'fusion_calib.yaml', 'fusion_campaign.yaml',
-    'input.yaml', 'keymap.yaml', 'minimap.yaml', 'nav2_classes.yaml', 'ntrip.yaml', 'physics.yaml',
-    'preview.yaml', 'reload.yaml', 'theme.yaml',
+    'input.yaml', 'keymap.yaml', 'minimap.yaml', 'ntrip.yaml', 'physics.yaml',
+    'preview.yaml', 'theme.yaml',
     'profiles/*.yaml', 'courses/*.yaml', 'missions/*.yaml',
 }
-CEILING = 23      # len(UNCOVERED) when it was written; lower it as files are covered, never raise it
+CEILING = 18      # len(UNCOVERED) when it was written; lower it as files are covered, never raise it
 
 
 def shipped():

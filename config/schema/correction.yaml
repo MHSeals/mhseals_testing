@@ -1,0 +1,8 @@
+# correction.yaml (ui/panels/correction.py): the Correction tab's layout.
+correction.trust_warn: {type: float, units: "%", tier: restart, doc: "A trust cell below this percent is drawn warn bold."}
+correction.side_min_width: {type: int, units: columns, tier: restart, doc: "At this width and above the Readiness, Tracking and holds column shows."}
+correction.side_width: {type: int, units: columns, tier: restart, doc: "Outer width of that column."}
+correction.label_width: {type: int, units: columns, tier: restart, doc: "Row-label column; shrinks to 14 when the cells would drop under 8."}
+correction.cell_max: {type: int, units: columns, tier: restart, doc: "Widest direction column."}
+correction.cell_min: {type: int, units: columns, tier: restart, doc: "Narrowest direction column."}
+correction: {closed: true}

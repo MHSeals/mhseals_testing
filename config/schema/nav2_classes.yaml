@@ -1,0 +1,3 @@
+# nav2_classes.yaml (analysis/classes.py): the Nav2 parameters set live, the rest restart Nav2.
+nav2_classes.live: {type: list, units: param glob, tier: restart, doc: "Nav2 parameter patterns (node.param, * any segment) that apply live."}
+nav2_classes: {closed: true}
