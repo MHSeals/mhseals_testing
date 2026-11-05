@@ -80,3 +80,17 @@ def test_labels_tab_review_keys(tmp_path):
     app.dispatch('y')
     assert 'wait for disarmed' in app.notice
     assert sum(1 for e in journal.read(app.paths.journal) if e['phase'] == 'label_edit') == 3
+
+
+def test_labels_tab_can_be_left_with_l_again_and_escape(tmp_path):
+    """The owner (11-04): no key got out of Labels. L toggles back to the tab it came from, and Esc leaves it."""
+    from test_app import make_app
+    app, _ = make_app(tmp_path)
+    start = app.tab
+    app.dispatch('L')
+    assert app.tab == 'Labels'
+    app.dispatch('L')
+    assert app.tab == start
+    app.dispatch('L')
+    app.dispatch('escape')
+    assert app.tab == start

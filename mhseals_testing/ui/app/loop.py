@@ -180,8 +180,15 @@ class Loop:
         if key == 'H':  # Shift-H opens the history everywhere; folded 'h' still adjusts a setting
             self.open('history')
             return
-        if key == 'L' and not self.review:   # the Labels tab: review this session's marks and segments
-            self.show_tab('Labels')
+        if key == 'L' and not self.review:   # the Labels tab: review this session's marks and segments; L again leaves it
+            if self.tab == 'Labels':
+                self.show_tab(getattr(self, 'labels_from', None) or self.tabs.tabs[0])
+            else:
+                self.labels_from = self.tab
+                self.show_tab('Labels')
+            return
+        if key == 'escape' and self.tab == 'Labels' and not self.review and not self.modal:   # Esc leaves Labels too
+            self.show_tab(getattr(self, 'labels_from', None) or self.tabs.tabs[0])
             return
         if key in ('E', 'U', 'O', 'S'):  # Shift bindings of the global scope; never the lowercase procedure letters
             if key == 'E':

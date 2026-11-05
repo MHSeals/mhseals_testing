@@ -272,7 +272,7 @@ help:
   - ['b / B', 'Mark the moment, a digit tags it (never a popup) / a note on the last mark', 'Mark now; 1-9 within 3 s tags it (wake, gust, contact ...)']
   - ['N', 'Bad data from here; N again ends it', 'Bad data on / off']
   - ['"', 'Log what the operator said, with the pose; a digit picks the words (other words: n in Labels)', 'Log a spoken instruction (1-8 picks the words)']
-  - ['L', 'Labels: review marks and segments, set wind, waves and current']
+  - ['L', 'Labels: review marks and segments, set wind, waves and current (L again or Esc: back)']
   - ['?', 'This help']
   - ['q', 'Quit: neutral, disarm, flush the bag', 'Quit: neutral, disarm, report, bag flush (never kill the tmux session)']
   - ['Drive f d y g e v', 'Characterize, dock / thrust physics, compass cal / interference, controller steps']
