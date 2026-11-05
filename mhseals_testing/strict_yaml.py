@@ -2,8 +2,11 @@
 The one strict reader for operator-edited YAML.
 
 It refuses aliases, merge keys, duplicate or non-string keys, and non-finite
-numbers; errors carry the file name (when given) and line number.
+numbers; errors carry the file name (when given) and line number. A file with a
+schema fragment beside it (config/schema/<stem>.yaml) is checked against it
+(schema.validate): for now each problem is logged as a warning, not raised.
 """
+import logging
 import math
 
 import yaml
@@ -48,6 +51,24 @@ def load_strict(text, path=None):
     if path:
         loader.name = str(path)
     try:
-        return loader.get_single_data()
+        doc = loader.get_single_data()
     finally:
         loader.dispose()
+    if path:
+        _validate(path, doc)
+    return doc
+
+
+STRICT = False      # warn-only until the shipped configs are known clean; then problems raise ValueError
+
+
+def _validate(path, doc):
+    from mhseals_testing import schema      # schema reads its fragments through this module
+    try:
+        problems = schema.validate(path, doc)
+    except (OSError, ValueError, yaml.YAMLError) as error:     # a broken fragment: the config still loads
+        problems = [f'{path}: its schema fragment does not load: {error}']
+    if problems and STRICT:
+        raise ValueError('; '.join(problems))
+    for problem in problems:
+        logging.getLogger(__name__).warning('%s', problem)
