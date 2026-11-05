@@ -59,15 +59,15 @@ class Manual:
 
     def mapping(self):
         """The thruster mapping being shown: the unsaved draft, else the saved config."""
-        config = self.draft or self.args.hardware_config
+        config = self.state.manual.draft or self.args.hardware_config
         return list(config['channel_map']), list(config['reversed'])
 
     def draft_chips(self):
         """The PWM chip path of each physical output: the draft's, else the saved config's."""
-        return list({**self.args.hardware_config, **(self.draft or {})}['pwm_chips'])
+        return list({**self.args.hardware_config, **(self.state.manual.draft or {})}['pwm_chips'])
 
     def pins_moved(self):
-        return self.draft is not None and 'pwm_chips' in self.draft
+        return 'pwm_chips' in (self.state.manual.draft or {})
 
     def edit_mapping(self, channel_map, reversed_, chips=None):
         saved = self.args.hardware_config
@@ -75,8 +75,8 @@ class Manual:
         moved = chips != list(saved['pwm_chips'])   # pwm_chips joins the draft only when it moves
         unchanged = (channel_map == list(saved['channel_map'])
                      and reversed_ == list(saved['reversed']) and not moved)
-        self.draft = None if unchanged else dict(channel_map=channel_map, reversed=reversed_,
-                                                 **(dict(pwm_chips=chips) if moved else {}))
+        self.state.manual.draft = None if unchanged else dict(channel_map=channel_map, reversed=reversed_,
+                                                              **(dict(pwm_chips=chips) if moved else {}))
         self.say('Mapping unchanged' if unchanged else 'Unsaved mapping; s saves, u undoes')
 
     def on_thrusters(self, key):
@@ -88,9 +88,9 @@ class Manual:
         elif action == 'neutral':
             self.clear_pulses('Test pulses neutral')
         elif action == 'activate':
-            self.grabbed = None if self.grabbed is not None else position
+            self.state.manual.grabbed = None if self.state.manual.grabbed is not None else position
             self.say('Moving ' + POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
-                     'Enter drops' if self.grabbed is not None else 'Dropped')
+                     'Enter drops' if self.state.manual.grabbed is not None else 'Dropped')
         elif action in WIRES:
             output = WIRES[action]
             other = channel_map.index(output)
@@ -100,7 +100,7 @@ class Manual:
             reversed_[position] = not reversed_[position]
             self.edit_mapping(channel_map, reversed_)
         elif action == 'save':
-            if self.draft is None:   # a pin change still unread: s retries the readback
+            if self.state.manual.draft is None:   # a pin change still unread: s retries the readback
                 self.say(pins.verify(self) if self.services.arm.pins_unverified else 'Nothing to save')
                 return
             moved = self.pins_moved()
@@ -109,7 +109,7 @@ class Manual:
                 return
             if moved:
                 pins.mark_pending(self)   # before the write: a failed reload cannot arm
-            chips = dict(pwm_chips=self.draft['pwm_chips']) if moved else {}
+            chips = dict(pwm_chips=self.state.manual.draft['pwm_chips']) if moved else {}
             if self.save_hardware(channel_map=channel_map, reversed=reversed_, **chips):
                 self.say(pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}')
         elif action == 'undo':
@@ -127,13 +127,14 @@ class Manual:
 
     def move_grabbed(self, step):
         """Swap the grabbed thruster's output and reversal with its neighbour's, and follow it."""
-        target = self.grabbed + step
+        manual = self.state.manual
+        target = manual.grabbed + step
         if not 0 <= target < 4:
             return
         channel_map, reversed_ = self.mapping()
         for values in (channel_map, reversed_):
-            values[self.grabbed], values[target] = values[target], values[self.grabbed]
-        self.grabbed = self.cursors['thrusters'] = target
+            values[manual.grabbed], values[target] = values[target], values[manual.grabbed]
+        manual.grabbed = self.cursors['thrusters'] = target
         self.edit_mapping(channel_map, reversed_)
 
     def nudge(self, position, step):
@@ -145,31 +146,31 @@ class Manual:
         if conflicts:
             self.say(f'Test pulses refused: {conflicts[0]}')
             return
-        pulses = list(self.test_pulses or [NEUTRAL] * 4)
+        pulses = list(self.state.manual.test_pulses or [NEUTRAL] * 4)
         output = self.mapping()[0][position] - 1  # the draft wiring, to check it before saving
         pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
-        self.test_pulses = pulses
+        self.state.manual.test_pulses = pulses
         self.pulse_started()
         self.ros.emit('test_pulses', pulses=pulses)
         self.say(f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends')
 
     def set_command(self, command=(0.0, 0.0, 0.0)):
         """The commanded (surge, sway, yaw) the Command glyph shows; neutral by default."""
-        self.command = command
+        self.state.manual.command = command
 
     def drop_grab(self, draft=False):
         """Let go of the grabbed thruster; ``draft`` also drops the unsaved mapping."""
-        self.grabbed = None
+        self.state.manual.grabbed = None
         if draft:
-            self.draft = None
+            self.state.manual.draft = None
 
     def forget_manual_speed(self):
         """A new configured manual_amplitude wins over the session's last speed."""
-        self.manual_speed = None
+        self.state.manual.speed = None
 
     def clear_pulses(self, notice=None):
-        if self.test_pulses is not None:
-            self.test_pulses = None
+        if self.state.manual.test_pulses is not None:
+            self.state.manual.test_pulses = None
             if self.publish_pulses is not None:
                 for _ in range(NEUTRAL_REPEATS):   # one dropped message must not leave the pulse on
                     self.publish_pulses([NEUTRAL] * 4)
@@ -184,7 +185,7 @@ class Manual:
 
     def mux_input(self):
         """The mux's latest input from the arbiter; 'auto' when no mux state has been seen."""
-        mux = getattr(getattr(self, 'arbiter', None), 'mux', None)
+        mux = self.arbiter.mux if self.arbiter is not None else None
         return str(mux.get('input')) if isinstance(mux, dict) and mux.get('input') else 'auto'
 
     def set_pulses(self, pulses):
@@ -192,22 +193,22 @@ class Manual:
         if pulses is None:
             self.clear_pulses()
         else:
-            if list(pulses) != self.test_pulses:
+            if list(pulses) != self.state.manual.test_pulses:
                 self.pulse_started()
-            self.test_pulses = list(pulses)
+            self.state.manual.test_pulses = list(pulses)
             if self.publish_pulses is not None:
-                self.publish_pulses(self.test_pulses)
+                self.publish_pulses(self.state.manual.test_pulses)
 
     def pulse_started(self):
         """A new test pulse: its grace starts, and what the driver last refused or ended is old news."""
         output = self.driver_output() or {}
-        self.pulses_since, self.pulse_verdict = time.monotonic(), None
-        self._pulse_baseline = {key: (output.get(key) or {}).get('t_ns') for key in ('refused', 'ended')}
+        manual = self.state.manual
+        manual.pulses_since, manual.pulse_verdict = time.monotonic(), None
+        manual.pulse_baseline = {key: (output.get(key) or {}).get('t_ns') for key in ('refused', 'ended')}
 
     def driver_output(self):
         """The driver's latest ~/output (what its outputs hold, read back) while fresh, else None."""
-        ros = getattr(self, 'ros', None)
-        output, at = getattr(ros, 'driver_output', None), getattr(ros, 'driver_output_at', None)
+        output, at = self.ros.driver_output, self.ros.driver_output_at
         if output is None or at is None or time.monotonic() - at > READBACK_STALE_S:
             return None
         return output
@@ -225,15 +226,14 @@ class Manual:
             self.show_driver_readback(held)
         else:
             held = None
-        pulses = self.test_pulses
-        since = getattr(self, 'pulses_since', 0.0)
-        if pulses is None or not self.armed or time.monotonic() - since < READBACK_GRACE_S:
+        pulses = self.state.manual.test_pulses
+        if pulses is None or not self.armed or time.monotonic() - self.state.manual.pulses_since < READBACK_GRACE_S:
             return
         tested = [index for index, pulse in enumerate(pulses) if pulse != NEUTRAL] or range(4)
         sent = ', '.join(f'{index + 1}: {pulses[index]}' for index in tested)
         news = {key: entry for key in ('refused', 'ended')
                 if (entry := (output or {}).get(key))
-                and entry.get('t_ns') != getattr(self, '_pulse_baseline', {}).get(key)
+                and entry.get('t_ns') != self.state.manual.pulse_baseline.get(key)
                 and entry.get('reason') != 'ended by its sender'}
         stale = self.driver_staleness(output)
         if news.get('refused') and (output or {}).get('source') != 'test':
@@ -245,14 +245,14 @@ class Manual:
                        f' sent {sent} {MICRO}s')
         elif all(abs(held[index] - pulses[index]) <= READBACK_TOLERANCE for index in range(4)):
             verdict = (f'Test pulse at the outputs: {sent} {MICRO}s, read back'
-                       + ('' if getattr(self, 'running', None) else '; 0 or Tab ends'))
+                       + ('' if self.running else '; 0 or Tab ends'))
         else:
             verdict = (f'Test pulse NOT at the outputs: sent {sent} {MICRO}s, outputs hold '
                        f'{", ".join(f"{index + 1}: {held[index]}" for index in tested)} ({output.get("source")})')
         if stale and not verdict.startswith('Test pulse at'):
             verdict = f'{verdict}. {stale}'
-        if verdict != getattr(self, 'pulse_verdict', None):
-            self.pulse_verdict = verdict
+        if verdict != self.state.manual.pulse_verdict:
+            self.state.manual.pulse_verdict = verdict
             self.say(verdict)
             if not verdict.startswith('Test pulse at'):
                 self.ros.emit('test_pulses_unverified', pulses=list(pulses), held=held,
@@ -261,8 +261,7 @@ class Manual:
 
     def driver_staleness(self, output):
         """'' when the driver runs this TUI's mhseals_hardware code, else what to do about it."""
-        plant = getattr(self, 'plant', None)
-        if getattr(plant, 'pulse_fallback', False):
+        if self.plant is not None and self.plant.pulse_fallback:
             return ('driver is older than this TUI (it has no test_pulses/held): re-arm to load it, '
                     'and redeploy mhseals_hardware if that does not help')
         theirs = (output or {}).get('version')
@@ -278,15 +277,16 @@ class Manual:
 
     def manual_show(self, command, amplitude, chords, done=False):
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""
-        self.manual = not done
-        self.manual_speed = amplitude    # kept for the next time manual is enabled
-        desk = getattr(self, 'desk', None)
-        if desk is not None and not done and time.monotonic() - getattr(self, '_manual_desk_at', 0.0) >= MANUAL_DESK_S:
+        manual = self.state.manual
+        manual.active = not done
+        manual.speed = amplitude    # kept for the next time manual is enabled
+        desk = self.desk
+        if desk is not None and not done and time.monotonic() - manual.desk_at >= MANUAL_DESK_S:
             # The key loop is manual's own: the desk keeps answering (motion refused, dry runs busy, no
             # Nav2 call) and status.json stays current, and an agent goal still live is cancelled.
-            self._manual_desk_at = time.monotonic()
+            manual.desk_at = time.monotonic()
             desk.tick()
-        self.command, self.chords = tuple(command), bool(chords)
+        manual.command, manual.chords = tuple(command), bool(chords)
         self.monitor.command(command)
         self.annotate_queued()        # marks typed while driving, journaled after this publish
         if 'motion' in self.panels():

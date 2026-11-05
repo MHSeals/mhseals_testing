@@ -69,7 +69,7 @@ class SettingsMixin:
             if refusal:
                 return self.reply(req, False, refusal[0], hint=refusal[1],
                                   result={'ask': refusal[2]} if len(refusal) > 2 else None)
-        if app.running or app.manual or self.act is not None or self.busy:
+        if app.running or app.services.manual.active or self.act is not None or self.busy:
             return self.reply(req, False, 'busy', hint='a procedure, manual drive or act is running: set between '
                                                        'runs, never mid-segment; again once status .run is idle')
         result = {}
@@ -230,7 +230,7 @@ class SettingsMixin:
             if refusal:
                 return None, refusal
         app = self.app
-        if idle and values and (app.running or app.manual or self.act is not None or self.busy):
+        if idle and values and (app.running or app.services.manual.active or self.act is not None or self.busy):
             return None, ('busy', 'a procedure or act is running: settings change between runs, never mid-segment')
         return values, None
 

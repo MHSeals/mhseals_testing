@@ -90,7 +90,7 @@ def test_app_supplies_mux_input_from_the_arbiter():
     assert App.mux_input(app) == 'rc'
     app.arbiter.mux = None
     assert App.mux_input(app) == 'auto'
-    assert App.mux_input(SimpleNamespace()) == 'auto'
+    assert App.mux_input(SimpleNamespace(arbiter=None)) == 'auto'
 
 
 

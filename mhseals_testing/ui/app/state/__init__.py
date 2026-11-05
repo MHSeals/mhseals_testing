@@ -1,13 +1,13 @@
 """The App's state by owner: one small container per area, so a feature's state has one writer (finding #4).
 
 ``app.state`` holds them (``AppState``): ``render`` (View's redraw bookkeeping), ``bags`` (the Bags tab and the
-bag a session records), ``thrusters`` (the Thrusters panel's unsaved edit and raw
-pulses), ``holds`` (Holds': the watchdog guard, the fence alert) and ``arm`` (Arm's: who armed, the last stop, the pin guard). The Labels tab keeps its own (``app.labels``,
-actions/labels.py LabelsState). core.py's OWNERS table names which mixin
-owns which attribute group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used
-before (``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin,
-so reads, writes and tests see one value; a converted area has no alias, its owner reads and writes
-``app.state.<group>`` and other areas read it through ``app.services`` (services.py), never by writing it.
+bag a session records), ``manual`` (manual control, the Thrusters panel's edit and raw pulses), ``holds``
+(the watchdog guard, the fence alert) and ``arm`` (who armed, the last stop, the pin guard). The Labels tab
+keeps its own (``app.labels``, actions/labels.py LabelsState). core.py's OWNERS table names which mixin owns
+which group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used before
+(``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin; a
+converted area has no alias: its owner reads and writes ``app.state.<group>`` and other areas read it through
+``app.services`` (services.py), never by writing it.
 """
 
 from dataclasses import dataclass, field
@@ -31,11 +31,19 @@ class BagsState:
 
 
 @dataclass
-class ThrustersState:
-    """The Thrusters panel's edit (Manual's keys): the unsaved mapping, the row being moved and raw pulses."""
+class ManualState:
+    """Manual's (actions/manual.py): manual control, the command shown, and the Thrusters panel's edit and pulses."""
+    active: bool = False             # manual control (m) is driving
+    speed: object = None             # the last manual speed this session; None until manual ran
+    chords: bool = False             # the manual mode, for the Command glyph's label
+    command: tuple = (0.0, 0.0, 0.0)  # the commanded (surge, sway, yaw) the Command glyph shows
+    desk_at: float = 0.0             # when manual control last ticked the agent desk
     draft: object = None             # unsaved thruster mapping: channel_map, reversed and pwm_chips
     grabbed: object = None           # thruster row being moved with up/down
-    test_pulses: object = None
+    test_pulses: object = None       # raw pulses per output while testing, else None
+    pulses_since: float = 0.0        # when the current test pulse started (its readback grace)
+    pulse_verdict: object = None     # what the readback last said about it
+    pulse_baseline: dict = field(default_factory=dict)   # the driver's refused/ended stamps the pulse started on
 
 
 @dataclass
@@ -62,7 +70,7 @@ class HoldsState:
 class AppState:
     render: RenderState = field(default_factory=RenderState)
     bags: BagsState = field(default_factory=BagsState)
-    thrusters: ThrustersState = field(default_factory=ThrustersState)
+    manual: ManualState = field(default_factory=ManualState)
     holds: HoldsState = field(default_factory=HoldsState)
     arm: ArmState = field(default_factory=ArmState)
 
@@ -95,8 +103,6 @@ ALIASES = {
     'last_frame': ('render', 'last_frame'), 'last_drawn': ('render', 'last_drawn'), 'last_key': ('render', 'last_key'),
     'bag_recording_key': ('bags', 'recording_key'), 'bag_scan': ('bags', 'scan'),
     'finalizing': ('bags', 'finalizing'), 'finalize_thread': ('bags', 'finalize_thread'),
-    'draft': ('thrusters', 'draft'),
-    'grabbed': ('thrusters', 'grabbed'), 'test_pulses': ('thrusters', 'test_pulses'),
 }
 
 

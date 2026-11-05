@@ -36,7 +36,7 @@ class AuthorityFeed:
         app = self.app
         moving = self.cmd_nonzero and self.cmd_at is not None and self.clock() - self.cmd_at <= CMD_WINDOW_S
         goals = getattr(getattr(app, 'desk', None), 'goals', None)
-        return not (app.armed or app.running or app.manual or moving or (goals is not None and goals.active))
+        return not (app.armed or app.running or app.services.manual.active or moving or (goals is not None and goals.active))
 
     def publish(self, record):
         """The arbiter's transport: remember the record, then send it (bind swaps in the publisher)."""

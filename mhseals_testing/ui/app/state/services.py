@@ -1,7 +1,7 @@
 """Narrow facades on App (``app.services``): how one area reads another's state without writing it.
 
 ``app.services.bags.scan`` reads the Bags tab's container; a write through a facade raises, so the owning
-mixin (core.py OWNERS) stays the one writer. View reads the Thrusters panel's edit this way.
+mixin (core.py OWNERS) stays the one writer. View reads the Thrusters panel's edit this way (``app.services.manual.draft``).
 """
 
 from mhseals_testing.ui.app.state import state_of
@@ -24,9 +24,9 @@ class ReadOnly:
 
 
 class Services:
-    """``bags``, ``thrusters``, ``holds`` and ``arm``: read-only views of those containers."""
+    """``bags``, ``manual``, ``holds`` and ``arm``: read-only views of those containers."""
 
-    GROUPS = ('bags', 'thrusters', 'holds', 'arm')
+    GROUPS = ('bags', 'manual', 'holds', 'arm')
 
     def __init__(self, app):
         for group in self.GROUPS:

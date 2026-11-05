@@ -37,7 +37,7 @@ def rig(tmp_path, monkeypatch):
     operator.write_text(yaml.safe_dump(load_defaults()))
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack', '--config', str(operator)])
     app.ros = Ros(app.paths.hardware)
-    app.arming = SimpleNamespace(armed=False, hardware_config=None,
+    app.arming = SimpleNamespace(armed=False, hardware_config=None, remote=None,
                                  disarm=lambda: setattr(app.arming, 'armed', False))
     monkeypatch.setattr('time.sleep', lambda s: None)
     return app, operator

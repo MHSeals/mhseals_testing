@@ -30,7 +30,7 @@ def paused_app(tmp_path, monkeypatch, poll):
     monkeypatch.setattr(app, 'refresh', lambda **kw: frames.append((app.clock(), app.notice)))
     monkeypatch.setattr(app.source, 'tick', lambda now: poll(app, now))
     app.feeds = [SimpleNamespace(tick=lambda *a: feeds.append(app.clock()), view=lambda: {})]
-    app.test_pulses = [1600] * 4
+    app.state.manual.test_pulses = [1600] * 4
     app.publish_pulses = lambda p: outputs.append((app.clock(), list(p)))
     original = boat.publish
     boat.publish = lambda cmd: (outputs.append((app.clock(), cmd)), original(cmd))

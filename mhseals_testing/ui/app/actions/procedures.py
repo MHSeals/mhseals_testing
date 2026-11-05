@@ -53,7 +53,7 @@ class Procedures:
     """Procedures, mixed into App."""
 
     def moving(self):
-        return bool(self.running or self.manual)
+        return bool(self.running or self.services.manual.active)
 
     def characterize(self, direction):
         """r: re-refine ``direction`` (the cursor column); R: the whole survey. The setting is this run's only."""
@@ -230,7 +230,8 @@ class Procedures:
                 run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
                 manual=dict(plant=self.plant, blockers=self.manual_now, checks=self.manual_checks,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
-                            speed=lambda: self.manual_speed, clock=self.monitor.clock, annotate=self.annotate_later,
+                            speed=lambda: self.services.manual.speed, clock=self.monitor.clock,
+                            annotate=self.annotate_later,
                             options=self.manual_options)))
 
     def motion(self, name, **details):
@@ -306,8 +307,8 @@ class Procedures:
                          + f'{theme.SEPARATOR}Space aborts')
             else:
                 self.say(f'{label or name}{theme.SEPARATOR}{remaining:.1f}s{theme.SEPARATOR}Space aborts')
-            if self.test_pulses is not None and self.publish_pulses is not None:
-                self.publish_pulses(self.test_pulses)
+            if self.services.manual.test_pulses is not None and self.publish_pulses is not None:
+                self.publish_pulses(self.services.manual.test_pulses)
             self.refresh(force=False)
 
         self._runner_cancelled = False
@@ -320,7 +321,7 @@ class Procedures:
                 raise Aborted(f'motion cancelled {ended} while paused by {cause}')
             self.poll_pause()
             self.set_command()
-            self.monitor.command(self.command)
+            self.monitor.command(self.services.manual.command)
             self.say(f'PAUSED{theme.SEPARATOR}{cause}{theme.SEPARATOR}{elapsed:.1f}s'
                      f'{theme.SEPARATOR}U release · E revoke · Space aborts')
             self.refresh(force=False)

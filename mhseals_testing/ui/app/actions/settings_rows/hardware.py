@@ -24,7 +24,7 @@ class Hardware:
         Arming a remote thrusters host, the boat's hardware.yaml is the only config: a local edit or
         reload is refused and never replaces it (it is read from the boat at session start and each arm).
         """
-        remote = getattr(self.arming, 'remote', None) if self.arming is not None else None
+        remote = self.arming.remote if self.arming is not None else None
         if remote is not None:
             return dict(status='refused', error=f"the boat's hardware.yaml is the config here: edit it on "
                                                 f"{remote.host.name}; it is read again at each arm")
@@ -43,7 +43,7 @@ class Hardware:
         sha = config_sha(load_config(self.paths.hardware))
         end = time.monotonic() + 4.0   # the driver polls the file at 1 Hz
         while True:
-            status = getattr(self.ros, 'driver_status', None) or {}
+            status = self.ros.driver_status or {}
             if status.get('requested_config_sha') == sha and any(
                     name.endswith('/thruster_pwm_node') for name in self.ros.nodes()):
                 break
@@ -79,7 +79,7 @@ class Hardware:
         Returns False, keeping the draft, when the file on disk is broken, or when a remote boat's
         hardware.yaml is the config (refused before any write).
         """
-        remote = getattr(self.arming, 'remote', None) if self.arming is not None else None
+        remote = self.arming.remote if self.arming is not None else None
         if remote is not None:
             self.say(f"Not saved: the boat's hardware.yaml is the config, edit it on {remote.host.name}")
             return False

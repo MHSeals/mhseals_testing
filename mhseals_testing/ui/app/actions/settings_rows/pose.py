@@ -23,7 +23,7 @@ class Pose:
         """
         hold = getattr(self.ros, 'mux_hold', None)
         return revert.Env(
-            probes={'procedure': lambda: self.running is not None, 'pulses': lambda: self.test_pulses is not None},
+            probes={'procedure': lambda: self.running is not None, 'pulses': lambda: self.services.manual.test_pulses is not None},
             armed=lambda: self.armed,
             **({'hold': hold} if hold else {}))
 

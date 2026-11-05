@@ -92,8 +92,8 @@ class Loop:
             self.fence_alert()
         if self.nav2_file is not None:
             self.say(self.nav2_file.poll() or self.notice)
-        if self.test_pulses is not None and self.publish_pulses is not None:
-            self.publish_pulses(self.test_pulses)
+        if self.services.manual.test_pulses is not None and self.publish_pulses is not None:
+            self.publish_pulses(self.services.manual.test_pulses)
         self.pulse_readback()
         if self.armed and self.arming.fault():
             self.stop(self.arming.fault(), by='fault')
@@ -248,7 +248,7 @@ class Loop:
                 self.focus_on(neighbour)
         elif action in ('up', 'down'):
             step = -1 if action == 'up' else 1
-            if self.focus == 'thrusters' and self.grabbed is not None and not self.review:
+            if self.focus == 'thrusters' and self.services.manual.grabbed is not None and not self.review:
                 self.move_grabbed(step)
             else:
                 self.move(step)
@@ -257,7 +257,7 @@ class Loop:
         elif action == 'quit':
             self.confirm_quit()
         elif action == 'back':  # backs out; never quits
-            if self.grabbed is not None:
+            if self.services.manual.grabbed is not None:
                 self.drop_grab()
                 self.say('Dropped')
         elif action == 'help':

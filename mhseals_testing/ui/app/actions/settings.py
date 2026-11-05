@@ -30,7 +30,7 @@ class Settings(Health, Files, Hardware, StatusRows, Pose, Correction):
             return (f'command_mode stays {self.settings.command_mode}, not {mode}: this session (a review, a viewer '
                     'or one that never arms) has no command path to switch; set it on the TUI that drives the boat, '
                     f'or start this one with --set command_mode={mode}')
-        if self.armed or self.running or self.manual:
+        if self.armed or self.running or self.services.manual.active:
             return (f'command_mode stays {self.settings.command_mode}, not {mode}: it switches only disarmed and '
                     'between runs; allowed once status .armed is false and no run or manual drive is on')
         try:
