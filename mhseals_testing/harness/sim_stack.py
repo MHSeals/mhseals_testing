@@ -29,6 +29,7 @@ CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'sim' / 'stack.yaml'
 PATHS = ('player', 'run', 'overlay')
 PORT_BASE = 10000   # a sim's ROS-TCP endpoint port is this + its ROS_DOMAIN_ID (crane_ml's rigq.py too)
 DOMAINS = Path(f'/tmp/boat-sim-{os.getuid()}')
+HOST = Path('mhseals') / 'sim.yaml'   # under $XDG_CONFIG_HOME (~/.config): this host's sim settings (heavy)
 
 
 class Missing(RuntimeError):
@@ -135,6 +136,22 @@ def first_player(candidates):
     return str(candidates[0]) if candidates else ''
 
 
+def heavy(var, environ=None):
+    """This host's heavy-job guard for boat_sim and boat_preview (one rule): ``$var`` (BOAT_SIM_HEAVY,
+    BOAT_PREVIEW_HEAVY), else ``heavy:`` of $XDG_CONFIG_HOME/mhseals/sim.yaml, ``~`` expanded. ``none`` runs
+    unguarded on purpose; '' is no guard set, and up refuses (fails closed). Never a sibling-path guess."""
+    environ = os.environ if environ is None else environ
+    value = environ.get(var)
+    if value is None:
+        path = Path(environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / HOST
+        try:
+            value = (yaml.safe_load(path.read_text()) or {}).get('heavy')
+        except (OSError, yaml.YAMLError, AttributeError):
+            value = None
+    value = str(value or '').strip()
+    return value if value in ('', 'none') else os.path.expanduser(value)
+
+
 def settings(path=CONFIG, environ=None):
     """The file's settings with ``BOAT_SIM_<KEY>`` over them; ``image: auto`` and the repos are ``resolve``'s."""
     environ = os.environ if environ is None else environ
@@ -150,6 +167,7 @@ def settings(path=CONFIG, environ=None):
             candidates = value.split(':') if isinstance(value, str) else list(value)
             value = first_player([os.path.expanduser(str(v)) for v in candidates])
         out[key] = os.path.expanduser(str(value)) if key in PATHS else value
+    out['heavy'] = heavy('BOAT_SIM_HEAVY', environ)
     return out
 
 

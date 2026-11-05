@@ -56,6 +56,7 @@ def settings(test=False, path=CONFIG, environ=None):
             value = value.replace('{src}', src)
         out[key] = os.path.expanduser(str(value)) if key in PATHS + sim_stack.PATHS and value else value
     out['port'] = sim_stack.endpoint_port(out['domain'])
+    out['heavy'] = sim_stack.heavy('BOAT_PREVIEW_HEAVY', environ)
     return out
 
 

@@ -119,7 +119,10 @@ def test_the_panel_comes_only_with_boat_tui_preview(tmp_path):
 def test_boat_tui_preview_dry_run_and_test_needs_headless(tmp_path, ws):
     # the fixture workspace (stub hw.sh, scratch repos): CI's standalone checkout has no astro_dock around it
     env = dict(os.environ, BOAT_PREVIEW_PLAYER='/bin/true', BOAT_PREVIEW_CACHE=str(tmp_path / 'cache'),
-               BOAT_PREVIEW_SRC=str(ws[0] / 'src'), BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent))
+               BOAT_PREVIEW_SRC=str(ws[0] / 'src'), BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent),
+               BOAT_PREVIEW_HEAVY=str(tmp_path / 'heavy'))
+    (tmp_path / 'heavy').write_text('#!/bin/sh\nexec "$@"\n')
+    (tmp_path / 'heavy').chmod(0o755)
     done = subprocess.run([str(TOOLS / 'boat_tui'), 'preview', 'field/x', '--dry-run'], capture_output=True,
                           text=True, env=env, timeout=30)
     assert done.returncode == 0, done.stderr
@@ -145,7 +148,7 @@ def test_a_headless_preview_without_xvfb_names_the_install_line(tmp_path, ws):
             (stubs / name).symlink_to(shutil.which(name))
     env = dict(os.environ, BOAT_PREVIEW_PLAYER='/bin/true', BOAT_PREVIEW_CACHE=str(tmp_path / 'cache'),
                BOAT_PREVIEW_SRC=str(ws[0] / 'src'), BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent),
-               PATH=str(stubs))
+               PATH=str(stubs), BOAT_PREVIEW_HEAVY='none')
     done = subprocess.run([str(TOOLS / 'boat_preview'), 'up', '--headless', '--test'], capture_output=True,
                           text=True, env=env, timeout=30)
     assert done.returncode == 2 and 'xvfb-run is not installed' in done.stderr, done.stderr
