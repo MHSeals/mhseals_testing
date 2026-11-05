@@ -12,7 +12,7 @@ from mhseals_testing.procedures import PROCEDURES, unavailable
 from mhseals_testing.readiness import motion_blockers
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import agent_acts, keymap as keymap_module, layout, progress, theme
-from mhseals_testing.ui.feeds import agent as agent_feed
+from mhseals_testing.ui.feeds.agent_desk import desk as agent_feed
 from mhseals_testing.ui.popups import magcal as magcal_popup
 
 

@@ -6,9 +6,9 @@ from rich.console import Console
 
 from mhseals_testing.profiles import load_profile
 from mhseals_testing.ui import layout, theme
-from mhseals_testing.ui.feeds.mission import MissionState
+from mhseals_testing.model.mission_status import MissionState
 from mhseals_testing.ui.minimap.layerbox import LayerBox
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.model.map_state import MapState
 from mhseals_testing.ui.panels import mission as panels
 
 from test_dashboard import monitor, view

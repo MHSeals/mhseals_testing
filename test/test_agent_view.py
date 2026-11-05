@@ -38,7 +38,7 @@ def note(at, phase, tool_id, cmd='', **fields):
 
 
 def desk(**changes):
-    """The AgentDesk view (ui/feeds/agent.py ``summary``) mid-run."""
+    """The AgentDesk view (ui/feeds/agent_desk/ ``summary``) mid-run."""
     return {
         'act': dict(id='r2', op='run', who=WHO, claim='c4', label='run square', state='started',
                     elapsed_s=34.0, motion_lease_s=8.0, motion_s=10, cause=None),

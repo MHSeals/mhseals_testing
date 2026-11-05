@@ -6,7 +6,8 @@ from mhseals_testing.model import Cancelled
 from mhseals_testing.harness import journal
 from mhseals_testing.history import revert
 from mhseals_testing.procedures import PROCEDURES
-from mhseals_testing.ui import rtk, rtk_icon, theme
+from mhseals_testing.ui import rtk, theme
+from mhseals_testing.ui.rtk import icon as rtk_icon
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import odometry
 

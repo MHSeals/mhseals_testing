@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.style import Style
 
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.rtk_row import RtkView, rtk_row, strip_item, survey_fraction
+from mhseals_testing.ui.rtk.row import RtkView, rtk_row, strip_item, survey_fraction
 
 GOLDEN = Path(__file__).parent / 'fixtures' / 'rtk_row.txt'
 V = RtkView

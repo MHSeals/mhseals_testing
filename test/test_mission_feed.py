@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mhseals_testing.ui.feeds.mission import FRESH, MissionState
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.model.mission_status import FRESH, MissionState
+from mhseals_testing.model.map_state import MapState
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 

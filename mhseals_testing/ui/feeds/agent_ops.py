@@ -4,7 +4,7 @@ Each runs on the owner's key loop as ``boat_agent fcu`` does, shows in the foote
 journals an event naming the agent. ``arm`` raises a countdown banner the operator cancels (Esc, Enter on
 Cancel, Space stops); the e-stop always refuses. ``reload config [NAME]`` re-reads the TUI's watched YAML
 through the same path a hand edit takes; ``reload COMPONENT`` stops and starts one stack part under the
-``start``/``stop`` rules. ``set KEY=VALUE`` is the desk's own (ui/feeds/agent.py ``do_set``).
+``start``/``stop`` rules. ``set KEY=VALUE`` is the desk's own (ui/feeds/agent_desk/ ``do_set``).
 """
 
 import time

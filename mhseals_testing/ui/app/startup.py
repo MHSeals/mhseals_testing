@@ -29,7 +29,8 @@ from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import available_profiles, load_profile
 from mhseals_testing.ros.arming import command_profile, muxed
 from mhseals_testing.ui import theme
-from mhseals_testing.ui.feeds import agent as agent_feed, authority as authority_feed, control as control_feed
+from mhseals_testing.ui.feeds.agent_desk import desk as agent_feed
+from mhseals_testing.ui.feeds import authority as authority_feed, control as control_feed
 from mhseals_testing.ui.feeds.issues import IssuesFeed, settings as issue_settings
 from mhseals_testing.ui.review import Offline, find_session, load_session
 from mhseals_testing.ui.takeover import decide

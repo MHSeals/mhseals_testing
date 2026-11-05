@@ -1,6 +1,6 @@
 """What an agent act does inside the TUI (spec agent-control sections 3 and 4): the same code as a key.
 
-The desk (ui/feeds/agent.py) decides when an act may start; these functions do it. ``run``
+The desk (ui/feeds/agent_desk/) decides when an act may start; these functions do it. ``run``
 calls ``app.run_procedure`` as the procedure key would; ``goal_*`` use ``app.goals`` (a
 ``harness.goals.Goals``), the one goal sender the cursor goal shares; ``choose`` is the
 timed ``popup.choose`` for the confirm and ``ask`` popups. ``dry_run`` evaluates the live gates

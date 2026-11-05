@@ -1,7 +1,7 @@
 """Watch a task run: collect /task/events and the latched /task/status.
 
 ``TaskWatcher`` is the mission procedure's lazy reader; ``MissionFeed`` is the always-on one
-that parses the three mission topics into a ``ui.feeds.mission.MissionState`` for the TUI.
+that parses the three mission topics into a ``model.mission_status.MissionState`` for the TUI.
 """
 
 import json

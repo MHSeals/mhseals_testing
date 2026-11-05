@@ -118,7 +118,7 @@ def test_console_script_is_registered():
 def test_status_keys_line_up_with_rtk_view():
     import dataclasses
     from mhseals_testing.analysis import geo
-    from mhseals_testing.ui.rtk_row import RtkView
+    from mhseals_testing.ui.rtk.row import RtkView
     sink = SimpleNamespace(counts=dict(sent=0, stale=0, oversize=0), bytes=0, last=None)
     pos = dict(latitude=40.0, longitude=-75.0, height=20.0)
     session = FakeSession(survey=dict(seconds=30, accuracy=1.0, observations=30, valid=False, active=True))

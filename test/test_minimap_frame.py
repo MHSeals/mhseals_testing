@@ -16,7 +16,7 @@ from mhseals_testing.ui.minimap.cache import LayerCache
 from mhseals_testing.ui.minimap.emit import emit
 from mhseals_testing.ui.minimap.layerbox import LayerBox
 from mhseals_testing.ui.minimap.marks import Obj, Projection
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.model.map_state import MapState
 
 GOLDEN = Path(__file__).parent / 'golden' / 'minimap'
 SCALE = float(os.environ.get('MHS_BENCH_SCALE', '1'))  # slow CI host budget multiplier

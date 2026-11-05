@@ -12,7 +12,7 @@ from mhseals_testing import ntrip, rtk
 from mhseals_testing.analysis import geo
 from mhseals_testing.health.model import Fact
 from mhseals_testing.ui.panels.status import sensor
-from mhseals_testing.ui.rtk_row import OWN, STALE, RtkView
+from mhseals_testing.ui.rtk.row import OWN, STALE, RtkView
 
 FIX_WORDS = {0: 'none', 1: 'none', 2: '2D', 3: '3D', 4: 'DGPS', 5: 'FLOAT', 6: 'FIXED'}
 CHECK = 'rtk.converge'

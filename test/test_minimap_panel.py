@@ -9,7 +9,7 @@ from rich.text import Text
 
 from mhseals_testing.ui import layout, theme
 from mhseals_testing.ui.minimap.panel import MiniMap
-from mhseals_testing.ui.minimap.state import MapState
+from mhseals_testing.model.map_state import MapState
 from test_app import make_app, nav_app, run
 from test_layout import monitor, view
 from mhseals_testing.profiles import load_profile

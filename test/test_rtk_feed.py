@@ -17,7 +17,7 @@ from mhseals_testing.ros.ingest import ingest
 from mhseals_testing.ui import layout
 from mhseals_testing.ui.feeds.rtk import RtkFeed, build
 from mhseals_testing.ui.panels.status import status_panel, status_rows
-from mhseals_testing.ui.rtk_row import rtk_row, strip_item
+from mhseals_testing.ui.rtk.row import rtk_row, strip_item
 
 from test_dashboard import monitor, view
 from test_rtk_row import GOLDEN, STATES, goldens

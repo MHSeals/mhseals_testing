@@ -144,7 +144,7 @@ class App(*mixins.ROSTER):
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(wiring.toast_feed(self.health))
-        if getattr(ros, 'mission', None) is not None:   # ui.feeds.mission.MissionState, fed by ROS
+        if getattr(ros, 'mission', None) is not None:   # model.mission_status.MissionState, fed by ROS
             self.feeds.append(ros.mission)
         self.recwatch = RecWatch(self.clock)
         self.recorder = recorder or Recorder(processes, paths.bag, profile.name)
