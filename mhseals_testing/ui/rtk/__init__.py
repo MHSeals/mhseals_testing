@@ -11,7 +11,8 @@ from math import isfinite
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing import rtk
 from mhseals_testing.harness import reload as reload_
-from mhseals_testing.ui import rtk_pane, theme
+from mhseals_testing.ui import theme
+from mhseals_testing.ui.rtk import pane as rtk_pane
 
 OPTIONS = ['Start survey', 'Known position', 'Settings']
 SHORTCUTS = {'s': 0, 'k': 1, 'e': 2}

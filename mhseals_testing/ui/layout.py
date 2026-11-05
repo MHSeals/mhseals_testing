@@ -24,7 +24,8 @@ from rich.table import Table
 from rich.text import Text
 
 from mhseals_testing.harness import recwatch
-from mhseals_testing.ui import chrome, rtk_row, theme, widgets
+from mhseals_testing.ui import chrome, theme, widgets
+from mhseals_testing.ui.rtk import row as rtk_row
 from mhseals_testing.ui.panels import scrubber
 from mhseals_testing.ui.panels import TITLES, fold_groups  # noqa: F401  (layout.fold_groups)
 from mhseals_testing.ui.panels.activity import activity_panel
