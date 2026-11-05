@@ -35,7 +35,7 @@ from pathlib import Path
 import sys
 import types
 
-PARTS = ('rules', 'shell', 'runs', 'hosts', 'notes', 'playbook', 'scan', 'event')   # hook/, re-exported here
+PARTS = ('rules', 'shell', 'runs', 'registry', 'hosts', 'notes', 'playbook', 'scan', 'event')   # hook/, re-exported here
 
 
 def package():
