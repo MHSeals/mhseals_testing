@@ -169,6 +169,11 @@ session() {
   waited=0
   until grep -q CRANE_ROBOBOAT_COURSE_READY "$RUN/player.log" 2>/dev/null || [ -e "$RUN/stop" ]; do
     [ "$waited" -ge "$PV_READY_S" ] && { echo "boat_preview: player not ready in $PV_READY_S s, see $RUN/player.log" >&2; break; }
+    if ! kill -0 "$(cat "$RUN/player.pid")" 2>/dev/null; then    # it exited: say why now, not after ready_s
+      echo "boat_preview: the player exited before its course was ready; its last lines:" >&2
+      tail -n 30 "$RUN/player-stdout.log" "$RUN/player.log" 2>/dev/null >&2 || true
+      exit 1
+    fi
     sleep 1; waited=$((waited + 1))
   done
   echo "boat_preview: ready, domain $PV_DOMAIN, port $PV_PORT; attach: tmux -L $PV_SOCKET attach -t $PV_SESSION"
@@ -187,6 +192,10 @@ case $verb in
            "player $([ "$headless" = 1 ] && echo headless || echo windowed), checklist since $PV_SINCE"
       exit 0
     fi
+    # the host tools it calls (this repo's deps.yaml): a missing one stops here with the workspace's install line
+    for cmd in tmux rsync setsid $([ "$headless" = 1 ] && echo xvfb-run); do
+      command -v "$cmd" >/dev/null || { echo "boat_preview: $cmd is not installed on $(uname -n); install the declared host tools: $PV_WORKSPACE/setup.$([ "$(uname)" = Darwin ] && echo mac || echo linux).sh --components deps" >&2; exit 2; }
+    done
     if [ "$headless" = 0 ] && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
       echo 'boat_preview: no display here for the player window; use --headless' >&2; exit 2
     fi

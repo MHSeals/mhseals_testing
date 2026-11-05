@@ -129,6 +129,25 @@ def test_boat_tui_preview_dry_run_and_test_needs_headless(tmp_path, ws):
     assert up.returncode == 0 and 'field-x/ws' in up.stdout and '/up/' not in up.stdout, up.stderr
 
 
+def test_a_headless_preview_without_xvfb_names_the_install_line(tmp_path, ws):
+    """11-04 tranquility: no xvfb-run, so the player died at once and the session waited ready_s for nothing."""
+    import shutil
+    stubs = tmp_path / 'bin'
+    stubs.mkdir()
+    for name in ('tmux', 'rsync', 'setsid'):                 # present, as far as the preflight asks
+        (stubs / name).symlink_to(shutil.which('true'))
+    for name in ('bash', 'sh', 'env', 'python3', 'git', 'sed', 'dirname', 'cat', 'mkdir', 'uname', 'echo', 'tr'):
+        if shutil.which(name):
+            (stubs / name).symlink_to(shutil.which(name))
+    env = dict(os.environ, BOAT_PREVIEW_PLAYER='/bin/true', BOAT_PREVIEW_CACHE=str(tmp_path / 'cache'),
+               BOAT_PREVIEW_SRC=str(ws[0] / 'src'), BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent),
+               PATH=str(stubs))
+    done = subprocess.run([str(TOOLS / 'boat_preview'), 'up', '--headless', '--test'], capture_output=True,
+                          text=True, env=env, timeout=30)
+    assert done.returncode == 2 and 'xvfb-run is not installed' in done.stderr, done.stderr
+    assert '--components deps' in done.stderr
+
+
 @pytest.mark.parametrize('command, denied', [
     ('tools/boat_tui preview', True), ('boat_tui preview origin/main --headless', True),
     ('boat_tui preview down', True), ('tools/boat_preview up', True), ('tmux -L preview send-keys q', True),
