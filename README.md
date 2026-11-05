@@ -104,5 +104,4 @@ tools/smoke --impact        # only the tests timpact selects against origin/main
 make -C docs pdf screens    # docs/math.pdf, docs/tuning.pdf, and the images above
 ```
 
-The coming UI-less backend link (`mhseals_testing/backend/`): [docs/tui.md](docs/tui.md#backend).
 Everything outside `mhseals_testing/ros/` imports without ROS. Sims and full suites go through `.handoff/tools/heavy`.
