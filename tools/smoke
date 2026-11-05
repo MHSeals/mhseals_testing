@@ -8,6 +8,9 @@
 # With the workspace agent tools (MHSEALS_AGENTS, else mhseals_agents beside the main checkout), a tree that
 # already passed is not run again (tcache, tier smoke or smoke-impact-<sum of the selection>; not with extra
 # pytest arguments); MHSEALS_SMOKE_UNCACHED=1 skips that. Their quarantine plugin rides along (the root conftest.py).
+# Standalone, as CI runs it: outside CI the tests run in a copy of this tree (tracked and untracked files) under
+# $TMPDIR, with no astro_dock workspace, mhseals_agents or caller PYTHONPATH around it, so a local green is CI's
+# green (11-04: tests that read the workspace passed here and failed on every push). MHSEALS_STANDALONE=0 runs in place.
 here=$(cd "$(dirname "$0")/.." && pwd)
 src=$(dirname "$here")
 impact=
@@ -16,8 +19,10 @@ common=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev
 # a worktree whose siblings are not the workspace's checkouts uses those beside the main clone
 [ -d "$src/mhseals_hardware/mhseals_hardware" ] || src=$(dirname "$(dirname "$common")")
 agents=${MHSEALS_AGENTS:-$(dirname "$(dirname "$common")")/mhseals_agents}
-selected=ALL
-if [ -n "$impact" ] && [ -x "$agents/tools/timpact" ]; then selected=$("$agents/tools/timpact" --repo "$here") || selected=ALL; fi
+selected=${MHSEALS_SMOKE_SELECTED:-ALL}
+if [ -n "$impact" ] && [ -z "$MHSEALS_SMOKE_SELECTED" ] && [ -x "$agents/tools/timpact" ]; then
+    selected=$("$agents/tools/timpact" --repo "$here") || selected=ALL
+fi
 if [ -z "$MHSEALS_SMOKE_UNCACHED" ] && [ $# -eq 0 ] && [ -x "$agents/tools/tcache" ]; then
     export MHSEALS_SMOKE_UNCACHED=1
     # an impact run is cached under its selection: the same tree can select differently (base, timpact)
@@ -26,6 +31,22 @@ if [ -z "$MHSEALS_SMOKE_UNCACHED" ] && [ $# -eq 0 ] && [ -x "$agents/tools/tcach
 fi
 hardware=${MHSEALS_HARDWARE:-$src/mhseals_hardware}
 export MHSEALS_NAV="${MHSEALS_NAV:-$src/mhseals_nav}"
+if [ -z "$CI" ] && [ "${MHSEALS_STANDALONE:-1}" != 0 ]; then
+    absolute() { case $1 in /*) echo "$1" ;; *) echo "$PWD/$1" ;; esac; }
+    copy=$(mktemp -d "${TMPDIR:-/tmp}/mhseals-smoke.XXXXXX") || exit 1
+    trap 'rm -rf "$copy"' EXIT INT TERM
+    (cd "$here" && git ls-files -z -co --exclude-standard | tar --null --ignore-failed-read -T - -cf - 2>/dev/null) |
+        tar -xf - -C "$copy" || exit 1
+    # a git checkout like CI's (some tests read git), committed with no hooks or user config
+    git -C "$copy" init -q && git -C "$copy" add -A &&
+        git -C "$copy" -c core.hooksPath=/dev/null -c user.name=smoke -c user.email=smoke@localhost \
+            commit -qm smoke --no-verify || exit 1
+    env -u PYTHONPATH -u ASTRO_WS -u ASTRO_REGISTRY -u BOAT_SIM_SRC -u BOAT_PREVIEW_SRC \
+        MHSEALS_STANDALONE=0 MHSEALS_SMOKE_UNCACHED=1 MHSEALS_AGENTS="$copy/.no-agents" \
+        MHSEALS_SMOKE_SELECTED="$selected" MHSEALS_HARDWARE="$(absolute "$hardware")" \
+        MHSEALS_NAV="$(absolute "$MHSEALS_NAV")" "$copy/tools/smoke" ${impact:+--impact} "$@"
+    exit $?
+fi
 export PYTHONPATH="$here:$hardware:$MHSEALS_NAV${PYTHONPATH:+:$PYTHONPATH}"
 [ "$(basename "$agents")" = mhseals_agents ] && [ -d "$agents" ] && PYTHONPATH="$PYTHONPATH:$(dirname "$agents")"
 cd "$here" || exit 1
