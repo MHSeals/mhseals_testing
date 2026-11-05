@@ -24,7 +24,7 @@ CONTROLLER = 'calibrated_velocity_controller'
 EFFORT_TOPIC = '/cmd_vel_effort'
 MUX = 'command_mux'
 APPLIED_TOPIC = '/cmd_vel/applied'  # what the mux lets through to the driver
-DRIVER_STATUS = f'/{DRIVER}/status'
+DRIVER_STATUS = '/thruster_pwm_node/status'
 CONFIG_PLACEHOLDER = '@CONFIG@'      # ros/arm_link.CONFIG: the boat side's copy of the snapshot
 
 

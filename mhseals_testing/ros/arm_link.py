@@ -45,7 +45,6 @@ import time
 BEAT_TOPIC = '/arm_link/beat'
 STATE_TOPIC = '/arm_link/state'
 ESTOP_SERVICE = '/thruster_pwm_node/estop'
-DRIVER_STATUS = '/thruster_pwm_node/status'
 BEAT_S = 0.1            # the TUI beats at 10 Hz
 LINK_S = 1.0            # without a beat this long the boat stops the driver and the mux
 STATE_S = 0.2

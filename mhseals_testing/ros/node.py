@@ -34,7 +34,9 @@ from mhseals_testing.harness.simsession import ClockWatch
 from mhseals_testing.health.probes.graph import collect
 from mhseals_testing.readiness import BEAT_STALE_S
 from mhseals_testing.ros.graph import RclpyGraph
-from mhseals_testing.ros.ingest import RTK_TOPIC, ingest
+from mhseals_testing.ros.arming import DRIVER_STATUS
+from mhseals_testing.ros.ingest import ingest
+from mhseals_testing.ros.rtk import STATUS_TOPIC as RTK_TOPIC
 from mhseals_testing.health.model import Fact
 from mhseals_testing.profiles import default_topics, topics_of
 from mhseals_testing.ros import nearby
@@ -170,7 +172,7 @@ class RosIO:
         subscribe_sources(self)
         self.driver_status = None   # latest thruster driver ~/status (latched JSON)
         self.node.create_subscription(
-            String, '/thruster_pwm_node/status', self._driver_status,
+            String, DRIVER_STATUS, self._driver_status,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         # The driver's ~/output (10 Hz): the pulses its outputs hold, read back; with its receive time.
         self.driver_output, self.driver_output_at = None, None

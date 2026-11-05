@@ -12,7 +12,6 @@ from mhseals_testing.validation import RAW_KINDS, finite, validate, validate_raw
 
 IDENTITY = ('time', 'ros_time', 'phase', 'pid', 'node', 'host', 'seq', 't_ns', 'rec')
 KINDS = ('tf', 'tf_static', 'drift', 'event', 'rtk')
-RTK_TOPIC = '/mhseals_testing/rtk/status'
 
 
 def parse_rtk(msg):

@@ -18,10 +18,9 @@ from mhseals_testing.health.probes import graph, preflight
 from mhseals_testing.health.probes.fcu import FcuProbe
 from mhseals_testing.health.registry import KINDS
 from mhseals_testing.profiles import drives_pwm_pins
+from mhseals_testing.ros.arming import DRIVER, DRIVER_STATUS as STATUS_TOPIC
 from mhseals_testing.ros.graph import RclpyGraph
 
-DRIVER = 'thruster_pwm_node'
-STATUS_TOPIC = f'/{DRIVER}/status'
 RC_TOPIC = '/mavros/rc/in'
 GPS_RAW_TOPIC = '/mavros/gpsstatus/gps1/raw'
 DIAGNOSTICS = '/diagnostics'

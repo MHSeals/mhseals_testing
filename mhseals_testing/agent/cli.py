@@ -450,7 +450,7 @@ class Agent:
         except Exception as error:      # no rclpy, no domain: say so, never raise
             held, why = False, repr(error)
         else:
-            why = '' if held else 'no subscriber on /command_mux/request'
+            why = '' if held else "no subscriber on command_mux's request topic"
         if held:
             return self.local(req, '', via='ros', hold='agent_stop')
         hint = 'press Space or use the RC/kill switch'
