@@ -67,24 +67,100 @@ def command_for(axis, sign, amplitude, column=(0.0, 0.0)):
     return tuple(command)
 
 
-def means(history, window, skip):
-    """Mean of each velocity component over the window, minus the first ``skip`` seconds."""
-    rows = samples_from_windows(history, [(NEUTRAL, *window)], skip)
+def _rows(history, window, skip):
+    """The usable odometry samples of ``window`` minus its first ``skip`` s: (t, vx, vy, wz, values)."""
+    start, end = window
+    rows = []
+    for stamp, values in history:
+        if start + skip <= stamp <= end:
+            v = [values.get(key) for key in ('vx', 'vy', 'wz')]
+            if all(isinstance(x, (int, float)) and math.isfinite(x) for x in v):
+                rows.append((stamp, *v, values))
+    return rows
+
+
+def window_evidence(rows, window, skip=0.0):
+    """What one window measured, for the verdict: samples, coverage, displacement, speeds, receipt lag."""
+    start, end = window[0] + skip, window[1]
+    doc = dict(t0=round(start, 3), t1=round(end, 3), span_s=round(end - start, 3), n=len(rows))
     if not rows:
-        raise UnusableResponse('no usable velocity samples in settle or hold')
-    return [sum(row['velocity'][k] / len(rows) for row in rows) for k in range(3)]
+        return dict(doc, max_gap_s=round(end - start, 3))
+    times = [start] + [row[0] for row in rows] + [end]
+    doc['max_gap_s'] = round(max(b - a for a, b in zip(times, times[1:])), 3)
+    doc['rate_hz'] = round(len(rows) / max(end - start, 1e-9), 1)
+    doc['mean'] = [round(sum(row[k] for row in rows) / len(rows), 4) for k in (1, 2, 3)]
+    doc['mean_speed'] = round(sum(math.hypot(row[1], row[2]) for row in rows) / len(rows), 4)
+    first, last = rows[0][4], rows[-1][4]
+    if all(isinstance(v.get(k), (int, float)) for v in (first, last) for k in ('x', 'y')):
+        doc['displacement_m'] = round(math.hypot(last['x'] - first['x'], last['y'] - first['y']), 3)
+    if all(isinstance(v.get('yaw'), (int, float)) for v in (first, last)):
+        turn = (last['yaw'] - first['yaw'] + math.pi) % (2 * math.pi) - math.pi
+        doc['yaw_change_deg'] = round(math.degrees(turn), 1)
+    lags = [row[4]['stamp_age'] for row in rows if isinstance(row[4].get('stamp_age'), (int, float))]
+    if lags:
+        doc['lag_s'] = dict(mean=round(sum(lags) / len(lags), 3), max=round(max(lags), 3))
+    return doc
 
 
-def response(history, settle, hold, transient, coast=0.0):
-    """Velocity change of a hold over the neutral before it, per component.
+def _covered(evidence, coverage):
+    """'' when the window has enough odometry to judge it, else why not (characterize.yaml coverage)."""
+    if not evidence['n'] or evidence.get('rate_hz', 0.0) < coverage['min_hz']:
+        return f"{evidence['n']} samples in {evidence['span_s']:g} s (under {coverage['min_hz']:g} Hz)"
+    if evidence['max_gap_s'] > coverage['max_gap_s']:
+        return f"a {evidence['max_gap_s']:g} s gap (over {coverage['max_gap_s']:g} s)"
+    return ''
 
+
+def _world(row):
+    """The sample's horizontal velocity in the odom frame (body twist rotated by its yaw), or None."""
+    yaw = row[4].get('yaw')
+    if not isinstance(yaw, (int, float)) or not math.isfinite(yaw):
+        return None
+    c, s = math.cos(yaw), math.sin(yaw)
+    return c * row[1] - s * row[2], s * row[1] + c * row[2], yaw
+
+
+def response(history, settle, hold, transient, coast=0.0, evidence=None, coverage=None):
+    """Velocity change of a hold over the neutral before it, per body axis.
+
+    The settle's mean velocity is the drift (current, wind) and lives in the odom frame: each hold sample has it
+    subtracted in that frame and is rotated back into the body at its own heading, so a boat that turns
+    during the hold does not turn a steady current into a response (11-04 pool: a waterfall current read
+    as "sway responds backwards"). Without headings it is the plain body-frame difference.
     The first ``coast`` seconds of the settle are skipped: it still holds the previous hold's
     coast-down, whose sign is opposite in the paired order (at most half the settle is skipped).
+    ``evidence`` (a dict) is filled with what both windows measured; ``coverage`` refuses thin data.
     """
     skip = min(coast, 0.5 * (settle[1] - settle[0]))
-    delta = [h - s for h, s in zip(means(history, hold, transient), means(history, settle, skip))]
+    before, during = _rows(history, settle, skip), _rows(history, hold, transient)
+    measured = dict(settle=window_evidence(before, settle, skip), hold=window_evidence(during, hold, transient))
+    if evidence is not None:
+        evidence.update(measured)
+    if not before or not during:
+        raise UnusableResponse(f"no usable velocity samples in settle or hold (settle n={len(before)}, "
+                               f"hold n={len(during)})")
+    if coverage:
+        for name in ('settle', 'hold'):
+            thin = _covered(measured[name], coverage)
+            if thin:
+                raise UnusableResponse(f'odometry too thin to judge the {name}: {thin}')
+    wz = sum(r[3] for r in during) / len(during) - sum(r[3] for r in before) / len(before)
+    world_before, world_during = [_world(r) for r in before], [_world(r) for r in during]
+    if all(world_before) and all(world_during):
+        de = sum(w[0] for w in world_before) / len(before)
+        dn = sum(w[1] for w in world_before) / len(before)
+        body = [(math.cos(y) * (e - de) + math.sin(y) * (n - dn), -math.sin(y) * (e - de) + math.cos(y) * (n - dn))
+                for e, n, y in world_during]
+        delta = [sum(b[0] for b in body) / len(body), sum(b[1] for b in body) / len(body), wz]
+        frame = 'drift removed in odom, body axes'
+    else:
+        delta = [sum(r[k] for r in during) / len(during) - sum(r[k] for r in before) / len(before)
+                 for k in (1, 2)] + [wz]
+        frame = 'body difference (no heading)'
     if not all(math.isfinite(value) for value in delta):
         raise UnusableResponse('nonfinite velocity response')
+    if evidence is not None:
+        evidence.update(response=[round(v, 4) for v in delta], frame=frame)
     return delta
 
 
@@ -106,8 +182,10 @@ def matrices(columns, base=None):
     return result[1], result[-1]
 
 
-def refuse(ctx, reason):
+def refuse(ctx, reason, measured=None):
     refusal = dict(procedure='characterization', verdict='REFUSED', reason=reason)
+    if measured:
+        refusal['measured'] = measured
     ctx.record(refusal)
     return refusal
 
@@ -145,11 +223,27 @@ def run(ctx):
         try:
             return _characterize(ctx, cfg, staging, only, hi, lo)
         except UnusableResponse as error:
-            return refuse(ctx, str(error))
+            return refuse(ctx, str(error), getattr(error, 'measured', None))
+
+
+def topic_of(ctx):
+    """The odometry topic the procedure's history comes from, for the verdict."""
+    return getattr(getattr(ctx, 'profile', None), 'odometry', None) or 'odometry'
+
+
+def said(measure):
+    """One line of numbers out of a hold's evidence: the response, samples, window, displacement."""
+    hold = measure.get('hold') or {}
+    parts = [f"hold {hold.get('t0', 0):.1f}-{hold.get('t1', 0):.1f} s", f"n={hold.get('n', 0)}"]
+    if 'displacement_m' in hold:
+        parts.append(f"moved {hold['displacement_m']:.2f} m")
+    if 'mean_speed' in hold:
+        parts.append(f"speed {hold['mean_speed']:.2f} m/s")
+    return f"{measure.get('topic', 'odometry')}: " + ', '.join(parts)
 
 
 def _characterize(ctx, cfg, staging, only, hi, lo):
-    settings, windows, holds = ctx.settings, [], []
+    settings, windows, holds, measured = ctx.settings, [], [], []
     transient, tolerance = cfg['transient_s'], cfg['tolerance']
     coast = cfg['coast_s']
     deployed = staging.pending() or {}  # the C+/C- in force before this run
@@ -174,7 +268,14 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
         hold = runner.hold(command, seconds, name)
         windows.extend([(NEUTRAL, *settle), (command, *hold)])
         holds.append(dict(command=list(command), start=hold[0], end=hold[1], label=name))
-        return response(ctx.history(settle[0], hold[1]), settle, hold, transient, coast)
+        evidence = dict(label=name, command=[round(c, 4) for c in command], topic=topic_of(ctx))
+        measured.append(evidence)
+        try:
+            return response(ctx.history(settle[0], hold[1]), settle, hold, transient, coast, evidence,
+                            cfg['coverage'])
+        except UnusableResponse as error:
+            error.measured = measured   # the refusal names what was (not) measured
+            raise
 
     room = cfg['refine']['headroom'] / hi - 1.0  # largest sum|c| that keeps a_hi(1 + sum|c|) in range
 
@@ -204,9 +305,14 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                 for axis, sign in DIRECTIONS:
                     command = command_for(axis, sign, level, deployed_column(axis, sign))
                     delta = drive(runner, command, settings.command, label(axis, sign))
-                    if level == hi and sign == 1 and delta[axis] * command[axis] <= 0:
+                    # Backwards only when the boat clearly went the other way: a weak or curving response
+                    # (within the margin) is judged by the dead gate below, not called miswired.
+                    margin = cfg['backwards_margin'][AXES[axis]]
+                    if level == hi and sign == 1 and delta[axis] * math.copysign(1.0, command[axis]) < -margin:
                         runner.stop()
-                        return refuse(ctx, f'{AXES[axis]} responds backwards: check wiring, run Thrusters')
+                        return refuse(ctx, f'{AXES[axis]} responds backwards ({delta[axis]:+.3f} against a '
+                                           f'{command[axis]:+.2f} command, margin {margin:g}; {said(measured[-1])}): '
+                                           'check wiring, run Thrusters', measured)
                     survey[(axis, sign, level)] = (windows[-1], *cross_response(delta, axis, sign))
                     progress(runner, label(axis, sign), 1)
         columns, refined = {}, {}
@@ -224,7 +330,12 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
                     dead.append(only)
             if (axis, sign) in dead:
                 columns[(axis, sign)] = begin
-                refined[label(axis, sign)] = dict(column=begin, converged=False, dead=True)
+                gate = (measured[-1] if only else
+                        next((m for m in measured if m['label'] == label(axis, sign)), {}))
+                refined[label(axis, sign)] = dict(
+                    column=begin, converged=False, dead=True,
+                    why=f"main response {(gate.get('response') or [0, 0, 0])[axis] * sign:+.3f} under "
+                        f"{cfg['min_response'][AXES[axis]]:g} ({said(gate)})")
                 progress(runner, label(axis, sign) + ' dead', 1)
                 continue
             known = [(begin, ratios if only else survey[(axis, sign, hi)][2])]
@@ -254,7 +365,8 @@ def _characterize(ctx, cfg, staging, only, hi, lo):
     plus, minus = matrices(columns, base if only else None)
     summary = dict(procedure='characterization', directions={
         name: {key: (list(value) if isinstance(value, tuple) else value)
-               for key, value in found.items()} for name, found in refined.items()}, holds=holds)
+               for key, value in found.items()} for name, found in refined.items()}, holds=holds,
+                   measured=measured)
     if water:
         summary['conditions'] = water
     if windows:  # the timeline's run window and one contiguous slice per command

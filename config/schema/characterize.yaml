@@ -7,6 +7,11 @@ characterize.sync_s: {type: float, units: s, tier: new-session, doc: "Neutral ti
 characterize.min_response.surge: {type: float, units: m/s, tier: new-session, doc: "Smallest surge response that counts as the boat moving."}
 characterize.min_response.sway: {type: float, units: m/s, tier: new-session, doc: "Smallest sway response that counts as the boat moving."}
 characterize.min_response.yaw: {type: float, units: rad/s, tier: new-session, doc: "Smallest yaw response that counts as the boat moving."}
+characterize.backwards_margin.surge: {type: float, units: m/s, tier: new-session, doc: "Reversed surge response beyond which the wiring gate refuses."}
+characterize.backwards_margin.sway: {type: float, units: m/s, tier: new-session, doc: "Reversed sway response beyond which the wiring gate refuses."}
+characterize.backwards_margin.yaw: {type: float, units: rad/s, tier: new-session, doc: "Reversed yaw response beyond which the wiring gate refuses."}
+characterize.coverage.min_hz: {type: float, units: Hz, tier: new-session, doc: "Smallest odometry rate in a hold or settle that is judged at all."}
+characterize.coverage.max_gap_s: {type: float, units: s, tier: new-session, doc: "Longest odometry gap in a hold or settle that is judged at all."}
 characterize.nav2_rules.delay_s: {type: float, units: s, tier: new-session, doc: "Command-to-odometry dead time the Nav2 limit caps assume."}
 characterize.nav2_rules.tau_s.surge: {type: float, units: s, tier: new-session, doc: "Closed-loop surge velocity lag the Nav2 limit caps assume."}
 characterize.nav2_rules.tau_s.sway: {type: float, units: s, tier: new-session, doc: "Closed-loop sway velocity lag the Nav2 limit caps assume."}

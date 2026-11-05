@@ -6,6 +6,12 @@ coast_s: 2.0           # s of neutral skipped after a hold (coast-down); the wav
 # Smallest main response of an a_hi hold (m/s, rad/s for yaw) that counts as the direction moving
 # the boat (the dec_opfit dead-response gate); below it the direction is marked dead, not fitted.
 min_response: {surge: 0.03, sway: 0.03, yaw: 0.03}
+# The wiring gate refuses a direction only when its first a_hi hold moved the boat the other way by more than
+# this (m/s, rad/s): a weak or curving response inside it is left to the dead gate, not called miswired.
+backwards_margin: {surge: 0.03, sway: 0.03, yaw: 0.03}
+# Odometry a hold or settle needs before it is judged at all: fewer samples or a longer gap refuses the run as
+# unmeasured instead of calling the direction dead (the TUI's history, receipt time).
+coverage: {min_hz: 1.0, max_gap_s: 1.0}
 sync_s: 2.0            # s of neutral for the driver to pick up a rewritten C before a hold
 refine: {max_holds: 3, probe: 0.15, headroom: 0.98, min_room: 0.2}
 # headroom: a(1 + sum|c|) stays below it; min_room: smallest sum|c| the amplitude must allow

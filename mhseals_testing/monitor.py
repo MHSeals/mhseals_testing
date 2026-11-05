@@ -57,7 +57,10 @@ class BoatMonitor:
             entry['count'] += 1
             entry.update(values=values, issue=issue, stamp_age=stamp_age, rate=rate)
             if name in self.histories:
-                self.histories[name].append((now, deepcopy(values), issue))
+                kept = deepcopy(values)
+                if stamp_age is not None:   # receipt minus header stamp: how late this process saw it
+                    kept['stamp_age'] = stamp_age
+                self.histories[name].append((now, kept, issue))
 
     def transform(self, parent, child, stamp_age=0.0, static=False, authority=''):
         """Record a TF edge; ``authority`` identifies the publisher to spot conflicts."""

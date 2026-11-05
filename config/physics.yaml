@@ -23,6 +23,7 @@ pulses:
   skip_s: 0.2                # after thrust on: spin-up and estimator lag, left out of the onset slope
   edge_s: 0.8                # onset slope window
   sigma_floor: [0.005, 0.005, 0.005]   # smallest sigma per axis (m/s^2, m/s^2, rad/s^2): a noise-free fit is not exact
+  min_response: [0.03, 0.03, 0.03]     # smallest vx, vy, wz change (m/s, m/s, rad/s) rest to hold that counts as the pulse moving the boat; 3 SD of the rest too
 survey:
   levels: [1.0, 0.75, 0.5, 0.25]   # fractions of the amplitude setting; at least 4 distinct
   repeats: 2                 # every level of every signed axis this many times, the order reversed each repeat

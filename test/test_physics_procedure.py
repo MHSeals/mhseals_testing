@@ -272,6 +272,26 @@ def test_pulses_give_estimate_mixer_experiments_in_canonical_order(tmp_path):
     assert record['order'] == ['FL', 'FR', 'RR', 'RL'] and record['units']['W_hat'].startswith('m/s^2')
 
 
+def test_pulses_that_do_not_move_the_boat_are_refused_with_what_was_measured(tmp_path):
+    """11-04 pool: thrust_physics pulses said "16/16 usable, SAVED" while the boat sat still (no thrust reached
+    the water). An onset fit of noise is no experiment: the run is refused and says what it measured."""
+    boat = Boat(noise=0.01, thrust=(0.0, 0.0, 0.0, 0.0), drift=(0.05, 0.0))
+    ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='pulses')
+    result = physics.thrust(ctx)
+    assert result['verdict'] == 'REFUSED'
+    reason = records[-1]['reason']
+    assert 'no pulse moved the boat' in reason and '16 still' in reason and 'largest change' in reason
+
+
+def test_each_pulse_experiment_names_its_measured_change(tmp_path):
+    boat = Boat(noise=0.0005)
+    ctx, _ = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='pulses')
+    record = saved(physics.thrust(ctx))
+    assert record['counts']['still'] == 0
+    measured = record['experiments'][0]['measured']
+    assert measured['moved'] and measured['n_hold'] > 10 and abs(measured['dv'][0]) > 0.03
+
+
 def test_survey_fits_curves_with_errors_and_coast_down_drag_over_mass(tmp_path):
     boat = Boat(k=(30.0, 30.0, 10.0), noise=0.002)
     ctx, records = make_ctx(tmp_path, runner=boat, status='ok', thrust_step='survey', amplitude=1.0)

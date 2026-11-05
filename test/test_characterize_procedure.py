@@ -177,7 +177,10 @@ def test_a_reversed_axis_refuses_and_restores(config, tmp_path):
     runner.hold = hold
     ctx, records, _ = context(tmp_path, runner)
     result = run(ctx)
-    assert result['verdict'] == 'REFUSED' and 'sway' in result['reason']
+    assert result['verdict'] == 'REFUSED' and 'sway responds backwards (-' in result['reason']
+    assert 'odometry: hold' in result['reason'] and 'n=' in result['reason']    # the verdict names its data
+    gate = result['measured'][-1]
+    assert gate['label'] == 'sway+' and gate['hold']['n'] > 0 and gate['response'][1] < 0
     assert load_config(config)['decoupling'] == C_OLD
 
 
@@ -287,6 +290,8 @@ def test_a_dead_single_direction_keeps_its_column_and_skips_verify(config, tmp_p
     saved = load_config(config)
     assert result['verdict'] == 'PARTIAL' and result['dead_directions'] == ['sway-']
     assert result['directions']['sway-']['dead'] and not result['directions']['sway-']['converged']
+    assert 'under 0.03 (odometry: hold' in result['directions']['sway-']['why']   # names the data it judged
+    assert result['measured'][0]['label'] == 'sway-' and result['measured'][0]['hold']['n'] > 0
     assert saved['decoupling_negative'] == before.get('decoupling_negative')  # the deployed column is kept
     assert saved['decoupling'] == before['decoupling']
     assert not any('verify' in r for r in records)

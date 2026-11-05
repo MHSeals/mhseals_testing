@@ -196,3 +196,61 @@ def heading_spread(headings):
     if not headings:
         return None
     return float(math.hypot(sum(math.cos(h) for h in headings), sum(math.sin(h) for h in headings)) / len(headings))
+
+
+def pulse_response(rows, segment, cfg):
+    """Whether one pulse measurably moved the boat: the change of vx, vy, wz from the second half of the rest
+    before it to the second half of the hold, against physics.yaml pulses.min_response and 3 SD of that rest."""
+    start, end = segment['start'], segment['end']
+    rest = [r for r in rows if start - cfg['rest_s'] / 2 <= r[0] < start]
+    hold = [r for r in rows if start + (end - start) / 2 <= r[0] <= end]
+    doc = dict(n_rest=len(rest), n_hold=len(hold), window=[round(start, 3), round(end, 3)], dv=[0.0] * 3,
+               moved=False)
+    if not rest or not hold:
+        return doc
+    dv, sd = [], []
+    for k in (1, 2, 3):
+        before = [r[k] for r in rest if r[k] is not None and math.isfinite(r[k])]
+        during = [r[k] for r in hold if r[k] is not None and math.isfinite(r[k])]
+        if not before or not during:
+            return doc
+        dv.append(sum(during) / len(during) - sum(before) / len(before))
+        sd.append(float(numpy.std(before, ddof=1)) if len(before) > 1 else 0.0)
+    doc.update(dv=[round(d, 4) for d in dv], rest_sd=[round(x, 4) for x in sd])
+    doc['moved'] = any(abs(d) > max(f, 3 * x) for d, f, x in zip(dv, cfg['min_response'], sd))
+    return doc
+
+
+def pulse_experiments(rows, runs, names, thrusters, cfg):
+    """(experiments, skipped, still) of single-thruster pulses ``runs`` = (output, level, segment).
+
+    An experiment is (cmd4, W_hat, sigma) for crane's estimate_mixer: cmd4 the canonical effort per thruster in
+    ``thrusters`` order (flipped where the output is reversed), W_hat the onset acceleration net of the drift, and
+    ``measured``, the change the pulse made. A pulse without an onset is skipped; one whose onset is a fit of
+    noise (it did not measurably move the boat, 11-04 pool: 16/16 "usable" with the boat still) is ``still``.
+    """
+    experiments, skipped, still = [], [], []
+    for output, level, segment in runs:
+        found = None if segment['overridden'] else onset(
+            rows, segment['start'], cfg['skip_s'], cfg['edge_s'], cfg['rest_s'] / 2)
+        if found is None:
+            skipped.append(segment['label'])
+            continue
+        moved = pulse_response(rows, segment, cfg)
+        if not moved['moved']:
+            still.append(dict(moved, label=segment['label']))
+            continue
+        name, flipped = names[output]
+        cmd4 = [0.0] * 4
+        cmd4[thrusters.index(name)] = -level if flipped else level
+        experiments.append(dict(output=output, thruster=name, motor_effort=level, cmd4=cmd4, W_hat=found[0],
+                                sigma=[max(s, f) for s, f in zip(found[1], cfg['sigma_floor'])], measured=moved))
+    return experiments, skipped, still
+
+
+def no_pulse_moved(topic, still, skipped, cfg):
+    """The refusal of a pulse run in which no pulse moved the boat, with what was measured."""
+    biggest = max((max(abs(d) for d in m['dv']) for m in still), default=0.0)
+    return (f'no pulse moved the boat ({topic}: {len(still)} still, {len(skipped)} without an onset, largest '
+            f'change {biggest:.3f} under the floor {cfg["min_response"]}): check the thrust path, then odometry')
+
