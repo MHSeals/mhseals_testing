@@ -8,8 +8,14 @@ stays short: D-20261101-26).
 Hold-to-confirm: the confirms config/input.yaml `hold:` names (take control `O`, quitting while armed; arm and
 release after the 11-04 pool test) fill a bar while Enter, the action's key or a mouse button is held; a tap or Esc
 cancels and Space still stops at once. With `mouse: true` the wheel scrolls lists and popups; manual driving ignores it.
-Held-key combos (Conditions reads `keys·combos`, else `keys·one key`) need the Kitty keyboard protocol (Kitty,
-Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
+Manual driving combines held keys (forward and a turn, say). True combos, each key stopping on its own release
+(Conditions reads `keys·combos`), need the kitty keyboard protocol's key events: kitty, foot, Ghostty, Alacritty
+0.13+ and WezTerm (`enable_kitty_keyboard`) directly, and through boat_tui's tmux, whose server sets
+`allow-passthrough` (manual asks the terminal outside tmux, and tmux hands the events on as they came) and
+`focus-events` (losing focus stops). xterm, GNOME Terminal (VTE), Konsole and a tmux nested in another without
+passthrough (cx) send no releases: there (`keys·timed combos`) each key keeps its own deadline, the newest while
+it repeats and a key it took over `chord_hold` (config/input.yaml tune:, 0.5 s) after its last event, so tap the
+other key to keep both; on one axis the newest replaces the older. The keys are keymap.yaml `manual:`. Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
 Conditions `sog` readout and the minimap trail run calm grey to hot magenta. The Conditions ring glows red toward the nearest lidar point
 (/perception/nearby) inside 8 m, wider and bold inside 3 m; past 0.15 m/s a dashed wake trails off the stern, longer
 with speed. Glyphs carry every state
