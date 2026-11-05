@@ -85,7 +85,9 @@ hook:
   # (BOAT_AGENT_TARGET=<its boat computer> in the agent's environment, or here); only then do they go to path there.
   # A vessel's name still works for one release; it means its first boat computer.
   target: local
-  path: /var/home/roboboat/astro_dock/bags/agent/channel.jsonl
+  # the boat's channel and boat_agent, home-relative on the target host (its data root, as notes.local_channel)
+  path: ~/astro_dock/bags/agent/channel.jsonl
+  boat_agent: ~/astro_dock/src/mhseals_testing/tools/boat_agent
   # The boat computers are never named here: they are the device registry's hosts with one of boat_roles (the vessel's
   # devices.yaml: $ASTRO_REGISTRY and the profile set's), and every VESSEL-... name. match notes ssh to them too. An
   # unread registry fails closed: ssh reaches only ssh_allow, or runs boat_agent or boat_tui.
@@ -94,71 +96,5 @@ hook:
   match: ['\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
-  # Owner decision 2026-11-01: the hook matches what a call runs, never its text. Each command of each pipeline
-  # ($(...), <(...), bash -c, su -c, tmux new, wrappers such as sudo, timeout or docker exec, and the remote
-  # command of ssh HOST ...) is one line, its argv joined with the program by base name; each file it writes
-  # (redirections, rm, mv, cp, tee, sed -i, dd of= ...) is one line `EDIT create|change|delete live|dev PATH` (dev:
-  # a linked git worktree). A pattern matches a line from its start. Heredoc bodies, quoted text and the arguments
-  # of grep, echo or git commit are data. deny_boat applies when the line runs on a boat: this host is one, or ssh
-  # (and kin) reaches one: hosts, their vessel names, the STATIC_LEASES of ASTRO_NETWORK_ENV or an ~/.ssh/config
-  # alias. Advisory: variables and scripts get through; the mux and the claim are the safety.
-  # Kept: raw motion, MAVROS arming/mode/params, the operator heartbeat and e-stop, bags with motion topics,
-  # starting the driver, mux, mission runner or a procedure directly, pkill/killall (kill PID instead), the mux's
-  # saved holds, changing the stop file, the live agent hook and its wiring (agent_hook.py's hook/ package too)
-  # and core.hooksPath. Nav2 params pass with a claim (BOAT_AGENT_CLAIM=ID ros2 param set ...); lifecycles do not.
-  deny: ['ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
-         'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints|follow_gps_waypoints|follow_path|dock_robot|undock_robot|assisted_teleop)\b)',
-         'ros2\s+service\s+call\b.*\bmavros/(cmd/(arming|command)|set_mode|param/(set|push|load))',
-         'ros2\s+(param\s+(set|load|delete)|lifecycle\s+set)\b.*\b(mavros|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)\b',
-         'ros2\s+service\s+call\b.*\b(mavros\w*|command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller)/(set_parameters\w*|load_parameters|change_state)\b',
-         'ros2\s+bag\s+play\b(?!.*--topics\b)',
-         'ros2\s+bag\s+play\b.*--topics\b.*(cmd_vel|thrusters?\b|thruster_|command_mux|mavros/(rc/override|setpoint|manual_control))',
-         'ros2\s+run\b.*?\smavros\s+(\S+\s+)*?mav\w*\b',
-         'ros2\s+run\b.*\steleop_twist_\w+\b',
-         'ros2\s+run\b.*?\smhseals_hardware\s+(\S+\s+)*?keyboard_control\b',
-         'ros2\s+run\b.*?\smhseals_testing\s+(\S+\s+)*?operator_heartbeat\b|python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.ros\.operator_heartbeat\b',
-         'operator_heartbeat(\.py)?(\s|$)|python[\d.]*\s+(-\S+\s+)*(\S*/)?operator_heartbeat(\.py)?(\s|$)',
-         'ros2\s+(topic\s+pub|service\s+call)\b.*\bthruster_pwm_node/test_pulses\b',
-         'ros2\s+param\s+(set|load|delete)\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)\b',
-         'ros2\s+lifecycle\s+set\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)\b',
-         'ros2\s+service\s+call\b.*\b(controller_server|planner_server|bt_navigator|behavior_server|smoother_server|velocity_smoother|collision_monitor|waypoint_follower|route_server|docking_server|lifecycle_manager\w*)/(set_parameters\w*|load_parameters|change_state|manage_nodes)\b',
-         'ros2\s+service\s+call\b.*/fence/anchor\b',
-         'ros2\s+run\b.*?\smhseals_nav\s+(\S+\s+)*?run_task\b',
-         'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_nav\.tasks\b',
-         'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_testing\.(procedures|runner)\b',
-         'ros2\s+(topic\s+pub|service\s+call)\b.*(\boperator/heartbeat|\bmhseals_testing/authority|\bthruster_pwm_node/estop|\bthrusters/)',
-         'ros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\s+(--?[\w-]+\s+)*[^\s-]*\$',
-         'xargs\b.*\sros2\s+(topic\s+pub|action\s+send_goal|service\s+call|param\s+(set|load|delete)|lifecycle\s+set|run)\b',
-         '(pkill|killall)\b',
-         'xargs\b.*\s(sudo\s+)?kill\b',
-         '(kill|pkill|killall)\b.*\b(command_mux|\w*watchdog|approach_guard|thruster_pwm\w*|\w*velocity_controller|mavros\w*|boat_(trial|test)\w*)\b',
-         'ros2\s+run\b.*?\smhseals_hardware\s+(\S+\s+)*?(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)\b',
-         'python[\d.]*\s+(-\S+\s+)*-m\s*mhseals_hardware\.(thruster_pwm_node|command_mux|velocity_controller|identification|thruster_test)\b',
-         '(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)(\.py)?(\s|$)|python[\d.]*\s+(-\S+\s+)*(\S*/)?(thruster_pwm_node|command_mux|calibrated_velocity_controller|thruster_test|thruster_identify)(\.py)?(\s|$)',
-         'ros2\s+launch\b.*\bcommand_mux:=(?!false\b|False\b)',
-         'ros2\s+launch\s+(--?\S+\s+)*\S*mhseals_hardware\b',
-         'ros2\s+launch\s+(--?\S+\s+)*\S*(/|\.launch\.|\.py\b|\.xml\b|\.ya?ml\b)',
-         'EDIT \w+ live .*(/command_mux[^/]*(\.json|\*)|/hold_store(/.*)?|/hold_store\.json)$',
-         'EDIT (change|delete) live .*/agent/stop$',
-         'EDIT \w+ live .*/(agent_hook\.py|\w+/hook/[^/]+\.py|\.agents/hook\.py|\.claude/settings(\.local)?\.json|\.codex/hooks\.json)$',
-         '(?i)git\b(?!.*\sconfig\s+(--get\S*|--list|-l)\s).*\bcore\.hookspath\b',
-         '(?i)\w+=.*\bcore\.hookspath\b',
-         # the owner's preview (boat_tui preview): status and an own --test --headless preview only
-         'boat_tui\b(?=.*\spreview(\s|$))(?!.*\spreview\s+status\b)(?!(?=.*\s--test\b)(?=.*\s(--headless|down|attach)\b))',
-         'boat_preview\b(?!\s+status\b)(?!(?=.*\s--test\b)(?=.*\s(--headless|down|attach)\b))',
-         'tmux\b.*-L\s*preview(?=\s|$).*\s(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|respawn-\w+|kill-(server|session|window|pane))(\s|$)',
-         '(docker|podman)\b.*\s(stop|kill|restart|rm|pause)\b.*\broboboat_preview\b']
-  # deny_boat: a component started or stopped by hand (boat_agent start/stop COMPONENT --claim ID does it), kills,
-  # container, unit and power changes, keys into the boat TUI (tmux -L boat) and its runtime config and launch files.
-  deny_boat: ['ros2\s+launch\s+(--?\S+\s+)*mhseals_(nav|hardware)\b',
-              'systemctl\s+(--user\s+)?(start|restart)\s+(\S+\s+)*mhseals-',
-              'systemctl\s+(--user\s+)?(stop|kill)\s+(\S+\s+)*mhseals-',
-              '(pkill|killall|kill)\b|tmux\b.*\skill-(server|session|window|pane)\b',
-              '(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
-              'systemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
-              '(reboot|poweroff|halt|shutdown)\b',
-              '(tel)?init\s+[0-6sS]\b',
-              'loginctl\s+(terminate|kill)',
-              'EDIT \w+ \w+ .*sysrq',
-              'tmux\b.*(-L\s*boat\b|-S\s*\S*/tmux-\d+/boat\b).*\s(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|pipe-pane|pipep)(\s|$)',
-              'EDIT \w+ live .*(/agent\.ya?ml|/launch/[^/]+\.(py|xml|ya?ml)|[^/]\.launch\.(py|xml|ya?ml))$']
+  # What the hook denies is code, not config (hook/rules.py DEFAULTS; agent_hook.py says how it matches); a deny or
+  # deny_boat list here is refused.

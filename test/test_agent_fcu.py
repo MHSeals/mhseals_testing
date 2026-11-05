@@ -16,6 +16,8 @@ from test_agent_desk import ask, claim, final, rig  # noqa: F401 (fixtures)
 WHO = 'claude-3f2a'
 BOAT = 'ssh blastoise-odroid '
 
+BOAT_AGENT = hook.DEFAULTS['boat_agent']
+
 
 class Link:
     """The MavrosLink surface FcuParams uses: names, get, set, armed, command."""
@@ -320,7 +322,7 @@ def test_the_boat_session_other_sockets_and_hidden_commands_stay_denied(command)
 
 def test_fcu_param_writes_route_to_fcu_set_and_restarts_to_fcu_restart():
     mav = '/mav' + 'ros'
-    assert f'{hook.BOAT_AGENT} fcu set PARAM VALUE --claim ID --who {WHO}' in reason(
+    assert f'{BOAT_AGENT} fcu set PARAM VALUE --claim ID --who {WHO}' in reason(
         BOAT + f'docker exec roboboat_dev ros2 param set {mav}/param SCHED_LOOP_RATE 200')
     assert 'fcu set PARAM VALUE --claim ID' in reason(f'ros2 service call {mav}/param/set x "{{}}"')
     assert 'boat_agent fcu restart' in reason(f'ros2 service call {mav}/cmd/command x "{{command: 246}}"')

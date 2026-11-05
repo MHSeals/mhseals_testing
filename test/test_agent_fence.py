@@ -23,6 +23,8 @@ from test_course_area import BOX, Params
 
 WORDS = [f'{lat},{lon}' for lat, lon in BOX]
 
+BOAT_AGENT = hook.DEFAULTS['boat_agent']
+
 
 def cli(argv, monkeypatch):
     monkeypatch.setenv('BOAT_AGENT', 'claude-test')
@@ -99,7 +101,7 @@ def test_the_hook_routes_raw_fence_changes_to_the_verb():
         reason = hook.deny_reason(*hit, who='claude-1', config=config)
         assert 'fence corners LAT,LON' in reason and 'claim first' not in reason, reason
         assert hook.use_of(hit[0]) == 'boat_agent fence'
-    assert hook.denied(f'{hook.BOAT_AGENT} fence corners {" ".join(WORDS)} --why x', config, None, 'claude-1') is None
+    assert hook.denied(f'{BOAT_AGENT} fence corners {" ".join(WORDS)} --why x', config, None, 'claude-1') is None
     assert 'fence corners' in hook.start_text('claude-1', config=config)
 
 

@@ -18,7 +18,8 @@ LEASE_KEYS = ('idle_s', 'motion_s', 'max_claim_s')
 NUMBERS = ('request_s', 'confirm_s', 'ask_s')
 QUEUE_S = 120.0        # a run, goal or ask waits this long behind a popup, a procedure or another act (queue_s)
 DRIVERS = ('warn', 'hold')
-HOOK_LISTS = ('match', 'skip', 'deny', 'deny_boat', 'hosts')
+HOOK_LISTS = ('match', 'skip')     # regexes; the deny lists are code (hook/rules.py DEFAULTS), never this file's
+HOOK_KEYS = ('target', 'path', 'boat_agent', 'boat_roles', 'ssh_allow', 'max_per_10s', *HOOK_LISTS)
 ANY = 'any'            # settings: the keys an agent may set outside a run and with any run
 GRANTS = '~/.config/mhseals/agent_grants.yaml'
 FETCH_KBPS = 2000      # boat_agent fetch's rsync --bwlimit when agent.yaml names none
@@ -100,9 +101,10 @@ def validate(data):
     if data.get('unclaimed_driver') not in DRIVERS:
         raise ValueError(f"agent.yaml: unclaimed_driver must be one of {'/'.join(DRIVERS)}")
     hook = data.get('hook')
-    if not isinstance(hook, dict) or not isinstance(hook.get('target'), str) \
-            or not isinstance(hook.get('path'), str):
-        raise ValueError('agent.yaml: hook needs target and path')
+    if not isinstance(hook, dict) or not all(isinstance(hook.get(k), str) for k in ('target', 'path', 'boat_agent')):
+        raise ValueError('agent.yaml: hook needs target, path and boat_agent')
+    if (extra := sorted(set(hook) - set(HOOK_KEYS))):
+        raise ValueError(f'agent.yaml: unknown key hook.{extra[0]} (the deny rules are hook/rules.py DEFAULTS)')
     for key in HOOK_LISTS:
         patterns = hook.get(key, [])
         if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):

@@ -133,9 +133,10 @@ def deliver(line, config):
     detached ssh); never waits."""
     data = (json.dumps(line, separators=(',', ':')) + '\n').encode()
     target, host = target_of(config), remote(config)
+    path = config.get('path') or ''         # agent.yaml hook.path, ~ the target's home
     try:
-        if host is None:
-            path = {'local': local_channel, SIM: sim_channel}.get(target, lambda: config['path'])()  # or the target
+        if host is None:                    # local, the sim, or this is the target
+            path = {'local': local_channel, SIM: sim_channel}.get(target, lambda: os.path.expanduser(path))()
             if target in ('local', SIM) and not Path(path).parent.is_dir():
                 return              # no TUI has run here: nobody reads the channel, nothing to log
 
@@ -145,10 +146,13 @@ def deliver(line, config):
             finally:
                 os.close(fd)
             return
-        import subprocess      # only for a remote target: keeps the hook's import cost low
+        if not path:
+            return log(f'deliver to {target}: no hook.path (agent.yaml unread)')
+        import shlex, subprocess      # only for a remote target: keeps the hook's import cost low
+        quoted = '~/' + shlex.quote(path[2:]) if path.startswith('~/') else shlex.quote(path)
         child = subprocess.Popen(
             ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=2', host,
-             f"cat >> '{config['path']}'"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+             f'cat >> {quoted}'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True)
         child.stdin.write(data)
         child.stdin.close()

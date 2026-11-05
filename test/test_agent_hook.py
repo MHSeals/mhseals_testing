@@ -8,11 +8,14 @@ import sys
 import pytest
 
 from mhseals_testing import agent_hook as hook
+from mhseals_testing.hook import hosts
 from mhseals_testing.agent import channel as agent_channel, config as agent_config
 
 import hook_registry
 
 SID = '3f2a9c1e-0000-4000-8000-000000000000'
+
+BOAT_AGENT = hook.DEFAULTS['boat_agent']
 
 
 @pytest.fixture(autouse=True)
@@ -22,8 +25,8 @@ def boat_network(tmp_path_factory, monkeypatch):
     path.parent.mkdir()
     path.write_text('STATIC_LEASES="56:e2:03:5c:60:22=blastoise-odroid=192.168.0.152 '
                     '3c:6d:66:bf:6b:e2=blastoise-jetson=192.168.0.153"\n')
-    monkeypatch.setattr(hook, 'network_file', lambda: path)
-    hook_registry.use(monkeypatch, hook, hook_registry.profile_set(path.parents[1] / 'profiles', hook_registry.THREE))
+    monkeypatch.setattr(hosts, 'network_file', lambda: path)
+    hook_registry.use(monkeypatch, hook_registry.profile_set(path.parents[1] / 'profiles', hook_registry.THREE))
     return path
 
 
@@ -32,7 +35,7 @@ def sent(tmp_path, monkeypatch):
     """``sent(event, command, ...)``: one neutral event from astro_dock's .agents/hook.py."""
     monkeypatch.delenv('BOAT_AGENT', raising=False)
     monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise-odroid')     # a boat session (the default is local)
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     lines = []
 
     def run(phase, command, now=100.0, tool='t1', agent='claude', **extra):
@@ -44,10 +47,10 @@ def sent(tmp_path, monkeypatch):
 
 
 def test_defaults_are_the_shipped_hook_config():
-    shipped = agent_config.load()['hook']
-    assert hook.hook_config() == {k: shipped[k] for k in hook.DEFAULTS}
+    shipped = agent_config.load()['hook']      # the tunable keys: DEFAULTS' are their fallback, path the file's only
+    assert hook.hook_config() == {**hook.DEFAULTS, 'path': shipped['path']}
     assert hook.hook_config('/nonexistent') == hook.DEFAULTS
-    assert {k: v for k, v in shipped.items() if k in hook.DEFAULTS} == hook.DEFAULTS
+    assert {k: v for k, v in shipped.items() if k != 'path'} == {k: hook.DEFAULTS[k] for k in shipped if k != 'path'}
 
 
 def test_the_private_dir_is_user_only_and_not_shared_tmp(tmp_path, monkeypatch):
@@ -166,14 +169,14 @@ TEXT = [
     "python3 -c 'import rclpy; n = rclpy.create_node(\"x\"); n.create_publisher(T, t, 1)'",
     "python3 - <<'PY'\nimport rclpy\nn = rclpy.create_node('x'); n.create_publisher(T, '/cmd_vel', 1)\nPY",
     "codex-task NAME <<'EOF'\nros2 topic pub /cmd_vel x y; sudo reboot; pkill -f command_mux\nEOF",
-    f'ssh blastoise \'{hook.BOAT_AGENT} note "kill mavros later; reboot"\'',     # quoted for the remote shell
+    f'ssh blastoise \'{BOAT_AGENT} note "kill mavros later; reboot"\'',     # quoted for the remote shell
     'grep -rn pkill src | cut -d: -f1 | sort | uniq -c', "awk '/reboot/' /var/log/syslog",
     "ssh blastoise 'tail -n 200 /var/log/syslog | grep -i reboot'",
     'printf "blastoise: mavros link down, kill it then restart" >> .handoff/state/notes.md']
 ALLOW = TEXT + [
     'git status', 'kill 12345', 'kill -TERM 4242', 'kill %1', 'docker stop roboboat_dev', 'tmux kill-session -t x',
     'ros2 topic pub /chatter std_msgs/msg/String "{data: hi}"', 'ros2 topic echo /cmd_vel --once',
-    "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'", f'ssh blastoise {hook.BOAT_AGENT} stop --who x',
+    "ssh blastoise 'docker ps; docker logs --tail 50 roboboat_dev'", f'ssh blastoise {BOAT_AGENT} stop --who x',
     # local git work and git configuration (audit items 1 and 8)
     'git checkout -q main', 'git checkout -q --detach 51b1725f', 'git apply --check /tmp/x.diff', 'tar -xf t.tar',
     'git -c core.editor=true cherry-pick --continue', 'GIT_EDITOR=true git rebase --continue',
@@ -244,11 +247,11 @@ def test_a_boat_deny_names_the_host_and_the_command():
                               config=hook.DEFAULTS)
     assert reason.startswith('Blocked `pkill -f x` on squirtle: killing processes')
     # The boat it aimed at; a bare vessel name (a removed alias) is reached through its first host.
-    assert f'Use: ssh squirtle-jetson {hook.BOAT_AGENT} stop --who claude-3f2a' in reason
+    assert f'Use: ssh squirtle-jetson {BOAT_AGENT} stop --who claude-3f2a' in reason
     reason = hook.deny_reason(*hook.denied('ssh blastoise pkill -f x', hook.DEFAULTS), config=hook.DEFAULTS)
-    assert f'Use: ssh blastoise-odroid {hook.BOAT_AGENT} stop' in reason
+    assert f'Use: ssh blastoise-odroid {BOAT_AGENT} stop' in reason
     reason = hook.deny_reason(*hook.denied('ssh blastoise-jetson pkill -f x', hook.DEFAULTS), config=hook.DEFAULTS)
-    assert f'Use: ssh blastoise-jetson {hook.BOAT_AGENT} stop' in reason
+    assert f'Use: ssh blastoise-jetson {BOAT_AGENT} stop' in reason
     assert hook.denied('ssh devbox docker stop x', hook.DEFAULTS) is None
 
 
@@ -256,14 +259,14 @@ def test_a_boat_deny_names_the_host_and_the_command():
 def test_the_boat_addresses_come_from_the_network_file(tmp_path, monkeypatch):
     (tmp_path / 'config').mkdir()
     (tmp_path / hook.NETWORK).write_text('STATIC_LEASES="aa:bb=boatpc=10.9.8.7 cc:dd=boatpc2=10.9.8.8"\n')
-    monkeypatch.setattr(hook, 'network_file', lambda: tmp_path / hook.NETWORK)
+    monkeypatch.setattr(hosts, 'network_file', lambda: tmp_path / hook.NETWORK)
     assert {'boatpc', '10.9.8.7', 'boatpc2', '10.9.8.8'} <= hook.boats(hook.DEFAULTS)
     assert hook.denied('ssh me@10.9.8.8 reboot', hook.DEFAULTS)[1] == '10.9.8.8'
     assert hook.denied('ssh 10.9.8.80 reboot', hook.DEFAULTS) is None
 
 
 def test_without_a_network_file_any_private_lan_address_is_a_boat(monkeypatch):
-    monkeypatch.setattr(hook, 'network_file', lambda: None)
+    monkeypatch.setattr(hosts, 'network_file', lambda: None)
     assert hook.denied('ssh roboboat@192.168.0.152 sudo systemctl stop x', hook.DEFAULTS)[1] == '192.168.0.152'
     assert hook.denied('ssh me@10.1.2.3 reboot', hook.DEFAULTS)
     assert hook.denied('ssh me@8.8.8.8 reboot', hook.DEFAULTS) is None
@@ -356,23 +359,56 @@ def test_hook_redaction_matches_the_channel(command):
 def test_start_gives_the_playbook_and_boat_agent_env_wins(sent, monkeypatch):
     context = sent('start', '')['context']
     assert context.startswith('RoboBoat playbook: you are boat agent claude-3f2a.')
-    assert f'Act on the boat or its sim only through `{hook.BOAT_AGENT} <verb> --who claude-3f2a`' in context
+    assert f'Act on the boat or its sim only through `{BOAT_AGENT} <verb> --who claude-3f2a`' in context
     assert 'run_in_background' in context and not sent.lines
     monkeypatch.setenv('BOAT_AGENT', 'mapper')
     assert 'agent mapper' in sent('start', '')['context']
 
 
+# The names the boat's controls listen on, read from their owners without ROS (atlas #45): a rename fails here instead
+# of slipping past its deny rule. Read-only names an agent may only echo:
+OWNERS = ('ros/plant.py', 'ros/arm_link.py', 'ros/arming.py')
+READ_ONLY = {'DRIVER_STATUS', 'STATE_TOPIC', 'NAV2_AUTO_SOURCE'}
+
+
+def protected():
+    """``ros2 topic pub NAME`` or ``ros2 service call NAME`` of every protected *_TOPIC/*_SERVICE constant."""
+    import ast
+    commands = {}
+    for owner in OWNERS:
+        names = {}
+        for node in ast.parse((Path(hook.__file__).parent / owner).read_text()).body:
+            if isinstance(node, ast.Assign) and isinstance(target := node.targets[0], ast.Name):
+                try:
+                    names[target.id] = eval(compile(ast.Expression(node.value), owner, 'eval'), {}, dict(names))
+                except Exception:
+                    continue       # not a string of literals and earlier names
+                if target.id.endswith(('_TOPIC', '_SERVICE', '_STATUS', '_SOURCE')) and target.id not in READ_ONLY:
+                    verb = 'service call' if target.id.endswith('_SERVICE') else 'topic pub'
+                    commands[target.id] = f'ros2 {verb} {names[target.id]} x "{{}}"'
+    return commands
+
+
+def test_every_protected_topic_and_service_is_denied():
+    commands = protected()
+    assert {'TEST_PULSES_TOPIC', 'HELD_PULSES_TOPIC', 'MUX_REQUEST_TOPIC', 'BEAT_TOPIC', 'ESTOP_SERVICE'} <= set(commands)
+    for name, command in commands.items():
+        assert hook.denied(command, hook.DEFAULTS), (name, command)
+
+
 def test_imports_isolated_with_the_stdlib_only(tmp_path):
-    """astro_dock's dispatcher imports this file under ``python3 -I``, outside the package."""
+    """astro_dock's dispatcher imports this file under ``python3 -I``, outside the package; every rule holds there."""
+    commands = ['ros2 topic pub /cmd_vel x y', *protected().values()]
     probe = ('import importlib.util, json, sys; spec = importlib.util.spec_from_file_location("h", sys.argv[1]); '
              'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); '
-             'print(json.dumps(m.agent_event({"agent": "codex", "event": "pre", "session_id": "ab12", '
-             '"command": "ros2 topic pub /cmd_vel x y"}, send=lambda line: None, state_dir=sys.argv[2])))')
+             'print(json.dumps([m.agent_event({"agent": "codex", "event": "pre", "session_id": "ab12", '
+             '"command": c}, send=lambda line: None, state_dir=sys.argv[2]) for c in sys.argv[3:]]))')
     env = {'PATH': '/usr/bin:/bin', 'XDG_STATE_HOME': str(tmp_path), 'HOME': str(tmp_path), 'TMPDIR': str(tmp_path)}
-    done = subprocess.run([sys.executable, '-I', '-c', probe, str(Path(hook.__file__)), str(tmp_path)],
+    done = subprocess.run([sys.executable, '-I', '-c', probe, str(Path(hook.__file__)), str(tmp_path), *commands],
                           capture_output=True, text=True, env=env, cwd=tmp_path, timeout=10)
     assert done.returncode == 0, done.stderr
-    assert 'codex-ab12' in json.loads(done.stdout)['deny']
+    answers = json.loads(done.stdout)
+    assert all('codex-ab12' in answer.get('deny', '') for answer in answers), list(zip(commands, answers))
     assert Path(hook.__file__).parent.name == 'mhseals_testing'     # the dispatcher globs src/*/*/agent_hook.py
 
 
@@ -380,7 +416,7 @@ def test_delivery_appends_locally_on_the_target_and_logs_failures(tmp_path, monk
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
     monkeypatch.setenv('BOAT_AGENT_TARGET', 'blastoise-odroid')
     channel = tmp_path / 'channel.jsonl'
-    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'blastoise-odroid')
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(channel)))
     assert json.loads(channel.read_text()) == {'kind': 'note'}
     hook.deliver({'kind': 'note'}, dict(hook.DEFAULTS, path=str(tmp_path / 'no' / 'dir.jsonl')))
@@ -405,7 +441,7 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
     monkeypatch.delenv('BOAT_AGENT_TARGET', raising=False)
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'data'))
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     from mhseals_testing.agent import channel as ch
     ch.channel_path().parent.mkdir(parents=True)
     assert hook.local_channel() == ch.channel_path()
@@ -417,7 +453,7 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
     lines = [json.loads(line) for line in ch.channel_path().read_text().splitlines()]
     assert len(lines) == 3 and {line['target'] for line in lines} == {'local'} and not no_ssh
     context = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID})['context']
-    assert f'`{hook.BOAT_AGENT} <verb>' in context and 'ssh blastoise' not in context
+    assert f'`{BOAT_AGENT} <verb>' in context and 'ssh blastoise' not in context
     assert 'hook.py --playbook' in context and len(context) < 600     # brief: no robot work, little context
     playbook = hook.agent_event({'agent': 'claude', 'event': 'start', 'session_id': SID, 'source': 'playbook'})
     assert 'BOAT_AGENT_TARGET=blastoise-odroid ' in playbook['context']    # how a boat session reaches the boat's TUI
@@ -431,15 +467,15 @@ def test_sim_and_dev_work_writes_the_local_channel_and_never_sshes(tmp_path, mon
 def test_a_boat_session_names_its_host_and_only_then_the_hook_sshes(tmp_path, monkeypatch, no_ssh, target):
     monkeypatch.setenv('BOAT_AGENT_TARGET', target)
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path))
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     config = hook.hook_config()
     # the checkout makes the hop itself (tools/boat_agent, agent/relay.py): it can say "unreachable"
-    assert hook.remote(config) == target and hook.cli_of(config) == hook.BOAT_AGENT
+    assert hook.remote(config) == target and hook.cli_of(config) == BOAT_AGENT
     hook.deliver({'kind': 'note'}, config)
-    assert no_ssh and no_ssh[0][-2:] == [target, f"cat >> '{config['path']}'"]
-    assert f'`{hook.BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)
+    assert no_ssh and no_ssh[0][-2:] == [target, 'cat >> ~/astro_dock/bags/agent/channel.jsonl']     # ~ the boat's home
+    assert f'`{BOAT_AGENT} <verb>' in hook.start_text('claude-3f2a', config=config)
     monkeypatch.delenv('BOAT_AGENT_TARGET')       # a target from the hook config only: the call names it
-    assert hook.cli_of(dict(config, target=target)) == f'BOAT_AGENT_TARGET={target} {hook.BOAT_AGENT}'
+    assert hook.cli_of(dict(config, target=target)) == f'BOAT_AGENT_TARGET={target} {BOAT_AGENT}'
 
 
 def test_the_playbook_says_what_to_do_in_each_operator_state():
@@ -546,11 +582,11 @@ def test_edit_tools_are_denied_on_live_holds_stop_and_hook(trees, agent):
 
 def test_edit_tools_are_free_on_config_and_launch_off_a_boat_and_in_a_worktree(trees, monkeypatch):
     live, wt, base = trees
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     for path in (live / 'config' / 'agent.yaml', live / 'launch' / 'arm.launch.py', wt / 'config' / 'agent.yaml',
                  wt / 'agent_hook.py', wt / 'src' / 'x' / 'hooks' / 'hook.py', wt / 'test' / 'command_mux_holds.json'):
         assert edit([['write', str(path)]]) is None, path
-    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')         # the running boat reads these
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'blastoise-odroid')         # the running boat reads these
     assert "running boat's config" in edit([['write', str(live / 'config' / 'agent.yaml')]])
     assert edit([['write', str(live / 'launch' / 'arm.launch.py')]])
     assert edit([['write', str(wt / 'config' / 'agent.yaml')]]) is None
@@ -571,7 +607,7 @@ def test_a_worktree_symlink_to_a_live_hook_is_denied(trees):
 
 def test_shell_writes_to_holds_stop_and_hook_are_denied_only_on_live_copies(trees, monkeypatch):
     live, wt, base = trees
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     stop = base / 'bags' / 'agent' / 'stop'
     stop.write_text('')
     try:
@@ -687,17 +723,17 @@ def test_no_session_gets_a_random_id_never_a_shared_one(monkeypatch):
 
 
 def test_a_boat_named_without_a_remote_shell_is_this_machine(monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     assert hook.denied('docker exec crane_autodemo kill 812  # blastoise', hook.DEFAULTS) is None
     found = hook.denied('docker exec crane_autodemo ' + WK + '  # blastoise', hook.DEFAULTS)
     assert found[1] is None and ' on blastoise' not in hook.deny_reason(*found, config=hook.DEFAULTS)
     assert hook.denied('ssh blastoise-odroid kill 812', hook.DEFAULTS)[1] == 'blastoise-odroid'
-    assert hook.denied(f'BOAT_AGENT_TARGET=blastoise-odroid {hook.BOAT_AGENT} status; sudo reboot',
+    assert hook.denied(f'BOAT_AGENT_TARGET=blastoise-odroid {BOAT_AGENT} status; sudo reboot',
                        hook.DEFAULTS) is None                    # the reboot runs here, not on the boat
 
 
 def test_on_a_boat_host_every_command_runs_there(monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'blastoise-odroid')
     assert hook.denied('sudo reboot', hook.DEFAULTS)[1] == 'blastoise-odroid'
     assert hook.denied('tmux kill-session -t boat', hook.DEFAULTS)
     assert hook.denied('tmux kill-session -t agent-claude-3f2a-x', hook.DEFAULTS, who='claude-3f2a') is None
@@ -706,16 +742,16 @@ def test_on_a_boat_host_every_command_runs_there(monkeypatch):
 
 
 def test_a_block_names_the_id_the_agent_exported(sent):
-    sent('pre', f'export BOAT_AGENT=claude-fcu; {hook.BOAT_AGENT} status')
+    sent('pre', f'export BOAT_AGENT=claude-fcu; {BOAT_AGENT} status')
     assert '--who claude-fcu' in sent('pre', WK)['deny']
 
 
 def test_a_block_names_the_id_the_agent_claimed_with(sent):
     assert '--who claude-3f2a' in sent('pre', 'pkill -f command_mux')['deny']     # nothing claimed: the derived id
-    sent('pre', f'{hook.BOAT_AGENT} claim --reason "test" --who claude-fcda')
-    sent('pre', f'{hook.BOAT_AGENT} claim --reason "sub" --who sub-1', agent_id='a1')
-    sent('pre', f'{hook.BOAT_AGENT} status --who $BOAT_AGENT')               # unreadable: keeps the last
-    for text in ('echo "--who spoof-1"', f'echo {hook.BOAT_AGENT} claim --who spoof-2',
+    sent('pre', f'{BOAT_AGENT} claim --reason "test" --who claude-fcda')
+    sent('pre', f'{BOAT_AGENT} claim --reason "sub" --who sub-1', agent_id='a1')
+    sent('pre', f'{BOAT_AGENT} status --who $BOAT_AGENT')               # unreadable: keeps the last
+    for text in ('echo "--who spoof-1"', f'echo {BOAT_AGENT} claim --who spoof-2',
                  'grep -n "boat_agent claim --who spoof-3" notes.md', 'git commit -m "boat_agent --who spoof-4"',
                  "cat > /tmp/n.md <<'EOF'\nboat_agent claim --who spoof-5\nEOF"):
         sent('pre', text)                                                    # text: names nothing
@@ -745,7 +781,7 @@ def test_keys_into_the_boats_tui_are_denied_over_ssh_and_on_a_boat_host(command,
     found = hook.denied(f'ssh blastoise-odroid "{command}"', hook.DEFAULTS)
     assert found and found[1] == 'blastoise-odroid'
     assert "typing into the operator's boat_test TUI" in hook.deny_reason(*found, config=hook.DEFAULTS)
-    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-jetson.local')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'blastoise-jetson.local')
     assert hook.denied(command, hook.DEFAULTS)
 
 
@@ -755,7 +791,7 @@ def test_keys_into_the_boats_tui_are_denied_over_ssh_and_on_a_boat_host(command,
     'tmux send-keys -t boat q',                            # the dev box's own server
 ])
 def test_keys_into_a_private_or_dev_tmux_server_are_allowed(command, monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'devbox')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'devbox')
     assert hook.denied(command, hook.DEFAULTS) is None
 
 
@@ -763,7 +799,7 @@ def test_keys_into_a_private_or_dev_tmux_server_are_allowed(command, monkeypatch
     'tmux -S /tmp/sim/tmux-1000/default send-keys -t boat q', 'tmux -L simtui send-keys -t %2 Enter',
     'tmux -L simtui select-pane -t x \\; send-keys a'])
 def test_private_sockets_stay_free_even_on_a_boat_host(command, monkeypatch):
-    monkeypatch.setattr(hook, 'hostname', lambda: 'blastoise-odroid')
+    monkeypatch.setattr(hosts, 'hostname', lambda: 'blastoise-odroid')
     assert hook.denied(command, hook.DEFAULTS) is None
 
 

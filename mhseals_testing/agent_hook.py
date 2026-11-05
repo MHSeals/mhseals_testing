@@ -10,8 +10,8 @@ config/agent.yaml (about 15 ms per call); without it the built-in defaults apply
   whole playbook (the ``boat_agent`` verbs, exit codes) in a boat session or for ``--playbook``.
 * ``pre`` matches what the call runs, never its text: each command of each pipeline (``$(...)``, ``bash -c``,
   wrappers such as sudo or timeout, and the remote command of ``ssh HOST ...`` included) becomes one line, its
-  argv joined (``commands``), and each file it writes one ``EDIT op live|dev path`` line. ``hook.deny`` patterns
-  match a line from its start; ``hook.deny_boat`` too when the line runs on a boat (this host is one, or ssh to
+  argv joined (``commands``), and each file it writes one ``EDIT op live|dev path`` line. The deny patterns (hook/rules.py
+  ``DEFAULTS``) match a line from its start; ``deny_boat`` too when the line runs on a boat (this host is one, or ssh to
   one). Heredoc bodies, quoted text and the arguments of grep, echo or git commit are never commands, unless a
   shell, python or ssh reads them on stdin; ``python -c`` counts its obvious literals (``python_runs``).
   The reason names the command and the verb to use instead; the TUI gets it as ``phase: deny``. A
@@ -33,7 +33,6 @@ import importlib
 import importlib.util
 from pathlib import Path
 import sys
-import types
 
 PARTS = ('rules', 'shell', 'runs', 'registry', 'hosts', 'notes', 'playbook', 'scan', 'event')   # hook/, re-exported here
 
@@ -57,22 +56,7 @@ def package():
 
 
 _PKG = package()
-_MODULES = [importlib.import_module(f'{_PKG.__name__}.{part}') for part in PARTS]
-for _module in _MODULES:
+for _part in PARTS:      # names only: a test patches the owning module (hook.hosts.hostname), never this one
+    _module = importlib.import_module(f'{_PKG.__name__}.{_part}')
     globals().update({k: v for k, v in vars(_module).items() if not k.startswith('__')})
 
-
-class _Entry(types.ModuleType):
-    """Setting a name on this module (a test's monkeypatch of ``hostname`` or ``network_file``) sets it in every hook/
-    module that holds the same object, so the code that moved there sees it as it did here."""
-
-    def __setattr__(self, name, value):
-        old = self.__dict__.get(name, _Entry)
-        for module in _MODULES:
-            if old is not _Entry and module.__dict__.get(name, _Entry) is old:
-                setattr(module, name, value)
-        super().__setattr__(name, value)
-
-
-if getattr(sys.modules.get(__name__), '__dict__', None) is globals():
-    sys.modules[__name__].__class__ = _Entry
