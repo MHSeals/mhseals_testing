@@ -35,7 +35,7 @@ class Hardware:
         previous = self.args.hardware_config or {}
         self.args.hardware_config = config
         if config.get('manual_amplitude') != previous.get('manual_amplitude'):
-            self.manual_speed = None   # a new configured default wins over the session's last speed
+            self.forget_manual_speed()
         if self.arming is not None:
             self.arming.hardware_config = config  # arming saves this copy
         if not driven:
@@ -93,7 +93,7 @@ class Hardware:
         change = self.announce(self.watcher.reload('hardware'))  # skip the settle wait
         if not change.ok:
             return False
-        self.draft = self.grabbed = None
+        self.drop_grab(draft=True)
         return True
 
     def apply_pending(self):

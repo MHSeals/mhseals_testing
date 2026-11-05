@@ -161,7 +161,8 @@ class QueueMixin:
     def act_run(self, act):
         app = self.app
         found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
-        task = agent_acts.run_task(act['req']['args'])
+        task = act['task'] = agent_acts.run_task(act['req']['args'])   # the run reads these from its act
+        act['profile'] = agent_acts.run_profile(act['req']['args'])
         sim = 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm')
         blocked = unavailable(found, app.profile, True, app.args.bench_override)
         if blocked:                              # never runnable in this TUI, armed or not: refused, nothing asked
@@ -177,7 +178,7 @@ class QueueMixin:
         if sim:
             if not self.arm_sim(act):
                 return False
-            app.agent_ready = act['who']         # this run's checks passed: its Ready prompts are the agent's
+            act['ready'] = True                  # this run's checks passed: its Ready prompts are the agent's
         elif 'armed' in found.needs and not app.armed:
             self.set_state(act, 'waiting_arm')
             act['arming'] = True                 # the mux starts with arming: judged once it reported
@@ -193,7 +194,7 @@ class QueueMixin:
                 return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
             # started says who picks the mission task, so 'started' is not read as the course running
             self.begin(act, {'task': task or 'the operator picks it'} if name == 'mission' else None)
-            result, error = agent_acts.run(app, found, task, agent_acts.run_profile(act['req']['args']))
+            result, error = agent_acts.run(app, found)
             cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
             if cause:
                 self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),
@@ -204,7 +205,7 @@ class QueueMixin:
                 self.finish(act, True, result=result)
             return False
         finally:
-            app.agent_ready = None
+            act['ready'] = False
             if act.get('sim_armed') and app.armed:    # whatever ended the run: what the desk armed, it disarms
                 app.disarm(f"sim auto-arm: {act['cause'] or 'run ended'}", by='agent')
 
@@ -361,12 +362,12 @@ class QueueMixin:
         return True                              # the goal goes on; watch() polls it each tick
 
     def drop_goal(self, act, cause):
-        goals = self.app.goals
+        goals = self.goals
         if goals.active is not None and goals.active['claim'] == act['claim']:
             goals.cancel(f'agent: {cause}')
 
     def watch_goal(self, act, cause):
-        goals = self.app.goals
+        goals = self.goals
         if goals.active is None or goals.active['claim'] != act['claim']:
             return self.end_goal(act, cause or 'cancelled', None)
         if cause:

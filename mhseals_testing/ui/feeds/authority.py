@@ -35,7 +35,7 @@ class AuthorityFeed:
         needs no stop and leaves no hold."""
         app = self.app
         moving = self.cmd_nonzero and self.cmd_at is not None and self.clock() - self.cmd_at <= CMD_WINDOW_S
-        goals = getattr(app, 'goals', None)
+        goals = getattr(getattr(app, 'desk', None), 'goals', None)
         return not (app.armed or app.running or app.manual or moving or (goals is not None and goals.active))
 
     def publish(self, record):
@@ -81,7 +81,7 @@ class AuthorityFeed:
         graph = {'cmd_vel': {'age_s': age, 'nonzero': bool(self.cmd_nonzero)},
                  'publishers': [{'node': p['node'], 'gid': p['gid']} for p in publishers],
                  'own_gids': [p['gid'] for p in publishers if p['self']]}
-        goals = getattr(app, 'goals', None)       # the one goal sender (agent desk, cursor goal)
+        goals = getattr(getattr(app, 'desk', None), 'goals', None)   # the one goal sender (the agent desk's)
         active = goals.active if goals is not None else None
         nav = {'goals': [{'id': f"goal {active['claim'] or 'tui'}", 'status': 'executing', 'by': 'nav',
                           'cancel': lambda: goals.cancel('revoke')}]} if active else None
@@ -129,8 +129,7 @@ def start(app, ros, bind=arbiter_module.bind, subscribe=None, registry=None):
     feed.arbiter.publish = feed.publish
     if subscribe:
         subscribe(ros, feed)
-    app.arbiter = feed.arbiter                 # the one name the popups, banner and Agents setting read
-    app.feeds.append(feed)
+    app.feeds.append(feed)                     # startup.py makes feed.arbiter app.arbiter, the one name others read
     # Watch /task/status from the start: a task started outside the TUI (another terminal,
     # an agent) must show as TASK, not only once a Mission has created the watcher.
     if getattr(app, 'watcher_factory', None) is not None:
@@ -193,6 +192,5 @@ def viewer(app, ros):
     latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                          durability=DurabilityPolicy.TRANSIENT_LOCAL)
     ros.node.create_subscription(String, arbiter_module.AUTHORITY_TOPIC, on_record, latched)
-    app.authority_view = feed                   # the chip reads the record, as the owner's does
-    app.feeds.append(feed)
+    app.feeds.append(feed)                      # startup.py makes it app.authority_view: the chip reads the record
     return feed

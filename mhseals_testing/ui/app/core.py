@@ -25,17 +25,18 @@ from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.ui.app import mixins, wiring
 
 
-# Who writes what (finding #4): each mixin owns an attribute group and is its one writer; another area reads it,
-# through app.services where a container exists. SHARED is the page's own state that every part sets (the
-# footer notice, the popup, focus, the Activity view, the cursors, quit); APP is what App builds and hands
-# out (a review swaps some of it). test_app_state_ownership fails on a write across owners outside its
-# allowlist of the crossings on 11-04, which only shrinks. The containers in ui/app/state hold the groups
-# converted so far (render, bags, thrusters, arming_ui); Labels keeps its own LabelsState.
+# Who writes what (finding #4): each mixin owns an attribute group and is its one writer; another area (a mixin,
+# a feed, a popup) reads it, through app.services where a container exists, and asks the owner's method to change
+# it. SHARED is the page's own state that every part sets (the popup, focus, the Activity view, the cursors,
+# quit; the footer notice only through App.say). APP is what App builds and hands out: startup.py and wiring.py
+# build it, and after that App.rebuild is its one writer (a review swaps some of it). test_app_state_ownership
+# fails on any write across owners in ui/**. The containers in ui/app/state hold the groups converted so far
+# (render, bags, thrusters, arming_ui); Labels keeps its own LabelsState.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
-APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'keys', 'live', 'detaching')
+APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
 OWNERS = {
     'View': ('last_frame', 'last_drawn', 'last_key', '_staging', 'fusion_feed'),
-    'Loop': ('last_tick', 'fusion_image'),
+    'Loop': ('last_tick', 'fusion_image', 'detaching'),
     'Bags': ('bag_recording_key', 'bag_scan', 'finalizing', 'finalize_thread', 'rec', '_review_live', '_review_fault'),
     'Labels': ('_labels_state',),   # its LabelsState (actions/labels.py), read as app.labels
     'Manual': ('manual', 'manual_speed', 'chords', 'command', 'draft', 'grabbed', 'test_pulses', '_manual_desk_at'),
@@ -45,7 +46,7 @@ OWNERS = {
                    '_nav2', '_watcher'),
     'Popups': ('_nav2_live', 'camera_boxes'),
     'Annotate': ('flash', 'pick', 'bad_on', '_ids', '_queued'),
-    'Quit': ('closed', 'guests_seen', 'keep_units', 'stop_adopted'),
+    'Quit': ('closed', 'guests_seen', 'keep_units', 'stop_adopted', 'keys', 'live'),
     'Operator': ('handed_by', 'handed_to', 'restart_as'),
     'Correction': ('column',),
     'Files': ('config_note', 'pending_settings', 'map_keys', 'map_tab_keys', 'fusion_keys'),
@@ -165,6 +166,19 @@ class App(*mixins.ROSTER):
         return self.arming is not None and self.arming.armed
 
     armed_by = None   # who armed, for the ARMED chip: None is the operator, else {'who', 'sim'} (an agent)
+    arbiter = authority_view = desk = None   # the owner's arbiter and desk, a viewer's record (startup.py)
+
+    def say(self, text):
+        """The footer notice: the one writer of ``notice``, so every message is greppable."""
+        self.notice = text
+
+    def rebuild(self, **built):
+        """Replace parts App built (APP): a review's source and views, a switched profile."""
+        unknown = sorted(set(built) - set(APP))
+        if unknown:
+            raise AttributeError(f'not built by App: {unknown}')
+        for name, value in built.items():
+            setattr(self, name, value)
 
     def ack_toasts(self, id=None):
         """Dismiss one toast, or every standing one (the Health popup's x)."""

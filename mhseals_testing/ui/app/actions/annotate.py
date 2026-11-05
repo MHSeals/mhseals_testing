@@ -46,7 +46,7 @@ class Annotate:
         if action not in MARKS and not self.pick_wants(key):
             return False
         try:
-            {'mark': self.mark, 'bad_data': self.toggle_bad, 'say': self.say}.get(action, lambda: self.pick_digit(key))()
+            {'mark': self.mark, 'bad_data': self.toggle_bad, 'say': self.said}.get(action, lambda: self.pick_digit(key))()
         except Exception as error:      # a full disk, a torn journal or a bad config never stops the boat
             self.notice = f'Mark not saved: {error}'
         return True
@@ -83,7 +83,7 @@ class Annotate:
         self.emit('bad_data', on=self.bad_on, who='operator')
         self.flash_text('bad data from here; N ends it' if self.bad_on else 'bad data ended')
 
-    def say(self):
+    def said(self):
         """": what the operator just said, journaled now with the pose and scene; a digit picks the words."""
         number = self.next_id('said')
         self.emit('said', id=number, text='', source='operator', pose=self.pose(), scene=self.scene())

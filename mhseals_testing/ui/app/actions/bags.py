@@ -337,27 +337,36 @@ class Bags:
         self._review_live = {'source': self.source, 'tabs': self.tabs, 'focus': self.focus,
                              'cursors': self.cursors, 'activity': self.activity,
                              'minimap': self.minimap, 'layerbox': self.layerbox}
-        self.source, self.review = replay, selected
+        self.rebuild(source=replay, review=selected, tabs=TabMemory(),
+                     minimap=minimap_panel.MiniMap(self.map_state), layerbox=LayerBox(None, self.map_state, live=False))
         self._review_fault = False
         selected.load = replay.seek
-        self.tabs, self.focus, self.cursors = TabMemory(), 'activity', dict.fromkeys(CURSORS, 0)
-        self.minimap = minimap_panel.MiniMap(self.map_state)
-        self.layerbox = LayerBox(None, self.map_state, live=False)
+        self.focus, self.cursors = 'activity', dict.fromkeys(CURSORS, 0)
         self.activity = 'log'
-        self.last_tick = self.clock()
+        self.restart_ticks()
         self.notice = f'Review {bag.id}; Esc returns to live'
+
+    def review_failed(self, error):
+        """Playback hit a data error: a review over live returns to live; a standalone one stays paused, unread."""
+        self.review.pause()
+        self.review.due = None
+        message = f'Review playback failed: {error}'
+        if self.args.review is None and self._review_live is not None:
+            self.leave_review()          # live owners and recording were never touched
+        else:
+            self._review_fault = True
+        self.notice = message
 
     def leave_review(self):
         """Back to live; a session opened with --review has no live to return to, so it quits."""
         if self.args.review is not None:
             self.quit = True
         else:
-            if self._review_live is not None:
-                for name, value in self._review_live.items():
-                    setattr(self, name, value)
-                self._review_live = None
-            self.review = None
-            self.last_tick = self.clock()
+            live, self._review_live = self._review_live or {}, None
+            self.focus, self.cursors, self.activity = (live.pop(name, getattr(self, name))
+                                                       for name in ('focus', 'cursors', 'activity'))
+            self.rebuild(review=None, **live)
+            self.restart_ticks()
             self.notice = 'Left review'
 
     def on_activity(self, key):

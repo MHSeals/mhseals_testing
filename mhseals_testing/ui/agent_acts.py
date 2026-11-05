@@ -1,7 +1,7 @@
 """What an agent act does inside the TUI (spec agent-control sections 3 and 4): the same code as a key.
 
 The desk (ui/feeds/agent_desk/) decides when an act may start; these functions do it. ``run``
-calls ``app.run_procedure`` as the procedure key would; ``goal_*`` use ``app.goals`` (a
+calls ``app.run_procedure`` as the procedure key would; ``goal_*`` use the desk's ``goals`` (a
 ``harness.goals.Goals``), the one goal sender the cursor goal shares; ``choose`` is the
 timed ``popup.choose`` for the confirm and ``ask`` popups. ``dry_run`` evaluates the live gates
 and returns them without moving anything.
@@ -110,22 +110,19 @@ def mission_tasks():
     return mission.available()
 
 
-def run(app, found, task=None, profile=None):
+def run(app, found):
     """Run ``found`` as its key would; returns (result, error). The run file names the outcome.
 
-    ``task`` is the mission task an agent named; without it the mission asks the operator.
-    ``profile`` is the mission's nav profile (qualifying, finals); without it, the nav YAML's own.
+    The desk's run act carries the mission task an agent named (without it the mission asks the operator) and
+    the mission's nav profile (qualifying, finals; without it the nav YAML's own): ui/app/actions/procedures.py.
     """
     run_id = runs.next_run_id(app.paths.runs, found.title)
     error = None
-    app.agent_task, app.agent_profile = task, profile
     try:
         app.run_procedure(found)
     except STOPPING as stopped:
         error = str(stopped) or type(stopped).__name__
         app.stop(error, by='error')             # what the key loop does with a stopping error
-    finally:
-        app.agent_task = app.agent_profile = None
     record = read_json(app.paths.runs / f'{run_id}.json') or {}
     notice = str(app.notice or '')
     result = {'run_id': run_id if record else None,
@@ -140,7 +137,7 @@ def run(app, found, task=None, profile=None):
 # --- goals -----------------------------------------------------------------------------------
 
 class Nav2Goals:
-    """The Nav2 behind ``app.goals``, resolved on first use; a cancel never blocks the caller.
+    """The Nav2 behind the desk's ``goals``, resolved on first use; a cancel never blocks the caller.
 
     The arbiter cancels from its ROS timer, on the same executor that would answer the cancel,
     so waiting there could only time out. The request is sent; Goals journals the stop.
@@ -243,7 +240,7 @@ def _plan(app, goal, facts, timeout=2.0):
     if pose is None or cells is None:
         return None, None, None, 'no map pose' if pose is None else 'no costmap'
     facts = replace(facts, costmap_age_s=costmap_age(nav2))  # judged on the grid just fetched
-    path, reason = app.goals.preview(goal, pose, cells, facts, timeout=timeout)
+    path, reason = app.desk.goals.preview(goal, pose, cells, facts, timeout=timeout)
     if reason:
         return pose, cells, None, reason
     return pose, cells, float(sum(math.dist(a, b) for a, b in zip(path, path[1:]))), None
@@ -264,7 +261,7 @@ def goal_preview(app, goal, facts, timeout=2.0):
 
 
 def goal_send(app, goal, facts, claim, cancelled=lambda: None):
-    """Send ``goal`` for ``claim`` through ``app.goals``; (path_m, None) or (None, reason).
+    """Send ``goal`` for ``claim`` through the desk's ``goals``; (path_m, None) or (None, reason).
 
     ``cancelled()`` is asked once more just before the send: a reason there sends nothing.
     """
@@ -272,7 +269,7 @@ def goal_send(app, goal, facts, claim, cancelled=lambda: None):
     reason = reason or cancelled()
     if reason is None:  # the same grid, now aged by the planner call
         facts = replace(facts, costmap_age_s=costmap_age(nav2_of(app)))
-        reason = app.goals.send(goal, boat, cells, facts, claim, path_m)
+        reason = app.desk.goals.send(goal, boat, cells, facts, claim, path_m)
     return (None, reason) if reason else (path_m, None)
 
 

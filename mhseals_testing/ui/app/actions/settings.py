@@ -38,7 +38,7 @@ class Settings(Health, Files, Hardware, StatusRows, Pose, Correction):
             self.arming.switch_profile(profile)
         except (RuntimeError, ValueError) as error:
             return str(error)
-        self.profile = profile
+        self.rebuild(profile=profile)
         if getattr(self.source, 'profile', None) is not None:
             self.source.profile = profile
         self.emit('command_mode', mode=mode, profile=profile.name)

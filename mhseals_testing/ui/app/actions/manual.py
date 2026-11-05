@@ -113,7 +113,7 @@ class Manual:
             if self.save_hardware(channel_map=channel_map, reversed=reversed_, **chips):
                 self.notice = pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}'
         elif action == 'undo':
-            self.draft = self.grabbed = None
+            self.drop_grab(draft=True)
             self.notice = 'Mapping changes undone'
         elif action == 'thruster_set':
             self.run_procedure(next(p for p in PROCEDURES if p.key == key))
@@ -152,6 +152,20 @@ class Manual:
         self.pulse_started()
         self.ros.emit('test_pulses', pulses=pulses)
         self.notice = f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends'
+
+    def set_command(self, command=(0.0, 0.0, 0.0)):
+        """The commanded (surge, sway, yaw) the Command glyph shows; neutral by default."""
+        self.command = command
+
+    def drop_grab(self, draft=False):
+        """Let go of the grabbed thruster; ``draft`` also drops the unsaved mapping."""
+        self.grabbed = None
+        if draft:
+            self.draft = None
+
+    def forget_manual_speed(self):
+        """A new configured manual_amplitude wins over the session's last speed."""
+        self.manual_speed = None
 
     def clear_pulses(self, notice=None):
         if self.test_pulses is not None:

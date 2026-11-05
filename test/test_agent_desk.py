@@ -152,8 +152,11 @@ class App:
     def stop(self, reason, by='operator'):
         self.calls.append(('stop', reason))
         if self._runner_paused:
-            self._runner_cancelled = self._runner_cancelled or f'by {by}: {reason}'   # as ui/app/actions/arm.py
+            self.cancel_run(f'by {by}: {reason}')   # as ui/app/actions/arm.py
         self.is_armed = False
+
+    def cancel_run(self, cause):
+        self._runner_cancelled = self._runner_cancelled or cause
 
     def revoke_agent(self):
         holder = self.arbiter.table.holder()
@@ -253,8 +256,8 @@ def rig(tmp_path):
     app.arbiter = feed.arbiter
     app.feeds.append(feed)
     app.set_mux('auto')
-    desk = agent_feed.start(app, app.ros, registry=registry, clock=lambda: clock[0],
-                            status=lambda a, d: None)
+    desk = app.desk = agent_feed.start(app, app.ros, registry=registry, clock=lambda: clock[0],
+                                       status=lambda a, d: None)   # startup.py makes it app.desk
     return SimpleNamespace(app=app, desk=desk, clock=clock, registry=registry)
 
 
@@ -312,11 +315,11 @@ def test_run_mission_names_its_task_or_says_the_operator_picks(rig):
     c = claim(rig)
     rig.app.settings.agent_motion = 'allow'
     seen = []
-    rig.app.on_step = {0: lambda: seen.append(getattr(rig.app, 'agent_task', None))}
+    rig.app.on_step = {0: lambda: seen.append(agent_feed.run_act(rig.app)['task'])}   # the desk's act carries it
     req = ask(rig, 'run', c, key='mission', task='nav_channel')
     started = next(r for r in replies(req['id']) if r['state'] == 'started')
     assert started['result'] == {'task': 'nav_channel'} and seen == ['nav_channel']
-    assert final(req['id'])['ok'] and rig.app.agent_task is None
+    assert final(req['id'])['ok'] and agent_feed.run_act(rig.app) is None
     assert rig.desk.recent[-1]['label'] == 'run mission nav_channel'
     req = ask(rig, 'run', c, key='mission')
     assert next(r for r in replies(req['id']) if r['state'] == 'started')['result'] == {
@@ -407,7 +410,7 @@ def test_a_dry_run_moves_nothing(rig):
     assert reply['ok'] and reply['result']['asks'] == {'arm': False, 'confirm': True}
     reply = final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])
     assert reply['ok'] and reply['result']['gate'] is None and reply['result']['path_m'] == 5.0
-    assert rig.app.nav.goal is None and not rig.app.running and rig.app.goals.active is None
+    assert rig.app.nav.goal is None and not rig.app.running and rig.desk.goals.active is None
 
 
 def test_a_dry_run_while_an_act_runs_is_busy_and_asks_nav2_nothing(rig):
@@ -477,7 +480,7 @@ def test_a_slow_nav2_never_stalls_the_keys(rig):
     rig.app.popup = lambda modal, handle, refresh=None: popups.popup(rig.app, modal, handle, refresh)
     reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
     assert log == ['space', 'stopped while Nav2 was sending']
-    assert reply['error'] == 'overridden: keys' and nav.goal.cancelled and rig.app.goals.active is None
+    assert reply['error'] == 'overridden: keys' and nav.goal.cancelled and rig.desk.goals.active is None
 
 
 def test_ctrl_c_during_an_agent_run_replies_handover(rig):
@@ -615,9 +618,9 @@ def test_a_goal_is_cancelled_by_e_through_the_authority_sources(rig):
     c = claim(rig)
     rig.app.settings.agent_motion = 'allow'
     req = ask(rig, 'goal', c, x=5, y=0)
-    assert rig.app.goals.active['claim'] == c and [r['state'] for r in replies(req['id'])][-1] == 'started'
-    rig.app.revoke_agent()                           # E: the arbiter cancels app.goals' goal (G3)
-    assert rig.app.nav.goal.cancelled and rig.app.goals.active is None
+    assert rig.desk.goals.active['claim'] == c and [r['state'] for r in replies(req['id'])][-1] == 'started'
+    rig.app.revoke_agent()                           # E: the arbiter cancels the desk's goal (G3)
+    assert rig.app.nav.goal.cancelled and rig.desk.goals.active is None
     rig.desk.tick()
     assert final(req['id'])['error'] == 'revoked'
 
@@ -928,7 +931,7 @@ def test_a_huge_goal_is_bad_args_and_never_crashes_the_tui(rig, dry):
     c = claim(rig)
     reply = final(ask(rig, 'goal', c, dry=dry, x=1e308, y=0)['id'])
     assert not reply['ok'] and reply['error'] == 'bad_args' and 'within' in reply['hint']
-    assert rig.app.goals.active is None and rig.desk.act is None
+    assert rig.desk.goals.active is None and rig.desk.act is None
     reply = final(ask(rig, 'goal', c, dry=True, x=5, y=0)['id'])   # the desk still answers
     assert reply['ok']
 
@@ -994,7 +997,7 @@ def test_a_goal_past_the_fence_or_its_margin_is_refused_before_allow(rig, fence,
     reply = final(ask(rig, 'goal', c, x=x, y=0)['id'])
     assert reply['error'] == 'refused' and reason in reply['hint']
     assert 'asking' not in [r['state'] for r in replies(reply['re'])]
-    assert rig.app.nav.goal is None and rig.app.goals.active is None
+    assert rig.app.nav.goal is None and rig.desk.goals.active is None
 
 
 def test_manual_takeover_cancels_the_agent_goal_in_nav2_and_the_desk_keeps_answering(rig):
@@ -1003,7 +1006,7 @@ def test_manual_takeover_cancels_the_agent_goal_in_nav2_and_the_desk_keeps_answe
     rig.app.settings.agent_motion = 'allow'
     req = ask(rig, 'goal', c, x=5, y=0)
     rig.desk.take_over()                                     # app.run_procedure(manual) calls it first
-    assert rig.app.nav.goal.cancelled and rig.app.goals.active is None and rig.desk.act is None
+    assert rig.app.nav.goal.cancelled and rig.desk.goals.active is None and rig.desk.act is None
     reply = final(req['id'])
     assert reply['error'] == 'overridden: keyboard' and ch.exit_code(reply) == 3 and 'U' in reply['hint']
     rig.app.manual, rig.app.running = True, 'Manual control'
@@ -1036,7 +1039,7 @@ def test_goal_freshness_is_judged_on_the_grid_fetched_for_it(rig):
     rig.app.settings.agent_motion = 'allow'
     reply = final(ask(rig, 'goal', c, x=5, y=0)['id'])
     assert reply['error'] == 'refused' and reply['hint'] == 'global costmap is stale'
-    assert rig.app.nav.goal is None and rig.app.goals.active is None
+    assert rig.app.nav.goal is None and rig.desk.goals.active is None
 
 
 def test_dry_run_helpers_name_an_off_course_sim_boat_a_boat_yaml_and_the_operator_popup(tmp_path):
@@ -1323,7 +1326,7 @@ def test_a_sim_armed_run_confirms_its_ready_prompt_as_the_agent(sim, monkeypatch
     monkeypatch.setattr(popups, 'prompt', lambda app, message, title='Ready': asked.append(message) or '')
     sim.app.on_step = {0: lambda: answers.append(RealApp.prompt(sim.app, 'Clear the area and press Enter... '))}
     assert final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])['ok']
-    assert answers == [''] and asked == [] and sim.app.agent_ready is None
+    assert answers == [''] and asked == [] and agent_feed.run_act(sim.app) is None
     logged = next(f for p, f in sim.app.events if p == 'ready')
     assert logged['by'] == 'agent' and logged['who'] == 'claude-3f2a' and logged['sim_arm'] is True
 
@@ -1458,7 +1461,7 @@ def test_switching_observe_mid_goal_cancels_it_in_nav2(rig):
     rig.app.settings.agent_motion = 'allow'
     req = ask(rig, 'goal', c, x=5, y=0)
     agent_feed.step_setting(rig.app, 'agent_motion', 'right')
-    assert rig.app.nav.goal.cancelled and rig.app.goals.active is None
+    assert rig.app.nav.goal.cancelled and rig.desk.goals.active is None
     assert final(req['id'])['error'] == 'overridden: motion observe'
     assert ('hold', 'motion_observe') in rig.app.calls
 

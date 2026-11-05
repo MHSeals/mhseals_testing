@@ -97,7 +97,7 @@ def _perception(app, desk):
 
 
 def _nav2(app, desk):
-    goals = getattr(app, 'goals', None)
+    goals = getattr(desk, 'goals', None)
     active = goals.active if goals is not None else None
     return {'goal': None if active is None else {k: active[k] for k in ('claim', 'x', 'y', 'yaw')}}
 

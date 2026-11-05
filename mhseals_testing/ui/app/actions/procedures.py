@@ -49,7 +49,6 @@ def agent_run(app):
     act = agent_feed.run_act(app)
     return None if act is None else dict(who=act['who'], claim=act['claim'])
 
-
 class Procedures:
     """Procedures, mixed into App."""
 
@@ -206,6 +205,7 @@ class Procedures:
         return None
 
     def procedure_context(self):
+        act = agent_feed.run_act(self) or {}   # an agent's run: the desk's act names its task and nav profile
         return host.context(
             self, self.profile, self.monitor, self.settings, self.args.stale_after,
             dict(
@@ -223,10 +223,10 @@ class Procedures:
                 disarm=self.disarm, pulses=self.set_pulses, save_hardware=self.save_hardware,
                 mux_input=self.mux_input,
                 magcal=lambda: magcal_popup.ask_heading(self), type_word=self.type_word,
-                task=getattr(self, 'agent_task', None),   # mission: the task an agent's run named
+                task=act.get('task'),     # mission: the task an agent's run named
                 agent=agent_run(self),    # an agent's run: {who, claim}; its save questions answer no
                 reset_to_start=self.reset_to_start,   # mission: sim-only, gated by mission.sim_stack
-                mission_profile=getattr(self, 'agent_profile', None),   # and its nav profile (finals)
+                mission_profile=act.get('profile'),   # and its nav profile (finals)
                 run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
                 manual=dict(plant=self.plant, blockers=self.manual_now, checks=self.manual_checks,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
@@ -259,6 +259,10 @@ class Procedures:
             return ['pose timestamp is invalid']
         values = row.get('values', {})
         return stillness(values.get('vx'), values.get('vy'), values.get('wz'))
+
+    def cancel_run(self, cause):
+        """Abort the run in flight at its next key or paused tick; the first cause names it."""
+        self._runner_cancelled = self._runner_cancelled or cause
 
     def poll_pause(self):
         """Refresh read-only sources and views; never replay pulses or watch/apply config."""
@@ -294,7 +298,7 @@ class Procedures:
     def session(self, name, blockers, details):
         def show(command, remaining, label):
             self._runner_paused = False
-            self.command = command
+            self.set_command(command)
             self.monitor.command(command)
             place = getattr(runner, 'place', None)
             if place is not None:     # a long run (characterization): bar, step, command against measured
@@ -315,7 +319,7 @@ class Procedures:
                 ended = self._runner_cancelled if isinstance(self._runner_cancelled, str) else 'by operator'
                 raise Aborted(f'motion cancelled {ended} while paused by {cause}')
             self.poll_pause()
-            self.command = (0.0, 0.0, 0.0)
+            self.set_command()
             self.monitor.command(self.command)
             self.notice = (f'PAUSED{theme.SEPARATOR}{cause}{theme.SEPARATOR}{elapsed:.1f}s'
                            f'{theme.SEPARATOR}U release · E revoke · Space aborts')
@@ -339,7 +343,7 @@ class Procedures:
                 yield runner
         finally:
             self._runner_paused = False
-            self.command = (0.0, 0.0, 0.0)
+            self.set_command()
 
     def measured_velocity(self):
         """(vx, vy, wz) from live odometry, or None."""

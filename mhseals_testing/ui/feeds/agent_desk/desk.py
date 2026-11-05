@@ -10,7 +10,7 @@ Safety, in one place:
 * A human override (Space, manual, RC, a hold, a fault), ``E``, a lapsed lease or a release cancels
   the act at once and nothing resumes it. A run aborts through the runner's interlock path
   (``blockers``, neutral first); while it is paused for an override, the next tick sets
-  ``app._runner_cancelled``. A goal is cancelled. A desk popup, and any popup of its run (``run_act``), closes.
+  ``app.cancel_run(cause)``. A goal is cancelled. A desk popup, and any popup of its run (``run_act``), closes.
 * The motion lease: the act's blocking CLI renews every ``motion_s``/3; a lapse expires the claim
   through the arbiter, which stops exactly as ``E`` does.
 * Only ``release HOLD --why`` (ui/feeds/agent_ops.py, agent/grants.py) releases a hold: a lease or
@@ -48,6 +48,7 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin, VerbsMixin, SettingsMixin
 
     def __init__(self, app, ros, *, registry=None, config=None, clock=time.time, path=None, status=None):
         self.app, self.ros, self.registry, self.clock = app, ros, registry, clock
+        self.goals = Goals(agent_acts.Nav2Goals(app), lambda phase, record: app.emit(phase, **record), time.time_ns)
         self.config = config or agent_config.Watch()
         saved = (registry.read() or {}).get('agent') if registry else None
         self.tail = agent_channel.Tail(path, **(saved or {}))
@@ -194,16 +195,14 @@ def step_setting(app, name, key):
 
 
 def start(app, ros, registry=None, status=None, clock=time.time):
-    """The owner's desk and ``app.goals``; None for a guest or a review."""
+    """The owner's desk, a feed (startup.py makes it ``app.desk``); None for a guest or a review."""
     if app.watching or app.review or app.args.review is not None:
         return None
     arbiter = getattr(app, 'arbiter', None)
     agent_channel.rotate(active=bool(arbiter and arbiter.table.holder()))
-    app.goals = Goals(agent_acts.Nav2Goals(app), lambda phase, record: app.emit(phase, **record), time.time_ns)
     if status is None:
         from mhseals_testing.ui import status_file
         status = status_file.write
     desk = AgentDesk(app, ros, registry=registry, clock=clock, status=status)
-    app.desk = desk
     app.feeds.append(desk)
     return desk

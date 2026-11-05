@@ -40,6 +40,10 @@ class Arm:
         """Arming waits for the sysfs readback after a pin change (s or M runs it)."""
         return pins.refusal(self)
 
+    def pins_verified(self, ok):
+        """A readback confirmed the saved pins (or there is none to read); False refuses arming until one does."""
+        self.pins_unverified = not ok
+
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
         rival = self.arming.rival() if self.arming and self.profile.outputs != 'none' else ''
@@ -388,7 +392,7 @@ class Arm:
         if self.plant is not None:
             self.plant.neutral()
             self.plant.release()
-        self.command = (0.0, 0.0, 0.0)
+        self.set_command()
         if self.armed:
             self.arming.disarm()
             self.armed_by = None
@@ -399,7 +403,7 @@ class Arm:
     def operator_stop(self, agent=None):
         """Space requests a sticky manual hold, then always neutralizes and disarms. ``agent`` is the id of an
         agent whose ``stop`` this is (None: the operator's Space); ``stopped_by`` keeps it for the desk's hints."""
-        self.command = (0.0, 0.0, 0.0)
+        self.set_command()
         self.stopped_by = f'agent {agent}' if agent else f'viewer {self.client_name()}' if self.watching \
             else 'operator'
         try:
@@ -414,7 +418,7 @@ class Arm:
         A watcher publishes neutral too: Space always works.
         """
         if getattr(self, '_runner_paused', False):
-            self._runner_cancelled = self._runner_cancelled or f'by {by}: {reason}'   # the first cause names it
+            self.cancel_run(f'by {by}: {reason}')
         try:
             self.disarm(reason, by)
         finally:

@@ -237,7 +237,7 @@ class LeaseMixin:
         cause = act['cause']
         if act['op'] == 'run':
             if cause:
-                self.app._runner_cancelled = f'(agent act ended: {cause})'   # a paused agent run aborts, not resumes
+                self.app.cancel_run(f'(agent act ended: {cause})')   # a paused agent run aborts, not resumes
             elif act['started'] and self.clock() - act['progress_at'] >= PROGRESS_S:
                 act['progress_at'] = self.clock()
                 self.reply(act['req'], True, state='progress',

@@ -244,7 +244,7 @@ class View:
     def lively(self):
         """Something moves on screen (driving, a run, an act, a popup, a replay, the Fusion tab): idle ticks draw at
         the FRAME cap, as ever."""
-        goals = getattr(self, 'goals', None)
+        goals = getattr(self.desk, 'goals', None)
         return bool(self.armed or self.running or self.manual or self.modal is not None or self.review
                     or getattr(getattr(self, 'desk', None), 'act', None) or getattr(goals, 'active', None)
                     or self.tab == 'Fusion')
@@ -260,6 +260,10 @@ class View:
                 getattr(getattr(self, 'arbiter', None), 'sent', None),   # the record's content (its timer is 4 Hz)
                 (len(desk.recent), len(desk.notes), len(desk.queue), len(desk.notices)) if desk is not None else None,
                 getattr(self.map_state(), 'fence_status_at', None) if hasattr(self, 'map_state') else None)
+
+    def repaint(self):
+        """The next idle frame draws in full (the terminal's images restarted)."""
+        app_state.state_of(self).render.last_drawn = None
 
     def refresh(self, force=True):
         """Draw now. Continuous callers pass force=False to cap redraws at 1/FRAME; a still screen draws only when
