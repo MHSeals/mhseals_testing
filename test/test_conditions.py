@@ -235,13 +235,13 @@ def test_wave_floor_ignores_retired_windows():
 
 def test_settings_ignore_keys_of_other_parts(tmp_path):
     path = tmp_path / 'c.yaml'
-    path.write_text(c._config_path().read_text() + 'readiness: {k: 1}\nhint: x\ndrift_tau: 90\n')
+    path.write_text(c.CONFIG.read_text() + 'readiness: {k: 1}\nhint: x\ndrift_tau: 90\n')
     assert c.load_settings(path) == S
 
 
 def _edited(tmp_path, old, new):
     path = tmp_path / 'c.yaml'
-    path.write_text(c._config_path().read_text().replace(old, new))
+    path.write_text(c.CONFIG.read_text().replace(old, new))
     return path
 
 

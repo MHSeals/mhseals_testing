@@ -42,8 +42,7 @@ class Settings:
     noise_s0_floor: float
 
 
-def _config_path():
-    return config_path('config', 'conditions.yaml')
+CONFIG = config_path('config', 'conditions.yaml')    # shared with analysis/readiness and verdict
 
 
 def load_settings(path=None) -> Settings:
@@ -51,7 +50,7 @@ def load_settings(path=None) -> Settings:
 
     Raises one ValueError naming the file and the key for anything unusable.
     """
-    path = Path(path or _config_path())
+    path = Path(path or CONFIG)
     raw = load_strict(path.read_text(), path)
     if not isinstance(raw, dict):
         raise ValueError(f'{path}: expected a mapping of settings')

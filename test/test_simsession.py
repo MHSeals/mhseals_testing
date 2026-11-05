@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import json
 
 from mhseals_testing.harness import simsession
-from mhseals_testing.harness.processes import bag_command
+from mhseals_testing.harness.bags import record_command
 
 
 def sim_profile(**changes):
@@ -14,7 +14,7 @@ def sim_profile(**changes):
 
 def test_crane_profile_extras_are_not_dropped_by_the_bag_excludes(tmp_path):
     import re
-    command = bag_command(tmp_path / 'b')
+    command = record_command(tmp_path / 'b', 'full')
     assert '--topics' not in command  # --all-topics would override it and record almost nothing
     regex = command[command.index('--exclude-regex') + 1]
     extras = simsession.extra_topics('crane_full_stack')

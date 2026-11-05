@@ -7,10 +7,9 @@ every other key needs a Navigation reset. Applying a plan is nav2/live.py.
 """
 
 from fnmatch import fnmatchcase
-from pathlib import Path
 
+from mhseals_testing import strict_yaml
 from mhseals_testing.health.config import config_path
-from mhseals_testing.strict_yaml import load_strict
 
 # Apply order; the smoother is also sent first, at the more restrictive limits.
 ORDER = ('velocity_smoother', 'controller_server', 'local_costmap', 'global_costmap',
@@ -33,8 +32,7 @@ def _ceilings():
 
 def live_patterns(path=None):
     """Return the fnmatch patterns of the keys a running stack applies by itself."""
-    path = Path(path or config_path('config', 'nav2_classes.yaml'))
-    return load_strict(path.read_text(), path)['live']
+    return strict_yaml.load(path or config_path('config', 'nav2_classes.yaml'))['live']
 
 
 def rank(node):

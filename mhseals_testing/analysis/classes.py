@@ -14,12 +14,7 @@ from mhseals_testing.strict_yaml import load_strict
 import yaml
 
 Symbol = namedtuple('Symbol', 'label glyph ascii colour radius name')
-
-
-def _default_path():
-    return config_path('config', 'minimap.yaml')
-
-
+FILE = config_path('config', 'minimap.yaml')
 FIELDS = ('glyph', 'ascii', 'colour', 'radius', 'name')
 
 
@@ -76,7 +71,7 @@ def _section(name, given, defaults):
 
 def load_section(name, defaults, path=None):
     """One minimap.yaml settings section over ``defaults`` (the hull's size); a malformed one raises ValueError."""
-    path = Path(path or _default_path())
+    path = Path(path or FILE)
     try:
         data = load_strict(path.read_text())
         return _section(name, data.get(name) if isinstance(data, dict) else None, defaults)
@@ -116,7 +111,7 @@ def load_classes(path=None, tokens=None):
 
     Colours are checked against the theme.yaml tokens (`tokens` overrides, for tests).
     """
-    path = Path(path or _default_path())
+    path = Path(path or FILE)
     try:
         data = load_strict(path.read_text())
         if not isinstance(data, dict):

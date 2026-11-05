@@ -15,8 +15,6 @@ import threading
 import time
 
 from mhseals_testing.harness.registry import alive
-from mhseals_testing.health.config import config_path
-from mhseals_testing.strict_yaml import load_strict
 
 
 class Child:
@@ -196,22 +194,3 @@ def unique_path(path):
             return candidate
         except FileExistsError:
             continue
-
-
-def bag_filters():
-    """The (exclude_regex, exclude_types) from config/bags.yaml."""
-    path = config_path('config', 'bags.yaml')
-    config = load_strict(path.read_text(), path)
-    return config['exclude_regex'], list(config.get('exclude_types', []))
-
-
-def bag_command(path):
-    # Every topic except the heavy ones, so /mhseals_testing/events is kept and results
-    # can be re-scored from the bag alone. Not -a: it records images and clouds at
-    # ~50 MB/s. The name regex and the message-type list both apply. Jazzy's default storage is MCAP.
-    regex, types = bag_filters()
-    type_args = ['--exclude-topic-types', *types] if types else []
-    # No --topics: Jazzy's --all-topics overrides it and the bag would hold only /rosout. A profile's
-    # extra topics (/clock, truth odometry) are kept by not matching the excludes (test_simsession).
-    return ['ros2', 'bag', 'record', '--all-topics', '--exclude-regex', regex, *type_args,
-            '-o', str(path)]

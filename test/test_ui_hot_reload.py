@@ -63,7 +63,7 @@ def test_theme_overlay_changes_the_live_styles(tmp_path, monkeypatch):
 def test_minimap_classes_reload(tmp_path, monkeypatch):
     app, _ = start(tmp_path, monkeypatch)
     path = tmp_path / 'minimap.yaml'
-    path.write_text(classes._default_path().read_text())
+    path.write_text(classes.FILE.read_text())
     app.watcher.watches['minimap'].path = path
     app.watcher.reload('minimap')
     table = app.minimap.table

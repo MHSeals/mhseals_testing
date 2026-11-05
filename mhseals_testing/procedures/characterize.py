@@ -11,14 +11,13 @@ Any abort restores the saved C+/C-.
 
 from datetime import datetime, timezone
 import math
-from pathlib import Path
 import shlex
 
 import yaml
 
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.thruster_mixer import AXES
-from mhseals_testing import calibration
+from mhseals_testing import calibration, strict_yaml
 from mhseals_testing.agent import ask
 from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.analysis.characterization import (
@@ -30,7 +29,6 @@ from mhseals_testing.harness.apply import IDENTITY, Staging
 from mhseals_testing.health.config import config_path
 from mhseals_testing.history import adapters
 from mhseals_testing.runner import NEUTRAL
-from mhseals_testing.strict_yaml import load_strict
 
 class UnusableResponse(ValueError):
     """A measurement or candidate cannot safely feed the characterization."""
@@ -41,8 +39,7 @@ DIRECTIONS = tuple((axis, sign) for axis in range(3) for sign in (1, -1))
 
 def load_settings(path=None):
     """config/characterize.yaml."""
-    path = Path(path or config_path('config', 'characterize.yaml'))
-    return load_strict(path.read_text(), path)
+    return strict_yaml.load(path or config_path('config', 'characterize.yaml'))
 
 
 def label(axis, sign):

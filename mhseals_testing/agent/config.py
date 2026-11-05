@@ -9,9 +9,9 @@ import os
 import re
 from pathlib import Path
 
+from mhseals_testing import strict_yaml
 from mhseals_testing.harness.watch import stat_key
 from mhseals_testing.health.config import config_path as shipped
-from mhseals_testing.strict_yaml import load_strict
 
 import yaml
 
@@ -53,8 +53,7 @@ def config_path():
 
 def load(path=None):
     """The validated config; ValueError (naming the key) on anything wrong."""
-    path = Path(path or config_path())
-    return validate(load_strict(path.read_text(), path))
+    return validate(strict_yaml.load(path or config_path()))
 
 
 def validate(data):

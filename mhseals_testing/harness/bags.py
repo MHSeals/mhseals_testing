@@ -24,9 +24,8 @@ from pathlib import Path
 import re
 import shutil
 
-from mhseals_testing import data
+from mhseals_testing import data, strict_yaml
 from mhseals_testing.health.config import config_path
-from mhseals_testing.strict_yaml import load_strict
 
 MODES = ('lean', 'full', 'off')
 SPLIT_S = 120
@@ -36,15 +35,24 @@ STOP_WAIT_S = 20  # SIGINT, up to 20 s for metadata.yaml, then SIGTERM, then SIG
 
 def load_profiles(path=None):
     """config/bags/topics.yaml."""
-    path = Path(path or config_path('config', 'bags', 'topics.yaml'))
-    return load_strict(path.read_text(), path)
+    return strict_yaml.load(path or config_path('config', 'bags', 'topics.yaml'))
+
+
+def settings(path=None):
+    """config/bags.yaml ({} when missing)."""
+    path = Path(path or config_path('config', 'bags.yaml'))
+    return (strict_yaml.load(path) or {}) if path.exists() else {}
 
 
 def budget_bytes(path=None):
     """Decimal GB, matching the Bags gauge; configured in bags.yaml."""
-    path = Path(path or config_path('config', 'bags.yaml'))
-    config = load_strict(path.read_text(), path) if path.exists() else None
-    return float((config or {}).get('budget_gb', 20)) * 1e9
+    return float(settings(path).get('budget_gb', 20)) * 1e9
+
+
+def bag_filters(path=None):
+    """The (exclude_regex, exclude_types) a full recording drops, from bags.yaml."""
+    config = settings(path)
+    return config['exclude_regex'], list(config.get('exclude_types', []))
 
 
 def record_command(segment, mode, profile=None, profiles=None, filters=None):
@@ -59,8 +67,7 @@ def record_command(segment, mode, profile=None, profiles=None, filters=None):
     common = ['ros2', 'bag', 'record', '-s', 'mcap', '-d', str(SPLIT_S),
               '--max-cache-size', str(CACHE_BYTES), '--node-name', f'rosbag2_recorder_{os.getpid()}',
               '--disable-keyboard-controls', '-o', str(segment)]
-    if mode == 'full':
-        from mhseals_testing.harness.processes import bag_filters
+    if mode == 'full':   # no --topics: Jazzy's --all-topics overrides it; a profile's extras just miss the excludes
         regex, types = filters or bag_filters()
         types = ['--exclude-topic-types', *types] if types else []
         return ['ros2', 'bag', 'record', '--all-topics', '--exclude-regex', regex, *types, *common[3:]]

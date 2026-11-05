@@ -24,10 +24,9 @@ def settings():
 
 def budget():
     """config/perf.yaml ``budget``."""
-    from mhseals_testing.strict_yaml import load_strict
+    from mhseals_testing import strict_yaml
     from mhseals_testing.health.config import config_path
-    path = config_path('config', 'perf.yaml')
-    return dict(load_strict(path.read_text(), path)['budget'])
+    return dict(strict_yaml.load(config_path('config', 'perf.yaml'))['budget'])
 
 
 def pct(values, q):

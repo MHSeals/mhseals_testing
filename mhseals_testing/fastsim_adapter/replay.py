@@ -26,7 +26,7 @@ import yaml
 
 from mhseals_testing.fastsim_adapter.bag import Tf, messages
 from mhseals_testing.fastsim_adapter.cluster import merge
-from mhseals_testing.strict_yaml import load_strict
+from mhseals_testing import strict_yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fastsim_replay.yaml'
 
@@ -228,8 +228,7 @@ def numbers(diff):
 
 
 def run(session, out, tune=None, config=None):
-    config = Path(config or CONFIG)
-    cfg = load_strict(config.read_text(), config)
+    cfg = strict_yaml.load(config or CONFIG)
     t = merge(cfg['tune'], tune or {})
     topics = {*cfg['topics'].values(), '/tf', '/tf_static'}
     diff = replay(messages(session, topics), cfg, t)
