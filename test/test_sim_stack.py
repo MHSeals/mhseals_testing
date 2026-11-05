@@ -30,9 +30,10 @@ def test_a_free_domain_skips_held_ones_and_42(tmp_path):
     assert sim_stack.free_domain(42, 42, set()) is None and sim_stack.free_domain(120, 120, {120}) is None
 
 
-def test_boat_tui_sim_dry_run_names_the_plan_and_starts_nothing(tmp_path):
+def test_boat_tui_sim_dry_run_names_the_plan_and_starts_nothing(tmp_path, ws):
+    # the fixture workspace (stub hw.sh, scratch repos): CI's standalone checkout has no astro_dock around it
     env = dict(os.environ, BOAT_SIM_PLAYER='/bin/true', BOAT_SIM_RUN=str(tmp_path / 'run'),
-               PYTHONPATH=str(TOOLS.parent))
+               BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent))
     done = subprocess.run([str(TOOLS / 'boat_tui'), 'sim', '--seed', '7', '--dry-run'], capture_output=True,
                           text=True, env=env, timeout=30)
     assert done.returncode == 0, done.stderr

@@ -112,9 +112,10 @@ def test_the_panel_comes_only_with_boat_tui_preview(tmp_path):
     assert found is not None and found.results == tmp_path and 'W' in found.toggles
 
 
-def test_boat_tui_preview_dry_run_and_test_needs_headless(tmp_path):
-    env = dict(os.environ, BOAT_PREVIEW_PLAYER='/bin/true', BOAT_PREVIEW_CACHE=str(tmp_path),
-               PYTHONPATH=str(TOOLS.parent))
+def test_boat_tui_preview_dry_run_and_test_needs_headless(tmp_path, ws):
+    # the fixture workspace (stub hw.sh, scratch repos): CI's standalone checkout has no astro_dock around it
+    env = dict(os.environ, BOAT_PREVIEW_PLAYER='/bin/true', BOAT_PREVIEW_CACHE=str(tmp_path / 'cache'),
+               BOAT_PREVIEW_SRC=str(ws[0] / 'src'), BOAT_SIM_SRC=str(ws[0] / 'src'), PYTHONPATH=str(TOOLS.parent))
     done = subprocess.run([str(TOOLS / 'boat_tui'), 'preview', 'field/x', '--dry-run'], capture_output=True,
                           text=True, env=env, timeout=30)
     assert done.returncode == 0, done.stderr
