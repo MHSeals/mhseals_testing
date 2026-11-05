@@ -168,7 +168,7 @@ class View:
             focus_title=self.correction_focus() if self.tab == 'Correction' else None,
             authority=self.driving(shared), operator=None if self.review else operator_state.current(),
             agent=authority_chip.banner(shared.get('authority_record'), time.time(), desk=shared.get('agent_desk')),
-            armed=self.armed, armed_by=self.armed_by if self.armed else None,
+            armed=self.armed, armed_by=self.services.arm.armed_by if self.armed else None,
             arm_label=('armed' + theme.SEPARATOR + self.profile.outputs)
             if self.armed else 'disarmed', command=self.command, chords=self.chords,
             chords_unavailable=key_input.chords_unavailable(self.keys),

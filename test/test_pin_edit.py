@@ -44,7 +44,7 @@ def test_pin_edit_is_a_draft_that_s_saves_and_reads_back(tmp_path, monkeypatch):
     assert load_config(app.args.config)['pwm_chips'] == CHIPS
     assert app.notice.startswith('Pins saved; driver restarted, sysfs showed')
     assert app.typed == ['arm'] and processes.started == ['hardware'] == processes.stopped
-    assert not app.armed and not app.pins_unverified and app.draft is None
+    assert not app.armed and not app.state.arm.pins_unverified and app.draft is None
 
 
 def test_mapping_only_save_leaves_the_chip_paths_out_of_the_file(tmp_path, monkeypatch):
@@ -85,14 +85,14 @@ def test_arming_waits_for_a_readback_after_a_pin_change(tmp_path, monkeypatch):
     monkeypatch.setattr(pins, 'READBACK_TIMEOUT', 0)
     app.ask_text = lambda *a: '7'
     app.dispatch('P'), app.dispatch('s')
-    assert 'did not show' in app.notice and app.pins_unverified
+    assert 'did not show' in app.notice and app.state.arm.pins_unverified
     assert 'not read back' in ' '.join(app.arm_blockers())
     app.arm_panel()
     assert app.notice.startswith('Arming refused: pins changed') and not app.armed
     processes.started.clear(), processes.stopped.clear()      # the fake runs each name once
     app.dispatch('s')                                           # no draft: s retries the readback
     assert app.notice.startswith('Pins saved; driver restarted, sysfs showed')
-    assert not app.pins_unverified and app.pin_refusal() == ''
+    assert not app.state.arm.pins_unverified and app.pin_refusal() == ''
 
 
 def test_keymap_binds_pin_to_P_on_the_thrusters_panel():
@@ -120,7 +120,7 @@ def test_a_failed_save_after_the_write_leaves_arming_refused(tmp_path, monkeypat
     monkeypatch.setattr(app, 'announce', lambda change: type('C', (), {'ok': False})())
     app.ask_text = lambda *a: '7'
     app.dispatch('P'), app.dispatch('s')                       # written, then the reload fails
-    assert app.pins_unverified and processes.started == []
+    assert app.state.arm.pins_unverified and processes.started == []
     assert load_config(app.args.config)['pwm_chips'] == CHIPS
     assert 'not read back' in app.pin_refusal()
 
@@ -150,7 +150,7 @@ def test_a_first_unread_pin_change_survives_a_restart(tmp_path, monkeypatch):
     assert 'did not show' in app.notice
     fresh, _ = make_app(tmp_path)
     fresh.profile = app.profile
-    assert not fresh.pins_unverified and 'differ from the last readback' in fresh.pin_refusal()
+    assert not fresh.state.arm.pins_unverified and 'differ from the last readback' in fresh.pin_refusal()
 
 
 def test_the_mosfet_line_is_not_counted_as_verified(tmp_path, monkeypatch):

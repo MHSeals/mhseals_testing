@@ -17,6 +17,7 @@ from mhseals_testing.agent import channel as ch
 from mhseals_testing.harness.settings import Settings, load as load_settings, save as save_settings
 from mhseals_testing.runner import Aborted, interlock_abort
 from mhseals_testing.ui import agent_acts, status_file
+from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.ui.feeds.agent_desk import desk as agent_feed
 from mhseals_testing.ui.feeds.agent_desk import common as desk_common
 from mhseals_testing.ui.feeds.authority import AuthorityFeed
@@ -100,6 +101,8 @@ class App:
 
     def __init__(self, tmp_path, clock):
         self.now = clock
+        self.state = app_state.AppState()
+        self.services = app_state.facades(self)
         self.calls, self.events, self.keys = [], [], []
         self.watching = self.review = None
         self.args = SimpleNamespace(review=None, bench_override=False)
@@ -145,9 +148,9 @@ class App:
         return '' if self.mux['input'] == 'auto' else self.mux['input']
 
     def operator_stop(self, agent=None):
-        self.stopped_by = f'agent {agent}' if agent else 'operator'
+        self.state.arm.stopped_by = f'agent {agent}' if agent else 'operator'
         self.plant.hold('keys')
-        self.stop(f'stopped by {self.stopped_by}')
+        self.stop(f'stopped by {self.state.arm.stopped_by}')
 
     def stop(self, reason, by='operator'):
         self.calls.append(('stop', reason))
@@ -1314,7 +1317,7 @@ def test_holds_of_this_session_or_outside_a_verified_sim_are_never_cleared(sim, 
     from mhseals_hardware import hold_store
     path = saved_hold(sim, -5 if case == 'raised now' else 3600)
     if case == 'armed before':
-        sim.app.ever_armed = True                    # the operator armed this session: its holds are its own
+        sim.app.state.arm.ever_armed = True                   # the operator armed this session: its holds are its own
     if case == 'not a sim':
         sim.state['facts'] = replace(sim.state['facts'], env=dict(sim.state['facts'].env, ROS_DOMAIN_ID='42'))
     reply = final(ask(sim, 'run', claim(sim), key='square', sim_arm=True)['id'])
@@ -1364,7 +1367,7 @@ def test_an_agents_own_stop_and_the_operators_space_are_named_as_such(rig):
     _, reply = run_with(rig, 1, own)
     assert 'codex' not in reply['hint'] and ('stop', 'stopped by agent claude-3f2a') in rig.app.calls
     rig.app.operator_stop()
-    assert rig.app.stopped_by == 'operator' and ('stop', 'stopped by operator') in rig.app.calls
+    assert rig.app.state.arm.stopped_by == 'operator' and ('stop', 'stopped by operator') in rig.app.calls
 
 
 def test_a_claim_by_an_id_that_already_holds_one_is_refused_as_a_duplicate(rig):

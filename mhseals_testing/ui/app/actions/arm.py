@@ -42,7 +42,7 @@ class Arm:
 
     def pins_verified(self, ok):
         """A readback confirmed the saved pins (or there is none to read); False refuses arming until one does."""
-        self.pins_unverified = not ok
+        self.state.arm.pins_unverified = not ok
 
     def arm_blockers(self):
         """What the arm panel shows: the interlocks plus what arming itself would refuse."""
@@ -59,9 +59,8 @@ class Arm:
         pre.*_watchdog), read live; a mute does not lift them. Off the simulator an unreadable
         health config refuses too, since it may be what names them.
         """
-        here = getattr(getattr(self, 'stack', None), 'here', None)
-        if here is not None:
-            here(fresh=True)                # arming decides on a current process view
+        if self.stack is not None:
+            self.stack.here(fresh=True)     # arming decides on a current process view
         return '; '.join(filter(None, self.watchdog_reasons()))
 
     def watchdog_reasons(self):
@@ -77,17 +76,14 @@ class Arm:
             nodes = self.ros.nodes()
         except Exception as error:  # noqa: BLE001 - an unreadable graph refuses, never passes
             return f'node graph unreadable, so the safety watchdogs are unchecked: {error}', ''
-        watch = getattr(self.ros, 'watch_beats', None)
-        if watch is not None:
-            watch(required)
+        self.ros.watch_beats(required)
         names = {node.rsplit('/', 1)[-1] for node in required}
         off = []
         if self.stack is not None:
             off = [f'{item.title} on {item.remote or "this computer"}' for key, item in self.stack.items.items()
                    if names & set(item.nodes) and self.stack.reported(key) is False]
-        beats, runs = getattr(self.ros, 'beats', dict)(), getattr(self.ros, 'runs', dict)()
-        return arm_refusal(required, nodes), liveness_refusal(required, beats, self.clock(), off,
-                                                              runs=runs)
+        return arm_refusal(required, nodes), liveness_refusal(required, self.ros.beats(), self.clock(), off,
+                                                              runs=self.ros.runs())
 
     def thruster_refusal(self):
         """Why the real thruster driver may not start on this computer, or ''.
@@ -102,7 +98,7 @@ class Arm:
             me = self.profile.placed[0]
         except DeviceError as error:
             return f'device registry: {error}'
-        if 'thrusters' not in me.capabilities and getattr(self.arming, 'remote', None) is None:
+        if 'thrusters' not in me.capabilities and self.arming.remote is None:
             return f'{me.name} has no thrusters capability in devices.yaml; the driver runs on the boat computer'
         return ''
 
@@ -112,14 +108,14 @@ class Arm:
         A crashed instance leaves its DDS node for tens of seconds, so a newcomer is only an
         advisory for FOREIGN_GRACE; one still there after that is treated as live.
         """
-        names = set(getattr(self.ros, 'instances', lambda: [])())
+        names = set(self.ros.instances())
         state = self.registry.state() if self.registry else {}
         known = {entry['node'] for entry in [state.get('owner') or {}, *state.get('guests', {}).values()]
                  if 'node' in entry}
         now = self.clock()
-        self.foreign_seen = {name: self.foreign_seen.get(name, now) for name in names - known}
-        live = [name for name, since in self.foreign_seen.items() if now - since >= FOREIGN_GRACE]
-        return sorted(self.foreign_seen), live
+        seen = self.state.arm.foreign_seen = {name: self.state.arm.foreign_seen.get(name, now)
+                                              for name in names - known}
+        return sorted(seen), [name for name, since in seen.items() if now - since >= FOREIGN_GRACE]
 
     def foreign_blockers(self):
         return [f'another instance {name} is live' for name in self.foreign_instances()[1]]
@@ -137,7 +133,7 @@ class Arm:
 
     def arm_rows(self):
         """What arming means right now: outputs, driver, config and every interlock."""
-        remote = getattr(self.arming, 'remote', None)
+        remote = self.arming.remote if self.arming is not None else None
         outputs = outputs_description(self.profile, self.args.hardware_config['pwm_topic']) \
             + (f' on {remote.describe()}' if remote and drives_pwm_pins(self.profile) else '')
         driver = ('running' if self.armed else 'starts on arm') if self.profile.outputs != 'none' \
@@ -195,7 +191,7 @@ class Arm:
             if self.armed:
                 self.disarm(text)
             else:
-                if getattr(self.arming, 'pending', None) is not None:
+                if self.arming is not None and self.arming.pending is not None:
                     self.arming.cancel()
                 if self.plant is not None:
                     self.plant.neutral()
@@ -246,12 +242,12 @@ class Arm:
             return
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
-        arbiter = getattr(self, 'arbiter', None) if muxed(self.profile) else None
+        arbiter = self.arbiter if muxed(self.profile) else None
         since = arbiter.clock() if arbiter is not None else None
         self.wait_for_driver()
         if self.plant is not None:
             self.plant.engage()
-        self.armed_by = None                     # the operator's arm; an agent's sets {'who', 'sim'}
+        self.state.arm.armed_by = None           # the operator's arm; an agent's sets {'who', 'sim'}
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
         self.say('Armed at neutral')
@@ -272,7 +268,7 @@ class Arm:
         refusal = self.thruster_refusal() or self.pin_refusal() or self.watchdog_refusal()
         if refusal:
             return refusal
-        arbiter = getattr(self, 'arbiter', None) if muxed(self.profile) else None
+        arbiter = self.arbiter if muxed(self.profile) else None
         if arbiter is None:
             return 'no command mux to arm through'
         since = arbiter.clock()
@@ -282,7 +278,7 @@ class Arm:
             return str(error) or 'arming cancelled'
         if self.plant is not None:
             self.plant.engage()
-        self.armed_by = {'who': who, 'sim': sim}   # the ARMED chip reads ◆ who [sim-arm]; disarm clears it
+        self.state.arm.armed_by = {'who': who, 'sim': sim}   # the ARMED chip reads ◆ who [sim-arm]; disarm clears it
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware), by='agent', who=who, sim_arm=list(checks))
         what = 'sim auto-arm' if sim else 'agent arm'
@@ -342,8 +338,8 @@ class Arm:
         The view keeps redrawing while the driver comes up, so arming reads as
         loading, never as a frozen screen.
         """
-        self.ever_armed = True                   # a hold saved after this is this session's (sim stale holds)
-        if getattr(self.arming, 'remote', None) is None:
+        self.state.arm.ever_armed = True
+        if self.arming.remote is None:
             self.arming.begin()
         else:                                    # the ssh read ran off the key loop; None refuses
             self.arming.begin(self.read_boat_config())
@@ -363,7 +359,7 @@ class Arm:
         """A remote arm's ssh read of the boat's hardware.yaml, off the key loop (up to ~16 s on a bad
         link): the view redraws, Space stops, E revokes and Esc cancels meanwhile. None without a remote
         boat; a failed read leaves None and ``begin`` refuses with the reason."""
-        remote = getattr(self.arming, 'remote', None)
+        remote = self.arming.remote
         if remote is None:
             return None
         box = {}
@@ -395,7 +391,7 @@ class Arm:
         self.set_command()
         if self.armed:
             self.arming.disarm()
-            self.armed_by = None
+            self.state.arm.armed_by = None
             self.watcher.watches['hardware'].warning = None
             self.ros.emit('disarmed', reason=reason, by=by)
         self.say(f'{reason}; outputs neutral')
@@ -404,13 +400,13 @@ class Arm:
         """Space requests a sticky manual hold, then always neutralizes and disarms. ``agent`` is the id of an
         agent whose ``stop`` this is (None: the operator's Space); ``stopped_by`` keeps it for the desk's hints."""
         self.set_command()
-        self.stopped_by = f'agent {agent}' if agent else f'viewer {self.client_name()}' if self.watching \
-            else 'operator'
+        stopped_by = self.state.arm.stopped_by = f'agent {agent}' if agent \
+            else f'viewer {self.client_name()}' if self.watching else 'operator'
         try:
             if self.plant is not None:
                 self.plant.hold('keys', f'view {self.client_name()}') if self.watching else self.plant.hold('keys')
         finally:
-            self.stop(f'stopped by {self.stopped_by}')
+            self.stop(f'stopped by {stopped_by}')
 
     def stop(self, reason, by='operator'):
         """Neutral and disarmed, whatever happened; ``by`` is operator, fault or error.

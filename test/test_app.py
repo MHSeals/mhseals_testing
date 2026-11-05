@@ -76,6 +76,8 @@ class Boat:
 
 
 class Arming:
+    remote = None
+
     def __init__(self):
         self.armed, self.pending, self.calls = False, None, []
 
@@ -187,6 +189,17 @@ class Ros:
 
     def nodes(self):
         return list(WATCHDOGS)   # the boat's safety watchdogs, which arming requires
+
+    def watch_beats(self, nodes):
+        return []
+
+    def beats(self):
+        return {}
+
+    runs = beats
+
+    def instances(self):
+        return []
 
     def emit(self, phase, **details):
         self.events.append(phase)
@@ -548,7 +561,7 @@ def test_a_watchdog_part_its_computer_reports_off_refuses_arming(tmp_path):
     dogs = SimpleNamespace(title='Safety watchdogs', remote='blastoise-odroid',
                            nodes=('link_watchdog', 'fcu_watchdog', 'fence_watchdog', 'ekf_input_watchdog'))
     report = [True]
-    app.stack = SimpleNamespace(items={'watchdogs': dogs}, reported=lambda key: report[0])
+    app.stack = SimpleNamespace(items={'watchdogs': dogs}, reported=lambda key: report[0], here=lambda fresh: None)
     assert app.watchdog_refusal() == ''
     report[0] = False                                       # the graph still lists them
     assert app.watchdog_refusal() == ('safety watchdogs reported off: Safety watchdogs on '
@@ -1918,7 +1931,7 @@ def test_a_stale_dds_node_is_an_advisory_for_30_s_then_blocks_arming(tmp_path):
     app.clock.now += 2
     assert 'mhseals_testing_h_5' in app.foreign_blockers()[0]
     app.ros.instances = lambda: []                  # the lease expired: nothing left to block
-    assert app.foreign_blockers() == [] and app.foreign_seen == {}
+    assert app.foreign_blockers() == [] and app.state.arm.foreign_seen == {}
 
 
 def test_a_registered_instance_is_not_foreign_and_guests_are_announced(tmp_path):

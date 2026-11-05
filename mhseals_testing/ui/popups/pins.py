@@ -74,7 +74,7 @@ def mark_pending(app):
 
 def refusal(app):
     """Why arming must wait on the pins, or ''."""
-    if app.pins_unverified:
+    if app.services.arm.pins_unverified:
         return 'pins changed, not read back yet: s runs the readback'
     if app.pins_moved():
         return 'unsaved pin change: s saves and reads it back, u undoes'
@@ -173,7 +173,7 @@ def edit_pins(app):
 def verify(app):
     """After a saved pin change: start just the driver, read sysfs back, stop it.
 
-    Arming stays refused (``app.pins_unverified``) until a readback confirms the pins.
+    Arming stays refused (``app.state.arm.pins_unverified``) until a readback confirms the pins.
     """
     if busy(app):
         return REFUSED

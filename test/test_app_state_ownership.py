@@ -58,7 +58,10 @@ def app_attrs(target, mixin):
         yield from app_attrs(target.value, mixin)
     elif isinstance(target, ast.Attribute):
         value = target.value
-        if isinstance(value, ast.Name) and (value.id == 'app' or (value.id == 'self' and mixin)):
+        if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Attribute) \
+                and value.value.attr == 'state':     # app.state.<group>.<field>: the group's container
+            yield from (f'state.{value.attr}' for _ in app_attrs(value.value, mixin))
+        elif isinstance(value, ast.Name) and (value.id == 'app' or (value.id == 'self' and mixin)):
             yield target.attr
         elif isinstance(value, ast.Attribute) and value.attr == 'app' and isinstance(value.value, ast.Name) \
                 and value.value.id == 'self':
@@ -123,13 +126,13 @@ def test_nothing_writes_another_owners_state():
 def test_the_walk_sees_mixins_modules_and_the_notice():
     """The walk itself: a mixin's self.x, a module's app.x and self.app.x, and App.say's notice."""
     found = writes()
-    assert ('Arm', 'armed_by') in found and ('App.say', 'notice') in found
+    assert ('Arm', 'state.arm') in found and ('App.say', 'notice') in found
     assert any(writer.startswith('feeds/') for writer, _ in found)          # channel.py's self.app.activity
     assert 'annotate/live.py' in ui_files()                                  # outside ui/**, but it receives app
     planted = defaultdict(list)
-    walk(ast.parse('def f(app):\n    app.x = 1\nclass F:\n    def g(self):\n        self.app.y = self.z = 2\n'),
-         'feeds/planted.py', 'feeds/planted.py', planted)
-    assert set(planted) == {('feeds/planted.py', 'x'), ('feeds/planted.py', 'y')}
+    walk(ast.parse('def f(app):\n    app.x = app.state.arm.w = 1\nclass F:\n    def g(self):\n'
+                   '        self.app.y = self.z = self.state.arm.v = 2\n'), 'feeds/planted.py', 'feeds/planted.py', planted)
+    assert set(planted) == {('feeds/planted.py', 'x'), ('feeds/planted.py', 'y'), ('feeds/planted.py', 'state.arm')}
 
 
 @pytest.mark.smoke
@@ -146,6 +149,8 @@ def test_an_unowned_attribute_has_one_writer():
 def test_the_tables_name_each_attribute_once():
     named = [attr for attrs in core.OWNERS.values() for attr in attrs] + list(core.APP) + list(core.SHARED)
     assert len(named) == len(set(named))
+    containers = {attr.split('.', 1)[1] for attr in named if attr.startswith('state.')}
+    assert containers <= set(app_state.AppState.__dataclass_fields__)   # an owned container App builds
 
 
 @pytest.mark.smoke
