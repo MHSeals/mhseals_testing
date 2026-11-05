@@ -44,7 +44,18 @@ PROFILE_DIR = _profile_dir()
 SENSOR_KINDS = ('odometry', 'imu', 'gps', 'gpsraw', 'mag', 'points', 'image', 'compressed', 'detections')
 MIN_DEADLINE = 1.5   # s, floor of the rate-derived freshness deadline (real GPS gaps reach 1.13 s)
 PLOT_SCALE = (0.6, 0.3, 0.5)   # about 1.5x the limits_v2.yaml limits; fixed, never autoscaled
-OUTPUTS = ('none', 'odroid', 'topic')
+# What each `arming: outputs:` value can do, derived here and only here: code asks the capability
+# (PlantProfile.drives_pwm_pins, .capabilities), never compares the output's board name.
+#   arm       the profile has thruster outputs to arm
+#   pwm_pins  arming drives a board's PWM pins (real thrusters; pin readback, the driver's pin map)
+#   pwm_topic arming publishes PWM on a ROS topic (a simulator's thrusters)
+OUTPUT_CAPABILITIES = {
+    'none': frozenset(),
+    'odroid': frozenset({'arm', 'pwm_pins'}),
+    'topic': frozenset({'arm', 'pwm_topic'}),
+}
+OUTPUTS = tuple(OUTPUT_CAPABILITIES)   # ('none', 'odroid', 'topic')
+ARMED_OUTPUTS = tuple(name for name in OUTPUTS if 'arm' in OUTPUT_CAPABILITIES[name])
 
 
 MUX_INPUT = '/cmd_vel'  # the topic Nav2, tasks and agents publish; the mux owns it
@@ -137,6 +148,25 @@ class PlantProfile:
         return MANUAL_TOPIC if self.muxed else self.command_topic
 
     @property
+    def capabilities(self):
+        """What the profile's outputs can do (OUTPUT_CAPABILITIES): 'arm', 'pwm_pins', 'pwm_topic'."""
+        return OUTPUT_CAPABILITIES.get(self.outputs, frozenset())
+
+    @property
+    def drives_pwm_pins(self):
+        """True when arming drives a board's PWM pins: the real thrusters, not a simulator's topic."""
+        return 'pwm_pins' in self.capabilities
+
+    def pin_map(self):
+        """The pin-output driver's header table, ``{output: (pin, pad, pwm, chip)}`` (J2_PINS), or {}.
+
+        The one place outside mhseals_hardware that knows which driver module backs ``pwm_pins``.
+        """
+        if not self.drives_pwm_pins:
+            return {}
+        return dict(pin_map())
+
+    @property
     def can_arm(self):
         return self.outputs != 'none'
 
@@ -153,6 +183,17 @@ class PlantProfile:
             raise ValueError(f'{self.name} has no thruster outputs to put a controller in front of')
         return replace(self, name=self.name + '+velocity', command_units='velocity',
                        velocity_controller=True)
+
+
+def pin_map():
+    """The PWM-pin driver's header table (mhseals_hardware's J2_PINS), whatever the profile."""
+    from mhseals_hardware.odroid_pwm import J2_PINS
+    return J2_PINS
+
+
+def drives_pwm_pins(profile):
+    """``profile.drives_pwm_pins`` for any object: False for None or one without outputs."""
+    return 'pwm_pins' in OUTPUT_CAPABILITIES.get(getattr(profile, 'outputs', None), ())
 
 
 def _require(data, key, kind, where):

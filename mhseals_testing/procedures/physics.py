@@ -21,6 +21,7 @@ from mhseals_hardware.thruster_mixer import (
 )
 from mhseals_testing import data, physics_record
 from mhseals_testing.analysis import physics
+from mhseals_testing.profiles import drives_pwm_pins
 from mhseals_testing.strict_yaml import load_strict
 
 DOCK_STEPS = ('weigh_in', 'dock_noise')
@@ -113,7 +114,7 @@ def weigh_in(ctx, cfg):
 def require_driver(ctx):
     """The driver's report of the file it runs, or Refused: motion steps name the mixer and C they ran."""
     status = (ctx.services.get('driver_status') or (lambda: None))()
-    hardware = getattr(getattr(ctx, 'profile', None), 'outputs', None) == 'odroid'
+    hardware = drives_pwm_pins(getattr(ctx, 'profile', None))
     driver, reason = physics_record.driver_check(status, ctx.services.get('user_config'), hardware)
     if reason:
         raise Refused(reason)

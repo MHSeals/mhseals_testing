@@ -9,6 +9,7 @@ simulator" themselves.
 from dataclasses import dataclass, field
 
 from mhseals_testing.harness.settings import Settings  # noqa: F401  (re-export)
+from mhseals_testing.profiles import drives_pwm_pins
 
 # What a procedure may need:
 #   armed     thruster outputs running (a, the arm panel)
@@ -72,7 +73,7 @@ def unavailable(procedure, profile, armed, bench_override=False):
         return 'needs velocity commands; use --set command_mode=velocity'
     if 'outputs' in needs and profile.outputs == 'none':
         return 'the profile has no thruster outputs'
-    if 'hardware' in needs and profile.outputs != 'odroid':
+    if 'hardware' in needs and not drives_pwm_pins(profile):
         return 'needs the ODROID PWM outputs'
     if 'sensors' in needs and bench_override:
         return 'scores motion; not available with the bench override'

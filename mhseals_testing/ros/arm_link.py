@@ -624,10 +624,11 @@ class RemoteDriver:
 def target(profile, registry=None):
     """``(host, jump)`` whose thrusters this TUI arms over the link, or None (arm here, or refuse).
 
-    Only an ``odroid``-output profile on a computer without ``thrusters`` arms remotely, and only
-    when exactly one other ssh-reachable host has the capability.
+    Only a profile that drives PWM pins (profiles.drives_pwm_pins) on a computer without ``thrusters``
+    arms remotely, and only when exactly one other ssh-reachable host has the capability.
     """
-    if profile.outputs != 'odroid':
+    from mhseals_testing.profiles import drives_pwm_pins
+    if not drives_pwm_pins(profile):
         return None
     from mhseals_testing import devices
     try:

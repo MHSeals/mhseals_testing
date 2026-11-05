@@ -17,6 +17,7 @@ from mhseals_testing.health import probes
 from mhseals_testing.health.probes import graph, preflight
 from mhseals_testing.health.probes.fcu import FcuProbe
 from mhseals_testing.health.registry import KINDS
+from mhseals_testing.profiles import drives_pwm_pins
 from mhseals_testing.ros.graph import RclpyGraph
 
 DRIVER = 'thruster_pwm_node'
@@ -97,7 +98,7 @@ class Preflight:
         if self.registry is not None:
             from mhseals_testing.harness.registry import alive
             out.update(preflight.bag_facts(self.registry.children(), alive))
-        if self.profile.outputs == 'odroid' and self.hardware.get('pwm_chips'):
+        if drives_pwm_pins(self.profile) and self.hardware.get('pwm_chips'):
             from mhseals_testing.health.legacy import pwm_readback
             armed = any(n.rsplit('/', 1)[-1] == DRIVER for n in nodes)    # the driver runs only armed
             level, detail, _ = pwm_readback(self.hardware['pwm_chips'], self.hardware['pwm_channels'],

@@ -12,6 +12,8 @@ from math import isfinite
 
 from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 
+from mhseals_testing.profiles import ARMED_OUTPUTS
+
 
 @dataclass(frozen=True)
 class Output:
@@ -72,7 +74,7 @@ class Readback:
 
     def known(self, now, ttl):
         identities = [output.identity for output in self.outputs]
-        return (self.verified and self.backend in ('odroid', 'topic')
+        return (self.verified and self.backend in ARMED_OUTPUTS
                 and self.configuration_valid and self.fresh(now, ttl)
                 and len(identities) == 4 and all(identities)
                 and all(isinstance(identity, str) for identity in identities)
