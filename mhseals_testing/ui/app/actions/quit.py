@@ -116,7 +116,7 @@ class Quit:
                  ('Tracking', self.close_tracking),
                  ('Calibration', self.close_calibration),
                  ('Recording', self.close_recording), ('Index', self.close_index)]
-        if self.detaching:   # the children and the recording go on under the next owner
+        if self.services.loop.detaching:   # the children and the recording go on under the next owner
             steps = [('Outputs', self.close_outputs), ('Handover', self.close_handover)]
         if self.watching:    # not ours to stop: neutral, events and the report belong to the owner
             steps = [('Watch', lambda: f'left pid {self.watching} running')]

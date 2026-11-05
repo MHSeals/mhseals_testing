@@ -1,24 +1,30 @@
 """The App's state by owner: one small container per area, so a feature's state has one writer (finding #4).
 
-``app.state`` holds them (``AppState``): ``render`` (View's redraw bookkeeping), ``bags`` (the Bags tab and the
-bag a session records), ``manual`` (manual control, the Thrusters panel's edit and raw pulses), ``holds``
-(the watchdog guard, the fence alert), ``arm`` (who armed, the last stop, the pin guard) and ``procedures``
-(the run in progress). The Labels tab keeps its own (``app.labels``, actions/labels.py LabelsState).
-core.py's OWNERS table names which mixin owns which group; test_app_state_ownership fails when a mixin writes another's. The flat names a mixin used before
-(``app.bag_scan``) stay as aliases onto the container (``Alias``) until each area converts its mixin; a
-converted area has no alias: its owner reads and writes ``app.state.<group>`` and other areas read it through
-``app.services`` (services.py), never by writing it.
+``app.state`` holds them (``AppState``). Each field is named for the mixin that owns it and is its one writer
+(``view`` is View's, ``bags`` is Bags', ``health`` is the Health settings rows'); test_app_state_ownership derives
+the owners from these names and fails when another area writes a container. The owner reads and writes
+``self.state.<group>``; every other area reads ``app.services.<group>`` (services.py), never by writing it.
 """
 
 from dataclasses import dataclass, field
 
 
 @dataclass
-class RenderState:
-    """View's redraw bookkeeping (D-20261101-26): the last frame's time, its still key and its segments."""
+class ViewState:
+    """View's: the redraw bookkeeping (D-20261101-26), the live staging and the Fusion tab's feed."""
     last_frame: float = 0.0
     last_drawn: object = None     # segments of the last idle frame, to skip identical ones; None redraws
     last_key: object = None       # still_key() of the last frame (render only on change)
+    staging: object = None        # the one LiveStaging of this TUI, made on first use
+    fusion_feed: object = None    # the Fusion tab's feed, made when the tab first shows; False: none on this node
+
+
+@dataclass
+class LoopState:
+    """Loop's: the last tick, the Fusion camera image toggle and whether quitting detaches (a handover)."""
+    last_tick: float = 0.0
+    fusion_image: object = None   # None until toggled (on locally, off over a link budget)
+    detaching: bool = False       # the session hands its children to the next owner as it quits
 
 
 @dataclass
@@ -28,6 +34,18 @@ class BagsState:
     scan: tuple = field(default_factory=lambda: (float('-inf'), [], (0, 0, 0)))   # (time, sessions, disk); 5 s
     finalizing: object = None
     finalize_thread: object = None
+    rec: object = None             # the latest RecSample, drawn in the header strip
+    review_live: object = None     # the live session's source, tabs and focus while a review plays over it
+    review_fault: bool = False     # the review's reader failed: it stops ticking
+
+
+@dataclass
+class LabelsState:
+    """The Labels tab's (actions/labels.py)."""
+    session: object = None       # the session folder shown; None is the live one
+    came_from: str = None        # the tab L or Esc returns to
+    conditions: dict = None      # wind, waves, current as last set here (the next mark carries them)
+    cache: tuple = (None, None)  # (stamp, manifest) of the session shown
 
 
 @dataclass
@@ -82,50 +100,14 @@ class ProceduresState:
 
 @dataclass
 class AppState:
-    render: RenderState = field(default_factory=RenderState)
+    view: ViewState = field(default_factory=ViewState)
+    loop: LoopState = field(default_factory=LoopState)
     bags: BagsState = field(default_factory=BagsState)
+    labels: LabelsState = field(default_factory=LabelsState)
     manual: ManualState = field(default_factory=ManualState)
     procedures: ProceduresState = field(default_factory=ProceduresState)
     holds: HoldsState = field(default_factory=HoldsState)
     arm: ArmState = field(default_factory=ArmState)
-
-
-def state_of(app):
-    """``app.state``, made on first use (an App built without __init__ in a test still has one)."""
-    found = app.__dict__.get('state')
-    if found is None:
-        found = app.__dict__['state'] = AppState()
-    return found
-
-
-class Alias:
-    """A flat App attribute that lives in a container: ``bag_scan = Alias('bags', 'scan')``."""
-
-    def __init__(self, group, name):
-        self.group, self.name = group, name
-
-    def __get__(self, app, owner=None):
-        if app is None:
-            return self
-        return getattr(getattr(state_of(app), self.group), self.name)
-
-    def __set__(self, app, value):
-        setattr(getattr(state_of(app), self.group), self.name, value)
-
-
-# flat name -> (container, field): the aliases App defines
-ALIASES = {
-    'last_frame': ('render', 'last_frame'), 'last_drawn': ('render', 'last_drawn'), 'last_key': ('render', 'last_key'),
-    'bag_recording_key': ('bags', 'recording_key'), 'bag_scan': ('bags', 'scan'),
-    'finalizing': ('bags', 'finalizing'), 'finalize_thread': ('bags', 'finalize_thread'),
-}
-
-
-def install(cls):
-    """Define each alias on ``cls`` (App): the container is the one place the value lives."""
-    for name, (group, attr) in ALIASES.items():
-        setattr(cls, name, Alias(group, attr))
-    return cls
 
 
 def facades(app):

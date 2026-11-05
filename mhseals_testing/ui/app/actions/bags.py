@@ -35,17 +35,17 @@ class Bags:
 
     def watch_recording(self):
         """Sample the recorder's health; below the free-disk floor stop it, mark it and say so."""
-        self.rec = self.recwatch.sample(self.paths.bag, self.processes.running('bag'),
-                                       self.recorder.mode)
-        if self.rec.stop_for_disk:
+        rec = self.state.bags.rec = self.recwatch.sample(self.paths.bag, self.processes.running('bag'),
+                                                         self.recorder.mode)
+        if rec.stop_for_disk:
             self.ros.emit('marker', kind='system', note=DISK_MARKER)   # first, so it lands in the bag
             self.set_recording('off', reason='disk')
-            self.say(f'{DISK_MARKER} ({self.rec.free_gb:.1f} GB free)')
+            self.say(f'{DISK_MARKER} ({rec.free_gb:.1f} GB free)')
 
     def set_recording(self, mode, reason='operator'):
         """Recording row: end the running segment (``rec_stop``), start the next unless ``off`` (``rec_start``)."""
         with self.recording_lock:
-            if mode != 'off' and self.paths.directory.resolve() == self.finalizing:
+            if mode != 'off' and self.paths.directory.resolve() == self.state.bags.finalizing:
                 self.say('Recording refused while this session is being finalized')
                 return
             self._set_recording(mode, reason)
@@ -89,21 +89,22 @@ class Bags:
         return path == session or (segment is not None and (path == segment or path in segment.parents))
 
     def invalidate_bags(self):
-        self.bag_scan = (float('-inf'), *self.bag_scan[1:])
+        bags = self.state.bags
+        bags.scan = (float('-inf'), *bags.scan[1:])
 
     def bags_view(self):
         """One lazy cache; writer transitions invalidate even within the five-second interval."""
-        now = self.clock()
+        now, bags = self.clock(), self.state.bags
         recording_key = self.recording_paths()
-        if recording_key != self.bag_recording_key or now - self.bag_scan[0] >= 5:
+        if recording_key != bags.recording_key or now - bags.scan[0] >= 5:
             recording = {recording_key[0].name} if recording_key[0] is not None else ()
             try:
-                self.bag_scan = (now, bags_module.scan(recording=recording), bags_module.disk())
+                bags.scan = (now, bags_module.scan(recording=recording), bags_module.disk())
             except OSError:
-                self.bag_scan = (now, [], (0, 0, 0))
-            self.bag_recording_key = recording_key
-            self.cursors['list'] = max(0, min(self.cursors['list'], len(self.bag_scan[1]) - 1))
-        return self.bag_scan[1], self.bag_scan[2]
+                bags.scan = (now, [], (0, 0, 0))
+            bags.recording_key = recording_key
+            self.cursors['list'] = max(0, min(self.cursors['list'], len(bags.scan[1]) - 1))
+        return bags.scan[1], bags.scan[2]
 
     def selected_bag(self):
         found = self.bags_view()[0]
@@ -116,7 +117,7 @@ class Bags:
         """Revalidate live paths and metadata; cached row flags never authorize a mutation."""
         if self.bag_protected(bag):
             raise PermissionError(f'{bag.id} is recording')
-        if bag.path.resolve() == getattr(self, 'finalizing', None):
+        if bag.path.resolve() == self.state.bags.finalizing:
             raise PermissionError(f'{bag.id} is being finalized')
         header = metadata if metadata is not None else data.read_json(bag.meta_path, {})
         bag.pinned = bool(header.get('pinned'))
@@ -132,7 +133,7 @@ class Bags:
 
     def on_list(self, key):
         action = keymap.dispatch(('global', 'tab.bags'), key)
-        handler = getattr(self, LIST[action]) if action in LIST else None
+        handler = getattr(self, LIST[action]) if action in LIST else None   # dynamic: the tab's key -> method table
         if handler is None:
             return
         bag = None if action == 'prune' else self.selected_bag()
@@ -206,7 +207,7 @@ class Bags:
             if self.armed or self.moving():
                 self.say('Finalize refused while armed or moving')
                 return
-            if self.finalizing is not None:
+            if self.state.bags.finalizing is not None:
                 self.say('Finalize is still running')
                 return
             self.check_bag(bag)
@@ -215,13 +216,14 @@ class Bags:
             if not segments:
                 self.say(f'{bag.id}: nothing to finalize')
                 return
-            self.finalizing = bag.path.resolve()
+            bags = self.state.bags
+            bags.finalizing = bag.path.resolve()
             self.say(f'Finalize {bag.id}: {len(segments)} segments in the background')
-            self.finalize_thread = threading.Thread(target=self._finalize, args=(bag, segments), daemon=True)
+            bags.finalize_thread = threading.Thread(target=self._finalize, args=(bag, segments), daemon=True)
             try:
-                self.finalize_thread.start()
+                bags.finalize_thread.start()
             except Exception:
-                self.finalizing = None
+                bags.finalizing = None
                 raise
 
     @staticmethod
@@ -256,7 +258,7 @@ class Bags:
                 self.say(f'Finalize {bag.id}: index update failed: {error}')
             finally:
                 with self.recording_lock:
-                    self.finalizing = None
+                    self.state.bags.finalizing = None
 
     def mark_note(self, number=None):
         """Type a note for marker ``number`` (default the last); never while moving."""
@@ -334,12 +336,12 @@ class Bags:
             replay = ReviewSource(bag.path, profile, selected)
         except (ImportError, RuntimeError) as error:
             raise ValueError(f'cannot read session: {error}') from error
-        self._review_live = {'source': self.source, 'tabs': self.tabs, 'focus': self.focus,
+        self.state.bags.review_live = {'source': self.source, 'tabs': self.tabs, 'focus': self.focus,
                              'cursors': self.cursors, 'activity': self.activity,
                              'minimap': self.minimap, 'layerbox': self.layerbox}
         self.rebuild(source=replay, review=selected, tabs=TabMemory(),
                      minimap=minimap_panel.MiniMap(self.map_state), layerbox=LayerBox(None, self.map_state, live=False))
-        self._review_fault = False
+        self.state.bags.review_fault = False
         selected.load = replay.seek
         self.focus, self.cursors = 'activity', dict.fromkeys(CURSORS, 0)
         self.activity = 'log'
@@ -351,10 +353,10 @@ class Bags:
         self.review.pause()
         self.review.due = None
         message = f'Review playback failed: {error}'
-        if self.args.review is None and self._review_live is not None:
+        if self.args.review is None and self.state.bags.review_live is not None:
             self.leave_review()          # live owners and recording were never touched
         else:
-            self._review_fault = True
+            self.state.bags.review_fault = True
         self.say(message)
 
     def leave_review(self):
@@ -362,9 +364,9 @@ class Bags:
         if self.args.review is not None:
             self.quit = True
         else:
-            live, self._review_live = self._review_live or {}, None
-            self.focus, self.cursors, self.activity = (live.pop(name, getattr(self, name))
-                                                       for name in ('focus', 'cursors', 'activity'))
+            live, self.state.bags.review_live = self.state.bags.review_live or {}, None
+            self.focus, self.cursors, self.activity = (
+                live.pop('focus', self.focus), live.pop('cursors', self.cursors), live.pop('activity', self.activity))
             self.rebuild(review=None, **live)
             self.restart_ticks()
             self.say('Left review')
@@ -372,7 +374,7 @@ class Bags:
     def on_activity(self, key):
         action = keymap.dispatch(('global', 'panel.activity'), key)
         if action == 'view_next':
-            desk = feeds_module.merged(getattr(self, 'feeds', ())).get('agent_desk')
+            desk = feeds_module.merged(self.feeds).get('agent_desk')
             self.activity, self.cursors['activity'] = agent_log.next_view(self.activity, desk), 0
         elif action == 'activate' and self.activity == 'results':
             self.open_run()

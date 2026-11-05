@@ -154,18 +154,17 @@ def test_the_tables_name_each_attribute_once():
 
 
 @pytest.mark.smoke
-def test_each_alias_reads_and_writes_its_container():
-    """The flat names (app.bag_scan) and the containers (app.state.bags.scan) are one value; services read it."""
+def test_services_read_every_container_and_refuse_writes():
+    """app.services.<group> is the container App built, read-only: the error names the container and its owner."""
     app = core.App.__new__(core.App)
-    for name, (group, attr) in app_state.ALIASES.items():
-        marker = object()
-        setattr(app, name, marker)
-        assert getattr(getattr(app.state, group), attr) is marker and getattr(app, name) is marker
-        if group in app.services.GROUPS:
-            assert getattr(getattr(app.services, group), attr) is marker
-    with pytest.raises(AttributeError):
+    app.state = app_state.AppState()
+    assert app.services.GROUPS == tuple(app_state.AppState.__dataclass_fields__)
+    marker = app.state.bags.scan = object()
+    assert app.services.bags.scan is marker
+    with pytest.raises(AttributeError, match=r'app\.state\.bags\.scan .* the bags mixin'):
         app.services.bags.scan = None
     other = core.App.__new__(core.App)       # every App gets its facades, not only the first
+    other.state = app_state.AppState()
     assert other.services.bags.scan == app_state.BagsState().scan
 
 

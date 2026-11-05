@@ -252,15 +252,21 @@ def test_a_plain_handover_keeps_the_claim_for_the_successor(tmp_path):
     assert arbiter.table.holder()['id'] == 'c1' and not holds and app.handed_by is None
 
 
+def ending(restart_as, detaching, handed_by):
+    """What restart_as reads of an App: the Loop's detach and the Operator's handover."""
+    return SimpleNamespace(restart_as=restart_as, handed_by=handed_by,
+                           services=SimpleNamespace(loop=SimpleNamespace(detaching=detaching)))
+
+
 def test_restart_as_takes_from_a_viewer_and_views_after_a_human_takeover(monkeypatch):
     monkeypatch.setattr(sys, 'orig_argv', ['python3', '/x/boat_test', '--profile', 'sim', '--view'])
-    viewer = SimpleNamespace(restart_as='take', detaching=False, handed_by=None)
+    viewer = ending('take', False, None)
     assert app_module.restart_as(viewer)[0] == ['python3', '/x/boat_test', '--profile', 'sim', '--take']
-    old = SimpleNamespace(restart_as=None, detaching=True, handed_by=seat(2, 'boat-v1'))
+    old = ending(None, True, seat(2, 'boat-v1'))
     argv, notice = app_module.restart_as(old)
     assert argv[-1] == '--view' and 'boat-v1@boat-host (10.0.0.5)' in notice
-    assert app_module.restart_as(SimpleNamespace(restart_as=None, detaching=True, handed_by=None)) is None
-    assert app_module.restart_as(SimpleNamespace(restart_as=None, detaching=False, handed_by=None)) is None
+    assert app_module.restart_as(ending(None, True, None)) is None
+    assert app_module.restart_as(ending(None, False, None)) is None
 
 
 def test_view_and_take_are_exclusive_flags():

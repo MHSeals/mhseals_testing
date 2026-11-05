@@ -86,7 +86,7 @@ def test_selected_enter_seek_rewind_escape_preserves_live_recording(tmp_path, mo
     assert (app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
     assert app.processes.running('bag') and boat.sent == [] and app.pulse_log == []
     app.dispatch('escape')
-    assert not app.review and app._review_live is None
+    assert not app.review and app.state.bags.review_live is None
     assert (app.source, app.tabs, app.focus, app.cursors, app.minimap, app.layerbox) == old
     assert app.tab == 'Bags' and app.selected_bag().id == 'selected'
 
@@ -136,10 +136,10 @@ def test_invalid_selected_session_is_notice_with_no_output(tmp_path, monkeypatch
 def test_recording_or_finalizing_selected_session_cannot_open(tmp_path, monkeypatch):
     app, boat, opens = selected_app(tmp_path, monkeypatch)
     selected = app.selected_bag()
-    app.finalizing = selected.path.resolve()
+    app.state.bags.finalizing = selected.path.resolve()
     app.dispatch('enter')
     assert 'being finalized' in app.notice and app.review is None and not opens
-    app.finalizing = None
+    app.state.bags.finalizing = None
     app.paths = type(app.paths).from_output(selected.path)
     app.dispatch('enter')
     assert 'recording' in app.notice and app.review is None and not opens and boat.sent == []

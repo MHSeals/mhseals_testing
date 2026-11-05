@@ -107,7 +107,7 @@ class App:
         self.watching = self.review = None
         self.args = SimpleNamespace(review=None, bench_override=False)
         self.feeds, self.notice, self.modal = [], '', None
-        self.detaching, self.activity = False, 'results'
+        self.activity = 'results'
         self.settings = Settings(agent_motion='confirm')      # the confirm path; the shipped default is allow
         self.profile = SimpleNamespace(name='sim', muxed=True, use_sim_time=False, command_units='velocity',
                                        command_topic='/cmd_vel', command_type='twist', uses_fcu=True,
@@ -664,7 +664,7 @@ def test_handover_cancels_the_act_but_keeps_the_claim(rig):
     req = ask(rig, 'goal', c, x=5, y=0)
     queued = ch.request('ask', 'claude-3f2a', {'question': 'Dock lines off?'})
     rig.desk.tick()
-    rig.app.detaching = True
+    rig.app.state.loop.detaching = True
     rig.desk.close()
     rig.app.arbiter.close(keep_claims=True)
     assert final(req['id'])['error'] == 'handover' and final(queued['id'])['error'] == 'handover'

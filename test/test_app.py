@@ -1898,7 +1898,7 @@ def test_sigusr1_detaches_at_neutral_and_leaves_the_children_recorded(tmp_path):
 
     app.open_keys = lambda: Signalled(app.clock, boat)
     app.run()
-    assert app.detaching and not app.armed and boat.sent[-1] == 'neutral'
+    assert app.services.loop.detaching and not app.armed and boat.sent[-1] == 'neutral'
     assert 'handover' in app.ros.events and 'session_stop' not in app.ros.events
     assert app.processes.released == ['bag'] and not hasattr(app.processes, 'stopped')
     assert app.registry.owner() is None and app.registry.children() == {'bag': {'pid': 9, 'pgid': 9}}
@@ -2747,8 +2747,8 @@ def test_bags_tab_with_a_session_renders_and_moves_the_cursor(tmp_path):
     from mhseals_testing.harness.bags import Bag
     app, _ = make_app(tmp_path)
     app.show_tab('Bags')
-    app.bag_scan = (app.clock(), [Bag(id='boat_1', path=None)], (0, 0, 0))
-    app.bag_recording_key = app.recording_paths()
+    app.state.bags.scan = (app.clock(), [Bag(id='boat_1', path=None)], (0, 0, 0))
+    app.state.bags.recording_key = app.recording_paths()
     assert app.view()['position'] == '1/1'
     app.view()
     app.dispatch('j')
@@ -2762,7 +2762,7 @@ def test_bags_tab_marks_the_live_session_recording(tmp_path, monkeypatch):
     app, _ = make_app(tmp_path)
     app.paths = SessionPaths.from_output(live)
     app.processes.running = lambda name: name == 'bag'
-    app.bag_scan = (-100.0, [], (0, 0, 0))
+    app.state.bags.scan = (-100.0, [], (0, 0, 0))
     sessions, _ = app.bags_view()
     assert [(bag.id, bag.recording) for bag in sessions] == [('live_1', True)]
 
@@ -2816,13 +2816,13 @@ def test_idle_refresh_skips_identical_frames(tmp_path):
     app.console.size = (120, 40)
     app.live = Live(None)
     for _ in range(3):
-        app.last_frame = 0.0
+        app.state.view.last_frame = 0.0
         app.refresh(force=False)
     assert app.live.frames == 1
     app.refresh()
     assert app.live.frames == 2
     app.notice = 'changed'
-    app.last_frame = 0.0
+    app.state.view.last_frame = 0.0
     app.refresh(force=False)
     assert app.live.frames == 3
     assert isinstance(app.live.last, Segments)  # the rendered segments, not laid out again

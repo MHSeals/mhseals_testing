@@ -156,7 +156,8 @@ class QueueMixin:
             self.busy = False
             act, self.act = self.act, (self.act if keep else None)
             if not keep and act is not None and not act['replied']:   # the TUI is closing or handing over
-                self.finish(act, False, 'handover' if app.detaching else 'cancelled', hint=self.closed_hint())
+                self.finish(act, False, 'handover' if app.services.loop.detaching else 'cancelled',
+                            hint=self.closed_hint())
 
     def act_run(self, act):
         app = self.app
