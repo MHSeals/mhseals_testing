@@ -144,8 +144,8 @@ def subscribe_preflight(node, facts, profile, hardware, specs, periods, registry
         except Exception as error:
             facts.publish('graph', {}, error=repr(error))
 
-    node.create_timer(float(periods.get('preflight', 1)), tick)
-    node.create_timer(float(periods.get('graph', 2)), sample_graph)
+    node.create_timer(float(periods['preflight']), tick)
+    node.create_timer(float(periods['graph']), sample_graph)
     return probe
 
 
