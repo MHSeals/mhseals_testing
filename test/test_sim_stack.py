@@ -41,6 +41,9 @@ def test_boat_tui_sim_dry_run_names_the_plan_and_starts_nothing(tmp_path, ws):
     missing = subprocess.run([str(TOOLS / 'boat_sim'), 'up'], capture_output=True, text=True, timeout=30,
                              env=dict(env, BOAT_SIM_PLAYER=str(tmp_path / 'none')))
     assert missing.returncode == 2 and 'no player' in missing.stderr
+    nowhere = subprocess.run([str(TOOLS / 'boat_tui'), 'sim', '--dry-run'], capture_output=True, text=True,
+                             timeout=30, env=dict(env, BOAT_SIM_SRC=str(tmp_path / 'none' / 'src')))
+    assert nowhere.returncode != 0 and 'no astro_dock workspace' in nowhere.stderr   # a real user is told, loudly
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke
