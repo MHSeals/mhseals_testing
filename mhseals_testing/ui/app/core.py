@@ -35,6 +35,8 @@ from mhseals_testing.ui.panels.checklist import Checklist
 from mhseals_testing.ui.source import LiveSource
 
 from mhseals_testing.ui.app.shared import CURSORS
+from mhseals_testing.ui.app import state as app_state
+from mhseals_testing.ui.app.state.services import Services
 from mhseals_testing.ui.app.help import map_key_maps
 from mhseals_testing.ui.app.actions.quit import Quit
 from mhseals_testing.ui.app.actions.operator import Operator
@@ -51,6 +53,35 @@ from mhseals_testing.ui.app.view import View
 from mhseals_testing.ui.app.loop import Loop
 
 
+# Who writes what (finding #4): each mixin owns an attribute group and is its one writer; another area reads it,
+# through app.services where a container exists. SHARED is the page's own state that every part sets (the
+# footer notice, the popup, focus, the Activity view, the cursors, quit); APP is what App builds and hands
+# out (a review swaps some of it). test_app_state_ownership fails on a write across owners outside its
+# allowlist of the crossings on 11-04, which only shrinks. The containers in ui/app/state hold the groups
+# converted so far (render, bags, labels, thrusters, arming_ui).
+SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
+APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'keys', 'live', 'detaching')
+OWNERS = {
+    'View': ('last_frame', 'last_drawn', 'last_key', '_staging', 'fusion_feed'),
+    'Loop': ('last_tick', 'fusion_image'),
+    'Bags': ('bag_recording_key', 'bag_scan', 'finalizing', 'finalize_thread', 'rec', '_review_live', '_review_fault'),
+    'Labels': ('labels_dir', '_labels_cache', 'labels_from', 'conditions_set'),
+    'Manual': ('manual', 'manual_speed', 'chords', 'command', 'draft', 'grabbed', 'test_pulses', '_manual_desk_at'),
+    'Arm': ('armed_by', 'ever_armed', 'foreign_seen', 'stopped_by', 'pins_unverified'),
+    'Holds': ('watchdog_missing', '_fence_client', '_fence_out', '_fence_text', '_releasing'),
+    'Procedures': ('running', 'run_id', 'run_fields', 'tags', '_runner_cancelled', '_runner_paused', '_start_reset',
+                   '_nav2', '_watcher'),
+    'Popups': ('_nav2_live', 'camera_boxes'),
+    'Annotate': ('flash', 'pick', 'bad_on', '_ids', '_queued'),
+    'Quit': ('closed', 'guests_seen', 'keep_units', 'stop_adopted'),
+    'Operator': ('handed_by', 'handed_to', 'restart_as'),
+    'Correction': ('column',),
+    'Files': ('config_note', 'pending_settings', 'map_keys', 'map_tab_keys', 'fusion_keys'),
+    'Health': ('last_advisory', 'pwm_readback'),
+}
+
+
+@app_state.install
 class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate, Labels, Bags, Operator,
           Quit):
     """The page, its key handling and the procedure context.
@@ -61,6 +92,14 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
 
     rtk_link = None       # the running RTK base (ui/rtk.py): .base and .reload; None means no base
 
+    @property
+    def services(self):
+        """Read-only facades on other areas' state (ui/app/state/services.py): ``app.services.bags.scan``."""
+        found = self.__dict__.get('_services')
+        if found is None:
+            found = self.__dict__['_services'] = Services(self)
+        return found
+
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
@@ -68,6 +107,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
                  facts=None, source=None, nav2_file=None, nav2_live=None,
                  review=None, network=None, recorder=None, ekf=None, quiet_run=None, stack=None,
                  issues=None):
+        self.state = app_state.AppState()   # each area's container (ui/app/state); OWNERS says whose
         self.args = args
         self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
         self.issues = issues or IssuesFeed()   # device/part/transport problems past their grace
@@ -102,7 +142,6 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.foreground = foreground
         self.quiet_run = quiet_run or (lambda argv: subprocess.call(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        self.finalizing, self.finalize_thread = None, None
         self.recording_lock = threading.RLock()
         self.publish_pulses = pulses
         self.journal = Journal()
@@ -125,8 +164,6 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.fusion_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('tab.fusion'))
         self.checklist = Checklist.from_env()   # boat_tui preview's sanity checklist, else None
         self.fusion_image = None   # the Fusion camera image: None until toggled (on locally, off over a link budget)
-        self.bag_recording_key = None
-        self.bag_scan = (float('-inf'), [], (0, 0, 0))   # (time, sessions, disk) of the Bags tab; re-read every 5 s
         self.focus = 'status'
         self.cursors = dict.fromkeys(CURSORS, 0)
         self.column = None   # Correction tab column; None follows the worst one
@@ -136,16 +173,11 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.running = None
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
-        self.test_pulses = None
-        self.draft = None        # unsaved thruster mapping: channel_map, reversed and pwm_chips
-        self.pins_unverified = False   # a saved pin change not read back yet: arming refused
-        self.grabbed = None      # thruster row being moved with ↑↓
         self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
         self.command = (0.0, 0.0, 0.0)
         self.chords = False             # the manual mode, for the Command glyph's label
         self.manual_speed = None        # the last manual speed this session; None until manual ran
         self.last_advisory = float('-inf')
-        self.watchdog_missing = None    # {since, asked, retried, held} while armed with a watchdog off the graph
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
         self.feeds.append(ToastFeed(self.health))
         if getattr(ros, 'mission', None) is not None:   # ui.feeds.mission.MissionState, fed by ROS
@@ -155,9 +187,6 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.rec = None                 # latest RecSample, drawn in the header strip
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
-        self.last_frame = 0.0
-        self.last_drawn = None   # segments of the last idle frame, to skip identical ones
-        self.last_key = None     # still_key() of the last frame (render only on change, D-20261101-26)
         self.last_tick = clock()
         self.quit = False
         self.closed = False
