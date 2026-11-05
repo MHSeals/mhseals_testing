@@ -454,7 +454,7 @@ def test_readout_marks_a_kept_correction_stale():
 
 def test_budgeted_link_slows_the_drawings(monkeypatch):
     cfg = fusion_feed.load_config()
-    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(fusion.common, '_HZ', {})
     monkeypatch.setattr(pixels, 'BUDGET', None)   # a local terminal, whatever an earlier start under SSH left
     assert fusion.draw_rate(cfg, 'a') == cfg['draw_rate'] and fusion.draw_rate(cfg, 'b', 0.5) == cfg['draw_rate']
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
@@ -468,7 +468,7 @@ def test_drawing_rate_ramps_up_and_drops_at_once_over_the_budget(monkeypatch):
     cfg = fusion_feed.load_config()
     now = [100.0]
     top = min(cfg['draw_rate'], pixels.THROTTLE_HZ)
-    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(fusion.common, '_HZ', {})
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
     monkeypatch.setattr(pixels, 'STATS', {'upload': 0, 'sixel': 0, 'tiles': 0})
@@ -477,7 +477,7 @@ def test_drawing_rate_ramps_up_and_drops_at_once_over_the_budget(monkeypatch):
     now[0] += fusion.RATE_S
     pixels.STATS['sixel'] += 1                                         # a nearly silent link: the rate steps up
     assert fusion.draw_rate(cfg, 'cam') == pytest.approx(first * fusion.STEP)
-    held = fusion._HZ['cam'][0]
+    held = fusion.common._HZ['cam'][0]
     now[0] += 0.5
     pixels.STATS['sixel'] += 10 * pixels.SSH_BUDGET                    # a burst over the budget: no 5 s wait
     monkeypatch.setattr(pixels, 'rate', lambda now=None: 2 * pixels.SSH_BUDGET)
@@ -489,7 +489,7 @@ def test_drawing_rate_settles_under_the_budget(monkeypatch):
     settles at LINK_SHARE of the budget, and the rate comes back once the scan thins."""
     cfg = fusion_feed.load_config()
     now = [100.0]
-    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(fusion.common, '_HZ', {})
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
     monkeypatch.setattr(pixels, 'STATS', {'upload': 0, 'sixel': 0, 'tiles': 0})
@@ -970,9 +970,9 @@ def test_frame_is_drawn_in_blocks_over_a_link_budget(monkeypatch):
         m['frame'] = rng.integers(0, 256, (72, 128)).astype(np.uint8)
         m['at_frame'] = dict(m['at_frame'], dets=[])
         monkeypatch.setattr(pixels, 'BUDGET', 25000)
-        monkeypatch.setattr(fusion, '_STARTED', {'fusion.camera': pixels.GENERATION})
-        monkeypatch.setattr(fusion, '_JOINED', {'fusion.camera': (fusion.link_block(), fusion.JOIN_STEPS)})
-        monkeypatch.setattr(fusion, '_HZ', {})
+        monkeypatch.setattr(fusion.camera, '_STARTED', {'fusion.camera': pixels.GENERATION})
+        monkeypatch.setattr(fusion.camera, '_JOINED', {'fusion.camera': (fusion.link_block(), fusion.JOIN_STEPS)})
+        monkeypatch.setattr(fusion.common, '_HZ', {})
         px = camera_raster(m).px
         b = fusion.link_block()
         assert b == fusion.LINK_BLOCKS[0] > 4                       # a link starts at the coarsest blocks
@@ -990,8 +990,8 @@ def test_frame_waits_for_the_tiles_first_repaint_and_comes_in_by_rows(monkeypatc
     pixels.use('sixel', cell=(10, 20))
     try:
         monkeypatch.setattr(pixels, 'BUDGET', 25000)
-        monkeypatch.setattr(fusion, '_STARTED', {})
-        monkeypatch.setattr(fusion, '_JOINED', {})
+        monkeypatch.setattr(fusion.camera, '_STARTED', {})
+        monkeypatch.setattr(fusion.camera, '_JOINED', {})
         m = framed()
         m['frame'] = np.full((72, 128), 255, np.uint8)
         assert not fusion.frame_shown(m)                         # the first repaint over a link: no frame yet
@@ -1011,8 +1011,8 @@ def test_image_off_draws_the_points_at_once_over_a_link(monkeypatch):
     pixels.use('sixel', cell=(10, 20))
     try:
         monkeypatch.setattr(pixels, 'BUDGET', 25000)
-        monkeypatch.setattr(fusion, '_STARTED', {})
-        monkeypatch.setattr(fusion, '_JOINED', {})
+        monkeypatch.setattr(fusion.camera, '_STARTED', {})
+        monkeypatch.setattr(fusion.camera, '_JOINED', {})
         m = model()
         m['points'] = (0.0, np.array([[0.5, 0.5]], np.float32), np.array([5.0], np.float32), np.array([[0, 5]], np.float32))
         m['image'] = False
@@ -1027,8 +1027,8 @@ def test_title_says_loading_until_the_frame_is_complete(monkeypatch):
     try:
         cfg = fusion_feed.load_config()
         monkeypatch.setattr(pixels, 'BUDGET', 25000)
-        monkeypatch.setattr(fusion, '_STARTED', {})
-        monkeypatch.setattr(fusion, '_JOINED', {})
+        monkeypatch.setattr(fusion.camera, '_STARTED', {})
+        monkeypatch.setattr(fusion.camera, '_JOINED', {})
         m = framed()
         notes = []
         for _ in range(fusion.JOIN_STEPS + 2):
@@ -1043,7 +1043,7 @@ def test_title_says_loading_until_the_frame_is_complete(monkeypatch):
 def test_frame_blocks_follow_the_size_of_a_repaint(monkeypatch):
     cfg = fusion_feed.load_config()
     now = [100.0]
-    monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(fusion.common, '_HZ', {})
     monkeypatch.setattr(pixels, 'clock', lambda: now[0])
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
     monkeypatch.setattr(pixels, 'STATS', {'upload': 0, 'sixel': 0, 'tiles': 0})
@@ -1056,7 +1056,7 @@ def test_frame_blocks_follow_the_size_of_a_repaint(monkeypatch):
         pixels.STATS['sixel'] += pixels.SSH_BUDGET
         pixels._sizes['fusion.camera'] = size
         fusion.draw_rate(cfg, 'fusion.camera')
-        assert fusion._HZ['fusion.camera'][3] == level
+        assert fusion.common._HZ['fusion.camera'][3] == level
     monkeypatch.setattr(pixels, 'BUDGET', None)
     assert fusion.link_block() == 1
 
