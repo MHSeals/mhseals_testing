@@ -6,6 +6,8 @@ from types import ModuleType
 
 import pytest
 
+from mhseals_hardware import vessel
+
 from nav_paths import find_nav
 from ros_isolation import isolate_ros_env
 from workspace_fixture import ws  # noqa: F401  a fixture astro_dock workspace (stub hw.sh, scratch repos)
@@ -29,6 +31,16 @@ def nav_root():
     if root is None:
         pytest.skip('mhseals_nav not found: set MHSEALS_NAV')
     return root
+
+
+@pytest.fixture(autouse=True)
+def _no_vessel(monkeypatch):
+    """No vessel profile unless a test names one, so a developer's vessel env never flips load_config or layers.plan."""
+    monkeypatch.delenv('ASTRO_NETWORK_ENV', raising=False)
+    monkeypatch.delenv('ROS_WS', raising=False)
+    vessel.section.cache_clear()
+    yield
+    vessel.section.cache_clear()
 
 
 @pytest.fixture(autouse=True)

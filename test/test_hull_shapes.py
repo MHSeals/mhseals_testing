@@ -1,6 +1,7 @@
 """The hull shape library (hull_shapes.py) and the vessel profile reader it is fed from (mhseals_hardware.vessel)."""
 
 import numpy as np
+import pytest
 
 from mhseals_hardware import vessel
 from mhseals_testing.ui.minimap import hull_shapes
@@ -29,3 +30,11 @@ def test_catamaran_is_two_pontoons_bridged_by_a_deck():
     along, across = np.array([0.0, 0.0, 0.0]), np.array([0.0, hulls[0].offset, 0.49])
     on_hull, on_deck = hull_shapes.coverage('catamaran', CAT, along, across)
     assert list(on_deck) == [True, False, False] and list(on_hull) == [False, True, True]
+
+
+@pytest.mark.parametrize('env', [{}, {'ROS_WS': '/ws'}, {'ASTRO_NETWORK_ENV': '~/boat/network.env', 'ROS_WS': '/ws'}])
+def test_the_reader_finds_the_network_env_as_mhseals_nav_does(env, monkeypatch):
+    from mhseals_nav import boat_network
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    assert vessel.env_path() == boat_network.path()
