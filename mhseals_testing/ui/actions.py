@@ -168,7 +168,6 @@ ACTIONS = {
     'up_mode': Action('up mode', 7),
     'view': Action('view', 7),
     'view_next': Action('view next', 0),
-    'view_prev': Action('view prev', 0),
     'wire_1': Action('wire 1', 0),
     'wire_2': Action('wire 2', 0),
     'wire_3': Action('wire 3', 0),

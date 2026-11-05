@@ -18,7 +18,6 @@ COVERED = ('global', 'tab.drive', 'tab.correction', 'tab.map', 'tab.bags', 'tab.
            'review.activity', 'manual', 'runner')
 # Bound in config/keymap.yaml but not handled by the app yet, so help leaves them out.
 UNHANDLED = {('panel.procedures', 'fold'), ('panel.procedures', 'unfold'),
-             ('panel.activity', 'view_prev'), ('panel.activity', 'view_next'), ('panel.activity', 'zoom'),
              ('view.minimap', 'course'), ('view.minimap', 'centre'), ('view.minimap', 'goal_mode'),
              ('view.minimap', 'cancel_goal'), ('tab.bags', 'send'), ('review', 'goto')}
 ROOT = Path(__file__).resolve().parents[1]

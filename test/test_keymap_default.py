@@ -53,7 +53,7 @@ def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
     assert len(contexts) == 44
-    assert sum(len(binds(c)) for c in contexts.values()) == 281
+    assert sum(len(binds(c)) for c in contexts.values()) == 279
 
 
 def test_keys_known_and_unique_per_context(doc):
@@ -161,6 +161,26 @@ LITERALS = [
         ('left', 'scale_down'), ('h', 'scale_down'), ('right', 'scale_up'), ('l', 'scale_up'), ('<', 'session_prev'),
         ('>', 'session_next'), ('y', 'accept'), ('r', 'reject'), ('u', 'undo'), ('s', 'split'), ('m', 'merge'),
         ('n', 'note_label'), ('enter', 'replay'), ('0', None), *((str(d), 'tag') for d in range(1, 10)))],
+    # actions/bags.py: review (folded), the Bags list, Activity, popup.run, the Recording row
+    *[('review', k, a) for k, a in (
+        ('left', 'seek_back'), ('h', 'seek_back'), ('right', 'seek_fwd'), ('l', 'seek_fwd'),
+        ('shift-left', 'seek_back_big'), ('{', 'seek_back_big'), ('shift-right', 'seek_fwd_big'),
+        ('}', 'seek_fwd_big'), (',', 'jump_prev'), ('.', 'jump_next'), ('<', 'rate_down'), ('>', 'rate_up'),
+        ('p', 'play'), ('escape', 'leave'))],
+    ('review.activity', 'z', 'zoom'), ('global', 'q', 'quit'), ('panel.activity', 'v', 'view_next'),
+    *[(('global', 'tab.drive'), k, a) for k, a in (('a', 'arm'), ('x', 'report'), ('m', 'manual'),
+                                                   ('+', 'amplitude_up'), ('=', 'amplitude_up'),
+                                                   ('-', 'amplitude_down'), ('_', 'amplitude_down'))],
+    *[('global', k, a) for k, a in (('\t', 'focus_next'), ('backtab', 'focus_prev'), ('up', 'up'), ('k', 'up'),
+                                    ('down', 'down'), ('j', 'down'), ('?', 'help'), ('o', 'odometry'),
+                                    ('ctrl-h', 'focus_left'), ('ctrl-left', 'focus_left'), ('ctrl-l', 'focus_right'),
+                                    ('ctrl-right', 'focus_right'), ('ctrl-k', 'focus_up'), ('ctrl-up', 'focus_up'),
+                                    ('ctrl-j', 'focus_down'), ('ctrl-down', 'focus_down'), ('enter', 'activate'))],
+    *[(('global', 'tab.bags'), k, a) for k, a in (('enter', 'activate'), ('p', 'pin'), ('n', 'title'),
+                                                  ('d', 'delete'), ('P', 'prune'), ('F', 'finalize'))],
+    *[('popup.run', k, a) for k, a in (('X', 'exclude'), ('up', 'prev'), ('k', 'prev'), ('down', 'next'),
+                                       ('j', 'next'), ('escape', 'close'), ('q', 'close'))],
+    (('global', 'panel.activity'), 'v', 'view_next'), (('global', 'panel.activity'), 'h', None),
 ]
 
 

@@ -6,11 +6,10 @@ from mhseals_hardware.menu import Cancelled
 from mhseals_testing import data
 from mhseals_testing.harness import bags as bags_module, index, journal
 from mhseals_testing.harness.bags import MODES as REC_MODES
-from mhseals_testing.runner import fold
 from mhseals_testing.harness.recwatch import DISK_MARKER
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.profiles import load_profile
-from mhseals_testing.ui import feeds as feeds_module, theme
+from mhseals_testing.ui import feeds as feeds_module, keymap, theme
 from mhseals_testing.ui.panels import activity, agent_log, scrubber
 from mhseals_testing.ui.layout import TabMemory
 from mhseals_testing.ui.minimap import panel as minimap_panel
@@ -19,12 +18,16 @@ from mhseals_testing.ui.popups import run as run_popup
 from mhseals_testing.ui.review import BIG, SMALL, load_session, review_metadata
 from mhseals_testing.ui.source import ReviewSource
 
-from mhseals_testing.ui.app.shared import CURSORS, DIRECTIONS
+from mhseals_testing.ui.app.shared import CURSORS
 from mhseals_testing.ui.app.help import UPDOWN
 
 
-REVIEW_KEYS = {'left': (SMALL, -1), 'h': (SMALL, -1), 'right': (SMALL, 1), 'l': (SMALL, 1),
-               'shift-left': (BIG, -1), '{': (BIG, -1), 'shift-right': (BIG, 1), '}': (BIG, 1)}
+SEEKS = {'seek_back': (SMALL, -1), 'seek_fwd': (SMALL, 1), 'seek_back_big': (BIG, -1), 'seek_fwd_big': (BIG, 1)}
+LIST = {'activate': 'open_bag_review', 'pin': 'pin_bag', 'title': 'title_bag', 'delete': 'delete_bag',
+        'prune': 'prune_bags', 'finalize': 'finalize_bag'}            # tab.bags (Enter: global activate)
+REVIEW_REFUSED = ('arm', 'report', 'amplitude_up', 'amplitude_down', 'manual')   # act on the boat
+REVIEW_ALLOWED = ('focus_next', 'focus_prev', 'focus_left', 'focus_right', 'focus_up', 'focus_down',
+                  'up', 'down', 'help', 'odometry')                  # global keys that reach the page
 
 
 class Bags:
@@ -69,7 +72,7 @@ class Bags:
 
     def step_recording(self, key):
         """left/right on the Recording row moves along lean, full, off without wrapping."""
-        i = REC_MODES.index(self.recorder.mode) + (1 if key == 'right' else -1)
+        i = REC_MODES.index(self.recorder.mode) + (1 if keymap.matches('panel.status', 'adjust_up', key) else -1)
         if 0 <= i < len(REC_MODES):
             self.set_recording(REC_MODES[i])
 
@@ -128,13 +131,12 @@ class Bags:
             self.invalidate_bags()
 
     def on_list(self, key):
-        handler = {'enter': self.open_bag_review, 'p': self.pin_bag,
-                   'n': self.title_bag, 'd': self.delete_bag,
-                   'P': self.prune_bags, 'F': self.finalize_bag}.get(key)
+        action = keymap.dispatch(('global', 'tab.bags'), key)
+        handler = getattr(self, LIST[action]) if action in LIST else None
         if handler is None:
             return
-        bag = None if key == 'P' else self.selected_bag()
-        if key != 'P' and bag is None:
+        bag = None if action == 'prune' else self.selected_bag()
+        if action != 'prune' and bag is None:
             return
         try:
             handler(bag)
@@ -276,31 +278,31 @@ class Bags:
         Keys that would act on the boat (arm, procedures, export) are refused here, so the
         live paths never see them; focus, help and quit fall through to the page.
         """
-        review, now = self.review, self.clock()
-        if key in REVIEW_KEYS:
-            seconds, sign = REVIEW_KEYS[key]
+        review, now, action = self.review, self.clock(), keymap.dispatch('review', key)
+        if action in SEEKS:
+            seconds, sign = SEEKS[action]
             review.seek(sign * seconds, now)
-        elif key in (',', '.'):
-            review.jump(-1 if key == ',' else 1, now)
-        elif key in ('<', '>'):
-            review.faster(-1 if key == '<' else 1)
-        elif key == 'z' and self.focus == 'activity':        # review.activity zoom
+        elif action in ('jump_prev', 'jump_next'):
+            review.jump(-1 if action == 'jump_prev' else 1, now)
+        elif action in ('rate_down', 'rate_up'):
+            review.faster(-1 if action == 'rate_down' else 1)
+        elif keymap.matches('review.activity', 'zoom', key) and self.focus == 'activity':
             review.loupe = scrubber.next_loupe(review.loupe)
-        elif key == 'p':
+        elif action == 'play':
             review.toggle()
-        elif key == 'space':
+        elif key == keymap.STOP_KEY:
             self.operator_stop()  # Keep the global sticky hold and neutral/disarm safety.
             review.pause()
-        elif key == 'escape':
+        elif action == 'leave':
             self.leave_review()
-        elif key == 'q':
+        elif keymap.matches('global', 'quit', key):
             if self.args.review is not None:
                 self.quit = True        # nothing of ours to lose, no popup
             else:
                 self.confirm_quit()
-        elif key == 'v' and self.focus == 'activity':
+        elif keymap.matches('panel.activity', 'view_next', key) and self.focus == 'activity':
             return False            # the view switch is read-only
-        elif key == 'a' or key in {p.key for p in PROCEDURES} or key in ('x', 'm', '+', '=', '-', '_'):
+        elif key in {p.key for p in PROCEDURES} or keymap.dispatch(('global', 'tab.drive'), key) in REVIEW_REFUSED:
             self.notice = 'Review: arming, procedures and edits are off'
         else:
             return False
@@ -308,9 +310,9 @@ class Bags:
 
     def review_allows(self, key):
         """Whitelist for keys that reach the page in review: focus, cursor, help and read-only details."""
-        return (key in ('\t', 'backtab', 'up', 'down', 'j', 'k', '?', 'o') or key in DIRECTIONS
-                or (key == 'enter' and self.focus == 'activity')
-                or (key == 'v' and self.focus == 'activity'))
+        return (keymap.dispatch('global', key) in REVIEW_ALLOWED
+                or (keymap.matches('global', 'activate', key) and self.focus == 'activity')
+                or (keymap.matches('panel.activity', 'view_next', key) and self.focus == 'activity'))
 
     def open_bag_review(self, bag):
         """Open the selected closed session without replacing live owners or callbacks."""
@@ -359,12 +361,13 @@ class Bags:
             self.notice = 'Left review'
 
     def on_activity(self, key):
-        if key == 'v':
+        action = keymap.dispatch(('global', 'panel.activity'), key)
+        if action == 'view_next':
             desk = feeds_module.merged(getattr(self, 'feeds', ())).get('agent_desk')
             self.activity, self.cursors['activity'] = agent_log.next_view(self.activity, desk), 0
-        elif key == 'enter' and self.activity == 'results':
+        elif action == 'activate' and self.activity == 'results':
             self.open_run()
-        elif key == 'enter' and self.activity == 'agent':
+        elif action == 'activate' and self.activity == 'agent':
             agent_log.detail(self, feeds_module.merged(self.feeds).get('agent_desk'), self.cursors['activity'])
 
     def exclude_result(self, index=None):
@@ -395,19 +398,19 @@ class Bags:
                          hint=theme.SEPARATOR.join((f'{UPDOWN} prev/next', 'X exclude', 'Esc close')))
 
         def handle(key):
-            if key == 'X':  # case matters here: lowercase x writes the report
+            if keymap.matches('popup.run', 'exclude', key):  # case matters here: lowercase x writes the report
                 self.exclude_result(state['index'])
                 self.modal = modal  # the nested popup cleared it
             else:
-                key = fold(key)
-                if key == 'space':
+                action = keymap.dispatch('popup.run', key, fold=True)
+                if key == keymap.STOP_KEY:
                     self.stop('stopped by operator')
-                elif key in ('up', 'k', 'down', 'j'):
+                elif action in ('prev', 'next'):
                     last = len(self.snapshot()['results']) - 1
-                    state['index'] = min(max(state['index'] + (1 if key in ('up', 'k') else -1),
+                    state['index'] = min(max(state['index'] + (1 if action == 'prev' else -1),
                                              0), last)
                     self.cursors['activity'] = last - state['index']
-                elif key in ('escape', 'q'):
+                elif action == 'close':
                     return True
             fill()
 
