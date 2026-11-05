@@ -25,32 +25,15 @@ from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.ui.app import mixins, wiring
 
 
-# Who writes what (finding #4): each mixin owns an attribute group and is its one writer; another area (a mixin,
-# a feed, a popup) reads it, through app.services where a container exists, and asks the owner's method to change
-# it. SHARED is the page's own state that every part sets (the popup, focus, the Activity view, the cursors,
-# quit; the footer notice only through App.say). APP is what App builds and hands out: startup.py and wiring.py
-# build it, and after that App.rebuild is its one writer (a review swaps some of it). test_app_state_ownership
-# fails on any write across owners in ui/**. The containers in ui/app/state hold the groups converted so far
-# (render, bags behind aliases; manual, arm, holds and procedures as ``state.<group>``, their own); Labels keeps its LabelsState.
+# Who writes what (finding #4): each area's state is its container in app.state (ui/app/state), named for the
+# mixin that owns it and is its one writer; another area (a mixin, a feed, a popup) reads it through app.services
+# and asks the owner's method to change it. SHARED is the page's own state that every part sets (the popup, focus,
+# the Activity view, the cursors, quit; the footer notice only through App.say). APP is what App builds and hands
+# out: startup.py and wiring.py build it, and after that App.rebuild is its one writer (a review swaps some of it).
+# Any other flat attribute has one writer (Quit's keys and live, the session's terminal handles).
+# test_app_state_ownership fails on any write across owners in ui/**.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
-OWNERS = {
-    'View': ('state.view',),
-    'Loop': ('state.loop',),
-    'Bags': ('state.bags',),
-    'Labels': ('state.labels',),
-    'Manual': ('state.manual',),
-    'Arm': ('state.arm',),
-    'Holds': ('state.holds',),
-    'Procedures': ('state.procedures',),
-    'Popups': ('state.popups',),
-    'Annotate': ('state.annotate',),
-    'Quit': ('state.quit', 'keys', 'live'),
-    'Operator': ('state.operator',),
-    'Correction': ('state.correction',),
-    'Files': ('state.files',),
-    'Health': ('state.health',),
-}
 
 
 class App(*mixins.ROSTER):
@@ -62,14 +45,6 @@ class App(*mixins.ROSTER):
 
     rtk_link = None       # the running RTK base (ui/rtk.py): .base and .reload; None means no base
 
-    @property
-    def services(self):
-        """Read-only facades on other areas' state (ui/app/state/services.py): ``app.services.bags.scan``."""
-        found = self.__dict__.get('_services')
-        if found is None:
-            found = self.__dict__['_services'] = app_state.facades(self)
-        return found
-
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
                  arming=None, plant=None, open_keys=key_input.KeyReader, live=Live,
                  clock=time.monotonic, foreground=subprocess.call, nav2=None,
@@ -77,7 +52,8 @@ class App(*mixins.ROSTER):
                  facts=None, source=None, nav2_file=None, nav2_live=None,
                  review=None, network=None, recorder=None, ekf=None, quiet_run=None, stack=None,
                  issues=None):
-        self.state = app_state.AppState()   # each area's container (ui/app/state); OWNERS says whose
+        self.state = app_state.AppState()   # each area's container, named for its owner (ui/app/state)
+        self.services = app_state.facades(self)   # read-only views of them: app.services.bags.scan
         self.args = args
         self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
         self.issues = wiring.issues(issues)   # device/part/transport problems past their grace
