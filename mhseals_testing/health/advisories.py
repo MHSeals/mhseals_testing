@@ -15,7 +15,7 @@ from mhseals_testing.health.config import ConfigError, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import STATUSES
 from mhseals_testing.health.probes import git as git_probe
-from mhseals_testing.ui.deploy import STALE, deploy_text
+from mhseals_testing.model import deploy as deploy_model
 
 LEVELS = {'ok': 'OK', 'info': 'OK', 'unknown': 'N/A', 'warn': 'WARN', 'fail': 'FAIL'}
 
@@ -73,7 +73,7 @@ class Health:
         self.periods = {n: p['period'] for n, p in (config.probes if config else {}).items()
                         if isinstance(p, dict) and 'period' in p}
         git = (config.probes if config else {}).get('git')
-        self.git_stale = git.get('stale', STALE) if isinstance(git, dict) else STALE
+        self.git_stale = git.get('stale', deploy_model.STALE) if isinstance(git, dict) else deploy_model.STALE
         muted = self.engine.muted if hasattr(self, 'engine') else ()
         self.engine = Engine(self.specs, self.periods, self.facts.clock)
         self.engine.muted.update(muted)
@@ -125,14 +125,20 @@ class Health:
             hash_ = getattr(latest.get('git.testing'), 'value', {}).get('hash')
             self.running_hash = self.running_hash or hash_
 
-    def deploy(self):
-        """The header deploy Text from the git_state results (None until the probe has run)."""
+    def deploy_state(self):
+        """The model ``Deploy`` from the git_state results (None until the probe has run)."""
         report = self.engine.last or {}
         states = [r.data for i, r in report.items() if i.startswith('git.') and isinstance(r.data, dict)]
         testing = report.get('git.testing')
         hash_ = testing.data.get('hash') if testing and isinstance(testing.data, dict) else None
         newer = bool(self.running_hash and hash_ and hash_ != self.running_hash)
-        return deploy_text(states, stale=self.git_stale, code_newer=newer)
+        return deploy_model.summary(states, stale=self.git_stale, code_newer=newer)
+
+    def deploy(self):
+        """The header deploy Text (ui.deploy.render of deploy_state). The one UI import left in health/: it goes
+        once the header's view renders ``deploy_state()`` itself (test_import_boundaries' allowlist)."""
+        from mhseals_testing.ui.deploy import render
+        return render(self.deploy_state())
 
     def close(self):
         self.git.stop()
