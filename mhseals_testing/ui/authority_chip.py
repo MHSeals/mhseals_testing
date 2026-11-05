@@ -26,11 +26,8 @@ def stop_word(hold, ago=''):
 
 
 def age(seconds):
-    """``40 s`` under a minute, else ``4m`` (hours as ``2h``)."""
-    seconds = max(0, int(seconds))
-    if seconds < 60:
-        return f'{seconds} s'
-    return f'{seconds // 60}m' if seconds < 3600 else f'{seconds // 3600}h'
+    """``40 s`` under a minute, else ``4m`` (hours as ``2h``): theme.age's chip style."""
+    return theme.age(seconds, 'chip')
 
 
 def since(record, now):
