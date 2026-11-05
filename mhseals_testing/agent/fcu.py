@@ -27,6 +27,7 @@ import json
 import math
 import os
 import re
+import sys
 from pathlib import Path
 
 from mhseals_testing.history.seed import read_param_file
@@ -41,13 +42,13 @@ LOOP = 'SCHED_LOOP_RATE'
 RESTART = 246                    # MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN, param1 1: reboot the autopilot
 CHANGES = 'fcu_changes.md'
 LEDGER = 'fcu_agent_changes.jsonl'
-DEFAULTS = {'store': '~/.claude/plans/boat', 'set': [], 'values': {}, 'loop_400': {'after': 200, 'max_load_pct': 60},
+DEFAULTS = {'set': [], 'values': {}, 'loop_400': {'after': 200, 'max_load_pct': 60},
             'rates': {'window_s': 10, 'topics': {}}}
 
 
 def settings(cfg):
     """agent.yaml ``fcu`` over the defaults (absent: agents set nothing)."""
-    fcu = dict(DEFAULTS, **(cfg.get('fcu') or {}))
+    fcu = {**DEFAULTS, 'store': None, **(cfg.get('fcu') or {})}
     fcu['rates'] = dict(DEFAULTS['rates'], **fcu['rates'])
     fcu['loop_400'] = dict(DEFAULTS['loop_400'], **fcu['loop_400'])
     return fcu
@@ -55,8 +56,10 @@ def settings(cfg):
 
 def validate(fcu):
     """agent.yaml ``fcu`` checked; ValueError names the key."""
-    if not isinstance(fcu, dict) or set(fcu) - set(DEFAULTS):
-        raise ValueError(f"agent.yaml: fcu takes {', '.join(DEFAULTS)}")
+    if not isinstance(fcu, dict) or set(fcu) - {'store', *DEFAULTS}:
+        raise ValueError(f"agent.yaml: fcu takes store, {', '.join(DEFAULTS)}")
+    if not isinstance(fcu.get('store'), str) or not fcu['store']:
+        raise ValueError('agent.yaml: fcu.store is the directory of the FCU snapshots and change logs')
     if not all(isinstance(p, str) and p for p in fcu.get('set', [])):
         raise ValueError('agent.yaml: fcu.set must be a list of parameter names or globs')
     for name, values in fcu.get('values', {}).items():
@@ -121,6 +124,27 @@ def stats(times):
     p99 = gaps[min(len(gaps) - 1, math.ceil(0.99 * len(gaps)) - 1)]
     return {'n': len(times), 'hz': round(len(gaps) / (times[-1] - times[0]), 1),
             'gap_p99_ms': round(p99 * 1000, 1), 'gap_max_ms': round(gaps[-1] * 1000, 1)}
+
+
+MOVED_FROM = Path('.claude', 'plans', 'boat')    # under HOME: the store before atlas #132, moved out once
+
+
+def open_store(cfg, vessel='fcu'):
+    """The Store at agent.yaml ``fcu.store`` (None when agent.yaml has no fcu), after a one-time move of the
+    ``fcu_*`` files of the old store (MOVED_FROM) into it while it has none of its own."""
+    directory = settings(cfg)['store']
+    if directory is None:
+        return None
+    store = Store(directory, vessel)
+    old = Path.home() / MOVED_FROM
+    found = sorted(p for p in old.glob('fcu_*') if p.is_file()) if old.is_dir() else []
+    if found and not any(store.dir.glob('fcu_*')):
+        store.dir.mkdir(parents=True, exist_ok=True)
+        for path in found:
+            path.rename(store.dir / path.name)
+        store.log(f'moved {len(found)} files from {old}', [f'- {p.name}' for p in found])
+        print(f'fcu store: moved {len(found)} files from {old} to {store.dir}', file=sys.stderr)
+    return store
 
 
 class Store:

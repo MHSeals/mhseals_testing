@@ -5,6 +5,7 @@ filled. ``Watch`` is the hot reload: ``get()`` re-reads when the file changes an
 good config (``error`` names what is wrong with the new one).
 """
 
+import os
 import re
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import yaml
 
 SCHEMA = 'mhseals.agent_config/1'
 LEASE = {'idle_s': 600.0, 'motion_s': 10.0, 'max_claim_s': 3600.0}   # agent.yaml's lease; the code fallback
+ARM_COUNTDOWN = 5.0    # arm banner seconds when agent.yaml has no arm.countdown
 NUMBERS = ('request_s', 'confirm_s', 'ask_s')
 QUEUE_S = 120.0        # a run, goal or ask waits this long behind a popup, a procedure or another act (queue_s)
 DRIVERS = ('warn', 'hold')
@@ -34,6 +36,13 @@ SETTINGS_NEVER = frozenset(('amplitude', 'command_mode', 'bench_override', 'stal
                             'command', 'repeats', 'nav_distance', 'station_hold', 'station_tolerance'))
 SETTINGS_NEVER_NAMES = re.compile(r'amplitude|limit|max|speed|ceiling|mode|bench|override|safe|stale|agent|arm|hold'
                                   r'|ready|fence|watchdog|gain|power|effort|velocity')
+
+
+def expand(path):
+    """``path`` with each ``${VAR:-default}`` (or ``${VAR}``) filled from the environment, then ``~`` expanded."""
+    def fill(match):
+        return os.environ.get(match[1]) or (match[2] or '')
+    return os.path.expanduser(re.sub(r'\$\{(\w+)(?::-([^}]*))?\}', fill, path))
 
 
 def config_path():
@@ -68,7 +77,7 @@ def validate(data):
             or not isinstance(limit, int) or limit <= 0:
         raise ValueError('agent.yaml: fetch.bwlimit_kbps is a positive whole number of KB/s')
     arm = data.get('arm', {})
-    countdown = arm.get('countdown', 5) if isinstance(arm, dict) else None
+    countdown = arm.get('countdown', ARM_COUNTDOWN) if isinstance(arm, dict) else None
     if not isinstance(arm, dict) or set(arm) - {'countdown'} or isinstance(countdown, bool) \
             or not isinstance(countdown, (int, float)) or not 0 <= countdown <= 60:
         raise ValueError('agent.yaml: arm.countdown must be 0 to 60 seconds')
@@ -117,7 +126,8 @@ def validate(data):
     limit = hook.get('max_per_10s', 6)
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError('agent.yaml: hook.max_per_10s must be a positive integer')
-    return {**data, 'grants': data.get('grants', GRANTS), 'background': data.get('background', ''), 'lease': dict(lease), 'run': list(run), 'start': list(start),
+    fcu = {'fcu': {**data['fcu'], 'store': expand(data['fcu']['store'])}} if 'fcu' in data else {}
+    return {**data, **fcu, 'grants': data.get('grants', GRANTS), 'background': data.get('background', ''), 'lease': dict(lease), 'run': list(run), 'start': list(start),
             'settings': {k: list(v) for k, v in settings.items()},
             'hook': {**hook, **{k: list(hook.get(k, [])) for k in HOOK_LISTS}, 'max_per_10s': limit},
             'sim_arm': sim_arm(data.get('sim_arm', {})), 'arm': {'countdown': countdown}, 'queue_s': float(queue), 'tune': tune}

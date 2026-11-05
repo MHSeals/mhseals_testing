@@ -123,3 +123,11 @@ def test_a_run_this_tui_can_never_do_is_refused_before_any_ask(boat):
     assert not reply['ok'] and reply['error'] == 'refused'
     assert 'boat_agent set command_mode=effort' in reply['hint'] and 'no restart' in reply['hint']
     assert not boat.app.armed and not [call for call in boat.app.calls if call[0] == 'agent_arm']
+
+
+def test_the_arm_countdown_default_is_agent_configs_one_constant():
+    from mhseals_testing.agent import config as agent_config
+    shipped = agent_config.load()
+    arm = {k: v for k, v in shipped.items() if k != 'arm'}
+    assert agent_config.validate(arm)['arm'] == {'countdown': agent_config.ARM_COUNTDOWN}
+    assert shipped['arm']['countdown'] == 5
