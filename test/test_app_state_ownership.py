@@ -4,10 +4,11 @@ An AST walk over the mixins (ui/app/actions/**, loop.py, view.py) collects every
 to an attribute OWNERS gives another mixin, or to one App builds (APP), is a crossing. SHARED (notice, modal,
 focus, ...) is the page's own and anyone's. ALLOWED holds the crossings on 11-04: it only shrinks, and an
 entry that no longer crosses must leave it (as the area converting its mixin does). An attribute no table
-names may have one writer only.
+names may have one writer only. core.py's own fan-out stays at 25 modules or fewer (it was 40 on 11-04).
 """
 
 import ast
+import importlib.util
 from collections import defaultdict
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from mhseals_testing.ui.app import core
 from mhseals_testing.ui.app import state as app_state
 
 APP_DIR = Path(core.__file__).resolve().parent
+FAN_OUT = 25
 ALLOWED = {   # (mixin class, attribute): the crossings on 11-04, by owner
     ('Arm', 'command'), ('Procedures', 'command'), ('Hardware', 'draft'), ('Hardware', 'grabbed'),   # Manual's
     ('Loop', 'grabbed'), ('Hardware', 'manual_speed'),
@@ -112,3 +114,25 @@ def test_each_alias_reads_and_writes_its_container():
     with pytest.raises(AttributeError):
         app.services.bags.scan = None
 
+
+def imported_modules(path):
+    """The modules ``path`` imports at top level, ``from pkg import mod`` counted as pkg.mod."""
+    modules = set()
+    for node in ast.parse(Path(path).read_text()).body:
+        if isinstance(node, ast.Import):
+            modules.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                name = f'{node.module}.{alias.name}'
+                try:
+                    modules.add(name if importlib.util.find_spec(name) else node.module)
+                except (ImportError, ValueError):
+                    modules.add(node.module)
+    return modules
+
+
+@pytest.mark.smoke
+def test_core_fan_out_stays_small():
+    """App builds its feeds and views through wiring.py and takes its mixins from mixins.py (finding #4)."""
+    modules = imported_modules(core.__file__)
+    assert len(modules) <= FAN_OUT, f'core.py imports {len(modules)} modules > {FAN_OUT}: {sorted(modules)}'

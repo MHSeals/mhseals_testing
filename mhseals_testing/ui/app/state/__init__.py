@@ -92,3 +92,9 @@ def install(cls):
     for name, (group, attr) in ALIASES.items():
         setattr(cls, name, Alias(group, attr))
     return cls
+
+
+def services(app):
+    """The read-only facades on ``app`` (services.py)."""
+    from mhseals_testing.ui.app.state.services import Services
+    return Services(app)

@@ -8,49 +8,22 @@ import time
 from rich.console import Console
 from rich.live import Live
 
-from mhseals_hardware.configuration import config_path
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_testing.ui import input as key_input
 from mhseals_testing.harness.bags import Recorder
 from mhseals_testing.analysis.readiness import planned_directions
-from mhseals_testing.annotate.live import AnnotateFeed
 from mhseals_testing.conditions import Conditions
 from mhseals_testing.harness.recwatch import RecWatch
-from mhseals_testing.harness.watch import Watched, Watcher
 from mhseals_testing.health.advisories import Health
 from mhseals_testing.health.journal import Journal
-from mhseals_testing.history import History, backends
-from mhseals_testing.ui import keymap as keymap_module, theme
-from mhseals_testing.ui.feeds import health as health_feed
-from mhseals_testing.ui.feeds.conditions import ConditionsFeed
-from mhseals_testing.ui.feeds.issues import IssuesFeed
-from mhseals_testing.ui.feeds.rtk import RtkFeed
-from mhseals_testing.ui.feeds.toasts import ToastFeed
-from mhseals_testing.ui.feeds.tracking import TrackingFeed
-from mhseals_testing.ui.toasts import Toasts
+from mhseals_testing.ui import theme
 from mhseals_testing.ui.layout import TabMemory
-from mhseals_testing.ui.minimap import panel as minimap_panel
-from mhseals_testing.ui.minimap.layerbox import LayerBox
 from mhseals_testing.ui.panels.checklist import Checklist
 from mhseals_testing.ui.source import LiveSource
 
 from mhseals_testing.ui.app.shared import CURSORS
 from mhseals_testing.ui.app import state as app_state
-from mhseals_testing.ui.app.state.services import Services
-from mhseals_testing.ui.app.help import map_key_maps
-from mhseals_testing.ui.app.actions.quit import Quit
-from mhseals_testing.ui.app.actions.operator import Operator
-from mhseals_testing.ui.app.actions.annotate import Annotate
-from mhseals_testing.ui.app.actions.labels import Labels
-from mhseals_testing.ui.app.actions.bags import Bags
-from mhseals_testing.ui.app.actions.settings import Settings
-from mhseals_testing.ui.app.actions.holds import Holds
-from mhseals_testing.ui.app.actions.arm import Arm
-from mhseals_testing.ui.app.actions.manual import Manual
-from mhseals_testing.ui.app.actions.procedures import Procedures
-from mhseals_testing.ui.app.actions.popups import Popups
-from mhseals_testing.ui.app.view import View
-from mhseals_testing.ui.app.loop import Loop
+from mhseals_testing.ui.app import mixins, wiring
 
 
 # Who writes what (finding #4): each mixin owns an attribute group and is its one writer; another area reads it,
@@ -82,8 +55,7 @@ OWNERS = {
 
 
 @app_state.install
-class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate, Labels, Bags, Operator,
-          Quit):
+class App(*mixins.ROSTER):
     """The page, its key handling and the procedure context.
 
     ROS, processes, arming, the plant, keys, the live view and the raw-pulse
@@ -97,7 +69,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         """Read-only facades on other areas' state (ui/app/state/services.py): ``app.services.bags.scan``."""
         found = self.__dict__.get('_services')
         if found is None:
-            found = self.__dict__['_services'] = Services(self)
+            found = self.__dict__['_services'] = app_state.services(self)
         return found
 
     def __init__(self, args, profile, monitor, ros, processes, paths, console=None,
@@ -110,7 +82,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.state = app_state.AppState()   # each area's container (ui/app/state); OWNERS says whose
         self.args = args
         self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
-        self.issues = issues or IssuesFeed()   # device/part/transport problems past their grace
+        self.issues = wiring.issues(issues)   # device/part/transport problems past their grace
         self.keep_units = False   # Quit's 'keep remote parts': their leases run out instead
         self.stop_adopted = False  # Quit's 'also stop adopted parts' (units another TUI may own)
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
@@ -123,11 +95,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.profile = profile
         self.monitor = monitor
         self.network = network
-        self.tracking = TrackingFeed()  # model ghost and live scores; session scores recorded at close
-        self.rtk = RtkFeed(profile)
-        # ui.feeds objects: ticked live, their view() merged into view()
-        self.annotations = AnnotateFeed()   # journals the automatic segment edges (annotate/live.py)
-        self.feeds = [health_feed.HealthFeed(), self.tracking, ConditionsFeed(), self.rtk, self.issues, self.annotations]
+        wiring.live_feeds(self, profile)   # tracking, rtk, annotations and the feeds list
         self.ros = ros
         self.source = source or LiveSource(monitor, profile)
         self.processes = processes
@@ -158,10 +126,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.run_id = None  # the procedure run in progress; its results carry this id
         self.settings = args.settings
         self.tabs = TabMemory()
-        self.minimap = minimap_panel.MiniMap(self.map_state)
-        self.layerbox = LayerBox(getattr(self.ros, 'map', None), self.map_state, live=True)
-        self.map_keys, self.map_tab_keys = map_key_maps(keymap_module.load()[0].doc)
-        self.fusion_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('tab.fusion'))
+        wiring.map_views(self)   # minimap, layerbox, map_keys, map_tab_keys, fusion_keys
         self.checklist = Checklist.from_env()   # boat_tui preview's sanity checklist, else None
         self.fusion_image = None   # the Fusion camera image: None until toggled (on locally, off over a link budget)
         self.focus = 'status'
@@ -169,7 +134,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.column = None   # Correction tab column; None follows the worst one
         self.activity = 'results'
         self.modal = None
-        self.toasts = Toasts()          # health transitions feed it; never takes keys
+        self.toasts = wiring.toasts()
         self.running = None
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
@@ -179,7 +144,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.manual_speed = None        # the last manual speed this session; None until manual ran
         self.last_advisory = float('-inf')
         self.health = Health(profile, paths.bag.parent, facts, clock, hardware=lambda: self.args.hardware_config)
-        self.feeds.append(ToastFeed(self.health))
+        self.feeds.append(wiring.toast_feed(self.health))
         if getattr(ros, 'mission', None) is not None:   # ui.feeds.mission.MissionState, fed by ROS
             self.feeds.append(ros.mission)
         self.recwatch = RecWatch(self.clock)
@@ -191,13 +156,7 @@ class App(Loop, View, Popups, Procedures, Manual, Arm, Holds, Settings, Annotate
         self.quit = False
         self.closed = False
         self.started = clock()
-        self.config_file = config_path(args.config)
-        self.history = History()
-        self.config_backends = backends.file_backends(
-            self.config_file, {'hardware': lambda: self.announce(self.watcher.reload('hardware'), observe=False)})
-        self.watcher = Watcher()
-        self.watcher.add(Watched('hardware', self.config_file, self.load_hardware, self.apply_hardware,
-                                 subsystem='hardware'))
+        wiring.config_watch(self, args)   # config_file, history, config_backends, watcher
         self.watch_own_files()
         self.config_note = self.config_file.name if self.config_file.exists() else 'defaults'
         self.pending_settings = None
