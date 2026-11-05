@@ -13,11 +13,11 @@ from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 MOVED = [
-    ('health', 'tune.toasts.lifetime', {'warn': 6.0, 'ok': 3.0, 'fail': None}, 'mhseals_testing.ui.toasts:LIFETIME'),
-    ('health', 'tune.toasts.max_shown', 3, 'mhseals_testing.ui.toasts:MAX_SHOWN'),
-    ('health', 'tune.toasts.dedupe', 30.0, 'mhseals_testing.ui.toasts:DEDUPE'),
+    ('health', 'tune.toasts.lifetime', {'warn': 6.0, 'ok': 3.0, 'fail': None}, 'mhseals_testing.ui.toasts:lifetime'),
+    ('health', 'tune.toasts.max_shown', 3, 'mhseals_testing.ui.toasts:max_shown'),
+    ('health', 'tune.toasts.dedupe', 30.0, 'mhseals_testing.ui.toasts:dedupe'),
     ('health', 'probes.git.stale', 3600.0, 'mhseals_testing.ui.deploy:STALE'),
-    ('fusion_panel', 'tune.perception.loss_warn', 0.15, 'mhseals_testing.ui.perception:LOSS_WARN'),
+    ('fusion_panel', 'tune.perception.loss_warn', 0.15, 'mhseals_testing.ui.perception:loss_warn'),
     ('input', 'tune.idle_s', 1.0, 'mhseals_testing.ui.app.view:idle_s'),
 ]
 
@@ -51,6 +51,7 @@ def test_tune_rereads_an_edited_file_and_keeps_the_last_good_one(tmp_path, monke
     path.write_text('tune: {idle_s: 1.0}\n')
     monkeypatch.setattr(tunables, 'config_path', lambda *parts: path)
     monkeypatch.setattr(tunables, 'LIVE', {})
+    monkeypatch.setattr(tunables, 'RECHECK_S', 0)
     assert tunables.tune('demo') == {'idle_s': 1.0}
     path.write_text('tune: {idle_s: 2.5}\n')
     os.utime(path, ns=(1, 1))
@@ -58,3 +59,18 @@ def test_tune_rereads_an_edited_file_and_keeps_the_last_good_one(tmp_path, monke
     path.write_text('tune: {idle_s: 3, idle_s: 4}\n')    # a duplicate key: strict refuses it
     os.utime(path, ns=(2, 2))
     assert tunables.tune('demo') == {'idle_s': 2.5}
+    path.unlink()                                         # a checkout or an editor's rewrite, mid-session
+    assert tunables.tune('demo') == {'idle_s': 2.5}
+    path.write_text('tune: {idle_s: 4.0}\n')
+    assert tunables.tune('demo') == {'idle_s': 4.0}
+
+
+def test_tune_looks_at_the_file_at_most_every_recheck(tmp_path, monkeypatch):
+    path = tmp_path / 'demo.yaml'
+    path.write_text('tune: {idle_s: 1.0}\n')
+    monkeypatch.setattr(tunables, 'config_path', lambda *parts: path)
+    monkeypatch.setattr(tunables, 'LIVE', {})
+    monkeypatch.setattr(tunables, 'RECHECK_S', 60)
+    assert tunables.tune('demo') == {'idle_s': 1.0}
+    path.unlink()
+    assert tunables.tune('demo') == {'idle_s': 1.0}     # inside RECHECK_S: no stat at all

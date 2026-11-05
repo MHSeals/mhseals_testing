@@ -12,12 +12,16 @@ from mhseals_testing.ui import theme
 
 STAGES = ('camera', 'sdk', 'backend', 'tracker', 'heading')
 FRAME_CHAIN = ('sdk', 'backend')   # stages that should keep the camera's frame rate
-LOSS_WARN = tunables.tune('fusion_panel')['perception']['loss_warn']   # a drop above this between two stages marks the arrow
 LATENCY_COLUMNS = 14        # samples of latency history drawn
 CLASS_ROWS = 8              # classes listed before the "not seen" line
 SOURCE_FACT = re.compile(r'perc\.([^.]+)\.(?:hz|latency|stages|classes)$')
 BARS = theme.SPARK
 ELLIPSIS = theme.pick('…', '...')
+
+
+def loss_warn():
+    """fusion_panel.yaml tune.perception.loss_warn: a drop above this between two stages marks the arrow."""
+    return tunables.tune('fusion_panel')['perception']['loss_warn']
 RHO = theme.pick('ρ', 'rho')
 
 
@@ -56,7 +60,7 @@ def pipeline(stages):
         if hz is None:
             continue
         if parts:
-            lost = last and name in FRAME_CHAIN and 1 - hz / last > LOSS_WARN
+            lost = last and name in FRAME_CHAIN and 1 - hz / last > loss_warn()
             parts.append(f' {theme.ARROW}{"!" if lost else ""} ')
         parts.append(f'{name} {hz:.1f}')
         last = hz

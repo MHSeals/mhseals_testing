@@ -12,16 +12,12 @@ import numpy as np
 from mhseals_testing.ui.imaging.sixel import sixel
 
 PALETTE_MAX = 255          # sixel colour registers a rectangle may use (index 0 is transparent)
-CAP = None                 # config/perf.yaml image_cap, read on the first sixel frame
 
 
 def cap():
     """config/perf.yaml ``image_cap``: the most sixel images a frame paints (0 paints each tile part alone)."""
-    global CAP
-    if CAP is None:
-        from mhseals_testing.tunables import tune
-        CAP = tune('perf')['image_cap']
-    return CAP
+    from mhseals_testing.tunables import tune
+    return tune('perf')['image_cap']
 
 
 def paint(changed, visible, by_id, rects):
