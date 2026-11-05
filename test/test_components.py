@@ -158,8 +158,8 @@ def test_boat_session_start_brings_up_only_sensing():
     assert watchdogs.carried_by == 'Odom stack' and watchdogs not in started
     # MAVROS and the EKFs are the boat's own: a TUI that misses them in discovery must not start a second set.
     assert not {'odometry', 'ekf'} & {item.key for item in started}
-    # Every role is on this machine here, so it is an operator host: the heartbeat comes up too.
-    assert 'operator_heartbeat' in {item.key for item in started}
+    # The heartbeat is a station service (hw.sh station take, 11-02), never started by a TUI session.
+    assert 'operator_heartbeat' not in {item.key for item in started}
     for item in started:
         assert not item.limits and item.kind == 'sensing'
 
@@ -419,12 +419,12 @@ def test_a_boat_tui_never_auto_starts_a_part_the_boat_runs_while_discovery_is_sl
                            for name, found in parts.items()})
         units, processes = FakeUnits(), FakeProcesses()
         stack = Stack(components(profile, None, placed), processes, lambda: 0.0, units)
-        assert stack.start_order()
+        assert bool(stack.start_order()) == (profile is Started)   # the boat profile starts nothing here
         for record in (None, {'state': 'off'}):     # unit status not read yet, or no unit: detached
             units.records = {item.part: record for item in stack.items.values()}
             lines = stack.autostart(set(), [], sim=False)          # nothing discovered yet
             assert units.calls == []                               # nothing started on the boat
-            assert [name for name, _ in processes.started] == ['operator_heartbeat']
+            assert processes.started == []                         # nor here: the heartbeat is the station's
             processes.started.clear()
             processes.live.clear()
             assert 'Safety watchdogs' not in ' | '.join(lines)    # they come with odometry
