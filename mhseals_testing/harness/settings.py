@@ -24,7 +24,7 @@ class Spec:
     kind: type = float          # float, int, str or bool
     low: float = None           # inclusive, except lower_open
     high: float = None
-    step: float = None
+    step: float = None          # the TUI's +/- step (amplitude only)
     choices: tuple = ()
     lower_open: bool = False    # low itself is not allowed
     group: str = 'Session'      # row group: Session or the procedure family
@@ -69,24 +69,24 @@ class Spec:
 
 
 def _timing(key, default, note=''):
-    return Spec(key, default, low=0, high=60, step=1, lower_open=True, group='Trials', note=note)
+    return Spec(key, default, low=0, high=60, lower_open=True, group='Trials', note=note)
 
 
 SPECS = (
     Spec('command_mode', 'effort', str, choices=('effort', 'velocity'), reset=True,
          note='disarmed only'),
     Spec('bench_override', False, bool, reset=True, note='motion without sensors; scoring off', tunable=False),
-    Spec('stale_after', 2.0, low=0, high=5, step=0.25, lower_open=True, tunable=False),
+    Spec('stale_after', 2.0, low=0, high=5, lower_open=True, tunable=False),
     Spec('amplitude', 0.25, low=0, high=1, step=0.05, lower_open=True, group='Trials',
          note="in the profile's command units"),
     _timing('baseline', 5.0, 'neutral s before a trial'),
     _timing('command', 3.0, 's the command is held'),
     _timing('settle', 6.0, 'neutral s after a trial (the first coast_s of a characterization settle, see characterize.yaml, are coast)'),
-    Spec('repeats', 1, int, low=1, high=5, step=1, group='Trials', note='trials per direction'),
+    Spec('repeats', 1, int, low=1, high=5, group='Trials', note='trials per direction'),
     _timing('observe', 10.0, 'passive s for perception checks'),
-    Spec('nav_distance', 4.0, low=1, high=50, step=1, group='Navigation', note='waypoint square side, m'),
-    Spec('station_hold', 60.0, low=10, high=600, step=10, group='Navigation', note='station keeping, s'),
-    Spec('station_tolerance', 1.5, low=0.2, high=10, step=0.1, group='Navigation', note='radius, m'),
+    Spec('nav_distance', 4.0, low=1, high=50, group='Navigation', note='waypoint square side, m'),
+    Spec('station_hold', 60.0, low=10, high=600, group='Navigation', note='station keeping, s'),
+    Spec('station_tolerance', 1.5, low=0.2, high=10, group='Navigation', note='radius, m'),
     _timing('neutral', 20.0, 'characterization: neutral s to rate the water first'),
     Spec('auto_tab', True, bool, group='Navigation', note='switch to Map when Navigate or Mission starts'),
     Spec('agents', 'allow', str, choices=('allow', 'block'), group='Control', reset=True,

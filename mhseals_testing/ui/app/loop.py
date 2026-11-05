@@ -3,6 +3,7 @@
 import errno
 from contextlib import nullcontext
 
+from mhseals_testing.harness.settings import BY_KEY
 from mhseals_testing.runner import fold
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import keymap
@@ -266,8 +267,9 @@ class Loop:
         elif bound == 'mark_note':
             self.mark_note()
         elif action in ('amplitude_up', 'amplitude_down'):
-            step = 0.05 if action == 'amplitude_up' else -0.05
-            self.set_setting('amplitude', round(min(1.0, max(0.05, self.settings.amplitude + step)), 2))
+            spec, sign = BY_KEY['amplitude'], 1 if action == 'amplitude_up' else -1
+            value = max(spec.low + spec.step, self.settings.amplitude + sign * spec.step)   # low is open
+            self.set_setting('amplitude', round(min(spec.high, value), 2))
             self.say(f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}')
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus in PANEL_SCOPES and keymap.dispatch(PANEL_SCOPES[self.focus], key))  # thrusters s,
