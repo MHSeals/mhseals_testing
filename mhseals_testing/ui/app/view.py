@@ -12,7 +12,7 @@ from mhseals_testing.harness import operator_state
 from mhseals_testing.harness.apply import LiveStaging
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ros import camera_feed
-from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, theme
+from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, perf, theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui import input as key_input
 from mhseals_testing.ui.app.model import Frame, Snapshot, ViewState
@@ -261,7 +261,7 @@ class View:
         if self.live is None:
             return
         now = time.monotonic()
-        if not force and now - self.last_frame < FRAME:
+        if not force and now - self.last_frame < perf.period(self, FRAME):   # perf.yaml fps, slowed by slow frames
             return
         repaint = pixels.watch()    # tmux: a client came or went, or its images need repainting
         key = None if force or self.lively() else self.still_key(now)
