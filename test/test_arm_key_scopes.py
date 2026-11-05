@@ -33,3 +33,27 @@ def test_the_authority_popup_keys_fold_as_before(key, action):
 def test_only_a_capital_e_revokes_the_selected_claim():
     assert shipped('popup.authority', 'e', fold=True) is None and shipped('popup.authority', 'E', fold=True) is None
     assert shipped('popup.authority', keymap.REVOKE_KEY) == 'revoke_selected'
+
+
+@pytest.mark.parametrize('key', ['escape', 'press:escape'])
+def test_esc_cancels_the_arm_waits_and_space_is_not_theirs_to_rebind(key):
+    assert shipped('popup.arming', key, press=True) == 'cancel'
+    assert shipped('popup.arming', 'space', press=True) == 'stop'
+
+
+@pytest.mark.parametrize('key', ['space', 'escape', 'press:space', 'press:escape'])
+def test_space_or_esc_stops_the_pins_edit_wait(key):
+    assert shipped('popup.pins_wait', key, press=True) == 'stop'
+
+
+def test_the_arm_waits_check_the_fixed_stop_key_before_the_keymap():
+    import inspect
+    from mhseals_testing.ui.app.actions import arm
+    from mhseals_testing.ui.app.actions.settings_rows import hardware
+    from mhseals_testing.ui.popups import STOP_KEYS
+    assert STOP_KEYS == ('space', 'press:space')
+    for source in (inspect.getsource(arm.Arm.await_mux), inspect.getsource(arm.Arm.wait_for_driver),
+                   inspect.getsource(arm.Arm.read_boat_config), inspect.getsource(hardware.Hardware.apply_hardware)):
+        assert 'key in STOP_KEYS' in source
+        first = source.index('key in STOP_KEYS')
+        assert all(first < i for i in (source.find('keymap.matches'),) if i >= 0)

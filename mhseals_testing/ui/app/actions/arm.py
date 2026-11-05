@@ -9,9 +9,9 @@ from mhseals_testing.devices import DeviceError
 from mhseals_testing.profiles import drives_pwm_pins, outputs_description
 from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
 from mhseals_testing.ros.arming import muxed
-from mhseals_testing.ui import input as key_input
+from mhseals_testing.ui import input as key_input, keymap
 from mhseals_testing.ui import theme, widgets
-from mhseals_testing.ui.popups import pins
+from mhseals_testing.ui.popups import STOP_KEYS, pins
 
 from mhseals_testing.ui.app.shared import STOPPING_ERRORS, decoupled
 
@@ -310,7 +310,8 @@ class Arm:
     def await_mux(self, arbiter, since, done, timeout=MUX_SETTLE_S):
         """Repaint until the mux publishes a state after ``since`` that ``done(mux)`` accepts.
 
-        False on timeout or Esc; Space stops the boat as everywhere. Each pass waits 0.1 s."""
+        False on timeout or Esc (keymap popup.arming cancel); Space stops the boat as everywhere. Each pass waits
+        0.1 s."""
         for _ in range(round(timeout / 0.1)):
             with arbiter.lock:
                 mux, at = arbiter.mux, arbiter.mux_at
@@ -320,10 +321,10 @@ class Arm:
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
                 self.arming.sleep(0.1)
-            if key in ('space', 'press:space'):
+            if key in STOP_KEYS:
                 self.operator_stop()
                 return False
-            if key in ('escape', 'press:escape'):
+            if keymap.matches('popup.arming', 'cancel', key, press=True):
                 return False
         return False
 
@@ -349,7 +350,7 @@ class Arm:
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
                 self.arming.sleep(0.1)
-            if key in ('space', 'escape', 'press:space', 'press:escape'):
+            if key in STOP_KEYS or keymap.matches('popup.arming', 'cancel', key, press=True):
                 self.arming.cancel()
                 raise Cancelled('arming cancelled')
 
@@ -372,12 +373,12 @@ class Arm:
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
                 thread.join(0.1)
-            if key in ('space', 'press:space'):
+            if key in STOP_KEYS:
                 self.operator_stop()
                 raise Cancelled('arming cancelled')
-            if key in ('escape', 'press:escape'):
+            if keymap.matches('popup.arming', 'cancel', key, press=True):
                 raise Cancelled('arming cancelled')
-            if key == 'E':
+            if key == keymap.REVOKE_KEY:
                 self.revoke_agent()
         return box.get('config')
 

@@ -8,6 +8,8 @@ from mhseals_hardware.configuration import config_sha, load_config, save_config,
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.history import adapters
 from mhseals_testing.ros.arming import session_hardware
+from mhseals_testing.ui import keymap
+from mhseals_testing.ui.popups import STOP_KEYS
 
 
 class Hardware:
@@ -50,7 +52,7 @@ class Hardware:
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
                 time.sleep(0.1)
-            if key in ('space', 'escape', 'press:space', 'press:escape'):
+            if key in STOP_KEYS or keymap.matches('popup.pins_wait', 'stop', key, press=True):
                 self.stop('stopped by operator')
                 return dict(status='saved')
         error = status.get('error') or ''
