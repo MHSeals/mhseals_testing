@@ -19,7 +19,6 @@ from mhseals_testing.ui.app.help import (  # noqa: F401
     HELP, GLOBAL_HINTS, PANEL_HINTS, MANUAL_HINTS, CORRECTION_HINTS, help_rows, help_width, UPDOWN, LEFTRIGHT)
 from mhseals_testing.ui.app.actions.holds import (  # noqa: F401
     WATCHDOG_GRACE, HOLD_CONFIRM_S)
-from mhseals_testing.ui.app.view import (  # noqa: F401
-    IDLE_S)
+from mhseals_testing.ui.app.view import idle_s  # noqa: F401
 from mhseals_testing.ui.app.shared import (  # noqa: F401
     Detach, decoupled, STOPPING_ERRORS)

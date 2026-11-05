@@ -27,7 +27,11 @@ from mhseals_testing.ui.app.help import (
 
 
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
-IDLE_S = tunables.tune('input')['idle_s']   # s; a still screen redraws only on a change, and this often for its ages
+
+
+def idle_s():
+    """s; a still screen redraws only on a change, and this often for its ages (input.yaml tune, read live)."""
+    return tunables.tune('input')['idle_s']
 
 
 class View:
@@ -247,10 +251,10 @@ class View:
 
     def still_key(self, now):
         """A cheap signature of a still screen: the notice, toasts, events, health, authority, the agent desk and the
-        IDLE_S tick (ages); equal means no render. Anything it misses still shows within IDLE_S."""
+        idle_s tick (ages); equal means no render. Anything it misses still shows within idle_s."""
         desk = getattr(self, 'desk', None)
         events = getattr(self.monitor, 'events', ())
-        return (int(now / IDLE_S), str(self.notice or ''), self.tab, getattr(self, 'focus', None),
+        return (int(now / idle_s()), str(self.notice or ''), self.tab, getattr(self, 'focus', None),
                 tuple((t.id, t.kind, t.text) for t in getattr(self.toasts, '_items', {}).values()),
                 len(events), events[-1] if events else None, id(getattr(self.engine, 'last', None)),
                 getattr(getattr(self, 'arbiter', None), 'sent', None),   # the record's content (its timer is 4 Hz)
