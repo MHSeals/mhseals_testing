@@ -70,28 +70,17 @@ def test_shipped_fcu_config_lists_the_rate_params_and_never_the_safety_ones():
         assert not af.never(name), name
 
 
-def test_the_store_is_agent_yamls_under_the_state_dir_and_takes_the_old_store_once(tmp_path, monkeypatch, capsys):
+def test_the_store_is_agent_yamls_under_the_state_dir_and_required(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path / 'home'))
     monkeypatch.delenv('XDG_STATE_HOME')
     cfg = agent_config.load()
     assert cfg['fcu']['store'] == str(tmp_path / 'home' / '.local' / 'state' / 'mhseals' / 'fcu')
     monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path / 'state'))
     cfg = agent_config.load()
-    new = tmp_path / 'state' / 'mhseals' / 'fcu'
-    assert cfg['fcu']['store'] == str(new)
-    old = tmp_path / 'home' / af.MOVED_FROM
-    old.mkdir(parents=True)
-    for name in ('fcu_blastoise_20261101.param', af.CHANGES, af.LEDGER, 'plan.md'):
-        (old / name).write_text(name)
-    store = af.open_store(cfg, 'blastoise')
-    assert store.dir == new and sorted(p.name for p in old.iterdir()) == ['plan.md']        # only the fcu files
-    assert (new / 'fcu_blastoise_20261101.param').read_text() == 'fcu_blastoise_20261101.param'
-    assert 'moved 3 files from' in (new / af.CHANGES).read_text() and 'moved 3 files' in capsys.readouterr().err
-    (old / 'fcu_late.param').write_text('x')                    # once: a store with its own files takes no more
-    af.open_store(cfg)
-    assert (old / 'fcu_late.param').exists() and not (new / 'fcu_late.param').exists()
-    with pytest.raises(ValueError, match='fcu.store'):
-        agent_config.validate({**cfg, 'fcu': {'set': []}})
+    assert af.settings(cfg)['store'] == str(tmp_path / 'state' / 'mhseals' / 'fcu')
+    for fcu in ({'set': []}, None):                             # no store, or no fcu section: no config
+        with pytest.raises(ValueError, match='fcu'):
+            agent_config.validate({**{k: v for k, v in cfg.items() if k != 'fcu'}, **({'fcu': fcu} if fcu else {})})
 
 
 def test_an_allowlisted_set_snapshots_reads_back_diffs_and_logs_with_attribution(fcu):

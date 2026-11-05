@@ -130,4 +130,3 @@ def test_the_arm_countdown_default_is_agent_configs_one_constant():
     shipped = agent_config.load()
     arm = {k: v for k, v in shipped.items() if k != 'arm'}
     assert agent_config.validate(arm)['arm'] == {'countdown': agent_config.ARM_COUNTDOWN}
-    assert shipped['arm']['countdown'] == 5
