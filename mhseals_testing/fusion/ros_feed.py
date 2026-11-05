@@ -26,7 +26,7 @@ CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_panel.yaml'
 KEYS = {'topics': {'observations', 'fused', 'sources', 'camera_info'},
         'feed': {'points_rate', 'points_max', 'points_link', 'points_link_framed', 'scan_dt_max', 'camera_rate', 'camera_width',
                  'max_range', 'residual_window', 'stale'},
-        'ramp': None, 'rings': None, 'draw_rate': None,
+        'ramp': None, 'rings': None, 'draw_rate': None, 'tune': None,
         'check': {'near', 'du_pass_px', 'du_warn_px', 'dv_pass_px', 'dv_warn_px', 'hit_rate_min',
                   'range_tol', 'range_fail_tol', 'min_samples'}}
 TF_STATIC = '/tf_static'   # its own latched subscription: the session's got the transforms before the tab opened

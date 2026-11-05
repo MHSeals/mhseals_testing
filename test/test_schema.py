@@ -44,7 +44,7 @@ def test_own_schema_keys_exist_in_the_shipped_yaml(shares):
         entry = keys[key]
         kind = {'float': (int, float), 'int': int, 'bool': bool, 'str': str,
                 'list': list}[entry['type']]
-        assert isinstance(node, kind), key
+        assert isinstance(node, kind) or node is None and entry.get('nullable'), key
 
 
 @pytest.mark.parametrize('package', ['mhseals_hardware', 'mhseals_nav'])

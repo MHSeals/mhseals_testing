@@ -1,2 +1,7 @@
 # health.yaml (health/config.py): probes and checks.
 health.probes.git.stale: {type: float, units: s, tier: restart, doc: "A last fetch older than this shows its age in the header deploy mark."}
+health.tune.toasts.lifetime.warn: {type: float, units: s, range: [0, 3600], tier: restart, doc: "A warning toast stays this long."}
+health.tune.toasts.lifetime.ok: {type: float, units: s, range: [0, 3600], tier: restart, doc: "A recovered toast stays this long."}
+health.tune.toasts.lifetime.fail: {type: float, units: s, range: [0, 3600], nullable: true, tier: restart, doc: "An error toast stays this long; null stays until recovery or ack."}
+health.tune.toasts.max_shown: {type: int, units: count, range: [1, 20], tier: restart, doc: "Toasts drawn at once; the rest count as hidden."}
+health.tune.toasts.dedupe: {type: float, units: s, range: [0, 3600], tier: restart, doc: "A repeat of a toast inside this window bumps its count."}

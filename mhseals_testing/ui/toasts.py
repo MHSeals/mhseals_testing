@@ -7,12 +7,14 @@ shown, and what arrived meanwhile collapses into one summary toast when it close
 
 import dataclasses
 
+from mhseals_testing import tunables
 from mhseals_testing.ui import theme
 
-LIFETIME = {'warn': 6.0, 'ok': 3.0, 'fail': None}   # seconds; None stays until recovery or ack
+_TUNE = tunables.tune('health')['toasts']           # health.yaml tune.toasts
+LIFETIME = dict(_TUNE['lifetime'])                  # seconds; None stays until recovery or ack
 TITLES = {'warn': ' Warning ', 'fail': ' Error ', 'ok': ' Recovered ', 'info': ' Health '}
-MAX_SHOWN = 3
-DEDUPE = 30.0                                       # a repeat inside this window bumps the count
+MAX_SHOWN = _TUNE['max_shown']
+DEDUPE = _TUNE['dedupe']                            # a repeat inside this window bumps the count
 
 
 @dataclasses.dataclass

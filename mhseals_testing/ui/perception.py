@@ -7,11 +7,12 @@ with whatever the probe publishes. Nothing here reads ROS or the clock.
 
 import re
 
+from mhseals_testing import tunables
 from mhseals_testing.ui import theme
 
 STAGES = ('camera', 'sdk', 'backend', 'tracker', 'heading')
 FRAME_CHAIN = ('sdk', 'backend')   # stages that should keep the camera's frame rate
-LOSS_WARN = 0.15            # a drop above this between two stages marks the arrow
+LOSS_WARN = tunables.tune('fusion_panel')['perception']['loss_warn']   # a drop above this between two stages marks the arrow
 LATENCY_COLUMNS = 14        # samples of latency history drawn
 CLASS_ROWS = 8              # classes listed before the "not seen" line
 SOURCE_FACT = re.compile(r'perc\.([^.]+)\.(?:hz|latency|stages|classes)$')

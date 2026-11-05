@@ -3,6 +3,12 @@
 # every check), joins (other groups' checks that its --require also needs) and checks.
 # ~/.config/mhseals/health.yaml may disable ids (globs allowed), override fields of one id and
 # override probes settings.
+tune:
+  # The health toasts bottom-right (ui/toasts.py)
+  toasts:
+    lifetime: {warn: 6.0, ok: 3.0, fail: null}   # s a toast stays; null stays until recovery or ack
+    max_shown: 3                                  # toasts drawn at once; the rest count as hidden
+    dedupe: 30.0                                  # s: a repeat inside this window bumps the count
 probes:
   # How often each probe publishes. A fact older than three periods reads as unknown.
   # `snapshot`, `calibration` (rereads calibration/current.json) and `host` run on the App tick; `fcu` and `battery` are MAVROS callbacks;

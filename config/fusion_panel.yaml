@@ -1,6 +1,9 @@
 # Fusion tab (ui/panels/fusion.py, fusion/ros_feed.py): camera-lidar alignment at a glance.
 # Units are in config/schema/fusion_panel.yaml: s, m, Hz for rates, px for pixels.
 # Topics are lidar_fusion.yaml's; /points and /tf_static come from the session's own subscriptions.
+tune:
+  perception:
+    loss_warn: 0.15         # perception popup (ui/perception.py): a rate drop above this between two stages marks the arrow
 topics:
   observations: /perception/observations          # stereo boxes (the backend's ranges)
   fused: /perception/observations_fused           # lidar_fusion output; absent while fusion is off
