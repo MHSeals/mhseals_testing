@@ -16,6 +16,7 @@ MOVED = [
     ('health', 'tune.toasts.dedupe', 30.0, 'mhseals_testing.ui.toasts:DEDUPE'),
     ('health', 'probes.git.stale', 3600.0, 'mhseals_testing.ui.deploy:STALE'),
     ('fusion_panel', 'tune.perception.loss_warn', 0.15, 'mhseals_testing.ui.perception:LOSS_WARN'),
+    ('input', 'tune.idle_s', 1.0, 'mhseals_testing.ui.app.view:IDLE_S'),
 ]
 
 

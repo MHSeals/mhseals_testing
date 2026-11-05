@@ -13,6 +13,7 @@
 #   arm a, release U, take O (a viewer takes control), quit_armed q while armed
 # mouse: SGR mouse reports while the TUI runs: the wheel scrolls lists and popups (up/down) and a button
 # press-and-hold confirms a hold; Shift+drag still selects text in most terminals. Manual driving drops them.
+# tune.idle_s: a still screen redraws only on a change, and this often (s) for its ages and clocks (ui/app/view.py).
 schema: mhseals.input/1
 hold: {arm: false, release: false, take: true, quit_armed: true}
 mouse: true
@@ -21,3 +22,5 @@ terminals:
   legacy: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
   plain: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
   unknown: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
+tune:
+  idle_s: 1.0

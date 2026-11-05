@@ -7,6 +7,7 @@ import time
 from rich.segment import Segments
 
 from mhseals_hardware.thruster_mixer import validate_mixer
+from mhseals_testing import tunables
 from mhseals_testing.harness import operator_state
 from mhseals_testing.harness.apply import LiveStaging
 from mhseals_testing.procedures import PROCEDURES
@@ -25,7 +26,7 @@ from mhseals_testing.ui.app.help import (
 
 
 FRAME = 1 / 30           # s; continuous redraws (motion, manual) stop at 30 per second
-IDLE_S = 1.0             # s; a still screen redraws only on a change, and this often for its ages and clocks
+IDLE_S = tunables.tune('input')['idle_s']   # s; a still screen redraws only on a change, and this often for its ages
 
 
 class View:

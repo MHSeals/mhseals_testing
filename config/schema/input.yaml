@@ -1,0 +1,2 @@
+# input.yaml (ui/input.py, ui/app/view.py): hold timing per terminal, hold-to-confirm, the mouse and the redraw clock.
+input.tune.idle_s: {type: float, units: s, range: [0.1, 10], tier: restart, doc: "A still screen redraws only on a change, and this often for its ages and clocks."}
