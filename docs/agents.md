@@ -67,5 +67,7 @@ The playbook an agent gets is `python3 .agents/hook.py --playbook`.
 - `release HOLD --why "..."` frees a lease or watchdog hold once its fault cleared; an operator hold (Space,
   stop, manual) only with a grant in `~/.config/mhseals/agent_grants.yaml`; the e-stop never. Disarmed, the mux
   is stopped: the release then judges and clears the holds it saved for the next arm, by the same rules.
+- `fence corners LAT,LON ... | on_exit alert|return | anchor --why`, any time, no claim: validated, read back,
+  kept in `~/.config/mhseals/fence.yaml` and named in the agent panel.
 - The owner's preview (`boat_tui preview`) is theirs: the hook denies starting, stopping or typing into it. An
   integration test runs its own: `boat_tui preview --headless --test`, then `boat_tui preview down --test`.

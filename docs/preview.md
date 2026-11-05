@@ -20,3 +20,12 @@ Every gap stops with what is missing and the command that fixes it (`hw.sh profi
 `test/test_workspace_derivation.py` checks the resolution against fixtures and the real workspace, and
 `test_the_preview_and_sim_write_down_nothing_the_workspace_knows` (test/test_tool_help_hosts.py) fails on an image
 name or hash, a ROS distro, a home path, a colcon call or a list of repos in these tools, their config or harness.
+
+## The preview and its checklist
+
+`boat_tui preview` takes REF of the three packages as worktrees in `~/.cache/boat-preview/<ref>`, rebuilt only when a sha changes,
+in `roboboat_preview` (domain 100, port 6768, `tmux -L preview`). It holds the reserved heavy `preview` slot, which
+agent Unity jobs queue behind. Settings: `config/preview.yaml`. Agents never start or stop it (the hook denies it).
+
+The preview's side panel lists the checks, the field runbook's "before a test" items and the commits
+since 2026-11-01 by feature. `W` checks, `p` pass, `f` fail, `n` note; results append to `mhseals_agents/state/preview-<date>.md`.

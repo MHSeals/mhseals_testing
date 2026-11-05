@@ -33,11 +33,7 @@ tools/boat_tui preview field/x --headless # any branch, field branch or hypothes
 
 - **sim:** a private-IPC container, a free `ROS_DOMAIN_ID` (101-199, localhost), `crane_full_stack`, the 2026 course of
   the seed. Settings: `config/sim/stack.yaml` (`BOAT_SIM_<KEY>`); `--dry-run` prints the plan.
-- **preview:** REF of the three packages as worktrees in `~/.cache/boat-preview/<ref>`, rebuilt only when a sha changes,
-  in `roboboat_preview` (domain 100, port 6768, `tmux -L preview`). It holds the reserved heavy `preview` slot, which
-  agent Unity jobs queue behind. Settings: `config/preview.yaml`. Agents never start or stop it (the hook denies it).
-- **Checklist:** the preview's side panel lists the checks, the field runbook's "before a test" items and the commits
-  since 2026-11-01 by feature. `W` checks, `p` pass, `f` fail, `n` note; results append to `mhseals_agents/state/preview-<date>.md`.
+- **preview** and its checklist: [docs/preview.md](docs/preview.md#the-preview-and-its-checklist).
 
 ## Screens
 
@@ -46,7 +42,7 @@ tools/boat_tui preview field/x --headless # any branch, field branch or hypothes
 ## TUI
 
 Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Activity), **Correction**, **Map**, **Bags**,
-**Fusion**. `?` lists every key and is the reference. The ones to know:
+**Labels**, **Fusion**. `?` lists every key and is the reference. The ones to know:
 
 <!-- keys: config/keymap.yaml -->
 | Key | Does |
@@ -63,18 +59,7 @@ Tabs (`[` `]`): **Drive** (Status, Motion, Conditions, Thrusters, Procedures, Ac
 | `w s ↑↓` | Manual (m): hold w/s, a/d, ←/→ together; +/- speed; x leaves |
 <!-- /keys -->
 
-Hold-to-confirm: the confirms config/input.yaml `hold:` names (take control `O`, quitting while armed; arm and
-release after the 11-04 pool test) fill a bar while Enter, the action's key or a mouse button is held; a tap or Esc
-cancels and Space still stops at once. With `mouse: true` the wheel scrolls lists and popups; manual driving ignores it.
-Held-key combos (Conditions reads `keys·combos`, else `keys·one key`) need the Kitty keyboard protocol (Kitty,
-Ghostty, foot, WezTerm). Speed has one palette (spd.*): the surge, sway and yaw bars, the manual speed gauge, the
-Conditions `sog` readout and the minimap trail run calm grey to hot magenta. The Conditions ring glows red toward the nearest lidar point
-(/perception/nearby) inside 8 m, wider and bold inside 3 m; past 0.15 m/s a dashed wake trails off the stern, longer
-with speed. Glyphs carry every state
-(✓ ok, ! warn, × fail, ◌ busy, ○ off), so `NO_COLOR` reads; `TERM=dumb` or `MHS_ASCII=1` draws ASCII.
-Status lists the parts Enter starts in their own **Stack** section: a spinner while one starts, ✓ running, ✗ exited,
-and `▶` after the name where Enter would start it.
-The focused panel's title is a solid accent bar (` ▸ Status `, reverse video), so focus shows at a glance.
+Hold-to-confirm, the mouse, key combos, the speed palette, the glyphs and focus: [docs/tui.md](docs/tui.md).
 
 ## Procedures
 
@@ -88,9 +73,6 @@ The focused panel's title is a solid accent bar (` ▸ Status `, reverse video),
 | w, s | Waypoint square; station keeping | armed, sensors, velocity, Nav2 |
 | t | Mission rehearsal, scored (`config/missions/`), judged by the referee in crane_ml | armed, sensors, velocity, Nav2 |
 
-Each row wears its state: ▷ ready, ⊘ blocked with the reason on the row, a spinner (and the percent of a long
-run) while running, ✓ or ✗ for its last result this session; the focused panel's bottom border is the legend.
-
 Only sensors and TF block motion; power, clock, links and compute advise. Settings: `--set K=V` (`harness/settings.py`,
 saved in `~/.config/mhseals/boat_test.yaml`). Profiles: `boat` (ODROID pins), `crane_full_stack` (`/thrusters/pwm` into
 the sim), `crane_direct` (no navigation); `boat_trial profiles` explains each.
@@ -101,14 +83,6 @@ Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); 
 
 - **Verbs:** `status`, `claim`, `run KEY`, `goal X Y`, `arm` (a countdown the operator cancels), `start`/`stop`/`reload`
   COMPONENT, `set K=V`, `fcu get|set|rates|revert|restart`, `follow`, `mark`, `note`, `ask`, `stop`. Every acting verb takes `--why`.
-- **Command mode:** `set command_mode=effort|velocity --claim ID --why` (disarmed, between runs) switches the TUI's
-  command path at once, no restart: the next arm starts the driver alone or behind the velocity controller. It lasts
-  for this TUI; a restart takes its start arguments again.
-- **Release and grants:** `release HOLD --why` frees a lease or watchdog hold once its fault cleared; an operator hold only
-  with a grant in `~/.config/mhseals/agent_grants.yaml`; the e-stop never.
-- **Fence:** `fence corners LAT,LON ... | on_exit alert|return | anchor --why`, any time, no claim: validated, read back,
-  kept in `~/.config/mhseals/fence.yaml` and named in the agent panel.
-- **Exit codes:** 0 ok, 2 refused (read `hint`), 3 revoked, 4 no TUI, 5 blocked, 6 timeout, 7 paused by the operator.
 - **Hook:** `mhseals_testing/agent_hook.py` blocks raw motion, FCU and hold changes and names the verb instead. Details: [docs/agents.md](docs/agents.md).
 
 ## Data
@@ -131,9 +105,5 @@ tools/smoke --impact        # only the tests timpact selects against origin/main
 make -C docs pdf screens    # docs/math.pdf, docs/tuning.pdf, and the images above
 ```
 
-`mhseals_testing/backend/` is the link of the coming UI-less backend (D-20261101-19): a versioned protocol over a
-local socket (`config/backend.yaml`), a server that never takes a live backend's socket, and a thin client that attaches
-with the full snapshot in well under a second and reattaches by itself after link loss or a backend restart.
-`boat_tui` does not use it yet.
-
+The coming UI-less backend link (`mhseals_testing/backend/`): [docs/tui.md](docs/tui.md#backend).
 Everything outside `mhseals_testing/ros/` imports without ROS. Sims and full suites go through `.handoff/tools/heavy`.
