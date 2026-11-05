@@ -14,7 +14,7 @@ docker-image:
 # Redraw the README screenshots (docs/screens/*.svg: image tiers and the braille fallback) and the README table of them
 # from synthetic data, no ROS or terminal; test/test_screens.py fails when either is stale.
 screens:
-	cd .. && PYTHONPATH=.:../mhseals_hardware:$$PYTHONPATH python3 docs/screens/render.py
+	cd .. && PYTHONPATH=.:../mhseals_hardware:../mhseals_nav:$$PYTHONPATH python3 docs/screens/render.py
 
 tuning:
 	@if command -v latexmk >/dev/null; then $(LATEXMK) tuning.tex; \
