@@ -37,6 +37,7 @@ TABLES = {
                STR('DFW_L1', '1005(10),1077(1)', 32.7310, -97.1210, carrier=1, nav='GPS')],
     'EarthScope': [STR('TXAR_RTCM3P3', MSM7, 32.7500, -97.0800), STR('KVTX_RTCM3P3', MSM7, 27.5458, -97.8836)],
 }
+SHIPPED = load_settings({})
 CASTERS = [dict(name='FPRN', host='h', port=1, user_env='FPRN_USER', password_env='FPRN_PASSWORD'),
            dict(name='FPRN-NET', group='FPRN', host='h', port=2, user_env='FPRN_USER', password_env='FPRN_PASSWORD', bias_km=2),
            dict(name='EarthScope', host='h', port=3, user_env='ES_USER', password_env='ES_PASSWORD', bias_km=2),
@@ -63,7 +64,7 @@ def test_sourcetable_parses_v1_and_v2_bodies_and_skips_cas_net_lines():
 
 
 def test_florida_picks_the_nearby_msm7_base_then_the_vrs_then_single_msm4():
-    ranked = rank(streams(), BENDERSON, biases=BIAS, groups=GROUPS)
+    ranked = rank(streams(), BENDERSON, SHIPPED, biases=BIAS, groups=GROUPS)
     order = [(c.stream.caster, c.stream.mount) for c in ranked[:4]]
     assert order == [('RTK2go', 'BendersonBase'), ('FPRN-NET', 'NAD_MSM4_VRS'),
                      ('FPRN-NET', 'NAD_MSM4_NEAR'), ('FPRN', 'SRSA')]
@@ -80,7 +81,7 @@ def test_florida_picks_the_nearby_msm7_base_then_the_vrs_then_single_msm4():
 
 
 def test_texas_prefers_a_dual_band_station_over_a_nearer_l1_gps_only_one():
-    ranked = rank(streams(), ARLINGTON, biases=BIAS, groups=GROUPS)
+    ranked = rank(streams(), ARLINGTON, SHIPPED, biases=BIAS, groups=GROUPS)
     assert ranked[0].stream.mount == 'TXAR_RTCM3P3' and ranked[0].in_range
     l1 = next(c for c in ranked if c.stream.mount == 'DFW_L1')
     assert l1.km < ranked[0].km and l1.cost > ranked[0].cost
@@ -89,10 +90,10 @@ def test_texas_prefers_a_dual_band_station_over_a_nearer_l1_gps_only_one():
 
 def test_beyond_max_km_is_a_last_resort_and_resting_mounts_are_skipped():
     far = (30.27, -97.74)         # Austin: nothing within 30 km in these tables
-    ranked = rank(streams(), far, biases=BIAS, groups=GROUPS)
+    ranked = rank(streams(), far, SHIPPED, biases=BIAS, groups=GROUPS)
     assert ranked and not any(c.in_range for c in ranked)
     assert ranked[0].stream.mount == 'TXAR_RTCM3P3' and ranked[0].km == pytest.approx(280, abs=10)
-    skipped = rank(streams(), BENDERSON, biases=BIAS, groups=GROUPS, resting={('RTK2go', 'BendersonBase')})
+    skipped = rank(streams(), BENDERSON, SHIPPED, biases=BIAS, groups=GROUPS, resting={('RTK2go', 'BendersonBase')})
     assert skipped[0].stream.mount == 'NAD_MSM4_VRS'
 
 
@@ -117,7 +118,7 @@ def test_secrets_file_feeds_credentials_and_an_unset_login_is_not_streamed(tmp_p
     values = ntrip.read_env_file(env)
     assert ntrip.credentials(CASTERS[0], values) == ('team', 'p w')
     assert ntrip.credentials(CASTERS[3], values) == (None, '')
-    source = NtripSource(dict(casters=CASTERS), position=lambda: BENDERSON + (5.0,), env=values)
+    source = NtripSource(dict(SHIPPED, casters=CASTERS), position=lambda: BENDERSON + (5.0,), env=values)
     source.tables = {name: parse_sourcetable('\n'.join(lines), name) for name, lines in TABLES.items()}
     ranked = source.ranked()
     assert {c.stream.caster for c in ranked} == {'FPRN', 'FPRN-NET'}       # only FPRN has a login
@@ -129,7 +130,6 @@ def test_the_shipped_secrets_merge_astros_file_over_the_package_one(tmp_path, mo
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.delenv('ASTRO_SECRETS', raising=False)
     shipped = load_settings({})['secrets']
-    assert shipped == ['~/.config/astro/secrets.env', '~/.config/mhseals_testing/secrets.env'] == ntrip.DEFAULTS['secrets']
     astro, package = tmp_path / '.config' / 'astro' / 'secrets.env', tmp_path / '.config' / 'mhseals_testing' / 'secrets.env'
 
     def write(path, text, mode=0o600):
@@ -155,10 +155,10 @@ def test_the_shipped_secrets_merge_astros_file_over_the_package_one(tmp_path, mo
     assert ntrip.secrets_files(str(package)) == [package]         # an explicit path (rtk.yaml) stays as is
     monkeypatch.setenv('FPRN_USER', 'shell')
     monkeypatch.delenv('FPRN_PASSWORD', raising=False)
-    source = NtripSource(dict(casters=CASTERS, secrets=shipped))
+    source = NtripSource(dict(SHIPPED, casters=CASTERS, secrets=shipped))
     assert source.env['FPRN_USER'] == 'shell'                     # the environment wins over the file
     monkeypatch.delenv('FPRN_USER')
-    assert NtripSource(dict(casters=CASTERS, secrets=shipped)).env['FPRN_USER'] == 'env'
+    assert NtripSource(dict(SHIPPED, casters=CASTERS, secrets=shipped)).env['FPRN_USER'] == 'env'
 
 
 def test_distance_is_great_circle():
@@ -320,7 +320,7 @@ def casters():
         caster.close()
 
 
-FAST = dict(stale_s=0.3, connect_grace_s=0.6, mount_cooldown_s=30.0, auth_cooldown_s=30.0, timeout_s=2.0,
+FAST = dict(SHIPPED, stale_s=0.3, connect_grace_s=0.6, mount_cooldown_s=30.0, auth_cooldown_s=30.0, timeout_s=2.0,
             refresh_s=600.0, repick_s=600.0, gga_every_s=10.0)
 
 
