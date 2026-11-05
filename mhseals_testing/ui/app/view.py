@@ -15,6 +15,7 @@ from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, perf, theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui import input as key_input
+from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.ui.app.model import Frame, Snapshot, ViewState
 from mhseals_testing.ui.panels import PANELS, agent_log, fusion as fusion_panel
 from mhseals_testing.ui.feeds import health as health_feed
@@ -151,6 +152,7 @@ class View:
         if pick:
             hints = pick + [('Space', 'Stop')]
         shared = {} if self.review else feeds_module.merged(self.feeds)
+        thrusters = self.services.thrusters   # the Thrusters panel's edit, Manual's to write
         own = dict(
             tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=getattr(self, 'checklist', None),
             **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), **({'labels': self.labels_model()} if self.tab == 'Labels' and not self.review else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.running,
@@ -176,8 +178,8 @@ class View:
             recording=False if self.review else self.processes.running('bag'), rec=self.rec,
             bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
-            test_pulses=self.test_pulses, pwm_readback=self.pwm_readback,
-            draft=self.draft, grabbed=self.grabbed,
+            test_pulses=thrusters.test_pulses, pwm_readback=self.pwm_readback,
+            draft=thrusters.draft, grabbed=thrusters.grabbed,
             config_note=self.config_note, review=self.review, correction=self.correction_state(),
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
@@ -260,17 +262,18 @@ class View:
         ``still_key`` changed (D-20261101-26)."""
         if self.live is None:
             return
+        render = app_state.state_of(self).render     # View's own redraw bookkeeping (ui/app/state)
         now = time.monotonic()
         if not force and now - self.last_frame < perf.period(self, FRAME):   # perf.yaml fps, slowed by slow frames
             return
         repaint = pixels.watch()    # tmux: a client came or went, or its images need repainting
         key = None if force or self.lively() else self.still_key(now)
-        if key is not None and key == self.last_key and not repaint:
+        if key is not None and key == render.last_key and not repaint:
             return
-        self.last_key = key
-        self.last_frame = now
+        render.last_key = key
+        render.last_frame = now
         if repaint:
-            self.last_drawn = None
+            render.last_drawn = None
         frame = self.render()
         images = pixels.active()
         if not force or images:
@@ -278,12 +281,12 @@ class View:
             # and hand Live the segments already laid out instead of rendering twice.
             # Image tiers always lay out first: pixels finds its tiles in the segments.
             drawn = list(self.console.render(frame))
-            if not force and drawn == self.last_drawn:
+            if not force and drawn == render.last_drawn:
                 return
-            self.last_drawn = drawn if not force else None
+            render.last_drawn = drawn if not force else None
             frame = Segments(pixels.frame(drawn, tuple(self.console.size)))   # scanned only when it changed
         else:
-            self.last_drawn = None
+            render.last_drawn = None
         pixels.before(self.write_terminal)
         self.live.update(frame, refresh=True)
         pixels.after(self.write_terminal)
