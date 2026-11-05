@@ -89,10 +89,9 @@ class VerbsMixin:
                 if 'params' not in made:
                     made['params'] = FcuParams(MavrosLink(node))
                 return made['params']
-            fcu = agent_fcu.settings(self.config.get())
             vessel = getattr(getattr(self.app, 'profile', None), 'name', None) or 'fcu'
             self.fcu = agent_fcu.AgentFcu(
-                params, agent_fcu.Store(fcu['store'], vessel), self.config.get,
+                params, agent_fcu.open_store(self.config.get(), vessel), self.config.get,
                 lambda window: rates.measure(node, agent_fcu.settings(self.config.get())['rates']['topics'], window))
         return self.fcu
 

@@ -19,7 +19,6 @@ from mhseals_testing.runner import STALE_MUX_S
 from mhseals_testing.ui import agent_acts, parts, theme
 from mhseals_testing.ui.feeds import authority as authority_feed
 
-COUNTDOWN = 5.0           # arm banner seconds when agent.yaml has no arm.countdown
 RESPAWN_WAIT = 15.0       # reload COMPONENT: how long its stop may take before the start
 
 
@@ -46,7 +45,7 @@ def estop(app):
 
 def countdown_of(desk, req):
     """The banner's seconds: agent.yaml arm.countdown (the operator's), which an agent may lengthen, never shorten."""
-    floor = float((desk.config.get().get('arm') or {}).get('countdown', COUNTDOWN))
+    floor = float(desk.config.get()['arm']['countdown'])
     value = req['args'].get('countdown')
     value = floor if value is None else float(value)
     if not 0 <= value <= 60:

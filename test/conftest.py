@@ -85,8 +85,11 @@ def shipped_theme(request, monkeypatch, tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def isolated_user_config(tmp_path_factory, monkeypatch):
-    """Keep the persisted settings file and the mux's saved holds of the real user out of every test."""
+    """Keep the persisted settings file, the mux's saved holds and the FCU store (and the old one it moves from)
+    of the real user out of every test."""
     monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path_factory.mktemp('xdg')))
+    monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path_factory.mktemp('state')))
+    monkeypatch.setenv('HOME', str(tmp_path_factory.mktemp('home')))
     monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path_factory.mktemp('run')))
 
 

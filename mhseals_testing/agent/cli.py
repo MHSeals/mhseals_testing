@@ -347,9 +347,10 @@ class Agent:
     def fcu_saved(self, names):
         """fcu get with no TUI controller: the newest snapshot in agent.yaml ``fcu.store``, marked as such (owner
         decision 2026-11-01: reads work without a controller)."""
-        from mhseals_testing.agent.fcu import Store
-        store = Store((self.cfg.get('fcu') or {}).get('store') or '~/.claude/plans/boat')
-        found = sorted(store.dir.glob('fcu_*.param'), key=lambda p: p.stat().st_mtime) if store.dir.is_dir() else []
+        from mhseals_testing.agent.fcu import open_store
+        store = open_store(self.cfg)
+        found = sorted(store.dir.glob('fcu_*.param'), key=lambda p: p.stat().st_mtime) \
+            if store and store.dir.is_dir() else []
         if not found:
             self.emit({'ok': False, 'error': 'no_owner', 'hint': 'no TUI and no FCU snapshot yet: boat_tui up'})
             return channel.EXIT_CODES['no_owner']
