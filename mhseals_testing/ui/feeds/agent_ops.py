@@ -200,6 +200,14 @@ def stopped_mux_file(app, arbiter):
     return authority_feed.hold_file(app)
 
 
+def release_saved(stored, holds=None):
+    """Drop ``holds`` (every one when None, U's tokenless release) from the stopped mux's saved file; their causes."""
+    saved = hold_store.load(stored)
+    judged = {(h['cause'], h['since']) for h in (saved.values() if holds is None else holds)}
+    hold_store.save(stored, {cause: h for cause, h in saved.items() if (cause, h['since']) not in judged})
+    return sorted(cause for cause, since in judged)
+
+
 def do_release_hold(desk, req):
     """boat_agent release HOLD --why: the mux's release (U's path) when every hold is the agent's to release now
     (agent/grants.py); no claim needed. The footer, the agent log and the journal name the agent and why."""
@@ -227,9 +235,7 @@ def do_release_hold(desk, req):
     if refusal:
         return desk.reply(req, False, refusal[0], hint=refusal[1] + (f' (grant file: {error})' if error else ''))
     if stored is not None:      # U's tokenless release clears every hold: drop exactly the ones judged above
-        judged = {(h['cause'], h['since']) for h in holds}
-        hold_store.save(stored, {cause: h for cause, h in hold_store.load(stored).items()
-                                 if (cause, h['since']) not in judged})
+        release_saved(stored, holds)
     else:
         release = getattr(app.plant, 'release_hold', None)
         if release is None or not release(by=f'agent {who}'):
