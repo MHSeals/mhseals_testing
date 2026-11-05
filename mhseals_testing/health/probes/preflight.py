@@ -12,9 +12,13 @@ Facts:
   rc.link           'valid' or 'invalid' (label: why), the command mux's own RC rule
   rc.age_s          seconds since the last /mavros/rc/in frame
   bag.active        the session's recorder child is running
-  orin.temp_max     hottest thermal zone on the camera host, deg C
-  orin.power_mode   nvpmodel mode name on the camera host
-  orin.disk_free_gb free disk on the camera host's data directory
+  camera_host.temp_max     hottest thermal zone on the camera host, deg C
+  camera_host.power_mode   nvpmodel mode name on the camera host
+  camera_host.disk_free_gb free disk on the camera host's data directory
+
+The camera host's facts are named by its role, not its compute module. The old ``orin.*`` ids are read
+aliases for one release (FACT_ALIASES): the same facts are published under them too, so a check that
+still names ``orin.temp_max`` resolves. Drop the aliases once health.yaml names ``camera_host.*``.
 """
 
 from pathlib import Path
@@ -112,14 +116,24 @@ def host_values(zones=THERMAL_ZONES, status=NVPMODEL_STATUS, conf=NVPMODEL_CONF,
     return values
 
 
-def orin_facts(values, host):
-    """Facts from a ``host:`` diagnostic's {key: value} strings (``host`` labels them)."""
+CAMERA_HOST = 'camera_host'
+# old fact id -> its role-named id; read aliases for one release (11-04), then removed
+FACT_ALIASES = {f'orin.{name}': f'{CAMERA_HOST}.{name}' for name in ('temp_max', 'power_mode', 'disk_free_gb')}
+
+
+def camera_host_facts(values, host):
+    """Facts from a ``host:`` diagnostic's {key: value} strings (``host`` labels them), plus their aliases."""
     facts = {}
-    for key, name in (('temp_max_c', 'orin.temp_max'), ('disk_free_gb', 'orin.disk_free_gb')):
+    for key, name in (('temp_max_c', 'temp_max'), ('disk_free_gb', 'disk_free_gb')):
         try:
-            facts[name] = Fact(float(values[key]), label=host)
+            facts[f'{CAMERA_HOST}.{name}'] = Fact(float(values[key]), label=host)
         except (KeyError, ValueError):
             pass
     if values.get('power_mode'):
-        facts['orin.power_mode'] = Fact(values['power_mode'], data={'reason': f"{host}: {values['power_mode']}"})
+        facts[f'{CAMERA_HOST}.power_mode'] = Fact(values['power_mode'],
+                                                  data={'reason': f"{host}: {values['power_mode']}"})
+    facts.update({old: facts[new] for old, new in FACT_ALIASES.items() if new in facts})
     return facts
+
+
+orin_facts = camera_host_facts   # the old name, for one release with the fact aliases

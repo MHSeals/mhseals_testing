@@ -4,6 +4,8 @@ its fact; the probe's pure fact functions; and --require needing every check OK.
 from dataclasses import replace
 import json
 import math
+from pathlib import Path
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -175,18 +177,32 @@ def test_rc_link_uses_the_mux_rule():
     assert 'no receiver' in link.facts(4.0)['rc.link'].data['reason']
 
 
-def test_bag_and_orin_facts(tmp_path):
+def test_bag_and_camera_host_facts(tmp_path):
     assert preflight.bag_facts({'bag': {'pid': 7}}, lambda pid: True)['bag.active'].value is True
     assert preflight.bag_facts({}, lambda pid: True)['bag.active'].value is False
     (tmp_path / 'zone0').write_text('48500\n')
     (tmp_path / 'status').write_text('pmode:0002 fmode:quiet\n')
     (tmp_path / 'conf').write_text('< POWER_MODEL ID=0 NAME=15W >\n< POWER_MODEL ID=2 NAME=MAXN_SUPER >\n')
     values = preflight.host_values(str(tmp_path / 'zone*'), tmp_path / 'status', tmp_path / 'conf', tmp_path)
-    facts = preflight.orin_facts(values, 'jetson')
-    assert facts['orin.temp_max'].value == 48.5 and facts['orin.power_mode'].value == 'MAXN_SUPER'
-    assert facts['orin.disk_free_gb'].value > 0
-    assert preflight.orin_facts(preflight.host_values(str(tmp_path / 'none*'), tmp_path / 'x', tmp_path / 'y',
+    facts = preflight.camera_host_facts(values, 'jetson')
+    assert facts['camera_host.temp_max'].value == 48.5 and facts['camera_host.power_mode'].value == 'MAXN_SUPER'
+    assert facts['camera_host.disk_free_gb'].value > 0
+    # the old orin.* ids still resolve, to the same facts, for one release
+    assert preflight.FACT_ALIASES == {'orin.temp_max': 'camera_host.temp_max',
+                                      'orin.power_mode': 'camera_host.power_mode',
+                                      'orin.disk_free_gb': 'camera_host.disk_free_gb'}
+    assert all(facts[old] is facts[new] for old, new in preflight.FACT_ALIASES.items())
+    assert preflight.orin_facts(values, 'jetson') == facts
+    assert preflight.camera_host_facts(preflight.host_values(str(tmp_path / 'none*'), tmp_path / 'x', tmp_path / 'y',
                                                       tmp_path / 'missing'), 'jetson') == {}
+
+
+def test_every_shipped_check_on_a_camera_host_fact_resolves():
+    """health.yaml's pre.* checks name a fact camera_host_facts publishes (new id or alias)."""
+    text = (Path(__file__).resolve().parent.parent / 'config' / 'health.yaml').read_text()
+    named = set(re.findall(r'fact: ((?:orin|camera_host)\.\w+)', text))
+    published = set(preflight.camera_host_facts({'temp_max_c': '50', 'disk_free_gb': '9', 'power_mode': 'X'}, 'h'))
+    assert named and named <= published, named - published
 
 
 def test_preflight_probe_reads_the_driver_only_while_its_node_runs():

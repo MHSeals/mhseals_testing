@@ -94,7 +94,7 @@ class Preflight:
             out.update(rc.facts(now))
         out.update({k: v for k, v in self.gps.facts(now).items() if k.startswith('gps.')})
         if self.host and now - self.host[0] <= HOST_SILENCE_S:
-            out.update(preflight.orin_facts(self.host[2], self.host[1]))
+            out.update(preflight.camera_host_facts(self.host[2], self.host[1]))
         if self.registry is not None:
             from mhseals_testing.harness.registry import alive
             out.update(preflight.bag_facts(self.registry.children(), alive))
