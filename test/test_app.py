@@ -2819,7 +2819,7 @@ def test_idle_refresh_skips_identical_frames(tmp_path):
 
 
 def test_a_still_screen_renders_only_on_change(tmp_path, monkeypatch):
-    """D-20261101-26: no render() while no key, fact or animation changed; ages still tick each IDLE_S."""
+    """D-20261101-26: no render() while no key, fact or animation changed; ages still tick each idle_s."""
     from mhseals_testing.ui import app as app_module
     app, _ = make_app(tmp_path)
     app.console.size = (120, 40)
@@ -2838,7 +2838,7 @@ def test_a_still_screen_renders_only_on_change(tmp_path, monkeypatch):
     app.notice = 'changed'
     idle()
     assert len(renders) == 2
-    idle(app_module.IDLE_S)                        # the ages and clocks move
+    idle(app_module.idle_s())                      # the ages and clocks move
     assert len(renders) == 3
     app.refresh()                                  # a key always draws
     assert len(renders) == 4

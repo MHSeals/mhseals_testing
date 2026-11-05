@@ -4,6 +4,7 @@ Each row is (config file, key, the code constant before the move, where the code
 row; a deliberate retune edits the row's value in the same commit as the config.
 """
 import importlib
+import os
 
 import pytest
 
@@ -17,7 +18,7 @@ MOVED = [
     ('health', 'tune.toasts.dedupe', 30.0, 'mhseals_testing.ui.toasts:DEDUPE'),
     ('health', 'probes.git.stale', 3600.0, 'mhseals_testing.ui.deploy:STALE'),
     ('fusion_panel', 'tune.perception.loss_warn', 0.15, 'mhseals_testing.ui.perception:LOSS_WARN'),
-    ('input', 'tune.idle_s', 1.0, 'mhseals_testing.ui.app.view:IDLE_S'),
+    ('input', 'tune.idle_s', 1.0, 'mhseals_testing.ui.app.view:idle_s'),
 ]
 
 
@@ -35,10 +36,25 @@ def test_shipped_value_is_the_old_code_constant(name, key, old, reader):
     value = shipped(name, key)
     assert value == old and type(value) is type(old) or isinstance(old, float) and value == old
     module, attribute = reader.split(':')
-    assert getattr(importlib.import_module(module), attribute) == old
+    value = getattr(importlib.import_module(module), attribute)
+    assert (value() if callable(value) else value) == old
 
 
-def test_tune_reads_the_shipped_section_once():
-    tunables.tune.cache_clear()
+def test_tune_reads_the_shipped_section_once_while_unchanged():
     assert tunables.tune('health') is tunables.tune('health')
     assert tunables.tune('health') == shipped('health', 'tune')
+
+
+def test_tune_rereads_an_edited_file_and_keeps_the_last_good_one(tmp_path, monkeypatch):
+    """atlas #35: an edit reaches the next tune() (mtime-keyed, keymap.current's rule); a broken edit keeps the last."""
+    path = tmp_path / 'demo.yaml'
+    path.write_text('tune: {idle_s: 1.0}\n')
+    monkeypatch.setattr(tunables, 'config_path', lambda *parts: path)
+    monkeypatch.setattr(tunables, 'LIVE', {})
+    assert tunables.tune('demo') == {'idle_s': 1.0}
+    path.write_text('tune: {idle_s: 2.5}\n')
+    os.utime(path, ns=(1, 1))
+    assert tunables.tune('demo') == {'idle_s': 2.5}
+    path.write_text('tune: {idle_s: 3, idle_s: 4}\n')    # a duplicate key: strict refuses it
+    os.utime(path, ns=(2, 2))
+    assert tunables.tune('demo') == {'idle_s': 2.5}
