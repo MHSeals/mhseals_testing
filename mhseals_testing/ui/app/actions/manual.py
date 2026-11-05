@@ -15,6 +15,8 @@ from mhseals_testing.ui.app.shared import PULSE_STEP, decoupled
 
 
 MANUAL_DESK_S = 0.2      # s; the agent desk's tick from inside manual control
+READBACK_STALE_S = 1.0   # s; the driver's ~/output (10 Hz) older than this is no readback
+READBACK_GRACE_S = 0.5   # s; a new pulse may take this long to show in the readback
 
 
 NEUTRAL = 1500
@@ -144,6 +146,7 @@ class Manual:
         output = self.mapping()[0][position] - 1  # the draft wiring, to check it before saving
         pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
         self.test_pulses = pulses
+        self.pulses_since, self.pulse_verdict = time.monotonic(), None
         self.ros.emit('test_pulses', pulses=pulses)
         self.notice = f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends'
 
@@ -171,9 +174,51 @@ class Manual:
         if pulses is None:
             self.clear_pulses()
         else:
+            if list(pulses) != self.test_pulses:
+                self.pulses_since, self.pulse_verdict = time.monotonic(), None
             self.test_pulses = list(pulses)
             if self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
+
+    def driver_output(self):
+        """The driver's latest ~/output (what its outputs hold, read back) while fresh, else None."""
+        ros = getattr(self, 'ros', None)
+        output, at = getattr(ros, 'driver_output', None), getattr(ros, 'driver_output_at', None)
+        if output is None or at is None or time.monotonic() - at > READBACK_STALE_S:
+            return None
+        return output
+
+    def pulse_readback(self):
+        """Each tick: the Rb column from the driver's readback, and whether a test pulse reached the outputs.
+
+        A test pulse that the outputs do not hold (after READBACK_GRACE_S), or with no readback at all,
+        says so in the notice, with what they hold and who wrote it.
+        """
+        output = self.driver_output()
+        held = output.get('pulses') if output else None
+        if held and len(held) == 4:
+            self.show_driver_readback(held)
+        else:
+            held = None
+        pulses = self.test_pulses
+        if pulses is None or not self.armed or time.monotonic() - getattr(self, 'pulses_since', 0.0) < READBACK_GRACE_S:
+            return
+        tested = [index for index, pulse in enumerate(pulses) if pulse != NEUTRAL] or range(4)
+        sent = ', '.join(f'{index + 1}: {pulses[index]}' for index in tested)
+        if not held:
+            verdict = (f'Test pulse UNVERIFIED: no readback from the driver ({(output or {}).get("error") or "no ~/output"});'
+                       f' sent {sent} {MICRO}s')
+        elif all(held[index] == pulses[index] for index in range(4)):
+            verdict = (f'Test pulse at the outputs: {sent} {MICRO}s, read back'
+                       + ('' if getattr(self, 'running', None) else '; 0 or Tab ends'))
+        else:
+            verdict = (f'Test pulse NOT at the outputs: sent {sent} {MICRO}s, outputs hold '
+                       f'{", ".join(f"{index + 1}: {held[index]}" for index in tested)} ({output.get("source")})')
+        if verdict != getattr(self, 'pulse_verdict', None):
+            self.pulse_verdict = self.notice = verdict
+            if not verdict.startswith('Test pulse at'):
+                self.ros.emit('test_pulses_unverified', pulses=list(pulses), held=held,
+                              source=(output or {}).get('source'))
 
     def manual_show(self, command, amplitude, chords, done=False):
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""

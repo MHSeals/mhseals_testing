@@ -45,11 +45,15 @@ class Health:
             self.monitor.advise('PWM driver', *health.pwm_driver(
                 self.ros.nodes(), self.ros.subscribers(topic), topic,
                 self.armed, self.processes.running('hardware')))
-        if drives_pwm_pins(self.profile):
+        if drives_pwm_pins(self.profile) and self.driver_output() is None:   # else the driver's own readback
             config = self.args.hardware_config
             level, detail, self.pwm_readback = health.pwm_readback(
                 config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
             self.monitor.advise('PWM readback', level, detail)
+
+    def show_driver_readback(self, pulses):
+        """The Rb column from the driver's ~/output: each output's pulse, read back by the driver."""
+        self.pwm_readback = [f'ON {pulse} us' for pulse in pulses]
 
     def feed_map(self):
         """The recorded costmap follows the Recorder mode and the session owner (map.md 4)."""

@@ -96,6 +96,7 @@ class Loop:
             self.notice = self.nav2_file.poll() or self.notice
         if self.test_pulses is not None and self.publish_pulses is not None:
             self.publish_pulses(self.test_pulses)
+        self.pulse_readback()
         if self.armed and self.arming.fault():
             self.stop(self.arming.fault(), by='fault')
         self.watch_watchdogs()

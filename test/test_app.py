@@ -836,6 +836,29 @@ def test_test_pulses_need_arming_follow_the_wiring_and_clear(tmp_path):
         assert app.test_pulses is None and app.pulse_log[-1] == [1500] * 4
 
 
+def test_a_test_pulse_shows_the_driver_readback_and_says_when_it_did_not_arrive(tmp_path):
+    import time as clock
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    with app.attached():
+        app.focus = 'thrusters'
+        arm(app)
+        app.dispatch('right')                      # FL, output 1: one step up
+        sent = app.test_pulses
+        app.pulses_since -= 1.0                    # past the grace
+        app.tick()
+        assert 'UNVERIFIED' in app.notice          # no ~/output from the driver
+        app.ros.driver_output = {'pulses': [1500] * 4, 'source': 'cmd_vel', 'error': ''}
+        app.ros.driver_output_at = clock.monotonic()
+        app.tick()
+        assert 'NOT at the outputs' in app.notice and '(cmd_vel)' in app.notice
+        app.ros.driver_output = {'pulses': list(sent), 'source': 'test', 'error': ''}
+        app.ros.driver_output_at = clock.monotonic()
+        app.tick()
+        assert app.notice.startswith(f'Test pulse at the outputs: 1: {sent[0]} ')
+        assert app.pwm_readback == [f'ON {pulse} us' for pulse in sent]
+        assert app.ros.events.count('test_pulses_unverified') == 2
+
+
 def test_thruster_set_maps_outputs_and_reversals(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
     # Outputs 1-4 drive FR, FL, RL, RR; RL thrusts backwards. Each output: Enter to pulse,

@@ -158,6 +158,9 @@ class RosIO:
         self.node.create_subscription(
             String, '/thruster_pwm_node/status', self._driver_status,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        # The driver's ~/output (10 Hz): the pulses its outputs hold, read back; with its receive time.
+        self.driver_output, self.driver_output_at = None, None
+        self.node.create_subscription(String, '/thruster_pwm_node/output', self._driver_output, 10)
         if profile.use_sim_time:   # the sim's harbor-alert horn, journaled for the referee
             hear = HornJournal(self.emit, getattr(profile, 'course_truth', None))
             self.node.create_subscription(String, HORN_TOPIC, lambda m: hear(m.data), 10)
@@ -263,6 +266,13 @@ class RosIO:
             self.driver_status = json.loads(message.data)
         except ValueError:
             pass
+
+    def _driver_output(self, message):
+        try:
+            self.driver_output = json.loads(message.data)
+        except ValueError:
+            return
+        self.driver_output_at = time.monotonic()
 
     def emit(self, phase, **details):
         """Journal an event, publish it into the bag and show it on the dashboard."""

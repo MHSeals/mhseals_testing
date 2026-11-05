@@ -92,8 +92,10 @@ def thrusters_panel(view, compact=False, pins=True):
     compact = compact or pins  # the Pin column leaves no room for the bar
     columns = (['   Thr', 'Out', 'Rev', {'header': theme.pick('µs', 'us'), 'justify': 'right'}] if compact else
                ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
+    readback = pins or testing   # Rb: the driver's readback of each output (the pins' sysfs without it)
     if pins:
         columns.insert(1, 'Pin')
+    if readback:
         columns.append('Rb')
     table = theme.grid(*columns, padding=(0, 1))
     saturated = []
@@ -117,7 +119,7 @@ def thrusters_panel(view, compact=False, pins=True):
                  else 'bold' if active else theme.MUTED)]
         if not compact:
             cells.append(effort_bar(row['pulse'], testing, saturated=row['saturated'] and active))
-        if pins:
+        if readback:
             cells += [Text(readback_glyph(row['readback'], row['pulse'], view['armed']))]
         table.add_row(*cells)
     driver = view.get('driver') or {}
