@@ -455,6 +455,7 @@ def test_readout_marks_a_kept_correction_stale():
 def test_budgeted_link_slows_the_drawings(monkeypatch):
     cfg = fusion_feed.load_config()
     monkeypatch.setattr(fusion, '_HZ', {})
+    monkeypatch.setattr(pixels, 'BUDGET', None)   # a local terminal, whatever an earlier start under SSH left
     assert fusion.draw_rate(cfg, 'a') == cfg['draw_rate'] and fusion.draw_rate(cfg, 'b', 0.5) == cfg['draw_rate']
     monkeypatch.setattr(pixels, 'BUDGET', pixels.SSH_BUDGET)
     assert fusion.draw_rate(cfg, 'a') == min(cfg['draw_rate'], pixels.THROTTLE_HZ) * fusion.START
