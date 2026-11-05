@@ -33,7 +33,7 @@ MODAL = ('manual', 'runner', 'minimap.goal', 'popup.')
 def doc():
     with open(PATH) as f:
         doc = yaml.safe_load(f)
-    return {k: v for k, v in doc.items() if k not in ('help', 'hints')}   # rows, not contexts (test_help_keys)
+    return {k: v for k, v in doc.items() if k not in ('help', 'hints', 'fixed')}   # rows, not contexts (test_help_keys)
 
 
 def binds(ctx):
@@ -52,8 +52,8 @@ def key_map(ctx):
 def test_counts_and_schema(doc):
     assert doc['schema'] == 'mhseals.keymap/1'
     contexts = {k: v for k, v in doc.items() if k != 'schema'}
-    assert len(contexts) == 37
-    assert sum(len(binds(c)) for c in contexts.values()) == 248
+    assert len(contexts) == 41
+    assert sum(len(binds(c)) for c in contexts.values()) == 253
 
 
 def test_keys_known_and_unique_per_context(doc):
@@ -106,3 +106,29 @@ def test_every_action_is_bound_or_marked_unbound(doc):
     unbound = set(getattr(actions, 'UNBOUND', ()))
     missing = set(actions.ACTIONS) - bound - unbound
     assert not missing, sorted(missing)
+
+
+# Every key a ui/ file compared as a literal before it asked the keymap: (scope, key, action), frozen when
+# the file's literals were converted (test_no_literal_key_checks), so a keymap edit cannot move them silently.
+LITERALS = [
+    # popups/stop.py, popups/hold.py, popups/authority.py, actions/arm.py, actions/settings.py (areas 3, 4, 6)
+    *[('popup.stop', k, 'close') for k in ('escape', 'q', 'enter')],
+    *[('popup.hold', k, 'decline') for k in ('escape', 'n')],
+    ('popup.authority', 'escape', 'close'), ('popup.authority', 'enter', 'detail'),
+    ('popup.authority', 'E', 'revoke_selected'),
+    *[('popup.authority', k, a) for a, ks in (('up', 'uk'), ('down', 'dj')) for k in (a, ks[1])],
+    ('popup.arming', 'space', 'stop'), ('popup.arming', 'escape', 'cancel'), ('popup.arming', 'E', 'revoke_agent'),
+    ('popup.pins_wait', 'space', 'stop'), ('popup.pins_wait', 'escape', 'stop'),
+    ('panel.status', 'left', 'adjust_down'), ('panel.status', 'right', 'adjust_up'), ('panel.status', 'e', 'params'),
+    ('panel.status', 'h', None), ('panel.status', 'l', None),
+    *[('tab.correction', k, a) for k, a in (('left', 'column_prev'), ('h', 'column_prev'), ('right', 'column_next'),
+                                            ('l', 'column_next'), ('r', 'rerun_direction'), ('R', 'run_all'),
+                                            ('A', 'apply_pending'), ('I', 'hardware_changed'))],
+]
+
+
+@pytest.mark.parametrize('scope, key, action', LITERALS)
+def test_the_old_literal_keys_resolve_to_the_same_action(scope, key, action):
+    from mhseals_testing.ui import keymap
+    km = keymap.load(user=None)[0]
+    assert km.dispatch(scope, key) == action, '%s %r' % (scope, key)

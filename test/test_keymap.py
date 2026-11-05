@@ -11,6 +11,7 @@ from mhseals_testing.ui.keymap import Keymap, KeymapError
 
 BASE = """
 schema: mhseals.keymap/1
+fixed: [{key: space, action: stop, also: [abort], why: stop}, {key: E, action: revoke_agent, why: revoke}]
 global: {stop: [space], quit: [q], arm: [a], mark: [b], revoke_agent: [E], up: [up, k]}
 tab.drive: {characterize: [f]}
 tab.correction: {}
@@ -173,3 +174,46 @@ def test_shipped_file_falls_back_to_the_share_directory(tmp_path, monkeypatch):
 
 
 pytestmark = pytest.mark.smoke   # tools/smoke
+
+
+def test_rule8_fixed_keys_cannot_move():
+    assert not keymap.validate(doc())
+    moved = doc(**{'tab__drive': {'characterize': ['E']}})
+    assert any('E is fixed to revoke_agent' in e for e in keymap.validate(moved))
+    dropped = doc(); dropped['global']['stop'] = ['x']
+    assert any('global: space is fixed to stop' in e for e in keymap.validate(dropped))
+    without = doc(); del without['fixed']
+    assert any(e.startswith('fixed:') for e in keymap.validate(without))
+    wrong = doc(); wrong['fixed'][1]['key'] = 'R'
+    assert any('keymap.FIXED' in e for e in keymap.validate(wrong))
+    with pytest.raises(KeymapError, match='fixed'):
+        keymap.overlay(doc(), {'fixed': []})
+
+
+def test_dispatch_matches_and_keys_name_raw_keys():
+    km = Keymap(doc(**{'popup__show': {'passthrough': ['stop', 'revoke_agent'], 'close': ['any'], 'up': ['k']}}))
+    assert km.dispatch('global', 'q') == 'quit' and km.dispatch(['global'], 'Q') is None
+    assert km.dispatch('global', 'Q', fold=True) == 'quit'
+    assert km.dispatch('global', 'press:space') is None and km.dispatch('global', 'press:space', press=True) == 'stop'
+    assert km.matches('popup.show', 'up', 'k') and km.matches('popup.show', 'close', 'z')   # any
+    assert km.matches('popup.show', 'stop', 'space') and not km.matches('global', 'quit', None)
+    assert km.keys('global', 'up') == ['up', 'k']
+    tabbed = Keymap(doc(**{'global': {**yaml.safe_load(BASE)['global'], 'focus_next': ['tab']}}))
+    assert tabbed.dispatch('global', '\t') == 'focus_next'
+
+
+def test_current_rereads_a_changed_file(tmp_path, monkeypatch):
+    path = tmp_path / 'keymap.yaml'
+    path.write_text(BASE)
+    monkeypatch.setattr(keymap, 'SHIPPED_FILE', path)
+    monkeypatch.setattr(keymap, 'USER_FILE', tmp_path / 'none.yaml')
+    monkeypatch.setattr(keymap, 'LIVE', dict(keymap=None, stamp=None, checked=0.0))
+    monkeypatch.setattr(keymap, 'RECHECK_S', 0.0)
+    assert keymap.matches('global', 'quit', 'q')
+    path.write_text(BASE.replace('quit: [q]', 'quit: [Q]'))
+    import os
+    os.utime(path, ns=(1, 1))
+    assert keymap.matches('global', 'quit', 'Q') and not keymap.matches('global', 'quit', 'q')
+    path.write_text('global: {')                      # broken mid-session: the last good keymap stays
+    os.utime(path, ns=(2, 2))
+    assert keymap.matches('global', 'quit', 'Q')

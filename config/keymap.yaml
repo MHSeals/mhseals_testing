@@ -8,6 +8,15 @@
 # Key names are KeyReader's (case-sensitive after K1).  Labels and hint priority live in ui/actions.py.
 schema: mhseals.keymap/1
 
+# Fixed keys: no context may bind them to anything else and no overlay may move them (keymap rule 8).
+# The code names them keymap.STOP_KEY and keymap.REVOKE_KEY, so every modal loop (popups.popup, the arm
+# waits, manual, the hold confirm) handles them before its own keys.
+fixed:
+  - {key: space, action: stop, also: [abort],
+     why: 'Space is the stop in every screen and modal: the key anyone reaches for, so a rebind or a popup can never leave the boat without it'}
+  - {key: E, action: revoke_agent, also: [revoke_selected],
+     why: 'E revokes the agent''s claim from any screen with no confirm (Authority revokes its selected claim)'}
+
 global:
   stop: [space]                 # locked; neutral + keys hold, aborts our run, cancels our goals, suspends claims
   quit: [q]                     # locked
@@ -101,8 +110,8 @@ tab.labels:                     # review edits wait for disarmed; the conditions
 
 # -- panels (Drive) ------------------------------------------------------------------
 panel.status:
-  adjust_down: [left, h]        # setting rows only
-  adjust_up: [right, l]
+  adjust_down: [left]           # setting rows only (h and l are not, as in actions/settings.py)
+  adjust_up: [right]
   override: [interference]
   params: [e]                   # Navigation → Nav2 popup
 
@@ -221,7 +230,7 @@ popup.health:     {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [
 popup.odometry:   {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], fold: [enter],
                    rtk_base: [r], magcal: [c], restart_ekf: [e], close: [escape]}
 popup.authority:  {passthrough: [stop, mark, release_hold], up: [up, k], down: [down, j],
-                   revoke_selected: [E], close: [escape]}
+                   detail: [enter], revoke_selected: [E], close: [escape]}   # Enter: the config popup
 popup.history:    {passthrough: [stop, mark, revoke_agent], tab_prev: ['[', left], tab_next: [']', right],
                    up: [up, k], down: [down, j], detail: [l], revert: [enter], confirm: [y], base: [d],
                    name: [n], note: [N], trials: [s], raw: [v], calibration: [c], reboot: [r],
@@ -242,6 +251,13 @@ popup.magcal:     {passthrough: [stop, mark, revoke_agent], enter_heading: [ente
                    interference: [i], close: [escape]}
 popup.pins:       {passthrough: [stop, mark, revoke_agent], up: [up, k], down: [down, j], change_down: [left, h],
                    change_up: [right, l], edit: [enter], save: [s], close: [escape]}
+
+popup.stop:       {passthrough: [stop, revoke_agent, release_hold], close: [escape, q, enter]}   # U through popups.popup
+popup.hold:       {passthrough: [stop, revoke_agent], decline: [escape, n]}   # hold-to-confirm (popups/hold.py)
+popup.arming:     {passthrough: [stop, revoke_agent], cancel: [escape]}
+                   # the arm waits (actions/arm.py): the mux reply and the boat config read stop on Space;
+                   # the driver start cancels on Space or Esc
+popup.pins_wait:  {passthrough: [revoke_agent], stop: [space, escape]}   # the driver confirming a pins edit
 
 # -- help and footer hints (ui/app/help.py) ---------------------------------------------
 # help: the ? popup, rows of ['[Screen ]keys', text]; the screen picks a keymap stack (keymap.HELP_SCREENS).

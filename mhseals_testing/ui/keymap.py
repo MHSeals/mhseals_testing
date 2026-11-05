@@ -14,13 +14,23 @@ validated like the shipped file. Rules (see ``validate``):
   2 undeclared shadowing                5 Space stops and E revokes in every stack
   3 modal key collides with passthrough 6 stop, quit, revoke_agent stay bound
                                         7 a help or hint row names a key its stack lacks
+  8 a ``fixed`` key bound to another action, dropped from global, or ``fixed`` in an overlay
 
 ``help`` and ``hints`` are the ? popup's rows and the footer's (ui/app/help.py): not contexts,
 never rebound; their keys are checked against the shipped file only (a rebind leaves them stale).
+``fixed`` lists the keys no file may move (Space stops, E revokes), each with its reason; code names
+them as ``STOP_KEY`` and ``REVOKE_KEY``, which rule 8 holds equal to the file.
+
+Code asks the session's keymap (``current()``: shipped plus overlay, reread when either file changes)
+whether a key does an action: ``matches(scope, action, key)``, or ``dispatch(scope, key)`` for the
+action. A scope is one context name or a stack (outermost first). Raw reader keys are named first
+(``\t`` is ``tab``); ``fold=True`` compares a letter lower-cased as ``runner.fold`` does, and
+``press=True`` also accepts the ``press:`` event of a key.
 """
 
 import copy
 import re
+import time
 from pathlib import Path
 
 import yaml
@@ -53,7 +63,10 @@ STACKS = {                               # outermost first
     'review/map': ['global', 'review', 'tab.map', 'view.minimap'],
 }
 
-DOCS = ('help', 'hints')                 # the help popup's and footer's rows, not contexts
+DOCS = ('help', 'hints', 'fixed')        # the help popup's and footer's rows and the fixed keys, not contexts
+STOP_KEY, REVOKE_KEY = 'space', 'E'      # the fixed keys (rule 8 holds config/keymap.yaml's fixed: to these)
+FIXED = {STOP_KEY: 'stop', REVOKE_KEY: 'revoke_agent'}
+NORMAL = {'\t': 'tab', '\x7f': 'backspace'}   # raw reader keys -> keymap key names
 HELP_SCREENS = {                         # a help label's first word -> its stack; no screen word is global
     'Drive': ['global', 'tab.drive'],
     'Status': STACKS['drive/status'],
@@ -246,6 +259,29 @@ def validate(doc, docs=True):
     for action in LOCKED:
         if not (doc.get('global') or {}).get(action):
             errors.append('global: %s must stay bound' % action)                          # 6
+    return errors + fixed_errors(doc)                                                     # 8
+
+
+def fixed_errors(doc):
+    """Rule 8: ``fixed`` is the code's fixed keys with reasons; no context binds one to another action,
+    and global keeps each on its action."""
+    rows = doc.get('fixed')
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and set(r) <= {'key', 'action', 'also', 'why'}
+                                              and isinstance(r.get('why'), str) and r['why'] for r in rows):
+        return ['fixed: must be a list of {key, action, also, why} with a reason']
+    errors = []
+    if {r.get('key'): r.get('action') for r in rows} != FIXED:
+        errors.append('fixed: must be exactly %s (keymap.FIXED)' % FIXED)
+    for row in rows:
+        key, allowed = row.get('key'), {row.get('action'), *row.get('also', [])}
+        if key not in (doc.get('global') or {}).get(row.get('action'), []):
+            errors.append('global: %s is fixed to %s (%s)' % (key, row.get('action'), row['why']))
+        for name, context in doc.items():
+            if name == 'schema' or name in DOCS:
+                continue
+            action = key_map(context).get(key)
+            if action is not None and action not in allowed:
+                errors.append('%s: %s is fixed to %s, not %s (%s)' % (name, key, row.get('action'), action, row['why']))
     return errors
 
 
@@ -262,6 +298,8 @@ def _invariants(label, keys, modal):
 def overlay(doc, user):
     """A copy of ``doc`` with the user's per-context rebinds applied (``[]`` unbinds)."""
     errors = _shape_errors(user or {}, known=False)
+    if 'fixed' in (user or {}):
+        errors.append('fixed: %s cannot be rebound' % ', '.join(FIXED))                  # 8
     if errors:
         raise KeymapError(errors)
     merged = copy.deepcopy(doc)
@@ -286,6 +324,34 @@ class Keymap:
         if errors:
             raise KeymapError(errors)
         self.doc = doc
+        self._stacks = {}
+
+    def scope_keys(self, scope):
+        """key -> action of a scope: a context name or a stack, outermost first (cached)."""
+        stack = (scope,) if isinstance(scope, str) else tuple(scope)
+        if stack not in self._stacks:
+            self._stacks[stack] = _stack_keys(self.doc, stack)
+        return self._stacks[stack]
+
+    def dispatch(self, scope, key, fold=False, press=False):
+        """The action ``key`` does in ``scope``, or None; ``any`` catches a key nothing else binds."""
+        if key is None:
+            return None
+        key = NORMAL.get(key, key)
+        if press and key.startswith('press:'):
+            key = key[len('press:'):]
+        if fold and len(key) == 1:
+            key = key.lower()
+        keys = self.scope_keys(scope)
+        return keys.get(key, keys.get('any'))
+
+    def matches(self, scope, action, key, fold=False, press=False):
+        """True when ``key`` does ``action`` in ``scope``."""
+        return key is not None and self.dispatch(scope, key, fold, press) == action
+
+    def keys(self, scope, action):
+        """The keys that do ``action`` in ``scope`` (for a hint line), in the file's order."""
+        return [key for key, bound in self.scope_keys(scope).items() if bound == action]
 
     def resolve(self, stack, key):
         """Action id for ``key`` in ``stack`` (outermost context first), or None."""
@@ -328,3 +394,50 @@ def load(path=None, user=USER_FILE):
     except (ValueError, yaml.YAMLError, OSError) as exc:
         first = exc.errors[0] if isinstance(exc, KeymapError) else str(exc).splitlines()[0]
         return shipped, 'keymap overlay ignored: %s' % first
+
+
+LIVE = dict(keymap=None, stamp=None, checked=0.0)
+RECHECK_S = 0.5                          # how often current() looks at the files' mtimes
+
+
+def _stamp():
+    out = []
+    for path in (shipped_file(), USER_FILE):
+        try:
+            out.append(Path(path).stat().st_mtime_ns)
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
+def current():
+    """The session's keymap (shipped plus overlay), reread when either file changes. A file made
+    invalid mid-session keeps the last good keymap (the reload toast names the error)."""
+    now = time.monotonic()
+    if LIVE['keymap'] is not None and now - LIVE['checked'] < RECHECK_S:
+        return LIVE['keymap']
+    LIVE['checked'] = now
+    stamp = _stamp()
+    if LIVE['keymap'] is None or stamp != LIVE['stamp']:
+        try:
+            LIVE['keymap'] = load(user=USER_FILE)[0]
+        except (ValueError, OSError, yaml.YAMLError):
+            if LIVE['keymap'] is None:
+                raise
+        LIVE['stamp'] = stamp
+    return LIVE['keymap']
+
+
+def dispatch(scope, key, fold=False, press=False):
+    """``current().dispatch``: the action ``key`` does in ``scope``, or None."""
+    return current().dispatch(scope, key, fold, press)
+
+
+def matches(scope, action, key, fold=False, press=False):
+    """``current().matches``: True when ``key`` does ``action`` in ``scope``."""
+    return current().matches(scope, action, key, fold, press)
+
+
+def keys(scope, action):
+    """``current().keys``: the keys bound to ``action`` in ``scope``."""
+    return current().keys(scope, action)

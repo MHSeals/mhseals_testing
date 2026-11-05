@@ -29,3 +29,9 @@ run) while running, ✓ or ✗ for its last result this session; the focused pan
 local socket (`config/backend.yaml`), a server that never takes a live backend's socket, and a thin client that attaches
 with the full snapshot in well under a second and reattaches by itself after link loss or a backend restart.
 `boat_tui` does not use it yet.
+
+Keys live in `config/keymap.yaml`: global, tab, panel and view scopes, plus one `popup.<name>` scope per
+popup and modal loop (`~/.config/mhseals/keymap.yaml` rebinds any of them). Code asks
+`keymap.matches(scope, action, key)` or `keymap.dispatch(scope, key)`; no ui/ file compares a key with a
+literal (`test_no_literal_key_checks`). Two keys are `fixed:` on purpose and cannot be rebound: Space stops
+in every screen and modal, and E revokes the agent from anywhere with no confirm.
