@@ -66,14 +66,14 @@ class Popups:
                 self.say(state['note'])
                 return
             state['note'] = ''
-            node = getattr(getattr(self, 'ros', None), 'node', None)
-            self.camera_boxes = None if node is None else camera_feed.node_observations(  # subscribed while `d` is on
+            node = self.ros.node
+            self.state.popups.camera_boxes = None if node is None else camera_feed.node_observations(  # subscribed while `d` is on
                 node, lambda label: camera_view.class_rgb(self.minimap.table, label))
             state['view'] = CameraView(
                 feed, (1, CAMERA_ROWS), self.write_terminal,
                 kitty=pixels.kitty_camera(),
                 save_dir=self.paths.directory / 'snapshots' / 'camera', detections=self.camera_detections,
-                observations=self.camera_boxes, work=camera_view.background)   # decode and encode off the keys
+                observations=self.state.popups.camera_boxes, work=camera_view.background)   # decode and encode off the keys
 
         def handle(key):
             current = state['view']
@@ -103,7 +103,7 @@ class Popups:
 
     def camera_detections(self, size, floor, at=None):
         """Observation boxes in camera pixels with class colours (perception-v2 7.3); floor boxes stay []."""
-        boxes = getattr(self, 'camera_boxes', None)
+        boxes = self.state.popups.camera_boxes
         return [] if floor or boxes is None else boxes.rects(size, at)
 
     def write_terminal(self, text):
@@ -121,9 +121,10 @@ class Popups:
 
     def live_nav2(self):
         """Return the live Nav2 applier, built when first needed (it subscribes to ROS state)."""
-        if self._nav2_live is None and self.nav2_live_factory is not None:
-            self._nav2_live = self.nav2_live_factory()
-        return self._nav2_live
+        popups = self.state.popups
+        if popups.nav2_live is None and self.nav2_live_factory is not None:
+            popups.nav2_live = self.nav2_live_factory()
+        return popups.nav2_live
 
     def apply_nav2_live(self, requested):
         if self.watching or self.review:

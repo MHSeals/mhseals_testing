@@ -195,7 +195,7 @@ def test_malformed_timed_phase_refuses_without_teardown(tmp_path, monkeypatch, p
     app.dispatch('enter')
     assert 'text phase required' in app.notice and app.review is None and not opens
     assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
-    assert not app.closed and app.processes.running('bag')
+    assert not app.state.quit.closed and app.processes.running('bag')
     assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []
 
 
@@ -208,7 +208,7 @@ def test_malformed_selected_metadata_is_notice(tmp_path, monkeypatch, header):
     app.dispatch('enter')
     assert app.review is None and not opens and 'enter:' in app.notice
     assert (app.source, app.processes, app.recorder, app.paths) == owners
-    assert not app.closed and app.processes.running('bag') and boat.sent == []
+    assert not app.state.quit.closed and app.processes.running('bag') and boat.sent == []
 
 
 @pytest.mark.parametrize('mode', ['all-bad', 'one-bad', 'empty-window'])
@@ -231,7 +231,7 @@ def test_initial_reader_evidence_distinguishes_failure_from_empty_window(
         assert app.review is None and 'no readable session segments' in app.notice
         assert 'reader unavailable' in app.notice
         assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
-        assert not app.closed and app.processes.running('bag')
+        assert not app.state.quit.closed and app.processes.running('bag')
     else:
         assert app.review is not None and not app.source.snapshot()['events']
         assert any(error is None for error in app.source.reader.segment_status.values())
@@ -264,7 +264,7 @@ def test_unhashable_marker_id_is_notice_without_teardown(tmp_path, monkeypatch, 
     app.dispatch('enter')
     assert 'marker id' in app.notice and app.review is None and not opens
     assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == owners
-    assert not app.closed and app.processes.running('bag')
+    assert not app.state.quit.closed and app.processes.running('bag')
     assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []
 
 
@@ -292,5 +292,5 @@ def test_playback_reader_error_during_tick_restores_live(tmp_path, monkeypatch):
     app.tick()
     assert app.review is None and 'corrupt chunk' in app.notice
     assert (app.source, app.monitor, app.ros, app.processes, app.recorder, app.paths) == live
-    assert not app.closed and app.processes.running('bag') and app.source.live
+    assert not app.state.quit.closed and app.processes.running('bag') and app.source.live
     assert boat.sent == [] and app.pulse_log == [] and app.arming.calls == []

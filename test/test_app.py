@@ -1509,7 +1509,7 @@ def test_ctrl_c_closes_gracefully_like_quit(tmp_path):
 
     app.open_keys = lambda: Interrupting(app.clock, boat)
     app.run()
-    assert app.quit and app.closed and not app.armed and boat.sent[-1] == 'neutral'
+    assert app.quit and app.state.quit.closed and not app.armed and boat.sent[-1] == 'neutral'
     assert app.ros.events.count('session_stop') == 1
     assert (tmp_path / 'session' / 'analysis' / 'report.json').exists()
 
@@ -1526,7 +1526,7 @@ def test_a_vanished_terminal_closes_like_quit(tmp_path, error):
 
     app.open_keys = lambda: Gone(app.clock, boat)
     app.run()
-    assert app.quit and app.closed and not app.armed and boat.sent[-1] == 'neutral'
+    assert app.quit and app.state.quit.closed and not app.armed and boat.sent[-1] == 'neutral'
     assert app.ros.events.count('session_stop') == 1
 
 

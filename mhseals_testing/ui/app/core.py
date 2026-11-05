@@ -43,10 +43,10 @@ OWNERS = {
     'Arm': ('state.arm',),
     'Holds': ('state.holds',),
     'Procedures': ('state.procedures',),
-    'Popups': ('_nav2_live', 'camera_boxes'),
-    'Annotate': ('flash', 'pick', 'bad_on', '_ids', '_queued'),
-    'Quit': ('closed', 'guests_seen', 'keep_units', 'stop_adopted', 'keys', 'live'),
-    'Operator': ('handed_by', 'handed_to', 'restart_as'),
+    'Popups': ('state.popups',),
+    'Annotate': ('state.annotate',),
+    'Quit': ('state.quit', 'keys', 'live'),
+    'Operator': ('state.operator',),
     'Correction': ('column',),
     'Files': ('config_note', 'pending_settings', 'map_keys', 'map_tab_keys', 'fusion_keys'),
     'Health': ('last_advisory', 'pwm_readback'),
@@ -81,12 +81,8 @@ class App(*mixins.ROSTER):
         self.args = args
         self.stack = stack      # harness.components.Stack: the device parts' Status rows (ui/parts.py)
         self.issues = wiring.issues(issues)   # device/part/transport problems past their grace
-        self.keep_units = False   # Quit's 'keep remote parts': their leases run out instead
-        self.stop_adopted = False  # Quit's 'also stop adopted parts' (units another TUI may own)
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
-        self.handed_by = self.restart_as = None   # the takeover's taker; 'take' or 'view' to restart as one
-        self.guests_seen = set()
         self.review = review     # a ui.review.Review while a past session plays; live work is off
         self.profile = profile
         self.monitor = monitor
@@ -114,7 +110,7 @@ class App(*mixins.ROSTER):
         self.open_events = open_events or (lambda: key_input.events(self.keys))
         self.nav2_factory = nav2
         self.nav2_file = nav2_file  # harness.nav2_edit.Nav2File, or None
-        self.nav2_live_factory, self._nav2_live = nav2_live, None   # -> harness.nav2_live.Nav2Live
+        self.nav2_live_factory = nav2_live   # -> harness.nav2_live.Nav2Live
         if nav2_file is not None and nav2_file.applier is None and nav2_live is not None:
             nav2_file.applier = self.apply_nav2_live
         self.watcher_factory = task_watcher
@@ -141,7 +137,6 @@ class App(*mixins.ROSTER):
         self.keys = self.live = None
         self.state.loop.last_tick = clock()
         self.quit = False
-        self.closed = False
         self.started = clock()
         wiring.config_watch(self, args)   # config_file, history, config_backends, watcher
         self.watch_own_files()

@@ -44,7 +44,7 @@ def test_tick_payload(tmp_path, monkeypatch, name):
         app.tick()
     except Exception as error:
         pytest.fail(f'tick escaped {type(error).__name__}: {error}')
-    assert owners(app) == live and not app.closed and boat.sent == []
+    assert owners(app) == live and not app.state.quit.closed and boat.sent == []
     assert app.notice
 
 
@@ -60,4 +60,4 @@ def test_entry_payload(tmp_path, monkeypatch, name):
         caught = isinstance(error, m.STOPPING_ERRORS)
         pytest.fail(f'enter escaped {type(error).__name__} (run catches={caught}): {error}')
     assert app.review is None and app.notice
-    assert owners(app) == live and not app.closed and boat.sent == []
+    assert owners(app) == live and not app.state.quit.closed and boat.sent == []

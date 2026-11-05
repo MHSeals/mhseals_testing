@@ -29,13 +29,6 @@ def plain(key):
 class Annotate:
     """Mixed into App."""
 
-    pick = None          # {'kind': 'tag'|'said', 'id', 'until'} while the digit pick is open
-    flash = None         # (text, until): the footer's short confirmation
-    bad_on = False
-
-    _ids = None          # {'marker': last id, 'said': last id}, read from the journal once
-    _queued = ()         # manual drive's annotation keys, handled after its publish
-
     # --- marks, anywhere -----------------------------------------------------------------------------------
     def annotate_key(self, key):
         """b, N, " and a pick's digit from any loop (the page, a run). True when it was one of ours.
@@ -54,22 +47,24 @@ class Annotate:
     def annotate_later(self, key):
         """Manual drive's hook: queue the key; ``annotate_queued`` handles it after the publish (no fsync before it)."""
         if keymap.dispatch('global', plain(key)) in MARKS or self.pick_wants(plain(key)):
-            self._queued = (*self._queued, key)
+            self.state.annotate.queued = (*self.state.annotate.queued, key)
 
     def annotate_queued(self):
-        queued, self._queued = self._queued, ()
+        marks = self.state.annotate
+        queued, marks.queued = marks.queued, ()
         for key in queued:
             self.annotate_key(key)
 
     def next_id(self, kind):
         """The next marker or said id, from memory after the first read (agents' marks come through here too)."""
-        if self._ids is None:
+        marks = self.state.annotate
+        if marks.ids is None:
             events = journal.read(self.paths.journal)
-            self._ids = {'marker': journal.next_marker_id(events) - 1,
+            marks.ids = {'marker': journal.next_marker_id(events) - 1,
                          'said': max((e['id'] for e in events if e.get('phase') == 'said'
                                       and isinstance(e.get('id'), int)), default=0)}
-        self._ids[kind] += 1
-        return self._ids[kind]
+        marks.ids[kind] += 1
+        return marks.ids[kind]
 
     def mark(self):
         """b: a marker stamped now, with the digit tags offered for a moment."""
@@ -79,9 +74,10 @@ class Annotate:
         self.flash_text(f'{theme.pick("▾", "v")}{number} marked{theme.SEPARATOR}a digit tags it, optional')
 
     def toggle_bad(self):
-        self.bad_on = not self.bad_on
-        self.emit('bad_data', on=self.bad_on, who='operator')
-        self.flash_text('bad data from here; N ends it' if self.bad_on else 'bad data ended')
+        marks = self.state.annotate
+        marks.bad_on = not marks.bad_on
+        self.emit('bad_data', on=marks.bad_on, who='operator')
+        self.flash_text('bad data from here; N ends it' if marks.bad_on else 'bad data ended')
 
     def said(self):
         """": what the operator just said, journaled now with the pose and scene; a digit picks the words."""
@@ -91,22 +87,23 @@ class Annotate:
         self.flash_text(theme.pick('❝', '"') + f'{number} logged with the pose{theme.SEPARATOR}a digit picks the words')
 
     def open_pick(self, kind, number):
-        self.pick = {'kind': kind, 'id': number, 'until': self.clock() + config.load()['pick']}
+        self.state.annotate.pick = {'kind': kind, 'id': number, 'until': self.clock() + config.load()['pick']}
 
     def pick_open(self):
-        if self.pick is not None and self.clock() > self.pick['until']:
-            self.pick = None
-        return self.pick is not None
+        marks = self.state.annotate
+        if marks.pick is not None and self.clock() > marks.pick['until']:
+            marks.pick = None
+        return marks.pick is not None
 
     def pick_wants(self, key):
         """A digit the open pick offers; on the Thrusters panel digits stay the panel's (0 is neutral there)."""
-        if not (key and key.isdigit() and self.pick_open()) or getattr(self, 'focus', None) == 'thrusters':
+        if not (key and key.isdigit() and self.pick_open()) or self.focus == 'thrusters':
             return False
         settings = config.load()
-        return key in (settings['tags'] if self.pick['kind'] == 'tag' else settings['phrases'])
+        return key in (settings['tags'] if self.state.annotate.pick['kind'] == 'tag' else settings['phrases'])
 
     def pick_digit(self, digit):
-        pick, self.pick = self.pick, None
+        pick, self.state.annotate.pick = self.state.annotate.pick, None
         settings = config.load()
         if pick['kind'] == 'tag':
             tag = settings['tags'][digit]['label']
@@ -121,20 +118,21 @@ class Annotate:
         if not self.pick_open():
             return None
         settings = config.load()
-        if self.pick['kind'] == 'tag':
+        if self.state.annotate.pick['kind'] == 'tag':
             return [(d, t['label'].replace('_', ' ')) for d, t in settings['tags'].items()]
         return [(d, p) for d, p in settings['phrases'].items()]      # other words: n on the item in Labels
 
     def flash_text(self, text):
-        self.flash = (text, self.clock() + FLASH)
+        self.state.annotate.flash = (text, self.clock() + FLASH)
 
     def flashing(self):
         """The flash while it lasts; with a pick open it counts the seconds left to choose."""
-        if self.flash is None or self.clock() > self.flash[1]:
+        marks = self.state.annotate
+        if marks.flash is None or self.clock() > marks.flash[1]:
             return None
         if self.pick_open():
-            return f"{self.flash[0]}{theme.SEPARATOR}{math.ceil(self.pick['until'] - self.clock())} s"
-        return self.flash[0]
+            return f"{marks.flash[0]}{theme.SEPARATOR}{math.ceil(marks.pick['until'] - self.clock())} s"
+        return marks.flash[0]
 
     def pose(self):
         sensors = self.snapshot().get('sensors', {})
@@ -145,8 +143,8 @@ class Annotate:
                                   ('lat', gps.get('lat')), ('lon', gps.get('lon'))) if v is not None}
 
     def scene(self):
-        conditions = getattr(getattr(self, 'labels', None), 'conditions', None)
+        conditions = self.services.labels.conditions
         return {'running': self.services.procedures.running, 'run': self.services.procedures.run_id, 'armed': self.armed, 'manual': self.services.manual.active,
                 'driving': list(self.driving() or ()) or None, 'conditions': conditions,
-                'nearby': (getattr(self, 'feeds', None) and next((f.info.get('nearby') for f in self.feeds
-                                                                    if getattr(f, 'info', None)), None))}
+                'nearby': (self.feeds and next((f.info.get('nearby') for f in self.feeds
+                                                if getattr(f, 'info', None)), None))}

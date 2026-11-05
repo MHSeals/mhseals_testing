@@ -99,6 +99,40 @@ class ProceduresState:
 
 
 @dataclass
+class PopupsState:
+    """Popups' (actions/popups.py): the live Nav2 applier and the camera view's observation boxes."""
+    nav2_live: object = None      # harness.nav2_live.Nav2Live, made on first use
+    camera_boxes: object = None   # observations subscribed while the camera view's d is on
+
+
+@dataclass
+class AnnotateState:
+    """Annotate's (actions/annotate.py): the digit pick, the footer flash, bad data and the queued keys."""
+    pick: object = None           # {'kind': 'tag'|'said', 'id', 'until'} while the digit pick is open
+    flash: object = None          # (text, until): the footer's short confirmation
+    bad_on: bool = False
+    ids: object = None            # {'marker': last id, 'said': last id}, read from the journal once
+    queued: tuple = ()            # manual drive's annotation keys, handled after its publish
+
+
+@dataclass
+class QuitState:
+    """Quit's (actions/quit.py): how quitting goes and the boat_trial guests seen."""
+    closed: bool = False          # close() ran
+    keep_units: bool = False      # 'keep remote parts': their leases run out instead
+    stop_adopted: bool = False    # 'also stop adopted parts' (units another TUI may own)
+    guests_seen: set = field(default_factory=set)
+
+
+@dataclass
+class OperatorState:
+    """Operator's (actions/operator.py): the takeover's taker, whom this session handed to, a restart."""
+    handed_by: object = None
+    handed_to: object = None
+    restart_as: object = None     # 'take' to restart this viewer as the owner
+
+
+@dataclass
 class AppState:
     view: ViewState = field(default_factory=ViewState)
     loop: LoopState = field(default_factory=LoopState)
@@ -108,6 +142,10 @@ class AppState:
     procedures: ProceduresState = field(default_factory=ProceduresState)
     holds: HoldsState = field(default_factory=HoldsState)
     arm: ArmState = field(default_factory=ArmState)
+    popups: PopupsState = field(default_factory=PopupsState)
+    annotate: AnnotateState = field(default_factory=AnnotateState)
+    quit: QuitState = field(default_factory=QuitState)
+    operator: OperatorState = field(default_factory=OperatorState)
 
 
 def facades(app):
