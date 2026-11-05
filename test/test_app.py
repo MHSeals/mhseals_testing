@@ -3406,3 +3406,44 @@ def test_the_driver_readback_keeps_a_pin_the_sysfs_probe_reads_off(tmp_path):
     app.pwm_sysfs = ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
     app.show_driver_readback([1500, 1600, 1500, 1500])
     assert app.pwm_readback == ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
+
+
+def _pulse_with_driver(tmp_path, output):
+    import time as clock
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    with app.attached():
+        app.focus = 'thrusters'
+        arm(app)
+        app.dispatch('right')
+        app.pulses_since -= 1.0
+        app.ros.driver_output, app.ros.driver_output_at = output, clock.monotonic()
+        app.tick()
+    return app
+
+
+def test_a_pulse_the_driver_refused_shows_its_reason(tmp_path):
+    from mhseals_hardware.version import code_version
+    app = _pulse_with_driver(tmp_path, {
+        'pulses': [1500] * 4, 'source': 'estop', 'error': '', 'version': code_version(),
+        'refused': {'reason': 'e-stop latched (rc-lost): ESC power is cut until re-armed', 'seq': 1, 't_ns': 5}})
+    assert app.notice.startswith('Test pulse REFUSED by the driver: e-stop latched (rc-lost)')
+    assert 'older' not in app.notice and 'other mhseals_hardware' not in app.notice
+
+
+def test_an_old_driver_is_named_with_re_arm(tmp_path):
+    app = _pulse_with_driver(tmp_path, {'pulses': [1500] * 4, 'source': 'cmd_vel', 'error': ''})
+    assert 'NOT at the outputs' in app.notice and 'driver is older than this TUI' in app.notice
+    assert 're-arm to load it' in app.notice
+
+
+def test_a_driver_on_other_code_is_named(tmp_path):
+    app = _pulse_with_driver(tmp_path, {'pulses': [1500] * 4, 'source': 'cmd_vel', 'error': '',
+                                        'version': {'digest': '000000000000', 'git': 'abc1234', 'dirty': False}})
+    assert 'driver runs other mhseals_hardware code (driver abc1234/000000000000' in app.notice
+
+
+def test_the_legacy_fallback_says_the_driver_is_older(tmp_path):
+    from types import SimpleNamespace
+    from mhseals_testing.ui.app.actions.manual import Manual
+    fake = SimpleNamespace(plant=SimpleNamespace(pulse_fallback=True))
+    assert 'no test_pulses/held' in Manual.driver_staleness(fake, None)

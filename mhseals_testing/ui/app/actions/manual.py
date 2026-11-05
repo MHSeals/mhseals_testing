@@ -4,6 +4,7 @@ import time
 
 from mhseals_hardware.manual_state import BINDINGS
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS
+from mhseals_hardware.version import code_version
 from mhseals_testing.harness import operator_state
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import keymap, theme
@@ -148,7 +149,7 @@ class Manual:
         output = self.mapping()[0][position] - 1  # the draft wiring, to check it before saving
         pulses[output] = max(MIN_PWM, min(MAX_PWM, pulses[output] + step))
         self.test_pulses = pulses
-        self.pulses_since, self.pulse_verdict = time.monotonic(), None
+        self.pulse_started()
         self.ros.emit('test_pulses', pulses=pulses)
         self.notice = f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends'
 
@@ -178,10 +179,16 @@ class Manual:
             self.clear_pulses()
         else:
             if list(pulses) != self.test_pulses:
-                self.pulses_since, self.pulse_verdict = time.monotonic(), None
+                self.pulse_started()
             self.test_pulses = list(pulses)
             if self.publish_pulses is not None:
                 self.publish_pulses(self.test_pulses)
+
+    def pulse_started(self):
+        """A new test pulse: its grace starts, and what the driver last refused or ended is old news."""
+        output = self.driver_output() or {}
+        self.pulses_since, self.pulse_verdict = time.monotonic(), None
+        self._pulse_baseline = {key: (output.get(key) or {}).get('t_ns') for key in ('refused', 'ended')}
 
     def driver_output(self):
         """The driver's latest ~/output (what its outputs hold, read back) while fresh, else None."""
@@ -195,7 +202,8 @@ class Manual:
         """Each tick: the Rb column from the driver's readback, and whether a test pulse reached the outputs.
 
         A test pulse that the outputs do not hold (after READBACK_GRACE_S), or with no readback at all,
-        says so in the notice, with what they hold and who wrote it.
+        says so in the notice, with what they hold and who wrote it; so does a pulse the driver refused
+        or ended (its reason: e-stop latched, mux not idle, guard stale), and a driver older than this TUI.
         """
         output = self.driver_output()
         held = output.get('pulses') if output else None
@@ -204,11 +212,21 @@ class Manual:
         else:
             held = None
         pulses = self.test_pulses
-        if pulses is None or not self.armed or time.monotonic() - getattr(self, 'pulses_since', 0.0) < READBACK_GRACE_S:
+        since = getattr(self, 'pulses_since', 0.0)
+        if pulses is None or not self.armed or time.monotonic() - since < READBACK_GRACE_S:
             return
         tested = [index for index, pulse in enumerate(pulses) if pulse != NEUTRAL] or range(4)
         sent = ', '.join(f'{index + 1}: {pulses[index]}' for index in tested)
-        if not held:
+        news = {key: entry for key in ('refused', 'ended')
+                if (entry := (output or {}).get(key))
+                and entry.get('t_ns') != getattr(self, '_pulse_baseline', {}).get(key)
+                and entry.get('reason') != 'ended by its sender'}
+        stale = self.driver_staleness(output)
+        if news.get('refused') and (output or {}).get('source') != 'test':
+            verdict = f'Test pulse REFUSED by the driver: {news["refused"]["reason"]}; sent {sent} {MICRO}s'
+        elif news.get('ended') and (output or {}).get('source') != 'test':
+            verdict = f'Test pulse ENDED by the driver: {news["ended"]["reason"]}; sent {sent} {MICRO}s'
+        elif not held:
             verdict = (f'Test pulse UNVERIFIED: no readback from the driver ({(output or {}).get("error") or "no ~/output"});'
                        f' sent {sent} {MICRO}s')
         elif all(abs(held[index] - pulses[index]) <= READBACK_TOLERANCE for index in range(4)):
@@ -217,11 +235,31 @@ class Manual:
         else:
             verdict = (f'Test pulse NOT at the outputs: sent {sent} {MICRO}s, outputs hold '
                        f'{", ".join(f"{index + 1}: {held[index]}" for index in tested)} ({output.get("source")})')
+        if stale and not verdict.startswith('Test pulse at'):
+            verdict = f'{verdict}. {stale}'
         if verdict != getattr(self, 'pulse_verdict', None):
             self.pulse_verdict = self.notice = verdict
             if not verdict.startswith('Test pulse at'):
                 self.ros.emit('test_pulses_unverified', pulses=list(pulses), held=held,
-                              source=(output or {}).get('source'))
+                              source=(output or {}).get('source'),
+                              reason=next((entry['reason'] for entry in news.values()), None), driver=stale or None)
+
+    def driver_staleness(self, output):
+        """'' when the driver runs this TUI's mhseals_hardware code, else what to do about it."""
+        plant = getattr(self, 'plant', None)
+        if getattr(plant, 'pulse_fallback', False):
+            return ('driver is older than this TUI (it has no test_pulses/held): re-arm to load it, '
+                    'and redeploy mhseals_hardware if that does not help')
+        theirs = (output or {}).get('version')
+        if output is None or not theirs:
+            return ('driver is older than this TUI (its ~/output has no version): re-arm to load it'
+                    if output is not None else '')
+        ours = code_version()
+        if theirs.get('digest') != ours['digest']:
+            name = lambda v: f"{v.get('git') or '?'}{'+' if v.get('dirty') else ''}/{v.get('digest')}"  # noqa: E731
+            return (f'driver runs other mhseals_hardware code (driver {name(theirs)}, this TUI {name(ours)}): '
+                    're-arm to load it after a deploy')
+        return ''
 
     def manual_show(self, command, amplitude, chords, done=False):
         """Redraw the page for manual control: Motion focused, manual keys in the footer."""

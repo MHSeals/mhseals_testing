@@ -134,3 +134,21 @@ def test_pulses_go_held_with_a_seq_to_a_driver_that_takes_them_else_on_the_old_t
     held = next(p for p in node.live if p.topic.endswith('/held'))
     assert json.loads(held.sent[-1].data) == {'pulses': [1500, 1600, 1500, 1500], 'hold_s': 1.5, 'seq': 1}
     assert plant.test_pulses([1500, 1500, 1500, 1500]) == 2 and len(old.sent) == 1
+
+
+def test_the_plant_says_when_it_fell_back_to_the_old_topic():
+    node = Node()
+    plant = Plant(Ros(node, 'a'), PROFILE)
+    listening = []
+    original = node.create_publisher
+
+    def create(kind, topic, depth):
+        publisher = original(kind, topic, depth)
+        publisher.get_subscription_count = lambda: len(listening)
+        return publisher
+    node.create_publisher = create
+    plant.test_pulses([1500, 1600, 1500, 1500])
+    assert plant.pulse_fallback
+    listening.append(True)
+    plant.test_pulses([1500, 1600, 1500, 1500])
+    assert not plant.pulse_fallback

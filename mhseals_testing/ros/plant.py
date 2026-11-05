@@ -32,6 +32,7 @@ class Plant:
         self.manual_publisher = None  # keyboard drive and Space only
         self.pulse_publisher = self.held_publisher = None
         self.pulse_seq, self.last_pulses = 0, None
+        self.pulse_fallback = False  # the last pulse went to ~/test_pulses: the driver has no held topic
         # Created up front: the mux's reliable subscription needs discovery time, so a
         # publisher made at the first Space would lose that first (safety) request.
         self.request_publisher = (ros.node.create_publisher(String, MUX_REQUEST_TOPIC, 10)
@@ -119,7 +120,8 @@ class Plant:
             self.held_publisher = self.ros.node.create_publisher(String, HELD_PULSES_TOPIC, 10)
             self.pulse_publisher = self.ros.node.create_publisher(
                 UInt16MultiArray, TEST_PULSES_TOPIC, 10)
-        if self.held_publisher.get_subscription_count():
+        self.pulse_fallback = not self.held_publisher.get_subscription_count()
+        if not self.pulse_fallback:
             self.held_publisher.publish(String(data=json.dumps(
                 {'pulses': pulses, 'hold_s': PULSE_HOLD_S, 'seq': self.pulse_seq})))
         else:   # a driver from before the held topic
