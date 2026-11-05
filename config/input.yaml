@@ -1,6 +1,6 @@
 # The TUI's input layer (ui/input.py): hold timing per terminal kind (mhseals_hardware keyboard.Terminal).
 #   kitty   key events: a hold ends at its release
-#   legacy  tmux and cx: plain keys, a hold is the key-repeat stream
+#   legacy  tmux and cx: plain keys, a hold is the key-repeat stream (manual asks the terminal outside too)
 #   plain   a terminal without the kitty keyboard protocol
 #   unknown not probed (NO_COLOR, MHS_ASCII, no tty)
 # confirm_hold: seconds a key (or mouse button) is held to confirm. first_gap: the longest wait for
@@ -14,6 +14,13 @@
 # mouse: SGR mouse reports while the TUI runs: the wheel scrolls lists and popups (up/down) and a button
 # press-and-hold confirms a hold; Shift+drag still selects text in most terminals. Manual driving drops them.
 # tune.idle_s: a still screen redraws only on a change, and this often (s) for its ages and clocks (ui/app/view.py).
+# tune.chord_hold, manual driving (keys: keymap.yaml manual:). Held keys combine and each stops on its own release where
+# the terminal reports releases (kitty keyboard protocol): kitty, foot, ghostty, alacritty 0.13+, wezterm
+# with enable_kitty_keyboard; also through one tmux (boat_tui's server sets allow-passthrough) attached
+# from one of those. No release comes from xterm, GNOME Terminal (VTE), Konsole, or a tmux nested in
+# another without passthrough (cx): there each key keeps its own deadline instead.
+#   chord_hold  s a key stays held after its last event once another key took over its repeats, so recent
+#               presses on different axes combine; keep it <= manual_initial_timeout, the deadman's bound
 schema: mhseals.input/1
 hold: {arm: false, release: false, take: true, quit_armed: true}
 mouse: true
@@ -24,3 +31,4 @@ terminals:
   unknown: {confirm_hold: 1.0, first_gap: 0.65, gap: 0.15}
 tune:
   idle_s: 1.0
+  chord_hold: 0.5   # manual: see above

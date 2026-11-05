@@ -2,6 +2,7 @@
 
 import time
 
+from mhseals_hardware.manual_state import BINDINGS
 from mhseals_hardware.thruster_mixer import IDENTITY, MAX_PWM, MIN_PWM, POSITIONS
 from mhseals_testing.harness import operator_state
 from mhseals_testing.procedures import PROCEDURES
@@ -17,6 +18,7 @@ MANUAL_DESK_S = 0.2      # s; the agent desk's tick from inside manual control
 
 
 NEUTRAL = 1500
+MANUAL_ACTIONS = tuple(BINDINGS)   # keymap.yaml manual: actions ManualState drives by
 WIRES = {'wire_1': 1, 'wire_2': 2, 'wire_3': 3, 'wire_4': 4}   # panel.thrusters: the output a row goes to
 
 
@@ -41,6 +43,14 @@ class Manual:
             return ['outputs are not armed']   # never a cached clear for an unarmed boat
         fault = self.arming.fault()
         return ([fault] if fault else []) + self.plant.conflicts() + self.staging().blockers()
+
+    def manual_options(self):
+        """ManualState's bindings and chord_hold, and the leave keys: keymap.yaml manual:, input.yaml tune.
+        Read at each manual start, so an edit applies to the next one."""
+        current = keymap.current()
+        return dict(bindings={action: current.keys('manual', action) for action in MANUAL_ACTIONS},
+                    chord_hold=key_input.load_file()['tune']['chord_hold'],
+                    leave=tuple(current.keys('manual', 'leave')))
 
     def mapping(self):
         """The thruster mapping being shown: the unsaved draft, else the saved config."""
@@ -184,6 +194,6 @@ class Manual:
                           zip(('surge', 'sway', 'yaw'), command) if value) or 'neutral'
         self.notice = ('Manual control ended' if done else
                        f"Manual {amplitude:.0%}{theme.SEPARATOR}{active}{theme.SEPARATOR}"
-                       + ('Chords' if chords else 'Single key' + (
-                           f' (chords unavailable: {why})' if (why := key_input.chords_unavailable(self.keys)) else '')))
+                       + ('Chords' if chords else 'Timed combos' + (
+                           f' (no key releases: {why})' if (why := key_input.chords_unavailable(self.keys)) else '')))
         self.refresh(force=done)

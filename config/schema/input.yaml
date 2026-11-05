@@ -1,2 +1,3 @@
 # input.yaml (ui/input.py, ui/app/view.py): hold timing per terminal, hold-to-confirm, the mouse and the redraw clock.
 input.tune.idle_s: {type: float, units: s, range: [0.1, 10], tier: restart, doc: "A still screen redraws only on a change, and this often for its ages and clocks."}
+input.tune.chord_hold: {type: float, units: s, range: [0.05, 2], tier: live, doc: "Without key releases (tmux without passthrough, xterm), a manual key another key took over stays held this long after its last event, so recent presses on different axes combine; keep it at or under manual_initial_timeout."}

@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+from mhseals_testing.ui.app.actions.manual import MANUAL_ACTIONS
 from rich.segment import Segments
 import yaml
 from rich.console import Console
@@ -1331,6 +1333,42 @@ def test_manual_control_drives_held_keys_on_the_page_and_ends_neutral(tmp_path):
     assert app.focus == 'motion' and app.notice == 'Manual control ended'
 
 
+def test_manual_plain_keys_on_two_axes_command_together(tmp_path):
+    # A terminal with no releases (tmux, xterm): forward then a held turn command both, then each expires.
+    app, boat = make_app(tmp_path)
+    app.console.size = (120, 40)
+    events = Events(app.clock, ['w', None, 'left', 'left', 'left', None, None, None, None, None,
+                                None, None, None, None, None, None, None, None, None, 'x'])
+    app.open_events = lambda: events
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    sent = [command for command in boat.sent if command != 'neutral']
+    assert any(command[0] > 0 and command[2] > 0 for command in sent)   # forward and yaw at once
+    assert sent[-1] == (0.0, 0.0, 0.0) and boat.sent[-1] == 'neutral'   # both expired, no stuck key
+
+
+def test_manual_options_come_from_the_keymap_and_input_yaml(tmp_path):
+    app, _ = make_app(tmp_path)
+    options = app.manual_options()
+    assert options['bindings']['surge_fwd'] == ['w', 'up'] and options['bindings']['yaw_left'] == ['left']
+    assert 0 < options['chord_hold'] <= 2 and set(options['leave']) == {'m', 'escape', 'x'}
+
+
+def test_manual_keys_follow_the_keymap(tmp_path, monkeypatch):
+    app, boat = make_app(tmp_path)
+    bindings = {action: [] for action in MANUAL_ACTIONS}
+    bindings['surge_fwd'] = ['i']
+    monkeypatch.setattr(app, 'manual_options', lambda: dict(bindings=bindings, chord_hold=0.5, leave=('q',)))
+    events = Events(app.clock, ['press:w', None, 'press:i', None, 'release:i', 'press:q'])
+    app.open_events = lambda: events
+    with app.attached():
+        arm(app)
+        app.dispatch('m')
+    sent = [command for command in boat.sent if command != 'neutral']
+    assert any(command[0] > 0 for command in sent) and not app.manual and events.keys == []
+
+
 def test_manual_control_takes_over_from_the_agent_desk_and_keeps_it_ticking(tmp_path):
     """C3: m cancels an agent goal at once, and the desk keeps answering (status.json) in manual."""
     app, _ = make_app(tmp_path)
@@ -1389,7 +1427,7 @@ def test_manual_notice_labels_the_chord_modes_like_keyboard_control(tmp_path):
     app.manual_show((0.0, 0.0, 0.0), 0.5, True)
     assert 'Chords' in app.notice and 'held keys' not in app.notice
     app.manual_show((0.0, 0.0, 0.0), 0.5, False)
-    assert 'Single key' in app.notice and 'tap-repeat' not in app.notice
+    assert 'Timed combos' in app.notice and 'tap-repeat' not in app.notice
 
 
 def test_manual_control_stops_on_an_interlock(tmp_path):

@@ -226,7 +226,8 @@ class Procedures:
                 run_id=getattr(self, 'run_id', None), run_fields=getattr(self, 'run_fields', {}),
                 manual=dict(plant=self.plant, blockers=self.manual_now, checks=self.manual_checks,
                             open_events=self.open_events, show=self.manual_show, emit=self.emit,
-                            speed=lambda: self.manual_speed, clock=self.monitor.clock, annotate=self.annotate_later)))
+                            speed=lambda: self.manual_speed, clock=self.monitor.clock, annotate=self.annotate_later,
+                            options=self.manual_options)))
 
     def motion(self, name, **details):
         """A Runner that commands the plant, inside the live page."""

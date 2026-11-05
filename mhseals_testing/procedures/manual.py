@@ -1,8 +1,9 @@
 """Manual control on the page: deadman keyboard driving under the interlocks.
 
 The key handling is mhseals_hardware's ManualState, the same as keyboard_control:
-held keys drive, releasing them (or the repeat timeout in plain terminals)
-stops, Space clears everything, x / m / Esc leaves. It runs inside the page with a
+held keys drive and combine, releasing them (or each key's own timeout where the
+terminal reports no releases) stops, Space clears everything, the leave keys exit.
+The keys are keymap.yaml's manual: section and chord_hold is input.yaml's (``options``). It runs inside the page with a
 key reader that reports key releases, so the dashboard stays on screen.
 """
 
@@ -12,7 +13,7 @@ import time
 from mhseals_hardware.manual_state import ManualState
 from mhseals_testing.runner import Aborted, fold, interlock_abort
 
-EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
+EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')   # without options (tests)
 STOP_KEYS = ('space', 'press:space', 'focus-out')
 
 
@@ -101,8 +102,8 @@ DRAIN_S = 0.1   # s after the last publish: the queued batch is read before the 
 MIN_DRAIN_S = 0.02   # s; after a long stall the budget is spent already, yet a stale burst must still be read whole
 
 
-def drive(keys, state, publisher, show, clock=time.monotonic, annotate=None):
-    """Read keys until an exit key; publish one coherent command per batch of events.
+def drive(keys, state, publisher, show, clock=time.monotonic, annotate=None, leave=EXIT_KEYS):
+    """Read keys until a ``leave`` key; publish one coherent command per batch of events.
 
     ``annotate(key)`` sees every key after the drive state did (marks while driving); it only journals."""
     published = clock()
@@ -116,7 +117,7 @@ def drive(keys, state, publisher, show, clock=time.monotonic, annotate=None):
         # even when the first read waited; MIN_DRAIN_S keeps a stalled link's burst whole.
         deadline = max(published + DRAIN_S, clock() + MIN_DRAIN_S)
         while key is not None:
-            if fold(key) in EXIT_KEYS:
+            if fold(key) in leave:
                 return
             command = state.update(key, clock())
             if fold(key) in ('space', 'press:space'):
@@ -137,8 +138,11 @@ def run(ctx):
     manual = ctx.services['manual']
     config = ctx.services['hardware_config']
     kept = manual.get('speed', lambda: None)()   # the speed from the last manual session, if any
+    options = manual.get('options', dict)()      # bindings, chord_hold and leave from config (ui/input.manual)
+    leave = options.pop('leave', None)
     state = ManualState(config['manual_amplitude'] if kept is None else kept, config['manual_repeat_timeout'],
-                        config['manual_initial_timeout'], config['manual_yaw_scale'])
+                        config['manual_initial_timeout'], config['manual_yaw_scale'], **options)
+    leave = EXIT_KEYS if leave is None else tuple(leave) + tuple('press:' + key for key in leave)
     clock = manual.get('clock', time.monotonic)
     interlocks = Interlocks(manual['blockers'], manual['checks'], spawn=manual.get('spawn'))
     publisher = GuardedPublisher(manual['plant'], interlocks)
@@ -147,7 +151,7 @@ def run(ctx):
     outcome = dict(outcome='complete', by='operator', cause='exit')
     try:
         with interlocks, manual['open_events']() as keys:
-            drive(keys, state, publisher, manual['show'], clock, manual.get('annotate'))
+            drive(keys, state, publisher, manual['show'], clock, manual.get('annotate'), leave)
     except Aborted as error:
         outcome = dict(outcome=str(error), by=error.by, cause=error.cause)
         raise
