@@ -77,10 +77,16 @@ KILL_CONTROL = r'(kill|pkill|killall)\b.*' + _CONTROL
 FENCE_CALL = r'ros2\s+service\s+call\b.*/fence/anchor\b'
 FENCE = r'fence_watchdog\b.*\b(course\.corners|on_exit)\b|fence_watchdog/set_parameters|/fence/anchor\b'
 NO_CLAIM = ('stop', 'fence ')      # verbs a deny names that need no claim first (stop COMPONENT --claim ID does)
+# ssh to a host while the device registry is unread (registry.fleet): no rule can tell a boat, so only boat_agent,
+# boat_tui and the agent's own tmux session pass (scan.denied, after every rule).
+UNREAD = 'ssh while the device registry is unread'
+ROUTES = ('boat_agent', 'boat_tui')
+# The boat computers are the registry's hosts with one of boat_roles (the first is the one a vessel name reaches);
+# match notes ssh to them too (hosts.note_match). ssh_allow: what ssh still reaches while the registry is unread.
 DEFAULTS = {
     'target': 'local', 'path': '/var/home/roboboat/astro_dock/bags/agent/channel.jsonl',
-    'match': [r'\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', r'\bros2\b',
-              r'\bdocker\s+exec\b'],
+    'match': [r'\bros2\b', r'\bdocker\s+exec\b'],
+    'boat_roles': ['boat_computer', 'camera_host'], 'ssh_allow': ['localhost', '127.0.0.1'],
     'skip': [r'\bboat_(trial|agent)\b'], 'max_per_10s': 6,
     'deny': [r'ros2\s+topic\s+pub\b.*(\bcmd_vel|\bcommand_mux\b|\bgoal_pose|\bmavros/(rc/override|setpoint|manual_control))',
              r'ros2\s+action\s+send_goal\b.*(navigate|(?<![\w-])(spin|backup|drive_on_heading|follow_waypoints'
@@ -112,7 +118,6 @@ DEFAULTS = {
              r'|lifecycle\s+set|run)\b',
              r'(pkill|killall)\b', r'xargs\b.*\s(sudo\s+)?kill\b', KILL_CONTROL]
             + ARMING + HOLDS + STOP + HOOKS + HOOKS_PATH + PREVIEW,
-    'hosts': ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson'],
     'deny_boat': BOAT_START + BOAT_STOP_PART +
                  [BOAT_KILL, r'(docker|podman)\b.*\s(stop|kill|restart|rm|down|pause)\b',
                   r'systemctl\s+(--user\s+)?(stop|kill|restart|isolate|reboot|poweroff|halt)\b',
@@ -124,7 +129,8 @@ DEFAULTS = {
 # blocks, the boat_agent verb (None: the operator's; PID: kill your own process by PID), the deny patterns it owns).
 # The deny pattern that matched picks its entry (``use_entry``); patterns no entry owns fall back to the regex.
 _DENY = DEFAULTS['deny']
-USE = ((r'(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the mux, a watchdog, the "
+USE = ((None, 'ssh to a host the device registry cannot vouch for (fail closed)', 'status', (UNREAD,)),
+       (r'(pkill|killall|kill)\b.*' + _CONTROL, "killing the boat's control (the mux, a watchdog, the "
         'driver, MAVROS or a trial)', 'stop', (KILL_CONTROL,)),
        (None, 'pkill, killall and xargs kill (they can hit processes that are not yours)', 'PID',
         (r'(pkill|killall)\b', r'xargs\b.*\s(sudo\s+)?kill\b')),

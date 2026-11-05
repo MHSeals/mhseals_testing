@@ -6,8 +6,8 @@ import os
 import re
 import secrets
 
-from .hosts import SIM, hostname, remote, target_of
-from .rules import NO_CLAIM, PID_ROUTE, hook_config, use_entry
+from .hosts import SIM, boats, hostname, remote, target_of
+from .rules import NO_CLAIM, PID_ROUTE, UNREAD, hook_config, use_entry
 
 BOAT_AGENT = '~/astro_dock/src/mhseals_testing/tools/boat_agent'   # the boat hosts' checkout
 
@@ -115,13 +115,30 @@ def start_text(who, agent='claude', config=None):
         f'{background} (the CLI keeps the lease). The TUI shows your boat commands'
         + (f' ({remote(config)}).' if remote(config) else
            ' (the sim TUI on this machine, BOAT_AGENT_TARGET=sim).' if target_of(config) == SIM else
-           ': this machine\'s TUI; a boat session sets BOAT_AGENT_TARGET=blastoise-odroid in your environment '
-           '(`blastoise` still works for one release; it means blastoise-odroid).')))
+           f': this machine\'s TUI; {boat_session(config)}')))
+
+
+def boat_session(config):
+    """How a boat session names its boat: the registry's first boat computer and its vessel's legacy alias."""
+    hosts = boats(config).hosts
+    if not hosts:
+        return ('a boat session sets BOAT_AGENT_TARGET to its boat computer (the device registry\'s) in your '
+                'environment.')
+    host = hosts[0]
+    vessel = host.split('-')[0]
+    alias = f' (`{vessel}` still works for one release; it means {host})' if vessel != host else ''
+    return f'a boat session sets BOAT_AGENT_TARGET={host} in your environment{alias}.'
 
 
 def deny_reason(hit, host=None, who='agent', config=None):
     """One line: the command blocked, why, and the boat_agent verb (or operator action) that does it instead."""
     config = config or hook_config()
+    if getattr(hit, 'pattern', None) == UNREAD:
+        return (f'Blocked `{hit[:80]}`: the hook cannot read the device registry ($ASTRO_REGISTRY or the profile '
+                f"set's devices.yaml), so it cannot tell whether {host} is a boat computer and lets ssh there run only "
+                f'boat_agent or boat_tui (fail closed). Use: ssh {host} {BOAT_AGENT} <verb> --who {who}, or '
+                f'{cli_of(config)} <verb> --who {who} from here. Ask the owner to fix the registry (hw.sh whoami '
+                '--registry names it) or to add the host to hook.ssh_allow.')
     what, verb = use_entry(hit)
     if verb == 'PID' and host:          # on a boat computer nothing is the agent's to kill: stop the boat instead
         what, verb = 'killing processes on a boat computer', 'stop'
@@ -131,9 +148,9 @@ def deny_reason(hit, host=None, who='agent', config=None):
     where = f' on {host}' if host else ''
     head = f'Blocked `{hit[:80]}`{where}: {what} from a shell bypasses the boat claim and the operator.'
     here = not host or hostname().split('.')[0] == host
-    # A bare vessel name (blastoise: a removed ssh alias) is reached through its first host.
-    target = host if host in config['hosts'] else next(
-        (h for h in config['hosts'] if h.split('-')[0] == host), host)
+    # A bare vessel name (a removed ssh alias) is reached through its first host (the registry's, in role order).
+    hosts = boats(config).hosts
+    target = host if host in hosts else next((h for h in hosts if h.split('-')[0] == host), host)
     cli = cli_of(config) if here else f'ssh {target} {BOAT_AGENT}'    # the boat it aimed at
     if verb is None:
         return f'{head} Those stay with the operator; ask them: {cli} ask "..." --who {who}'

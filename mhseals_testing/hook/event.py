@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from .hosts import hostname, target_of
+from .hosts import hostname, note_match, target_of
 from .notes import SCHEMA, State, deliver, redact
 from .playbook import brief_text, deny_reason, start_text, use_of, who_of
 from .rules import hook_config
@@ -55,7 +55,7 @@ def agent_event(event, config=None, send=None, now=None, state_dir=None):
             who = ids.get(key, who)
     if blocked:
         answer, phase = {'deny': deny_reason(*blocked, who=who, config=config)}, 'deny'
-    elif not matches(config['match'], command) or matches(config['skip'], command):
+    elif not matches(note_match(config), command) or matches(config['skip'], command):
         return None
     tool_id = event.get('tool_id')
     note = {'phase': phase, 'tool_id': tool_id, 'cmd': redact(command), 'exit': None, 'dur_s': None,

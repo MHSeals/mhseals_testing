@@ -82,11 +82,16 @@ sim_arm:
                'ublox\w*', thruster_pwm_node, command_mux]
 hook:
   # local: notes go to this machine's channel (the sim/dev TUI), never over ssh. A boat session names its host
-  # (BOAT_AGENT_TARGET=blastoise-odroid in the agent's environment, or here); only then do they go to path there.
-  # `blastoise` still works for one release; it means blastoise-odroid.
+  # (BOAT_AGENT_TARGET=<its boat computer> in the agent's environment, or here); only then do they go to path there.
+  # A vessel's name still works for one release; it means its first boat computer.
   target: local
   path: /var/home/roboboat/astro_dock/bags/agent/channel.jsonl
-  match: ['\bssh\s+(-\S+\s+)*(blastoise(-odroid|-jetson)?|squirtle(-jetson)?)\b', '\bros2\b', '\bdocker\s+exec\b']
+  # The boat computers are never named here: they are the device registry's hosts with one of boat_roles (the vessel's
+  # devices.yaml: $ASTRO_REGISTRY and the profile set's), and every VESSEL-... name. match notes ssh to them too. An
+  # unread registry fails closed: ssh reaches only ssh_allow, or runs boat_agent or boat_tui.
+  boat_roles: [boat_computer, camera_host]
+  ssh_allow: [localhost, 127.0.0.1]
+  match: ['\bros2\b', '\bdocker\s+exec\b']
   skip: ['\bboat_(trial|agent)\b']
   max_per_10s: 6
   # Owner decision 2026-11-01: the hook matches what a call runs, never its text. Each command of each pipeline
@@ -144,7 +149,6 @@ hook:
          'boat_preview\b(?!\s+status\b)(?!(?=.*\s--test\b)(?=.*\s(--headless|down|attach)\b))',
          'tmux\b.*-L\s*preview(?=\s|$).*\s(send-keys|send|paste-buffer|pasteb|load-buffer|loadb|respawn-\w+|kill-(server|session|window|pane))(\s|$)',
          '(docker|podman)\b.*\s(stop|kill|restart|rm|pause)\b.*\broboboat_preview\b']
-  hosts: [blastoise-odroid, blastoise-jetson, squirtle-jetson]
   # deny_boat: a component started or stopped by hand (boat_agent start/stop COMPONENT --claim ID does it), kills,
   # container, unit and power changes, keys into the boat TUI (tmux -L boat) and its runtime config and launch files.
   deny_boat: ['ros2\s+launch\s+(--?\S+\s+)*mhseals_(nav|hardware)\b',

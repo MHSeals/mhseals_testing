@@ -10,6 +10,8 @@ import pytest
 from mhseals_testing import agent_hook as hook
 from mhseals_testing.agent import channel as agent_channel, config as agent_config
 
+import hook_registry
+
 SID = '3f2a9c1e-0000-4000-8000-000000000000'
 
 
@@ -21,6 +23,7 @@ def boat_network(tmp_path_factory, monkeypatch):
     path.write_text('STATIC_LEASES="56:e2:03:5c:60:22=blastoise-odroid=192.168.0.152 '
                     '3c:6d:66:bf:6b:e2=blastoise-jetson=192.168.0.153"\n')
     monkeypatch.setattr(hook, 'network_file', lambda: path)
+    hook_registry.use(monkeypatch, hook, hook_registry.profile_set(path.parents[1] / 'profiles', hook_registry.THREE))
     return path
 
 
@@ -444,14 +447,14 @@ def test_the_playbook_says_what_to_do_in_each_operator_state():
 
 
 def test_the_hosts_are_per_computer_and_the_vessel_names_stay_boats():
-    assert hook.DEFAULTS['hosts'] == ['blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson']
-    names = hook.boats(hook.DEFAULTS)
+    names = hook.boats(hook.DEFAULTS)           # the registry's boat compute hosts (hook_registry.THREE)
+    assert names.hosts == ('blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson')
     assert {'blastoise-odroid', 'blastoise-jetson', 'squirtle-jetson', 'blastoise', 'squirtle'} <= names
     for host in ('blastoise', 'blastoise-odroid', 'blastoise-jetson', 'squirtle', 'squirtle-jetson'):
         assert hook.denied(f'ssh {host} sudo reboot', hook.DEFAULTS)[1] == host
-        assert hook.matches(hook.DEFAULTS['match'], f'ssh -t {host} uptime')
-    assert not hook.matches(hook.DEFAULTS['match'][:1], 'ssh devbox uptime')
-    assert not hook.matches(hook.DEFAULTS['match'][:1], 'ssh blastoisex uptime')
+        assert hook.matches(hook.note_match(hook.DEFAULTS), f'ssh -t {host} uptime')
+    assert not hook.matches(hook.note_match(hook.DEFAULTS)[:1], 'ssh devbox uptime')
+    assert not hook.matches(hook.note_match(hook.DEFAULTS)[:1], 'ssh blastoisex uptime')
 
 
 def test_the_network_file_is_the_vessel_env_first(tmp_path, monkeypatch):

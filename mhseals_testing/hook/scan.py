@@ -7,9 +7,9 @@ from pathlib import Path
 import re
 import subprocess
 
-from .hosts import boats, hostname, is_boat
+from .hosts import boats, is_boat, this_boat
 from .playbook import cli_of, who_of
-from .rules import EDIT_USE, NAV2_PARAM, OWN_TMUX, Hit
+from .rules import EDIT_USE, NAV2_PARAM, OWN_TMUX, ROUTES, UNREAD, Hit
 from .runs import ASSIGN, PYTHON, SHELLS, SSH, core, python_runs, reads_stdin, runs, written
 from .shell import parse, plain
 
@@ -87,10 +87,11 @@ def edit_lines(kind, given, base=None, remote=False):
 class Scan:
     """``(text, line, host, claim)`` for each command a call runs and each file it writes (``lines``): ``text`` the
     command as the agent wrote it, ``line`` what the deny rules match, ``host`` the boat it runs on or None,
-    ``claim`` a ``BOAT_AGENT_CLAIM=`` the command carries."""
+    ``claim`` a ``BOAT_AGENT_CLAIM=`` the command carries; ``ssh`` each ``(text, destination, remote command or
+    None)`` of ssh and kin."""
 
     def __init__(self, names, cwd=None):
-        self.names, self.cwd, self.out = names, cwd, []
+        self.names, self.cwd, self.out, self.ssh = names, cwd, [], []
 
     def text(self, command, host=None, remote=False, depth=0):
         try:
@@ -176,6 +177,7 @@ class Scan:
                 self.python(words[flag + 1], text, host, remote, depth, base, claim)
         inner, command, target = runs(words)
         if target is not None:
+            self.ssh.append((text, target, command))
             host, remote = is_boat(target, self.names) or host, True
         if inner:
             self.argv(inner, text, host, remote, depth + 1, base, claim)
@@ -183,23 +185,44 @@ class Scan:
             self.text(command, host, remote, depth + 1)
 
 
+def scanned(command, config, cwd=None):
+    """The ``Scan`` of ``command``; on a boat host (``this_boat``) every line runs here."""
+    scan = Scan(boats(config), cwd)
+    scan.text(command, this_boat(scan.names))
+    return scan
+
+
 def lines(command, config, cwd=None):
-    """Every ``(text, line, host, claim)`` of ``command`` (``Scan``); on a boat host every line runs here."""
-    names = boats(config)
-    here = hostname().split('.')[0]
-    scan = Scan(names, cwd)
-    scan.text(command, here if here in names else None)
-    return scan.out
+    """Every ``(text, line, host, claim)`` of ``command`` (``Scan``)."""
+    return scanned(command, config, cwd).out
+
+
+def routed(command, who=None):
+    """``command`` (a remote one) runs only boat_agent or boat_tui (``ROUTES``), or ends the agent's own tmux session."""
+    try:
+        pipelines = parse(command or '')
+    except ValueError:
+        return False
+    cmds = [cmd for pipeline in pipelines for cmd in pipeline]
+    return bool(cmds) and all(
+        (os.path.basename((core(cmd['argv']) or [''])[0]) in ROUTES and not cmd['subs'] and not cmd['writes'])
+        or (who and re.match(OWN_TMUX % re.escape(who), ' '.join(core(cmd['argv'])))) for cmd in cmds)
 
 
 def denied(command, config, cwd=None, who=None):
-    """``(Hit, the boat it runs on or None)`` for the first line of ``command`` a deny rule matches, else None."""
-    for text, line, host, claim in lines(command, config, cwd):
+    """``(Hit, the boat it runs on or None)`` for the first line of ``command`` a deny rule matches, else None. With
+    the registry unread, ssh to a name outside ``hook.ssh_allow`` that runs anything but a route is denied too."""
+    scan = scanned(command, config, cwd)
+    for text, line, host, claim in scan.out:
         if host and who and re.match(OWN_TMUX % re.escape(who), line):
             continue
         for pattern in config['deny'] + (config['deny_boat'] if host else []):
             if re.match(pattern, line, re.S) and not (claim and pattern == NAV2_PARAM):
                 return Hit(' '.join(text.split()), pattern, ' '.join(line.split()), host), host
+    for text, target, remote in ([] if scan.names.read else scan.ssh):
+        host = target.rsplit('@', 1)[-1].split(':', 1)[0]
+        if host not in scan.names.allow and not routed(remote, who):
+            return Hit(' '.join(text.split()), UNREAD, ' '.join(text.split()), host), host
     return None
 
 
@@ -242,7 +265,7 @@ def edit_denied(event, config):
         text = edit_text(event.get('edits'), event.get('cwd'))
         if text is None:
             return f'Blocked an edit whose file the hook cannot read (fail closed). Name the file. --who {who}'
-        boat = hostname().split('.')[0] in boats(config)
+        boat = this_boat(boats(config)) is not None
         for line in text.split('\n'):
             for pattern in config['deny'] + (config['deny_boat'] if boat else []):
                 if pattern.startswith('EDIT') and re.match(pattern, line):
