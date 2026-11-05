@@ -14,6 +14,7 @@ from collections import deque
 from mhseals_testing.tunables import tune
 
 _lock = threading.Lock()
+EWMA = 0.1                 # weight of the newest frame in Meter.typical
 
 
 def settings():
@@ -51,16 +52,26 @@ class Meter:
         self.start, self.cpu0 = clock(), cpu()
         self.ros = None            # (thread_time at start, latest) of the ROS executor thread
         self.pending_key = None    # when the newest unanswered key was read
+        self.typical = None        # s; a moving average of frame time (period())
 
     def frame(self, seconds, sent, ui_cpu=0.0):
         now = self.clock()
         self.frames.append((now, seconds, sent, ui_cpu))   # sent None: a Live that does not say (counted sent)
+        self.typical = seconds if self.typical is None else self.typical + EWMA * (seconds - self.typical)
         if sent == 0:
             self.skipped += 1
         if self.pending_key is not None and sent != 0:
             self.keys.append((now, now - self.pending_key))
             self.pending_key = None
         self._trim(now)
+
+    def period(self):
+        """Seconds between continuous frames (motion, manual, a popup): 1/``fps``, stretched so laying out frames
+        takes at most ``render_share`` of the UI thread, leaving the rest to keys and the tick."""
+        base = 1.0 / self.settings['fps']
+        if self.typical is None:
+            return base
+        return min(1.0 / self.settings['fps_min'], max(base, self.typical / self.settings['render_share']))
 
     def key(self, at=None):
         """A key was read (its frame closes the sample)."""
@@ -157,6 +168,12 @@ def start(app):
         app.live_factory = difflive.live_class()
     if getattr(app, 'perf', None) is None:
         app.perf = Meter()
+
+
+def period(app, default):
+    """The continuous frame period: the Meter's (``Meter.period``), else ``default``."""
+    meter = getattr(app, 'perf', None)
+    return default if meter is None else meter.period()
 
 
 def draw(app, force=True):

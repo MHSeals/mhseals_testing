@@ -59,3 +59,18 @@ def test_perf_yaml_loads_through_its_schema():
     knobs, limits = perf.settings(), perf.budget()
     assert knobs['executor'] in ('events', 'single') and isinstance(knobs['diff'], bool)
     assert 0 < limits['frame'] < limits['key']
+
+
+def test_slow_frames_stretch_the_continuous_period_between_fps_and_fps_min():
+    knobs = {'fps': 30, 'fps_min': 5, 'render_share': 0.5, 'report_every': 0}
+    meter = perf.Meter({'frame': 0.04, 'key': 0.1, 'window': 10.0}, knobs=knobs)
+    assert meter.period() == 1 / 30                    # no frames yet
+    for _ in range(100):
+        meter.frame(0.005, 10)
+    assert meter.period() == 1 / 30                    # fast frames: the fps cap
+    for _ in range(100):
+        meter.frame(0.05, 10)
+    assert abs(meter.period() - 0.1) < 0.01            # 50 ms frames at half the thread: 10 per second
+    for _ in range(100):
+        meter.frame(1.0, 10)
+    assert meter.period() == 1 / 5                     # never below fps_min
