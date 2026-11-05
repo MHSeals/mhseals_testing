@@ -99,3 +99,29 @@ def test_a_north_south_bay_mouth_has_a_width_in_cells():
     c, p = make()
     vertical = Bay((0, -2), (0, 2), [Banner(0, 0, 'red', 't')], True)   # 16 dots high = 4 cells
     assert draw_dock(p, vertical) is None and banner_cells(c) == [('▲', 'dock_target:obj.red', True)]
+
+
+def test_smooth_hull_is_a_sprite_in_images_and_an_outline_clearing_the_trail_in_braille(monkeypatch):
+    from mhseals_testing.ui import theme
+    monkeypatch.setattr(theme.PALETTE, 'hull', 'smooth')
+    c = canvas.Canvas(40, 8, k=3)
+    draw_boat(Projection(c, (0.0, 0.0), 20), (0, 0), 0, speed=1.0)
+    assert len(c.sprites) == 1 and c.sprites[0][2].wake > 0 and not {'boat', 'wake'} & _layers(c)
+    c, p = make(half=20, rows=8)
+    x, y = p.dot((0, 0))
+    c.dot(x, y, 'trail')
+    draw_boat(p, (0, 0), 0, speed=1.0)
+    assert {'boat', 'bow', 'wake'} <= _layers(c) and 'trail' not in _layers(c)
+
+
+def test_theme_wake_false_draws_no_wake_in_either_tier(monkeypatch):
+    from mhseals_testing.ui import theme
+    monkeypatch.setattr(theme.PALETTE, 'wake', False)
+    for look in ('classic', 'smooth'):
+        monkeypatch.setattr(theme.PALETTE, 'hull', look)
+        c, p = make(half=20, rows=8)
+        draw_boat(p, (0, 0), 0, speed=1.0)
+        assert 'wake' not in _layers(c)
+        c = canvas.Canvas(40, 8, k=3)
+        draw_boat(Projection(c, (0.0, 0.0), 20), (0, 0), 0, speed=1.0)
+        assert all(s[2].wake == 0 for s in c.sprites) and 'wake' not in _layers(c)

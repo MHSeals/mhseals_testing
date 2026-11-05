@@ -109,7 +109,7 @@ class Theme:
         self.cvd = bool(data.get('cvd', False))
         graphics = data.get('graphics', 'off')       # ui/imaging/: off | auto | kitty | sixel
         self.graphics = 'off' if graphics is False else graphics   # YAML 1.1 reads a bare off as false
-        self.hull = data.get('hull', 'classic')
+        self.hull = data.get('hull', 'smooth')
         self.wake = data.get('wake', True)
         self.validate()
 
