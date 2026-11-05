@@ -3,7 +3,7 @@
 
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.runner import fold
-from mhseals_testing.ui import keymap, theme
+from mhseals_testing.ui import keymap, perf, theme
 from mhseals_testing.ui.popups import authority, conditions, config, health, history, inspect, power
 
 STOP_KEYS = (keymap.STOP_KEY, 'press:' + keymap.STOP_KEY)   # fixed: no keymap file moves them
@@ -22,7 +22,7 @@ def popup(app, modal, handle, refresh=None):
     app.modal = modal
     try:
         while True:
-            app.refresh()
+            perf.draw(app)                  # timed into the Meter (ui/perf.py) like the page's frames
             key = app.keys.read(timeout=0.1)
             if key in STOP_KEYS and modal.get('kind') != 'input':
                 app.operator_stop()  # Space stops in every modal but popup.text
@@ -31,6 +31,8 @@ def popup(app, modal, handle, refresh=None):
                 refresh()
             if key is None:
                 continue
+            if getattr(app, 'perf', None) is not None:
+                app.perf.key()
             if modal.get('kind') != 'input':
                 # Authority owns E itself so it can revoke the selected claim.
                 if key == keymap.REVOKE_KEY and not str(modal.get('title', '')).startswith('Authority'):
