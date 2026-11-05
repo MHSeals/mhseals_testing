@@ -114,8 +114,8 @@ def test_installed_schemas_load_from_the_install_share():
         assert share_dir(package) == share
         assert (share / 'config' / 'schema.yaml').is_file()
     own = {key for package, key, _ in found if package == 'mhseals_testing'}
-    own_file = shares['mhseals_testing'] / 'config' / 'schema.yaml'
-    assert own == set(yaml.safe_load(own_file.read_text()))
+    fragments = (shares['mhseals_testing'] / 'config' / 'schema').glob('*.yaml')
+    assert own == {key for fragment in fragments for key in yaml.safe_load(fragment.read_text())}
 
 
 def test_real_config_row_catalog_and_narrow_navigation(tmp_path, monkeypatch):
@@ -172,3 +172,32 @@ def test_catalog_uses_existing_popup_emergency_passthrough(monkeypatch):
     catalog.open_catalog(app)
     assert calls == ['stop', 'revoke', 'stop', 'revoke']
     assert app.modal is None
+
+
+def _index(tmp_path, monkeypatch, listed, fragments):
+    config = tmp_path / 'p' / 'config'
+    (config / 'schema').mkdir(parents=True)
+    (config / 'schema.yaml').write_text(yaml.safe_dump({'fragments': listed}))
+    for name, keys in fragments.items():
+        entries = {key: {'type': 'int', 'units': '', 'tier': 'live', 'doc': key} for key in keys}
+        (config / 'schema' / f'{name}.yaml').write_text(yaml.safe_dump(entries))
+    monkeypatch.setattr(schema, 'share_dir', lambda package: tmp_path / package)
+
+
+def test_an_index_reads_its_fragments_in_order_then_the_rest_by_name(tmp_path, monkeypatch):
+    _index(tmp_path, monkeypatch, ['zeta', 'alpha'],
+           {'alpha': ['alpha.a'], 'zeta': ['zeta.z'], 'mid': ['mid.m'], 'beta': ['beta.b']})
+    assert list(schema.load('p')) == ['zeta.z', 'alpha.a', 'beta.b', 'mid.m']
+
+
+def test_a_fragment_owns_only_its_own_file_keys(tmp_path, monkeypatch):
+    _index(tmp_path, monkeypatch, ['alpha'], {'alpha': ['beta.b']})
+    with pytest.raises(ValueError, match=r'alpha\.yaml: beta\.b: keys of this fragment start with alpha\.'):
+        schema.load('p')
+
+
+def test_the_shipped_schema_is_an_index_of_one_fragment_per_config_file():
+    index = yaml.safe_load((OWN / 'config' / 'schema.yaml').read_text())
+    assert set(index) == {'fragments'}
+    for fragment in (OWN / 'config' / 'schema').glob('*.yaml'):
+        assert (OWN / 'config' / f'{fragment.stem}.yaml').is_file(), fragment.name

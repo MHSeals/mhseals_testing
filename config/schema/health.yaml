@@ -1,0 +1,2 @@
+# health.yaml (health/config.py): probes and checks.
+health.probes.git.stale: {type: float, units: s, tier: restart, doc: "A last fetch older than this shows its age in the header deploy mark."}

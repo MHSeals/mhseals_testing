@@ -1,0 +1,4 @@
+# agent.yaml (agent/config.py): the agent channel and the authority UI.
+agent.tune.authority.working_s: {type: float, units: s, range: [1, 3600], tier: restart, doc: "An agent note this recent, with no agent claim, shows the header's unclaimed-activity item."}
+agent.tune.authority.stop_wait_s: {type: float, units: s, range: [1, 3600], tier: restart, doc: "A starting TUI waits this long for an owner it stops to flush its bag and exit."}
+agent.tune.authority.view_wait_s: {type: float, units: s, range: [1, 3600], tier: restart, doc: "A viewer started during a takeover waits this long for the next owner."}

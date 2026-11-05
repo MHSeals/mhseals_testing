@@ -1,0 +1,7 @@
+# tracking.yaml (analysis/tracking.py): read when a session starts.
+tracking.score.k: {type: float, units: "1", tier: new-session, doc: "Noise-floor weight in the live tracking score."}
+tracking.score.green: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is green."}
+tracking.score.yellow: {type: float, units: "1", tier: new-session, doc: "Tracking score at or above which the Motion header is yellow."}
+tracking.stale.min_sessions: {type: int, units: count, tier: new-session, doc: "Sessions on one calibration before staleness is judged."}
+tracking.stale.low_score: {type: float, units: "1", tier: new-session, doc: "Weighted mean score below this flags the calibration as stale."}
+tracking.live.window: {type: float, units: s, tier: new-session, doc: "Sliding window the Motion header scores over."}

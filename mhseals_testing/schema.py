@@ -1,6 +1,9 @@
 """What the TUI shows about parameters: each package's installed ``config/schema.yaml``.
 
 One entry per dotted key: ``type``, ``units``, ``tier``, ``doc`` and an optional ``range``.
+A schema.yaml may instead be an index (``fragments: [name, ...]``): its entries then live in
+``config/schema/<name>.yaml``, one fragment per config file, every key starting ``<name>.``; a
+fragment the index does not list follows the listed ones by name.
 """
 import math
 from pathlib import Path
@@ -35,12 +38,38 @@ def _check(key, entry, where):
         raise bad('range is [lo, hi] on a number or a list of numbers')
 
 
-def load(package):
-    """{key: entry} from the package's installed schema; FileNotFoundError when it has none."""
-    path = Path(share_dir(package)) / 'config' / 'schema.yaml'
+def _mapping(path):
     document = load_strict(path.read_text(), path) or {}
     if not isinstance(document, dict):
         raise ValueError(f'{path}: expected a mapping of key to entry')
+    return document
+
+
+def _fragments(index, path):
+    """{key: entry} from the fragments an index names, then the rest of config/schema/ by name."""
+    if set(index) != {'fragments'} or not isinstance(index['fragments'], list) \
+            or not all(isinstance(name, str) for name in index['fragments']):
+        raise ValueError(f'{path}: an index holds only fragments: [name, ...]')
+    folder = path.parent / 'schema'
+    names = list(dict.fromkeys(index['fragments']))
+    names += sorted(p.stem for p in folder.glob('*.yaml') if p.stem not in names)
+    entries = {}
+    for name in names:
+        fragment = folder / f'{name}.yaml'
+        for key, entry in _mapping(fragment).items():
+            if not key.startswith(f'{name}.'):
+                raise ValueError(f'{fragment}: {key}: keys of this fragment start with {name}.')
+            _check(key, entry, fragment)
+            entries[key] = entry
+    return entries
+
+
+def load(package):
+    """{key: entry} from the package's installed schema; FileNotFoundError when it has none."""
+    path = Path(share_dir(package)) / 'config' / 'schema.yaml'
+    document = _mapping(path)
+    if 'fragments' in document:
+        return _fragments(document, path)
     for key, entry in document.items():
         _check(key, entry, path)
     return document
