@@ -8,6 +8,7 @@ from mhseals_testing.harness import operator_state
 from mhseals_testing.procedures import PROCEDURES
 from mhseals_testing.ui import keymap, theme
 from mhseals_testing.ui import input as key_input
+from mhseals_testing.ui.panels.thrusters import READBACK_TOLERANCE
 from mhseals_testing.ui.popups import pins
 
 from mhseals_testing.ui.app.help import MICRO, UPDOWN
@@ -17,6 +18,7 @@ from mhseals_testing.ui.app.shared import PULSE_STEP, decoupled
 MANUAL_DESK_S = 0.2      # s; the agent desk's tick from inside manual control
 READBACK_STALE_S = 1.0   # s; the driver's ~/output (10 Hz) older than this is no readback
 READBACK_GRACE_S = 0.5   # s; a new pulse may take this long to show in the readback
+NEUTRAL_REPEATS = 3      # copies of the ending neutral, as ros/plant.py sends, so one dropped message can't leave it on
 
 
 NEUTRAL = 1500
@@ -154,7 +156,8 @@ class Manual:
         if self.test_pulses is not None:
             self.test_pulses = None
             if self.publish_pulses is not None:
-                self.publish_pulses([NEUTRAL] * 4)
+                for _ in range(NEUTRAL_REPEATS):   # one dropped message must not leave the pulse on
+                    self.publish_pulses([NEUTRAL] * 4)
             self.ros.emit('test_pulses', pulses=[NEUTRAL] * 4)
         if notice:
             self.notice = notice
@@ -208,7 +211,7 @@ class Manual:
         if not held:
             verdict = (f'Test pulse UNVERIFIED: no readback from the driver ({(output or {}).get("error") or "no ~/output"});'
                        f' sent {sent} {MICRO}s')
-        elif all(held[index] == pulses[index] for index in range(4)):
+        elif all(abs(held[index] - pulses[index]) <= READBACK_TOLERANCE for index in range(4)):
             verdict = (f'Test pulse at the outputs: {sent} {MICRO}s, read back'
                        + ('' if getattr(self, 'running', None) else '; 0 or Tab ends'))
         else:

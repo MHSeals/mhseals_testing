@@ -3399,3 +3399,10 @@ def test_command_mode_switches_hot_while_disarmed_and_never_armed(tmp_path):
     app.arming.armed = False
     assert not app.set_setting('command_mode', 'velocity')
     assert app.profile.velocity_controller and app.arming.calls.count('switch') == 2
+
+
+def test_the_driver_readback_keeps_a_pin_the_sysfs_probe_reads_off(tmp_path):
+    app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
+    app.pwm_sysfs = ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
+    app.show_driver_readback([1500, 1600, 1500, 1500])
+    assert app.pwm_readback == ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']

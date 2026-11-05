@@ -45,15 +45,19 @@ class Health:
             self.monitor.advise('PWM driver', *health.pwm_driver(
                 self.ros.nodes(), self.ros.subscribers(topic), topic,
                 self.armed, self.processes.running('hardware')))
-        if drives_pwm_pins(self.profile) and self.driver_output() is None:   # else the driver's own readback
+        if drives_pwm_pins(self.profile):   # the sysfs advisory always: enables and disarmed-but-on
             config = self.args.hardware_config
-            level, detail, self.pwm_readback = health.pwm_readback(
+            level, detail, self.pwm_sysfs = health.pwm_readback(
                 config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
             self.monitor.advise('PWM readback', level, detail)
+            self.pwm_readback = list(self.pwm_sysfs)
 
     def show_driver_readback(self, pulses):
-        """The Rb column from the driver's ~/output: each output's pulse, read back by the driver."""
-        self.pwm_readback = [f'ON {pulse} us' for pulse in pulses]
+        """The Rb column from the driver's ~/output (each output's pulse, read back by the driver);
+        a pin the sysfs probe reads as off or unreadable keeps that row, so a disabled channel still shows."""
+        sysfs = getattr(self, 'pwm_sysfs', None) or []
+        self.pwm_readback = [row if index < len(sysfs) and not str(row := sysfs[index]).startswith('ON')
+                             else f'ON {pulse} us' for index, pulse in enumerate(pulses)]
 
     def feed_map(self):
         """The recorded costmap follows the Recorder mode and the session owner (map.md 4)."""
