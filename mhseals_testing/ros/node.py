@@ -82,6 +82,14 @@ def node_name(pid=None, host=None):
     return f'mhseals_testing_{host}_{os.getpid() if pid is None else pid}'
 
 
+SENSORS = '_sensors'      # the sensor node's name: the suite node's, with this after it
+
+
+def _sensor_node_on():
+    from mhseals_testing.tunables import tune
+    return tune('perf')['sensor_node']
+
+
 def make_executor(name=None):
     """The node's executor (config/perf.yaml ``tune.executor``): ``events`` is rclpy's C++ EventsExecutor, a
     fraction of SingleThreadedExecutor's per-message cost, which rebuilds its wait set in Python for every
@@ -121,6 +129,10 @@ class RosIO:
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
         self.events = self.node.create_publisher(String, EVENTS_TOPIC, EVENTS_QOS)
         self._mavlink, self._mavlink_source = {}, topics['mavlink_source']   # gpsraw topic -> its fallback sub
+        # The profile's sensors and /tf, most of the messages, on a node of their own with its own executor thread
+        # (perf.yaml sensor_node): an executor's per-message cost grows with every entity of its nodes.
+        self.sensor_node = Node(node_name() + SENSORS, parameter_overrides=[
+            Parameter('use_sim_time', value=profile.use_sim_time)]) if _sensor_node_on() else self.node
         for sensor in profile.sensors:
             message = message_type(sensor.kind)
             if message is None:
@@ -128,13 +140,13 @@ class RosIO:
                 continue
             if sensor.kind in RAW_KINDS:      # never always-on (D-20261101-26): a summary, the graph, or tap()
                 continue
-            self.node.create_subscription(
+            self.sensor_node.create_subscription(
                 message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind), qos_profile_sensor_data)
             if sensor.kind == 'gpsraw':     # MAVROS's every-frame stream only while the topic is silent
                 self._mavlink[sensor.topic] = None
         if self._mavlink:
             self._watch_mavlink()
-            self.node.create_timer(GRAPH_S, self._watch_mavlink)
+            self.sensor_node.create_timer(GRAPH_S, self._watch_mavlink)
         self.node.create_subscription(
             Vector3Stamped, topics['drift'], partial(self._ingest, topics['drift'], 'drift'), 10)
         self.facts, self.nearby, self._tap_subs = facts, None, {}
@@ -148,7 +160,7 @@ class RosIO:
         if profile.use_sim_time:
             self.clock_watch = ClockWatch()
             self.node.create_subscription(Clock, '/clock', self._clock, qos_profile_sensor_data)
-        self.node.create_subscription(TFMessage, '/tf', self._tf, qos_profile_sensor_data)
+        self.sensor_node.create_subscription(TFMessage, '/tf', self._tf, qos_profile_sensor_data)
         self.node.create_subscription(
             TFMessage, '/tf_static', partial(self._tf, static=True),
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -170,19 +182,32 @@ class RosIO:
         self.mission = MissionState(self.map.state)   # a ui feed; tasks and the goal go on into the map
         MissionFeed(self.node, self.mission)
         self.executor = make_executor(executor)
-        self.spin_cpu = 0.0     # this node's executor thread's CPU time so far (ui/perf.py splits the TUI's CPU)
         self.executor.add_node(self.node)
         self._spinning = True
-        self.thread = threading.Thread(target=self._spin, daemon=True)
+        self._cpu = {}          # executor thread -> its CPU time so far (spin_cpu)
+        self.thread = threading.Thread(target=self._spin, args=(self.executor,), daemon=True)
         self.thread.start()
+        self.sensor_executor = self.sensor_thread = None
+        if self.sensor_node is not self.node:
+            self.sensor_executor = make_executor(executor)
+            self.sensor_executor.add_node(self.sensor_node)
+            self.sensor_thread = threading.Thread(target=self._spin, args=(self.sensor_executor,), daemon=True)
+            self.sensor_thread.start()
 
-    def _spin(self):
+    @property
+    def spin_cpu(self):
+        """CPU time the executor threads have used so far (ui/perf.py splits the TUI's CPU with it)."""
+        return sum(getattr(self, '_cpu', {}).values())
+
+    def _spin(self, executor=None):
+        executor = executor or self.executor
+        cpu = self.__dict__.setdefault('_cpu', {})
         while self._spinning and rclpy.ok():
             try:
-                self.executor.spin_once(timeout_sec=0.1)
+                executor.spin_once(timeout_sec=0.1)
             except Exception as error:  # a bad sample must not stop every other feed
                 self._callback_fault(error)
-            self.spin_cpu = time.thread_time()
+            cpu[threading.get_ident()] = time.thread_time()
 
     def _callback_fault(self, error):
         """Surface a callback error once per kind and keep spinning; motion stays refused.
@@ -251,13 +276,13 @@ class RosIO:
         drop it once something does: every FCU frame (about 300 a second at the boat's stream rates) costs the
         executor as much as a sensor message, for the one GPS_RAW_INT in thirty the fallback reads."""
         for topic, sub in self._mavlink.items():
-            silent = not self.node.count_publishers(topic)
+            silent = not self.sensor_node.count_publishers(topic)
             if silent and sub is None:
                 from mavros_msgs.msg import Mavlink
-                self._mavlink[topic] = self.node.create_subscription(
+                self._mavlink[topic] = self.sensor_node.create_subscription(
                     Mavlink, self._mavlink_source, partial(self._gps_raw_int, topic), qos_profile_sensor_data)
             elif not silent and sub is not None:
-                self.node.destroy_subscription(sub)
+                self.sensor_node.destroy_subscription(sub)
                 self._mavlink[topic] = None
 
     def _gps_raw_int(self, topic, message):
@@ -377,8 +402,9 @@ class RosIO:
 
     def instances(self):
         """Other suite nodes on the graph (names only); a crashed one lingers until its DDS lease ends."""
+        me = self.node.get_name()
         return sorted({name for name, _ in self.node.get_node_names_and_namespaces()
-                       if name.startswith('mhseals_testing_') and name != self.node.get_name()})
+                       if name.startswith('mhseals_testing_') and name not in (me, me + SENSORS)})
 
     def parameter_service(self, name):
         """Whether node ``name`` serves parameters (a dead service hides the node's config)."""
@@ -398,5 +424,9 @@ class RosIO:
         self._spinning = False
         self.thread.join(timeout=1)
         self.executor.shutdown(timeout_sec=1)
+        if self.sensor_executor is not None:
+            self.sensor_thread.join(timeout=1)
+            self.sensor_executor.shutdown(timeout_sec=1)
+            self.sensor_node.destroy_node()
         self.node.destroy_node()
 

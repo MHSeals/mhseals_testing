@@ -5,6 +5,7 @@ tune:
   fps: 30                 # continuous redraws (driving, a run, a popup) at most this often
   fps_min: 5              # ... and at least this often, however slow frames are
   render_share: 0.5       # frames take at most this share of the UI thread: slower frames lower the rate (keys stay quick)
+  sensor_node: true       # the profile's sensors and /tf on a node and executor thread of their own (fewer entities a message)
   diff: true              # write only the screen rows that changed since the last frame
   full_every: 5.0         # s between whole-screen redraws while diffing (0: only after a resize or another writer)
   sync: true              # wrap each frame in synchronized output, so the terminal shows it whole

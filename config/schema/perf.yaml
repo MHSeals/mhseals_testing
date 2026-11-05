@@ -3,6 +3,7 @@ perf.tune.executor: {type: str, units: "", enum: [events, single], tier: restart
 perf.tune.fps: {type: float, units: Hz, range: [1, 120], tier: restart, doc: "Continuous redraws (driving, a run, a popup) at most this often."}
 perf.tune.fps_min: {type: float, units: Hz, range: [0.5, 60], tier: restart, doc: "Continuous redraws at least this often, however slow frames are."}
 perf.tune.render_share: {type: float, units: "1", range: [0.05, 1], tier: restart, doc: "Most of the UI thread laying out frames may take; slower frames lower the rate so keys stay quick."}
+perf.tune.sensor_node: {type: bool, units: "", tier: restart, doc: "The profile's sensors and /tf on a node and executor thread of their own, so each of their messages costs the executor fewer entities."}
 perf.tune.diff: {type: bool, units: "", tier: restart, doc: "Write only the screen rows that changed since the last frame."}
 perf.tune.full_every: {type: float, units: s, range: [0, 600], tier: restart, doc: "Time between whole-screen redraws while diffing; 0 redraws only after a resize or another writer."}
 perf.tune.sync: {type: bool, units: "", tier: restart, doc: "Wrap each frame in synchronized output (DEC 2026) so the terminal shows it whole."}

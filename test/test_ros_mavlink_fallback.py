@@ -26,6 +26,7 @@ class Node:
 def test_the_fallback_follows_whether_the_gpsraw_topic_publishes():
     ros = RosIO.__new__(RosIO)
     ros.node = Node()
+    ros.sensor_node = ros.node
     ros._mavlink, ros._mavlink_source = {'/gps/raw': None}, '/uas1/mavlink_source'
     ros._watch_mavlink()
     assert ros.node.subs == ['/uas1/mavlink_source'] and ros._mavlink['/gps/raw'] == 1   # silent: the fallback
