@@ -5,8 +5,8 @@ They are events in mhseals_agents ``state/events/*.jsonl`` (one file per station
 ``state/README.md``): an item's kind is its first event's type, and it stays open until an event of it sets a
 closing ``status`` (``./ev question ID --status done``, a proposal adopted or dropped). Every station counts.
 
-mhseals_agents is ``$MHSEALS_AGENTS`` when set, else agent.yaml ``background``, else the checkout beside this one
-(``<src>/mhseals_agents``); none found: nothing to show.
+mhseals_agents is ``$MHSEALS_AGENTS`` when set, else agent.yaml ``background``; neither (or no state/events there):
+nothing to show. This package never guesses another repo's checkout path.
 """
 
 import json
@@ -23,9 +23,9 @@ MAX_BYTES = 2 << 20  # a re-read reads at most this much, the newest files first
 def root(configured=''):
     """The mhseals_agents checkout, or None. A set ``$MHSEALS_AGENTS`` is the only place looked (tests point it away)."""
     env = os.environ.get('MHSEALS_AGENTS')
-    for candidate in (env,) if env is not None else (configured, Path(__file__).resolve().parents[3] / 'mhseals_agents'):
-        if candidate and (Path(candidate).expanduser() / 'state' / 'events').is_dir():
-            return Path(candidate).expanduser()
+    candidate = env if env is not None else configured
+    if candidate and (Path(candidate).expanduser() / 'state' / 'events').is_dir():
+        return Path(candidate).expanduser()
     return None
 
 

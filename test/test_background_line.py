@@ -35,6 +35,7 @@ def test_the_root_comes_from_env_or_config_never_a_fixed_home(tmp_path, monkeypa
     assert background.root(str(tmp_path)) is None              # a set env is the only place looked
     monkeypatch.delenv('MHSEALS_AGENTS')
     assert background.root(str(tmp_path)) == tmp_path
+    assert background.root('') is None                         # nothing configured: no guess at a sibling checkout
 
 
 def test_the_reader_rereads_only_after_its_interval(tmp_path, monkeypatch):

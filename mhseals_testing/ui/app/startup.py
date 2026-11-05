@@ -299,7 +299,7 @@ def session_main(argv=None):
     status = issue_settings()
     units = Units(stack_items, by=dict(host=profile.placed[0].name if stack_items else '',
                                        pid=os.getpid(), session=str(paths.directory)),
-                  renew=not watching, period=float(status.get('period', 5.0))).begin()
+                  renew=not watching, period=float(status['period'])).begin()
     stack = Stack(stack_items, processes, time.monotonic, units, scan=unit_probe)
     ros.ghosts = stack.ghosts              # node.unique ignores the lingering names of a child we stopped
     # Off the thrusters host, arming targets it over DDS + ssh (ros/arm_link.py); a watcher never arms.
@@ -347,7 +347,7 @@ def session_main(argv=None):
                   registry=registry, watching=watching, facts=facts,
                   nav2_file=Nav2File(nav2_limits.path()), network=NetworkRow(),
                   nav2_live=lambda: build_nav2_live(ros, registry, profile, lambda: app), stack=stack,
-                  issues=IssuesFeed(status.get('grace', 15.0), status.get('discovery_grace', 20.0)))
+                  issues=IssuesFeed(status['grace'], status['discovery_grace']))
         if not watching:
             ros.emit('takeover' if choice.mode == 'adopt' else 'session_start',
                      profile=profile.name, bag=str(paths.bag))

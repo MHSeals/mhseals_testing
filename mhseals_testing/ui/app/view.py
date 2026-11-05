@@ -109,7 +109,7 @@ class View:
         if panel == 'status':
             return len(status_rows(self.snapshot(), self.profile.sensors))
         if panel == 'thrusters':
-            return 4
+            return len(validate_mixer(self.args.hardware_config['thruster_matrix']))
         if panel == 'list':
             return len(self.bags_view()[0])
         if panel == 'labels':
@@ -189,7 +189,7 @@ class View:
                        outputs=self.source.profile.outputs,
                        plot_scale=self.source.profile.plot_scale, now=self.source.now,
                        host=self.review.host, deploy={}, recording=False, rec=None,
-                       pwm_readback=[theme.DASH] * 4, toasts=[], toasts_more=0)
+                       pwm_readback=[theme.DASH] * len(own['matrix']), toasts=[], toasts_more=0)
         own.update(self.fusion_view())
         return {**shared, **own}  # App's own keys win a collision
 
