@@ -10,17 +10,15 @@
 import shutil
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing import data
+from mhseals_testing.harness.bags import load_profiles
 
-TOPICS = Path(__file__).resolve().parents[2] / 'config' / 'bags' / 'topics.yaml'
 REWIND_S = 0.5  # a backwards step smaller than this is jitter, not an episode reset
 
 
-def extra_topics(profile_name, path=TOPICS):
+def extra_topics(profile_name, path=None):
     """Topics recorded in addition to the common filter for this profile (empty for the boat)."""
-    config = yaml.safe_load(Path(path).read_text()) or {}
+    config = load_profiles(path) or {}
     return list(((config.get('extra') or {}).get(profile_name) or {}).get('topics') or [])
 
 

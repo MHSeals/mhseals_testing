@@ -135,7 +135,7 @@ def bounds(path, opener=open_segment):
     starts, ends = [], []
     for segment in segments(path):
         try:
-            info = yaml.safe_load((segment / 'metadata.yaml').read_text())['rosbag2_bagfile_information']
+            info = yaml.safe_load((segment / 'metadata.yaml').read_text())['rosbag2_bagfile_information']   # rosbag2 writes it
             start = info['starting_time']['nanoseconds_since_epoch']
             starts.append(start)
             ends.append(start + info['duration']['nanoseconds'])

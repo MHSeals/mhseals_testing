@@ -12,12 +12,11 @@ import math
 import time
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing import data
 from mhseals_testing.analysis import referee
 from mhseals_testing.analysis.mission import score
 from mhseals_testing.profiles import PROFILE_DIR
+from mhseals_testing.strict_yaml import load_strict
 
 MISSION_DIR = PROFILE_DIR.parent / 'missions'
 START_RESET = PROFILE_DIR.parent / 'sim' / 'start_reset.yaml'
@@ -87,7 +86,7 @@ def reset_to_start(ctx, config_path=START_RESET):
                 'restore it or fix the profile')
     if not sim_stack(profile):
         return ''
-    config = yaml.safe_load(Path(config_path).read_text())
+    config = load_strict(Path(config_path).read_text(), config_path)
     service = config['service']
     try:
         truth = json.loads(Path(ctx.profile.course_truth).read_text())
@@ -170,7 +169,7 @@ def refuse(ctx, task, reason):
 
 def run(ctx):
     task = ctx.services.get('task') or ctx.choose('Mission', tuple(available()))   # an agent's run names it
-    rubric = yaml.safe_load((MISSION_DIR / f'{task}.yaml').read_text())
+    rubric = load_strict((MISSION_DIR / f'{task}.yaml').read_text(), MISSION_DIR / f'{task}.yaml')
     services = ctx.services
     # Run-level fields for the run record (the App merges them into runs/<run_id>.json's
     # ``result`` with the run's outcome, whatever the exit): started once the task launches,

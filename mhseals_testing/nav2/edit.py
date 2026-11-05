@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from mhseals_testing.harness.watch import stat_key
+from mhseals_testing.strict_yaml import load_strict
 
 NAME = 'Navigation'
 
@@ -77,7 +78,7 @@ class Nav2File:
         self.error = ''
         try:
             text = self.path.read_text()
-            data = yaml.safe_load(text)
+            data = load_strict(text)
         except FileNotFoundError:
             if self.raw is not None:            # deleted after a read: keep the last good content
                 self.error = 'missing'
@@ -88,6 +89,9 @@ class Nav2File:
         except yaml.YAMLError as error:
             mark = getattr(error, 'problem_mark', None)
             self.error = f'line {mark.line + 1}' if mark else 'unparsable'
+            return
+        except ValueError as error:             # strict: an alias, merge or duplicate key (its line)
+            self.error = str(error)
             return
         if data is not None and not isinstance(data, dict):
             self.error = 'not a mapping'

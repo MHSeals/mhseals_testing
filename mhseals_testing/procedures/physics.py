@@ -409,7 +409,7 @@ def latest(ctx, step):
     """The newest record of ``step`` in the characterization folder, or None."""
     root = Path(ctx.services.get('physics_root') or data.path('characterization'))
     found = sorted(root.glob(f'*-{step}.yaml'))
-    return yaml.safe_load(found[-1].read_text()) if found else None
+    return yaml.safe_load(found[-1].read_text()) if found else None   # a physics record this code wrote
 
 
 def survey(ctx, cfg):

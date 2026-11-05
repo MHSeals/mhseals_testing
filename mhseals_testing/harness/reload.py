@@ -10,17 +10,15 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 
-from mhseals_testing.profiles import PROFILE_DIR
-
-RULES = PROFILE_DIR.parent / 'reload.yaml'
+RULES = config_path('config', 'reload.yaml')
 LIVE, NEXT, DISARMED, CHILD = 'live', 'next', 'disarmed', 'child'
 
 
 def load_rules(path=RULES):
-    with open(path) as handle:
-        return yaml.safe_load(handle)
+    return load_strict(Path(path).read_text(), path)
 
 
 def leaves(data, prefix=''):

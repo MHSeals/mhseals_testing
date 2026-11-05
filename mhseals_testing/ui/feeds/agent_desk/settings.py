@@ -194,7 +194,7 @@ class SettingsMixin:
         live = self.app.live_nav2() if hasattr(self.app, 'live_nav2') else None
         if live is None:
             return False, 'refused', 'no live Nav2 here (a watcher, a review or no Nav2 profile)', None
-        values = {k: yaml.safe_load(v) if isinstance(v, str) else v for k, v in requested.items()}
+        values = {k: yaml.safe_load(v) if isinstance(v, str) else v for k, v in requested.items()}   # typed request values, not a file
         live.claim = req.get('claim')
         title = f"Agent {req['who']}: setting Nav2 {', '.join(values)}"
         def work():

@@ -24,6 +24,7 @@ from pathlib import Path
 import yaml
 
 from mhseals_testing.hook import registry
+from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'sim' / 'stack.yaml'
 PATHS = ('player', 'run', 'overlay')
@@ -145,8 +146,8 @@ def heavy(var, environ=None):
     if value is None:
         path = Path(environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / HOST
         try:
-            value = (yaml.safe_load(path.read_text()) or {}).get('heavy')
-        except (OSError, yaml.YAMLError, AttributeError):
+            value = (load_strict(path.read_text(), path) or {}).get('heavy')
+        except (OSError, ValueError, yaml.YAMLError, AttributeError):
             value = None
     value = str(value or '').strip()
     return value if value in ('', 'none') else os.path.expanduser(value)
@@ -155,7 +156,7 @@ def heavy(var, environ=None):
 def settings(path=CONFIG, environ=None):
     """The file's settings with ``BOAT_SIM_<KEY>`` over them; ``image: auto`` and the repos are ``resolve``'s."""
     environ = os.environ if environ is None else environ
-    found = yaml.safe_load(Path(path).read_text()) or {}
+    found = load_strict(Path(path).read_text(), path) or {}
     out = {}
     for key, value in found.items():
         value = environ.get(f'BOAT_SIM_{key.upper()}', value)

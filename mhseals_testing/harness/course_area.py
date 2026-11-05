@@ -15,6 +15,8 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.strict_yaml import load_strict
+
 FENCE_FILE = Path('~/.config/mhseals/fence.yaml')
 EARTH_M = 6378137.0
 ON_EXIT = ('alert', 'return')
@@ -113,9 +115,10 @@ class Corners:
 
 def load(path=FENCE_FILE):
     """The corners the operator's fence file holds (``course.corners``), [] when none."""
+    path = Path(path).expanduser()
     try:
-        day = yaml.safe_load(Path(path).expanduser().read_text()) or {}
-    except (OSError, yaml.YAMLError):
+        day = load_strict(path.read_text(), path) or {}
+    except (OSError, ValueError, yaml.YAMLError):
         return []
     course = day.get('course') if isinstance(day, dict) else None
     return pairs((course or {}).get('corners')) if isinstance(course, dict) else []
@@ -126,7 +129,7 @@ def save(corners=None, path=FENCE_FILE, on_exit=None):
     it unchanged; written whole."""
     path = Path(path).expanduser()
     try:
-        day = yaml.safe_load(path.read_text()) or {}
+        day = yaml.safe_load(path.read_text()) or {}    # lenient on purpose: a rewrite keeps all the operator wrote
     except (OSError, yaml.YAMLError):
         day = {}
     day = day if isinstance(day, dict) else {}

@@ -80,7 +80,7 @@ def read(sub, path=None):
     path = Path(path) if path else adapter.path()
     try:
         raw = path.read_text()
-        parsed = yaml.safe_load(raw) or {}
+        parsed = yaml.safe_load(raw) or {}   # history keeps any parseable version, even one a loader refuses
     except (OSError, yaml.YAMLError):
         return None
     if not isinstance(parsed, dict):
