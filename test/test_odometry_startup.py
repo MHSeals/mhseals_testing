@@ -19,7 +19,8 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
                                                                profile_name, context):
     import mhseals_nav
     from mhseals_nav.odometry_configuration import from_launch
-    from mhseals_nav.localization_configuration import compile_localization, simulation_clock
+    from mhseals_nav.localization_configuration import compile_localization
+    from mhseals_nav.layers import boolean
 
     share = Path(mhseals_nav.__file__).resolve().parent.parent
     source = share / 'launch/ekf.launch.py'
@@ -88,8 +89,7 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
             return kwargs
         namespace = dict(from_launch=from_launch, LaunchConfiguration=LaunchConfiguration,
                          Node=collect, TimerAction=collect,
-                         compile_localization=compile_localization,
-                         simulation_clock=simulation_clock)
+                         compile_localization=compile_localization, endpoint_boolean=boolean)
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         for started in (processes.started, partial.started):
             assert next(argv for key, argv in started if key == 'ekf') == children['ekf'].argv
