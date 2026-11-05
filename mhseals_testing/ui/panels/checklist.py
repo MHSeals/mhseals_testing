@@ -74,7 +74,7 @@ class Checklist:
         """Apply ``raw`` when it is a checklist key; True when consumed."""
         if raw in self.toggles:
             self.active = not self.active
-            app.notice = 'checklist: p pass · f fail · n note · Esc leaves' if self.active else 'checklist off'
+            app.say('checklist: p pass · f fail · n note · Esc leaves' if self.active else 'checklist off')
             return True
         if not self.active:
             return False
@@ -82,14 +82,14 @@ class Checklist:
             step = -1 if raw in ('up', 'k') else 1
             self.cursor = max(0, min(len(self.items) - 1, self.cursor + step))
         elif raw in ('p', 'f'):
-            app.notice = self.mark('pass' if raw == 'p' else 'fail')
+            app.say(self.mark('pass' if raw == 'p' else 'fail'))
         elif raw == 'n':
             note = app.ask_text('Checklist note', self.items[self.cursor]['text'] if self.items else '')
             if note:
-                app.notice = self.mark('note', note)
+                app.say(self.mark('note', note))
         elif raw == 'escape':
             self.active = False
-            app.notice = 'checklist off'
+            app.say('checklist off')
         else:
             return False
         return True

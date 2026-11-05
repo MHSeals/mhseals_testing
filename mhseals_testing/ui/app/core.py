@@ -138,7 +138,7 @@ class App(*mixins.ROSTER):
         self.running = None
         self._wall_offset = None
         self.tags = {}           # procedure, key and run_id of the run in progress
-        self.notice = theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel'
+        self.say(theme.OVERLAY_WARNING or 'Passive monitor; a opens the arm panel')
         self.command = (0.0, 0.0, 0.0)
         self.chords = False             # the manual mode, for the Command glyph's label
         self.manual_speed = None        # the last manual speed this session; None until manual ran
@@ -194,7 +194,7 @@ class App(*mixins.ROSTER):
     def offer_restore(self):
         """At start, disarmed: an interrupted run's backed-up C goes back to the YAML the driver starts from."""
         if not self.armed and self.staging().recover():
-            self.notice = 'An interrupted characterization was undone: the deployed C is back'
+            self.say('An interrupted characterization was undone: the deployed C is back')
 
     # Reasons offered by the run popup's X; an exclusion always carries one (critique K4).
     EXCLUDE_REASONS = ('operator error', 'wrong conditions', 'sensor fault', 'test run')

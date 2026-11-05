@@ -90,7 +90,7 @@ class LeaseMixin:
         self.cancel('revoked')
         arbiter.revoke(holder['id'])
         self.app.emit('viewer_revoke', viewer=viewer, claim=holder['id'], who=holder['who'])
-        self.app.notice = f"Agent {holder['who']} revoked from viewer {viewer}"
+        self.app.say(f"Agent {holder['who']} revoked from viewer {viewer}")
         self.reply(req, True, result={'revoked': holder['id']})
 
     def claim_state(self, claim_id, who):
@@ -146,9 +146,9 @@ class LeaseMixin:
         for cid, why in lapsed:
             self.expired_seen.add(cid)
             if cid in self.claim_who:
-                self.app.notice = (f'Agent {self.claim_who[cid]} {cid} lease expired: '
-                                   + (f'stopped{theme.SEPARATOR}neutral, hold (U releases)' if why == 'expired'
-                                      else 'disarmed and neutral, so no hold'))
+                self.app.say(f'Agent {self.claim_who[cid]} {cid} lease expired: '
+                             + (f'stopped{theme.SEPARATOR}neutral, hold (U releases)' if why == 'expired'
+                                else 'disarmed and neutral, so no hold'))
 
     def do_stop(self, req):
         """Space for the agent: hold, neutral, disarm. Always allowed, never needs a claim. The stop is the
@@ -257,8 +257,8 @@ class LeaseMixin:
         setting = self.operator_setting()
         if setting:                                 # switched mid-act: stop as E does, the claim stays
             self.arbiter.halt(setting.replace(' ', '_'))
-            self.app.notice = (f"Agent {act['who']} {act['claim']} stopped: {setting}{theme.SEPARATOR}"
-                               'neutral, hold (U releases)')
+            self.app.say(f"Agent {act['who']} {act['claim']} stopped: {setting}{theme.SEPARATOR}"
+                         'neutral, hold (U releases)')
             return f'overridden: {setting}'
         human = '' if act.get('arming') else self.human()
         if human:

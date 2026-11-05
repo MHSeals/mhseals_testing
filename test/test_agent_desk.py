@@ -213,6 +213,9 @@ class App:
         finally:
             self.modal = None
 
+    def say(self, text):
+        self.notice = text
+
     def now_advance(self, seconds):
         self.clock[0] += seconds
 
@@ -1478,6 +1481,7 @@ def test_the_status_rows_switches_reach_the_desk():
     seen = []
     app = SimpleNamespace(settings=SimpleNamespace(agents='allow'), arbiter=None, notice='',
                           desk=SimpleNamespace(setting_changed=lambda: seen.append('desk')))
+    app.say = lambda text: setattr(app, 'notice', text)
     BoatApp.toggle_agents(app)
     assert app.settings.agents == 'block' and seen == ['desk'] and app.notice == 'Agents block'
 

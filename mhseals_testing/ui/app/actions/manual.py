@@ -77,7 +77,7 @@ class Manual:
                      and reversed_ == list(saved['reversed']) and not moved)
         self.draft = None if unchanged else dict(channel_map=channel_map, reversed=reversed_,
                                                  **(dict(pwm_chips=chips) if moved else {}))
-        self.notice = 'Mapping unchanged' if unchanged else 'Unsaved mapping; s saves, u undoes'
+        self.say('Mapping unchanged' if unchanged else 'Unsaved mapping; s saves, u undoes')
 
     def on_thrusters(self, key):
         position = self.cursors['thrusters']
@@ -89,8 +89,8 @@ class Manual:
             self.clear_pulses('Test pulses neutral')
         elif action == 'activate':
             self.grabbed = None if self.grabbed is not None else position
-            self.notice = ('Moving ' + POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
-                           'Enter drops' if self.grabbed is not None else 'Dropped')
+            self.say('Moving ' + POSITIONS[position].upper() + f'; {UPDOWN} moves it, '
+                     'Enter drops' if self.grabbed is not None else 'Dropped')
         elif action in WIRES:
             output = WIRES[action]
             other = channel_map.index(output)
@@ -101,29 +101,29 @@ class Manual:
             self.edit_mapping(channel_map, reversed_)
         elif action == 'save':
             if self.draft is None:   # a pin change still unread: s retries the readback
-                self.notice = pins.verify(self) if self.pins_unverified else 'Nothing to save'
+                self.say(pins.verify(self) if self.pins_unverified else 'Nothing to save')
                 return
             moved = self.pins_moved()
             if moved and pins.busy(self):
-                self.notice = pins.REFUSED
+                self.say(pins.REFUSED)
                 return
             if moved:
                 pins.mark_pending(self)   # before the write: a failed reload cannot arm
             chips = dict(pwm_chips=self.draft['pwm_chips']) if moved else {}
             if self.save_hardware(channel_map=channel_map, reversed=reversed_, **chips):
-                self.notice = pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}'
+                self.say(pins.verify(self) if moved else f'Mapping saved to {self.config_file.name}')
         elif action == 'undo':
             self.drop_grab(draft=True)
-            self.notice = 'Mapping changes undone'
+            self.say('Mapping changes undone')
         elif action == 'thruster_set':
             self.run_procedure(next(p for p in PROCEDURES if p.key == key))
         elif action == 'clear_decoupling':
             if decoupled(self.args.hardware_config) is None:
-                self.notice = 'No decoupling to clear'
+                self.say('No decoupling to clear')
             elif self.choose('Clear the fitted decoupling? Thrust goes back to the plain mixer.',
                              ('Keep', 'Clear'), {'n': 0, 'y': 1}) == 'Clear':
                 if self.save_hardware(decoupling=list(sum(IDENTITY, ())), decoupling_negative=None):
-                    self.notice = 'Decoupling cleared'
+                    self.say('Decoupling cleared')
 
     def move_grabbed(self, step):
         """Swap the grabbed thruster's output and reversal with its neighbour's, and follow it."""
@@ -139,11 +139,11 @@ class Manual:
     def nudge(self, position, step):
         """Raw test pulse on one thruster's output, through the armed driver."""
         if not self.armed or self.profile.outputs == 'none':
-            self.notice = 'Arm first (a); test pulses go through the thruster driver'
+            self.say('Arm first (a); test pulses go through the thruster driver')
             return
         conflicts = ([self.pin_refusal()] if self.pin_refusal() else []) + self.plant.conflicts()
         if conflicts:
-            self.notice = f'Test pulses refused: {conflicts[0]}'
+            self.say(f'Test pulses refused: {conflicts[0]}')
             return
         pulses = list(self.test_pulses or [NEUTRAL] * 4)
         output = self.mapping()[0][position] - 1  # the draft wiring, to check it before saving
@@ -151,7 +151,7 @@ class Manual:
         self.test_pulses = pulses
         self.pulse_started()
         self.ros.emit('test_pulses', pulses=pulses)
-        self.notice = f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends'
+        self.say(f'Testing output {output + 1}: {pulses[output]} {MICRO}s; 0 or Tab ends')
 
     def set_command(self, command=(0.0, 0.0, 0.0)):
         """The commanded (surge, sway, yaw) the Command glyph shows; neutral by default."""
@@ -175,7 +175,7 @@ class Manual:
                     self.publish_pulses([NEUTRAL] * 4)
             self.ros.emit('test_pulses', pulses=[NEUTRAL] * 4)
         if notice:
-            self.notice = notice
+            self.say(notice)
 
     def end_manual(self, procedure):
         """Back to normal when manual control (m) ends, if manual is still the one m set."""
@@ -252,7 +252,8 @@ class Manual:
         if stale and not verdict.startswith('Test pulse at'):
             verdict = f'{verdict}. {stale}'
         if verdict != getattr(self, 'pulse_verdict', None):
-            self.pulse_verdict = self.notice = verdict
+            self.pulse_verdict = verdict
+            self.say(verdict)
             if not verdict.startswith('Test pulse at'):
                 self.ros.emit('test_pulses_unverified', pulses=list(pulses), held=held,
                               source=(output or {}).get('source'),
@@ -292,8 +293,8 @@ class Manual:
             self.focus = 'motion'
         active = ' '.join(f'{axis} {value:+.2f}' for axis, value in
                           zip(('surge', 'sway', 'yaw'), command) if value) or 'neutral'
-        self.notice = ('Manual control ended' if done else
-                       f"Manual {amplitude:.0%}{theme.SEPARATOR}{active}{theme.SEPARATOR}"
-                       + ('Chords' if chords else 'Timed combos' + (
-                           f' (no key releases: {why})' if (why := key_input.chords_unavailable(self.keys)) else '')))
+        self.say('Manual control ended' if done else
+                 f"Manual {amplitude:.0%}{theme.SEPARATOR}{active}{theme.SEPARATOR}"
+                 + ('Chords' if chords else 'Timed combos' + (
+                     f' (no key releases: {why})' if (why := key_input.chords_unavailable(self.keys)) else '')))
         self.refresh(force=done)

@@ -20,7 +20,7 @@ class Quit:
                               self.args.hardware_config, journal_events=journal.read(self.paths.journal),
                               conditions=self.conditions.summary())
         path = write_report(report, self.paths.report)
-        self.notice = f'Report saved: {path}'
+        self.say(f'Report saved: {path}')
         return path
 
     def sync_guests(self):
@@ -45,7 +45,7 @@ class Quit:
             pixels.forget()
             pixels.start(keys, self.console, self.write_terminal, theme.PALETTE.graphics)
             if pixels.WHY:      # an image setting that falls back says so once, with the reason
-                self.notice = f'Images off, braille: {pixels.WHY}'
+                self.say(f'Images off, braille: {pixels.WHY}')
             key_input.attach(keys, pixels.caps())
             # The mouse after the probe (its replies come first): the wheel scrolls, a button confirms a hold.
             real = isinstance(keys, key_input.KeyReader)

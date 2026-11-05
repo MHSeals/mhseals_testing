@@ -67,7 +67,7 @@ class Holds:
         self.plant.hold('watchdog')
         self.ros.emit('watchdog_hold', reason=reason)
         self.monitor.event('HOLD: ' + reason)
-        self.notice = f'Holding: {reason}'
+        self.say(f'Holding: {reason}')
 
     def mux_holding(self, since):
         """True when the mux reported input 'hold' at or after ``since`` (the arbiter's clock)."""
@@ -86,15 +86,15 @@ class Holds:
         if self.watching:
             self.operator_stop()
             control.request_revoke(self.client_name())
-            self.notice = 'Stopped; revoke sent to the controller'
+            self.say('Stopped; revoke sent to the controller')
             return
         arbiter = getattr(self, 'arbiter', None)
         holder = arbiter.table.holder() if arbiter is not None else None
         if holder is None or holder.get('owner') != 'agent':
-            self.notice = 'No agent claim to revoke'
+            self.say('No agent claim to revoke')
         else:
             arbiter.revoke(holder['id'])
-            self.notice = 'Agent revoked'
+            self.say('Agent revoked')
 
     def release_refusal(self):
         """Fresh, known mux state authorizes U; disarmed, the stopped mux's saved holds (the next arm restores them)."""
@@ -146,7 +146,7 @@ class Holds:
             return False
         refusal = self.release_refusal()
         if refusal or self.release_route() is None:
-            self.notice = refusal or 'Release hold is not available here'
+            self.say(refusal or 'Release hold is not available here')
             return False
         identity, resumer = self.release_resumer()
         title, message, requested, self._releasing = 'Release hold?', f'{resumer} resumes', False, True
@@ -158,7 +158,7 @@ class Holds:
                     refusal = 'Release refused: resumer changed; confirm again'
                 release = None if refusal else self.release_route()
                 requested = bool(release and release())
-                self.notice = refusal or ('Release requested' if requested else 'Release hold is not available here')
+                self.say(refusal or ('Release requested' if requested else 'Release hold is not available here'))
         except Cancelled:
             pass
         finally:
@@ -203,12 +203,12 @@ class Holds:
         if outside:
             text = course_area.status_line(status, held=bool(self.mux_holds()))[1]
             if not was:
-                self.notice = text
+                self.say(text)
                 self.toasts.push('fence.outside', 'fail', text, self.monitor.clock())
                 self.emit('fence_outside', distance=status.get('distance_to_edge'), on_exit=status.get('on_exit'))
             elif text != getattr(self, '_fence_text', None):
                 if self.notice == getattr(self, '_fence_text', None):
-                    self.notice = text
+                    self.say(text)
                 self.toasts.update('fence.outside', text)
             self._fence_text = text
         back = was and isinstance(status, dict) and status.get('inside') is True

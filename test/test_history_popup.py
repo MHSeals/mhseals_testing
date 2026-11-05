@@ -42,6 +42,9 @@ class FakeHardware(revert.Backend):
 
 
 class FakeApp:
+    def say(self, text):   # App.say, the notice's one writer
+        self.notice = text
+
     def __init__(self, text=None):
         self.text, self.notice, self.asked = text, '', []
 

@@ -81,7 +81,7 @@ def open_controls(app, restart=reload_.rtk_restart):
     """Run the controls; returns True when the base was restarted. Notices go to app.notice."""
     link = getattr(app, 'rtk_link', None)
     if link is None:
-        app.notice = 'no base'
+        app.say('no base')
         return False
     try:
         config = rtk.load_config()
@@ -91,7 +91,7 @@ def open_controls(app, restart=reload_.rtk_restart):
     except Cancelled:
         return False
     except (ValueError, OSError) as error:
-        app.notice = f'RTK base: {error}'
+        app.say(f'RTK base: {error}')
         return False
     link.reload.apply('rtk', config, new)
     held = link.reload.pending.setdefault('rtk', {}).setdefault(reload_.CHILD, [])
@@ -101,5 +101,5 @@ def open_controls(app, restart=reload_.rtk_restart):
         link.base.position = None            # else rtk_restart resumes the position in use
     done = restart(link.reload, link.base, new, positions, app.emit)
     what = 'survey' if reset and not positions else 'known position' if reset else 'settings'
-    app.notice = f'RTK base restarted{theme.SEPARATOR}{what}' if done else 'RTK base not restarted'
+    app.say(f'RTK base restarted{theme.SEPARATOR}{what}' if done else 'RTK base not restarted')
     return done

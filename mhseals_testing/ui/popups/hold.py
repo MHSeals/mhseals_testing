@@ -99,7 +99,7 @@ def swallow(app, keys, names, timing):
         return
     quiet = timing[key_input.terminal(keys).kind]['first_gap']
     last = app.clock()
-    app.notice = f"Confirmed{theme.SEPARATOR}let go of {', '.join(NAMES.get(name, name) for name in names)}"
+    app.say(f"Confirmed{theme.SEPARATOR}let go of {', '.join(NAMES.get(name, name) for name in names)}")
     while app.clock() - last < quiet:
         pressed = keys.read(timeout=READ_S)
         if pressed in STOP_KEYS:

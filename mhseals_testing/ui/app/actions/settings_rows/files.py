@@ -41,12 +41,12 @@ class Files:
             if change.name == 'hardware':
                 self.config_note = 'invalid edit'
             if change.report:
-                self.notice = f'Config rejected, keeping the last good one: {change.error}'
+                self.say(f'Config rejected, keeping the last good one: {change.error}')
             return
         if change.name == 'hardware':
             self.config_note = watched.path.name
-        self.notice = (f'Config read from {watched.path.name}{theme.SEPARATOR}{watched.warning}' if watched.warning
-                       else f'Config reloaded from {watched.path.name}')
+        self.say(f'Config read from {watched.path.name}{theme.SEPARATOR}{watched.warning}' if watched.warning
+                 else f'Config reloaded from {watched.path.name}')
         self.ros.emit('config_reloaded', file=change.name, sha=change.sha, result='ok',
                       path=str(watched.path))
 

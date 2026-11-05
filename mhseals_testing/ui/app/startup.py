@@ -336,7 +336,7 @@ def session_main(argv=None):
         app.authority_view = authority_feed.viewer(app, ros)   # a viewer shows the owner's record; None for the owner
         control_feed.start(app, registry, emit=None if watching else ros.emit)
         if os.environ.get('BOAT_TUI_NOTICE'):      # why this client restarted (a takeover), once
-            app.notice = os.environ.pop('BOAT_TUI_NOTICE')
+            app.say(os.environ.pop('BOAT_TUI_NOTICE'))
         app.run()
     except KeyboardInterrupt:  # before the page opened, or a second Ctrl+C while closing
         console.print('\n[yellow]Interrupted; stopping at neutral.[/]')

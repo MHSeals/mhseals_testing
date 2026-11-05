@@ -18,7 +18,7 @@ class ChannelMixin:
         for error in errors:
             if error not in self.errors:     # one notice per distinct error
                 self.errors.add(error)
-                self.app.notice = f'agent channel: {error}'
+                self.app.say(f'agent channel: {error}')
         records, self.deferred = self.deferred + records, []
         dry = False
         for record in records:
@@ -41,7 +41,7 @@ class ChannelMixin:
                 if record['kind'] == 'req':
                     self.reply(record, False, 'bad_args', hint=str(error))
                 else:
-                    self.app.notice = f"agent channel: bad {record['kind']}: {error}"
+                    self.app.say(f"agent channel: bad {record['kind']}: {error}")
 
     def persist(self):
         position = self.tail.position()

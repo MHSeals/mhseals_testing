@@ -91,7 +91,7 @@ class Loop:
         if not self.watching:
             self.fence_alert()
         if self.nav2_file is not None:
-            self.notice = self.nav2_file.poll() or self.notice
+            self.say(self.nav2_file.poll() or self.notice)
         if self.test_pulses is not None and self.publish_pulses is not None:
             self.publish_pulses(self.test_pulses)
         self.pulse_readback()
@@ -101,7 +101,7 @@ class Loop:
         perf.tick(self)
 
     def run(self):
-        perf.start(self)        # config/perf.yaml: rows-only output in place of Rich's Live, and the Meter
+        self.live_factory, self.perf = perf.start(self)   # config/perf.yaml: rows-only Live, and the Meter
         with self.attached():
             try:
                 self.offer_restore()
@@ -124,7 +124,7 @@ class Loop:
                         # already stopped at neutral (the runner neutralizes on any exit).
                         self.quit = True
                         self.modal = None
-                        self.notice = 'Interrupted'
+                        self.say('Interrupted')
                     except (EOFError, OSError) as error:
                         if not terminal_gone(error):
                             raise
@@ -132,7 +132,7 @@ class Loop:
                         # instead of lingering headless with the recorder and outputs.
                         self.quit = True
                         self.modal = None
-                        self.notice = 'Terminal closed'
+                        self.say('Terminal closed')
             finally:
                 self.close()  # on q and on Ctrl+C alike, while the page is still up
 
@@ -211,10 +211,10 @@ class Loop:
             return
         raw, key = key, fold(key)
         if keymap.matches('panel.thrusters', 'pins', raw) and self.focus == 'thrusters' and not self.review:  # action 'm' stays Manual
-            self.notice = pins.edit_pins(self)
+            self.say(pins.edit_pins(self))
             return
         if keymap.matches('panel.thrusters', 'pin', raw) and self.focus == 'thrusters' and not self.review:  # p stays Perception
-            self.notice = pins.edit_row_pin(self, self.cursors['thrusters'])
+            self.say(pins.edit_row_pin(self, self.cursors['thrusters']))
             return
         if (keymap.matches('panel.activity', 'exclude', raw) and self.focus == 'activity' and not self.review
                 and self.activity == 'results'):
@@ -233,7 +233,7 @@ class Loop:
             return
         if self.tab == 'Fusion' and not self.review and self.fusion_keys.get(raw) == 'camera_image':
             self.fusion_image = not self.fusion_on()
-            self.notice = f"camera image {'on' if self.fusion_image else 'off'}"
+            self.say(f"camera image {'on' if self.fusion_image else 'off'}")
             return
         panels = self.panels()
         if action in ('tab_prev', 'tab_next'):
@@ -259,7 +259,7 @@ class Loop:
         elif action == 'back':  # backs out; never quits
             if self.grabbed is not None:
                 self.drop_grab()
-                self.notice = 'Dropped'
+                self.say('Dropped')
         elif action == 'help':
             self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(getattr(getattr(self, 'console', None), 'width', None)))
         elif action == 'arm':
@@ -272,7 +272,7 @@ class Loop:
         elif action in ('amplitude_up', 'amplitude_down'):
             step = 0.05 if action == 'amplitude_up' else -0.05
             self.set_setting('amplitude', round(min(1.0, max(0.05, self.settings.amplitude + step)), 2))
-            self.notice = f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}'
+            self.say(f'Amplitude {self.settings.amplitude:g} {self.profile.command_units}')
         elif (key in {p.key for p in PROCEDURES} and raw == key and self.tab == 'Drive'  # Shift is never a procedure
               and not (self.focus in PANEL_SCOPES and keymap.dispatch(PANEL_SCOPES[self.focus], key))  # thrusters s,
               and not (self.focus == 'minimap' and key in self.map_keys)):  # activity v, status e; view.minimap e centres

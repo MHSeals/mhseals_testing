@@ -202,17 +202,17 @@ class Arm:
                     self.plant.release()
         finally:
             self.toasts.push('arm.error', 'fail', text, self.monitor.clock())
-            self.notice = f'{text}; outputs neutral'
+            self.say(f'{text}; outputs neutral')
 
     def _arm_panel(self):
         if self.review:
-            self.notice = 'Review: arming is off'
+            self.say('Review: arming is off')
             return
         if not self.source.live:
-            self.notice = 'Arming is disabled in review'
+            self.say('Arming is disabled in review')
             return
         if self.watching:
-            self.notice = f'Watching pid {self.watching}: no arming'
+            self.say(f'Watching pid {self.watching}: no arming')
             return
         title = f'Arm{theme.SEPARATOR}{self.profile.name}'
         try:
@@ -226,7 +226,7 @@ class Arm:
                 raise RuntimeError('this session cannot arm (no ROS)')
             refusal = self.thruster_refusal() or self.pin_refusal() or self.watchdog_refusal()
             if refusal:
-                self.notice = f'Arming refused: {refusal}'
+                self.say(f'Arming refused: {refusal}')
                 return
             if drives_pwm_pins(self.profile):
                 ok = self.confirm_drive(title)
@@ -238,11 +238,11 @@ class Arm:
         except Cancelled:
             ok = False
         if not ok:
-            self.notice = 'Arming cancelled'
+            self.say('Arming cancelled')
             return
         refusal = self.watchdog_refusal()      # one may have gone while the operator typed
         if refusal:
-            self.notice = f'Arming refused: {refusal}'
+            self.say(f'Arming refused: {refusal}')
             return
         # Another /cmd_vel source (Nav2) doesn't stop arming: Nav2 procedures need it, and
         # suite-commanded motion refuses to run beside it on every tick (motion_blockers).
@@ -254,7 +254,7 @@ class Arm:
         self.armed_by = None                     # the operator's arm; an agent's sets {'who', 'sim'}
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware))
-        self.notice = 'Armed at neutral'
+        self.say('Armed at neutral')
         if arbiter is not None:
             self.settle_mux(arbiter, since)
 
@@ -286,7 +286,7 @@ class Arm:
         self.ros.emit('armed', profile=self.profile.name, outputs=self.profile.outputs,
                       config=str(self.paths.hardware), by='agent', who=who, sim_arm=list(checks))
         what = 'sim auto-arm' if sim else 'agent arm'
-        self.notice = f'Armed for agent {who} ({what})'
+        self.say(f'Armed for agent {who} ({what})')
         why = ''
         if not self.await_mux(arbiter, since, lambda mux: True):
             why = 'the mux did not report after arming'
@@ -306,7 +306,7 @@ class Arm:
         next would meet a stale or held mux. Only the human releases, through U's own confirm.
         """
         if not self.await_mux(arbiter, since, lambda mux: True):
-            self.notice = 'Armed; the mux has not reported yet'
+            self.say('Armed; the mux has not reported yet')
         elif self.override_cause() == 'hold':
             since = arbiter.clock()
             if self.release_hold():
@@ -349,8 +349,8 @@ class Arm:
             self.arming.begin(self.read_boat_config())
         started = self.clock()
         while self.arming.poll() == 'starting':  # raises when the driver fails
-            self.notice = (f'Arming: starting the thruster driver '
-                           f'{self.clock() - started:.0f} s{theme.SEPARATOR}Space cancels')
+            self.say(f'Arming: starting the thruster driver '
+                     f'{self.clock() - started:.0f} s{theme.SEPARATOR}Space cancels')
             self.refresh()
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
@@ -372,8 +372,8 @@ class Arm:
         thread.start()
         started = self.clock()
         while thread.is_alive():
-            self.notice = (f'Arming: reading the boat config on {remote.host.name} '
-                           f'{self.clock() - started:.0f} s{theme.SEPARATOR}Esc cancels')
+            self.say(f'Arming: reading the boat config on {remote.host.name} '
+                     f'{self.clock() - started:.0f} s{theme.SEPARATOR}Esc cancels')
             self.refresh()
             key = self.keys.read(0.1) if self.keys is not None else None
             if key is None and self.keys is None:
@@ -398,7 +398,7 @@ class Arm:
             self.armed_by = None
             self.watcher.watches['hardware'].warning = None
             self.ros.emit('disarmed', reason=reason, by=by)
-        self.notice = f'{reason}; outputs neutral'
+        self.say(f'{reason}; outputs neutral')
 
     def operator_stop(self, agent=None):
         """Space requests a sticky manual hold, then always neutralizes and disarms. ``agent`` is the id of an

@@ -21,8 +21,8 @@ class Operator:
         record = operator_state.start()
         after = record.get('restarted_after')
         if after:
-            self.notice = (f"Restarted after {operator_state.LABELS.get(after.get('state'), '?')} at "
-                           f"{operator_state.clock(after.get('since_ns'))}: agents re-check the stack, FCU and RTK")
+            self.say(f"Restarted after {operator_state.LABELS.get(after.get('state'), '?')} at "
+                     f"{operator_state.clock(after.get('since_ns'))}: agents re-check the stack, FCU and RTK")
             self.emit('operator_restart', restarted_after=after, operator=operator_state.summary(record))
         self.operator_sync(record)
 
@@ -31,7 +31,7 @@ class Operator:
         record = operator_state.save(operator_state.change(state, eta_s, reason, by, prev=operator_state.load()))
         self.emit('operator_state', state=state, operator=operator_state.summary(record))
         if notice:
-            self.notice = 'O' + operator_state.text(record)[1:]
+            self.say('O' + operator_state.text(record)[1:])
         self.operator_sync(record)
         return record
 
@@ -45,13 +45,13 @@ class Operator:
                 desk.operator_paused()
         elif arbiter is not None:
             for claim in arbiter.resume():
-                self.notice = (f"Agent {claim['who']} {claim['id']} ended: not heard from while paused "
-                               f"(no hold){theme.SEPARATOR}it claims again")
+                self.say(f"Agent {claim['who']} {claim['id']} ended: not heard from while paused "
+                         f"(no hold){theme.SEPARATOR}it claims again")
 
     def operator_menu(self):
         """S: declare manual, battery swap, power cycle (optional ETA) or normal."""
         if self.review or self.watching:
-            self.notice = 'Review: no operator state' if self.review else 'viewer: O takes control'
+            self.say('Review: no operator state' if self.review else 'viewer: O takes control')
             return
         now = operator_state.load()
         options = ('Normal', 'Manual', 'Battery swap', 'Power cycle', 'Cancel')
@@ -79,7 +79,7 @@ class Operator:
         """O: a viewer takes control after a confirm; it restarts as the owner (``--take``, same pid and
         terminal). The owner stops at neutral, disarms and hands its children over; its agent claim ends."""
         if not self.watching:
-            self.notice = 'You control this session' if not self.review else 'Review: nothing to control'
+            self.say('You control this session' if not self.review else 'Review: nothing to control')
             return
         tracked = feeds_module.merged(self.feeds).get('control_tracker') or {}
         ctl = tracked.get('controller') or {}

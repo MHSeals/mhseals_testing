@@ -10,6 +10,9 @@ from test_components import FakeProcesses, FakeUnits, Profile, items
 
 
 class App:
+    def say(self, text):   # App.say, the notice's one writer
+        self.notice = text
+
     def __init__(self, answer='Start', armed=False):
         units = FakeUnits()
         self.stack = Stack(items(Profile), FakeProcesses(), lambda: 0.0, units)

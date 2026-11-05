@@ -63,7 +63,7 @@ class Popups:
             feed = self.camera_feed()
             if feed is None:
                 state['note'] = 'camera view needs a ROS node (none in this session)'
-                self.notice = state['note']
+                self.say(state['note'])
                 return
             state['note'] = ''
             node = getattr(getattr(self, 'ros', None), 'node', None)
@@ -144,7 +144,7 @@ class Popups:
             try:
                 found = live.preview(source.requested(previewed))
             except Exception as error:  # the page must survive a ROS failure
-                self.notice = f'Nav2 preview failed: {error}'
+                self.say(f'Nav2 preview failed: {error}')
                 return
             rows = [(row['key'], f'{theme.DASH if row["old"] is None else row["old"]} '
                                  f'{theme.ARROW} {row["new"]}'
@@ -164,7 +164,7 @@ class Popups:
         except Cancelled:
             return
         if answer == label:
-            self.notice = source.apply(previewed)
+            self.say(source.apply(previewed))
 
     def prompt(self, message, title='Ready'):
         # Owner decision 2026-10-26: a --sim-arm run whose checks passed (the desk marks its act ready, and
@@ -173,7 +173,7 @@ class Popups:
         who = act['who'] if act and act.get('ready') else None
         if who and title == 'Ready' and self.armed:
             self.ros.emit('ready', by='agent', who=who, sim_arm=True, message=message)
-            self.notice = f'Ready confirmed by agent {who} (sim auto-arm)'
+            self.say(f'Ready confirmed by agent {who} (sim auto-arm)')
             return ''
         return popups.prompt(self, message, title)
 

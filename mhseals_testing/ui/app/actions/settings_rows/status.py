@@ -25,7 +25,7 @@ class StatusRows:
             state = self.map_state()
             client = self.fence_client()
             if state is not None and client is not None:
-                self.notice = course.toggle_on_exit(self, client, state.fence_status)
+                self.say(course.toggle_on_exit(self, client, state.fence_status))
         elif step and self.row_setting(rows) == 'agent_motion':
             agent_feed.step_setting(self, self.row_setting(rows), step)
         elif step and self.row_setting(rows) == 'recording':
@@ -48,7 +48,7 @@ class StatusRows:
                 if row['name'] == 'Driving':
                     return self.open('authority')
                 if row['name'] == 'Course area' and not self.watching:
-                    self.notice = course.open_course(self)
+                    self.say(course.open_course(self))
                     return None
                 if row['name'] == 'Hold':
                     return stop_popup.open_stop(self) if row.get('stop') else self.release_hold()
@@ -70,7 +70,7 @@ class StatusRows:
     def toggle_agents(self):
         """Flip the Agents setting (block: the desk refuses new agent claims)."""
         self.settings.agents = 'block' if self.settings.agents == 'allow' else 'allow'
-        self.notice = f'Agents {self.settings.agents}'
+        self.say(f'Agents {self.settings.agents}')
         desk = getattr(self, 'desk', None)
         if desk is not None:
             desk.setting_changed()           # block stops an agent run in flight, as E does

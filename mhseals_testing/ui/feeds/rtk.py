@@ -106,8 +106,8 @@ class RtkFeed:
         if switches is None:
             return
         if self.switches is not None and switches > self.switches:
-            app.notice = (f'RTK corrections switched to {self.current.kind}: '
-                          'the fix moves by the base survey error / datum offset')
+            app.say(f'RTK corrections switched to {self.current.kind}: '
+                    'the fix moves by the base survey error / datum offset')
         self.switches = switches
 
     def _link_facts(self, status):

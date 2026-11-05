@@ -83,6 +83,9 @@ def test_owner_words():
 
 
 class FakeApp:
+    def say(self, text):   # App.say, the notice's one writer
+        self.notice = text
+
     def __init__(self, keys, table):
         self.arbiter = SimpleNamespace(record=dict(record(), t_ns=int(NOW * NS), claims=table.claims),
                                          clock=lambda: NOW, table=table,

@@ -234,7 +234,7 @@ class QueueMixin:
             return checks
         hold_store.save(facts.hold_file, {})
         app.emit('sim_arm_stale_holds', who='agent', cleared=list(facts.holds), hold_file=facts.hold_file)
-        app.notice = f"Sim auto-arm cleared a previous session's holds: {', '.join(facts.holds)}"
+        app.say(f"Sim auto-arm cleared a previous session's holds: {', '.join(facts.holds)}")
         return self.sim_checks()[1]
 
     def arm_sim(self, act):

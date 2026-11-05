@@ -159,14 +159,13 @@ SCHEMA = 'mhseals.perf/1'
 
 
 def start(app):
-    """Before the session's screen opens: DiffLive in place of Rich's Live (config ``diff``; a Live the caller
-    chose stays), and the Meter as ``app.perf``."""
+    """Before the session's screen opens: (live_factory, meter) for the loop to keep. DiffLive in place of Rich's
+    Live (config ``diff``; a Live the caller chose stays), and the Meter that becomes ``app.perf``."""
     from rich.live import Live
     from mhseals_testing.ui import difflive
-    if getattr(app, 'live_factory', None) is Live:
-        app.live_factory = difflive.live_class()
-    if getattr(app, 'perf', None) is None:
-        app.perf = Meter()
+    live = getattr(app, 'live_factory', None)
+    meter = getattr(app, 'perf', None)
+    return difflive.live_class() if live is Live else live, Meter() if meter is None else meter
 
 
 def period(app, default):

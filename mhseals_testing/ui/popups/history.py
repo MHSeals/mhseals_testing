@@ -301,7 +301,7 @@ def confirm(state, app):
     out = revert.execute(state.history, state.backends, state.env, plan)
     say(state, f"Reverted {plan.sub} to {plan.target['id']}" if out.status == 'reverted' else f'{out.status}: {out.detail}',
         bad=out.status != 'reverted')
-    app.notice = state.message.plain
+    app.say(state.message.plain)
 
 
 def open_history(app, sub=None):

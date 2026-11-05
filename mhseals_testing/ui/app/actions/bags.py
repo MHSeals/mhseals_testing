@@ -40,13 +40,13 @@ class Bags:
         if self.rec.stop_for_disk:
             self.ros.emit('marker', kind='system', note=DISK_MARKER)   # first, so it lands in the bag
             self.set_recording('off', reason='disk')
-            self.notice = f'{DISK_MARKER} ({self.rec.free_gb:.1f} GB free)'
+            self.say(f'{DISK_MARKER} ({self.rec.free_gb:.1f} GB free)')
 
     def set_recording(self, mode, reason='operator'):
         """Recording row: end the running segment (``rec_stop``), start the next unless ``off`` (``rec_start``)."""
         with self.recording_lock:
             if mode != 'off' and self.paths.directory.resolve() == self.finalizing:
-                self.notice = 'Recording refused while this session is being finalized'
+                self.say('Recording refused while this session is being finalized')
                 return
             self._set_recording(mode, reason)
 
@@ -58,7 +58,7 @@ class Bags:
         self.rebuild_index()                      # INDEX.json at each segment close
         if segment is not None:
             self.ros.emit('rec_start', segment=segment.name, mode=mode)
-        self.notice = f'Recording {mode}' + (f' {segment.name}' if segment else '')
+        self.say(f'Recording {mode}' + (f' {segment.name}' if segment else ''))
 
     def rebuild_index(self):
         """Rewrite INDEX.json and README.md; a failure is logged to the notice, never fatal."""
@@ -68,7 +68,7 @@ class Bags:
         try:
             index.rebuild(sessions.parent)
         except OSError as error:
-            self.notice = f'Index not rebuilt: {error}'
+            self.say(f'Index not rebuilt: {error}')
 
     def step_recording(self, key):
         """left/right on the Recording row moves along lean, full, off without wrapping."""
@@ -108,7 +108,7 @@ class Bags:
     def selected_bag(self):
         found = self.bags_view()[0]
         if not found:
-            self.notice = 'No sessions'
+            self.say('No sessions')
             return None
         return found[self.cursors['list']]
 
@@ -143,13 +143,13 @@ class Bags:
         except Cancelled:
             pass
         except (OSError, ValueError) as error:
-            self.notice = f'{key}: {error}'
+            self.say(f'{key}: {error}')
 
     def pin_bag(self, bag):
         self.check_bag(bag)
         bags_module.set_meta(bag, pinned=not bag.pinned)
         self.refresh_bag_index(bag)
-        self.notice = f'{"Pinned" if bag.pinned else "Unpinned"} {bag.id}'
+        self.say(f'{"Pinned" if bag.pinned else "Unpinned"} {bag.id}')
 
     def title_bag(self, bag):
         self.check_bag(bag)
@@ -158,7 +158,7 @@ class Bags:
             self.check_bag(bag)
             bags_module.set_meta(bag, title=title.strip())
             self.refresh_bag_index(bag)
-            self.notice = f'Titled {bag.id}'
+            self.say(f'Titled {bag.id}')
 
     def delete_bag(self, bag):
         self.check_bag(bag, destructive=True)
@@ -169,7 +169,7 @@ class Bags:
                 bags_module.delete(bag)
             finally:
                 self.refresh_bag_index(bag)
-            self.notice = f'Deleted {bag.id}'
+            self.say(f'Deleted {bag.id}')
 
     def prune_bags(self, _bag):
         eligible = []
@@ -184,7 +184,7 @@ class Bags:
         budget = bags_module.budget_bytes() - sum(b.size for b in protected)
         doomed = bags_module.prune_candidates(eligible, budget)
         if not doomed:
-            self.notice = 'Nothing to prune'
+            self.say('Nothing to prune')
             return
         if self.choose(f'Prune {len(doomed)} sessions?', ('Delete', 'Cancel'), {'y': 0},
                        default=1, danger=True, rows=[(b.id, '') for b in doomed]) != 'Delete':
@@ -195,7 +195,7 @@ class Bags:
                 self.check_bag(bag, destructive=True)
                 attempted = True
                 bags_module.delete(bag)
-            self.notice = f'Pruned {len(doomed)} sessions'
+            self.say(f'Pruned {len(doomed)} sessions')
         finally:
             if attempted:
                 self.refresh_bag_index(doomed[0])
@@ -204,19 +204,19 @@ class Bags:
         """Claim one session before starting the quiet worker; recording cannot enter it."""
         with self.recording_lock:
             if self.armed or self.moving():
-                self.notice = 'Finalize refused while armed or moving'
+                self.say('Finalize refused while armed or moving')
                 return
             if self.finalizing is not None:
-                self.notice = 'Finalize is still running'
+                self.say('Finalize is still running')
                 return
             self.check_bag(bag)
             segments = sorted({f.parent for f in bag.path.rglob('*.mcap')
                                if not (f.parent / 'metadata.yaml').exists()})
             if not segments:
-                self.notice = f'{bag.id}: nothing to finalize'
+                self.say(f'{bag.id}: nothing to finalize')
                 return
             self.finalizing = bag.path.resolve()
-            self.notice = f'Finalize {bag.id}: {len(segments)} segments in the background'
+            self.say(f'Finalize {bag.id}: {len(segments)} segments in the background')
             self.finalize_thread = threading.Thread(target=self._finalize, args=(bag, segments), daemon=True)
             try:
                 self.finalize_thread.start()
@@ -244,16 +244,16 @@ class Bags:
                     results.append(result['status'])
                 finally:
                     changed |= before != self.segment_stamp(segment)
-            self.notice = f'Finalize {bag.id}: ' + ', '.join(
-                f'{results.count(r)} {r}' for r in dict.fromkeys(results))
+            self.say(f'Finalize {bag.id}: ' + ', '.join(
+           f'{results.count(r)} {r}' for r in dict.fromkeys(results)))
         except Exception as error:
-            self.notice = f'Finalize {bag.id}: {error}'
+            self.say(f'Finalize {bag.id}: {error}')
         finally:
             try:
                 if changed:
                     self.refresh_bag_index(bag)
             except Exception as error:
-                self.notice = f'Finalize {bag.id}: index update failed: {error}'
+                self.say(f'Finalize {bag.id}: index update failed: {error}')
             finally:
                 with self.recording_lock:
                     self.finalizing = None
@@ -264,9 +264,9 @@ class Bags:
         if number is None:
             number = found[-1]['id'] if found else None
         if number is None:
-            self.notice = 'No marker yet; b adds one'
+            self.say('No marker yet; b adds one')
         elif self.moving():
-            self.notice = 'Not while moving'
+            self.say('Not while moving')
         else:
             note = self.text_input(f'Marker {number}', 'Note for the marker (optional)')
             if note:
@@ -303,7 +303,7 @@ class Bags:
         elif keymap.matches('panel.activity', 'view_next', key) and self.focus == 'activity':
             return False            # the view switch is read-only
         elif key in {p.key for p in PROCEDURES} or keymap.dispatch(('global', 'tab.drive'), key) in REVIEW_REFUSED:
-            self.notice = 'Review: arming, procedures and edits are off'
+            self.say('Review: arming, procedures and edits are off')
         else:
             return False
         return True
@@ -319,7 +319,7 @@ class Bags:
         if self.review:
             return
         if self.armed or self.manual or self.running or self.test_pulses is not None:
-            self.notice = 'Review: disarm and stop motion or test pulses first'
+            self.say('Review: disarm and stop motion or test pulses first')
             return
         header = review_metadata(bag.meta_path)
         self.check_bag(bag, metadata=header)
@@ -344,7 +344,7 @@ class Bags:
         self.focus, self.cursors = 'activity', dict.fromkeys(CURSORS, 0)
         self.activity = 'log'
         self.restart_ticks()
-        self.notice = f'Review {bag.id}; Esc returns to live'
+        self.say(f'Review {bag.id}; Esc returns to live')
 
     def review_failed(self, error):
         """Playback hit a data error: a review over live returns to live; a standalone one stays paused, unread."""
@@ -355,7 +355,7 @@ class Bags:
             self.leave_review()          # live owners and recording were never touched
         else:
             self._review_fault = True
-        self.notice = message
+        self.say(message)
 
     def leave_review(self):
         """Back to live; a session opened with --review has no live to return to, so it quits."""
@@ -367,7 +367,7 @@ class Bags:
                                                        for name in ('focus', 'cursors', 'activity'))
             self.rebuild(review=None, **live)
             self.restart_ticks()
-            self.notice = 'Left review'
+            self.say('Left review')
 
     def on_activity(self, key):
         action = keymap.dispatch(('global', 'panel.activity'), key)
