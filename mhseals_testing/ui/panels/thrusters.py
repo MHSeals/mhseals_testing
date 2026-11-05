@@ -4,8 +4,8 @@ import re
 
 from rich.text import Text
 
-from mhseals_hardware.odroid_pwm import J2_PINS
 from mhseals_hardware.thruster_mixer import POSITIONS, thruster_pulses, validate_decoupling
+from mhseals_testing.profiles import OUTPUT_CAPABILITIES, pin_map
 from mhseals_testing.ui import theme
 from mhseals_testing.ui.panels import TITLES
 from mhseals_testing.ui.popups.pins import output_pin
@@ -51,7 +51,7 @@ def split_decoupling(config):
 def pin_of(config, output):
     """The J2 pin ``output`` is on: from the configured chip path, '?' for one off the pin table."""
     if 'pwm_chips' not in config:
-        return J2_PINS[output][0]
+        return pin_map()[output][0]
     pin = output_pin(config['pwm_chips'], output)
     return '?' if pin is None else pin
 
@@ -83,12 +83,12 @@ def thruster_rows(view):
 def thrusters_panel(view, compact=False, pins=True):
     """Thruster table; ``compact`` (also forced by the Pin column) drops the unit and effort bar.
 
-    ``pins`` False drops the odroid Pin column where the panel is too narrow for it.
+    ``pins`` False drops the Pin column (outputs that drive PWM pins) where the panel is too narrow for it.
     """
     focused = view['focus'] == 'thrusters'
     cursor = view['cursors'].get('thrusters', 0)
     testing = view['test_pulses'] is not None
-    pins = pins and view['outputs'] == 'odroid'
+    pins = pins and 'pwm_pins' in OUTPUT_CAPABILITIES.get(view['outputs'], ())
     compact = compact or pins  # the Pin column leaves no room for the bar
     columns = (['   Thr', 'Out', 'Rev', {'header': theme.pick('µs', 'us'), 'justify': 'right'}] if compact else
                ['    Thr', 'Out', 'Rev', {'header': 'Pulse', 'justify': 'right'}, 'Effort'])
@@ -123,7 +123,7 @@ def thrusters_panel(view, compact=False, pins=True):
     driver = view.get('driver') or {}
     parts = ['testing' if testing else driver.get('owner') or view['outputs']]
     if pins and driver.get('mosfet') is not None:
-        parts.append(f"p{J2_PINS['mosfet'][0]} {'on' if driver['mosfet'] else 'off'}")
+        parts.append(f"p{pin_map()['mosfet'][0]} {'on' if driver['mosfet'] else 'off'}")
     saved = view['hardware']
     if saved.get('decoupling_negative') not in (None, saved['decoupling']):
         parts.append('C± split')

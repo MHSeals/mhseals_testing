@@ -55,6 +55,12 @@ OUTPUT_CAPABILITIES = {
     'topic': frozenset({'arm', 'pwm_topic'}),
 }
 OUTPUTS = tuple(OUTPUT_CAPABILITIES)   # ('none', 'odroid', 'topic')
+# What each outputs value drives, as the Arm confirm's Outputs row says it ({pwm_topic}: the hardware config's).
+OUTPUT_DESCRIPTIONS = {
+    'none': 'commands straight to the plant',
+    'odroid': 'ODROID PWM pins (real thrusters)',
+    'topic': 'simulator over ROS ({pwm_topic})',
+}
 ARMED_OUTPUTS = tuple(name for name in OUTPUTS if 'arm' in OUTPUT_CAPABILITIES[name])
 
 
@@ -216,6 +222,11 @@ def pin_map():
 def drives_pwm_pins(profile):
     """``profile.drives_pwm_pins`` for any object: False for None or one without outputs."""
     return 'pwm_pins' in OUTPUT_CAPABILITIES.get(getattr(profile, 'outputs', None), ())
+
+
+def outputs_description(profile, pwm_topic):
+    """OUTPUT_DESCRIPTIONS for the profile's outputs, its ``{pwm_topic}`` filled."""
+    return OUTPUT_DESCRIPTIONS[profile.outputs].format(pwm_topic=pwm_topic)
 
 
 def _require(data, key, kind, where):

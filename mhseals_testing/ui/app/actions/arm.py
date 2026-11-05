@@ -6,6 +6,7 @@ import traceback
 
 from mhseals_hardware.menu import Cancelled
 from mhseals_testing.devices import DeviceError
+from mhseals_testing.profiles import drives_pwm_pins, outputs_description
 from mhseals_testing.readiness import arm_nodes, arm_refusal, liveness_refusal, motion_blockers
 from mhseals_testing.ros.arming import muxed
 from mhseals_testing.ui import input as key_input
@@ -90,7 +91,7 @@ class Arm:
         or the camera host running a boat profile must not, except by arming that host remotely
         (ros/arm_link.py, set up at session start). An unreadable registry refuses too.
         """
-        if self.profile.outputs != 'odroid':
+        if not drives_pwm_pins(self.profile):
             return ''
         try:
             me = self.profile.placed[0]
@@ -132,9 +133,8 @@ class Arm:
     def arm_rows(self):
         """What arming means right now: outputs, driver, config and every interlock."""
         remote = getattr(self.arming, 'remote', None)
-        outputs = {'odroid': 'ODROID PWM pins (real thrusters)' + (f' on {remote.describe()}' if remote else ''),
-                   'topic': f'simulator over ROS ({self.args.hardware_config["pwm_topic"]})',
-                   'none': 'commands straight to the plant'}[self.profile.outputs]
+        outputs = outputs_description(self.profile, self.args.hardware_config['pwm_topic']) \
+            + (f' on {remote.describe()}' if remote and drives_pwm_pins(self.profile) else '')
         driver = ('running' if self.armed else 'starts on arm') if self.profile.outputs != 'none' \
             else 'none'
         rows = [(widgets.SECTION, 'Will drive'), ('Outputs', outputs),
@@ -223,7 +223,7 @@ class Arm:
             if refusal:
                 self.notice = f'Arming refused: {refusal}'
                 return
-            if self.profile.outputs == 'odroid':
+            if drives_pwm_pins(self.profile):
                 ok = self.confirm_drive(title)
             elif key_input.by_hold('arm'):
                 ok = self.hold_confirm(title, 'arm', rows=self.arm_rows(), key='a', width=72, quiet=True)

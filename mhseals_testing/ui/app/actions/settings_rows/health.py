@@ -1,6 +1,7 @@
 """Health advisories and the health engine: the Status rows' advisory samples, facts and snapshots."""
 
 from mhseals_testing.health import legacy as health
+from mhseals_testing.profiles import drives_pwm_pins
 from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input
 
 
@@ -44,7 +45,7 @@ class Health:
             self.monitor.advise('PWM driver', *health.pwm_driver(
                 self.ros.nodes(), self.ros.subscribers(topic), topic,
                 self.armed, self.processes.running('hardware')))
-        if self.profile.outputs == 'odroid':
+        if drives_pwm_pins(self.profile):
             config = self.args.hardware_config
             level, detail, self.pwm_readback = health.pwm_readback(
                 config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])

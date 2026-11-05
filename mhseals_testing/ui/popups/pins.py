@@ -2,7 +2,7 @@
 
 ``M`` edits the PWM channels and the MOSFET line: ``0 0 0 0 29`` is four channel
 numbers (outputs 1-4) then the line. ``P`` moves the selected thruster's output to
-another J2 header pin, one of the board's PWM pins (odroid_pwm.J2_PINS) that no
+another J2 header pin, one of the board's PWM pins (profiles.pin_map) that no
 other output uses; it is a draft that ``s`` saves. A saved pin change must pass
 the sysfs readback before arming.
 """
@@ -14,13 +14,14 @@ from pathlib import Path
 
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.menu import Cancelled
-from mhseals_hardware.odroid_pwm import J2_PINS
 from mhseals_hardware.thruster_mixer import POSITIONS
 from mhseals_testing.health.pwm_sysfs import sample
+from mhseals_testing.profiles import drives_pwm_pins, pin_map
 from mhseals_testing.ui import theme
 
 READBACK_TIMEOUT = 5.0   # seconds the restarted driver gets to export and enable the outputs
-PWM_PINS = {pin: chip for output, (pin, _pad, _pwm, chip) in J2_PINS.items() if output != 'mosfet'}
+PWM_PINS = {pin: chip for output, (pin, _pad, _pwm, chip) in pin_map().items() if output != 'mosfet'}
+MOSFET_PIN = pin_map()['mosfet'][0]
 REFUSED = 'Pins refused: disarm first, pins move real outputs'
 # Only the table's pins: each has its own controller. Another pad on a used PWM (J2 pin 22 is
 # PWM3's other mux, beside pin 12) would carry the same pulse, so it is not offered.
@@ -77,7 +78,7 @@ def refusal(app):
         return 'pins changed, not read back yet: s runs the readback'
     if app.pins_moved():
         return 'unsaved pin change: s saves and reads it back, u undoes'
-    if app.profile.outputs == 'odroid':
+    if drives_pwm_pins(app.profile):
         digest = verified_hash(app)
         if digest is not None and digest != pin_hash(app.args.hardware_config):
             return 'pins differ from the last readback: s runs the readback'
@@ -95,7 +96,7 @@ def parse_pin(text, chips, output):
         pin = int(text)
     except ValueError:
         raise ValueError('a J2 pin number') from None
-    if pin == J2_PINS['mosfet'][0]:
+    if pin == MOSFET_PIN:
         raise ValueError(f'pin {pin} is the MOSFET enable')
     if pin not in PWM_PINS:
         raise ValueError(f"pin {pin} has no PWM; use {' '.join(map(str, sorted(PWM_PINS)))}")
@@ -171,7 +172,7 @@ def verify(app):
     """
     if busy(app):
         return REFUSED
-    if app.profile.outputs != 'odroid' or app.arming is None:
+    if not drives_pwm_pins(app.profile) or app.arming is None:
         app.pins_unverified = False   # nothing to read back; the marker keeps the real driver waiting
         return 'Pins saved; no ODROID driver in this profile, nothing restarted'
     app.pins_unverified = True
