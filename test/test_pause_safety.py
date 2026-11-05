@@ -24,7 +24,7 @@ def paused_app(tmp_path, monkeypatch, poll):
     app, boat = make_app(tmp_path)
     app.keys = app.reader
     app.arming.armed = True
-    app.arbiter = Arbiter(lambda r: None, lambda *a, **k: None, clock=app.clock, tui_owner=True)
+    app.arbiter = Arbiter(lambda r: None, lambda *a, **k: None, clock=app.clock)
     app.arbiter.on_mux({'input': 'auto'})
     frames, outputs, feeds = [], [], []
     monkeypatch.setattr(app, 'refresh', lambda **kw: frames.append((app.clock(), app.notice)))

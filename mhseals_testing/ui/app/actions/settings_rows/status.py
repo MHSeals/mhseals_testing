@@ -68,11 +68,8 @@ class StatusRows:
         return self.row_setting(rows) == 'agents'
 
     def toggle_agents(self):
-        """Flip the Agents setting; a bound arbiter follows (block refuses new agent claims)."""
+        """Flip the Agents setting (block: the desk refuses new agent claims)."""
         self.settings.agents = 'block' if self.settings.agents == 'allow' else 'allow'
-        arbiter = getattr(self, 'arbiter', None)
-        if arbiter is not None:
-            arbiter.allow_agents = self.settings.agents == 'allow'
         self.notice = f'Agents {self.settings.agents}'
         desk = getattr(self, 'desk', None)
         if desk is not None:

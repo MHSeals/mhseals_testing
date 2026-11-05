@@ -14,6 +14,8 @@ Humans (rc, keyboard, hold) always win and suspend claims without dropping
 them. Anything driving that nobody claimed is ``external`` and shown red.
 """
 
+from mhseals_testing.agent.config import LEASE
+
 OWNERS = ('rc', 'keyboard', 'hold', 'agent', 'task', 'nav', 'procedure', 'external', 'none')
 HUMAN = {'rc': 'rc', 'manual': 'keyboard', 'hold': 'hold'}
 CLAIM_OWNERS = ('agent', 'task', 'nav', 'procedure')
@@ -33,7 +35,7 @@ def is_unknown(record, now, age_s=None):
 class ClaimTable:
     """Explicit and implicit claims. At most one automated claim is active."""
 
-    def __init__(self, claims=(), seq=0, idle_s=120.0, max_claim_s=3600.0):
+    def __init__(self, claims=(), seq=0, idle_s=LEASE['idle_s'], max_claim_s=LEASE['max_claim_s']):
         self.claims = [dict(claim) for claim in claims]
         self.idle_s, self.max_claim_s = idle_s, max_claim_s   # agent leases (config/agent.yaml)
         # Never re-issue an id already on record, even if seq was not persisted.
@@ -57,8 +59,7 @@ class ClaimTable:
         """Add a claim: (claim, None), or (None, holder) when busy.
 
         Only the arbiter's own implicit claims pass ``local=True``. Every other
-        requester is an agent, whatever it says it is (or omits): a guest
-        procedure (``--attach``) must not look like our own. An agent claim
+        requester is an agent, whatever it says it is (or omits). An agent claim
         always has a lease, at most ``idle_s``.
         """
         if not local:

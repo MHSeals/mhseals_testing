@@ -2604,7 +2604,7 @@ def test_shift_e_revokes_the_agent_claim_and_shift_u_is_consumed(tmp_path):
     from mhseals_testing.ros.authority import Arbiter
     app, _ = make_app(tmp_path)
     holds = []
-    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True,
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None,
                           neutral=lambda: None, hold=lambda cause, by: holds.append((cause, by)))
     app.dispatch('E')
     assert app.notice == 'No agent claim to revoke' and holds == []
@@ -2642,7 +2642,7 @@ def test_arming_waits_for_the_mux_and_offers_its_restored_hold_for_release(tmp_p
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack', '--set', 'command_mode=velocity'])
     assert muxed(app.profile)
     now, released = [100.0], []
-    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True,
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None,
                           clock=lambda: now[0])
     app.arbiter.on_mux({'input': 'auto'})          # the last state before the disarm: stale, not proof
     app.plant.release_hold = lambda: released.append(1) or True
@@ -2860,7 +2860,7 @@ def test_session_runner_sees_the_mux_override_and_a_moving_boat(tmp_path):
     from mhseals_testing.ros.authority import Arbiter
     app, _ = make_app(tmp_path)
     clock = [100.0]
-    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True,
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None,
                           clock=lambda: clock[0])
     app.arbiter.on_mux({'input': 'auto'})
     app.arming = Arming()
@@ -2879,7 +2879,7 @@ def test_override_is_empty_without_a_mux_state_when_unmuxed_or_disarmed(tmp_path
     """rv2-30 round 2: an arbiter with no mux state is not an override unless armed and muxed."""
     from mhseals_testing.ros.authority import Arbiter
     app, _ = make_app(tmp_path)
-    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None, tui_owner=True)
+    app.arbiter = Arbiter(lambda record: None, lambda phase, **fields: None)
     app.arming = Arming()
     with app.observe('x') as runner:
         assert runner.override() == ''           # disarmed: the mux is not running yet
@@ -2957,7 +2957,7 @@ def release_app(tmp_path, result=True):
     calls = []
     boat.release_hold = lambda: calls.append('release') or result
     app.arbiter = Arbiter(lambda record: None, lambda *a, **kw: None,
-                          clock=app.clock, tui_owner=True)
+                          clock=app.clock)
     app.arbiter.on_mux({'input': 'hold', 'rc': {'mode': 'GUIDED'}})
     return app, boat, calls
 

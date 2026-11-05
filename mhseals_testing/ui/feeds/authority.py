@@ -26,7 +26,7 @@ class AuthorityFeed:
         self.record, self.at = None, None
         self.cmd_at = self.cmd_nonzero = None     # last /cmd_vel sample (local time) and if it moved
         self.arbiter = arbiter_module.Arbiter(
-            self.publish, ros.emit, registry=registry, tui_owner=True, sources=self.sources,
+            self.publish, ros.emit, registry=registry, sources=self.sources,
             neutral=app.plant.neutral if app.plant else (lambda: None), hold=self.hold,
             clock=clock, quiet=self.quiet)
 

@@ -217,7 +217,7 @@ def stack(tmp_path_factory):
         run.state = {'procedure': None}
         graph = {'cmd_vel': {'age_s': None, 'nonzero': False}, 'publishers': [], 'own_gids': []}
         run.arbiter = authority_module.Arbiter(
-            lambda record: None, lambda phase, **fields: None, registry=None, tui_owner=True,
+            lambda record: None, lambda phase, **fields: None, registry=None,
             sources=lambda: {'procedure': run.state['procedure'], 'task': None, 'nav': None,
                              'graph': graph, 'mux_expected': True, 'muxed': True})
         authority_module.bind(SimpleNamespace(node=node), run.arbiter)
