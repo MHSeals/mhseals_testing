@@ -61,6 +61,10 @@ class SessionPaths:
                    d / 'events.jsonl', d / 'runs', d / 'session.json', d / 'course_truth.json')
 
 
+FCU_URL_DEPRECATED = ('boat_test: --fcu-url is deprecated and goes in the next release: set fcu_url in the endpoint '
+                      'YAML (mhseals_nav config/endpoint_startup.yaml); this run still uses the flag')
+
+
 class RemovedStartStack(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         parser.error('--start-stack was removed: start the stack in the TUI, Status panel, '
@@ -85,8 +89,11 @@ def build_parser():
     parser.add_argument('--profile', default='boat',
                         help=f'plant profile name ({", ".join(available_profiles())}) or YAML path; '
                              'boat_trial profiles explains each path; ? shows the active profile')
+    # Deprecated 11-04 (CONVENTIONS: settings live in config and the TUI, not a second CLI surface); accepted
+    # for one release with a note on stderr: the FCU URL is the endpoint YAML's fcu_url
     parser.add_argument('--fcu-url', default='',
-                        help='explicit MAVROS FCU URL override (default: inherit endpoint YAML)')
+                        help='deprecated: set fcu_url in the endpoint YAML (mhseals_nav config/endpoint_startup.yaml); '
+                             'still overrides it for one release')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                         help='override a setting for this run (see harness/settings.py), e.g. '
                              'amplitude=0.4, command_mode=velocity, bench_override=on')
@@ -121,6 +128,8 @@ def parse_args(argv=None, *, defer_hardware=False):
         probe.add_argument('--config')
         path = config_path(probe.parse_known_args(argv)[0].config)
         parser.error(f'{path}: {error}')
+    if args.fcu_url:
+        print(FCU_URL_DEPRECATED, file=sys.stderr)
     args.settings = settings.load()
     try:
         for assignment in args.set:

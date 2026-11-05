@@ -167,3 +167,12 @@ def test_real_endpoint_refusal_precedes_components(tmp_path, monkeypatch, kind):
     with pytest.raises((ValueError, OSError)):
         components(profile, {'sensors': patch})
     assert constructors == []
+
+
+def test_the_fcu_url_flag_still_overrides_for_one_release_and_says_it_is_deprecated(capsys):
+    """Finding #15: the override moves to the endpoint YAML; the old flag works one more release, with a note."""
+    from mhseals_testing.ui.app.startup import FCU_URL_DEPRECATED
+    args, _ = parse_args(['--fcu-url', 'tcp://localhost:5762'])
+    assert args.fcu_url == 'tcp://localhost:5762' and FCU_URL_DEPRECATED in capsys.readouterr().err
+    parse_args([])
+    assert 'deprecated' not in capsys.readouterr().err
