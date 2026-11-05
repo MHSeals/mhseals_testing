@@ -120,6 +120,7 @@ class RosIO:
             Parameter('use_sim_time', value=profile.use_sim_time)])
         # Latched, so a recorder that starts (or is discovered) late still gets session_start.
         self.events = self.node.create_publisher(String, EVENTS_TOPIC, EVENTS_QOS)
+        self._mavlink, self._mavlink_source = {}, topics['mavlink_source']   # gpsraw topic -> its fallback sub
         for sensor in profile.sensors:
             message = message_type(sensor.kind)
             if message is None:
@@ -129,10 +130,11 @@ class RosIO:
                 continue
             self.node.create_subscription(
                 message, sensor.topic, partial(self._ingest, sensor.topic, sensor.kind), qos_profile_sensor_data)
-            if sensor.kind == 'gpsraw':
-                from mavros_msgs.msg import Mavlink
-                self.node.create_subscription(Mavlink, topics['mavlink_source'],
-                                              partial(self._gps_raw_int, sensor.topic), qos_profile_sensor_data)
+            if sensor.kind == 'gpsraw':     # MAVROS's every-frame stream only while the topic is silent
+                self._mavlink[sensor.topic] = None
+        if self._mavlink:
+            self._watch_mavlink()
+            self.node.create_timer(GRAPH_S, self._watch_mavlink)
         self.node.create_subscription(
             Vector3Stamped, topics['drift'], partial(self._ingest, topics['drift'], 'drift'), 10)
         self.facts, self.nearby, self._tap_subs = facts, None, {}
@@ -243,6 +245,20 @@ class RosIO:
         tap = self.taps.get(kind)      # the view only: the sensor row keeps reading the summary
         if tap is not None:
             tap(message)
+
+    def _watch_mavlink(self):
+        """Subscribe MAVROS's raw MAVLink stream for a gpsraw topic only while nothing publishes that topic, and
+        drop it once something does: every FCU frame (about 300 a second at the boat's stream rates) costs the
+        executor as much as a sensor message, for the one GPS_RAW_INT in thirty the fallback reads."""
+        for topic, sub in self._mavlink.items():
+            silent = not self.node.count_publishers(topic)
+            if silent and sub is None:
+                from mavros_msgs.msg import Mavlink
+                self._mavlink[topic] = self.node.create_subscription(
+                    Mavlink, self._mavlink_source, partial(self._gps_raw_int, topic), qos_profile_sensor_data)
+            elif not silent and sub is not None:
+                self.node.destroy_subscription(sub)
+                self._mavlink[topic] = None
 
     def _gps_raw_int(self, topic, message):
         """GPS_RAW_INT from MAVROS's raw MAVLink stream as the gpsraw sensor, only while nothing
