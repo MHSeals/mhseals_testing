@@ -57,3 +57,22 @@ def test_the_arm_waits_check_the_fixed_stop_key_before_the_keymap():
         assert 'key in STOP_KEYS' in source
         first = source.index('key in STOP_KEYS')
         assert all(first < i for i in (source.find('keymap.matches'),) if i >= 0)
+
+
+@pytest.mark.parametrize('key, action', [('left', 'adjust_down'), ('right', 'adjust_up'), ('e', 'params'),
+                                         ('h', None), ('l', None)])
+def test_the_status_row_keys_are_the_old_ones(key, action):
+    assert shipped('panel.status', key) == action
+    assert shipped('global', 'enter') == 'activate'
+
+
+@pytest.mark.parametrize('key, action', [('left', 'column_prev'), ('h', 'column_prev'), ('right', 'column_next'),
+                                         ('l', 'column_next'), ('r', 'rerun_direction'), ('R', 'run_all'),
+                                         ('A', 'apply_pending'), ('I', 'hardware_changed'), ('enter', None)])
+def test_the_correction_tab_keys_are_the_old_ones(key, action):
+    assert shipped('tab.correction', key) == action
+
+
+def test_a_status_step_passes_its_direction_not_the_raw_key():
+    from mhseals_testing.ui.app.actions.settings_rows.status import STEPS
+    assert STEPS == {'adjust_down': 'left', 'adjust_up': 'right'}

@@ -2,7 +2,7 @@
 
 from mhseals_testing import calibration, data
 from mhseals_testing.procedures import PROCEDURES
-from mhseals_testing.ui import theme
+from mhseals_testing.ui import keymap, theme
 from mhseals_testing.ui.panels import correction
 
 
@@ -43,21 +43,22 @@ class Correction:
         return 'Correction', f"{model['columns'][model['cursor']]['key'].replace('-', theme.pick('−', '-'))} column"
 
     def on_correction(self, key):
-        """Correction tab keys (keymap tab.correction); True when the key was one of them."""
-        step = {'left': -1, 'h': -1, 'right': 1, 'l': 1}.get(key)
+        """Correction tab keys (keymap tab.correction; Enter is global activate); True when the key was one of them."""
+        action = keymap.dispatch('tab.correction', key)
+        step = {'column_prev': -1, 'column_next': 1}.get(action)
         if step is not None:
             model = correction.tab_view(self.args.hardware_config, self.correction_state())
             self.column = correction.move(model, step)
-        elif key in ('r', 'R'):
+        elif action in ('rerun_direction', 'run_all'):
             model = correction.tab_view(self.args.hardware_config, self.correction_state())
-            self.characterize(model['columns'][model['cursor']]['key'] if key == 'r' else '')
-        elif key == 'enter':
+            self.characterize(model['columns'][model['cursor']]['key'] if action == 'rerun_direction' else '')
+        elif keymap.matches('global', 'activate', key):
             model = correction.tab_view(self.args.hardware_config, self.correction_state())
             holds = correction.hold_rows(model)
             self.show(f"{model['columns'][model['cursor']]['key']} holds", rows=holds, width=50)
-        elif key == 'A':
+        elif action == 'apply_pending':
             self.apply_pending()
-        elif key == 'I':
+        elif action == 'hardware_changed':
             self.hardware_changed()
         else:
             return False

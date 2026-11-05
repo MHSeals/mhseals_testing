@@ -1,35 +1,42 @@
 """The Status panel rows: Enter and left/right on a row, the Agents setting and the popup openers."""
 
 from mhseals_testing.nav2 import edit as nav2_edit
-from mhseals_testing.ui import parts, popups
+from mhseals_testing.ui import keymap, parts, popups
 from mhseals_testing.ui.feeds import agent as agent_feed
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import course, stop as stop_popup
+
+
+# keymap panel.status adjust_down / adjust_up -> the direction the row step helpers read
+STEPS = {'adjust_down': 'left', 'adjust_up': 'right'}
 
 
 class StatusRows:
     """The Status panel rows, mixed into Settings."""
 
     def on_status(self, key):
+        """Status panel keys (keymap panel.status; Enter is global activate)."""
         rows = status_rows(self.snapshot(), self.profile.sensors)
-        if key in ('left', 'right') and self.agents_row(rows):
+        action = keymap.dispatch('panel.status', key)
+        step = STEPS.get(action)
+        if step and self.agents_row(rows):
             self.toggle_agents()
-        elif key in ('left', 'right') and self.row_setting(rows) == 'on_exit' and not self.watching:
+        elif step and self.row_setting(rows) == 'on_exit' and not self.watching:
             state = self.map_state()
             client = self.fence_client()
             if state is not None and client is not None:
                 self.notice = course.toggle_on_exit(self, client, state.fence_status)
-        elif key in ('left', 'right') and self.row_setting(rows) == 'agent_motion':
-            agent_feed.step_setting(self, self.row_setting(rows), key)
-        elif key in ('left', 'right') and self.row_setting(rows) == 'recording':
-            self.step_recording(key)
-        elif key in ('left', 'right') and self.row_setting(rows) == 'graphics':
-            self.step_graphics(key)
-        elif key == 'e':
+        elif step and self.row_setting(rows) == 'agent_motion':
+            agent_feed.step_setting(self, self.row_setting(rows), step)
+        elif step and self.row_setting(rows) == 'recording':
+            self.step_recording(key)                    # it asks panel.status itself
+        elif step and self.row_setting(rows) == 'graphics':
+            self.step_graphics(step)
+        elif action == 'params':
             row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
             if row and row['name'] == nav2_edit.NAME and self.nav2_file is not None:
                 self.nav2_popup()
-        elif key == 'enter':
+        elif keymap.matches('global', 'activate', key):
             if rows:
                 row = rows[min(self.cursors['status'], len(rows) - 1)]
                 if row.get('source') == 'sensor' and row['name'] == 'odometry':
@@ -80,5 +87,5 @@ class StatusRows:
         return True
 
     def on_conditions(self, key):
-        if key == 'enter':
+        if keymap.matches('global', 'activate', key):
             self.open('conditions')
