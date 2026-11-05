@@ -29,6 +29,7 @@ OLD = {
     'perception_status': '/perception/status',
     'fence_status': '/fence/status',
     'fence_marker': '/fence/marker',
+    'camera_info': '/front_camera/camera_info',
 }
 
 
@@ -104,3 +105,44 @@ def test_map_feeds_subscribe_the_profiles_names():
     assert renamed['global_costmap'] in node.live
     map_feeds.want_layers(True, False, 2)
     assert renamed['local_costmap'] in node.live and renamed['global_costmap'] not in node.live
+
+
+def test_the_fusion_campaign_replays_the_old_names():
+    from mhseals_testing.fusion import campaign
+    assert campaign.recorded() == ('/crane/odom', '/points', '/detections', '/imu/raw',
+                                   '/front_camera/camera_info', '/tf_static')
+    assert campaign.topics() == {
+        'truth': '/crane/odom', 'points': '/points', 'detections': '/detections', 'imu': '/imu/raw',
+        'camera_info': '/front_camera/camera_info', 'observations': '/perception/observations',
+        'fused': '/perception/observations_fused', 'sources': '/perception/fusion_sources',
+        'tracks': '/perception/tracks', 'status': '/perception/status'}
+    commands = campaign.nodes('S', {}, {'camera': {'emulate': 'zed'}, 'merge_gap_px': 1}, 'SHARE')
+    flat = [arg for command in commands.values() for arg in command]
+    for arg in ('camera_info_topic:=/front_camera/camera_info', 'observations_topic:=/perception/observations_fused',
+                '/perception/tracks:=/campaign/tracks_raw', '/perception/status:=/campaign/status_fused'):
+        assert arg in flat
+
+
+class _Stub(types.ModuleType):
+    """A judge core module whose every name is an empty class (no crane checkout here)."""
+
+    def __getattr__(self, name):
+        return type(name, (), {'__init__': lambda self, *args, **kwargs: None})
+
+
+def test_the_real_bag_source_reads_the_old_names(monkeypatch):
+    import importlib
+    import sys
+    from mhseals_testing.judge_pack.roboboat import _core
+    stubbed = not _core.core()
+    if stubbed:   # the module leaves sys.modules with the stubs at teardown
+        for name in ('judge', 'judge.metric', 'judge.pack', 'judge.packs', 'judge.packs.generic_motion',
+                     'judge.record', 'judge.run', 'judge.insight', 'judge.source'):
+            monkeypatch.setitem(sys.modules, name, _Stub(name))
+        monkeypatch.setattr(sys.modules['judge.packs'], 'generic_motion', sys.modules['judge.packs.generic_motion'],
+                            raising=False)
+        monkeypatch.delitem(sys.modules, 'mhseals_testing.judge_pack.roboboat.real', raising=False)
+    real = importlib.import_module('mhseals_testing.judge_pack.roboboat.real')
+    from mhseals_testing.events import TOPIC
+    assert real.TOPICS == ('/odom/global', '/odom/local', '/gps/fix', '/cmd_vel', TOPIC,
+                           '/mhseals_testing/rtk/status')

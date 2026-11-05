@@ -11,6 +11,7 @@ mhseals_nav (lidar-fusion) sourced and ROS_DOMAIN_ID set.
 """
 
 import argparse
+from functools import cache
 import gzip
 import heapq
 import json
@@ -28,8 +29,30 @@ CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_campaign.yaml'
 # Crane's clock starts near 0 and the tracker looks up TF at t - 0.2 s (negative Time): every
 # replayed stamp and the clock move by this much.
 CLOCK_OFFSET = 100.0
-TOPICS = ('/crane/odom', '/points', '/detections', '/imu/raw', '/front_camera/camera_info',
-          '/tf_static')
+CAMPAIGN_PROFILE = 'crane_full_stack'   # the plant whose recordings the campaign replays
+TF, TF_STATIC, CLOCK = '/tf', '/tf_static', '/clock'   # ROS's own names
+
+
+@cache
+def topics():
+    """The replay's topic names: the recorded inputs from the crane profile (its ground truth, its LiDAR,
+    detections and IMU sensors, topics: camera_info, tracks and perception_status) and the fusion outputs
+    from fusion_panel.yaml topics:."""
+    from mhseals_testing.fusion.ros_feed import load_config
+    from mhseals_testing.profiles import load_profile
+    profile = load_profile(CAMPAIGN_PROFILE)
+    sensors = {sensor.name: sensor.topic for sensor in profile.sensors}
+    panel = load_config()['topics']
+    return {'truth': profile.ground_truth, 'points': sensors['LiDAR'], 'detections': sensors['detections'],
+            'imu': sensors['IMU'], 'camera_info': profile.topics['camera_info'],
+            'observations': panel['observations'], 'fused': panel['fused'], 'sources': panel['sources'],
+            'tracks': profile.topics['tracks'], 'status': profile.topics['perception_status']}
+
+
+def recorded():
+    """The recorded topics a replay reads from the session's bag, in order."""
+    t = topics()
+    return (t['truth'], t['points'], t['detections'], t['imu'], t['camera_info'], TF_STATIC)
 
 
 def rpy(roll, pitch, yaw):
@@ -99,7 +122,7 @@ def nodes(session, inj, cfg, share):
     cam = {**cfg['camera'], **inj.get('camera', {})}
     if inj.get('merge'):
         cam['merge_gap_px'] = cfg['merge_gap_px']
-    sim = ['-p', 'use_sim_time:=true']
+    sim, t = ['-p', 'use_sim_time:=true'], topics()
     backend = ['ros2', 'run', 'mhseals_nav', 'sim_backend', '--ros-args', '--params-file',
                f'{share}/sim_backend.yaml', *sim, '-p', f'emulate:={cam.pop("emulate")}',
                '-p', f'course_truth:={session}/course_truth.json']
@@ -107,18 +130,18 @@ def nodes(session, inj, cfg, share):
         backend += ['-p', f'inject.{k}:={json.dumps(v)}']
     fusion = ['ros2', 'run', 'mhseals_nav', 'lidar_fusion', '--ros-args', '--params-file',
               f'{share}/lidar_fusion.yaml', *sim, '-p', 'points_transport:=direct',
-              '-p', 'camera_axes:=body', '-p', 'camera_info_topic:=/front_camera/camera_info',
+              '-p', 'camera_axes:=body', '-p', f'camera_info_topic:={t["camera_info"]}',
               '-p', 'attitude_min_hz:=15.0']
     trackers = []
-    fused = ['-p', 'observations_topic:=/perception/observations_fused',
+    fused = ['-p', f'observations_topic:={t["fused"]}',
              '-p', 'meas.depth_term:=false']
     for name, extra in (('raw', []), ('fused', fused)):
         trackers.append(['ros2', 'run', 'mhseals_nav', 'object_tracker', '--ros-args',
                          '--params-file', f'{share}/tracker.yaml', *sim,
                          '-p', 'course_map.load:=false', '-p', 'course_map.save_period_s:=1e6',
                          *extra, '-r', f'__node:=tracker_{name}',
-                         '-r', f'/perception/tracks:=/campaign/tracks_{name}',
-                         '-r', f'/perception/status:=/campaign/status_{name}'])
+                         '-r', f'{t["tracks"]}:=/campaign/tracks_{name}',
+                         '-r', f'{t["status"]}:=/campaign/status_{name}'])
     return {'sim_backend': backend, 'lidar_fusion': fusion, 'tracker_raw': trackers[0],
             'tracker_fused': trackers[1]}
 
@@ -144,24 +167,25 @@ class Player:
         self.Clock, self.TF = Clock, TFMessage
         best = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.pubs = {'/clock': self.node.create_publisher(Clock, '/clock', 10),
-                     '/tf': self.node.create_publisher(TFMessage, '/tf', 100),
-                     '/tf_static': self.node.create_publisher(TFMessage, '/tf_static', latched)}
+        self.pubs = {CLOCK: self.node.create_publisher(Clock, CLOCK, 10),
+                     TF: self.node.create_publisher(TFMessage, TF, 100),
+                     TF_STATIC: self.node.create_publisher(TFMessage, TF_STATIC, latched)}
+        self.topics = t = topics()
         self.types = {}
         self.best = QoSProfile(depth=10)          # reliable: serves both kinds of reader
         self.out = {k: [] for k in ('before', 'fused', 'sources', 'tracks_raw', 'tracks_fused',
                                     'status', 'truth', 'map_base')}
         sub = self.node.create_subscription
-        sub(ObservationArray, '/perception/observations', lambda m: self.out['before'].append(
+        sub(ObservationArray, t['observations'], lambda m: self.out['before'].append(
             self.obs_rows(m)), best)
-        sub(ObservationArray, '/perception/observations_fused', lambda m: self.out['fused'].append(
+        sub(ObservationArray, t['fused'], lambda m: self.out['fused'].append(
             self.obs_rows(m)), best)
-        sub(String, '/perception/fusion_sources', lambda m: self.out['sources'].append(
+        sub(String, t['sources'], lambda m: self.out['sources'].append(
             json.loads(m.data)), 50)
         for name in ('raw', 'fused'):
             sub(TrackArray, f'/campaign/tracks_{name}',
                 lambda m, n=name: self.out[f'tracks_{n}'].append(self.track_rows(m)), 10)
-        sub(DiagnosticArray, '/perception/status', self.on_status, 10)
+        sub(DiagnosticArray, t['status'], self.on_status, 10)
 
     @staticmethod
     def obs_rows(m):
@@ -200,12 +224,12 @@ class Player:
         reader.open(rosbag2_py.StorageOptions(uri=str(self.session / 'bag'), storage_id=''),
                     rosbag2_py.ConverterOptions('', ''))
         types = {t.name: t.type for t in reader.get_all_topics_and_types()}
-        reader.set_filter(rosbag2_py.StorageFilter(topics=[t for t in TOPICS if t in types]))
+        reader.set_filter(rosbag2_py.StorageFilter(topics=[t for t in recorded() if t in types]))
         heap, seq = [], 0
         while reader.has_next():
             topic, data, _ = reader.read_next()
             msg = deserialize_message(data, self.get_message(types[topic]))
-            if topic == '/tf_static':
+            if topic == TF_STATIC:
                 t = stamp(msg.transforms[0].header) + CLOCK_OFFSET
             else:
                 t = stamp(msg.header) + CLOCK_OFFSET
@@ -234,8 +258,9 @@ class Player:
             q = tf.transform.rotation
             q.x, q.y, q.z, q.w = map(float, matrix_quaternion(R))
             statics[child] = tf
-        self.pubs['/tf_static'].publish(self.TF(transforms=list(statics.values())))
+        self.pubs[TF_STATIC].publish(self.TF(transforms=list(statics.values())))
         T_bl = self.chain(statics, 'lidar_link')
+        names = self.topics
         wall0, t0 = time.monotonic(), None
         self.now = 0.0
         for t, topic, typ, msg in self.messages():
@@ -244,17 +269,17 @@ class Player:
             while time.monotonic() - wall0 < (t - t0) / self.rate:
                 self.rclpy.spin_once(self.node, timeout_sec=0.002)
             while late and late[0][0] <= t:
-                self.publisher('/points', late[0][2]).publish(heapq.heappop(late)[3])
+                self.publisher(names['points'], late[0][2]).publish(heapq.heappop(late)[3])
             self.now = t
             clock = self.Clock()
             clock.clock.sec, clock.clock.nanosec = int(t), int((t % 1) * 1e9)
-            self.pubs['/clock'].publish(clock)
-            if topic == '/tf_static':
+            self.pubs[CLOCK].publish(clock)
+            if topic == TF_STATIC:
                 for tf in msg.transforms:
                     statics[tf.child_frame_id] = tf
-                self.pubs['/tf_static'].publish(self.TF(transforms=list(statics.values())))
+                self.pubs[TF_STATIC].publish(self.TF(transforms=list(statics.values())))
                 T_bl = self.chain(statics, 'lidar_link')
-            elif topic == '/crane/odom':
+            elif topic == names['truth']:
                 p, q = msg.pose.pose.position, msg.pose.pose.orientation
                 R = matrix(q)
                 self.out['truth'].append((t, [p.x, p.y, p.z], R.tolist()))
@@ -276,13 +301,13 @@ class Player:
                 m2.header.stamp = tf.header.stamp
                 m2.header.frame_id, m2.child_frame_id = 'map', 'odom'
                 m2.transform.rotation.w = 1.0
-                self.pubs['/tf'].publish(self.TF(transforms=[tf, m2]))
-            elif topic == '/imu/raw':
+                self.pubs[TF].publish(self.TF(transforms=[tf, m2]))
+            elif topic == names['imu']:
                 if hz and t - last_imu < 1.0 / hz:
                     continue
                 last_imu = t
                 self.publisher(topic, typ).publish(msg)
-            elif topic == '/points':
+            elif topic == names['points']:
                 if T_bl is None:
                     continue
                 if lid.get('drop_p') and random.random() < lid['drop_p']:

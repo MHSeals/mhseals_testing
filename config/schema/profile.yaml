@@ -15,4 +15,5 @@ profile.topics.objects: {type: str, units: topic, tier: new-session, doc: "Map o
 profile.topics.perception_status: {type: str, units: topic, tier: new-session, doc: "Perception's diagnostics (backend, fusion)."}
 profile.topics.fence_status: {type: str, units: topic, tier: new-session, doc: "fence_watchdog's status (JSON: inside, distance, corners)."}
 profile.topics.fence_marker: {type: str, units: topic, tier: new-session, doc: "fence_watchdog's latched outline (Marker)."}
+profile.topics.camera_info: {type: str, units: topic, tier: new-session, doc: "The front camera relay's intrinsics (CameraInfo); the fusion campaign hands it to lidar_fusion."}
 profile: {closed: true}   # every key of profile.yaml is described; another is an unknown key

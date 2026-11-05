@@ -22,3 +22,4 @@ topics:
   perception_status: /perception/status          # perception's DiagnosticArray (backend, fusion)
   fence_status: /fence/status                    # mhseals_nav fence_watchdog (JSON)
   fence_marker: /fence/marker                    # its latched outline
+  camera_info: /front_camera/camera_info         # the camera relay's intrinsics (the preview frame; the fusion replay)

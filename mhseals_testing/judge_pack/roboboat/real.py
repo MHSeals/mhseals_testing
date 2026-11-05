@@ -44,8 +44,20 @@ from judge.run import judge_runs  # noqa: E402
 from judge.insight import Insight  # noqa: E402
 from judge.source import FidelityProfile, Refused, Source  # noqa: E402
 
-TOPICS = ('/odom/global', '/odom/local', '/gps/fix', '/cmd_vel', EVENTS_TOPIC,
-          '/mhseals_testing/rtk/status')
+REAL_PROFILE = 'boat'                        # the plant whose bags this source reads
+RTK_STATUS = '/mhseals_testing/rtk/status'   # this package's own RTK status (ros/rtk.py)
+
+
+def _names(profile=REAL_PROFILE):
+    """The bag's topic names from the profile: its topics: odometry and fix, and its command topic."""
+    from mhseals_testing.profiles import load_profile
+    plant = load_profile(profile)
+    return {'global': plant.topics['odom_global'], 'local': plant.topics['odom_local'],
+            'fix': plant.topics['gps_fix'], 'cmd': plant.command_topic}
+
+
+NAMES = _names()
+TOPICS = (NAMES['global'], NAMES['local'], NAMES['fix'], NAMES['cmd'], EVENTS_TOPIC, RTK_STATUS)
 R_EARTH = 6378137.0
 
 
@@ -120,7 +132,7 @@ def _events(data):
             continue
         out.append(Event(t, f'journal.{d.get("phase", "event")}', 'harness', d))
     last = None
-    for t, _, m in data.get('/mhseals_testing/rtk/status', []):
+    for t, _, m in data.get(RTK_STATUS, []):
         st = m.status[0] if m.status else None
         if st is None:
             continue
@@ -139,17 +151,18 @@ class BagSource(Source):
     def load(self, path):
         path = Path(path)
         data = read(path)
-        src = '/odom/global' if data.get('/odom/global') else '/odom/local'
+        odom_global, fix, cmd = NAMES['global'], NAMES['fix'], NAMES['cmd']
+        src = odom_global if data.get(odom_global) else NAMES['local']
         if len(data.get(src, [])) < 10:
             raise Refused(f'{path}: no odometry ({len(data.get(src, []))} samples)')
-        pose, twist, lag = _odom(data[src], 'map' if src == '/odom/global' else 'odom')
+        pose, twist, lag = _odom(data[src], 'map' if src == odom_global else 'odom')
         channels = {'pose.se2': pose, 'twist.body': twist}
-        gnss, gq = _gnss(data.get('/gps/fix', []))
+        gnss, gq = _gnss(data.get(fix, []))
         if gnss is not None:
             channels['sensor.gnss.enu'] = gnss
-        if data.get('/cmd_vel'):
-            t = np.array([r[0] for r in data['/cmd_vel']])
-            v = np.array([[m.linear.x, m.linear.y, m.angular.z] for _, _, m in data['/cmd_vel']])
+        if data.get(cmd):
+            t = np.array([r[0] for r in data[cmd]])
+            v = np.array([[m.linear.x, m.linear.y, m.angular.z] for _, _, m in data[cmd]])
             t, v = dedupe_time(t, v)
             channels['actuator.cmd'] = Channel.of(
                 ChannelSpec('actuator.cmd', ('surge', 'sway', 'yaw'), ('effort', 'effort', 'effort'), 'body', 'commanded'), t, v)
