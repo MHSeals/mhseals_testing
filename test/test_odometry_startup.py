@@ -10,7 +10,7 @@ import yaml
 
 from mhseals_testing.harness.components import Stack, components
 from test_components import FakeProcesses
-from mhseals_testing.ui.app import parse_args, stack_overlay
+from mhseals_testing.ui.app import parse_args
 
 
 @pytest.mark.parametrize('profile_name, context', [('boat', 'included'),
@@ -59,9 +59,8 @@ def test_app_selected_yaml_reaches_owner_factory_and_fresh_edits(tmp_path, monke
                     and node.name == 'ekf_nodes')
     for delay in (2.25, 3.75):
         operator.write_text(f'ekf_delay_{context}: {delay}\n')
-        args, profile = parse_args(['--profile', profile_name])
-        overlay = stack_overlay(profile, args)       # the session layer carries the selection
-        overlay.setdefault('odometry', {}).update(selection)
+        _, profile = parse_args(['--profile', profile_name])
+        overlay = {'odometry': dict(selection)}      # the session layer carries the selection
         children = {item.key: item for item in components(profile, overlay)}
         # Exercise a full start (odometry, then the EKFs; the boat starts them from Status rows,
         # not the session) and a partial EKF start with odometry external.

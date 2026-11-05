@@ -62,16 +62,6 @@ class SessionPaths:
                    d / 'events.jsonl', d / 'runs', d / 'session.json', d / 'course_truth.json')
 
 
-FCU_URL_DEPRECATED = ('boat_test: --fcu-url is deprecated and goes in the next release: set fcu_url in the endpoint '
-                      'YAML (mhseals_nav config/endpoint_startup.yaml); this run still uses the flag')
-
-
-class RemovedStartStack(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        parser.error('--start-stack was removed: start the stack in the TUI, Status panel, '
-                     'Components, Enter on the Stack row')
-
-
 def settle_discovery(nodes, least=0.5, most=2.0, step=0.25, clock=time.monotonic, sleep=time.sleep):
     """Wait until the ROS graph stops growing (two equal reads ``step`` apart, after ``least``), at most ``most``
     seconds; returns the nodes seen last. A quiet graph costs ``least``, not the old fixed 2 s."""
@@ -90,11 +80,6 @@ def build_parser():
     parser.add_argument('--profile', default='boat',
                         help=f'plant profile name ({", ".join(available_profiles())}) or YAML path; '
                              'boat_trial profiles explains each path; ? shows the active profile')
-    # Deprecated 11-04 (CONVENTIONS: settings live in config and the TUI, not a second CLI surface); accepted
-    # for one release with a note on stderr: the FCU URL is the endpoint YAML's fcu_url
-    parser.add_argument('--fcu-url', default='',
-                        help='deprecated: set fcu_url in the endpoint YAML (mhseals_nav config/endpoint_startup.yaml); '
-                             'still overrides it for one release')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                         help='override a setting for this run (see harness/settings.py), e.g. '
                              'amplitude=0.4, command_mode=velocity, bench_override=on')
@@ -103,8 +88,6 @@ def build_parser():
                              'default the newest) with no ROS node and no outputs')
     parser.add_argument('--output', type=Path, default=None,
                         help='session directory (default a new sessions/<time>_<host>_<profile> under the data root)')
-    # Removed 10-25: the Status panel's Stack row starts the stack; the flag only says where it went.
-    parser.add_argument('--start-stack', nargs=0, action=RemovedStartStack, help=argparse.SUPPRESS)
     seat = parser.add_mutually_exclusive_group()
     seat.add_argument('--view', action='store_true',
                       help='start as a viewer of the live session: no commands but Space and E; O takes control')
@@ -129,8 +112,6 @@ def parse_args(argv=None, *, defer_hardware=False):
         probe.add_argument('--config')
         path = config_path(probe.parse_known_args(argv)[0].config)
         parser.error(f'{path}: {error}')
-    if args.fcu_url:
-        print(FCU_URL_DEPRECATED, file=sys.stderr)
     args.settings = settings.load()
     try:
         for assignment in args.set:
@@ -146,17 +127,6 @@ def parse_args(argv=None, *, defer_hardware=False):
         except DeviceError as error:
             raise SystemExit(f'boat_test: {error}') from None
     return args, profile
-
-
-def stack_overlay(profile, args):
-    """Launch arguments the command line adds to the profile's components."""
-    if not profile.uses_fcu or not args.fcu_url:
-        return {}
-    from mhseals_testing.harness.components import ENDPOINT_LAUNCHES
-    placed = profile.placed[1]
-    return {key: {'fcu_url': args.fcu_url}
-            for key, spec in (profile.components or {}).items()
-            if placed[spec.get('part', key)].spec.get('launch') in ENDPOINT_LAUNCHES}
 
 
 def hang_up(*_):
@@ -269,7 +239,6 @@ def session_main(argv=None):
             clock={'domain': 'sim' if profile.use_sim_time else 'wall', 'time_scale': 1.0},
             git=session_module.running_sources(),
             kind=session_module.kind(profile)).directory)
-    overlay = stack_overlay(profile, args)
     if args.save_config:
         if choice.mode != 'own':
             raise ValueError('--save-config requires a fresh owner session')
@@ -292,7 +261,7 @@ def session_main(argv=None):
     facts = Facts()
     ros = RosIO(profile, monitor, args.stale_after, paths.journal, facts)
     # The keepers follow the registry owner, so a handover keeps the children for the adopter.
-    stack_items = components(profile, overlay)
+    stack_items = components(profile)
     processes = ProcessManager(paths.logs, registry=None if watching else registry)
     plant = Plant(ros, profile)
     # Parts on other computers run as units there; a watcher reads them but keeps none alive.

@@ -24,7 +24,7 @@ from mhseals_testing.ros.arming import Arming as Arming_
 from mhseals_testing.ui import theme
 from mhseals_testing.harness.registry import Registry as RegistryBase
 from mhseals_testing.ui.app import (
-    PANEL_HINTS, App, Detach, SessionPaths, decoupled, parse_args, stack_overlay)
+    PANEL_HINTS, App, Detach, SessionPaths, decoupled, parse_args)
 
 
 class Clock:
@@ -259,19 +259,14 @@ def test_session_paths_all_sit_inside_the_session_directory(tmp_path):
     assert all(d in p.parents for p in (paths.report, paths.hardware, paths.nav2))
 
 
-def test_parse_args_profile_components_and_limits(tmp_path, capsys):
+def test_parse_args_profile_components_and_limits(tmp_path):
     args, profile = parse_args(['--profile', 'crane_full_stack'])
     assert profile.use_sim_time and args.output is None
-    assert not profile.uses_fcu and stack_overlay(profile, args) == {}  # simulation: no FCU
-    boat_args, boat = parse_args([])
-    assert boat.uses_fcu
-    assert stack_overlay(boat, boat_args) == {}  # owner YAML selects TUI discovery
+    assert not profile.uses_fcu                  # simulation: no FCU
+    assert parse_args([])[1].uses_fcu
     assert parse_args(['--set', 'command_mode=velocity'])[1].command_units == 'velocity'
     with pytest.raises(SystemExit):
         parse_args(['--set', 'repeats=9'])
-    with pytest.raises(SystemExit):              # the Status panel's Stack row starts the stack
-        parse_args(['--start-stack'])
-    assert 'Enter on the Stack row' in capsys.readouterr().err
 
 
 def test_a_boat_without_a_deployment_registry_is_refused_before_any_session(tmp_path, monkeypatch):
