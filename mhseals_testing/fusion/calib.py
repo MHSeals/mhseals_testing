@@ -52,7 +52,7 @@ def nav_params(name):
         return lf.load_yaml(name)
     except (ImportError, LookupError, OSError):
         path = Path(lf.__file__).resolve().parents[1] / 'config' / name
-        return yaml.safe_load(path.read_text())['/**']['ros__parameters']
+        return yaml.safe_load(path.read_text())['/**']['ros__parameters']   # mhseals_nav's ROS params
 
 
 def load_config(path=CONFIG):
@@ -456,7 +456,7 @@ def run(args):
     if unknown:
         raise LookupError(f'--truth-range: no object {sorted(unknown)[0]} '
                           f'(objects: {", ".join(o["key"] for o in objects) or "none"})')
-    baseline = yaml.safe_load(Path(args.baseline).read_text()) if args.baseline else None
+    baseline = yaml.safe_load(Path(args.baseline).read_text()) if args.baseline else None   # a result file calib wrote
     level, reasons, levels = verdict(objects, params, cfg, baseline, truth)
     print(table(objects, levels, truth))
     print('\n'.join(fit_lines(params, objects)))

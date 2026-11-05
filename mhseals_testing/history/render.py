@@ -7,14 +7,12 @@ keep the meaning when colour is off. No ROS here.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from rich.text import Text
-import yaml
 
+from mhseals_testing.calibration import load_fields   # noqa: F401 - render.load_fields: the popup's fields
 from mhseals_testing.ui import theme
 
-FIELDS_FILE = Path(__file__).resolve().parents[2] / 'config' / 'history' / 'fields.yaml'
 OTHER = 'Other'
 _MISSING = object()
 _ASCII = str.maketrans({'⁺': '+', '⁻': '-', '·': '.', '←': '<', '→': '>', '•': '*', '−': '-'})
@@ -33,10 +31,6 @@ class Row:
     note: str = ''
     grid: dict = None
     choices: dict = None     # enum value -> name
-
-
-def load_fields(path=FIELDS_FILE):
-    return yaml.safe_load(Path(path).read_text())
 
 
 def _flatten(node, prefix=()):

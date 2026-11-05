@@ -9,7 +9,7 @@ import copy
 import os
 from pathlib import Path
 
-import yaml
+from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fastsim_roboboat.yaml'
 ADAPTER = 'mhseals_testing.fastsim_adapter.adapter:RoboBoatAdapter'
@@ -51,4 +51,4 @@ def load(path=None, tune=None):
     from fastsim import config as fsconfig
     path = Path(path or CONFIG)
     base = path.resolve().parent
-    return fsconfig.resolve(domain(yaml.safe_load(path.read_text()), tune), base), base
+    return fsconfig.resolve(domain(load_strict(path.read_text(), path), tune), base), base

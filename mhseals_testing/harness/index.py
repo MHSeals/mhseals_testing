@@ -44,7 +44,7 @@ def _segment(directory):
     size = sum(f.stat().st_size for f in files)
     meta = {}
     try:
-        meta = yaml.safe_load((directory / 'metadata.yaml').read_text()).get('rosbag2_bagfile_information') or {}
+        meta = yaml.safe_load((directory / 'metadata.yaml').read_text()).get('rosbag2_bagfile_information') or {}   # rosbag2 writes it
     except (OSError, AttributeError, yaml.YAMLError):
         pass
     topics = []

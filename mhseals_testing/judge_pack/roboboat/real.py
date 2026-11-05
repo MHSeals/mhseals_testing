@@ -353,7 +353,7 @@ def fast_calibration(path=None):
     cands = [path] if path else list(Path(__file__).resolve().parents[2].glob('config/fastsim_calibration/*.yaml'))
     for p in sorted(c for c in cands if c):
         try:
-            doc = yaml.safe_load(Path(p).read_text())
+            doc = yaml.safe_load(Path(p).read_text())   # the fit tool writes it
             return {'file': Path(p).name, **(doc.get('plant') or {})}
         except (OSError, ValueError, AttributeError):
             continue

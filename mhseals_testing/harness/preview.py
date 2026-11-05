@@ -23,10 +23,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing.harness import sim_stack
 from mhseals_testing.hook import registry
+from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'preview.yaml'
 PATHS = ('src', 'cache', 'runbook', 'results')
@@ -40,7 +39,7 @@ def settings(test=False, path=CONFIG, environ=None):
     """The preview's settings: the sim's shared keys, preview.yaml, its ``test:`` with ``test``, then the env."""
     environ = os.environ if environ is None else environ
     sim = sim_stack.settings(environ={})
-    found = yaml.safe_load(Path(path).read_text()) or {}
+    found = load_strict(Path(path).read_text(), path) or {}
     overlay = found.pop('test', {}) or {}
     out = {key: sim[key] for key in SHARED if key in sim}
     out.update(found)

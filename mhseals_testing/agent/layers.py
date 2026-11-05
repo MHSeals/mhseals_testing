@@ -51,7 +51,7 @@ def parse(value):
     if not isinstance(value, str):
         return value
     try:
-        return yaml.safe_load(value)
+        return yaml.safe_load(value)   # a typed command-line value, not a file
     except yaml.YAMLError as error:
         raise ValueError(f'{value!r} is not a YAML value: {error}') from None
 

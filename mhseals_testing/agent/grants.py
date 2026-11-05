@@ -25,12 +25,12 @@ ESTOP = ('estop', 'e-stop', 'e_stop')
 
 def load(path):
     """``(grants, error)``: the grant file's entries (none when it is missing), each ``{who, holds, until, why}``."""
-    import yaml
+    from mhseals_testing.strict_yaml import load_strict
     path = Path(path).expanduser()
     if not path.exists():
         return [], ''
     try:
-        doc = yaml.safe_load(path.read_text()) or {}
+        doc = load_strict(path.read_text(), path) or {}
         found = doc.get('grants') or []
         if not isinstance(found, list):
             raise ValueError('grants is a list')

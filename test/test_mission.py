@@ -79,7 +79,7 @@ def test_mission_judges_the_wall_clock_window_and_records_the_pause(monkeypatch)
     monkeypatch.setattr(mission, 'available', lambda: ['gate'])
     monkeypatch.setattr(mission, 'score', lambda events, rubric, outcome=None: {})
     monkeypatch.setattr(mission, 'judge', lambda *a, **k: seen.append(a[-2:]))
-    monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: {})
+    monkeypatch.setattr(mission, 'load_strict', lambda text, path=None: {})
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
     monkeypatch.setattr(mission, 'time_limit', lambda *a: 300.0)   # nav's config is not read here
     result = mission.run(ctx)
@@ -117,7 +117,7 @@ def test_mission_outcome_from_the_stream_then_the_exit_code(monkeypatch, stream,
                   'returncode': lambda name: code})
     monkeypatch.setattr(mission, 'available', lambda: ['gate'])
     monkeypatch.setattr(mission, 'judge', lambda *a, **k: None)
-    monkeypatch.setattr(mission.yaml, 'safe_load', lambda text: dict(RUBRIC))
+    monkeypatch.setattr(mission, 'load_strict', lambda text, path=None: dict(RUBRIC))
     monkeypatch.setattr(mission.Path, 'read_text', lambda self: '')
     monkeypatch.setattr(mission, 'time_limit', lambda *a: 300.0)   # nav's config is not read here
     result = mission.run(ctx)

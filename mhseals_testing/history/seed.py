@@ -50,7 +50,7 @@ def _import_hardware(history, folder):
     done = []
     for file in sorted(Path(folder).glob('*.hardware.yaml'), key=lambda f: (f.stat().st_mtime, f.name)):
         raw = file.read_text()
-        value = yaml.safe_load(raw)
+        value = yaml.safe_load(raw)   # a saved hardware snapshot (machine-written)
         if not isinstance(value, dict):
             continue
         value = {'overrides': value}

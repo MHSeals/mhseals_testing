@@ -229,7 +229,7 @@ def hook_config(path=CONFIG):
     refuses them in the file). ``path`` (a boat's channel) is the file's only."""
     try:
         import yaml
-        found = (yaml.safe_load(Path(path).read_text()) or {}).get('hook') or {}
+        found = (yaml.safe_load(Path(path).read_text()) or {}).get('hook') or {}   # the hook runs bare; agent/config.load checks this file strictly
     except Exception:          # no PyYAML, or a missing or broken file: the defaults are the shipped values
         return dict(DEFAULTS)
     return {**DEFAULTS, **{k: v for k, v in found.items() if k not in ('deny', 'deny_boat')}}

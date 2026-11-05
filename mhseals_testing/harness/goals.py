@@ -99,9 +99,9 @@ def nav_watchdog(name):
     from mhseals_testing.health.config import share_dir
     config = share_dir('mhseals_nav') / 'config'
     try:
-        doc = yaml.safe_load((config / 'watchdogs.yaml').read_text())
+        doc = yaml.safe_load((config / 'watchdogs.yaml').read_text())   # mhseals_nav's ROS params: nav checks them
     except FileNotFoundError:
-        return yaml.safe_load((config / f'{name}.yaml').read_text())['/**']['ros__parameters']
+        return yaml.safe_load((config / f'{name}.yaml').read_text())['/**']['ros__parameters']   # mhseals_nav's ROS params
     return {**(doc.get('defaults') or {}), **doc[name], **((doc.get('tune') or {}).get(name) or {})}
 
 

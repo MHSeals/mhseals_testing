@@ -26,6 +26,7 @@ import yaml
 
 from mhseals_testing.fastsim_adapter.bag import Tf, messages
 from mhseals_testing.fastsim_adapter.cluster import merge
+from mhseals_testing.strict_yaml import load_strict
 
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fastsim_replay.yaml'
 
@@ -82,7 +83,8 @@ class Recorder:
 def tracker_cfg(overrides):
     import mhseals_nav
     path = Path(mhseals_nav.__file__).resolve().parents[1] / 'config' / 'tracker.yaml'
-    return merge(next(iter(yaml.safe_load(path.read_text()).values()))['ros__parameters'], overrides or {})
+    params = yaml.safe_load(path.read_text())     # mhseals_nav's ROS parameters: nav checks them
+    return merge(next(iter(params.values()))['ros__parameters'], overrides or {})
 
 
 def replay(stream, cfg, tune):
@@ -226,7 +228,8 @@ def numbers(diff):
 
 
 def run(session, out, tune=None, config=None):
-    cfg = yaml.safe_load(Path(config or CONFIG).read_text())
+    config = Path(config or CONFIG)
+    cfg = load_strict(config.read_text(), config)
     t = merge(cfg['tune'], tune or {})
     topics = {*cfg['topics'].values(), '/tf', '/tf_static'}
     diff = replay(messages(session, topics), cfg, t)

@@ -15,11 +15,10 @@ import json
 from pathlib import Path
 import sys
 
-import yaml
-
 from mhseals_testing import data
 from mhseals_testing.analysis import referee
 from mhseals_testing.profiles import PROFILE_DIR
+from mhseals_testing.strict_yaml import load_strict
 
 MISSION_DIR = PROFILE_DIR.parent / 'missions'
 SCHEMA = 'mhseals.referee/1'
@@ -68,7 +67,7 @@ def analyze(session, task=None, now=None):
     if not task or not rubric_file.is_file():
         known = ', '.join(sorted(p.stem for p in MISSION_DIR.glob('*.yaml')))
         raise Refused(f'unknown task {task!r}; one of {known}')
-    rubric = yaml.safe_load(rubric_file.read_text())
+    rubric = load_strict(rubric_file.read_text(), rubric_file)
     judged = referee.judge_task(task, truth, track, events, rubric)
     record = dict(summary=summary(judged), basis='truth', track_source='truth',
                   window=[track[0][0], track[-1][0]], verdict=judged['verdict'], result=judged)
