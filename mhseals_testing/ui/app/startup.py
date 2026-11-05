@@ -141,7 +141,7 @@ def restart_as(app):
         return None
     if app.restart_as == 'take':
         mode, notice = '--take', 'Taking control'
-    elif app.detaching and app.handed_by:
+    elif app.services.loop.detaching and app.handed_by:
         mode, notice = '--view', f'Control taken by {control.name(app.handed_by)}' + (
             f" ({app.handed_by['from']})" if app.handed_by.get('from') else '') + '; you are viewing'
     else:
@@ -351,7 +351,7 @@ def session_main(argv=None):
             if desk is not None:        # an act never outlives its TUI, nor passes to a successor
                 desk.close()
             if authority is not None:   # claims end with the session unless a successor adopts them
-                authority.arbiter.close(keep_claims=app.detaching)
+                authority.arbiter.close(keep_claims=app.services.loop.detaching)
             plant.close()
             processes.stop_all()   # a detach already released the children it hands on
             if watching:
@@ -360,7 +360,7 @@ def session_main(argv=None):
                 registry.release(os.getpid(), keep_children=False)
             ros.close()
             rclpy.try_shutdown()
-    if app is not None and app.detaching:
+    if app is not None and app.services.loop.detaching:
         console.print(f'Handed over to pid {getattr(app, "handed_to", "?")}')
     restart = restart_as(app)
     if restart:

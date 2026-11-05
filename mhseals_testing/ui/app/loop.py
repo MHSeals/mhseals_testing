@@ -50,10 +50,11 @@ class Loop:
             return
         if self.review:
             self.tick_review()
-            if self._review_live is not None and self._review_live['source'].live:
+            live = self.services.bags.review_live
+            if live is not None and live['source'].live:
                 replay = self.source
                 try:
-                    self.rebuild(source=self._review_live['source'])
+                    self.rebuild(source=live['source'])
                     self.tick_live()
                 finally:
                     self.rebuild(source=replay)
@@ -64,15 +65,15 @@ class Loop:
 
     def restart_ticks(self):
         """The next tick measures from now (a review starts or ends)."""
-        self.last_tick = self.clock()
+        self.state.loop.last_tick = self.clock()
 
     def tick_review(self):
         """Advance the replay; reader, decode and ingest data errors end only the review."""
-        if getattr(self, '_review_fault', False):
+        if self.services.bags.review_fault:
             return
         try:
-            self.review.tick(self.clock(), self.clock() - self.last_tick)
-            self.last_tick = self.clock()
+            self.review.tick(self.clock(), self.clock() - self.state.loop.last_tick)
+            self.state.loop.last_tick = self.clock()
             self.source.tick(self.clock())
         except (RuntimeError, OSError, ValueError, KeyError) as error:
             self.review_failed(error)
@@ -119,7 +120,7 @@ class Loop:
                             self.tick()
                             perf.draw(self, force=False)     # idle ticks render only on change
                     except KeyboardInterrupt as error:
-                        self.detaching = isinstance(error, Detach)
+                        self.state.loop.detaching = isinstance(error, Detach)
                         # Ctrl+C quits like q, minus the question: anything moving has
                         # already stopped at neutral (the runner neutralizes on any exit).
                         self.quit = True
@@ -182,8 +183,7 @@ class Loop:
                 return
         if not self.review and self.annotate_key(key):   # b N " and an offered pick digit; never Space or E
             return
-        checklist = getattr(self, 'checklist', None)
-        if checklist is not None and not self.review and checklist.handle(self, key):
+        if self.checklist is not None and not self.review and self.checklist.handle(self, key):
             return
         bound = keymap.dispatch('global', key)          # case kept (K1)
         if bound == 'camera' and not self.review:  # Shift-V; action 'v' still toggles Results/log on Activity
@@ -193,14 +193,10 @@ class Loop:
             self.open('history')
             return
         if bound == 'labels' and not self.review:   # the Labels tab: review this session's marks and segments; L again leaves it
-            if self.tab == 'Labels':
-                self.show_tab(self.labels.came_from or self.tabs.tabs[0])
-            else:
-                self.labels.came_from = self.tab
-                self.show_tab('Labels')
+            self.toggle_labels()
             return
         if bound == 'back' and self.tab == 'Labels' and not self.review and not self.modal:   # Esc leaves Labels too
-            self.show_tab(self.labels.came_from or self.tabs.tabs[0])
+            self.leave_labels()
             return
         if key == keymap.REVOKE_KEY:   # fixed: no keymap file moves it
             self.revoke_agent()
@@ -232,8 +228,8 @@ class Loop:
         if self.tab == 'Correction' and not self.review and self.on_correction(raw):
             return
         if self.tab == 'Fusion' and not self.review and self.fusion_keys.get(raw) == 'camera_image':
-            self.fusion_image = not self.fusion_on()
-            self.say(f"camera image {'on' if self.fusion_image else 'off'}")
+            self.state.loop.fusion_image = not self.fusion_on()
+            self.say(f"camera image {'on' if self.state.loop.fusion_image else 'off'}")
             return
         panels = self.panels()
         if action in ('tab_prev', 'tab_next'):
@@ -261,7 +257,7 @@ class Loop:
                 self.drop_grab()
                 self.say('Dropped')
         elif action == 'help':
-            self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(getattr(getattr(self, 'console', None), 'width', None)))
+            self.show('Help', rows=help_rows(self.profile, HELP), width=help_width(self.console.width))
         elif action == 'arm':
             self.arm_panel()
         elif bound == 'report':
@@ -280,6 +276,6 @@ class Loop:
         elif self.focus == 'list':
             self.on_list(raw)
         elif self.focus in ('minimap', 'map'):
-            getattr(self, f'on_{self.focus}')(raw)
+            getattr(self, f'on_{self.focus}')(raw)   # dynamic: the focused panel's handler, on_minimap or on_map
         elif raw == key:  # a Shift letter has no panel binding yet; folding it hit the lowercase ones
-            getattr(self, f'on_{self.focus}', lambda key: None)(key)
+            getattr(self, f'on_{self.focus}', lambda key: None)(key)   # dynamic: the focused panel's handler, if any

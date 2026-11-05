@@ -15,7 +15,6 @@ from mhseals_testing.ros import camera_feed
 from mhseals_testing.ui import authority_chip, feeds as feeds_module, layout, palette, parts, perf, theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui import input as key_input
-from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.ui.app.model import Frame, Snapshot, ViewState
 from mhseals_testing.ui.panels import PANELS, agent_log, fusion as fusion_panel
 from mhseals_testing.ui.feeds import health as health_feed
@@ -72,15 +71,16 @@ class View:
 
     def staging(self):
         """The one LiveStaging of this TUI: C on the running driver over its parameters, read back."""
-        if getattr(self, '_staging', None) is None:
+        view = self.state.view
+        if view.staging is None:
             def params():
                 node = getattr(self.ros, 'node', None)
                 if node is None:
                     return None
                 from mhseals_testing.ros.params import Params
                 return Params(self.ros)
-            self._staging = LiveStaging(self.args.config, params=params)
-        return self._staging
+            view.staging = LiveStaging(self.args.config, params=params)
+        return view.staging
 
     def step_graphics(self, key):
         """left/right on the Graphics row moves along off, auto, kitty, sixel without wrapping; the
@@ -158,7 +158,7 @@ class View:
         shared = {} if self.review else feeds_module.merged(self.feeds)
         thrusters = self.services.manual   # the Thrusters panel's edit, Manual's to write
         own = dict(
-            tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=getattr(self, 'checklist', None),
+            tab=self.tab, minimap=self.minimap, layerbox=self.layerbox, checklist=self.checklist,
             **(dict(zip(('bags', 'bag_usage'), self.bags_view())) if self.tab == 'Bags' else {}), **({'labels': self.labels_model()} if self.tab == 'Labels' and not self.review else {}), focus=self.focus, cursors=self.cursors, modal=self.modal, running=self.services.procedures.running,
             activity=self.activity, now=self.monitor.clock(),
             toasts=self.toasts.visible(self.monitor.clock(), bool(self.modal)),
@@ -179,7 +179,7 @@ class View:
             outputs=self.profile.outputs, specs=self.profile.sensors,
             deploy={} if self.review else self.health.deploy(), host=socket.gethostname(),
             domain=os.environ.get('ROS_DOMAIN_ID', '0'),
-            recording=False if self.review else self.processes.running('bag'), rec=self.rec,
+            recording=False if self.review else self.processes.running('bag'), rec=self.services.bags.rec,
             bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
             test_pulses=thrusters.test_pulses, pwm_readback=self.pwm_readback,
@@ -200,12 +200,12 @@ class View:
     def fusion_view(self):
         """The Fusion tab's feed snapshot while the tab is shown (live only); its subscriptions end when it is not."""
         shown = self.tab == 'Fusion' and not self.review
-        feed = getattr(self, 'fusion_feed', None)
+        feed = self.state.view.fusion_feed
         if feed is None and shown and getattr(self.ros, 'node', None) is not None:
             from mhseals_testing.fusion import ros_feed as fusion_feed
             cfg = fusion_feed.load_config()
             camera = camera_feed.profile_feed(self.ros.node, self.profile.sensors, hz=cfg['feed']['camera_rate'])
-            feed = self.fusion_feed = fusion_feed.node_feed(self.ros, camera, cfg) or False
+            feed = self.state.view.fusion_feed = fusion_feed.node_feed(self.ros, camera, cfg) or False
         review = {'fusion': None, 'fusion_review': True} if self.tab == 'Fusion' and self.review else {}
         if not feed:
             return {'fusion': None} if shown else review
@@ -220,12 +220,13 @@ class View:
 
     def fusion_on(self):
         """Whether the Fusion camera image is on: as toggled (i), else on locally and off over a link budget."""
-        return self.fusion_image if self.fusion_image is not None else pixels.BUDGET is None
+        image = self.services.loop.fusion_image
+        return image if image is not None else pixels.BUDGET is None
 
     def driving(self, shared=None):
         """The authority chip: from the arbiter's record, stale-aware (ui U4); local guess without one."""
         return authority_chip.driving(shared if shared is not None else feeds_module.merged(self.feeds),
-                                      getattr(self, 'arbiter', None) or getattr(self, 'authority_view', None),
+                                      self.arbiter or self.authority_view,
                                       self.services.manual.active, self.services.procedures.running, time.time())
 
     def control(self):
@@ -246,33 +247,33 @@ class View:
         the FRAME cap, as ever."""
         goals = getattr(self.desk, 'goals', None)
         return bool(self.armed or self.services.procedures.running or self.services.manual.active or self.modal is not None or self.review
-                    or getattr(getattr(self, 'desk', None), 'act', None) or getattr(goals, 'active', None)
+                    or getattr(self.desk, 'act', None) or getattr(goals, 'active', None)
                     or self.tab == 'Fusion')
 
     def still_key(self, now):
         """A cheap signature of a still screen: the notice, toasts, events, health, authority, the agent desk and the
         idle_s tick (ages); equal means no render. Anything it misses still shows within idle_s."""
-        desk = getattr(self, 'desk', None)
+        desk = self.desk
         events = getattr(self.monitor, 'events', ())
-        return (int(now / idle_s()), str(self.notice or ''), self.tab, getattr(self, 'focus', None),
+        return (int(now / idle_s()), str(self.notice or ''), self.tab, self.focus,
                 tuple((t.id, t.kind, t.text) for t in getattr(self.toasts, '_items', {}).values()),
                 len(events), events[-1] if events else None, id(getattr(self.engine, 'last', None)),
-                getattr(getattr(self, 'arbiter', None), 'sent', None),   # the record's content (its timer is 4 Hz)
+                getattr(self.arbiter, 'sent', None),   # the record's content (its timer is 4 Hz)
                 (len(desk.recent), len(desk.notes), len(desk.queue), len(desk.notices)) if desk is not None else None,
                 getattr(self.map_state(), 'fence_status_at', None) if hasattr(self, 'map_state') else None)
 
     def repaint(self):
         """The next idle frame draws in full (the terminal's images restarted)."""
-        app_state.state_of(self).render.last_drawn = None
+        self.state.view.last_drawn = None
 
     def refresh(self, force=True):
         """Draw now. Continuous callers pass force=False to cap redraws at 1/FRAME; a still screen draws only when
         ``still_key`` changed (D-20261101-26)."""
         if self.live is None:
             return
-        render = app_state.state_of(self).render     # View's own redraw bookkeeping (ui/app/state)
+        render = self.state.view     # View's own redraw bookkeeping (ui/app/state)
         now = time.monotonic()
-        if not force and now - self.last_frame < perf.period(self, FRAME):   # perf.yaml fps, slowed by slow frames
+        if not force and now - render.last_frame < perf.period(self, FRAME):   # perf.yaml fps, slowed by slow frames
             return
         repaint = pixels.watch()    # tmux: a client came or went, or its images need repainting
         key = None if force or self.lively() else self.still_key(now)

@@ -150,15 +150,15 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin, VerbsMixin, SettingsMixin
         """Cancel whatever runs: a takeover never inherits an act (S3). A human takeover's hints name the taker."""
         closed = self.closed_hint()
         if self.act is not None:
-            self.cancel('handover' if self.app.detaching else 'cancelled: TUI closed')
+            self.cancel('handover' if self.app.services.loop.detaching else 'cancelled: TUI closed')
             if self.act['op'] == 'goal' and self.act['started']:
                 self.watch_goal(self.act, self.act['cause'])
         self.answer_dry(DRY_CLOSE_S)               # a dry run moves nothing: answer it if it ends now
         if self.dry is not None:
-            self.reply(self.dry[0], False, 'handover' if self.app.detaching else 'cancelled', hint=closed)
+            self.reply(self.dry[0], False, 'handover' if self.app.services.loop.detaching else 'cancelled', hint=closed)
             self.dry = None
         for req in self.queue:
-            self.reply(req, False, 'handover' if self.app.detaching else 'cancelled', hint=closed)
+            self.reply(req, False, 'handover' if self.app.services.loop.detaching else 'cancelled', hint=closed)
         self.queue = []
         self.persist()
 

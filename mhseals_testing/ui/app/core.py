@@ -35,10 +35,10 @@ from mhseals_testing.ui.app import mixins, wiring
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
 OWNERS = {
-    'View': ('last_frame', 'last_drawn', 'last_key', '_staging', 'fusion_feed'),
-    'Loop': ('last_tick', 'fusion_image', 'detaching'),
-    'Bags': ('bag_recording_key', 'bag_scan', 'finalizing', 'finalize_thread', 'rec', '_review_live', '_review_fault'),
-    'Labels': ('_labels_state',),   # its LabelsState (actions/labels.py), read as app.labels
+    'View': ('state.view',),
+    'Loop': ('state.loop',),
+    'Bags': ('state.bags',),
+    'Labels': ('state.labels',),
     'Manual': ('state.manual',),
     'Arm': ('state.arm',),
     'Holds': ('state.holds',),
@@ -53,7 +53,6 @@ OWNERS = {
 }
 
 
-@app_state.install
 class App(*mixins.ROSTER):
     """The page, its key handling and the procedure context.
 
@@ -86,10 +85,8 @@ class App(*mixins.ROSTER):
         self.stop_adopted = False  # Quit's 'also stop adopted parts' (units another TUI may own)
         self.ekf = ekf          # harness.ekf.EkfRestart, or None when the session cannot restart them
         self.registry, self.watching = registry, watching   # watching: pid of the owner we only watch
-        self.detaching = False
         self.handed_by = self.restart_as = None   # the takeover's taker; 'take' or 'view' to restart as one
         self.guests_seen = set()
-        self._review_live = None
         self.review = review     # a ui.review.Review while a past session plays; live work is off
         self.profile = profile
         self.monitor = monitor
@@ -125,7 +122,6 @@ class App(*mixins.ROSTER):
         self.tabs = TabMemory()
         wiring.map_views(self)   # minimap, layerbox, map_keys, map_tab_keys, fusion_keys
         self.checklist = Checklist.from_env()   # boat_tui preview's sanity checklist, else None
-        self.fusion_image = None   # the Fusion camera image: None until toggled (on locally, off over a link budget)
         self.focus = 'status'
         self.cursors = dict.fromkeys(CURSORS, 0)
         self.column = None   # Correction tab column; None follows the worst one
@@ -141,10 +137,9 @@ class App(*mixins.ROSTER):
             self.feeds.append(ros.mission)
         self.recwatch = RecWatch(self.clock)
         self.recorder = recorder or Recorder(processes, paths.bag, profile.name)
-        self.rec = None                 # latest RecSample, drawn in the header strip
         self.pwm_readback = [theme.DASH] * 4
         self.keys = self.live = None
-        self.last_tick = clock()
+        self.state.loop.last_tick = clock()
         self.quit = False
         self.closed = False
         self.started = clock()

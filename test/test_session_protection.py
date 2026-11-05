@@ -89,7 +89,7 @@ def test_delete_rechecks_recording_and_pins_after_confirmation(tmp_path, monkeyp
 
 def test_delete_and_prune_respect_finalizer(tmp_path, monkeypatch):
     app, _, path = setup_app(tmp_path)
-    app.finalizing = path.resolve()
+    app.state.bags.finalizing = path.resolve()
     monkeypatch.setattr(app, 'choose', lambda *a, **kw: 'Delete')
     app.dispatch('d')
     app.dispatch('P')
@@ -221,7 +221,7 @@ def test_finalize_active_mcaps_untouched(tmp_path, monkeypatch):
         before = mcap.stat().st_mtime_ns
         app.dispatch('F')
         assert mcap.read_bytes() == content and mcap.stat().st_mtime_ns == before
-    assert not calls and app.finalizing is None
+    assert not calls and app.state.bags.finalizing is None
 
 
 def test_finalize_worker_rechecks_writer_started_after_click(tmp_path, monkeypatch):
@@ -235,13 +235,13 @@ def test_finalize_worker_rechecks_writer_started_after_click(tmp_path, monkeypat
             pass
     monkeypatch.setattr(threading, 'Thread', DeferredThread)
     app.dispatch('F')
-    assert app.finalizing == path.resolve()
+    assert app.state.bags.finalizing == path.resolve()
     monkeypatch.setattr(app.processes, 'running', lambda key: True)
     app.recorder.segment = folder
     before = mcap.stat().st_mtime_ns
     pending[0]()
     assert mcap.exists() and mcap.stat().st_mtime_ns == before
-    assert app.finalizing is None and 'refused' in app.notice
+    assert app.state.bags.finalizing is None and 'refused' in app.notice
 
 
 def test_background_finalize_space_second_job_and_recording_start(tmp_path, monkeypatch):
@@ -260,9 +260,9 @@ def test_background_finalize_space_second_job_and_recording_start(tmp_path, monk
     app.dispatch('F')
     try:
         assert entered.wait(5)
-        first = app.finalize_thread
+        first = app.state.bags.finalize_thread
         app.dispatch('F')
-        assert app.finalize_thread is first
+        assert app.state.bags.finalize_thread is first
         app.set_recording('lean')
         assert app.recorder.segment is None and 'refused' in app.notice
         app.dispatch('d')
@@ -272,9 +272,9 @@ def test_background_finalize_space_second_job_and_recording_start(tmp_path, monk
         assert boat.holds == ['keys'] and not app.armed
     finally:
         release.set()
-        app.finalize_thread.join(5)
-    assert not app.finalize_thread.is_alive()
-    assert app.finalizing is None and rebuilds == [path]
+        app.state.bags.finalize_thread.join(5)
+    assert not app.state.bags.finalize_thread.is_alive()
+    assert app.state.bags.finalizing is None and rebuilds == [path]
 
 
 def test_historical_finalize_while_other_session_records_and_partial_error(tmp_path, monkeypatch):
@@ -293,8 +293,8 @@ def test_historical_finalize_while_other_session_records_and_partial_error(tmp_p
     rebuilds = []
     monkeypatch.setattr(app, 'refresh_bag_index', lambda bag: rebuilds.append(bag.path))
     app.dispatch('F')
-    app.finalize_thread.join(5)
-    assert app.finalizing is None and 'runner failure' in app.notice
+    app.state.bags.finalize_thread.join(5)
+    assert app.state.bags.finalizing is None and 'runner failure' in app.notice
     assert not mcap.exists() and (second / 'data.mcap').read_bytes() == b'data'
     assert rebuilds == [path]
 
@@ -305,7 +305,7 @@ def test_mixed_prune_success_rebuild_once(tmp_path, monkeypatch):
     legacy.mkdir()
     (legacy / 'empty.mcap').touch()
     app.bags_view()
-    app.bag_scan = (app.clock(), sorted(app.bag_scan[1], key=lambda b: not b.legacy), (0, 0, 0))
+    app.state.bags.scan = (app.clock(), sorted(app.state.bags.scan[1], key=lambda b: not b.legacy), (0, 0, 0))
     rebuilds = []
     original = index.rebuild
     def rebuild(root):

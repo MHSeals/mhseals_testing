@@ -1,10 +1,12 @@
 """Narrow facades on App (``app.services``): how one area reads another's state without writing it.
 
-``app.services.bags.scan`` reads the Bags tab's container; a write through a facade raises, so the owning
-mixin (core.py OWNERS) stays the one writer. View reads the Thrusters panel's edit this way (``app.services.manual.draft``).
+``app.services.bags.scan`` reads the Bags tab's container; a write through a facade raises, so the container's
+owner (the mixin it is named for, ui/app/state) stays the one writer.
 """
 
-from mhseals_testing.ui.app.state import state_of
+from dataclasses import fields
+
+from mhseals_testing.ui.app.state import AppState
 
 
 class ReadOnly:
@@ -17,16 +19,17 @@ class ReadOnly:
         object.__setattr__(self, '_group', group)
 
     def __getattr__(self, name):
-        return getattr(getattr(state_of(self._app), self._group), name)
+        return getattr(getattr(self._app.state, self._group), name)
 
     def __setattr__(self, name, value):
-        raise AttributeError(f'{self._group}.{name} is written only by its owner (ui/app/core.py OWNERS)')
+        raise AttributeError(f'app.state.{self._group}.{name} is written only by its owner, the {self._group} '
+                             f'mixin (ui/app/state); ask its method')
 
 
 class Services:
-    """``bags``, ``manual``, ``holds``, ``arm`` and ``procedures``: read-only views of those containers."""
+    """One read-only view per container in AppState: ``bags``, ``manual``, ``arm``, ..."""
 
-    GROUPS = ('bags', 'manual', 'holds', 'arm', 'procedures')
+    GROUPS = tuple(f.name for f in fields(AppState))
 
     def __init__(self, app):
         for group in self.GROUPS:

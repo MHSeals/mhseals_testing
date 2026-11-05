@@ -11,6 +11,7 @@ from rich.console import Console
 
 from mhseals_testing.health.model import Fact
 from mhseals_testing.fusion import ros_feed as fusion_feed
+from mhseals_testing.ui.app import state as app_state
 from mhseals_testing.fusion.ros_feed import FusionFeed, StaticTF, detections
 from mhseals_testing.ui import layout, theme
 from mhseals_testing.ui import imaging as pixels
@@ -715,7 +716,9 @@ def test_app_feed_is_off_when_the_tab_is_not_shown(monkeypatch):
     from mhseals_testing.ui.app import App
     wants = []
     fake = NS(want=lambda on, camera=False: wants.append(on), snapshot=lambda: {'x': 1}, applied=None)
-    app = NS(tab='Drive', review=None, fusion_feed=fake, facts={}, ros=None, profile=None, fusion_image=None)
+    app = NS(tab='Drive', review=None, facts={}, ros=None, profile=None)
+    app.state = app_state.AppState(view=app_state.ViewState(fusion_feed=fake))
+    app.services = app_state.facades(app)
     app.fusion_on = lambda: App.fusion_on(app)
     assert App.fusion_view(app) == {} and wants == [False]
     assert fake.applied is None                  # hidden: not even the status is read
@@ -730,7 +733,7 @@ def test_app_feed_is_off_when_the_tab_is_not_shown(monkeypatch):
     assert fake.applied == (0.10, -0.30, 0.02)
     app.review = object()                        # review: live only, and the feed closes
     assert App.fusion_view(app) == {'fusion': None, 'fusion_review': True} and wants[-1] is False
-    app.fusion_feed = None
+    app.state.view.fusion_feed = None
     assert App.fusion_view(app) == {'fusion': None, 'fusion_review': True}
 
 
@@ -1065,7 +1068,9 @@ def test_i_toggles_the_image_and_the_feed_follows(monkeypatch):
     from mhseals_testing.ui.app import App
     camera = []
     fake = NS(want=lambda on, camera_=False, **kw: camera.append(kw.get('camera')), snapshot=lambda: {}, applied=None)
-    app = NS(tab='Fusion', review=None, fusion_feed=fake, facts={}, ros=None, profile=None, fusion_image=None)
+    app = NS(tab='Fusion', review=None, facts={}, ros=None, profile=None)
+    app.state = app_state.AppState(view=app_state.ViewState(fusion_feed=fake))
+    app.services = app_state.facades(app)
     app.fusion_on = lambda: App.fusion_on(app)
     monkeypatch.setattr(pixels, 'active', lambda: True)
     monkeypatch.setattr(pixels, 'images', lambda name: True)
@@ -1073,5 +1078,5 @@ def test_i_toggles_the_image_and_the_feed_follows(monkeypatch):
     assert App.fusion_view(app)['fusion']['image'] is True and camera[-1] is True     # on by default locally
     monkeypatch.setattr(pixels, 'BUDGET', 25000)
     assert App.fusion_view(app)['fusion']['image'] is False and camera[-1] is False   # off by default over SSH
-    app.fusion_image = True                                                            # turned on: kept
+    app.state.loop.fusion_image = True                                                        # turned on: kept
     assert App.fusion_view(app)['fusion']['image'] is True and camera[-1] is True
