@@ -72,10 +72,10 @@ def tab_app(tmp_path):
 def test_right_moves_the_stripe_from_the_worst_column(tmp_path):
     app = tab_app(tmp_path)
     app.dispatch('right')
-    assert app.column == 4
+    assert app.state.correction.column == 4
     app.dispatch('h')
     app.dispatch('h')
-    assert app.column == 2
+    assert app.state.correction.column == 2
 
 
 def test_r_runs_the_cursor_direction_and_r_capital_the_survey_keeping_the_setting(tmp_path):

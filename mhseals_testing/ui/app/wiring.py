@@ -39,8 +39,9 @@ def map_views(app):
     """Set the minimap, the layer box and the map and Fusion key maps on ``app``."""
     app.minimap = minimap_panel.MiniMap(app.map_state)
     app.layerbox = LayerBox(getattr(app.ros, 'map', None), app.map_state, live=True)
-    app.map_keys, app.map_tab_keys = map_key_maps(keymap_module.load()[0].doc)
-    app.fusion_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('tab.fusion'))
+    files = app.state.files
+    files.map_keys, files.map_tab_keys = map_key_maps(keymap_module.load()[0].doc)
+    files.fusion_keys = keymap_module.key_map(keymap_module.load()[0].doc.get('tab.fusion'))
 
 
 def toasts():

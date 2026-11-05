@@ -182,9 +182,9 @@ class View:
             recording=False if self.review else self.processes.running('bag'), rec=self.services.bags.rec,
             bench_override=self.args.bench_override,
             hardware=config, matrix=validate_mixer(config['thruster_matrix']),
-            test_pulses=thrusters.test_pulses, pwm_readback=self.pwm_readback,
+            test_pulses=thrusters.test_pulses, pwm_readback=self.services.health.pwm_readback,
             draft=thrusters.draft, grabbed=thrusters.grabbed,
-            config_note=self.config_note, review=self.review, correction=self.correction_state(),
+            config_note=self.services.files.config_note, review=self.review, correction=self.correction_state(),
             procedures=[dict(key=p.key, title=p.title, description=p.description, group=p.group,
                              reason=self.availability(p)) for p in PROCEDURES])
         if self.review and not self.source.live:

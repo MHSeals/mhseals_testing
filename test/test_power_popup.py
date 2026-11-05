@@ -69,7 +69,7 @@ def status_cursor(app, name):
 def test_enter_on_the_battery_row_opens_the_popup(tmp_path):
     app, _ = make_app(tmp_path)
     app.health.facts.publish('battery', probes.battery_facts(15.8, 0.8, 1.0))
-    app.last_advisory = float('-inf')
+    app.state.health.last_advisory = float('-inf')
     app.refresh_advisories()       # the row is the shipped health advisory, not a hand-made one
     app.ros.power_facts = facts_after_swap()
     with app.attached():

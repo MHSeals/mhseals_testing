@@ -8,6 +8,8 @@ the owners from these names and fails when another area writes a container. The 
 
 from dataclasses import dataclass, field
 
+from mhseals_testing.ui import theme
+
 
 @dataclass
 class ViewState:
@@ -133,6 +135,30 @@ class OperatorState:
 
 
 @dataclass
+class CorrectionState:
+    """The Correction rows' (settings_rows/correction.py)."""
+    column: object = None         # the Correction tab's column; None follows the worst one
+
+
+@dataclass
+class FilesState:
+    """The Files rows' (settings_rows/files.py): the config label, held settings and the key maps."""
+    config_note: str = 'defaults'  # the hardware file's name, 'defaults' or 'invalid edit'
+    pending_settings: object = None   # a settings edit held while armed or running
+    map_keys: dict = field(default_factory=dict)       # the minimap's keys (wiring.py builds them)
+    map_tab_keys: dict = field(default_factory=dict)   # the Map tab's
+    fusion_keys: dict = field(default_factory=dict)    # the Fusion tab's
+
+
+@dataclass
+class HealthState:
+    """The Health rows' (settings_rows/health.py): the advisory period and the PWM readback."""
+    last_advisory: float = float('-inf')
+    pwm_readback: list = field(default_factory=lambda: [theme.DASH] * 4)   # the Thrusters panel's Rb column
+    pwm_sysfs: list = field(default_factory=list)   # the sysfs probe's rows, kept under the driver's readback
+
+
+@dataclass
 class AppState:
     view: ViewState = field(default_factory=ViewState)
     loop: LoopState = field(default_factory=LoopState)
@@ -146,6 +172,9 @@ class AppState:
     annotate: AnnotateState = field(default_factory=AnnotateState)
     quit: QuitState = field(default_factory=QuitState)
     operator: OperatorState = field(default_factory=OperatorState)
+    correction: CorrectionState = field(default_factory=CorrectionState)
+    files: FilesState = field(default_factory=FilesState)
+    health: HealthState = field(default_factory=HealthState)
 
 
 def facades(app):

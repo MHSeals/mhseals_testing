@@ -730,7 +730,7 @@ def test_unparsable_or_mistyped_config_is_refused_not_raised(tmp_path, text):
     app, _ = make_app(tmp_path)
     (tmp_path / 'hardware.yaml').write_text(text)
     app.announce(app.watcher.reload('hardware'))  # a typo must not end the session
-    assert 'rejected' in app.notice and app.config_note == 'invalid edit'
+    assert 'rejected' in app.notice and app.state.files.config_note == 'invalid edit'
 
 
 def test_reload_refreshes_the_arming_copy_of_the_config(tmp_path):
@@ -865,7 +865,7 @@ def test_a_test_pulse_shows_the_driver_readback_and_says_when_it_did_not_arrive(
         app.ros.driver_output_at = clock.monotonic()
         app.tick()
         assert app.notice.startswith(f'Test pulse at the outputs: 1: {sent[0]} ')
-        assert app.pwm_readback == [f'ON {pulse} us' for pulse in sent]
+        assert app.state.health.pwm_readback == [f'ON {pulse} us' for pulse in sent]
         assert app.ros.events.count('test_pulses_unverified') == 2
 
 
@@ -1312,14 +1312,14 @@ def test_status_tracks_driver_and_kernel_pwm_independently(tmp_path, velocity):
     assert status['PWM driver']['detail'].startswith('RUNNING;')
     assert status['PWM readback']['detail'].startswith('4/4 ON;')
     assert set(topics) == {'/cmd_vel_effort' if velocity else '/cmd_vel/applied'}
-    assert app.pwm_readback == ['ON 1500us / 50Hz'] * 4
+    assert app.state.health.pwm_readback == ['ON 1500us / 50Hz'] * 4
 
     # A live driver endpoint must not hide a disabled hardware output.
     (chips[2] / 'pwm0' / 'enable').write_text('0')
     status = sample()
     assert status['PWM driver']['level'] == 'OK'
     assert status['PWM readback']['level'] == 'FAIL'
-    assert app.pwm_readback[2].startswith('OFF')
+    assert app.state.health.pwm_readback[2].startswith('OFF')
     drivers.clear()
     assert sample()['PWM driver']['level'] == 'FAIL'
     app.arming.armed = managed = False
@@ -3413,9 +3413,9 @@ def test_command_mode_switches_hot_while_disarmed_and_never_armed(tmp_path):
 
 def test_the_driver_readback_keeps_a_pin_the_sysfs_probe_reads_off(tmp_path):
     app, _ = make_app(tmp_path, ['--profile', 'crane_full_stack'])
-    app.pwm_sysfs = ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
+    app.state.health.pwm_sysfs = ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
     app.show_driver_readback([1500, 1600, 1500, 1500])
-    assert app.pwm_readback == ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
+    assert app.state.health.pwm_readback == ['ON 1500 us', 'OFF', 'ON 1500 us', 'unavailable']
 
 
 def _pulse_with_driver(tmp_path, output):
