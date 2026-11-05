@@ -1,9 +1,10 @@
-"""The hardware layer ``boat_agent set`` writes: the operator hardware YAML over mhseals_hardware's defaults. ROS-free.
+"""The hardware layer ``boat_agent set`` writes: the operator hardware YAML. ROS-free.
 
 A key is any top-level key of the defaults (``manual_amplitude``, ``decoupling``), optionally ``hardware.``-prefixed,
 or a dotted path into one: a mapping's leaf (``command_mux.ramp``, ``controller.kp``) or a matrix row by the row
 names config/history/fields.yaml gives that matrix (``decoupling.yaw``). Values are YAML (``[-0.0375, 0.1, 1.0]``).
-``plan`` validates the change against the whole config as the driver would load it, and returns the overrides to
+``plan`` validates the change against the whole config as the driver loads it (mhseals_hardware ``load_config``: the
+operator file over the vessel's thrusters over the defaults), and returns the overrides to
 write: only the changed top-level key, a mapping merged with the file's own overrides, never a full copy.
 """
 

@@ -122,3 +122,27 @@ def test_layers_split_names_only_hardware_keys():
     assert layers.split('hardware.decoupling.yaw') == ('decoupling', 'yaw')
     assert layers.split('manual_amplitude') == ('manual_amplitude', '')
     assert layers.split('amplitude') is None and layers.split('nav2.x.y') is None
+
+
+@pytest.fixture
+def vessel_wiring(tmp_path, monkeypatch):
+    """A vessel profile whose thrusters: section remaps the outputs."""
+    (tmp_path / 'boat').mkdir()
+    (tmp_path / 'boat' / 'network.env').write_text('')
+    (tmp_path / 'boat' / 'profile.yaml').write_text('thrusters: {channel_map: [1, 3, 2, 4]}\n')
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(tmp_path / 'boat' / 'network.env'))
+
+
+def test_the_sim_hardware_file_keeps_crane_wired_canonically_under_a_vessel_env(vessel_wiring):
+    from pathlib import Path
+    sim = Path(__file__).resolve().parents[1] / 'config' / 'sim' / 'hardware_crane.yaml'
+    assert load_config(sim)['channel_map'] == [1, 2, 3, 4]
+
+
+def test_plan_validates_over_the_vessel_layer_as_the_driver_loads_it(vessel_wiring, tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('')
+    planned = layers.plan('channel_map', '[2, 1, 3, 4]', path)
+    assert planned['old'] == [1, 3, 2, 4] and planned['change'] == {'channel_map': [2, 1, 3, 4]}
+    with pytest.raises(ValueError, match='channel_map'):
+        layers.plan('channel_map', '[1, 1, 2, 4]', path)

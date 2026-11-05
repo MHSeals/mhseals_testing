@@ -2,6 +2,9 @@
 # crane_ml models the T200 curve, reverse 40.2 N of 51.5 N forward, so the mixer gets that ratio; at 1.0
 # 45 degree effort diagonals turn the boat at 7-8 deg/s, at 0.78 under 0.4 deg/s.
 reverse_thrust_ratio: 0.78
+# crane_ml's boat is wired canonically. Pinned here, the operator layer, so a dev env whose ASTRO_NETWORK_ENV names
+# a vessel with its own thrusters: channel_map (mhseals_hardware load_config's vessel layer) never remaps the sim.
+channel_map: [1, 2, 3, 4]
 # Open-loop effort holds with no current (--crane-water-current 0,0) at 0.3, 0.6, 0.8 and 1.0,
 # speed_curves e|e| = d1 v + d2 v|v|. Cross-axis speed stayed under 2% of the driven axis, so the
 # default identity decoupling stands. These are crane's own numbers: never a boat calibration, and
