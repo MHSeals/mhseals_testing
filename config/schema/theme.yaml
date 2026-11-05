@@ -1,0 +1,18 @@
+# theme.yaml (ui/theme.py tune()): panel sizes and thresholds, read when the TUI starts.
+theme.tune.motion.tall: {type: int, units: rows, tier: restart, doc: "Motion panel height at which each axis gets 4 braille rows (else 1)."}
+theme.tune.motion.short: {type: int, units: columns, tier: restart, doc: "Motion inner width below which the axis header is the short form."}
+theme.tune.motion.stale: {type: float, units: s, tier: restart, doc: "A Motion measurement older than this reads as a dash."}
+theme.tune.motion.label: {type: int, units: columns, tier: restart, doc: "Columns of a compact Motion row's label."}
+theme.tune.fusion.greys: {type: int, units: count, tier: restart, doc: "Grey levels of the camera frame behind the Fusion points."}
+theme.tune.fusion.link_blocks: {type: list, units: px, tier: restart, doc: "Block sizes the camera frame is drawn in over a link budget, coarsest first."}
+theme.tune.fusion.readout_rows: {type: int, units: rows, tier: restart, doc: "Rows of the Alignment panel, border included."}
+theme.tune.fusion.around_min: {type: int, units: columns, tier: restart, doc: "Least width of the Around panel beside the camera column."}
+theme.tune.fusion.around_share: {type: float, units: "1", tier: restart, doc: "Least share of the width the Around panel takes."}
+theme.tune.fusion.spark_columns: {type: int, units: columns, tier: restart, doc: "Columns of the residual trend sparks."}
+theme.tune.fusion.stamp_match: {type: float, units: s, tier: restart, doc: "Frame and boxes this close in stamp count as one capture."}
+theme.tune.fusion.link_share: {type: float, units: "1", tier: restart, doc: "Share of the link budget the Fusion drawings aim at."}
+theme.tune.fusion.rate_every: {type: float, units: s, tier: restart, doc: "Time between drawing-rate updates over a link budget."}
+theme.tune.fusion.rate_start: {type: float, units: "1", tier: restart, doc: "Share of the top rate a drawing starts at over a link budget."}
+theme.tune.fusion.rate_step: {type: float, units: "1", tier: restart, doc: "Factor a drawing rate steps up by at most each update."}
+theme.tune.fusion.over_every: {type: float, units: s, tier: restart, doc: "Time between rate updates while the link is over its budget."}
+theme.tune.fusion.join_steps: {type: int, units: count, tier: restart, doc: "Repaints a frame at a new block size comes in over a link budget."}

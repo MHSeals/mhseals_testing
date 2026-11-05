@@ -200,3 +200,25 @@ glyphs:
   spinner:   ['⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', '|/-\']
   rtk_ring:  ['○◔◑◕●', '.:oO@']  # correction-source ring, empty to full (ui/rtk/icon.py)
   rtk_base:  ['Ψ', 'Y']          # the base-station antenna inside the ring
+
+# Panel sizes and thresholds (ui/theme.py tune(); schema theme.tune.*), read when the TUI starts.
+tune:
+  motion:
+    tall: 20              # panel height at which each axis gets 4 braille rows (else 1)
+    short: 40             # inner width below which the axis header is `Surge  +60% -> +0.37`
+    stale: 2.0            # s; a measurement older than this reads as a dash
+    label: 18             # columns of a compact row's label: name, command, measurement
+  fusion:
+    greys: 6              # grey levels of the frame behind the points
+    link_blocks: [64, 32, 16, 8, 4]   # px: over a link budget the frame is drawn in blocks this size, coarsest first
+    readout_rows: 8       # Alignment's six lines and its border
+    around_min: 24        # Around's least width beside the camera column
+    around_share: 0.3     # and its least share of the width
+    spark_columns: 12     # residual trend columns
+    stamp_match: 0.005    # s; frame and boxes this close count as one capture (no note)
+    link_share: 0.9       # of the link budget the drawings aim at
+    rate_every: 5.0       # s between rate updates over a link budget
+    rate_start: 0.25      # of the top rate a drawing starts at
+    rate_step: 1.5        # and steps up by at most this factor each update
+    over_every: 0.5       # s between rate updates while the link is over its budget
+    join_steps: 4         # repaints a frame at a new block size comes in over a link budget

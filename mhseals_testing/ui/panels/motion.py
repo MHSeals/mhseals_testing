@@ -8,9 +8,9 @@ from mhseals_testing.ui.panels import TITLES
 
 
 AXES = (('Surge', 'm/s', 'vx'), ('Sway', 'm/s', 'vy'), ('Yaw', 'rad/s', 'wz'))
-TALL = 20            # panel height at which each axis gets 4 braille rows (else 1)
-SHORT = 40           # inner width below which the axis header is `Surge  +60% -> +0.37`
-STALE = 2.0          # s; a measurement older than this reads as a dash
+TALL = theme.tune('motion.tall')   # theme.yaml tune
+SHORT = theme.tune('motion.short')   # theme.yaml tune
+STALE = theme.tune('motion.stale')   # theme.yaml tune
 
 
 def latest(series, now):
@@ -79,7 +79,7 @@ def _axis(index, snapshot, view, width, rows):
     return [header, *lines]
 
 
-LABEL = 18           # columns of a compact row's label: name, command, measurement
+LABEL = theme.tune('motion.label')   # theme.yaml tune
 
 
 class Compact:

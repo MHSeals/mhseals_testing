@@ -204,3 +204,30 @@ def test_the_fusion_range_ramp_is_the_spd_tones(theme):
 def test_score_grades_take_the_status_styles():
     from mhseals_testing.ui import theme as ui
     assert [ui.score_style(g) for g in ('green', 'yellow', 'red', None)] == [ui.GOOD, ui.WARN, ui.BAD, ui.MUTED]
+
+
+# Panel literals live in theme.yaml tune: (schema theme.tune.*); the shipped values are the ones the code had.
+TUNE_DEFAULTS = {
+    'motion.tall': 20, 'motion.short': 40, 'motion.stale': 2.0, 'motion.label': 18,
+    'fusion.greys': 6, 'fusion.link_blocks': (64, 32, 16, 8, 4), 'fusion.readout_rows': 8, 'fusion.around_min': 24,
+    'fusion.around_share': 0.3, 'fusion.spark_columns': 12, 'fusion.stamp_match': 0.005, 'fusion.link_share': 0.9,
+    'fusion.rate_every': 5.0, 'fusion.rate_start': 0.25, 'fusion.rate_step': 1.5, 'fusion.over_every': 0.5,
+    'fusion.join_steps': 4,
+}
+
+
+def test_tune_ships_the_pinned_defaults_and_each_has_a_schema_entry():
+    from pathlib import Path
+    import yaml
+    from mhseals_testing.ui import theme as ui
+    assert {key: ui.tune(key) for key in TUNE_DEFAULTS} == TUNE_DEFAULTS
+    shipped = {f'{panel}.{name}' for panel, keys in ui.PALETTE.data['tune'].items() for name in keys}
+    assert shipped == set(TUNE_DEFAULTS)
+    fragment = yaml.safe_load((Path(palette.default_path()).parent / 'schema' / 'theme.yaml').read_text())
+    assert set(fragment) == {f'theme.tune.{key}' for key in TUNE_DEFAULTS}
+
+
+def test_the_panels_read_their_sizes_from_tune():
+    from mhseals_testing.ui.panels import fusion, motion
+    assert (motion.TALL, motion.SHORT, motion.STALE, motion.LABEL) == (20, 40, 2.0, 18)
+    assert (fusion.READOUT_ROWS, fusion.AROUND_MIN, fusion.LINK_BLOCKS, fusion.JOIN_STEPS) == (8, 24, (64, 32, 16, 8, 4), 4)

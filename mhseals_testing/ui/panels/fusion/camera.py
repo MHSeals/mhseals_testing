@@ -66,7 +66,7 @@ def paint_frame(r, frame, share=1.0):
 
 
 _STARTED = {}    # drawing name -> pixels.GENERATION it first painted in (an image tile, over a link budget)
-JOIN_STEPS = 4   # over a link budget a frame at a new block size comes in this many repaints, top rows first
+JOIN_STEPS = theme.tune('fusion.join_steps')   # theme.yaml tune
 _JOINED = {}     # drawing name -> (block size of its frame, repaints of it so far)
 
 

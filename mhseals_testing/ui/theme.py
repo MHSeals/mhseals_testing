@@ -63,6 +63,14 @@ def score_style(grade):
     return globals()[_SCORE[grade]]
 
 
+def tune(key):
+    """A panel size or threshold from theme.yaml ``tune:`` by dotted key (``motion.tall``); a list reads as a tuple."""
+    value = PALETTE.data['tune']
+    for part in key.split('.'):
+        value = value[part]
+    return tuple(value) if isinstance(value, list) else value
+
+
 def pick(glyph, ascii_glyph):
     """The Unicode glyph, or its ASCII stand-in when ASCII mode is on."""
     return ascii_glyph if ASCII else glyph

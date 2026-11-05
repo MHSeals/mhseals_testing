@@ -10,21 +10,20 @@ from mhseals_testing.ui import imaging as pixels
 RAMP = tuple(f'spd.range.{band}' for band in range(5, -1, -1))   # near (warm) to far; spd.range.0 past the last break
 # theme.yaml spd.range.*: the spd tones with one 16-colour hue per band
 STALE = 'warn'         # the whole scan in one ink no band uses while it cannot be read against the boxes
-GREYS = 6              # grey levels of the frame behind the points
-LINK_BLOCKS = (64, 32, 16, 8, 4)   # px: over a link budget the frame is drawn in blocks this size (runs that sixel/kitty pack),
-#                                coarsest first: it starts coarse and refines while the budget has room
+GREYS = theme.tune('fusion.greys')   # theme.yaml tune
+LINK_BLOCKS = theme.tune('fusion.link_blocks')   # theme.yaml tune
 CLASS_TOKENS = tuple(t[4:] for t in theme.PALETTE.tokens if t.startswith('obj.') and t != 'obj.unknown')   # obj.red: red
 SOURCE_MARK = {'lidar': 'L', 'split': 'L', 'lidar_ray': 'R', 'held': 'H', 'stereo': 'S', 'pass': '-', 'fused': '?'}
-READOUT_ROWS = 8       # Alignment's six lines and its border
-AROUND_MIN = 24        # Around's least width beside the camera column
-AROUND_SHARE = 0.3     # and its least share of the width
+READOUT_ROWS = theme.tune('fusion.readout_rows')   # theme.yaml tune
+AROUND_MIN = theme.tune('fusion.around_min')   # theme.yaml tune
+AROUND_SHARE = theme.tune('fusion.around_share')   # theme.yaml tune
 TEXT_CELL = (2, 4)     # braille dots per cell
 BITS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))
 ASCII = {'point': '.', 'stale': ':', 'ring': '.', 'fov': '.', 'stereo': 'o', 'bar': '|', 'box': '#', 'ray': '*', 'det': '@', 'boat': '^'}
 DEG = theme.pick('°', 'deg')
 PM = theme.pick('±', '+-')
-SPARK_COLUMNS = 12
-STAMP_MATCH_S = 0.005  # frame and boxes this close count as one capture (no note)
+SPARK_COLUMNS = theme.tune('fusion.spark_columns')
+STAMP_MATCH_S = theme.tune('fusion.stamp_match')   # theme.yaml tune
 
 
 def class_token(label):
@@ -134,11 +133,11 @@ def draw(name, paint, layers, cols, rows, key, labels, hz=None):
     return out
 
 
-LINK_SHARE = 0.9      # of the link budget the drawings aim at
-RATE_S = 5.0          # s between rate updates over a link budget: a few repaints of ~10 kB each, so one is not noise
-START = 0.25          # of the top rate a drawing starts at, then steps up by at most STEP each update
-STEP = 1.5
-OVER_S = 0.5          # s between rate updates while the link is over its budget (a burst is answered at once, not each tick)
+LINK_SHARE = theme.tune('fusion.link_share')   # theme.yaml tune
+RATE_S = theme.tune('fusion.rate_every')   # theme.yaml tune
+START = theme.tune('fusion.rate_start')   # theme.yaml tune
+STEP = theme.tune('fusion.rate_step')
+OVER_S = theme.tune('fusion.over_every')   # theme.yaml tune
 _HZ = {}              # drawing name -> (repaints per second, set at, image bytes sent by then, index in LINK_BLOCKS)
 
 
