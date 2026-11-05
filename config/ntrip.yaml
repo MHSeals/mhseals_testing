@@ -21,6 +21,9 @@ repick_s: 60.0           # re-rank as the boat moves; switch only if this much c
 repick_margin_km: 5.0
 mount_cooldown_s: 60.0   # a failed mountpoint rests this long, doubling to 10 min (RTK2go: retry >= 10 s)
 auth_cooldown_s: 600.0   # a refused login rests the whole caster
+timeout_s: 5.0           # connect and sourcetable read timeout
+penalties: {msm4: 3.0, msm5: 2.0, legacy: 15.0, unknown: 8.0,    # km added to a station's cost
+            single_band: 40.0, per_missing_system: 3.0, beyond_max: 200.0}
 # secrets: every file that exists, merged; astro's ($ASTRO_SECRETS overrides its path) wins over the
 # older per-package file. Each must be mode 600. Values are never printed.
 secrets: [~/.config/astro/secrets.env, ~/.config/mhseals_testing/secrets.env]

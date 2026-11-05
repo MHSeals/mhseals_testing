@@ -36,29 +36,21 @@ SYSTEMS = {107: 'GPS', 108: 'GLO', 109: 'GAL', 111: 'QZS', 112: 'BDS'}
 NAMES = {'GPS': 'GPS', 'GLO': 'GLO', 'GLONASS': 'GLO', 'GAL': 'GAL', 'GALILEO': 'GAL',
          'BDS': 'BDS', 'BEIDOU': 'BDS', 'BEI': 'BDS', 'CMP': 'BDS', 'QZS': 'QZS', 'QZSS': 'QZS'}
 
-DEFAULTS = dict(enabled=True, max_km=30.0, near_km=15.0, refresh_s=600.0, stale_s=5.0,
-                connect_grace_s=10.0, gga_every_s=10.0, repick_s=60.0, repick_margin_km=5.0,
-                mount_cooldown_s=60.0, auth_cooldown_s=600.0, timeout_s=5.0,
-                penalties=dict(msm4=3.0, msm5=2.0, legacy=15.0, unknown=8.0, single_band=40.0,
-                               per_missing_system=3.0, beyond_max=200.0),
-                secrets=['~/.config/astro/secrets.env', '~/.config/mhseals_testing/secrets.env'],
-                position_cache='~/.cache/mhseals_testing/ntrip_position.json', fallback=None, casters=[])
-
 
 def load_settings(rtk_config=None, path=None):
     """The shipped NTRIP settings with rtk.yaml's ``ntrip:`` mapping over them.
 
-    Overlay keys replace shipped ones, except ``casters`` entries named in the overlay, which
+    Overlay keys replace shipped ones, except ``penalties`` (merged by key) and ``casters`` entries named in the overlay, which
     merge into the shipped caster of that name (e.g. ``{name: FPRN, enabled: false}``); an
     unknown name adds a caster.
     """
     from mhseals_testing.health.config import config_path
     from mhseals_testing.strict_yaml import load_strict
     path = Path(path or config_path('config', 'ntrip.yaml'))
-    shipped = (load_strict(path.read_text(), path) or {}) if path.is_file() else {}
+    settings = load_strict(path.read_text(), path)        # the shipped file is required: no defaults in code
     overlay = dict((rtk_config or {}).get('ntrip') or {})
-    settings = {**DEFAULTS, **shipped}
     casters = [dict(c) for c in settings.get('casters') or []]
+    overlay['penalties'] = {**settings['penalties'], **overlay.get('penalties', {})}
     for change in overlay.pop('casters', None) or []:
         match = next((c for c in casters if c['name'] == change.get('name')), None)
         if match is None:
@@ -250,15 +242,14 @@ class Candidate:
                     vrs=self.stream.vrs, gga=bool(self.stream.nmea))
 
 
-def rank(streams, here, settings=None, biases=None, resting=(), groups=None):
+def rank(streams, here, settings, biases=None, resting=(), groups=None):
     """Candidates for position ``here`` (lat, lon), best first; resting keys (caster, mount) are left out.
 
     ``groups`` maps a caster to the network it belongs to (its stations may be in another
     caster's table, e.g. FPRN-NET -> FPRN); a network mountpoint is as near as its group's
     nearest single station (VRS/IMAX: half that, as the virtual base sits at the rover).
     """
-    settings = {**DEFAULTS, **(settings or {})}
-    weights = {**DEFAULTS['penalties'], **settings.get('penalties', {})}
+    weights = settings['penalties']
     biases, groups = biases or {}, groups or {}
     single = {}
     for s in streams:            # nearest single-base station per network group
@@ -528,7 +519,7 @@ class NtripSource:
 
     def __init__(self, settings, emit=lambda frame, stamp: None, position=lambda: None, env=None,
                  connect=_connect, clock=time.monotonic):
-        self.settings = {**DEFAULTS, **settings}
+        self.settings = settings
         self.casters = [c for c in self.settings['casters'] if c.get('enabled', True)]
         self.biases = {c['name']: float(c.get('bias_km', 0.0)) for c in self.casters}
         self.groups = {c['name']: c.get('group', c['name']) for c in self.casters}
