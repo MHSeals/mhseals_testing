@@ -34,13 +34,11 @@ from mhseals_hardware import hold_store
 from mhseals_testing.harness import control, operator_state, sim_arm
 from mhseals_testing.agent import channel as agent_channel, config as agent_config, fcu as agent_fcu
 from mhseals_testing.harness import background
-from mhseals_testing.harness.authority import HUMAN
 from mhseals_testing.harness.components import ComponentError
 from mhseals_testing.harness.goals import Goals, gate
 from mhseals_testing.procedures import unavailable
 from mhseals_testing.ros.arming import muxed
-from mhseals_testing.ui import agent_acts, parts, theme
-from mhseals_testing.ui.feeds import authority as authority_feed
+from mhseals_testing.ui import agent_acts, parts
 from mhseals_testing.ui.feeds.agent_desk.channel import ChannelMixin
 from mhseals_testing.ui.feeds.agent_desk.popups import PopupsMixin
 from mhseals_testing.ui.feeds.agent_desk.lease import LeaseMixin
@@ -156,15 +154,6 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin):
         return self.lifecycle_states
 
     # --- immediate ops ---------------------------------------------------------------------
-
-    def do_stop(self, req):
-        """Space for the agent: hold, neutral, disarm. Always allowed, never needs a claim. The stop is the
-        agent's, not the operator's: another agent's act ends ``overridden: agent W`` and the hold's hints name W."""
-        if self.act and self.act['op'] in MOTION:
-            self.cancel('stop' if self.act['who'] == req['who'] else f"overridden: agent {req['who']}")
-        self.stops, self.stopped_by = self.stops + 1, req['who']
-        self.app.operator_stop(agent=req['who'])
-        self.reply(req, True, result={'stopped': True})
 
     def do_part(self, req):
         """boat_agent start / stop COMPONENT: an allowed stack part through the Status row's own path (ui/parts.py)
@@ -489,37 +478,6 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin):
         return self.reply(req, False, refusal[0], hint=refusal[1],
                           result={'operator': operator_state.summary(operator_state.current())} if paused else None)
 
-    def operator_paused(self):
-        """The operator declared manual, battery swap or power cycle: an act in flight ends now (a run through
-        the runner's interlock path, neutral first; a goal is cancelled), with no lease hold."""
-        if self.act is not None and self.act['op'] in MOTION:
-            self.cancel('paused')
-            self.watch()
-
-    def override(self):
-        """The human or fault in control right now, or ''."""
-        app = self.app
-        if app.armed and app.arming.fault():
-            return 'fault'
-        cause = app.override_cause()
-        if cause == 'hold':                      # name the hold: Space's is 'keys'
-            mux = getattr(self.arbiter, 'mux', None) or {}
-            return str(mux.get('cause') or ((mux.get('holds') or [{}])[0] or {}).get('cause') or 'hold')
-        if cause:
-            return HUMAN.get(cause, cause)
-        if app.manual:
-            return 'keyboard'
-        if self.act and self.act.get('armed') and not app.armed:
-            return 'keys'                       # Space disarmed it (an unmuxed sim has no hold to see)
-        if not app.armed and muxed(app.profile):
-            return self.saved_hold()            # Space suspends claims until the human releases its hold
-        return ''
-
-    def saved_hold(self):
-        """The oldest hold the stopped mux saved and restores on arming, as its cause; '' when none."""
-        holds = authority_feed.saved_holds(self.app)
-        return str(holds[0]['cause']) if holds else ''
-
     def busy_cause(self):
         """What keeps the next queued act from starting, or '' (strictly one Nav2 user at a time: a dry run too)."""
         app = self.app
@@ -761,93 +719,6 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin):
         act['replied'], act['state'] = True, 'done'
         self.reply(act['req'], ok, error, result=result, hint=hint)
         return False
-
-    def human(self):
-        """``override()``, with a Space-style hold an agent's ``stop`` set named ``agent W``."""
-        cause = self.override()
-        stopper = str(getattr(self.app, 'stopped_by', '') or '')
-        if cause in ('keys', 'keyboard') and stopper.startswith('agent '):
-            return stopper
-        return cause
-
-    @staticmethod
-    def hint_of(cause, default=''):
-        """The hint for a cancel or refusal cause; ``agent W`` says another agent stopped the boat."""
-        key = cause.split(': ')[-1]
-        if key == 'paused':
-            return operator_state.refusal(operator_state.current())
-        if key.startswith('agent '):
-            return (f'{key} stopped the boat (boat_agent stop), not the operator; the operator must re-arm and '
-                    'release the hold (U)')
-        return HINTS.get(key, default)
-
-    @staticmethod
-    def error_of(cause):
-        """The reply error for a cancel cause: revoked, expired, released, overridden: <who>, handover, cancelled."""
-        if cause in ('revoked', 'expired', 'released', 'handover', 'paused') or cause.startswith('overridden: '):
-            return cause
-        return 'cancelled'
-
-    def cancel(self, cause):
-        if self.act is not None and not self.act['cause']:
-            self.act['cause'] = cause
-
-    def take_over(self):
-        """Manual control starts: an agent goal is cancelled in Nav2 now (rc 3, never resumed)."""
-        act = self.act
-        if act is not None and act['op'] == 'goal' and act['started']:
-            self.cancel('overridden: keyboard')
-            self.watch_goal(act, act['cause'])
-
-    def watch(self):
-        """The act's cancel cause (set once, never cleared), acting on it; None while it may go on."""
-        act = self.act
-        if act is None:
-            return None
-        if not act['cause'] and act['op'] in MOTION:
-            act['cause'] = self.lost(act)
-        cause = act['cause']
-        if act['op'] == 'run':
-            if cause:
-                self.app._runner_cancelled = f'(agent act ended: {cause})'   # a paused agent run aborts, not resumes
-            elif act['started'] and self.clock() - act['progress_at'] >= PROGRESS_S:
-                act['progress_at'] = self.clock()
-                self.reply(act['req'], True, state='progress',
-                           result={'elapsed_s': round(self.clock() - act['at'], 1), 'notice': str(self.app.notice),
-                                   'waiting_for_operator': operator_popup(self.app)})
-        elif act['op'] == 'goal' and act['started']:
-            self.watch_goal(act, cause)
-        return cause
-
-    def lost(self, act):
-        """Why a motion act must stop now: claim gone, a human override, or the motion lease lapsed."""
-        state = self.claim_state(act['claim'], act['who'])
-        if state:
-            return state
-        if operator_state.paused(operator_state.current()):
-            return 'paused'                         # before the lease: a paused claim never lapses
-        setting = self.operator_setting()
-        if setting:                                 # switched mid-act: stop as E does, the claim stays
-            self.arbiter.halt(setting.replace(' ', '_'))
-            self.app.notice = (f"Agent {act['who']} {act['claim']} stopped: {setting}{theme.SEPARATOR}"
-                               'neutral, hold (U releases)')
-            return f'overridden: {setting}'
-        human = '' if act.get('arming') else self.human()
-        if human:
-            return f'overridden: {human}'
-        if act.get('sim_armed') and sim_arm.stop_path().exists():
-            return 'stop file'
-        if act.get('sim_armed') and self.clock() - act['sim_armed_at'] > self.config.get()['sim_arm']['max_s']:
-            return 'sim-arm timeout'
-        if act.get('sim_armed'):
-            why = self.sim_recheck(act)
-            if why:
-                return why
-        if self.clock() - act['renewed'] > self.lease()['motion_s']:   # in the confirm popup too
-            self.arbiter.expire(act['claim'])       # stops exactly as E does
-            self.note_expiry()
-            return 'expired'
-        return None
 
     def watch_goal(self, act, cause):
         goals = self.app.goals
