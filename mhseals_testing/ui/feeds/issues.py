@@ -24,12 +24,13 @@ DISCOVERY_GRACE_S = 20.0    # nodes of a running part missing from the graph (dr
 
 
 def settings():
-    """``probes: devices`` of the health config ({} when unreadable): period, grace, discovery_grace."""
-    try:
-        from mhseals_testing.health import config
-        return dict(config.load().probes.get('devices') or {})
-    except Exception:  # noqa: BLE001 - a bad health file is reported by Health; issues keep defaults
-        return {}
+    """``probes: devices`` of the health config: period, grace and discovery_grace, each required (no code copy)."""
+    from mhseals_testing.health import config
+    found = dict(config.load().probes.get('devices') or {})
+    missing = [key for key in ('period', 'grace', 'discovery_grace') if key not in found]
+    if missing:
+        raise ValueError(f'config/health.yaml probes.devices: {", ".join(missing)} missing')
+    return found
 
 
 def collect(stack, nodes):

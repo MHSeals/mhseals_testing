@@ -61,7 +61,7 @@ def validate(data):
     if not isinstance(data.get('grants', GRANTS), str) or not data.get('grants', GRANTS):
         raise ValueError('agent.yaml: grants is the path of the agent grant file')
     if not isinstance(data.get('background', ''), str):
-        raise ValueError("agent.yaml: background is the mhseals_agents path ('' finds it)")
+        raise ValueError("agent.yaml: background is the mhseals_agents path ('' is none)")
     fetch = data.get('fetch', {})
     limit = fetch.get('bwlimit_kbps', FETCH_KBPS) if isinstance(fetch, dict) else None
     if not isinstance(fetch, dict) or set(fetch) - {'bwlimit_kbps'} or isinstance(limit, bool) \
