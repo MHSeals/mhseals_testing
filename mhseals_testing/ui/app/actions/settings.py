@@ -11,75 +11,29 @@ from mhseals_testing.analysis import classes as classes_module
 from mhseals_testing.harness import journal, settings
 from mhseals_testing.nav2 import edit as nav2_edit
 from mhseals_testing.harness.watch import Watched
-from mhseals_testing.health import legacy as health, config as health_config
+from mhseals_testing.health import config as health_config
 from mhseals_testing.history import adapters, revert
 from mhseals_testing.procedures import PROCEDURES
-from mhseals_testing.ros.arming import EFFORT_TOPIC, command_input, command_profile, session_hardware
+from mhseals_testing.ros.arming import command_profile, session_hardware
 from mhseals_testing.ui import keymap as keymap_module, palette, parts, popups, rtk, rtk_icon, theme
 from mhseals_testing.ui import imaging as pixels
 from mhseals_testing.ui.panels import correction
 from mhseals_testing.ui.feeds import agent as agent_feed
 from mhseals_testing.ui.panels.status import status_rows
 from mhseals_testing.ui.popups import config as config_popup, course, odometry, stop as stop_popup
-
 from mhseals_testing.ui.app.help import map_key_maps
 
-
-ADVISORY_PERIOD = 1.0
+from mhseals_testing.ui.app.actions.settings_rows.health import ADVISORY_PERIOD, Health
 
 
 HELD = 'applies once disarmed and idle'   # a health or settings edit read while armed or running
 
 
-class Settings:
+__all__ = ['ADVISORY_PERIOD', 'Settings']
+
+
+class Settings(Health):
     """Config, hardware and health, mixed into App."""
-
-    def refresh_advisories(self):
-        """Sample the non-blocking checks at most once per ADVISORY_PERIOD."""
-        if self.clock() - self.last_advisory < ADVISORY_PERIOD:
-            return
-        self.last_advisory = self.clock()
-        seen, live = self.foreign_instances()
-        self.feed_map()
-        self.monitor.advise('instances', 'FAIL' if live else 'WARN' if seen else 'OK',
-                            ', '.join(seen) if seen else 'no other instance')
-        self.sync_guests()
-        snapshot = self.snapshot()
-        for name, (level, detail) in self.health.tick(snapshot).items():
-            self.monitor.advise(name, level, detail)
-        if self.health.error:
-            self.monitor.advise('health config', 'FAIL', self.health.error)
-        if self.profile.use_sim_time and self.ros.now() == 0:
-            # Without /clock every stamp looks stale; say why instead.
-            self.monitor.advise('clock', 'FAIL', 'use_sim_time but no /clock received')
-        network = self.network.poll() if self.network else None
-        if network:
-            self.monitor.advise('network', *network)
-        if getattr(self.network, 'clocks', None):       # pre.clock_sync judges clock.spread
-            self.health.facts.publish('clock_sync', self.network.clock_facts)
-        self.monitor.advise('recording', 'OK' if self.processes.running('bag') else 'FAIL',
-                            str(self.paths.bag))
-        self.watch_recording()
-        exited = [name for name in self.processes.exited() if name != 'bag']
-        if exited:
-            self.monitor.advise('processes', 'WARN', 'exited: ' + ', '.join(exited))
-        if self.profile.outputs != 'none':
-            topic = EFFORT_TOPIC if self.profile.velocity_controller else command_input(self.profile)
-            self.monitor.advise('PWM driver', *health.pwm_driver(
-                self.ros.nodes(), self.ros.subscribers(topic), topic,
-                self.armed, self.processes.running('hardware')))
-        if self.profile.outputs == 'odroid':
-            config = self.args.hardware_config
-            level, detail, self.pwm_readback = health.pwm_readback(
-                config['pwm_chips'], config['pwm_channels'], self.armed, config['frequency'])
-            self.monitor.advise('PWM readback', level, detail)
-
-    def feed_map(self):
-        """The recorded costmap follows the Recorder mode and the session owner (map.md 4)."""
-        feeds = getattr(self.ros, 'map', None)
-        if feeds is not None:
-            nav = any(n.rsplit('/', 1)[-1] == 'planner_server' for n in self.ros.nodes())
-            feeds.want_record(not self.watching, self.recorder.mode != 'off', nav)
 
     def watch_config(self):
         """Poll every watched file once; announce what changed (harness/watch.py)."""
@@ -301,15 +255,6 @@ class Settings:
                     return self.open('power')
                 return popups.inspect.open_inspect(self, row)   # the view fits the row (sensor, tf, ...)
 
-    @property
-    def facts(self):
-        """The health facts by name, among them the perc.<source>.* ones of the perception probe."""
-        return self.health.facts.read()[0]
-
-    def power_facts(self):
-        """The latest ``power.*`` facts (ros.health feeds them), or None without a voltage source."""
-        return getattr(self.ros, 'power_facts', None)
-
     def row_setting(self, rows):
         row = rows[min(self.cursors['status'], len(rows) - 1)] if rows else None
         return row.get('setting') if row else None
@@ -487,24 +432,6 @@ class Settings:
     def on_conditions(self, key):
         if key == 'enter':
             self.open('conditions')
-
-    @property
-    def engine(self):
-        """The health engine behind the advisory rows (gates, snapshots), or None."""
-        return getattr(self.health, 'engine', None)
-
-    def health_tick(self, facts, probes, session=None):
-        """Evaluate health and journal its transitions, so trial windows can be judged."""
-        report = self.engine.tick(facts, probes, session)
-        self.journal.record(report)
-        return report
-
-    def health_snapshot(self, label, procedure):
-        """Journal and emit the shown health; 'end' is taken before teardown."""
-        if self.engine is None or self.engine.last is None:
-            return
-        entry = self.journal.snapshot(label, self.engine.last, self.engine.clock())
-        self.ros.emit('health_snapshot', procedure=procedure.key, **entry)
 
     def switch_command_mode(self, mode):
         """Hot-switch the command path (D-20261101-06): this session takes the profile its start would build for
