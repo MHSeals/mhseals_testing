@@ -15,7 +15,7 @@ probes:
   graph: {period: 2}
   params: {period: 300}
   logs: {period: 1}     # child log tails and the /rosout matches publish each tick
-  git: {period: 30, fetch: 0}   # health.md: 30 s on the worker; fetch is opt-in
+  git: {period: 30, fetch: 0, stale: 3600}   # health.md: 30 s on the worker; fetch is opt-in; a fetch older than stale s shows its age in the header
   # The boat link is the interface holding an address in LAN_SUBNET (the vessel's network env, ASTRO_NETWORK_ENV).
   # While it is up, the hosts of the device registry's `ping:` roles are pinged once a second
   # (mhseals_testing.devices); the checks below judge the worst of them and name it.

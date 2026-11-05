@@ -15,7 +15,7 @@ from mhseals_testing.health.config import ConfigError, load
 from mhseals_testing.health.engine import Engine
 from mhseals_testing.health.model import STATUSES
 from mhseals_testing.health.probes import git as git_probe
-from mhseals_testing.ui.deploy import deploy_text
+from mhseals_testing.ui.deploy import STALE, deploy_text
 
 LEVELS = {'ok': 'OK', 'info': 'OK', 'unknown': 'N/A', 'warn': 'WARN', 'fail': 'FAIL'}
 
@@ -72,6 +72,8 @@ class Health:
         self.specs = tuple(s for s in config.specs if s.enabled) if config else ()
         self.periods = {n: p['period'] for n, p in (config.probes if config else {}).items()
                         if isinstance(p, dict) and 'period' in p}
+        git = (config.probes if config else {}).get('git')
+        self.git_stale = git.get('stale', STALE) if isinstance(git, dict) else STALE
         muted = self.engine.muted if hasattr(self, 'engine') else ()
         self.engine = Engine(self.specs, self.periods, self.facts.clock)
         self.engine.muted.update(muted)
@@ -130,7 +132,7 @@ class Health:
         testing = report.get('git.testing')
         hash_ = testing.data.get('hash') if testing and isinstance(testing.data, dict) else None
         newer = bool(self.running_hash and hash_ and hash_ != self.running_hash)
-        return deploy_text(states, code_newer=newer)
+        return deploy_text(states, stale=self.git_stale, code_newer=newer)
 
     def close(self):
         self.git.stop()

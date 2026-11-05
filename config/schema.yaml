@@ -31,3 +31,4 @@ fusion_panel.feed.stale: {type: float, units: s, tier: restart, doc: "Boxes or p
 fusion_panel.draw_rate: {type: float, units: Hz, tier: restart, doc: "Camera and top-down repaints per second at most."}
 fusion_panel.ramp: {type: list, units: m, tier: restart, doc: "Range breaks for the point colours spd.1..spd.5."}
 fusion_panel.rings: {type: list, units: m, tier: restart, doc: "Top-down range rings."}
+health.probes.git.stale: {type: float, units: s, tier: restart, doc: "A last fetch older than this shows its age in the header deploy mark."}

@@ -123,7 +123,7 @@ def test_shipped_config_lints_and_skips_without_probe(shipped_kinds):
     specs = [s for s in config.specs if s.kind == 'git_state']
     assert {s.id for s in specs} == {'git.astro_dock', 'git.hardware', 'git.nav', 'git.testing'}
     assert lint(specs) == []
-    assert config.probes['git'] == {'period': 30, 'fetch': 0}
+    assert config.probes['git'] == {'period': 30, 'fetch': 0, 'stale': 3600}
     assert not Engine(specs).tick({}, {}).results            # missing: skip, hidden
     probe = from_specs(specs, config.probes['git'])
     assert set(probe.repos) == {'astro_dock', 'hardware', 'nav', 'testing'}
@@ -220,3 +220,14 @@ def test_git_checks_go_stale_when_the_worker_stops_sampling(repos, tmp_path, mon
     now[0] += 200                                            # worker dead: same latest, 3 periods (90 s) pass
     health.tick({'sensors': {}})
     assert health.deploy() is None
+
+
+def test_deploy_stale_comes_from_the_probes_git_setting(tmp_path):
+    from mhseals_testing.health.advisories import Health
+    from mhseals_testing.ui.deploy import STALE
+    shipped = load(user=False)
+    assert shipped.probes['git']['stale'] == STALE        # the shipped value matches the code default
+    health = Health(None, tmp_path, host=lambda: {}, git=GitProbe({}))
+    assert health.git_stale == shipped.probes['git']['stale']
+    health.adopt(None)
+    assert health.git_stale == STALE
