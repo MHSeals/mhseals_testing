@@ -25,17 +25,14 @@ Safety, in one place:
 
 from collections import deque
 from dataclasses import replace
-import os
 import threading
 import time
 
-from mhseals_hardware import hold_store
 
-from mhseals_testing.harness import control, sim_arm
+from mhseals_testing.harness import control
 from mhseals_testing.agent import channel as agent_channel, config as agent_config
 from mhseals_testing.harness import background
 from mhseals_testing.harness.goals import Goals, gate
-from mhseals_testing.procedures import unavailable
 from mhseals_testing.ui import agent_acts
 from mhseals_testing.ui.feeds.agent_desk.channel import ChannelMixin
 from mhseals_testing.ui.feeds.agent_desk.popups import PopupsMixin
@@ -180,129 +177,6 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin, VerbsMixin, SettingsMixin
         bad = isinstance(error, (KeyError, TypeError, ValueError, AttributeError, ArithmeticError))
         self.reply(req, False, 'bad_args' if bad else 'refused', hint=str(error) or type(error).__name__)
 
-    def act_run(self, act):
-        app = self.app
-        found, name = agent_acts.procedure(agent_acts.run_key(act['req']['args']))
-        task = agent_acts.run_task(act['req']['args'])
-        sim = 'armed' in found.needs and not app.armed and act['req']['args'].get('sim_arm')
-        blocked = unavailable(found, app.profile, True, app.args.bench_override)
-        if blocked:                              # never runnable in this TUI, armed or not: refused, nothing asked
-            return self.finish(act, False, 'refused', hint=agent_acts.agent_text(blocked))
-        values, refusal = self.settings_of(act['req'], agent_config.settable(self.config.get(), name), idle=False)
-        if refusal:                              # agent.yaml changed since the request was read: never a wrong step
-            return self.finish(act, False, refusal[0], hint=refusal[1])
-        if not self.confirm(act, f"Agent {act['who']}: run {name}{' ' + task if task else ''}"
-                                 + ''.join(f' {k}={v}' for k, v in values.items())
-                                 + f"{' · sim-arm' if sim else ''} · allow?"):   # Allow arms the sim too
-            return False
-        self.apply_settings(values, act['who'])  # before the run starts (and before any arming)
-        if sim:
-            if not self.arm_sim(act):
-                return False
-            app.agent_ready = act['who']         # this run's checks passed: its Ready prompts are the agent's
-        elif 'armed' in found.needs and not app.armed:
-            self.set_state(act, 'waiting_arm')
-            act['arming'] = True                 # the mux starts with arming: judged once it reported
-            try:
-                app.arm_panel()                  # the human's typed confirmation; no verb arms
-            finally:
-                act['arming'] = False
-            if not app.armed:
-                return self.finish(act, False, 'not_armed', hint='operator did not arm')
-            act['armed'] = True
-        try:
-            if self.watch():
-                return self.finish(act, False, self.error_of(act['cause']), hint=act['cause'])
-            # started says who picks the mission task, so 'started' is not read as the course running
-            self.begin(act, {'task': task or 'the operator picks it'} if name == 'mission' else None)
-            result, error = agent_acts.run(app, found, task, agent_acts.run_profile(act['req']['args']))
-            cause = act['cause'] or self.watch()     # Space aborts in the runner before the desk sees it
-            if cause:
-                self.finish(act, False, self.error_of(cause), result=dict(result, cause=cause),
-                            hint=self.hint_of(cause, ''))
-            elif error:
-                self.finish(act, False, 'cancelled', result=dict(result, cause=error))
-            else:
-                self.finish(act, True, result=result)
-            return False
-        finally:
-            app.agent_ready = None
-            if act.get('sim_armed') and app.armed:    # whatever ended the run: what the desk armed, it disarms
-                app.disarm(f"sim auto-arm: {act['cause'] or 'run ended'}", by='agent')
-
-    def sim_checks(self):
-        """(facts, harness/sim_arm.py's checks) on the live app; any error reading a fact refuses."""
-        config = self.config.get()['sim_arm']
-        try:
-            facts = sim_arm.gather(self.app)
-            return facts, sim_arm.checks(facts, config)
-        except Exception as error:      # noqa: BLE001 - an unreadable fact proves nothing: refuse
-            return None, [('facts', False, f'unreadable: {error!r}')]
-
-    def clear_stale_holds(self, facts, checks):
-        """Owner decision 2026-10-26: at the start of a brand-new sim session (this TUI never armed, and
-        the session's own hold file predates it) holds a previous session left there are cleared and
-        logged. Every other check must have passed: never outside a verified sim, never a hold raised now.
-        Returns the checks to judge (re-gathered after a clear)."""
-        app = self.app
-        if facts is None or getattr(app, 'ever_armed', False):
-            return checks
-        try:
-            fresh = os.stat(facts.hold_file).st_mtime_ns < self.started_ns
-        except OSError:
-            return checks
-        if not sim_arm.stale_holds(facts, checks, fresh):
-            return checks
-        hold_store.save(facts.hold_file, {})
-        app.emit('sim_arm_stale_holds', who='agent', cleared=list(facts.holds), hold_file=facts.hold_file)
-        app.notice = f"Sim auto-arm cleared a previous session's holds: {', '.join(facts.holds)}"
-        return self.sim_checks()[1]
-
-    def arm_sim(self, act):
-        """Arm a verified sim for ``act`` (``run --sim-arm``); True once armed, else finished refused."""
-        app = self.app
-        self.set_state(act, 'sim_arming')
-        facts, checks = self.sim_checks()
-        checks = self.clear_stale_holds(facts, checks)
-        why = sim_arm.refusal(checks)
-        app.emit('sim_arm', who=act['who'], claim=act['claim'], ok=not why, passed=sim_arm.passed(checks),
-                 refusal=why)
-        listed = [{'check': n, 'ok': ok, 'detail': d} for n, ok, d in checks]
-        if why:
-            return self.finish(act, False, 'refused', result={'sim_arm': listed}, hint=why)
-        act['arming'] = True                 # the mux starts with arming: judged once it reported
-        try:
-            why = app.agent_arm(act['who'], sim_arm.passed(checks))
-        except BaseException as error:      # whatever escapes arming: what may be armed is disarmed
-            why = f'arming failed: {error!r}'
-            if app.armed:
-                app.disarm(f'sim auto-arm undone: {why}', by='agent')
-            if not isinstance(error, Exception):
-                raise
-        finally:
-            act['arming'] = False
-        if why or not app.armed:
-            if app.armed:
-                app.disarm(f'sim auto-arm undone: {why}', by='agent')
-            return self.finish(act, False, 'refused', result={'sim_arm': listed},
-                               hint=f"sim-arm: {why or 'not armed'}")
-        act['armed'] = act['sim_armed'] = True
-        act['sim_armed_at'] = act['rechecked_at'] = self.clock()
-        act['sim_domain'] = os.environ.get('ROS_DOMAIN_ID', '')
-        return True
-
-    def sim_recheck(self, act):
-        """Every sim_arm.RECHECK_S while sim-armed: the graph still proves a sim (TOCTOU), else the cause."""
-        if self.clock() - act['rechecked_at'] < sim_arm.RECHECK_S:
-            return None
-        act['rechecked_at'] = self.clock()
-        why = sim_arm.recheck(self.app.ros, getattr(self.app.profile, 'ground_truth', None) or '',
-                              act['sim_domain'], self.config.get()['sim_arm'])
-        if not why:
-            return None
-        self.app.emit('sim_arm_recheck', who=act['who'], claim=act['claim'], ok=False, refusal=why)
-        return f'sim-arm recheck: {why}'
-
     def act_goal(self, act):
         app = self.app
         goal = agent_acts.goal_args(act['req']['args'])
@@ -343,19 +217,6 @@ class AgentDesk(PopupsMixin, ChannelMixin, LeaseMixin, VerbsMixin, SettingsMixin
         goals = self.app.goals
         if goals.active is not None and goals.active['claim'] == act['claim']:
             goals.cancel(f'agent: {cause}')
-
-    def begin(self, act, result=None):
-        act['started'], act['renewed'] = True, self.clock()
-        self.set_state(act, 'started', result)
-
-    def set_state(self, act, state, result=None):
-        act['state'] = state
-        self.reply(act['req'], True, state=state, result=result)
-
-    def finish(self, act, ok, error='', result=None, hint=''):
-        act['replied'], act['state'] = True, 'done'
-        self.reply(act['req'], ok, error, result=result, hint=hint)
-        return False
 
     def watch_goal(self, act, cause):
         goals = self.app.goals
