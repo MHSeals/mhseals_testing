@@ -24,9 +24,9 @@ class ReadOnly:
 
 
 class Services:
-    """``bags``, ``thrusters``, ``arming_ui`` and ``arm``: read-only views of those containers."""
+    """``bags``, ``thrusters``, ``holds`` and ``arm``: read-only views of those containers."""
 
-    GROUPS = ('bags', 'thrusters', 'arming_ui', 'arm')
+    GROUPS = ('bags', 'thrusters', 'holds', 'arm')
 
     def __init__(self, app):
         for group in self.GROUPS:

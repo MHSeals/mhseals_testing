@@ -31,7 +31,7 @@ from mhseals_testing.ui.app import mixins, wiring
 # quit; the footer notice only through App.say). APP is what App builds and hands out: startup.py and wiring.py
 # build it, and after that App.rebuild is its one writer (a review swaps some of it). test_app_state_ownership
 # fails on any write across owners in ui/**. The containers in ui/app/state hold the groups converted so far
-# (render, bags, thrusters, arming_ui behind aliases; arm as ``state.arm``, its own); Labels keeps its LabelsState.
+# (render, bags, thrusters behind aliases; arm and holds as ``state.<group>``, their own); Labels keeps its LabelsState.
 SHARED = ('notice', 'modal', 'focus', 'activity', 'cursors', 'quit')
 APP = ('profile', 'source', 'ros', 'tabs', 'minimap', 'layerbox', 'review', 'arbiter', 'authority_view', 'desk')
 OWNERS = {
@@ -41,7 +41,7 @@ OWNERS = {
     'Labels': ('_labels_state',),   # its LabelsState (actions/labels.py), read as app.labels
     'Manual': ('manual', 'manual_speed', 'chords', 'command', 'draft', 'grabbed', 'test_pulses', '_manual_desk_at'),
     'Arm': ('state.arm',),
-    'Holds': ('watchdog_missing', '_fence_client', '_fence_out', '_fence_text', '_releasing'),
+    'Holds': ('state.holds',),
     'Procedures': ('running', 'run_id', 'run_fields', 'tags', '_runner_cancelled', '_runner_paused', '_start_reset',
                    '_nav2', '_watcher'),
     'Popups': ('_nav2_live', 'camera_boxes'),
