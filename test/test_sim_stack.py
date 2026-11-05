@@ -2,11 +2,13 @@
 
 import os
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
 
 from mhseals_testing.harness import sim_stack
+from mhseals_testing.hook import registry
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 
@@ -22,12 +24,32 @@ def test_the_shipped_settings_and_env_overrides():
     assert "SIM_DOMAINS='150 160'" in sim_stack.shell(values)
 
 
-def test_a_free_domain_skips_held_ones_and_42(tmp_path):
+def test_a_free_domain_skips_held_ones(tmp_path):
     (tmp_path / 'domain.120').write_text(str(os.getpid()))       # held by a live process
     (tmp_path / 'domain.121').write_text('999999999')            # stale: its pid is gone
     assert sim_stack.held(tmp_path) == {120}
     assert sim_stack.free_domain(120, 121, {120}) == 121
-    assert sim_stack.free_domain(42, 42, set()) is None and sim_stack.free_domain(120, 120, {120}) is None
+    assert sim_stack.free_domain(120, 120, {120}) is None
+
+
+def test_two_domains_give_two_endpoint_ports_and_no_file_pins_one():
+    assert sim_stack.endpoint_port(101) == 10101 and sim_stack.endpoint_port('102') == 10102
+    assert sim_stack.endpoint_port(101) != sim_stack.endpoint_port(102)    # two agent sims never share a port
+    assert 'port' not in sim_stack.settings(environ={})
+    for name in ('sim/stack.yaml', 'preview.yaml'):
+        assert not re.search(r'\bport:', (TOOLS.parent / 'config' / name).read_text())
+
+
+def test_the_vessels_domains_come_from_the_profile_set(tmp_path, monkeypatch):
+    for name, kind, domain in (('boat_a', 'vessel', 42), ('boat_b', 'vessel', 142), ('station', 'station', 7)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / 'profile.yaml').write_text(f'kind: {kind}\n')
+        (tmp_path / name / 'network.env').write_text(f'# a comment\nROS_DOMAIN_ID={domain}\n')
+    monkeypatch.setenv('ASTRO_PROFILES', str(tmp_path))
+    assert registry.boat_domains() == (42, 142)
+    monkeypatch.setenv('ASTRO_PROFILES', str(tmp_path / 'none'))
+    assert registry.boat_domains() == ()
+    assert registry.dev_container()          # the package registry's defaults.container, never a literal in code
 
 
 def test_boat_tui_sim_dry_run_names_the_plan_and_starts_nothing(tmp_path, ws):

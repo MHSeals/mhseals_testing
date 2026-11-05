@@ -16,7 +16,7 @@ if [ "$target" = sim ]; then
   root=$(cd "$(dirname "$0")/.." && pwd)
   eval "$(PYTHONPATH="$root" python3 -m mhseals_testing.harness.sim_stack env)"
   domain=$(cat "$SIM_RUN/domain" 2>/dev/null) || { echo '{"ok": false, "error": "no_owner", "hint": "no sim: tools/boat_tui sim"}'; exit 4; }
-  a=/home/roboboat/autodemo
+  a=$SIM_MOUNT
   exec docker exec -i "$SIM_CONTAINER" bash -c "export HOME=$a/home ROS_DOMAIN_ID=$domain ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
 MHSEALS_DATA=$a/data MHSEALS_HARDWARE_CONFIG=$a/src/mhseals_testing/config/sim/hardware_crane.yaml; \
 . /opt/ros/jazzy/setup.bash; . $a/install/local_setup.bash; "'
@@ -27,6 +27,9 @@ if [ "$target" != local ] && [ "$target" != "$here" ] && [ "$target" != "${here%
   PYTHONPATH="$(cd "$(dirname "$0")/.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" \
     exec python3 -m mhseals_testing.agent.relay "$target" "$@"
 fi
-exec docker exec -i roboboat_dev bash -c \
+. "$(dirname "$0")/registry.sh"
+container=${BOAT_TUI_CONTAINER:-$(dev_container)}     # boat_tui's: the registry's dev container
+[ -n "$container" ] || { echo '{"ok": false, "error": "no_container", "hint": "no dev container: set BOAT_TUI_CONTAINER or the registry defaults.container"}'; exit 4; }
+exec docker exec -i "$container" bash -c \
   '. /opt/ros/jazzy/setup.bash && . install/setup.bash && exec python3 -m mhseals_testing.harness.cli "$@"' \
   _ "$@"

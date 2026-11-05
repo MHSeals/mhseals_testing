@@ -2,7 +2,8 @@
 
     python3 -m mhseals_testing.harness.sim_stack env [--resolve [--pull]]  # SIM_PLAYER=... lines to eval; --resolve:
         # with the workspace's image (--pull: newer from the registry first) and repos (SIM_REPOS name=ref ...)
-    python3 -m mhseals_testing.harness.sim_stack domain   # a ROS_DOMAIN_ID in ``domains`` no other sim holds
+    python3 -m mhseals_testing.harness.sim_stack domain   # a ROS_DOMAIN_ID in ``domains`` no other sim (or vessel) holds
+    python3 -m mhseals_testing.harness.sim_stack port N   # the ROS-TCP endpoint port of domain N (10000 + N)
 
 ``BOAT_SIM_<KEY>`` in the environment wins over the file. Nothing the workspace already knows is written here
 (docs/preview.md): ``image: auto`` is the workspace's dev image (``hw.sh image --local``: the one Compose names, or
@@ -22,8 +23,11 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_testing.hook import registry
+
 CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'sim' / 'stack.yaml'
 PATHS = ('player', 'run', 'overlay')
+PORT_BASE = 10000   # a sim's ROS-TCP endpoint port is this + its ROS_DOMAIN_ID (crane_ml's rigq.py too)
 DOMAINS = Path(f'/tmp/boat-sim-{os.getuid()}')
 
 
@@ -176,9 +180,14 @@ def held(directory):
 
 
 def free_domain(low, high, taken, choose=random.choice):
-    """A domain in [low, high] not in ``taken`` and never 42 (the boat's); None when all are taken."""
-    free = [d for d in range(low, high + 1) if d not in taken and d != 42]
+    """A domain in [low, high] not in ``taken`` (held ones and the vessels'); None when all are taken."""
+    free = [d for d in range(low, high + 1) if d not in taken]
     return choose(free) if free else None
+
+
+def endpoint_port(domain):
+    """The ROS-TCP endpoint port of a sim on ``domain``: 10000 + it, so two sims on two domains never share one."""
+    return PORT_BASE + int(domain)
 
 
 def main(argv):
@@ -197,11 +206,14 @@ def main(argv):
         return 0
     if argv[:1] == ['domain']:
         low, high = values['domains']
-        found = free_domain(low, high, held(DOMAINS))
+        found = free_domain(low, high, held(DOMAINS) | set(registry.boat_domains()))
         if found is None:
             print('no free sim domain', file=sys.stderr)
             return 1
         print(found)
+        return 0
+    if argv[:1] == ['port'] and len(argv) == 2:
+        print(endpoint_port(argv[1]))
         return 0
     print(__doc__.split('\n\n')[1], file=sys.stderr)
     return 2

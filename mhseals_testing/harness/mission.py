@@ -10,16 +10,17 @@ against earlier runs. Pure and ROS-free; the sim runner is injected.
 from pathlib import Path
 
 from .. import data
+from ..hook import registry
 
 RUN_SCHEMA = 'mhseals.run/1'
-BOAT_DOMAINS = (42, 142)
 SIM_DOMAINS = range(200, 229)  # matches crane_experiment's guard
 
 
 def check_domain(domain):
-    """Return ``domain`` as an int, or raise ValueError when it is not safe for the sim."""
+    """Return ``domain`` as an int, or raise ValueError when it is not safe for the sim (a vessel's, the profile
+    set's, or outside the sim range)."""
     domain = int(domain)
-    if domain in BOAT_DOMAINS:
+    if domain in registry.boat_domains():
         raise ValueError(f'ROS domain {domain} is the boat; sim runs use '
                          f'{SIM_DOMAINS.start}-{SIM_DOMAINS[-1]}')
     if domain not in SIM_DOMAINS:

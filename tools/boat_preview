@@ -16,7 +16,6 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
-IN=/home/roboboat/preview      # the snapshot root inside the container
 
 verb=${1:-}; [ $# -gt 0 ] && shift
 REF='' headless=0 test=0 dry=0
@@ -32,6 +31,7 @@ done
 # the settings; resolved: with the workspace's dev image and manifest (docs/preview.md)
 settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test)) || exit 2
 eval "$settings"
+IN=$PV_MOUNT      # the snapshot root inside the container (preview.yaml mount)
 resolved() { settings=$(python3 -m mhseals_testing.harness.preview env $([ "$test" = 1 ] && echo --test) --resolve "$@") || exit 2; eval "$settings"; }
 HEAVY=${BOAT_PREVIEW_HEAVY:-$PV_SRC/mhseals_agents/tools/heavy}   # the workspace heavy-job guard
 mkdir -p "$PV_CACHE"
@@ -65,7 +65,7 @@ snapshot() {   # each repo of the manifest at REF where it has it, else at its m
   done <<< "$plan"
 }
 
-endpoint_port() {   # the snapshot's endpoint on the preview's port, so an agent sim on 6767 keeps it
+endpoint_port() {   # the snapshot's endpoint on the preview's port (10000 + its domain), never an agent sim's
   local file=$WS/src/mhseals_nav/config/endpoint_startup.yaml
   sed -i -E "s/^(unity: \{ip: [0-9.]+, port: )[0-9]+\}/\1$PV_PORT}/" "$file"
   grep -q "port: $PV_PORT}" "$file" || { echo "boat_preview: cannot set the endpoint port in $file" >&2; exit 1; }
@@ -79,11 +79,11 @@ container_up() {
   # its own copy of the station config: the TUI saves settings there, never into the owner's
   [ -d "$HOME/.config/mhseals" ] && rsync -a "$HOME/.config/mhseals/" "$ROOT/home/.config/mhseals/"
   local mounts=(-v "$ROOT:$IN")
-  if [ -n "$PV_RESULTS" ]; then mkdir -p "$PV_RESULTS"; mounts+=(-v "$PV_RESULTS:/home/roboboat/preview-results"); results=/home/roboboat/preview-results; fi
+  if [ -n "$PV_RESULTS" ]; then mkdir -p "$PV_RESULTS"; mounts+=(-v "$PV_RESULTS:$IN-results"); results=$IN-results; fi
   # the vessel's registry and network env, as the dev container has them (the station config's self: names its host)
   local vessel=()
-  [ -z "$PV_REGISTRY" ] || { mounts+=(-v "$PV_REGISTRY:/home/roboboat/vessel/devices.yaml:ro"); vessel+=(-e ASTRO_REGISTRY=/home/roboboat/vessel/devices.yaml); }
-  [ -z "$PV_NETWORK_ENV" ] || { mounts+=(-v "$PV_NETWORK_ENV:/home/roboboat/vessel/network.env:ro"); vessel+=(-e ASTRO_NETWORK_ENV=/home/roboboat/vessel/network.env); }
+  [ -z "$PV_REGISTRY" ] || { mounts+=(-v "$PV_REGISTRY:$IN-vessel/devices.yaml:ro"); vessel+=(-e ASTRO_REGISTRY=$IN-vessel/devices.yaml); }
+  [ -z "$PV_NETWORK_ENV" ] || { mounts+=(-v "$PV_NETWORK_ENV:$IN-vessel/network.env:ro"); vessel+=(-e ASTRO_NETWORK_ENV=$IN-vessel/network.env); }
   docker run -d --name "$PV_CONTAINER" --label boat.preview=1 --init --ipc private --network host --user roboboat \
     -e BASH_ENV= -e HOME="$IN/home" -e XDG_RUNTIME_DIR="$IN/run/xdg" -e ROS_DOMAIN_ID="$PV_DOMAIN" \
     -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e MHSEALS_DATA="$IN/data" \

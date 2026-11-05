@@ -1,7 +1,7 @@
 """Sim tests (marker ``sim``): skipped unless $SIMRIG names the rig.
 
 ``SIMRIG_SESSION=<dir>`` reuses a recorded hold_still session; otherwise the rig records one
-(needs the player, a display and the roboboat_dev container, see simrig.md).
+(needs the player, a display and the dev container, see simrig.md).
 """
 import os
 from pathlib import Path

@@ -10,13 +10,13 @@
 #                  its own snapshot, build, container and tmux -L preview, the player windowed (tools/boat_preview)
 # Run it on the TUI host (the registry's tui_backend, else boat_computer host; or the sim host): from the station,
 #   ssh TUI_HOST ~/astro_dock/src/mhseals_testing/tools/boat_tui up
-# C is the container boat_test runs in (roboboat_dev; roboboat_test in sim; '' runs it here). J adds -J J to the
+# C is the container boat_test runs in (the registry's dev container; the sim's in sim; '' runs it here). J adds -J J to the
 # printed ssh line (a jump host, when the station does not route the boat LAN itself). Quit with q in the TUI:
 # killing tmux skips the session's close (neutral, disarm, bag flush). Agents arm with boat_agent arm.
 # Every tmux call goes to its own server (socket BOAT_TUI_SOCKET, default boat: tmux -L boat), never the caller's
 # ($TMUX is cleared), so nothing here can reach another tmux server on the host.
 set -eu
-session=boat container=${BOAT_TUI_CONTAINER-roboboat_dev} jump=${BOAT_TUI_JUMP-} socket=${BOAT_TUI_SOCKET:-boat}
+session=boat container=${BOAT_TUI_CONTAINER-$(. "$(dirname "$0")/registry.sh"; dev_container)} jump=${BOAT_TUI_JUMP-} socket=${BOAT_TUI_SOCKET:-boat}
 while [ $# -gt 0 ]; do
     case $1 in
         --session) session=$2; shift 2 ;;

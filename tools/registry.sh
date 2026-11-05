@@ -38,3 +38,13 @@ vessel() {
 
 # The host the boat's TUI runs on: the tui_backend role, else the boat computer.
 tui_host() { role_host tui_backend boat_computer; }
+
+# The dev container boat_test runs in: the registry's defaults.container (hook/registry.py dev_container), or nothing.
+dev_container() {
+    python3 -I -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("testing_registry", sys.argv[1])
+registry = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(registry)
+print(registry.dev_container())' "$(dirname "$0")/../mhseals_testing/hook/registry.py" 2>/dev/null
+}

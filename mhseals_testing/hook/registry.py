@@ -154,11 +154,11 @@ def registry_hosts(text):
 
 
 def top(text, key):
-    """A top-level ``key: value`` scalar of a small YAML file (profile.yaml), or None."""
+    """A top-level ``key: value`` (a scalar or a flow value) of a small YAML file (profile.yaml), or None."""
     for line in text.splitlines():
         found = KEY.match(uncomment(line).rstrip()) if line[:1] not in ' \t' else None
         if found and scalar(found.group(1)) == key and found.group(2):
-            return scalar(found.group(2))
+            return flow(found.group(2))
     return None
 
 
@@ -213,6 +213,35 @@ def sources():
                 files.append(profile.parent / registry)
     files += [ws / LEGACY for ws in workspaces() if (ws / LEGACY).is_file()]
     return list(dict.fromkeys(f.resolve() for f in files)), vessels, ok
+
+
+def boat_domains():
+    """Every vessel's ROS domain: ``ROS_DOMAIN_ID`` of each ``kind: vessel`` profile's network.env in the profile set
+    (none without one). A sim or preview never takes one."""
+    found = set()
+    for root in profile_roots():
+        for profile in sorted(root.glob('*/profile.yaml')) if root.is_dir() else ():
+            try:
+                if top(profile.read_text(), 'kind') == 'vessel':
+                    found.update(int(m) for m in re.findall(r'^ROS_DOMAIN_ID=["\']?(\d+)', (
+                        profile.parent / 'network.env').read_text(), re.M))
+            except (OSError, ValueError):
+                continue
+    return tuple(sorted(found))
+
+
+def dev_container():
+    """The dev container boat_test runs in: ``defaults.container`` of the first registry that names one (a vessel's,
+    then this package's config/devices.yaml), else ''."""
+    package = Path(__file__).resolve().parents[2] / LEGACY
+    for path in [*sources()[0], package]:
+        try:
+            defaults = top(path.read_text(), 'defaults')
+        except (OSError, ValueError):
+            continue
+        if isinstance(defaults, dict) and defaults.get('container'):
+            return defaults['container']
+    return ''
 
 
 def fleet(boat_roles):

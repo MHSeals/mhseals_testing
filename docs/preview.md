@@ -24,7 +24,7 @@ name or hash, a ROS distro, a home path, a colcon call or a list of repos in the
 ## The preview and its checklist
 
 `boat_tui preview` takes REF of the three packages as worktrees in `~/.cache/boat-preview/<ref>`, rebuilt only when a sha changes,
-in `roboboat_preview` (domain 100, port 6768, `tmux -L preview`). It holds the reserved heavy `preview` slot, which
+in `roboboat_preview` (domain 100, port 10100: 10000 + the domain, `tmux -L preview`). It holds the reserved heavy `preview` slot, which
 agent Unity jobs queue behind. Settings: `config/preview.yaml`. Agents never start or stop it (the hook denies it).
 
 The preview's side panel lists the checks, the field runbook's "before a test" items and the commits
