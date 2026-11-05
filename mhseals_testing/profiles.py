@@ -24,23 +24,11 @@ from pathlib import Path
 from mhseals_testing import data as records
 from mhseals_testing.analysis.power import CHEMISTRIES
 from mhseals_testing.harness.components import parse_components
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 from mhseals_testing.validation import FUTURE_TOLERANCE
 
-
-def _profile_dir():
-    """config/profiles in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parent.parent / 'config' / 'profiles'
-    if source.is_dir():
-        return source
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'profiles'
-    except (ImportError, KeyError):  # PackageNotFoundError is a KeyError
-        return source
-
-
-PROFILE_DIR = _profile_dir()
+PROFILE_DIR = config_path('config', 'profiles')
 SENSOR_KINDS = ('odometry', 'imu', 'gps', 'gpsraw', 'mag', 'points', 'image', 'compressed', 'detections')
 MIN_DEADLINE = 1.5   # s, floor of the rate-derived freshness deadline (real GPS gaps reach 1.13 s)
 PLOT_SCALE = (0.6, 0.3, 0.5)   # about 1.5x the limits_v2.yaml limits; fixed, never autoscaled

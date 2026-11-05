@@ -7,9 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
 from mhseals_testing.conditions.estimator import _config_path
+from mhseals_testing.strict_yaml import load_strict
 
 MEASURES = ('ceiling', 'drift_trust')       # fractions in 0..1; None while not yet measured
 
@@ -17,7 +16,7 @@ MEASURES = ('ceiling', 'drift_trust')       # fractions in 0..1; None while not 
 def load_thresholds(path=None) -> dict:
     """``{'good': {...}, 'poor': {...}}`` from the YAML; ValueError naming the file for anything unusable."""
     path = Path(path or _config_path())
-    raw = (yaml.safe_load(path.read_text()) or {}).get('verdict')
+    raw = (load_strict(path.read_text(), path) or {}).get('verdict')
     try:
         out = {grade: {m: float(raw[grade][m]) for m in MEASURES} for grade in ('good', 'poor')}
     except (TypeError, KeyError, ValueError):

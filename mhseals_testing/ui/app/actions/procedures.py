@@ -1,11 +1,9 @@
 """Procedures: running one, its context, pausing, and its run record."""
 
 from contextlib import contextmanager
-from pathlib import Path
-
-import yaml
-
 from mhseals_hardware.menu import Cancelled
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 from mhseals_testing.nav2 import limits as nav2_limits
 from mhseals_testing.harness import host, operator_state, runs, session as session_module
 from mhseals_testing.conditions import STILL_FRESH_S, stillness
@@ -40,9 +38,8 @@ def guard_end(cause, stopped_by):
 def nav2_params():
     """mhseals_nav's checked-in Nav2 parameters, or None outside a ROS install."""
     try:
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'nav2_params.yaml'
-    except (ImportError, KeyError):
+        path = config_path('config', 'nav2_params.yaml', package='mhseals_nav', installed=True)
+    except LookupError:
         return None
     return path if path.exists() else None
 
@@ -372,7 +369,7 @@ class Procedures:
         if getattr(self, '_start_reset', None) is None:
             from mhseals_testing.procedures.mission import START_RESET
             from mhseals_testing.ros.sim_reset import StartReset
-            self._start_reset = StartReset(self.ros, yaml.safe_load(START_RESET.read_text())['service'])
+            self._start_reset = StartReset(self.ros, load_strict(START_RESET.read_text(), START_RESET)['service'])
         return self._start_reset(timeout)
 
     def task_watcher(self):

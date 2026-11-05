@@ -8,6 +8,7 @@ from collections import namedtuple
 from pathlib import Path
 from unicodedata import east_asian_width
 
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 import yaml
@@ -16,15 +17,7 @@ Symbol = namedtuple('Symbol', 'label glyph ascii colour radius name')
 
 
 def _default_path():
-    """config/minimap.yaml in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parent.parent.parent / 'config' / 'minimap.yaml'
-    if source.is_file():
-        return source
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'minimap.yaml'
-    except (ImportError, KeyError):  # PackageNotFoundError is a KeyError
-        return source
+    return config_path('config', 'minimap.yaml')
 
 
 FIELDS = ('glyph', 'ascii', 'colour', 'radius', 'name')

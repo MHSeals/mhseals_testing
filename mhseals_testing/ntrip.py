@@ -45,20 +45,6 @@ DEFAULTS = dict(enabled=True, max_km=30.0, near_km=15.0, refresh_s=600.0, stale_
                 position_cache='~/.cache/mhseals_testing/ntrip_position.json', fallback=None, casters=[])
 
 
-SHIPPED = Path(__file__).resolve().parent.parent / 'config' / 'ntrip.yaml'
-
-
-def shipped_path():
-    """config/ntrip.yaml in the source tree, else the installed share directory."""
-    if SHIPPED.is_file():
-        return SHIPPED
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'ntrip.yaml'
-    except (ImportError, KeyError):
-        return SHIPPED
-
-
 def load_settings(rtk_config=None, path=None):
     """The shipped NTRIP settings with rtk.yaml's ``ntrip:`` mapping over them.
 
@@ -66,9 +52,10 @@ def load_settings(rtk_config=None, path=None):
     merge into the shipped caster of that name (e.g. ``{name: FPRN, enabled: false}``); an
     unknown name adds a caster.
     """
-    import yaml
-    path = Path(path or shipped_path())
-    shipped = (yaml.safe_load(path.read_text()) or {}) if path.is_file() else {}
+    from mhseals_testing.health.config import config_path
+    from mhseals_testing.strict_yaml import load_strict
+    path = Path(path or config_path('config', 'ntrip.yaml'))
+    shipped = (load_strict(path.read_text(), path) or {}) if path.is_file() else {}
     overlay = dict((rtk_config or {}).get('ntrip') or {})
     settings = {**DEFAULTS, **shipped}
     casters = [dict(c) for c in settings.get('casters') or []]

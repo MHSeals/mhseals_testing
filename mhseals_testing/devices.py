@@ -23,6 +23,7 @@ import sys
 from mhseals_nav import boat_network
 
 from mhseals_testing import data
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 TOP = {'self', 'defaults', 'roles', 'hosts', 'ping'}
@@ -99,18 +100,6 @@ class Part:
 
 # --- layers ------------------------------------------------------------------------------------
 
-def _config_dir():
-    """config/ in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parent.parent / 'config'
-    if (source / 'devices.yaml').is_file():
-        return source
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config'
-    except (ImportError, KeyError):
-        return source
-
-
 _warned = set()
 
 
@@ -135,7 +124,7 @@ def layer_paths():
     ``$ROS_WS/config``."""
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
     workspace = data.workspace() / 'config'
-    return (_config_dir() / 'devices.yaml', _astro('ASTRO_REGISTRY', workspace / 'devices.yaml'),
+    return (config_path('config', 'devices.yaml'), _astro('ASTRO_REGISTRY', workspace / 'devices.yaml'),
             config / 'mhseals' / 'devices.yaml', _astro('ASTRO_NETWORK_ENV', workspace / 'boat-network.env'))
 
 

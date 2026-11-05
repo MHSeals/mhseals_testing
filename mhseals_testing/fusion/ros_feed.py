@@ -52,19 +52,19 @@ def sample_rule(path=None):
     """lidar_fusion.yaml's sample filter (sample_classes, border_px, isolation_deg): the boxes it samples and
     fusion_calib grades. Installed share first, else the config beside the imported mhseals_nav source."""
     import yaml
+    from mhseals_testing.health.config import config_path
     if path is None:
         candidates = []
         try:
-            from ament_index_python.packages import get_package_share_directory
-            candidates.append(Path(get_package_share_directory('mhseals_nav')) / 'config')
-        except Exception:
+            candidates.append(config_path('config', package='mhseals_nav', installed=True))
+        except LookupError:
             pass
         import mhseals_nav
         candidates += [Path(d).parent / 'config' for d in mhseals_nav.__path__]
         path = next((c / 'lidar_fusion.yaml' for c in candidates if (c / 'lidar_fusion.yaml').is_file()), None)
         if path is None:
             raise FileNotFoundError(f'lidar_fusion.yaml not in {[str(c) for c in candidates]}')
-    cfg = yaml.safe_load(Path(path).read_text())['/**']['ros__parameters']
+    cfg = yaml.safe_load(Path(path).read_text())['/**']['ros__parameters']   # mhseals_nav's ROS params: nav checks them
     return {k: cfg[k] for k in ('sample_classes', 'border_px', 'isolation_deg')}
 
 

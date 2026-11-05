@@ -8,6 +8,7 @@ import importlib
 import pytest
 
 from mhseals_testing import tunables
+from mhseals_testing.health.config import config_path
 from mhseals_testing.strict_yaml import load_strict
 
 MOVED = [
@@ -21,7 +22,7 @@ MOVED = [
 
 
 def shipped(name, key):
-    path = tunables.config_dir() / f'{name}.yaml'
+    path = config_path('config', f'{name}.yaml')
     node = load_strict(path.read_text(), path)
     for part in key.split('.'):
         node = node[part]

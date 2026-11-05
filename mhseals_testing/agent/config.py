@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from mhseals_testing.harness.watch import stat_key
+from mhseals_testing.health.config import config_path as shipped
 from mhseals_testing.strict_yaml import load_strict
 
 import yaml
@@ -46,12 +47,8 @@ def expand(path):
 
 
 def config_path():
-    """config/agent.yaml in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parents[2] / 'config' / 'agent.yaml'
-    if source.exists():
-        return source
-    from ament_index_python.packages import get_package_share_directory
-    return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'agent.yaml'
+    """config/agent.yaml (a function, so tests can point it elsewhere)."""
+    return shipped('config', 'agent.yaml')
 
 
 def load(path=None):

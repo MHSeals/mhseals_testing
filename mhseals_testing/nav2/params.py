@@ -9,7 +9,8 @@ every other key needs a Navigation reset. Applying a plan is nav2/live.py.
 from fnmatch import fnmatchcase
 from pathlib import Path
 
-import yaml
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 
 # Apply order; the smoother is also sent first, at the more restrictive limits.
 ORDER = ('velocity_smoother', 'controller_server', 'local_costmap', 'global_costmap',
@@ -18,33 +19,22 @@ COSTMAPS = ('local_costmap', 'global_costmap')
 FOLLOW = 'controller_server.FollowPath.'
 
 
-def _rules_path():
-    source = Path(__file__).resolve().parents[2] / 'config' / 'nav2_classes.yaml'
-    if source.is_file():
-        return source
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'nav2_classes.yaml'
-    except (ImportError, KeyError):
-        return source
-
-
 def _ceilings():
     """mhseals_nav's ceilings (source tree, else installed share), strictly loaded: a missing or bad file raises."""
     from mhseals_nav import navigation_config, startup_projection
     path = startup_projection.ceilings_path()
     if not path.is_file():
         try:
-            from ament_index_python.packages import get_package_share_directory
-            path = startup_projection.ceilings_path(get_package_share_directory('mhseals_nav'))
-        except (ImportError, KeyError):
+            path = startup_projection.ceilings_path(config_path(package='mhseals_nav', installed=True))
+        except LookupError:
             pass
     return navigation_config.load_ceilings(path)
 
 
 def live_patterns(path=None):
     """Return the fnmatch patterns of the keys a running stack applies by itself."""
-    return yaml.safe_load(Path(path or _rules_path()).read_text())['live']
+    path = Path(path or config_path('config', 'nav2_classes.yaml'))
+    return load_strict(path.read_text(), path)['live']
 
 
 def rank(node):

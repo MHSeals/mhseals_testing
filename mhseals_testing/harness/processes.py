@@ -14,9 +14,9 @@ import sys
 import threading
 import time
 
-import yaml
-
 from mhseals_testing.harness.registry import alive
+from mhseals_testing.health.config import config_path
+from mhseals_testing.strict_yaml import load_strict
 
 
 class Child:
@@ -199,12 +199,9 @@ def unique_path(path):
 
 
 def bag_filters():
-    """The (exclude_regex, exclude_types) from config/bags.yaml (source tree, else the installed share)."""
-    path = Path(__file__).resolve().parents[2] / 'config' / 'bags.yaml'
-    if not path.exists():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_testing')) / 'config' / 'bags.yaml'
-    config = yaml.safe_load(path.read_text())
+    """The (exclude_regex, exclude_types) from config/bags.yaml."""
+    path = config_path('config', 'bags.yaml')
+    config = load_strict(path.read_text(), path)
     return config['exclude_regex'], list(config.get('exclude_types', []))
 
 

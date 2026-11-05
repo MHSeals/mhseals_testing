@@ -14,10 +14,10 @@ from math import erf, exp, hypot, sqrt
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 from mhseals_testing.analysis import predictor, verdict as grading
 from mhseals_testing.conditions import estimator as conditions
+from mhseals_testing.strict_yaml import load_strict
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class Direction:
 def load_tolerances(path=None) -> dict:
     """``{'psi': ..., 'ell': ...}`` from the YAML; ValueError naming the file for anything unusable."""
     path = Path(path or conditions._config_path())
-    raw = (yaml.safe_load(path.read_text()) or {}).get('tolerance')
+    raw = (load_strict(path.read_text(), path) or {}).get('tolerance')
     try:
         out = {k: float(raw[k]) for k in ('psi', 'ell')}
     except (TypeError, KeyError, ValueError):

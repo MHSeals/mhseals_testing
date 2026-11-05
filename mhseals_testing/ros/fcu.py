@@ -11,22 +11,10 @@ from pathlib import Path
 import struct
 import time
 
+from mhseals_testing.health.config import config_path
+
 FIXED_MAG_CAL_YAW = 42006
-
-
-def _meta_path():
-    """config/history/fcu_meta.json in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parents[2] / 'config' / 'history' / 'fcu_meta.json'
-    if source.exists():
-        return source
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'history' / 'fcu_meta.json'
-    except (ImportError, KeyError):
-        return source
-
-
-META = _meta_path()
+META = config_path('config', 'history', 'fcu_meta.json')
 
 
 def load_meta(path=META):

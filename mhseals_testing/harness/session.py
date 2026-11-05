@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 
 from mhseals_testing import data
+from mhseals_testing.health.config import config_path
 
 SCHEMA = 'mhseals.session/1'
 EDITABLE = ('title', 'note', 'pinned')
@@ -173,9 +174,8 @@ def running_sources():
     out = {}
     for package in PACKAGES:
         try:
-            from ament_index_python.packages import get_package_share_directory
-            source = (Path(get_package_share_directory(package)) / 'package.xml').resolve().parent
-        except (ImportError, LookupError, OSError):
+            source = config_path('package.xml', package=package, installed=True).resolve().parent
+        except (LookupError, OSError):
             continue
         stamp = source / '.source_commit'
         try:

@@ -35,28 +35,34 @@ class ConfigError(ValueError):
     """A health file that cannot be loaded."""
 
 
-def _health_file():
-    """config/health.yaml in the source tree, else the installed share directory."""
-    source = Path(__file__).resolve().parents[2] / 'config' / 'health.yaml'
-    if source.is_file():
+SOURCE = Path(__file__).resolve().parents[2]    # this checkout; another package's is its sibling
+
+
+def config_path(*parts, package='mhseals_testing', installed=False):
+    """The file ``parts`` shipped by ``package``: its source checkout first (this one, or the sibling
+    in the same workspace), else the installed share directory, else the source path. With
+    ``installed`` only the installed share counts: LookupError outside a ROS install."""
+    source = (SOURCE if package == 'mhseals_testing' else SOURCE.parent / package).joinpath(*parts)
+    if not installed and source.exists():
         return source
     try:
         from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_testing')) / 'config' / 'health.yaml'
-    except (ImportError, KeyError):
+        return Path(get_package_share_directory(package)).joinpath(*parts)
+    except (ImportError, LookupError):   # PackageNotFoundError is a KeyError
+        if installed:
+            raise LookupError(f'{package} is not installed') from None
         return source
 
 
-HEALTH_FILE = _health_file()
+HEALTH_FILE = config_path('config', 'health.yaml')
 
 
 def share_dir(package):
     """A package's share directory: installed, else the sibling checkout in the same workspace."""
     try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory(package))
-    except (ImportError, KeyError, LookupError):
-        return Path(__file__).resolve().parents[2].parent / package
+        return config_path(package=package, installed=True)
+    except LookupError:
+        return config_path(package=package)
 
 
 class Share:
