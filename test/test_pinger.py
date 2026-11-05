@@ -136,7 +136,7 @@ def test_network_row_pings_the_camera_host_only_on_the_boat_link(tmp_path):
     from mhseals_testing.health.network import NetworkRow
     from test_network import Clock, proc
     lan = tmp_path / 'lan.env'
-    lan.write_text('BOAT_SUBNET=192.168.0.0/24\n')
+    lan.write_text('LAN_SUBNET=192.168.0.0/24\n')
     made, held, clock = [], {}, Clock()
 
     def pinger(peers):

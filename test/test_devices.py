@@ -8,7 +8,7 @@ from mhseals_testing.devices import DeviceError
 MACHINE_NAME = devices.machine_name
 
 ENV = '''# Boat LAN
-BOAT_SUBNET=192.168.0.0/24
+LAN_SUBNET=192.168.0.0/24
 ROUTER_IP=192.168.0.1
 GATEWAY_IP=192.168.0.2
 LIDAR_IP=192.168.0.201
