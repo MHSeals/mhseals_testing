@@ -14,10 +14,9 @@ import time
 from mhseals_testing.harness import journal
 from mhseals_testing.harness.authority import is_unknown
 from mhseals_testing.harness.watch import stat_key
-from mhseals_testing.runner import fold
 from mhseals_testing.ui import feeds
 
-from mhseals_testing.ui import authority_chip, theme
+from mhseals_testing.ui import authority_chip, keymap, theme
 
 RECENT = 3
 KEYS = 'E revoke selected  Enter agent config  U release hold  Esc close'
@@ -179,17 +178,17 @@ def open(app):
         state['cursor'] = min(state['cursor'], max(0, len(state['ids']) - 1))
         box.update(build())
 
-    def handle(key):
-        raw, key = key, fold(key)
-        if key == 'escape':
+    def handle(key):     # keymap popup.authority; letters fold (Shift or Caps Lock cannot defeat them)
+        action = keymap.dispatch('popup.authority', key, fold=True)
+        if action == 'close':
             return True
-        if key in ('up', 'k'):
+        if action == 'up':
             state['cursor'] = max(0, state['cursor'] - 1)
-        elif key in ('down', 'j'):
+        elif action == 'down':
             state['cursor'] = min(len(state['ids']) - 1, state['cursor'] + 1)
-        elif key == 'enter':
+        elif action == 'detail':
             show_config(app)
-        elif raw == 'E':   # case matters (K1): fold() would also accept lowercase e
+        elif key == keymap.REVOKE_KEY:   # fixed E, case matters (K1): a folded e would also match
             if state['ids']:
                 claim = state['ids'][min(state['cursor'], len(state['ids']) - 1)]
                 done = arbiter.revoke(claim)

@@ -8,7 +8,7 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
-from mhseals_testing.ui import authority_chip, theme, widgets
+from mhseals_testing.ui import authority_chip, keymap, theme, widgets
 
 CAUSES = {'rc_stop': 'RC stop channel (falling edge)', 'keys': 'Space (operator stop)',
           'fault': 'arming fault'}
@@ -50,7 +50,8 @@ def modal(app):
 
 
 def open_stop(app):
-    """Show the popup, refreshed while open; Enter, Esc or q closes. U is routed by ``popups.popup``."""
+    """Show the popup, refreshed while open; keymap popup.stop close (Enter, Esc, q) closes. U is routed by
+    ``popups.popup``."""
     m = modal(app)
-    app.popup(m, lambda key: True if key in ('escape', 'q', 'enter') else None,
+    app.popup(m, lambda key: True if keymap.matches('popup.stop', 'close', key) else None,
               lambda: m.update(modal(app)))
