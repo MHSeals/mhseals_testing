@@ -153,3 +153,17 @@ def test_zed_native_latency_bands_follow_the_orin_decision():
     def status(v):
         return Engine([spec]).tick({'perc.zed_native.latency': Fact(v)}, {}).results[spec.id].status
     assert [status(v) for v in (0.1, 0.3, 0.6)] == ['ok', 'warn', 'fail']
+
+
+def test_a_sim_profile_skips_the_boat_only_checks(nav_share, capsys):
+    """atlas #99 B5: the simulator has no flight controller, RTK or battery; those checks are not loaded for it,
+    so they cannot sit unknown or red all session. Its own pose, IMU and graph checks stay."""
+    from mhseals_testing.harness.cli import main
+    hardware = {'fcu.link', 'fcu.params', 'compass.field', 'gps.fix', 'battery.diag', 'rtk.age', 'power.charge',
+                'fcu.connected', 'fcu.mode', 'qos.rtcm', 'pub.mavros_state', 'pre.rc', 'pre.mosfet'}
+    boat = {s.id for s in load(profile=load_profile('boat'), user=False).specs}
+    sim = {s.id for s in load(profile=load_profile('crane_full_stack'), user=False).specs}
+    assert hardware <= boat and not hardware & sim
+    assert {'nav.speed_agreement', 'imu.free_fall', 'pub.ekf_local', 'qos.odom'} <= sim
+    assert main(['check', '--profile', 'crane_full_stack', '--lint']) == 0
+    assert capsys.readouterr().out.strip() == f'{len(sim)} checks, no problems'
