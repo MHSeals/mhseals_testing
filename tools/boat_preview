@@ -235,7 +235,18 @@ case $verb in
     # a session still queued for its heavy slot (it clears $QUEUED when it starts) is cancelled, or it would start
     # unattended once the slot frees: setsid made the guard its group's leader
     if [ -s "$QUEUED" ]; then kill -TERM -- "-$(cat "$QUEUED")" 2>/dev/null || true; rm -f "$QUEUED"; echo 'boat_preview: queued session cancelled'; fi
-    [ -n "$ROOT" ] || { echo 'boat_preview: no preview'; exit 0; }; down ;;
+    [ -n "$ROOT" ] || { echo 'boat_preview: no preview'; exit 0; }
+    down
+    # returns only once the session is gone: its own EXIT teardown, run later, removed the next preview's container
+    if running; then
+      pid=$(cat "$RUN/session.pid") waited=0
+      while kill -0 "$pid" 2>/dev/null; do
+        [ "$waited" = 10 ] && kill -TERM "$pid" 2>/dev/null     # mid-build or mid-pull: stop it now
+        [ "$waited" -ge 40 ] && { echo "boat_preview: session $pid did not exit" >&2; exit 1; }
+        sleep 1; waited=$((waited + 1))
+      done
+    fi
+    rm -f "$RUN/session.pid" ;;
   attach) alive || { echo 'boat_preview: no preview TUI (boat_tui preview starts one)' >&2; exit 4; }; attach ;;
   restart) tui restart ;;
   status)
