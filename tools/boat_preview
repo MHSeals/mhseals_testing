@@ -121,6 +121,11 @@ player() {   # windowed on this display, or headless under xvfb with --headless;
 
 down() {
   touch "$RUN/stop" 2>/dev/null || true   # first: a session still starting stops before its player
+  if t has-session -t "=$PV_SESSION" 2>/dev/null && ! alive; then   # a TUI that died: its last lines, never silent
+    { echo "boat_preview: the TUI exited; its last lines:"
+      t capture-pane -p -J -S - -t "=$PV_SESSION:" 2>/dev/null | grep -v '^$' | tail -n 60; } \
+      | if [ "${in_session:-0}" = 1 ]; then cat >&2; else tee -a "$RUN/session.log" >&2; fi || true
+  fi
   t kill-server 2>/dev/null || true     # its own server: the TUI, a restart's window and any viewer
   if [ -s "$RUN/player.pid" ]; then     # xvfb-run's or the player's pid: its children first
     pid=$(cat "$RUN/player.pid")
@@ -134,6 +139,7 @@ down() {
 }
 
 session() {
+  in_session=1     # stderr is run/session.log
   trap down EXIT; trap 'exit 143' INT TERM
   rm -f "$RUN/stop" "$RUN/failed" "$QUEUED"; echo $$ > "$RUN/session.pid"
   printf '%s\n%s\n' "$ROOT" "$REF" > "$CURRENT"

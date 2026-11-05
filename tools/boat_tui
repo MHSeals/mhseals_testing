@@ -75,7 +75,8 @@ start() {
     sleep "${BOAT_TUI_START_S:-3}"
     if [ "$(t display-message -p -t "$1" '#{pane_dead}')" = 1 ]; then
         echo "boat_tui: boat_test in $1 exited at start:" >&2
-        t capture-pane -p -t "$1" | grep -v '^$' | tail -n 15 >&2
+        # -S -: the scrollback too (a TUI clears the screen before its error is the last thing left), -J: joined
+        t capture-pane -p -J -S - -t "$1" | grep -v '^$' | tail -n "${BOAT_TUI_FAIL_LINES:-60}" >&2
         t kill-session -t "$1"
         exit 1
     fi
