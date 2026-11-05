@@ -145,7 +145,7 @@ class Annotate:
                                   ('lat', gps.get('lat')), ('lon', gps.get('lon'))) if v is not None}
 
     def scene(self):
-        conditions = getattr(self, 'conditions_set', None)
+        conditions = getattr(getattr(self, 'labels', None), 'conditions', None)
         return {'running': self.running, 'run': self.run_id, 'armed': self.armed, 'manual': self.manual,
                 'driving': list(self.driving() or ()) or None, 'conditions': conditions,
                 'nearby': (getattr(self, 'feeds', None) and next((f.info.get('nearby') for f in self.feeds

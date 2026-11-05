@@ -190,13 +190,13 @@ class Loop:
             return
         if bound == 'labels' and not self.review:   # the Labels tab: review this session's marks and segments; L again leaves it
             if self.tab == 'Labels':
-                self.show_tab(getattr(self, 'labels_from', None) or self.tabs.tabs[0])
+                self.show_tab(self.labels.came_from or self.tabs.tabs[0])
             else:
-                self.labels_from = self.tab
+                self.labels.came_from = self.tab
                 self.show_tab('Labels')
             return
         if bound == 'back' and self.tab == 'Labels' and not self.review and not self.modal:   # Esc leaves Labels too
-            self.show_tab(getattr(self, 'labels_from', None) or self.tabs.tabs[0])
+            self.show_tab(self.labels.came_from or self.tabs.tabs[0])
             return
         if key == keymap.REVOKE_KEY:   # fixed: no keymap file moves it
             self.revoke_agent()

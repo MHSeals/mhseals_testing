@@ -5,6 +5,7 @@ append-only ``label_edit`` lines, and the manifest beside the bag is rewritten a
 (annotate/manifest.py). Review edits wait for disarmed and still; the conditions rows always work.
 """
 
+import dataclasses
 import time
 
 from mhseals_testing import data
@@ -16,14 +17,28 @@ OUTCOMES = ('done', 'partly', 'failed', 'unsafe', 'ignored')     # what a langua
 EDITS = ('accept', 'reject', 'undo', 'split', 'merge', 'note_label', 'replay', 'tag')   # tab.labels: wait for disarmed
 
 
+@dataclasses.dataclass
+class LabelsState:
+    """What the Labels tab owns, and nothing else reads but through it."""
+    session: object = None       # the session folder shown; None is the live one
+    came_from: str = None        # the tab L or Esc returns to
+    conditions: dict = None      # wind, waves, current as last set here (the next mark carries them)
+    cache: tuple = (None, None)  # (stamp, manifest) of the session shown
+
+
 class Labels:
     """Mixed into App."""
 
-    labels_dir = None    # the session the Labels tab shows; None is the live one
-    _labels_cache = (None, None)
+    @property
+    def labels(self):
+        """The Labels tab's own state (LabelsState), made on first use."""
+        state = self.__dict__.get('_labels_state')
+        if state is None:
+            state = self.__dict__['_labels_state'] = LabelsState()
+        return state
 
     def labels_session(self):
-        return self.labels_dir or self.paths.directory
+        return self.labels.session or self.paths.directory
 
     def labels_live(self):
         return self.labels_session() == self.paths.directory
@@ -35,9 +50,9 @@ class Labels:
             stamp = (str(folder), (folder / manifest_module.JOURNAL).stat().st_mtime_ns)
         except OSError:
             stamp = (str(folder), None)
-        if self._labels_cache[0] != stamp:
-            self._labels_cache = (stamp, manifest_module.build(folder))
-        return self._labels_cache[1]
+        if self.labels.cache[0] != stamp:
+            self.labels.cache = (stamp, manifest_module.build(folder))
+        return self.labels.cache[1]
 
     def labels_rows(self):
         doc = self.labels_doc()
@@ -71,7 +86,7 @@ class Labels:
         else:
             data.append_jsonl(self.labels_session() / manifest_module.JOURNAL,
                               {'t_ns': time.time_ns(), 'phase': phase, 'rec': False, 'edited': True, **fields})
-        self._labels_cache = (None, None)
+        self.labels.cache = (None, None)
         manifest_module.write(self.labels_session())
 
     def edit_label(self, action, value=None):
@@ -86,7 +101,7 @@ class Labels:
             [(c['t'], {k: c[k] for k in scales}) for c in self.labels_doc()['conditions']], float('inf'))
             or dict.fromkeys(scales, 0))
         current[scales[index]] = max(0, min(3, current[scales[index]] + step))
-        self.conditions_set = current
+        self.labels.conditions = current
         self.labels_write('conditions_set', **current)
 
     def on_labels(self, key):
@@ -145,9 +160,9 @@ class Labels:
         folders = [self.paths.directory] + [b.path for b in self.bags_view()[0]
                                             if not b.legacy and b.path != self.paths.directory]
         here = folders.index(self.labels_session()) if self.labels_session() in folders else 0
-        self.labels_dir = folders[max(0, min(len(folders) - 1, here + step))]
+        self.labels.session = folders[max(0, min(len(folders) - 1, here + step))]
         self.cursors['labels'] = 0
-        self._labels_cache = (None, None)
+        self.labels.cache = (None, None)
 
     def labels_replay(self, item):
         """Enter: play a closed session from just before the item (the Bags review)."""
