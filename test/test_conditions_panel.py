@@ -287,8 +287,8 @@ def test_command_column_shows_the_speed_gauge_under_the_driver():
 
 def test_label_names_the_mode_with_the_tmux_caveat():
     assert conditions.mode_label(True, tmux=True) == 'combos'
-    assert conditions.mode_label(False, tmux=True) == 'one key (tmux)'
-    assert conditions.mode_label(False, tmux=False) == 'one key'
+    assert conditions.mode_label(False, tmux=True) == 'timed combos (tmux)'
+    assert conditions.mode_label(False, tmux=False) == 'timed combos'
     assert conditions.mode_label(False, mode='rc · mux') == 'rc · mux'
 
 

@@ -373,17 +373,17 @@ def _classic_hull(r, at, sx, sy, up, tokens, yaw_ok, warn):
 # --- the command column -----------------------------------------------------------------------
 
 def mode_label(chords, tmux=None, mode=None, unavailable=None):
-    """How the keyboard drives, in plain words: ``combos`` (keys held together) or ``one key``; ``mode``
-    (``proc · C=I``, ``rc · mux``) wins outside manual; ``unavailable`` (why the terminal cannot hold keys
-    together, ui/input.py) shows ``one key (tmux)``."""
+    """How the keyboard drives: ``combos`` (held keys, each stops on its release) or ``timed combos`` (no
+    releases: recent keys combine briefly); ``mode`` (``proc · C=I``, ``rc · mux``) wins outside manual;
+    ``unavailable`` (why the terminal reports no releases, ui/input.py) shows ``timed combos (tmux)``."""
     if mode:
         return mode
     if chords:
         return 'combos'
     if unavailable:
-        return f'one key ({unavailable})'
+        return f'timed combos ({unavailable})'
     tmux = bool(os.environ.get('TMUX')) if tmux is None else tmux
-    return 'one key (tmux)' if tmux else 'one key'
+    return 'timed combos (tmux)' if tmux else 'timed combos'
 
 
 def _figure(value, amplitude):

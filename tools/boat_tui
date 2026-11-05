@@ -64,8 +64,12 @@ attach_line() {
     fi
 }
 
-# Kitty's images reach the operator's terminal through tmux's passthrough: on for this server only.
-passthrough() { t set-option -g allow-passthrough on >/dev/null 2>&1 || true; }     # tmux before 3.3 has no such option
+# Kitty's images and manual's key-event request reach the operator's terminal through tmux's passthrough, and
+# focus reports reach the TUI (losing focus stops manual driving): on for this server only.
+passthrough() {
+    t set-option -g allow-passthrough on >/dev/null 2>&1 || true     # tmux before 3.3 has no such option
+    t set-option -g focus-events on >/dev/null 2>&1 || true
+}
 
 # start NAME CMD: a detached session that keeps a failed pane, so a startup error stays readable.
 start() {

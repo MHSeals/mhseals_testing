@@ -117,7 +117,7 @@ def test_mouse_reports_turn_on_only_for_a_real_terminal(monkeypatch):
 
 
 def test_the_driver_shows_when_chords_are_unavailable():
-    assert conditions.mode_label(False, unavailable='tmux') == 'one key (tmux)'
+    assert conditions.mode_label(False, unavailable='tmux') == 'timed combos (tmux)'
     assert conditions.mode_label(True, unavailable='tmux') == 'combos'
     view = dict(authority=('human', 'KEYS'), chords=False, chords_unavailable='tmux')
-    assert conditions.driver(view)[0].endswith('one key')
+    assert conditions.driver(view)[0].endswith('timed combos')
