@@ -67,10 +67,10 @@ def unavailable(procedure, profile, armed, bench_override=False):
     needs = procedure.needs
     if 'armed' in needs and not armed:
         return 'arm first (a)'
-    if 'effort' in needs and profile.command_units != 'effort':
-        return 'needs effort commands; use --set command_mode=effort'
-    if 'velocity' in needs and profile.command_units != 'velocity':
-        return 'needs velocity commands; use --set command_mode=velocity'
+    for units in ('effort', 'velocity'):
+        if units in needs and profile.command_units != units:
+            return (f'needs {units} commands (command_mode is {profile.command_units}): set command_mode={units}, '
+                    'disarmed, between runs')
     if 'outputs' in needs and profile.outputs == 'none':
         return 'the profile has no thruster outputs'
     if 'hardware' in needs and not drives_pwm_pins(profile):

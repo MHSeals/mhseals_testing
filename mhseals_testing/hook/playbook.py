@@ -66,11 +66,16 @@ def start_text(who, agent='claude', config=None):
         '`run KEY --sim-arm` arms a verified sim (its container sets MHSEALS_SIM_ARM=1) for that run and disarms '
         'after.',
         '     `run KEY --set K=V [--set K=V]` sets what the procedure measures before it starts (e.g. '
-        '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets any tunable key (the testing '
-        'config schema; live Nav2 keys such as nav2.controller_server.FollowPath.vx_max too: mhseals_nav config/schema.yaml names them), within its range. '
-        'While armed it refuses the keys reload.yaml marks armed-unsafe; never amplitude or command_mode while '
-        'armed. The TUI shows and journals "agent ID set K=V". Exit 2: not_allowed (not tunable), bad_args '
-        '(unknown key or value), busy (a procedure runs: never mid-segment), refused (armed-unsafe while armed).',
+        '`run thrust_physics --set thrust_step=survey`); `set K=V --claim ID` sets any tunable key, within its range, '
+        'in its layer: a session setting (amplitude, command_mode, direction, timings), a hardware YAML key '
+        "(manual_amplitude, decoupling or one row of it: 'decoupling.yaw=[-0.0375, 0.1, 1.0]', command_mux.ramp), or a live "
+        'Nav2 key (nav2.controller_server.FollowPath.vx_max: mhseals_nav config/schema.yaml names them). `set K` reads '
+        'it (no claim). A write is validated, snapshotted, read back and logged; its reply has old, value, where and '
+        'the revert line. Never tell the operator to change a setting you can set: set it. While armed it refuses the '
+        'keys reload.yaml marks armed-unsafe (never amplitude or command_mode); C is live. The TUI shows and journals '
+        '"agent ID set K=V". Exit 2: not_allowed (not tunable), bad_args (unknown key or value), busy (a procedure '
+        'runs: never mid-segment), refused (armed-unsafe while armed). Every refusal carries the structured ask '
+        '(.result.ask: key, current, target, where, why, when, command): relay exactly that.',
         '     `start COMPONENT --claim ID` / `stop COMPONENT --claim ID` starts or stops a stack part agent.yaml '
         '`start:` lists (odometry, EKFs, sensors, perception) as its TUI Status row does; its row shows your id; '
         '`reload COMPONENT --claim ID` respawns one. Never the driver, mux, Nav2 or watchdogs.',

@@ -316,12 +316,26 @@ def in_background(app, title, work, message=None, wait_s=0.2, on_abort=lambda: N
 
 # --- dry run ---------------------------------------------------------------------------------
 
+COMMAND_MODE_ASK = re.compile(r'(?: \(command_mode is (\w+)\))?(?:; use --set|: set) command_mode=(\w+)'
+                              r'(?:, disarmed, between runs)?')
+
+
 def agent_text(reason):
-    """``reason`` as an agent reads it: the hint names the command that switches the command mode (boat_agent set,
-    disarmed; the TUI switches its command path at once, no restart), never ``run --set``."""
-    return re.sub(r'; use --set command_mode=(\w+)',
-                  r': boat_agent set command_mode=\1 --claim ID --why ... (disarmed; or the operator; it applies at '
-                  r'once, no restart); then run again', str(reason or ''))
+    """``reason`` as an agent reads it: a command-mode gate becomes the structured settings ask (agent/ask.py) with
+    the ``boat_agent set`` line (disarmed; the TUI switches its command path at once, no restart), never
+    ``run --set``."""
+    from mhseals_testing.agent import ask
+    from mhseals_testing.agent.config import settings_where
+    from mhseals_testing.harness.settings import BY_KEY
+
+    def full(match):
+        target = match.group(2)
+        current = match.group(1) or next((c for c in BY_KEY['command_mode'].choices if c != target), '?')
+        found = ask.setting_ask('command_mode', current, target, settings_where('command_mode'),
+                                'this procedure needs it; the TUI switches its command path at once, no restart; '
+                                'or the operator', when='disarmed and between runs')
+        return f': {ask.text(found)}; then run again'
+    return COMMAND_MODE_ASK.sub(full, str(reason or ''))
 
 
 def dry_run(app, op, args, motion_setting, lifecycle=None, timeout=2.0, fence_wait=0.0):

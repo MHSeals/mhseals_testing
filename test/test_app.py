@@ -1802,7 +1802,8 @@ def test_a_host_without_thrusters_arms_the_thrusters_host_with_every_gate(tmp_pa
     assert app.thruster_refusal() == ''
     assert 'on blastoise-odroid (stops 1 s after the link drops)' in dict(app.arm_rows())['Outputs']
     app.dispatch('M')
-    assert app.notice == "Pins refused: they are the boat's, edit hardware.yaml on blastoise-odroid"
+    assert app.notice.startswith("Pins refused: pwm_channels (now [") and "hardware YAML on blastoise-odroid" in app.notice
+    assert "BOAT_AGENT_TARGET=blastoise-odroid boat_agent set 'pwm_channels=[...]'" in app.notice
     assert app.typed == [] and processes.started == [] and seen == [] and ssh.commands == []
 
     def decline(*a, **kw):

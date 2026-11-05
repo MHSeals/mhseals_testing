@@ -27,9 +27,12 @@ class Settings(Health, Files, Hardware, StatusRows, Pose, Correction):
         follow at once, no restart. Only disarmed, idle and with the last arm's children gone; the error, else ''."""
         base = getattr(self.args, 'base_profile', None)
         if base is None or self.arming is None or self.review is not None or self.watching:
-            return 'this session has no command path to switch; restart it with --set command_mode=' + mode
+            return (f'command_mode stays {self.settings.command_mode}, not {mode}: this session (a review, a viewer '
+                    'or one that never arms) has no command path to switch; set it on the TUI that drives the boat, '
+                    f'or start this one with --set command_mode={mode}')
         if self.armed or self.running or self.manual:
-            return 'armed or busy: it switches only while disarmed and between runs'
+            return (f'command_mode stays {self.settings.command_mode}, not {mode}: it switches only disarmed and '
+                    'between runs; allowed once status .armed is false and no run or manual drive is on')
         try:
             profile = command_profile(base, mode)
             self.arming.switch_profile(profile)

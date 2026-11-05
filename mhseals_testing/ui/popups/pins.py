@@ -150,7 +150,12 @@ def edit_pins(app):
         return REFUSED
     remote = getattr(app.arming, 'remote', None) if app.arming is not None else None
     if remote is not None:     # one hardware.yaml: the boat's, read again at each arm
-        return f"Pins refused: they are the boat's, edit hardware.yaml on {remote.host.name}"
+        from mhseals_testing.agent.ask import show
+        config, host = app.args.hardware_config or {}, remote.host.name
+        return (f"Pins refused: pwm_channels (now {show(config.get('pwm_channels'))}) and mosfet_line (now "
+                f"{show(config.get('mosfet_line'))}) live in the boat's hardware YAML on {host}, read again at each "
+                f"arm: BOAT_AGENT_TARGET={host} boat_agent set 'pwm_channels=[...]' mosfet_line=N --claim ID "
+                "--why ... sets them there")
     text = app.ask_text('Thruster pins', 'PWM channels 1-4 then MOSFET line',
                         pin_text(app.args.hardware_config), parse_pins)
     if text is None:
