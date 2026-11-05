@@ -11,9 +11,9 @@ from mhseals_testing.ui.minimap import hull
 
 from mhseals_testing.ui.minimap.marks import arrow, line
 
-# The smooth hull in an image tier (hull_sprite.py): yaw (map deg), length, beam and wake in dots, the body and
-# bow layers whose colours it wears; it ranks as ``layer`` among the canvas's dots.
-Hull = namedtuple('Hull', 'yaw length beam body bow wake layer')
+# The smooth hull in an image tier (hull_sprite.py): yaw (map deg), length, beam and wake in dots, the layer whose
+# colour it wears, its shape (hull_shapes.py); it ranks as ``layer`` among the canvas's dots.
+Hull = namedtuple('Hull', 'yaw length beam body shape wake layer')
 Banner = namedtuple('Banner', 'x y colour shape')       # colour red|green|blue, shape c|t|s|p
 Bay = namedtuple('Bay', 'a b banners occupied')         # a, b: bay mouth ends in world metres
 SHAPES = {'c': '●', 't': '▲', 's': '■', 'p': '+'}
@@ -62,9 +62,10 @@ def draw_boat(proj, pos, yaw, reliable=True, ascii_=False, speed=None, cog=None,
     ``yaw`` and ``cog`` are map degrees CCW from east; ``speed`` m/s. The leader is the distance
     covered in 3 s; a COG more than 15 deg off the heading gets its own muted leader (crabbing).
     An unreliable or non-finite yaw fills the hull in warn and draws no leader. Heading-up points up.
-    ASCII draws the hull cells as ``#`` and the bow cell as an 8-way arrow. theme.yaml ``hull: smooth`` traces
-    the hull's outline in braille (clearing its inside) and paints it anti-aliased in an image tier, the wake
-    there a soft V (hull_sprite.py); theme.yaml ``wake: false`` draws no wake.
+    ASCII draws the hull cells as ``#`` and the bow cell as an 8-way arrow; elsewhere the hull is one colour (the
+    leader shows the heading). theme.yaml ``hull: smooth`` traces the hull's outline in braille (clearing its
+    inside) and paints the vessel's shape anti-aliased in an image tier, each hull's wake there a soft V
+    (hull_sprite.py); theme.yaml ``wake: false`` draws no wake.
     """
     finite = math.isfinite(yaw)
     good = reliable and finite
@@ -82,9 +83,9 @@ def draw_boat(proj, pos, yaw, reliable=True, ascii_=False, speed=None, cog=None,
     cells = {}
     if sprite:
         canvas.sprite(x, y, Hull(shown, *hull.size(proj.scale, minimum), 'boat' if good else 'boat:warn',
-                                 'bow' if good else 'boat:warn', length, 'boat'))
+                                 hull.shape('image'), length, 'boat'))
     for dx, dy, part in () if sprite else hull.mask(shown, proj.scale, minimum, look):
-        layer = part if good else 'boat:warn'
+        layer = 'boat' if good else 'boat:warn'
         if ascii_:
             cell = canvas.cell(x + dx, y + dy)
             cells[cell] = 'bow' if part == 'bow' or cells.get(cell) == 'bow' else 'boat'
@@ -94,15 +95,15 @@ def draw_boat(proj, pos, yaw, reliable=True, ascii_=False, speed=None, cog=None,
         canvas.clear(x + dx, y + dy, 'boat')
     for cell, part in cells.items():
         canvas.glyph(*cell, arrow(shown, True) if part == 'bow' else '#', part if good else 'boat:warn')
-    bow, port, starboard = hull.points(shown, proj.scale, minimum, look)
+    bow, sterns = hull.points(shown, proj.scale, minimum, look)
     if good:
         reach = min(max(3.0 * k, (speed or 0.0) * LEAD_S * proj.scale), LEAD_MAX * k) if moving else 3.0 * k
         _ray(canvas, (x + bow[0], y + bow[1]), shown, reach, 'bow', 2)
         if moving and cog is not None and math.isfinite(cog) and abs((cog - yaw + 180) % 360 - 180) > CRAB_DEG:
             _ray(canvas, (x, y), shown + cog - yaw, reach + math.hypot(*bow), 'wake:muted', 2)
-    if wake and not sprite:
-        for side, corner in ((1, port), (-1, starboard)):
-            _ray(canvas, (x + corner[0], y + corner[1]), shown + 180 - side * WAKE_DEG, length, 'wake', 2,
+    for corners in sterns if wake and not sprite else ():
+        for side, corner in zip((1, -1), corners):
+            _ray(canvas, (x + corner[0], y + corner[1]), shown + 180 - side * WAKE_DEG / len(sterns), length, 'wake', 2,
                  WAKE_FADE if look == 'smooth' else 0)
 
 

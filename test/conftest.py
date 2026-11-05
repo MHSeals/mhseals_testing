@@ -11,8 +11,9 @@ from ros_isolation import isolate_ros_env
 from workspace_fixture import ws  # noqa: F401  a fixture astro_dock workspace (stub hw.sh, scratch repos)
 
 # The theme reads NO_COLOR and the ASCII switches once, at import, and the goldens and style asserts
-# expect Unicode colour: a shell that exports them (agent sandboxes do) would otherwise fail them.
-for _name in ('NO_COLOR', 'MHS_ASCII', 'CX_ASCII'):
+# expect Unicode colour: a shell that exports them (agent sandboxes do) would otherwise fail them. The boat glyph
+# reads the vessel profile (ASTRO_NETWORK_ENV) once, at import: tests draw the package's default hull.
+for _name in ('NO_COLOR', 'MHS_ASCII', 'CX_ASCII', 'ASTRO_NETWORK_ENV'):
     os.environ.pop(_name, None)
 
 

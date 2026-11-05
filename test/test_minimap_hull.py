@@ -32,7 +32,7 @@ def test_rotation_mirrors_and_bad_yaw_falls_back_to_up():
 
 
 def test_points_place_bow_ahead_and_sterns_behind():
-    bow, port, starboard = hull.points(90)
+    bow, ((port, starboard),) = hull.points(90)
     assert bow[1] < 0 < port[1] and bow[1] < 0 < starboard[1]
     assert port[0] < 0 < starboard[0]
     assert math.isclose(math.hypot(*bow), hull.MIN_DOTS[0] / 2)
@@ -54,5 +54,27 @@ def test_smooth_hull_is_a_one_dot_outline_with_its_inside_cleared():
 
 def test_size_comes_from_minimap_yaml():
     from mhseals_testing.analysis.classes import load_section
-    size = load_section('hull', {'length_m': 0.0, 'beam_m': 0.0, 'min_dots': [0, 0]})
-    assert (hull.LENGTH, hull.BEAM, hull.MIN_DOTS) == (size['length_m'], size['beam_m'], tuple(size['min_dots']))
+    size = load_section('hull', hull.DEFAULTS)
+    assert hull.MIN_DOTS == tuple(size['min_dots'])
+
+
+CAT = {'shape': 'catamaran', 'length': 1.34, 'beam': 0.9, 'pontoon': 0.23, 'deck': 0.63}
+
+
+def test_each_tier_draws_the_vessels_shape_or_falls_back(monkeypatch):
+    monkeypatch.setattr(hull, 'GEOMETRY', CAT)
+    monkeypatch.setitem(hull.SIZE, 'draws', {'image': ['monohull', 'catamaran'], 'dots': ['monohull']})
+    assert hull.shape('image') == 'catamaran' and hull.shape('dots') == 'monohull'
+    monkeypatch.setitem(hull.SIZE, 'draws', {'image': ['monohull']})
+    assert hull.shape('image') == 'monohull'
+
+
+def test_catamaran_sprite_has_two_hulls_a_deck_and_two_wakes(monkeypatch):
+    from mhseals_testing.ui.minimap import hull_sprite
+    monkeypatch.setattr(hull, 'GEOMETRY', CAT)
+    _, _, hulls, decks = hull_sprite.silhouette(90.0, 60.0, 40.0, 'catamaran')
+    row = hulls[hulls.shape[0] // 2] > 0.5                               # across the middle: hull, gap, hull
+    assert decks.max() == 1.0 and (row[1:] != row[:-1]).sum() == 4
+    one = hull_sprite.wake(90.0, 60.0, 40.0, 30, 2, 18.0, 'monohull')
+    two = hull_sprite.wake(90.0, 60.0, 40.0, 30, 2, 18.0, 'catamaran')
+    assert two[2].sum() > 1.5 * one[2].sum()

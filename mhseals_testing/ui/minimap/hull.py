@@ -1,44 +1,62 @@
 """The boat glyph (tui-visual 2.3): the hull as braille dot offsets and as an outline; pure, no ROS.
 
 `mask(yaw, dots_per_m, minimum, style)` gives the dots of a hull centred on dot (0, 0), dot y down,
-each tagged ``boat`` or ``bow`` (the 2-3 foremost). The hull is true scale (minimap.yaml ``hull``),
-never smaller than ``minimum`` (length, beam) dots, and cached per 3 deg of yaw and half-dot of size,
-so a frame costs one loop over the cached offsets. The Conditions rose uses the same mask at 9x6 dots.
+each tagged ``boat`` or ``bow`` (the 2-3 foremost: the ASCII tier's arrow cell). The hull is true scale, never
+smaller than ``minimum`` (length, beam) dots, and cached per 3 deg of yaw and half-dot of size, so a frame costs
+one loop over the cached offsets. The Conditions rose uses the same mask at 9x6 dots.
 
-Two looks (theme.yaml ``hull``): ``classic`` fills a pentagon; ``smooth`` traces a sleek outline (a
-pointed ogive bow, a straight run, a transom with rounded quarters) as a one-dot stroke, 4-connected so
-it never doubles up, and `interior` names the dots inside it that the hull clears of what lies under.
-The image tier draws the same outline anti-aliased (hull_sprite.py).
+The shape (hull_shapes.py: monohull, catamaran) and its metres are the vessel profile's ``hull:`` over
+minimap.yaml's; each tier draws the vessel's shape when its ``draws`` list has it, else the list's first (`shape`).
+Two looks (theme.yaml ``hull``): ``classic`` fills a pentagon (a monohull look, whatever the shape); ``smooth``
+traces each part's outline as a one-dot stroke, 4-connected so it never doubles up, and `interior` names the
+dots inside it that the hull clears of what lies under. The image tier draws the shape anti-aliased
+(hull_sprite.py).
 """
 
 import math
 from functools import lru_cache
 
-from mhseals_testing.analysis.classes import load_section
+from mhseals_testing import vessel
+from mhseals_testing.analysis.classes import _section, load_section
+from mhseals_testing.ui.minimap import hull_shapes
 
-SIZE = load_section('hull', {'length_m': 1.34, 'beam_m': 0.9, 'min_dots': [12, 7]})
-LENGTH, BEAM = SIZE['length_m'], SIZE['beam_m']   # m, the boat's hull
+GEOMETRY_KEYS = ('shape', 'length', 'beam', 'pontoon', 'deck')    # vessel facts; the rest is how the TUI draws
+DEFAULTS = {'shape': 'monohull', 'length': 1.34, 'beam': 0.9, 'pontoon': 0.0, 'deck': 0.0,
+            'min_dots': [12, 7], 'draws': {'image': ['monohull'], 'dots': ['monohull']}}
+
+
+def _settings():
+    found = vessel.section('hull')
+    if not set(found) <= set(GEOMETRY_KEYS):
+        extra = sorted(set(found) - set(GEOMETRY_KEYS))
+        raise ValueError(f'vessel profile hull: takes {", ".join(GEOMETRY_KEYS)}, not {extra}')
+    settings = _section('vessel profile hull', found, load_section('hull', DEFAULTS))
+    hull_shapes.parts(settings['shape'], settings)                # an unknown shape refuses here
+    for tier, shapes in settings['draws'].items():
+        if not shapes or not all(name in hull_shapes.SHAPES for name in shapes):
+            raise ValueError(f'hull.draws.{tier}: a list of shapes from {", ".join(hull_shapes.SHAPES)}')
+    return settings
+
+
+SIZE = _settings()
+GEOMETRY = {key: SIZE[key] for key in GEOMETRY_KEYS}
+LENGTH, BEAM = SIZE['length'], SIZE['beam']        # m, the boat's overall hull
 MIN_DOTS = tuple(SIZE['min_dots'])                 # length, beam: a readable icon at +-20 m, true size at +-5 m
 YAW_STEP = 3.0              # deg of the mask cache
-BOW_SHARE = 0.25            # the smooth hull's foremost quarter wears the bow hue (the image tier, the rose)
 # Body-frame outlines as fractions of (length, beam), bow first, port (+v) side then starboard.
 CLASSIC = ((0.5, 0.0), (0.2, 0.5), (-0.5, 0.47), (-0.5, -0.47), (0.2, -0.5))
-# smooth: the bow's half-beam is 0.5 * (1 - t ** FULLNESS) from BOW_START (t = 0) to the stem (t = 1), the run
-# narrows to RUN_AFT at -0.5 + QUARTER, and each transom quarter is a QUARTER-radius arc
-BOW_START, FULLNESS, RUN_AFT, QUARTER, SEGMENTS = -0.15, 1.6, 0.49, 0.1, 16
+SMOOTH = hull_shapes.outline(hull_shapes.MONO_SIDE)
 
 
-def _smooth():
-    side = [(BOW_START + (0.5 - BOW_START) * t, 0.5 * (1 - t ** FULLNESS))
-            for t in (1 - i / SEGMENTS for i in range(SEGMENTS + 1))]
-    side += [(-0.5 + QUARTER - QUARTER * math.sin(a), RUN_AFT - QUARTER + QUARTER * math.cos(a))
-             for a in (math.pi / 2 * i / 4 for i in range(5))]
-    return tuple(side + [(u, -v) for u, v in reversed(side[1:])])
+def shape(tier):
+    """The shape ``tier`` (``image`` or ``dots``) draws: the vessel's if its draws list has it, else the first."""
+    draws = SIZE['draws'].get(tier) or ['monohull']
+    return GEOMETRY['shape'] if GEOMETRY['shape'] in draws else draws[0]
 
 
-SMOOTH = _smooth()
-OUTLINES = {'classic': CLASSIC, 'smooth': SMOOTH}
-STERN = {'classic': CLASSIC[2], 'smooth': (-0.5, RUN_AFT - QUARTER)}   # the port transom corner, for the wake
+def _polygons(look, form):
+    """``[(outline, deck)]`` in body fractions: the classic pentagon, else the shape's parts."""
+    return [(CLASSIC, False)] if look == 'classic' else hull_shapes.polygons(form, GEOMETRY)
 
 
 def style():
@@ -71,8 +89,8 @@ def _turn(yaw_deg, length, beam, shape):
 
 
 def outline(yaw_deg, length, beam, look='classic'):
-    """The hull vertices in dots about the centre (x right, y down); ``yaw_deg`` is CCW from right."""
-    return _turn(yaw_deg, length, beam, OUTLINES[look])
+    """The monohull vertices in dots about the centre (x right, y down); ``yaw_deg`` is CCW from right."""
+    return _turn(yaw_deg, length, beam, CLASSIC if look == 'classic' else SMOOTH)
 
 
 def _inside(x, y, poly):
@@ -84,16 +102,19 @@ def _inside(x, y, poly):
 
 
 @lru_cache(maxsize=512)
-def _fill(yaw_q, length, beam, look):
-    poly = outline(yaw_q, length, beam, look)
+def _fill(yaw_q, length, beam, look, form):
     reach = int(math.ceil(max(length, beam) / 2)) + 1
-    return frozenset((dx, dy) for dy in range(-reach, reach + 1) for dx in range(-reach, reach + 1)
-                     if _inside(dx, dy, poly))
+    grid = [(dx, dy) for dy in range(-reach, reach + 1) for dx in range(-reach, reach + 1)]
+    dots = set()
+    for outline_, _ in _polygons(look, form):
+        poly = _turn(yaw_q, length, beam, outline_)
+        dots.update((x, y) for x, y in grid if _inside(x, y, poly))
+    return frozenset(dots)
 
 
 @lru_cache(maxsize=512)
-def _mask(yaw_q, length, beam, look):
-    dots = _fill(yaw_q, length, beam, look)
+def _mask(yaw_q, length, beam, look, form):
+    dots = _fill(yaw_q, length, beam, look, form)
     if look == 'smooth':      # the fill's edge: a dot with a 4-neighbour outside
         dots = {(x, y) for x, y in dots
                 if any(n not in dots for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))}
@@ -111,21 +132,28 @@ def _key(yaw_deg, dots_per_m, minimum):
 
 def mask(yaw_deg, dots_per_m=0.0, minimum=MIN_DOTS, look=None):
     """Dot offsets ``(dx, dy, part)`` of the hull at ``yaw_deg`` (CCW from screen right; 90 is up)."""
-    return _mask(*_key(yaw_deg, dots_per_m, minimum), look or style())
+    return _mask(*_key(yaw_deg, dots_per_m, minimum), look or style(), shape('dots'))
 
 
 @lru_cache(maxsize=512)
-def _interior(yaw_q, length, beam, look):
-    edge = {(x, y) for x, y, _ in _mask(yaw_q, length, beam, look)}
-    return tuple(sorted(_fill(yaw_q, length, beam, look) - edge))
+def _interior(yaw_q, length, beam, look, form):
+    edge = {(x, y) for x, y, _ in _mask(yaw_q, length, beam, look, form)}
+    return tuple(sorted(_fill(yaw_q, length, beam, look, form) - edge))
 
 
 def interior(yaw_deg, dots_per_m=0.0, minimum=MIN_DOTS, look=None):
     """The dots inside an outline hull (none for a filled one): the hull clears them of the trail beneath."""
-    return _interior(*_key(yaw_deg, dots_per_m, minimum), look or style())
+    return _interior(*_key(yaw_deg, dots_per_m, minimum), look or style(), shape('dots'))
+
+
+def sterns(yaw_deg, size, look='smooth', form='monohull'):
+    """Each hull's ``(port, starboard)`` transom corners in dots about the centre, ``size`` (length, beam) dots:
+    a wake trails each hull."""
+    pairs = [((-0.5, 0.47), (-0.5, -0.47))] if look == 'classic' else hull_shapes.sterns(form, GEOMETRY)
+    return tuple(tuple(_turn(yaw_deg, *size, pair)) for pair in pairs)
 
 
 def points(yaw_deg, dots_per_m=0.0, minimum=MIN_DOTS, look=None):
-    """``(bow, port_stern, starboard_stern)`` in dots about the centre, for the leader and wake."""
-    (u, v) = STERN[look or style()]
-    return tuple(_turn(yaw_deg, *_size(dots_per_m, minimum), ((0.5, 0.0), (u, v), (u, -v))))
+    """``(bow, [(port, starboard) per hull])`` in dots about the centre, for the leader and the dots tier's wake."""
+    size = _size(dots_per_m, minimum)
+    return _turn(yaw_deg, *size, ((0.5, 0.0),))[0], sterns(yaw_deg, size, look or style(), shape('dots'))

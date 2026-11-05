@@ -1,7 +1,7 @@
 """Conditions · Command panel (tui-visual 3): one north-up rose, one command arrow, labelled bars.
 
-Pure and ROS-free. The rose is a world-frame picture: the hull (the map's pentagon in braille dots, slate with its
-foremost quarter in the bow token, as the image tier paints it) turns to the exact heading, the command is one arrow
+Pure and ROS-free. The rose is a world-frame picture: the hull (the map's in braille dots, in slate as the image tier
+paints it, the vessel's shape there) turns to the exact heading, the command is one arrow
 icon at its bearing in the hue of whoever drives (16 bearings, hand-drawn in braille), yaw is four curved arrows (⤴ ⤵ ⤶ ⤷) round the corners and the world drift a dashed muted
 line. The right column names the driver, then surge, sway and yaw as bipolar bars, then the heading.
 """
@@ -61,7 +61,7 @@ WAKE_REACH = (2, 6)         # dots of wake behind the stern: 2 + 6 * sog / VMAX,
 # inside GLOW_NEAR it is wider, two dots deep and bold. Half-widths in degrees.
 GLOW_NEAR, GLOW_FAR = 3.0, 8.0
 GLOW_SPAN = {True: 30.0, False: 15.0}
-BOW_SHARE = hull.BOW_SHARE  # the hull's foremost quarter wears the bow hue (both tiers)
+BOW_SHARE = 0.25            # the hull's foremost quarter is its BOW layer: ASCII's '#' (one colour with the body)
 WAKE_FADE = 3               # smooth braille: every WAKE_FADE-th wake dot the spacing grows by one (the minimap's)
 
 
@@ -125,7 +125,7 @@ def _reach(rel):
 
 def hull_dots(up):
     """``[(dx, dy, layer)]``: the rose's hull at screen bearing ``up`` in dots about CENTRE (the map's
-    mask, 3 deg steps, in theme.yaml's ``hull`` look), its foremost quarter BOW as in the image tier, the rest BOAT."""
+    mask, 3 deg steps, in theme.yaml's ``hull`` look), its foremost quarter BOW (ASCII's '#'), the rest BOAT."""
     fx, fy = _polar(up, 1.0)
     bow = HULL_DOTS[0] * (0.5 - BOW_SHARE)
     return [(dx, dy, BOW if dx * fx + dy * fy > bow else BOAT)
@@ -247,7 +247,7 @@ def rose(drift=None, heading=None, yaw_ok=True, age=0.0, command=(0.0, 0.0, 0.0)
     # the body in slate sits with the frames, as in the image tier; ASCII keeps the brighter boat token
     boat = (_token('boat', 'bold') if theme.ASCII else _token('slate', '')) if yaw_ok else theme.WARN
     near = lit is not None and lit[1]
-    styles = (_token('bow', theme.ACCENT) if yaw_ok else theme.WARN, boat, hue, hue,
+    styles = (boat, boat, hue, hue,
               f'dim {theme.MUTED}' if age > STALE_S else theme.MUTED, _token('wake', theme.MUTED),
               f"{'bold' if near else 'dim'} {theme.BAD}".strip(), theme.MUTED)
     ascii_dots = ASCII_DOTS
@@ -302,12 +302,12 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
         start = _reach(math.radians(bearing - up))
         shown = (q(bearing), start, start + round(min(math.hypot(*drift) / FULL_SPEED, 1.0) * (RADIUS - 1 - start)))
     stale = age > STALE_S
-    tokens = (_token('slate', ''), _token('bow', theme.ACCENT), theme.MUTED, theme.WARN, hue)
+    tokens = (_token('slate', ''), theme.MUTED, theme.WARN, hue)
     lit = glow(nearby, up)
     lit = None if lit is None else (q(lit[0]), lit[1])
     trails = tuple(wake(sog, up))
-    look = hull.style()
-    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit, trails, look)
+    look, form = hull.style(), hull.shape('image')
+    key = (up, heading is None, icon, shown, stale, yaw_ok, tokens, theme.PALETTE.mode, lit, trails, look, form)
 
     def paint(r):
         sx, sy = r.cw / 2, r.ch / 4                   # px per dot
@@ -336,13 +336,12 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
         warn = pixels.rgb(theme.WARN, pixels.token('warn'))
         if look == 'smooth':                          # anti-aliased, with the wake as a soft V (hull_sprite.py)
             inks = (pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn,
-                    pixels.rgb(tokens[1], pixels.token('bow')) if yaw_ok else warn,
                     pixels.rgb(_token('wake', theme.MUTED), pixels.token('muted')))
             reach = max((stop - start for _, start, stop in trails), default=0) * sx
             hull_sprite.paint(r, *at(cx, cy), 90.0 - up, HULL_DOTS[0] * sx, HULL_DOTS[1] * sx, inks,
-                              pixels.token('bg'), BOW_SHARE, reach, pen, WAKE_DEG, ROSE_Q)
+                              pixels.token('bg'), form, reach, pen, WAKE_DEG, ROSE_Q)
         else:
-            _classic_hull(r, at, sx, sy, up, tokens, yaw_ok, warn)
+            _classic_hull(r, at, up, tokens, yaw_ok, warn)
         if icon is not None:
             drive = r.ink(pixels.rgb(hue, pixels.token('fg')))
             (tail, tip), (head, half) = ICON_SPAN, ICON_HEAD
@@ -357,17 +356,11 @@ def _rose_image(drift, heading, yaw_ok, age, command, amplitude, hue, nearby=Non
     return pixels.text_rows(grid, lambda col, row: glyphs.get((col, row), (' ', None)))
 
 
-def _classic_hull(r, at, sx, sy, up, tokens, yaw_ok, warn):
-    """The classic image hull: the pentagon in slate, its foremost quarter in the bow token at the exact heading."""
+def _classic_hull(r, at, up, tokens, yaw_ok, warn):
+    """The classic image hull: the pentagon in slate at the exact heading."""
     cx, cy = CENTRE
     body = r.ink(pixels.rgb(tokens[0], pixels.token('slate')) if yaw_ok else warn)
     r.polygon([at(cx + x, cy + y) for x, y in hull.outline(90.0 - up, *HULL_DOTS)], body)
-    # the bow: the hull's foremost quarter, as hull_dots splits it, at the exact heading
-    fx, fy = _polar(up, 1.0)
-    ys, xs = np.nonzero(r.px == body)
-    ahead = (xs + 0.5 - (cx + 0.5) * sx) / sx * fx + (ys + 0.5 - (cy + 0.5) * sy) / sy * fy
-    front = ahead > HULL_DOTS[0] * (0.5 - BOW_SHARE)
-    r.px[ys[front], xs[front]] = r.ink(pixels.rgb(tokens[1], pixels.token('bow')) if yaw_ok else warn)
 
 
 # --- the command column -----------------------------------------------------------------------

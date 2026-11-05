@@ -11,9 +11,10 @@ cvd: false             # swaps status and trail tokens only; obj.* never change
 graphics: auto         # off | auto | kitty | sixel: drawings as terminal images (ui/imaging/); the Status
                        # Graphics row sets it in the overlay. auto: kitty, else sixel, else braille text with the
                        # reason in the Graphics row (under tmux: what tmux carries to its clients)
-hull: smooth           # smooth | classic: the boat glyph (minimap, Conditions). smooth: an anti-aliased hull with a
-                       # soft bow in images and a one-dot outline in braille; classic: the filled pentagon
-wake: true             # the wake off the stern while moving (smooth: a soft V fading aft in images, light dots in braille)
+hull: smooth           # smooth | classic: the boat glyph's look (minimap, Conditions); its shape is the vessel's
+                       # (minimap.yaml hull). smooth: anti-aliased in images, a one-dot outline in braille;
+                       # classic: the filled pentagon
+wake: true             # each hull's wake while moving (smooth: a soft V fading aft in images, light dots in braille)
 
 # {dark, light, x256: [dark, light], ansi} | {alias: token}; `fixed: true` = never CVD-swapped.
 # ansi is a Rich colour name, `bold` for sand, or null (no 16-colour form: sel_bg underlines).

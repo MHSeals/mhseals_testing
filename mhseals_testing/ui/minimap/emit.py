@@ -142,10 +142,10 @@ def emit(canvas, style, tier='truecolor', ascii=False):
 
 
 def _sprite(r, canvas, x, y, drawing, colour, bg):
-    """A canvas sprite (structure.Hull: the smooth hull) at dot (x, y), dots scaled to the raster's px."""
+    """A canvas sprite (structure.Hull: the smooth hull in its shape) at dot (x, y), dots scaled to the raster's px."""
     fx, fy = r.cw / canvas.sx, r.ch / canvas.sy
     hull_sprite.paint(r, (x + 0.5) * fx, (y + 0.5) * fy, drawing.yaw, drawing.length * fx, drawing.beam * fx,
-                      (colour(drawing.body), colour(drawing.bow), colour('wake')), bg, hull.BOW_SHARE,
+                      (colour(drawing.body), colour('wake')), bg, drawing.shape,
                       drawing.wake * fx, max(2, int(np.ceil(fx))), WAKE_DEG, hull.YAW_STEP)
 
 

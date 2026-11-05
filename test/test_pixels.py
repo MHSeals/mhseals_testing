@@ -436,8 +436,7 @@ def test_the_image_rose_paints_the_text_tiers_tokens(look, monkeypatch):
     raster = pixels.Raster(conditions.ROSE_COLS, conditions.ROSE_ROWS)
     seen['r'](raster)
     used = {raster.palette[i] for i in np.unique(raster.px) if i}
-    tokens = {pixels.rgb(theme.PALETTE.style('slate')), pixels.rgb(theme.PALETTE.style('bow')),
-              pixels.rgb(theme.MUTED), (255, 0, 255)}
+    tokens = {pixels.rgb(theme.PALETTE.style('slate')), pixels.rgb(theme.MUTED), (255, 0, 255)}   # one-colour hull
     if look == 'classic':
         assert used == tokens
         return

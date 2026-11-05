@@ -22,6 +22,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'test')]   # mhseals_hardware comes from P
 os.environ['COLORTERM'] = 'truecolor'
 os.environ.pop('NO_COLOR', None)
 os.environ.pop('TMUX', None)
+os.environ.pop('ASTRO_NETWORK_ENV', None)   # the package's default hull, not this machine's vessel
 os.environ.pop('COLORFGBG', None)   # the dark palette, whatever terminal runs this
 os.environ['TZ'] = 'UTC'   # the agent scene prints clock times; CI renders in UTC
 import time  # noqa: E402

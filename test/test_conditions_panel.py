@@ -35,8 +35,8 @@ def test_rose_is_9_by_21_north_up_with_the_hull_at_the_centre():
 
 
 def test_hull_is_dots_with_its_foremost_quarter_the_bow():
-    """Every 22.5 deg: the map's pentagon, the bow dots all ahead of the body's, worn in the bow token,
-    and no block glyph anywhere (the image tier's solid hull, in dots)."""
+    """Every 22.5 deg: the map's hull, the bow dots all ahead of the body's, one colour with it (the heading
+    shows on its own), and no block glyph anywhere (the image tier's solid hull, in dots)."""
     for k in range(16):
         _hull_is_dots(k)
     assert plain(conditions.rose(heading=0)) != plain(conditions.rose(heading=90))   # it turns
@@ -50,7 +50,7 @@ def _hull_is_dots(k):
     assert bow and len(body) > len(bow) and min(bow) > max(body) - 1
     rows = conditions.rose(heading=k * 22.5)
     assert not set(''.join(plain(rows))) & set('▘▝▀▖▌▞▛▗▚▐▜▄▙▟█')
-    assert not theme.MUTED or styles(rows) >= {conditions._token('bow', theme.ACCENT)}
+    assert conditions._token('bow', theme.ACCENT) not in styles(rows)
 
 
 @pytest.mark.skipif(theme.ASCII, reason='the Unicode rose')
