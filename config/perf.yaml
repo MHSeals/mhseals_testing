@@ -1,7 +1,7 @@
 # TUI speed (ui/perf.py): the ROS executor, how frames reach the terminal, and the budgets perf.json and
 # test_perf_budget hold the TUI to.
 tune:
-  executor: events        # the TUI node's executor: events (rclpy's C++ EventsExecutor) or single (SingleThreadedExecutor)
+  executor: single        # the TUI node's executor: events (rclpy's C++ EventsExecutor) or single (SingleThreadedExecutor)
   fps: 30                 # continuous redraws (driving, a run, a popup) at most this often
   fps_min: 5              # ... and at least this often, however slow frames are
   render_share: 0.5       # frames take at most this share of the UI thread: slower frames lower the rate (keys stay quick)
