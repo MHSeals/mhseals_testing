@@ -16,6 +16,8 @@ lean:
     - /mhseals_testing/authority
     - /thrusters/pwm
     - /thruster_pwm_node/status
+    - /thruster_pwm_node/output             # the driver's readback of what it wrote to the pins
+    - /thruster_pwm_node/test_pulses/held   # raw bench pulses the driver holds (plant.HELD_PULSES_TOPIC)
     - /parameter_events
     - /odom/local
     - /odom/global

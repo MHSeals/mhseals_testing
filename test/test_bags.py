@@ -27,6 +27,12 @@ def test_lean_argv_lists_topics_and_includes_the_regex(tmp_path):
     assert value(command, '-o') == str(tmp_path / '00')
 
 
+def test_lean_keeps_the_driver_readback():
+    # atlas #99 A3: a field bag shows what the driver wrote, not only what it was asked
+    topics = load_profiles()['lean']['topics']
+    assert {'/thruster_pwm_node/output', '/thruster_pwm_node/test_pulses/held'} <= set(topics)
+
+
 def test_lean_argv_merges_profile_extras_once(tmp_path):
     plain = record_command(tmp_path, 'lean', 'boat')
     crane = record_command(tmp_path, 'lean', 'crane_full_stack')
