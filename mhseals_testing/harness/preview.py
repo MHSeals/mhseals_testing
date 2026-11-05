@@ -24,10 +24,11 @@ import sys
 from pathlib import Path
 
 from mhseals_testing.harness import sim_stack
+from mhseals_testing.health.config import config_path
 from mhseals_testing.hook import registry
 from mhseals_testing.strict_yaml import load_strict
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'preview.yaml'
+CONFIG = config_path('config', 'preview.yaml')
 PATHS = ('src', 'cache', 'runbook', 'results')
 MANIFEST = 'manifest'      # the slug of no REF: each repo at the workspace manifest's ref
 SHARED = ('player', 'image', 'roles', 'profile', 'command_mode', 'course_family', 'seed', 'ready_s', 'max_s')

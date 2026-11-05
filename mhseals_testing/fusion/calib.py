@@ -24,10 +24,11 @@ import numpy as np
 import yaml
 
 from mhseals_testing.harness import bagread
+from mhseals_testing.health.config import config_path
 from mhseals_testing.perception.project import rotation
 from mhseals_testing.strict_yaml import load_strict
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fusion_calib.yaml'
+CONFIG = config_path('config', 'fusion_calib.yaml')
 DEG = math.pi / 180
 # ExtrinsicEstimate's theta: w_x, w_y, w_z (optical axes, rad), c (m), image time (s).
 PARAMS = ('pitch_deg', 'yaw_deg', 'roll_deg', 'cx_m', 'cy_m', 'cz_m', 'tau_s')

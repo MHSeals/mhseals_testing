@@ -24,11 +24,12 @@ import sys
 import numpy as np
 import yaml
 
+from mhseals_testing import strict_yaml
 from mhseals_testing.fastsim_adapter.bag import Tf, messages
 from mhseals_testing.fastsim_adapter.cluster import merge
-from mhseals_testing import strict_yaml
+from mhseals_testing.health.config import config_path
 
-CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'fastsim_replay.yaml'
+CONFIG = config_path('config', 'fastsim_replay.yaml')
 
 
 def match(replayed, recorded, radius):
@@ -82,7 +83,7 @@ class Recorder:
 
 def tracker_cfg(overrides):
     import mhseals_nav
-    path = Path(mhseals_nav.__file__).resolve().parents[1] / 'config' / 'tracker.yaml'
+    path = Path(mhseals_nav.__file__).resolve().parents[1] / 'config' / 'tracker.yaml'   # the imported nav's own
     params = yaml.safe_load(path.read_text())     # mhseals_nav's ROS parameters: nav checks them
     return merge(next(iter(params.values()))['ros__parameters'], overrides or {})
 
