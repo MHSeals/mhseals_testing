@@ -3,13 +3,12 @@
 import pytest
 import yaml
 
-from mhseals_hardware.configuration import load_config
-from mhseals_hardware.odroid_pwm import J2_PINS
+from mhseals_hardware.configuration import load_config, load_defaults
 from mhseals_testing.ui.popups import pins
 from test_app import make_app, pins_app
 
 OFF_TABLE = '/sys/devices/platform/test.pwm/pwm/pwmchip*'   # output 1 here frees pin 7
-CHIPS = [J2_PINS[output][3] for output in range(1, 5)]
+CHIPS = load_defaults()['pwm_chips']
 
 
 def free_pin_7(tmp_path):
