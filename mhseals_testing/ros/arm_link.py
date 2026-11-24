@@ -15,7 +15,7 @@ is heard over DDS, never on a lease renewed over ssh:
 * ``/arm_link/state`` (``STATE_S``) says which children run and why it stopped, so the TUI sees a
   dead driver within ``STATE_STALE_S``.
 
-Bounds on link loss: manual commands are neutral after the mux's ``cmd_timeout`` (0.5 s), as with
+Bounds on link loss: manual commands are neutral after ``command_timeout`` (0.5 s), as with
 a local driver; the driver and mux stop after ``LINK_S`` (1 s), which a local driver never does
 (its keeper follows the TUI process, not the link). Disarm and e-stop act over DDS first (the
 stop message, ``/thruster_pwm_node/estop``), then over ssh (``unit stop``).
