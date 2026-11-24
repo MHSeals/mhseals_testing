@@ -82,7 +82,7 @@ the sim), `crane_direct` (no navigation); `boat_trial profiles` explains each.
 Agents act only through the TUI: `tools/boat_agent <verb> --who ID` (JSON out); `python3 .agents/hook.py --playbook` is the guide.
 
 - **Verbs:** `tools/boat_agent --help` lists them; every acting verb takes `--why`.
-- **Hook:** `mhseals_testing/agent_hook.py` blocks raw motion, FCU and hold changes and names the verb instead. Details: [docs/agents.md](docs/agents.md).
+- **Hook:** `mhseals_testing/agent_hook.py` blocks raw motion, FCU and hold changes and names the verb instead.
 
 ## Data
 
@@ -94,7 +94,7 @@ Labels: `b` marks (a digit tags it), `N` brackets bad data, `"` logs an operator
 TUI journals procedures, steps, arming, takeovers, link holds, fence exits, fix changes and steady command windows
 by itself. The Labels tab (`L`) sets the water conditions and reviews a session; `manifest.json`
 (`mhseals.session_manifest/1`, `annotate/manifest.py`) beside the bag is what the judge, the plant card and the NLC
-study read. Operator cheat sheet: [docs/labels.md](docs/labels.md); tags and phrases: `config/annotate.yaml`.
+study read. Tags and phrases: `config/annotate.yaml`.
 
 ## Development
 
