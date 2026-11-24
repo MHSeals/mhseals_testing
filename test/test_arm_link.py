@@ -39,9 +39,9 @@ def test_link_loss_stops_the_children_after_link_s_and_not_before():
 
 def test_the_bound_is_tighter_than_the_local_keeper_and_matches_the_mux():
     # A local driver stops when the TUI process dies (keeper poll 0.5 s), never on link loss;
-    # manual commands go neutral after the mux's cmd_timeout either way.
+    # manual commands go neutral after command_timeout either way.
     defaults = load_defaults()
-    assert defaults['command_mux']['cmd_timeout'] <= LINK_S <= 1.0
+    assert defaults['command_timeout'] <= LINK_S <= 1.0
     assert arm_link.BEAT_S * 5 <= LINK_S < STATE_STALE_S
 
 
